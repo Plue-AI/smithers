@@ -21,7 +21,6 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/modelhost"
-	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,7 +28,7 @@ import (
 // credentials, real confirmation transactions and the real TODO consumer.
 // No GitHub transport or machine is needed before the durable TODO is filed.
 func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
-	pool, _ := postgresfixture.NewProductDatabase(t)
+	_, _, pool := splitProcessDatabase(t)
 	ctx := t.Context()
 	q := db.New(pool)
 	users := make([]db.User, 3)
@@ -379,58 +378,83 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 				}
 			}
 		}
-		// Exercise credential death at every declared HTTP execution door too.
-		// A valid browser cookie and forged actor assertions accompany each dead
-		// bearer. Authentication must refuse before parsing command payloads,
-		// looking up subjects, or disclosing even a saved result. This is separate
-		// from live-role execution and does not qualify unmounted consumers.
-		type executionCell struct {
-			cell
-			Method string `json:"method"`
-			Path   string `json:"path"`
-		}
-		var executionAdmission []executionCell
-		replaceSubject := strings.NewReplacer("{name}", "sample", "{id}", "1", "{branch}", "sample", "{b}", "sample", "{number}", "1", "{n}", "1", "{owner}", "maya", "{repo}", "demo")
-		for _, operation := range inventory.Operations {
-			if operation.HTTP == nil {
-				continue
+		t.Run("full install HTTP execution doors", func(t *testing.T) {
+			if os.Getenv("SMITHERS_FFI_LIBRARY_PATH") == "" {
+				t.Skip("set SMITHERS_FFI_LIBRARY_PATH for the complete install HTTP-door ledger")
 			}
-			for i := range users {
-				for _, state := range []string{"expired-delegated", "revoked-delegated"} {
-					identity := credentials[state][i]
-					req := httptest.NewRequest(operation.HTTP.Method, "http://example.com"+replaceSubject.Replace(operation.HTTP.Path), strings.NewReader(`{}`))
-					req.Header.Set("Authorization", "Bearer "+identity)
-					req.Header.Set("Content-Type", "application/json")
-					req.Header.Set("Origin", "http://example.com")
-					req.Header.Set("Idempotency-Key", "dead-door-"+operation.Name+"-"+state)
-					req.Header.Set("Smithers-Via", "smithers")
-					req.Header.Set("Smithers-Actor", "person")
-					req.Header.Set("Smithers-Profile", "app_agent")
-					req.AddCookie(&http.Cookie{Name: "session", Value: sessions[i]})
-					w := httptest.NewRecorder()
-					router.ServeHTTP(w, req)
-					var body map[string]any
-					require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body), w.Body.String())
-					require.Equal(t, 401, w.Code, "%s %s %s: %v", operation.Name, roles[i], state, body)
-					require.Equal(t, "permission", body["class"], body)
-					require.Equal(t, "unauthenticated", body["code"], body)
-					require.NotContains(t, body, "confirmation")
-					digest := sha256.Sum256([]byte(identity))
-					executionAdmission = append(executionAdmission, executionCell{cell{operation.Name, roles[i], state, hex.EncodeToString(digest[:]), 401, "unauthenticated", w.Code, "permission", "unauthenticated"}, operation.HTTP.Method, req.URL.EscapedPath()})
+			// Exercise credential death at every declared HTTP execution door too.
+			// A valid browser cookie and forged actor assertions accompany each dead
+			// bearer. Authentication must refuse before parsing command payloads,
+			// looking up subjects, or disclosing even a saved result. This is separate
+			// from live-role execution and does not qualify unmounted consumers.
+			type executionCell struct {
+				cell
+				Method        string `json:"method"`
+				Path          string `json:"path"`
+				PendingTicket string `json:"pending_ticket,omitempty"`
+			}
+			var executionAdmission []executionCell
+			var pendingDoors []executionCell
+			t.Setenv("SMITHERS_PUBLIC_URL", cfg.Server.PublicURL)
+			t.Setenv("SMITHERS_SERVER_ALLOWED_ORIGINS", cfg.Server.PublicURL)
+			t.Setenv("SMITHERS_AUTH_SESSION_COOKIE_NAME", "session")
+			// Use the complete install, including the model and chat mounts that
+			// live outside buildRouter. Stop it with this subtest before TODO effects.
+			executionBoundary := startSplitProcess(t, Options{ChatHost: unusedChatHost{}})
+			replaceSubject := strings.NewReplacer("{name}", "sample", "{id}", "1", "{branch}", "sample", "{b}", "sample", "{number}", "1", "{n}", "1", "{owner}", "maya", "{repo}", "demo")
+			for _, operation := range inventory.Operations {
+				if operation.HTTP == nil {
+					continue
+				}
+				for i := range users {
+					for _, state := range []string{"expired-delegated", "revoked-delegated"} {
+						identity := credentials[state][i]
+						req := httptest.NewRequest(operation.HTTP.Method, "http://example.com"+replaceSubject.Replace(operation.HTTP.Path), strings.NewReader(`{}`))
+						req.Header.Set("Authorization", "Bearer "+identity)
+						req.Header.Set("Content-Type", "application/json")
+						req.Header.Set("Origin", "http://example.com")
+						req.Header.Set("Idempotency-Key", "dead-door-"+operation.Name+"-"+state)
+						req.Header.Set("Smithers-Via", "smithers")
+						req.Header.Set("Smithers-Actor", "person")
+						req.Header.Set("Smithers-Profile", "app_agent")
+						req.AddCookie(&http.Cookie{Name: "session", Value: sessions[i]})
+						w := httptest.NewRecorder()
+						executionBoundary.ServeHTTP(w, req)
+						var body map[string]any
+						require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body), w.Body.String())
+						if pendingTicket := map[string]string{
+							"agent": "T-FLW-08", "branch.add-to-stack": "T-MCH-08", "branch.rebase": "T-STK-08", "flow.edit": "T-FLW-05", "flow.run": "T-FLW-01", "issue.comment": "T-GH-04", "monitor": "T-FLW-07", "run": "T-FLW-07", "run.inspect": "T-FLW-07", "runs": "T-FLW-07",
+						}[operation.Name]; pendingTicket != "" {
+							// Unserved catalogue doors remain owned by their tickets.
+							// Never count a missing-route response as an auth pass.
+							require.Equal(t, 404, w.Code, body)
+							require.Equal(t, "not_found", body["code"], body)
+							digest := sha256.Sum256([]byte(identity))
+							pendingDoors = append(pendingDoors, executionCell{cell{operation.Name, roles[i], state, hex.EncodeToString(digest[:]), 404, "not_found", w.Code, "user", "not_found"}, operation.HTTP.Method, req.URL.EscapedPath(), pendingTicket})
+							continue
+						}
+						require.Equal(t, 401, w.Code, "%s %s %s: %v", operation.Name, roles[i], state, body)
+						require.Equal(t, "permission", body["class"], body)
+						require.Equal(t, "unauthenticated", body["code"], body)
+						require.NotContains(t, body, "confirmation")
+						digest := sha256.Sum256([]byte(identity))
+						executionAdmission = append(executionAdmission, executionCell{cell{operation.Name, roles[i], state, hex.EncodeToString(digest[:]), 401, "unauthenticated", w.Code, "permission", "unauthenticated"}, operation.HTTP.Method, req.URL.EscapedPath(), ""})
+					}
 				}
 			}
-		}
-		require.NotEmpty(t, executionAdmission)
-		t.Logf("declared HTTP execution-door credential death: %d passing cells (not live command execution)", len(executionAdmission))
-		if output := os.Getenv("SMITHERS_ACCESS_LEDGER_DIR"); output != "" {
-			require.NoError(t, os.MkdirAll(output, 0755))
-			data, err := json.MarshalIndent(struct {
-				Boundary string          `json:"boundary"`
-				Cells    []executionCell `json:"cells"`
-			}{"declared HTTP execution doors (dead-credential admission only)", executionAdmission}, "", "  ")
-			require.NoError(t, err)
-			require.NoError(t, os.WriteFile(filepath.Join(output, "execution-door-dead-admission-matrix.json"), append(data, '\n'), 0644))
-		}
+			require.NotEmpty(t, executionAdmission)
+			t.Logf("declared HTTP execution-door credential death: %d passing cells, %d pending-route cells (not live command execution)", len(executionAdmission), len(pendingDoors))
+			if output := os.Getenv("SMITHERS_ACCESS_LEDGER_DIR"); output != "" {
+				require.NoError(t, os.MkdirAll(output, 0755))
+				data, err := json.MarshalIndent(struct {
+					Boundary string          `json:"boundary"`
+					Cells    []executionCell `json:"cells"`
+					Pending  []executionCell `json:"pending_routes"`
+				}{"declared HTTP execution doors (dead-credential admission only)", executionAdmission, pendingDoors}, "", "  ")
+				require.NoError(t, err)
+				require.NoError(t, os.WriteFile(filepath.Join(output, "execution-door-dead-admission-matrix.json"), append(data, '\n'), 0644))
+			}
+		})
 		require.Zero(t, count("approvals"))
 		require.Zero(t, count("mythical_items"))
 		t.Logf("confirmation admission: %d commands, %d passing cells; command execution coverage remains separate", len(inventory.Operations), len(ledger))
