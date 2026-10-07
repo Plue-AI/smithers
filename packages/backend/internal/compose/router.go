@@ -39,6 +39,7 @@ func apiBodyLimit(r *http.Request) int64 {
 }
 
 type routerExtras struct {
+	FlowRuns *services.InstallFlowRuns
 	// Confirmations requires the private browser View and qualified consumers.
 	Confirmations       *services.ApprovalsService
 	Members             *routes.MembersHandler
@@ -1027,7 +1028,7 @@ func buildRouter(
 			if extras.Mythical != nil {
 				proposals, _ = extras.Mythical.Service.(services.FlowProposalReader)
 			}
-			mountFlowReads(r, &routes.FlowsHandler{Queries: queries, Proposals: proposals})
+			mountFlowReads(r, &routes.FlowsHandler{Queries: queries, Proposals: proposals, Runs: extras.FlowRuns})
 			if smithersMetrics != nil && queries != nil {
 				h := &routes.InstallMetricsHandler{Metrics: smithersMetrics}
 				if extras.GitHubAppSetup != nil && extras.GitHubAppSetup.Setup != nil {
@@ -2095,6 +2096,9 @@ func mountTodoReads(r chi.Router, todos *routes.TodoHandler) {
 // mountFlowReads mounts the install's flow catalog, which the Flow card and
 // the app agent's host-run commands read through the public API.
 func mountFlowReads(r chi.Router, flows *routes.FlowsHandler) {
+	r.Post("/flows", flows.Run)
+	r.Post("/flows/{name}/run", flows.Run)
+	r.Get("/flows/runs/{id}", flows.RunStatus)
 	r.Get("/flows", flows.List)
 	r.Get("/flows/{name}", flows.Show)
 }
