@@ -33,7 +33,7 @@ export function stableSnapshot(frame, cursor) {
  return frame.t === 'snap' && Number.isSafeInteger(frame.cursor) && frame.cursor === cursor && Object.hasOwn(frame, 'data')
 }
 
-export async function run(env = process.env) {
+export async function run(env = process.env, { persist = true } = {}) {
   const timestamp = new Date().toISOString().replaceAll(':', '-').replace('.', '-')
   const result = { timestamp, check: 'C-PERF-02', status: 'failed', samples: [], clock: 'second Mac Node process: performance.now()' }
   const sockets = []
@@ -106,7 +106,7 @@ export async function run(env = process.env) {
     result.status = 'passed'
   } catch (error) { result.error = error.message }
   finally { for (const socket of sockets) socket.terminate(); await browser?.close() }
-  const directory = await writeRun(resolve('.'), result)
+  const directory = persist ? await writeRun(resolve('.'), result) : undefined
   return { result, directory }
 }
 

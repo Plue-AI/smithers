@@ -3,6 +3,8 @@ import { execFileSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 import { publicOrigin, readHost, validateHost } from './lib/host.mjs'
 import { writeRun } from './lib/artifact.mjs'
+import { summarize } from './lib/stats.mjs'
+import { configuration as projectionConfiguration, run as projectionRun } from './projection-delta.mjs'
 
 // Literal release budgets, not derived from spec text or implementation policy.
 // Drivers remain unavailable until their production boundary and security evidence qualify.
@@ -15,7 +17,19 @@ export const budgets = [
   { check: 'C-PERF-06', name: 'rebase-hold', minimum: 100, thresholdsMs: { writeHold: 2000 }, tickets: ['T-STK-08', 'T-GH-07'] }
 ]
 
-export async function run({ root = process.cwd(), origin, token, commit, installVersion, browser, read = readHost, timestamp = new Date().toISOString().replace(/[:.]/g, '-'), check }) {
+const productionProviders = {
+  'C-PERF-02': {
+    available(env, { origin }) {
+      const config = projectionConfiguration(env)
+      if (config.origin !== origin) throw new Error('configured measurement origin differs from run')
+      if (process.platform !== 'darwin') throw new Error('reference-network Mac required')
+    },
+    async measure(env) { return (await projectionRun(env, { persist: false })).result },
+    fields: { home: 'homeMs', todo: 'todoMs' }
+  }
+}
+
+export async function run({ env = process.env, providers = productionProviders, root = process.cwd(), origin, token, commit, installVersion, browser, read = readHost, timestamp = new Date().toISOString().replace(/[:.]/g, '-'), check }) {
   if (!/^[a-f0-9]{40}$/.test(commit ?? '')) throw new Error('full commit SHA required')
   if (check !== undefined && !budgets.some(budget => budget.check === check)) throw new Error('unknown performance check')
   const selected = check === undefined ? budgets : budgets.filter(budget => budget.check === check)
@@ -27,22 +41,52 @@ export async function run({ root = process.cwd(), origin, token, commit, install
     if (!token) throw new Error('authenticated host read requires token')
     host = validateHost(await read(usedOrigin, token))
   } catch (error) { refusal = error.message }
+  const measured = []
+  for (const budget of selected) {
+    const activation = budget.check === 'C-PERF-01' || budget.check === 'C-PERF-02'
+      ? ['T-INS-04'] : ['T-INS-02', 'T-MCH-11', 'T-SEC-01', 'T-MCH-10']
+    const entry = { ...budget, status: 'skipped', samples: [], activation }
+    measured.push(entry)
+    if (refusal) { entry.reason = refusal; continue }
+    const provider = providers[budget.check]
+    if (!provider) {
+      entry.reason = ['keystroke', 'disk-write'].includes(budget.name)
+        ? `standalone driver exists; activation requires ${budget.tickets.join(', ')} and qualified ${activation.join(', ')} receipts`
+        : `production measurement driver not implemented; requires ${budget.tickets.join(', ')} and owner-reviewed seams`
+      continue
+    }
+    try { await provider.available(env, { origin: usedOrigin, commit }) } catch (error) {
+      entry.reason = `${budget.tickets.join(', ')}: ${error.message}`
+      continue
+    }
+    // A launched workload cannot become a skip after a failed sample.
+    entry.status = 'failed'
+    try {
+      const result = await provider.measure(env)
+      entry.samples = result.samples ?? []
+      if (result.status !== 'passed') throw new Error(result.error ?? 'measurement failed')
+      if (result.commit !== commit || result.origin !== usedOrigin) throw new Error('measurement commit/origin differs from run')
+      entry.browser = result.browser
+      entry.stats = summarize(entry.samples, Object.values(provider.fields), budget.minimum)
+      for (const [name, limit] of Object.entries(budget.thresholdsMs)) {
+        const field = provider.fields[name]
+        if (!field || entry.stats[field]?.p95 >= limit) throw new Error(`${name} p95 must be below ${limit} ms`)
+      }
+      entry.status = 'passed'
+    } catch (error) { entry.reason = error.message }
+  }
+  const status = measured.some(b => b.status === 'failed') ? 'failed'
+    : measured.every(b => b.status === 'passed') ? 'passed' : 'incomplete'
   const summary = {
     version: 1, timestamp, commit, installVersion: installVersion ?? null, origin: usedOrigin,
-    browser: browser ?? null, host, status: 'incomplete',
-    budgets: selected.map((budget) => ({ ...budget, status: 'skipped', samples: [],
-      reason: refusal ?? (['keystroke', 'disk-write'].includes(budget.name)
-        ? `standalone driver exists; automatic activation requires ${budget.tickets.join(', ')} and qualified T-INS-02, T-MCH-11, T-SEC-01, T-MCH-10 receipts`
-        : `production measurement driver not implemented; requires ${budget.tickets.join(', ')} and owner-reviewed seams`),
-      activation: budget.check === 'C-PERF-01' || budget.check === 'C-PERF-02'
-        ? ['T-INS-04'] : ['T-INS-02', 'T-MCH-11', 'T-SEC-01', 'T-MCH-10'] }))
+    browser: browser ?? null, host, status, budgets: measured
   }
-  return { summary, directory: await writeRun(root, summary), exit: 2 }
+  return { summary, directory: await writeRun(root, summary), exit: status === 'passed' ? 0 : status === 'failed' ? 1 : 2 }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    const result = await run({ origin: process.env.SMITHERS_PERF_ORIGIN, token: process.env.SMITHERS_PERF_OWNER_COOKIE ? { cookie: process.env.SMITHERS_PERF_OWNER_COOKIE } : process.env.SMITHERS_PERF_TOKEN,
+    const result = await run({ root: process.env.SMITHERS_PERF_ARTIFACT_ROOT, origin: process.env.SMITHERS_PERF_ORIGIN, token: process.env.SMITHERS_PERF_OWNER_COOKIE ? { cookie: process.env.SMITHERS_PERF_OWNER_COOKIE } : process.env.SMITHERS_PERF_TOKEN,
       installVersion: process.env.SMITHERS_PERF_INSTALL_VERSION, browser: process.env.SMITHERS_PERF_BROWSER,
       check: process.argv[2], commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() })
     console.log(JSON.stringify({ ...result.summary, directory: result.directory }))

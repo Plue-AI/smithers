@@ -5,8 +5,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -154,4 +158,68 @@ func TestInstallMetricsOwnerBoundary(t *testing.T) {
 			}
 		})
 	}
+	t.Run("TestPerfRunnerMissingProvider", func(t *testing.T) {
+		// Real TCP, session storage, owner authorization and install composition.
+		// Only the detected capacity is fixed; no measurement provider is faked.
+		addresses, err := net.InterfaceAddrs()
+		require.NoError(t, err)
+		var host string
+		for _, address := range addresses {
+			if network, ok := address.(*net.IPNet); ok && network.IP.To4() != nil && !network.IP.IsLoopback() {
+				host = network.IP.String()
+				break
+			}
+		}
+		require.NotEmpty(t, host, "LAN interface required for configured public-origin test")
+		listener, err := net.Listen("tcp", net.JoinHostPort(host, "0"))
+		require.NoError(t, err)
+		cfg.Server.AllowedOrigins = []string{"http://" + listener.Addr().String()}
+		for i := range args {
+			if args[i].Type() == reflect.TypeOf(metrics) {
+				args[i] = reflect.ValueOf(routes.NewSmithersMetrics())
+			}
+		}
+		server := httptest.NewUnstartedServer(fn.CallSlice(args)[0].Interface().(http.Handler))
+		require.NoError(t, server.Listener.Close())
+		server.Listener = listener
+		server.Start()
+		defer server.Close()
+		root, err := filepath.Abs("../../../..")
+		require.NoError(t, err)
+		for _, credential := range []string{"session=" + cookies[0], "session=" + cookies[1]} {
+			output := t.TempDir()
+			command := exec.CommandContext(t.Context(), "node", "scripts/perf/run.mjs")
+			command.Dir = root
+			command.Env = append(os.Environ(), "SMITHERS_PERF_ORIGIN="+server.URL,
+				"SMITHERS_PERF_OWNER_COOKIE="+credential, "SMITHERS_PERF_TOKEN=",
+				"SMITHERS_PERF_MEMBER_A=", "SMITHERS_PERF_ARTIFACT_ROOT="+output)
+			bytes, err := command.CombinedOutput()
+			var exit *exec.ExitError
+			require.ErrorAs(t, err, &exit, string(bytes))
+			require.Equal(t, 2, exit.ExitCode(), string(bytes))
+			var summary struct {
+				Status  string          `json:"status"`
+				Host    json.RawMessage `json:"host"`
+				Budgets []struct {
+					Status, Reason string
+					Samples        []json.RawMessage
+				} `json:"budgets"`
+			}
+			require.NoError(t, json.Unmarshal(bytes, &summary), string(bytes))
+			require.Equal(t, "incomplete", summary.Status)
+			require.Len(t, summary.Budgets, 6)
+			for _, budget := range summary.Budgets {
+				require.Equal(t, "skipped", budget.Status)
+				require.Empty(t, budget.Samples)
+				require.NotEmpty(t, budget.Reason)
+				if credential == "session="+cookies[1] {
+					require.Contains(t, budget.Reason, "returned 403")
+				}
+			}
+			if credential == "session="+cookies[0] {
+				require.Contains(t, string(summary.Host), `"perf_cores":10`, string(bytes))
+			}
+			require.NotContains(t, string(bytes), credential)
+		}
+	})
 }
