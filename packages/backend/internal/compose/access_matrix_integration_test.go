@@ -422,12 +422,13 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 						executionBoundary.ServeHTTP(w, req)
 						var body map[string]any
 						require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body), w.Body.String())
+						// Branch mutations authenticate on their shared mounted POST door.
 						if pendingTicket := map[string]string{
-							"agent": "T-FLW-08", "branch.add-to-stack": "T-MCH-08", "branch.rebase": "T-STK-08", "flow.edit": "T-FLW-05", "flow.run": "T-FLW-01", "issue.comment": "T-GH-04", "monitor": "T-FLW-07", "run": "T-FLW-07", "run.inspect": "T-FLW-07", "runs": "T-FLW-07",
+							"agent": "T-FLW-08", "flow.edit": "T-FLW-05", "flow.run": "T-FLW-01", "issue.comment": "T-GH-04", "monitor": "T-FLW-07", "run": "T-FLW-07", "run.inspect": "T-FLW-07", "runs": "T-FLW-07",
 						}[operation.Name]; pendingTicket != "" {
 							// Unserved catalogue doors remain owned by their tickets.
 							// Never count a missing-route response as an auth pass.
-							require.Equal(t, 404, w.Code, body)
+							require.Equal(t, 404, w.Code, "%s %s %s: %v", operation.Name, roles[i], state, body)
 							require.Equal(t, "not_found", body["code"], body)
 							digest := sha256.Sum256([]byte(identity))
 							pendingDoors = append(pendingDoors, executionCell{cell{operation.Name, roles[i], state, hex.EncodeToString(digest[:]), 404, "not_found", w.Code, "user", "not_found"}, operation.HTTP.Method, req.URL.EscapedPath(), pendingTicket})
