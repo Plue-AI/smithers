@@ -18,6 +18,7 @@ pub enum Request {
     Close(u32),
     KillUser(User),
     KillRun(String),
+    KillSession(u32),
     Register {
         run: String,
         session: u32,
@@ -142,9 +143,13 @@ impl Request {
                     let fields =
                         conn::fields("target_user", &target[1..]).map_err(|_| invalid())?;
                     Self::KillUser(user(fields[0].1)?)
-                } else {
+                } else if target[0] == 2 {
                     let fields = conn::fields("run_actor", &target[1..]).map_err(|_| invalid())?;
                     Self::KillRun(run(fields[0].1)?)
+                } else {
+                    let fields =
+                        conn::fields("session_actor", &target[1..]).map_err(|_| invalid())?;
+                    Self::KillSession(id(fields[0].1)?)
                 }
             }
             10 => Self::Register {

@@ -204,12 +204,35 @@ func (s registrySessions) CallSession(ctx context.Context, call SessionCall) (Se
 		fields = [][]byte{wire.Field(1, wire.U32(call.Session))}
 	case "kill_sessions":
 		method = wire.KillSessions
+		selectors := 0
+		for _, selected := range []bool{call.User != nil, call.Run != "", call.Session != 0} {
+			if selected {
+				selectors++
+			}
+		}
+		if selectors != 1 {
+			return SessionResult{}, wire.BadValue
+		}
+		if call.Session != 0 {
+			if !validSession(call.Session) {
+				return SessionResult{}, wire.BadStream
+			}
+			if l.protocol < wire.SessionKillProtocol {
+				return SessionResult{}, refused("unsupported", "session cancellation requires protocol 4")
+			}
+		}
+		if call.Run != "" && !validString(call.Run) {
+			return SessionResult{}, wire.BadValue
+		}
 		target := wire.Union(2, wire.Field(1, wire.String(call.Run)))
 		if call.User != nil {
 			if !validUser(*call.User) {
 				return SessionResult{}, ErrUnauthorized
 			}
 			target = wire.Union(1, wire.Field(1, user()))
+		}
+		if call.Session != 0 {
+			target = wire.Union(3, wire.Field(1, wire.U32(call.Session)))
 		}
 		fields = [][]byte{wire.Field(1, target)}
 	case "register_run":
@@ -271,10 +294,14 @@ func (s registrySessions) CallSession(ctx context.Context, call SessionCall) (Se
 		}
 		return SessionResult{Session: id}, nil
 	case wire.KillSessions:
+		if call.Session != 0 && binary.BigEndian.Uint16(result[1]) > 1 {
+			_ = l.Close()
+			return SessionResult{}, wire.BadValue
+		}
 		l.mu.Lock()
 		for id, peer := range l.sessions {
 			peer.mu.Lock()
-			matches := call.User != nil && peer.user != nil && *peer.user == *call.User || call.User == nil && peer.run == call.Run
+			matches := call.Session != 0 && id == call.Session || call.User != nil && peer.user != nil && *peer.user == *call.User || call.Run != "" && peer.run == call.Run
 			peer.mu.Unlock()
 			if matches {
 				peer.finish()

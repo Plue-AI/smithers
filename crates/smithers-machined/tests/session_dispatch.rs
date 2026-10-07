@@ -923,3 +923,67 @@ fn durable_reference_survives_close_and_local_children_cannot_replace_it() {
     assert_eq!(replacement.entries().next().unwrap().principal, [8; 16]);
     assert_eq!(retained[0].principal, [7; 16]);
 }
+
+#[test]
+fn cancelling_one_command_confirms_cleanup_without_killing_run_siblings() {
+    let (mut s, state) = setup();
+    roster(&mut s);
+    let agent = User {
+        login: "agent".into(),
+        uid: 19999,
+    };
+    let first = open(&mut s, agent.clone(), Kind::Exec);
+    let sibling = open(&mut s, agent, Kind::Exec);
+    let member = open(&mut s, user(), Kind::Pty);
+    // A populated cgroup is not a success, and its original actor is retained.
+    state.lock().unwrap().fail_kill = Some(first);
+    assert!(s.session(Request::KillSession(first)).is_err());
+    let retained = s.entries().find(|entry| entry.id == first).unwrap();
+    assert_eq!(retained.principal, [7; 16]);
+    assert_eq!(retained.run.as_deref(), Some("run"));
+    assert!(retained.closed);
+    assert!(s
+        .admission_of_cgroup(&format!("/smithers/sessions/s{first}"))
+        .is_none());
+    assert!(s
+        .admission_of_cgroup(&format!("/smithers/sessions/s{sibling}"))
+        .is_some());
+    assert!(s
+        .session(Request::Attach {
+            session: first,
+            received: 0
+        })
+        .is_err());
+    assert!(s.frame(&frame(first, vec![1, 0, b'x'])).is_err());
+    assert_eq!(state.lock().unwrap().running.len(), 3);
+    // Cleanup retry uses the same owned group. Successful cleanup affects one
+    // command, even though two commands share an admitted run and unix user.
+    state.lock().unwrap().fail_kill = None;
+    assert_eq!(
+        s.session(Request::KillSession(first)).unwrap(),
+        vec![0, 0, 0, 3, 1, 0, 1]
+    );
+    assert_eq!(state.lock().unwrap().kills, vec![first]);
+    assert_eq!(
+        state.lock().unwrap().running,
+        BTreeSet::from([sibling, member])
+    );
+    assert_eq!(s.entries().count(), 2);
+    assert_eq!(
+        s.session(Request::KillSession(first)).unwrap(),
+        vec![0, 0, 0, 3, 1, 0, 0]
+    );
+    assert_eq!(state.lock().unwrap().kills, vec![first]);
+    send(&mut s, frame(sibling, vec![1, 0, b'y']));
+    assert_eq!(poll(&mut s, 0).unwrap().payload, [6, 0, 0, 0, 1]);
+    assert_eq!(state.lock().unwrap().inputs[&sibling], b"y");
+    // Closed streams may still own detached descendants; they remain killable.
+    s.session(Request::Close(sibling)).unwrap();
+    assert!(state.lock().unwrap().running.contains(&sibling));
+    s.session(Request::KillSession(sibling)).unwrap();
+    assert_eq!(state.lock().unwrap().running, BTreeSet::from([member]));
+    for id in [0, 0x8000_0000, u32::MAX] {
+        assert!(s.session(Request::KillSession(id)).is_err());
+    }
+    assert_eq!(state.lock().unwrap().kills, vec![first, sibling]);
+}

@@ -31,6 +31,13 @@ Unknown legacy identities and hints return an explicit historical-authority
 recovery error; their durable outbox entries remain unacknowledged. Old recorded
 activity remains readable. This is historical recovery, never new authorization.
 
+Protocol 4 adds broker-confirmed cancellation of one session cgroup. Coding
+command migration must use this receipt, rather than treating stream close or a
+process-group signal as proof that detached children stopped. Failed cleanup
+retains the original actor and fences further use without killing sibling
+commands in the same run. This is a required execution primitive; the older
+coding launcher has not yet been replaced.
+
 ## Required behavior
 
 [Engineering spec §9](../spec.md) requires observed edits and external-agent

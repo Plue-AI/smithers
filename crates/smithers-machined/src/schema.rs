@@ -121,6 +121,7 @@ fn union(name: &str, variant: u8) -> Option<&'static str> { match (name,variant)
 ("result",255) => Some("error"),
 ("target",1) => Some("target_user"),
 ("target",2) => Some("run_actor"),
+("target",3) => Some("session_actor"),
 ("outcome",1) => Some("empty"),
 ("outcome",2) => Some("moved"),
 ("outcome",3) => Some("conflict"),

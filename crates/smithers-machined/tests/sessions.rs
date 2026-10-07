@@ -38,7 +38,9 @@ impl Controls for Kernel {
         }
         let fields = match &request {
             Request::Open { .. } | Request::Tcp(_, _) => vec![conn::field(1, 7u32.to_be_bytes())],
-            Request::KillUser(_) | Request::KillRun(_) => vec![conn::field(1, 2u16.to_be_bytes())],
+            Request::KillUser(_) | Request::KillRun(_) | Request::KillSession(_) => {
+                vec![conn::field(1, 2u16.to_be_bytes())]
+            }
             Request::Attach { .. } => vec![conn::field(1, 123u64.to_be_bytes())],
             _ => vec![],
         };

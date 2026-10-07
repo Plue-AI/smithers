@@ -157,7 +157,7 @@ The host picks `req_id`, unique among its in-flight requests. Responses may arri
 | 6 | `open_session` | `1 user: User`, `2 kind: u8` (1 pty, 2 exec, 3 sftp), `3 argv: list<str>`?, `4 size: Size`?, `5 principal: id128`?, `6 run: str`? | `1 session: u32` | T-TRM-07; `unsupported` |
 | 7 | `tcp_connect` | `1 port: u16`, `2 principal: id128`?, `3 run: str`? | `1 session: u32` | T-TRM-07; `unsupported` |
 | 8 | `close_session` | `1 session: u32` | — | T-TRM-07; `unsupported` |
-| 9 | `kill_sessions` | `1 target: union {1 user {1 user: User}, 2 run {1 run: str}}` | `1 killed: u16` | T-TRM-07; `unsupported` |
+| 9 | `kill_sessions` | `1 target: union {1 user {1 user: User}, 2 run {1 run: str}, 3 session {1 session: u32}}` | `1 killed: u16` | T-TRM-07; `unsupported` |
 | 10 | `register_run` | `1 run: str`, `2 session: u32` | — | T-COL-04; `unsupported` |
 | 11 | `rebase` | `1 onto: oid`, `2 actor: Actor` | `1 head: oid` | T-STK-08; `unsupported` |
 | 12 | `return_to_item` | `1 actor: Actor` | `1 head: oid` | T-COL-05; `unsupported` |
@@ -417,3 +417,20 @@ run, but cannot bind or replace one after execution starts. Older actor variants
 remain decodable; they do not authorize reconstructing identity from a reused
 session number. See the [recovery contract](../../.specs/engineering/design/session-attribution-recovery.md)
 for the remaining direct-write/document/rewrite and historical migration work.
+
+### Individual command cancellation (connection protocol 4, 2026-10-07)
+
+`kill_sessions` target 3 names one existing session ID. The broker kills and
+reaps that session's entire cgroup, including detached descendants, before
+answering `killed=1`. An already reaped ID returns `killed=0`, making a lost
+reply retryable. Other sessions sharing its run or unix user stay alive.
+A failed cleanup is an error, never a termination receipt: the broker retains
+the original attribution and ownership, fences further input/local commands
+and reattachment, and retries cleanup when requested.
+
+The host requires protocol 4 before sending this target and keeps the request
+bound to the admitted connection. Retained protocol 1–3 recordings still decode;
+older live peers refuse this operation instead of falling back to closing stdin
+or signaling only a process group. Target 3 is host-only: the local socket's
+method set is unchanged. `close_session` retains its ordinary stream-close
+semantics and does not certify that an exec command or its descendants stopped.

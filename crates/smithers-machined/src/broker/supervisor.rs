@@ -254,7 +254,7 @@ impl<K: Kernel> Supervisor<K> {
         self.registry.expire(now)?;
         let entries: Vec<_> = self.registry.entries().cloned().collect();
         for entry in entries {
-            if self.registry.failed_spawn(entry.id) {
+            if self.registry.admission_fenced(entry.id) {
                 continue; // retained for cleanup, never exposed as a stream
             }
             let stream = self.streams.get_mut(&entry.id).ok_or_else(invalid)?;
@@ -430,6 +430,11 @@ impl<K: Kernel> control::Controls for Supervisor<K> {
             }
             Request::KillRun(run) => {
                 let result = self.registry.kill_run(&run, now);
+                self.retain();
+                vec![conn::field(1, result?.to_be_bytes())]
+            }
+            Request::KillSession(id) => {
+                let result = self.registry.kill_session(id, now);
                 self.retain();
                 vec![conn::field(1, result?.to_be_bytes())]
             }

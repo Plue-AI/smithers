@@ -95,7 +95,7 @@ pub struct Sessions<C> {
     entries: BTreeMap<u32, Entry>,
     controls: C,
     detached: BTreeMap<u32, Instant>,
-    failed: BTreeSet<u32>,
+    fenced: BTreeSet<u32>,
     roster: Option<BTreeMap<u32, String>>,
     roster_ready: bool,
 }
@@ -105,7 +105,7 @@ impl<C: Controls> Sessions<C> {
             entries: BTreeMap::new(),
             controls,
             detached: BTreeMap::new(),
-            failed: BTreeSet::new(),
+            fenced: BTreeSet::new(),
             roster: None,
             roster_ready: false,
         }
@@ -209,12 +209,12 @@ impl<C: Controls> Sessions<C> {
             .get_mut(&id)
             .ok_or_else(|| refusal("unknown session"))?
             .closed = true;
-        self.failed.insert(id);
+        self.fenced.insert(id);
         self.kill_matching(|entry| entry.id == id, now)?;
         Ok(())
     }
-    pub(super) fn failed_spawn(&self, id: u32) -> bool {
-        self.failed.contains(&id)
+    pub(super) fn admission_fenced(&self, id: u32) -> bool {
+        self.fenced.contains(&id)
     }
     pub fn entries(&self) -> impl Iterator<Item = &Entry> {
         self.entries.values()
@@ -240,7 +240,7 @@ impl<C: Controls> Sessions<C> {
     /// The daemon derives this id from the local peer's kernel cgroup, never
     /// from a request's actor or user fields.
     pub fn local_run(&self, peer_uid: u32, caller_session: u32) -> io::Result<&str> {
-        if peer_uid != 19999 || self.failed.contains(&caller_session) {
+        if peer_uid != 19999 || self.fenced.contains(&caller_session) {
             return Err(refusal("local caller is not agent"));
         }
         let entry = self
@@ -301,7 +301,7 @@ impl<C: Controls> Sessions<C> {
             self.controls.kill(id, deadline)?;
             self.entries.remove(&id);
             self.detached.remove(&id);
-            self.failed.remove(&id);
+            self.fenced.remove(&id);
             killed += 1;
         }
         Ok(killed)
@@ -315,6 +315,19 @@ impl<C: Controls> Sessions<C> {
             return Err(refusal("invalid run"));
         }
         self.kill_matching(|e| e.run.as_deref() == Some(run), now)
+    }
+    /// A command cancellation targets one owned cgroup, not its siblings in
+    /// the run. Retain identity and deny further use until cleanup is confirmed.
+    /// An already reaped id returns zero, so a lost success reply is retryable.
+    pub fn kill_session(&mut self, id: u32, now: Instant) -> io::Result<u16> {
+        if id == 0 || id > 0x7fffffff {
+            return Err(refusal("invalid session"));
+        }
+        if let Some(entry) = self.entries.get_mut(&id) {
+            entry.closed = true;
+            self.fenced.insert(id);
+        }
+        self.kill_matching(|entry| entry.id == id, now)
     }
     pub fn disconnected(&mut self, now: Instant) {
         // Repeated disconnect notifications must not extend any session's grace.

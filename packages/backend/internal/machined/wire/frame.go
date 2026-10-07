@@ -17,6 +17,9 @@ const Protocol = 1
 
 // SessionActorProtocol requires durable attribution before session execution.
 const SessionActorProtocol = 3
+
+// SessionKillProtocol adds confirmed cancellation of one session cgroup.
+const SessionKillProtocol = 4
 const MaxWorkspaceFileBytes = 1048576
 const InitialCredit = 262144
 const (
@@ -322,7 +325,7 @@ func (c *cursor) value(typ string) error {
 	case "version":
 		width = 2
 		min = 1
-		max = SessionActorProtocol
+		max = SessionKillProtocol
 	case "state", "session_kind":
 		min = 1
 		max = 3

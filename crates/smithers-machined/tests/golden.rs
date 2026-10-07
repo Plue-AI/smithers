@@ -1,4 +1,4 @@
-use smithers_machined::conn::{Frame, ProtocolError};
+use smithers_machined::conn::{self, Frame, ProtocolError};
 use std::path::PathBuf;
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -195,4 +195,33 @@ fn protocol_three_admission_has_literal_cross_language_fields() {
         }
     );
     assert_eq!(frame.encode().unwrap(), bytes);
+}
+
+#[test]
+fn protocol_four_session_cancellation_has_literal_cross_language_fields() {
+    use smithers_machined::broker::request::Request;
+    let bytes = hex("0000001b01000000000100000016010000000902090000000b0103000000050100000007");
+    let frame = Frame::decode(&bytes).unwrap();
+    let (id, method, args) = frame.request().unwrap();
+    assert_eq!((id, method), (9, 9));
+    assert_eq!(
+        Request::decode(method, args).unwrap(),
+        Request::KillSession(7)
+    );
+    assert_eq!(
+        Frame::decode_local(&bytes),
+        Err(ProtocolError::UnknownMethod)
+    );
+    assert_eq!(frame.encode().unwrap(), bytes);
+    for bad in [0u32, 0x8000_0000, u32::MAX] {
+        let args = conn::structure_bytes(&[conn::field(
+            1,
+            [
+                vec![3],
+                conn::structure_bytes(&[conn::field(1, bad.to_be_bytes())]),
+            ]
+            .concat(),
+        )]);
+        assert!(Request::decode(9, &args).is_err());
+    }
 }

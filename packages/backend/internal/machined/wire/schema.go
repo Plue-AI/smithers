@@ -82,7 +82,7 @@ var unions = map[string]map[byte]string{
 	"call":          {1: "args1", 2: "args2", 3: "args3", 4: "args4", 5: "args5", 6: "args6", 7: "args7", 8: "args8", 9: "args9", 10: "args10", 11: "args11", 12: "args12", 13: "args13", 14: "args14", 15: "args15", 16: "args16"},
 	"local_call":    {1: "args1", 2: "args2", 3: "local_write", 6: "args6"},
 	"result":        {1: "result1", 2: "result2", 3: "result3", 4: "result4", 5: "result5", 6: "result6", 7: "result7", 8: "result8", 9: "result9", 10: "result10", 11: "result11", 12: "result12", 13: "result13", 14: "result14", 15: "result15", 16: "result16", 255: "error"},
-	"target":        {1: "target_user", 2: "run_actor"},
+	"target":        {1: "target_user", 2: "run_actor", 3: "session_actor"},
 	"outcome":       {1: "empty", 2: "moved", 3: "conflict"},
 	"events":        {1: "durable", 2: "hint_wrapper", 3: "ack"},
 	"event":         {1: "burst", 2: "captured", 3: "reconciled", 4: "moved_off", 5: "transcript", 6: "empty"},

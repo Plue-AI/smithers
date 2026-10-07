@@ -130,7 +130,7 @@ func TestTaggedValueRefusals(t *testing.T) {
 		{"empty", Struct(Field(9, []byte{1})), UnknownField}, {"user", Struct(Field(1, String("a")), Field(1, String("b"))), UnorderedField},
 		{"user", Struct(Field(1, String("a"))), MissingField}, {"str", append(U16(1), 0), BadUTF8},
 		{"str", U16(4097), BadValue}, {"bytes1024", U32(1025), BadValue}, {"str1024", U16(1025), BadValue}, {"sessions", U16(513), BadValue},
-		{"version", U16(4), VersionMismatch}, {"magic", U32(0), BadValue}, {"error_code", []byte{0}, BadValue},
+		{"version", U16(5), VersionMismatch}, {"magic", U32(0), BadValue}, {"error_code", []byte{0}, BadValue},
 		{"str", append(U16(2), 1), Truncated}, {"digest", []byte{1}, Truncated}, {"user", U32(20), Truncated},
 	}
 	for _, tc := range cases {

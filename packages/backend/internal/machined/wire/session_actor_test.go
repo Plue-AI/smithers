@@ -23,3 +23,22 @@ func TestProtocolThreeSessionAdmissionLiteral(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, raw, encoded)
 }
+
+func TestProtocolFourSessionCancellationLiteral(t *testing.T) {
+	raw, err := hex.DecodeString("0000001b01000000000100000016010000000902090000000b0103000000050100000007")
+	require.NoError(t, err)
+	frame, err := Decode(raw)
+	require.NoError(t, err)
+	id, method, body, err := frame.Request()
+	require.NoError(t, err)
+	require.Equal(t, uint32(9), id)
+	require.Equal(t, byte(KillSessions), method)
+	fields, err := Fields("args9", body)
+	require.NoError(t, err)
+	require.Equal(t, []byte{3, 0, 0, 0, 5, 1, 0, 0, 0, 7}, fields[1])
+	_, err = DecodeLocal(raw)
+	require.ErrorIs(t, err, UnknownMethod)
+	encoded, err := Encode(frame)
+	require.NoError(t, err)
+	require.Equal(t, raw, encoded)
+}

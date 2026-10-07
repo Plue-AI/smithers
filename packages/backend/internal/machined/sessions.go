@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 )
 
 // SessionError names ADR 0004 refusal codes. It is not an HTTP envelope.
@@ -248,6 +250,20 @@ func (s *Sessions) KillRun(ctx context.Context, run string) (uint16, error) {
 		return 0, refused("malformed", "invalid run")
 	}
 	result, err := s.call(ctx, SessionCall{Method: "kill_sessions", Run: run})
+	return result.Killed, err
+}
+
+// KillSession confirms that the broker emptied this session's cgroup, including
+// detached descendants. CloseSession only closes the stream and is not proof
+// of command cancellation. The count is zero for an already reaped session.
+func (s *Sessions) KillSession(ctx context.Context, id uint32) (uint16, error) {
+	if !validSession(id) {
+		return 0, refused("malformed", "invalid session id")
+	}
+	result, err := s.call(ctx, SessionCall{Method: "kill_sessions", Session: id})
+	if err == nil && result.Killed > 1 {
+		return 0, wire.BadValue
+	}
 	return result.Killed, err
 }
 func (s *Sessions) RegisterRun(ctx context.Context, run string, id uint32) error {
