@@ -130,7 +130,7 @@ describe("smthrs todo answer", () => {
 
   it("answers the named question without reading the TODO, and names no agent outside one", async () => {
     const b = await backend({ 3: [{ id: "q-1", kind: "question" }, { id: "q-2", kind: "question" }] })
-    const result = await b.run(["todo", "answer", "3", "Fixed delay", "--wait", "q-2"])
+    const result = await b.run(["todo", "answer", "T3", "Fixed delay", "--wait", "q-2"])
     expect(result.code, result.output).toBe(0)
     expect(b.seen).toEqual([{
       method: "POST",
@@ -142,29 +142,50 @@ describe("smthrs todo answer", () => {
 
   it("asks for --wait when the TODO asks several questions, and refuses one that asks nothing", async () => {
     const b = await backend({ 3: [{ id: "q-1", kind: "question" }, { id: "q-2", kind: "question" }], 4: [] })
-    const several = await b.run(["todo", "answer", "3", "x"])
+    const several = await b.run(["todo", "answer", "T3", "x"])
     expect(several.code).not.toBe(0)
-    expect(several.output).toContain("T3 asks 2 questions; name one with --wait (q-1, q-2)")
-    const none = await b.run(["todo", "answer", "4", "x"])
+    expect(several.output).toContain("T3 asks several questions; name one with --wait")
+    const none = await b.run(["todo", "answer", "T4", "x"])
     expect(none.code).not.toBe(0)
     expect(none.output).toContain("T4 asks nothing")
     expect(b.seen.map((seen) => `${seen.method} ${seen.url}`)).toEqual(["GET /api/todos/3", "GET /api/todos/4"])
   })
 
-  it("refuses a malformed TODO number or an empty answer before any request", async () => {
+  it("refuses a malformed TODO number before any request", async () => {
     const b = await backend({ 3: [{ id: "q-1", kind: "question" }] })
-    for (
-      const [todo, answer, message] of [["three", "x", "Expected a TODO number (3 or T3)"], [
-        "T0",
-        "x",
-        "Expected a TODO number"
-      ], ["3", "  ", "An answer is required"]]
-    ) {
-      const result = await b.run(["todo", "answer", todo!, answer!])
+    for (const todo of ["three", "T0", "3"]) {
+      const result = await b.run(["todo", "answer", todo, "x"])
       expect(result.code).not.toBe(0)
-      expect(result.output).toContain(message)
+      expect(JSON.parse(result.output)).toMatchObject({ code: "VALIDATION_ERROR" })
+      expect(result.output).toContain("Expected Tn")
     }
     expect(b.seen).toEqual([])
+  })
+
+  it.each(["", "  ", "\t\r\n", "\u00a0"])(
+    "refuses blank answer %j before looking up or posting a question",
+    async (answer) => {
+      const b = await backend({ 3: [{ id: "q-1", kind: "question" }] })
+      for (const flags of [[], ["--wait", "q-1"]]) {
+        const result = await b.run(["todo", "answer", "T3", answer, ...flags])
+        expect(result.code, result.output).not.toBe(0)
+        if (answer.length > 0) expect(result.output).toContain("An answer is required")
+      }
+      expect(b.seen).toEqual([])
+    }
+  )
+
+  it("preserves formatting in a nonblank answer", async () => {
+    const b = await backend({ 3: [{ id: "q-1", kind: "question" }] })
+    const answer = "\n  Keep the indentation.\n\tUse retries.\n"
+    const result = await b.run(["todo", "answer", "T3", answer, "--wait", "q-1"])
+    expect(result.code, result.output).toBe(0)
+    expect(b.seen).toEqual([{
+      method: "POST",
+      url: "/api/todos/3/answer",
+      via: undefined,
+      body: { wait: "q-1", answer }
+    }])
   })
 
   it("surfaces the backend's refusal: another branch's TODO, or a question someone answered", async () => {
@@ -172,12 +193,12 @@ describe("smthrs todo answer", () => {
       status: 403,
       body: { class: "permission", code: "permission", message: "A terminal acts only on its own branch's TODO" }
     })
-    const result = await refused.run(["todo", "answer", "3", "x", "--wait", "q-1"])
+    const result = await refused.run(["todo", "answer", "T3", "x", "--wait", "q-1"])
     expect(result.code).not.toBe(0)
     expect(result.output).toContain("A terminal acts only on its own branch's TODO")
     const b = await backend({ 3: [{ id: "q-1", kind: "question" }] })
-    expect((await b.run(["todo", "answer", "3", "first", "--wait", "q-1"])).code).toBe(0)
-    const later = await b.run(["todo", "answer", "3", "second", "--wait", "q-1"])
+    expect((await b.run(["todo", "answer", "T3", "first", "--wait", "q-1"])).code).toBe(0)
+    const later = await b.run(["todo", "answer", "T3", "second", "--wait", "q-1"])
     expect(later.code).not.toBe(0)
     expect(later.output).toContain("ben answered")
   })

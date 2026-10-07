@@ -27,8 +27,8 @@ export const catalogCommands = catalogDescriptors.filter((row) =>
 // Effect's empty Struct is JSON Schema's non-null value. Zod cannot import
 // `not`, so retain that exact predicate instead of refusing no-argument doors.
 const payloadSchema = (schema: Record<string, any>): z.ZodType =>
-  schema.not?.type === "null" && Object.keys(schema).every(key => key === "not" || key === "$defs")
-    ? z.unknown().refine(value => value !== null, "Expected a non-null value")
+  schema.not?.type === "null" && Object.keys(schema).every((key) => key === "not" || key === "$defs")
+    ? z.unknown().refine((value) => value !== null, "Expected a non-null value")
     : z.fromJSONSchema(schema)
 
 const valueSchema = (schema: Record<string, any>): z.ZodType => {
@@ -79,7 +79,10 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
     const args: Record<string, z.ZodType> = {}, options: Record<string, z.ZodType> = {}
     for (const [key, field] of Object.entries(fields)) {
       let value = (key === "n" && key === positional) || key === "before"
-        ? z.string().regex(/^T[1-9]\d*$/, "Expected Tn").transform((value) => Number(value.slice(1))).meta({ type: "string", pattern: "^T[1-9]\\d*$" })
+        ? z.string().regex(/^T[1-9]\d*$/, "Expected Tn").transform((value) => Number(value.slice(1))).meta({
+          type: "string",
+          pattern: "^T[1-9]\\d*$"
+        })
         : valueSchema({ ...field, $defs: row.payload.definitions })
       if (!required.has(key)) value = value.optional()
       if (positionalKeys.has(key)) args[key] = value
@@ -109,6 +112,9 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
           const payload = payloadSchema({ ...row.payload.schema, $defs: row.payload.definitions }).parse(
             input
           ) as Record<string, unknown>
+          if (row.name === "todo.answer" && typeof payload.answer === "string" && !payload.answer.trim()) {
+            throw new UsageError({ message: "An answer is required" })
+          }
           const requestId = typeof payload.idempotencyKey === "string" ? payload.idempotencyKey : randomUUID()
           let request: ReturnType<typeof catalogRequest>
           try {
@@ -149,13 +155,23 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
             if (row.name === "todo.answer") result = { todo: payload.n, wait: body.wait, ...object(result) }
             const receipt = object(result)
             if (receipt.confirmation !== undefined || receipt.state === "pending") {
-              if (response.status !== 202 || receipt.state !== "pending" || typeof receipt.confirmation !== "string" || !receipt.confirmation.trim()) {
-                throw new Refused({ fault: "infra", code: "backend_protocol", message: "Invalid confirmation response" })
+              if (
+                response.status !== 202 || receipt.state !== "pending" || typeof receipt.confirmation !== "string" ||
+                !receipt.confirmation.trim()
+              ) {
+                throw new Refused({
+                  fault: "infra",
+                  code: "backend_protocol",
+                  message: "Invalid confirmation response"
+                })
               }
               let person = "you"
               const encodedPerson = response.headers.get("Smithers-Confirmation-Person")
               if (encodedPerson) {
-                try { person = Presentation.clean(decodeURIComponent(encodedPerson)).replace(/[\r\n]+/g, " ").trim() || person } catch { /* Old or malformed presentation metadata never changes authority. */ }
+                try {
+                  person = Presentation.clean(decodeURIComponent(encodedPerson)).replace(/[\r\n]+/g, " ").trim() ||
+                    person
+                } catch { /* Old or malformed presentation metadata never changes authority. */ }
               }
               result = { ...receipt, message: `Waiting for ${person} to confirm` }
               runtime.exit?.(3)
