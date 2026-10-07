@@ -230,7 +230,12 @@ func TestSlowAuxCleanupDoesNotBlockUsage(t *testing.T) {
 	r := &Runtime{cli: &cli{binary: binary, home: root}, config: Config{MaxRunningVMs: 1}, auxVMs: map[string]struct{}{"old": {}}, auxCleanup: map[string]struct{}{"old": {}}}
 	done := make(chan error, 1)
 	go func() { done <- r.reserveAuxVM(t.Context(), "next") }()
-	require.Eventually(t, func() bool { _, err := os.Stat(entered); return err == nil }, time.Second, time.Millisecond)
+	defer func() {
+		require.NoError(t, os.WriteFile(release, nil, 0600))
+		require.NoError(t, <-done)
+	}()
+	// Process startup is a prerequisite, not the lock-scope assertion below.
+	require.Eventually(t, func() bool { _, err := os.Stat(entered); return err == nil }, 10*time.Second, time.Millisecond)
 	usage := make(chan int, 1)
 	go func() { usage <- r.InUse() }()
 	select {
@@ -239,8 +244,6 @@ func TestSlowAuxCleanupDoesNotBlockUsage(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Error("cleanup process held runtime mutex")
 	}
-	require.NoError(t, os.WriteFile(release, nil, 0600))
-	require.NoError(t, <-done)
 }
 func TestCachedLayerVerificationCleanupFailurePreservesSnapshot(t *testing.T) {
 	// spec §8.2.2: admission is temporary; a verified layer is reusable.
