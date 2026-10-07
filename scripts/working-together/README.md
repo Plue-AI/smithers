@@ -32,3 +32,34 @@ and a skipped or incomplete test never qualifies. Fresh C-DUR-04 evidence
 contains the runner profile and full Go JSON logs. `boundary-passed` qualifies
 this fixture only: the complete writer/head/receipt/client-text artifact matrix
 remains incomplete. No guest VM or second laptop proof is implied.
+
+The Linux document filesystem boundary can run without provisioning a privileged
+broker. On a Linux host with Docker, as an ordinary user:
+
+```sh
+docker pull ubuntu@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7
+CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER="$PWD/scripts/working-together/linux-document-runner.sh" \
+  cargo test --locked --target x86_64-unknown-linux-gnu -p smithers-machined \
+  --test document_disk_dispatch -- --ignored --test-threads=1 --nocapture
+CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER="$PWD/scripts/working-together/linux-document-runner.sh" \
+  cargo test --locked --target x86_64-unknown-linux-gnu -p smithers-machined \
+  --test confinement -- --test-threads=1 --nocapture
+```
+
+For a native ARM64 Linux host, use `aarch64-unknown-linux-gnu` and
+`CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER`. The runner also accepts a test
+executable emitted by `cargo test --no-run --message-format=json`. It runs only
+that read-only mounted executable as UID/GID 19998, without network or Linux
+capabilities. Tests write to the disposable container's real overlay filesystem;
+no host working copy or credentials are mounted. `/etc/machine-id` identifies the
+runner host in the log. Build with Cargo as an ordinary user; the runner refuses
+root execution.
+
+These cases use production RPC dispatch, document service, Yrs and Linux disk
+operations, with controlled version receipts and time. They cover permission
+failures, forged authors, duplicate frames, two-member edits, restart recovery,
+200 outside-save orderings and 10,000 reads during directory/symlink swaps. A save after the document has flushed
+is non-overlapping and applies; an overlapping save against the pre-flush or
+held-inode base keeps the live edit and reports the outside version. This is
+Linux boundary evidence, not the installed broker/cgroup, microVM, browser,
+reference-host latency or complete C-COL-04/C-DUR-04 acceptance.

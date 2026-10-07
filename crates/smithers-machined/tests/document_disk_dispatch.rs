@@ -5,7 +5,7 @@
 use smithers_machined::{
     conn::{self, Frame},
     doc::{
-        core,
+        authors, core,
         disk::{LinuxDisk, Versions},
         host::{Gates, Host},
         service::Service,
@@ -32,6 +32,8 @@ use yrs::{
     updates::{decoder::Decode, encoder::Encode},
     GetString, ReadTxn, Text, Transact,
 };
+const MEMBER: &[u8] = &[0, 255, 128, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
+
 #[derive(Clone, Default)]
 struct Receipts(Arc<Mutex<Vec<Vec<u8>>>>);
 impl Versions for Receipts {
@@ -170,6 +172,9 @@ fn result(reply: &Frame) -> Vec<u8> {
         .to_vec()
 }
 fn open(cx: &mut LockCx, path: &str) -> Vec<u8> {
+    open_as(cx, path, MEMBER)
+}
+fn open_as(cx: &mut LockCx, path: &str, actor: &[u8]) -> Vec<u8> {
     result(
         &rpc::dispatch(
             &request(
@@ -178,7 +183,7 @@ fn open(cx: &mut LockCx, path: &str) -> Vec<u8> {
                     conn::field(1, string(path)),
                     conn::field(
                         2,
-                        conn::actor_bytes(&hooks::Actor::Principal(b"host".to_vec())),
+                        conn::actor_bytes(&hooks::Actor::Principal(actor.to_vec())),
                     ),
                 ],
             ),
@@ -197,13 +202,16 @@ fn stream(result: &[u8]) -> u32 {
     )
 }
 fn update(cx: &mut LockCx, id: u32, seq: u64, data: SyncMessage) -> Frame {
+    update_as(cx, id, seq, data, MEMBER)
+}
+fn update_as(cx: &mut LockCx, id: u32, seq: u64, data: SyncMessage, actor: &[u8]) -> Frame {
     rpc::dispatch(
         &Frame {
             kind: 4,
             stream: id,
             payload: Document {
                 msg: 1,
-                actor: b"host".to_vec(),
+                actor: actor.to_vec(),
                 seq,
                 data: data.encode_v1(),
                 ..Default::default()
@@ -216,7 +224,10 @@ fn update(cx: &mut LockCx, id: u32, seq: u64, data: SyncMessage) -> Frame {
     .unwrap()
 }
 fn replica(cx: &mut LockCx, id: u32, client: u32) -> yrs::Doc {
-    let response = update(cx, id, 0, SyncMessage::SyncStep1(Default::default()));
+    replica_as(cx, id, client, MEMBER)
+}
+fn replica_as(cx: &mut LockCx, id: u32, client: u32, actor: &[u8]) -> yrs::Doc {
+    let response = update_as(cx, id, 0, SyncMessage::SyncStep1(Default::default()), actor);
     let d = Document::decode_v2(&response.payload).unwrap();
     let SyncMessage::SyncStep2(bytes) = SyncMessage::decode_v1(&d.data).unwrap() else {
         panic!("sync2")
@@ -244,7 +255,7 @@ fn write(cx: &mut LockCx, path: &str, base: [u8; 32]) -> Vec<u8> {
                     conn::field(3, [0, 0, 0, 3, b'n', b'e', b'w']),
                     conn::field(
                         4,
-                        conn::actor_bytes(&hooks::Actor::Principal(b"host".to_vec())),
+                        conn::actor_bytes(&hooks::Actor::Principal(MEMBER.to_vec())),
                     ),
                 ],
             ),
@@ -424,26 +435,67 @@ fn outside_save_ordering_and_held_inode_are_never_lost_200_runs() {
             f.clock.0.store(now, Ordering::Relaxed);
             service.poll(&mut cx).unwrap();
         }
+        // §9.2.3: once the live edit has been flushed, base equals ours.
+        // A later completed outside save has no overlap and must apply. The
+        // pre-flush and held-old-inode cases still overlap the unsaved edit.
+        let expected = if round % 3 == 2 {
+            outside.as_str()
+        } else {
+            "abc 🦀"
+        };
         assert!(
-            f.receipts.0.lock().unwrap().contains(&outside.into_bytes()),
+            f.receipts
+                .0
+                .lock()
+                .unwrap()
+                .contains(&outside.as_bytes().to_vec()),
             "round {round}"
         );
         assert_eq!(
             fs::read(&path).unwrap(),
-            "abc 🦀".as_bytes(),
+            expected.as_bytes(),
             "round {round}"
         );
         let doc = replica(&mut cx, id, epoch.client_id);
         assert_eq!(
             doc.get_or_insert_text("content")
                 .get_string(&doc.transact()),
-            "abc 🦀"
+            expected
         );
-        assert!(service
-            .take_notices(&mut cx)
+        assert_eq!(
+            service
+                .take_notices(&mut cx)
+                .unwrap()
+                .iter()
+                .any(|notice| matches!(
+                    notice,
+                    smithers_machined::doc::host::Notice::Outside { .. }
+                )),
+            round % 3 != 2,
+            "conflict notice round {round}"
+        );
+        assert!(authors::entries(&doc)
             .unwrap()
-            .iter()
-            .any(|notice| matches!(notice, smithers_machined::doc::host::Notice::Outside { .. })));
+            .values()
+            .any(|by| by == "00ff800102030405060708090a0b0c0d"));
+        drop(cx);
+        drop(service);
+        let (recovered, mut cx) = f.service();
+        let id = stream(&open(&mut cx, "a.rs"));
+        let reopened = Document::decode_v2(&recovered.poll(&mut cx).unwrap()[0].payload).unwrap();
+        assert_eq!(reopened.epoch, epoch.epoch);
+        let restarted = replica(&mut cx, id, reopened.client_id);
+        assert_eq!(
+            restarted
+                .get_or_insert_text("content")
+                .get_string(&restarted.transact()),
+            expected,
+            "restart round {round}"
+        );
+        assert!(authors::entries(&restarted)
+            .unwrap()
+            .values()
+            .any(|by| by == "00ff800102030405060708090a0b0c0d"));
     }
 }
 
@@ -473,4 +525,125 @@ fn oversized_displaced_file_is_retained_whole_without_a_receipt() {
     assert_eq!(displaced.len(), 1);
     assert_eq!(fs::read(&displaced[0]).unwrap(), outside);
     assert!(!service.all_flushed());
+}
+
+#[test]
+#[ignore = "requires preprovisioned Linux machine uid 19998; never run as root"]
+fn foreign_actor_cannot_reuse_author_clock_on_real_disk() {
+    let f = Fixture::new();
+    let (service, mut cx) = f.service();
+    let id = stream(&open(&mut cx, "a.rs"));
+    let epoch = Document::decode_v2(&service.poll(&mut cx).unwrap()[0].payload).unwrap();
+    let doc = replica(&mut cx, id, epoch.client_id);
+    let authors_before = authors::entries(&doc).unwrap();
+    let before = doc.transact().state_vector();
+    doc.get_or_insert_text("content")
+        .insert(&mut doc.transact_mut(), 3, " 🦀");
+    let bytes = doc.transact().encode_state_as_update_v1(&before);
+    let refused = update_as(
+        &mut cx,
+        id,
+        1,
+        SyncMessage::Update(bytes.clone()),
+        &[17; 16],
+    );
+    assert_eq!(refused.payload[0], 255);
+    let fields = conn::fields("error", &refused.payload[1..]).unwrap();
+    assert_eq!(fields[0], (1, &[11][..]), "forged_actor refusal");
+    assert_eq!(fs::read(f.root.join("workspace/a.rs")).unwrap(), b"abc");
+    let unchanged = replica(&mut cx, id, epoch.client_id);
+    assert_eq!(
+        unchanged
+            .get_or_insert_text("content")
+            .get_string(&unchanged.transact()),
+        "abc"
+    );
+    assert_eq!(authors::entries(&unchanged).unwrap(), authors_before);
+    assert_eq!(
+        update(&mut cx, id, 1, SyncMessage::Update(bytes.clone())).payload[0],
+        3
+    );
+    assert_eq!(
+        update(&mut cx, id, 1, SyncMessage::Update(bytes)).payload[0],
+        3
+    );
+    f.clock.0.store(200, Ordering::Relaxed);
+    let saved = service.poll(&mut cx).unwrap();
+    assert!(saved
+        .iter()
+        .any(|frame| Document::decode_v2(&frame.payload).unwrap().through_seq == 1));
+    assert_eq!(
+        fs::read(f.root.join("workspace/a.rs")).unwrap(),
+        "abc 🦀".as_bytes()
+    );
+}
+
+#[test]
+#[ignore = "requires preprovisioned Linux machine uid 19998; never run as root"]
+fn two_members_edits_save_and_reopen_with_both_authors() {
+    let f = Fixture::new();
+    let (service, mut cx) = f.service();
+    let first = stream(&open(&mut cx, "a.rs"));
+    let one = Document::decode_v2(&service.poll(&mut cx).unwrap()[0].payload).unwrap();
+    let second = stream(&open_as(&mut cx, "a.rs", &[17; 16]));
+    let output = service.poll(&mut cx).unwrap();
+    let two = output
+        .iter()
+        .filter(|frame| frame.stream == second)
+        .map(|frame| Document::decode_v2(&frame.payload).unwrap())
+        .find(|d| d.msg == 5)
+        .unwrap();
+    assert_ne!(one.client_id, two.client_id);
+    assert_eq!(one.epoch, two.epoch);
+    let a = replica(&mut cx, first, one.client_id);
+    let b = replica_as(&mut cx, second, two.client_id, &[17; 16]);
+    let a_before = a.transact().state_vector();
+    let b_before = b.transact().state_vector();
+    a.get_or_insert_text("content")
+        .insert(&mut a.transact_mut(), 3, " α");
+    b.get_or_insert_text("content")
+        .insert(&mut b.transact_mut(), 0, "β ");
+    let a_update = a.transact().encode_state_as_update_v1(&a_before);
+    let b_update = b.transact().encode_state_as_update_v1(&b_before);
+    assert_eq!(
+        update(&mut cx, first, 1, SyncMessage::Update(a_update)).payload[0],
+        3
+    );
+    assert_eq!(
+        update_as(&mut cx, second, 1, SyncMessage::Update(b_update), &[17; 16]).payload[0],
+        3
+    );
+    f.clock.0.store(200, Ordering::Relaxed);
+    let saved = service.poll(&mut cx).unwrap();
+    for stream in [first, second] {
+        assert!(saved
+            .iter()
+            .filter(|frame| frame.stream == stream)
+            .any(|frame| Document::decode_v2(&frame.payload).unwrap().through_seq == 1));
+    }
+    assert_eq!(
+        fs::read(f.root.join("workspace/a.rs")).unwrap(),
+        "β abc α".as_bytes()
+    );
+    drop(cx);
+    drop(service);
+    let (recovered, mut cx) = f.service();
+    let id = stream(&open(&mut cx, "a.rs"));
+    let epoch = Document::decode_v2(&recovered.poll(&mut cx).unwrap()[0].payload).unwrap();
+    assert_eq!(epoch.epoch, one.epoch);
+    let doc = replica(&mut cx, id, epoch.client_id);
+    assert_eq!(
+        doc.get_or_insert_text("content")
+            .get_string(&doc.transact()),
+        "β abc α"
+    );
+    let authors = authors::entries(&doc).unwrap();
+    assert_eq!(
+        authors.get(&one.client_id.to_string()).map(String::as_str),
+        Some("00ff800102030405060708090a0b0c0d")
+    );
+    assert_eq!(
+        authors.get(&two.client_id.to_string()).map(String::as_str),
+        Some("11111111111111111111111111111111")
+    );
 }
