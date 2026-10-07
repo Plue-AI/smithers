@@ -283,6 +283,37 @@ func testSecretsComposed(t *testing.T, install bool) {
 		require.Contains(t, string(raw), `"scope":"main_only"`)
 		require.Contains(t, string(raw), "OWNER_KEY")
 		require.NotContains(t, string(raw), `"value"`)
+		// A cached, previously authorized snapshot must not make an absent
+		// provider available to a new subscription. Exercise the production
+		// websocket resolver, rather than calling the topic source directly.
+		t.Run("withheld live Secrets provider", func(t *testing.T) {
+			before := stored()
+			topics.secrets = nil
+			defer func() { topics.secrets = secretService }()
+			readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			missing, _, err := websocket.Dial(readCtx, strings.Replace(origin, "http:", "ws:", 1)+"/api/live", &websocket.DialOptions{HTTPHeader: header, Subprotocols: []string{"smithers.live.v1"}})
+			require.NoError(t, err)
+			defer missing.CloseNow()
+			require.NoError(t, missing.Write(readCtx, websocket.MessageText, []byte(`{"t":"sub","id":7,"topic":"secrets"}`)))
+			_, refused, err := missing.Read(readCtx)
+			require.NoError(t, err)
+			require.JSONEq(t, `{"t":"err","id":7,"code":"unsupported"}`, string(refused))
+			require.NotContains(t, string(refused), "OWNER_KEY")
+			require.NotContains(t, string(refused), `"value"`)
+			require.Equal(t, before, stored(), "refused subscription has no mutation")
+		})
+		// Restore the real provider and prove that the same member can read
+		// metadata again, without a poll or a replacement runtime.
+		restored, _, err := websocket.Dial(ctx, strings.Replace(origin, "http:", "ws:", 1)+"/api/live", &websocket.DialOptions{HTTPHeader: header, Subprotocols: []string{"smithers.live.v1"}})
+		require.NoError(t, err)
+		defer restored.CloseNow()
+		require.NoError(t, restored.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":8,"topic":"secrets"}`)))
+		_, raw, err = restored.Read(ctx)
+		require.NoError(t, err)
+		require.Contains(t, string(raw), `"t":"snap"`)
+		require.Contains(t, string(raw), "OWNER_KEY")
+		require.NotContains(t, string(raw), `"value"`)
 	}
 	require.Equal(t, []string{"MAINTAINER_KEY", "OWNER_KEY"}, stored())
 	status, body := request(maintainerSession, "DELETE", "/secrets/MAINTAINER_KEY", "")
