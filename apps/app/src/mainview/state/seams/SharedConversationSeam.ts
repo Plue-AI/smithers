@@ -1,7 +1,7 @@
 import { Data } from "effect"
 import { z } from "zod"
 import { AgentTurnFrameSchema } from "@smthrs/rpc/NativeAgent"
-import { ContextItemSchema, ToneSchema } from "@smthrs/rpc/CardPrimitives"
+import { ContextItemSchema, ToneSchema, PlaceholderAvatarUrl } from "@smthrs/rpc/CardPrimitives"
 import { ContextPreflightResultSchema } from "@smthrs/rpc/ContextPreflight"
 import { MessageSchema } from "../AppState"
 import type { ControllerContext } from "../controller/context"
@@ -18,10 +18,51 @@ const SharedTurnSchema = z.object({
   state: z.enum(["accepted", "running", "completed", "failed", "cancelled", "uncertain"]),
   frames: z.array(AgentTurnFrameSchema), context: z.array(ContextItemSchema).optional(), preflight: ContextPreflightResultSchema.optional()
 }).strict()
+// The journal projection includes completed frames, but imports never expose them
+// as executable turns. Validate source identity before entering the shared decoder.
+const ImportedTurnSchema = z.object({
+  sequence: z.number().int().positive().optional(),
+  id: z.string().min(1), origin: z.literal("external"), read_only: z.literal(true),
+  agent: z.enum(["claude-code", "codex"]), source_format_version: z.string().min(1),
+  source_id: z.string().min(1), source_offset: z.number().int().nonnegative(),
+  session_id: z.string().min(1), participant_id: z.string().min(1),
+  owner_id: z.string().min(1), author_id: z.string().min(1),
+  author: z.number().int().positive(), authorLogin: z.string().min(1),
+  kind: z.enum(["prompt", "assistant", "thinking", "attachment", "tool_request", "tool_result", "edit", "error"]),
+  body: z.unknown().refine(value => value !== undefined), call_id: z.string().min(1).optional(), failed: z.boolean().optional(),
+  title: z.string(), tone: ToneSchema, runId: z.string(), prompt: z.string(),
+  state: z.literal("completed"), frames: z.array(AgentTurnFrameSchema)
+}).strict().superRefine((entry, ctx) => {
+  if (entry.owner_id !== String(entry.author) || entry.author_id !== (entry.kind === "prompt" ? entry.owner_id : entry.participant_id) ||
+    entry.source_format_version !== (entry.agent === "claude-code" ? "claude-code/2.1.0" : "codex/0.160.0") ||
+    (["tool_request", "tool_result", "edit"].includes(entry.kind) && !entry.call_id)) {
+    ctx.addIssue({ code: "custom", message: "Invalid imported journal identity" })
+  }
+})
 export const SharedConversationSchema = z.object({
   id: z.string(),
-  entries: z.array(z.union([MessageSchema.refine(message => message.origin === "external"), SharedTurnSchema]))
-})
+  entries: z.array(z.union([MessageSchema.refine(message => message.origin === "external"), ImportedTurnSchema, SharedTurnSchema]))
+}).transform((conversation, ctx) => ({ ...conversation, entries: conversation.entries.map((entry, ordinal) => {
+  if (!("body" in entry)) return entry
+  const member = { name: entry.authorLogin, login: entry.authorLogin, avatar_url: PlaceholderAvatarUrl }
+  const decoded = MessageSchema.safeParse({
+    id: entry.id, origin: "external", read_only: true, agent_kind: entry.agent,
+    format_version: entry.source_format_version, source_id: entry.source_id,
+    session_id: entry.session_id, participant_id: entry.participant_id,
+    actor: entry.kind === "prompt" ? { kind: "person", ...member, color_index: entry.author % 6 } :
+      { kind: "agent", id: entry.participant_id, agent: entry.agent, session_id: entry.session_id, color_index: entry.author % 6, avatar_url: PlaceholderAvatarUrl, for_member: member },
+    role: entry.kind === "prompt" ? "user" : "smithers",
+    text: typeof entry.body === "string" ? entry.body : JSON.stringify(entry.body),
+    ...(entry.kind === "tool_request" ? { act: "tool-pending" } : {}),
+    correlation_id: entry.call_id, status: entry.failed || entry.kind === "error" ? "failed" : "complete",
+    createdAt: ordinal, ordinal
+  })
+  if (!decoded.success) {
+    ctx.addIssue({ code: "custom", message: "Incomplete external conversation identity", path: ["entries", ordinal] })
+    return z.NEVER
+  }
+  return decoded.data
+}) }))
 export type SharedConversation = z.infer<typeof SharedConversationSchema>
 export const ConversationViewSchema = z.object({ instructions: z.array(z.object({ id: z.string(), command: z.literal("theme"), mode: z.enum(["light", "dark"]) })).default([]), scroll_anchor: z.string().optional(), card_view: z.record(z.string(), z.unknown()).optional(), last_seen_seq: z.number().int().nonnegative().optional(), toasts_hidden: z.boolean().optional(), global_toasts_hidden: z.boolean().optional(), timeline_visible_until: z.string().nullable().optional(), queue: z.array(z.object({ id: z.string(), prompt: z.string() })).default([]) }).passthrough()
 export type ConversationView = z.infer<typeof ConversationViewSchema>

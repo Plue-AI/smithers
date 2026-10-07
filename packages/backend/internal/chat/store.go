@@ -1543,7 +1543,7 @@ func (s *Store) GetState(ctx context.Context, scope Scope, turnID string) (State
 func (s *Store) String() string { return fmt.Sprintf("chat.Store(%p)", s.pool) }
 
 func (s *Store) admitSharedCommit(ctx context.Context, tx pgx.Tx, turn turnRecord, attempt, revision int64, state State) error {
-	if s.OnSharedCommit == nil || turn.ConversationID == nil {
+	if s.OnSharedCommit == nil || turn.ConversationID == nil || externalTurn(turn) {
 		return nil
 	}
 	var request struct {
