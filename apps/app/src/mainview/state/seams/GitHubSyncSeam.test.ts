@@ -107,3 +107,21 @@ test("duplicate Retry input shares the pending admission; a failed admission can
     expect(await next).toEqual({ value: "Sync requested" })
   } finally { seam.dispose() }
 })
+
+test("Reset posts the exact attention binding and refuses without an install provider", async () => {
+  const binding = { id: "force/19", old: "1".repeat(40), new: "2".repeat(40) }
+  const absent = createGitHubSyncSeam({})
+  expect(await absent.reset(binding)).toBeUndefined(); absent.dispose()
+  const h = host([Response.json(STALE), Response.json({ state: "settled" })])
+  const seam = createGitHubSyncSeam({ http: h.http })
+  try {
+    expect(await seam.reset(binding)).toBeUndefined(); expect(h.calls).toHaveLength(0)
+    await seam.read()
+    expect(await seam.reset(binding, "bound-key")).toEqual({ value: "Reset requested" })
+    const call = h.calls.find(each => each.init?.method === "POST")!
+    expect(call.path).toBe("/api/stack/attention/force%2F19")
+    expect(JSON.parse(String(call.init?.body))).toEqual({ old: binding.old, new: binding.new })
+    expect(new Headers(call.init?.headers).get("Idempotency-Key")).toBe("bound-key")
+    seam.dispose(); expect(await seam.reset(binding)).toBeUndefined()
+  } finally { seam.dispose() }
+})
