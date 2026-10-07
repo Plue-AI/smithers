@@ -1,6 +1,6 @@
 smthrs stack move — Reorder an item
 
-Usage: smthrs stack move <n> <up|down> [options]
+Usage: smthrs stack move <n> <direction> [options]
 
 Arguments:
   n

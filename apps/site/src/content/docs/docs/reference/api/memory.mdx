@@ -488,3 +488,14 @@ When memory shares a database with the engine or control plane, compose all requ
 | `layerWithDatabase` | `Layer<MemoryStore \| DurableWriter \| SqlClient.SqlClient>` | The same store, plus its in-memory database services for tests that inspect rows directly. |
 
 For installation and the import forms, see [Installation](https://memory.smithers.sh/installation/) and [Import surface](https://memory.smithers.sh/surface/).
+
+### Host recall selection
+
+`Source.selectRecall(input, choose, cost, tokenBudget)` recalls once, then selects
+whole rows in the index order returned by the effectful `choose` callback.
+Duplicate and invalid indexes are ignored. Selection stops at a negative,
+nonfinite, or over-budget row cost; the budget is floored and clamped to zero,
+and nonfinite budgets select no positive-cost rows. Recall's byte budget still
+applies. The effect requires `Recall` and propagates `MemoryError` and callback
+failures without changing them. Direct recall remains unscoped; hosts enforce
+namespace policy before calling this helper.

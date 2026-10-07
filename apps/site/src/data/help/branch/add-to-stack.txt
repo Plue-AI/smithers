@@ -3,9 +3,9 @@ smthrs branch add-to-stack — Add a scratch branch as a TODO; waits for the per
 Usage: smthrs branch add-to-stack [options]
 
 Options:
-  --branch <string>
+  --branch <value>
   --text <value>
-  --verbose          Show redacted diagnostic details
+  --verbose         Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

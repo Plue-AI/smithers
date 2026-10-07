@@ -110,8 +110,32 @@ export const buildRedirectMap = (root = repoRoot) => {
   return map
 }
 
-/** The map over this checkout. */
-export const redirectMap = buildRedirectMap()
+/**
+ * The retired sites as the apps/site scripts read them (llms index, API docs
+ * sync, reference ingest): one row per legacy slug whose package still exists,
+ * in `legacySites` order.
+ *
+ * @type {ReadonlyArray<{ dir: string, name: string, slug: string, title: string, description: string, domain: string }>}
+ */
+export const sites = (() => {
+  const byName = new Map(workspacePackages(repoRoot).map((entry) => [entry.name, entry]))
+  return legacySites.flatMap(([slug, name]) => {
+    const entry = byName.get(name)
+    return entry === undefined ? [] : [{
+      dir: entry.dir, name, slug, title: name,
+      description: typeof entry.manifest.description === "string" ? entry.manifest.description : "",
+      domain: `${slug}.${ZONE}`
+    }]
+  })
+})()
+
+/** @type {Readonly<Record<string, string>> | undefined} */
+let checkoutMap
+/**
+ * The map over this checkout, built on first use so that importing this
+ * module (for `sites`, say) never requires every package's docs/ folder.
+ */
+export const redirectMapOf = () => (checkoutMap ??= buildRedirectMap())
 
 /**
  * The Location the deployed redirect answers for `url`: the slug's docs folder,
@@ -121,7 +145,8 @@ export const redirectMap = buildRedirectMap()
  */
 export const redirectLocation = (url) => {
   const slug = new URL(url).hostname.slice(0, -`.${ZONE}`.length)
-  return Object.hasOwn(redirectMap, slug) ? redirectMap[slug] : README_URL
+  const map = redirectMapOf()
+  return Object.hasOwn(map, slug) ? map[slug] : README_URL
 }
 
 export const GENERATED_MODULE = join(repoRoot, "apps/server/src/docsRedirectMap.ts")
@@ -146,13 +171,13 @@ export const renderModule = (map) => [
 if (isMain(import.meta)) {
   const flag = process.argv[2]
   if (flag === "--write") {
-    writeFileSync(GENERATED_MODULE, renderModule(redirectMap))
+    writeFileSync(GENERATED_MODULE, renderModule(redirectMapOf()))
   } else if (flag === "--check") {
-    if (readFileSync(GENERATED_MODULE, "utf8") !== renderModule(redirectMap)) {
+    if (readFileSync(GENERATED_MODULE, "utf8") !== renderModule(redirectMapOf())) {
       console.error("apps/server/src/docsRedirectMap.ts is stale: node scripts/package-docs.mjs --write")
       process.exitCode = 1
     }
   } else {
-    console.log(JSON.stringify(redirectMap, null, 2))
+    console.log(JSON.stringify(redirectMapOf(), null, 2))
   }
 }

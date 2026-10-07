@@ -4,7 +4,8 @@ export const README_URL: string
 export const ZONE: string
 export const legacySites: ReadonlyArray<readonly [slug: string, npmName: string]>
 export const buildRedirectMap: (root?: string) => Readonly<Record<string, string>>
-export const redirectMap: Readonly<Record<string, string>>
+export const redirectMapOf: () => Readonly<Record<string, string>>
+export const sites: ReadonlyArray<{ dir: string; name: string; slug: string; title: string; description: string; domain: string }>
 export const redirectLocation: (url: string) => string
 export const GENERATED_MODULE: string
 export const renderModule: (map: Readonly<Record<string, string>>) => string

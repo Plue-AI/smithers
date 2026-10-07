@@ -325,3 +325,11 @@ boundary (`-1` for a full reset). Rebuild the projection from the current
 retained history through that boundary, create a fresh client, and resume from
 that position. Idle subscriptions check generations at
 `tailIntervalMs`, as well as around journal reads.
+
+## Presence coordinates
+
+`BranchProtocol.PresenceWhere` validates file coordinates (a nonempty path and
+optional positive integer line), a terminal id, a step label, or a branch.
+`Participant.where` is optional so recorded frames without coordinates decode.
+A Leave with `sessionId` removes that seat; without it, Leave removes every seat
+for the participant, after verifying ownership of all matching seats.

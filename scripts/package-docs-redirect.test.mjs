@@ -3,7 +3,7 @@ import { test } from "node:test"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { repoRoot } from "./workspace-packages.mjs"
-import { redirectLocation, redirectMap } from "./package-docs.mjs"
+import { redirectLocation, redirectMapOf } from "./package-docs.mjs"
 test("legacy links including deep pages map to package docs; unknown slugs map to README", () => {
   for (const [url, dir] of [
     ["https://flow.smithers.sh/", "packages/smithers/flows/flow"],
@@ -13,7 +13,7 @@ test("legacy links including deep pages map to package docs; unknown slugs map t
   ]) assert.equal(redirectLocation(url), `https://github.com/smithersai/smithers/tree/main/${dir}/docs`)
   assert.equal(redirectLocation("https://unknown.smithers.sh/deep"), "https://github.com/smithersai/smithers/blob/main/README.md")
   assert.equal(redirectLocation("https://constructor.smithers.sh/deep"), "https://github.com/smithersai/smithers/blob/main/README.md")
-  assert.ok(Object.keys(redirectMap).length >= 48)
+  assert.ok(Object.keys(redirectMapOf()).length >= 48)
 })
 
 test("the generated library site workspace is deleted", () => {
