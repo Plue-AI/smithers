@@ -23,10 +23,14 @@ func admitInstallAccountMutation(w http.ResponseWriter, r *http.Request, q *db.Q
 	}
 	var input any = struct{}{}
 	var resource int64
-	if command == "account.connection.delete" {
+	if command == "account.connection.delete" || command == "account.email.delete" || command == "account.email.verify" {
 		parts := strings.Split(strings.Trim(r.URL.EscapedPath(), "/"), "/")
 		var err error
-		resource, err = strconv.ParseInt(parts[len(parts)-1], 10, 64)
+		index := len(parts) - 1
+		if command == "account.email.verify" {
+			index--
+		}
+		resource, err = strconv.ParseInt(parts[index], 10, 64)
 		if err != nil || resource <= 0 {
 			refuse(pkgerrors.BadRequest("invalid account id"))
 			return
@@ -46,6 +50,10 @@ func admitInstallAccountMutation(w http.ResponseWriter, r *http.Request, q *db.Q
 		// Match the retained handlers: unknown fields are ignored, and cannot
 		// affect the authenticated account or the typed mutation binding.
 		switch command {
+		case "account.email.add":
+			var value services.AddEmailRequest
+			err = decoder.Decode(&value)
+			input = value
 		case "account.profile.update":
 			var value services.UpdateUserRequest
 			err = decoder.Decode(&value)

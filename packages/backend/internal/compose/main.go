@@ -718,6 +718,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		BaseURL: publicBaseURL,
 		From:    emailFrom,
 	})
+	if config.IsSingleOwner(cfg.Auth) {
+		services.WithEmailInstallAuthorization(pool)(emailService)
+	}
 
 	billingCommerce := options.Commerce
 	if !options.topology.servesHTTP() {

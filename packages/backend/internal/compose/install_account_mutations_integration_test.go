@@ -13,12 +13,65 @@ import (
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/email"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
+
+// Only outbound mail is recorded: the test must never deliver real email.
+// Credential lookup, token persistence and account writes use the real stores.
+type accountMailRecorder struct {
+	sent  chan email.Message
+	check func() error
+}
+
+func (m *accountMailRecorder) Send(_ context.Context, msg email.Message) error {
+	if m.check != nil {
+		if err := m.check(); err != nil {
+			return err
+		}
+	}
+	m.sent <- msg
+	return nil
+}
+
+type accountEmailProbe struct {
+	routes.UserEmailService
+	before  func()
+	replace bool
+	emailID int64
+}
+
+func (p *accountEmailProbe) AddEmail(ctx context.Context, userID int64, input services.AddEmailRequest) (services.EmailResponse, error) {
+	if p.before != nil {
+		p.before()
+	}
+	if p.replace {
+		input.Email = "substituted@example.test"
+	}
+	return p.UserEmailService.AddEmail(ctx, userID, input)
+}
+func (p *accountEmailProbe) DeleteEmail(ctx context.Context, userID, emailID int64) error {
+	if p.before != nil {
+		p.before()
+	}
+	if p.emailID != 0 {
+		emailID = p.emailID
+	}
+	return p.UserEmailService.DeleteEmail(ctx, userID, emailID)
+}
+func (p *accountEmailProbe) RequestVerification(ctx context.Context, userID, emailID int64) error {
+	if p.before != nil {
+		p.before()
+	}
+	if p.emailID != 0 {
+		emailID = p.emailID
+	}
+	return p.UserEmailService.RequestVerification(ctx, userID, emailID)
+}
 
 type accountMutationProbe struct {
 	routes.UserProfileService
@@ -111,7 +164,23 @@ func TestInstallAccountMutationsPostgres(t *testing.T) {
 	service := services.NewUserService(q, services.WithUserInstallAuthorization(pool))
 	devices := services.NewUserDeviceService(q, services.WithUserDeviceInstallAuthorization(pool))
 	signup := services.NewSignupProfileService(q, services.WithSignupProfileInstallAuthorization(pool))
-	handler := &routes.UserHandler{ProfileService: service, DeviceService: devices, SignupProfiles: signup}
+	mailbox := &accountMailRecorder{sent: make(chan email.Message, 10)}
+	mailbox.check = func() error {
+		var count int
+		if err := f.pool.QueryRow(context.Background(), `SELECT count(*) FROM email_verification_tokens WHERE user_id=$1`, f.owner.ID).Scan(&count); err != nil {
+			return err
+		}
+		if count != 1 {
+			return fmt.Errorf("mail send preceded token commit: count=%d", count)
+		}
+		return nil
+	}
+	emails := services.NewEmailService(q, mailbox, services.EmailServiceConfig{BaseURL: cfg.Server.PublicURL, From: "sender@example.test"}, services.WithEmailInstallAuthorization(pool))
+	handler := &routes.UserHandler{ProfileService: service, DeviceService: devices, SignupProfiles: signup, EmailService: emails}
+	ownerEmail, err := f.q.UpsertEmailAddress(f.ctx, db.UpsertEmailAddressParams{UserID: f.owner.ID, Email: "owner@example.test", LowerEmail: "owner@example.test"})
+	require.NoError(t, err)
+	otherEmail, err := f.q.UpsertEmailAddress(f.ctx, db.UpsertEmailAddressParams{UserID: f.other.ID, Email: "other@example.test", LowerEmail: "other@example.test"})
+	require.NoError(t, err)
 	router := buildRouterCompat(cfg, q, pool, &routes.RepoHandler{}, &routes.AuthHandler{}, handler, &routes.SSHKeyHandler{}, &routes.LabelHandler{},
 		&routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil)
@@ -173,6 +242,19 @@ func TestInstallAccountMutationsPostgres(t *testing.T) {
 		require.Len(t, accounts, 1)
 		require.Equal(t, otherAccount.ID, accounts[0].ID)
 	}
+	assertEmails := func(t *testing.T, count int) {
+		t.Helper()
+		rows, err := f.q.ListUserEmails(f.ctx, f.owner.ID)
+		require.NoError(t, err)
+		require.Len(t, rows, count)
+		other, err := f.q.GetEmailByID(f.ctx, otherEmail.ID)
+		require.NoError(t, err)
+		require.Equal(t, f.other.ID, other.UserID)
+		var tokens int
+		require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM email_verification_tokens WHERE user_id=$1`, f.owner.ID).Scan(&tokens))
+		require.Zero(t, tokens)
+		require.Empty(t, mailbox.sent)
+	}
 	signupBody := `{"name":"Owner","account":"owner-account","stage":"poll","question":1,"answers":{"choices":["one","two"],"text":"hello"}}`
 	assertSetup := func(t *testing.T, count int, name string) {
 		t.Helper()
@@ -206,6 +288,9 @@ func TestInstallAccountMutationsPostgres(t *testing.T) {
 		{"anonymous", "", "", 401, "unauthenticated"},
 	} {
 		for _, op := range []struct{ method, path, body, command string }{
+			{"POST", "/api/user/emails", `{"email":"new@example.test"}`, "account.email.add"},
+			{"DELETE", fmt.Sprintf("/api/user/emails/%d", ownerEmail.ID), "", "account.email.delete"},
+			{"POST", fmt.Sprintf("/api/user/emails/%d/verify", ownerEmail.ID), "", "account.email.verify"},
 			{"PUT", "/api/user/settings/signup", signupBody, "account.signup.update"},
 			{"POST", "/api/user/devices", `{"apns_token":"own-device","platform":"ios"}`, "account.device.register"},
 			{"DELETE", "/api/user/devices", `{"apns_token":"own-device"}`, "account.device.delete"},
@@ -222,10 +307,66 @@ func TestInstallAccountMutationsPostgres(t *testing.T) {
 				require.True(t, owner.EmailNotificationsEnabled)
 				assertConnections(t, 1)
 				assertSetup(t, 0, "")
+				assertEmails(t, 1)
 			})
 		}
 	}
 
+	for _, op := range []struct{ method, path, body, command string }{
+		{"POST", "/api/user/emails", `{"email":"new@example.test"}`, "account.email.add"},
+		{"DELETE", fmt.Sprintf("/api/user/emails/%d", ownerEmail.ID), "", "account.email.delete"},
+		{"POST", fmt.Sprintf("/api/user/emails/%d/verify", ownerEmail.ID), "", "account.email.verify"},
+	} {
+		for _, mode := range []string{"substitution", "expired"} {
+			t.Run(op.command+"/"+mode, func(t *testing.T) {
+				probe := &accountEmailProbe{UserEmailService: emails, replace: mode == "substitution"}
+				status := 403
+				if mode == "substitution" {
+					probe.emailID = otherEmail.ID
+				} else {
+					status = 401
+					probe.before = func() {
+						_, err := f.pool.Exec(f.ctx, `UPDATE auth_sessions SET expires_at=now()-interval '1 second' WHERE session_key=$1`, ownerHash)
+						require.NoError(t, err)
+					}
+				}
+				handler.EmailService = probe
+				defer func() {
+					handler.EmailService = emails
+					_, err := f.pool.Exec(f.ctx, `UPDATE auth_sessions SET expires_at=now()+interval '1 hour' WHERE session_key=$1`, ownerHash)
+					require.NoError(t, err)
+				}()
+				call(t, op.method, op.path, ownerCookie, "", op.body, op.command, status)
+				assertEmails(t, 1)
+			})
+		}
+	}
+	t.Run("owner adds and removes own email", func(t *testing.T) {
+		out := call(t, "POST", "/api/user/emails", ownerCookie, "", fmt.Sprintf(`{"email":" New@Example.Test ","user_id":%d}`, f.other.ID), "account.email.add", 201)
+		var receipt services.EmailResponse
+		require.NoError(t, json.Unmarshal(out.Body.Bytes(), &receipt))
+		require.Equal(t, "new@example.test", receipt.Email)
+		row, err := f.q.GetEmailByID(f.ctx, receipt.ID)
+		require.NoError(t, err)
+		require.Equal(t, f.owner.ID, row.UserID)
+		call(t, "DELETE", fmt.Sprintf("/api/user/emails/%d", otherEmail.ID), ownerCookie, "", "", "account.email.delete", 404)
+		call(t, "POST", fmt.Sprintf("/api/user/emails/%d/verify", otherEmail.ID), ownerCookie, "", "", "account.email.verify", 404)
+		call(t, "DELETE", fmt.Sprintf("/api/user/emails/%d", receipt.ID), ownerCookie, "", "", "account.email.delete", 204)
+		assertEmails(t, 1)
+	})
+	t.Run("verification sends only after token commit", func(t *testing.T) {
+		call(t, "POST", fmt.Sprintf("/api/user/emails/%d/verify", ownerEmail.ID), ownerCookie, "", "", "account.email.verify", 204)
+		select {
+		case msg := <-mailbox.sent:
+			require.Equal(t, []string{"owner@example.test"}, msg.To)
+			require.Contains(t, msg.Text, "/api/user/emails/verify-token?token=")
+			var tokens int
+			require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM email_verification_tokens WHERE user_id=$1`, f.owner.ID).Scan(&tokens))
+			require.Equal(t, 1, tokens)
+		case <-time.After(3 * time.Second):
+			t.Fatal("verification delivery did not run")
+		}
+	})
 	t.Run("owner saves signup and registers own device", func(t *testing.T) {
 		call(t, "PUT", "/api/user/settings/signup", ownerCookie, "", signupBody, "account.signup.update", 200)
 		out := call(t, "POST", "/api/user/devices", ownerCookie, "", fmt.Sprintf(`{"apns_token":"own-device","platform":"ios","user_id":%d}`, f.other.ID), "account.device.register", 201)

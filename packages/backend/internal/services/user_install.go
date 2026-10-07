@@ -14,6 +14,12 @@ import (
 )
 
 type installAccountMutationStore struct{ pool *pgxpool.Pool }
+type EmailServiceOption func(*EmailService)
+
+func WithEmailInstallAuthorization(pool *pgxpool.Pool) EmailServiceOption {
+	return func(s *EmailService) { s.install = &installAccountMutationStore{pool: pool} }
+}
+
 type UserServiceOption func(*UserService)
 type UserDeviceServiceOption func(*UserDeviceService)
 type SignupProfileServiceOption func(*SignupProfileService)
@@ -50,7 +56,10 @@ func InstallAccountMutationSubject(repository, userID int64, command string, res
 	case "account.device.delete":
 		_, valid = input.(string)
 		valid = valid && resourceID == 0
-	case "account.connection.delete":
+	case "account.email.add":
+		_, valid = input.(AddEmailRequest)
+		valid = valid && resourceID == 0
+	case "account.email.delete", "account.email.verify", "account.connection.delete":
 		_, valid = input.(struct{})
 		valid = valid && resourceID > 0
 	}

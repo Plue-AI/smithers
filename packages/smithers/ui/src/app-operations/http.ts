@@ -35,6 +35,9 @@ const accountWrite = (name: string, method: "POST" | "PATCH" | "PUT" | "DELETE",
 const optionalText = Schema.optional(Schema.Union([Schema.String, Schema.Null]))
 
 export const httpProjections = [
+ accountWrite("account.email.add", "POST", "/api/user/emails", Schema.Struct({ email: Schema.String, is_primary: Schema.optional(Schema.Boolean) })),
+ accountWrite("account.email.delete", "DELETE", "/api/user/emails/{id}", NoInput),
+ accountWrite("account.email.verify", "POST", "/api/user/emails/{id}/verify", NoInput),
  accountWrite("account.signup.update", "PUT", "/api/user/settings/signup", Schema.Struct({
  name: Schema.String, account: Schema.String, stage: Schema.String, question: Schema.optional(Schema.Number), repo: optionalText,
  answers: Schema.optional(Schema.Union([Schema.Record(Schema.String, Schema.Union([Schema.String, Schema.Array(Schema.String), Schema.Null])), Schema.Null]))

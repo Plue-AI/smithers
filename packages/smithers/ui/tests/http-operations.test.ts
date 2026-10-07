@@ -170,6 +170,9 @@ test("retained account writes use the user scope and an owner person", async () 
   const { Schema } = await import("effect")
   const rows = generateCatalog()
   for (const [name, method, path] of [
+    ["account.email.add", "POST", "/api/user/emails"],
+    ["account.email.delete", "DELETE", "/api/user/emails/{id}"],
+    ["account.email.verify", "POST", "/api/user/emails/{id}/verify"],
     ["account.profile.update", "PATCH", "/api/user"],
     ["account.signup.update", "PUT", "/api/user/settings/signup"],
     ["account.device.register", "POST", "/api/user/devices"],

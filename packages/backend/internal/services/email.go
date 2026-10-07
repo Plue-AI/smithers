@@ -44,9 +44,11 @@ type EmailServiceConfig struct {
 
 // EmailService implements email management operations.
 type EmailService struct {
-	queries   EmailQuerier
-	transport email.Transport
-	cfg       EmailServiceConfig
+	install         *installAccountMutationStore
+	installAdmitted bool
+	queries         EmailQuerier
+	transport       email.Transport
+	cfg             EmailServiceConfig
 	// spawn is used for async email delivery. Defaults to goroutine.
 	// Overridden in tests for synchronous behavior.
 	spawn func(func())
@@ -71,13 +73,17 @@ type AddEmailRequest struct {
 }
 
 // NewEmailService creates a new EmailService with email delivery transport.
-func NewEmailService(q EmailQuerier, transport email.Transport, cfg EmailServiceConfig) *EmailService {
-	return &EmailService{
+func NewEmailService(q EmailQuerier, transport email.Transport, cfg EmailServiceConfig, options ...EmailServiceOption) *EmailService {
+	s := &EmailService{
 		queries:   q,
 		transport: transport,
 		cfg:       cfg,
 		spawn:     func(f func()) { go f() },
 	}
+	for _, option := range options {
+		option(s)
+	}
+	return s
 }
 
 // ListEmails returns all emails for the given user.
@@ -104,6 +110,13 @@ func (s *EmailService) ListEmails(ctx context.Context, userID int64) ([]EmailRes
 
 // AddEmail creates a new email for the given user.
 func (s *EmailService) AddEmail(ctx context.Context, userID int64, req AddEmailRequest) (EmailResponse, error) {
+	if s.install != nil && !s.installAdmitted {
+		return withInstallAccountMutation(s.install, ctx, userID, "account.email.add", 0, req, func(ctx context.Context, q *db.Queries) (EmailResponse, error) {
+			scoped := *s
+			scoped.queries, scoped.installAdmitted = q, true
+			return scoped.AddEmail(ctx, userID, req)
+		})
+	}
 	if userID <= 0 {
 		return EmailResponse{}, pkgerrors.BadRequest("invalid user")
 	}
@@ -139,6 +152,14 @@ func (s *EmailService) AddEmail(ctx context.Context, userID int64, req AddEmailR
 
 // DeleteEmail removes an email owned by the given user.
 func (s *EmailService) DeleteEmail(ctx context.Context, userID, emailID int64) error {
+	if s.install != nil && !s.installAdmitted {
+		_, err := withInstallAccountMutation(s.install, ctx, userID, "account.email.delete", emailID, struct{}{}, func(ctx context.Context, q *db.Queries) (struct{}, error) {
+			scoped := *s
+			scoped.queries, scoped.installAdmitted = q, true
+			return struct{}{}, scoped.DeleteEmail(ctx, userID, emailID)
+		})
+		return err
+	}
 	if userID <= 0 {
 		return pkgerrors.BadRequest("invalid user")
 	}
@@ -168,6 +189,41 @@ func (s *EmailService) DeleteEmail(ctx context.Context, userID, emailID int64) e
 // sends a verification email asynchronously. The raw token is never returned
 // to the caller — it is only delivered via email.
 func (s *EmailService) RequestVerification(ctx context.Context, userID, emailID int64) error {
+	if s != nil && s.install != nil && !s.installAdmitted {
+		var delivery func()
+		var admitted context.Context
+		_, err := withInstallAccountMutation(s.install, ctx, userID, "account.email.verify", emailID, struct{}{}, func(ctx context.Context, q *db.Queries) (struct{}, error) {
+			scoped := *s
+			scoped.queries, scoped.installAdmitted = q, true
+			// Retain the existing delivery, but queue it only after the token commits.
+			scoped.spawn = func(send func()) { delivery = send }
+			admitted = context.WithoutCancel(ctx)
+			return struct{}{}, scoped.RequestVerification(ctx, userID, emailID)
+		})
+		if err != nil {
+			return err
+		}
+		if delivery != nil {
+			s.spawn(func() {
+				// Background delivery must still belong to the live admitted credential.
+				_, err := withInstallAccountMutation(s.install, admitted, userID, "account.email.verify", emailID, struct{}{}, func(ctx context.Context, q *db.Queries) (struct{}, error) {
+					row, err := q.GetEmailByID(ctx, emailID)
+					if err != nil {
+						return struct{}{}, err
+					}
+					if row.UserID != userID {
+						return struct{}{}, confirmationPermission()
+					}
+					delivery()
+					return struct{}{}, nil
+				})
+				if err != nil {
+					slog.Error("verification email authorization expired", "error", err)
+				}
+			})
+		}
+		return nil
+	}
 	if userID <= 0 {
 		return pkgerrors.BadRequest("invalid user")
 	}
