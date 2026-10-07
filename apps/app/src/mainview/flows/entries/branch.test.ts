@@ -289,3 +289,35 @@ test("an unanswered live SSH provider keeps the off-install seed available", asy
     expect(await submit(h, "ssh", { branch: "retry-webhooks" })).toEqual({ status: "executed", value: "ssh -p 2222 retry-webhooks@maya-mini.tail1234.ts.net" })
   } finally { h.controller.dispose() }
 })
+
+test("Archive persists and acknowledges before HTTP; duplicate input and Chat stay usable", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  let posts = 0
+  let release!: (response: Response) => void
+  const profile = signupProfileFetch(async (input, init) => {
+    const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url, "https://install.test").pathname
+    if (path === "/api/branches/scratch-id/archive" && init?.method === "POST") {
+      posts++
+      expect(store.session().branchArchiveRequests?.[0]?.state).toBe("requested")
+      expect(new Headers(init.headers).get("Idempotency-Key")).toBeTruthy()
+      return new Promise<Response>(resolve => { release = resolve })
+    }
+    return new Response("{}", { status: 404 })
+  })
+  const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl, toastDebounceMs: 0,
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null } })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+  try {
+    expect(await controller.submitCommand({ name: "branch.archive", payload: { branch: "scratch-id" }, actor: "user" })).toMatchObject({ status: "executed", value: "Archive requested" })
+    expect(await controller.runCommandForResult("branch.archive", "scratch-id")).toMatchObject({ status: "executed", value: "Archive requested" })
+    controller.changeDraft("Chat remains usable")
+    expect(store.session().draft).toBe("Chat remains usable")
+    expect(posts).toBe(1)
+    release(Response.json({ state: "closed" }))
+    const { waitFor } = await import("../../state/TestFixtures")
+    await waitFor(() => store.session().branchArchiveRequests?.[0]?.state === "completed")
+    expect(store.session().branchArchiveRequests).toHaveLength(1)
+    expect(await controller.submitCommand({ name: "branch.archive", payload: { branch: "scratch-id" }, actor: "agent" })).toMatchObject({ status: "executed", value: 'asked the user to confirm "/branch.archive scratch-id" — it runs only when they confirm, and nothing has happened yet' })
+    expect(posts).toBe(1)
+  } finally { await controller.dispose() }
+})
