@@ -7,13 +7,14 @@ import (
 	"os"
 )
 
-// GitHubMainResetIntent is persisted by the stack before the mirror write.
+// GitHubMainResetIntent is persisted by the journal before the mirror write.
 // ID is the stored attention ID, not an ID chosen by a reset caller.
 type GitHubMainResetIntent struct {
 	RepositoryID int64  `json:"repository_id"`
 	ID           string `json:"id"`
 	Old          string `json:"old"`
 	New          string `json:"new"`
+	Settled      bool   `json:"settled,omitempty"`
 }
 
 // GitHubMainSerialization is the stack's shared pull/reset/merge boundary.
@@ -71,6 +72,9 @@ func (s *GitHubMainPullService) ResetMainAttention(ctx context.Context, reposito
 }
 
 func (s *GitHubMainPullService) resetPrepared(ctx context.Context, fence GitHubMainFence, intent GitHubMainResetIntent) error {
+	if intent.Settled {
+		return nil
+	}
 	repository, err := s.store.GetRepoByID(ctx, intent.RepositoryID)
 	if err != nil {
 		return err
@@ -109,13 +113,33 @@ func (s *GitHubMainPullService) resetPrepared(ctx context.Context, fence GitHubM
 		return err
 	}
 	verifyRepository := RepositoryStillAt(s.store, repository.ID, owner, repository.Name)
+	ref := "refs/heads/" + branch
+	verificationFailures := make(chan error, 1)
 	verify := func(ctx context.Context) error {
-		if err := verifyRepository(ctx); err != nil {
+		refuse := func(err error) error {
+			select {
+			case verificationFailures <- err:
+			default:
+			}
 			return err
 		}
-		return fence.VerifyLocked(ctx, intent)
+		if err := verifyRepository(ctx); err != nil {
+			return refuse(err)
+		}
+		if err := fence.VerifyLocked(ctx, intent); err != nil {
+			return refuse(err)
+		}
+		// The remote can move after fetch. Reread its bound tip immediately
+		// before the expected-old write, inside repo-host's write lock.
+		refs, err := s.lsRemote(ctx, upstream, ref, "refs/heads/smithers/*")
+		if err != nil {
+			return refuse(fmt.Errorf("verify GitHub main: %s", sanitizeMirrorError(err, upstream)))
+		}
+		if refs[ref] != intent.New {
+			return refuse(staleMainReset())
+		}
+		return nil
 	}
-	ref := "refs/heads/" + branch
 	bridge, err := startGitHubMainPullBridge(ctx, s.host, owner, repository.Name, gitHubMainPullUpdate{repositoryID: repository.ID, ref: ref, old: intent.Old, writer: s.mainWriter()}, verify)
 	if err != nil {
 		return err
@@ -141,7 +165,17 @@ func (s *GitHubMainPullService) resetPrepared(ctx context.Context, fence GitHubM
 	}
 	bridge.allow(intent.New)
 	if err := resetter.Reset(ctx, dir, bridge.URL(), intent.Old, intent.New, ref); err != nil {
-		// Ambiguous writes retain the intent; recovery inspects the mirror.
+		// Preserve a typed pre-write refusal rather than losing it in Git's
+		// transport error. Ambiguous writes retain intent for recovery.
+		select {
+		case refused := <-verificationFailures:
+			return refused
+		default:
+		}
+		after, readErr := s.bookmarkCommit(ctx, owner, repository.Name, branch)
+		if readErr == nil && after != intent.Old && after != intent.New {
+			return staleMainReset()
+		}
 		return fmt.Errorf("reset mirror: %s", sanitizeMirrorError(err, upstream, bridge.URL()))
 	}
 	after, err := s.bookmarkCommit(ctx, owner, repository.Name, branch)

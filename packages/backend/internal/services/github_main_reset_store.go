@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -79,7 +80,7 @@ func (j *GitHubMainResetJournal) Pending(ctx context.Context) ([]GitHubMainReset
 	if err := j.ready(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := j.Pool.Query(ctx, `SELECT reset_intent FROM github_main_pulls WHERE reset_intent IS NOT NULL ORDER BY repository_id`)
+	rows, err := j.Pool.Query(ctx, `SELECT reset_intent FROM github_main_pulls WHERE reset_intent IS NOT NULL AND reset_intent->>'settled' IS DISTINCT FROM 'true' ORDER BY repository_id`)
 	if err != nil {
 		return nil, err
 	}
@@ -122,6 +123,20 @@ func (f *githubMainJournalFence) OpenForcePush(ctx context.Context, push GitHubM
 func (f *githubMainJournalFence) Prepare(ctx context.Context, id, old, new string) (GitHubMainResetIntent, error) {
 	var intent GitHubMainResetIntent
 	err := f.transaction(ctx, func(tx pgx.Tx) error {
+		var saved []byte
+		if err := tx.QueryRow(ctx, `SELECT reset_intent FROM github_main_pulls WHERE repository_id=$1 FOR UPDATE`, f.repository).Scan(&saved); err != nil {
+			return err
+		}
+		if saved != nil {
+			var prior GitHubMainResetIntent
+			if err := json.Unmarshal(saved, &prior); err != nil {
+				return err
+			}
+			if prior.Settled && (id == "" || id == prior.ID) && old == prior.Old && new == prior.New {
+				intent = prior
+				return nil
+			}
+		}
 		attention, err := f.journal.Stack.ValidateReset(ctx, tx, f.repository, id, old, new)
 		if err != nil {
 			return err
@@ -134,7 +149,7 @@ func (f *githubMainJournalFence) Prepare(ctx context.Context, id, old, new strin
 		if err != nil {
 			return err
 		}
-		result, err := tx.Exec(ctx, `UPDATE github_main_pulls SET reset_intent=$2,updated_at=now() WHERE repository_id=$1 AND (reset_intent IS NULL OR reset_intent=$2::jsonb)`, f.repository, raw)
+		result, err := tx.Exec(ctx, `UPDATE github_main_pulls SET reset_intent=$2,updated_at=now() WHERE repository_id=$1 AND (reset_intent IS NULL OR reset_intent=$2::jsonb OR reset_intent->>'settled'='true')`, f.repository, raw)
 		if err != nil {
 			return err
 		}
@@ -155,7 +170,7 @@ func (f *githubMainJournalFence) verifyIntent(ctx context.Context, tx pgx.Tx, in
 		return err
 	}
 	var matches bool
-	err = tx.QueryRow(ctx, `SELECT reset_intent=$2::jsonb FROM github_main_pulls WHERE repository_id=$1 AND reset_intent IS NOT NULL FOR UPDATE`, f.repository, raw).Scan(&matches)
+	err = tx.QueryRow(ctx, `SELECT reset_intent=$2::jsonb FROM github_main_pulls WHERE repository_id=$1 AND reset_intent IS NOT NULL AND reset_intent->>'settled' IS DISTINCT FROM 'true' FOR UPDATE`, f.repository, raw).Scan(&matches)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errMainResetIntentMissing
 	}
@@ -186,7 +201,7 @@ func (f *githubMainJournalFence) VerifyLocked(ctx context.Context, intent GitHub
 func (f *githubMainJournalFence) VerifyPull(ctx context.Context, old, new string) error {
 	return f.transaction(ctx, func(tx pgx.Tx) error {
 		var pending bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM github_main_pulls WHERE repository_id=$1 AND reset_intent IS NOT NULL)`, f.repository).Scan(&pending); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM github_main_pulls WHERE repository_id=$1 AND reset_intent IS NOT NULL AND reset_intent->>'settled' IS DISTINCT FROM 'true')`, f.repository).Scan(&pending); err != nil {
 			return err
 		}
 		if pending {
@@ -213,7 +228,12 @@ func (f *githubMainJournalFence) finish(ctx context.Context, intent GitHubMainRe
 		if err != nil {
 			return err
 		}
-		result, err := tx.Exec(ctx, `UPDATE github_main_pulls SET reset_intent=NULL,updated_at=now() WHERE repository_id=$1`, f.repository)
+		var result pgconn.CommandTag
+		if settle {
+			result, err = tx.Exec(ctx, `UPDATE github_main_pulls SET reset_intent=reset_intent || '{"settled":true}'::jsonb,updated_at=now(),last_synced_at=now(),last_checked_at=now(),github_head=$2,smithers_head=$2,state='synced',last_error='',health_cause='',retry_at=NULL,next_attempt_at=now() WHERE repository_id=$1`, f.repository, intent.New)
+		} else {
+			result, err = tx.Exec(ctx, `UPDATE github_main_pulls SET reset_intent=NULL,updated_at=now() WHERE repository_id=$1`, f.repository)
+		}
 		if err != nil {
 			return err
 		}
