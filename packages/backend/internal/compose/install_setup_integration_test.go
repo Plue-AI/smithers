@@ -153,6 +153,46 @@ func TestInstallSetupCookieBoundaryPostgres(t *testing.T) {
 	}, 5*time.Second, 20*time.Millisecond)
 	cancel()
 	require.NoError(t, <-done)
+	// Sign-in admission returns while OAuth has no completion receipt yet.
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "setup.step.app_manifest", Value: []byte(`{"status":"done"}`)}))
+	response = request("/api/install/setup/sign_in", `{}`, false)
+	require.Equal(t, 202, response.StatusCode)
+	var signIn jobs.RequestReceipt
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&signIn))
+	response.Body.Close()
+	response = request("/api/install/setup/sign_in", `{}`, false)
+	require.Equal(t, 202, response.StatusCode)
+	var replay jobs.RequestReceipt
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&replay))
+	response.Body.Close()
+	require.Equal(t, signIn.OperationID, replay.OperationID)
+	workerCtx, cancel = context.WithCancel(ctx)
+	done = make(chan error, 1)
+	go func() {
+		done <- store.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "sign-in-worker", Capacity: 1, Lease: time.Second, PollInterval: 10 * time.Millisecond, Operations: []string{"install.setup.sign_in"}}, setup.Handle)
+	}()
+	require.Eventually(t, func() bool {
+		var n int
+		err := pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE operation_id=$1 AND event_type='operation.waiting'`, signIn.OperationID).Scan(&n)
+		return err == nil && n > 0
+	}, 5*time.Second, 20*time.Millisecond)
+	steps, err = setup.Steps(ctx)
+	require.NoError(t, err)
+	require.Equal(t, services.InstallRunning, steps[2].Status)
+	require.Equal(t, signIn.OperationID, steps[2].OperationID)
+	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "sign-in-owner", LowerUsername: "sign-in-owner"})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, owner.ID)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		steps, err := setup.Steps(ctx)
+		return err == nil && steps[2].Status == services.InstallReady && steps[2].OperationID == signIn.OperationID
+	}, 5*time.Second, 20*time.Millisecond)
+	cancel()
+	require.NoError(t, <-done)
+	var completions int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE operation_id=$1 AND event_type='operation.completed'`, signIn.OperationID).Scan(&completions))
+	require.Equal(t, 1, completions)
 }
 
 // The image boundary is held deliberately; no repository recipe executes in
