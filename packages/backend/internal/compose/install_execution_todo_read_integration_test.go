@@ -18,6 +18,11 @@ import (
 )
 
 func TestInstallExecutionTodoReadPostgres(t *testing.T) {
+	testInstallExecutionTodoReadPostgres(t)
+}
+
+func testInstallExecutionTodoReadPostgres(t *testing.T) map[string]string {
+	t.Helper()
 	f := newLandingGateFixtureWithFactory(t, nil, "", true)
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = "selfhost"
@@ -104,5 +109,13 @@ func TestInstallExecutionTodoReadPostgres(t *testing.T) {
 		require.Nil(t, view)
 		require.Equal(t, 1, count)
 	})
+
+	// Receipts identify the actual HTTP credentials, not an unbound caller.
+	hashes := map[string]string{}
+	for name, token := range credentials {
+		digest := sha256.Sum256([]byte(token))
+		hashes[name] = hex.EncodeToString(digest[:])
+	}
+	return hashes
 
 }
