@@ -52,7 +52,7 @@ func todoConflictWait(item db.MythicalItem, wait flowruntime.PendingWait, update
 	if !pinned || !checks.RunLaunched || !checks.RunAttached || signal.Run != item.RequestRunID || signal.Flow != pin.Flow || !conflictSignalBound(item, signal) {
 		return TodoWait{}, false
 	}
-	sum := sha256.Sum256([]byte(wait.RunID + "\x00" + wait.Token))
+	sum := sha256.Sum256([]byte(item.RequestRunID + "\x00" + request.Change + "\x00" + request.Onto))
 	return TodoWait{ID: "c-" + hex.EncodeToString(sum[:8]), Kind: "conflict", Paths: append([]string(nil), retained.Conflict.Paths...), ConflictChange: request.Change, OntoRevision: request.Onto, Since: now, Signal: signal}, true
 }
 
