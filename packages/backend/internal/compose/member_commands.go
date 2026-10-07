@@ -25,6 +25,13 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			info := middleware.AuthInfoFromContext(r.Context())
 			command := middleware.InstallMemberCommand(r.Method, r.URL.EscapedPath())
+			if command == "order.ok" {
+				var ok bool
+				command, ok = routes.StackAttentionCommand(w, r)
+				if !ok {
+					return
+				}
+			}
 			if r.Method == http.MethodPost && strings.HasPrefix(r.URL.EscapedPath(), "/api/branches/") && !strings.Contains(strings.TrimPrefix(r.URL.EscapedPath(), "/api/branches/"), "/") {
 				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
 				var body struct {

@@ -1,8 +1,10 @@
 package routes
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -30,7 +32,7 @@ func (h *MainResetHandler) Reset(w http.ResponseWriter, r *http.Request) {
 		Old string `json:"old"`
 		New string `json:"new"`
 	}
-	if !decodeJSONBody(w, r, &input) {
+	if !decodeStrictJSONBody(w, r, &input) {
 		return
 	}
 	if input.Old == "" || input.New == "" || input.Old == input.New {
@@ -55,4 +57,43 @@ func (h *MainResetHandler) Reset(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(struct {
 		State string `json:"state"`
 	}{"settled"})
+}
+
+// StackAttentionCommand selects the bound flow and preserves its body for the
+// handler. The authorizer and route use the same resolver.
+func StackAttentionCommand(w http.ResponseWriter, r *http.Request) (string, bool) {
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 4096))
+	if err != nil {
+		writeJSONDecodeError(w, "invalid request body", err)
+		return "", false
+	}
+	var input map[string]json.RawMessage
+	if err := decodeSingleJSONDocument(json.NewDecoder(bytes.NewReader(raw)), &input); err != nil {
+		writeJSONDecodeError(w, "invalid request body", err)
+		return "", false
+	}
+	r.Body = io.NopCloser(bytes.NewReader(raw))
+	_, old := input["old"]
+	_, next := input["new"]
+	if old || next {
+		return "main.reset-to-github", true
+	}
+	return "order.ok", true
+}
+
+type StackAttentionHandler struct {
+	Reset *MainResetHandler
+	Order *TodoHandler
+}
+
+func (h *StackAttentionHandler) Answer(w http.ResponseWriter, r *http.Request) {
+	command, ok := StackAttentionCommand(w, r)
+	if !ok {
+		return
+	}
+	if command == "main.reset-to-github" {
+		h.Reset.Reset(w, r)
+		return
+	}
+	h.Order.OrderOK(w, r)
 }

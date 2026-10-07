@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
@@ -71,7 +72,7 @@ func TestMainResetInstallOwnerOnlyAndMissingSerialization(t *testing.T) {
 	cfg.Server.AllowedOrigins = []string{"http://example.com"}
 	main := services.NewGitHubMainPullService(q, nil, nil, nil)
 	main.UseInstallPolicy()
-	router := githubAppSetupComposeRouter(cfg, pool, nil, routerExtras{GitHubSync: main})
+	router := githubAppSetupComposeRouter(cfg, pool, nil, routerExtras{GitHubSync: main, Mythical: &routes.MythicalHandler{Service: services.NewMythicalService(pool, nil)}})
 	for i := range users {
 		for _, person := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%d/person=%t", i, person), func(t *testing.T) {
@@ -101,6 +102,25 @@ func TestMainResetInstallOwnerOnlyAndMissingSerialization(t *testing.T) {
 			})
 		}
 	}
+	for _, i := range []int{0, 1} {
+		t.Run(fmt.Sprintf("shared order settlement/%d", i), func(t *testing.T) {
+			_, err := pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,actor_user_id,attention) VALUES($1,$2,'[{"id":"order-one","kind":"order","revision":1,"entries":[],"actions":[]}]') ON CONFLICT(repository_id) DO UPDATE SET attention=EXCLUDED.attention`, repo.ID, users[0].ID)
+			require.NoError(t, err)
+			request := httptest.NewRequest("POST", "http://example.com/api/stack/attention/order-one", strings.NewReader(`{"revision":1}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Origin", "http://example.com")
+			request.AddCookie(&http.Cookie{Name: "session", Value: sessions[i]})
+			request.Header.Set("X-CSRF-Token", "reset-csrf")
+			request.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "reset-csrf"})
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			require.Equal(t, http.StatusNoContent, response.Code, response.Body.String())
+			var settledBy int64
+			require.NoError(t, pool.QueryRow(ctx, `SELECT (attention->0->>'settled_by')::bigint FROM mythical_stacks WHERE repository_id=$1`, repo.ID).Scan(&settledBy))
+			require.Equal(t, users[i].ID, settledBy)
+		})
+	}
+
 	for _, input := range []string{`{"old":"same","new":"same"}`, `{"old":"","new":"new"}`, `{"old":"old","new":""}`} {
 		t.Run("invalid binding/"+input, func(t *testing.T) {
 			request := httptest.NewRequest("POST", "http://example.com/api/stack/attention/force-19", strings.NewReader(input))

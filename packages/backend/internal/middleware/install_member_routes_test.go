@@ -35,7 +35,7 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodGet, "/api/repos/local-owner/demo/mythical/items/T3", "repo.read"},
 		{http.MethodGet, "/api/github/sync", "sync.read"},
 		{http.MethodPost, "/api/github/sync", "sync.retry"},
-		{http.MethodPost, "/api/stack/attention/force-19", "main.reset-to-github"},
+		{http.MethodPost, "/api/stack/attention/force-19", "order.ok"},
 		{http.MethodGet, "/api/stack/attention/force-19", ""},
 		{http.MethodGet, "/api/live", "live"},
 		{http.MethodPost, "/api/agent/turn/replay", "agent.turn"},
