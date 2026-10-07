@@ -8,7 +8,7 @@ const Context = Schema.Struct({
   source_generation: Schema.String
 })
 const Input = Schema.Struct({
-  profile: Schema.Literals(["codex/0.160.0", "claude-code/2.1.0"]),
+  profile: Schema.Literals(["codex-rollout/0.160", "claude-code/2.1"]),
   context: Context,
   record: Schema.String,
   start: Schema.Number,
@@ -54,7 +54,7 @@ export const normalizeTranscript = (value: unknown) => {
     previous.profile !== input.profile || previous.source_generation !== context.source_generation) {
     throw new Error("invalid transcript checkpoint")
   }
-  const codex = input.profile === "codex/0.160.0"
+  const codex = input.profile === "codex-rollout/0.160"
   const decode = (): Result.Result<Transcript.Decoded<Transcript.CodexState | Transcript.ClaudeState>, Transcript.ExternalTranscriptError> => {
     if (codex) {
       const state = previous === undefined ? Transcript.codexStart : Schema.decodeUnknownSync(Codex)(previous.decoder)
@@ -84,6 +84,9 @@ export const normalizeTranscript = (value: unknown) => {
         id: `${context.source_generation}:${entry.source_id}`,
         source_id: entry.source_id,
         source_offset: input.start,
+        seq: entry.seq,
+        at: entry.at,
+        ...(entry.turn_id === undefined ? {} : { turn_id: entry.turn_id }),
         origin: "external",
         read_only: true,
         agent: entry.agent_kind,
@@ -93,7 +96,7 @@ export const normalizeTranscript = (value: unknown) => {
         owner_id: context.owner_id,
         author_id: kind === "prompt" ? context.owner_id : context.participant_id,
         kind,
-        body: part.type === "prompt" || part.type === "text" || part.type === "reasoning" ? part.text : part,
+        body: part,
         ...("call_id" in part ? { call_id: part.call_id } : {}),
         failed: (part.type === "tool" && part.status === "error") || (part.type === "edit" && part.outcome === "failed")
       }
