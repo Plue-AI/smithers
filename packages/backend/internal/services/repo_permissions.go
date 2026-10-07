@@ -420,7 +420,7 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 		}
 		return authorizeExecutionTodoRead(ctx, q, subject)
 	}
-	if command == "todo.read" && InstallExecutionCredential(ctx) {
+	if (command == "todo.read" || command == "branch.read") && InstallExecutionCredential(ctx) {
 		return authorizeExecutionTodoRead(ctx, q, subject)
 	}
 	policy, ok := installCommandPolicy(command)
@@ -882,7 +882,7 @@ func authorizeExecutionTodoRead(ctx context.Context, q *db.Queries, subject Inst
 	if info.CredentialKind() == middleware.CredentialAgentRun {
 		workspaceID = middleware.ParseTokenLandingWorkspace(info.RawScopes)
 	}
-	if workspaceID == "" {
+	if workspaceID == "" || subject.WorkspaceID != "" && subject.WorkspaceID != workspaceID {
 		return deny()
 	}
 	paths := middleware.ParseTokenPathRestrictions(info.RawScopes)

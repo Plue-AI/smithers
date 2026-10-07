@@ -64,6 +64,30 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 					return
 				}
 			}
+			if command == "branch.read" && services.InstallExecutionCredential(r.Context()) {
+				parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+				subject := services.InstallSubject{}
+				if (len(parts) == 7 || len(parts) == 8) && parts[1] == "repos" && parts[4] == "workspaces" && parts[6] == "files" {
+					repository, err := queries.GetRepoByOwnerAndLowerName(r.Context(), db.GetRepoByOwnerAndLowerNameParams{Owner: strings.ToLower(parts[2]), LowerName: strings.ToLower(parts[3])})
+					if err != nil {
+						writeConfirmationDispatchError(w, &services.AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"})
+						return
+					}
+					subject, err = services.ResolveInstallExecutionSubject(r.Context(), queries, repository.ID)
+					if err != nil {
+						writeConfirmationDispatchError(w, err)
+						return
+					}
+					subject.WorkspaceID = parts[5]
+				}
+				decision, err := services.Authorize(r.Context(), queries, command, subject)
+				if err != nil {
+					writeConfirmationDispatchError(w, err)
+					return
+				}
+				next.ServeHTTP(w, r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, subject)))
+				return
+			}
 			if command == "branch.fork" && services.InstallExecutionCredential(r.Context()) {
 				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
 				if err != nil {

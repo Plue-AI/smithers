@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
@@ -90,6 +91,9 @@ type workspaceFacetIngressClient interface {
 // ListWorkspaceFiles lists the immediate children of path inside the working
 // copy. Read access is sufficient; symlinks cannot be used to leave the copy.
 func (s *WorkspaceService) ListWorkspaceFiles(ctx context.Context, workspaceID string, repositoryID, userID int64, filePath string) ([]WorkspaceFileEntry, error) {
+	if err := s.authorizeInstallWorkspaceFileRead(ctx, workspaceID, repositoryID, userID); err != nil {
+		return nil, err
+	}
 	relativePath, absolutePath, err := workspaceFilePath(filePath, true)
 	if err != nil {
 		return nil, err
@@ -192,6 +196,9 @@ find "$resolved" -mindepth 1 -maxdepth 1 -printf '%f\0%y\0%s\0'`
 
 // ReadWorkspaceFile reads one bounded file inside the working copy.
 func (s *WorkspaceService) ReadWorkspaceFile(ctx context.Context, workspaceID string, repositoryID, userID int64, filePath string) (WorkspaceFileContent, error) {
+	if err := s.authorizeInstallWorkspaceFileRead(ctx, workspaceID, repositoryID, userID); err != nil {
+		return WorkspaceFileContent{}, err
+	}
 	relativePath, absolutePath, err := workspaceFilePath(filePath, false)
 	if err != nil {
 		return WorkspaceFileContent{}, err
@@ -799,4 +806,28 @@ func normalizeWorkspaceServiceState(load, active, sub string) string {
 	default:
 		return "stopped"
 	}
+}
+
+func (s *WorkspaceService) authorizeInstallWorkspaceFileRead(ctx context.Context, workspaceID string, repositoryID, userID int64) error {
+	if s.installQueries == nil {
+		return nil
+	}
+	subject := InstallSubject{}
+	if InstallExecutionCredential(ctx) {
+		var err error
+		subject, err = ResolveInstallExecutionSubject(ctx, s.installQueries, repositoryID)
+		if err != nil {
+			return err
+		}
+		subject.WorkspaceID = workspaceID
+	}
+	decision, err := Authorize(ctx, s.installQueries, "branch.read", subject)
+	if err != nil {
+		return err
+	}
+	info := middleware.AuthInfoFromContext(ctx)
+	if info == nil || info.User == nil || decision.UserID != userID {
+		return confirmationPermission()
+	}
+	return nil
 }
