@@ -212,6 +212,16 @@
       "reason": "Absent: packages/backend/internal/machined/fault_test.go, crates/smithers-machined",
       "ticket": "T-COL-03"
     },
+    "C-FM-01": {
+      "status": "pending-owner",
+      "reason": "Requires smithers-22 approved target and authenticated qualification evidence.",
+      "ticket": "T-FM-01"
+    },
+    "C-FM-02": {
+      "status": "pending-owner",
+      "reason": "Requires smithers-22 approved target and authenticated qualification evidence.",
+      "ticket": "T-FM-02"
+    },
     "C-GH-01": {
       "status": "manual",
       "reason": "Person/hardware required: recorded manual (W0), reference host (S1); Automation unavailable/unapproved; owner must supply argv and host"
@@ -601,6 +611,11 @@
       "status": "pending-owner",
       "reason": "Absent: packages/backend/internal/services/machine_slots_integration_test.go",
       "ticket": "T-MCH-06"
+    },
+    "C-MCH-12": {
+      "status": "pending-owner",
+      "reason": "Requires smithers-22 approved target and authenticated qualification evidence.",
+      "ticket": "T-MCH-16"
     },
     "C-MNT-01": {
       "status": "pending-owner",
@@ -1204,6 +1219,11 @@
       "status": "pending-owner",
       "reason": "Absent: apps/app/src/mainview/cards/containers/<Card>Container.integration.test.ts; card view reachability is covered by apps/app/src/mainview/cards/ViewReachability.test.ts",
       "ticket": "T-APP-01"
+    },
+    "C-UI-14": {
+      "status": "pending-owner",
+      "reason": "Requires smithers-22 approved target and authenticated qualification evidence.",
+      "ticket": "T-UI-19"
     }
   }
 }
