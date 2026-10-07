@@ -282,24 +282,37 @@ func (s *InstallQuiesce) Available() error {
 	return nil
 }
 
+// Check runs all read-only barriers before any freeze, reporting each refusal.
+// The native owner preflight and Freeze share this boundary.
+func (s *InstallQuiesce) Check(ctx context.Context) error {
+	if err := s.Available(); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	var refusals []error
+	for _, ticket := range quiesceBarrierTickets {
+		if err := ctx.Err(); err != nil {
+			return errors.Join(append(refusals, err)...)
+		}
+		if err := s.Barriers[ticket].Check(ctx); err != nil {
+			refusals = append(refusals, fmt.Errorf("%s: %w", ticket, err))
+		}
+	}
+	return errors.Join(append(refusals, ctx.Err())...)
+}
+
 // Freeze renews an existing ready operation. Callers POST the same op every 10s,
 // including while the initial drain request is outstanding.
 func (s *InstallQuiesce) Freeze(ctx context.Context, op string, by int64) (freeze *QuiesceFreeze, err error) {
 	if op == "" {
 		return nil, errors.New("quiesce op required")
 	}
-	if err := s.Available(); err != nil {
+	if err := s.Check(ctx); err != nil {
 		return nil, err
 	}
 	machines := s.Machines
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	for _, ticket := range quiesceBarrierTickets {
-		if err := s.Barriers[ticket].Check(ctx); err != nil {
-			return nil, fmt.Errorf("%s: %w", ticket, err)
-		}
-	}
 	s.Gate.resume.Store(s.resume)
 	fresh := false
 	err = s.Gate.Store.Update(ctx, func(row *QuiesceFreeze) (*QuiesceFreeze, error) {

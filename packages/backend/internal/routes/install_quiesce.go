@@ -46,7 +46,7 @@ func (h *InstallQuiesceHandler) HandleInstallingOwner(w http.ResponseWriter, r *
 		return
 	}
 	if r.URL.Path == "/maintenance/check" && r.Method == http.MethodGet {
-		if err := h.Service.Available(); err != nil {
+		if err := h.Service.Check(r.Context()); err != nil {
 			quiesceResponse(w, err)
 			return
 		}

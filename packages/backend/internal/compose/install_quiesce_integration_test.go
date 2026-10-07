@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -118,6 +119,61 @@ func TestInstallQuiesceRouteGate(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, response.Body.Close())
 		require.Equal(t, 204, response.StatusCode)
+		t.Run("owner preflight", func(t *testing.T) {
+			for _, tc := range []struct {
+				name, fence, wiki string
+				status            int
+			}{
+				{"merge and burst", "merge in flight: TODO 17; open burst: feature", "", 503},
+				{"all refusals", "merge in flight: TODO 17; open burst: feature", "wiki flush unavailable", 503},
+				{"ready", "", "", 204},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					state := t.TempDir()
+					require.NoError(t, os.Chmod(state, 0700))
+					require.NoError(t, os.WriteFile(filepath.Join(state, "sentinel"), []byte("live-state"), 0600))
+					calls := []string{}
+					steps := installMaintenancePreflightFixture{calls: &calls}
+					service := services.NewInstallQuiesce(&services.QuiesceGate{Store: services.InstallQuiesceStore{Pool: pool}, StateDir: state})
+					service.Machines, service.Admission, service.Host = steps, steps, steps
+					service.Barriers = map[string]services.QuiesceBarrier{}
+					for _, ticket := range []string{"T-STK-04", "T-COL-08", "T-COL-09", "T-GH-09", "T-TRM-07", "T-SEC-01"} {
+						service.Barriers[ticket] = steps
+					}
+					if tc.fence != "" {
+						service.Barriers["T-STK-04"] = installMaintenancePreflightFixture{calls: &calls, refusal: errors.New(tc.fence)}
+					}
+					if tc.wiki != "" {
+						service.Barriers["T-COL-09"] = installMaintenancePreflightFixture{calls: &calls, refusal: errors.New(tc.wiki)}
+					}
+					closeSocket, err := startInstallMaintenanceHandoff(ctx, state, pool, func(context.Context, io.Writer) error { return nil }, service)
+					require.NoError(t, err)
+					t.Cleanup(func() { require.NoError(t, closeSocket()) })
+					transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+						return (&net.Dialer{}).DialContext(ctx, "unix", filepath.Join(state, "run/host.sock"))
+					}}
+					t.Cleanup(transport.CloseIdleConnections)
+					response, err := (&http.Client{Transport: transport}).Get("http://install/maintenance/check")
+					require.NoError(t, err)
+					body, err := io.ReadAll(response.Body)
+					require.NoError(t, err)
+					require.NoError(t, response.Body.Close())
+					require.Equal(t, tc.status, response.StatusCode)
+					for _, reason := range []string{tc.fence, tc.wiki} {
+						if reason != "" {
+							require.Contains(t, string(body), reason)
+						}
+					}
+					require.Equal(t, []string{"check", "check", "check", "check", "check", "check"}, calls)
+					var freezes int
+					require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM install_settings WHERE key='quiesce'`).Scan(&freezes))
+					require.Zero(t, freezes)
+					bytes, err := os.ReadFile(filepath.Join(state, "sentinel"))
+					require.NoError(t, err)
+					require.Equal(t, "live-state", string(bytes))
+				})
+			}
+		})
 	}
 	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{Owners: q, Origins: middleware.FixedOrigins("http://localhost:4000"), Setup: &services.InstallSetupService{Pool: pool, Capacity: capacity}})
 	request := func(method, path, token, body string) *httptest.ResponseRecorder {
@@ -169,4 +225,32 @@ func TestInstallQuiesceRouteGate(t *testing.T) {
 	_, err = pool.Exec(ctx, `DELETE FROM install_settings WHERE key='quiesce'`)
 	require.NoError(t, err)
 	require.Equal(t, before, request("PUT", "/api/install", "quiesceowner-session", `{}`).Code)
+}
+
+// Only Check may run during the read-only installing-owner preflight. The
+// missing dependency contracts are fake here; this is not Mac qualification.
+type installMaintenancePreflightFixture struct {
+	calls   *[]string
+	refusal error
+}
+
+func (s installMaintenancePreflightFixture) Check(context.Context) error {
+	*s.calls = append(*s.calls, "check")
+	return s.refusal
+}
+func (s installMaintenancePreflightFixture) Drain(context.Context) error {
+	*s.calls = append(*s.calls, "drain")
+	return nil
+}
+func (s installMaintenancePreflightFixture) Stop(context.Context) error {
+	*s.calls = append(*s.calls, "stop")
+	return nil
+}
+func (s installMaintenancePreflightFixture) CaptureAndStop(context.Context) error {
+	*s.calls = append(*s.calls, "capture")
+	return nil
+}
+func (s installMaintenancePreflightFixture) Resume(context.Context) error {
+	*s.calls = append(*s.calls, "resume")
+	return nil
 }
