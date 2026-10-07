@@ -155,7 +155,23 @@ it.skipIf(!enabled && !required)("C-INS-06 real CLI, launchd and bundled launche
       expect(response.status, "the original setup session must survive service recovery").toBe(200)
       return await response.json() as { steps: Array<{ id: string; status: string }> }
     }
-    const initialSteps = (await installForSession()).steps
+    const csrf = cookies.split("; ").find((value) => value.startsWith("__csrf="))?.slice("__csrf=".length)
+    expect(!!csrf, "exchange must issue CSRF authority").toBe(true)
+    const address = await fetch("http://localhost:4000/api/install/setup/address", {
+      method: "POST", signal: AbortSignal.timeout(5000),
+      headers: { Cookie: cookies, Origin: "http://localhost:4000", "Content-Type": "application/json",
+        "X-CSRF-Token": csrf!, "Idempotency-Key": "host-service-address" },
+      body: JSON.stringify({ bind: "127.0.0.1:4000", origins: [] })
+    })
+    expect(address.status, "complete a setup step through the real install flow").toBe(202)
+    let initialSteps = (await installForSession()).steps
+    const addressDeadline = Date.now() + 60_000
+    while (initialSteps.find((step) => step.id === "address")?.status !== "done" && Date.now() < addressDeadline) {
+      await new Promise((done) => setTimeout(done, 500))
+      initialSteps = (await installForSession()).steps
+    }
+    expect(initialSteps.find((step) => step.id === "address")?.status,
+      "the address must actually finish before testing recovery").toBe("done")
     expect(initialSteps.length).toBeGreaterThan(0)
     assertSilence()
     const socket = statSync(join(state, "run/host.sock"))
