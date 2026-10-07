@@ -450,6 +450,17 @@ func (t *liveTopics) home(ctx context.Context, repository int64, slug string) (j
 		}
 		model["attention"] = attention
 	}
+	// Shared merge facts; each browser counts those above its member's own
+	// last_seen_seq as "merged since you looked" (§7.2.2).
+	if provider, ok := t.todos.(interface {
+		MergeHistory(context.Context, int64) ([]map[string]any, error)
+	}); ok {
+		history, err := provider.MergeHistory(ctx, repository)
+		if err != nil {
+			return nil, err
+		}
+		model["merge_history"] = history
+	}
 	if provider, ok := t.todos.(interface {
 		LearningBackgroundRuns(context.Context, int64) ([]map[string]any, error)
 	}); ok {
