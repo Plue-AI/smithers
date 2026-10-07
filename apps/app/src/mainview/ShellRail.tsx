@@ -79,7 +79,7 @@ export const railLines = (entries: ReadonlyArray<RailEntry>, viewer: Parameters<
 })
 
 /** Shared history uses exactly the transcript's scroll ids and recorded actors. */
-export const sharedRailLines = (conversation: SharedConversation | undefined, viewer: Parameters<typeof actionFor>[1]): TimelineLine[] => (conversation?.entries ?? []).flatMap(turn => {
+export const sharedRailLines = (conversation: SharedConversation | undefined, viewer: Parameters<typeof actionFor>[1], lastSeen: number = 0): TimelineLine[] => (conversation?.entries ?? []).flatMap(turn => {
   if ("role" in turn) return railLines([{ kind: "message", message: turn }], viewer)
   const color_index = (turn.author % 6) as 0 | 1 | 2 | 3 | 4 | 5
   const person = { login: turn.authorLogin, name: turn.authorLogin, avatar_url: PlaceholderAvatarUrl }
@@ -87,8 +87,8 @@ export const sharedRailLines = (conversation: SharedConversation | undefined, vi
   const text = frames.flatMap(frame => frame.type === "delta" && frame.kind === "text" ? [frame.text] : []).join("")
   const tone = turn.tone ?? (turn.state === "accepted" || turn.state === "running" ? "live" : turn.state === "failed" ? "failed" : turn.state === "completed" ? "done" : "quiet")
   const rows: TimelineLine[] = [
-    { entry_id: `${turn.id}:prompt`, kind: "prompt", title: turn.title ?? firstLine(turn.prompt), tone: "quiet", glyph: { actor: { kind: "person", ...person, color_index } } },
-    { entry_id: `${turn.id}:answer`, kind: "answer", title: firstLine(text) || turn.title || firstLine(turn.prompt), tone,
+    { entry_id: `${turn.id}:prompt`, kind: "prompt", fresh: turn.sequence !== undefined && turn.sequence * 2 - 1 > lastSeen, title: turn.title ?? firstLine(turn.prompt), tone: "quiet", glyph: { actor: { kind: "person", ...person, color_index } } },
+    { entry_id: `${turn.id}:answer`, kind: "answer", fresh: turn.sequence !== undefined && turn.sequence * 2 > lastSeen, title: firstLine(text) || turn.title || firstLine(turn.prompt), tone,
       glyph: { actor: { kind: "agent", id: turn.runId, agent: "smithers", for_member: person, avatar_url: PlaceholderAvatarUrl, color_index } } }
   ]
   for (const frame of frames) {
@@ -124,6 +124,7 @@ const RANK: Record<TimelineLine["tone"], number> = { attention: 0, failed: 1, li
 
 const edgeCard = (line: TimelineLine): ToastCard => ({
   id: line.entry_id, entry_id: line.entry_id, title: line.title, ...(line.summary === undefined ? {} : { detail: line.summary }), tone: line.tone,
+  ...(line.fresh ? { fresh: true } : {}),
   kind: line.tone === "attention" ? "needs_you" : line.tone === "failed" ? "failed" : "progress",
   ...(line.action === undefined ? {} : { action: line.action })
 })
@@ -134,7 +135,7 @@ export const railEdges = (lines: ReadonlyArray<TimelineLine>, band: readonly [st
   const first = lines.findIndex(line => line.entry_id === band[0])
   const last = lines.findIndex(line => line.entry_id === band[1])
   const live = (slice: ReadonlyArray<TimelineLine>) => slice.filter(line => LIVE.has(line.tone)).sort((left, right) => RANK[left.tone] - RANK[right.tone]).map(edgeCard)
-  return { above: first < 0 ? [] : live(lines.slice(0, first)), below: last < 0 ? [] : live(lines.slice(last + 1)) }
+  return { above: first < 0 ? [] : live(lines.slice(0, first)), below: last < 0 ? [] : lines.slice(last + 1).filter(line => LIVE.has(line.tone) || line.fresh).sort((left, right) => (LIVE.has(left.tone) ? RANK[left.tone] : 4) - (LIVE.has(right.tone) ? RANK[right.tone] : 4)).map(edgeCard) }
 }
 
 const TOAST_TONE: Record<Toast["status"], ToastCard["tone"]> = { running: "live", ok: "done", failed: "failed", cancelled: "quiet" }
@@ -200,11 +201,17 @@ export function ShellRail({ entries, home }: { readonly entries: ReadonlyArray<R
   const [wide, setWide] = useState(false)
   const lines = [...new Map([
     ...(home && homeAnswer !== undefined ? [homeLine(homeAnswer)] : []),
-    ...(controller.sharedConversation ? sharedRailLines(shared.conversation, { role }) : []),
+    ...(controller.sharedConversation ? sharedRailLines(shared.conversation, { role }, shared.view?.last_seen_seq ?? 0) : []),
     ...railLines(controller.sharedConversation ? entries.filter(entry => entry.kind === "card" || entry.kind === "entry" || entry.kind === "message" && (entry.message.origin === "external" || entry.message.action !== undefined)) : entries, { role })
   ].map(line => [line.entry_id, line] as const)).values()]
   const timeline = timelineActions(lines, homeDispatch(controller))
-  const band = useMessageBand(lines.map(line => line.entry_id))
+  const band = useMessageBand(lines.map(line => line.entry_id), visible => {
+    if (!visible || !shared.view) return
+    const turn = shared.conversation?.entries.find(entry => !("role" in entry) && `${entry.id}:answer` === visible[1] || !("role" in entry) && `${entry.id}:prompt` === visible[1])
+    if (!turn || "role" in turn || turn.sequence === undefined) return
+    const seen = turn.sequence * 2 - (visible[1].endsWith(":prompt") ? 1 : 0)
+    if (seen > (shared.view.last_seen_seq ?? 0)) void controller.sharedConversation?.saveView({ last_seen_seq: seen })
+  })
   const edges = railEdges(lines, band)
   const all = [...toasts, ...privacyNotices]
   const member = accountOwnerOf(identities.find(identity => identity.id === "identity"))

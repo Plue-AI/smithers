@@ -1,3 +1,4 @@
+import { SharedConversationSchema } from "./seams/SharedConversationSeam"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { afterAll, expect, test } from "bun:test"
 import { flushSync } from "react-dom"
@@ -373,4 +374,15 @@ test("install conversation binds imported snapshots through the shared renderer 
     expect(host.textContent).toContain("One changed test")
     expect(starts).toBe(0)
   } finally { flushSync(() => root.unmount()); host.remove(); await controller.dispose() }
+})
+
+
+test("published imports remain read-only when the host adds durable sequence", () => {
+ const result=SharedConversationSchema.parse({id:"main",entries:[{
+  id:"import-1",sequence:9,origin:"external",read_only:true,agent:"codex",source_format_version:"codex/0.160.0",
+  source_id:"source",source_offset:0,session_id:"session",participant_id:"participant",owner_id:"2",author_id:"2",author:2,authorLogin:"alice",
+  kind:"prompt",body:"Read this import",title:"Read this import",tone:"quiet",runId:"import-run",prompt:"Read this import",state:"completed",frames:[]
+ }]})
+ expect(result.entries).toHaveLength(1)
+ expect(result.entries[0]).toMatchObject({origin:"external",read_only:true,text:"Read this import",role:"user"})
 })

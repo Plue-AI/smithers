@@ -1072,15 +1072,23 @@ export function useMessageVisibility(messageId: string): boolean {
  * The on-screen band: the first and last ids of `order` that are visible, or
  * `undefined` when none is. Stable while the band does not move.
  */
-export function useMessageBand(order: readonly string[]): readonly [first: string, last: string] | undefined {
+export function useMessageBand(order: readonly string[], onBand?: (band: readonly [string, string] | undefined) => void): readonly [first: string, last: string] | undefined {
   const { subscribeVisibility, isMessageVisible } = useScrollerContext("useMessageBand");
   const key = order.join("\n");
+  const observer = useRef(onBand);
+  observer.current = onBand;
   const subscribe = useCallback(
     (listener: () => void) => {
-      const stops = key === "" ? [] : key.split("\n").map((id) => subscribeVisibility(id, listener));
+      const report = () => {
+        const visible = key === "" ? [] : key.split("\n").filter(id => isMessageVisible(id));
+        observer.current?.(visible.length ? [visible[0]!, visible[visible.length - 1]!] : undefined);
+        listener();
+      };
+      const stops = key === "" ? [] : key.split("\n").map((id) => subscribeVisibility(id, report));
+      report();
       return () => { for (const stop of stops) stop(); };
     },
-    [subscribeVisibility, key],
+    [subscribeVisibility, isMessageVisible, key],
   );
   const getSnapshot = useCallback(() => {
     const visible = key === "" ? [] : key.split("\n").filter((id) => isMessageVisible(id));
