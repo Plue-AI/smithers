@@ -9,8 +9,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
+
+var errMachineProjectionBusy = errors.New("machine projection source busy")
 
 // StartMachineQueueProjection publishes runtime-only queue changes through the
 // existing committed TODO/Home fact writer. The runtime remains the sole queue;
@@ -33,7 +36,7 @@ func (s *MythicalService) StartMachineQueueProjection(ctx context.Context) {
 				continue
 			}
 			if err := s.publishMachineQueueProjection(ctx); err != nil {
-				if ctx.Err() == nil {
+				if ctx.Err() == nil && !errors.Is(err, errMachineProjectionBusy) {
 					s.logger.Warn("mythical.machine_projection_failed", "error", err)
 				}
 				continue
@@ -43,7 +46,13 @@ func (s *MythicalService) StartMachineQueueProjection(ctx context.Context) {
 	}
 }
 
-func (s *MythicalService) publishMachineQueueProjection(ctx context.Context) error {
+func (s *MythicalService) publishMachineQueueProjection(ctx context.Context) (retErr error) {
+	defer func() {
+		var locked *pgconn.PgError
+		if errors.As(retErr, &locked) && locked.Code == "55P03" {
+			retErr = errMachineProjectionBusy
+		}
+	}()
 	if !s.installParallelRequired {
 		return nil
 	}
@@ -68,6 +77,11 @@ func (s *MythicalService) publishMachineQueueProjection(ctx context.Context) err
 		return err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
+	// Source commands may already hold an item stream before writing its Home
+	// fact. Yield instead of waiting with the repository stream locked.
+	if _, err := tx.Exec(ctx, "SET LOCAL lock_timeout = '100ms'"); err != nil {
+		return err
+	}
 	// Serialize with the existing repository projection writer before reading
 	// cards. Never lock source items: a control may hold one while waiting here.
 	if _, err := tx.Exec(ctx, `INSERT INTO product_job_streams(tenant_id,principal_id,head) VALUES($1,'repository:todos',0) ON CONFLICT DO NOTHING`, strconv.FormatInt(installed.RepositoryID, 10)); err != nil {
