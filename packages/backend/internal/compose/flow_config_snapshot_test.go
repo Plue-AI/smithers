@@ -2,15 +2,29 @@ package compose
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"io/fs"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/internal/webhook"
+	"github.com/smithersai/smithers/packages/backend/modelhost"
+	"github.com/smithersai/smithers/packages/backend/modelproxy"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
@@ -85,6 +99,109 @@ func TestInstallCodingProjectPinsRestartAndNextBindingPostgres(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, attemptOne, attemptTwo)
 	require.Contains(t, string(attemptTwo), `"wiki": true`)
+}
+
+// §11.5a beside §11.2: a running attempt keeps its admitted checks and pages,
+// while the owner's agent:<role> choice applies to that attempt's next model
+// call through the production owner command and factory-seat door.
+func TestInstallCodingSnapshotFixedWhileOwnerRoleModelChangesPostgres(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	ctx := t.Context()
+	q := db.New(pool)
+	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "snapshot-owner", LowerUsername: "snapshot-owner"})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE users SET is_active=true WHERE id=$1`, owner.ID)
+	require.NoError(t, err)
+	var repo int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name,default_bookmark) VALUES($1,'app','app','main') RETURNING id`, owner.ID).Scan(&repo))
+	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, owner.ID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'admin')`, repo, owner.ID)
+	require.NoError(t, err)
+	binding := fmt.Sprintf(`{"owner_login":"snapshot-owner","repository_name":"app","repository_id":%d}`, repo)
+	stored := `{"checks":[{"id":"test","target":".","flow":"checks/test","tier":"slow","required":true}],"detected":[{"flow":"checks/test","argv":["go","test","./..."],"timeoutMs":1800000}],"pages":[{"id":"overview"},{"id":"architecture"}],"seats":{"coding/review":"auto"},"wiki":true}`
+	for key, value := range map[string]string{
+		"github.repository":              binding,
+		"owner.access":                   binding[:len(binding)-1] + `,"last_access_check_at":"` + time.Now().UTC().Format(time.RFC3339) + `"}`,
+		"agent:reviewer":                 `{"protocol":"anthropic-messages","modelId":"model-a","credential":"ANTHROPIC_API_KEY"}`,
+		services.InstallCodingProjectKey: stored,
+	} {
+		require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: key, Value: []byte(value)}))
+	}
+	session := "snapshot-session"
+	hash := sha256.Sum256([]byte(session))
+	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: owner.ID, Username: owner.Username, SessionKey: hex.EncodeToString(hash[:]), ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
+	_, err = q.RequestMythicalBootstrap(ctx, repo, owner.ID, 100, false)
+	require.NoError(t, err)
+	var item, workspace string
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,issue_number,issue_title,state,attempt) VALUES($1,1,'Running attempt','running',1) RETURNING id::text`, repo).Scan(&item))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workspaces(repository_id,user_id) VALUES($1,$2) RETURNING id::text`, repo, owner.ID).Scan(&workspace))
+	host, control := uuid.NewString(), "snapshot-control"
+	controlHash := sha256.Sum256([]byte(control))
+	_, err = pool.Exec(ctx, `INSERT INTO flow_runtime_host_bindings(id,tenant_id,principal_id,binding_kind,binding_id,repository_id,user_id,workspace_id,catalog_key,service_name,runtime_artifact_digest,source_revision,owner_generation,credential_ciphertext,credential_hash,state)
+ VALUES($1,'repository:1','user:1','mythical-item',$2,$3,$4,$5,'coding','coding',$6,$7,1,$8,$9,'running')`, host, item, repo, owner.ID, workspace, strings.Repeat("a", 64), strings.Repeat("b", 40), control, controlHash[:])
+	require.NoError(t, err)
+
+	sources := &configSnapshotSource{}
+	load := installCodingProject(pool, sources)
+	launch := flowhost.HostLaunch{Binding: flowhost.Binding{ID: host, RepositoryID: repo, WorkspaceID: workspace, OwnerGeneration: 1},
+		Authority: flowhost.Authority{Target: flowruntime.Target{BindingKind: flowdispatch.StackBindingKind, BindingID: item}}}
+	admitted, err := load(ctx, launch)
+	require.NoError(t, err)
+	require.JSONEq(t, stored, string(admitted))
+
+	cfg := testConfigAllFlagsOn()
+	cfg.Auth.Mode = "selfhost"
+	cfg.Auth.SessionCookieName = "session"
+	cfg.Server.PublicURL = "http://example.com"
+	cfg.Server.AllowedOrigins = []string{"http://example.com"}
+	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{Setup: &services.InstallSetupService{Pool: pool}, Owners: q, Roster: q, Origins: middleware.FixedOrigins("http://example.com")})
+	mountModelPublic(router.(chi.Router), modelhost.OwnerModels{Pool: pool}, q, cfg)
+	mountModelProxy(router.(chi.Router), q, cfg, &modelproxy.Handler{OwnerPaid: true, Keys: modelproxy.StaticKeys{modelproxy.ProviderAnthropic: "fixture"},
+		Callers: services.NewModelProxyCallers(q, pool, webhook.NoopSecretCodec{}), ResolveFactorySeat: resolveFactorySeat(q, nil)})
+	reviewer := flowhost.RoleModelCredential(host, control, "reviewer")
+	seat := func() string {
+		req := httptest.NewRequest("GET", modelproxy.Path+"/factory-seat", nil)
+		req.Header.Set("Authorization", "Bearer "+reviewer)
+		res := httptest.NewRecorder()
+		router.ServeHTTP(res, req)
+		require.Equal(t, 200, res.Code, res.Body.String())
+		var selected modelproxy.FactorySeat
+		require.NoError(t, json.Unmarshal(res.Body.Bytes(), &selected))
+		return selected.Seat
+	}
+	require.Equal(t, "anthropic:model-a", seat())
+
+	// The owner picks another reviewer model and main gains a repository
+	// declaration while attempt 1 runs.
+	req := httptest.NewRequest("PUT", "http://example.com/api/agents/reviewer/model", strings.NewReader(`{"model":{"protocol":"anthropic-messages","modelId":"model-b","credential":"ANTHROPIC_API_KEY"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://example.com")
+	req.AddCookie(&http.Cookie{Name: "session", Value: session})
+	req.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "snapshot-csrf"})
+	req.Header.Set("X-CSRF-Token", "snapshot-csrf")
+	assigned := httptest.NewRecorder()
+	router.ServeHTTP(assigned, req)
+	require.Equal(t, 200, assigned.Code, assigned.Body.String())
+	sources.config = `{"checks":[{"id":"lint","target":".","flow":"checks/lint","tier":"fast","required":true}]}`
+
+	require.Equal(t, "anthropic:model-b", seat(), "the running attempt's next call uses the owner's new model")
+	restarted, err := load(ctx, launch)
+	require.NoError(t, err)
+	require.Equal(t, admitted, restarted, "the running attempt keeps its admitted checks and pages")
+	require.Equal(t, 1, sources.reads)
+	var digest string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT runtime_artifact_digest FROM flow_runtime_host_bindings WHERE id=$1`, host).Scan(&digest))
+	require.Equal(t, strings.Repeat("a", 64), digest, "a model change replaces no host")
+
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET attempt=2 WHERE id=$1`, item)
+	require.NoError(t, err)
+	next, err := load(ctx, launch)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"checks":[{"id":"lint","target":".","flow":"checks/lint","tier":"fast","required":true}],"pages":[{"id":"overview"},{"id":"architecture"}],"seats":{"coding/review":"auto"},"wiki":true}`, string(next),
+		"the next attempt reads main's checks; stored command bodies no longer apply")
+	require.Equal(t, "anthropic:model-b", seat())
 }
 
 func TestBrowserFlowReadsPinnedTodoConfigurationPostgres(t *testing.T) {

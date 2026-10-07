@@ -467,12 +467,63 @@ type rootLayerHarness struct {
 	runtimeState string
 	slug         string
 	provider     *httptest.Server
+	// options is the full composition; a coding fixture may start without
+	// one Scope provider and recompose with these on the same install state.
+	options Options
+	handler atomic.Pointer[http.Handler]
+	halt    func()
 }
 
 func (h *rootLayerHarness) ctx(t *testing.T) context.Context {
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Minute)
 	t.Cleanup(cancel)
 	return ctx
+}
+
+// compose starts one production composition behind the harness listener.
+func (h *rootLayerHarness) compose(options Options) {
+	t := h.t
+	ctx, cancel := context.WithCancel(t.Context())
+	ready := make(chan http.Handler, 1)
+	done := make(chan error, 1)
+	go func() {
+		// No MachineImages: step 6 binds the microVM runtime's own builder.
+		done <- StartWithOptions(ctx, nil, h.stdout, h.logs, options, func(handler http.Handler) { ready <- handler })
+	}()
+	select {
+	case handler := <-ready:
+		h.handler.Store(&handler)
+	case err := <-done:
+		cancel()
+		t.Fatalf("composition: %v\n%s", err, h.logs.String())
+	case <-time.After(60 * time.Second):
+		cancel()
+		t.Fatalf("composition timed out: %s", h.logs.String())
+	}
+	var halted sync.Once
+	h.halt = func() {
+		halted.Do(func() {
+			h.handler.Store(nil)
+			cancel()
+			select {
+			case err := <-done:
+				require.NoError(t, err)
+			case <-time.After(20 * time.Second):
+				t.Error("composition shutdown timed out")
+			}
+		})
+	}
+	// The composition bound its mirror reader at startup. Wrap the same reader
+	// so the receipt can show which revision each root-relevant path came from.
+	h.reader = &recordingSourceFiles{inner: h.sources}
+	h.runtime.BindSourceFiles(h.reader)
+}
+
+// recompose restarts the install with every provider, as an operator's
+// upgrade does: same database, mirrors, runtime, listener and sessions.
+func (h *rootLayerHarness) recompose() {
+	h.halt()
+	h.compose(h.options)
 }
 
 var rootLayerFixtureID atomic.Int64
@@ -485,6 +536,9 @@ type rootLayerCodingFixture struct {
 	bundle   *installbundle.Bundle
 	registry flowmanifest.Registry
 	profile  microsandbox.HostProfile
+	// omit removes one Scope provider from the first composition only;
+	// recompose supplies it again against the same database and mirrors.
+	omit func(*Options)
 }
 
 func startRootLayerHarnessRuntime(t *testing.T, direct bool, coding ...rootLayerCodingFixture) *rootLayerHarness {
@@ -625,45 +679,34 @@ func startRootLayerHarnessRuntime(t *testing.T, direct bool, coding ...rootLayer
 		options.PlatformModelKeys = modelproxy.NewStaticKeys(map[string]string{modelproxy.ProviderCerebras: "scripted-coding-key", modelproxy.ProviderVercel: "scripted-evaluator-key"})
 		options.ModelProxyUpstreams = map[string]string{modelproxy.ProviderCerebras: coder.url, modelproxy.ProviderVercel: coder.url}
 	}
-	ctx, cancel := context.WithCancel(t.Context())
-	ready := make(chan http.Handler, 1)
-	done := make(chan error, 1)
-	go func() {
-		// No MachineImages: step 6 binds the microVM runtime's own builder.
-		done <- StartWithOptions(ctx, nil, h.stdout, h.logs, options, func(handler http.Handler) { ready <- handler })
-	}()
-	select {
-	case handler := <-ready:
-		server.Config.Handler = handler
-	case err := <-done:
-		cancel()
-		t.Fatalf("composition: %v\n%s", err, h.logs.String())
-	case <-time.After(60 * time.Second):
-		cancel()
-		t.Fatalf("composition timed out: %s", h.logs.String())
+	h.options = options
+	first := options
+	if len(coding) > 0 && coding[0].omit != nil {
+		coding[0].omit(&first)
 	}
+	// One listener serves every composition, so the origin, cookies and
+	// setup address stay those the install recorded.
+	server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler := h.handler.Load()
+		if handler == nil {
+			http.Error(w, "composition stopped", http.StatusServiceUnavailable)
+			return
+		}
+		(*handler).ServeHTTP(w, r)
+	})
+	h.compose(first)
 	server.Start()
 	var stopped sync.Once
 	h.stop = func() {
 		stopped.Do(func() {
 			server.Close()
-			cancel()
-			select {
-			case err := <-done:
-				require.NoError(t, err)
-			case <-time.After(20 * time.Second):
-				t.Error("composition shutdown timed out")
-			}
+			h.halt()
 			if t.Failed() {
 				t.Logf("backend log tail:\n%s", tailText(h.logs.String(), 6000))
 			}
 		})
 	}
 	t.Cleanup(h.stop)
-	// The composition bound its mirror reader at startup. Wrap the same reader
-	// so the receipt can show which revision each root-relevant path came from.
-	h.reader = &recordingSourceFiles{inner: h.sources}
-	h.runtime.BindSourceFiles(h.reader)
 	jar, err := cookiejar.New(nil)
 	require.NoError(t, err)
 	h.jar = jar
