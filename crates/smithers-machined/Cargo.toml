@@ -12,6 +12,7 @@ killpoints = []
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 flows-jj = { path = "../flows-jj" }
+gix = { version = "0.85", default-features = false }
 jj-lib = { workspace = true, features = ["git"] }
 pollster = "1"
 yrs = { version = "=0.27.4", features = ["small-client"] }

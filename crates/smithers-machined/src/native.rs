@@ -106,9 +106,7 @@ impl Repository {
         // conflict resolution. Keep jj's conflict encoding intact in transit.
         let git = jj_lib::git::get_git_repo(repo.store()).map_err(invalid)?;
         let raw = git
-            .rev_parse_single(commit.id().hex().as_str())
-            .map_err(invalid)?
-            .object()
+            .find_object(gix::ObjectId::from_bytes_or_panic(commit.id().as_bytes()))
             .map_err(invalid)?
             .try_into_commit()
             .map_err(invalid)?;
