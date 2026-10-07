@@ -397,20 +397,22 @@ func TestMemberHomesRemainPrivateAndRetained(t *testing.T) {
 	boundaryPython(t, `
 with tempfile.TemporaryDirectory() as directory:
  root=os.path.realpath(directory)
- home=root+'/homes';outside=root+'/outside';os.mkdir(home);os.mkdir(outside)
+ home=root+'/homes';tokens=root+'/run';outside=root+'/outside';os.mkdir(home);os.mkdir(tokens);os.mkdir(outside)
  sentinel=outside+'/sentinel';open(sentinel,'wb').write(b'outside sentinel')
  entry=types.SimpleNamespace(pw_uid=20001,pw_gid=20001,pw_dir='/home/ben',pw_shell='/bin/bash')
  g.pwd.getpwnam=lambda name:entry
  g.grp=types.SimpleNamespace(getgrnam=lambda name:types.SimpleNamespace(gr_gid=20000,gr_mem=['ben']),getgrall=lambda:[])
- g.safe_directory=lambda path,**kwargs:os.open(home,os.O_RDONLY|os.O_DIRECTORY) if path=='/home' else (_ for _ in ()).throw(AssertionError('unexpected setup path '+path))
+ g.safe_directory=lambda path,**kwargs:os.open({'/home':home,'/run/smithers':tokens}[path],os.O_RDONLY|os.O_DIRECTORY)
  real_fstat=os.fstat
  def owned(fd):
   info=real_fstat(fd)
-  return types.SimpleNamespace(st_uid=20001,st_gid=20001,st_mode=info.st_mode)
+  return types.SimpleNamespace(st_uid=20001,st_gid=20001,st_mode=info.st_mode,st_ino=info.st_ino,st_dev=info.st_dev)
  g.os.fstat=owned
  ownership=[];g.os.fchown=lambda fd,uid,gid:ownership.append((uid,gid))
  g.setup('ben',20001,[])
- assert ownership==[(20001,20001)]
+ assert ownership==[(20001,20001),(20001,20001)]
+ assert os.stat(tokens+'/20001').st_mode & 0o7777 == 0o700
+ assert os.listdir(tokens+'/20001')==[], "root must not create delegated token contents"
  assert os.stat(home+'/ben').st_mode & 0o7777 == 0o700
  marker=home+'/ben/.marker';open(marker,'wb').write(b'machine A only');os.chmod(marker,0o664)
  ownership.clear()
@@ -419,11 +421,11 @@ with tempfile.TemporaryDirectory() as directory:
  assert open(marker,'rb').read()==b'machine A only'
  assert os.stat(marker).st_mode & 0o777 == 0o664
  # Another machine has an independent empty home, without copying a marker.
- other=root+'/machine-b';os.mkdir(other)
- g.safe_directory=lambda path,**kwargs:os.open(other,os.O_RDONLY|os.O_DIRECTORY)
+ other=root+'/machine-b';other_tokens=root+'/machine-b-run';os.mkdir(other);os.mkdir(other_tokens)
+ g.safe_directory=lambda path,**kwargs:os.open({'/home':other,'/run/smithers':other_tokens}[path],os.O_RDONLY|os.O_DIRECTORY)
  g.setup('ben',20001,[])
  assert not os.path.exists(other+'/ben/.marker')
- g.safe_directory=lambda path,**kwargs:os.open(home,os.O_RDONLY|os.O_DIRECTORY)
+ g.safe_directory=lambda path,**kwargs:os.open({'/home':home,'/run/smithers':tokens}[path],os.O_RDONLY|os.O_DIRECTORY)
  # A retained home owned by a different allocation is refused before chown.
  g.os.fstat=lambda fd:types.SimpleNamespace(st_uid=20002,st_gid=20002)
  ownership.clear()
