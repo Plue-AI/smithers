@@ -205,6 +205,39 @@ func workspaceHeadTokenScopes(repositoryID int64, workspaceID string) string {
 		middleware.WorkspaceRestrictionScope(workspaceID)
 }
 
+// workspaceHeadAuthorityScopes binds a TODO machine to the issuer's current
+// run. The working copy, reporter and caller cannot select that run. Ordinary
+// workspaces retain their repository/head-report grant without TODO authority.
+func (s *WorkspaceService) workspaceHeadAuthorityScopes(ctx context.Context, workspace db.Workspace, userID int64) (string, error) {
+	scopes := workspaceHeadTokenScopes(workspace.RepositoryID, workspace.ID)
+	if s.installQueries == nil {
+		return scopes, nil
+	}
+	lane, err := s.installQueries.GetMythicalLane(ctx, workspace.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return scopes, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if lane.RepositoryID != workspace.RepositoryID || lane.RetiredAt.Valid {
+		return scopes, nil
+	}
+	item, err := s.installQueries.GetMythicalItem(ctx, lane.ItemID)
+	if err != nil {
+		return "", err
+	}
+	if item.Source != "todo" || item.RepositoryID != workspace.RepositoryID || item.WorkspaceID != workspace.ID ||
+		!item.OwnerID.Valid || item.OwnerID.Int64 != userID || item.Attempt <= 0 || item.RequestRunID == "" || mythicalSettledStates[item.State] {
+		return scopes, nil
+	}
+	runScope := middleware.AgentSessionRestrictionScope(item.RequestRunID)
+	if middleware.ParseTokenAgentSessionRestriction(runScope) != item.RequestRunID {
+		return "", pkgerrors.Forbidden("invalid current TODO run")
+	}
+	return scopes + "," + runScope, nil
+}
+
 // workspaceRepoSlug resolves "<owner>/<repo>" for a workspace's repository.
 func (s *WorkspaceService) workspaceRepoSlug(ctx context.Context, repositoryID int64) (string, error) {
 	store, ok := s.q.(workspaceRepositoryIdentityStore)
@@ -357,10 +390,14 @@ func (s *WorkspaceService) installWorkspaceHeadReporter(ctx context.Context, wor
 // rotateWorkspaceHeadToken revokes the workspace's previous publisher token and
 // records a fresh workspace-bound one, so suspend, stop and delete revoke it.
 func (s *WorkspaceService) rotateWorkspaceHeadToken(ctx context.Context, store workspaceHeadStore, workspace db.Workspace) (db.Workspace, temporaryRepoCloneToken, error) {
+	scopes, err := s.workspaceHeadAuthorityScopes(ctx, workspace, workspace.UserID)
+	if err != nil {
+		return workspace, temporaryRepoCloneToken{}, err
+	}
 	s.revokeWorkspaceHeadToken(ctx, workspace)
 	workspace.HeadPushTokenID = pgtype.Int8{}
 	token, err := issueTemporaryRepoTokenWithTTL(ctx, s.q, workspace.UserID, "sandbox-workspace-"+workspace.ID,
-		workspaceHeadTokenScopes(workspace.RepositoryID, workspace.ID), workspaceHeadTokenTTL)
+		scopes, workspaceHeadTokenTTL)
 	if err != nil {
 		return workspace, temporaryRepoCloneToken{}, pkgerrors.Internal("mint workspace head token: " + err.Error())
 	}
@@ -482,9 +519,13 @@ func (s *WorkspaceService) installRuntimeWorkspaceHeadReporter(ctx context.Conte
 	expected := current.HeadPushTokenID
 	row.HeadPushTokenID = expected
 	user := s.workspaceCredentialUser(ctx, row, requesterID)
+	scopes, err := s.workspaceHeadAuthorityScopes(ctx, row, user)
+	if err != nil {
+		return row, err
+	}
 	// A running publisher stands while it holds the credential user's token;
 	// one holding another's (a branch machine's owner) is replaced.
-	if expected.Valid && s.headTokenHeldBy(ctx, expected.Int64, user) {
+	if expected.Valid && s.headTokenMatchesAuthority(ctx, expected.Int64, user, scopes) {
 		if running, err := probe(expected.Int64); err != nil || running {
 			return row, err
 		}
@@ -498,7 +539,7 @@ func (s *WorkspaceService) installRuntimeWorkspaceHeadReporter(ctx context.Conte
 		return row, err
 	}
 	token, err := issueTemporaryRepoTokenWithTTL(ctx, s.q, user, "sandbox-workspace-"+row.ID,
-		workspaceHeadTokenScopes(row.RepositoryID, row.ID), workspaceHeadTokenTTL)
+		scopes, workspaceHeadTokenTTL)
 	if err != nil {
 		return row, pkgerrors.Internal("mint workspace head token: " + err.Error())
 	}
@@ -601,9 +642,9 @@ func (s *WorkspaceService) repairRuntimeWorkspaceHeadReporter(ctx context.Contex
 	return s.installRuntimeWorkspaceHeadReporter(ctx, store, workspace, requesterID, observed)
 }
 
-// headTokenHeldBy reports whether user holds the recorded publisher token. A
-// store that cannot say keeps the running publisher, as before.
-func (s *WorkspaceService) headTokenHeldBy(ctx context.Context, tokenID, user int64) bool {
+// headTokenMatchesAuthority also rotates a retained publisher after the TODO
+// run changes. A missing or unreadable recorded token is never considered live.
+func (s *WorkspaceService) headTokenMatchesAuthority(ctx context.Context, tokenID, user int64, scopes string) bool {
 	q, ok := s.q.(interface {
 		GetAccessTokenByID(context.Context, int64) (db.AccessToken, error)
 	})
@@ -611,7 +652,7 @@ func (s *WorkspaceService) headTokenHeldBy(ctx context.Context, tokenID, user in
 		return true
 	}
 	token, err := q.GetAccessTokenByID(ctx, tokenID)
-	return err != nil || token.UserID == user
+	return err == nil && token.UserID == user && token.Scopes == scopes && token.SystemIssued && (!token.ExpiresAt.Valid || token.ExpiresAt.Time.After(time.Now()))
 }
 
 // workspaceCredentialUser is whom a box's repository credentials belong to:
@@ -692,9 +733,14 @@ exit 1`
 		return workspace, pkgerrors.Conflict("workspace source publisher could not be checked; retry")
 	}
 	if *result.StatusCode == 0 {
-		return workspace, nil
-	}
-	if *result.StatusCode != 1 {
+		scopes, err := s.workspaceHeadAuthorityScopes(ctx, workspace, workspace.UserID)
+		if err != nil {
+			return workspace, err
+		}
+		if s.installQueries == nil || (workspace.HeadPushTokenID.Valid && s.headTokenMatchesAuthority(ctx, workspace.HeadPushTokenID.Int64, workspace.UserID, scopes)) {
+			return workspace, nil
+		}
+	} else if *result.StatusCode != 1 {
 		return workspace, pkgerrors.Conflict("workspace source publisher probe failed; retry")
 	}
 	return s.installWorkspaceHeadReporter(ctx, workspace, workspace.VmID)

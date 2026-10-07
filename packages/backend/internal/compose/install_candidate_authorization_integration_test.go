@@ -20,8 +20,39 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
 )
+
+// Only the guest lifecycle is substituted: this Linux fixture has no microVM.
+// Issuance, stored run resolution, revocation and HTTP admission are production.
+type candidatePublisherRuntime struct {
+	workspaceapi.WorkspaceRuntime
+	token  string
+	starts int
+}
+
+func (*candidatePublisherRuntime) Isolation() workspaceapi.IsolationLevel {
+	return workspaceapi.IsolationSandboxed
+}
+func (*candidatePublisherRuntime) Capabilities() workspaceapi.WorkspaceCapabilities {
+	return workspaceapi.WorkspaceCapabilities{ManagedServices: true}
+}
+func (*candidatePublisherRuntime) InspectWorkspace(_ context.Context, id string) (workspaceapi.Workspace, error) {
+	return workspaceapi.Workspace{ID: id, Root: "/workspace", Home: "/home/agent", State: workspaceapi.WorkspaceRunning}, nil
+}
+func (*candidatePublisherRuntime) ExecuteCommand(_ context.Context, _ string, command workspaceapi.Command) (workspaceapi.CommandResult, error) {
+	return workspaceapi.CommandResult{}, nil
+}
+func (r *candidatePublisherRuntime) StartService(_ context.Context, _ string, spec workspaceapi.ServiceSpec) (workspaceapi.Service, error) {
+	r.token = spec.Command.Environment["SMITHERS_WORKSPACE_TOKEN"]
+	r.starts++
+	return workspaceapi.Service{Name: spec.Name}, nil
+}
+func (*candidatePublisherRuntime) StopService(context.Context, string, string) error { return nil }
+func (*candidatePublisherRuntime) InstallWorkspaceCodingBinding(context.Context, string, workspaceapi.WorkspaceCodingBinding) error {
+	return nil
+}
 
 func TestInstallCandidateAuthorizationPostgres(t *testing.T) {
 	f := newLandingGateFixtureWithFactory(t, nil, "", true)
@@ -163,6 +194,40 @@ func TestInstallCandidateAuthorizationPostgres(t *testing.T) {
 		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET state='integrating',pending_op=NULL WHERE id=$1`, itemID)
 		require.NoError(t, err)
 		call(run, input, 202)
+		afterReplay = reads.Load()
+	})
+	t.Run("installed publisher issues and replaces current run authority", func(t *testing.T) {
+		runtime := &candidatePublisherRuntime{}
+		workspaces := services.NewWorkspaceService(f.q, services.WithWorkspaceInstallAuthorization(f.q), services.WithWorkspaceTransactions(f.pool), services.WithWorkspaceRuntime(runtime), services.WithWorkspaceGitBaseURL("http://127.0.0.1:47199"))
+		prepare := func() string {
+			t.Helper()
+			_, err := workspaces.PrepareBoxHost(f.ctx, "candidate-host", workspace.ID, f.repoID, f.owner.ID)
+			require.NoError(t, err)
+			require.NotEmpty(t, runtime.token)
+			return runtime.token
+		}
+		current := prepare()
+		require.Equal(t, 1, runtime.starts)
+		call(current, input, 202)
+		require.Equal(t, current, prepare(), "an unchanged run reuses the live publisher")
+		require.Equal(t, 1, runtime.starts)
+		_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='replacement-run',generation=generation+1 WHERE id=$1`, itemID)
+		require.NoError(t, err)
+		replacement := input
+		replacement.RequestRunID = "replacement-run"
+		before := reads.Load()
+		call(current, replacement, 403)
+		require.Equal(t, before, reads.Load())
+		next := prepare()
+		require.NotEqual(t, current, next)
+		require.Equal(t, 2, runtime.starts)
+		sum := sha256.Sum256([]byte(current))
+		var live bool
+		require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT EXISTS(SELECT 1 FROM access_tokens WHERE token_hash=$1)`, hex.EncodeToString(sum[:])).Scan(&live))
+		require.False(t, live, "replacing the publisher revokes its previous run bearer")
+		call(next, replacement, 202)
+		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='current-run',generation=7 WHERE id=$1`, itemID)
+		require.NoError(t, err)
 		afterReplay = reads.Load()
 	})
 	t.Run("machine credential also binds the current run", func(t *testing.T) {
