@@ -27,7 +27,7 @@ paths:
   /api/stack/attention/{id}:
     post:
       x-composition: install
-      summary: Settle the displayed order attention
+      summary: Answer the displayed stack attention
       operationId: post_api_stack_attention_id
       tags: [Todos]
       security: [{sessionCookie: []}]
@@ -41,13 +41,21 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: false
-              required: [revision]
-              properties:
-                revision: {type: integer, minimum: 1}
+              oneOf:
+                - type: object
+                  additionalProperties: false
+                  required: [revision]
+                  properties:
+                    revision: {type: integer, minimum: 1}
+                - type: object
+                  additionalProperties: false
+                  required: [old, new]
+                  properties:
+                    old: {type: string, pattern: '^[0-9a-f]{40}$'}
+                    new: {type: string, pattern: '^[0-9a-f]{40}$'}
       responses:
-        '204': {description: Settled by the current maintainer; the same person's same-revision replay is idempotent}
+        '200': {description: Main reset settled by the install owner}
+        '204': {description: Order attention settled by the current maintainer; same-person same-revision replay is idempotent}
         '400': {description: Invalid revision}
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '409': {description: conflict/stale_attention; a newer entry remains open}
