@@ -39,7 +39,7 @@ func (s *MythicalService) validateConflictDone(ctx context.Context, item db.Myth
 		return &TodoControlError{409, "stale_conflict", "conflict", "The conflict target changed"}
 	}
 	pin, pinned := mythicalPinOf(item)
-	if s.conflictValidator == nil || item.WorkspaceID == "" || !pinned || item.RequestRunID == "" || wait.Signal == nil || wait.Signal.Run != item.RequestRunID || wait.Signal.Flow != pin.Flow || wait.Signal.Name == "" || !conflictSignalBound(item, wait.Signal) {
+	if !checks.RunLaunched || !checks.RunAttached || s.conflictValidator == nil || item.WorkspaceID == "" || !pinned || item.RequestRunID == "" || wait.Signal == nil || wait.Signal.Run != item.RequestRunID || wait.Signal.Flow != pin.Flow || wait.Signal.Name == "" || !conflictSignalBound(item, wait.Signal) {
 		return &TodoControlError{503, "conflict_validation_unavailable", "infra", "Conflict validation unavailable"}
 	}
 	stack, err := s.queries().GetMythicalStack(ctx, item.RepositoryID)
