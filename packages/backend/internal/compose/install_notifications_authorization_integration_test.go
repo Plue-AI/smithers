@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -53,7 +55,61 @@ func TestInstallMemberNotificationReadsPostgres(t *testing.T) {
 	for _, actor := range []struct {
 		name, bearer, cookie string
 		status               int
-	}{{"person", "", cookie, 200}, {"external", external, "", 200}, {"app", app, "", 200}, {"run", run, "", 403}, {"machine", machine, "", 403}, {"scope", f.token(f.other, "list-scope", "read:repository,via:codex", true), "", 403}, {"anonymous", "", "", 401}} {
+	}{{"person", "", cookie, 200}, {"legacy PAT", f.token(f.other, "ticket-legacy", "read:user", false), "", 200}, {"external", external, "", 200}, {"app", app, "", 200}, {"run", run, "", 403}, {"machine", machine, "", 403}, {"scope", f.token(f.other, "list-scope", "read:repository,via:codex", true), "", 403}, {"anonymous", "", "", 401}} {
+		t.Run(actor.name+" ticket stream", func(t *testing.T) {
+			// Normal clients mint through the composed HTTP door. Existing system
+			// grants are seeded directly only to test refusal at redemption.
+			mint := httptest.NewRequest("POST", cfg.Server.PublicURL+"/api/auth/sse-ticket", nil)
+			mint.Header.Set("Origin", cfg.Server.PublicURL)
+			if actor.bearer != "" {
+				mint.Header.Set("Authorization", "Bearer "+actor.bearer)
+			}
+			if actor.cookie != "" {
+				mint.AddCookie(&http.Cookie{Name: "session", Value: actor.cookie})
+				mint.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "ticket-csrf"})
+				mint.Header.Set("X-CSRF-Token", "ticket-csrf")
+			}
+			issued := httptest.NewRecorder()
+			router.ServeHTTP(issued, mint)
+			if actor.status != 200 {
+				require.NotEqual(t, 200, issued.Code, issued.Body.String())
+				if actor.bearer == "" {
+					return
+				}
+			} else {
+				require.Equal(t, 200, issued.Code, issued.Body.String())
+			}
+			var result services.SSETicketResult
+			if actor.status == 200 {
+				require.NoError(t, json.Unmarshal(issued.Body.Bytes(), &result))
+			} else {
+				digest := sha256.Sum256([]byte(actor.bearer))
+				info, err := middleware.ReloadCredential(f.ctx, f.q, middleware.Credential{TokenHash: hex.EncodeToString(digest[:])}, time.Now())
+				require.NoError(t, err)
+				require.True(t, middleware.BindInstallCredential(info))
+				result, err = services.NewSSETicketService(f.q).CreateTicket(f.ctx, f.other.ID, true, info.RawScopes, info.TokenHash)
+				require.NoError(t, err)
+			}
+			require.NotEmpty(t, result.Ticket)
+			path := cfg.Server.PublicURL + "/api/notifications/events/stream?ticket=" + url.QueryEscape(result.Ticket)
+			req := httptest.NewRequest("GET", path, nil)
+			req.Header.Set("Last-Event-ID", "0")
+			ctx, cancel := context.WithTimeout(req.Context(), 5*time.Second)
+			defer cancel()
+			out := httptest.NewRecorder()
+			router.ServeHTTP(&notificationAuthorizationRecorder{ResponseRecorder: out, cancel: cancel}, req.WithContext(ctx))
+			require.Equal(t, actor.status, out.Code, out.Body.String())
+			if actor.status == 200 {
+				require.Contains(t, out.Body.String(), "member-private-notification")
+				require.NotContains(t, out.Body.String(), "owner-private-notification")
+			} else {
+				require.NotContains(t, out.Body.String(), "member-private-notification")
+			}
+			replay := httptest.NewRecorder()
+			router.ServeHTTP(replay, httptest.NewRequest("GET", path, nil))
+			require.Equal(t, 401, replay.Code, replay.Body.String())
+		})
+
 		for _, path := range []string{"/api/notifications/list", "/api/notifications/events", "/api/notifications/preferences", "/api/notifications", "/api/notifications/events/stream"} {
 			t.Run(actor.name+path, func(t *testing.T) {
 				req := httptest.NewRequest("GET", cfg.Server.PublicURL+path, nil)

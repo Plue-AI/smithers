@@ -6,7 +6,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
@@ -14,14 +13,7 @@ import (
 // SSETicketPrincipal describes the identity and authority granted by a
 // validated SSE ticket. Tickets minted by fine-grained tokens carry the
 // minting token's scopes so ticket auth cannot escalate past them.
-type SSETicketPrincipal struct {
-	User        *db.User
-	IsTokenAuth bool
-	RawScopes   string
-	TokenHash   string
-	// SessionHash is the SHA-256 of the minting browser session key.
-	SessionHash string
-}
+type SSETicketPrincipal = AuthInfo
 
 // SSETicketValidator is the interface for validating SSE tickets.
 type SSETicketValidator interface {
@@ -94,18 +86,11 @@ func SSETicketAuth(validator SSETicketValidator, metrics *SSETicketMetrics, boun
 			// minted by session auth behave like session auth (no scope
 			// restrictions); tickets minted by fine-grained tokens keep the
 			// minting token's scopes so RequireScope still applies.
-			authInfo := &AuthInfo{
-				User:        principal.User,
-				IsTokenAuth: principal.IsTokenAuth,
-				TokenHash:   principal.TokenHash,
-				SessionHash: principal.SessionHash,
-				RawScopes:   principal.RawScopes,
-				Scopes:      ScopeSet{},
-			}
+			authInfo := *principal
 			if principal.IsTokenAuth {
 				authInfo.Scopes = ParseTokenScopes(principal.RawScopes)
 			}
-			ctx := ContextWithAuthInfo(r.Context(), authInfo)
+			ctx := ContextWithAuthInfo(r.Context(), &authInfo)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

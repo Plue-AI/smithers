@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
@@ -400,7 +401,7 @@ func TestSSETicketService_RedemptionFallsBackToOAuth2Token(t *testing.T) {
 		if tokenHash != "oauth-hash" {
 			return db.Oauth2AccessToken{}, pgx.ErrNoRows
 		}
-		return db.Oauth2AccessToken{ID: 9, UserID: 42, Scopes: []string{"read:user"}}, nil
+		return db.Oauth2AccessToken{ID: 9, AppID: 19, UserID: 42, Scopes: []string{"read:user"}}, nil
 	}
 	svc := NewSSETicketService(q)
 	issued, err := svc.CreateTicket(context.Background(), 42, true, "read:user", "oauth-hash")
@@ -409,6 +410,9 @@ func TestSSETicketService_RedemptionFallsBackToOAuth2Token(t *testing.T) {
 	principal, err := svc.ValidateTicket(context.Background(), issued.Ticket)
 	require.NoError(t, err)
 	assert.Equal(t, "oauth-hash", principal.TokenHash)
+	assert.Equal(t, int64(9), principal.TokenID)
+	assert.Equal(t, int64(19), principal.OAuth2AppID)
+	assert.Equal(t, middleware.TokenSourceOAuth2AccessToken, principal.TokenSource)
 	assert.Equal(t, "read:user", principal.RawScopes)
 }
 
@@ -659,4 +663,56 @@ func TestSSETicketService_SessionTicketRequiresLiveSourceSession(t *testing.T) {
 			assert.Nil(t, principal)
 		})
 	}
+}
+
+func (m *mockSSETicketQuerier) RefreshAuthSession(context.Context, db.RefreshAuthSessionParams) (db.AuthSession, error) {
+	return db.AuthSession{}, errors.New("ticket redemption must not refresh the source session")
+}
+func (m *mockSSETicketQuerier) UpdateAccessTokenLastUsed(context.Context, int64) error {
+	return errors.New("ticket redemption must not update the source token")
+}
+
+func TestSSETicketServiceInstallCredentialBinding(t *testing.T) {
+	for _, tc := range []struct {
+		name, stored, grant string
+		system, allow       bool
+	}{
+		{"legacy CLI", "read:user", "read:user,via:cli", false, true},
+		{"external", "read:user,via:codex", "read:user,via:codex", true, true},
+		{"system remains system", "read:user", "read:user", true, true},
+		{"legacy cannot claim issuer", "read:user,credential:run", "read:user,credential:run", false, false},
+		{"changed grant", "read:repository", "read:user,via:cli", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			q := newSSETicketRoundTripQuerier()
+			q.getAuthInfoByTokenHashFn = func(context.Context, string) (db.GetAuthInfoByTokenHashRow, error) {
+				return db.GetAuthInfoByTokenHashRow{ID: 42, IsActive: true, TokenID: 7, TokenSystemIssued: tc.system, TokenScopes: tc.stored}, nil
+			}
+			svc := NewSSETicketService(q, WithSSETicketInstallMode(true))
+			issued, err := svc.CreateTicket(context.Background(), 42, true, tc.grant, "pat-hash")
+			require.NoError(t, err)
+			principal, err := svc.ValidateTicket(context.Background(), issued.Ticket)
+			if !tc.allow {
+				require.Error(t, err)
+				require.Nil(t, principal)
+				return
+			}
+			require.NoError(t, err)
+			require.True(t, principal.TokenSystemIssued)
+			require.Equal(t, int64(7), principal.TokenID)
+			require.Equal(t, tc.grant, principal.RawScopes)
+			require.Equal(t, middleware.TokenSourcePersonalAccessToken, principal.TokenSource)
+		})
+	}
+}
+
+func TestSSETicketServiceRefusesAmbiguousCredentialGrant(t *testing.T) {
+	q := newSSETicketRoundTripQuerier()
+	raw := "ambiguous." + base64.RawURLEncoding.EncodeToString([]byte(`{"token_auth":true,"scopes":"read:user","token_hash":"pat-hash","session_hash":"other-session"}`))
+	hash := sha256.Sum256([]byte(raw))
+	_, err := q.CreateSSETicket(context.Background(), db.CreateSSETicketParams{TicketHash: hex.EncodeToString(hash[:]), UserID: 42, ExpiresAt: time.Now().Add(SSETicketTTL)})
+	require.NoError(t, err)
+	principal, err := NewSSETicketService(q).ValidateTicket(context.Background(), raw)
+	require.Error(t, err)
+	require.Nil(t, principal)
 }

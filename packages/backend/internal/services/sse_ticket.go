@@ -30,25 +30,34 @@ var _ SSETicketQuerier = (*db.Queries)(nil)
 type SSETicketQuerier interface {
 	CreateSSETicket(ctx context.Context, arg db.CreateSSETicketParams) (db.SseTicket, error)
 	ConsumeSSETicket(ctx context.Context, ticketHash string) (db.SseTicket, error)
-	GetUserByID(ctx context.Context, id int64) (db.User, error)
-	GetAuthInfoByTokenHash(ctx context.Context, tokenHash string) (db.GetAuthInfoByTokenHashRow, error)
-	GetFirstPartyOAuth2AccessTokenByHash(ctx context.Context, tokenHash string) (db.Oauth2AccessToken, error)
-	GetAuthSessionBySessionKey(ctx context.Context, sessionKey string) (db.AuthSession, error)
+	middleware.AuthLoaderQuerier
 	LegacyAuthSessionLive(ctx context.Context, sessionDigest string) (bool, error)
 }
 
 // SSETicketService manages short-lived, single-use tickets for SSE authentication.
 type SSETicketService struct {
-	Queries SSETicketQuerier
-	TTL     time.Duration
+	Queries     SSETicketQuerier
+	TTL         time.Duration
+	installMode bool
 }
 
 // NewSSETicketService creates a new SSETicketService with the default TTL.
-func NewSSETicketService(queries SSETicketQuerier) *SSETicketService {
-	return &SSETicketService{
+func NewSSETicketService(queries SSETicketQuerier, options ...SSETicketOption) *SSETicketService {
+	s := &SSETicketService{
 		Queries: queries,
 		TTL:     SSETicketTTL,
 	}
+	for _, option := range options {
+		option(s)
+	}
+	return s
+}
+
+type SSETicketOption func(*SSETicketService)
+
+// WithSSETicketInstallMode applies the same legacy PAT binding as install HTTP auth.
+func WithSSETicketInstallMode(enabled bool) SSETicketOption {
+	return func(s *SSETicketService) { s.installMode = enabled }
 }
 
 // sseTicketGrant is the credential grant embedded in tickets minted by
@@ -160,9 +169,14 @@ func (s *SSETicketService) ValidateTicket(ctx context.Context, rawTicket string)
 	}
 
 	if principal.IsTokenAuth {
-		if err := s.validateSourceToken(ctx, ticket.UserID, principal.TokenHash, principal.RawScopes); err != nil {
+		if principal.SessionHash != "" {
+			return nil, pkgerrors.Unauthorized("ambiguous SSE ticket source credential")
+		}
+		fresh, err := s.validateSourceToken(ctx, ticket.UserID, principal.TokenHash, principal.RawScopes)
+		if err != nil {
 			return nil, err
 		}
+		principal = fresh
 	}
 	if principal.SessionHash != "" {
 		if err := s.validateSourceSession(ctx, ticket.UserID, principal.SessionHash); err != nil {
@@ -189,32 +203,24 @@ func (s *SSETicketService) ValidateTicket(ctx context.Context, rawTicket string)
 // validateSourceToken uses the same expiry-filtered queries as AuthLoader.
 // Reject changed grants instead of substituting current scopes, which could
 // broaden the ticket or discard its embedded repository/path restrictions.
-func (s *SSETicketService) validateSourceToken(ctx context.Context, userID int64, tokenHash, scopes string) error {
+func (s *SSETicketService) validateSourceToken(ctx context.Context, userID int64, tokenHash, scopes string) (*middleware.AuthInfo, error) {
 	if tokenHash == "" {
-		// Old token grants cannot be checked for revocation; clients must mint again.
-		return pkgerrors.Unauthorized("source token identity missing from SSE ticket")
+		return nil, pkgerrors.Unauthorized("source token identity missing from SSE ticket")
 	}
-	pat, err := s.Queries.GetAuthInfoByTokenHash(ctx, tokenHash)
-	if err == nil {
-		if pat.ID != userID || strings.TrimSpace(pat.TokenScopes) != scopes {
-			return pkgerrors.Unauthorized("SSE ticket source token grant changed")
-		}
-		return nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return pkgerrors.Internal("failed to validate SSE ticket source token")
-	}
-	oauth, err := s.Queries.GetFirstPartyOAuth2AccessTokenByHash(ctx, tokenHash)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return pkgerrors.Unauthorized("SSE ticket source token was revoked or expired")
+	info, err := middleware.ReloadCredential(ctx, s.Queries, middleware.Credential{TokenHash: tokenHash}, time.Now())
+	if errors.Is(err, middleware.ErrCredentialGone) {
+		return nil, pkgerrors.Unauthorized("SSE ticket source token was revoked or expired")
 	}
 	if err != nil {
-		return pkgerrors.Internal("failed to validate SSE ticket source token").WithCause(err)
+		return nil, pkgerrors.Internal("failed to validate SSE ticket source token").WithCause(err)
 	}
-	if oauth.UserID != userID || strings.Join(oauth.Scopes, ",") != scopes {
-		return pkgerrors.Unauthorized("SSE ticket source token grant changed")
+	if s.installMode && !middleware.BindInstallCredential(info) {
+		return nil, pkgerrors.Unauthorized("invalid SSE ticket source token")
 	}
-	return nil
+	if info.User.ID != userID || strings.TrimSpace(info.RawScopes) != scopes {
+		return nil, pkgerrors.Unauthorized("SSE ticket source token grant changed")
+	}
+	return info, nil
 }
 
 // validateSourceSession refuses a ticket whose minting browser session has

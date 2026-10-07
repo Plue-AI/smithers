@@ -335,7 +335,7 @@ func buildRouter(
 	var sseTicketHandler *routes.SSETicketHandler
 	var sseTicketService *services.SSETicketService
 	if queries != nil {
-		sseTicketService = services.NewSSETicketService(queries)
+		sseTicketService = services.NewSSETicketService(queries, services.WithSSETicketInstallMode(config.IsSingleOwner(cfg.Auth)))
 		sseTicketHandler = &routes.SSETicketHandler{
 			Service: sseTicketService,
 		}

@@ -302,3 +302,22 @@ func TestSSETicketAuth_MetricsRecorded_Suspended(t *testing.T) {
 	require.NoError(t, counter.WithLabelValues("suspended").(prometheus.Metric).Write(&m))
 	assert.Equal(t, float64(1), m.GetCounter().GetValue())
 }
+
+func TestSSETicketAuthRetainsCredentialProvenance(t *testing.T) {
+	for _, source := range []TokenSource{TokenSourcePersonalAccessToken, TokenSourceOAuth2AccessToken} {
+		t.Run(string(source), func(t *testing.T) {
+			principal := &SSETicketPrincipal{User: &db.User{ID: 42}, IsTokenAuth: true, TokenID: 7, TokenSystemIssued: true, TokenSource: source, OAuth2AppID: 19, TokenHash: "live-token", RawScopes: "read:user,via:codex"}
+			validator := &mockSSETicketValidator{validateFn: func(context.Context, string) (*SSETicketPrincipal, error) { return principal, nil }}
+			called := false
+			handler := SSETicketAuth(validator, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				called = true
+				info := AuthInfoFromContext(r.Context())
+				expected := *principal
+				expected.Scopes = ParseTokenScopes(expected.RawScopes)
+				require.Equal(t, &expected, info)
+			}))
+			handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/stream?ticket=one", nil))
+			require.True(t, called)
+		})
+	}
+}
