@@ -34,8 +34,12 @@ func (s *MythicalService) Todos(ctx context.Context, repositoryID int64) ([]map[
 		return nil, err
 	}
 	views := []map[string]any{}
+	queuePosition := int64(0)
 	for _, item := range items {
-		view, err := s.todoCard(ctx, item, items)
+		if todoState(item) == "queued" {
+			queuePosition++
+		}
+		view, err := s.todoCardAtQueuePosition(ctx, item, items, queuePosition)
 		if err != nil {
 			return nil, err
 		}
@@ -77,6 +81,13 @@ func (s *MythicalService) todoQueuePosition(ctx context.Context, item db.Mythica
 // todoCard is the TodoCard projection of item. items is the repository's
 // ListMythicalItems page when the caller already holds it, else nil.
 func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, items []db.MythicalItem) (map[string]any, error) {
+	return s.todoCardAtQueuePosition(ctx, item, items, 0)
+}
+
+// Aggregate reads already walk stack order. Carry their queue position into
+// the shared card builder instead of decoding every predecessor per card.
+// Single-card reads retain the authoritative repository lookup.
+func (s *MythicalService) todoCardAtQueuePosition(ctx context.Context, item db.MythicalItem, items []db.MythicalItem, queuePosition int64) (map[string]any, error) {
 	if items == nil {
 		var err error
 		items, err = s.queries().ListMythicalItems(ctx, item.RepositoryID, 500)
@@ -223,9 +234,12 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 	// A queued TODO waits for a lane machine; the card says so and where it is
 	// in line (mvp.md §4.1), never the stack's internal outage text.
 	if card["state"] == "queued" && card["queue"] == nil {
-		position, err := s.todoQueuePosition(ctx, item, items)
-		if err != nil {
-			return nil, err
+		position := queuePosition
+		if position == 0 {
+			position, err = s.todoQueuePosition(ctx, item, items)
+			if err != nil {
+				return nil, err
+			}
 		}
 		card["queue"] = map[string]any{"reason": "machine", "position": position}
 		if item.Reason == todoDailyLimitReason {
