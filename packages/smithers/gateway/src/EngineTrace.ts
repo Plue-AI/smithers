@@ -29,6 +29,8 @@ const Envelope = Schema.Struct({
 type Envelope = typeof Envelope.Type
 
 const decodeEnvelope = Schema.decodeUnknownOption(Envelope)
+const decodeScheduled = Schema.decodeUnknownOption(EngineEvent.NodeScheduledPayload)
+const decodeSettled = Schema.decodeUnknownOption(EngineEvent.NodeSettledPayload)
 const decodeAttempt = Schema.decodeUnknownOption(EngineEvent.AttemptPayload, { onExcessProperty: "error" })
 const decodeState = Schema.decodeUnknownOption(EngineEvent.StatePayload, { onExcessProperty: "error" })
 const decodeMarker = Schema.decodeUnknownOption(EngineEvent.CurrentAttempt)
@@ -154,6 +156,8 @@ const foldEngineJournal = (records: ReadonlyArray<JournalRecord>) => {
   const executions = new Map<string, Execution>()
   const attempts = new Map<string, TraceBuilder>()
   const notices: Array<TraceBuilder> = []
+  const nodes = new Map<string, TraceBuilder>()
+  const instances = new Map<string, number>()
   const seen = new Map<string, string>()
   for (const row of records) {
     if (row.kind === "control.engine.projection-gap") {
@@ -255,6 +259,41 @@ const foldEngineJournal = (records: ReadonlyArray<JournalRecord>) => {
         execution.span.children.push(current)
       }
       return current
+    }
+    if (envelope.eventType === EngineEvent.nodeEventTypes.nodeScheduled || envelope.eventType === EngineEvent.nodeEventTypes.nodeSettled) {
+      const scheduled = envelope.eventType === EngineEvent.nodeEventTypes.nodeScheduled
+        ? decodeScheduled(envelope.payload) : Option.none()
+      const settled = envelope.eventType === EngineEvent.nodeEventTypes.nodeSettled
+        ? decodeSettled(envelope.payload) : Option.none()
+      const recorded = Option.isSome(scheduled) ? scheduled.value : Option.isSome(settled) ? settled.value : undefined
+      if (recorded === undefined) {
+        generic()
+        continue
+      }
+      const nodeKey = identity(key, recorded.nodeId)
+      let node = nodes.get(nodeKey)
+      if (node === undefined || Option.isSome(scheduled)) {
+        const instance = (instances.get(nodeKey) ?? 0) + 1
+        instances.set(nodeKey, instance)
+        node = span(`engine-node:${nodeKey}#${instance}`, "call", inspectLabel(recorded.action ?? recorded.nodeId), envelope.emittedAtMs, detail(row, envelope))
+        nodes.set(nodeKey, node)
+        execution.span.children.push(node)
+      }
+      if (recorded.action !== undefined) node.label = inspectLabel(recorded.action)
+      node.detail = { ...detail(row, envelope), sequence: node.detail.sequence }
+      if (Option.isSome(scheduled)) {
+        node.status = "running"
+      } else {
+        const value = Option.getOrThrow(settled)
+        node.status = value.outcome === "failed" ? "failed"
+          : value.outcome === "deferred" ? "waiting"
+          : value.outcome === "skipped" ? "skipped" : "completed"
+        if (value.outcome !== "deferred") node.endedAt = envelope.emittedAtMs
+        // The redacted preview is evidence, including when truncated. Never
+        // evaluate it, or mistake a JSON prefix for a complete return value.
+        if (value.result !== undefined) node.detail = { ...node.detail, output: value.result.preview }
+      }
+      continue
     }
     if (
       envelope.eventType === "flows.engine.attempt-started" || envelope.eventType === "flows.engine.attempt-finished"
