@@ -1297,11 +1297,14 @@ export const createAppController = (
   const bookmarksSeam = actors.pair(seamCtx, (context) => createBranchNavigationSeam(context, design, { live: services.live, onDispose: ctx.onDispose }))
   const branchFileOptions = services.branchOptions ?? (installHost ? {
     ready: () => true,
-    scope: (branch = "main") => {
+    scope: (requestedBranch?: string) => {
       const identity = store.collections.identitySessions.get("identity")
       if (identity?.state !== "signed-in" || !identity.login) return null
+      // Selection is persisted by the branch flow. Ignore another account's navigation.
+      const navigation = store.session().branchNavigation
+      const branch = requestedBranch ?? (navigation?.owner === (ctx.accountOwner() ?? null) ? navigation.selected_branch : undefined) ?? "main"
       // The server authorizes each operation; this fences in-flight answers on sign-out.
-      return { branch, member: identity.login, revision: 1, sleeping: false }
+      return { branch, member: identity.login, revision: ctx.accountEpoch, sleeping: false }
     }
   } : undefined)
   const filesSeam = actors.pair(seamCtx, (context) => createFilesSeam(context, branchFileOptions ? { ...branchFileOptions, topics: services.live, onDispose: ctx.onDispose } : undefined, installHost))
