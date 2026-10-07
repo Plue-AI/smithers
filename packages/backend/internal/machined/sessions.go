@@ -50,7 +50,7 @@ type SessionResult struct {
 // SessionRPC must be backed by the authenticated, wake-reconciled host
 // connection. The guest dispatcher and root broker independently validate
 // trusted provisioning, startup, credentials, environment and user binding.
-// There is no implementation until those providers land; nil fails closed.
+// Registry supplies the admitted transport; nil fails closed.
 type SessionRPC interface {
 	CallSession(context.Context, SessionCall) (SessionResult, error)
 }
@@ -61,6 +61,10 @@ type Sessions struct {
 }
 
 func NewSessions(connection *Connection, branch string, rpc SessionRPC) *Sessions {
+	if bound, ok := rpc.(registrySessions); ok {
+		bound.connection = connection
+		rpc = bound
+	}
 	return &Sessions{rpc: rpc, connection: connection, branch: branch}
 }
 
@@ -73,36 +77,58 @@ func validUser(user SessionUser) bool {
 			return false
 		}
 	}
-	if user.Login == "root" || user.UID == 0 {
+	if user.Login == "root" || user.Login == "machined" || user.UID == 0 {
 		return false
 	}
 	if user.Login == "agent" {
 		return user.UID == 19999
 	}
-	return user.UID >= 20000
+	return user.UID >= 20000 && user.UID <= 0x7fffffff
 }
 func validString(value string) bool {
 	return len(value) <= 4096 && utf8.ValidString(value) && !strings.ContainsRune(value, 0)
 }
 func validSession(id uint32) bool { return id != 0 && id <= 0x7fffffff }
 
-func (s *Sessions) call(ctx context.Context, call SessionCall) (SessionResult, error) {
+func (s *Sessions) requireReady(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
-		return SessionResult{}, err
+		return err
 	}
 	if s == nil || s.rpc == nil {
-		return SessionResult{}, refused("unsupported", "session providers unavailable")
+		return refused("unsupported", "session providers unavailable")
 	}
 	if s.connection == nil || s.connection.registry == nil || s.connection.boot == nil {
-		return SessionResult{}, refused("unauthorized", "missing host connection")
+		return refused("unauthorized", "missing host connection")
 	}
 	if err := s.connection.RequireReady(s.branch); err != nil {
 		if errors.Is(err, ErrNotReady) {
-			return SessionResult{}, refused("not_ready", "wake reconciliation required")
+			return refused("not_ready", "wake reconciliation required")
 		}
-		return SessionResult{}, refused("unauthorized", "stale or wrong-branch connection")
+		return refused("unauthorized", "stale or wrong-branch connection")
+	}
+	return nil
+}
+
+func (s *Sessions) call(ctx context.Context, call SessionCall) (SessionResult, error) {
+	if err := s.requireReady(ctx); err != nil {
+		return SessionResult{}, err
 	}
 	return s.rpc.CallSession(ctx, call)
+}
+
+// Stream returns the exact admitted transport that opened or attached this ID.
+func (s *Sessions) Stream(ctx context.Context, id uint32) (*SessionStream, error) {
+	if !validSession(id) {
+		return nil, refused("malformed", "invalid session id")
+	}
+	if err := s.requireReady(ctx); err != nil {
+		return nil, err
+	}
+	transport, ok := s.rpc.(SessionTransport)
+	if !ok {
+		return nil, refused("unsupported", "session streams unavailable")
+	}
+	return transport.Stream(ctx, id)
 }
 
 func (s *Sessions) OpenSession(ctx context.Context, user SessionUser, kind SessionKind, argv []string, size *SessionSize) (uint32, error) {

@@ -154,7 +154,6 @@ type workspace struct {
 type Runtime struct {
 	// terminalHold reads the install's in-process terminal manager.
 	terminalHold func(string) bool
-	memberRoster MemberRoster
 	machined     machined.Registry
 	cli          *cli
 	config       Config

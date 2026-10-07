@@ -115,17 +115,51 @@ func (d *documentPeer) Close() error {
 	d.link.mu.Unlock()
 	return nil
 }
-func (r *Registry) Sessions(branch string) SessionRPC { return registrySessions{r, branch} }
+func (r *Registry) Sessions(branch string) SessionRPC {
+	return registrySessions{registry: r, branch: branch}
+}
 
 type registrySessions struct {
-	registry *Registry
-	branch   string
+	registry   *Registry
+	branch     string
+	connection *Connection
 }
 
 func (s registrySessions) CallSession(ctx context.Context, call SessionCall) (SessionResult, error) {
 	l, err := s.registry.Current(s.branch)
 	if err != nil {
 		return SessionResult{}, err
+	}
+	if s.connection != nil && l.Connection != s.connection {
+		return SessionResult{}, ErrUnauthorized
+	}
+	l.sessionCallMu.Lock()
+	defer l.sessionCallMu.Unlock()
+	if call.Method == "open_session" || call.Method == "tcp_connect" {
+		l.mu.Lock()
+		full := len(l.sessions) >= 512
+		l.mu.Unlock()
+		if full {
+			return SessionResult{}, refused("busy", "session limit")
+		}
+	}
+	attached := false
+	if call.Method == "attach_session" {
+		if !validSession(call.Session) {
+			return SessionResult{}, wire.BadStream
+		}
+		l.mu.Lock()
+		if l.sessions[call.Session] == nil {
+			if len(l.sessions) >= 512 {
+				l.mu.Unlock()
+				return SessionResult{}, refused("busy", "session limit")
+			}
+			peer := newSessionStream(l, call.Session)
+			peer.received = call.Received
+			l.sessions[call.Session] = peer
+			attached = true
+		}
+		l.mu.Unlock()
 	}
 	var method wire.Method
 	var fields [][]byte
@@ -176,15 +210,81 @@ func (s registrySessions) CallSession(ctx context.Context, call SessionCall) (Se
 	}
 	result, err := l.call(ctx, s.branch, method, fields...)
 	if err != nil {
+		if attached {
+			l.mu.Lock()
+			delete(l.sessions, call.Session)
+			l.mu.Unlock()
+		}
+		if ctx.Err() != nil {
+			_ = l.Close()
+		}
 		return SessionResult{}, err
 	}
 	switch method {
 	case wire.OpenSession, wire.TCPConnect:
-		return SessionResult{Session: binary.BigEndian.Uint32(result[1])}, nil
+		id := binary.BigEndian.Uint32(result[1])
+		l.mu.Lock()
+		peer := l.sessions[id]
+		l.mu.Unlock()
+		if peer == nil {
+			return SessionResult{}, wire.BadStream
+		}
+		if method == wire.TCPConnect {
+			peer.mu.Lock()
+			peer.user = &SessionUser{"agent", 19999}
+			peer.mu.Unlock()
+		}
+		if call.User != nil {
+			peer.mu.Lock()
+			copy := *call.User
+			peer.user = &copy
+			peer.mu.Unlock()
+		}
+		return SessionResult{Session: id}, nil
 	case wire.KillSessions:
+		l.mu.Lock()
+		for id, peer := range l.sessions {
+			peer.mu.Lock()
+			matches := call.User != nil && peer.user != nil && *peer.user == *call.User || call.User == nil && peer.run == call.Run
+			peer.mu.Unlock()
+			if matches {
+				peer.finish()
+				delete(l.sessions, id)
+			}
+		}
+		l.mu.Unlock()
 		return SessionResult{Killed: binary.BigEndian.Uint16(result[1])}, nil
 	case wire.AttachSession:
-		return SessionResult{Received: binary.BigEndian.Uint64(result[1])}, nil
+		received := binary.BigEndian.Uint64(result[1])
+		if attached {
+			l.mu.Lock()
+			peer := l.sessions[call.Session]
+			l.mu.Unlock()
+			peer.mu.Lock()
+			peer.sent = received
+			peer.acknowledged = received
+			peer.mu.Unlock()
+		}
+		return SessionResult{Received: received}, nil
+	case wire.RegisterRun:
+		l.mu.Lock()
+		peer := l.sessions[call.Session]
+		l.mu.Unlock()
+		if peer != nil {
+			peer.mu.Lock()
+			peer.run = call.Run
+			peer.mu.Unlock()
+		}
+		return SessionResult{}, nil
+	case wire.CloseSession:
+		l.mu.Lock()
+		peer := l.sessions[call.Session]
+		delete(l.sessions, call.Session)
+		l.mu.Unlock()
+		if peer != nil {
+			peer.finish()
+		}
+		return SessionResult{}, nil
 	default:
 		return SessionResult{}, nil
 	}

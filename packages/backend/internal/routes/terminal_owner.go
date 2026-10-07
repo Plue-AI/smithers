@@ -166,7 +166,9 @@ func (h *WorkspaceTerminalHandler) ownerTerminalWebSocket(w http.ResponseWriter,
 		return
 	}
 	ws.SetReadLimit(terminalReadLimit)
-	ctx, cancel := context.WithCancel(guard.ctx)
+	// Keep reads alive for the revocation close handshake; guard.ctx fences
+	// authorization immediately without cancelling WebSocket transport reads.
+	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	pingDone := make(chan struct{})
 	go func() {
