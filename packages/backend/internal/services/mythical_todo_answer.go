@@ -310,7 +310,7 @@ func (s *MythicalService) AnswerTodo(ctx context.Context, repositoryID, userID, 
 				return todoControlConflict("TODO is settled")
 			}
 			if wait.Kind == "conflict" {
-				if err := s.validateConflictDone(ctx, item, *wait, input.Answer); err != nil {
+				if err := s.validateConflictDone(ctx, q, item, *wait, input.Answer); err != nil {
 					return err
 				}
 			}

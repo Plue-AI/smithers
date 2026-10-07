@@ -141,7 +141,7 @@ func (s *MythicalService) SetConflictValidator(provider ConflictValidator) {
 	s.conflictValidator = provider
 }
 
-func (s *MythicalService) validateConflictDone(ctx context.Context, item db.MythicalItem, wait TodoWait, answer string) error {
+func (s *MythicalService) validateConflictDone(ctx context.Context, q *db.Queries, item db.MythicalItem, wait TodoWait, answer string) error {
 	if answer != "done" {
 		return &TodoControlError{400, "invalid_answer", "user", "Press Done after resolving the conflict"}
 	}
@@ -158,9 +158,19 @@ func (s *MythicalService) validateConflictDone(ctx context.Context, item db.Myth
 	if !checks.RunLaunched || !checks.RunAttached || s.conflictValidator == nil || item.WorkspaceID == "" || !pinned || item.RequestRunID == "" || wait.Signal == nil || wait.Signal.Run != item.RequestRunID || wait.Signal.Flow != pin.Flow || wait.Signal.Name == "" || !conflictSignalBound(item, wait.Signal) {
 		return &TodoControlError{503, "conflict_validation_unavailable", "infra", "Conflict validation unavailable"}
 	}
-	stack, err := s.queries().GetMythicalStack(ctx, item.RepositoryID)
+	stack, err := q.GetMythicalStack(ctx, item.RepositoryID)
 	if err != nil || !stack.ActorUserID.Valid || wait.Signal.Scope.PrincipalID != "user:"+strconv.FormatInt(stack.ActorUserID.Int64, 10) {
 		return &TodoControlError{503, "conflict_validation_unavailable", "infra", "Conflict validation unavailable"}
+	}
+	// AnswerTodo holds the stack row lock. Read the same transaction's current
+	// prefix: a retained wait is not permission to complete onto a moved target.
+	predecessors, err := q.ListMythicalPredecessors(ctx, item.RepositoryID, item.StackPosition.Int64)
+	if err != nil {
+		return &TodoControlError{503, "conflict_validation_unavailable", "infra", "Conflict validation unavailable"}
+	}
+	step := mythicalItemStep{r: &mythicalRun{mainTip: stack.LandedMain}, items: predecessors}
+	if step.prefix(item) != wait.OntoRevision {
+		return &TodoControlError{409, "stale_conflict", "conflict", "The conflict target changed"}
 	}
 	paths, err := s.conflictValidator.UnresolvedPaths(ctx, ConflictValidation{Workspace: item.WorkspaceID, Change: wait.ConflictChange,
 		Onto: wait.OntoRevision, Run: item.RequestRunID, Digest: item.FlowDigest.String})
