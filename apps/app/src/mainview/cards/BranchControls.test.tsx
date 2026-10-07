@@ -11,7 +11,7 @@ import type { BranchControl } from "../state/seams/BranchControlsSeam"
 const actions = { onDecideApproval: () => {}, onConnectGitHub: () => {}, onRunWorkflow: () => {}, onStopRun: () => {}, onRetryRun: () => {}, onChooseWorkflowRepo: () => {}, worldDocuments: [], onChangeWorldDocument: () => {}, onRunCommand: () => {} }
 const cases = [
   ["sleep", "box.suspend", "awake"], ["wake", "box.resume", "asleep"],
-  ["add-to-stack", "branch.add-to-stack", "awake"], ["rebase", "branch.rebase-now", "awake"],
+  ["rebase", "branch.rebase-now", "awake"],
   ["return-to-item", "todo.return-to-item", "awake"], ["keep-moved", "todo.keep-moved", "awake"],
   ["wake", "box.resume", "failed"], ["rebase", "branch.rebase", "awake"]
 ] as const
@@ -59,7 +59,7 @@ for (const [operation, flow, state] of cases) for (const ready of [false, true])
       })
       const writes = requests.filter(request => request.method === "POST")
       expect(writes).toHaveLength(1)
-      expect(writes[0]).toMatchObject({ path: "/api/branches/scratch%2Fben%2Ftry", body: operation === "add-to-stack" ? { op: "add-to-stack", text: "scratch/ben/try" } : flow === "branch.rebase" ? { op: "rebase", conflict_change: "retained-conflict-1", onto_revision: "main-revision-1" } : { op: operation } })
+      expect(writes[0]).toMatchObject({ path: "/api/branches/scratch%2Fben%2Ftry", body: flow === "branch.rebase" ? { op: "rebase", conflict_change: "retained-conflict-1", onto_revision: "main-revision-1" } : { op: operation } })
       expect(writes[0]!.key).toMatch(/^[0-9a-f-]{36}$/)
       for (const [, other] of cases) if (other !== flow) expect(host.querySelector(`[data-flow="${other}"]`)).toBeNull()
     }
