@@ -4,7 +4,7 @@ import { assistantReplyEvidence } from "../contracts/assistantReplyEvidence"
 import type { TranscriptBubble } from "../contracts/assistantReplyEvidence"
 
 /*
- * A real turn on the shared backend (`POST /api/agent/turn` on
+ * A real turn on the shared backend (`POST /api/conversations/{branch}/prompt` on
  * SMITHERS_CLOUD_API) as the Cloud user SMITHERS_CLOUD_TOKEN names. Runs only
  * when the suite is started with SMITHERS_CHAT_STUB=0 (network, model spend).
  */

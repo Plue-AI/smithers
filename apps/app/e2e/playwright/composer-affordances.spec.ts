@@ -1,64 +1,59 @@
 import { expect, test } from "./browserTest"
+import { installCloudFixture } from "./cloudFixture"
+import { fillComposer } from "./composer"
+import { SCOPED_TEST_USER } from "./identity"
 
-/*
- * The composer's two affordances, proven end to end.
- *
- * Send and Stop are `chat.send` and `stop`'s button doors, bound through
- * `ChatComposer`'s `submitProps` / `stopProps`. A test that only read the
- * binding off the DOM would pass while the flow behind it was unwired, so
- * each test here clicks the button, lets the flow run, and asserts what the
- * app does: the reply that lands, or the turn that never finishes.
- *
- * Stub suite (SMITHERS_CHAT_STUB=1, the default); the stub answers in ~15ms,
- * so the Stop test holds the turn's own POST open to make the window real.
- */
-
-test.skip(process.env.SMITHERS_CHAT_STUB === "0", "the stub suite; the real endpoint has its own spec")
-test.use({ actionTimeout: 5_000 })
-
-const openComposer = async (page: import("@playwright/test").Page) => {
-  await page.goto("/")
-  await page.getByRole("button", { name: "Chat", exact: true }).click()
-  const input = page.getByTestId("composer-input")
-  await expect(input).toBeVisible()
-  return input
-}
-
-test("clicking Send runs chat.send and the reply lands in the transcript", async ({ page }) => {
-  const input = await openComposer(page)
-  await input.fill("say ok")
-  await page.getByTestId("composer-send").click()
-  await expect(page.locator('.smithers-chat-message[data-role="user"]', { hasText: "say ok" })).toBeVisible()
-  await expect(page.locator('.smithers-chat-message[data-role="assistant"]', { hasText: "stub: say ok" }))
-    .toBeVisible({ timeout: 10_000 })
-  // The flow, not the click, cleared the draft: the composer is ready for the next turn.
-  await expect(input).toHaveValue("")
-})
-
-test("clicking Stop runs stop and the held turn never produces a reply", async ({ page }) => {
-  // Hold the turn's own request open so the composer really is mid-turn when Stop is clicked.
-  let release: (() => void) | undefined
-  const held = new Promise<void>((resolve) => { release = resolve })
-  await page.route("**/api/agent/turn", async (route) => {
-    if (route.request().method() !== "POST") return route.fallback()
-    await held
-    return route.continue()
+// Button doors use shared prompt admission and durable conversation projection.
+for (const stop of [false, true]) {
+  test(stop ? "clicking Stop stops the admitted shared turn" : "clicking Send admits a shared turn and renders its reply", async ({ page }) => {
+    await installCloudFixture(page, { capabilities: ["install", "identity", "agent"] })
+    const prompt = stop ? "say never" : "say ok"
+    let entries: unknown[] = []
+    let admissions = 0, stops = 0
+    const legacyWrites: string[] = []
+    page.on("request", request => {
+      if (request.method() === "POST" && /\/api\/(agent|chat)\/turn(?:$|[/?])/.test(request.url())) legacyWrites.push(request.url())
+    })
+    await page.route("**/api/conversations/main", route => route.fulfill({ json: { id: "main", entries } }))
+    await page.route("**/api/conversations/main/view-state", route => route.fulfill({ json: { queue: [] } }))
+    await page.route("**/api/conversations/main/prompt", route => {
+      expect(route.request().postDataJSON()).toMatchObject({ prompt, idempotencyKey: expect.any(String) })
+      admissions++
+      entries = [{ id: "button-turn", author: 1, authorLogin: SCOPED_TEST_USER.login, runId: "button-run", prompt,
+        state: stop ? "running" : "completed", frames: stop ? [] : [
+          { runId: "button-run", type: "delta", kind: "text", text: "ok" },
+          { runId: "button-run", type: "done", reason: "stop" }
+        ] }]
+      return route.fulfill({ status: 202, json: { turnId: "button-turn", terminal: !stop } })
+    })
+    await page.route("**/api/conversations/main/turns/button-turn/stop", route => {
+      expect(route.request().method()).toBe("POST")
+      stops++
+      entries = [{ id: "button-turn", author: 1, authorLogin: SCOPED_TEST_USER.login, runId: "button-run", prompt,
+        state: "cancelled", frames: [{ runId: "button-run", type: "done", reason: "cancelled" }] }]
+      return route.fulfill({ json: { turnId: "button-turn", terminal: true } })
+    })
+    await page.goto("/")
+    await fillComposer(page, prompt)
+    const input = page.getByTestId("composer-input")
+    await page.getByTestId("composer-send").click()
+    await expect(page.locator('[data-shared-turn="button-turn"]')).toContainText(prompt)
+    await expect(input).toHaveValue("")
+    if (stop) {
+      const button = page.locator(".sui-chat-composer-stop")
+      await expect(button).toBeVisible()
+      await button.click()
+      await expect.poll(() => stops).toBe(1)
+      await expect(button).toHaveCount(0)
+    } else {
+      await expect(page.getByTestId("transcript").getByText("ok", { exact: true })).toBeVisible()
+    }
+    await page.reload()
+    await expect(page.locator('[data-shared-turn="button-turn"]')).toContainText(prompt)
+    if (stop) await expect(page.locator(".sui-chat-composer-stop")).toHaveCount(0)
+    else await expect(page.getByTestId("transcript").getByText("ok", { exact: true })).toBeVisible()
+    expect(admissions).toBe(1)
+    expect(stops).toBe(stop ? 1 : 0)
+    expect(legacyWrites).toEqual([])
   })
-
-  const input = await openComposer(page)
-  await input.fill("say never")
-  await page.getByTestId("composer-send").click()
-  await expect(page.locator('.smithers-chat-message[data-role="user"]', { hasText: "say never" })).toBeVisible()
-
-  const stop = page.locator(".sui-chat-composer-stop")
-  await expect(stop).toBeVisible()
-  await stop.click()
-  release?.()
-
-  // The turn is over: Send is back, and the answer the held turn would have
-  // streamed never reaches the transcript.
-  await expect(page.getByTestId("composer-send")).toBeVisible()
-  await expect(stop).toHaveCount(0)
-  await expect(page.locator('.smithers-chat-message[data-role="assistant"]', { hasText: "stub: say never" }))
-    .toHaveCount(0)
-})
+}
