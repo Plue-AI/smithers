@@ -1,6 +1,6 @@
 /*
  * The tool-echo scrub: a weak model sometimes writes its tool call INTO the
- * reply text — `{"action":"execute","name":"flow.list","args":""}` rendered
+ * reply text — `{"action":"execute","name":"flows","args":""}` rendered
  * as prose — instead of emitting it on the tool channel. That text is wire
  * debris, never legitimate prose, so the renderer strips it. The STORE keeps
  * the raw text (the dev-tools panel shows the truth); only the bubble is

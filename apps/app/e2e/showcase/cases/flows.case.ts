@@ -26,7 +26,7 @@ export default showcase({
   order: 105,
   title: "Flows",
   summary: "Plan a flow and inspect its graph, run it, write a new one; schedules in the Dispatcher.",
-  flows: ["flow.list", "flow.plan", "flow.plan.select", "flow.run", "flow.new", "triggers.list", "triggers.register", "triggers.run", "triggers.pause", "triggers.resume"],
+  flows: ["flows", "flow.plan", "flow.plan.select", "flow.run", "flow.new", "triggers.list", "triggers.register", "triggers.run", "triggers.pause", "triggers.resume"],
   run: async ({ page, app, backend }) => {
     let paused = false
     const pauseReceipt = Promise.withResolvers<void>()

@@ -33,7 +33,6 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "flow.new",
   "flow.run.stop",
   "flow.run.retry",
-  "flow.list",
   "flow.run",
   "triggers.list",
   "runs.list",

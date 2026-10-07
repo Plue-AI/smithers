@@ -171,6 +171,7 @@ describe("the controller's command surface", () => {
       "homeView",
       "runMonitors",
       "listRunMonitors",
+      "listRepositoryFlows",
       "openRunMonitor",
       "openBranchTerminal",
       "setRunView",

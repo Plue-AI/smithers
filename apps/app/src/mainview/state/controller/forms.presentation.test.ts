@@ -247,7 +247,7 @@ describe("durable form presentation ordering (#3312)", () => {
         if (path === "sign-in prerequisite") await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
         t.controller.maximizeCard("other-card")
         await t.store.settled?.()
-        const name = path === "missing input" ? "files.read" : "flow.list"
+        const name = path === "missing input" ? "files.read" : "flows"
         let released = 0
         let observed: CommandGesture | undefined
         if (path === "sign-in prerequisite") {
@@ -266,13 +266,13 @@ describe("durable form presentation ordering (#3312)", () => {
         await t.store.settled?.()
         expect(t.durable().sessions[0]?.maximizedCardId).toBe("other-card")
         if (path === "sign-in prerequisite") {
-          expect(t.durable().sessions[0]?.pendingCommand).toMatchObject({ name: "flow.list", requirement: "signed-in" })
+          expect(t.durable().sessions[0]?.pendingCommand).toMatchObject({ name: "flows", requirement: "signed-in" })
           expect([...t.store.collections.messages.values()].some(message => message.action?.flow === "sign-in")).toBe(true)
           expect(Object.keys(observed!).sort()).toEqual(["name", "presentationCurrent", "release"])
           expect(observed!.name).toBe("auth.prompt")
         }
-        // The caller owns its original reservation, not the unrelated fulfillment.
-        expect(released).toBe(0)
+        // Refusal releases the original write-only reservation; fulfillment owns none.
+        expect(released).toBe(1)
         expect(t.reads).toEqual([])
       } finally { restore(); await t.dispose() }
     })
@@ -301,8 +301,6 @@ describe("durable form presentation ordering (#3312)", () => {
       expect(observed?.takeWriteOnly).toBe(gesture.takeWriteOnly)
       expect(observed?.takeFile).toBe(gesture.takeFile)
       expect(observed?.release).toBe(gesture.release)
-      expect(released).toBe(0)
-      gesture.release()
       expect(released).toBe(1)
     } finally { spy.mockRestore(); await t.dispose() }
   })

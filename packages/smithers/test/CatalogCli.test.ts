@@ -231,6 +231,11 @@ describe("C-CAT-02 installed parser and descriptor dispatcher", () => {
       expect(f.seen).toEqual([])
     } finally { await f.close() }
   })
+  it.each([["--operation", "workspace"], ["--sourceCard", "private"], ["--repo", "owner/repo"]])("Flow discovery CLI refuses private workspace variants: %s", async (...args) => {
+    const f = await fixture()
+    try { expect((await f.invoke(["flows", ...args])).exitCode).toBe(1); expect(f.seen).toEqual([]) }
+    finally { await f.close() }
+  })
   it.each([["--operation", "approval-list"], ["--operation", "approval-open", "--runId", "run-1"], ["--operation", "attention", "--sourceCard", "private"]])("Runs CLI refuses browser-only variants before HTTP: %s", async (...args) => {
     const f = await fixture()
     try {

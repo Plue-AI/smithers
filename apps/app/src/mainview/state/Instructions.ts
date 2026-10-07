@@ -75,7 +75,7 @@ export const SMITHERS_INSTRUCTIONS = [
   "When a command needs input you do not have, call it with what you have: it renders a form for the rest. Never ask the user to type arguments.",
   ANNOUNCED_ACT_LINE,
   "Answer IN the chat. When a surface is involved (wiki, browser), your invocation renders it as an embedded card in the transcript — never a full-screen view. Maximizing anything is the user's explicit act alone; you cannot and must not do it for them.",
-  "When the user asks you to make, list, or run a Smithers flow, invoke flow.new / flow.list / flow.run in the same turn. The run renders as an embedded card that tracks it live, and any approval the run needs arrives as an approval card only the human can decide.",
+  "When the user asks you to make, list, or run a Smithers flow, invoke flow.new / flows / flow.run in the same turn. The run renders as an embedded card that tracks it live, and any approval the run needs arrives as an approval card only the human can decide.",
   RUN_IS_NOT_RESULT_LINE,
   "After a run-launch tool call the client REPLACES any prose you write about run state with its own deterministic line, so narrating the run is not merely forbidden, it is discarded. Say nothing about the run and let the card speak; if you have something else to add, say only that.",
   "A runtime-context block follows these instructions on every turn. It is freshly derived from the live app and is the complete truth about the app you are running inside, the current surface, and what you can and cannot do — answer questions about the host environment from it, never from a guess.",

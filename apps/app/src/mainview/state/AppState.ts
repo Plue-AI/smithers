@@ -1,3 +1,4 @@
+import { workspaceFlowsArgs } from "../flows/WorkspaceFlowsPayload"
 import { runsArgs } from "../flows/RunsPayload"
 import { githubArgs } from "../flows/GitHubPayload"
 import { secretArgs, type SecretOperation } from "../flows/SecretPayload"
@@ -588,7 +589,7 @@ const savedSettings = (flow: string, args?: string): string => {
   return JSON.stringify(publicSettingsInput({ ...payload, operation }))
 }
 const currentAction = <T extends { readonly flow: string; readonly args?: string }>(action: T): Omit<T, "flow" | "args"> & { flow: string; args?: string } => ({
-  ...action, flow: currentFlowName(action.flow), ...(["approvals.list", "approvals.open", "runs.attention"].includes(action.flow) ? { args: runsArgs(action.flow === "approvals.open" ? "approval-open" : action.flow === "approvals.list" ? "approval-list" : "attention", action.args) } : ["github.retry", "github.app", "github.app.open", "github.app.choose", "github.reconcile"].includes(action.flow) ? { args: githubArgs(action.flow === "github.retry" ? "retry" : action.flow === "github.app.open" ? "app-open" : action.flow === "github.app.choose" ? "app-choose" : action.flow === "github.reconcile" ? "reconcile" : "app-status", action.args) } : action.flow.startsWith("settings.") && currentFlowName(action.flow) === "settings" ? { args: savedSettings(action.flow, action.args) } : ["secrets.set", "secrets.delete", "secrets.scope", "secrets.bind"].includes(action.flow) ? { args: savedSecret(action.flow, action.args) } : action.flow === "context.inspect" ? { args: savedContext(action.args) } : action.flow === "run.view" ? { args: savedRunView(action.args) } : action.flow === "debug.seams" ? { args: "--health" } : ["env.set", "agent.codex", "agent.claude"].includes(action.flow) ? { args: undefined } : action.flow === "docs.read"
+  ...action, flow: currentFlowName(action.flow), ...(action.flow === "flow.list" ? { args: workspaceFlowsArgs(action.args) } : ["approvals.list", "approvals.open", "runs.attention"].includes(action.flow) ? { args: runsArgs(action.flow === "approvals.open" ? "approval-open" : action.flow === "approvals.list" ? "approval-list" : "attention", action.args) } : ["github.retry", "github.app", "github.app.open", "github.app.choose", "github.reconcile"].includes(action.flow) ? { args: githubArgs(action.flow === "github.retry" ? "retry" : action.flow === "github.app.open" ? "app-open" : action.flow === "github.app.choose" ? "app-choose" : action.flow === "github.reconcile" ? "reconcile" : "app-status", action.args) } : action.flow.startsWith("settings.") && currentFlowName(action.flow) === "settings" ? { args: savedSettings(action.flow, action.args) } : ["secrets.set", "secrets.delete", "secrets.scope", "secrets.bind"].includes(action.flow) ? { args: savedSecret(action.flow, action.args) } : action.flow === "context.inspect" ? { args: savedContext(action.args) } : action.flow === "run.view" ? { args: savedRunView(action.args) } : action.flow === "debug.seams" ? { args: "--health" } : ["env.set", "agent.codex", "agent.claude"].includes(action.flow) ? { args: undefined } : action.flow === "docs.read"
     ? { args: savedDocsRead(action.args) } : {})
 })
 const MessageActionSchema = MessageActionBaseSchema.transform(currentAction)
@@ -1038,6 +1039,7 @@ export const SessionSchema = z.object({
    * before the field parse without a schema reset, like palette above.
    * Latest wins: deferring a second command replaces the first.
    */
+  flowInventoryRequest: z.object({ id: z.string(), owner: z.string(), origin: z.string(), actor: z.enum(["user", "smithers"]), state: z.enum(["requested", "running", "completed", "failed"]) }).optional(),
   pendingCommand: z
     .object({
       name: z.string(),
@@ -1045,6 +1047,9 @@ export const SessionSchema = z.object({
       /** The requirement id the command is waiting on. */
       requirement: z.string(),
       requestedAt: z.number()
+    }).overwrite(pending => {
+      const current = currentAction({ flow: pending.name, args: pending.args ?? undefined })
+      return { ...pending, name: current.flow, args: current.args ?? null }
     })
     .nullable()
     .optional(),
@@ -1436,6 +1441,7 @@ export type AppTransition =
   | { type: "terminal.requests.changed"; actor: Actor; requests: NonNullable<Session["terminalRequests"]> }
   | { type: "wiki.saves.changed"; actor: Actor; requests: NonNullable<Session["wikiSaves"]> }
   | { type: "order.requests.changed"; actor: Actor; requests: NonNullable<Session["orderRequests"]> }
+  | { type: "flow.inventory.changed"; actor: Actor; request: NonNullable<Session["flowInventoryRequest"]> }
   | { type: "review.requests.changed"; actor: Actor; requests: NonNullable<Session["reviewRequests"]> }
   | { type: "install.requests.changed"; actor: Actor; requests: NonNullable<Session["installRequests"]> }
   | { type: "repository.imports.changed"; actor: Actor; requests: NonNullable<Session["repositoryImports"]> }

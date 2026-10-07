@@ -9,14 +9,12 @@
 import { describe, expect, test } from "bun:test"
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 import { cloudCapabilities, localCapabilities } from "@smthrs/rpc/HostCapabilities"
-import type { AgentTurnFrame, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
-import type { AgentPort } from "../runtime/AgentPort"
 import { executeAgentToolCall } from "../flows/agentTools"
 import { scopedControllers } from "./ControllerTestScope"
 import { createAppStore } from "./AppStore"
 import { WEB_HOST_LINE, smithersInstructions } from "./Instructions"
 import type { InstructionHonesty } from "./Instructions"
-import { memoryStorage, settle } from "./TestFixtures"
+import { memoryStorage, settle, unavailableAgent } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 
@@ -30,33 +28,6 @@ test("the browser host line is present once and names no retired download door",
   expect(prompt.split(WEB_HOST_LINE)).toHaveLength(2)
   expect(prompt).not.toContain("app.download")
 })
-
-/** An agent double that records the turn request and answers one text frame. */
-const recordingAgent = (): { agent: AgentPort; requests: Array<StartAgentTurnRequest> } => {
-  const listeners = new Set<(frame: AgentTurnFrame) => void>()
-  const requests: Array<StartAgentTurnRequest> = []
-  return {
-    requests,
-    agent: {
-      available: true,
-      startTurn: async (request) => {
-        requests.push(request)
-        queueMicrotask(() => {
-          for (const listener of listeners) {
-            listener({ type: "delta", kind: "text", text: "hi", runId: request.runId } as AgentTurnFrame)
-            listener({ type: "done", reason: "stop", runId: request.runId } as AgentTurnFrame)
-          }
-        })
-        return { status: "started" }
-      },
-      cancelTurn: async () => {},
-      subscribe: (listener) => {
-        listeners.add(listener)
-        return () => listeners.delete(listener)
-      }
-    }
-  }
-}
 
 const bootstrapFor = (host: AppBootstrap["host"]): AppBootstrap =>
   host === "cloud"
@@ -80,38 +51,22 @@ const bootstrapFor = (host: AppBootstrap["host"]): AppBootstrap =>
       sandbox: { platform: "darwin", mode: "enforced" }
     }
 
-const firstTurnInstructions = async (host: AppBootstrap["host"], prompt = "hello"): Promise<{ instructions: string; names: string[] }> => {
+// This is the retained instruction generator's catalog boundary. Shared model
+// turns are server-owned; the retired browser startTurn port is not evidence.
+const catalogInstructions = async (host: AppBootstrap["host"]): Promise<{ instructions: string; names: string[] }> => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  const { agent, requests } = recordingAgent()
-  const controller = createAppController(store, agent, { bootstrap: bootstrapFor(host) })
-  store.dispatch({
-    type: "identity.session.loaded",
-    actor: "system",
-    state: "signed-in",
-    login: "codeplanesmithers",
-    admin: false,
-    scopesPlain: null
-  })
+  const controller = createAppController(store, unavailableAgent, { bootstrap: bootstrapFor(host) })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "codeplanesmithers", admin: false, scopesPlain: null }).isPersisted.promise
   await settle(2)
-  controller.send(prompt)
-  await settle()
-  expect(requests.length).toBeGreaterThan(0)
   const catalog = JSON.parse(await executeAgentToolCall(controller.commands, { name: "commands", arguments: JSON.stringify({ action: "list" }) }))
-  return { instructions: requests[0]?.instructions ?? "", names: catalog.commands.map((command: { name: string }) => command.name) }
+  const names = catalog.commands.map((command: { name: string }) => command.name)
+  return { instructions: smithersInstructions(catalog.commands, honesty(), { disclosed: names }), names }
 }
 
-/*
- * The name proof (Concierge L1). A live model answered "Smith Smithers"; the
- * fix is not another adjective in the prompt but a registered flow the model
- * executes, so the sentence it reads and the line the app renders share one
- * constant. The test asks the question a user asks and reads what the model
- * is told on that turn: the one-word name and the flow that answers it, on
- * both hosts.
- */
-describe("a turn asking who you are is answered with the name", () => {
+describe("the generated catalog instructions retain the product name", () => {
   for (const host of ["cloud", "local"] as const) {
     test(`${host}: the instructions pin the one-word name without the retired identity command`, async () => {
-      const { instructions, names } = await firstTurnInstructions(host, "who are you?")
+      const { instructions, names } = await catalogInstructions(host)
       expect(instructions).toContain('Your name is exactly "Smithers"')
       expect(instructions).not.toContain("execute smithers.who")
       expect(names).not.toContain("smithers.who")
@@ -124,9 +79,9 @@ describe("a turn asking who you are is answered with the name", () => {
   }
 })
 
-describe("the turn passes the current browser host contract", () => {
+describe("the generated catalog instructions retain the browser host contract", () => {
   for (const host of ["cloud", "local"] as const) test(`${host} has the browser line and no download door`, async () => {
-    const { instructions, names } = await firstTurnInstructions(host)
+    const { instructions, names } = await catalogInstructions(host)
     expect(instructions).toContain(WEB_HOST_LINE)
     expect(names).not.toContain("app.download.prompt")
   })

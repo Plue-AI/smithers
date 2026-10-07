@@ -32,7 +32,7 @@ test("a pending catalog offers no launch and a failed catalog offers a source-bo
   const failed = render()
   expect(failed).toContain('role="alert"')
   expect(failed).toContain("Upstream unavailable")
-  expect(failed).toContain('data-flow="flow.list"')
+  expect(failed).toContain('data-flow="flows"')
   expect(failed).toContain(">Retry</button>")
   expect(failed).not.toContain('data-flow="flow.run"')
 })

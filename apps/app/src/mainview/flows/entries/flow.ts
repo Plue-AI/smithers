@@ -86,8 +86,13 @@ export const flowVersionFlows = (actions: CommandActions): ReadonlyArray<FlowEnt
         if (file === undefined) return `No source for ${flowTitle(name)}`
         return { value: await actions.presentSubject(fileCard(world.repo.repo, file.branch, file.path)) }
       } }),
-    flow({ name: "flows",   slash: "/flows", cli: ["flows"], journey: ["J5"], group: "Flows", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/flows"}, summary: "List the repository's flows", agent: "run", input: Schema.Struct({}),
-      handler: async () => {
+    flow({ name: "flows",   slash: "/flows", cli: ["flows"], journey: ["J5"], group: "Flows", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/flows","query":{}}, summary: "List the repository's flows", agent: "run", requires: ["signed-in"],
+      grammar: args => args?.trim().startsWith("{") ? (() => { try { return { payload: JSON.parse(args) } } catch { return { error: "Enter a JSON object" } } })() : payloadFor("flow.list", args),
+      input: Schema.Struct({ operation: Schema.optional(Schema.Literals(["workspace"])), repo: Schema.optional(Schema.String), sourceCard: Schema.optional(Schema.String) }),
+      form: { args: payload => JSON.stringify(payload), fields: { operation: { hidden: true }, sourceCard: { hidden: true }, repo: { optionsFrom: "cloud-repos", kind: "text" } } },
+      handler: async ({ operation, repo, sourceCard }) => {
+        if (operation === "workspace" || repo !== undefined || sourceCard !== undefined) return actions.listWorkspaceWorkflows(repo, sourceCard)
+        if (actions.bootstrap?.capabilities.includes("install")) return actions.listRepositoryFlows()
         const cards = await actions.flowCards()
         if (cards === undefined) return flowsUnavailable
         for (const card of cards) await actions.presentFlow(card.name, flowTitle(card.name))
@@ -149,15 +154,6 @@ export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     args: "<cardId>",
     input: CardTarget,
     handler: ({ cardId }) => actions.retryRunWatch(cardId)
-  }),
-  flow({
-    name: "flow.list",
-    summary: "List the flows on your workspace",
-    runtime: ["cloud"],
-    requires: ["signed-in"],
-    args: "[sourceCard=id] [owner/repo]",
-    input: Schema.Struct({ repo: Schema.optional(Schema.String), sourceCard: Schema.optional(Schema.String) }),
-    handler: ({ repo, sourceCard }) => actions.listWorkspaceWorkflows(repo, sourceCard)
   }),
   flow({
     name: "flow.run",

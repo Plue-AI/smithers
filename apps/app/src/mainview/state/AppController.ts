@@ -54,7 +54,7 @@ import type { ApplicationIdentityClient } from "../runtime/ApplicationClient"
 import type { FrameHistoryPort } from "../runtime/FrameHistory"
 import { localSocketProtocols } from "../runtime/LocalSession"
 import { createActorBindings } from "./ActorBindings"
-import type { AppTransition, Card, Message } from "./AppState"
+import type { AppTransition, Card, Message, Session } from "./AppState"
 import { DEFAULT_BRANCH_ID, DEFAULT_WORKSPACE_ID, MAIN_TAB_ID, rootFrameId } from "./AppState"
 import type { AppStore } from "./AppStore"
 import { createCloudLspClient } from "./CloudLspClient"
@@ -169,7 +169,7 @@ import { actCard, confirmSubject, designPlainTurn, designTurn, mergeCard, type D
 import { designMembers, designMembersRoster, designSecrets, designSettings, designViewerRole } from "./seams/DesignWorld/settings"
 import { shellViewsOf } from "./seams/DesignWorld/shell"
 import { DESIGN_CARD, newWikiPage, wikiCard } from "./seams/DesignWorld/subjects"
-import { flowCardOf, flowNames } from "./seams/DesignWorld/run"
+import { flowCardOf, flowNames, flowTitle } from "./seams/DesignWorld/run"
 import { todoSourceProbe, withDesignTodos, type TodoRoute } from "./seams/DesignWorld/todo"
 import { createStackSeam } from "./seams/StackSeam"
 import type { TriggersSeam } from "./seams/TriggersSeam"
@@ -555,6 +555,7 @@ export interface AppController extends IssueFlowsController {
   /** The flow catalog the Flow card reads on an install (GET /api/flows); undefined elsewhere, where the seeded flows answer. */
   readonly flowCatalog: FlowsSnapshots | undefined
   /** The flows /flow, /flows and /flow.edit read: GET /api/flows on an install (undefined when it is not served); elsewhere the seeded flows (MOCK SEAM, DesignWorld/run.ts). */
+  readonly listRepositoryFlows: () => Promise<{ readonly value: string }>
   readonly flowCards: (name?: string) => Promise<ReadonlyArray<import("@smthrs/rpc/FlowCard").FlowCard> | undefined>
   /** branch.fork on an install: POST /api/branches {from, name?} (spec §8.5); its value is the new scratch branch. A string is the refusal. Absent off an install, where the flow acts on the seeded world. */
   readonly selectConversationBranch: (name: string) => Promise<void>
@@ -1247,14 +1248,54 @@ export const createAppController = (
     } as Card }).isPersisted.promise
     return `Opened ${card.title}`
   }
-  const presentFlow = async (name: string, title: string, version?: string): Promise<string> => {
+  const { presentFlow } = actors.pair(ctx, context => ({ presentFlow: async (name: string, title: string, version?: string): Promise<string> => {
     const id = `flow:${name}`
     const existing = store.collections.cards.get(id)
-    await store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card: {
+    await store.dispatch({ type: "card.upsert", actor: context.commandActor, card: {
       id, kind: "flow", title, status: "active", createdAt: existing?.createdAt ?? Date.now(),
       ordinal: existing?.ordinal ?? store.nextOrdinal(), payload: { name, ...(version === undefined ? {} : { version }), ...(existing?.kind === "flow" ? { memberVersions: existing.payload.memberVersions } : {}) }
     } }).isPersisted.promise
     return `Opened ${title}`
+  } }))
+  const flowLists = new Map<number, Promise<{ readonly value: string }>>()
+  const { listRepositoryFlows } = actors.pair(ctx, (context, select) => ({ listRepositoryFlows: async (): Promise<{ readonly value: string }> => {
+    const epoch = ctx.accountEpoch, owner = ctx.accountOwner()
+    const pending = flowLists.get(epoch)
+    if (pending) return pending
+    const login = store.collections.identitySessions.get("identity")?.login ?? ""
+    const held = store.session().flowInventoryRequest
+    const request = held && held.owner === login && held.origin === baseUrl && ["requested", "running"].includes(held.state)
+      ? held : { id: randomUuid(), owner: login, origin: baseUrl, actor: context.commandActor, state: "requested" as const }
+    const current = () => !ctx.disposed && epoch === ctx.accountEpoch && owner === ctx.accountOwner()
+    const save = (state: NonNullable<Session["flowInventoryRequest"]>["state"]) => store.dispatch({ type: "flow.inventory.changed", actor: request.actor, request: { ...request, state } }).isPersisted.promise
+    const admission = (async () => {
+      await save("requested")
+      if (!current()) { flowLists.delete(epoch); return { value: "Requested" } }
+      const work = withToast("flows.list", "Loading flows", "", async () => {
+        await save("running")
+        const cards = await flowsSeam.read()
+        if (!current()) return TOAST_SUPERSEDED
+        if (!cards) { await save("failed"); return "Flows unavailable" }
+        for (const card of cards) {
+          if (!current()) return TOAST_SUPERSEDED
+          await select(presentFlow)(card.name, flowTitle(card.name))
+        }
+        if (!current()) return TOAST_SUPERSEDED
+        await save("completed")
+        return true
+      })
+      void work.finally(() => { if (flowLists.get(epoch) === admission) flowLists.delete(epoch) })
+        .catch(error => ctx.failures.report("toast.work", error, "flows.list"))
+      return { value: "Requested" }
+    })()
+    flowLists.set(epoch, admission)
+    try { return await admission } catch (error) { flowLists.delete(epoch); throw error }
+  } }))
+  if (installHost) {
+    const request = store.session().flowInventoryRequest
+    if (request && request.owner === (store.collections.identitySessions.get("identity")?.login ?? "") && request.origin === baseUrl && ["requested", "running"].includes(request.state)) {
+      queueMicrotask(() => { void (request.actor === "smithers" ? actors.select(listRepositoryFlows) : listRepositoryFlows)().catch(error => ctx.failures.report("toast.work", error, "flows.list")) })
+    }
   }
   /* MOCK SEAM: the seed answers TODO and Draft flows until this host serves /api/todos (todoSourceProbe). */
   const todoSource = installHost ? { known: () => "real" as const, ask: () => Promise.resolve("real" as const) } : todoSourceProbe(seamCtx, services.bootstrap !== undefined)
@@ -2159,6 +2200,7 @@ export const createAppController = (
     contextRun,
     presentRun,
     presentFlow,
+    listRepositoryFlows,
     presentSubject,
     openBranchTerminal: installHost ? openBranchTerminal : undefined,
     presentBranchCard,
@@ -2712,6 +2754,7 @@ export const createAppController = (
     contextRun,
     presentRun,
     presentFlow,
+    listRepositoryFlows,
     openBranchTerminal: installHost ? openBranchTerminal : undefined,
     presentBranchCard,
     stackSnapshots: stackSeam.snapshots,

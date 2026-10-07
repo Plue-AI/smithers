@@ -1,3 +1,4 @@
+import { workspaceFlowsArgs } from "./WorkspaceFlowsPayload"
 import type { StorageApi } from "@tanstack/db"
 import { describe, expect, test } from "bun:test"
 
@@ -165,7 +166,7 @@ describe("requirement axis — the run path", () => {
         id: "private/repo", org: "private", name: "repo", ownerKind: "user", head: null
       } })
       expect((await controller.commands.runForAgent("files.list", "/ private/repo")).status).toBe("failed")
-      expect((await controller.commands.runForAgent("flow.list", "public/repo")).status).toBe("failed")
+      expect((await controller.commands.runForAgent("flows", workspaceFlowsArgs("public/repo"))).status).toBe("failed")
       expect(reads).toEqual([])
     } finally {
       await controller.dispose()
@@ -175,29 +176,29 @@ describe("requirement axis — the run path", () => {
   test("a user-invoked command with an unmet requirement parks durably and renders the sign-in prompt", async () => {
     const { store, controller } = await freshController()
     await signedOut(store)
-    const outcome = await controller.commands.run("flow.list")
+    const outcome = await controller.commands.run("flows", workspaceFlowsArgs())
     // A sign-in message offers the human OAuth; the unmet flow never redirects.
     expect([...store.collections.messages.values()].some(message => message.action?.flow === "sign-in")).toBe(true)
     expect(outcome.status).toBe("executed")
     await settled()
     const pending = store.session().pendingCommand
-    expect(pending?.name).toBe("flow.list")
+    expect(pending?.name).toBe("flows")
     expect(pending?.requirement).toBe("signed-in")
-    expect(pending?.args).toBeNull()
+    expect(pending?.args).toBe(workspaceFlowsArgs())
     expect([...store.collections.toasts.values()]).toEqual([])
   })
 
   test("an agent-invoked command with an unmet requirement fails honestly and parks nothing", async () => {
     const { store, controller } = await freshController()
     await signedOut(store)
-    const outcome = await controller.commands.runForAgent("flow.list")
+    const outcome = await controller.commands.runForAgent("flows", workspaceFlowsArgs())
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") expect(outcome.error).toContain("Sign in with GitHub first")
     const viaTool = await controller.commands.executeForAgent({
       name: "commands",
-      arguments: JSON.stringify({ action: "execute", name: "flow.list" })
+      arguments: JSON.stringify({ action: "execute", name: "flows" })
     })
-    expect(viaTool).toContain("failed: Sign in with GitHub first")
+    expect(viaTool).toBe("failed: this command runs on the conversation host")
     await settled()
     expect(store.session().pendingCommand ?? null).toBeNull()
   })
@@ -205,7 +206,7 @@ describe("requirement axis — the run path", () => {
   test("the parked command resumes once its requirement is satisfied, announced by a toast", async () => {
     const { store, controller } = await freshController()
     await signedOut(store)
-    await controller.commands.run("flow.list")
+    await controller.commands.run("flows", workspaceFlowsArgs())
     await settled()
     await signedIn(store)
     await reposLoaded(store)
@@ -214,7 +215,7 @@ describe("requirement axis — the run path", () => {
     expect(store.session().pendingCommand ?? null).toBeNull()
     const titles = [...store.collections.toasts.values()].map((toast) => toast.title)
     expect(store.collections.toasts.get("toast-command.requirement")).toBeUndefined()
-    expect(titles).toContain(`Continuing: ${controller.commands.find("flow.list")!.metadata.summary}`)
+    expect(titles).toContain(`Continuing: ${controller.commands.find("flows")!.metadata.summary}`)
     expect([...store.collections.toasts.values()].some(toast => /\/flow\.list/.test(toast.title + toast.detail))).toBe(false)
   })
 
@@ -254,7 +255,7 @@ describe("requirement axis — the run path", () => {
   test("an agent-invoked signed-in requirement renders the sign-in step itself — prose is not a button", async () => {
     const { store, controller } = await freshController()
     await signedOut(store)
-    const outcome = await controller.commands.runForAgent("flow.list")
+    const outcome = await controller.commands.runForAgent("flows", workspaceFlowsArgs())
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") expect(outcome.error).toContain("already rendered in the chat")
     await settled()

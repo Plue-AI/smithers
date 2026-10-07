@@ -1,3 +1,4 @@
+import { workspaceFlowsArgs } from "../flows/WorkspaceFlowsPayload"
 import { expect, test } from "bun:test"
 import type { AppServices } from "./AppController"
 import { createAppStore } from "./AppStore"
@@ -53,13 +54,13 @@ test("flow listing refuses a missing branch without opening a retired pane", asy
   const { controller, store, calls } = await fixture({ boxStatus: "none" })
   try {
     await store.dispatch({ type: "repo.selected", actor: "user", id: repo }).isPersisted.promise
-    const outcome = await controller.commands.run("flow.list")
+    const outcome = await controller.commands.run("flows", workspaceFlowsArgs())
     expect(outcome.status).toBe("failed")
     expect(store.session().surface).toBe("chat")
     expect(store.collections.cards.get("form-box.open")).toBeUndefined()
     expect([...store.collections.cards.values()].filter(card => card.kind === "workflow-list")).toEqual([])
     expect(calls).toEqual([])
-    await controller.commands.run("flow.list")
+    await controller.commands.run("flows", workspaceFlowsArgs())
     expect(store.session().surface).toBe("chat")
   } finally { await controller.dispose() }
 })
@@ -124,12 +125,13 @@ test("agent planning refuses a missing box without a human form", async () => {
   } finally { await controller.dispose() }
 })
 
-test("Review a PR refuses without host providers; the agent only requests confirmation", async () => {
+test("Review a PR records unavailable host delivery; the agent only requests confirmation", async () => {
   const { controller, store, calls } = await fixture({ boxStatus: "none" })
   try {
     // The form carries the review it continues (#3119), so its card is scoped to that act.
     const boxForms = () => [...store.collections.cards.values()].filter(card => card.kind === "flow-form" && card.payload.flow === "box.open")
-    expect((await controller.commands.run("review", `4 ${repo}`)).status).toBe("failed")
+    expect(await controller.commands.run("review", `4 ${repo}`)).toMatchObject({ status: "executed", value: "Requested" })
+    await waitFor(() => [...store.collections.toasts.values()].some(toast => toast.title === "Review" && toast.status === "failed"))
     expect(boxForms()).toEqual([])
     const agent = await controller.commands.runForAgent("review", `4 ${repo}`)
     expect(agent).toMatchObject({ status: "executed", value: expect.stringContaining("asked the user to confirm") })
@@ -138,11 +140,12 @@ test("Review a PR refuses without host providers; the agent only requests confir
   } finally { await controller.dispose() }
 })
 
-test("Review a PR refuses an ambiguous branch before reading the PR", async () => {
+test("Review a PR uses host delivery without provisioning an ambiguous branch", async () => {
   const { controller, store, calls } = await fixture()
   try {
     await loadBox(store, repo, "0b0c0d0e-0000-4000-8000-000000000002")
-    expect((await controller.commands.run("review", `4 ${repo}`)).status).toBe("failed")
+    expect(await controller.commands.run("review", `4 ${repo}`)).toMatchObject({ status: "executed", value: "Requested" })
+    await waitFor(() => [...store.collections.toasts.values()].some(toast => toast.title === "Review" && toast.status === "failed"))
     expect(store.collections.cards.get("form-box.select")).toBeUndefined()
     expect(calls).toEqual([])
   } finally { await controller.dispose() }
@@ -225,7 +228,7 @@ test("planning refuses an ambiguous branch without rendering a retired picker", 
 test("Flows keeps Chat visible while a box is starting", async () => {
   const { controller, store, calls } = await fixture({ boxStatus: "pending" })
   try {
-    const outcome = await controller.commands.run("flow.list")
+    const outcome = await controller.commands.run("flows", workspaceFlowsArgs())
     expect(outcome.status).toBe("failed")
     expect(store.session().surface).toBe("chat")
     expect([...store.collections.cards.values()].filter(card => card.kind === "workflow-list" || card.kind === "flow-form")).toEqual([])
@@ -236,7 +239,7 @@ test("Flows keeps Chat visible while a box is starting", async () => {
 test("flow listing refuses a failed branch without offering removed setup", async () => {
   const { controller, store, calls } = await fixture({ boxStatus: "failed" })
   try {
-    expect((await controller.commands.run("flow.list")).status).toBe("failed")
+    expect((await controller.commands.run("flows", workspaceFlowsArgs())).status).toBe("failed")
     expect(store.session().surface).toBe("chat")
     expect(store.collections.cards.get("form-box.open")).toBeUndefined()
     expect(calls).toEqual([])
@@ -246,14 +249,14 @@ test("flow listing refuses a failed branch without offering removed setup", asyn
 test("CAP-001: no hover provisioning; activation returns before preparation and catalog, deduplicates, and keeps Chat usable", async () => {
   const provision = deferred(), list = deferred()
   const { controller, store, calls } = await fixture({ provision: () => provision.promise, list: () => list.promise })
-  await controller.commands.preload!("flow.list")
-  await controller.commands.preload!("flow.list")
+  await controller.commands.preload!("flows")
+  await controller.commands.preload!("flows")
   expect(calls).toHaveLength(0)
-  await acknowledged(controller.commands.run("flow.list"))
+  await acknowledged(controller.commands.run("flows", workspaceFlowsArgs()))
   await waitFor(() => calls.length === 1)
   expect(store.collections.cards.get(id)?.loading).toBe(true)
   expect(store.collections.toasts.has(toast)).toBe(false)
-  await acknowledged(controller.commands.run("flow.list"))
+  await acknowledged(controller.commands.run("flows", workspaceFlowsArgs()))
   expect(calls).toHaveLength(1)
   expect((await controller.commands.run("chat")).status).toBe("executed")
   expect(store.session().surface).toBe("chat")
@@ -275,7 +278,7 @@ for (const step of ["provision", "list"] as const) test(`CAP-001: ${step} failur
     provision: async () => step === "provision" && refused ? failure() : ready(),
     list: async () => refused ? failure() : catalog()
   })
-  await acknowledged(controller.commands.run("flow.list"))
+  await acknowledged(controller.commands.run("flows", workspaceFlowsArgs()))
   await waitFor(() => store.collections.toasts.get(toast)?.status === "failed")
   expect(store.collections.cards.get(id)).toMatchObject({ loading: false, status: "error", payload: { catalogRequest: { state: "failed" } } })
   if (step === "provision") expect(calls).toHaveLength(1)
@@ -286,7 +289,7 @@ for (const step of ["provision", "list"] as const) test(`CAP-001: ${step} failur
   expect(reloaded.calls).toHaveLength(0)
   expect(reloaded.store.collections.cards.get(id)?.status).toBe("error")
   refused = false
-  await acknowledged(reloaded.controller.commands.run("flow.list", `sourceCard=${id}`))
+  await acknowledged(reloaded.controller.commands.run("flows", workspaceFlowsArgs(`sourceCard=${id}`)))
   await waitFor(() => reloaded.store.collections.cards.get(id)?.status === "active" && !reloaded.store.collections.cards.get(id)?.loading)
   expect(reloaded.calls.map(call => call.body.procedure).filter(Boolean)).toEqual(["List"])
 })
@@ -294,7 +297,7 @@ for (const step of ["provision", "list"] as const) test(`CAP-001: ${step} failur
 test("pending catalog reconnects after reload and the old completion cannot overwrite it", async () => {
   const oldRead = deferred()
   const first = await fixture({ list: () => oldRead.promise })
-  await acknowledged(first.controller.commands.run("flow.list"))
+  await acknowledged(first.controller.commands.run("flows", workspaceFlowsArgs()))
   await waitFor(() => first.calls.length === 2)
   await first.store.settled?.()
   await first.controller.dispose()
@@ -308,7 +311,7 @@ test("pending catalog reconnects after reload and the old completion cannot over
 test("an account change fences a pending catalog and never resumes another owner's request", async () => {
   const provision = deferred()
   const { controller, store, calls } = await fixture({ provision: () => provision.promise })
-  await acknowledged(controller.commands.run("flow.list"))
+  await acknowledged(controller.commands.run("flows", workspaceFlowsArgs()))
   await waitFor(() => calls.length === 1)
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "another-user", admin: false, scopesPlain: null }).isPersisted.promise
   provision.resolve(ready())
@@ -322,7 +325,7 @@ test("a later ready workspace clears earlier preparation refusals without hiding
   let prepared = false
   const { controller, store, calls } = await fixture({ provision: async () => prepared ? ready() : json(503, { code: "workspace_starting", message: waiting }) })
   try {
-    await acknowledged(controller.commands.run("flow.list"))
+    await acknowledged(controller.commands.run("flows", workspaceFlowsArgs()))
     await waitFor(() => store.collections.toasts.get(toast)?.status === "failed", 10_000)
     expect(store.collections.toasts.get(toast)?.detail).toStartWith("workspace_starting — ")
     const preparationKey = `flow.provision.${repo}.${TEST_BOX}`

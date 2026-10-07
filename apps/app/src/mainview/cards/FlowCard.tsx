@@ -63,7 +63,7 @@ export const WorkflowListCardBody = ({
   const onRunCommand = runSourceCommand(card.id, sendRunCommand)
   const { workflows, issueContext, research, repo } = card.payload
   if (card.loading) return <ViewSkeleton />
-  if (card.payload.catalogRequest?.state === "failed") return <div role="alert"><p>{card.body}</p><Button size="sm" {...flowAction(onRunCommand, "flow.list")}>Retry</Button></div>
+  if (card.payload.catalogRequest?.state === "failed") return <div role="alert"><p>{card.body}</p><Button size="sm" {...flowAction(onRunCommand, "flows")}>Retry</Button></div>
   return (
     <div>
       {issueContext ? <p className="smithers-card-note">Issue #{issueContext.number} · {issueContext.title}</p> : null}

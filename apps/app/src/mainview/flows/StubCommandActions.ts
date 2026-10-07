@@ -311,6 +311,7 @@ export const stubCommandActions = (overrides: Partial<CommandActions> = {}): Com
   runMonitors: undefined,
   openRunMonitor: unexpected,
   listRunMonitors: unexpected,
+  listRepositoryFlows: unexpected,
   setRunView: unexpected,
   contextRun: unexpected,
   setInstallPreapproveDefault: unexpected,

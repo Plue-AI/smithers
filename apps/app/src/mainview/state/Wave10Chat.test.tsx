@@ -136,7 +136,7 @@ describe("wave 10 — admin-only affordances are absent, not hidden (§2/§2b)",
     expect(host.querySelector(".devtools-panel")).toBeNull()
     await act(() => controller.commands.run("admin.devtools"))
     expect(host.querySelector(".devtools-panel")).not.toBeNull()
-    expect(host.querySelector(".devtools-registry")?.textContent).toContain("flow.list")
+    expect(host.querySelector(".devtools-registry")?.textContent).toContain("flows")
     await act(() => controller.commands.run("admin.devtools"))
     expect(host.querySelector(".devtools-panel")).toBeNull()
   })
@@ -181,8 +181,8 @@ describe("wave 10 — the maximize transition (§2d′)", () => {
   })
 })
 
-describe("local app: identity is not a gate on the chat (LOCAL-APP.md)", () => {
-  test("a signed-out send reaches the turn seam: one startTurn call, no sign-in reply", async () => {
+describe("shared chat admission has no legacy client turn fallback", () => {
+  test("a signed-out send does not invoke the retired client turn seam", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     let turns = 0
     const countingAgent: AgentPort = {
@@ -206,7 +206,7 @@ describe("local app: identity is not a gate on the chat (LOCAL-APP.md)", () => {
     await settled()
     controller.send("list my issues")
     await settled()
-    expect(turns).toBe(1)
+    expect(turns).toBe(0)
     const reply = [...store.collections.messages.values()].find((message) =>
       message.text.includes("Sign in with GitHub first")
     )

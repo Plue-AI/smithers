@@ -17,7 +17,7 @@ import type { ModelProtocol } from "./ConfiguredModel.ts"
  * @since 1.0.0
  * @category models
  */
-export type CatalogTag = RegisteredCatalogTag | typeof historicalRuns[number] | typeof historicalGitHub[number] | typeof historicalSettings[number] | "context.inspect" | "secrets.set" | "secrets.delete" | "secrets.scope" | "secrets.bind"
+export type CatalogTag = RegisteredCatalogTag | "flow.list" | typeof historicalRuns[number] | typeof historicalGitHub[number] | typeof historicalSettings[number] | "context.inspect" | "secrets.set" | "secrets.delete" | "secrets.scope" | "secrets.bind"
 
 /**
  * An action form field.
@@ -60,13 +60,13 @@ const recordedSecretArgs = (tag: string, args: Readonly<Record<string, string>> 
   } : {}) }
 }
 export const ActionSchema = z.object({
-  tag: z.union([CatalogTagSchema, z.enum(historicalRuns), z.enum(historicalGitHub), z.enum(historicalSettings), z.literal("context.inspect"), z.enum(["secrets.set", "secrets.delete", "secrets.scope", "secrets.bind"])]),
+  tag: z.union([CatalogTagSchema, z.literal("flow.list"), z.enum(historicalRuns), z.enum(historicalGitHub), z.enum(historicalSettings), z.literal("context.inspect"), z.enum(["secrets.set", "secrets.delete", "secrets.scope", "secrets.bind"])]),
   label: z.string(),
   args: z.record(z.string(), z.string()).optional(),
   primary: z.boolean().optional(),
   disabled: z.object({ reason: z.string() }).optional(),
   input: z.array(FormFieldSchema).optional()
-}).overwrite(action => historicalRuns.some(tag => tag === action.tag)
+}).overwrite(action => action.tag === "flow.list" ? { ...action, tag: "flows" as const, args: { ...action.args, operation: "workspace" } } : historicalRuns.some(tag => tag === action.tag)
   ? { ...action, tag: "runs" as const, args: { ...action.args, operation: runsOperation(action.tag) } }
   : historicalGitHub.some(tag => tag === action.tag)
   ? { ...action, tag: "github" as const, args: { ...action.args, operation: githubOperation(action.tag) } }
@@ -164,7 +164,7 @@ export const BranchForeignAnswerInputSchema = z.strictObject({
  * @category models
  */
 /** Historical tags are decodable data; no new typed command can use them. */
-export type CardCommandInput = CurrentCardCommandInput & { readonly [Tag in typeof historicalRuns[number] | typeof historicalGitHub[number] | typeof historicalSettings[number] | "context.inspect" | "secrets.set" | "secrets.delete" | "secrets.scope" | "secrets.bind"]: never }
+export type CardCommandInput = CurrentCardCommandInput & { readonly [Tag in "flow.list" | typeof historicalRuns[number] | typeof historicalGitHub[number] | typeof historicalSettings[number] | "context.inspect" | "secrets.set" | "secrets.delete" | "secrets.scope" | "secrets.bind"]: never }
 
 interface CurrentCardCommandInput {
   readonly "approval.approve": { readonly cardId: string }
@@ -210,7 +210,7 @@ interface CurrentCardCommandInput {
   readonly "wiki.page": { readonly name: string; readonly revision?: number }
   readonly "wiki.delete": { readonly documentId: string; readonly owner?: string; readonly repo?: string; readonly visibility?: "public" | "private" }
   readonly "wiki.save": { readonly name?: string; readonly text?: string }
-  readonly "flows": undefined
+  readonly "flows": undefined | { readonly operation?: "workspace"; readonly repo?: string; readonly sourceCard?: string }
   readonly "flow": { readonly name: string }
   readonly "agent.edit": { readonly name: "planner" | "implementer" | "reviewer" | "app"; readonly request: string; readonly diff?: string }
   readonly "flow.edit": { readonly name: string }

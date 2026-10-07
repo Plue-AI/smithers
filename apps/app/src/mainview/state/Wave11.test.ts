@@ -1,3 +1,4 @@
+import { workspaceFlowsArgs } from "../flows/WorkspaceFlowsPayload"
 /*
  * Wave 11 — "make me a workflow" becomes true, proven at the controller.
  *
@@ -422,8 +423,8 @@ describe("wave 11 — the loaded repositories are the universe", () => {
     const double = relay()
     const controller = createAppController(store, silentAgent, double.services)
 
-    for (const command of ["flow.new", "flow.list", "flow.run"]) {
-      const outcome = await controller.commands.run(command, command === "flow.list" ? undefined : "x")
+    for (const command of ["flow.new", "flows", "flow.run"]) {
+      const outcome = await controller.commands.run(command, command === "flows" ? workspaceFlowsArgs() : "x")
       expect(said(outcome)).toContain("Sign in")
     }
     expect(double.calls).toHaveLength(0)
@@ -718,7 +719,7 @@ describe("wave 11 — workflows are presented", () => {
     const controller = createAppController(store, silentAgent, double.services)
     await signIn(store)
 
-    const outcome = await controller.commands.run("flow.list")
+    const outcome = await controller.commands.run("flows", workspaceFlowsArgs())
     expect(outcome.status).toBe("executed")
     expect(said(outcome)).toBe("Flows requested.")
     await waitFor(() => store.collections.cards.get(listId(REPO))?.loading === false)
@@ -740,12 +741,12 @@ describe("wave 11 — workflows are presented", () => {
     try {
       await signIn(store, [REPO, "another/project"])
       store.dispatch({ type: "repo.selected", actor: "user", id: "another/project" })
-      expect((await controller.commands.run("flow.list")).status).toBe("executed")
+      expect((await controller.commands.run("flows", workspaceFlowsArgs())).status).toBe("executed")
       await waitFor(() => double.calls.some(call => call.path === "/api/workflow/provision"))
       expect(double.calls.find((call) => call.path === "/api/workflow/provision")?.body).toEqual({ repo: "another/project", workspaceId: boxOf(2) })
       expect(store.collections.cards.has(listId("another/project", 2))).toBe(true)
-      expect((await controller.commands.run("flow.list", REPO)).status).toBe("executed")
-      expect(store.collections.cards.has(listId(REPO))).toBe(true)
+      expect((await controller.commands.run("flows", workspaceFlowsArgs(REPO))).status).toBe("executed")
+      await waitFor(() => store.collections.cards.has(listId(REPO)))
     } finally { controller.dispose() }
   })
 
@@ -845,7 +846,7 @@ describe("wave 11 — workflows are presented", () => {
       name: "commands",
       arguments: JSON.stringify({ action: "list" })
     })
-    for (const name of ["flow.new", "flow.list", "flow.run"]) {
+    for (const name of ["flow.new", "flows", "flow.run"]) {
       expect(listed).toContain(name)
     }
     /*
@@ -859,13 +860,13 @@ describe("wave 11 — workflows are presented", () => {
      * brought two hidden graph gestures with it. The Flow card (T-APP-05)
      * added `flow.edit` and `flow.source`, its two buttons.
      */
-    expect(controller.commands.all().filter((command) => command.name.startsWith("flow."))).toHaveLength(11)
+    expect(controller.commands.all().filter((command) => command.name.startsWith("flow."))).toHaveLength(10)
     expect(
       controller.commands
         .all()
         .filter((command) => command.name.startsWith("flow.") && command.hidden !== true)
         .map((command) => command.name)
-    ).toEqual(["flow.new", "flow.list", "flow.run", "flow.plan", "flow.edit", "flow.source"])
+    ).toEqual(["flow.new", "flow.run", "flow.plan", "flow.edit", "flow.source"])
   })
 })
 
@@ -891,11 +892,13 @@ test.each([
   const outcome = await controller.commands.run("review", args)
   // The missing host composition cannot fall back to a repository gateway.
   expect(outcome).toMatchObject({ status: "form", fields: ["number"] })
-  expect(await controller.commands.run("review", "17")).toEqual({ status: "failed", error: "Review is unavailable on this host." })
+  expect(await controller.commands.run("review", "17")).toEqual({ status: "executed", value: "Requested" })
+  await waitFor(() => [...store.collections.toasts.values()].some(toast => toast.title === "Review" && toast.status === "failed"))
   expect(double.state.launched).toEqual([])
   // Opening the missing-PR form may resolve its repository source, but never
-  // reads a PR or allocates/provisions/runs the old working-copy review.
-  expect(double.calls.slice(before)).toEqual([{ path: `/api/repos/${REPO}`, method: "GET", body: undefined }])
+  // falls back to allocating, provisioning or running the old working-copy review.
+  expect(double.calls.slice(before)).toEqual([{ path: `/api/repos/${REPO}`, method: "GET", body: undefined },
+    { path: "/api/reviews", method: "POST", body: { number: 17, repo: REPO, conversation: "branch-main" } }])
   expect(runCard(store)).toBeUndefined()
 
 })

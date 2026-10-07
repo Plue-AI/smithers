@@ -1,3 +1,4 @@
+import { workspaceFlowsArgs } from "../flows/WorkspaceFlowsPayload"
 import { runsArgs } from "../flows/RunsPayload"
 import { workflowLaunchOf, workflowInputOf } from "./WorkflowLaunch"
 import { decodeEventValue } from "./EventValue"
@@ -1888,7 +1889,7 @@ describe("workspace-bound run cards", () => {
     await waitFor(() => runCardInScope(store, source.payload)?.payload.phase === "completed")
     await selectWorkspace(store, "ffffffff-ffff-ffff-ffff-ffffffffffff")
     const before = double.calls.length
-    expect((await controller.commands.run("flow.list", `sourceCard=${source.id}`)).status).toBe("executed")
+    expect((await controller.commands.run("flows", workspaceFlowsArgs(`sourceCard=${source.id}`))).status).toBe("executed")
     await waitFor(() => [...store.collections.cards.values()].some(card => card.kind === "workflow-list" && card.payload.workspaceId === workspaceId && !card.loading))
     const catalog = [...store.collections.cards.values()].find(card => card.kind === "workflow-list" && card.payload.workspaceId === workspaceId)!
     expect(catalog).toMatchObject({ payload: { repo: REPO, workspaceId, gatewayBindingVersion: 1 } })
@@ -1902,7 +1903,7 @@ describe("workspace-bound run cards", () => {
     for (const call of double.calls.slice(before).filter(call => call.path.startsWith("/api/workflow/"))) expect(call.body).toMatchObject({ workspaceId })
     const refused = double.calls.length
     expect(said(await controller.commands.run("flow.run", `sourceCard=${source.id} coding/vibe other/repo`))).toContain("another repository")
-    expect(said(await controller.commands.run("flow.list", "sourceCard=missing"))).toContain("unavailable")
+    expect(said(await controller.commands.run("flows", workspaceFlowsArgs("sourceCard=missing")))).toContain("unavailable")
     expect(double.calls.length).toBe(refused)
     await settle()
     await controller.dispose()

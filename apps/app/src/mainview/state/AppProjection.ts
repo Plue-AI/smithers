@@ -233,6 +233,7 @@ export const APP_TRANSITION_TYPES = {
   "terminal.requests.changed": true,
   "wiki.saves.changed": true,
   "order.requests.changed": true,
+  "flow.inventory.changed": true,
   "review.requests.changed": true,
   "install.requests.changed": true,
   "repository.imports.changed": true,
@@ -772,6 +773,7 @@ const forgetAccountState = (collections: ProjectionCollections, createdAt: numbe
     draft.pendingCommand = null
     delete draft.repositoryCommandEntry
     delete draft.approvalsInboxRequests
+    delete draft.flowInventoryRequest
     delete draft.runOpenRequests
     delete draft.issueTodoRequests
     delete draft.codingProviderRequests
@@ -2151,6 +2153,10 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
         }
         case "order.requests.changed": {
           collections.sessions.update(SESSION_ID, draft => { draft.orderRequests = transition.requests })
+          break
+        }
+        case "flow.inventory.changed": {
+          collections.sessions.update(SESSION_ID, draft => { draft.flowInventoryRequest = transition.request })
           break
         }
         case "review.requests.changed": {

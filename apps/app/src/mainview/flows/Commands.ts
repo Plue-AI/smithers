@@ -283,6 +283,9 @@ const OVER_MAXIMIZED_CARD: ReadonlySet<string> = new Set(["chat.open", "chat.dic
 
 
 export const createCommandRegistry = (actions: CommandActions, agentActions: CommandActions = actions, lifecycle?: CommandLifecycle, resolveConfirmation?: (id: string, revision: string) => { name: string; args?: string } | undefined): CommandRegistry => {
+  // Nested form dispatch borrows the same reservation. Its outer submission
+  // releases write-only input after the complete continuation, exactly once.
+  const gestureSubmissions = new WeakMap<CommandGesture["release"], number>()
   /*
    * The app's own invocation carries no host authority. Approval is a
    * host-injected decorator over typed capabilities (a GrantStore the cell
@@ -879,8 +882,16 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     submit: async ({ name, payload, actor, display, invocation, gesture, originCardId }) => {
       const clean = canonicalCommandName(name)
       if (actor === "user") {
+        const release = gesture?.release
+        if (release) gestureSubmissions.set(release, (gestureSubmissions.get(release) ?? 0) + 1)
         try { return await runAs("user", clean, display, new Set(), invocation, payload, undefined, gesture, originCardId) }
-        finally { gesture?.release() }
+        finally {
+          if (release) {
+            const remaining = (gestureSubmissions.get(release) ?? 1) - 1
+            if (remaining > 0) gestureSubmissions.set(release, remaining)
+            else { gestureSubmissions.delete(release); release.call(gesture) }
+          }
+        }
       }
       const early = lifecycle?.before?.({ name: clean, actor: "smithers", source: "form", invocation }, display, payload)
       if (early !== undefined) return early

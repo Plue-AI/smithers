@@ -4853,53 +4853,6 @@
       }
     },
     {
-      "name": "flow.list",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "run",
-      "summary": "List the flows on your workspace",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "repo": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "sourceCard": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
       "name": "flow.new",
       "slash": "/flow.new",
       "cli": [
@@ -5462,14 +5415,53 @@
       "summary": "List the repository's flows",
       "http": {
         "method": "GET",
-        "path": "/api/flows"
+        "path": "/api/flows",
+        "query": {}
       },
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
-          "not": {
-            "type": "null"
-          }
+          "type": "object",
+          "properties": {
+            "operation": {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "workspace"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "repo": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "sourceCard": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": true
         },
         "definitions": {}
       }
