@@ -563,7 +563,7 @@ func branchSleepInstall(t *testing.T, scenario string) {
 		require.Len(t, entries, 1)
 		require.Equal(t, "sleep-burst", entries[0].ID)
 		require.Equal(t, "burst", entries[0].Kind)
-		require.Equal(t, "2026-10-06T12:00:00.000000Z", entries[0].At)
+		require.Equal(t, "2026-10-06T12:00:00Z", entries[0].At)
 		require.Equal(t, "1111111111111111111111111111111111111111", entries[0].Versions)
 		require.JSONEq(t, `{"id":"outside","kind":"outside","via":"tool"}`, string(entries[0].Actor))
 		require.JSONEq(t, `[{"path":"src/backoff.ts","change":"added","after_blob":"2222222222222222222222222222222222222222"}]`, string(entries[0].Files))
