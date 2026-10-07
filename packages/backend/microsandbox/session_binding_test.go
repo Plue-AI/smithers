@@ -47,7 +47,10 @@ with tempfile.TemporaryDirectory() as root:
  def observed(m):return types.SimpleNamespace(st_uid=0,st_gid=20001,st_mode=m.st_mode,st_nlink=m.st_nlink,st_size=m.st_size,st_dev=m.st_dev,st_ino=m.st_ino)
  os.open=opened;os.fstat=lambda *a,**kw:observed(real_fstat(*a,**kw));os.stat=lambda *a,**kw:observed(real_stat(*a,**kw));os.fchown=lambda *a:None
  os.geteuid=lambda:0;g.require_secret_tmpfs=lambda fd:None
- g.assigned_identity=lambda user:types.SimpleNamespace(pw_uid=20001,pw_gid=20001)
+ def identity(user,uid=None):
+  assert uid is not None,"expected uid must reach account validation"
+  return types.SimpleNamespace(pw_uid=20001,pw_gid=20001)
+ g.assigned_identity=identity
  login,uid,body="ben","20001",b'{"branch":"$(touch /root/canary)","opaque":"literal"}'
  target=root+"/run/smithers/admission/u20001"
  if scenario=="root":login,uid="root","0"

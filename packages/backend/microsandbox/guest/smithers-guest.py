@@ -429,7 +429,7 @@ def session_binding_identity(user, uid):
     uid = int(uid)
     if not (uid == 19999 and user == "agent" or 20000 <= uid <= 2147483647 and user != "agent"):
         fail(3, "invalid session binding uid")
-    entry = assigned_identity(user)
+    entry = assigned_identity(user, uid)
     if entry.pw_uid != uid or entry.pw_gid != uid:
         fail(3, "session binding identity differs")
     return entry
