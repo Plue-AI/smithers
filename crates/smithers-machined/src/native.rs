@@ -731,6 +731,108 @@ pub(crate) mod tests {
         let repo = Repository::open(&root, &state).unwrap();
         (dir, repo)
     }
+    #[cfg(all(feature = "killpoints", debug_assertions))]
+    fn crash_core(root: &Path) -> std::sync::Arc<crate::native_core::NativeCore> {
+        use std::sync::{Arc, Mutex};
+        let owner = rustix::process::geteuid().as_raw();
+        let git = crate::git::Repository::checked(
+            Path::new("/usr/bin/git"),
+            &root.join("workspace"),
+            &root.join("state/spool"),
+        )
+        .unwrap();
+        let outbox = crate::outbox::Outbox::open(
+            crate::outbox_store::Store::open(&root.join("state/outbox"), owner).unwrap(),
+            owner,
+            git.clone(),
+        )
+        .unwrap();
+        Arc::new(crate::native_core::NativeCore {
+            item: Some(crate::boot::ItemBinding {
+                number: 0,
+                change: String::new(),
+            }),
+            moved: Mutex::new(None),
+            native: Arc::new(
+                Repository::open(&root.join("workspace"), &root.join("state")).unwrap(),
+            ),
+            git: git.clone(),
+            events: Arc::new(crate::event_service::Events::new(outbox, git, || Ok(1)).unwrap()),
+            sessions: Arc::new(crate::hooks::Disabled),
+        })
+    }
+    #[cfg(all(feature = "killpoints", debug_assertions))]
+    #[test]
+    fn snapshot_crash_child() {
+        let Some(root) = std::env::var_os("MACHINED_SNAPSHOT_ROOT") else {
+            return;
+        };
+        let root = PathBuf::from(root);
+        fs::write(
+            root.join("workspace/file"),
+            b"durable interrupted snapshot\n",
+        )
+        .unwrap();
+        crate::native_core::tests::framed_capture(crash_core(&root));
+        panic!("K5a did not terminate the process");
+    }
+    #[cfg(all(feature = "killpoints", debug_assertions))]
+    #[test]
+    fn k5a_dispatched_native_snapshot_crash_preserves_ack_and_recaptures_ten_times() {
+        use crate::outbox::Refs;
+        for _ in 0..10 {
+            let (dir, core) = crate::native_core::tests::fixture();
+            let old = core.native.current().unwrap().0;
+            core.git.clone().acknowledge_and_sync(old).unwrap();
+            drop(core);
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "native::tests::snapshot_crash_child",
+                    "--nocapture",
+                ])
+                .env("MACHINED_SNAPSHOT_ROOT", dir.path())
+                .env("SMITHERS_MACHINED_KILL_AT", "K5a")
+                .stdout(std::process::Stdio::null())
+                .status()
+                .unwrap();
+            assert_eq!(status.code(), Some(73));
+            let core = crash_core(dir.path());
+            let head = core.native.current().unwrap().0;
+            assert_ne!(head, old);
+            let object = std::process::Command::new("/usr/bin/git")
+                .args([
+                    "-C",
+                    dir.path().join("workspace").to_str().unwrap(),
+                    "show",
+                    &format!(
+                        "{}:file",
+                        head.iter().map(|b| format!("{b:02x}")).collect::<String>()
+                    ),
+                ])
+                .output()
+                .unwrap();
+            assert!(object.status.success());
+            assert_eq!(object.stdout, b"durable interrupted snapshot\n");
+            assert_eq!(core.git.acknowledged().unwrap(), Some(old));
+            assert_eq!(core.events.depth().unwrap(), 0);
+            assert!(core.git.clone().pending().unwrap().is_empty());
+            assert_eq!(
+                fs::read(dir.path().join("workspace/file")).unwrap(),
+                b"durable interrupted snapshot\n"
+            );
+            let response = crate::native_core::tests::framed_capture(core.clone());
+            let fields = crate::conn::fields("response", &response.payload[1..]).unwrap();
+            assert_eq!(fields[1].1[0], 4);
+            let result = crate::conn::fields("result4", &fields[1].1[1..]).unwrap();
+            assert_eq!(result[0].1, head);
+            assert_eq!(core.native.current().unwrap().0, head);
+            assert_eq!(core.events.depth().unwrap(), 1);
+            assert!(core.events.queued(head).unwrap());
+            assert_eq!(core.git.acknowledged().unwrap(), Some(old));
+            assert_eq!(core.git.clone().pending().unwrap().len(), 1);
+        }
+    }
     #[test]
     fn restored_reconciliation_reuses_the_identical_indexed_commit() {
         let (_dir, native) = fixture();

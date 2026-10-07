@@ -909,6 +909,31 @@ pub(crate) mod tests {
     pub(crate) fn call(core: Arc<NativeCore>, method: u8, fields: &[Vec<u8>]) -> Frame {
         call_with_documents(core, method, fields, Arc::new(Flushed))
     }
+    #[cfg(all(feature = "killpoints", debug_assertions))]
+    pub(crate) fn framed_capture(core: Arc<NativeCore>) -> Frame {
+        let mut cx = LockCx::new(Hooks {
+            events: core.events.clone(),
+            core,
+            documents: Arc::new(Flushed),
+            watcher: Arc::new(Flushed),
+            ..Default::default()
+        });
+        let request = Frame {
+            kind: 1,
+            stream: 0,
+            payload: tagged(1, &[field(1, 73u32.to_be_bytes()), field(2, tagged(4, &[]))]),
+        }
+        .encode()
+        .unwrap();
+        let mut output = Vec::new();
+        rpc::serve_one(
+            &mut std::io::Cursor::new(request),
+            &mut output,
+            &mut cx,
+        )
+        .unwrap();
+        Frame::decode(&output).unwrap()
+    }
     fn call_with_documents(
         core: Arc<NativeCore>,
         method: u8,
