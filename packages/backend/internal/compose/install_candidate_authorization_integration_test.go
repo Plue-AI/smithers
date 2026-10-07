@@ -212,4 +212,30 @@ func TestInstallCandidateAuthorizationPostgres(t *testing.T) {
 		})
 	}
 
+	t.Run("member sponsor submits without becoming the stack actor", func(t *testing.T) {
+		memberSource := git("", "commit-tree", tree, "-p", base, "-m", "Member candidate")
+		git("", "update-ref", repohost.WorkspaceSourceRef(workspace.ID, memberSource), memberSource)
+		_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET owner_id=$2,request_run_id='member-run',generation=8,state='delivering',request_outcome='validated',candidate_head='',candidate_verified=false WHERE id=$1`, itemID, f.other.ID)
+		require.NoError(t, err)
+		memberScopes := "write:repository," + middleware.RepositoryRestrictionScope(f.repoID) + "," + middleware.LandingWorkspaceScope(workspace.ID) + "," + middleware.AgentSessionRestrictionScope("member-run")
+		memberRun := f.token(f.other, "member-candidate", memberScopes, true)
+		memberInput := input
+		memberInput.Source, memberInput.RequestRunID = memberSource, "member-run"
+		before := reads.Load()
+		call(run, memberInput, 403)
+		require.Equal(t, before, reads.Load(), "former sponsor cannot read or submit the replacement run")
+		call(memberRun, memberInput, 202)
+		retained, err := f.q.GetMythicalItemByNumber(f.ctx, f.repoID, 1)
+		require.NoError(t, err)
+		require.Equal(t, memberSource, retained.CandidateHead)
+		require.True(t, retained.CandidateVerified)
+		require.Equal(t, f.other.ID, retained.OwnerID.Int64)
+		stack, err := f.q.GetMythicalStack(f.ctx, f.repoID)
+		require.NoError(t, err)
+		require.Equal(t, f.owner.ID, stack.ActorUserID.Int64, "sponsor attribution does not rewrite factory ownership")
+		var approvals int
+		require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM approvals`).Scan(&approvals))
+		require.Zero(t, approvals)
+	})
+
 }

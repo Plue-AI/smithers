@@ -967,7 +967,7 @@ func authorizeStackCandidate(ctx context.Context, q *db.Queries, subject Install
 	if err != nil {
 		return InstallAuthorization{}, err
 	}
-	if !stack.ActorUserID.Valid || stack.ActorUserID.Int64 != decision.UserID {
+	if !stack.ActorUserID.Valid || stack.State != "active" {
 		return deny()
 	}
 	return decision, nil

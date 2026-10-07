@@ -330,6 +330,7 @@ func (s *MythicalService) SubmitLane(ctx context.Context, repositoryID, userID i
 	if decision.UserID != userID {
 		return MythicalLaneReceipt{}, confirmationPermission()
 	}
+	ctx = WithInstallAuthorization(ctx, "stack.candidate", decision, subject)
 	tx, err := s.store.Begin(ctx)
 	if err != nil {
 		return MythicalLaneReceipt{}, err
@@ -363,6 +364,7 @@ func (s *MythicalService) SubmitLane(ctx context.Context, repositoryID, userID i
 	if _, err := authorizeStackCandidate(live, db.New(tx), subject); err != nil {
 		return MythicalLaneReceipt{}, err
 	}
+	live = WithInstallAuthorization(live, "stack.candidate", decision, subject)
 	item, err := db.New(tx).GetMythicalItemByNumber(live, repositoryID, subject.TodoNumber)
 	if err != nil {
 		return MythicalLaneReceipt{}, err
@@ -401,7 +403,15 @@ func (s *MythicalService) submitLane(ctx context.Context, repositoryID, userID i
 	if err != nil {
 		return MythicalLaneReceipt{}, err
 	}
-	if !stack.ActorUserID.Valid || stack.ActorUserID.Int64 != userID {
+	binding, bound := ctx.Value(installAuthorizationKey{}).(boundInstallAuthorization)
+	installCandidate := bound && binding.command == "stack.candidate" && binding.credential == middleware.AuthInfoFromContext(ctx) && binding.decision.UserID == userID
+	if installCandidate {
+		// Install sponsors hand over their own validated lane; the factory
+		// actor remains the account running the stack's background work.
+		if _, err := ResolveInstallCandidateSubject(ctx, q, repositoryID, input); err != nil {
+			return MythicalLaneReceipt{}, err
+		}
+	} else if !stack.ActorUserID.Valid || stack.ActorUserID.Int64 != userID {
 		return MythicalLaneReceipt{}, pkgerrors.Forbidden("only the stack's account hands results to the stack")
 	}
 	repository, owner, err := s.repository(ctx, repositoryID)
