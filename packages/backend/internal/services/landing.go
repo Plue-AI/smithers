@@ -1130,7 +1130,7 @@ func (s *LandingService) SetLandingRequestAutoLand(ctx context.Context, actor *d
 	if err := s.requireInstallMainOff(ctx, repository, current.TargetBookmark); err != nil {
 		return LandingRequestResponse{}, err
 	}
-	if err := requireOwnLandingOrPerson(ctx, actor, current.AuthorID); err != nil {
+	if err := s.requireOwnLandingOrPerson(ctx, actor, current.AuthorID); err != nil {
 		return LandingRequestResponse{}, err
 	}
 	// Auto-land outlives its target: the landing could be retargeted onto
@@ -1183,7 +1183,7 @@ func (s *LandingService) ClearLandingRequestAutoLand(ctx context.Context, actor 
 	if err != nil {
 		return err
 	}
-	if err := requireOwnLandingOrPerson(ctx, actor, current.AuthorID); err != nil {
+	if err := s.requireOwnLandingOrPerson(ctx, actor, current.AuthorID); err != nil {
 		return err
 	}
 	q, ok := s.queries.(landingAutoLandQuerier)
@@ -1218,7 +1218,7 @@ func (s *LandingService) UpdateLandingRequest(ctx context.Context, actor *db.Use
 	if (req.State != nil && !strings.EqualFold(strings.TrimSpace(*req.State), current.State)) ||
 		(req.TargetBookmark != nil && strings.TrimSpace(*req.TargetBookmark) != current.TargetBookmark) ||
 		(req.SourceBookmark != nil && strings.TrimSpace(*req.SourceBookmark) != current.SourceBookmark) {
-		if err := requireOwnLandingOrPerson(ctx, actor, current.AuthorID); err != nil {
+		if err := s.requireOwnLandingOrPerson(ctx, actor, current.AuthorID); err != nil {
 			return LandingRequestResponse{}, err
 		}
 	}
@@ -1385,7 +1385,7 @@ func (s *LandingService) LandLandingRequest(ctx context.Context, actor *db.User,
 	if err := s.requireInstallMainOff(ctx, repository, landingRow.TargetBookmark); err != nil {
 		return LandLandingRequestAccepted{}, err
 	}
-	if err := requireOwnLandingOrPerson(ctx, actor, landingRow.AuthorID); err != nil {
+	if err := s.requireOwnLandingOrPerson(ctx, actor, landingRow.AuthorID); err != nil {
 		return LandLandingRequestAccepted{}, err
 	}
 	if err := requireAgentLandsAgentWork(ctx, actor, repository, landingRow.AgentAuthored, landingRow.TargetBookmark); err != nil {
@@ -1772,6 +1772,27 @@ func landingBlockedMessage(blocks []LandingBlock) string {
 		return agentLandingApprovalReason
 	}
 	return "landing requirements are not satisfied"
+}
+
+// Install service entries use the same catalog decision as HTTP dispatch.
+// Plue retains its existing person and repository ACL admission.
+func (s *LandingService) authorizeCatalogCommand(ctx context.Context, command, action string) error {
+	if !s.installMainMirror {
+		return middleware.RequirePerson(ctx, action)
+	}
+	queries, ok := s.queries.(*db.Queries)
+	if !ok || queries == nil {
+		return &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"}
+	}
+	_, err := Authorize(ctx, queries, command)
+	return err
+}
+
+func (s *LandingService) requireOwnLandingOrPerson(ctx context.Context, actor *db.User, authorID int64) error {
+	if s.installMainMirror {
+		return s.authorizeCatalogCommand(ctx, "merge", "land or queue someone else's landing")
+	}
+	return requireOwnLandingOrPerson(ctx, actor, authorID)
 }
 
 // requireOwnLandingOrPerson lets a run credential land or queue only its
@@ -3276,7 +3297,7 @@ func (s *LandingService) MarkLandingThreadDone(ctx context.Context, actor *db.Us
 func (s *LandingService) AckLandingThread(ctx context.Context, actor *db.User, owner, repo string, number, threadID int64) (db.LandingRequestComment, error) {
 	// Acknowledging resolves the comment and can unblock the landing. A run
 	// credential acts as the reviewer's user, but the reviewer is a person.
-	if err := middleware.RequirePerson(ctx, "acknowledge a review comment"); err != nil {
+	if err := s.authorizeCatalogCommand(ctx, "review.ack", "acknowledge a review comment"); err != nil {
 		return db.LandingRequestComment{}, err
 	}
 	repository, landingRow, thread, err := s.resolveWritableLandingThread(ctx, actor, owner, repo, number, threadID)
@@ -3530,7 +3551,7 @@ func (s *LandingService) DismissLandingReview(ctx context.Context, actor *db.Use
 		return db.LandingRequestReview{}, pkgerrors.NotFound("review not found")
 	}
 	if review.ReviewerKind == "human" {
-		if err := middleware.RequirePerson(ctx, "dismiss a person's review"); err != nil {
+		if err := s.authorizeCatalogCommand(ctx, "approval.deny", "dismiss a person's review"); err != nil {
 			return db.LandingRequestReview{}, err
 		}
 	}
