@@ -80,7 +80,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-APP-04 | [C-APP-04.spec.ts](C-APP-04.spec.ts) | browser-pass: composer admission, reload and Earlier; packaged-host ordering, privacy, revocation and four retired writes; private-question retirement pending | T-APP-16 |
 | C-APP-05 | [C-APP-05.spec.ts](C-APP-05.spec.ts) | browser-pass: real composed install, two members, author tab closes, host completes and both replay; author-only UI instructions use the typed flow | T-APP-16 |
 | C-ACC-01 | [C-ACC-01.spec.ts](C-ACC-01.spec.ts) | partial: real composed install Member roster/secret-name reads, refused merge/admin controls and HTTP writes; full 58-cell server ledger pending | T-ACC-02, T-ACC-03, T-ACC-04, T-APP-04, T-INS-08, T-TRM-02, T-CUT-03, T-STK-06 |
-| C-ACC-02 | [C-ACC-02.spec.ts](C-ACC-02.spec.ts) | partial: real install stale expiry/fresh keyboard approval, native GitHub-fake squash settlement, mirrored main and reload; reference-host recovery pending | T-ACC-04, T-APP-04, T-STK-04 |
+| C-ACC-02 | [C-ACC-02.spec.ts](C-ACC-02.spec.ts) | partial: real install stale expiry/fresh keyboard admission and reload; final merge settlement, mirrored main and reference-host recovery pending | T-ACC-04, T-APP-04, T-STK-04 |
 | C-ACC-03 | [C-ACC-03.spec.ts](C-ACC-03.spec.ts) | passing: removal, owner protection, retained TODO history | T-ACC-02 |
 | C-ACC-04 | [C-ACC-04.spec.ts](C-ACC-04.spec.ts) | roster and sign-in refusal HTTP projections pass; composed OAuth qualification separate | T-ACC-01, T-ACC-02 |
 | C-STK-01 | [C-STK-01.spec.ts](C-STK-01.spec.ts) | fixme-before-implementation | T-STK-01 |
