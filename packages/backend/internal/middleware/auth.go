@@ -494,6 +494,11 @@ var installMemberRoutes = []struct {
 	// Retained PR history uses the catalog view commands.
 	{http.MethodGet, "prs.list", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/landings$`)},
 	{http.MethodGet, "prs.view", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/landings/[0-9]+(?:/(?:changes|comments|conflicts|reviews))?$`)},
+	// Retained repository history reads are the same catalog repository read.
+	// Their commit selectors are not a bound execution branch: run and machine
+	// credentials must use the separately scoped branch/file doors.
+	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:bookmarks|changes(?:/count|/[^/]+(?:/(?:walkthrough|findings|diff|files|conflicts|operations))?)?|operations|status)$`)},
+	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/file/[^/]+/.+$`)},
 	// Existing persisted coding-run messages remain readable by repository members.
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/agent/sessions/[^/]+/stream$`)},
 	{http.MethodGet, "sync.read", regexp.MustCompile(`^/api/github/sync$`)},
