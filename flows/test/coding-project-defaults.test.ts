@@ -182,12 +182,11 @@ const startup = (root: string, stateRoot: string, hostPolicy = policy) =>
     return { planning, built }
   }).pipe(Effect.provide(platform), Effect.runPromise)
 
-test("a repository with no Smithers files serves coding/request with its detected checks registered", async (t) => {
+test("a repository with no Smithers files serves engine verification with its detected checks registered", async (t) => {
   const { root, stateRoot } = await repository(t, goModule)
   await mkdir(join(root, "flows"))
   const { planning, built } = await startup(root, stateRoot)
   assert.deepEqual(configuredCodingRoutes({ planning }).map((route) => route.name), [
-    "coding/request",
     "coding/verify",
     "flow-load"
   ])

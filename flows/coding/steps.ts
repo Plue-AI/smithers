@@ -12,8 +12,8 @@
  * Only re-exports belong here: `host-modules-build.mjs` composes this barrel
  * from the bundled modules it names.
  */
-export { default as Request } from "./request/flow.ts"
+export { default as Request } from "./request-flow.ts"
 export { RequestInput, StackBase } from "./schema.ts"
 export { TodoDelivery } from "./todo.ts"
+export { default as Vibe, VibeError } from "./vibe-flow.ts"
 export { VibeDelivered } from "./vibe-schema.ts"
-export { default as Vibe, VibeError } from "./vibe/flow.ts"

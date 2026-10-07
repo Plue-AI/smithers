@@ -123,7 +123,7 @@ export interface Options extends NativeOptions {
   readonly seats?: Readonly<Record<string, string>> | undefined
   /**
    * Deployment-owned landing adapter over the reserved repository credential.
-   * Repository automation uses it on its own; `coding/vibe` is registered only
+   * Repository automation uses it on its own; TODO delivery is registered only
    * when `planning` configures the prompt route as well. Without it, the
    * project's `landing` selects a local lander (`local-landing.ts`).
    */
@@ -144,10 +144,6 @@ export interface Options extends NativeOptions {
 export const configuredCodingRoutes = (
   options: Pick<Options, "planning" | "landing">
 ): ReadonlyArray<{ readonly name: CodingRoute; readonly capability: string }> => [
-  ...(options.planning === undefined ? [] : [{ name: "coding/request" as const, capability: "coding-request/v1" }]),
-  ...(options.planning === undefined || (options.landing === undefined && options.planning.landing === undefined)
-    ? []
-    : [{ name: "coding/vibe" as const, capability: "coding-vibe/v1" }]),
   // The mythical stack verifies rebased candidates with the same checks.
   ...(options.planning === undefined ? [] : [{ name: "coding/verify" as const, capability: "coding-verify/v1" }]),
   // The stack service refreshes the repository wiki the project declares.
