@@ -186,6 +186,12 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 	if ownerClaim {
 		environment["SMITHERS_PUBLIC_URL"] = "http://localhost:4000"
 		githubURL := testkit.InstallOwnerOAuth(t, pool, "http://localhost:4000", "restart-encryption-secret")
+		// The OAuth fixture installs the App before this claim-only recovery
+		// boundary. Persist its completed prerequisites, as real setup does.
+		_, err = pool.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES
+			('setup.step.address','{"status":"done"}'),
+			('setup.step.app_manifest','{"status":"done"}')`)
+		require.NoError(t, err)
 		for _, key := range []string{"SMITHERS_AUTH_GITHUB_API_BASE_URL", "SMITHERS_AUTH_GITHUB_OAUTH_BASE_URL", "SMITHERS_GITHUB_APP_API_BASE_URL"} {
 			environment[key] = githubURL
 		}
@@ -412,6 +418,17 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 		require.Equal(t, 1, owners)
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM install_settings WHERE key='setup.token' OR key LIKE 'setup.session.%'`).Scan(&sessions))
 		require.Zero(t, sessions)
+		// Owner claim completes the admitted sign-in job asynchronously. Compare
+		// stable completion receipts across restart, rather than racing the worker.
+		var signInOperation string
+		require.Eventually(t, func() bool {
+			var status string
+			err := pool.QueryRow(ctx, `SELECT value->>'status',value->>'operation_id' FROM install_settings WHERE key='setup.step.sign_in'`).Scan(&status, &signInOperation)
+			return err == nil && status == "done" && signInOperation != ""
+		}, 15*time.Second, 50*time.Millisecond)
+		var signInCompletions int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE operation_id=$1 AND event_type='operation.completed'`, signInOperation).Scan(&signInCompletions))
+		require.Equal(t, 1, signInCompletions)
 		// Crash before repository verification: the owner remains provisional,
 		// their real browser session and setup projection survive restart.
 		before := get("/api/install", 200)
@@ -435,6 +452,11 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 		require.NoError(t, json.Unmarshal(beforeBody, &beforeModel))
 		require.NoError(t, json.Unmarshal(afterBody, &afterModel))
 		require.JSONEq(t, string(beforeModel["steps"]), string(afterModel["steps"]))
+		var recoveredSignIn string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT value->>'operation_id' FROM install_settings WHERE key='setup.step.sign_in'`).Scan(&recoveredSignIn))
+		require.Equal(t, signInOperation, recoveredSignIn)
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE operation_id=$1 AND event_type='operation.completed'`, signInOperation).Scan(&signInCompletions))
+		require.Equal(t, 1, signInCompletions)
 		refused := get("/api/todos", 403)
 		body, err := io.ReadAll(refused.Body)
 		refused.Body.Close()

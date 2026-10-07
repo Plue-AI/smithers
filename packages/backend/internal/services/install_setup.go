@@ -236,7 +236,7 @@ func (s *InstallSetupService) Steps(ctx context.Context) ([]InstallStep, error) 
 		}
 		if step.Status == InstallRunning && installStepCanStart(step, setupNow(s.Now)) {
 			live := false
-			// The App step runs in the browser and has no job.
+			// Browser App conversion and Go workers share the durable job lease.
 			if step.OperationID != "" {
 				err = s.Pool.QueryRow(ctx, installWorkerLive, step.OperationID).Scan(&live)
 				if err != nil && !errors.Is(err, pgx.ErrNoRows) {
