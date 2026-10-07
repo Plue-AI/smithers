@@ -217,8 +217,25 @@ func (s *GitHubSyncedRepoService) admitFetchedObjectAfter(ctx context.Context, t
 	if err != nil {
 		return err
 	}
+	// The registry lock serializes fetched admissions. Reuse immutable deliveries
+	// without INSERT's conflict lock: a worker may hold that request while waiting
+	// for the stream head already held by an earlier new object in this batch.
+	tenant := "github:" + strconv.FormatInt(row.InstallationID.Int64, 10) + ":" + strconv.FormatInt(row.GithubRepositoryID.Int64, 10)
+	var same bool
+	err = tx.QueryRow(ctx, `SELECT payload=$5::jsonb FROM product_job_requests
+		WHERE tenant_id=$1 AND principal_id=$2 AND operation=$3 AND request_id=$4`,
+		tenant, resource, githubFetchedOperation, requestID, payload).Scan(&same)
+	if err == nil {
+		if !same {
+			return jobs.ErrPayloadConflict
+		}
+		return nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
 	_, err = s.install.jobs.AdmitInTx(ctx, tx, jobs.Admission{
-		Scope:     jobs.Scope{TenantID: "github:" + strconv.FormatInt(row.InstallationID.Int64, 10) + ":" + strconv.FormatInt(row.GithubRepositoryID.Int64, 10), PrincipalID: resource},
+		Scope:     jobs.Scope{TenantID: tenant, PrincipalID: resource},
 		Operation: githubFetchedOperation, RequestID: requestID,
 		Payload: payload, AuthorizationContext: json.RawMessage(`{}`), EffectPolicy: jobs.EffectIdempotent,
 	})
