@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -99,6 +100,24 @@ func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 	require.JSONEq(t, `[]`, string(empty.Data))
 	partialSocket.CloseNow()
 	event.Payload = partPayload(2, encodedFiles[midpoint:])
+	// A real Git ref-lock failure must not expose an unretained snapshot
+	// through the mounted live door or commit the final receipt.
+	refDir := filepath.Join(store, "refs/smithers/branches", f.row.ID, "bursts")
+	require.NoError(t, os.MkdirAll(refDir, 0700))
+	lock := filepath.Join(refDir, "02000000-0000-0000-0000-000000000000.lock")
+	require.NoError(t, os.WriteFile(lock, nil, 0600))
+	_, err = ingest.Apply(t.Context(), c, scope, event)
+	require.ErrorContains(t, err, "retain burst ref")
+	var committed int
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_events WHERE event_type='branch.burst'`).Scan(&committed))
+	require.Zero(t, committed)
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM machine_event_receipts WHERE outcome LIKE 'applied:%'`).Scan(&committed))
+	require.Zero(t, committed)
+	failedSocket := f.dial(t)
+	sendPresenceFrame(t, failedSocket, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s:activity"}`, f.row.ID))
+	require.JSONEq(t, `[]`, string(readPresenceFrame(t, failedSocket).Data))
+	failedSocket.CloseNow()
+	require.NoError(t, os.Remove(lock))
 	ack, err := ingest.Apply(t.Context(), c, scope, event)
 	require.NoError(t, err)
 	require.Equal(t, machined.AckApplied, ack.Outcome)
