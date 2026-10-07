@@ -389,4 +389,29 @@ func TestLiveTodoCommittedCardsRollbackAndReplay(t *testing.T) {
 		require.JSONEq(t, string(expected.Data), string(frame.Data))
 	}
 
+	// Native check receipts enter through the production fenced projector and
+	// reach the authenticated install socket, including clearing after an edit.
+	thrashUpdate := flowdispatch.ProjectionUpdate{State: jobs.StateWaiting, Checkpoint: flowdispatch.RuntimeCheckpoint{
+		Projection: projection, FlowID: "todo", ExecutionDigest: strings.Repeat("a", 64), RunID: "live-transition-run",
+		Run: &flowruntime.Run{RunID: "live-transition-run", FlowID: "todo", Status: "running"}}}
+	for sequence := int64(1); sequence <= 4; sequence++ {
+		flow, value := "coding/check-command", `{"checkId":"unit","status":"failed","findings":[{"message":"bad src/retry.ts:42"}]}`
+		if sequence == 4 {
+			flow, value = "coding/edit-atom", `{"writes":["src/retry.ts"]}`
+		}
+		preview, err := json.Marshal(value)
+		require.NoError(t, err)
+		thrashUpdate.Events = []flowruntime.Event{{RunID: "live-transition-run", Sequence: sequence, Kind: "control.engine.event", Payload: json.RawMessage(fmt.Sprintf(`{"version":1,"executionId":"check-%d","generation":0,"sequence":1,"eventType":"flows.engine.node-settled","payload":{"nodeId":"node-%d","action":%q,"outcome":"built","attempts":1,"result":{"preview":%s,"bytes":100,"truncated":false}}}`, sequence, sequence, flow, preview))}}
+
+		require.NoError(t, service.ProjectFlowRuntime(ctx, thrashUpdate))
+		frame := read(thirdSocket)
+		require.Equal(t, "delta", frame.T)
+		if sequence == 3 {
+			require.Contains(t, string(frame.Data), `"tone":"thrash"`)
+			require.Contains(t, string(frame.Data), "Thrashing: unit failed 3×")
+		} else {
+			require.NotContains(t, string(frame.Data), `"tone":"thrash"`)
+		}
+	}
+
 }

@@ -589,6 +589,7 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 				projectTodoPlan(&next, projection, update)
 				mythicalProjectWaits(&next, projection, update, runID, s.now().UTC())
 				projectTodoWatchdog(&next, update, s.now().UTC())
+				projectTodoThrash(&next, update)
 			}
 			if err := s.persistTodoLogs(ctx, &next); err != nil {
 				return err
@@ -4924,6 +4925,7 @@ func appliedByMaintainer(applied gitHubLabelApplication, label string) bool {
 type mythicalChecks struct {
 	PlanReceipt           *todoRequestReceipt   `json:"planReceipt,omitempty"`
 	RouteReceipt          *todoRequestReceipt   `json:"routeReceipt,omitempty"`
+	Thrash                *runThrash            `json:"thrash,omitempty"`
 	Watchdog              *todoWatchdog         `json:"watchdog,omitempty"`
 	AdmissionDay          string                `json:"admissionDay,omitempty"`
 	IssueContext          json.RawMessage       `json:"issue_context,omitempty"`
