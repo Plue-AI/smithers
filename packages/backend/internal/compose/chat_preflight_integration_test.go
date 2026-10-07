@@ -116,6 +116,11 @@ func testLocalSharedPreflight(t *testing.T, browser bool) {
 	var contextReader services.InstallContext
 	local := startConfiguredLocalChat(t, func(local *localChat, options *chat.RuntimeOptions) {
 		q := db.New(local.pool)
+		cfg := testConfigAllFlagsOn()
+		cfg.Auth.Mode = "selfhost"
+		auth := services.NewAuthService(q, cfg.Auth, nil, nil)
+		auth.Members = &services.Members{Pool: local.pool, Credentials: rosterAppCredentials{}, Minter: services.NewRepoConnectionService(nil, rosterAppCredentials{})}
+		options.API = services.InstallAPI{Auth: auth}
 		_, err := local.pool.Exec(local.ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, local.ownerID)
 		require.NoError(t, err)
 		_, err = local.pool.Exec(local.ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, local.repoID, local.ownerID)

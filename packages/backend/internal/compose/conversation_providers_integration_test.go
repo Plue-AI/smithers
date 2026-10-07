@@ -1,26 +1,21 @@
 package compose
 
 import (
-	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
-	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/stretchr/testify/require"
 )
 
 // Omission at the composition boundary must not launch a model with ambient
-// authority. Only repository context and model responses are scripted here;
+// authority. Only model responses and GitHub are scripted; repository context,
 // prompt admission, journal, dispatcher and author authentication are real.
 func TestBranchConversationUnavailableProviders(t *testing.T) {
 	for _, missing := range []string{"delegated-issuer", "branch-membership", "context-reader", "model-assignment", "model-credential", "live-topics", "live-revocation"} {
 		t.Run(missing, func(t *testing.T) {
-			f := workingConversationWithContext(t, func(context.Context, middleware.Credential, int64, int64, string) (json.RawMessage, error) {
-				return json.RawMessage(`{"state":"main","candidates":[],"tokenBudget":24000}`), nil
-			}, func(local *localChat, options *chat.RuntimeOptions) {
+			f := workingConversationWithContext(t, nil, func(local *localChat, options *chat.RuntimeOptions) {
 				if missing == "delegated-issuer" {
 					options.API = nil
 				}
