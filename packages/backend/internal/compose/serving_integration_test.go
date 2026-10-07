@@ -8,7 +8,9 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/repository"
 	"io"
 	"net"
@@ -288,6 +290,12 @@ func TestInstallServingOwnerAddressUpdatePostgres(t *testing.T) {
 func TestInstallServingLiveOriginReconnectPostgres(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	q := db.New(pool)
+	busContext, stopBus := context.WithCancel(t.Context())
+	defer stopBus()
+	bus := revocation.NewBus(pool, q)
+	require.NoError(t, bus.Start(busContext))
+	routes.SetRevocationSource(bus)
+	defer routes.SetRevocationSource(nil)
 	user, err := q.CreateUser(t.Context(), db.CreateUserParams{Username: "live-origin-owner", LowerUsername: "live-origin-owner"})
 	require.NoError(t, err)
 	_, err = pool.Exec(t.Context(), `INSERT INTO self_host_owners(user_id) VALUES($1)`, user.ID)
@@ -301,7 +309,9 @@ func TestInstallServingLiveOriginReconnectPostgres(t *testing.T) {
 	address := &services.InstallAddress{Configured: []string{"http://lan-a:4000", "https://box.example"}, Listen: func(string) error { return nil }}
 	setup := &services.InstallSetupService{Pool: pool, Address: address}
 	handler := &routes.GitHubAppSetupHandler{Owners: q, Origins: address.Origins, Setup: setup}
-	topics := &liveTopics{queries: q, install: setup}
+	store, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	topics := &liveTopics{queries: q, install: setup, jobs: store}
 	channel := &routes.LiveHandler{Queries: q, Hub: live.NewHub(t.Context(), nil), Origins: address.Origins, Topics: topics.resolver}
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = "selfhost"
@@ -365,4 +375,80 @@ func TestInstallServingLiveOriginReconnectPostgres(t *testing.T) {
 	dial("lan-a:4000", "http://lan-a:4000", 421)
 	dial("box.example", "https://box.example", 101)
 	dial("localhost:4000", "http://localhost:4000", 101)
+	// Reconstruct the production resolver/hub as after a backend restart.
+	// A persisted cursor replays the committed address fact, never a local
+	// wall-clock cursor or another projection of the install settings.
+	topics = &liveTopics{queries: q, install: setup, jobs: store}
+	channel.Hub = live.NewHub(t.Context(), nil)
+	channel.Topics = topics.resolver
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{live.Protocol}, HTTPHeader: http.Header{"X-Forwarded-Host": {"localhost:4000"}, "Origin": {"http://localhost:4000"}, "Cookie": {"smithers_session=live-origin-session"}}})
+	require.NoError(t, err)
+	defer conn.CloseNow()
+	require.NoError(t, conn.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":2,"topic":"install","cursor":0}`)))
+	_, raw, err := conn.Read(ctx)
+	require.NoError(t, err)
+	var replay live.Frame
+	require.NoError(t, json.Unmarshal(raw, &replay))
+	require.Equal(t, "delta", replay.T)
+	var event jobs.Event
+	require.NoError(t, json.Unmarshal(replay.Data, &event))
+	require.Equal(t, "install.address", event.Type)
+	require.JSONEq(t, `{"bind":"","origins":["https://box.example"]}`, string(event.Data))
+	head, err := store.Head(ctx, jobs.Scope{TenantID: "install", PrincipalID: "owner"})
+	require.NoError(t, err)
+	require.Equal(t, head, *replay.Cursor)
+	// Lease expiry changes the derived install status without inventing a
+	// source fact. The shared snapshot refresh must preserve that behavior.
+	step, err := json.Marshal(services.InstallStep{ID: "models", Status: services.InstallRunning, ExpiresAt: time.Now().Add(1500 * time.Millisecond)})
+	require.NoError(t, err)
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "setup.step.models", Value: step}))
+	readSnapshot := func() live.Frame {
+		t.Helper()
+		for {
+			_, raw, err := conn.Read(ctx)
+			require.NoError(t, err)
+			var frame live.Frame
+			require.NoError(t, json.Unmarshal(raw, &frame))
+			if frame.ID == 3 {
+				return frame
+			}
+		}
+	}
+	require.NoError(t, conn.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":3,"topic":"install"}`)))
+	fresh := readSnapshot()
+	require.Equal(t, "snap", fresh.T)
+	require.Equal(t, head, *fresh.Cursor)
+	require.Contains(t, string(fresh.Data), `"https://box.example"`)
+	modelState := func(frame live.Frame) string {
+		t.Helper()
+		var status struct {
+			Steps []struct {
+				ID    string
+				State string
+			}
+		}
+		require.NoError(t, json.Unmarshal(frame.Data, &status))
+		for _, step := range status.Steps {
+			if step.ID == "models" {
+				return step.State
+			}
+		}
+		t.Fatal("models step missing")
+		return ""
+	}
+	require.Equal(t, "running", modelState(fresh))
+	refreshed := readSnapshot()
+	for modelState(refreshed) == "running" {
+		require.Equal(t, "snap", refreshed.T)
+		require.Equal(t, head, *refreshed.Cursor)
+		refreshed = readSnapshot()
+	}
+	require.Equal(t, "snap", refreshed.T)
+	require.Equal(t, head, *refreshed.Cursor)
+	require.Equal(t, "pending", modelState(refreshed))
+	unchanged, err := store.Head(ctx, jobs.Scope{TenantID: "install", PrincipalID: "owner"})
+	require.NoError(t, err)
+	require.Equal(t, head, unchanged, "derived refresh never allocates a source event")
 }
