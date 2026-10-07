@@ -323,7 +323,7 @@ func TestTodoMachineOwnershipRefusesUnknownRelease(t *testing.T) {
 	lanes := NewWorkspaceMythicalLanes(svc)
 	held, err := lanes.MachineHeld(t.Context(), "T1")
 	require.NoError(t, err)
-	require.True(t, held, "pending boot holds the TODO launch slot")
+	require.False(t, held, "an ungranted pending boot owns no runtime slot")
 	store.update("T1", func(row *db.Workspace) { row.Status = "running" })
 	held, err = lanes.MachineHeld(t.Context(), "T1")
 	require.ErrorContains(t, err, "unconfirmed")

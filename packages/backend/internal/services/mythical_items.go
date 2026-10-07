@@ -1176,6 +1176,10 @@ func mythicalRunInFlight(item db.MythicalItem) bool {
 // Fresh TODO admission stays refused until ordered runtime admission is composed.
 // freeLane supplies identity only; people use runtime admission, not a lane reserve.
 func (st *mythicalItemStep) slot(item db.MythicalItem) bool {
+	if st.s != nil && st.s.installParallelRequired && item.Source == "todo" {
+		lanes, ok := st.s.lanes.(interface{ TodoMachineEligible(db.MythicalItem) bool })
+		return st.maxParallel > 0 && ok && lanes.TodoMachineEligible(item) && st.launches < mythicalLaunchesPerRun
+	}
 	busy := st.busy
 	if st.holdsMachine(item) {
 		// The item gives up the workspace it holds (its coding workspace,
@@ -1328,13 +1332,23 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		return items[i].StackPosition.Int64 < items[j].StackPosition.Int64
 	})
 	step.items = items
-	s.orderTodoMachines(items)
+	if err := s.syncTodoMachines(ctx, r.row.RepositoryID, items); err != nil && s.installParallelRequired {
+		step.maxParallel = 0
+		s.logger.Warn("mythical.todo_demand_failed", "error", err)
+		return
+	}
 	defer s.sweepLanes(ctx, r)
 	// An item that waits for a lane may get one when another item moves.
 	waitsForLane, moved := false, false
 	defer func() {
-		if waitsForLane && moved {
-			r.dueAt(step.now)
+		if waitsForLane {
+			if moved {
+				r.dueAt(step.now)
+			} else if s.installParallelRequired {
+				// Settings and disk capacity can change without an item event. Keep the
+				// existing engine due while demand waits; no second scheduler or queue.
+				r.dueAt(step.now.Add(time.Second))
+			}
 		}
 	}()
 	for _, item := range items {
@@ -1392,7 +1406,18 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		if next == nil {
 			continue
 		}
-		if !step.holdsMachine(item) && mythicalHoldsLane(*next) {
+		nextHeld := mythicalHoldsLane(*next)
+		if step.machineHeld != nil {
+			nextHeld = false
+			if next.WorkspaceID != "" {
+				ownership := s.lanes.(interface {
+					MachineHeld(context.Context, string) (bool, error)
+				})
+				held, err := ownership.MachineHeld(ctx, next.WorkspaceID)
+				nextHeld = held || err != nil
+			}
+		}
+		if !step.holdsMachine(item) && nextHeld {
 			step.busy++
 			if step.machineHeld != nil {
 				step.machineHeld[item.ID.Bytes] = true
@@ -1976,6 +2001,9 @@ func (st *mythicalItemStep) commitWith(ctx context.Context, item db.MythicalItem
 // two inserts can leave an unbound, unprovisioned workspace row.
 func (st *mythicalItemStep) lane(ctx context.Context, item db.MythicalItem, name string, placement MythicalPlacement) (string, error) {
 	s, r := st.s, st.r
+	if s.installParallelRequired && item.Source == "todo" && (item.State == "queued" || item.State == "retrying") {
+		ctx = context.WithValue(ctx, todoMachineDemandKey{}, todoMachineHolder(item))
+	}
 	q := s.queries()
 	for k := 0; k < 16; k++ {
 		candidate := name
@@ -4377,6 +4405,15 @@ func (l *workspaceMythicalLanes) Create(ctx context.Context, repository db.Repos
 		// Cleanup requires settled work and verified capture (MVP §6.7).
 		// A failed binding never starts this machine; its record remains for retry.
 		return "", err
+	}
+	if source, _ := ctx.Value(todoMachineDemandKey{}).(string); source != "" {
+		runtime, ok := l.workspaces.runtime.(interface{ TransferTodoAdmission(string, string) error })
+		if !ok {
+			return "", errors.New("TODO admission handoff unavailable")
+		}
+		if err := runtime.TransferTodoAdmission(source, machineQueueHolder(workspace.ID)); err != nil {
+			return "", err
+		}
 	}
 	l.workspaces.provisionWorkspaceAsync(ctx, workspace, CreateWorkspaceSessionInput{RepositoryID: repository.ID, UserID: actorUserID,
 		RepoOwner: owner, RepoName: repository.Name, SourceBookmark: MythicalBookmark})

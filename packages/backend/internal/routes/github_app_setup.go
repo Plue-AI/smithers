@@ -495,8 +495,14 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var rawInput struct {
-		Capacity json.RawMessage `json:"capacity"`
-		ChatGPT  json.RawMessage `json:"chatgpt"`
+		Capacity              json.RawMessage `json:"capacity,omitempty"`
+		ChatGPT               json.RawMessage `json:"chatgpt,omitempty"`
+		Parallel              json.RawMessage `json:"parallel,omitempty"`
+		Obsidian              json.RawMessage `json:"wiki_sync.obsidian,omitempty"`
+		TodoDailyAdmissions   json.RawMessage `json:"todo_daily_admissions,omitempty"`
+		TodoPreapproveDefault json.RawMessage `json:"todo_preapprove_default,omitempty"`
+		Bind                  json.RawMessage `json:"bind,omitempty"`
+		Origins               json.RawMessage `json:"origins,omitempty"`
 	}
 	if !decodeStrictJSONBody(w, r, &rawInput) {
 		return
@@ -513,6 +519,15 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		Origins               json.RawMessage `json:"origins"`
 		TodoPreapproveDefault *bool           `json:"todo_preapprove_default"`
 	}
+	// Decode every mounted setting while retaining explicit null validation for
+	// capacity and ChatGPT. The strict envelope above rejects unknown fields.
+	encoded, _ := json.Marshal(rawInput)
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&input) != nil {
+		writeInstallAPIError(w, pkgerrors.BadRequest("invalid install setting"))
+		return
+	}
 	if len(rawInput.Capacity) > 0 {
 		if json.Unmarshal(rawInput.Capacity, &input.Capacity) != nil || input.Capacity == nil {
 			writeInstallAPIError(w, pkgerrors.BadRequest("capacity must be an integer"))
@@ -524,10 +539,6 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 			writeInstallAPIError(w, pkgerrors.BadRequest("chatgpt must be a boolean"))
 			return
 		}
-	}
-	if input.Capacity == nil && input.ChatGPT == nil {
-		writeInstallAPIError(w, pkgerrors.BadRequest("install setting required"))
-		return
 	}
 	if input.TodoPreapproveDefault != nil {
 		if err := services.MergeCredential(r.Context(), r.Header.Get("Smithers-Via")); err != nil {

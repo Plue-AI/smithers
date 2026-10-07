@@ -465,6 +465,14 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		}); ok {
 			runtime.SetCapacityReader(capacity.Capacity)
 		}
+		if runtime, ok := options.Workspace.(interface {
+			SetTodoParallelReader(func(context.Context) (int, error))
+		}); ok {
+			runtime.SetTodoParallelReader(func(ctx context.Context) (int, error) {
+				parallel, err := capacity.Parallel(ctx)
+				return parallel.Effective, err
+			})
+		}
 		installCapacity = capacity
 	}
 
