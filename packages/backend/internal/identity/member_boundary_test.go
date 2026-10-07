@@ -104,6 +104,8 @@ func TestMemberBoundaryAdmitsRosterMembersOnMemberRoutes(t *testing.T) {
 	for _, id := range []int64{10, 11} {
 		err := boundary.AuthorizeMember(member, id)
 		require.NotNil(t, err, "%d is not a member", id)
-		assert.Contains(t, err.Error(), "installation owner")
+		assert.Equal(t, 401, err.Status)
+		assert.Equal(t, "unauthenticated", string(err.Code))
+		assert.Equal(t, "Sign in again", err.Message)
 	}
 }

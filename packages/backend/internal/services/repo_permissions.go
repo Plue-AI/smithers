@@ -347,6 +347,7 @@ type InstallSubject struct {
 	Base             string
 	Source           string
 	PayloadDigest    string
+	Resource         string
 }
 
 type boundInstallAuthorization struct {
@@ -416,6 +417,12 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 	if command == "branch.fork" && InstallExecutionCredential(ctx) {
 		info := middleware.AuthInfoFromContext(ctx)
 		if info.CredentialKind() != middleware.CredentialAgentRun || !info.Scopes.Has(middleware.ScopeWriteRepository) {
+			return InstallAuthorization{}, confirmationPermission()
+		}
+		return authorizeExecutionTodoRead(ctx, q, subject)
+	}
+	if command == "branch.read" && InstallExecutionCredential(ctx) {
+		if subject.Resource != "files" || subject.WorkspaceID == "" {
 			return InstallAuthorization{}, confirmationPermission()
 		}
 		return authorizeExecutionTodoRead(ctx, q, subject)
@@ -882,7 +889,7 @@ func authorizeExecutionTodoRead(ctx context.Context, q *db.Queries, subject Inst
 	if info.CredentialKind() == middleware.CredentialAgentRun {
 		workspaceID = middleware.ParseTokenLandingWorkspace(info.RawScopes)
 	}
-	if workspaceID == "" {
+	if workspaceID == "" || subject.WorkspaceID != "" && subject.WorkspaceID != workspaceID {
 		return deny()
 	}
 	paths := middleware.ParseTokenPathRestrictions(info.RawScopes)

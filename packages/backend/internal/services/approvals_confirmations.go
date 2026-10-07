@@ -123,6 +123,11 @@ func confirmationJSON(raw []byte, out any) error {
 // owner is locked before user/session rows, as member removal requires. The
 // repository and stack retain the existing TODO transaction order.
 func lockInstallWriteCredential(ctx context.Context, tx pgx.Tx, info *middleware.AuthInfo) (context.Context, int64, error) {
+	return lockInstallCredential(ctx, tx, info, true)
+}
+
+// Reads hold the same credential/member rows without taking stack mutation locks.
+func lockInstallCredential(ctx context.Context, tx pgx.Tx, info *middleware.AuthInfo, write bool) (context.Context, int64, error) {
 	if info == nil || info.User == nil {
 		return ctx, 0, confirmationPermission()
 	}
@@ -132,19 +137,23 @@ func lockInstallWriteCredential(ctx context.Context, tx pgx.Tx, info *middleware
 		return ctx, 0, err
 	}
 	for _, query := range []struct {
-		sql  string
-		args []any
+		sql       string
+		args      []any
+		writeOnly bool
 	}{
-		{`SELECT 1 FROM self_host_owners WHERE singleton FOR SHARE`, nil},
-		{`SELECT pg_advisory_xact_lock($1)`, []any{repository}},
-		{`SELECT 1 FROM repositories WHERE id=$1 FOR SHARE`, []any{repository}},
-		{`SELECT 1 FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, []any{repository}},
-		{`SELECT 1 FROM users WHERE id=$1 FOR SHARE`, []any{info.User.ID}},
-		{`SELECT 1 FROM auth_sessions WHERE session_key=$1 FOR SHARE`, []any{info.SessionHash}},
-		{`SELECT 1 FROM access_tokens WHERE id=$1 FOR SHARE`, []any{info.TokenID}},
-		{`SELECT 1 FROM collaborators WHERE repository_id=$1 AND user_id=$2 FOR SHARE`, []any{repository, info.User.ID}},
-		{`SELECT 1 FROM install_settings WHERE key IN ('github.repository','owner.access') ORDER BY key FOR SHARE`, nil},
+		{`SELECT 1 FROM self_host_owners WHERE singleton FOR SHARE`, nil, false},
+		{`SELECT pg_advisory_xact_lock($1)`, []any{repository}, true},
+		{`SELECT 1 FROM repositories WHERE id=$1 FOR SHARE`, []any{repository}, false},
+		{`SELECT 1 FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, []any{repository}, true},
+		{`SELECT 1 FROM users WHERE id=$1 FOR SHARE`, []any{info.User.ID}, false},
+		{`SELECT 1 FROM auth_sessions WHERE session_key=$1 FOR SHARE`, []any{info.SessionHash}, false},
+		{`SELECT 1 FROM access_tokens WHERE id=$1 FOR SHARE`, []any{info.TokenID}, false},
+		{`SELECT 1 FROM collaborators WHERE repository_id=$1 AND user_id=$2 FOR SHARE`, []any{repository, info.User.ID}, false},
+		{`SELECT 1 FROM install_settings WHERE key IN ('github.repository','owner.access') ORDER BY key FOR SHARE`, nil, false},
 	} {
+		if !write && query.writeOnly {
+			continue
+		}
 		if _, err = tx.Exec(ctx, query.sql, query.args...); err != nil {
 			return ctx, 0, err
 		}

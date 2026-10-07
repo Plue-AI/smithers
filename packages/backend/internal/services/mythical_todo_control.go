@@ -279,7 +279,11 @@ func lockTodoRequest(ctx context.Context, tx pgx.Tx, q *db.Queries, command stri
 // The decision belongs to the admitted request; this guard checks current
 // credential/member liveness and stored repository identity, never its old role.
 func guardInstallTodoWrite(ctx context.Context, tx pgx.Tx, repository, actor int64) error {
-	fresh, current, err := lockInstallWriteCredential(ctx, tx, middleware.AuthInfoFromContext(ctx))
+	return guardInstallMemberCredential(ctx, tx, repository, actor, true)
+}
+
+func guardInstallMemberCredential(ctx context.Context, tx pgx.Tx, repository, actor int64, write bool) error {
+	fresh, current, err := lockInstallCredential(ctx, tx, middleware.AuthInfoFromContext(ctx), write)
 	if err != nil {
 		return err
 	}

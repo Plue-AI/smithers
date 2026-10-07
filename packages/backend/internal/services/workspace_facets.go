@@ -90,6 +90,15 @@ type workspaceFacetIngressClient interface {
 // ListWorkspaceFiles lists the immediate children of path inside the working
 // copy. Read access is sufficient; symlinks cannot be used to leave the copy.
 func (s *WorkspaceService) ListWorkspaceFiles(ctx context.Context, workspaceID string, repositoryID, userID int64, filePath string) ([]WorkspaceFileEntry, error) {
+	var result []WorkspaceFileEntry
+	err := s.withInstallExecutionFileRead(ctx, workspaceID, repositoryID, userID, func(ctx context.Context) error {
+		var err error
+		result, err = s.listWorkspaceFiles(ctx, workspaceID, repositoryID, userID, filePath)
+		return err
+	})
+	return result, err
+}
+func (s *WorkspaceService) listWorkspaceFiles(ctx context.Context, workspaceID string, repositoryID, userID int64, filePath string) ([]WorkspaceFileEntry, error) {
 	relativePath, absolutePath, err := workspaceFilePath(filePath, true)
 	if err != nil {
 		return nil, err
@@ -192,6 +201,15 @@ find "$resolved" -mindepth 1 -maxdepth 1 -printf '%f\0%y\0%s\0'`
 
 // ReadWorkspaceFile reads one bounded file inside the working copy.
 func (s *WorkspaceService) ReadWorkspaceFile(ctx context.Context, workspaceID string, repositoryID, userID int64, filePath string) (WorkspaceFileContent, error) {
+	var result WorkspaceFileContent
+	err := s.withInstallExecutionFileRead(ctx, workspaceID, repositoryID, userID, func(ctx context.Context) error {
+		var err error
+		result, err = s.readWorkspaceFile(ctx, workspaceID, repositoryID, userID, filePath)
+		return err
+	})
+	return result, err
+}
+func (s *WorkspaceService) readWorkspaceFile(ctx context.Context, workspaceID string, repositoryID, userID int64, filePath string) (WorkspaceFileContent, error) {
 	relativePath, absolutePath, err := workspaceFilePath(filePath, false)
 	if err != nil {
 		return WorkspaceFileContent{}, err

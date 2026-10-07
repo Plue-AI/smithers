@@ -95,7 +95,9 @@ func (b *MemberBoundary) AuthorizeMember(ctx context.Context, userID int64) *pkg
 		}
 		permission, err := q.InstallationMemberPermission(ctx, userID)
 		if errors.Is(err, pgx.ErrNoRows) || err == nil && permission != "write" && permission != "admin" {
-			return pkgerrors.Forbidden("credential does not belong to the installation owner")
+			// An absent or suspended member's stored credential is dead before
+			// command policy, even before physical token revocation finishes.
+			return pkgerrors.New(pkgerrors.CodeUnauthenticated, "Sign in again")
 		}
 		if err != nil {
 			return pkgerrors.Internal("failed to authorize member").WithCause(err)
