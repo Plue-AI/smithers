@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -308,4 +309,28 @@ func TestPinAdmits(t *testing.T) {
 		require.False(t, broken.Valid(), "%+v", broken)
 	}
 	require.True(t, errors.Is(ErrTodoOutsideStack, ErrTodoOutsideStack))
+}
+
+func TestLearningLaunchRequiresItsPinnedBackgroundBinding(t *testing.T) {
+	pin := flowruntime.Pin{Flow: "learning", SourceCommit: strings.Repeat("a", 40), ExecutionDigest: strings.Repeat("1", 64)}
+	target := flowruntime.Target{WorkspaceID: "learning-machine", BindingKind: "learning", BindingID: "merged-item"}
+	for _, name := range []string{"learning", "flows/learning/flow.ts", "./flows/learning/flow.ts"} {
+		for _, kind := range []string{"learning", StackBindingKind, "browser-flow"} {
+			for _, pinned := range []bool{false, true} {
+				t.Run(name+"/"+kind+"/"+fmt.Sprint(pinned), func(t *testing.T) {
+					request := LaunchRequest{Scope: stackScope, RequestID: "learning", FlowID: name, Target: target, Payload: json.RawMessage(`{"todo":7}`)}
+					request.Target.BindingKind = kind
+					if pinned {
+						request.Pin = &pin
+					}
+					_, err := launchAdmission(request)
+					if name == "learning" && kind == "learning" && pinned {
+						require.NoError(t, err)
+					} else {
+						require.ErrorIs(t, err, ErrEngineFlowOutsideStack)
+					}
+				})
+			}
+		}
+	}
 }
