@@ -103,7 +103,7 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
         const result = design.typeTerminal(id, command, design.viewer())
         return result.ok ? undefined : result.refusal
       } }),
-    flow({ name: "ssh", agent: "never",   slash: "/ssh", cli: null, journey: ["J3"], group: "Account and settings", visibility: "core", actors: ["person"], minimumRole: "member", http: null, summary: "Copy the SSH line for a branch", args: "<branch>", hidden: true, discloseToAgent: true,
+    flow({ name: "ssh", agent: "never",   slash: "/ssh", cli: ["ssh"], journey: ["J3"], group: "Account and settings", visibility: "core", actors: ["person"], minimumRole: "member", http: { method: "GET", path: "/api/ssh", query: { branch: "branch" } }, summary: "Copy the SSH line for a branch", args: "<branch>", hidden: true, discloseToAgent: true,
       grammar: field("branch"), input: BranchInput,
       handler: ({ branch }) => {
         if (actions.live || actions.bootstrap?.capabilities.includes("install")) {

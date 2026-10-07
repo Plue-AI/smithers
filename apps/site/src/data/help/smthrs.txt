@@ -29,6 +29,7 @@ Commands:
   runs       Inspect and control durable execution records
   search     Search repositories, issues, code and users
   shell      Open an interactive terminal in a workspace via the WebSocket terminal endpoint
+  ssh        Copy the SSH line for a branch
   ssh-key    Manage your SSH keys
   stack      TODOs and the stack
   todo       TODOs and the stack
