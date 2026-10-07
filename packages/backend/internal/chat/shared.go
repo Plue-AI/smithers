@@ -171,6 +171,7 @@ func (s *Store) SharedEntries(ctx context.Context, scope Scope, branch string) (
 
 // Only visible answer output crosses the shared audience. Tool arguments,
 // reasoning, preflight internals and private card kinds remain outside it.
+// A docs card holds only the install's bundled product docs.
 func sharedFrame(raw json.RawMessage) bool {
 	var frame struct {
 		Type string `json:"type"`
@@ -189,7 +190,7 @@ func sharedFrame(raw json.RawMessage) bool {
 		return true
 	case "card":
 		switch frame.Card.Kind {
-		case "todo", "file", "diff", "change", "run-trace", "home", "flow", "wiki":
+		case "todo", "file", "diff", "change", "run-trace", "home", "flow", "wiki", "docs":
 			return true
 		}
 	}
