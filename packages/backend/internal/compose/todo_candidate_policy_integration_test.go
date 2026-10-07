@@ -104,7 +104,7 @@ func TestCandidateProtectedPolicyComposedInstall(t *testing.T) {
 			checkpoint.Run = nil
 			checkpoint.FailureCode = "check_modified_tree"
 		}
-		projector := services.NewMythicalService(r.pool, nil)
+		projector := services.NewMythicalService(r.pool, r.repoClient)
 		require.NoError(t, projector.ProjectFlowRuntime(r.ctx, flowdispatch.ProjectionUpdate{State: jobs.StateFailed, Checkpoint: checkpoint}))
 		require.Eventually(t, func() bool {
 			status, data, err := r.request("GET", fmt.Sprintf("/api/todos/%d", number), "")
