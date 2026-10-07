@@ -143,7 +143,18 @@ func TestInstallMetricsOwnerBoundary(t *testing.T) {
 				}
 				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &data))
 				depths := map[string]float64{}
+				wakes := map[string]float64{}
 				for _, family := range data.Metrics {
+					if family.GetName() == "smithers_machine_wake_total" {
+						for _, sample := range family.Metric {
+							labels := map[string]string{}
+							for _, label := range sample.Label {
+								labels[label.GetName()] = label.GetValue()
+							}
+							wakes[labels["kind"]+":"+labels["outcome"]] = sample.GetCounter().GetValue()
+						}
+					}
+
 					if family.GetName() != "smithers_machine_queue_depth" {
 						continue
 					}
@@ -154,6 +165,8 @@ func TestInstallMetricsOwnerBoundary(t *testing.T) {
 					}
 				}
 				require.Equal(t, map[string]float64{"person": 1, "todo": 0, "background": 1}, depths)
+				require.Equal(t, map[string]float64{"cold:success": 0, "cold:failure": 0, "warm:success": 0, "warm:failure": 0}, wakes)
+				require.NotContains(t, w.Body.String(), `"name":"smithers_machine_wake_duration_seconds"`, "no wake duration is invented before a boot")
 
 			}
 		})

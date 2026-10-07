@@ -10,8 +10,8 @@ export async function authenticatedMember(context, origin) {
   const conversation = await context.request.get(`${origin}/api/conversations/main`, options)
   if (conversation.status() !== 200) throw new Error(`member fixture: conversation returned ${conversation.status()}`)
   const value = await conversation.json()
-  if (typeof value.id !== 'string' || !Array.isArray(value.entries)) throw new Error('member fixture: invalid conversation')
-  return { id: member.id, username: member.username }
+  if (typeof value.id !== 'string' || !value.id || !Array.isArray(value.entries)) throw new Error('member fixture: invalid conversation')
+  return { id: member.id, username: member.username, conversation: value.id }
 }
 
 export function distinctMembers(members) {

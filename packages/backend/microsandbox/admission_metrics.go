@@ -27,6 +27,13 @@ func (r *Runtime) MachineMetrics() prometheus.Collector {
 			wakes:    prometheus.NewCounterVec(prometheus.CounterOpts{Name: "smithers_machine_wake_total", Help: "Machine boot attempts by kind and outcome; existing awake machines are excluded."}, []string{"kind", "outcome"}),
 			duration: prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "smithers_machine_wake_duration_seconds", Help: "Machine boot time after admission; cold wakes include layer preparation.", Buckets: []float64{.1, .25, .5, 1, 2, 5, 10, 30, 60, 120, 300, 600}}, []string{"kind", "outcome"}),
 		}
+		// Zero attempts is a defined count, including before the first boot.
+		// Latency histograms remain absent until a real wake is observed.
+		for _, kind := range []string{"cold", "warm"} {
+			for _, outcome := range []string{"success", "failure"} {
+				r.metrics.wakes.WithLabelValues(kind, outcome)
+			}
+		}
 	}
 	return r.metrics
 }
