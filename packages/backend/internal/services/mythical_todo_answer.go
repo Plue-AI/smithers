@@ -281,10 +281,13 @@ func (s *MythicalService) AnswerTodo(ctx context.Context, repositoryID, userID, 
 			if err := todoBranchForbids(ctx, item); err != nil {
 				return err
 			}
+			if mythicalMergeFenced(item) {
+				return &TodoControlError{409, "merging", "conflict", "TODO is merging"}
+			}
 			checks := mythicalChecksOf(item)
 			index := -1
 			for i, wait := range checks.Waits {
-				if wait.ID == input.Wait && wait.Kind == "question" {
+				if wait.ID == input.Wait && (wait.Kind == "question" || wait.Kind == "conflict") {
 					index = i
 				}
 			}
@@ -301,6 +304,11 @@ func (s *MythicalService) AnswerTodo(ctx context.Context, repositoryID, userID, 
 				return todoControlConflict("The agent no longer asks this question")
 			case len(todoOpenWaits(item)) == 0 || wait.Signal == nil:
 				return todoControlConflict("TODO is settled")
+			}
+			if wait.Kind == "conflict" {
+				if err := s.validateConflictDone(ctx, item, *wait, input.Answer); err != nil {
+					return err
+				}
 			}
 			now := s.now().UTC()
 			wait.SettledAt, wait.AnsweredBy, wait.Answer, wait.By = &now, person.Username, input.Answer, by
