@@ -128,7 +128,7 @@ func TestRouterPrivateOrganizationRoutesMatchMissingPostgres(t *testing.T) {
 		return rec
 	}
 
-	const notFound = `{"code":"not_found","fault":"user","message":"organization not found"}`
+	const notFound = `{"class":"user","code":"not_found","fault":"user","message":"organization not found"}`
 	type route struct {
 		method, path, body string
 		publicRead         bool // anonymous callers reach the service
