@@ -160,7 +160,11 @@ func TestGitHubFetchedConsumerRecoveryIsAtomicAndOrdered(t *testing.T) {
 		return fetchedCount(t, pool, `SELECT count(*) FROM product_job_dispatches WHERE attempt>0`) > 0
 	}, 5*time.Second, 10*time.Millisecond)
 	stop()
-	require.Equal(t, 2, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE state='accepted'`), "unregistered consumers retain both versions")
+	// Shutdown may leave a claim awaiting lease recovery. Both versions must
+	// remain durable and unacknowledged regardless of that transient state.
+	require.Equal(t, 2, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE state IN ('accepted','dispatching')`), "unregistered consumers retain both versions")
+	require.Equal(t, 2, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='operation.accepted'`))
+	require.Zero(t, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='operation.completed'`))
 	// A fresh service simulates process restart; it reconstructs all pending work
 	// from the shared jobs store without a private delivery ledger.
 	fresh := NewGitHubSyncedRepoService(db.New(pool))
