@@ -28,15 +28,16 @@ import (
 // Real native mirror, PostgreSQL, snapshot reader, admission and install HTTP.
 // Trusted-process admission is test-only; no VM/root qualification is claimed.
 func TestBranchAddComposedInstall(t *testing.T) {
-	for _, remove := range []string{"", "confirm-after", "confirm-default", "membership", "authorize", "lane", "microvm", "identity", "capture", "awake"} {
+	for _, remove := range []string{"", "confirm-after", "confirm-default", "confirm-steered-after", "confirm-steered-before", "membership", "authorize", "lane", "microvm", "identity", "capture", "awake"} {
 		t.Run("provider-"+remove, func(t *testing.T) { runBranchAddComposed(t, remove) })
 	}
 }
 func TestFreshForkCreatedThroughInstall(t *testing.T) { runBranchAddComposed(t, "fresh-fork") }
 func runBranchAddComposed(t *testing.T, remove string) {
 	placement := "before"
+	steered := strings.HasPrefix(remove, "confirm-steered-")
 	if strings.HasPrefix(remove, "confirm-") {
-		placement = strings.TrimPrefix(remove, "confirm-")
+		placement = strings.TrimPrefix(strings.TrimPrefix(remove, "confirm-"), "steered-")
 		remove = ""
 	}
 	_, _, pool := splitProcessDatabase(t)
@@ -349,7 +350,17 @@ func runBranchAddComposed(t *testing.T, remove string) {
 	// The composed Drop door folds the adopted child before source removal.
 	item, err = q.GetMythicalItemByNumber(ctx, repo.ID, 1)
 	require.NoError(t, err)
-	item.CandidateBase, item.CandidateHead, item.CandidateVerified, item.State = base, seed.Seed.Head, true, "proposed"
+	sourceHead := seed.Seed.Head
+	if steered {
+		// Independent fixture: the source acquires an edit after its child forked.
+		require.NoError(t, os.WriteFile(filepath.Join(source, "steered.txt"), []byte("source edited after fork\n"), 0600))
+		git("-C", source, "add", ".")
+		git("-C", source, "commit", "-m", "steer source")
+		sourceHead = git("-C", source, "rev-parse", "HEAD")
+		git("-C", store, "fetch", source, "+refs/heads/main:refs/smithers/mythical/keep/"+sourceHead)
+		require.NoError(t, local.Client().ImportRefs(ctx, "ben", "demo"))
+	}
+	item.CandidateBase, item.CandidateHead, item.CandidateVerified, item.State = base, sourceHead, true, "proposed"
 	_, err = q.SaveMythicalItem(ctx, item)
 	require.NoError(t, err)
 	for range 2 {
@@ -368,5 +379,15 @@ func runBranchAddComposed(t *testing.T, remove string) {
 	require.Equal(t, base, folded.Seed.Base)
 	require.Equal(t, "fixed scratch bytes", git("-C", store, "show", folded.Seed.Head+":scratch.txt"))
 	require.EqualValues(t, 1, confirmedItem.StackPosition.Int64)
+	if steered && placement == "before" {
+		require.Equal(t, git("-C", store, "rev-parse", head+"^{tree}"), git("-C", store, "rev-parse", folded.Seed.Head+"^{tree}"), "moving before the source preserves the child tree")
+	} else if steered {
+		require.Equal(t, "source edited after fork", git("-C", store, "show", folded.Seed.Head+":steered.txt"))
+	}
+	var forkSource *string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT forked_from_item::text FROM workspaces WHERE id=$1`, confirmed.ID).Scan(&forkSource))
+	require.Nil(t, forkSource, "source binding is cleared only after folding")
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.dropped'`).Scan(&count))
+	require.Equal(t, 1, count, "replayed Drop has one durable activity")
 
 }
