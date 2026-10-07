@@ -22,7 +22,10 @@ import (
 // admission qualification. The materialized roots stand in for the native
 // pinned-commit export; the registry, snapshot store and interpreter are real.
 func TestPinnedClosureProcessRestartIgnoresEditableBranch(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	// This journey starts eleven independent interpreters, including refusal
+	// cases. Give the whole journey room on shared test hosts while retaining
+	// a bounded deadline and confirmed process cancellation.
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 	defer cancel()
 	root, err := filepath.Abs("../../..")
 	require.NoError(t, err)
