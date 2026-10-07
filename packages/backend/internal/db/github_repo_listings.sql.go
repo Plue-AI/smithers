@@ -15,11 +15,13 @@ UPDATE github_repo_listings
 SET syncing_since = NOW(),
     updated_at = NOW()
 WHERE user_id = $1
+  AND synced_at < NOW() - INTERVAL '5 minutes'
   AND (syncing_since IS NULL OR syncing_since < NOW() - INTERVAL '2 minutes')
 `
 
 // Singleflight claim for a background refresh: only one caller wins while a
-// claim is live; claims older than 2 minutes are considered abandoned (the
+// claim is live, and a completed refresh prevents stale readers reclaiming it;
+// claims older than 2 minutes are considered abandoned (the
 // refresher crashed or timed out) and may be taken over.
 func (q *Queries) ClaimGitHubRepoListingSync(ctx context.Context, userID int64) (int64, error) {
 	result, err := q.db.Exec(ctx, claimGitHubRepoListingSync, userID)

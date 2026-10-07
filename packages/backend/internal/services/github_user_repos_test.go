@@ -97,6 +97,9 @@ func (f *fakeGitHubUserReposDB) ClaimGitHubRepoListingSync(ctx context.Context, 
 	}
 	f.claims++
 	now := f.now()
+	if now.Sub(f.row.SyncedAt) <= githubRepoListingFreshness {
+		return 0, nil
+	}
 	if f.row.SyncingSince.Valid && now.Sub(f.row.SyncingSince.Time) < 2*time.Minute {
 		return 0, nil
 	}

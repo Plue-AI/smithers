@@ -101,7 +101,8 @@ func TestSyncedRepoReadGrant_MetadataStoreServesOnlyUsersGitHubAdmits(t *testing
 	// User B's GitHub token cannot see the repo: GitHub is asked and says 404.
 	result, err := f.userService("gho_b", true).ListAuthenticatedUserGitHubRepoMetadata(
 		ctx, userB, "acme", "secret", GitHubRepoMetadataIssues, url.Values{})
-	requireAPIStatus(t, err, http.StatusNotFound)
+	requireAPIStatus(t, err, http.StatusBadGateway)
+	require.True(t, isGitHubPermissionFailure(err))
 	assert.Nil(t, result.Body)
 	assert.True(t, f.contacted("Bearer gho_b"), "user B's access must be decided by GitHub")
 
@@ -125,7 +126,8 @@ func TestSyncedRepoReadGrant_MetadataStoreServesOnlyUsersGitHubAdmits(t *testing
 	// A's grant does not carry over to B.
 	_, err = f.userService("gho_b", true).ListAuthenticatedUserGitHubRepoMetadata(
 		ctx, userB, "acme", "secret", GitHubRepoMetadataIssues, url.Values{})
-	requireAPIStatus(t, err, http.StatusNotFound)
+	requireAPIStatus(t, err, http.StatusBadGateway)
+	require.True(t, isGitHubPermissionFailure(err))
 }
 
 func TestSyncedRepoReadGrant_CommentsStoreServesOnlyUsersGitHubAdmits(t *testing.T) {
@@ -139,7 +141,8 @@ func TestSyncedRepoReadGrant_CommentsStoreServesOnlyUsersGitHubAdmits(t *testing
 
 	result, err := f.userService("gho_b", true).ListAuthenticatedUserGitHubIssueComments(
 		ctx, userB, "acme", "secret", 1, url.Values{})
-	requireAPIStatus(t, err, http.StatusNotFound)
+	requireAPIStatus(t, err, http.StatusBadGateway)
+	require.True(t, isGitHubPermissionFailure(err))
 	assert.NotContains(t, string(result.Body), "private from the store")
 	assert.True(t, f.contacted("Bearer gho_b"), "user B's access must be decided by GitHub")
 
