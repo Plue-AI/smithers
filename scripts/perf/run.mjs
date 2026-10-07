@@ -67,7 +67,10 @@ export async function run({ env = process.env, providers = productionProviders, 
         : `production measurement driver not implemented; requires ${budget.tickets.join(', ')} and owner-reviewed seams`
       continue
     }
-    try { await provider.available(env, { origin: usedOrigin, commit }) } catch (error) {
+    try {
+      if (typeof installVersion !== 'string' || !installVersion.trim()) throw new Error('install version required')
+      await provider.available(env, { origin: usedOrigin, commit })
+    } catch (error) {
       entry.reason = `${budget.tickets.join(', ')}: ${error.message}`
       continue
     }
@@ -83,6 +86,7 @@ export async function run({ env = process.env, providers = productionProviders, 
       }
       if (result.status !== 'passed') throw new Error(result.error ?? 'measurement failed')
       if (result.commit !== commit || result.origin !== usedOrigin) throw new Error('measurement commit/origin differs from run')
+      if (result.installVersion !== installVersion) throw new Error('measurement install version differs from run')
       entry.browser = result.browser
       entry.stats = summarize(entry.samples, Object.values(provider.fields), budget.minimum)
       for (const [name, limit] of Object.entries(budget.thresholdsMs)) {

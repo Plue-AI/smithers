@@ -9,8 +9,9 @@ metadata comes only from `GET /api/install/metrics`, which reads the existing Go
 capacity service; no local detection or capacity calculation is performed.
 The retired `/api/host` stays removed. PATs and delegated credentials cannot
 read the owner-only metrics adapter.
-Optional `SMITHERS_PERF_INSTALL_VERSION` and `SMITHERS_PERF_BROWSER` record
-operator-supplied metadata, not verified release/browser identities.
+`SMITHERS_PERF_INSTALL_VERSION` is required before an enabled workload starts;
+each driver must return that same version. It remains operator-supplied metadata,
+not a verified release identity. Optional `SMITHERS_PERF_BROWSER` records browser metadata.
 
 Fresh `.artifacts/perf/<UTC timestamp>/summary.json` records each selected budget,
 its raw samples or skip reason, required tickets and activation preconditions.

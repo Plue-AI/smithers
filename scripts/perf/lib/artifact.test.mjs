@@ -103,7 +103,7 @@ test('a named budget retains only that incomplete check; unknown names refuse', 
 // Provider substitutes exercise orchestration, never qualify a real budget.
 const samples = Array.from({ length: 100 }, (_, i) => ({ i, homeMs: i + 1, todoMs: i + 2, clock: 'fixture monotonic', failed: false }))
 const provider = (measure) => ({ available() {}, measure, fields: { home: 'homeMs', todo: 'todoMs' } })
-const passing = () => ({ status: 'passed', commit: options.commit, origin: options.origin, browser: 'fixture', backgroundTabs: 3, samples })
+const passing = () => ({ status: 'passed', installVersion: options.installVersion, commit: options.commit, origin: options.origin, browser: 'fixture', backgroundTabs: 3, samples })
 test('enabled budget executes, retains raw samples and is independently checked', async () => temporary(async root => {
   let calls = 0
   const result = await run({ ...options, root, check: 'C-PERF-02', providers: { 'C-PERF-02': provider(async () => { calls++; return passing() }) } })
@@ -128,6 +128,8 @@ test('failed, short, over-budget and foreign measurements cannot turn into skips
     { ...passing(), samples: samples.map(s => ({ ...s, homeMs: 1000 })) },
     { ...passing(), samples: samples.map(s => ({ ...s, failed: true })) },
     { ...passing(), commit: 'b'.repeat(40) },
+    { ...passing(), installVersion: undefined },
+    { ...passing(), installVersion: 'other-install' },
     { ...passing(), origin: 'https://other.example' }
   ]) await temporary(async root => {
     const result = await run({ ...options, root, check: 'C-PERF-02', providers: { 'C-PERF-02': provider(async () => value) } })
@@ -159,7 +161,7 @@ test('origin or provider refusal prevents mutation; execution errors fail the fu
 
  test('agent provider retains model, preflight and wake cross-checks in the unified evidence', async () => temporary(async root => {
   const samples = Array.from({ length: 100 }, (_, i) => ({ i, firstTokenMs: 10, answerWithCardsMs: 20, clock: 'browser monotonic', failed: false }))
-  const value = { status: 'passed', commit: options.commit, origin: options.origin, samples,
+  const value = { status: 'passed', installVersion: options.installVersion, commit: options.commit, origin: options.origin, samples,
     models: [{ role: 'fast', provider: 'configured', model: 'configured-model' }],
     preflightSummary: { durationMs: { p95: 5 } }, wakesBefore: 0, wakesAfter: 0,
     metricsCrossCheck: [], browser: 'Chromium', token: 'must-not-be-recorded' }
@@ -176,4 +178,12 @@ test('origin or provider refusal prevents mutation; execution errors fail the fu
   assert.equal(budget.wakesAfter, 0)
   assert.equal(budget.samples.length, 100)
   assert.equal(bytes.includes(value.token), false)
+}))
+
+test('missing install version refuses enabled workloads before mutation', async () => temporary(async root => {
+  let calls = 0
+  const result = await run({ ...options, installVersion: undefined, root, check: 'C-PERF-02', providers: { 'C-PERF-02': provider(async () => { calls++; return passing() }) } })
+  assert.equal(calls, 0)
+  assert.equal(result.exit, 2)
+  assert.match(result.summary.budgets[0].reason, /install version required/)
 }))
