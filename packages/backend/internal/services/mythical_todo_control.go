@@ -344,7 +344,7 @@ func (s *MythicalService) recordTodoControl(ctx context.Context, tx pgx.Tx, item
 		return err
 	}
 	operationID := uuid.NewString()
-	if _, err = s.recordTodoFact(ctx, tx, item, operationID, operation, todoState(item), raw); err != nil {
+	if _, err = s.recordTodoFlowFact(ctx, tx, item, operationID, operation, todoState(item), raw); err != nil {
 		return err
 	}
 	private, err := json.Marshal(map[string]any{
