@@ -28,6 +28,7 @@ import (
 )
 
 type flowComposition struct {
+	review     *reviewMachine
 	jobs       *jobs.Store
 	dispatcher *flowdispatch.Service
 	bindings   *flowhost.Store
@@ -182,7 +183,20 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	if err != nil {
 		return nil, fmt.Errorf("Flow dispatcher: %w", err)
 	}
-	return &flowComposition{jobs: store, dispatcher: dispatcher, bindings: bindings, stopper: stopper}, nil
+	var review *reviewMachine
+	if config.IsSingleOwner(cfg.Auth) && options.Workspace.Isolation() == workspace.IsolationSandboxed {
+		// Bypass the box launcher, repository variables and write credentials.
+		review = &reviewMachine{pool: pool, jobs: store, workspace: options.Workspace}
+		reviewResolver, err := flowhost.New(flowhost.Config{Store: bindings, Targets: review, Launcher: workspaceHosts, Catalogs: catalogs})
+		if err != nil {
+			return nil, err
+		}
+		review.resolver, review.existing = reviewResolver, reviewResolver
+		// T-FLW-04/T-ACC-04 must supply the shared read-only pinned source
+		// restoration boundary and T-SEC-01 qualification before admission.
+		// An absent boundary refuses in Prepare before machine allocation.
+	}
+	return &flowComposition{review: review, jobs: store, dispatcher: dispatcher, bindings: bindings, stopper: stopper}, nil
 }
 
 // relayPlanStore keeps the browser relay's plans in PostgreSQL, so a plan
