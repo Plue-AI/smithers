@@ -61,6 +61,12 @@ test("every install operation whose success schema names a credential field is p
   expect(Object.keys(CREDENTIAL_EXEMPTIONS).filter(id => CREDENTIAL_OPERATIONS.has(id))).toEqual([])
 })
 test("every install operation that documents a redirect or a Location or Set-Cookie header is pinned or exempt with a reason", () => {
+  // 0c867ce28a documents modelhost/fast_model_access.go:FastModelReturn:
+  // credentials stay sealed server-side; the 303 is always to "/", with no
+  // cookie, code or state in the response. This exemption is redirect-only.
+  const redirectExemptions: Readonly<Record<string, string>> = {
+    get_api_model_fast_return: "Fixed install-root redirect; no credentials or Set-Cookie returned"
+  }
   const resolve = (value: unknown): { headers?: Record<string, unknown> } | undefined => {
     const ref = (value as { $ref?: string } | undefined)?.$ref
     if (!ref) return value as { headers?: Record<string, unknown> } | undefined
@@ -72,7 +78,8 @@ test("every install operation that documents a redirect or a Location or Set-Coo
     /^3/.test(status) || Object.keys(resolve(response)?.headers ?? {}).some(name => /^(?:location|set-cookie)$/i.test(name))))
     .map(operation => operation.id)
   expect(flagged.length).toBeGreaterThan(0)
-  expect(flagged.filter(id => !CREDENTIAL_OPERATIONS.has(id) && !Object.hasOwn(CREDENTIAL_EXEMPTIONS, id))).toEqual([])
+  expect(flagged.filter(id => !CREDENTIAL_OPERATIONS.has(id) && !Object.hasOwn(CREDENTIAL_EXEMPTIONS, id) && !Object.hasOwn(redirectExemptions, id))).toEqual([])
+  expect(Object.keys(redirectExemptions).filter(id => !flagged.includes(id) || CREDENTIAL_OPERATIONS.has(id))).toEqual([])
 })
 for (const id of ["get_api_repos_owner_repo_workspaces_id_preview_port", "get_api_repos_owner_repo_workspaces_id_preview_port_path"]) test(`release ${id} withholds its preview ticket redirect, body and URL values`, async () => {
   const seam = createDebugApiSeam({ document: async () => document, gates: () => ({ view: true, catalog: true, authorizer: true }),
