@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -336,6 +337,7 @@ type InstallSubject struct {
 	RepositoryID     int64
 	WorkspaceID      string
 	ChildWorkspaceID string
+	TodoNumber       int64
 }
 
 type boundInstallAuthorization struct {
@@ -398,6 +400,9 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 	}
 	if command == "workspace.head" {
 		return authorizeWorkspaceHead(ctx, q, subject)
+	}
+	if command == "todo.read" && InstallExecutionCredential(ctx) {
+		return authorizeExecutionTodoRead(ctx, q, subject)
 	}
 	policy, ok := installCommandPolicy(command)
 	if !ok {
@@ -832,6 +837,79 @@ func authorizeWorkspaceProviderPool(ctx context.Context, q *db.Queries, subject 
 		return InstallAuthorization{}, err
 	}
 	if workspace.UserID != info.User.ID || workspace.RepositoryID != subject.RepositoryID || workspace.DeletedAt.Valid {
+		return deny()
+	}
+	repository, err := InstallRepositoryID(ctx, q)
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if repository != subject.RepositoryID {
+		return deny()
+	}
+	role, err := InstallRoleOf(ctx, q, info.User.ID)
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if role == "" {
+		return deny()
+	}
+	return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
+}
+
+// InstallExecutionCredential distinguishes hidden execution reads from member
+// commands. It grants nothing without the stored subject check below.
+func InstallExecutionCredential(ctx context.Context) bool {
+	info := middleware.AuthInfoFromContext(ctx)
+	return info != nil && info.IsTokenAuth && (info.CredentialKind() == middleware.CredentialAgentRun || info.CredentialKind() == middleware.CredentialMachine)
+}
+
+func authorizeExecutionTodoRead(ctx context.Context, q *db.Queries, subject InstallSubject) (InstallAuthorization, error) {
+	deny := func() (InstallAuthorization, error) {
+		return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Credential cannot read this TODO"}
+	}
+	info := middleware.AuthInfoFromContext(ctx)
+	if q == nil || info == nil || info.User == nil || !info.TokenSystemIssued || !info.Scopes.Has(middleware.ScopeReadRepository) || subject.RepositoryID <= 0 || subject.TodoNumber <= 0 || info.RepositoryRestriction() != subject.RepositoryID {
+		return deny()
+	}
+	workspaceID := info.WorkspaceRestriction()
+	if info.CredentialKind() == middleware.CredentialAgentRun {
+		workspaceID = middleware.ParseTokenLandingWorkspace(info.RawScopes)
+	}
+	if workspaceID == "" {
+		return deny()
+	}
+	paths := middleware.ParseTokenPathRestrictions(info.RawScopes)
+	if len(paths) != 0 && (len(paths) != 1 || paths[0] != "**") {
+		return deny()
+	}
+	token, err := q.GetAccessTokenByID(ctx, info.TokenID)
+	if stdErrors.Is(err, pgx.ErrNoRows) {
+		return deny()
+	}
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if !token.SystemIssued || token.UserID != info.User.ID || token.Scopes != info.RawScopes || token.TokenHash != info.TokenHash || token.ExpiresAt.Valid && !token.ExpiresAt.Time.After(time.Now()) {
+		return deny()
+	}
+	workspace, err := q.GetWorkspace(ctx, workspaceID)
+	if stdErrors.Is(err, pgx.ErrNoRows) {
+		return deny()
+	}
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if workspace.RepositoryID != subject.RepositoryID || workspace.DeletedAt.Valid {
+		return deny()
+	}
+	item, err := q.GetMythicalItemByNumber(ctx, subject.RepositoryID, subject.TodoNumber)
+	if stdErrors.Is(err, pgx.ErrNoRows) {
+		return deny()
+	}
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if item.WorkspaceID != workspace.ID || item.RequestRunID == "" {
 		return deny()
 	}
 	repository, err := InstallRepositoryID(ctx, q)

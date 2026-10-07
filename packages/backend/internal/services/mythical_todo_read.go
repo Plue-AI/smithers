@@ -13,18 +13,37 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 // Todo returns the shared TodoCard contract from the canonical item. The
 // legacy mythical snapshot retains its engine-state decoder for old sessions.
 func (s *MythicalService) Todo(ctx context.Context, repositoryID, number int64) (map[string]any, error) {
+	if InstallExecutionCredential(ctx) {
+		if _, err := Authorize(ctx, s.queries(), "todo.read", InstallSubject{RepositoryID: repositoryID, TodoNumber: number}); err != nil {
+			return nil, err
+		}
+	}
 	item, err := s.queries().GetMythicalItemByNumber(ctx, repositoryID, number)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, &TodoControlError{404, "todo_not_found", "user", "TODO not found"}
 	}
 	if err != nil {
 		return nil, err
+	}
+	if InstallExecutionCredential(ctx) {
+		info := middleware.AuthInfoFromContext(ctx)
+		workspace := info.WorkspaceRestriction()
+		if info.CredentialKind() == middleware.CredentialAgentRun {
+			workspace = middleware.ParseTokenLandingWorkspace(info.RawScopes)
+		}
+		if item.WorkspaceID != workspace || item.RequestRunID == "" {
+			return nil, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Credential cannot read this TODO"}
+		}
+		// Execution receives a positive projection, never a person card with
+		// private approval, conversation, roster or personal-view fields.
+		return map[string]any{"n": item.Number.Int64, "title": item.Title.String, "state": todoState(item), "attempt": item.Attempt, "generation": item.Generation, "workspace": item.WorkspaceID, "run": item.RequestRunID, "base": item.BaseCommit}, nil
 	}
 	return s.todoCard(ctx, item, nil)
 }

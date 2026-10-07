@@ -45,6 +45,26 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				r.Body = io.NopCloser(bytes.NewReader(raw))
 			}
 
+			if command == "todo.read" && services.InstallExecutionCredential(r.Context()) {
+				parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+				subject := services.InstallSubject{}
+				if len(parts) == 3 && parts[1] == "todos" {
+					subject.TodoNumber, _ = strconv.ParseInt(parts[2], 10, 64)
+					var err error
+					subject.RepositoryID, err = services.InstallRepositoryID(r.Context(), queries)
+					if err != nil {
+						writeConfirmationDispatchError(w, err)
+						return
+					}
+				}
+				decision, err := services.Authorize(r.Context(), queries, command, subject)
+				if err != nil {
+					writeConfirmationDispatchError(w, err)
+					return
+				}
+				next.ServeHTTP(w, r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, subject)))
+				return
+			}
 			if command == "workspace.head" || strings.HasPrefix(command, "workspace.children.") {
 				subject := services.InstallSubject{}
 				if repo := middleware.RepoFromContext(r.Context()); repo != nil {
