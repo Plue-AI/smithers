@@ -22,6 +22,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/sandbox"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
@@ -188,6 +189,8 @@ func testSecretsComposed(t *testing.T, install bool) {
 	run := credential{bearer: token(maintainer, "run", "write:repository", true)}
 	ownerPAT := credential{bearer: token(owner, "pat", "all", false)}
 
+	const canary = "http-canary-0123456789abcdef0123456789"
+	const replacement = "http-replacement-0123456789abcdef0123"
 	call := func(c credential, method, path, body string) (int, map[string]any) {
 		t.Helper()
 		req, err := http.NewRequest(method, origin+path, strings.NewReader(body))
@@ -209,6 +212,8 @@ func testSecretsComposed(t *testing.T, install bool) {
 		require.NoError(t, err)
 		require.NotContains(t, string(raw), "machine-env-canary-value")
 		require.NotContains(t, string(raw), "main-only-canary-value")
+		require.NotContains(t, string(raw), canary)
+		require.NotContains(t, string(raw), replacement)
 		envelope := map[string]any{}
 		if len(raw) > 0 {
 			if strings.HasPrefix(strings.TrimSpace(string(raw)), "[") {
@@ -246,8 +251,6 @@ func testSecretsComposed(t *testing.T, install bool) {
 
 	// HTTP writes feed the same branch delivery snapshot used by provisioning.
 	// Rotation, main-only scope and deletion must remove stale values and names.
-	const canary = "http-canary-0123456789abcdef0123456789"
-	const replacement = "http-replacement-0123456789abcdef0123"
 	injector := services.NewSecretInjector(q, nil)
 	assertSnapshot := func(want map[string]string) {
 		t.Helper()
@@ -265,6 +268,20 @@ func testSecretsComposed(t *testing.T, install bool) {
 		require.NotContains(t, string(encoded), value)
 		assertSnapshot(map[string]string{"CANARY_TOKEN": value})
 	}
+	// The binding transition removes the same name from both machine maps.
+	statusBinding, bindingBody := request(ownerSession, "PATCH", "/secrets/CANARY_TOKEN", `{"hosts":["api.example.com"],"match_headers":["authorization"]}`)
+	require.Equal(t, 200, statusBinding, bindingBody)
+	boundSnapshot, err := injector.RepositorySecrets(ctx, repo.ID, false)
+	require.NoError(t, err)
+	require.Empty(t, boundSnapshot.Env)
+	require.Empty(t, boundSnapshot.Secrets)
+	require.Equal(t, []sandbox.EgressProxySecret{{Name: "CANARY_TOKEN", Value: replacement, Hosts: []string{"api.example.com"}, MatchHeaders: []string{"authorization"}}}, boundSnapshot.Bound)
+	// A partial binding is refused without changing committed delivery.
+	statusBinding, bindingBody = request(ownerSession, "PATCH", "/secrets/CANARY_TOKEN", `{"hosts":[]}`)
+	require.Equal(t, 400, statusBinding, bindingBody)
+	unchanged, err := injector.RepositorySecrets(ctx, repo.ID, false)
+	require.NoError(t, err)
+	require.Equal(t, boundSnapshot, unchanged)
 	statusScope, scopeBody := request(ownerSession, "PATCH", "/secrets/CANARY_TOKEN", `{"main_only":true}`)
 	require.Equal(t, 200, statusScope, scopeBody)
 	assertSnapshot(map[string]string{})
