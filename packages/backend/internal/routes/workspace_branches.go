@@ -26,6 +26,10 @@ type BranchForkService interface {
 	ForkBranch(context.Context, int64, int64, services.BranchForkInput) (services.BranchMachineResponse, error)
 }
 
+type BranchAddService interface {
+	AddBranchToStack(context.Context, int64, int64, string, services.BranchAddInput) (services.MythicalItemView, error)
+}
+
 type BranchAnswerService interface {
 	AnswerBranch(context.Context, string, services.TodoControlInput) (services.TodoControlReceipt, error)
 }
@@ -40,6 +44,7 @@ type BranchHandler struct {
 	Forks     BranchForkService
 	Files     BranchFileReadService
 	Answers   BranchAnswerService
+	Adds      BranchAddService
 }
 
 // RegisterBranchRoutes mounts /branches under the install's /api router;
@@ -52,6 +57,7 @@ func RegisterBranchRoutes(r chi.Router, h *BranchHandler) {
 	r.Get("/branches", h.ListBranches)
 	r.Get("/branches/{b}", h.GetBranch)
 	r.Post("/branches", h.Fork)
+	r.Post("/branches/{b}/add-to-stack", h.AddToStack)
 	r.Post("/branches/{b}", h.Answer)
 	r.Get("/branches/{b}/files", h.ListFiles)
 }
@@ -196,6 +202,11 @@ func writeBranchError(w http.ResponseWriter, r *http.Request, err error) {
 		pkgerrors.WriteJSON(w, refused.Status, refused)
 		return
 	}
+	var control *services.TodoControlError
+	if errors.As(err, &control) {
+		pkgerrors.WriteJSON(w, control.Status, control)
+		return
+	}
 	var access *services.AccessError
 	if errors.As(err, &access) {
 		pkgerrors.WriteJSON(w, access.Status, access)
@@ -216,4 +227,31 @@ func writeBranchError(w http.ResponseWriter, r *http.Request, err error) {
 		}
 	}
 	pkgerrors.WriteJSON(w, status, map[string]string{"code": code, "class": class, "message": message})
+}
+
+func (h *BranchHandler) AddToStack(w http.ResponseWriter, r *http.Request) {
+	var input services.BranchAddInput
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+	decoder.DisallowUnknownFields()
+	if err := decodeSingleJSONDocument(decoder, &input); err != nil {
+		writeBranchError(w, r, pkgerrors.BadRequest("Invalid Add to stack request"))
+		return
+	}
+	branch, err := url.PathUnescape(chi.URLParam(r, "b"))
+	if err != nil {
+		writeBranchError(w, r, pkgerrors.BadRequest("Invalid branch"))
+		return
+	}
+	input.Request = r.Header.Get("Idempotency-Key")
+	repository, user, err := h.authorize(r, "branch.add-to-stack", h.Adds != nil)
+	if err != nil {
+		writeBranchError(w, r, err)
+		return
+	}
+	item, err := h.Adds.AddBranchToStack(r.Context(), repository, user, branch, input)
+	if err != nil {
+		writeBranchError(w, r, err)
+		return
+	}
+	pkgerrors.WriteJSON(w, 202, map[string]any{"state": "accepted", "n": item.Number, "rev": 1})
 }

@@ -3,6 +3,7 @@ import { createBranchControlsSeam } from "./seams/BranchControlsSeam"
 import { branchFileMachineScope } from "./seams/BranchSeam"
 import { projectHome } from "../runtime/HomeProjection"
 import { projectTodoCard } from "../runtime/TodoProjection"
+import { createBranchMutations } from "./seams/BranchMutationsSeam"
 import { createSharedPrompts } from "./controller/sharedPrompts"
 import { createSharedConversationSeam, type SharedConversationSeam } from "./seams/SharedConversationSeam"
 import { createEarlierHistoryController } from "./controller/earlierHistory"
@@ -558,6 +559,7 @@ export interface AppController extends IssueFlowsController {
   readonly branchControls?: import("./seams/BranchControlsSeam").BranchControls
   readonly branchSshLine?: (name: string, signal?: AbortSignal) => Promise<string | { readonly value: string }>
   readonly openBranch?: (name: string) => Promise<string | { readonly value: string }>
+  readonly addBranchToStack?: (input: { readonly branch: string; readonly text?: string; readonly title?: string; readonly acceptance?: ReadonlyArray<string>; readonly after?: number; readonly before?: number }) => Promise<string | { readonly value: string }>
   readonly forkBranch?: (input: { readonly from: string; readonly name?: string }) => Promise<string | { readonly value: string }>
   /** members.add, members.role and members.remove: the install's routes, or the seeded roster off an install. A string is the refusal. */
   readonly changeMembers: (tag: "members.add" | "members.role" | "members.remove", input: { readonly login: string; readonly role?: "maintainer" | "member" }) => Promise<string | { readonly value: string }>
@@ -1089,15 +1091,10 @@ export const createAppController = (
       pendingSshReads.delete(cancel)
     }
   } : undefined
-  const forkBranch: AppController["forkBranch"] = installHost ? async input => {
-    try {
-      const response = await seamCtx.http(`${baseUrl.replace(/\/$/, "")}/api/branches`, { credentials: "same-origin", method: "POST",
-        headers: { "Content-Type": "application/json", "Idempotency-Key": randomUuid() }, body: JSON.stringify(input) })
-      const body = await response.json().catch(() => undefined) as { readonly name?: unknown; readonly message?: unknown } | undefined
-      if (response.status === 201 && typeof body?.name === "string") return { value: body.name }
-      return typeof body?.message === "string" ? body.message : "Branch unavailable"
-    } catch { return "Branch unavailable" }
-  } : undefined
+  const branchMutations = createBranchMutations(seamCtx)
+  ctx.onDispose(branchMutations.dispose)
+  const forkBranch: AppController["forkBranch"] = installHost ? input => branchMutations.request("fork", { ...input }) : undefined
+  const addBranchToStack: AppController["addBranchToStack"] = installHost ? input => branchMutations.request("add", { ...input }) : undefined
   const flowCards: AppController["flowCards"] = async (name) => installHost ? flowsSeam.read(name)
     : flowNames(design.world()).flatMap(name => flowCardOf(design.world(), name) ?? [])
   const changeMembers: AppController["changeMembers"] = async (tag, { login, role }) => {
@@ -2129,6 +2126,7 @@ export const createAppController = (
     ...(forkBranch ? { forkBranch } : {}),
     ...(branchControls ? { branchControls } : {}),
     ...(branchSshLine ? { branchSshLine } : {}),
+    ...(addBranchToStack ? { addBranchToStack } : {}),
     promptStorageRecovery,
     exportStorageRecovery,
     resetStorageRecovery,
@@ -2533,6 +2531,7 @@ export const createAppController = (
   secretsSeam.resumeSecretRequests()
   egressSeam.resumeEgressRequests()
   proposalSeam.resumeProposals()
+  if (installHost) branchMutations.resume()
   todoSeam.resumeTodos()
   stackSeam.resumeStacks()
   workflowController.resumeWorkflowRequests()
@@ -2544,6 +2543,7 @@ export const createAppController = (
   const setupIdentitySubscription = store.collections.identitySessions.subscribeChanges(() => {
     queueMicrotask(() => { if (!ctx.disposed) { conversationHistory.resume(); triggersSeam.resumePauses(); triggersSeam.resumePreparations() } })
     queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests(); proposalSeam.resumeProposals() } })
+    if (installHost) branchMutations.resume()
     workflowController.resumeWorkflowRequests()
     gitHubSyncRetry.resume()
     // Catalog recovery writes a card; leave the identity projection before dispatching it.

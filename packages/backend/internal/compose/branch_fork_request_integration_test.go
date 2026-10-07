@@ -156,4 +156,39 @@ func TestForkCompletedRequestInstall(t *testing.T) {
 	require.Equal(t, 1, count)
 	require.Zero(t, counted.starts.Load())
 	require.Zero(t, counted.reads.Load())
+	// Removing any machine admission provider must refuse the retained door
+	// before loading or restarting its source, creating a row, or recording
+	// a completion. These requests have fresh keys; none is a replay.
+	for _, missing := range []string{"membership", "authorization", "lane", "microvm", "identity"} {
+		t.Run("missing-"+missing, func(t *testing.T) {
+			t.Setenv("SMITHERS_BLOB_DATA_DIR", t.TempDir())
+			removed := providers
+			switch missing {
+			case "membership":
+				removed.Membership = nil
+			case "authorization":
+				removed.Authorize = nil
+			case "lane":
+				removed.LaneBinding = nil
+			case "microvm":
+				removed.MicroVM = nil
+			case "identity":
+				removed.SessionIdentity = nil
+			}
+			without := startSplitProcess(t, Options{ChatHost: unusedChatHost{}, Workspace: counted, BranchMachines: &removed, FlowHostProductAPIURL: "http://127.0.0.1:4000"})
+			request := hosted.Clone(ctx)
+			request.Body = io.NopCloser(strings.NewReader(`{"name":"unavailable"}`))
+			request.Header.Set("Idempotency-Key", "missing-"+missing)
+			response := httptest.NewRecorder()
+			without.ServeHTTP(response, request)
+			require.Equal(t, 503, response.Code, response.Body.String())
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workspaces`).Scan(&count))
+			require.Equal(t, 1, count)
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='branch.fork.completed'`).Scan(&count))
+			require.Equal(t, 1, count)
+			require.Zero(t, counted.starts.Load())
+			require.Zero(t, counted.reads.Load())
+		})
+	}
+
 }

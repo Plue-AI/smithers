@@ -184,6 +184,25 @@ func (s *WorkspaceService) forkScratchWorkspace(ctx context.Context, fork Scratc
 	return workspace, nil
 }
 
+// CheckScratchFork qualifies the same admission as workspace creation, before
+// the stack writes revision retention or its durable fork intent. Creation
+// rechecks it under its own transaction; this check grants no lasting authority.
+func (l *workspaceMythicalLanes) CheckScratchFork(ctx context.Context, repositoryID, actorID int64, branch string) error {
+	if l == nil || l.workspaces == nil {
+		return branchForkUnavailable("workspaces unavailable")
+	}
+	s := l.workspaces
+	if err := s.requireBranchMachineProviders(); err != nil {
+		return err
+	}
+	tx, err := s.transactions.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	return s.authorizeBranchMachine(ctx, tx, repositoryID, actorID, branch, "")
+}
+
 // ForkScratch creates a scratch fork's workspace for the stack service and
 // answers the branch with its machine.
 func (l *workspaceMythicalLanes) ForkScratch(ctx context.Context, fork ScratchFork) (BranchMachineResponse, error) {
