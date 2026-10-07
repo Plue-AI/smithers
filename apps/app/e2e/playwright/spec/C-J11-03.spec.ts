@@ -18,7 +18,14 @@ test("C-J11-03: the owner switches the reviewer model immediately", async ({ pag
   { id: "reviewer", label: "Reviewer agent", purpose: "", model: { id: model, label: model, provider: "openai-responses" }, binding: { protocol: "openai-responses", modelId: model, credential: "OPENAI_API_KEY" }, builtin: true, available: false, account: "", reason: "", source: "owner", instructions: "flows/todo/flow.ts" },
   { id: "app", label: "App agent", purpose: "", runs: [{ id: "turn-before-switch", model: "model-old" }, { id: "turn-after-switch", model: "model-f" }], model: { id: "model-f", label: "model-f", provider: "openai-chat" }, builtin: true, available: false, account: "", reason: "", source: "owner", instructions: ".smithers/instructions/app.md" }
  ] })
- await page.route("**/api/agents", route => route.fulfill({ json: snapshot() }))
+ let holdRefresh = false
+ let refreshStarted = false
+ let releaseRefresh!: () => void
+ const refresh = new Promise<void>(resolve => { releaseRefresh = resolve })
+ await page.route("**/api/agents", async route => {
+  if (holdRefresh) { refreshStarted = true; await refresh }
+  await route.fulfill({ json: snapshot() })
+ })
  const writes: unknown[] = []
  await page.route("**/api/agents/reviewer/model", async route => {
   const body = route.request().postDataJSON(); writes.push(body); model = body.model.modelId
@@ -59,8 +66,15 @@ test("C-J11-03: the owner switches the reviewer model immediately", async ({ pag
  await say(page, '/model.save {"name":"review-c","protocol":"openai-responses","modelId":"model-c","credential":"OPENAI_API_KEY"}')
  const record = page.locator('[data-model-id="review-c"]')
  await expect(record).toContainText("model-c")
+ holdRefresh = true
  await record.getByRole("button", { name: "Test", exact: true }).press("Enter")
  await expect(record.getByRole("button", { name: "Test", exact: true })).toBeDisabled()
+ await expect.poll(() => refreshStarted).toBe(true)
+ expect(probeIds).toHaveLength(0)
+ await say(page, "/help")
+ await expect(page.getByRole("textbox").last()).toBeEnabled()
+ holdRefresh = false
+ releaseRefresh()
  await say(page, "/agent reviewer")
  await expect(page.locator("[data-agent]")).toHaveCount(1)
  await expect(page.locator('[data-agent="reviewer"]')).toBeVisible()

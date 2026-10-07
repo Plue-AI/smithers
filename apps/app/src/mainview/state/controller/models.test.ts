@@ -36,7 +36,7 @@ test("a member read cannot issue the assignment write", async () => {
 
 // Unit transport controls deliberately hold both admission and execution so
 // returning a launch acknowledgment cannot accidentally be treated as done.
-const probeHarness = (recovered?: { requestId: string; model: import("@smthrs/rpc/ConfiguredModel").ConfiguredModel }) => {
+const probeHarness = (recovered?: { requestId: string; model: import("@smthrs/rpc/ConfiguredModel").ConfiguredModel }, listAgents: () => Promise<void> = async () => {}) => {
  const model = { id: "probe", protocol: "openai-chat" as const, modelId: "probe-model", credential: "PROBE_KEY" }
  const cards = new Map<string, any>([["agents", { id: "agents", kind: "agents", payload: { native: false, agents: [], ...(recovered ? { testing: ["probe"], testRequests: { probe: recovered } } : {}) } }]])
  const listeners = new Set<() => void>()
@@ -63,7 +63,7 @@ const probeHarness = (recovered?: { requestId: string; model: import("@smthrs/rp
   withToast: (_key: string, _start: string, _end: string, work: () => Promise<unknown>) => { toastWork = work(); return toastWork },
   onDispose: () => undefined, errorMessageOf: async () => "Refused"
  } as unknown as ControllerContext
- const controller = createModelsController(ctx, { renderFlowForm: () => undefined, listAgents: async () => {} })
+ const controller = createModelsController(ctx, { renderFlowForm: () => undefined, listAgents })
  return { ctx, controller, cards, models, posts, events, posted, resolveLaunch, hydrated: () => { for (const listener of listeners) listener() }, finish: () => toastWork!, dispose: () => { disposed = true } }
 }
 
@@ -145,6 +145,40 @@ test("a pending probe hydrated after controller construction reconnects automati
  h.hydrated()
  await h.posted
  expect(h.posts[0].requestId).toBe("late-hydrated-probe")
+ h.resolveLaunch(Response.json({}, { status: 202 }))
+ await h.finish()
+ expect(h.events.filter(event => event.type === "model.tested")).toHaveLength(1)
+})
+
+
+test("probe acknowledgment does not await the Agent card refresh; duplicates share background work", async () => {
+ let refreshes = 0
+ let release!: () => void
+ const refresh = new Promise<void>(resolve => { release = resolve })
+ const h = probeHarness(undefined, async () => { refreshes++; await refresh })
+ await h.controller.testModel("probe")
+ await h.controller.testModel("probe")
+ expect(refreshes).toBe(1)
+ expect(h.posts).toHaveLength(0)
+ release()
+ await h.posted
+ expect(h.posts).toHaveLength(1)
+ expect(h.cards.get("agents").payload.testRequests.probe.requestId).toBe(h.posts[0].requestId)
+ h.resolveLaunch(Response.json({}, { status: 202 }))
+ await h.finish()
+ expect(h.events.filter(event => event.type === "model.tested")).toHaveLength(1)
+})
+
+test("a failed Agent card refresh releases the probe for retry", async () => {
+ let fail = true
+ const h = probeHarness(undefined, async () => { if (fail) throw new Error("Refresh failed") })
+ await h.controller.testModel("probe")
+ await h.finish()
+ expect(h.cards.get("agents").payload.error).toBe("Refresh failed")
+ expect(h.posts).toHaveLength(0)
+ fail = false
+ await h.controller.testModel("probe")
+ await h.posted
  h.resolveLaunch(Response.json({}, { status: 202 }))
  await h.finish()
  expect(h.events.filter(event => event.type === "model.tested")).toHaveLength(1)
