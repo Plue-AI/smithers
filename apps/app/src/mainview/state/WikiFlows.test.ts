@@ -133,14 +133,16 @@ describe("wiki.graph", () => {
     controller.dispose()
   })
 
-  test("Wiki card selection and view are actor-tagged, durable and shared between doors", async () => {
+  test("Wiki card selection is person-only and its view state is durable", async () => {
     const { store, controller } = await setup()
-    await controller.commands.run("wiki")
+    await controller.presentSubject({ id: "wiki-selector", kind: "world", title: "Wiki", payload: { documents: [...store.collections.worldDocuments.values()].map(({ id, path, title, confidence }) => ({ id, path, title, confidence })), selectedDocumentId: "world-home" } })
     expect(store.session().surface).toBe("chat")
-    await controller.commands.runForAgent("wiki.card.select", "world-embedded plans")
-    await controller.commands.run("wiki.card.view", "world-embedded document")
-    expect(store.collections.cards.get("world-embedded")).toMatchObject({ payload: { selectedDocumentId: "plans", view: "document" } })
-    expect([...store.collections.transitions.values()].some((row) => row.actor === "smithers" && row.type === "card.updated")).toBe(true)
+    expect(await controller.commands.runForAgent("wiki.card.select", "wiki-selector plans")).toMatchObject({ status: "failed" })
+    expect(store.collections.cards.get("wiki-selector")).toMatchObject({ payload: { selectedDocumentId: "world-home" } })
+    expect(await controller.commands.run("wiki.card.select", "wiki-selector plans")).toMatchObject({ status: "executed" })
+    await controller.commands.run("wiki.card.view", "wiki-selector document")
+    expect(store.collections.cards.get("wiki-selector")).toMatchObject({ payload: { selectedDocumentId: "plans", view: "document" } })
+    expect([...store.collections.transitions.values()].some((row) => row.actor === "user" && row.type === "card.updated")).toBe(true)
     controller.dispose()
   })
 

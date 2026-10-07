@@ -23,7 +23,7 @@ export const LessonsReceiptContainer = ({ model: source, dispatch, allowed, View
     const kind = lesson.ref.slice(0, colon), id = lesson.ref.slice(colon + 1)
     if (!id.trim()) continue
     if (kind === "wiki" && (!allowed || allowed.has("wiki.page"))) definitions.push({ tag: "wiki.page", label: lesson.title, gesture: lesson.ref, args: { name: id }, command_input: { name: id } })
-    if (kind === "proposal" && (!allowed || allowed.has("proposal"))) definitions.push({ tag: "proposal", label: lesson.title, gesture: lesson.ref, args: { id }, command_input: { id } })
+    if (kind === "proposal" && (!allowed || allowed.has("wiki"))) definitions.push({ tag: "wiki", label: lesson.title, gesture: lesson.ref, args: { operation: "proposal", id }, command_input: { operation: "proposal", id } })
   }
   const bindings = cardActions<string>(dispatch, definitions)
   return <View model={parsed.data} actions={bindings.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={{ maximized: false }} onView={() => {}} />

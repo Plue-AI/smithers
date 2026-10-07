@@ -7876,46 +7876,6 @@
       }
     },
     {
-      "name": "proposal",
-      "slash": "/proposal",
-      "cli": [
-        "proposal"
-      ],
-      "journey": [
-        "J5",
-        "J8"
-      ],
-      "group": "Wiki",
-      "visibility": "in-card",
-      "actors": [
-        "person",
-        "app_agent",
-        "external_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "run",
-      "summary": "Open a proposal",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "id": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          "required": [
-            "id"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
       "name": "proposals.read",
       "slash": null,
       "cli": null,
@@ -13305,7 +13265,33 @@
         "dialect": "draft-2020-12",
         "schema": {
           "type": "object",
-          "additionalProperties": false
+          "properties": {
+            "operation": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "proposal"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "id": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": true
         },
         "definitions": {}
       }

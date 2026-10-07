@@ -20,6 +20,7 @@
  * button still runs; nothing writes these names.
  */
 export const RENAMED_FLOWS: Readonly<Record<string, string>> = {
+  "proposal": "wiki",
   "terminal.send": "terminal",
   "flow.list": "flows",
   "settings.address": "settings",
@@ -91,7 +92,6 @@ export const FLOW_NAMES = [
   "file.restore-deleted",
   "file.follow-rename",
   "branch.rebase-now",
-  "proposal",
   "learning.accept",
   "learning.dismiss",
   "todo.takeover",

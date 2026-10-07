@@ -20,7 +20,7 @@ test("lessons navigate to distinct wiki and proposal subjects through catalog ac
   expect(calls).toEqual([
     { tag: "wiki.page", input: { name: "retry-helper" } },
     { tag: "wiki.page", input: { name: "checks" } },
-    { tag: "proposal", input: { id: "check:lint@review" } }
+    { tag: "wiki", input: { operation: "proposal", id: "check:lint@review" } }
   ])
 })
 test("missing descriptors and invalid receipts expose no fabricated navigation", () => {

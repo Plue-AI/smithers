@@ -21,7 +21,8 @@ export const recommendations: ReadonlyArray<Recommendation> = [
 
 /** The bare `wiki` surface switch, registered first with the other top-level surfaces. */
 export const wikiSurfaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
-  bind(wikiSurfaceOperations, { wiki: async () => {
+  bind(wikiSurfaceOperations, { wiki: async ({ operation, id }) => {
+    if (operation === "proposal") return id === undefined ? "Choose a proposal" : actions.openProposal(id)
     if (actions.bootstrap?.capabilities.includes("install")) return actions.listCloudWiki()
     const page = actions.design.world().wiki[0]
     return page === undefined ? actions.showWorld() : { value: await actions.presentSubject(wikiCard(page.id, page.title)) }

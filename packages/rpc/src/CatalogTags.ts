@@ -84,7 +84,6 @@ export const CATALOG_TAGS = [
   "box.suspend",
   "box.resume",
   "branch.rebase-now",
-  "proposal",
   "learning.accept",
   "learning.dismiss",
   "terminal.watch",
