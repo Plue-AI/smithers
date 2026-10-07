@@ -1793,12 +1793,7 @@ export const diagnostics = (graph: Graph): ReadonlyArray<GraphBuildError> => gra
  * @since 1.0.0
  */
 export interface Inspection {
-  readonly nodes: ReadonlyArray<{
-    readonly id: string
-    readonly kind: string
-    readonly label?: string
-    readonly dependencies: ReadonlyArray<string>
-  }>
+  readonly nodes: ReadonlyArray<Pick<GraphNode, "id" | "kind" | "dependencies"> & { readonly label?: string }>
   readonly edges: ReadonlyArray<Edge>
   readonly steps: ReadonlyArray<{ readonly id: string; readonly label: string }>
   readonly diagnostics: ReadonlyArray<{ readonly code: string; readonly message: string }>
@@ -1848,9 +1843,11 @@ export const inspect = (flow: Flow.Any): Inspection => {
     }
   } catch (error) {
     return {
-      nodes: [],
+      // The declaration itself is a known boundary even when its internals
+      // require real input. Do not publish a fictitious empty execution.
+      nodes: [{ id: "root", kind: "FlowCall", label: flow._tag, dependencies: [] }],
       edges: [],
-      steps: [],
+      steps: [{ id: "root", label: flow._tag }],
       diagnostics: [{
         code: error instanceof GraphBuildError
           ? error.code === "planned_value_computed" ? "declaration_requires_input" : error.code
