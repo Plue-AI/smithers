@@ -2640,6 +2640,7 @@ export const createAppController = (
   const { snapshot: _snapshot, ...sharedActions } = commandActions
   return {
     ...sharedActions,
+    observeReviewConfirmation: issueFlows.observeReviewConfirmation,
     fileDocuments,
     store,
     privacyNotices: privacyActions.notices,
