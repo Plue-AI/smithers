@@ -805,6 +805,14 @@ const FIXTURES: Record<
   >,
   KindFixtures
 > = {
+  // These saved kinds decode to retired cards; their old payloads never
+  // reactivate the removed account/import/environment surfaces.
+  account: { minimal: {}, full: { login: "ben" } },
+  registration: { minimal: {}, full: { email: "ben@example.com" } },
+  "provider-accounts": { minimal: {}, full: { provider: "github", accounts: [] } },
+  "repo-import": { minimal: {}, full: { repo: "smithersai/smithers" } },
+  "connector-setup": { minimal: {}, full: { provider: "github" } },
+  env: { minimal: {}, full: { selected: "local" } },
   todo: {
     minimal: { n: 12, requests: [] },
     full: { n: 12, model: todoFixtures.failed.model, requests: [], observedConfirmations: [], answerDraft: "A late answer", answeredBy: "maya" }
