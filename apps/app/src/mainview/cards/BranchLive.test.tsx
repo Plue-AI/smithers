@@ -66,7 +66,7 @@ for (const unavailable of [[], [2], [3], [2, 3]]) test(`registry renders real br
     expect(host.querySelector("[data-flow]")).toBeNull()
     expect(frames.at(-1)).toEqual({ t: "presence", id: 4, where: { branch: "b-retry" } })
     // Authorization failures remain fatal even with unavailable optional streams.
-    await act(async () => socket.onmessage?.({ data: JSON.stringify({ t: "err", id: 1, code: "permission" }) }))
+    await act(async () => socket.onmessage?.({ data: JSON.stringify({ t: "err", id: 1, code: "forbidden" }) }))
     expect(host.textContent).toBe("")
     await act(async () => root.unmount())
     expect(timers.at(-1)?.cancelled).toBe(true)
