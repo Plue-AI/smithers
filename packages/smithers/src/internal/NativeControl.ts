@@ -332,6 +332,8 @@ export interface ExecutorOptions {
  * @private
  */
 export interface Platform {
+  /** Coding hosts require the registered daemon terminal; never use the native spawn binding. */
+  readonly shellTerminal?: "agent" | undefined
   readonly agentLimits?: {
     readonly modelCallMs: number
     readonly toolMs: number
@@ -1427,7 +1429,10 @@ export const make = (
           ...(sealedTo === undefined
             ? [StandardFlows.filesystem(HostLanguageServers.bind(filesystemServices, languageServer), nativeSearch)]
             : []),
-          StandardFlows.shell(HostLanguageServers.bind(shellServices, languageServer), container, { sealedTo }),
+          StandardFlows.shell(HostLanguageServers.bind(shellServices, languageServer), container, {
+            sealedTo,
+            terminal: native.shellTerminal
+          }),
           // Host-wide on purpose: these sources are built once per executor,
           // before any run, and the operator owns this memory database. A
           // host that runs a flow declaring `WithMemory.Policy` composes a
@@ -1745,7 +1750,9 @@ export const make = (
                           )
                         ),
                         StandardFlows.shell(
-                          Context.pick(KernelChildProcessSpawner.ChildProcessSpawner, KernelPath.Path)(machine)
+                          Context.pick(KernelChildProcessSpawner.ChildProcessSpawner, KernelPath.Path)(machine),
+                          undefined,
+                          { terminal: native.shellTerminal }
                         ),
                         StandardFlows.memory(memoryServices, judge, StandardFlows.hostWide),
                         StandardFlows.jev(judge)

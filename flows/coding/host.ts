@@ -621,6 +621,7 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
   const native = NativeControl.make(
     {
       ...platform,
+      shellTerminal: "agent",
       agentLimits: options.planning?.limits,
       evaluator,
       jj: (root) => Snapshots.layerAt({ ...options, repositoryPath: root }),
