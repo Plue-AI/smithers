@@ -808,7 +808,9 @@ const credentialPaths = (hostFacts: Host): ReadonlyArray<string> => {
 }
 
 /**
- * The program a bubblewrap run execs, made reachable inside its empty root.
+ * The program a confined run execs, made reachable inside its empty root.
+ *
+ * @internal
  *
  * Bubblewrap resolves a bare program name with `execvp` against `PATH` inside
  * the new root, and that root holds only the runtime paths and the declared
@@ -827,7 +829,7 @@ const credentialPaths = (hostFacts: Host): ReadonlyArray<string> => {
  * With no package directory only the real file is bound. A name that resolves
  * nowhere is left for `execvp` to report.
  */
-const launcher = (
+export const launcher = (
   program: string,
   searchPath: string | undefined,
   granted: ReadonlyArray<string>,

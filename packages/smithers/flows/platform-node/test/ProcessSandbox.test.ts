@@ -1525,7 +1525,7 @@ describe("bubblewrap launcher (#3140)", () => {
           env: { ...process.env, PATH: path, ...wrapped.env }
         })
       }
-      const path = [bin, NodePath.dirname(process.execPath), ...(process.env["PATH"] ?? "").split(":")].join(":")
+      const path = [bin, ...(process.env["PATH"] ?? "").split(":"), NodePath.dirname(process.execPath)].join(":")
       const fake = run(["fake-pm"], path)
       expect(fake.status, fake.stderr).toBe(0)
       expect(fake.stdout).toBe("fake-pm-ok")
