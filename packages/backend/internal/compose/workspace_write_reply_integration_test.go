@@ -143,6 +143,9 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 			require.Equal(t, fmt.Sprint(owner.ID), string(actor))
 			require.Len(t, changes, 1)
 			require.Equal(t, "daemon.txt", changes[0].Path)
+			if string(changes[0].Content) == "offline" {
+				return machined.WriteResult{}, machined.ErrNotReady
+			}
 			if changes[0].BaseDigest != nil {
 				current := otherDigest
 				return machined.WriteResult{Stale: &machined.StaleFile{Path: "daemon.txt", CurrentDigest: &current}}, nil
@@ -158,6 +161,7 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 			{`{"content":"hello","base_digest":"absent"}`, 200, `"version":"` + otherDigest + `"`},
 			{`{"content":"hello","base_digest":"` + helloDigest + `"}`, 409, `"current_digest":"` + otherDigest + `"`},
 			{`{"content":"hello"}`, 400, "base_digest"},
+			{`{"content":"offline","base_digest":"absent"}`, 503, `"code":"service_unavailable"`},
 		} {
 			req, err := http.NewRequest("PUT", server.URL+"/api/repos/digestowner/demo/workspaces/"+id+"/files/content?path=daemon.txt", strings.NewReader(item.request))
 			require.NoError(t, err)
@@ -174,6 +178,6 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 			require.Equal(t, item.status, response.StatusCode, string(body))
 			require.Contains(t, string(body), item.fragment)
 		}
-		require.Equal(t, 2, calls)
+		require.Equal(t, 3, calls)
 	})
 }
