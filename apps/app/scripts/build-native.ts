@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import {
   cpSync,
+  chmodSync,
   existsSync,
   mkdtempSync,
   mkdirSync,
@@ -364,6 +365,11 @@ if (!instructions) throw new Error("Missing bundle instructions")
 writeFileSync(join(nativeDir, "README.md"), "# Smithers server bundle\n" + instructions)
 await bundleMicrosandbox(root, nativeDir)
 normalizeImageArchive(join(nativeDir, "share/microsandbox/base-image.oci.tar"))
+// Ship the catalog-generated skill as data, never as a root executable.
+const guestSkill = join(nativeDir, "share", "skills", "smithers", "SKILL.md")
+mkdirSync(dirname(guestSkill), { recursive: true })
+cpSync(join(root, "packages", "smithers", "skills", "smithers", "SKILL.md"), guestSkill)
+chmodSync(guestSkill, 0o644)
 writeBundleManifest(nativeDir, revision)
 verifyBundleManifest(nativeDir)
 const archive = archiveBundle(nativeDir, join(appDir, ".native-archive"))

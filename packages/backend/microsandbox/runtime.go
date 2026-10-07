@@ -763,6 +763,12 @@ func (r *Runtime) prepareGuest(ctx context.Context, ws *workspace) error {
 	if err := r.installGuest(ctx, ws.Machine); err != nil {
 		return err
 	}
+	// Plant approved session artifacts before unprivileged home discovery.
+	for _, artifact := range r.config.BundlePrograms {
+		if _, err := r.plantArtifact(ctx, ws.Machine, artifact); err != nil {
+			return fmt.Errorf("prepare workspace artifact: %w", err)
+		}
+	}
 	if _, err := r.guest(ctx, ws.Machine, nil, "setup", guestUser, strconv.Itoa(guestUID), guestRoot, guestHome, guestStateDir, guestTempDir); err != nil {
 		return fmt.Errorf("prepare workspace guest: %w", err)
 	}
