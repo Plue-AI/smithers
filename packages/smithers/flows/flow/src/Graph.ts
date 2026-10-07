@@ -1785,3 +1785,79 @@ export const drafts = (graph: Graph): ReadonlyArray<Plan.NodeDraft> => {
  * @category accessors
  */
 export const diagnostics = (graph: Graph): ReadonlyArray<GraphBuildError> => graph.diagnostics
+
+/** Serializable declaration inspection. No action or prompt renderer runs.
+ * Payload-dependent JavaScript can refuse symbolic inspection; that is a
+ * diagnostic, not evidence that the flow itself cannot execute.
+ * @category models
+ * @since 1.0.0
+ */
+export interface Inspection {
+  readonly nodes: ReadonlyArray<{
+    readonly id: string
+    readonly kind: string
+    readonly label?: string
+    readonly dependencies: ReadonlyArray<string>
+  }>
+  readonly edges: ReadonlyArray<Edge>
+  readonly steps: ReadonlyArray<{ readonly id: string; readonly label: string }>
+  readonly diagnostics: ReadonlyArray<{ readonly code: string; readonly message: string }>
+  /** The renderer's source, never rendered with an invented input. */
+  readonly prompt?: string
+}
+
+/** Inspect the existing graph model with an unresolved input reference.
+ * Run this only in the same guest that loads the declaration: plan-time body
+ * code is repository code too. An input-dependent body is reported explicitly
+ * without choosing a sample payload. As with Planned values in bodies, use
+ * node combinators for branching; JavaScript truthiness is not inspectable.
+ * @category constructors
+ * @since 1.0.0
+ */
+export const inspect = (flow: Flow.Any): Inspection => {
+  const prompt = "prompt" in flow && typeof flow.prompt === "function"
+    ? Function.prototype.toString.call(flow.prompt)
+    : undefined
+  try {
+    const graph = build(flow, Planned.make("input"))
+    const nodes = graph.nodes.map((node) => ({
+      id: node.id,
+      kind: node.kind,
+      ...(node.ast._tag === "FlowCall" ?
+        { label: node.ast.flow }
+        : node.ast._tag === "ActionCall"
+        ? { label: node.ast.action }
+        : {}),
+      dependencies: node.dependencies
+    }))
+    // Inline flow calls group the actions beneath them; only boundary calls
+    // and actions are steps, so the same work is never displayed twice.
+    const steps = graph.nodes.flatMap((node) =>
+      node.ast._tag === "ActionCall" ?
+        [{ id: node.id, label: node.ast.action }]
+        : node.ast._tag === "FlowCall" && node.ast.mode !== "inline"
+        ? [{ id: node.id, label: node.ast.flow }]
+        : []
+    )
+    return {
+      nodes,
+      edges: graph.edges,
+      steps,
+      diagnostics: graph.diagnostics.map(({ code, message }) => ({ code, message })),
+      ...(prompt === undefined ? {} : { prompt })
+    }
+  } catch (error) {
+    return {
+      nodes: [],
+      edges: [],
+      steps: [],
+      diagnostics: [{
+        code: error instanceof GraphBuildError
+          ? error.code === "planned_value_computed" ? "declaration_requires_input" : error.code
+          : "declaration_inspection_failed",
+        message: error instanceof Error ? error.message : String(error)
+      }],
+      ...(prompt === undefined ? {} : { prompt })
+    }
+  }
+}

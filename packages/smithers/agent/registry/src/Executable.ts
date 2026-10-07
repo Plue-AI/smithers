@@ -352,6 +352,8 @@ export interface Executable {
   readonly descriptor: Descriptor.FlowDescriptor
   /** The module's own Flow.make tag, before the private admission adapter. */
   readonly declaredTag?: string | undefined
+  /** Guest-only declaration inspection; never called by discovery or listing. */
+  readonly inspect?: (() => Graph.Inspection) | undefined
   /**
    * The registered flow this descriptor delegates to, or `undefined` when the
    * module IS the flow and delegates to nothing.
@@ -1635,6 +1637,7 @@ export const fromDescriptor = (
         source: body.source,
         quiesce: body.flow === undefined ? undefined : quiescence.quiesce,
         declaredTag: body.flow?._tag,
+        inspect: body.flow === undefined ? undefined : () => Graph.inspect(body.flow!),
         delegate: body.flow === undefined ? name : undefined,
         input: body.flow?.payloadSchema,
         lowered,
