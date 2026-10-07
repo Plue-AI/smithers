@@ -13,6 +13,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 // BranchReadService is the workspace service's branch projection.
@@ -30,6 +31,10 @@ type BranchAnswerService interface {
 	AnswerBranch(context.Context, string, services.TodoControlInput) (services.TodoControlReceipt, error)
 }
 
+type BranchMachineControl interface {
+	RequestBranchMachine(context.Context, string, int64, int64, string, string) (jobs.RequestReceipt, error)
+}
+
 // BranchHandler serves the install's branches (spec §6.3 /api/branches):
 // reads of the workspace projection and Fork, which the stack service
 // performs. Authorize decides the command for the request's person and
@@ -40,6 +45,7 @@ type BranchHandler struct {
 	Forks     BranchForkService
 	Files     BranchFileReadService
 	Answers   BranchAnswerService
+	Machines  BranchMachineControl
 }
 
 // RegisterBranchRoutes mounts /branches under the install's /api router;
@@ -66,6 +72,25 @@ func (h *BranchHandler) Answer(w http.ResponseWriter, r *http.Request) {
 	decoder.DisallowUnknownFields()
 	if err := decodeSingleJSONDocument(decoder, &body); err != nil {
 		writeBranchError(w, r, pkgerrors.BadRequest("Invalid branch answer"))
+		return
+	}
+	if body.Op == "sleep" || body.Op == "wake" {
+		repository, user, err := h.authorize(r, "branch."+body.Op, h.Machines != nil)
+		if err != nil {
+			writeBranchError(w, r, err)
+			return
+		}
+		branch, err := url.PathUnescape(chi.URLParam(r, "b"))
+		if err != nil || body.ID != "" || body.Revision != "" {
+			writeBranchError(w, r, pkgerrors.BadRequest("Invalid branch request"))
+			return
+		}
+		receipt, err := h.Machines.RequestBranchMachine(r.Context(), branch, repository, user, body.Op, r.Header.Get("Idempotency-Key"))
+		if err != nil {
+			writeBranchError(w, r, err)
+			return
+		}
+		pkgerrors.WriteJSON(w, http.StatusAccepted, receipt)
 		return
 	}
 	if body.Op != "bring-in" && body.Op != "discard-foreign" {
