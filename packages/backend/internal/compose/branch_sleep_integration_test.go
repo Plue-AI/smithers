@@ -25,6 +25,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/process"
 	"github.com/smithersai/smithers/packages/backend/repository"
 	"github.com/smithersai/smithers/packages/backend/workspace"
@@ -40,6 +41,8 @@ type sleepCountRuntime struct {
 	stops       atomic.Int32
 	stop        func() error
 	unreachable atomic.Bool
+	unconfirmed atomic.Bool
+	stopped     atomic.Bool
 }
 
 type sleepCaptureFunc func(context.Context, string) (machined.CaptureResult, error)
@@ -50,15 +53,27 @@ func (f sleepCaptureFunc) Capture(ctx context.Context, id string) (machined.Capt
 func (r *sleepCountRuntime) StopWorkspace(context.Context, string) error {
 	r.stops.Add(1)
 	if r.stop != nil {
-		return r.stop()
+		if err := r.stop(); err != nil {
+			return err
+		}
+	}
+	if !r.unconfirmed.Load() {
+		r.stopped.Store(true)
 	}
 	return nil
 }
-func (r *sleepCountRuntime) InspectWorkspace(_ context.Context, id string) (workspace.Workspace, error) {
+func (r *sleepCountRuntime) InspectWorkspace(ctx context.Context, id string) (workspace.Workspace, error) {
+	if _, ok := workspace.OperationFromContext(ctx); !ok {
+		return workspace.Workspace{}, errors.New("runtime identity missing")
+	}
 	if r.unreachable.Load() {
 		return workspace.Workspace{}, errors.New("guest disconnected")
 	}
-	return workspace.Workspace{ID: id, State: workspace.WorkspaceRunning}, nil
+	state := workspace.WorkspaceRunning
+	if r.stopped.Load() {
+		state = workspace.WorkspaceStopped
+	}
+	return workspace.Workspace{ID: id, State: state}, nil
 }
 
 func (r *sleepCountRuntime) StartWorkspace(ctx context.Context, id string) (workspace.Workspace, error) {
@@ -195,6 +210,15 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 		require.Equal(t, status, res.StatusCode, string(raw))
 		return raw
 	}
+	headToken, err := q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: machineOwner, Name: "sleep-head", TokenHash: strings.Repeat("a", 64), TokenLastEight: "aaaaaaaa", SystemIssued: true, Scopes: "write:repository"})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE workspaces SET head_push_token_id=$2 WHERE id=$1`, id, headToken.ID)
+	require.NoError(t, err)
+	assertHeadToken := func(want bool) {
+		var exists bool
+		require.NoError(t, pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM access_tokens WHERE id=$1)`, headToken.ID).Scan(&exists))
+		require.Equal(t, want, exists)
+	}
 	// Exercise the mounted suspend door with a test-only daemon contract. The
 	// host store, database, identity middleware and lifecycle are production.
 	sleep := func(want int) {
@@ -211,12 +235,14 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, want, res.StatusCode, string(raw))
 	}
+	counted.stopped.Store(false)
 	_, err = pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, id)
 	require.NoError(t, err)
 	sleep(503)
 	row, err := q.GetWorkspace(ctx, id)
 	require.NoError(t, err)
 	require.Equal(t, "running", row.Status)
+	assertHeadToken(true)
 	require.Zero(t, counted.stops.Load())
 	counted.unreachable.Store(true)
 	sleep(503)
@@ -226,6 +252,7 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 	require.Equal(t, head, row.HeadCommitID)
 	require.Zero(t, counted.stops.Load())
 	counted.unreachable.Store(false)
+	counted.stopped.Store(false)
 	_, err = pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, id)
 	require.NoError(t, err)
 	for _, fault := range []struct {
@@ -265,6 +292,7 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "releasing", row.Status)
 		require.Equal(t, head, row.HeadCommitID)
+		assertHeadToken(true)
 		return errors.New("stop refused")
 	}
 	sleep(503)
@@ -272,14 +300,122 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "running", row.Status)
 	counted.stop = nil
+	counted.unconfirmed.Store(true)
+	sleep(503)
+	row, err = q.GetWorkspace(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, "running", row.Status, "stop acknowledgment is not observed sleep")
+	assertHeadToken(true)
+	counted.unconfirmed.Store(false)
 	sleep(200)
 	row, err = q.GetWorkspace(ctx, id)
 	require.NoError(t, err)
 	require.Equal(t, "suspended", row.Status)
 	require.Equal(t, head, row.HeadCommitID)
-	require.EqualValues(t, 2, counted.stops.Load())
+	require.EqualValues(t, 3, counted.stops.Load())
+	assertHeadToken(false)
 	sleep(200)
-	require.EqualValues(t, 2, counted.stops.Load(), "duplicate sleep must not capture or stop again")
+	require.EqualValues(t, 3, counted.stops.Load(), "duplicate sleep must not capture or stop again")
+	// The spec's branch operation is durable and returns before capture drains.
+	counted.stopped.Store(false)
+	_, err = pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, id)
+	require.NoError(t, err)
+	entered, release := make(chan struct{}), make(chan struct{})
+	capture = func(ctx context.Context, _ string) (machined.CaptureResult, error) {
+		close(entered)
+		select {
+		case <-release:
+			return machined.CaptureResult{Head: head, Tree: base}, nil
+		case <-ctx.Done():
+			return machined.CaptureResult{}, ctx.Err()
+		}
+	}
+	requestOp := "sleep"
+	control := func(key string) jobs.RequestReceipt {
+		requestCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(requestCtx, "POST", server.URL+"/api/branches/"+id, strings.NewReader(fmt.Sprintf(`{"op":%q}`, requestOp)))
+		require.NoError(t, err)
+		req.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
+		req.AddCookie(&http.Cookie{Name: "__csrf", Value: "sleep-csrf"})
+		req.Header.Set("X-CSRF-Token", "sleep-csrf")
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Idempotency-Key", key)
+		req.Header.Set("Content-Type", "application/json")
+		res, err := server.Client().Do(req)
+		require.NoError(t, err, "request must not await capture")
+		defer res.Body.Close()
+		raw, err := io.ReadAll(res.Body)
+		require.NoError(t, err)
+		require.Equal(t, 202, res.StatusCode, string(raw))
+		var receipt jobs.RequestReceipt
+		require.NoError(t, json.Unmarshal(raw, &receipt))
+		return receipt
+	}
+	requested := control("sleep-contract")
+	require.NotEmpty(t, requested.OperationID)
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("sleep worker did not reach capture")
+	}
+	require.Equal(t, requested.OperationID, control("sleep-contract").OperationID)
+	require.EqualValues(t, 3, counted.stops.Load(), "capture still draining")
+	readPath("/api/branches/"+id, 200)
+	close(release)
+	require.Eventually(t, func() bool { row, err := q.GetWorkspace(ctx, id); return err == nil && row.Status == "suspended" }, 5*time.Second, 10*time.Millisecond)
+	require.EqualValues(t, 4, counted.stops.Load())
+	jobStore, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo.ID), PrincipalID: fmt.Sprintf("user:%d", owner.ID)}
+	require.Eventually(t, func() bool {
+		operation, err := jobStore.Get(ctx, scope, requested.OperationID)
+		return err == nil && operation.State == jobs.StateCompleted
+	}, 5*time.Second, 10*time.Millisecond)
+
+	counted.stopped.Store(false)
+	_, err = pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, id)
+	require.NoError(t, err)
+	capture = func(context.Context, string) (machined.CaptureResult, error) {
+		return machined.CaptureResult{}, context.DeadlineExceeded
+	}
+	refused := control("sleep-failure")
+	require.Eventually(t, func() bool {
+		operation, err := jobStore.Get(ctx, scope, refused.OperationID)
+		return err == nil && operation.State == jobs.StateFailed
+	}, 5*time.Second, 10*time.Millisecond)
+	row, err = q.GetWorkspace(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, "running", row.Status)
+	require.EqualValues(t, 4, counted.stops.Load())
+	var failedRequest services.WorkspaceCommandRun
+	require.NoError(t, json.Unmarshal(readPath("/api/repos/sleepowner/demo/workspaces/"+id+"/command-runs/"+refused.OperationID, 200), &failedRequest))
+	require.Equal(t, jobs.StateFailed, failedRequest.State)
+	require.Equal(t, "Branch request failed", failedRequest.Error)
+
+	capture = func(context.Context, string) (machined.CaptureResult, error) {
+		return machined.CaptureResult{Head: head, Tree: base}, nil
+	}
+	retried := control("sleep-retry")
+	require.Eventually(t, func() bool {
+		operation, err := jobStore.Get(ctx, scope, retried.OperationID)
+		return err == nil && operation.State == jobs.StateCompleted
+	}, 5*time.Second, 10*time.Millisecond)
+	require.EqualValues(t, 5, counted.stops.Load())
+	var completedRequest services.WorkspaceCommandRun
+	require.NoError(t, json.Unmarshal(readPath("/api/repos/sleepowner/demo/workspaces/"+id+"/command-runs/"+retried.OperationID, 200), &completedRequest))
+	require.Equal(t, jobs.StateCompleted, completedRequest.State)
+	require.NotNil(t, completedRequest.Machine)
+	require.Equal(t, "suspended", completedRequest.Machine.Status)
+	requestOp = "wake"
+	wakeRefused := control("wake-without-admission")
+	require.Eventually(t, func() bool {
+		operation, err := jobStore.Get(ctx, scope, wakeRefused.OperationID)
+		return err == nil && operation.State == jobs.StateFailed
+	}, 5*time.Second, 10*time.Millisecond)
+	require.Zero(t, counted.starts.Load(), "wake requires admission")
+	requestOp = "sleep"
+
 	assertDiff := func() {
 		var diff services.BranchDiff
 		require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id+"/diff", 200), &diff))
@@ -291,6 +427,7 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 	}
 	assertDiff()
 	// An awake/released candidate keeps its existing immutable candidate semantics.
+	counted.stopped.Store(false)
 	_, err = pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, id)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET candidate_verified=true, candidate_head=$2 WHERE id=$1`, item.ID, base)
@@ -367,6 +504,20 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 	cookie = ownerCookie
 	var tokenID int64
 	credential, tokenID = mint(id)
+	for _, op := range []string{"sleep", "wake"} {
+		req, err := http.NewRequest("POST", server.URL+"/api/branches/"+id, strings.NewReader(fmt.Sprintf(`{"op":%q}`, op)))
+		require.NoError(t, err)
+		req.Header.Set("Authorization", "Bearer "+credential)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Idempotency-Key", "delegated-"+op)
+		res, err := server.Client().Do(req)
+		require.NoError(t, err)
+		raw, err := io.ReadAll(res.Body)
+		res.Body.Close()
+		require.NoError(t, err)
+		require.Equal(t, 403, res.StatusCode, string(raw))
+	}
+
 	var projection services.BranchMachineResponse
 	require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id, 200), &projection))
 	require.Equal(t, head, projection.Head)
