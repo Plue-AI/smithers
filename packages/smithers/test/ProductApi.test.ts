@@ -95,7 +95,11 @@ describe("the generated product API client", () => {
     // GET /api/issues/{n} (#3457), were added.
     // Includes branch operations, live updates, TODO edits and named flow reads.
     // Exact parity above and the literal resource inventory below remain independent.
-    expect(expected).toHaveLength(532)
+    // Current main serves 534 operations; order.ok adds the revision-bound stack attention answer.
+    expect(expected).toHaveLength(535)
+    expect(spec.paths["/api/stack/attention/{id}"]).toHaveProperty("post.operationId", "post_api_stack_attention_id")
+    expect(spec.paths["/api/stack/attention/{id}"]).toHaveProperty("post.requestBody.content.application/json.schema.required", ["revision"])
+    expect(spec.paths["/api/stack/attention/{id}"]).toHaveProperty("post.responses.204")
     expect(spec.paths["/api/flows/{name}"]).toHaveProperty("get.operationId", "get_api_flows_name")
     expect(spec.paths).not.toHaveProperty("/api/repository-setup/{operation}")
     expect(
