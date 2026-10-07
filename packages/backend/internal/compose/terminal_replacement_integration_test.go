@@ -17,8 +17,10 @@ import (
 	"github.com/coder/websocket"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
@@ -29,9 +31,13 @@ import (
 // It is not a root-input or microVM qualification receipt.
 type replacementRuntime struct {
 	workspaceapi.WorkspaceRuntime
-	mu     sync.Mutex
-	token  string
-	repoID int64
+	mu      sync.Mutex
+	token   string
+	repoID  int64
+	asleep  bool
+	starts  int
+	onStart func()
+	queue   microsandbox.Runtime
 }
 
 func (*replacementRuntime) Capabilities() workspaceapi.WorkspaceCapabilities {
@@ -61,8 +67,45 @@ func (*replacementRuntime) ExecuteCommand(_ context.Context, _ string, command w
 func (*replacementRuntime) Isolation() workspaceapi.IsolationLevel {
 	return workspaceapi.IsolationSandboxed
 }
-func (*replacementRuntime) InspectWorkspace(_ context.Context, id string) (workspaceapi.Workspace, error) {
+func (r *replacementRuntime) InspectWorkspace(_ context.Context, id string) (workspaceapi.Workspace, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	state := workspaceapi.WorkspaceRunning
+	if r.asleep {
+		state = workspaceapi.WorkspaceStopped
+	}
+	return workspaceapi.Workspace{ID: id, State: state}, nil
+}
+func (r *replacementRuntime) StartWorkspace(_ context.Context, id string) (workspaceapi.Workspace, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.onStart != nil {
+		r.onStart()
+	}
+	r.starts++
+	r.asleep = false
 	return workspaceapi.Workspace{ID: id, State: workspaceapi.WorkspaceRunning}, nil
+}
+func (r *replacementRuntime) Request(class, holder, actor, reason string) (microsandbox.AdmissionRequest, error) {
+	return r.queue.Request(class, holder, actor, reason)
+}
+func (r *replacementRuntime) CancelAdmission(holder, actor string, now time.Time) bool {
+	return r.queue.CancelAdmission(holder, actor, now)
+}
+func (r *replacementRuntime) AdmissionSnapshot() []microsandbox.AdmissionRequest {
+	return r.queue.AdmissionSnapshot()
+}
+
+// Only the VM slot receipt is fake; demand and host authorization are real.
+func (r *replacementRuntime) WaitAdmission(ctx context.Context, p microsandbox.AdmissionProviders, class, holder, actor, reason string) (context.Context, error) {
+	request, err := r.Request(class, holder, actor, reason)
+	if err != nil {
+		return nil, err
+	}
+	if err := p.Ready(ctx, request); err != nil {
+		return nil, err
+	}
+	return microsandbox.WithAdmissionHolder(ctx, holder), nil
 }
 func (r *replacementRuntime) PutSessionToken(_ context.Context, _, session string, token []byte, expected string) (string, error) {
 	r.mu.Lock()
@@ -103,6 +146,10 @@ func (p *replacementPTY) Close() error                               { _ = p.wri
 func (*replacementPTY) Resize(context.Context, uint16, uint16) error { return nil }
 
 func TestTerminalReplacementThroughInstallHTTPPostgres(t *testing.T) {
+	terminalReplacementInstall(t, false)
+}
+func TestBranchTerminalWakeInstallHTTP(t *testing.T) { terminalReplacementInstall(t, true) }
+func terminalReplacementInstall(t *testing.T, wake bool) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx := t.Context()
 	q := db.New(pool)
@@ -124,6 +171,22 @@ func TestTerminalReplacementThroughInstallHTTPPostgres(t *testing.T) {
 	require.NoError(t, err)
 	runtime := &replacementRuntime{repoID: repo.ID}
 	svc := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime), services.WithWorkspaceTransactions(pool), services.WithWorkspaceGitBaseURL("http://127.0.0.1:4000"))
+	if wake {
+		_, err = pool.Exec(ctx, `UPDATE workspaces SET status='suspended',target_bookmark='main' WHERE id=$1`, branch)
+		require.NoError(t, err)
+		runtime.asleep = true
+		runtime.onStart = func() {
+			row, err := q.GetWorkspace(ctx, branch)
+			require.NoError(t, err)
+			require.Equal(t, "starting", row.Status)
+		}
+		providers := services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), nil)
+		providers.MicroVM = func(context.Context) error { return nil }
+		providers.SessionIdentity = func(context.Context) error { return nil }
+		services.WithBranchMachineProviders(providers)(svc)
+		services.WithWorkspaceBillingPolicy(services.NewMachineAdmissionPolicy(services.NewUnlimitedBillingPolicy()))(svc)
+		svc.EnableMachineAdmission(func(context.Context) (int64, error) { return 1 << 40, nil })
+	}
 	open := func(service *services.WorkspaceService, refused bool) *websocket.Conn {
 		server := httptest.NewUnstartedServer(nil)
 		origin := "http://" + server.Listener.Addr().String()
@@ -148,6 +211,19 @@ func TestTerminalReplacementThroughInstallHTTPPostgres(t *testing.T) {
 		return conn
 	}
 	a := open(svc, false)
+	if wake {
+		runtime.mu.Lock()
+		require.Equal(t, 1, runtime.starts)
+		runtime.mu.Unlock()
+		demands := runtime.AdmissionSnapshot()
+		require.Len(t, demands, 1)
+		require.Equal(t, "person", demands[0].Class)
+		require.Equal(t, fmt.Sprintf("person:%d:session:%s", owner.ID, session), demands[0].Actor)
+		row, err := q.GetWorkspace(ctx, branch)
+		require.NoError(t, err)
+		require.Equal(t, "running", row.Status)
+	}
+
 	first := runtime.current()
 	require.NotEmpty(t, first)
 	// Another host service has no ownership of this retained session file.
