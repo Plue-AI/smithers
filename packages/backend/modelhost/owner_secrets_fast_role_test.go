@@ -49,6 +49,14 @@ func TestResolveChatModelRunsUnnamedTurnsOnTheInstallFastRole(t *testing.T) {
 	require.JSONEq(t, services.InstallFastModel, string(binding.Model))
 	require.Equal(t, "CEREBRAS_API_KEY", binding.CredentialName)
 	require.Equal(t, "cerebras-value", binding.CredentialValue)
+
+	// Setup probes the submitted coding binding even while app turns use fast.
+	probe, err := resolver.ResolveModelTest(ctx, f.owner, json.RawMessage(`{"model":{"id":"coding","protocol":"openai-responses","modelId":"gpt-5.1","credential":"OPENAI_API_KEY"}}`))
+	require.NoError(t, err)
+	require.Equal(t, "OPENAI_API_KEY", probe.CredentialName)
+	require.Equal(t, "openai-value", probe.CredentialValue)
+	_, err = resolver.ResolveModelTest(ctx, f.owner, json.RawMessage(`{"model":null}`))
+	require.ErrorIs(t, err, modelhost.ErrModelTestInvalid)
 	binding = resolve(json.RawMessage(`{"model":null}`))
 	require.Equal(t, "CEREBRAS_API_KEY", binding.CredentialName)
 	// Removing the fast key changes only new resolutions. The in-flight binding

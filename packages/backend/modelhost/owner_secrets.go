@@ -67,6 +67,18 @@ func NewOwnerSecretResolver(databaseURL, secretKey func() string, options ...Own
 func (resolver *OwnerSecretResolver) ResolveChatModel(ctx context.Context, ownerID, repositoryID int64, request json.RawMessage) (Binding, error) {
 	return resolver.resolveChatModel(ctx, ownerID, repositoryID, request, nil, true)
 }
+
+// ResolveModelTest tests the submitted binding, independently of the app seat
+// and Smithers fast-model access. Only the host model-test runner calls it.
+func (resolver *OwnerSecretResolver) ResolveModelTest(ctx context.Context, ownerID int64, request json.RawMessage) (Binding, error) {
+	var input struct {
+		Model json.RawMessage `json:"model"`
+	}
+	if json.Unmarshal(request, &input) != nil || !validModelTestRecord(input.Model) {
+		return Binding{}, ErrModelTestInvalid
+	}
+	return resolver.resolveChatModel(ctx, ownerID, 0, request, input.Model, false)
+}
 func (resolver *OwnerSecretResolver) resolveChatModel(ctx context.Context, ownerID, repositoryID int64, request json.RawMessage, selected json.RawMessage, allowGateway bool) (Binding, error) {
 	var input struct {
 		SharedConversation bool            `json:"sharedConversation"`

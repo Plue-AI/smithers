@@ -53,16 +53,13 @@ func TestInstallSubscriptionModelAccessPostgres(t *testing.T) {
 	defer local.stop(t)
 	ctx := local.ctx
 	q := db.New(local.pool)
-	_, err := local.pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, local.ownerID)
-	require.NoError(t, err)
-	_, err = local.pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'admin')`, local.repoID, local.ownerID)
-	require.NoError(t, err)
+	// The shared install harness already admits this owner and repository.
 	repository := fmt.Sprintf(`{"owner_login":"chatowner","repository_name":"chatrepo","repository_id":%d}`, local.repoID)
 	for key, value := range map[string]string{"github.repository": repository, "owner.access": repository[:len(repository)-1] + `,"last_access_check_at":"` + time.Now().UTC().Format(time.RFC3339) + `"}`} {
 		require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: key, Value: []byte(value)}))
 	}
 	hash := sha256.Sum256([]byte(session))
-	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: local.ownerID, Username: "chatowner", SessionKey: hex.EncodeToString(hash[:]), ExpiresAt: time.Now().Add(time.Hour)})
+	_, err := q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: local.ownerID, Username: "chatowner", SessionKey: hex.EncodeToString(hash[:]), ExpiresAt: time.Now().Add(time.Hour)})
 	require.NoError(t, err)
 	sealed, err := local.codec.EncryptString(access)
 	require.NoError(t, err)

@@ -176,7 +176,15 @@ func (host *Host) RunModelTest(ctx context.Context, ownerID int64, request json.
 	if ownerID <= 0 || !json.Valid(request) {
 		return nil, ErrModelTestInvalid
 	}
-	binding, err := host.resolver.ResolveChatModel(ctx, ownerID, 0, request)
+	var binding Binding
+	var err error
+	if tester, ok := host.resolver.(interface {
+		ResolveModelTest(context.Context, int64, json.RawMessage) (Binding, error)
+	}); ok {
+		binding, err = tester.ResolveModelTest(ctx, ownerID, request)
+	} else {
+		binding, err = host.resolver.ResolveChatModel(ctx, ownerID, 0, request)
+	}
 	if err != nil {
 		return nil, err
 	}

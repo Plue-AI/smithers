@@ -70,3 +70,12 @@ func (m *ManagedModels) ResolveChatModel(ctx context.Context, ownerID, repositor
 	}
 	return Binding{}, err
 }
+
+func (m *ManagedModels) ResolveModelTest(ctx context.Context, ownerID int64, request json.RawMessage) (Binding, error) {
+	if tester, ok := m.owner.(interface {
+		ResolveModelTest(context.Context, int64, json.RawMessage) (Binding, error)
+	}); ok {
+		return tester.ResolveModelTest(ctx, ownerID, request)
+	}
+	return m.owner.ResolveChatModel(ctx, ownerID, 0, request)
+}
