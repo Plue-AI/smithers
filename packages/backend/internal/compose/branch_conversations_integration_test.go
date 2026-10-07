@@ -153,7 +153,8 @@ func TestBranchConversationMemberViewStateInstall(t *testing.T) {
 	require.JSONEq(t, benState, call("PUT", path, benState, benCookie, 200))
 	require.JSONEq(t, benState, call("GET", path, "", benCookie, 200))
 	call("PUT", path, `[]`, benCookie, 400)
-	call("GET", path+"/ben", "", aliceCookie, 403)
+	// Member identity is never a view-state path parameter; the foreign route is absent.
+	call("GET", path+"/ben", "", aliceCookie, 404)
 	call("PUT", path, `{"user_id":2,"scroll_anchor":"own"}`, aliceCookie, 200)
 	require.JSONEq(t, benState, call("GET", path, "", benCookie, 200))
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, alice.ID)
