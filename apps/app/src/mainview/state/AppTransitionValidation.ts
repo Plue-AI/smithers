@@ -70,6 +70,7 @@ export const APP_TRANSITION_SCHEMAS = {
   "card.view.loaded": z.object({ type: z.literal("card.view.loaded"), actor: ActorSchema, card: CardSchema }).strict(),
   "hint.dismissed": z.object({ type: z.literal("hint.dismissed"), actor: ActorSchema, id: z.string() }).strict(),
   "librarian.launches.changed": z.object({ type: z.literal("librarian.launches.changed"), actor: ActorSchema, launches: z.array(z.unknown()) }).strict(),
+  "branch.requests.changed": z.object({ type: z.literal("branch.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.branchRequests.unwrap() }).strict(),
   "issue.todo.requests.changed": z.object({ type: z.literal("issue.todo.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.issueTodoRequests.unwrap() }).strict(),
   "coding.provider.requests.changed": z.object({ type: z.literal("coding.provider.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.codingProviderRequests.unwrap() }).strict(),
   "review.requests.changed": z.object({ type: z.literal("review.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.reviewRequests.unwrap() }).strict(),
