@@ -49,9 +49,9 @@ test("mounted registry takes live metadata over the seed and gates owner keys du
   let viewer = "ben"
   let identityChanged = () => {}
   const requests: string[] = []
-  const provider = createTerminalSource({ repo: () => "o/r", viewer: () => viewer, live, knownBranches: () => ["b1"],
+  const provider = createTerminalSource({ repo: () => "o/r", viewer: () => viewer, live, knownBranches: () => ["m1"],
     subscribeViewer: callback => { identityChanged = callback; return () => {} },
-    // HTTP and machine-byte doubles: this Linux VM has neither PostgreSQL nor microVMs.
+    // HTTP and machine-byte doubles keep this card test independent of machine execution.
     http: async path => {
       requests.push(path)
       return path === "/api/branches"
@@ -71,7 +71,7 @@ test("mounted registry takes live metadata over the seed and gates owner keys du
   const owner = { kind: "person", login: "ben", name: "Ben", avatar_url: "https://github.com/ben.png", color_index: 0 }
   let cursor = 0
   const snapshot = async (frozen: boolean, id = card.payload.id, command: string | null = "pnpm check", actor: unknown = owner) => {
-    const sub = frames.find(frame => frame.t === "sub" && frame.topic === "branch:b1")!
+    const sub = frames.find(frame => frame.t === "sub" && frame.topic === "branch:m1")!
     expect(sub).toBeDefined()
     await act(async () => socket.onmessage?.({ data: JSON.stringify({ t: "snap", id: sub.id, cursor: ++cursor,
       data: { terminals: [{ id, title: "Live shell", owner: actor, agents: [], watchers: [], ...(command === null ? {} : { command }), frozen }] } }) }))
@@ -90,6 +90,7 @@ test("mounted registry takes live metadata over the seed and gates owner keys du
     socket.onopen?.()
     await snapshot(false)
     expect(host.querySelector("h2")!.textContent).toBe("Live shell")
+    expect(host.querySelector(".terminal-branch")!.textContent).toBe("m1")
     expect(host.textContent).not.toContain("Coding agent")
     for (const [who, frozen, writable] of [["ben", false, true], ["ben", true, false], ["alice", false, false], ["alice", true, false], ["ben", false, true]] as const) {
       viewer = who
