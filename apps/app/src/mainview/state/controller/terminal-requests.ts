@@ -1,9 +1,19 @@
+import { z } from "zod"
 import type { ControllerContext } from "./context"
 import { randomUuid } from "../../runtime/RandomUuid"
 import type { Session } from "../AppState"
 import { actorSharedState } from "../ActorBindings"
 
 type Request = NonNullable<Session["terminalRequests"]>[number]
+
+/*
+ * The durable receipt of `POST /api/terminals` (docs/api/openapi/terminals.yaml).
+ * An owner terminal has no workspace session row: the same request, sent again
+ * with its Idempotency-Key, answers with the receipt's current status.
+ */
+const Receipt = z.object({ id: z.string().min(1), workspace_id: z.string().min(1), status: z.enum(["pending", "running", "failed", "closed"]) })
+/* Status reads share the server's terminal-open budget (20 per minute) with socket upgrades. */
+const MAX_STATUS_MS = 15_000
 
 export function createTerminalRequests(ctx: ControllerContext, options: {
   repo: () => string
@@ -23,10 +33,10 @@ export function createTerminalRequests(ctx: ControllerContext, options: {
     type: "terminal.requests.changed", actor,
     requests: [...(ctx.store.session().terminalRequests ?? []).filter(row => row.id !== request.id), request]
   }).isPersisted.promise
-  const sleep = (signal: AbortSignal) => new Promise<void>((resolve, reject) => {
+  const sleep = (signal: AbortSignal, ms = ctx.workflowPollMs) => new Promise<void>((resolve, reject) => {
     if (signal.aborted) { reject(new Error("Terminal request ended")); return }
     const end = () => { clearTimeout(timer); reject(new Error("Terminal request ended")) }
-    const timer = setTimeout(() => { signal.removeEventListener("abort", end); resolve() }, ctx.workflowPollMs)
+    const timer = setTimeout(() => { signal.removeEventListener("abort", end); resolve() }, ms)
     signal.addEventListener("abort", end, { once: true })
   })
   const send = (initial: Request) => {
@@ -43,33 +53,31 @@ export function createTerminalRequests(ctx: ControllerContext, options: {
       let acknowledged = Boolean(initial.session)
       let terminalFailed = false
       try {
-        if (!request.session) {
+        let wait = ctx.workflowPollMs
+        while (current()) {
           const response = await ctx.http(`${ctx.baseUrl.replace(/\/$/, "")}/api/terminals`, {
             method: "POST", credentials: "same-origin", signal: requestLifetime.signal,
             headers: { "Content-Type": "application/json", "Idempotency-Key": request.id },
             body: JSON.stringify({ branch: request.branch })
           })
           if (!response.ok) {
-            acknowledged = response.status >= 400 && response.status < 500
+            acknowledged ||= response.status >= 400 && response.status < 500
             throw new Error(await ctx.errorMessageOf(response, "Terminal unavailable"))
           }
-          const receipt: unknown = await response.json()
-          if (!receipt || typeof receipt !== "object" || !("id" in receipt) || typeof receipt.id !== "string"
-              || !("workspace_id" in receipt) || typeof receipt.workspace_id !== "string") throw new Error("Terminal unavailable")
+          const receipt = Receipt.safeParse(await response.json())
+          if (!receipt.success) throw new Error("Terminal unavailable")
           acknowledged = true
+          // A receipt for another session means the server lost this request: retrying it can never settle.
+          if (request.session !== undefined && receipt.data.id !== request.session) { terminalFailed = true; throw new Error("Terminal unavailable") }
           if (!current()) return
-          request = { ...request, session: receipt.id, branchId: receipt.workspace_id, state: "running" }
-          await save(request)
-        }
-        while (current()) {
-          const response = await ctx.http(`${ctx.baseUrl.replace(/\/$/, "")}/api/repos/${request.repo.split("/").map(encodeURIComponent).join("/")}/workspace/sessions/${encodeURIComponent(request.session!)}`, { credentials: "same-origin", signal: requestLifetime.signal })
-          if (!response.ok) throw new Error(await ctx.errorMessageOf(response, "Terminal unavailable"))
-          const receipt: unknown = await response.json()
-          if (!current()) return
-          if (!receipt || typeof receipt !== "object" || !("status" in receipt)) throw new Error("Terminal unavailable")
-          if (receipt.status === "running") break
-          if (receipt.status === "failed" || receipt.status === "closed" || receipt.status === "stopped") { terminalFailed = true; throw new Error("Terminal unavailable") }
-          await sleep(requestLifetime.signal)
+          if (request.session === undefined) {
+            request = { ...request, session: receipt.data.id, branchId: receipt.data.workspace_id, state: "running" }
+            await save(request)
+          }
+          if (receipt.data.status === "running") break
+          if (receipt.data.status === "failed" || receipt.data.status === "closed") { terminalFailed = true; throw new Error("Terminal unavailable") }
+          await sleep(requestLifetime.signal, wait)
+          wait = Math.min(wait * 2, MAX_STATUS_MS)
         }
         if (!current()) return
         options.observe(request.branchId!)
