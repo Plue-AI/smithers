@@ -280,3 +280,10 @@ func TestDaemonBridgeGatewayForwardSupplemental(t *testing.T) {
 func TestDaemonBridgePersonAdmissionLiteral(t *testing.T) {
 	require.Equal(t, microsandbox.AdmissionRequest{Class: "person", Holder: "workspace:machine-1", Actor: "person:7", Reason: "ssh"}, daemonAdmission(daemonAccess))
 }
+
+func TestDaemonClientUnavailableStream(t *testing.T) {
+	client := NewDaemonClient(nil, nil)
+	stream, err := client.Stream(t.Context(), 17)
+	require.Nil(t, stream)
+	require.ErrorIs(t, err, ErrWorkspaceUnavailable)
+}

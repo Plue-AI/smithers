@@ -21,7 +21,7 @@ func (h *BranchHandler) SSHLine(q *db.Queries, fallbackOrigin string) http.Handl
 		metadata, composed := h.Reads.(interface {
 			PresenceBranch(context.Context, string, int64, int64) (db.Workspace, error)
 		})
-		repo, member, err := h.authorize(r, "branch.read", composed && q != nil)
+		repo, member, err := h.authorize(r, "ssh", composed && q != nil)
 		if err != nil {
 			writeBranchError(w, r, err)
 			return
