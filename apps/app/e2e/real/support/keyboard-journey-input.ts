@@ -28,11 +28,11 @@ export function keyboardJourneyInput(page: Page, origin: string) {
   }
   const select = async (target: Locator, label: string) => {
     await reach(target)
-    await page.keyboard.press("Home")
     const options = await target.locator("option").allTextContents()
     const index = options.findIndex(value => value.trim() === label)
     if (index < 0) throw new Error("C-UI-01 required option is absent")
-    for (let count = 0; count < index; count++) await page.keyboard.press("ArrowDown")
+    // Native select typeahead works on macOS, where Home does not select the first option.
+    for (const key of label) await page.keyboard.press(key)
     const selected = await target.locator("option:checked").textContent()
     if (selected?.trim() !== label) throw new Error("C-UI-01 keyboard option selection failed")
     await page.keyboard.press("Tab")
