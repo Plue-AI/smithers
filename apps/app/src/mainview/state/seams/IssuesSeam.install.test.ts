@@ -255,7 +255,7 @@ test("unopened Make TODO persists and acknowledges before its snapshot read; rel
     if (draft?.kind !== "draft") throw Error("no Draft")
     expect(draft.payload.title).toBe("Say goodbye")
     expect(draft.payload.issueDigest).toBe("a".repeat(64))
-    expect(await recovered.controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toEqual({ status: "executed", value: "Requested" })
+    expect(await recovered.controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toEqual({ status: "executed", value: "Drafted" })
     expect(recovered.calls.filter(call => call === "GET /api/issues/2")).toHaveLength(1)
   } finally { await recovered.controller.dispose() }
 })
