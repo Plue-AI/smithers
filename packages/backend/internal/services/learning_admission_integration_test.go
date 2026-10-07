@@ -117,6 +117,7 @@ func TestLearningAdmissionDurablePinAndRefusal(t *testing.T) {
 	_, err = pool.Exec(ctx, `UPDATE product_job_dispatches SET next_attempt_at=clock_timestamp() WHERE operation_id IN (SELECT id FROM product_job_requests WHERE operation='learning.admission')`)
 	require.NoError(t, err)
 	workerCtx, cancel = context.WithCancel(ctx)
+	defer cancel()
 	done = make(chan error, 1)
 	active = true
 	go func() {
