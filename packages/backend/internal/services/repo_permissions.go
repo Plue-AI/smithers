@@ -881,8 +881,34 @@ func authorizeExecutionTodoRead(ctx context.Context, q *db.Queries, subject Inst
 	deny := func() (InstallAuthorization, error) {
 		return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Credential cannot read this TODO"}
 	}
+	dead := func() (InstallAuthorization, error) {
+		return InstallAuthorization{}, &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Sign in again"}
+	}
 	info := middleware.AuthInfoFromContext(ctx)
-	if q == nil || info == nil || info.User == nil || !info.TokenSystemIssued || middleware.ParseTokenWorkspaceChildrenCredential(info.RawScopes) || !info.Scopes.Has(middleware.ScopeReadRepository) || subject.RepositoryID <= 0 || subject.TodoNumber <= 0 || info.RepositoryRestriction() != subject.RepositoryID {
+	if q == nil || info == nil || info.User == nil || !info.TokenSystemIssued {
+		return deny()
+	}
+	// Authenticate the stored credential and its member before considering
+	// scope or subject. A dead credential cannot become a live 403 merely by
+	// selecting a different TODO or omitting its workspace binding.
+	token, err := q.GetAccessTokenByID(ctx, info.TokenID)
+	if stdErrors.Is(err, pgx.ErrNoRows) {
+		return dead()
+	}
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if !token.SystemIssued || token.UserID != info.User.ID || token.Scopes != info.RawScopes || token.TokenHash != info.TokenHash || token.ExpiresAt.Valid && !token.ExpiresAt.Time.After(time.Now()) {
+		return dead()
+	}
+	role, err := InstallRoleOf(ctx, q, info.User.ID)
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if role == "" {
+		return dead()
+	}
+	if middleware.ParseTokenWorkspaceChildrenCredential(info.RawScopes) || !info.Scopes.Has(middleware.ScopeReadRepository) || subject.RepositoryID <= 0 || subject.TodoNumber <= 0 || info.RepositoryRestriction() != subject.RepositoryID {
 		return deny()
 	}
 	workspaceID := info.WorkspaceRestriction()
@@ -894,16 +920,6 @@ func authorizeExecutionTodoRead(ctx context.Context, q *db.Queries, subject Inst
 	}
 	paths := middleware.ParseTokenPathRestrictions(info.RawScopes)
 	if len(paths) != 0 && (len(paths) != 1 || paths[0] != "**") {
-		return deny()
-	}
-	token, err := q.GetAccessTokenByID(ctx, info.TokenID)
-	if stdErrors.Is(err, pgx.ErrNoRows) {
-		return deny()
-	}
-	if err != nil {
-		return InstallAuthorization{}, err
-	}
-	if !token.SystemIssued || token.UserID != info.User.ID || token.Scopes != info.RawScopes || token.TokenHash != info.TokenHash || token.ExpiresAt.Valid && !token.ExpiresAt.Time.After(time.Now()) {
 		return deny()
 	}
 	workspace, err := q.GetWorkspace(ctx, workspaceID)
@@ -931,13 +947,6 @@ func authorizeExecutionTodoRead(ctx context.Context, q *db.Queries, subject Inst
 		return InstallAuthorization{}, err
 	}
 	if repository != subject.RepositoryID {
-		return deny()
-	}
-	role, err := InstallRoleOf(ctx, q, info.User.ID)
-	if err != nil {
-		return InstallAuthorization{}, err
-	}
-	if role == "" {
 		return deny()
 	}
 	return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
