@@ -16,7 +16,9 @@ type TranscriptBinding struct {
 	Scope               chat.Scope
 	Session             uint32
 	Participant, Source [16]byte
-	Live                bool
+	// Profile is pinned by discovery, never selected by a daemon record.
+	Profile string
+	Live    bool
 }
 
 // TranscriptNormalize calls only the install-shipped TypeScript pure adapter.
@@ -46,7 +48,7 @@ func (s *TranscriptIngest) Write(ctx context.Context, tx pgx.Tx, branch string, 
 	if err != nil {
 		return ack, err
 	}
-	if !binding.Live || binding.Session != record.Session || binding.Participant != record.Participant || binding.Source != record.Source {
+	if !binding.Live || binding.Session != record.Session || binding.Participant != record.Participant || binding.Source != record.Source || binding.Profile == "" || binding.Profile != record.Profile {
 		return ack, machined.ErrUnauthorized
 	}
 	var repository int64
@@ -55,6 +57,12 @@ func (s *TranscriptIngest) Write(ctx context.Context, tx pgx.Tx, branch string, 
 	}
 	if repository != binding.Scope.RepositoryID {
 		return ack, machined.ErrUnauthorized
+	}
+	// Reuse the store's membership fence before exposing bytes to an adapter.
+	// The held row locks keep revocation serialized through receipt commit,
+	// including bookkeeping records that produce no conversation entries.
+	if err = s.Store.ImportExternalTx(ctx, tx, binding.Scope, branch, nil); err != nil {
+		return ack, err
 	}
 	var drafts []chat.ExternalDraft
 	if s.Normalize != nil {

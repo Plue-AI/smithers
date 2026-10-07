@@ -117,7 +117,7 @@ func TestExternalImportCommitReplay(t *testing.T) {
 	participant := [16]byte{1}
 	source := [16]byte{2}
 	scope := chat.Scope{RepositoryID: repo.ID, UserID: ben.ID, Owner: "ben"}
-	sessionBinding := TranscriptBinding{Scope: scope, Session: 1, Participant: participant, Source: source, Live: true}
+	sessionBinding := TranscriptBinding{Scope: scope, Session: 1, Participant: participant, Source: source, Profile: "claude-code/2.1.0", Live: true}
 	draft := chat.ExternalDraft{ID: "literal-source-offset-0", SourceID: "claude-message-1", Origin: "external", ReadOnly: true, Agent: "claude-code", Profile: "claude-code/2.1.0", Session: "1", Participant: "01000000-0000-0000-0000-000000000000", Owner: fmt.Sprint(ben.ID), Author: "01000000-0000-0000-0000-000000000000", Kind: "assistant", Body: json.RawMessage(`"The answer is 42"`)}
 	fail := true
 	writer := &TranscriptIngest{Store: store, Resolve: func(context.Context, pgx.Tx, string, uint32) (TranscriptBinding, error) { return sessionBinding, nil }, Normalize: func(context.Context, pgx.Tx, string, TranscriptBinding, wire.Transcript) ([]chat.ExternalDraft, error) {
@@ -196,6 +196,65 @@ func TestExternalImportCommitReplay(t *testing.T) {
 	require.ErrorIs(t, err, machined.ErrUnauthorized)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts`).Scan(&receipts))
 	require.Equal(t, 2, receipts)
+	// A live source pins all identity fields and its adapter release. Forged
+	// bindings refuse at authenticated ingestion before the host sees bytes.
+	sessionBinding.Live = true
+	trusted := sessionBinding
+	normalizations := 0
+	writer.Normalize = func(context.Context, pgx.Tx, string, TranscriptBinding, wire.Transcript) ([]chat.ExternalDraft, error) {
+		normalizations++
+		return []chat.ExternalDraft{draft}, nil
+	}
+	for _, tc := range []struct {
+		name  string
+		alter func(*TranscriptBinding)
+	}{
+		{"session", func(b *TranscriptBinding) { b.Session++ }},
+		{"participant", func(b *TranscriptBinding) { b.Participant[0]++ }},
+		{"source", func(b *TranscriptBinding) { b.Source[0]++ }},
+		{"profile", func(b *TranscriptBinding) { b.Profile = "codex/0.134.0" }},
+		{"missing-profile", func(b *TranscriptBinding) { b.Profile = "" }},
+		{"repository", func(b *TranscriptBinding) { b.Scope.RepositoryID++ }},
+	} {
+		t.Run("refuse-"+tc.name, func(t *testing.T) {
+			sessionBinding = trusted
+			tc.alter(&sessionBinding)
+			event.Seq++
+			event.EventID[0]++
+			_, err := ingestor.Commit(ctx, connection, branch.ID, event)
+			require.ErrorIs(t, err, machined.ErrUnauthorized)
+			require.Zero(t, normalizations)
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts`).Scan(&receipts))
+			require.Equal(t, 2, receipts)
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM chat_turns`).Scan(&entries))
+			require.Equal(t, 1, entries)
+			require.JSONEq(t, shared, call("GET", "/api/conversations/"+branch.ID, "", benCookie, 200))
+		})
+	}
+	sessionBinding = trusted
+	// Registry revocation can lag database membership changes. The membership
+	// fence must refuse even bookkeeping records before adapter normalization.
+	for _, tc := range []struct {
+		name, revoke, restore string
+	}{
+		{"suspended", "UPDATE collaborators SET suspended_at=now() WHERE user_id=$1", "UPDATE collaborators SET suspended_at=NULL WHERE user_id=$1"},
+		{"disabled", "UPDATE users SET prohibit_login=true WHERE id=$1", "UPDATE users SET prohibit_login=false WHERE id=$1"},
+	} {
+		t.Run("refuse-"+tc.name, func(t *testing.T) {
+			_, err := pool.Exec(ctx, tc.revoke, ben.ID)
+			require.NoError(t, err)
+			t.Cleanup(func() { _, err := pool.Exec(ctx, tc.restore, ben.ID); require.NoError(t, err) })
+			event.Seq++
+			event.EventID[0]++
+			_, err = ingestor.Commit(ctx, connection, branch.ID, event)
+			require.ErrorIs(t, err, chat.ErrForbidden)
+			require.Zero(t, normalizations)
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts`).Scan(&receipts))
+			require.Equal(t, 2, receipts)
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM chat_turns`).Scan(&entries))
+			require.Equal(t, 1, entries)
+		})
+	}
 	// Bookkeeping records commit their adapter state even with no visible draft.
 	bindingLive := true
 	sessionBinding.Live = bindingLive
