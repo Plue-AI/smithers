@@ -5,11 +5,12 @@
  */
 
 import { z } from "zod"
-import { ContextPreflightFrameSchema } from "./ContextPreflight.ts"
 import type { AgentRuntimeContext } from "./AgentContext.ts"
 import type { AgentRoleId, CloudRoleId } from "./AgentRoles.ts"
 import { CardPatchSchema, CardSchema } from "./Cards.ts"
 import type { ModelBinding } from "./ConfiguredModel.ts"
+import { ContextPreflightFrameSchema } from "./ContextPreflight.ts"
+import { UiInstructionFrameSchema } from "./UiInstruction.ts"
 
 /**
  * The fetch like contract shared by the host and its clients.
@@ -292,7 +293,7 @@ export const AgentTurnFrameSchema = z.discriminatedUnion("type", [
     name: z.string(),
     verdict: ChainCallVerdictSchema,
     resultDigest: z.string().optional(),
-    ui: z.object({ command: z.literal("theme"), mode: z.enum(["light", "dark"]) }).strict().optional()
+    ui: UiInstructionFrameSchema.optional()
   }),
   z.object({
     runId: z.string(),

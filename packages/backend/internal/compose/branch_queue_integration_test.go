@@ -190,7 +190,7 @@ func TestBranchConversationQueueMutationInstall(t *testing.T) {
 	require.Contains(t, shared, "Shared answer")
 	require.NotContains(t, shared, `"ui"`)
 	require.NotContains(t, call("GET", "/api/conversations/main/view-state", "", aliceCookie, 200), `"instructions"`)
-	require.Contains(t, call("GET", "/api/conversations/main/view-state", "", benCookie, 200), `"command":"theme","id":`)
+	require.Contains(t, call("GET", "/api/conversations/main/view-state", "", benCookie, 200), `"command":"theme","payload":{"mode":"dark"}`)
 	call("PUT", "/api/conversations/main/view-state", `{"instructions":[{"id":"forged","command":"theme","mode":"dark"}]}`, benCookie, 400)
 	require.NotContains(t, shared, "private reasoning canary")
 	require.NotContains(t, shared, "private Confirm canary")

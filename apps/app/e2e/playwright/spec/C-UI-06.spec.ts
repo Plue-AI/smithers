@@ -19,7 +19,7 @@ test("C-UI-06: Shared branch entries keep personal views", async ({ page, browse
     await target.route("**/api/conversations/main", route => route.fulfill({ json: { id: "main", entries } }))
     await target.route("**/api/conversations/main/view-state", async route => {
       if (route.request().method() === "PUT") views[login] = route.request().postDataJSON()
-      await route.fulfill({ json: { ...views[login], instructions: login === "ben" && entries.length ? [{ id: "host-turn:1:3", command: "theme", mode: "dark" }] : [] } })
+      await route.fulfill({ json: { ...views[login], instructions: login === "ben" && entries.length ? [{ id: "host-turn:1:3", command: "theme", payload: { mode: "dark" } }] : [] } })
     })
     await target.route("**/api/conversations/main/prompt", async route => {
       expect(login).toBe("ben")

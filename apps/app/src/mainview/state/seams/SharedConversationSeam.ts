@@ -3,11 +3,12 @@ import { z } from "zod"
 import { AgentTurnFrameSchema } from "@smthrs/rpc/NativeAgent"
 import { ContextItemSchema, ToneSchema, PlaceholderAvatarUrl } from "@smthrs/rpc/CardPrimitives"
 import { ContextPreflightResultSchema } from "@smthrs/rpc/ContextPreflight"
+import { isUiInstructionCommand } from "@smthrs/rpc/UiInstruction"
 import { MessageSchema } from "../AppState"
 import type { ControllerContext } from "../controller/context"
 import type { LiveTopics } from "../useTopic"
 
-export class SharedConversationFailure extends Data.TaggedError("SharedConversationFailure")<{ readonly sentence: "Theme unavailable" | "Conversation unavailable" | "View unavailable" }> {
+export class SharedConversationFailure extends Data.TaggedError("SharedConversationFailure")<{ readonly sentence: `/${string} unavailable` | "Conversation unavailable" | "View unavailable" }> {
   override get message() { return this.sentence }
 }
 
@@ -60,7 +61,7 @@ export const SharedConversationSchema = z.object({
 }).transform(conversation => ({ ...conversation, entries: conversation.entries.map((entry, ordinal) =>
   "role" in entry ? { ...entry, ordinal } : entry) }))
 export type SharedConversation = z.infer<typeof SharedConversationSchema>
-export const ConversationViewSchema = z.object({ instructions: z.array(z.object({ id: z.string(), command: z.literal("theme"), mode: z.enum(["light", "dark"]) })).default([]), scroll_anchor: z.string().optional(), card_view: z.record(z.string(), z.unknown()).optional(), last_seen_seq: z.number().int().nonnegative().optional(), toasts_hidden: z.boolean().optional(), global_toasts_hidden: z.boolean().optional(), timeline_visible_until: z.string().nullable().optional(), queue: z.array(z.object({ id: z.string(), prompt: z.string() })).default([]) }).passthrough()
+export const ConversationViewSchema = z.object({ instructions: z.array(z.object({ id: z.string(), command: z.string(), payload: z.record(z.string(), z.unknown()) })).default([]), scroll_anchor: z.string().optional(), card_view: z.record(z.string(), z.unknown()).optional(), last_seen_seq: z.number().int().nonnegative().optional(), toasts_hidden: z.boolean().optional(), global_toasts_hidden: z.boolean().optional(), timeline_visible_until: z.string().nullable().optional(), queue: z.array(z.object({ id: z.string(), prompt: z.string() })).default([]) }).passthrough()
 export type ConversationView = z.infer<typeof ConversationViewSchema>
 export interface ConversationSnapshot { readonly view?: ConversationView; readonly queue?: readonly { id: string; prompt: string }[]; readonly conversation?: SharedConversation; readonly error?: string }
 
@@ -87,16 +88,19 @@ export function createSharedConversationSeam(ctx: ControllerContext, live?: Live
     if (!owner || !valid(revision)) return
     for (const instruction of view.instructions) {
       const id = JSON.stringify([owner, at, instruction.id])
-      if (applying.has(id) || ctx.store.session().uiInstructionsSeen?.includes(id)) continue
+      const { command } = instruction
+      if (!isUiInstructionCommand(command) || applying.has(id) || ctx.store.session().uiInstructionsSeen?.includes(id)) continue
       applying.add(id)
       uiWork = uiWork.then(async () => {
         if (!valid(revision)) return
-        // The schema permits explicit theme assignments only. No tool payload,
-        // arbitrary command, shared mutation or model continuation reaches this door.
-        const outcome = await ctx.commands.submit({ name: "theme", payload: { mode: instruction.mode }, actor: "agent" })
-        if (outcome.status !== "executed") throw new SharedConversationFailure({ sentence: "Theme unavailable" })
-        await ctx.store.settled?.()
-        if (valid(revision)) await ctx.store.dispatch({ type: "conversation.ui.applied", actor: "system", owner, id }).isPersisted.promise
+        // At most once: the receipt persists first, so a request that reloads
+        // the page, fails or is refused is never run again.
+        await ctx.store.dispatch({ type: "conversation.ui.applied", actor: "system", owner, id }).isPersisted.promise
+        if (!valid(revision)) return
+        // UI-only flows only: no HTTP command, shared mutation or model
+        // continuation reaches this door, and the flow's typed input decodes the payload.
+        const outcome = await ctx.commands.submit({ name: command, payload: instruction.payload, actor: "agent" })
+        if (outcome.status !== "executed" && outcome.status !== "form") throw new SharedConversationFailure({ sentence: `/${command} unavailable` })
       }).catch(error => { if (valid(revision)) ctx.failures.report("seam.failure", error, "conversation-ui") }).finally(() => applying.delete(id))
     }
   }

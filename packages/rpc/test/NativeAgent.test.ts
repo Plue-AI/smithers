@@ -195,9 +195,52 @@ describe("RPC sources stay runtime-free", () => {
   })
 })
 
-
 test("host UI instructions retain explicit theme data and refuse arbitrary browser actions", () => {
-  const frame = { runId: "run", type: "call.settled", link: 0, ordinal: 0, name: "theme", verdict: "run", ui: { command: "theme", mode: "dark" } }
+  const frame = {
+    runId: "run",
+    type: "call.settled",
+    link: 0,
+    ordinal: 0,
+    name: "theme",
+    verdict: "run",
+    ui: { command: "theme", mode: "dark" }
+  }
   expect(AgentTurnFrameSchema.parse(frame)).toEqual(frame)
-  for (const ui of [null, { command: "todo.drop", mode: "dark" }, { command: "theme", mode: null }, { command: "theme", mode: "dark", extra: "authority" }]) expect(parses({ ...frame, ui })).toBe(false)
+  for (
+    const ui of [null, { command: "todo.drop", mode: "dark" }, { command: "theme", mode: null }, {
+      command: "theme",
+      mode: "dark",
+      extra: "authority"
+    }]
+  ) expect(parses({ ...frame, ui })).toBe(false)
+})
+
+test("host UI instructions carry any UI-only flow with its declared scalar fields only", () => {
+  const settled = (name: string, ui: unknown) => ({
+    runId: "run",
+    type: "call.settled",
+    link: 0,
+    ordinal: 0,
+    name,
+    verdict: "run",
+    ui
+  })
+  for (
+    const [name, ui] of [
+      ["card.dismiss", { command: "card.dismiss", cardId: "card-7" }],
+      ["runs.trace.select", { command: "runs.trace.select", runId: "run-1", nodeId: "build", seq: 4 }],
+      ["help", { command: "help" }],
+      ["search.files", { command: "search.files", query: "retry.ts" }]
+    ] as const
+  ) expect(AgentTurnFrameSchema.parse(settled(name, ui))).toEqual(settled(name, ui))
+  for (
+    const ui of [
+      { command: "form.submit", cardId: "card-7" },
+      { command: "wiki.new-note" },
+      { command: "card.dismiss", cardId: "card-7", runId: "run-1" },
+      { command: "card.dismiss", cardId: { nested: true } },
+      { command: "search.files", query: ["a"] },
+      { cardId: "card-7" }
+    ]
+  ) expect(parses(settled("card.dismiss", ui))).toBe(false)
 })

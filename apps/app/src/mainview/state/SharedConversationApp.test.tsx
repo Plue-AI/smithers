@@ -251,7 +251,7 @@ test("private host theme instructions use the typed flow once and never cross me
       const path = String(input)
       if (init?.method && init.method !== "GET") writes.push(path)
       if (path === "/api/conversations/main") return Response.json({ id: "main", entries: [ben] })
-      if (path.endsWith("/view-state")) return Response.json({ instructions: store.collections.identitySessions.get("identity")?.login === "ben" ? [{ id: "turn-ben:1:4", command: "theme", mode: "dark" }] : [] })
+      if (path.endsWith("/view-state")) return Response.json({ instructions: store.collections.identitySessions.get("identity")?.login === "ben" ? [{ id: "turn-ben:1:4", command: "theme", payload: { mode: "dark" } }] : [] })
       return new Response("{}", { status: 404 })
     }
   })
@@ -261,11 +261,49 @@ test("private host theme instructions use the typed flow once and never cross me
     await controller.sharedConversation!.read()
     expect(store.session().theme).toBe("light")
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
-    await waitFor(() => store.session().uiInstructionsSeen?.length === 1)
-    expect(store.session().theme).toBe("dark")
+    await waitFor(() => store.session().theme === "dark")
+    expect(store.session().uiInstructionsSeen).toHaveLength(1)
     await controller.submitCommand({ name: "theme", payload: { mode: "light" }, actor: "user" })
     await controller.sharedConversation!.read()
     expect(store.session().theme).toBe("light")
+    expect(writes).toEqual([])
+  } finally { await controller.dispose() }
+})
+
+test("host UI instructions run only UI-only flows, at most once, and a refusal is never asked again", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const writes: string[] = []
+  let reads = 0
+  const controller = createAppController(store, silentAgent, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null },
+    fetchImpl: async (input, init) => {
+      const path = String(input)
+      if (init?.method && init.method !== "GET") writes.push(path)
+      if (path === "/api/conversations/main") return Response.json({ id: "main", entries: [ben] })
+      if (path.endsWith("/view-state")) {
+        reads++
+        return Response.json({ instructions: [
+          { id: "turn-ben:1:1", command: "todo.drop", payload: { n: 2 } },
+          { id: "turn-ben:1:2", command: "card.dismiss", payload: { cardId: "no-such-card" } },
+          { id: "turn-ben:1:3", command: "theme", payload: { mode: "dark" } }
+        ] })
+      }
+      return new Response("{}", { status: 404 })
+    }
+  })
+  try {
+    await store.dispatch({ type: "theme.changed", actor: "user", theme: "light" }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    await waitFor(() => store.session().theme === "dark")
+    const seen = [...store.session().uiInstructionsSeen ?? []].map(id => JSON.parse(id)[2]).sort()
+    expect(seen).toEqual(["turn-ben:1:2", "turn-ben:1:3"])
+    await store.dispatch({ type: "theme.changed", actor: "user", theme: "light" }).isPersisted.promise
+    const before = reads
+    await controller.sharedConversation!.read()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(reads).toBeGreaterThan(before)
+    expect(store.session().theme).toBe("light")
+    expect(store.session().uiInstructionsSeen).toHaveLength(2)
     expect(writes).toEqual([])
   } finally { await controller.dispose() }
 })

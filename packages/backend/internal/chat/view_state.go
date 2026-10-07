@@ -226,7 +226,7 @@ func (h *Handler) ViewState(w http.ResponseWriter, r *http.Request) {
 
 // This projection reads only the authenticated author's host-owned turns, and
 // verifies their retained journal before any instruction can reach a browser.
-func (s *Store) privateUIInstructions(ctx context.Context, tx pgx.Tx, repositoryID, userID int64, conversation string) ([]map[string]any, error) {
+func (s *Store) privateUIInstructions(ctx context.Context, tx pgx.Tx, repositoryID, userID int64, conversation string) ([]uiInstruction, error) {
 	rows, err := tx.Query(ctx, `SELECT `+turnColumns+` FROM chat_turns WHERE repository_id=$1 AND user_id=$2 AND conversation_id=$3 AND producer_generation>0 AND state NOT IN ('queued','retired') AND request_payload->>'sharedConversation'='true' ORDER BY created_at,id`, repositoryID, userID, conversation)
 	if err != nil {
 		return nil, err
@@ -244,7 +244,7 @@ func (s *Store) privateUIInstructions(ctx context.Context, tx pgx.Tx, repository
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	instructions := []map[string]any{}
+	instructions := []uiInstruction{}
 	for _, turn := range turns {
 		acceptance, _, err := checkHead(turn)
 		if err != nil {
@@ -259,17 +259,18 @@ func (s *Store) privateUIInstructions(ctx context.Context, tx pgx.Tx, repository
 			for _, batch := range page.Batches {
 				for index, raw := range batch.Frames {
 					var frame struct {
-						Type string `json:"type"`
-						UI   *struct {
-							Command string `json:"command"`
-							Mode    string `json:"mode"`
-						} `json:"ui"`
+						Type string          `json:"type"`
+						UI   json.RawMessage `json:"ui"`
 					}
 					if err := json.Unmarshal(raw, &frame); err != nil {
 						return nil, ErrCorrupt
 					}
-					if frame.Type == "call.settled" && frame.UI != nil {
-						instructions = append(instructions, map[string]any{"id": fmt.Sprintf("%s:%d:%d", turn.ID, batch.Batch, index), "command": frame.UI.Command, "mode": frame.UI.Mode})
+					if frame.Type == "call.settled" && len(frame.UI) > 0 {
+						instruction, err := decodeUIInstruction(fmt.Sprintf("%s:%d:%d", turn.ID, batch.Batch, index), frame.UI)
+						if err != nil {
+							return nil, err
+						}
+						instructions = append(instructions, instruction)
 					}
 				}
 			}

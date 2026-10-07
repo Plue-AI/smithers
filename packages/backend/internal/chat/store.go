@@ -820,11 +820,8 @@ func validateFrames(frames []json.RawMessage, expectedRunID string) (frameMeta, 
 				!validVerdict || !oneOf(verdict, "run", "hit", "replay") || !validDigest {
 				return frameMeta{}, ErrInvalidFrame
 			}
-			if instruction, present := object["ui"]; present {
-				ui, ok := instruction.(map[string]any)
-				if !ok || len(ui) != 2 || ui["command"] != "theme" || (ui["mode"] != "light" && ui["mode"] != "dark") || object["name"] != "theme" {
-					return frameMeta{}, ErrInvalidFrame
-				}
+			if !validUIInstruction(object) {
+				return frameMeta{}, ErrInvalidFrame
 			}
 		case "gate.rejected":
 			kind, validKind := stringField(object, "kind", true)
