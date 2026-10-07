@@ -547,6 +547,8 @@ var installMemberRoutes = []struct {
 	// the write; this route marker grants no workspace authority by itself.
 	{http.MethodPut, "branch.join", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/files/content$`)},
 	{http.MethodPost, "branch.fork", regexp.MustCompile(`^/api/branches$`)},
+	// The dispatcher resolves the concrete answer command from the body.
+	{http.MethodPost, "branch.answer", regexp.MustCompile(`^/api/branches/[^/]+$`)},
 	{http.MethodPost, "branch.join", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces$`)},
 	// All retained workflow aliases resolve the same concrete catalog action.
 	{http.MethodGet, "flows.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workflows(?:/[0-9]+)?$`)},
