@@ -72,6 +72,7 @@ func (s *StaticStorageSetResolver) ResolveStorageRouteKey(context.Context, strin
 
 // Client communicates with the repo-host service.
 type Client struct {
+	machineRepository   MachineRepository
 	immutableFilesMu    sync.Mutex
 	immutableFiles      map[immutableFileKey]*immutableFileRead
 	resolver            StorageSetResolver

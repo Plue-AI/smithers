@@ -210,6 +210,12 @@ try {
     root,
     linuxEnvironment
   )
+  await run(
+    "Linux arm64 machine broker",
+    ["cargo", "build", "--locked", "--release", "--package", "smithers-machined", "--bin", "smithers-machined", "--target", linuxTarget],
+    root,
+    linuxEnvironment
+  )
   // Repository setup and the helper run `jj` in the guest, so the guest gets
   // the jj revision the helper's jj-lib pins, as the Mac does.
   await run(
@@ -223,6 +229,8 @@ try {
 }
 const linuxHelper = join(cargoTargetDir, linuxTarget, "release", "smithers-jj-export")
 requireLinuxArm64(linuxHelper, "guest helper")
+const guestMachined = join(cargoTargetDir, linuxTarget, "release", "smithers-machined")
+requireLinuxArm64(guestMachined, "machine broker")
 const guestJj = join(guestJjInstallRoot, "bin", "jj")
 requireLinuxArm64(guestJj, "guest jj")
 await run(
@@ -259,6 +267,7 @@ verifyChecksumSidecar(modelHost)
 const packagedLinuxHelper = join(nativeDir, "bin", "linux-arm64", "smithers-jj-export")
 mkdirSync(dirname(packagedLinuxHelper), { recursive: true })
 cpSync(linuxHelper, packagedLinuxHelper)
+cpSync(guestMachined, join(nativeDir, "bin", "linux-arm64", "smithers-machined"))
 cpSync(guestJj, join(nativeDir, "bin", "linux-arm64", "jj"))
 rmSync(guestJjInstallRoot, { recursive: true, force: true })
 await run(

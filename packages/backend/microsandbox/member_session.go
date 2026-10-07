@@ -82,6 +82,12 @@ func (c *MemberCredentials) OpenTerminal(ctx context.Context, id, session, diges
 	if err != nil {
 		return nil, err
 	}
+	if _, err = r.EnsureMember(ctx, id, c.member); err != nil {
+		return nil, err
+	}
+	if err = r.EnsureMachined(ctx, id); err != nil {
+		return nil, err
+	}
 	ws.sessionMu.Lock()
 	defer ws.sessionMu.Unlock()
 	if r.config.Bundle == nil || r.cli == nil {

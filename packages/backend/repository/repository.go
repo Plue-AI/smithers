@@ -47,7 +47,9 @@ func OpenLocal(cfg Config) (*Local, error) {
 	}), ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = staging.Serve(listener) }()
 	baseURL := "http://" + listener.Addr().String()
-	return &Local{server: server, staging: staging, client: repohost.NewLocalClientWithStagingEndpoint(handler, cfg.AuthToken, baseURL, cfg.InstallMainMirror)}, nil
+	client := repohost.NewLocalClientWithStagingEndpoint(handler, cfg.AuthToken, baseURL, cfg.InstallMainMirror)
+	client.BindMachineRepository(server.WithMachineRepository)
+	return &Local{server: server, staging: staging, client: client}, nil
 }
 
 type Local struct {

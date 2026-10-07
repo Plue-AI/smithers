@@ -141,7 +141,9 @@ type metadata struct {
 }
 
 type workspace struct {
-	sessionMu sync.Mutex // serializes sealed admission with its broker spawn
+	daemonMu   sync.Mutex
+	daemonBoot *machined.BootAuthority
+	sessionMu  sync.Mutex // serializes sealed admission with its broker spawn
 	metadata
 	booting   bool // guarded by Runtime.mu; an in-flight launcher can still create a VM
 	directory string
@@ -153,14 +155,16 @@ type workspace struct {
 
 // Runtime owns every microVM it creates and the metadata that names them.
 type Runtime struct {
-	memberRoster MemberRoster
-	machined     machined.Registry
-	cli          *cli
-	config       Config
-	root         string
-	owner        string
-	holder       string
-	semaphore    chan struct{}
+	machinedHead     func(context.Context, string) (string, error)
+	machinedDispatch func(context.Context, *machined.Link, string) error
+	memberRoster     MemberRoster
+	machined         machined.Registry
+	cli              *cli
+	config           Config
+	root             string
+	owner            string
+	holder           string
+	semaphore        chan struct{}
 
 	environments *environments
 	codingHelper codingHelperCache
@@ -734,6 +738,12 @@ func (r *Runtime) createMachine(ctx context.Context, ws *workspace) error {
 // prepareGuest plants the adapter's guest helper, creates the unprivileged
 // workspace user and directories, and starts the host bridge.
 func (r *Runtime) prepareGuest(ctx context.Context, ws *workspace) error {
+	ws.daemonMu.Lock()
+	ws.daemonBoot = nil
+	if link, err := r.machined.Current(ws.ID); err == nil {
+		_ = link.Close()
+	}
+	ws.daemonMu.Unlock()
 	if err := r.installGuest(ctx, ws.Machine); err != nil {
 		return err
 	}
