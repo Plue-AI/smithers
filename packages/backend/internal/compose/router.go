@@ -1084,6 +1084,7 @@ func buildRouter(
 			if extras.Mythical != nil {
 				branches.Forks, _ = extras.Mythical.Service.(routes.BranchForkService)
 				branches.Answers, _ = extras.Mythical.Service.(routes.BranchAnswerService)
+				branches.Adds, _ = extras.Mythical.Service.(routes.BranchAddService)
 			}
 			routes.RegisterBranchRoutes(r, branches)
 			r.Get("/ssh", branches.SSHLine(queries, config.PublicOrigin(cfg)))

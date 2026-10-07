@@ -3,10 +3,13 @@ package services
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"path"
 	"sort"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -27,6 +30,9 @@ type workspaceSnapshotStore interface {
 // Snapshot verification belongs only to reads that consume retained objects.
 func authorizeWorkspaceReadBinding(ctx context.Context, row db.Workspace) error {
 	if delegation, delegated := middleware.AuthInfoFromContext(ctx).Delegation(); delegated && (delegation.Branch == "" || !strings.EqualFold(delegation.Branch, row.ID)) {
+		if subject, ok := ctx.Value(branchConfirmationSnapshotKey{}).(string); ok && subject == row.ID && delegation.Branch == "" && delegation.Profile == "" {
+			return nil
+		}
 		return pkgerrors.Forbidden("credential is bound to another branch")
 	}
 	return nil
@@ -71,13 +77,30 @@ func (s *WorkspaceService) workspaceSnapshotTarget(ctx context.Context, id strin
 	if err != nil {
 		return unavailable()
 	}
+	head, retainedRef := row.HeadCommitID, repohost.BranchHeadRef(row.ID)
+	// Before the adopted machine publishes a newer capture, a source Drop
+	// can fold a newer tree into its retained seed without running the guest.
+	// Read that stack-owned immutable source; never execute its contents.
+	lane, laneErr := db.New(tx).GetMythicalLane(ctx, row.ID)
+	if laneErr != nil && !errors.Is(laneErr, pgx.ErrNoRows) {
+		return row, "", "", "", true, laneErr
+	}
+	if laneErr == nil && !lane.RetiredAt.Valid {
+		item, err := db.New(tx).GetMythicalItem(ctx, lane.ItemID)
+		if err != nil {
+			return row, "", "", "", true, err
+		}
+		if seed := mythicalChecksOf(item).Seed; seed != nil && item.WorkspaceID == row.ID && head == seed.Captured {
+			head, retainedRef = seed.Head, repohost.WorkspaceSourceRef(row.ID, seed.Head)
+		}
+	}
 	for _, ref := range refs {
-		if ref.name == repohost.BranchHeadRef(row.ID) && ref.oid == row.HeadCommitID {
-			commit, err := store.GetChange(ctx, owner, repo, row.HeadCommitID)
-			if err != nil || commit.CommitID != row.HeadCommitID {
+		if ref.name == retainedRef && ref.oid == head {
+			commit, err := store.GetChange(ctx, owner, repo, head)
+			if err != nil || commit.CommitID != head {
 				return unavailable()
 			}
-			return row, owner, repo, row.HeadCommitID, true, nil
+			return row, owner, repo, head, true, nil
 		}
 	}
 	return unavailable()
@@ -202,4 +225,13 @@ func (l *workspaceMythicalLanes) CapturedHead(ctx context.Context, id string, re
 		return "", pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch state changed")
 	}
 	return head, nil
+}
+
+// AdmitScratch holds the existing branch admission in the adoption transaction.
+// Adoption changes no machine identity and never bypasses the runtime gates.
+func (l *workspaceMythicalLanes) AdmitScratch(ctx context.Context, tx pgx.Tx, repository, actor int64, row db.Workspace) error {
+	if l == nil || l.workspaces == nil {
+		return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch unavailable")
+	}
+	return l.workspaces.authorizeBranchMachine(ctx, tx, repository, actor, row.TargetBookmark, row.ID)
 }

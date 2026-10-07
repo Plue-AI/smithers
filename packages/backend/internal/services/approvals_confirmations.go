@@ -394,6 +394,52 @@ func (s *MythicalService) prepareConfirmation(ctx context.Context, tx pgx.Tx, re
 		sum := sha256.Sum256(snapshot)
 		p.revision = hex.EncodeToString(sum[:])
 		p.title, text, verb = "Review #"+strconv.FormatInt(request.Number, 10), "", "Review"
+
+	case "branch.add-to-stack":
+		var request BranchAddInput
+		if confirmationJSON(input.Payload, &request) != nil || subject.Kind != "branch" || strings.TrimSpace(subject.Ref) == "" || request.After != nil && request.Before != nil {
+			return p, invalidConfirmation()
+		}
+		if s.host == nil || s.lanes == nil {
+			return p, confirmationUnavailable()
+		}
+		reader, ok := s.lanes.(interface {
+			CapturedHead(context.Context, string, int64, int64) (string, error)
+			AdmitScratch(context.Context, pgx.Tx, int64, int64, db.Workspace) error
+		})
+		if !ok {
+			return p, confirmationUnavailable()
+		}
+		workspace, err := branchAddWorkspace(ctx, db.New(tx), repository, subject.Ref)
+		if err != nil {
+			return p, confirmationResolved()
+		}
+		if _, err := tx.Exec(ctx, `SELECT 1 FROM workspaces WHERE id=$1 FOR UPDATE`, workspace.ID); err != nil {
+			return p, err
+		}
+		workspace, err = db.New(tx).GetWorkspace(ctx, workspace.ID)
+		if err != nil {
+			return p, err
+		}
+		if !strings.HasPrefix(workspace.TargetBookmark, scratchBranchPrefix) || !workspace.IsFork || workspace.ForkedFromBase == "" {
+			return p, confirmationResolved()
+		}
+		if err := reader.AdmitScratch(ctx, tx, repository, info.User.ID, workspace); err != nil {
+			return p, err
+		}
+		preview := context.WithValue(ctx, branchConfirmationSnapshotKey{}, workspace.ID)
+		head, err := reader.CapturedHead(preview, workspace.ID, repository, info.User.ID)
+		if err != nil {
+			return p, err
+		}
+		snapshot, _ := json.Marshal([]string{workspace.ID, head, workspace.ForkedFromBase, workspace.TargetBookmark})
+		sum := sha256.Sum256(snapshot)
+		p.revision = hex.EncodeToString(sum[:])
+		if strings.TrimSpace(request.Text) == "" {
+			request.Text = workspace.TargetBookmark[strings.LastIndex(workspace.TargetBookmark, "/")+1:]
+		}
+		p.input, _ = json.Marshal(request)
+		p.title, text, verb = subject.Ref, request.Text, "Add to stack"
 	case "todo.new", "todo.from-issue":
 		var request MythicalTodoInput
 		if err := confirmationJSON(input.Payload, &request); err != nil {
@@ -719,6 +765,22 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 				var admitted ReviewAdmission
 				admitted, err = consumer.reviews.admitInTx(bound, tx, *prepared.review, request)
 				reviewOperationID = admitted.OperationID
+
+			case "branch.add-to-stack":
+				var subject struct {
+					Ref string `json:"ref"`
+				}
+				var request BranchAddInput
+				if err = json.Unmarshal(prepared.subject, &subject); err != nil {
+					return err
+				}
+				if err = json.Unmarshal(prepared.input, &request); err != nil {
+					return err
+				}
+				request.Request = input.Key
+				var item MythicalItemView
+				item, err = consumer.AddBranchToStack(bound, repository, info.User.ID, subject.Ref, request)
+				number = item.Number
 			case "todo.new", "todo.from-issue":
 				var request MythicalTodoInput
 				if err = json.Unmarshal(prepared.input, &request); err != nil {
