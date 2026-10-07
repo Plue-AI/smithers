@@ -77,7 +77,7 @@ func (h *BranchFileHandler) Read(w http.ResponseWriter, r *http.Request) {
 	if content.Encoding == "base64" {
 		bytes, err = base64.StdEncoding.DecodeString(content.Content)
 		if err != nil {
-			writeRouteError(w, r, pkgerrors.Internal("invalid file encoding"))
+			writeRouteError(w, r, pkgerrors.Internal("invalid file encoding").WithCause(err))
 			return
 		}
 	}

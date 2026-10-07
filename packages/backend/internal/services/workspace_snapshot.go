@@ -113,7 +113,7 @@ func (s *WorkspaceService) readWorkspaceSnapshot(ctx context.Context, owner, rep
 	case "base64":
 		content, err = base64.StdEncoding.DecodeString(file.Content)
 		if err != nil {
-			return WorkspaceFileContent{}, pkgerrors.Internal("invalid snapshot file encoding")
+			return WorkspaceFileContent{}, pkgerrors.Internal("invalid snapshot file encoding").WithCause(err)
 		}
 	default:
 		return WorkspaceFileContent{}, pkgerrors.Internal("invalid snapshot file encoding")
@@ -158,7 +158,7 @@ func (s *WorkspaceService) listWorkspaceSnapshot(ctx context.Context, row db.Wor
 					case "base64":
 						raw, err := base64.StdEncoding.DecodeString(file.Content)
 						if err != nil {
-							return nil, pkgerrors.Internal("invalid snapshot file encoding")
+							return nil, pkgerrors.Internal("invalid snapshot file encoding").WithCause(err)
 						}
 						value.Size = int64(len(raw))
 					default:

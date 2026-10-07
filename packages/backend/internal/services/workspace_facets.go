@@ -311,7 +311,7 @@ func (s *WorkspaceService) WriteWorkspaceFiles(ctx context.Context, workspaceID 
 	// delimiters alone could alias different auto-resume operation identities.
 	encoded, err := json.Marshal(batch)
 	if err != nil {
-		return nil, pkgerrors.Internal("cannot encode workspace file changes")
+		return nil, pkgerrors.Internal("cannot encode workspace file changes").WithCause(err)
 	}
 	var receipt *WorkspaceFileWriteResult
 	err = s.withWorkspaceMutation(ctx, workspaceID, repositoryID, userID, func(ctx context.Context, _ db.Workspace) error {

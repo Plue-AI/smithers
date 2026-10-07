@@ -84,7 +84,7 @@ func serveAgents(q *db.Queries) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		value, err := agentProfiles(r.Context(), q)
 		if err != nil {
-			routes.WriteInstallSetupError(w, r, pkgerrors.Internal("Could not read agents"))
+			routes.WriteInstallSetupError(w, r, pkgerrors.Internal("Could not read agents").WithCause(err))
 			return
 		}
 		owner, ownerErr := q.GetSelfHostOwner(r.Context())
@@ -127,7 +127,7 @@ func assignAgentModel(q *db.Queries) http.HandlerFunc {
 			return
 		}
 		if err = q.AssignInstallAgentModel(r.Context(), role, value); err != nil {
-			routes.WriteInstallSetupError(w, r, pkgerrors.Internal("Could not save model"))
+			routes.WriteInstallSetupError(w, r, pkgerrors.Internal("Could not save model").WithCause(err))
 			return
 		}
 		serveAgents(q)(w, r)
