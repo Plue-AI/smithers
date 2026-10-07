@@ -102,8 +102,39 @@ describe("smthrs token mint", () => {
     const claims = await Effect.runPromise(ScopedToken.verify(key, token!, Date.now()))
     expect(claims.exp - claims.iat).toBe(60 * 60 * 1000)
     expect(claims.flowId).toBe("demo")
-    expect(claims.procedures).toEqual(["Plan", "Run", "Steer", "Signal", "Cancel", "Resume"])
+    expect(claims.procedures).toEqual(["Plan", "Run", "Steer", "Signal", "Cancel", "Resume", "Run.Fork", "Run.Verify"])
   })
+
+  it.each(["read:runs", "write:runs", "approve:runs"])(
+    "keeps recovery calls confined to the CLI token's run and %s scope",
+    async (scope) => {
+      const result = await invoke(["token", "mint", "--scope", scope, "--run", "run-1", "--json"], {
+        SMITHERS_TOKEN: key
+      })
+      expect(result.codes).toEqual([])
+      const document = JSON.parse(result.stdout) as TokenCommands.MintedToken
+      const authenticator = ScopedToken.authenticator({ key, principal: { id: "gateway", kind: "scoped" } })
+      const headers = { authorization: `Bearer ${document.token}` }
+      for (const rpc of ["Run.Fork", "Run.Verify"]) {
+        const ownRun = authenticator.authenticate(headers, { rpc, payload: { runId: "run-1" } })
+        if (scope === "write:runs") {
+          expect(await Effect.runPromise(ownRun)).toMatchObject({ id: "gateway", kind: "scoped" })
+        } else {
+          await expect(Effect.runPromise(ownRun)).rejects.toThrow(`The scoped token does not authorize ${rpc}`)
+        }
+        for (const payload of [{ runId: "run-2" }, {}]) {
+          await expect(Effect.runPromise(authenticator.authenticate(headers, { rpc, payload })))
+            .rejects.toThrow(`The scoped token does not authorize ${rpc}`)
+        }
+      }
+      if (scope === "write:runs") {
+        await expect(Effect.runPromise(authenticator.authenticate(headers, {
+          rpc: "Approve",
+          payload: { runId: "run-1" }
+        }))).rejects.toThrow("The scoped token does not authorize Approve")
+      }
+    }
+  )
 
   it("refuses to mint without SMITHERS_TOKEN, with an unknown scope, or with a bad lifetime", async () => {
     const missing = await invoke(["token", "mint", "--scope", "read:runs"], {})
