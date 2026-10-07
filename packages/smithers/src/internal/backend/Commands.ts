@@ -33,9 +33,9 @@ import { workspaces } from "./Workspaces.ts"
  * @since 1.0.0
  */
 export const handlers: Record<string, Handler> = {
-  "host backup": () => HostService.maintenance("backup"),
-  "host upgrade": () => HostService.maintenance("upgrade"),
-  "host restore": (_c, a) => HostService.maintenance("restore", String(a.directory)),
+  "host backup": async () => HostService.maintenance("backup"),
+  "host upgrade": async () => HostService.maintenance("upgrade"),
+  "host restore": async (_c, a) => HostService.maintenance("restore", String(a.directory)),
   "host start": (_c, _a, o) => HostService.start(typeof o.bundle === "string" ? o.bundle : undefined, { ...(typeof o.bind === "string" ? { bind: o.bind } : {}), ...(Array.isArray(o.origin) ? { origins: o.origin as string[] } : {}) }),
   "host stop": async () => HostService.stop(HostService.launchd()),
   "host status": () => HostService.status(),

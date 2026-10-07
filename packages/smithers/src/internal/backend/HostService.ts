@@ -229,8 +229,7 @@ export const installedBundle = (system: Launchd): string => {
 /** Maintenance runs only the verified installed backend, with an inert environment.
  * It must not borrow a repository executable, login token or shell hook.
  */
-export const maintenance = (operation: "backup" | "upgrade" | "restore", directory?: string) => {
-  const system = launchd()
+export const maintenance = (operation: "backup" | "upgrade" | "restore", directory?: string, system: Launchd = launchd(), run: typeof spawnSync = spawnSync) => {
   if (operation === "restore" && loaded(system)) {
     throw new Refused({ fault: "infra", code: "install_running", message: "Restore refuses a running install; run smthrs host stop first" })
   }
@@ -239,9 +238,9 @@ export const maintenance = (operation: "backup" | "upgrade" | "restore", directo
   }
   // stop removes the plist. Recovery must still find the current Homebrew keg.
   const bundle = verifyBundle(existsSync(plistFile(system)) ? installedBundle(system) : resolveBundle()).bundle
-  const result = spawnSync(join(bundle, "bin/smithers-backend"), ["host-maintenance", operation,
+  const result = run(join(bundle, "bin/smithers-backend"), ["host-maintenance", operation,
     ...(directory === undefined ? [] : [resolve(directory)])], {
-    encoding: "utf8", timeout: 120_000, maxBuffer: 65536,
+    encoding: "utf8", maxBuffer: 65536,
     env: { HOME: homedir(), PATH: `${bundle}/bin:/usr/bin:/bin:/usr/sbin:/sbin` }
   })
   if (result.status !== 0) {
@@ -249,7 +248,7 @@ export const maintenance = (operation: "backup" | "upgrade" | "restore", directo
     const code = message.match(/^([a-z_]+):/)?.[1] ?? "host_maintenance_failed"
     throw new Refused({ fault: "infra", code, message })
   }
-  return JSON.parse(result.stdout)
+  return result.stdout.trimEnd()
 }
 /**
  * true when the host is ready; while it starts, the starting page's step

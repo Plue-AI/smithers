@@ -32,3 +32,17 @@ it("restore requires a directory before invoking maintenance", async () => {
   expect(code).not.toBe(0)
   expect(maintenance).not.toHaveBeenCalled()
 })
+
+it.each([
+  ["backup", undefined, "/Users/owner/Library/Application Support/Smithers/backups/1.2.3-20261007T010203Z"],
+  ["restore", "/snapshot with spaces", "2026-10-07T01:02:03Z"]
+] as const)("host %s presents the native receipt", async (operation, directory, receipt) => {
+  vi.spyOn(Host, "maintenance").mockReturnValue(receipt)
+  let output = "", code = 0
+  await makeCli({ exit: value => { code = value } }).serve(
+    ["host", operation, ...(directory ? [directory] : [])],
+    { stdout: text => { output += text }, exit: value => { code = value } }
+  )
+  expect(code).toBe(0)
+  expect(output).toContain(receipt)
+})
