@@ -186,6 +186,16 @@ type QuiesceBarrier interface {
 
 var quiesceBarrierTickets = []string{"T-STK-04", "T-COL-08", "T-COL-09", "T-GH-09", "T-TRM-07", "T-SEC-01"}
 
+// NewInstallQuiesce binds lease recovery at composition, including freezes
+// persisted before this process started. Provider fields are set before serving.
+func NewInstallQuiesce(gate *QuiesceGate) *InstallQuiesce {
+	s := &InstallQuiesce{Gate: gate}
+	if gate != nil {
+		gate.resume.Store(s.resume)
+	}
+	return s
+}
+
 func (s *InstallQuiesce) resume(ctx context.Context) error {
 	// Runtime first; admission resumes last, while the gate still fences writes.
 	if s.Host != nil {
