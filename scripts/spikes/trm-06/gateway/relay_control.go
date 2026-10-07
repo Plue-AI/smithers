@@ -68,7 +68,11 @@ func (r relayControl) opener(ctx context.Context) sessionOpener {
 			}
 			return nil, err
 		}
-		return newAttachedStream(connection, reply.Session, func() (net.Conn, error) { return r.connect(ctx) }), nil
+		return newAttachedStream(connection, reply.Session, func() (net.Conn, error) {
+			dialContext, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			return r.connect(dialContext)
+		}), nil
 	}
 }
 func (r relayControl) revoke(ctx context.Context) error {
@@ -95,8 +99,11 @@ type controlReply struct {
 }
 
 func controlExchange(connection net.Conn, request any) (controlReply, error) {
+	return controlExchangeUntil(connection, request, time.Now().Add(10*time.Second))
+}
+func controlExchangeUntil(connection net.Conn, request any, deadline time.Time) (controlReply, error) {
 	var reply controlReply
-	connection.SetDeadline(time.Now().Add(10 * time.Second))
+	connection.SetDeadline(deadline)
 	defer connection.SetDeadline(time.Time{})
 	if err := (&frameWriter{w: connection}).write(request); err != nil {
 		return reply, err
