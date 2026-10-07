@@ -99,3 +99,14 @@ test("invalid Home responses and menus carry a typed failure", async () => {
     catch (value) { expect(value).toMatchObject({ _tag: "HomeViewFailure", sentence: "Invalid Home menu" }) }
   } finally { seam.dispose() }
 })
+
+test("Home keeps a stable empty snapshot while React releases a disposed controller", () => {
+  const seam = createHomeViewSeam({ owner: () => undefined, subscribeOwner: () => () => {},
+    http: async () => { throw new Error("No signed-in request") }, report: error => { throw error } })
+  seam.dispose()
+  const snapshot = seam.get()
+  expect(snapshot).toEqual({ maximized: false })
+  expect(seam.get()).toBe(snapshot)
+  seam.onView({ on_screen: false })
+  expect(seam.get()).toBe(snapshot)
+})
