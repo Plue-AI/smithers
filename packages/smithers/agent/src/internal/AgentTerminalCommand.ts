@@ -24,6 +24,7 @@ export type CommandFrame =
   | { readonly kind: "output"; readonly bytes: Uint8Array }
   | { readonly kind: "echo"; readonly bytes: Uint8Array }
   | { readonly kind: "exit"; readonly code: number }
+  // POSIX signal number, translated from any daemon wire enum by the provider.
   | { readonly kind: "signal"; readonly signal: number }
 
 /**
@@ -145,6 +146,7 @@ export class Commands {
     if (this.ended) throw new StdError({ code: "provider_unavailable", message: "Agent terminal run ended" })
     if (signal.aborted) throw new StdError({ code: "command_failed", message: "Agent terminal command cancelled" })
     const controller = new AbortController()
+    const limitMillis = input.timeoutMs ?? Bash.DEFAULT_TIMEOUT_MS
     this.active = controller
     let timeout = false
     const abort = () => controller.abort()
@@ -157,6 +159,7 @@ export class Commands {
       rejectAbort(
         new StdError({
           code: timeout ? "timeout" : "command_failed",
+          ...(timeout ? { limitMillis } : {}),
           message: timeout ? "Agent terminal command timed out" : "Agent terminal command cancelled"
         })
       )
@@ -164,7 +167,7 @@ export class Commands {
     const timer = setTimeout(() => {
       timeout = true
       controller.abort()
-    }, input.timeoutMs ?? Bash.DEFAULT_TIMEOUT_MS)
+    }, limitMillis)
     try {
       const capture = new Capture()
       const frames = this.port.execute(input, controller.signal)[Symbol.asyncIterator]()
