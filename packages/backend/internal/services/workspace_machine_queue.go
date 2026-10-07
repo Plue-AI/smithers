@@ -77,6 +77,11 @@ func personMachineDemand(ctx context.Context) context.Context {
 
 func machineDemand(ctx context.Context, row db.Workspace, requesterID int64) (string, string) {
 	person, _ := ctx.Value(personMachineDemandKey{}).(bool)
+	// Stack creation keeps the person's identity for authorization, while the
+	// branch machine belongs to the shared owner. Preserve its reserved class.
+	if source, _ := ctx.Value(todoMachineDemandKey{}).(string); source != "" && !person {
+		return "todo", machineQueueHolder(row.ID)
+	}
 	if person || requesterID != row.UserID {
 		if sessionID, _ := ctx.Value(sessionMachineDemandKey{}).(string); sessionID != "" {
 			return "person", sessionMachineActor(requesterID, sessionID)

@@ -119,6 +119,8 @@ func TestMachineDemandOwnerTerminalIsPerson(t *testing.T) {
 		{personMachineDemand(context.Background()), row.UserID, "person", fmt.Sprintf("person:%d", row.UserID)},
 		{context.WithValue(personMachineDemand(context.Background()), sessionMachineDemandKey{}, "terminal-a"), row.UserID, "person", fmt.Sprintf("person:%d:session:terminal-a", row.UserID)},
 		{context.Background(), row.UserID + 1, "person", fmt.Sprintf("person:%d", row.UserID+1)},
+		{context.WithValue(context.Background(), todoMachineDemandKey{}, "todo:reserved"), row.UserID + 1, "todo", "workspace:owner-terminal"},
+		{personMachineDemand(context.WithValue(context.Background(), todoMachineDemandKey{}, "todo:reserved")), row.UserID + 1, "person", fmt.Sprintf("person:%d", row.UserID+1)},
 	} {
 		class, actor := machineDemand(context.WithoutCancel(tc.ctx), row, tc.actor)
 		require.Equal(t, tc.class, class)
