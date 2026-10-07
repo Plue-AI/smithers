@@ -480,12 +480,12 @@ fn signal_name(signal: i32) -> io::Result<String> {
     Ok(name.into())
 }
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::os::fd::OwnedFd;
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
-    fn fixture(script: &str) -> Live {
+    pub(crate) fn fixture(script: &str) -> Live {
         let mut command = Command::new("/bin/sh");
         command
             .args(["-c", script])
