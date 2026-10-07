@@ -49,9 +49,6 @@ type AuthLoaderQuerier interface {
 	GetUserByID(ctx context.Context, id int64) (db.User, error)
 }
 
-// numberedTodoReadPath admits subject resolution, never a collection or private events.
-var numberedTodoReadPath = regexp.MustCompile(`^/api/todos/[0-9]+(?:/attempts/[0-9]+/logs/[0-9a-f]{64})?$`)
-
 var workspaceHeadReportPath = regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/([^/]+)/head$`)
 
 // workspaceChildrenPath and workspaceChildStopPath are the routes a
@@ -83,13 +80,14 @@ func allowWorkspaceRestrictedToken(w http.ResponseWriter, r *http.Request, info 
 		m := pattern.FindStringSubmatch(r.URL.Path)
 		return m != nil && strings.EqualFold(m[1], workspaceID)
 	}
-	// The shared authorizer resolves the numbered TODO to this stored workspace.
-	// Current-attempt logs are checked there too; collection and private events stay denied.
-	if len(install) > 0 && install[0] && r.Method == http.MethodGet && numberedTodoReadPath.MatchString(r.URL.Path) {
-		return true
-	}
-	if len(install) > 0 && install[0] && InstallMemberCommand(r.Method, r.URL.EscapedPath()) == "stack.candidate" {
-		return true
+	// Install commands resolve their stored subject in Authorize. The hosted
+	// route guards below remain for hosted callers and unmapped protocol doors;
+	// they must not make a second install command-policy decision.
+	if len(install) > 0 && install[0] {
+		command := InstallMemberCommand(r.Method, r.URL.EscapedPath())
+		if command != "" && command != "self" && command != "public" {
+			return true
+		}
 	}
 	if ParseTokenWorkspaceChildrenCredential(info.RawScopes) {
 		if ((r.Method == http.MethodGet || r.Method == http.MethodPost) && own(workspaceChildrenPath)) ||

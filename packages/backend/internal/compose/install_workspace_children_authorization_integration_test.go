@@ -48,7 +48,7 @@ func TestInstallWorkspaceChildrenCommandsPostgres(t *testing.T) {
 		status, count             int
 	}{
 		{"own list", machine, "GET", parent.ID + "/children", 200, 1},
-		{"other parent", machine, "GET", other.ID + "/children", 403, 0},
+		{"other parent", machine, "GET", other.ID + "/children", 403, 1},
 		{"other child", machine, "POST", parent.ID + "/children/" + other.ID + "/stop", 403, 1},
 		{"unrecorded", wrong, "GET", parent.ID + "/children", 403, 1},
 		{"run", run, "GET", parent.ID + "/children", 403, 1},

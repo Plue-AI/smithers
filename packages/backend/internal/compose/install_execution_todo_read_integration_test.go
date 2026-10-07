@@ -74,8 +74,12 @@ func testInstallExecutionTodoReadPostgres(t *testing.T) map[string]string {
 			require.Equal(t, cell.status, out.Code, out.Body.String())
 			require.NotContains(t, out.Body.String(), "never-return")
 			require.NotContains(t, out.Body.String(), "prompt_revisions")
+			expected := "todo.read"
+			if cell.path == "/api/agents" {
+				expected = "agents.read"
+			}
+			require.Equal(t, []string{expected}, decisions)
 			if cell.status == 200 {
-				require.Equal(t, []string{"todo.read"}, decisions)
 				require.Contains(t, out.Body.String(), `"title":"Own execution"`)
 				var view map[string]any
 				require.NoError(t, json.Unmarshal(out.Body.Bytes(), &view))

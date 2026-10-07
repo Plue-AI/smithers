@@ -59,8 +59,8 @@ func TestInstallWorkspaceHeadCommandPostgres(t *testing.T) {
 		status                 int
 		decisions              int
 	}{
-		{"machine own", machine, own.ID, 200, 1}, {"unrecorded", unrecorded, own.ID, 403, 1}, {"machine other", machine, other.ID, 403, 0},
-		{"run", run, own.ID, 403, 1}, {"delegated", external, own.ID, 403, 1}, {"session", "", own.ID, 403, 1}, {"children", children, own.ID, 403, 0},
+		{"machine own", machine, own.ID, 200, 1}, {"unrecorded", unrecorded, own.ID, 403, 1}, {"machine other", machine, other.ID, 403, 1},
+		{"run", run, own.ID, 403, 1}, {"delegated", external, own.ID, 403, 1}, {"session", "", own.ID, 403, 1}, {"children", children, own.ID, 403, 1},
 	} {
 		t.Run(cell.name, func(t *testing.T) {
 			req := httptest.NewRequest("POST", fmt.Sprintf("http://example.com/api/repos/gate-owner/app/workspaces/%s/head", cell.workspace), strings.NewReader(`{"change_id":"new-change","commit_id":"new-commit","ahead":2,"behind":0}`))

@@ -72,11 +72,7 @@ func TestInstallExecutionLogReadPostgres(t *testing.T) {
 				out := httptest.NewRecorder()
 				router.ServeHTTP(out, req)
 				require.Equal(t, cell.status, out.Code, out.Body.String())
-				if cell.status == 200 || cell.status == 404 {
-					require.Equal(t, []string{"todo.read"}, decisions)
-				} else {
-					require.LessOrEqual(t, len(decisions), 1)
-				}
+				require.Equal(t, []string{"todo.read"}, decisions)
 				if cell.status == 200 {
 					require.Equal(t, payload, out.Body.String())
 					require.Equal(t, before+1, store.reads.Load())
