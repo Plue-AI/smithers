@@ -90,6 +90,30 @@ pub struct Projection {
     pub gone: Option<Gone>,
     pub outside_change: Option<(String, String)>,
 }
+// Tracks contributors since the last successful save, independently of presence
+// and the document's historical author map. Recovery may lack this boundary.
+#[derive(Default)]
+enum SaveAuthor {
+    #[default]
+    Clean,
+    One(String),
+    Unknown,
+}
+impl SaveAuthor {
+    fn add(&mut self, actor: &str) {
+        match self {
+            Self::Clean => *self = Self::One(actor.into()),
+            Self::One(previous) if previous != actor => *self = Self::Unknown,
+            _ => (),
+        }
+    }
+    fn actor(&self) -> Option<&str> {
+        match self {
+            Self::One(actor) => Some(actor),
+            _ => None,
+        }
+    }
+}
 struct Document {
     doc: Doc,
     retired_clients: BTreeSet<u64>,
@@ -97,6 +121,7 @@ struct Document {
     base: String,
     last_disk: Digest,
     dirty_since: Option<u64>,
+    save_author: SaveAuthor,
     updated: u64,
     subscribers: BTreeSet<u32>,
     closing: Option<u64>,
@@ -241,12 +266,24 @@ impl<D: Disk> Host<D> {
                 return Err(Error::Forged);
             }
         }
+        let previous_text = doc
+            .doc
+            .get_or_insert_text("content")
+            .get_string(&doc.doc.transact());
         let old = core::state(&doc.doc);
         core::apply(&doc.doc, core::decode(bytes).map_err(|_| Error::Invalid)?)
             .map_err(|_| Error::Invalid)?;
         if old != core::state(&doc.doc) {
             Self::dirty(doc, now);
             doc.activity.insert(actor.into(), now.saturating_add(2000));
+            if previous_text
+                != doc
+                    .doc
+                    .get_or_insert_text("content")
+                    .get_string(&doc.doc.transact())
+            {
+                doc.save_author.add(actor);
+            }
         }
         Ok(())
     }
@@ -337,6 +374,12 @@ impl<D: Disk> Host<D> {
                         doc,
                         retired_clients: record.retired_clients,
                         epoch: record.epoch,
+                        save_author: if digest(&bytes) == record.previous && digest(&bytes) != saved
+                        {
+                            SaveAuthor::Unknown
+                        } else {
+                            SaveAuthor::Clean
+                        },
                         base: record.text,
                         last_disk: saved,
                         dirty_since: if digest(&bytes) == record.previous && digest(&bytes) != saved
@@ -372,6 +415,7 @@ impl<D: Disk> Host<D> {
                         base: text.into(),
                         last_disk: digest(&bytes),
                         dirty_since: if readonly { None } else { Some(now) },
+                        save_author: SaveAuthor::Clean,
                         updated: now,
                         subscribers: BTreeSet::new(),
                         closing: None,
@@ -514,12 +558,24 @@ impl<D: Disk> Host<D> {
         {
             return Err(Error::Invalid);
         }
+        let previous_text = doc
+            .doc
+            .get_or_insert_text("content")
+            .get_string(&doc.doc.transact());
         let before = core::state(&doc.doc);
         core::apply(&doc.doc, core::decode(bytes).map_err(|_| Error::Invalid)?)
             .map_err(|_| Error::Invalid)?;
         if core::state(&doc.doc) != before {
             Self::dirty(doc, now);
             doc.activity.insert(actor.into(), now.saturating_add(2000));
+            if previous_text
+                != doc
+                    .doc
+                    .get_or_insert_text("content")
+                    .get_string(&doc.doc.transact())
+            {
+                doc.save_author.add(actor);
+            }
         }
         Ok(())
     }
@@ -670,6 +726,7 @@ impl<D: Disk> Host<D> {
             core::apply(&doc.doc, core::decode(&update).map_err(|_| Error::Invalid)?)
                 .map_err(|_| Error::Invalid)?;
             doc.gone = None;
+            doc.save_author.add(actor);
             Self::dirty(doc, now);
             doc.activity.insert(actor.into(), now.saturating_add(2000));
         }
@@ -715,6 +772,7 @@ impl<D: Disk> Host<D> {
                 by: actor.into(),
             });
         }
+        doc.save_author.add(actor);
         Self::dirty(doc, now);
         Ok(())
     }
@@ -792,7 +850,8 @@ impl<D: Disk> Host<D> {
         doc.base = text;
         doc.dirty_since = None;
         doc.saved_at_ms = Some(now);
-        disk.own_write(path, doc.last_disk);
+        disk.own_write(path, doc.last_disk, doc.save_author.actor());
+        doc.save_author = SaveAuthor::Clean;
         notices.push(Notice::Saved {
             path: path.into(),
             epoch: doc.epoch,

@@ -18,7 +18,7 @@ use crate::confine::RESOLVE;
 /// T-COL-04a's recorded-version adapter supplies this; no local blob substitute.
 pub trait Versions: Send {
     fn outside(&mut self, path: &str, bytes: &[u8], actor: &str) -> Result<String>;
-    fn own_write(&mut self, path: &str, digest: Digest);
+    fn own_write(&mut self, path: &str, digest: Digest, actor: Option<&str>);
 }
 struct Inode {
     parent: File,
@@ -337,7 +337,7 @@ impl<V: Versions> Disk for LinuxDisk<V> {
     fn record_outside(&mut self, path: &str, text: &[u8], actor: &str) -> Result<String> {
         self.versions.outside(path, text, actor)
     }
-    fn own_write(&mut self, path: &str, post_digest: Digest) {
-        self.versions.own_write(path, post_digest);
+    fn own_write(&mut self, path: &str, post_digest: Digest, actor: Option<&str>) {
+        self.versions.own_write(path, post_digest, actor);
     }
 }

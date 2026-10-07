@@ -189,6 +189,29 @@ impl Provider<Actor> for Ports {
         self.native.snapshot().map(|_| ())
     }
 }
+fn saved_actor(actor: Option<&str>) -> Actor {
+    let Some(actor) = actor.filter(|s| s.len() == 32) else {
+        return Actor::Outside;
+    };
+    let mut reference = Vec::with_capacity(16);
+    for pair in actor.as_bytes().chunks_exact(2) {
+        let nibble = |b| match b {
+            b'0'..=b'9' => Some(b - b'0'),
+            b'a'..=b'f' => Some(b - b'a' + 10),
+            _ => None,
+        };
+        let (Some(high), Some(low)) = (nibble(pair[0]), nibble(pair[1])) else {
+            return Actor::Outside;
+        };
+        reference.push(high * 16 + low);
+    }
+    if reference.iter().all(|b| *b == 0) {
+        Actor::Outside
+    } else {
+        Actor::Principal(reference)
+    }
+}
+
 struct DocumentVersions {
     git: crate::git::Repository,
     events: Arc<Events>,
@@ -230,12 +253,12 @@ impl Versions for DocumentVersions {
         }
         Ok(commit.iter().map(|b| format!("{b:02x}")).collect())
     }
-    fn own_write(&mut self, path: &str, digest: [u8; 32]) {
-        // Timer saves can combine multiple authors; Outside preserves that
-        // uncertainty rather than attributing them to an arbitrary subscriber.
+    fn own_write(&mut self, path: &str, digest: [u8; 32], actor: Option<&str>) {
+        // Only immutable principal references can identify a saved edit. Mixed,
+        // recovered and legacy display labels retain unknown attribution.
         self.saved.lock().unwrap_or_else(|e| e.into_inner()).push((
             path.into(),
-            Actor::Outside,
+            saved_actor(actor),
             digest,
         ));
     }
@@ -362,5 +385,33 @@ pub fn run() -> io::Result<()> {
             move || events.next_sequence(),
             Some((local, files)),
         ),
+    }
+}
+
+#[cfg(test)]
+mod document_save_actor_tests {
+    use super::*;
+
+    #[test]
+    fn save_actor_is_an_opaque_reference_not_a_display_name() {
+        assert_eq!(
+            saved_actor(Some("00ff800102030405060708090a0b0c0d")),
+            Actor::Principal(vec![0, 255, 128, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13])
+        );
+        for label in [
+            None,
+            Some(""),
+            Some("outside"),
+            Some("session:1"),
+            Some("run:abc"),
+            Some("alice"),
+            Some("00000000000000000000000000000000"),
+            Some("00FF800102030405060708090A0B0C0D"),
+            Some("zzff800102030405060708090a0b0c0d"),
+            Some("éééééééééééééééé"),
+            Some("00ff800102030405060708090a0b0c"),
+        ] {
+            assert_eq!(saved_actor(label), Actor::Outside, "{label:?}");
+        }
     }
 }

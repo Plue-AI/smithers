@@ -18,6 +18,7 @@ struct Model {
     displaced: BTreeMap<u64, Vec<u8>>,
     versions: Vec<Vec<u8>>,
     log: Vec<&'static str>,
+    saved_authors: Vec<Option<String>>,
     fail: Option<&'static str>,
     next: u64,
     bases: BTreeMap<u64, Record>,
@@ -96,8 +97,9 @@ impl Disk for Model {
         self.versions.push(bytes.to_vec());
         Ok(format!("v{}", self.versions.len()))
     }
-    fn own_write(&mut self, _: &str, _: Digest) {
+    fn own_write(&mut self, _: &str, _: Digest, actor: Option<&str>) {
         self.log.push("own");
+        self.saved_authors.push(actor.map(str::to_owned));
     }
 }
 fn gates() -> Gates {
@@ -868,8 +870,8 @@ mod dispatcher {
         fn record_outside(&mut self, p: &str, b: &[u8], a: &str) -> Result<String> {
             self.0.lock().unwrap().record_outside(p, b, a)
         }
-        fn own_write(&mut self, p: &str, d: Digest) {
-            self.0.lock().unwrap().own_write(p, d)
+        fn own_write(&mut self, p: &str, d: Digest, actor: Option<&str>) {
+            self.0.lock().unwrap().own_write(p, d, actor)
         }
     }
     struct Clock(AtomicU64, std::time::Instant);
@@ -1887,4 +1889,82 @@ fn host_author_registration_cannot_smuggle_deleted_foreign_text_or_reassign_auth
         Err(Error::Forged)
     );
     assert_eq!(h.state(stream).unwrap(), initial);
+}
+
+#[test]
+fn saves_attribute_only_edits_since_the_previous_successful_save() {
+    let (mut h, s) = host("abc");
+    edit(&mut h, s, "alice", 1);
+    h.flush_all(2).unwrap();
+    assert_eq!(h.disk.saved_authors, [Some("alice".into())]);
+    // Previous authors remain in CRDT history and recent presence. Neither
+    // makes Alice a contributor to Bob's following save.
+    h.write_saved("a.rs", digest(b"alice"), "bob", "bob", 3)
+        .unwrap();
+    assert_eq!(
+        h.disk.saved_authors,
+        [Some("alice".into()), Some("bob".into())]
+    );
+    h.write_through("a.rs", digest(b"bob"), "alice again", "alice", 4)
+        .unwrap();
+    h.write_through("a.rs", digest(b"alice again"), "both", "bob", 5)
+        .unwrap();
+    h.flush_all(6).unwrap();
+    assert_eq!(h.disk.saved_authors.last(), Some(&None));
+    h.write_saved("a.rs", digest(b"both"), "bob only", "bob", 7)
+        .unwrap();
+    assert_eq!(h.disk.saved_authors.last(), Some(&Some("bob".into())));
+}
+
+#[test]
+fn save_failure_retains_contributors_and_never_announces_success() {
+    for step in ["record", "swap"] {
+        let (mut h, s) = host("abc");
+        edit(&mut h, s, "alice", 1);
+        h.disk.fail = Some(step);
+        assert!(h.flush_all(2).is_err());
+        assert!(h.disk.saved_authors.is_empty());
+        h.disk.fail = None;
+        h.flush_all(3).unwrap();
+        assert_eq!(h.disk.saved_authors, [Some("alice".into())]);
+    }
+}
+
+#[test]
+fn allocating_another_authors_client_does_not_claim_their_edit() {
+    let (mut h, s) = host("abc");
+    h.client(s, "bob", 1).unwrap();
+    edit(&mut h, s, "alice", 2);
+    h.flush_all(3).unwrap();
+    assert_eq!(h.disk.saved_authors, [Some("alice".into())]);
+    h.require_receipt(s, 4).unwrap();
+    h.flush_all(5).unwrap();
+    assert_eq!(h.disk.saved_authors.last(), Some(&None));
+}
+
+#[test]
+fn outside_merge_is_not_attributed_to_the_only_connected_editor() {
+    let (mut h, s) = host("abc");
+    edit(&mut h, s, "alice", 1);
+    h.flush_all(2).unwrap();
+    h.disk.files.insert("a.rs".into(), b"outside".to_vec());
+    h.completed_write("a.rs", "outside", 3).unwrap();
+    h.flush_all(4).unwrap();
+    assert_eq!(h.disk.saved_authors.last(), Some(&Some("outside".into())));
+}
+
+#[test]
+fn interrupted_save_cannot_claim_a_new_editors_identity_after_recovery() {
+    let (mut h, s) = host("abc");
+    edit(&mut h, s, "alice", 1);
+    h.disk.fail = Some("swap");
+    assert!(h.flush_all(2).is_err());
+    let mut disk = h.disk;
+    disk.fail = None;
+    let mut recovered = Host::new(disk, gates(), ids());
+    recovered.open("a.rs", [8; 16], 3).unwrap();
+    recovered
+        .write_saved("a.rs", digest(b"alice"), "bob", "bob", 4)
+        .unwrap();
+    assert_eq!(recovered.disk.saved_authors, [None]);
 }

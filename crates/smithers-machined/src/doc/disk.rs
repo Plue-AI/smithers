@@ -34,7 +34,9 @@ pub trait Disk: Send {
     /// Persist exact outside bytes as this burst's after version before deletion.
     fn record_outside(&mut self, path: &str, text: &[u8], actor: &str) -> Result<String>;
     /// Exclude watcher events by path and post-write digest, never inotify pid.
-    fn own_write(&mut self, path: &str, post_digest: Digest);
+    /// Actor is the sole contributor since the preceding successful save, or
+    /// None for combined/unknown edits. Historical authors are not contributors.
+    fn own_write(&mut self, path: &str, post_digest: Digest, actor: Option<&str>);
 }
 
 /// Lexical validation supplements, never replaces, descriptor confinement.

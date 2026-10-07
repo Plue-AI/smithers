@@ -35,7 +35,10 @@ use yrs::{
 const MEMBER: &[u8] = &[0, 255, 128, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
 
 #[derive(Clone, Default)]
-struct Receipts(Arc<Mutex<Vec<Vec<u8>>>>);
+struct Receipts(
+    Arc<Mutex<Vec<Vec<u8>>>>,
+    Arc<Mutex<Vec<(String, [u8; 32], Option<String>)>>>,
+);
 impl Versions for Receipts {
     fn outside(
         &mut self,
@@ -46,7 +49,12 @@ impl Versions for Receipts {
         self.0.lock().unwrap().push(bytes.to_vec());
         Ok(format!("fixture:{}", self.0.lock().unwrap().len()))
     }
-    fn own_write(&mut self, _: &str, _: [u8; 32]) {}
+    fn own_write(&mut self, path: &str, digest: [u8; 32], actor: Option<&str>) {
+        self.1
+            .lock()
+            .unwrap()
+            .push((path.into(), digest, actor.map(str::to_owned)));
+    }
 }
 struct Clock(AtomicU64, Instant);
 impl hooks::Clock for Clock {
@@ -625,6 +633,10 @@ fn two_members_edits_save_and_reopen_with_both_authors() {
         fs::read(f.root.join("workspace/a.rs")).unwrap(),
         "β abc α".as_bytes()
     );
+    assert_eq!(
+        *f.receipts.1.lock().unwrap(),
+        vec![("a.rs".into(), digest("β abc α".as_bytes()), None)]
+    );
     drop(cx);
     drop(service);
     let (recovered, mut cx) = f.service();
@@ -646,4 +658,40 @@ fn two_members_edits_save_and_reopen_with_both_authors() {
         authors.get(&two.client_id.to_string()).map(String::as_str),
         Some("11111111111111111111111111111111")
     );
+}
+
+#[test]
+#[ignore = "requires Linux uid19998 and confined real filesystem"]
+fn authenticated_file_write_retains_save_author_across_disk_adapter() {
+    let f = Fixture::new();
+    let (service, mut cx) = f.service();
+    assert_eq!(write(&mut cx, "a.rs", digest(b"abc"))[0], 3);
+    assert_eq!(fs::read(f.root.join("workspace/a.rs")).unwrap(), b"new");
+    assert_eq!(
+        *f.receipts.1.lock().unwrap(),
+        vec![(
+            "a.rs".into(),
+            digest(b"new"),
+            Some("00ff800102030405060708090a0b0c0d".to_owned())
+        )]
+    );
+    // Stale refusal cannot create another attributed save.
+    assert_eq!(write(&mut cx, "a.rs", digest(b"abc"))[0], 255);
+    assert_eq!(f.receipts.1.lock().unwrap().len(), 1);
+    drop(cx);
+    drop(service);
+    let (service, mut cx) = f.service();
+    let id = stream(&open(&mut cx, "a.rs"));
+    let doc = replica(&mut cx, id, 101);
+    assert_eq!(
+        doc.get_or_insert_text("content")
+            .get_string(&doc.transact()),
+        "new"
+    );
+    service.flush_all(&mut cx).unwrap();
+    // Reopening cannot reuse a previous save's author merely because its
+    // historical CRDT client is still present.
+    for (_, _, actor) in f.receipts.1.lock().unwrap().iter().skip(1) {
+        assert_eq!(actor, &None);
+    }
 }
