@@ -37,7 +37,14 @@ func TestMachineKillRetainsDiskAndRecoveryIsolation(t *testing.T) {
 	require.NoError(t, err)
 	msb := bundle.Program("bin/msb")
 	require.NoError(t, msb.Check())
-	state := t.TempDir()
+	// Installed runtime metadata must have a protected ancestor chain; the
+	// system temporary directory is often world-writable. Keep this test
+	// state in its own checkout and remove it after owned-machine cleanup.
+	state, err := os.MkdirTemp(".", ".machine-kill-")
+	require.NoError(t, err)
+	state, err = filepath.Abs(state)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(state)) })
 	machine, err := microsandbox.New(ctx, microsandbox.Config{Root: state, Bundle: bundle, CPUs: 1, MemoryMiB: 1024, DiskMiB: 2048, MaxRunningVMs: 1})
 	require.NoError(t, err, "installed microVM qualification must pass before dispatch")
 	t.Cleanup(func() { require.NoError(t, machine.Close()) })
