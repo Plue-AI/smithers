@@ -664,7 +664,8 @@ describe("parseWorkflow", () => {
       "e2e-faults",
       "browser",
       "packages",
-      "go-backend"
+      "go-backend",
+      "go-backend-access"
     ])
     // The platform matrix parses as ONE job whose runner is the matrix
     // expression, not as three copy-pasted jobs.
