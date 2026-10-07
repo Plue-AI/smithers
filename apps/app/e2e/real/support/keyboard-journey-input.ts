@@ -45,7 +45,7 @@ export function keyboardJourneyInput(page: Page, origin: string) {
     await page.keyboard.press("Enter")
     await observe()
   }
-  return { command, activate, enter, select, observe, finish: () => {
+  return { command, activate, enter, select, observe, snapshot: () => ({ inputs, focus }), finish: () => {
     assertKeyboardOnly(inputs)
     assertKeyboardFocus(focus)
     return { inputs, focus }
