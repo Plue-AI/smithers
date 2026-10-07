@@ -260,6 +260,70 @@ func TestTodoOwnerAdmissionLaunchesThePinnedComposition(t *testing.T) {
 	require.Equal(t, landed, o.hostRef(repohost.WorkspaceSourceRef(item.WorkspaceID, landed)), "the retry's new lane can import the original flow source after main moves")
 }
 
+// Real PostgreSQL Active metadata and stack admission; only the lane and
+// launch transports are the existing protocol fixtures.
+func TestTodoQueuedBeforeActivationPinsVersionAtStarting(t *testing.T) {
+	o, session := newTodoAdmission(t)
+	ctx, q := t.Context(), db.New(o.pool)
+	o.service.SetTodoFlow(func(ctx context.Context, repositoryID int64, _ string) (string, error) {
+		return ActiveFlowDigest(ctx, q, repositoryID, "todo")
+	})
+	sourceOne := o.landedMain()
+	_, err := o.pool.Exec(ctx, `INSERT INTO workflow_definitions(repository_id,name,path,config,is_active,source_commit,digest,status) VALUES($1,'todo','flows/todo/flow.ts','{}',true,$2,$3,'loaded')`, o.repoID, sourceOne, todoPinOne)
+	require.NoError(t, err)
+	_, err = o.pool.Exec(ctx, `UPDATE mythical_stacks SET max_parallel=3 WHERE repository_id=$1`, o.repoID)
+	require.NoError(t, err)
+	allowance := func(value string) {
+		require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: todoDailyAdmissionsSetting, Value: []byte(value)}))
+	}
+	allowance("1")
+	first := o.fileTodo(session, "active-before-start")
+	o.wake()
+	first = o.byID(uuidString(first.ID))
+	require.Equal(t, "starting", todoState(first))
+	require.Equal(t, todoPinOne, first.FlowDigest.String)
+	queued := o.fileTodo(session, "queued-before-activation")
+	o.wake()
+	queued = o.byID(uuidString(queued.ID))
+	require.Equal(t, "queued", todoState(queued))
+	require.False(t, queued.FlowDigest.Valid)
+	require.Zero(t, queued.Attempt)
+	require.Empty(t, queued.WorkspaceID)
+
+	// The activation provider publishes v2 while the daily allowance keeps
+	// this TODO queued. Both commits are real retained Git objects.
+	o.commit("✨ feat: second flow source", "version.txt", "v2\n")
+	o.publish()
+	o.wake()
+	sourceTwo := o.landedMain()
+	require.NotEqual(t, sourceOne, sourceTwo)
+	_, err = o.pool.Exec(ctx, `UPDATE workflow_definitions SET source_commit=$2,digest=$3 WHERE repository_id=$1 AND name='todo'`, o.repoID, sourceTwo, todoPinTwo)
+	require.NoError(t, err)
+	allowance("3")
+	o.wake()
+	queued = o.byID(uuidString(queued.ID))
+	require.Equal(t, "starting", todoState(queued), queued.Reason)
+	require.Equal(t, todoPinTwo, queued.FlowDigest.String)
+	require.Equal(t, sourceTwo, mythicalChecksOf(queued).FlowSource)
+	require.Equal(t, todoPinOne, o.byID(uuidString(first.ID)).FlowDigest.String)
+	require.Equal(t, sourceOne, mythicalChecksOf(o.byID(uuidString(first.ID))).FlowSource)
+	newItem := o.fileTodo(session, "filed-after-activation")
+	o.wake()
+	newItem = o.byID(uuidString(newItem.ID))
+	require.Equal(t, "starting", todoState(newItem), newItem.Reason)
+	require.Equal(t, todoPinTwo, newItem.FlowDigest.String)
+	require.Equal(t, sourceTwo, mythicalChecksOf(newItem).FlowSource)
+	launches := o.launcher.byFlow("todo")
+	require.Len(t, launches, 3)
+	for i, pin := range []flowruntime.Pin{
+		{Flow: "todo", SourceCommit: sourceOne, ExecutionDigest: todoPinOne},
+		{Flow: "todo", SourceCommit: sourceTwo, ExecutionDigest: todoPinTwo},
+		{Flow: "todo", SourceCommit: sourceTwo, ExecutionDigest: todoPinTwo},
+	} {
+		require.Equal(t, &pin, launches[i].Pin)
+	}
+}
+
 // Fable round 1, F5: an item's pin admits a launch, or binds a run, only
 // when it is exactly a 64-hex digest with its 40-hex source commit. A
 // malformed or half pin refuses the attempt before any effect and binds no
