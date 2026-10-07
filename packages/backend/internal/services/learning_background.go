@@ -16,7 +16,16 @@ func (s *MythicalService) LearningBackgroundRuns(ctx context.Context, repository
  AND r.payload->'target'->>'PrincipalID'=r.principal_id
  AND r.payload->'payload'->>'todo'=i.number::text
  AND r.payload->>'flowId'='learning' AND r.payload->'target'->>'BindingKind'='learning'
- AND r.state NOT IN ('completed','cancelled') ORDER BY r.created_at,r.id`, repository, fmt.Sprintf("repository:%d", repository))
+ AND r.state NOT IN ('completed','cancelled')
+ UNION ALL
+ SELECT r.id,r.state,i.number FROM product_job_requests r
+ JOIN mythical_items i ON i.id::text=r.payload->>'item' AND i.repository_id=$1
+ WHERE r.tenant_id=$2 AND r.operation='learning.admission'
+ AND i.source='todo' AND i.state='landed' AND i.pr_state='merged'
+ AND r.payload->>'repository'=i.repository_id::text
+ AND r.payload->>'todo'=i.number::text AND r.payload->>'commit'=i.pr_merge_commit
+ AND r.principal_id='user:' || i.owner_id::text
+ AND r.state NOT IN ('completed','cancelled') ORDER BY id`, repository, fmt.Sprintf("repository:%d", repository))
 	if err != nil {
 		return nil, err
 	}
