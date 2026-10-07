@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -53,6 +54,36 @@ func TestInstallExecutionWorkspaceFileReadPostgres(t *testing.T) {
 	} {
 		creds[actor.name] = f.token(f.owner, "file-"+actor.name, "read:repository,"+middleware.RepositoryRestrictionScope(f.repoID)+","+actor.binding, true)
 	}
+	t.Run("unmapped machine route", func(t *testing.T) {
+		path := cfg.Server.PublicURL + "/api/repos/gate-owner/app/workspaces/" + workspaces[0].ID
+		req := httptest.NewRequest("GET", path, nil)
+		req.Header.Set("Authorization", "Bearer "+creds["machine"])
+		out := httptest.NewRecorder()
+		router.ServeHTTP(out, req)
+		require.Equal(t, 403, out.Code, out.Body.String())
+		require.Contains(t, out.Body.String(), `"code":"permission"`)
+		require.NotContains(t, out.Body.String(), "file-read-0")
+
+		// Authentication already refuses this currently served door. The
+		// command boundary must also refuse when a future protocol loader
+		// authenticates a scoped credential without binding an action.
+		sum := sha256.Sum256([]byte(creds["machine"]))
+		hash := hex.EncodeToString(sum[:])
+		stored, err := f.q.GetAuthInfoByTokenHash(f.ctx, hash)
+		require.NoError(t, err)
+		info := &middleware.AuthInfo{User: &f.owner, IsTokenAuth: true, TokenSystemIssued: true, TokenID: stored.TokenID, TokenHash: hash, RawScopes: stored.TokenScopes, Scopes: middleware.ParseTokenScopes(stored.TokenScopes)}
+		var decisions []string
+		ctx := services.WithAuthorizationObserver(middleware.ContextWithAuthInfo(f.ctx, info), func(command string) { decisions = append(decisions, command) })
+		req = httptest.NewRequest("GET", path, nil).WithContext(ctx)
+		reached := false
+		guard := memberCommands(f.q)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { reached = true; w.WriteHeader(200) }))
+		out = httptest.NewRecorder()
+		guard.ServeHTTP(out, req)
+		require.Equal(t, 403, out.Code, out.Body.String())
+		require.Contains(t, out.Body.String(), `"code":"permission"`)
+		require.False(t, reached)
+		require.Equal(t, []string{""}, decisions)
+	})
 	for _, cell := range []struct {
 		actor     string
 		workspace int

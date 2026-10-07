@@ -215,15 +215,10 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				return
 			}
 			if info != nil && info.User != nil && info.IsTokenAuth && command == "" {
-				// AuthLoader already confines these system grants to their exact
-				// workspace/child or verified coding batch before dispatch.
-				_, coding := middleware.CodingFileCredential(info)
-				scopedSystem := info.TokenSystemIssued && (info.CredentialKind() == middleware.CredentialMachine && info.WorkspaceRestriction() != "" || middleware.ParseTokenWorkspaceChildrenCredential(info.RawScopes) || coding)
-
-				if !scopedSystem {
-					writeConfirmationDispatchError(w, &services.AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"})
-					return
-				}
+				// No workspace or profile scope grants an unlisted install action.
+				_, err := services.Authorize(r.Context(), queries, command)
+				writeConfirmationDispatchError(w, err)
+				return
 			}
 			if info == nil || info.User == nil || command == "" || command == "self" || command == "public" {
 				next.ServeHTTP(w, r)
