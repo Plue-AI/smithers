@@ -1,3 +1,4 @@
+import { requireMachineQualification } from './lib/qualification.mjs'
 import { runSelected } from './run.mjs'
 import { readFile } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
@@ -49,8 +50,8 @@ export async function run(env = process.env, { persist = true } = {}) {
   let socket
   let terminal, closeTerminal
   try {
+    requireMachineQualification()
     const c = configuration(env)
-    if (process.platform !== 'darwin') throw new Error('C-PERF-05 requires the reference Mac host')
     result.commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
     result.installVersion = env.SMITHERS_PERF_INSTALL_VERSION
     result.sleepSeconds = c.sleepSeconds

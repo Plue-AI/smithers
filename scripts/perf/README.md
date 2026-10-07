@@ -279,3 +279,10 @@ Each driver's authenticated host read is retained in its budget evidence.
 Hardware/platform fields must match the initial read; free disk and derived
 limits may change and both readings remain available. This profile check does
 not authenticate a physical machine or replace lifecycle qualification.
+
+Direct library calls to the keystroke, disk-write and warm-wake drivers enforce
+the same lifecycle qualification refusal as the command runner, before reading
+fixtures or opening browser, SSH or terminal connections. Calling `run()`
+directly cannot activate an unqualified machine workload on macOS. Qualification
+verification and automatic activation still require an authenticated install
+contract and approved reference-host provenance; neither is supplied by a flag.

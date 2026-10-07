@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { isDeepStrictEqual } from 'node:util'
 import { pathToFileURL } from 'node:url'
 import { publicOrigin, readHost, validateReferenceHost } from './lib/host.mjs'
+import { requireMachineQualification } from './lib/qualification.mjs'
 import { writeRun } from './lib/artifact.mjs'
 import { summarize, summarizeRebases } from './lib/stats.mjs'
 import { configuration as agentConfiguration, run as agentRun } from './agent-first-token.mjs'
@@ -19,8 +20,7 @@ function machineProvider(configuration, workload, fields) {
     available(env, { origin }) {
       const config = configuration(env)
       if (config.origin !== origin) throw new Error('configured measurement origin differs from run')
-      if (process.platform !== 'darwin') throw new Error('reference-network Mac required')
-      throw new Error('authenticated lifecycle qualification unavailable: T-INS-02, T-MCH-11, T-SEC-01, T-MCH-10')
+      requireMachineQualification()
     },
     async measure(env) { return (await workload(env, { persist: false })).result },
     fields

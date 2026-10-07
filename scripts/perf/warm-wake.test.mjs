@@ -58,7 +58,7 @@ test('CLI workload retains refusal artifacts without credentials or a passing bu
     assert.equal(result.samples.length, 0)
     const raw = await readFile(join(result.artifacts, 'warm-wake.json'), 'utf8')
     assert.equal(raw.includes('secret'), false)
-    assert.match(raw, /HOST_WAKE_LOG required/)
+    assert.match(raw, process.platform === 'darwin' ? /authenticated lifecycle qualification unavailable/ : /reference-network Mac required/)
     const receipt = await readFile(join(root, '.artifacts/checks/C-PERF-05', result.timestamp, 'summary.json'), 'utf8')
     assert.equal(JSON.parse(receipt).status, 'failed')
   } finally { await rm(root, { recursive: true, force: true }) }

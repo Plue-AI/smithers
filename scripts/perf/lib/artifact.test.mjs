@@ -5,6 +5,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { run, productionProviders } from '../run.mjs'
 import { publicOrigin, validateHost, readHost } from './host.mjs'
+import { run as keystroke } from '../keystroke.mjs'
+import { run as diskWrite } from '../disk-write.mjs'
+import { run as warmWake } from '../warm-wake.mjs'
+import { requireMachineQualification } from './qualification.mjs'
 
 const host = { profile: { memory_bytes: 68719476736, perf_cores: 10, physical_cores: 12, disk_free_bytes: 200000000000, macos_version: '15.7', hypervisor: true }, limits: { capacity: 5 } }
 const options = { providers: {}, origin: 'http://mini.lan:8080', token: 'test-secret', commit: 'a'.repeat(40), installVersion: 'fixture', browser: 'not-run', timestamp: '2026-10-04T00-00-00-000Z', read: async () => host }
@@ -345,4 +349,31 @@ test('driver host evidence is retained and a changed platform fails after launch
     assert.deepEqual(saved.host, host)
     assert.deepEqual(saved.budgets[0].host, measuredHost)
   })
+})
+
+
+test('direct machine workloads refuse on macOS before reading fixtures or making requests', async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')
+  const originalFetch = globalThis.fetch
+  let requests = 0
+  try {
+    Object.defineProperty(process, 'platform', { ...descriptor, value: 'darwin' })
+    globalThis.fetch = () => { requests++; throw new Error('unexpected network request') }
+    assert.throws(() => requireMachineQualification(), /authenticated lifecycle qualification unavailable/)
+    for (const workload of [keystroke, diskWrite, warmWake]) {
+      const result = await workload({ SMITHERS_PERF_MACHINE_QUALIFIED: 'true' }, { persist: false })
+      assert.equal(result.result.status, 'failed')
+      assert.match(result.result.error, /authenticated lifecycle qualification unavailable/)
+      assert.deepEqual(result.result.samples, [])
+    }
+    for (const check of ['C-PERF-03', 'C-PERF-04', 'C-PERF-05']) {
+      const result = await productionProviders[check].measure({})
+      assert.equal(result.status, 'failed')
+      assert.match(result.error, /authenticated lifecycle qualification unavailable/)
+    }
+    assert.equal(requests, 0)
+  } finally {
+    Object.defineProperty(process, 'platform', descriptor)
+    globalThis.fetch = originalFetch
+  }
 })

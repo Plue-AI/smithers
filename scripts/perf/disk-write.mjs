@@ -1,3 +1,4 @@
+import { requireMachineQualification } from './lib/qualification.mjs'
 import { runSelected } from './run.mjs'
 import { createRequire } from 'node:module'
 import { execFile, execFileSync } from 'node:child_process'
@@ -79,8 +80,8 @@ export async function run(env = process.env, { persist = true } = {}) {
   const result = { timestamp, check: 'C-PERF-04', status: 'failed', samples: [], clock: 'second Mac Node performance.now(): SSH submission to browser binding (upper bound)' }
   let browser, directory, ssh, masterStarted = false
   try {
+    requireMachineQualification()
     const config = configuration(env)
-    if (process.platform !== 'darwin') throw new Error('C-PERF-04 requires a reference-network Mac')
     result.origin = config.origin
     result.host = await readHost(config.origin, { cookie: env.SMITHERS_PERF_OWNER_COOKIE })
     result.commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
