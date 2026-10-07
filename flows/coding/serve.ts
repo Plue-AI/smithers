@@ -12,7 +12,7 @@ import { remoteLayer } from "../repository/remote.ts"
 import { consume as consumeCheckEnvironment } from "./check-environment.ts"
 import { share } from "./host-modules.ts"
 import { layer, operatorSeats, optionsFromEnv, systemFlowsFromEnv } from "./host.ts"
-import { prepareFlowDependencies, withPinnedSource } from "./immutable-source.ts"
+import { prepareFlowDependencies, withImmutableCommit, withPinnedSource } from "./immutable-source.ts"
 import { consumeInstallProject } from "./install-project.ts"
 import { load as loadLanding } from "./landing-config.ts"
 import * as Landing from "./landing.ts"
@@ -224,6 +224,33 @@ if (parsed.values.version) {
             ),
             Effect.provide(platform.host)
           )
+        // A review machine's working copy is the reviewed PR. Its restore
+        // already fetched the pinned commit beside it with a read-only token,
+        // so there is no binding to import through and nothing to publish:
+        // export that exact commit and register flows only from the export.
+        if (process.env.SMITHERS_FLOW_SOURCE_PINNED === "1" && process.env.SMITHERS_FLOW_SOURCE_LOCAL === "1") {
+          return Effect.gen(function*() {
+            if (landing !== undefined || options.todoExecutionDigest !== undefined) {
+              throw new Error("Local pinned flow source carries no landing binding or TODO pin")
+            }
+            const fs = yield* FileSystem.FileSystem
+            const sourceOptions = {
+              repositoryPath: root,
+              fs,
+              exporterPath: options.exporterPath,
+              sourceDirectory: resolve(stateRoot, "source"),
+              environment: selectEnvironment(["PATH", "HOME"])
+            }
+            return yield* withImmutableCommit(
+              sourceOptions,
+              options.runtimeSourceRevision ?? "",
+              (tree, sourceRoot) =>
+                prepareFlowDependencies(sourceOptions, sourceRoot).pipe(
+                  Effect.andThen(serveSource(sourceRoot, tree.commitId))
+                )
+            )
+          })
+        }
         // Validate the protected workspace binding before invoking the source exporter.
         // This entire effect runs in the unprivileged managed coding host.
         return (process.env.SMITHERS_FLOW_SOURCE_PINNED === "1"

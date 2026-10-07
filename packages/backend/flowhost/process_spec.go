@@ -107,8 +107,19 @@ func BuildProcessSpec(launch HostLaunch, paths WorkspacePaths, port uint16) (Pro
 		environment["SMITHERS_CODING_LOCAL_OWNER"] = "1"
 	}
 	delete(environment, "SMITHERS_FLOW_SOURCE_PINNED")
+	delete(environment, "SMITHERS_FLOW_SOURCE_LOCAL")
 	delete(environment, "SMITHERS_TODO_EXECUTION_DIGEST")
-	if pin := launch.Authority.ExecutionPin; pin != nil {
+	if launch.Binding.BindingKind == "review" {
+		// A review machine's working copy is the reviewed PR. Its host loads
+		// flows only from the pinned commit its restore fetched beside it, and
+		// never imports, publishes or registers the working copy's flows.
+		pin := launch.Authority.ExecutionPin
+		if pin == nil || !pin.Valid() || pin.Flow != "review" || pin.SourceCommit != launch.Binding.SourceRevision {
+			return ProcessSpec{}, errors.New("review host requires its pinned review source")
+		}
+		environment["SMITHERS_FLOW_SOURCE_PINNED"] = "1"
+		environment["SMITHERS_FLOW_SOURCE_LOCAL"] = "1"
+	} else if pin := launch.Authority.ExecutionPin; pin != nil {
 		// A browser catalog read may create the shared TODO machine's host
 		// before its stack worker. Both callers resolve this pin from the
 		// admitted attempt; the browser remains unable to launch the TODO.

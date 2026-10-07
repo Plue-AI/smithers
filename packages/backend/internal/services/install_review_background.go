@@ -102,19 +102,19 @@ func (b *ReviewBackground) admit(ctx context.Context, admission ReviewAdmission,
 // admitInTx shares the person's confirmation transaction: a job and an
 // approved card either both commit, or neither does.
 func (b *ReviewBackground) admitInTx(ctx context.Context, tx pgx.Tx, admission ReviewAdmission, request ReviewRequest) (ReviewAdmission, error) {
-	bound, repository, err := lockInstallWriteCredential(ctx, tx, middleware.AuthInfoFromContext(ctx))
-	if err != nil {
-		return ReviewAdmission{}, err
-	}
-	if repository != admission.RepositoryID {
-		return ReviewAdmission{}, reviewNonMember()
-	}
-	decision, err := Authorize(bound, db.New(tx), "review")
+	// The request's own decision stays bound to its credential: the door or the
+	// person's Confirm press made it. Under the repository lock only credential
+	// and membership liveness are refreshed, as for every install write.
+	decision, err := Authorize(ctx, db.New(tx), "review")
 	if err != nil {
 		return ReviewAdmission{}, err
 	}
 	if decision.UserID != admission.RequesterID {
 		return ReviewAdmission{}, reviewNonMember()
+	}
+	repository := admission.RepositoryID
+	if err = guardInstallMemberCredential(ctx, tx, repository, admission.RequesterID, true); err != nil {
+		return ReviewAdmission{}, err
 	}
 	// Another admission may have selected its pin while we waited for the repository lock.
 	existing, lookupErr := b.store.GetByRequestInTx(ctx, tx, reviewScope(repository, admission.RequesterID), reviewOperation, admission.IdempotencyKey)
@@ -146,7 +146,7 @@ func (b *ReviewBackground) admitInTx(ctx context.Context, tx pgx.Tx, admission R
 		return ReviewAdmission{}, err
 	}
 	payload, _ := json.Marshal(reviewJob{Request: request, Admission: admission})
-	credential, _ := json.Marshal(middleware.CredentialOf(middleware.AuthInfoFromContext(bound)))
+	credential, _ := json.Marshal(middleware.CredentialOf(middleware.AuthInfoFromContext(ctx)))
 	receipt, err := b.store.AdmitInTx(ctx, tx, jobs.Admission{Scope: reviewScope(repository, admission.RequesterID), Operation: reviewOperation, RequestID: admission.IdempotencyKey, Payload: payload, AuthorizationContext: credential, EffectPolicy: jobs.EffectIdempotent})
 	if errors.Is(err, jobs.ErrPayloadConflict) {
 		return ReviewAdmission{}, todoRequestMismatch()
