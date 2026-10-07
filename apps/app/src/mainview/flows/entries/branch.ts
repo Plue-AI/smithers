@@ -70,7 +70,7 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
         const result = design.addToStack(target.id, design.viewer())
         return result.ok ? undefined : result.refusal
       } }),
-    flow({ name: "branch.rebase",   slash: "/branch.rebase", cli: ["branch","rebase"], journey: ["J7"], group: "Branches and machines", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/branches/{branch}","defaults":{"op":"rebase"}}, summary: "Rebase this branch now", args: "<branch>", hidden: true, discloseToAgent: true,
+    flow({ name: "branch.rebase",   slash: "/branch.rebase", cli: ["branch","rebase"], journey: ["J7"], group: "Branches and machines", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/branches/{branch}","defaults":{"rebase":true}}, summary: "Rebase this branch now", args: "<branch>", hidden: true, discloseToAgent: true,
       grammar: field("branch"), agent: "run", input: Schema.Struct({ branch: Schema.String, conflict_change: Schema.optional(Schema.NonEmptyString), onto_revision: Schema.optional(Schema.NonEmptyString) }),
       handler: ({ branch, conflict_change, onto_revision }) => {
         if (actions.branchControls) return actions.branchControls.request("rebase", branch, { conflict_change, onto_revision })

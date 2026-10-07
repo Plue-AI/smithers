@@ -1677,7 +1677,7 @@
         "method": "POST",
         "path": "/api/branches/{branch}",
         "defaults": {
-          "op": "rebase"
+          "rebase": true
         }
       },
       "payload": {
@@ -1734,7 +1734,13 @@
       "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Rebase now",
-      "http": null,
+      "http": {
+        "method": "POST",
+        "path": "/api/branches/{branch}",
+        "defaults": {
+          "rebase": true
+        }
+      },
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
