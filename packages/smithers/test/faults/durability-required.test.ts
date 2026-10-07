@@ -25,8 +25,10 @@ for (const file of ["host/case40-host-kill-todo-run.test.ts", "engine/case39-kil
   })
 }
 
+// The retained-disk transport control alone cannot qualify C-DUR-02.
+// Keep requiring the composed TODO kill marker until that reference case lands.
 const selected = process.env.SMITHERS_FAULT_HOST === "reference"
-  ? [...cases, ["C-DUR-02", "flowhost/machine_kill_fault_test.go", null, []] as const]
+  ? [...cases, ["C-DUR-02", "flowhost/machine_kill_fault_test.go", null, ["machine-mid-command", "machine-mid-todo"]] as const]
   : cases
 for (const [check, file, name, points] of selected) {
   test(`${check}: ${name ?? file}`, () => {
