@@ -75,16 +75,20 @@ func (noPolicy) GetFileAtCommit(context.Context, string, string, string, string)
 // credential is refused before any TODO is read, and none records an
 // approval, a fence or a GitHub merge.
 func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
-	testTodoMergeComposedRouteBoundaryPostgres(t, false)
+	testTodoMergeComposedRouteBoundaryPostgres(t, false, false)
 }
 
 func TestConfirmationMergeAdmissionComposedPostgres(t *testing.T) {
-	testTodoMergeComposedRouteBoundaryPostgres(t, true)
+	testTodoMergeComposedRouteBoundaryPostgres(t, true, false)
 }
 
 var confirmationMergeInstallations atomic.Int64
 
-func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations bool) {
+func TestTodoPullLabelApprovalComposedPostgres(t *testing.T) {
+	testTodoMergeComposedRouteBoundaryPostgres(t, false, true)
+}
+
+func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, labelApproval bool) {
 	installation := int64(98300) + confirmationMergeInstallations.Add(1)
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx := context.Background()
@@ -206,6 +210,35 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations bool
 	server.Start()
 	t.Cleanup(server.Close)
 
+	if labelApproval {
+		require.NoError(t, credentials.SetInstallation(ctx, installation))
+		synced := services.NewGitHubSyncedRepoService(q)
+		require.NoError(t, synced.ConfigureInstallSync(pool))
+		synced.BindInstallAuthority(credentials, true)
+		synced.SetConditionalFetcherFactory(userRepos.SyncedRepoConditionalFetcherFactory(connections))
+		mythical.UseInstallGitHubPolling(synced)
+		_, err = q.EnrollGitHubSyncedRepo(ctx, db.EnrollGitHubSyncedRepoParams{OwnerLogin: "rehearsal-owner", RepoName: "app", InstallationID: pgtype.Int8{Int64: installation, Valid: true}, GithubRepositoryID: pgtype.Int8{Int64: 100, Valid: true}, SyncMetadata: true, EnrolledVia: services.GitHubSyncedRepoEnrolledViaInstallation})
+		require.NoError(t, err)
+		require.Positive(t, fake.LabelIssue("rehearsal-owner/app", pull.Number, "rehearsal-owner", "automerge"))
+		workerCtx, stop := context.WithCancel(ctx)
+		done := make(chan struct{})
+		go func() { defer close(done); synced.StartReconciler(workerCtx) }()
+		defer func() { stop(); <-done }()
+		require.Eventually(t, func() bool {
+			request, err := http.NewRequest(http.MethodGet, origin+fmt.Sprintf("/api/todos/%d", filed.Number), nil)
+			require.NoError(t, err)
+			request.AddCookie(&http.Cookie{Name: "smithers_session", Value: "owner-browser-session"})
+			response, err := fake.Client().Do(request)
+			require.NoError(t, err)
+			defer response.Body.Close()
+			var card map[string]any
+			require.NoError(t, json.NewDecoder(response.Body).Decode(&card))
+			return response.StatusCode == 200 && card["preapproval"] != nil
+		}, 20*time.Second, 100*time.Millisecond, "the install TODO card must show the authenticated PR label approval")
+		require.Empty(t, item().PendingOp, "ingestion grants approval without dispatching")
+		return
+	}
+
 	if confirmations {
 		_, err = pool.Exec(ctx, `UPDATE mythical_items SET attempt=1 WHERE id=$1`, before.ID)
 		require.NoError(t, err)
@@ -263,10 +296,26 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations bool
 		for _, write := range fake.Writes() {
 			require.False(t, write.Method == "PUT" && strings.HasSuffix(write.Path, "/merge"))
 		}
+		fake.RequireCheck("required/unit")
+		fake.SetCheck("rehearsal-owner/app", pull.Head.SHA, "required/unit", "in_progress", "")
+		fake.SetCheck("rehearsal-owner/app", pull.Head.SHA, "optional/lint", "completed", "failure")
 		argv[len(argv)-1] = "confirm-current-generation"
 		code, receipt = invoke(argv...)
 		require.Equal(t, 3, code, receipt)
 		id = receipt["confirmation"].(string)
+		status, receipt = call("POST", "/api/confirmations/"+id+"/approve", "owner-browser-session", "", "pending-check-press", `{}`)
+		require.Equal(t, 409, status, receipt)
+		require.Equal(t, "checks", receipt["code"])
+		pending, err := q.GetMemberConfirmation(ctx, id, owner.ID)
+		require.NoError(t, err)
+		require.Equal(t, "pending", pending.State)
+		require.Empty(t, item().PendingOp)
+		for _, write := range fake.Writes() {
+			require.False(t, write.Method == "PUT" && strings.HasSuffix(write.Path, "/merge"))
+		}
+		// Only the required check changes. The failed optional check remains
+		// on the reviewed SHA and cannot prevent the person's approval.
+		fake.SetCheck("rehearsal-owner/app", pull.Head.SHA, "required/unit", "completed", "success")
 		status, receipt = call("POST", "/api/confirmations/"+id+"/approve", "owner-browser-session", "", "person-press", `{}`)
 		require.Equal(t, 202, status, receipt)
 		require.Equal(t, "pending", receipt["state"])
