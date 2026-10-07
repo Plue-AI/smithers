@@ -3,6 +3,8 @@ package compose
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -109,6 +111,49 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 	input := services.ReservedStackInput{RequestID: "11111111-1111-4111-8111-111111111111", Source: &source}
 	raw, err := json.Marshal(input)
 	require.NoError(t, err)
+	t.Run("one decision cannot authorize substituted work", func(t *testing.T) {
+		digest := sha256.Sum256([]byte(token))
+		hash := hex.EncodeToString(digest[:])
+		stored, err := f.q.GetAuthInfoByTokenHash(f.ctx, hash)
+		require.NoError(t, err)
+		info := &middleware.AuthInfo{User: &f.owner, IsTokenAuth: true, TokenSystemIssued: true, TokenID: stored.TokenID, TokenHash: hash, RawScopes: stored.TokenScopes, Scopes: middleware.ParseTokenScopes(stored.TokenScopes)}
+		for _, field := range []string{"request", "source", "proposal generation"} {
+			t.Run(field, func(t *testing.T) {
+				command, admitted := "stack.candidate", input
+				if field == "proposal generation" {
+					command = "stack.propose"
+					admitted = services.ReservedStackInput{RequestID: input.RequestID, Generation: 7}
+				}
+				calls := 0
+				ctx := services.WithAuthorizationObserver(middleware.ContextWithAuthInfo(f.ctx, info), func(string) { calls++ })
+				subject, err := services.ResolveReservedStackSubject(ctx, f.q, f.repoID, row.ID)
+				require.NoError(t, err)
+				subject, err = services.BindReservedStackPayload(subject, command, admitted)
+				require.NoError(t, err)
+				decision, err := services.Authorize(ctx, f.q, command, subject)
+				require.NoError(t, err)
+				changed := admitted
+				switch field {
+				case "request":
+					changed.RequestID = uuid.NewString()
+				case "source":
+					source := *admitted.Source
+					source.CommitID = strings.Repeat("f", 40)
+					changed.Source = &source
+				case "proposal generation":
+					changed.Generation++
+				}
+				before, reads := runtime.calls, objects.reads
+				_, _, err = service.ReservedStackOperation(services.WithInstallAuthorization(ctx, command, decision, subject), f.repoID, row.ID, command, changed)
+				var refused *services.AccessError
+				require.ErrorAs(t, err, &refused)
+				require.Equal(t, 403, refused.Status)
+				require.Equal(t, 1, calls)
+				require.Equal(t, before, runtime.calls)
+				require.Equal(t, reads, objects.reads)
+			})
+		}
+	})
 	t.Run("equal tree reuses candidate and proposal", func(t *testing.T) {
 		out := call(t, token, "candidate", string(raw), 200)
 		require.JSONEq(t, fmt.Sprintf(`{"generation":7,"base":%q,"head":%q}`, base, head), out.Body.String())

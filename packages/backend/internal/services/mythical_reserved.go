@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 
 	"github.com/google/uuid"
@@ -40,13 +42,21 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 	if err != nil {
 		return empty, 0, err
 	}
-	if _, err := Authorize(ctx, s.queries(), command, subject); err != nil {
+	// Keep the caller's pointer/slice out of the admitted immutable work.
+	if input.Source != nil {
+		source := *input.Source
+		source.ParentCommitIDs = append([]string(nil), source.ParentCommitIDs...)
+		input.Source = &source
+	}
+	subject, err = BindReservedStackPayload(subject, command, input)
+	if err != nil {
 		return empty, 0, err
 	}
-	id, err := uuid.Parse(input.RequestID)
-	if err != nil || id.String() != input.RequestID || command == "stack.propose" && (input.Generation <= 0 || input.Source != nil) || command == "stack.candidate" && input.Generation != 0 {
-		return empty, 0, pkgerrors.BadRequest("invalid stack operation")
+	decision, err := Authorize(ctx, s.queries(), command, subject)
+	if err != nil {
+		return empty, 0, err
 	}
+	ctx = WithInstallAuthorization(ctx, command, decision, subject)
 	tx, err := s.store.Begin(ctx)
 	if err != nil {
 		return empty, 0, err
@@ -116,9 +126,6 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 		}
 		if input.Source == nil {
 			return empty, 204, tx.Commit(live)
-		}
-		if err := input.Source.Validate(); err != nil {
-			return empty, 0, pkgerrors.BadRequest("invalid candidate source")
 		}
 	}
 	if command == "stack.propose" && (input.Generation != item.Generation || !item.CandidateVerified || item.CandidateBase != prefix) {
@@ -231,4 +238,26 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 		return empty, 0, err
 	}
 	return empty, 202, tx.Commit(live)
+}
+
+// BindReservedStackPayload binds the concrete immutable candidate/proposal to
+// the stored run subject before dispatch. Neither replay nor direct entry may
+// replace the source, request identity, or requested generation afterward.
+func BindReservedStackPayload(subject InstallSubject, command string, input ReservedStackInput) (InstallSubject, error) {
+	id, err := uuid.Parse(input.RequestID)
+	if err != nil || id.String() != input.RequestID || command != "stack.candidate" && command != "stack.propose" || command == "stack.propose" && (input.Generation <= 0 || input.Source != nil) || command == "stack.candidate" && input.Generation != 0 {
+		return InstallSubject{}, pkgerrors.BadRequest("invalid stack operation")
+	}
+	if input.Source != nil {
+		if err := input.Source.Validate(); err != nil {
+			return InstallSubject{}, pkgerrors.BadRequest("invalid candidate source")
+		}
+	}
+	encoded, err := json.Marshal(input)
+	if err != nil {
+		return InstallSubject{}, err
+	}
+	digest := sha256.Sum256(encoded)
+	subject.PayloadDigest = hex.EncodeToString(digest[:])
+	return subject, nil
 }

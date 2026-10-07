@@ -132,6 +132,29 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 					writeConfirmationDispatchError(w, err)
 					return
 				}
+				raw, decodeErr := io.ReadAll(http.MaxBytesReader(w, r.Body, 65536))
+				var input services.ReservedStackInput
+				decoder := json.NewDecoder(bytes.NewReader(raw))
+				decoder.DisallowUnknownFields()
+				if decodeErr != nil || decoder.Decode(&input) != nil || decoder.Decode(new(any)) != io.EOF {
+					decodeErr = pkgerrors.BadRequest("invalid stack operation")
+				} else {
+					var bound services.InstallSubject
+					bound, decodeErr = services.BindReservedStackPayload(subject, command, input)
+					if decodeErr == nil {
+						subject = bound
+					}
+				}
+				if decodeErr != nil {
+					// Invalid input has no effect. Keep credential refusal
+					// priority for excluded/stale execution principals.
+					if _, denied := services.Authorize(r.Context(), queries, command, subject); denied != nil {
+						decodeErr = denied
+					}
+					writeConfirmationDispatchError(w, decodeErr)
+					return
+				}
+				r.Body = io.NopCloser(bytes.NewReader(raw))
 				decision, err := services.Authorize(r.Context(), queries, command, subject)
 				if err != nil {
 					writeConfirmationDispatchError(w, err)
