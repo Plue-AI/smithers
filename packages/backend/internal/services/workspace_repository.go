@@ -82,7 +82,10 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepository(ctx context.Context,
 		return err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
-	result, err := tx.Exec(ctx, `UPDATE workspaces SET disk_reclaimed_at=NULL,branch_archived_at=NULL,updated_at=NOW() WHERE id=$1 AND head_commit_id=$2 AND disk_reclaimed_at=$3 AND deleted_at IS NULL`, row.ID, row.HeadCommitID, row.DiskReclaimedAt)
+	// Capture receipts can arrive while guest preparation is in flight. The
+	// final compare-and-set must not discard recovery markers for an earlier
+	// snapshot when a new capture is awaiting projection.
+	result, err := tx.Exec(ctx, `UPDATE workspaces SET disk_reclaimed_at=NULL,branch_archived_at=NULL,updated_at=NOW() WHERE id=$1 AND head_commit_id=$2 AND disk_reclaimed_at=$3 AND deleted_at IS NULL AND capture_pending IS NULL`, row.ID, row.HeadCommitID, row.DiskReclaimedAt)
 	if err != nil {
 		return err
 	}

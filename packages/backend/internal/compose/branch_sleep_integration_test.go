@@ -379,6 +379,30 @@ func branchSleepInstall(t *testing.T, scenario string) {
 		require.True(t, refused.BranchArchivedAt.Valid)
 		git("--git-dir", hostGit, "update-ref", repohost.BranchHeadRef(id), head)
 		resume(200)
+		// A newly pending capture during guest receipt replay invalidates the
+		// earlier preflight even when the retained ref still names the same head.
+		_, err = pool.Exec(ctx, `UPDATE workspaces SET status='pending',disk_reclaimed_at=NOW(),branch_archived_at=NOW() WHERE id=$1`, id)
+		require.NoError(t, err)
+		pending := false
+		counted.read = func(path string) {
+			if path == ".git/smithers-workspace-initialization.json" {
+				_, err := pool.Exec(ctx, `UPDATE workspaces SET capture_pending='{"id":"new-capture"}' WHERE id=$1`, id)
+				require.NoError(t, err)
+				pending = true
+			}
+		}
+		resume(409)
+		counted.read = nil
+		require.True(t, pending)
+		refused, err = q.GetWorkspace(ctx, id)
+		require.NoError(t, err)
+		require.True(t, refused.DiskReclaimedAt.Valid, "pending capture cannot discharge reconstruction")
+		require.True(t, refused.BranchArchivedAt.Valid)
+		require.NotEmpty(t, refused.CapturePending)
+		_, err = pool.Exec(ctx, `UPDATE workspaces SET capture_pending=NULL WHERE id=$1`, id)
+		require.NoError(t, err)
+		resume(200)
+		require.NoFileExists(t, marker, "reconstruction never executes captured branch scripts")
 		return
 	}
 	counted.stopped.Store(false)
