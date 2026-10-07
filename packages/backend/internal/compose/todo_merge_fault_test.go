@@ -408,7 +408,7 @@ CREATE TRIGGER fault_merge_fact BEFORE INSERT ON product_job_events FOR EACH ROW
 			require.Equal(t, 1, mergedEvents, "one committed merged transition survives replay")
 			evidence := filepath.Join("../../../..", ".artifacts/checks/C-DUR-03", time.Now().UTC().Format("20060102T150405.000000000Z"), point)
 			require.NoError(t, os.MkdirAll(evidence, 0700))
-			raw, err := json.MarshalIndent(map[string]any{"point": point, "subject": fmt.Sprintf("todo:%d", f.number), "reviewed_head": f.head, "effects_seen": countMerges(), "state": card["state"], "checks": json.RawMessage(row.Checks), "github_writes": f.fake.Writes(), "events": replay.Events, "merged_transitions": mergedEvents}, "", "  ")
+			raw, err := json.MarshalIndent(map[string]any{"point": point, "subject": fmt.Sprintf("todo:%d", f.number), "reviewed_head": f.head, "effects_seen": countMerges(), "state": card["state"], "checks": json.RawMessage(row.Checks), "github_writes": f.fake.Writes(), "events": replay.Events, "merged_transitions": mergedEvents, "identity": faultprocess.Identity(t), "steps_re_run": "not applicable: merge is outside the TODO run", "writes_acknowledged": 1, "writes_found": 1}, "", "  ")
 			require.NoError(t, err)
 			require.NoError(t, os.WriteFile(filepath.Join(evidence, "observations.json"), raw, 0600))
 		})

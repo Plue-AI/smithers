@@ -5,12 +5,16 @@ Run the existing serial matrix with `pnpm exec smthrs test
 cases here; `durability-required.test.ts` now selects the named Go cases below. Missing
 case files, unmatched Go selectors, skipped cases and missing kill markers
 fail the matrix. The PostgreSQL transition and three merge boundaries are implemented; the
-remaining required production cases stay fail-closed.
+remaining required production cases stay fail-closed. The composed Start admission
+case uses the production dispatcher and workspace rows with a test-only VM
+qualification contract; it proves the pinned launch survives SIGKILL before
+any step, not machine or run recovery. Stop/Resume remain a separate required
+case until their handlers land.
 Existing engine/library crash tests are not C-DUR acceptance evidence.
 
 | Check | Required production harness | Host |
 | --- | --- | --- |
-| C-DUR-01 | `host/case40-host-kill-todo-run.test.ts`; backend services `todo_pause_fault_test.go`; compose `postgres_kill_fault_test.go` | Linux CI and reference Mac |
+| C-DUR-01 | `host/case40-host-kill-todo-run.test.ts`; backend compose `todo_pause_fault_test.go` (Start) and services `todo_pause_fault_test.go` (Stop/Resume); compose `postgres_kill_fault_test.go` | Linux CI and reference Mac |
 | C-DUR-02 | backend `flowhost/machine_kill_fault_test.go` | Approved reference Mac, microVM |
 | C-DUR-03 | backend compose `github_outbound_kill_test.go`; compose `todo_merge_fault_test.go`; `github-step-kill.test.ts` | CI, PostgreSQL 18, fake GitHub |
 | C-DUR-04 | backend machined `fault_test.go`, `rebase_fault_test.go` | Linux CI (daemon), approved reference Mac (VM) |
