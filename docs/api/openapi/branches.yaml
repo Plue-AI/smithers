@@ -252,6 +252,7 @@ paths:
         - Branches
       security:
         - sessionCookie: []
+        - bearerAuth: []
       parameters:
         - name: b
           in: path
