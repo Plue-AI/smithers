@@ -37,7 +37,7 @@ func runRootValidation(ctx context.Context, a *installedAuthority, root, home, o
 	if err != nil {
 		return err
 	}
-	if entry.Mode != 0644 || entry.Stage != "trm06" {
+	if entry.Mode != 0644 || entry.Stage != "host" {
 		return errAuthority
 	}
 	cfg := freshConfig()

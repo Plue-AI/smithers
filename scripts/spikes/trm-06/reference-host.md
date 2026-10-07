@@ -79,6 +79,7 @@ count, configured deadline or constructor test supplies a measured number.
 
 ## Installed commands and current limits
 
+Use the unprivileged `assemble.py` main release overlay described in README.md.
 The proposed system bundle must include the main-pinned gateway, supervisor,
 install.py, validation.py, launcher and scripts plus the real reviewer key and
 signed approval described in README.md. This lane neither installs nor signs

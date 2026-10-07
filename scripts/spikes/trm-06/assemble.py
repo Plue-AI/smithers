@@ -95,7 +95,7 @@ def add_artifact(root, manifest, relative, source, mode):
             output.flush()
             os.fchmod(output.fileno(), mode)
             os.fsync(output.fileno())
-        manifest["files"].append({"path": relative, "sha256": hash_value.hexdigest(), "stage": "trm06", "mode": mode})
+        manifest["files"].append({"path": relative, "sha256": hash_value.hexdigest(), "stage": "host", "mode": mode})
     finally:
         os.close(parent)
 

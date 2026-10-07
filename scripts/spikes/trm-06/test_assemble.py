@@ -34,9 +34,13 @@ class BundleAssembly(unittest.TestCase):
             artifact.write_bytes(b"main-supervisor-fixture\x00")
             assemble.add_artifact(base, manifest, "libexec/trm06-supervisor", artifact, 0o755)
             self.assertEqual(len(manifest["files"]), 2)
-            self.assertEqual(manifest["files"][1], {"path": "libexec/trm06-supervisor", "sha256": assemble.digest(artifact), "stage": "trm06", "mode": 0o755})
+            self.assertEqual(manifest["files"][1], {"path": "libexec/trm06-supervisor", "sha256": assemble.digest(artifact), "stage": "host", "mode": 0o755})
             self.assertEqual((base / "libexec/trm06-supervisor").read_bytes(), artifact.read_bytes())
             self.assertEqual((base / "libexec/trm06-supervisor").stat().st_mode & 0o777, 0o755)
+            (base / "manifest.json").write_text(json.dumps(manifest))
+            verifier = Path(__file__).resolve().parents[3] / "apps/app/scripts/server-bundle-manifest.ts"
+            verified = subprocess.run(["bun", str(verifier), str(base)], capture_output=True, timeout=10)
+            self.assertEqual(verified.returncode, 0, verified.stderr.decode())
             with self.assertRaises(FileExistsError):
                 assemble.add_artifact(base, manifest, "libexec/trm06-supervisor", artifact, 0o755)
 

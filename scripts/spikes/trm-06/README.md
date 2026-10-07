@@ -110,8 +110,8 @@ is required; VS Code Remote recording requires a person on a second Mac.
 ## Installed authority contract (awaiting review)
 
 The main-built system bundle includes `bin/trm06-gateway` (0755),
-`libexec/trm06-supervisor` (0755, stage `trm06`), `share/trm06/install.py`
-and `share/trm06/validation.py` (0644, stage `trm06`), the launcher and shell scripts, a raw 32-byte
+`libexec/trm06-supervisor` (0755, stage `host`), `share/trm06/install.py`
+and `share/trm06/validation.py` (0644, stage `host`), the launcher and shell scripts, a raw 32-byte
 `share/trm06/smithers-3f.pub`, and `share/trm06/approval.json`. It also contains
 the existing runtime's msb, kernel, helper and jj artifacts. The install owner
 must provision the real reviewer's public key; a lane-generated key is not
@@ -156,7 +156,7 @@ configuration and an accepted bundle, `run.sh` launches a fresh machine and
 `revoke.sh` drains it. `flow.sh` uses the real SSH listener for binary half-close,
 1 GiB stalled output/RSS, PTY/resize/Ctrl-C, forwarding and a ten-second real
 relay cut with ordered replay. The owner-only `lost-window` and `delivered-eof`
-controls fault the next authenticated relay once: consume a post-initial stdin
+controls fault the next authenticated relay once: consume a consumed stdin
 WINDOW without delivering it, or forward stdin EOF and report write failure.
 The flow campaign sends one MiB of binary stdin through each and preserves exact
 output and receipts. These campaigns are built but have not run on the reference host. `ben-fixture.key` must be owner-only mode 0600
@@ -184,3 +184,29 @@ Fresh supervisor instances randomize session IDs so stale streams cannot attach
 to a newly created session with a reused counter. Authenticated reserved control
 streams have no idle timeout; unauthenticated handshakes retain their five-second
 bound. These lifecycle assertions have unprivileged transport tests only.
+
+## Main release overlay
+
+Run unprivileged after fetching main, with an existing uninstalled main release
+bundle at the same revision and the security owner's actual raw reviewer key:
+
+```sh
+python3 scripts/spikes/trm-06/assemble.py --base /path/to/main-bundle --output /path/to/new-spike-bundle --review-key /path/to/smithers-3f.pub > /path/to/artifact-map.json
+```
+
+This archives the exact fetched `origin/main`, builds Darwin ARM64 gateway and
+Linux ARM64 supervisor, and stages scripts from that archive. The builder needs
+Go and the Linux ARM64 Rust target/linker; these cross-builds remain unrun here.
+It uses the existing release manifest's `host` stage and refuses mismatched base
+revisions, replaced/unmanifested files and spike destination symlinks. It never
+installs or generates a key/approval. Supply the complete artifact map to the
+reviewer. The signed `share/trm06/approval.json` must be added to the bundle and
+its manifest by the existing main release assembly/installation path before
+activation; absence continues to refuse. No alternative root installer exists.
+
+Init installation and restart execute through held, digest-verified executable
+descriptors. The fixed argv identity is preserved for independent process
+observations. The restart measurement now arms held old-cgroup observers before
+SIGKILL and requires raw populated-zero samples within two seconds before its
+replacement session opens. Reference-host execution and first-admission ordering
+under concurrent VS Code reconnect remain pending.

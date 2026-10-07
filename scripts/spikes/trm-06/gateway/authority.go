@@ -199,14 +199,14 @@ func loadInstalledAuthority(executable string) (*installedAuthority, error) {
 	if err != nil {
 		return nil, err
 	}
-	if entry.Mode != 0755 || entry.Stage != "trm06" {
+	if entry.Mode != 0755 || entry.Stage != "host" {
 		return nil, errAuthority
 	}
 	installer, entry, err := bundle.Read(installerArtifact, 65536)
 	if err != nil {
 		return nil, err
 	}
-	if entry.Mode != 0644 || entry.Stage != "trm06" {
+	if entry.Mode != 0644 || entry.Stage != "host" {
 		return nil, errAuthority
 	}
 	supervisorEntry, _ := bundle.Entry(supervisorArtifact)

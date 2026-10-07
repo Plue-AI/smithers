@@ -205,7 +205,7 @@ func installedMain(ctx context.Context, operation string) error {
 		if err != nil {
 			return nil, err
 		}
-		if entry.Mode != 0644 || entry.Stage != "trm06" {
+		if entry.Mode != 0644 || entry.Stage != "host" {
 			return nil, errAuthority
 		}
 		hash := sha256.Sum256([]byte(workspaceID))
