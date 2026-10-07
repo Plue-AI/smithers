@@ -290,8 +290,37 @@ func (st *mythicalItemStep) settleOutbound(ctx context.Context, item db.Mythical
 	if op.Kind != "close" {
 		next = mythicalDropObligation(next)
 	}
-	saved, err := st.q.SaveMythicalItemUnderLease(ctx, next, st.r.row.Claim)
-	return &saved, err
+	if !mythicalTodo(item) || !item.Number.Valid {
+		saved, err := st.q.SaveMythicalItemUnderLease(ctx, next, st.r.row.Claim)
+		return &saved, err
+	}
+	// A live TODO subscription advances only when its durable stream does.
+	// Commit the confirmed state and its fact together; an event failure keeps
+	// the pending intent so recovery can settle without repeating GitHub's write.
+	var saved db.MythicalItem
+	err := pgx.BeginFunc(ctx, st.s.store, func(tx pgx.Tx) error {
+		var err error
+		saved, err = db.New(tx).SaveMythicalItemUnderLease(ctx, next, st.r.row.Claim)
+		if err != nil {
+			return err
+		}
+		data, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "operation": op, "from": todoState(item), "to": todoState(saved), "merge_commit": saved.PRMergeCommit})
+		if _, err = jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.github_operation_settled", todoState(saved), data); err != nil {
+			return err
+		}
+		var live bool
+		if err = tx.QueryRow(ctx, `SELECT running AND claim=$2 AND lease_expires_at>clock_timestamp() FROM mythical_stacks WHERE repository_id=$1`, item.RepositoryID, st.r.row.Claim).Scan(&live); err != nil {
+			return err
+		}
+		if !live {
+			return db.ErrMythicalLeaseLost
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &saved, nil
 }
 
 // yieldBody drops a "body" operation that must not be sent; the current

@@ -7,6 +7,7 @@ let connections = 0
 let ready = false
 let dropped = false
 const applied = []
+let observed
 const deadline = setTimeout(() => { console.error("LiveChannel fixture timed out"); process.exit(2) }, 75000)
 const channel = new LiveChannel({
   random: () => 0,
@@ -23,6 +24,9 @@ channel.subscribe("home", () => {
   const snapshot = channel.getSnapshot("home")
   if (snapshot?.error) throw new Error(snapshot.error)
   if (snapshot?.cursor === undefined) return
+  // Continuity notifications retain the same view; they are not replayed rows.
+  if (snapshot === observed) return
+  observed = snapshot
   if (!ready) {
     ready = true
     console.log(JSON.stringify({ ready: snapshot.cursor }))

@@ -1,20 +1,24 @@
 package compose
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/coder/websocket"
 )
 
-// liveFrame is one frame a rehearsal browser received on /api/live, and
-// when it arrived.
+// liveFrame is a committed view the shipped LiveChannel delivered to a
+// rehearsal browser, and when that browser observed it.
 type liveFrame struct {
 	T      string          `json:"t"`
 	ID     uint32          `json:"id"`
@@ -24,9 +28,10 @@ type liveFrame struct {
 	At     time.Time       `json:"-"`
 }
 
-// liveSocket is one browser's /api/live socket: it records every frame.
+// liveSocket records the shipped client's views, including its recovery from
+// unknown deltas and gaps. It does not implement a second projection client.
 type liveSocket struct {
-	conn    *websocket.Conn
+	send    func([]byte) error
 	mu      sync.Mutex
 	frames  []liveFrame
 	topics  map[uint32]string
@@ -42,44 +47,85 @@ func (r *rehearsal) openLive(jar http.CookieJar) (*liveSocket, error) {
 	if err != nil {
 		return nil, err
 	}
-	header := http.Header{"Origin": {r.origin}}
 	var cookies []string
 	for _, cookie := range jar.Cookies(origin) {
 		cookies = append(cookies, cookie.Name+"="+cookie.Value)
 	}
-	header.Set("Cookie", strings.Join(cookies, "; "))
-	ctx, cancel := context.WithTimeout(r.ctx, 10*time.Second)
-	defer cancel()
-	conn, response, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(r.origin, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{"smithers.live.v1"}, HTTPHeader: header})
+	bun, err := exec.LookPath("bun")
 	if err != nil {
-		status := 0
-		if response != nil {
-			status = response.StatusCode
-		}
-		return nil, fmt.Errorf("GET /api/live: HTTP %d: %w", status, err)
+		return nil, err
 	}
-	conn.SetReadLimit(32 << 20)
-	socket := &liveSocket{conn: conn, topics: map[uint32]string{}, arrived: make(chan struct{}, 1)}
-	r.t.Cleanup(func() { _ = conn.Close(websocket.StatusNormalClosure, "") })
+	_, source, _, _ := runtime.Caller(0)
+	ctx, cancel := context.WithCancel(r.ctx)
+	command := exec.CommandContext(ctx, bun, filepath.Join(filepath.Dir(source), "testdata/live/rehearsal-client.mjs"), r.origin)
+	command.Env = append(os.Environ(), "SMITHERS_LIVE_REHEARSAL_COOKIE="+strings.Join(cookies, "; "))
+	var diagnostics bytes.Buffer
+	command.Stderr = &diagnostics
+	input, err := command.StdinPipe()
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	output, err := command.StdoutPipe()
+	if err != nil {
+		cancel()
+		_ = input.Close()
+		return nil, err
+	}
+	if err = command.Start(); err != nil {
+		cancel()
+		_ = input.Close()
+		return nil, err
+	}
+	var sending sync.Mutex
+	socket := &liveSocket{topics: map[uint32]string{}, arrived: make(chan struct{}, 1), send: func(frame []byte) error {
+		sending.Lock()
+		defer sending.Unlock()
+		_, err := input.Write(append(frame, '\n'))
+		return err
+	}}
+	done := make(chan struct{})
+	r.t.Cleanup(func() {
+		_ = input.Close()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			cancel()
+			<-done
+		}
+		cancel()
+	})
 	go func() {
-		for {
-			_, raw, err := conn.Read(context.Background())
-			socket.mu.Lock()
-			if err != nil {
-				socket.err = err
-				socket.mu.Unlock()
-				return
-			}
+		defer close(done)
+		lines := bufio.NewScanner(output)
+		lines.Buffer(make([]byte, 64<<10), 32<<20)
+		var readErr error
+		for lines.Scan() {
 			var frame liveFrame
-			if json.Unmarshal(raw, &frame) == nil {
-				frame.At = time.Now()
-				socket.frames = append(socket.frames, frame)
+			if err := json.Unmarshal(lines.Bytes(), &frame); err != nil {
+				readErr = fmt.Errorf("LiveChannel fixture output: %w", err)
+				cancel()
+				break
 			}
+			frame.At = time.Now()
+			socket.mu.Lock()
+			socket.frames = append(socket.frames, frame)
 			socket.mu.Unlock()
 			select {
 			case socket.arrived <- struct{}{}:
 			default:
 			}
+		}
+		if readErr == nil {
+			readErr = lines.Err()
+		}
+		waitErr := command.Wait()
+		socket.mu.Lock()
+		socket.err = fmt.Errorf("LiveChannel fixture exited: read=%v process=%v %s", readErr, waitErr, diagnostics.String())
+		socket.mu.Unlock()
+		select {
+		case socket.arrived <- struct{}{}:
+		default:
 		}
 	}()
 	return socket, nil
@@ -93,7 +139,7 @@ func (s *liveSocket) subscribe(topic string) (uint32, error) {
 	s.topics[id] = topic
 	s.mu.Unlock()
 	frame, _ := json.Marshal(map[string]any{"t": "sub", "id": id, "topic": topic})
-	return id, s.conn.Write(context.Background(), websocket.MessageText, frame)
+	return id, s.send(frame)
 }
 
 // received is every frame of topic so far, in arrival order.
