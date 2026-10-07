@@ -18,18 +18,22 @@ not authorize editing or acknowledge pending updates.
 ## Live documents
 
 Wiki documents use the shared `LiveDocProvider` with `Y.Text("markdown")` on
-`doc:wiki:<page-id>`. The install currently refuses document subscriptions and
-binary frames: the Wiki authority and durable client binding are not composed. The editor
-stays read-only and the production `wiki.edit` dispatcher refuses new edits.
+`doc:wiki:<page-id>` over `/api/live`. The install composes the native Yrs host
+with authenticated document admission, sync step 1/2, author validation and
+revocation. The editor and production `wiki.edit` dispatcher share this binding.
 There is no POST queue, SSE watcher or HTTP synchronization fallback.
 
-Previously persisted pending updates stay in `worldDocuments`, including
-unadmitted drafts. Refresh and reload merge them for reading without sending
-or acknowledging them. Account, branch and page identity remain fenced; a
+Pending updates stay in `worldDocuments` until a committed `saved{sv,seq}`
+receipt covers both their state vector and sequence. Reload and reconnect
+resend admitted updates; unadmitted drafts remain local. Account, branch and page identity remain fenced; a
 replacement page using the old slug cannot receive the original page's edits.
 
-The remaining live integration needs authenticated assignment, sync step 1/2,
-author validation and revocation, batched PostgreSQL persistence at 2 seconds
-idle or 10 seconds of continuous edits, and commit-before-`saved` receipts.
-No live convergence or host-crash guarantee is claimed until that integration
-passes the real-install checks.
+The host persists merged state, Markdown and a revision in PostgreSQL after
+2 seconds idle or 10 seconds of continuous edits. It sends `saved` only after
+the revision-checked transaction commits. A restarted host loads stored CRDT
+state; clients replay uncovered updates without reseeding the page.
+
+Composed native/PostgreSQL tests cover commit-before-saved, batching and host
+kill/restart recovery. C-J8-02's reference Mac/LAN latency and history evidence
+and C-DUR-04's complete reference-host fault matrix remain separate qualification
+requirements.
