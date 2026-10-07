@@ -143,12 +143,17 @@ func TestFlowLoadProductionPollKeepsPreviousAndCoalesces(t *testing.T) {
 		}
 		require.NoError(t, json.Unmarshal(event.Data, &projection))
 		require.NotEmpty(t, projection.Card)
-		versions := states(projection.Card[0])
-		if slices.Contains(versions, "merged-failed "+strings.Repeat("2", 64)+": flows/todo/flow.ts:29: Type 'number' is not assignable to type 'string'.") && projection.Card[0].Versions[0].ID == d1 {
-			sawFirstFailure = true
-		}
-		if projection.Card[0].Versions[0].ID == strings.Repeat("5", 64) {
-			sawNewest = true
+		for _, card := range projection.Card {
+			if card.Name != "todo" || len(card.Versions) == 0 {
+				continue
+			}
+			versions := states(card)
+			if slices.Contains(versions, "merged-failed "+strings.Repeat("2", 64)+": flows/todo/flow.ts:29: Type 'number' is not assignable to type 'string'.") && card.Versions[0].ID == d1 {
+				sawFirstFailure = true
+			}
+			if card.Versions[0].ID == strings.Repeat("5", 64) {
+				sawNewest = true
+			}
 		}
 	}
 	require.True(t, sawFirstFailure, "replay must retain the first Active beside its failed replacement")

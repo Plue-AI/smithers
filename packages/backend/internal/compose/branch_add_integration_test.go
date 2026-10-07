@@ -125,8 +125,16 @@ func runBranchAddComposed(t *testing.T, remove string) {
 		require.NoError(t, err)
 	}
 	var registry *machined.Registry
+	var captured, tree string
 	s2 := strings.HasPrefix(remove, "s2-")
 	if s2 {
+		// Seed capture objects before install workers own the repository.
+		require.NoError(t, os.WriteFile(filepath.Join(source, "awake.txt"), []byte("fixed awake capture bytes\n"), 0600))
+		git("-C", source, "add", ".")
+		git("-C", source, "commit", "-m", "awake capture")
+		captured = git("-C", source, "rev-parse", "HEAD")
+		git("-C", store, "fetch", source, captured)
+		tree = git("-C", source, "rev-parse", captured+"^{tree}")
 		registry = new(machined.Registry)
 		_, err = pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, workspace.ID)
 		require.NoError(t, err)
@@ -155,12 +163,6 @@ func runBranchAddComposed(t *testing.T, remove string) {
 	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "delegated", TokenHash: tokenHash, TokenLastEight: tokenHash[len(tokenHash)-8:], Scopes: strings.Join(scopes, ","), SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
 	require.NoError(t, err)
 	if s2 {
-		require.NoError(t, os.WriteFile(filepath.Join(source, "awake.txt"), []byte("fixed awake capture bytes\n"), 0600))
-		git("-C", source, "add", ".")
-		git("-C", source, "commit", "-m", "awake capture")
-		captured := git("-C", source, "rev-parse", "HEAD")
-		git("-C", store, "fetch", source, captured)
-		tree := git("-C", source, "rev-parse", captured+"^{tree}")
 		if strings.HasSuffix(remove, "item-fork") {
 			item, err := q.InsertMythicalTodo(ctx, repo.ID, owner.ID, "Source", "Fixed item", []byte(`[{"text":"Fixed item"}]`), []byte(`{"todo":true}`))
 			require.NoError(t, err)
