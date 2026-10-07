@@ -450,7 +450,7 @@ export const makeCli = (config: Bridge.Runtime = {}, documentation: { humanHelp?
   humanTree.clear()
   project(Cli.toCommands.get(cli as never)!, humanTree, [], [...doors,
     ...catalogCommands.filter(row => row.actors.includes("person") &&
-      (row.visibility === "core" || row.visibility === "advanced" || row.name === "debug.api")).map(row => row.cli!.join(" "))])
+      (row.visibility === "core" || row.visibility === "advanced" || row.name === "debug-api")).map(row => row.cli!.join(" "))])
 
   const invoke = cli.serve.bind(cli)
   const serve: typeof cli.serve = (argv = [], serveOptions) => {

@@ -46,6 +46,7 @@ test("C-J11-03: the owner switches the reviewer model immediately", async ({ pag
   await expect(page.getByText(name, { exact: true }).last()).toBeVisible()
  await expect(page.getByTestId("agent-recent-runs-app")).toContainText("turn-before-switch · model-old")
  await expect(page.getByTestId("agent-recent-runs-app")).toContainText("turn-after-switch · model-f")
+ await expect(page.getByTestId("agent-model-reviewer")).toHaveAttribute("data-flow", "model.assign")
  await page.getByTestId("agent-model-reviewer").press("Enter")
  await page.getByLabel("Model", { exact: true }).last().fill("model-b")
  await expect(page.getByRole("button", { name: "Save", exact: true }).last()).toBeEnabled()

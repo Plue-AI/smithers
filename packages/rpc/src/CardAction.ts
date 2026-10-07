@@ -215,8 +215,7 @@ export interface CardCommandInput {
   readonly "sign-out": undefined
   readonly "theme": undefined
   readonly "docs": { readonly page?: string }
-  readonly "debug-api": undefined
-  readonly "debug.api": { readonly operationId?: string; readonly intent?: "open" | "send" | "confirm"; readonly values?: Record<string, string>; readonly confirmation?: string }
+  readonly "debug-api": { readonly operationId?: string; readonly intent?: "open" | "send" | "confirm"; readonly values?: Record<string, string>; readonly confirmation?: string }
   readonly "todo.return-to-item": { readonly n: number; readonly id?: string }
   readonly "todo.keep-moved": { readonly n: number; readonly id?: string }
   readonly "branch.bring-in": z.infer<typeof BranchForeignAnswerInputSchema>
@@ -257,9 +256,6 @@ export interface CardCommandInput {
   readonly "code.definition": { readonly path: string; readonly line: number; readonly col: number }
   readonly "draft.discard": z.infer<typeof DraftDiscardInputSchema>
   readonly "confirm.cancel": z.infer<typeof ConfirmCancelInputSchema>
-  readonly "agent.model": { readonly role: string; readonly model: string }
-  readonly "agent.open": { readonly role: string }
-  readonly "model": undefined
   readonly "model.list": undefined
   readonly "model.new": undefined
   readonly "model.edit": { readonly id: string }

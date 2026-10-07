@@ -18,19 +18,6 @@ export const namespace: Namespace = { id: "github", label: "GitHub", summary: "T
 export const githubFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
 
   flow({
-    name: "github.app",
-    summary: "Open Settings",
-    hidden: true,
-    minimumRole: "owner",
-    actors: ["person"],
-    agent: "never",
-    agentReason: "Install controls require the owner’s person session",
-    args: "[owner/repo]",
-    requires: ["signed-in"],
-    input: RepoTarget,
-    handler: async () => { await actions.presentCard("settings", "Settings"); return actions.showSettings() }
-  }),
-  flow({
     /* The card's Install button — browser mechanics the human clicks. */
     name: "github.app.open",
     summary: "Open the GitHub App's install page",

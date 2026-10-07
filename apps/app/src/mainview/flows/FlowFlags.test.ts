@@ -45,8 +45,8 @@ describe("Debug API availability at registration", () => {
   ] as const) {
     test(label, () => {
       const entries = debugApiFlows({ debugApi } as unknown as CommandActions)
-      expect(entries.map(nameOf)).toEqual(["debug.api", "debug-api"])
-      expect(entries.map(entry => entry.metadata.hidden)).toEqual([true, hidden])
+      expect(entries.map(nameOf)).toEqual(["debug-api"])
+      expect(entries.map(entry => entry.metadata.hidden)).toEqual([hidden])
       expect(entries.every(entry => entry.binding.descriptor.modelInvocable === false)).toBe(true)
     })
   }

@@ -4,7 +4,7 @@
  * the aggregator order.
  */
 import { Schema } from "effect"
-import { flow, RepoTarget, NoPayload } from "./Declare"
+import { flow, RepoTarget } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"
 
@@ -17,11 +17,6 @@ const scopeRepo = (actions: CommandActions, payload: Record<string, unknown>): s
 
 /** The `secrets` flows registered as one aggregator block. */
 export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
-  ...["secrets.connect", "secrets.connect.codex", "secrets.connections", "secrets.move", "secrets.revoke"].map(name => flow({
-    name, hidden: true, agent: "never", minimumRole: "owner", actors: ["person"], summary: "Settings", input: NoPayload, grammar: () => ({ payload: {} }),
-    agentReason: "Install controls require the owner’s person session",
-    handler: async (_input, _signal, _call, gesture) => { gesture?.release(); await actions.presentCard("settings", "Settings"); return actions.showSettings() }
-  })),
   flow({
     name: "secrets.scope", agent: "never", minimumRole: "maintainer", actors: ["person"], visibility: "in-card",
     summary: "Limit a repository secret to trusted runs on main, or give it to all branches",

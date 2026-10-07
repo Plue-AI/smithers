@@ -1,3 +1,4 @@
+import { MessageSchema } from "../../state/AppState"
 import { describe, expect, test } from "bun:test"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
@@ -320,10 +321,13 @@ test("recorded coding-account doors open Settings without enrolling or reorderin
   const h = await harness()
   try {
     for (const name of ["secrets.connect", "secrets.connect.codex", "secrets.connections", "secrets.move", "secrets.revoke"]) {
-      expect((await h.controller.commands.run(name)).status).toBe("executed"); await tick()
+      expect(h.controller.commands.find(name)).toBeUndefined()
+      expect((await h.controller.commands.run(name)).status).toBe("unknown-command")
+      const action = MessageSchema.shape.action.parse({ flow: name, args: "saved-connection", label: "Settings" })!
+      expect(action.flow).toBe("settings")
+      expect((await h.controller.commands.run(action.flow, action.args)).status).toBe("executed"); await tick()
       expect([...h.store.collections.cards.keys()]).toEqual(["settings"])
-      expect(h.controller.commands.find(name)!.metadata.hidden).toBe(true)
-      expect(modelInvocable(h.controller.commands.find(name)!)).toBe(false)
+      expect(modelInvocable(h.controller.commands.find("settings")!)).toBe(false)
     }
     expect(h.requests.every(request => !request.path.includes("provider-connections"))).toBe(true)
     expect(h.store.session().codingProviderRequests ?? []).toEqual([])
@@ -333,7 +337,10 @@ test("recorded coding-account doors open Settings without enrolling or reorderin
 test("recorded GitHub and repository-choice doors use the install cards", async () => {
   const h = await harness()
   try {
-    expect((await h.controller.commands.run("github.app")).status).toBe("executed"); await tick()
+    expect((await h.controller.commands.run("github.app")).status).toBe("unknown-command")
+    const saved = MessageSchema.shape.action.parse({ flow: "github.app", args: "old/repository", label: "Settings" })!
+    expect(saved.flow).toBe("settings")
+    expect((await h.controller.commands.run(saved.flow, saved.args)).status).toBe("executed"); await tick()
     expect(h.store.collections.cards.has("settings")).toBe(true)
     for (const name of ["repo.choose", "repo.create"]) {
       expect((await h.controller.commands.run(name)).status).toBe("executed"); await tick()

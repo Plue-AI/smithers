@@ -436,10 +436,10 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "settings", regexp.MustCompile(`^/api/install/quiesce$`)},
 	{http.MethodDelete, "settings", regexp.MustCompile(`^/api/install/quiesce$`)},
 	{http.MethodGet, "install.read", regexp.MustCompile(`^/api/install/metrics$`)},
-	{http.MethodPut, "agent.model", regexp.MustCompile(`^/api/model/default$`)},
-	{http.MethodGet, "github.app", regexp.MustCompile(`^/api/repo-connection$`)},
-	{http.MethodPost, "github.app", regexp.MustCompile(`^/api/repo-connection$`)},
-	{http.MethodDelete, "github.app", regexp.MustCompile(`^/api/repo-connection$`)},
+	{http.MethodPut, "model.assign", regexp.MustCompile(`^/api/model/default$`)},
+	{http.MethodGet, "settings", regexp.MustCompile(`^/api/repo-connection$`)},
+	{http.MethodPost, "settings", regexp.MustCompile(`^/api/repo-connection$`)},
+	{http.MethodDelete, "settings", regexp.MustCompile(`^/api/repo-connection$`)},
 	{http.MethodPost, "box.terminal", regexp.MustCompile(`^/api/terminals$`)},
 	// Non-command authentication and bootstrap protocols retain their own
 	// proof checks; declaring public here does not bypass the credential loader.
@@ -490,7 +490,7 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "settings.model-key", regexp.MustCompile(`^/api/model/credential$`)},
 	{http.MethodGet, "settings.model-key", regexp.MustCompile(`^/api/model/credential/receipt$`)},
 	{http.MethodPost, "model.test", regexp.MustCompile(`^/api/model/test$`)},
-	{http.MethodPut, "agent.model", regexp.MustCompile(`^/api/agents/[^/]+/model$`)},
+	{http.MethodPut, "model.assign", regexp.MustCompile(`^/api/agents/[^/]+/model$`)},
 	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/user/(orgs|workspaces)$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/user/(?:repos|readable-repos)$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/mythical(/events|/items/[^/]+)?$`)},
@@ -604,12 +604,12 @@ var installMemberRoutes = []struct {
 	{http.MethodDelete, "members.write", regexp.MustCompile(`^/api/members/[^/]+$`)},
 	// Provider account management is the owner's person-only Secrets surface.
 	// The pool's machine grant is separate and never admits these routes.
-	{http.MethodGet, "secrets.connections", regexp.MustCompile(`^/api/user/provider-connections(?:/[^/]+)?$`)},
-	{http.MethodPost, "secrets.connect", regexp.MustCompile(`^/api/user/provider-connections$`)},
-	{http.MethodPut, "secrets.move", regexp.MustCompile(`^/api/user/provider-connections/order$`)},
-	{http.MethodPost, "secrets.connect.codex", regexp.MustCompile(`^/api/user/provider-connections/codex/device(?:/[^/]+)?$`)},
-	{http.MethodDelete, "secrets.revoke", regexp.MustCompile(`^/api/user/provider-connections/[^/]+$`)},
-	{http.MethodPost, "secrets.connect", regexp.MustCompile(`^/api/user/provider-connections/[^/]+/refresh$`)},
+	{http.MethodGet, "settings", regexp.MustCompile(`^/api/user/provider-connections(?:/[^/]+)?$`)},
+	{http.MethodPost, "settings", regexp.MustCompile(`^/api/user/provider-connections$`)},
+	{http.MethodPut, "settings", regexp.MustCompile(`^/api/user/provider-connections/order$`)},
+	{http.MethodPost, "settings", regexp.MustCompile(`^/api/user/provider-connections/codex/device(?:/[^/]+)?$`)},
+	{http.MethodDelete, "settings", regexp.MustCompile(`^/api/user/provider-connections/[^/]+$`)},
+	{http.MethodPost, "settings", regexp.MustCompile(`^/api/user/provider-connections/[^/]+/refresh$`)},
 	{http.MethodPost, "secrets.scope", regexp.MustCompile(`^/api/user/provider-connections/[^/]+/grants$`)},
 	{http.MethodDelete, "secrets.scope", regexp.MustCompile(`^/api/user/provider-connections/[^/]+/grants/[0-9]+$`)},
 	// Maintainers add, replace and delete the repository's secrets

@@ -14,7 +14,7 @@ export function CommandsView({ model, actions, onAction }: CommandsViewProps) {
   const controls: ReactNode[] = [], advancedControls: ReactNode[] = []
   for (const [index, action] of actions.entries()) {
     const control = <CommandActionView key={`${index}:${JSON.stringify(action)}`} action={action} onAction={onAction} />
-    const target = action.tag === "debug.api" ? advancedControls : controls
+    const target = action.tag === "debug-api" ? advancedControls : controls
     target.push(control)
   }
   return <article className="commands-card" aria-label="Commands">

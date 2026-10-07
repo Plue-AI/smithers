@@ -26,7 +26,7 @@ export function AgentModel({ agent, canAssign, onRunCommand }: { readonly agent:
  return <>
   {agent.source && <span data-testid={`agent-source-${agent.id}`}>{agent.source}</span>}
   {agent.instructions && <Button variant="ghost" size="sm" {...flowAction(onRunCommand, "files.read", flowArgs("files.read", { path: agent.instructions, ref: "main" }))}>{agent.instructions}</Button>}
-  {canAssign && agent.binding && <Button variant="ghost" size="sm" data-testid={`agent-model-${agent.id}`} {...flowAction(onRunCommand, "agent.model", flowArgs("agent.model", { role: agent.id }))}>Change model</Button>}
+  {canAssign && agent.binding && <Button variant="ghost" size="sm" data-testid={`agent-model-${agent.id}`} {...flowAction(onRunCommand, "model.assign", flowArgs("model.assign", { role: agent.id }))}>Change model</Button>}
  </>
 }
 

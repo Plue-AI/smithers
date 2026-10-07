@@ -641,8 +641,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "wiki.backlinks": (args) => required("path", args, "wiki.backlinks needs a note path or title"),
   "wiki.graph": (args) => optional("path", args),
   // M-35: a docs page by slug; bare /docs is the toc's first page.
-  "debug.api": args => (args ?? "").trim().startsWith("{") ? jsonObject("debug.api")(args) : optional("operationId", args),
-  "debug-api": args => optional("operationId", args),
+  "debug-api": args => (args ?? "").trim().startsWith("{") ? jsonObject("debug-api")(args) : optional("operationId", args),
   "docs": (args) => optional("page", args),
   "docs.read": (args) => required("page", args, "docs.read needs a page"),
   "wiki.heading": (args) => {
@@ -744,14 +743,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     const { rest, repo } = splitTrailingRepo(args, known)
     if (rest === "") return no("env.set needs a NAME=value pair")
     return ok(repo === undefined ? { assignment: rest } : { assignment: rest, repo })
-  },
-  "secrets.revoke": (args) => required("id", args, "Choose a coding connection"),
-  "secrets.move": (args) => {
-    const [id, direction, ...rest] = tokensOf(args)
-    if (id === undefined || (direction !== "up" && direction !== "down") || rest.length > 0) {
-      return no("secrets.move takes a connection id and up or down")
-    }
-    return ok({ id, direction })
   },
   "secrets.scope": (args, known) => {
     const { rest, repo } = splitTrailingRepo(args, known)
@@ -1022,7 +1013,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   },
   "repos.app": (args) => repoOnly("repos.app", args),
 
-  "github.app": (args) => repoOnly("github.app", args),
   "github.app.choose": (args) => required("installationId", args, "Choose a GitHub App installation."),
   "github.app.open": (args) => repoOnly("github.app.open", args),
   "github.reconcile": (args) => repoOnly("github.reconcile", args),

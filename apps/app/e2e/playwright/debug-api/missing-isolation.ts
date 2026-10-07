@@ -35,10 +35,10 @@ try {
   await settle(() => store.collections.cards.has("debug-api"))
   assert.equal(requests, 0)
   const values = { "path:owner": "ben", "path:repo": "app", body: '{"flow":"ci"}' }
-  assert.equal((await controller.runCommandForResult("debug.api", JSON.stringify({ intent: "send", operationId, values }))).status, "executed")
+  assert.equal((await controller.runCommandForResult("debug-api", JSON.stringify({ intent: "send", operationId, values }))).status, "executed")
   await settle(() => !!controller.debugApi.get().confirmation)
   assert.equal(requests, 0)
-  assert.equal((await controller.runCommandForResult("debug.api", JSON.stringify({ intent: "confirm", operationId, values, confirmation: controller.debugApi.get().confirmation }))).status, "executed")
+  assert.equal((await controller.runCommandForResult("debug-api", JSON.stringify({ intent: "confirm", operationId, values, confirmation: controller.debugApi.get().confirmation }))).status, "executed")
   await settle(() => !!controller.debugApi.get().model.exchange && !controller.debugApi.get().busy)
   assert.equal(requests, 1)
   assert.equal(controller.debugApi.get().model.exchange?.response?.status, 503)

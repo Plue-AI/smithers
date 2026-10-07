@@ -30,7 +30,7 @@ export const CommandsContainer = ({ catalog, dispatch, view, onView }: CommandsC
   const model = CommandsCardSchema.parse({ groups: [...groups.entries()].sort(([a], [b]) =>
     a === "advanced" ? 1 : b === "advanced" ? -1 : rank(a) - rank(b)).map(([, group]) => group) })
   const bindings = cardActions(dispatch, catalog.some(entry => entry.name === "debug-api" && entry.visibility === "advanced")
-    ? [{ tag: "debug.api", label: "/debug-api", command_input: {} }] : [])
+    ? [{ tag: "debug-api", label: "/debug-api", command_input: {} }] : [])
   return <CommandsView model={model} actions={bindings.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView} />
 }
 

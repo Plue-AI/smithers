@@ -83,15 +83,14 @@ export const debugFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
   })
 ]
 
-/** T-APP-21: one playground flow, with the product's slash spelling as a hidden alias. */
+/** T-APP-21: slash, card and CLI share the canonical person-only playground. */
 export const debugApiFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => {
   const available = typeof actions.debugApi?.available === "function" && actions.debugApi.available()
-  return ["debug.api", "debug-api"].map(name => flow({ ...debugApiOperation, name,
-    slash: name === "debug-api" ? "/debug-api" : null, cli: name === "debug.api" ? ["debug", "api"] : null, http: null, journey: [], group: "Advanced",
-    visibility: name === "debug-api" && available ? "advanced" : "hidden", actors: ["person"], minimumRole: "member",
-    summary: "Call the documented API", args: "[operationId]",
-    hidden: name === "debug.api" || !available,
+  return [flow({ ...debugApiOperation, name: "debug-api",
+    slash: "/debug-api", cli: ["debug", "api"], http: null, journey: [], group: "Advanced",
+    visibility: available ? "advanced" : "hidden", actors: ["person"], minimumRole: "member",
+    summary: "Call the documented API", args: "[operationId]", hidden: !available,
     agent: "never" as const, agentReason: "raw API bypasses flow typing and approvals; agents use flows",
     handler: payload => actions.debugApiCommand(payload)
-  }))
+  })]
 }

@@ -51,8 +51,8 @@ test("slash opens without fetching; production Send and confirmation preserve re
   const key = new Headers(calls[0]!.init?.headers).get("Idempotency-Key")
   const input = { operationId: "putSecrets", intent: "send", values: { body: '{"name":"CI","value":"private"}' } }
   await act(async () => {
-    await controller.runCommandForResult("debug.api", JSON.stringify(input))
-    await controller.runCommandForResult("debug.api", JSON.stringify({ ...input, intent: "confirm", confirmation: controller.debugApi.get().confirmation }))
+    await controller.runCommandForResult("debug-api", JSON.stringify(input))
+    await controller.runCommandForResult("debug-api", JSON.stringify({ ...input, intent: "confirm", confirmation: controller.debugApi.get().confirmation }))
     await settle(() => !controller.debugApi.get().busy)
   })
   expect(new Headers(calls[1]!.init?.headers).get("Idempotency-Key")).toBe(key)
@@ -64,23 +64,23 @@ for (const dependency of ["view", "catalog", "authorizer"] as const) test(`produ
   const { controller, gates, calls, store } = await setup()
   gates[dependency] = false
   expect((await controller.runCommandForResult("debug-api")).status).toBe("failed")
-  expect((await controller.runCommandForResult("debug.api", '{"operationId":"getStack","intent":"send"}')).status).toBe("failed")
+  expect((await controller.runCommandForResult("debug-api", '{"operationId":"getStack","intent":"send"}')).status).toBe("failed")
   expect(calls).toEqual([]); expect(store.collections.cards.has("debug-api")).toBe(false)
 })
 test("agent door refuses raw API; a running fetch never blocks Chat or duplicate Send", async () => {
   let finish!: (response: Response) => void
   const { controller, store, calls } = await setup(() => new Promise(resolve => { finish = resolve }))
-  expect((await controller.commands.runForAgent("debug.api", "getStack")).status).toBe("failed")
+  expect((await controller.commands.runForAgent("debug-api", "getStack")).status).toBe("failed")
   expect(calls).toEqual([])
   await controller.runCommandForResult("debug-api", "getStack")
   await settle(() => store.collections.cards.has("debug-api"))
-  expect((await controller.runCommandForResult("debug.api", '{"operationId":"getStack","intent":"send"}')).status).toBe("executed")
+  expect((await controller.runCommandForResult("debug-api", '{"operationId":"getStack","intent":"send"}')).status).toBe("executed")
   expect(controller.debugApi.get().busy).toBe(true)
   await settle(() => store.collections.toasts.has("toast-debug.api.send"))
   const runningToast = store.collections.toasts.get("toast-debug.api.send")!
   expect(runningToast.status).toBe("running")
   expect((await controller.runCommandForResult("chat")).status).toBe("executed")
-  await controller.runCommandForResult("debug.api", '{"operationId":"getStack","intent":"send"}')
+  await controller.runCommandForResult("debug-api", '{"operationId":"getStack","intent":"send"}')
   expect(calls).toHaveLength(1)
   expect(store.collections.toasts.get("toast-debug.api.send")!.status).toBe("running")
   finish(new Response('{"code":"signed_out","class":"permission","message":"Sign in"}', { status: 401 }))
@@ -111,7 +111,7 @@ test("a debug-api failure journals only generic status copy; response text stays
   const { controller, store } = await setup(async () => Response.json({ class: "infra", message: "leaked response words" }, { status: 500 }))
   await controller.runCommandForResult("debug-api", "getStack")
   await settle(() => store.collections.cards.has("debug-api"))
-  expect((await controller.runCommandForResult("debug.api", '{"operationId":"getStack","intent":"send"}')).status).toBe("executed")
+  expect((await controller.runCommandForResult("debug-api", '{"operationId":"getStack","intent":"send"}')).status).toBe("executed")
   await settle(() => store.collections.toasts.get("toast-debug.api.send")?.status === "failed")
   expect(controller.debugApi.get().model.exchange?.failure?.message).toBe("The API answered HTTP 500 (infra).")
   expect(controller.debugApi.get().model.exchange?.response?.body).toContain("leaked response words")
@@ -125,7 +125,7 @@ test("an account change during a production Send publishes nothing and clears pe
   const { controller, store, calls } = await setup(() => new Promise(resolve => { finish = resolve }))
   await controller.runCommandForResult("debug-api", "getStack")
   await settle(() => store.collections.cards.has("debug-api"))
-  expect((await controller.runCommandForResult("debug.api", '{"operationId":"getStack","intent":"send"}')).status).toBe("executed")
+  expect((await controller.runCommandForResult("debug-api", '{"operationId":"getStack","intent":"send"}')).status).toBe("executed")
   await settle(() => calls.length === 1)
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "bob", admin: false, scopesPlain: null }).isPersisted.promise
   expect(calls[0]!.init?.signal?.aborted).toBe(true)
@@ -139,7 +139,7 @@ test("an account change during a production Send publishes nothing and clears pe
 
 test("automatic (system) and agent calls of either debug API flow refuse before the handler runs", async () => {
   const { controller, store, calls } = await setup()
-  for (const name of ["debug.api", "debug-api"]) {
+  for (const name of ["debug-api", "debug-api"]) {
     expect((await controller.commands.run(name, '{"operationId":"getStack","intent":"open"}', "automatic")).status).toBe("failed")
     expect((await controller.commands.run(name, '{"operationId":"getStack","intent":"send"}', "automatic")).status).toBe("failed")
     expect((await controller.commands.runForAgent(name, "getStack")).status).toBe("failed")
@@ -215,7 +215,7 @@ test("debug bodies are viewer-only and ephemeral: no storage write, store row or
     } })
   await controller.runCommandForResult("debug-api", "readFile")
   await settle(() => store.collections.cards.has("debug-api"))
-  expect((await controller.runCommandForResult("debug.api", JSON.stringify({ operationId: "readFile", intent: "send", values: { "path:path": `${BODY}.ts` } }))).status).toBe("executed")
+  expect((await controller.runCommandForResult("debug-api", JSON.stringify({ operationId: "readFile", intent: "send", values: { "path:path": `${BODY}.ts` } }))).status).toBe("executed")
   await settle(() => store.collections.toasts.get("toast-debug.api.send")?.status === "failed")
   expect(JSON.stringify(controller.debugApi.get())).toContain(BODY)
   expect(await controller.send("What is on screen?")).toBe(true)
@@ -240,7 +240,7 @@ test("Debug API requests never enter the network ring: neither /debug.net door s
     fetchImpl: async url => { calls.push(String(url)); return Response.json({ items: [] }) } })
   await controller.runCommandForResult("debug-api", "readFile")
   await settle(() => store.collections.cards.has("debug-api"))
-  await controller.runCommandForResult("debug.api", JSON.stringify({ operationId: "readFile", intent: "send", values: { "path:path": "a.ts", "query:line": PRIVATE } }))
+  await controller.runCommandForResult("debug-api", JSON.stringify({ operationId: "readFile", intent: "send", values: { "path:path": "a.ts", "query:line": PRIVATE } }))
   await settle(() => calls.some(url => url.includes(PRIVATE)) && !controller.debugApi.get().busy)
   expect(controller.netTapEntries().some(entry => entry.url.includes(PRIVATE))).toBe(false)
   expect((await controller.runCommandForResult("debug.net")).status).toBe("executed")
@@ -265,7 +265,7 @@ test("the shipped install bootstrap activates slash, Advanced and Send without t
   await controller.runCommandForResult("debug-api", "getStack")
   await settle(() => store.collections.cards.has("debug-api"))
   const before = calls.length
-  expect((await controller.runCommandForResult("debug.api", '{"operationId":"getStack","intent":"send"}')).status).toBe("executed")
+  expect((await controller.runCommandForResult("debug-api", '{"operationId":"getStack","intent":"send"}')).status).toBe("executed")
   await settle(() => !controller.debugApi.get().busy)
   expect(calls.slice(before)).toEqual(["http://mini.local/api/stack"])
   expect(controller.debugApi.get().model.exchange?.response?.status).toBe(200)

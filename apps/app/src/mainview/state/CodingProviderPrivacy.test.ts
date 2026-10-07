@@ -3,7 +3,7 @@ import type { AppServices } from "./AppController"
 import type { AppStore } from "./AppStore"
 import { createAppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
-import { memoryStorage, settled, unavailableAgent, waitFor } from "./TestFixtures"
+import { memoryStorage, settled, unavailableAgent } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 type Requests = NonNullable<ReturnType<AppStore["session"]>["codingProviderRequests"]>
@@ -44,7 +44,7 @@ const assertPrivateHistoryCleared = async (store: AppStore) => {
   expect(history).not.toContain("ALICE-CODE")
 }
 
-test("a completed revoke through the command registry leaves no private receipt after sign-out", async () => {
+test("retired coding-account commands refuse without creating private receipts", async () => {
   const storage = memoryStorage()
   const store = await createAppStore({ kind: "localStorage", storage })
   await signIn(store, "alice")
@@ -64,12 +64,12 @@ test("a completed revoke through the command registry leaves no private receipt 
       return Response.json([])
     }
   })
-  expect(await controller.commands.run("secrets.revoke")).toMatchObject({ status: "form" })
-  expect(await controller.commands.run("form.set", "form-secrets.revoke id private-connection")).toMatchObject({ status: "executed" })
-  expect(await controller.commands.run("form.submit", "form-secrets.revoke")).toMatchObject({ status: "executed" })
-  await waitFor(() => store.session().codingProviderRequests?.some(row =>
-    row.action === "revoke" && row.connectionId === "private-connection" && row.state === "completed") === true)
-  expect(calls).toEqual(["DELETE private-connection"])
+  for (const name of ["secrets.connect", "secrets.connect.codex", "secrets.connections", "secrets.move", "secrets.revoke"]) {
+    expect(controller.commands.find(name)).toBeUndefined()
+    expect(await controller.commands.run(name, "private-connection")).toMatchObject({ status: "unknown-command" })
+  }
+  expect(calls).toEqual([])
+  expect(store.session().codingProviderRequests ?? []).toEqual([])
   expect(await controller.signOut()).toBeUndefined()
   assertCleared(store)
   await controller.dispose()
@@ -135,7 +135,7 @@ test("an identity outage preserves Alice's requests and recovery of the same acc
   await reopened.dispose?.()
 })
 
-for (const boundary of ["sign-out", "account replacement", "provider replacement"] as const) test(`a provider reply held through ${boundary} cannot recreate an erased request`, async () => {
+for (const boundary of ["sign-out", "account replacement", "provider replacement"] as const) test(`a retired account request is not resumed and clears through ${boundary}`, async () => {
   const storage = memoryStorage()
   const store = await createAppStore({ kind: "localStorage", storage })
   let answer!: (value: Response) => void
@@ -153,7 +153,8 @@ for (const boundary of ["sign-out", "account replacement", "provider replacement
   await saveRequests(store, [{ id: "held-connect", owner: "alice", action: "connect", state: "requested" }])
   const controller = createAppController(store, unavailableAgent, services)
   await signIn(store, "alice")
-  await waitFor(() => reads === 1)
+  await settled()
+  expect(reads).toBe(0)
   if (boundary === "sign-out") expect(await controller.signOut()).toBeUndefined()
   else await signIn(store, boundary === "account replacement" ? "bob" : "alice", boundary === "provider replacement" ? "local" : "github")
   assertCleared(store)

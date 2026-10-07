@@ -163,23 +163,23 @@ try {
         assert.deepEqual(Object.entries(gates).filter(([, available]) => !available).map(([name]) => name), [missing])
         assert.equal((await controller.runCommandForResult("debug-api", fixtures.write.operationId)).status, "failed")
         assert.equal(store.collections.cards.has("debug-api"), false)
-        assert.equal((await controller.runCommandForResult("debug.api", send)).status, "failed")
+        assert.equal((await controller.runCommandForResult("debug-api", send)).status, "failed")
         assert.equal(playgroundRequests, 0)
         assert.equal(count(), "0")
         gates[missing] = true
         assert.equal((await controller.runCommandForResult("debug-api", fixtures.write.operationId)).status, "executed")
         await settle(() => store.collections.cards.has("debug-api"))
-        assert.equal((await controller.runCommandForResult("debug.api", send)).status, "executed")
+        assert.equal((await controller.runCommandForResult("debug-api", send)).status, "executed")
         await settle(() => !!controller.debugApi.get().confirmation)
         const confirmation = controller.debugApi.get().confirmation
         gates[missing] = false
-        assert.equal((await controller.runCommandForResult("debug.api", JSON.stringify({ intent: "confirm", operationId: fixtures.write.operationId, values, confirmation }))).status, "failed")
+        assert.equal((await controller.runCommandForResult("debug-api", JSON.stringify({ intent: "confirm", operationId: fixtures.write.operationId, values, confirmation }))).status, "failed")
         assert.equal(playgroundRequests, 0)
         assert.equal(count(), "0", "revoked dependency blocks an already mounted card and pending mutation")
         gates[missing] = true
-        await controller.runCommandForResult("debug.api", send)
+        await controller.runCommandForResult("debug-api", send)
         await settle(() => !!controller.debugApi.get().confirmation)
-        await controller.runCommandForResult("debug.api", JSON.stringify({ intent: "confirm", operationId: fixtures.write.operationId, values, confirmation: controller.debugApi.get().confirmation }))
+        await controller.runCommandForResult("debug-api", JSON.stringify({ intent: "confirm", operationId: fixtures.write.operationId, values, confirmation: controller.debugApi.get().confirmation }))
         await settle(() => !!controller.debugApi.get().model.exchange && !controller.debugApi.get().busy)
         assert.equal(controller.debugApi.get().model.exchange?.response?.status, 201)
         assert.equal(playgroundRequests, 1)

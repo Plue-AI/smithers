@@ -31,7 +31,7 @@ try {
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
   assert.equal((await controller.runCommandForResult("debug-api", "get_api_user")).status, "executed")
   await waitFor(() => store.collections.cards.has("debug-api"))
-  assert.equal((await controller.runCommandForResult("debug.api", JSON.stringify({ operationId: "get_api_user", intent: "send" }))).status, "executed")
+  assert.equal((await controller.runCommandForResult("debug-api", JSON.stringify({ operationId: "get_api_user", intent: "send" }))).status, "executed")
   await waitFor(() => !!controller.debugApi.get().model.exchange?.response)
   assert.equal(controller.debugApi.get().model.exchange?.response?.status, 200)
   assert.ok(controller.debugApi.get().model.exchange?.response?.body.includes(canary))

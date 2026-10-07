@@ -353,7 +353,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
 
   const items = (): ReadonlyArray<CatalogItem> => entries().map(entry => {
     const item = itemOf(entry)
-    return (item.name === "debug.api" || item.name === "debug-api") && !actions.debugApi.available()
+    return item.name === "debug-api" && !actions.debugApi.available()
       ? { ...item, visibility: "hidden", hidden: true } : item
   })
 
@@ -440,7 +440,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     // Diagnostics are persisted even with verbose off. Keep execution input
     // untouched, but never hand environment or form values to the trace sink.
     let tracedArgs = args ?? null
-    if (args !== undefined && (name === "env.set" || name === "form.set" || name === "debug.api" || name === "debug-api")) {
+    if (args !== undefined && (name === "env.set" || name === "form.set" || name === "debug-api")) {
       const parsed = payloadFor(name, args, undefined, actions.knownRepositories())
       tracedArgs = "[REDACTED]"
       if (!("error" in parsed)) {
@@ -458,7 +458,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     }
     // Both errors and success text can echo input; form.submit also carries
     // the nested flow's assembled arguments even though its own args are an id.
-    const sensitive = name === "env.set" || name === "form.set" || name === "form.submit" || name === "debug.api" || name === "debug-api"
+    const sensitive = name === "env.set" || name === "form.set" || name === "form.submit" || name === "debug-api"
     actions.traceFlow({
       type: "flow.invoked",
       actor: invoker === "agent" ? "smithers" : invoker,

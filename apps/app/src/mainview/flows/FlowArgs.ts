@@ -13,9 +13,9 @@ export interface FlowInput {
   readonly "branch.discard-foreign": { readonly branch: string; readonly id: string; readonly revision: string }
   readonly "file": { readonly path: string; readonly branch?: string; readonly line?: number; readonly revision?: string }
 
- readonly "agent.model": { readonly role: string; readonly model?: string }
+ readonly "model.assign": { readonly role: string; readonly model?: string }
   readonly "context.inspect": { readonly branch: string; readonly answer: string }
-  readonly "debug.api": import("../state/seams/DebugApiSeam").DebugApiInput
+  readonly "debug-api": import("../state/seams/DebugApiSeam").DebugApiInput
   readonly "docs": { readonly page?: string }
   readonly "docs.read": { readonly page: string }
   readonly "box.open": { readonly bookmark?: string; readonly repo: string; readonly kind?: "container" | "vm"; readonly snapshot?: string; readonly recoveryOf?: string }
@@ -53,7 +53,6 @@ export interface FlowInput {
   readonly "change.checks": { readonly changeId: string; readonly seq: number }
   readonly "flow.run.stop-all": { readonly sourceCard: string; readonly repo: string }
   readonly "box.facet": { readonly workspaceId: string; readonly facet: string }
-  readonly "secrets.move": { readonly id: string; readonly direction: "up" | "down" }
   /** Carried as JSON: the form opens with these and asks for the value. */
   readonly "secrets.set": { readonly name?: string; readonly repo: string }
   readonly "secrets.delete": { readonly name: string; readonly repo: string }
@@ -191,7 +190,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "todo.drop": payload => JSON.stringify(payload),
   "wiki.save": payload => JSON.stringify(payload),
   "file": payload => JSON.stringify(payload),
-  "agent.model": payload => JSON.stringify(payload),
+  "model.assign": payload => JSON.stringify(payload),
   "flow.new": payload => JSON.stringify(payload),
   "runs.trace.view": payload => line(token(payload, "runId"), token(payload, "view")),
   "runs.trace.filter": payload => line(token(payload, "runId"), token(payload, "filter")),
@@ -222,7 +221,6 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "change.checks": payload => line(token(payload, "changeId"), token(payload, "seq")),
   "flow.run.stop-all": payload => line(keyed(payload, "sourceCard"), token(payload, "repo")),
   "box.facet": payload => line(token(payload, "workspaceId"), token(payload, "facet")),
-  "secrets.move": payload => line(token(payload, "id"), token(payload, "direction")),
   "secrets.set": payload => JSON.stringify(payload),
   "secrets.delete": payload => line(token(payload, "name"), token(payload, "repo")),
   "secrets.scope": payload => line(token(payload, "name"), token(payload, "scope"), token(payload, "repo")),
@@ -250,7 +248,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "approvals.open": (payload) => line(keyed(payload, "sourceCard"), token(payload, "runId")),
   "tutorial.live.inspect": (payload) => line(token(payload, "cardId"), token(payload, "eventId")),
   "files.open-diff": (payload) => JSON.stringify(payload),
-  "debug.api": payload => JSON.stringify(payload),
+  "debug-api": payload => JSON.stringify(payload),
   "docs": payload => token(payload, "page") ?? "",
   "context.inspect": payload => JSON.stringify(payload),
   "docs.read": payload => token(payload, "page") ?? "",

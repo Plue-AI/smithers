@@ -522,6 +522,8 @@ describe("the card every slash line opens, against main@origin", () => {
     const baseline = JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as Baseline
     const atMain = Object.values(baseline.rows).filter(([index]) => index !== -1).length
     const here = rows.filter((row) => row.error !== null && baseline.rows[key(row)] !== undefined).length
+    expect(Object.entries(baseline.rows).filter(([name, [index]]) => name.startsWith("github.app::") && index !== -1)).toHaveLength(30)
+    expect(rows.some(row => row.flow === "github.app")).toBe(false)
     const lost = rows.filter((row) => {
       const at = baseline.rows[key(row)]
       return at !== undefined && at[0] !== -1 && row.error === null
@@ -572,7 +574,8 @@ describe("the card every slash line opens, against main@origin", () => {
       atMain: 1437,
       // 12: #3457 retires the Fix picker and its alias-only grammar diagnostics.
       // 29: the #3311 `/appearance.dark-mode` sentences counted in 1361 left with the rename to `/theme`.
-      here: 891 // Retiring issue.implement removes its three grammar diagnostics; saved messages decode to todo.from-issue.
+      // github.app no longer registers a duplicate Settings door or its 30 parser diagnostics.
+      here: 861 // Saved issue and GitHub actions decode to todo.from-issue and settings.
     })
     /* Every slash line must be answerable without a dispatch exception, including scalar JSON. */
     expect(rows.filter((row) => row.threw !== null).map((row) => `/${row.flow} ${row.args ?? ""}`)).toEqual([])

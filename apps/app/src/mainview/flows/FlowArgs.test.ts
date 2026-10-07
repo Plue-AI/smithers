@@ -229,7 +229,6 @@ test("card configuration args round-trip through their production grammars", () 
     ["issues.close", { number: 3, repo: "owner/repo" }],
     ["issues.reopen", { number: 3, repo: "owner/repo" }],
     ["box.facet", { workspaceId: "w1", facet: "files" }],
-    ["secrets.move", { id: "conn-1", direction: "down" }],
     ["box.open", { repo: "owner/repo", kind: "vm" }],
     ["box.open", { repo: "owner/repo" }],
     ["box.delete", { workspaceId: "w1", confirmName: "My workspace" }],

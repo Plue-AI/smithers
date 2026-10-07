@@ -10,8 +10,8 @@ export const DebugApiCard = ({ seam, View, dispatch, maximized = false }: {
   seam: DebugApiSeam; View: ComponentType<DebugApiViewProps>; dispatch: CardCommandDispatch; maximized?: boolean
 }) => {
   const snapshot = useSyncExternalStore(seam.subscribe, seam.get, seam.get)
-  const definitions: CardActionDefinition<"debug.api">[] = seam.available() && snapshot.model.selected ? [{
-    tag: "debug.api", label: snapshot.model.pending ? `Confirm ${snapshot.model.pending.method} ${snapshot.model.pending.path}${snapshot.target ? ` #${snapshot.target}` : ""}` : "Send",
+  const definitions: CardActionDefinition<"debug-api">[] = seam.available() && snapshot.model.selected ? [{
+    tag: "debug-api", label: snapshot.model.pending ? `Confirm ${snapshot.model.pending.method} ${snapshot.model.pending.path}${snapshot.target ? ` #${snapshot.target}` : ""}` : "Send",
     ...(snapshot.busy ? { disabled: { reason: "Sending" } } : {}),
     command_input: { operationId: snapshot.model.selected, intent: snapshot.model.pending ? "confirm" : "send", ...(snapshot.confirmation ? { confirmation: snapshot.confirmation } : {}) },
     input: snapshot.fields,

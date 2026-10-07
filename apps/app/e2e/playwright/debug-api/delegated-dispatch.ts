@@ -22,7 +22,7 @@ const controller = createAppController(store, silentAgent, {
 })
 try {
   for (const args of ["get_api_todos", '{"intent":"send","operationId":"get_api_todos"}']) {
-    const result = await controller.commands.runForAgent("debug.api", args)
+    const result = await controller.commands.runForAgent("debug-api", args)
     assert.equal(result.status, "failed")
     assert.ok(result.status === "failed" && result.error.includes("raw API bypasses flow typing and approvals; agents use flows"))
   }

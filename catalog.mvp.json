@@ -232,75 +232,6 @@
       }
     },
     {
-      "name": "agent.model",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person"
-      ],
-      "minimumRole": "owner",
-      "credentialScope": "write:repository",
-      "agent": "never",
-      "summary": "Change model",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "role": {
-              "type": "string"
-            },
-            "model": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "role",
-            "model"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "agent.open",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "run",
-      "summary": "Configure an agent",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "role": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "role"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
       "name": "agent.turn",
       "slash": null,
       "cli": null,
@@ -3056,87 +2987,13 @@
     {
       "name": "debug-api",
       "slash": "/debug-api",
-      "cli": null,
-      "journey": [],
-      "group": "Advanced",
-      "visibility": "advanced",
-      "actors": [
-        "person"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "never",
-      "summary": "Call the documented API",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "operationId": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "intent": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "enum": [
-                    "open",
-                    "send",
-                    "confirm"
-                  ]
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "values": {
-              "anyOf": [
-                {
-                  "type": "object",
-                  "additionalProperties": {
-                    "type": "string"
-                  }
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "confirmation": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "debug.api",
-      "slash": null,
       "cli": [
         "debug",
         "api"
       ],
       "journey": [],
       "group": "Advanced",
-      "visibility": "hidden",
+      "visibility": "advanced",
       "actors": [
         "person"
       ],
@@ -5352,42 +5209,6 @@
       }
     },
     {
-      "name": "github.app",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "hidden",
-      "actors": [
-        "person"
-      ],
-      "minimumRole": "owner",
-      "credentialScope": "write:repository",
-      "agent": "never",
-      "summary": "Open Settings",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "repo": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
       "name": "github.app.choose",
       "slash": null,
       "cli": null,
@@ -6995,31 +6816,6 @@
             "revision"
           ],
           "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "model",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "hidden",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "run",
-      "summary": "Models",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "additionalProperties": false
         },
         "definitions": {}
       }
@@ -10154,78 +9950,6 @@
       }
     },
     {
-      "name": "secrets.connect",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "hidden",
-      "actors": [
-        "person"
-      ],
-      "minimumRole": "owner",
-      "credentialScope": "write:repository",
-      "agent": "never",
-      "summary": "Settings",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "additionalProperties": false
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "secrets.connect.codex",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "hidden",
-      "actors": [
-        "person"
-      ],
-      "minimumRole": "owner",
-      "credentialScope": "write:repository",
-      "agent": "never",
-      "summary": "Settings",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "additionalProperties": false
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "secrets.connections",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "hidden",
-      "actors": [
-        "person"
-      ],
-      "minimumRole": "owner",
-      "credentialScope": "write:repository",
-      "agent": "never",
-      "summary": "Settings",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "additionalProperties": false
-        },
-        "definitions": {}
-      }
-    },
-    {
       "name": "secrets.delete",
       "slash": null,
       "cli": null,
@@ -10268,30 +9992,6 @@
       }
     },
     {
-      "name": "secrets.move",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "hidden",
-      "actors": [
-        "person"
-      ],
-      "minimumRole": "owner",
-      "credentialScope": "write:repository",
-      "agent": "never",
-      "summary": "Settings",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "additionalProperties": false
-        },
-        "definitions": {}
-      }
-    },
-    {
       "name": "secrets.read",
       "slash": null,
       "cli": null,
@@ -10309,30 +10009,6 @@
         "method": "GET",
         "path": "/api/secrets"
       },
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "additionalProperties": false
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "secrets.revoke",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "hidden",
-      "actors": [
-        "person"
-      ],
-      "minimumRole": "owner",
-      "credentialScope": "write:repository",
-      "agent": "never",
-      "summary": "Settings",
-      "http": null,
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {

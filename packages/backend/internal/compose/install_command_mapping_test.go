@@ -37,13 +37,13 @@ func TestInstallCredentialAdministrationCatalogRefusalsPostgres(t *testing.T) {
 	delegated := f.token(f.owner, "admin-delegated", "write:repository,read:user,via:codex", true)
 	run := f.token(f.owner, "admin-run", "write:repository,read:user", true)
 	for _, door := range []struct{ method, path, command string }{
-		{"POST", "/api/user/provider-connections", "secrets.connect"},
-		{"GET", "/api/user/provider-connections", "secrets.connections"},
-		{"PUT", "/api/user/provider-connections/order", "secrets.move"},
-		{"DELETE", "/api/user/provider-connections/1", "secrets.revoke"},
+		{"POST", "/api/user/provider-connections", "settings"},
+		{"GET", "/api/user/provider-connections", "settings"},
+		{"PUT", "/api/user/provider-connections/order", "settings"},
+		{"DELETE", "/api/user/provider-connections/1", "settings"},
 		{"POST", "/api/user/provider-connections/1/grants", "secrets.scope"},
-		{"PUT", "/api/model/default", "agent.model"},
-		{"POST", "/api/repo-connection", "github.app"},
+		{"PUT", "/api/model/default", "model.assign"},
+		{"POST", "/api/repo-connection", "settings"},
 		{"PUT", "/api/install", "settings"},
 		{"POST", "/api/install/quiesce", "settings"},
 	} {

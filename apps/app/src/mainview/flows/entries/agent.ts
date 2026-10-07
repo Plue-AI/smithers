@@ -43,12 +43,6 @@ export const agentFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
     agent: "run", input: NoPayload,
     handler: () => actions.listAgents()
   }),
-  flow({ name: "agent.open", visibility: "in-card", agent: "run", actors: ["person","app_agent"], minimumRole: "member", summary: "Configure an agent", hidden: true, input: Schema.Struct({ role: Schema.String }),
-    grammar: args => ({ payload: args?.trim() ? { role: args.trim() } : {} }), handler: ({ role }) => actions.listAgents(role) }),
-  flow({ name: "agent.model", summary: "Change model", hidden: true, visibility: "in-card", agent: "never", actors: ["person"], minimumRole: "owner", agentReason: "Only the owner’s browser session changes models",
-    input: Schema.Struct({ role: Schema.String, model: Schema.String }),
-    grammar: args => { try { return { payload: JSON.parse(args ?? "{}") } } catch { const [role, model] = (args ?? "").trim().split(/\s+/); return { payload: { ...(role ? {role}:{}), ...(model ? {model}:{}) } } } },
-    form: { submitLabel: "Save", args: payload => JSON.stringify(payload) }, handler: input => actions.assignAgentModel(input.role, input.model) }),
   ...launchFlows.map(({ name, agent, label, capability }) => flow({
     /* Launching a harness is consequential: the agent's call renders the confirm card and the person's press starts it. */
     name,

@@ -5,6 +5,7 @@ import { createAppController } from "../../state/AppController"
 import { createAppStore } from "../../state/AppStore"
 import { memoryStorage, settled } from "../../state/TestFixtures"
 import { installFixture } from "../../state/seams/InstallFixtures.test-support"
+import { MessageSchema, ToastSchema } from "../../state/AppState"
 import { modelInvocable } from "../registry"
 
 const bootstrap: AppBootstrap = { apiVersion: 1, host: "local", version: "test", buildSha: "abcdef1234567890", capabilities: ["agent", "install"], authFlow: "none", sandbox: { platform: "darwin", mode: "enforced" } }
@@ -58,12 +59,12 @@ test("the slash and button assignment share a durable background request and rea
  const h = await harness(true, undefined, save)
  try {
   await h.controller.commands.run("agents"); await settled()
-  const launches = await Promise.all([h.controller.commands.run("agent.model", "reviewer model-b"), h.controller.commands.submit({ name: "agent.model", payload: { role: "reviewer", model: "model-b" }, actor: "user" })])
+  const launches = await Promise.all([h.controller.commands.run("model.assign", "reviewer model-b"), h.controller.commands.submit({ name: "model.assign", payload: { role: "reviewer", model: "model-b" }, actor: "user" })])
   expect(launches.map(outcome => outcome.status)).toEqual(["executed", "executed"])
   await settled()
   expect(h.row()?.assignment?.state).toBe("requested")
   expect(h.row()?.agents[0]?.model.id).toBe("model-a")
-  await h.controller.commands.submit({ name: "agent.model", payload: { role: "reviewer", model: "model-b" }, actor: "user" }); await settled()
+  await h.controller.commands.submit({ name: "model.assign", payload: { role: "reviewer", model: "model-b" }, actor: "user" }); await settled()
   expect(h.requests.filter(row => row.method === "PUT")).toHaveLength(1)
   expect(JSON.parse(h.requests.find(row => row.method === "PUT")!.body!)).toEqual({ model: { protocol: "openai-responses", modelId: "model-b", credential: "OPENAI_API_KEY" } })
   resolve(Response.json(payload(true, "model-b"))); await settled()
@@ -75,11 +76,11 @@ test("the slash and button assignment share a durable background request and rea
 test("member and model invocations cannot change bindings or local records", async () => {
  const h = await harness(false)
  await h.controller.commands.run("agents"); await settled()
- await h.controller.commands.run("agent.model", "reviewer model-b"); await settled()
+ await h.controller.commands.run("model.assign", "reviewer model-b"); await settled()
  expect(h.requests.filter(row => row.method === "PUT")).toEqual([])
  expect(h.row()?.assignment?.state).toBe("failed")
  expect(h.row()?.error).toBe("Owner access required")
- for (const name of ["agent.model", "model.new", "model.edit", "model.save", "model.remove", "model.test", "model.assign", "settings.model.set"]) {
+ for (const name of ["model.new", "model.edit", "model.save", "model.remove", "model.test", "model.assign", "settings.model.set"]) {
   const entry = h.controller.commands.find(name)!
   expect(entry.metadata.hidden).toBe(true)
   expect(modelInvocable(entry)).toBe(false)
@@ -142,3 +143,19 @@ test("saved assignment records are persisted, editable, and assign their complet
  await h.controller.commands.run("model.test", "probe"); await settled()
  expect(h.requests.filter(request => request.path === "/api/model/test")).toHaveLength(2)
  })
+
+
+test("retired model doors decode saved actions and expose only canonical commands", async () => {
+ const h = await harness()
+ for (const [old, current, args] of [["model", "agents", ""], ["agent.open", "agent", "reviewer"], ["agent.model", "model.assign", '{"role":"reviewer","model":"model-b"}']]) {
+  expect(h.controller.commands.find(old!)).toBeUndefined()
+  expect(await h.controller.runCommandForResult(old!, args)).toMatchObject({ status: "unknown-command" })
+  const saved = MessageSchema.shape.action.parse({ flow: old, args, label: "Open" })!
+  expect(saved.flow).toBe(current!)
+  expect(ToastSchema.shape.action.parse({ flow: old, args, label: "Open" })).toEqual(saved)
+  expect(await h.controller.commands.run(saved.flow, saved.args)).toMatchObject({ status: "executed" })
+  await settled()
+ }
+ expect(h.requests.filter(row => row.method === "PUT")).toHaveLength(1)
+ expect(h.row()?.agents[0]?.model.id).toBe("model-b")
+})

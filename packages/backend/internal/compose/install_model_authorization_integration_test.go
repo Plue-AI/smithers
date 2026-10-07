@@ -36,9 +36,9 @@ func TestInstallModelAuthorizationPostgres(t *testing.T) {
 		{"GET", "/api/install/metrics", "install.read", ""},
 		{"POST", "/api/model/credential", "settings.model-key", `{}`},
 		{"GET", "/api/model/credential/receipt?id=private", "settings.model-key", ""},
-		{"PUT", "/api/model/default", "agent.model", `{"model":null}`},
+		{"PUT", "/api/model/default", "model.assign", `{"model":null}`},
 		{"POST", "/api/model/test", "model.test", `{}`},
-		{"PUT", "/api/agents/reviewer/model", "agent.model", `{}`},
+		{"PUT", "/api/agents/reviewer/model", "model.assign", `{}`},
 	} {
 		for _, actor := range []struct{ name, token, cookie, code string }{
 			{"delegated", delegated, "", "never"},
@@ -85,7 +85,7 @@ func TestInstallModelAuthorizationPostgres(t *testing.T) {
 	out := httptest.NewRecorder()
 	router.ServeHTTP(out, req)
 	require.Equal(t, 200, out.Code, out.Body.String())
-	require.Equal(t, []string{"agent.model"}, decisions)
+	require.Equal(t, []string{"model.assign"}, decisions)
 	require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM owner_model_defaults WHERE user_id=$1`, f.owner.ID).Scan(&effects))
 	require.Zero(t, effects)
 	for _, authenticated := range []bool{false, true} {
