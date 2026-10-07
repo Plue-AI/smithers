@@ -69,6 +69,17 @@ func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
 	issuer := services.NewAuthService(q, cfg.Auth, nil, nil)
 	issuer.Members = &services.Members{Pool: pool}
+	// Literal O/X credentials bind to different stored execution subjects.
+	// These rows let SG-07 cross the production TODO route rather than treating
+	// a missing subject as evidence for either an allow or a refusal.
+	workspaces := make([]db.Workspace, 2)
+	for i := range workspaces {
+		workspaces[i], err = q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: users[0].ID, Name: fmt.Sprintf("ledger-%d", i), TargetBookmark: "main", Kind: "container", Status: "running"})
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `INSERT INTO mythical_items(repository_id,source,state,number,stack_position,title,workspace_id,request_run_id,owner_id,created_by,revisions,checks)
+ VALUES($1,'todo','running',$2,$2,'Bound execution',$3,$4,$5,$5,'[{"private":"never-return-person-card"}]','{"private":"never-return-confirmation"}')`, repo.ID, i+1, workspaces[i].ID, fmt.Sprintf("ledger-run-%d", i), users[0].ID)
+		require.NoError(t, err)
+	}
 	infos := map[string]*middleware.AuthInfo{}
 	tokens, sessions := map[string]string{}, map[string]string{}
 	for _, label := range []string{"SO", "SM", "SE", "DO", "DM", "DE", "RO", "RX", "MO", "MX"} {
@@ -100,9 +111,15 @@ func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 			tokens[label] = credential.Token
 		} else {
 			info.IsTokenAuth, info.TokenSystemIssued = true, true
-			info.RawScopes = "repo,user"
+			subjectIndex := 0
+			if label[1] == 'X' {
+				subjectIndex = 1
+			}
+			info.RawScopes = "repo,user," + middleware.RepositoryRestrictionScope(repo.ID)
 			if label[0] == 'M' {
-				info.RawScopes += ",workspace:approved-own-branch"
+				info.RawScopes += "," + middleware.WorkspaceRestrictionScope(workspaces[subjectIndex].ID)
+			} else {
+				info.RawScopes += "," + middleware.LandingWorkspaceScope(workspaces[subjectIndex].ID)
 			}
 			info.Scopes = middleware.ParseTokenScopes(info.RawScopes)
 			tokens[label] = fmt.Sprintf("smithers_%040x", len(infos)+12000)
@@ -129,19 +146,7 @@ func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 			}
 			entry["trusted_kind"] = info.CredentialKind()
 			ledger = append(ledger, entry)
-			if cell.Group == "SG-07" && cell.Command == "todo.read" && cell.Expected == "allow" {
-				// The generic decision has no subject. Qualify these two cells
-				// through the actual execution-read HTTP fixture with stored
-				// workspace bindings, cross-binding refusals and private fields.
-				hashes := testInstallExecutionTodoReadPostgres(t)
-				entry["credential_hash"] = hashes[cell.Credential]
-				entry["layer"], entry["execution"] = "composed install execution-read HTTP", "passed"
-				entry["actual_status"] = 200
-				entry["receipt"] = "TestInstallExecutionTodoReadPostgres"
-				resolved++
-				return
-			}
-			if cell.Expected == "allow" && (cell.Credential[0] == 'R' || cell.Credential[0] == 'M') {
+			if cell.Expected == "allow" && cell.Command != "todo.read" && (cell.Credential[0] == 'R' || cell.Credential[0] == 'M') {
 				entry["pending_ticket"] = "T-ACC-03"
 				command := cell.Command
 				if alias := aliases[command]; alias != "" {
@@ -159,7 +164,24 @@ func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 				t.Skip("T-ACC-03: subject-bound run/machine authorization grants are not installed")
 			}
 			status, code, class := 200, "", ""
-			if cell.Group == "SG-08" && strings.HasPrefix(cell.Command, "confirmation.create") || cell.Group == "SG-09" {
+			if cell.Group == "SG-07" && cell.Command == "todo.read" {
+				req := httptest.NewRequest("GET", cfg.Server.PublicURL+"/api/todos/1", nil)
+				req.Header.Set("Authorization", "Bearer "+tokens[cell.Credential])
+				// Attribution assertions cannot turn another branch into this one.
+				req.Header.Set("Smithers-Via", "smithers")
+				req.Header.Set("Smithers-Actor", "person")
+				w := httptest.NewRecorder()
+				router.ServeHTTP(w, req)
+				status = w.Code
+				var envelope struct{ Code, Class string }
+				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &envelope))
+				code, class = envelope.Code, envelope.Class
+				entry["layer"] = "composed install HTTP"
+				require.NotContains(t, w.Body.String(), "never-return")
+				if cell.Expected == "allow" {
+					require.Contains(t, w.Body.String(), `"title":"Bound execution"`)
+				}
+			} else if cell.Group == "SG-08" && strings.HasPrefix(cell.Command, "confirmation.create") || cell.Group == "SG-09" {
 				path, body := "/api/confirmations", `{"command":"todo.new","payload":{"title":"Literal ledger","prompt":"Retain greeting"}}`
 				if cell.Group == "SG-09" {
 					path, body = "/api/repos/maya/demo/repository-jobs", "{}"
@@ -238,7 +260,7 @@ func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 	var todosCount, confirmationCount int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items`).Scan(&todosCount))
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&confirmationCount))
-	require.Zero(t, todosCount, "confirmation admission must not file a TODO")
+	require.Equal(t, 2, todosCount, "confirmation admission must not add to the two execution fixtures")
 	require.Equal(t, 3, confirmationCount, "only the three eligible delegated create cells store private confirmations")
 	if dir := os.Getenv("SMITHERS_ACCESS_LEDGER_DIR"); dir != "" {
 		data, err := json.MarshalIndent(map[string]any{"acceptance_complete": false, "authorization_resolved": resolved, "retired_resolved": retired, "pending": pending, "cells": ledger}, "", "  ")
