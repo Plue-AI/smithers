@@ -152,3 +152,6 @@ mod tests {
 }
 
 pub mod wire;
+
+#[cfg(target_os = "linux")]
+pub mod reader;
