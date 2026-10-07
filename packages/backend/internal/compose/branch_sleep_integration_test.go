@@ -402,6 +402,29 @@ func branchSleepInstall(t *testing.T, scenario string) {
 		_, err = pool.Exec(ctx, `UPDATE workspaces SET capture_pending=NULL WHERE id=$1`, id)
 		require.NoError(t, err)
 		resume(200)
+		// A replacement machine binding can arrive during receipt replay. The
+		// old guest checkout cannot discharge recovery for the new machine.
+		_, err = pool.Exec(ctx, `UPDATE workspaces SET status='pending',disk_reclaimed_at=NOW(),branch_archived_at=NOW() WHERE id=$1`, id)
+		require.NoError(t, err)
+		rebound := false
+		counted.read = func(path string) {
+			if path == ".git/smithers-workspace-initialization.json" {
+				_, err := pool.Exec(ctx, `UPDATE workspaces SET vm_id='replacement-vm' WHERE id=$1`, id)
+				require.NoError(t, err)
+				rebound = true
+			}
+		}
+		resume(409)
+		counted.read = nil
+		require.True(t, rebound)
+		refused, err = q.GetWorkspace(ctx, id)
+		require.NoError(t, err)
+		require.Equal(t, "replacement-vm", refused.VmID)
+		require.True(t, refused.DiskReclaimedAt.Valid, "old guest receipt cannot discharge a replacement binding")
+		require.True(t, refused.BranchArchivedAt.Valid)
+		_, err = pool.Exec(ctx, `UPDATE workspaces SET vm_id='retained-vm' WHERE id=$1`, id)
+		require.NoError(t, err)
+		resume(200)
 		require.NoFileExists(t, marker, "reconstruction never executes captured branch scripts")
 		return
 	}
