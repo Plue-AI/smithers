@@ -1,6 +1,6 @@
 import { failureDetail } from "@smthrs/rpc/UserFailure"
 import { FailureDetails } from "../../FailureDetails"
-import { useId, type ReactNode } from "react"
+import { useId, useRef, type ReactNode } from "react"
 import { copyText } from "@smthrs/ui/copy"
 import { Copy, FileCode2, GitBranch, Moon, Play, SquareTerminal } from "lucide-react"
 import type { Action } from "@smthrs/rpc/CardAction"
@@ -60,6 +60,7 @@ function BranchLink({
 export function BranchView({ model, actions, gestures, view, onAction, onView }: BranchViewProps) {
   const { message: machineDiagnostic } = model.machine.state === "failed" ? model.machine.error : { message: "" }
   const id = useId()
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
   const tab = tabs.find((value) => value === view.tab) ?? "activity"
   return (
     <section
@@ -166,7 +167,7 @@ export function BranchView({ model, actions, gestures, view, onAction, onView }:
         ) : null}
         <Presence model={model} gestures={gestures} onAction={onAction} />
         <div className="branch-tabs" role="tablist" aria-label={`${model.name} views`}>
-          {tabs.map((value) => (
+          {tabs.map((value, index) => (
             <button
               type="button"
               role="tab"
@@ -175,16 +176,17 @@ export function BranchView({ model, actions, gestures, view, onAction, onView }:
               aria-selected={tab === value}
               key={value}
               data-tab={value}
+              ref={(element) => { tabRefs.current[index] = element }}
+              tabIndex={tab === value ? 0 : -1}
               onClick={() => onView({ tab: value })}
               onKeyDown={(event) => {
-                const index = tabs.indexOf(value)
                 const next = event.key === "ArrowRight" ? (index + 1) % tabs.length
                   : event.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length
                   : event.key === "Home" ? 0
                   : event.key === "End" ? tabs.length - 1 : undefined
                 if (next === undefined) return
                 event.preventDefault()
-                event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`[data-tab="${tabs[next]}"]`)?.focus()
+                tabRefs.current[next]?.focus()
                 onView({ tab: tabs[next]! })
               }}
             >
