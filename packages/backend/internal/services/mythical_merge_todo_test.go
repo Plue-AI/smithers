@@ -2494,3 +2494,52 @@ func TestMythicalCheckDeliveryHeadAndSourceGuards(t *testing.T) {
 		})
 	}
 }
+
+// The press reads row 9's required checks at the reviewed head, as a
+// confirmation's approve does: a failed or pending required check refuses
+// by name before any approval, fence or merge; unreadable protection is
+// rechecking, never an empty required set; a failing optional check blocks
+// nothing (§10.6.2a, C-J2-05, C-J4-03 step 4).
+func TestMythicalMergeTodoPressRefusesRequiredChecks(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(h *mergeHarness, head string)
+		want  *TodoControlError
+	}{
+		{"required check failed", func(h *mergeHarness, head string) {
+			h.fake.RequireCheck("unit")
+			h.fake.SetCheck("rehearsal-owner/app", head, "unit", "completed", "failure")
+		}, &TodoControlError{Status: 409, Code: "checks", Class: "conflict", Message: "unit"}},
+		{"required check pending", func(h *mergeHarness, head string) {
+			h.fake.RequireCheck("unit")
+			h.fake.RequireCheck("integration")
+			h.fake.SetCheck("rehearsal-owner/app", head, "unit", "in_progress", "")
+		}, &TodoControlError{Status: 409, Code: "checks", Class: "conflict", Message: "integration"}},
+		{"protection unreadable", func(h *mergeHarness, head string) {
+			h.fake.RequireCheck("unit")
+			h.fake.SetCheck("rehearsal-owner/app", head, "unit", "completed", "success")
+			h.fake.SetInstallationPermission("administration", "")
+		}, &TodoControlError{Status: 409, Code: "rechecking", Class: "conflict", Message: "Waiting for fresh GitHub merge facts"}},
+		{"optional check failed", func(h *mergeHarness, head string) {
+			h.fake.RequireCheck("unit")
+			h.fake.SetCheck("rehearsal-owner/app", head, "unit", "completed", "success")
+			h.fake.SetCheck("rehearsal-owner/app", head, "lint", "completed", "failure")
+		}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newMergeHarness(t)
+			n, head, _ := h.first("Checked")
+			tc.setup(h, head)
+			err := h.press(h.ctx, n, head)
+			if tc.want == nil {
+				require.NoError(t, err)
+				assert.Equal(t, head, h.land(n).Head)
+				return
+			}
+			assert.Equal(t, *tc.want, *refusalOf(t, err))
+			h.unfenced(n)
+			h.pass()
+			assert.Empty(t, h.merges())
+		})
+	}
+}

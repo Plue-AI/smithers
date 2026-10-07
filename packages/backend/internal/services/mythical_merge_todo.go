@@ -287,6 +287,17 @@ func (s *MythicalService) requestMerge(ctx context.Context, repositoryID, userID
 	} else if err != nil {
 		return MythicalItemView{}, err
 	}
+	// Row 9 begins with the required checks at the reviewed head, read now
+	// as the confirmation's approve reads them: a failed or pending required
+	// check refuses the press by name before any approval or fence, and
+	// unreadable facts are never taken for an empty required set.
+	if err := s.mergeChecks(ctx, gh, head); err != nil {
+		var refusal *TodoControlError
+		if errors.As(err, &refusal) {
+			return MythicalItemView{}, err
+		}
+		return MythicalItemView{}, mythicalMergeConflict("rechecking", "Waiting for fresh GitHub merge facts")
+	}
 	var saved db.MythicalItem
 	err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
 		// The repository's request lock (FileTodo's) orders presses that
