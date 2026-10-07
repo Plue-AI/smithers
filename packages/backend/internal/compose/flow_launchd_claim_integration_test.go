@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/installbundle"
-	"github.com/smithersai/smithers/packages/backend/installbundle/bundletest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -46,9 +45,20 @@ func TestCSEC02LaunchdServedClaim(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:4000")
 	require.NoError(t, err, "reference-host install port must be unoccupied")
 	require.NoError(t, listener.Close())
-	root := bundletest.ProtectedTempDir(t)
-	home := filepath.Join(root, "home")
-	require.NoError(t, os.Mkdir(home, 0700))
+	// launchd's setup handoff uses a Unix socket. Go's macOS test temp
+	// directory has a long /var/folders prefix, so keep the private home in
+	// the checkout, as the existing host-service qualification does.
+	repository, err := filepath.Abs("../../../..")
+	require.NoError(t, err)
+	home, err := os.MkdirTemp(repository, ".c2-")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(home)) })
+	home, err = filepath.EvalSymlinks(home)
+	require.NoError(t, err)
+	_, err = installbundle.ProtectedDirectory("qualification home", home)
+	require.NoError(t, err)
+	require.LessOrEqual(t, len(filepath.Join(home, "Library", "Application Support", "Smithers", "run", "host.sock")), 103, "reference-host checkout path is too long for the Unix setup socket")
+	root := home
 	proxy, ca := isolationGitHubProxy(t, root)
 	environment := []string{"HOME=" + home, "PATH=/usr/bin:/bin:/usr/sbin:/sbin", "HTTPS_PROXY=" + proxy, "NO_PROXY=localhost,127.0.0.1", "SSL_CERT_FILE=" + ca, "SMITHERS_WORKSPACE_ISOLATION=process", "SMITHERS_MICROSANDBOX_BIN=/bin/false"}
 	run := func(args ...string) ([]byte, error) {
