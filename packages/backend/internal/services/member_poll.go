@@ -30,7 +30,7 @@ type memberPermissionPoll struct {
 }
 
 // UseInstallPermissionPolling joins the existing roster worker to shared sync.
-// Qualification is supplied by the same install provider as other streams.
+// Metadata qualification does not gate the roster security recheck.
 func (m *Members) UseInstallPermissionPolling(synced *GitHubSyncedRepoService, wake func()) {
 	m.permissionPoll = &memberPermissionPoll{synced: synced, wake: wake}
 	if synced != nil {
@@ -60,14 +60,23 @@ func (m *Members) permissionPollReady(ctx context.Context) (memberRepository, db
 	if m == nil || m.Pool == nil || m.Credentials == nil || m.Minter == nil || m.permissionPoll == nil || m.permissionPoll.wake == nil || m.permissionPoll.synced == nil || m.permissionPoll.synced.install == nil || m.permissionPoll.synced.install.authorize == nil {
 		return memberRepository{}, db.GithubSyncedRepo{}, githubSyncUnavailable()
 	}
+	repo, row, err := m.permissionPollRepository(ctx)
+	if err == nil {
+		err = m.permissionPoll.synced.authorizeFetched(ctx, row)
+	}
+	return repo, row, err
+}
+
+// permissionPollRepository reads binding data without requiring metadata sync.
+// Recheck independently proves installation access with the App token.
+func (m *Members) permissionPollRepository(ctx context.Context) (memberRepository, db.GithubSyncedRepo, error) {
 	repo, err := m.repository(ctx)
 	if err != nil {
 		return repo, db.GithubSyncedRepo{}, err
 	}
-	synced := m.permissionPoll.synced
-	row, err := synced.store.GetGitHubSyncedRepo(ctx, db.GetGitHubSyncedRepoParams{OwnerLogin: repo.Owner, RepoName: repo.Name})
-	if err == nil {
-		err = synced.authorizeFetched(ctx, row)
+	row, err := m.permissionPoll.synced.store.GetGitHubSyncedRepo(ctx, db.GetGitHubSyncedRepoParams{OwnerLogin: repo.Owner, RepoName: repo.Name})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return repo, db.GithubSyncedRepo{}, nil
 	}
 	return repo, row, err
 }
@@ -83,6 +92,9 @@ func (p *memberPermissionPoll) bind(binding memberPollBinding) {
 	}
 }
 func (m *Members) permissionPause(row db.GithubSyncedRepo) time.Time {
+	if m.Budget == nil {
+		return time.Time{}
+	}
 	pause := m.Budget.StreamRetryAt(row.InstallationID.Int64, "permissions")
 	mint := m.Budget.StreamRetryAt(row.InstallationID.Int64, gitHubInstallationTokenPath(row.InstallationID.Int64))
 	if mint.After(pause) {
@@ -144,10 +156,10 @@ func (m *Members) RetryStreams(ctx context.Context) error {
 
 // PollPermissions is run by cleanup.Periodic, not a second polling goroutine.
 func (m *Members) PollPermissions(ctx context.Context) error {
-	if m == nil || m.permissionPoll == nil || m.permissionPoll.synced == nil || m.permissionPoll.synced.install == nil || m.permissionPoll.synced.install.authorize == nil {
-		return nil // Unqualified production providers stay disabled.
+	if m == nil || m.Pool == nil || m.permissionPoll == nil || m.permissionPoll.synced == nil {
+		return nil
 	}
-	repo, row, err := m.permissionPollReady(ctx)
+	repo, row, err := m.permissionPollRepository(ctx)
 	if err != nil {
 		return err
 	}
@@ -181,7 +193,7 @@ func (m *Members) PollPermissions(ctx context.Context) error {
 	p.mu.Unlock()
 	defer func() { p.mu.Lock(); p.running = false; p.mu.Unlock() }()
 	err = m.Recheck(ctx)
-	current, currentRow, bindingErr := m.permissionPollReady(ctx)
+	current, currentRow, bindingErr := m.permissionPollRepository(ctx)
 	if bindingErr != nil {
 		err = bindingErr
 	} else if permissionBinding(current, currentRow) != binding {

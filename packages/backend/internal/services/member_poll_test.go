@@ -283,14 +283,46 @@ CREATE TRIGGER reject_permission_revoke BEFORE DELETE ON auth_sessions FOR EACH 
 	require.EqualValues(t, 3, calls.Load())
 }
 
-func TestPermissionPollUnqualifiedProviderStaysDarkPostgres(t *testing.T) {
-	f := newPermissionPollFixture(t, func(http.ResponseWriter, *http.Request) { t.Error("unqualified poll made HTTP request") })
-	f.s.install.authorize = nil
-	require.NoError(t, f.m.PollPermissions(t.Context()))
-	require.Error(t, f.m.RetryStreams(t.Context()))
-	_, err := f.m.RequiredStreams(t.Context())
-	require.Error(t, err)
-	require.Empty(t, f.minter.installations)
+func TestPermissionPollWithoutMetadataQualificationPostgres(t *testing.T) {
+	for _, qualification := range []string{"authorize-nil", "failed", "disabled", "metadata-off", "missing", "budget-nil"} {
+		t.Run(qualification, func(t *testing.T) {
+			var calls atomic.Int32
+			f := newPermissionPollFixture(t, func(w http.ResponseWriter, r *http.Request) {
+				permission := "write"
+				if calls.Add(1) > 1 {
+					permission = "read"
+				}
+				fmt.Fprintf(w, `{"user":{"id":77},"permission":%q}`, permission)
+			})
+			switch qualification {
+			case "authorize-nil":
+				f.s.install.authorize = nil
+			case "failed", "disabled":
+				_, err := f.m.Pool.Exec(t.Context(), `UPDATE github_synced_repos SET sync_state=$1`, qualification)
+				require.NoError(t, err)
+			case "metadata-off":
+				_, err := f.m.Pool.Exec(t.Context(), `UPDATE github_synced_repos SET sync_metadata=false`)
+				require.NoError(t, err)
+			case "missing":
+				_, err := f.m.Pool.Exec(t.Context(), `DELETE FROM github_synced_repos`)
+				require.NoError(t, err)
+			case "budget-nil":
+				f.m.Budget = nil
+			}
+			require.NoError(t, f.m.PollPermissions(t.Context()))
+			f.clock.Add(3599)
+			require.NoError(t, f.m.PollPermissions(t.Context()))
+			require.EqualValues(t, 1, calls.Load())
+			f.assertRoster(t, false, 1)
+			f.clock.Add(1)
+			require.NoError(t, f.m.PollPermissions(t.Context()))
+			require.EqualValues(t, 2, calls.Load())
+			f.assertRoster(t, true, 0)
+			f.m.requestPermissionRecheck()
+			require.NoError(t, f.m.PollPermissions(t.Context()))
+			require.EqualValues(t, 3, calls.Load())
+		})
+	}
 }
 
 func TestPermissionPollLowBudgetCadencePostgres(t *testing.T) {

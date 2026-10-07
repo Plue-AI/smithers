@@ -106,7 +106,7 @@ func TestGitHubRepositoryResponseRefreshPauseThroughComposition(t *testing.T) {
 	require.EqualValues(t, 2, reads.Load())
 	require.EqualValues(t, 1, refreshes.Load(), "shared budget blocks the second refresh before HTTP")
 	require.EqualValues(t, 2, rechecks.Load(), "each user-token refusal hints the existing permission worker")
-	require.NoError(t, auth.Members.PollPermissions(ctx), "missing install qualification keeps execution disabled")
+	require.Error(t, auth.Members.PollPermissions(ctx), "permission rechecks still require a bound repository")
 }
 
 func TestGitHubIdentityFailuresThroughComposition(t *testing.T) {
@@ -373,7 +373,7 @@ func TestInstallSyncCompositionDoesNotActivatePartialStreamOwners(t *testing.T) 
 	members := &services.Members{Pool: pool}
 	wakes := 0
 	composeGitHubPermissionPolling(members, synced, main, func() { wakes++ })
-	require.NoError(t, members.PollPermissions(t.Context()), "unqualified permission worker stays disabled")
+	require.Error(t, members.PollPermissions(t.Context()), "permission rechecks still require a bound repository")
 	require.Error(t, members.RetryStreams(t.Context()))
 	require.Zero(t, wakes)
 	user, err := q.CreateUser(t.Context(), db.CreateUserParams{Username: "dark-sync", LowerUsername: "dark-sync"})
