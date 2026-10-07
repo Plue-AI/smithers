@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -47,7 +46,6 @@ type RuntimeOptions struct {
 type Runtime struct {
 	Handler     *Handler
 	dispatcher  *Dispatcher
-	store       *Store
 	concurrency int
 }
 
@@ -88,25 +86,15 @@ func NewRuntime(pool *pgxpool.Pool, host ports.ChatHost, producerBaseURL string,
 	}
 	dispatcher.logger = options.Logger
 	store.latencies = dispatcher.metrics.latencies
-	handler := &Handler{ContextRepository: options.ContextRepository, Store: store, Dispatcher: dispatcher, Sources: options.Sources, credentials: credentials, logger: options.Logger, metrics: dispatcher.metrics}
-	return &Runtime{Handler: handler, dispatcher: dispatcher, store: store, concurrency: options.Concurrency}, nil
+	handler := &Handler{ContextRepository: options.ContextRepository, Store: store, Dispatcher: dispatcher, Sources: options.Sources, credentials: credentials, logger: options.Logger}
+	return &Runtime{Handler: handler, dispatcher: dispatcher, concurrency: options.Concurrency}, nil
 }
 
-// Run dispatches turns and relays other replicas' commits to local streams
-// until ctx ends.
+// Run dispatches turns until ctx ends.
 func (r *Runtime) Run(ctx context.Context) error {
 	if r == nil || r.dispatcher == nil {
 		return errors.New("chat runtime is not configured")
 	}
-	var listener sync.WaitGroup
-	defer listener.Wait()
-	ctx, stop := context.WithCancel(ctx)
-	defer stop()
-	listener.Go(func() {
-		_ = r.store.Listen(ctx, func(err error) {
-			r.dispatcher.logger.Warn("chat commit listener disconnected", "error", err)
-		})
-	})
 	return r.dispatcher.Run(ctx, r.concurrency)
 }
 

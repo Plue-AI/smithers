@@ -2,10 +2,11 @@
 
 ## Audited provider paths
 
-- The renderer contract is `WebAgent`: `POST /api/agent/turn`, `/cancel`,
-  `/replay`, and `/retire`. Journal turns require
-  `x-smithers-turn-journal: 1` and the version 1 cursor/batch NDJSON contract
-  from `@smthrs/rpc/AgentTurnJournal`.
+- The app submits `POST /api/conversations/{branch}/prompt` and reads
+  `GET /api/conversations/{branch}`. Stop and queue mutations use the same
+  branch conversation. The private `POST /api/agent/turn` route is retired.
+- Historical account journals remain readable through `/api/agent/turn/replay`
+  and erasable through `/api/agent/turn/erase`; they cannot admit new private turns.
 - The former web path entered `apps/server/src/turns.ts`, used a Cloudflare
   cancellation registry and Durable Object journal, then selected private
   Worker credentials and provider policy before calling a model.
@@ -23,8 +24,8 @@ not required by the single-owner container.
 
 `@smthrs/model-host` owns the provider-neutral implementation:
 
-- `ModelTurnHost` projects the established request into `@smthrs/model`, then
-  emits the existing text, reasoning, tool call, and terminal frames.
+- `ModelTurnHost` serves the model streaming API. Shared chat uses `HostTurn`
+  with the authorized command catalog, server confirmations and context preflight.
 - `DurableChatProducer` marks the provider boundary and commits exact sealed
   batches through the Go callback API. One identical retry repairs a lost
   receipt without repeating inference.

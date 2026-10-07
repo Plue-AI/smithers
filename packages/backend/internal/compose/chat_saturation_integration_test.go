@@ -1,7 +1,6 @@
 package compose
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -11,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -24,6 +22,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/ports"
+	"github.com/smithersai/smithers/packages/backend/process"
 )
 
 // saturatingChatHost holds every turn it is given until released, so the
@@ -64,12 +63,7 @@ func (h *saturatingChatHost) snapshot() (running, peak, calls int) {
 	return h.running, h.peak, h.calls
 }
 
-type saturationTurn struct {
-	runID   string
-	journal map[string]any
-	lines   chan string
-	done    chan struct{}
-}
+type saturationTurn struct{ runID, turnID, branch string }
 
 // TestAPIStaysResponsiveWhileChatWorkersAreSaturated fills every chat
 // dispatch worker of the composed product with turns that never finish.
@@ -80,7 +74,10 @@ func TestAPIStaysResponsiveWhileChatWorkersAreSaturated(t *testing.T) {
 	_, _, pool := splitProcessDatabase(t)
 	t.Setenv("SMITHERS_CHAT_CONCURRENCY", fmt.Sprint(concurrency))
 	host := &saturatingChatHost{started: make(chan string, 16), release: make(chan struct{})}
-	server := httptest.NewServer(startSplitProcess(t, Options{ChatHost: host}))
+	runtime, err := process.New(process.Config{Root: t.TempDir()})
+	require.NoError(t, err)
+	// Worker saturation uses trusted fixture processes; it does not prove VM isolation.
+	server := httptest.NewServer(startSplitProcess(t, Options{ChatHost: host, Workspace: runtime, BranchMachines: rehearsalBranchMachines(pool), FlowHostProductAPIURL: "http://127.0.0.1:4000"}))
 	var releaseOnce sync.Once
 	release := func() { releaseOnce.Do(func() { close(host.release) }) }
 	// A failed assertion must not leave held streams blocking shutdown.
@@ -96,7 +93,6 @@ func TestAPIStaysResponsiveWhileChatWorkersAreSaturated(t *testing.T) {
 	// The single trusted owner of this installation.
 	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES ($1)`, owner.ID)
 	require.NoError(t, err)
-	token, _ := isolationToken(t, q, owner, "saturated-all")
 	session := "saturation-owner-session"
 	digest := sha256.Sum256([]byte(session))
 	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{SessionKey: hex.EncodeToString(digest[:]), UserID: owner.ID, Username: owner.Username, ExpiresAt: time.Now().Add(time.Hour)})
@@ -139,39 +135,19 @@ func TestAPIStaysResponsiveWhileChatWorkersAreSaturated(t *testing.T) {
 		return response.StatusCode, data, time.Since(began)
 	}
 
-	// startTurn opens a chat turn and returns once its admission line arrives.
+	// Separate owned branches can fill the worker pool; each branch remains serialized.
 	startTurn := func() *saturationTurn {
-		turn := &saturationTurn{runID: "busy-" + uuid.NewString(), lines: make(chan string, 64), done: make(chan struct{}),
-			journal: map[string]any{"version": 1, "legId": uuid.NewString(), "token": strings.Repeat("c", 48)}}
-		body, marshalErr := json.Marshal(map[string]any{"runId": turn.runID, "journal": turn.journal, "repositoryId": repo.ID,
-			"instructions": "Answer briefly.", "messages": []any{map[string]string{"role": "user", "content": "hello"}}})
-		require.NoError(t, marshalErr)
-		req, reqErr := http.NewRequest(http.MethodPost, server.URL+chat.TurnPath, bytes.NewReader(body))
-		require.NoError(t, reqErr)
-		req.Header.Set("Authorization", "Bearer "+token)
-		req.Host = "127.0.0.1:4000"
-		req.Header.Set("Content-Type", "application/json")
-		began := time.Now()
-		response, doErr := server.Client().Do(req)
-		require.NoError(t, doErr)
-		require.Equal(t, http.StatusOK, response.StatusCode)
-		go func() {
-			defer close(turn.done)
-			defer response.Body.Close()
-			scanner := bufio.NewScanner(response.Body)
-			scanner.Buffer(make([]byte, 1<<20), 1<<20)
-			for scanner.Scan() {
-				turn.lines <- scanner.Text()
-			}
-		}()
-		select {
-		case line := <-turn.lines:
-			require.Contains(t, line, `"type":"accepted"`)
-		case <-time.After(2 * time.Second):
-			t.Fatalf("turn %s was not acknowledged", turn.runID)
+		branch, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: owner.ID, Name: uuid.NewString(), TargetBookmark: "scratch/" + uuid.NewString(), Kind: "vm", Status: "stopped"})
+		require.NoError(t, err)
+		status, raw, took := call("POST", "/api/conversations/"+branch.ID+"/prompt", map[string]string{"prompt": "hello", "idempotencyKey": uuid.NewString()})
+		require.Equal(t, 202, status, string(raw))
+		require.Less(t, took, 2*time.Second)
+		var receipt struct {
+			RunID  string `json:"runId"`
+			TurnID string `json:"turnId"`
 		}
-		require.Less(t, time.Since(began), 2*time.Second, "admission waited for a worker")
-		return turn
+		require.NoError(t, json.Unmarshal(raw, &receipt))
+		return &saturationTurn{runID: receipt.RunID, turnID: receipt.TurnID, branch: branch.ID}
 	}
 
 	// Fill every worker.
@@ -242,28 +218,26 @@ func TestAPIStaysResponsiveWhileChatWorkersAreSaturated(t *testing.T) {
 	}
 
 	// A waiting turn stays visible as accepted work, not an error.
-	status, body, took := call(http.MethodPost, chat.ReplayPath, map[string]any{"runId": queued[0].runID, "journal": queued[0].journal})
-	budget("waiting turn replay", status, body, took, http.StatusOK)
-	var waiting chat.ReplayResult
-	require.NoError(t, json.Unmarshal(body, &waiting))
-	require.False(t, waiting.Terminal, "a waiting turn is not terminal: %s", body)
-
-	// Freeing the workers runs the waiting turns; each ends with its own
-	// visible outcome.
+	status, body, took := call("GET", "/api/conversations/"+queued[0].branch, nil)
+	budget("waiting conversation", status, body, took, 200)
+	require.NotContains(t, string(body), "credential_missing")
 	release()
 	for _, turn := range busy {
-		select {
-		case <-turn.done:
-		case <-time.After(30 * time.Second):
-			t.Fatalf("turn %s never finished after the workers freed", turn.runID)
-		}
-		status, body, _ := call(http.MethodPost, chat.ReplayPath, map[string]any{"runId": turn.runID, "journal": turn.journal})
-		require.Equal(t, http.StatusOK, status, string(body))
-		var replay chat.ReplayResult
-		require.NoError(t, json.Unmarshal(body, &replay))
-		require.True(t, replay.Terminal, string(body))
-		require.Contains(t, string(body), "credential_missing")
+		require.Eventually(t, func() bool {
+			status, body, _ := call("GET", "/api/conversations/"+turn.branch, nil)
+			require.Equal(t, 200, status, string(body))
+			var conversation chat.SharedConversation
+			require.NoError(t, json.Unmarshal(body, &conversation))
+			for _, entry := range conversation.Entries {
+				if entry.ID == turn.turnID && entry.State == chat.StateFailed {
+					require.Contains(t, string(body), "credential_missing")
+					return true
+				}
+			}
+			return false
+		}, 30*time.Second, 20*time.Millisecond)
 	}
+
 	_, peak, calls = host.snapshot()
 	require.Equal(t, concurrency, peak, "the pool never ran more turns than its capacity")
 	require.Equal(t, len(busy), calls, "each turn ran exactly once")

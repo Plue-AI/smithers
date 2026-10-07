@@ -183,11 +183,12 @@ func TestOtherAccountCannotBlockErasure(t *testing.T) {
 			jb.LegID = ja.LegID
 			aa := admit(t, store, a, runID, ja)
 			admit(t, store, b, runID, jb)
-			if _, err := store.Cancel(ctx, a, runID); err != nil {
+			if _, err := stopStoredTurn(store, ctx, a, runID); err != nil {
 				t.Fatal(err)
 			}
 			if retired {
-				if err := store.Retire(ctx, ReplayInput{Scope: b, RunID: runID, Journal: jb}); err != nil {
+				_, retirementProof, _ := authHashes(b, jb.Token)
+				if err := store.Erase(ctx, runID, jb.LegID, retirementProof); err != nil {
 					t.Fatal(err)
 				}
 			}

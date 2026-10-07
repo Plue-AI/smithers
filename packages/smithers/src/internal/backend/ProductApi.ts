@@ -1344,18 +1344,6 @@ export interface PostApiAdminWorkspacesIdSuspendInput {
 export const postApiAdminWorkspacesIdSuspend = (transport: Transport, input: PostApiAdminWorkspacesIdSuspendInput): Promise<PostApiAdminWorkspacesIdSuspendResponse> =>
   transport.request("POST", `/api/admin/workspaces/${segment(input.path.id)}/suspend`) as Promise<PostApiAdminWorkspacesIdSuspendResponse>
 
-export type PostApiAgentTurnBody = AnyJSON
-
-export type PostApiAgentTurnResponse = AnyJSON
-
-export interface PostApiAgentTurnInput {
-  readonly body: PostApiAgentTurnBody
-}
-
-/** POST /api/agent/turn */
-export const postApiAgentTurn = (transport: Transport, input: PostApiAgentTurnInput): Promise<PostApiAgentTurnResponse> =>
-  transport.request("POST", `/api/agent/turn`, input.body) as Promise<PostApiAgentTurnResponse>
-
 export type PostApiAgentTurnEraseBody = AnyJSON
 
 export type PostApiAgentTurnEraseResponse = AnyJSON

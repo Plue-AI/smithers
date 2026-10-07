@@ -48,7 +48,7 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodGet, "/api/stack/attention/force-19", ""},
 		{http.MethodGet, "/api/live", "live"},
 		{http.MethodPost, "/api/agent/turn/replay", "agent.turn"},
-		{http.MethodPost, "/api/agent/turn", "agent.turn"},
+		{http.MethodPost, "/api/agent/turn", ""},
 		{http.MethodPost, "/api/model/stream", "agent.turn"},
 		{http.MethodGet, "/api/model/stream", ""},
 		{http.MethodPost, "/api/model/stream/erase", ""},

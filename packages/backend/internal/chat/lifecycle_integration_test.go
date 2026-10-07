@@ -252,7 +252,11 @@ func (h blockingHost) RunTurn(ctx context.Context, grant ProducerGrant) error {
 func TestCancelOnAnotherReplicaStopsTheRunningHost(t *testing.T) {
 	store := needStore(t)
 	scope, runID, journal := testScope(), "xcancel-"+uuid.NewString(), testJournal()
-	accepted := admit(t, store, scope, runID, journal)
+	request, _ := json.Marshal(map[string]any{"runId": runID, "conversationId": runID, "instructions": "", "messages": []any{}})
+	accepted, err := store.Admit(context.Background(), AdmitInput{Scope: scope, RunID: runID, Journal: journal, Request: request})
+	if err != nil {
+		t.Fatal(err)
+	}
 	host := blockingHost{turnID: accepted.TurnID, entered: make(chan struct{}), stopped: make(chan struct{})}
 	owner, err := NewDispatcher(store, host, 2, time.Hour)
 	if err != nil {
@@ -278,8 +282,8 @@ func TestCancelOnAnotherReplicaStopsTheRunningHost(t *testing.T) {
 	}
 	server := httptest.NewServer(authenticatedRoutes(&Handler{Store: store, Dispatcher: other}, scope.UserID, scope.Owner))
 	defer server.Close()
-	body, _ := json.Marshal(cancelRequest{RunID: runID})
-	response := postJSON(t, server.Client(), server.URL+CancelPath, body)
+	body := []byte(`{}`)
+	response := postJSON(t, server.Client(), server.URL+"/api/conversations/"+runID+"/turns/"+accepted.TurnID+"/stop", body)
 	_ = response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("cancel status %d", response.StatusCode)
@@ -289,73 +293,4 @@ func TestCancelOnAnotherReplicaStopsTheRunningHost(t *testing.T) {
 	case <-time.After(dbWait):
 		t.Fatal("the owning replica kept its host running after a cancel elsewhere")
 	}
-}
-
-func TestCommitWakesTurnWatchers(t *testing.T) {
-	store := needStore(t)
-	scope, runID, journal := testScope(), "wake-"+uuid.NewString(), testJournal()
-	accepted := admit(t, store, scope, runID, journal)
-	grant, err := store.Claim(context.Background(), scope, accepted.TurnID, time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
-	changed, stop := store.watch(accepted.TurnID)
-	defer stop()
-	if _, err = store.Commit(context.Background(), CommitInput{TurnID: accepted.TurnID, Generation: grant.Generation, Token: grant.Token,
-		Expected: grant.Cursor, Frames: []json.RawMessage{frame(runID, "wake")}}); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case <-changed:
-	case <-time.After(dbWait):
-		t.Fatal("commit did not wake its watcher")
-	}
-	changed, stop2 := store.watch(accepted.TurnID)
-	defer stop2()
-	if _, err = store.Cancel(context.Background(), scope, runID); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case <-changed:
-	case <-time.After(dbWait):
-		t.Fatal("terminal append did not wake its watcher")
-	}
-}
-
-func TestCommitOnOneReplicaWakesAStreamOnAnother(t *testing.T) {
-	shared := needStore(t)
-	writer := &Store{pool: shared.pool, now: time.Now}
-	reader := &Store{pool: shared.pool, now: time.Now}
-	scope, runID, journal := testScope(), "replica-"+uuid.NewString(), testJournal()
-	accepted := admit(t, writer, scope, runID, journal)
-	grant, err := writer.Claim(context.Background(), scope, accepted.TurnID, time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	listening := make(chan error, 1)
-	go func() { listening <- reader.Listen(ctx, nil) }()
-	defer func() {
-		cancel()
-		<-listening
-	}()
-	changed, stop := reader.watch(accepted.TurnID)
-	defer stop()
-	// LISTEN takes effect asynchronously; commit until the other replica hears.
-	cursor := grant.Cursor
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		result, commitErr := writer.Commit(context.Background(), CommitInput{TurnID: accepted.TurnID, Generation: grant.Generation, Token: grant.Token,
-			Expected: cursor, Frames: []json.RawMessage{frame(runID, "replica")}})
-		if commitErr != nil {
-			t.Fatal(commitErr)
-		}
-		cursor = result.Cursor
-		select {
-		case <-changed:
-			return
-		case <-time.After(100 * time.Millisecond):
-		}
-	}
-	t.Fatal("a commit on one replica never woke the other replica's stream")
 }

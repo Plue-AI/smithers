@@ -2814,13 +2814,6 @@ func (c *Client) PostAPIAdminWorkspacesIDSuspend(ctx context.Context, id string)
 	return out, err
 }
 
-// PostAPIAgentTurn calls POST /api/agent/turn.
-func (c *Client) PostAPIAgentTurn(ctx context.Context, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/agent/turn", nil, body, &out)
-	return out, err
-}
-
 // PostAPIAgentTurnErase calls POST /api/agent/turn/erase.
 func (c *Client) PostAPIAgentTurnErase(ctx context.Context, body any) (AnyJSON, error) {
 	var out AnyJSON

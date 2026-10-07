@@ -18,10 +18,9 @@ import type { DocsPage } from "@smthrs/rpc/DocsPages"
 import type { AgentTurnFrame, FetchLike, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { Effect } from "effect"
 import { runContextPreflight } from "./ContextPreflight.ts"
-import { apiCaller, hostOwned, runHostTurn, sourceLister, sourceReader } from "./HostTools.ts"
+import { apiCaller, runHostTurn, sourceLister, sourceReader } from "./HostTools.ts"
 import { CommitRefused, ProducerUnreachable, ProviderStartRefused, ReceiptMismatch } from "./ModelHostError.ts"
 import type { ProducerError } from "./ModelHostError.ts"
-import { runModelTurn } from "./ModelTurnHost.ts"
 import type { ModelTurnOptions } from "./ModelTurnHost.ts"
 
 // performance.now() belongs to this host process. A distinct identity prevents
@@ -254,10 +253,8 @@ export class DurableChatProducer {
 }
 
 /**
- * Streams a turn and durably commits each projected frame. A renderer that
- * offers tools gets one model leg and runs its tool calls itself; a host-owned
- * turn runs its tool calls on the host until the model answers, `docs` over
- * the pages the host bundles.
+ * Runs commands on the host until the model answers and durably commits each
+ * projected frame. Documentation comes from the pages the host bundles.
  *
  * @category runners
  * @since 1.0.0-rc.0
@@ -315,7 +312,7 @@ export const runDurableChatTurn = (
       }
     }
     if (preflight === undefined) yield* producer.providerStarted()
-    if (hostOwned(prepared.request)) {
+    {
       const transport = {
         read: sourceReader(callbackBaseUrl, grant, fetchImpl),
         list: sourceLister(callbackBaseUrl, grant, fetchImpl),
@@ -325,6 +322,5 @@ export const runDurableChatTurn = (
       yield* runHostTurn(model, prepared, options, write, transport)
       return
     }
-    yield* runModelTurn(model, prepared.request, options, write)
   })
 }

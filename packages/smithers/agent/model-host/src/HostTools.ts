@@ -50,7 +50,7 @@ import { flowEditTodoInput, flowTitle } from "@smthrs/rpc/FlowEdit"
 import { HomeCardSchema } from "@smthrs/rpc/HomeCard"
 import type { AgentChatMessage, AgentTurnUsage, FetchLike, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { TodoCardSchema } from "@smthrs/rpc/TodoCard"
-import { draftCard, parseTodoArgs, todoCard, TodoNewInputSchema } from "@smthrs/rpc/TodoCommands"
+import { todoCard } from "@smthrs/rpc/TodoCommands"
 import {
   isUiInstructionCommand,
   type UiInstructionCommand,
@@ -85,7 +85,6 @@ export const SOURCE_LIST_PATH = "/internal/chat/source/list"
  * @category predicates
  * @since 1.0.0-rc.0
  */
-export const hostOwned = (request: StartAgentTurnRequest): boolean => (request.tools?.length ?? 0) === 0
 
 const SourceFileSchema = z.object({
   repository: z.string().min(1),
@@ -516,51 +515,6 @@ const uiCommand = (row: CatalogDescriptor, command: UiInstructionCommand): Bind 
       }
     })
 
-const TodoNewInput = z.strictObject(TodoNewInputSchema.shape)
-
-/** What the model is told after a Draft is shown. */
-const DRAFTED =
-  "Drafted: the Draft is on the person's screen. Nothing is filed until they press Commit, so never say the TODO exists."
-
-/**
- * `todo.new` asks the person: it shows its author a private Draft and files
- * nothing. The Draft appends, the only place the install files a TODO at for
- * now, so it carries no placement to choose from.
- */
-const todoNew: Bind = (grant) => {
-  const author = grant.api?.author
-  if (author === undefined) return undefined
-  return (args, ordinal) =>
-    Effect.sync(() => {
-      const input = parseTodoArgs("text", false)(args)
-      if ("error" in input) return { refusal: input.error }
-      if ("cardId" in input.payload) return { refusal: "Only the person commits a Draft: they press Commit on it." }
-      const draft = TodoNewInput.safeParse(input.payload)
-      // The Draft's Commit key is the host's to choose, never the model's.
-      if (!draft.success || draft.data.idempotencyKey !== undefined) {
-        return { refusal: "todo.new takes the TODO's text, and optionally its title and acceptance." }
-      }
-      const { text = "", title, acceptance, before } = draft.data
-      if (before !== undefined) {
-        return { refusal: "A new TODO goes at the end of the stack for now: draft it without before." }
-      }
-      const card = draftCard(
-        {
-          id: `draft:${globalThis.crypto.randomUUID()}`,
-          author,
-          text,
-          title,
-          acceptance,
-          options: [],
-          idempotencyKey: globalThis.crypto.randomUUID()
-        },
-        ordinal,
-        Date.now()
-      )
-      return { cards: [card], value: DRAFTED }
-    })
-}
-
 /**
  * `docs` over the bundled pages, as the app runs it: a read hands the model a
  * page's title, summary and Markdown and embeds nothing; otherwise the Docs
@@ -600,9 +554,8 @@ const confirmed = (answer: ApiAnswer): Outcome => {
 }
 
 /**
- * Flow proposals use the same catalog as the browser. A private turn shows
- * its author a Draft. A shared conversation shows no private Draft or form:
- * the edit files through `todo.new`, so its author confirms the TODO it files.
+ * Flow proposals use the same catalog as the browser. An edit files through
+ * `todo.new`, so its author confirms the TODO before it is filed.
  */
 const flowCommand = (row: CatalogDescriptor): Bind => (grant, { api }) => {
   const author = grant.api?.author
@@ -628,31 +581,7 @@ const flowCommand = (row: CatalogDescriptor): Bind => (grant, { api }) => {
       const missing = ["name", ...(row.name === "flow.edit" ? ["request"] : [])].filter((key) =>
         input[key as "name" | "request"] === undefined
       )
-      const shared = grant.request.sharedConversation === true
-      if (missing.length > 0 && shared) return { refusal: `${row.name} needs ${missing.join(" and ")}` }
-      if (missing.length > 0) {
-        const form: Card = {
-          id: `form:${globalThis.crypto.randomUUID()}`,
-          kind: "flow-form",
-          title: row.summary,
-          status: "active",
-          ordinal,
-          createdAt: Date.now(),
-          payload: {
-            flow: row.name,
-            via: "agent",
-            given: input,
-            draft: {},
-            fields: missing.map((name) => ({
-              name,
-              label: name === "name" ? "Flow" : "Request",
-              kind: "text",
-              required: true
-            }))
-          }
-        }
-        return { cards: [form], value: `Rendered a form for ${missing.join(", ")}.` }
-      }
+      if (missing.length > 0) return { refusal: `${row.name} needs ${missing.join(" and ")}` }
       // The required name was checked above; no user code is loaded to resolve it.
       const name = input.name!
       const answer = yield* api("/api/flows", { method: "GET" })
@@ -672,27 +601,10 @@ const flowCommand = (row: CatalogDescriptor): Bind => (grant, { api }) => {
       const now = Date.now()
       if (row.name === "flow.edit") {
         const draft = flowEditTodoInput(name, input.request!, input.diff)
-        if (shared) {
-          const request = catalogRequest(catalogDescriptors.find((entry) => entry.name === "todo.new")!, draft)
-          return confirmed(yield* api(request.path, { ...request, idempotencyKey: `chat:${grant.turnId}:${ordinal}` }))
-        }
-        return {
-          cards: [
-            draftCard(
-              {
-                id: `draft:${globalThis.crypto.randomUUID()}`,
-                author,
-                ...draft,
-                options: [],
-                idempotencyKey: globalThis.crypto.randomUUID()
-              },
-              ordinal,
-              now
-            )
-          ],
-          value: DRAFTED
-        }
+        const request = catalogRequest(catalogDescriptors.find((entry) => entry.name === "todo.new")!, draft)
+        return confirmed(yield* api(request.path, { ...request, idempotencyKey: `chat:${grant.turnId}:${ordinal}` }))
       }
+
       const card: Card = {
         id: `flow:${name}`,
         kind: "flow",
@@ -769,15 +681,12 @@ const offeredCommands = (grant: DurableChatGrant, transport: HostTransport): Rea
   catalogDescriptors.flatMap((row) => {
     if (
       !row.actors.includes("app_agent") || row.visibility === "hidden" ||
-      (row.name === "merge" && grant.request.sharedConversation !== true) ||
       (row.agent !== "run" && row.agent !== "confirm")
     ) return []
     const bind = row.name === "files.list" ?
       filesList
       : row.name === "files.read" ?
       filesRead
-      : row.name === "todo.new" && grant.request.sharedConversation !== true ?
-      todoNew
       : row.name === "flow" || row.name === "flow.edit" ?
       flowCommand(row)
       : isUiInstructionCommand(row.name) ?

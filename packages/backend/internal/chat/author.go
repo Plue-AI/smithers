@@ -77,9 +77,6 @@ func (s *Store) RevokeInactiveAuthors(ctx context.Context) error {
 	if err = tx.Commit(ctx); err != nil {
 		return err
 	}
-	for _, turn := range turns {
-		s.signals.notify(turn.ID)
-	}
 	return nil
 }
 

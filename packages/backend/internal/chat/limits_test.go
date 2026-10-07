@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/ports"
 )
 
@@ -128,23 +127,6 @@ func TestProducerErrorMapsEverySentinel(t *testing.T) {
 
 // The public route caps bodies at middleware.MaxRequestBodySize. A turn
 // request over that cap is a 413, whether the handler or the route cuts it.
-func TestTurnRequestOverRouteCapIsTooLarge(t *testing.T) {
-	oversized := `{"runId":"r","instructions":"","messages":[],"pad":"` + strings.Repeat("x", int(middleware.MaxRequestBodySize)) + `"}`
-	for name, wrap := range map[string]func(http.ResponseWriter, *http.Request){
-		"handler": func(http.ResponseWriter, *http.Request) {},
-		"route": func(w http.ResponseWriter, r *http.Request) {
-			r.Body = http.MaxBytesReader(w, r.Body, middleware.MaxRequestBodySize)
-		},
-	} {
-		recorder := httptest.NewRecorder()
-		request := httptest.NewRequest(http.MethodPost, TurnPath, strings.NewReader(oversized))
-		wrap(recorder, request)
-		if _, _, _, ok := readTurnRequest(recorder, request); ok || recorder.Code != http.StatusRequestEntityTooLarge {
-			t.Fatalf("%s: oversized turn -> ok=%v status %d, want 413", name, ok, recorder.Code)
-		}
-	}
-}
-
 // validIdentity admits any UTF-8 string of up to maxIdentityBytes, and the
 // canonical encoding escapes a control character to six bytes. Every
 // mandatory terminal receipt must still fit the reserve, or the backend
@@ -173,7 +155,7 @@ func TestEscapedIdentitiesCanAlwaysSeal(t *testing.T) {
 			switch operation {
 			case "cancel":
 				wantState = StateCancelled
-				_, err = store.Cancel(ctx, scope, runID)
+				_, err = stopStoredTurn(store, ctx, scope, runID)
 			case "expired_provider":
 				wantState = StateUncertain
 				if err = store.MarkProviderStarted(ctx, grant); err != nil {

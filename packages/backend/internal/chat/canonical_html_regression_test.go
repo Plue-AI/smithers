@@ -1,7 +1,7 @@
 package chat
 
 import (
-	"net/http/httptest"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -9,6 +9,8 @@ import (
 )
 
 func TestChatAdmissionUnitHTMLTextBelowBothByteCapsRemainsAdmissible(t *testing.T) {
+	f := newContextFixture(t)
+	f.handler.Dispatcher = &Dispatcher{}
 	for _, item := range []struct {
 		name    string
 		rawText string
@@ -21,18 +23,23 @@ func TestChatAdmissionUnitHTMLTextBelowBothByteCapsRemainsAdmissible(t *testing.
 		{"escaped-less-than", strings.Repeat(`\u003c`, 100000), strings.Repeat("<", 100000)},
 	} {
 		t.Run(item.name, func(t *testing.T) {
-			raw := `{"runId":"run","journal":{"version":1,"legId":"leg","token":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"messages":[],"instructions":"` + item.rawText + `"}`
-			expected := `{"instructions":"` + item.text + `","messages":[],"runId":"run"}`
-			require.Less(t, len(raw), 1048576, "public request is below the documented shared HTTP body cap")
-			require.Less(t, len(expected), 2097152, "canonical payload is below the chat canonical byte cap")
-			_, _, err := parseCanonical([]byte(raw))
-			require.NoError(t, err, "the original object satisfies canonical structural and byte admission")
-			response := httptest.NewRecorder()
-			runID, journal, payload, ok := readTurnRequest(response, httptest.NewRequest("POST", TurnPath, strings.NewReader(raw)))
-			require.True(t, ok, "removing a credential cannot make an admitted object exceed its canonical byte cap")
-			require.Equal(t, "run", runID)
-			require.Equal(t, "leg", journal.LegID)
-			require.Equal(t, expected, string(payload))
+			raw := `{"prompt":"` + item.rawText + `","idempotencyKey":"` + item.name + `"}`
+			require.Less(t, len(raw), 1048576)
+			response := postJSON(t, f.server.Client(), f.server.URL+"/api/conversations/main/prompt", []byte(raw))
+			defer response.Body.Close()
+			require.Equal(t, 202, response.StatusCode)
+			var receipt promptReceipt
+			require.NoError(t, json.NewDecoder(response.Body).Decode(&receipt))
+			var request []byte
+			require.NoError(t, f.handler.Store.pool.QueryRow(t.Context(), `SELECT request_payload FROM chat_turns WHERE id=$1`, receipt.TurnID).Scan(&request))
+			var decoded struct {
+				Messages []struct {
+					Content string `json:"content"`
+				} `json:"messages"`
+			}
+			require.NoError(t, json.Unmarshal(request, &decoded))
+			require.Equal(t, item.text, decoded.Messages[0].Content)
+
 		})
 	}
 }

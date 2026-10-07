@@ -44,7 +44,7 @@ delegated credentials land.
 | `repo.read` | Member | `GET /api/user/repos`, `GET /api/repos/{o}/{r}/mythical`, `.../mythical/events`, `.../mythical/items/{ref}` |
 | `sync.read`, `sync.retry` | Member | `GET`, `POST /api/github/sync` |
 | `live` | Member | `GET /api/live` |
-| `agent.turn` | Member | `POST /api/agent/turn`, `POST /api/agent/turn/cancel` |
+| `agent.turn` | Member | `POST /api/conversations/{branch}/prompt`, `POST /api/conversations/{branch}/turns/{turnId}/stop` |
 | `issue.read` | Member | `GET /api/issues`, `GET /api/issues/{n}` |
 | `todo.read`, `todo.new`, `todo.answer` | Member | `GET /api/todos`, `GET /api/todos/{n}`, `POST /api/todos`, `POST /api/todos/{n}/answer` |
 | `todo.steer`, `todo.stop`, `todo.resume`, `todo.retry`, `todo.drop`, `stack.move` | Member | `POST /api/todos/{n}` (by `op`) |

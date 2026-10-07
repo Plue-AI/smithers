@@ -55,14 +55,27 @@ func TestAccountHistoryHTTPRestoresCommittedTurnsWithoutDeviceToken(t *testing.T
 		"messages": []any{map[string]any{"type": "function_call_output", "call_id": "old", "output": "private-tool-secret"},
 			map[string]any{"role": "user", "content": "hello from A"}}}
 	raw, _ := json.Marshal(body)
-	response := postJSON(t, clientA.Client(), clientA.URL+TurnPath, raw)
-	if response.StatusCode != http.StatusOK {
-		t.Fatalf("admission=%d", response.StatusCode)
-	}
-	_, err = io.ReadAll(response.Body)
-	response.Body.Close()
+	// Seed a persisted pre-migration journal to verify historical account replay.
+	delete(body, "journal")
+	raw, _ = json.Marshal(body)
+	accepted, err := store.Admit(ctx, AdmitInput{Scope: owner, RunID: runID, Journal: journal, Request: raw})
 	if err != nil {
 		t.Fatal(err)
+	}
+	dispatcher.Enqueue(Candidate{Scope: owner, TurnID: accepted.TurnID})
+	deadline := time.Now().Add(dbWait)
+	for {
+		_, terminal, err := store.GetState(ctx, owner, accepted.TurnID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if terminal {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("history fixture did not complete")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	listed, err := clientB.Client().Get(clientB.URL + HistoryPath)
 	if err != nil {
@@ -148,21 +161,7 @@ func TestAccountHistoryHTTPRestoresCommittedTurnsWithoutDeviceToken(t *testing.T
 	if err != nil || len(empty.Conversations) != 0 {
 		t.Fatalf("cross-account list=%#v err=%v", empty, err)
 	}
-	retireBody, _ := json.Marshal(map[string]any{"runId": runID, "journal": journal})
-	retired := postJSON(t, clientA.Client(), clientA.URL+RetirePath, retireBody)
-	retired.Body.Close()
-	if retired.StatusCode != http.StatusOK {
-		t.Fatalf("retire=%d", retired.StatusCode)
-	}
-	retiredRead := postJSON(t, clientB.Client(), clientB.URL+AccountReplayPath, accountRead)
-	retiredRead.Body.Close()
-	if retiredRead.StatusCode != http.StatusGone {
-		t.Fatalf("retired account read=%d", retiredRead.StatusCode)
-	}
-	page, err := store.History(context.Background(), owner, "", 50)
-	if err != nil || len(page.Conversations) != 0 {
-		t.Fatalf("retired index=%#v err=%v", page, err)
-	}
+
 }
 
 func TestAccountHistoryPagesPublicRunLinksAndLegacyIdentity(t *testing.T) {
@@ -193,7 +192,8 @@ func TestAccountHistoryPagesPublicRunLinksAndLegacyIdentity(t *testing.T) {
 	if strings.Contains(string(encoded), "public card body") {
 		t.Fatal("run payload crossed metadata boundary")
 	}
-	if err = store.Retire(ctx, ReplayInput{Scope: scope, RunID: "legacy-run", Journal: firstJournal}); err != nil {
+	_, retirementProof, _ := authHashes(scope, firstJournal.Token)
+	if err = store.Erase(ctx, "legacy-run", firstJournal.LegID, retirementProof); err != nil {
 		t.Fatal(err)
 	}
 	next, err := store.History(ctx, scope, *page.Next, 1)

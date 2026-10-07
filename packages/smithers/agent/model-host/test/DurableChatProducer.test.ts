@@ -79,7 +79,7 @@ describe("DurableChatProducer", () => {
     await expect(Effect.runPromise(producer.write(frame))).rejects.toThrow("did not extend")
   })
 
-  test("leaves a renderer's own tool calls to the renderer: text, tool, and terminal frames", async () => {
+  test("ignores client tools and keeps tool execution on the host", async () => {
     const order: Array<string> = []
     let expected = cursor
     const fetchImpl: FetchLike = async (input, init) => {
@@ -109,14 +109,21 @@ describe("DurableChatProducer", () => {
     }
     await Effect.runPromise(
       runDurableChatTurn(
-        Model.make({ stream: () => Stream.fromIterable(events) }),
+        Model.make({
+          stream: (request) =>
+            Stream.fromIterable(
+              request.messages.some((message) => message.role === "tool")
+                ? [{ type: "settle", stopReason: "stop" } as const]
+                : events
+            )
+        }),
         rendererTools,
         { modelId: "m" },
         "http://host.test",
         fetchImpl
       )
     )
-    expect(order).toEqual(["started", "delta", "tool_call", "done"])
+    expect(order).toEqual(["started", "delta", "done"])
   })
 })
 

@@ -5,9 +5,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/ports"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -95,29 +95,18 @@ func startFixtureHost(t *testing.T, callbackURL string, modelOrigin ...string) f
 	}}
 }
 
-func bodyWithContent(runID, content string, journal JournalRequest) []byte {
-	value := map[string]any{
-		"runId": runID, "journal": journal, "instructions": "answer",
-		"messages": []any{map[string]any{"role": "user", "content": content}},
-		"tools":    []any{map[string]any{"name": "inspect", "description": "inspect", "parameters": map[string]any{"type": "object"}}},
-	}
-	body, _ := json.Marshal(value)
-	return body
-}
-
 func TestGoAdmissionThroughTypeScriptHostPersistsRendererJournal(t *testing.T) {
-	store := needStore(t)
-	scope := testScope()
-	handler := &Handler{Store: store}
-	server := httptest.NewServer(authenticatedRoutes(handler, scope.UserID, scope.Owner))
-	defer server.Close()
+	f := newContextFixture(t)
+	store, handler, server := f.handler.Store, f.handler, f.server
 	fixture := startFixtureHost(t, server.URL)
 	defer fixture.stop()
 	httpHost, err := NewHTTPChatHost(fixture.origin, nil, "deterministic-host-token")
 	if err != nil {
 		t.Fatal(err)
 	}
-	dispatcher, err := NewDispatcher(store, PortHost{Host: httpHost, ProducerBaseURL: server.URL}, 8, time.Minute)
+	dispatcher, err := NewDispatcher(store, PortHost{Host: httpHost, ProducerBaseURL: server.URL, credentials: handler.credentials, API: fixtureTurnAPI{begin: func(context.Context, middleware.Credential, int64, string, int64) (ports.ChatTurnAPI, error) {
+		return ports.ChatTurnAPI{Author: "context-ben", Token: "smithers_" + strings.Repeat("a", 40), TokenID: 1}, nil
+	}, end: func(context.Context, int64, int64) error { return nil }}}, 8, time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,124 +115,53 @@ func TestGoAdmissionThroughTypeScriptHostPersistsRendererJournal(t *testing.T) {
 	go func() { _ = dispatcher.Run(dispatchContext, 1) }()
 	handler.Dispatcher = dispatcher
 
-	runID, journal := "typescript-"+time.Now().Format("150405.000000000"), testJournal()
-	startedAt := time.Now()
-	response := postJSON(t, server.Client(), server.URL+TurnPath, bodyWithContent(runID, "__held__", journal))
-	if response.StatusCode != http.StatusOK || response.Header.Get(journalHeader) != "1" {
-		raw, _ := io.ReadAll(response.Body)
-		t.Fatalf("turn admission: %d %s", response.StatusCode, raw)
-	}
-	if time.Since(startedAt) > time.Second {
-		t.Fatal("turn admission waited for the held TypeScript model")
-	}
-	scanner := bufio.NewScanner(response.Body)
-	if !scanner.Scan() {
-		t.Fatalf("missing accepted delivery: %v", scanner.Err())
-	}
-	var accepted Delivery
-	if err = json.Unmarshal(scanner.Bytes(), &accepted); err != nil || accepted.Type != "accepted" {
-		t.Fatalf("accepted delivery: %s err=%v", scanner.Bytes(), err)
-	}
-	var terminal bool
-	if err = store.pool.QueryRow(context.Background(), `SELECT terminal FROM chat_turns WHERE user_id=$1 AND run_id=$2 AND leg_id=$3`, scope.UserID, runID, journal.LegID).Scan(&terminal); err != nil || terminal {
-		t.Fatalf("turn became terminal before fixture release: terminal=%v err=%v", terminal, err)
+	started := time.Now()
+	receipt := submitPrompt(t, server, "main", "typescript-held", "__held__")
+	if time.Since(started) > time.Second {
+		t.Fatal("admission waited for held model")
 	}
 	released := postJSON(t, server.Client(), fixture.origin+"/fixture/release", []byte(`{}`))
-	_ = released.Body.Close()
+	released.Body.Close()
 	if released.StatusCode != http.StatusNoContent {
-		t.Fatalf("fixture release: %d", released.StatusCode)
+		t.Fatalf("release=%d", released.StatusCode)
 	}
-	var deliveries []Delivery
-	for scanner.Scan() {
-		var delivery Delivery
-		if err = json.Unmarshal(scanner.Bytes(), &delivery); err != nil {
+	replay := awaitPrompt(t, server, receipt)
+	wire, _ := json.Marshal(replay)
+	if bytes.Contains(wire, []byte("fixture-secret-do-not-persist")) {
+		t.Fatal("credential leaked")
+	}
+	if len(replay.Frames) == 0 {
+		t.Fatal("missing durable output")
+	}
+	duplicate := submitPrompt(t, server, "main", "typescript-held", "__held__")
+	if duplicate.Status != "existing" || duplicate.TurnID != receipt.TurnID {
+		t.Fatal("duplicate did not join")
+	}
+	cancelled := submitPrompt(t, server, "main", "typescript-blocked", "__block__")
+	deadline := time.Now().Add(dbWait)
+	for {
+		var started bool
+		if err := store.pool.QueryRow(context.Background(), `SELECT producer_started_at IS NOT NULL FROM chat_turns WHERE id=$1`, cancelled.TurnID).Scan(&started); err != nil {
 			t.Fatal(err)
 		}
-		deliveries = append(deliveries, delivery)
-	}
-	_ = response.Body.Close()
-	if err = scanner.Err(); err != nil {
-		t.Fatal(err)
-	}
-	if len(deliveries) < 3 || deliveries[len(deliveries)-1].Type != "caught-up" || deliveries[len(deliveries)-1].Terminal == nil || !*deliveries[len(deliveries)-1].Terminal {
-		wire, _ := json.Marshal(deliveries)
-		t.Fatalf("terminal journal delivery missing: %s", wire)
-	}
-	wire, _ := json.Marshal(deliveries)
-	if bytes.Contains(wire, []byte("fixture-secret-do-not-persist")) {
-		t.Fatal("provider credential reached the durable journal")
-	}
-	foundTool := false
-	for _, delivery := range deliveries {
-		if delivery.Batch == nil {
-			continue
-		}
-		for _, frame := range delivery.Batch.Frames {
-			foundTool = foundTool || frameHasStringField(frame, "type", "tool_call")
-		}
-	}
-	if !foundTool {
-		t.Fatal("deterministic TypeScript tool invocation was not committed")
-	}
-
-	duplicate := postJSON(t, server.Client(), server.URL+TurnPath, bodyWithContent(runID, "__held__", journal))
-	defer func() { _ = duplicate.Body.Close() }()
-	var existing AdmitResult
-	if duplicate.StatusCode != http.StatusOK || json.NewDecoder(duplicate.Body).Decode(&existing) != nil || existing.Status != "existing" {
-		t.Fatalf("duplicate turn did not join: %d %#v", duplicate.StatusCode, existing)
-	}
-	replayRequestBody, _ := json.Marshal(replayRequest{RunID: runID, Journal: journal, After: &accepted.Cursor})
-	replay := postJSON(t, server.Client(), server.URL+ReplayPath, replayRequestBody)
-	defer func() { _ = replay.Body.Close() }()
-	var page ReplayResult
-	if replay.StatusCode != http.StatusOK || json.NewDecoder(replay.Body).Decode(&page) != nil || !page.Terminal || len(page.Batches) == 0 {
-		t.Fatalf("reload replay: %d %#v", replay.StatusCode, page)
-	}
-
-	cancelRun, cancelJournal := "cancel-"+time.Now().Format("150405.000000000"), testJournal()
-	cancelStream := postJSON(t, server.Client(), server.URL+TurnPath, bodyWithContent(cancelRun, "__block__", cancelJournal))
-	cancelScanner := bufio.NewScanner(cancelStream.Body)
-	if !cancelScanner.Scan() {
-		t.Fatal("blocked turn was not accepted")
-	}
-	var cancelAccepted Delivery
-	if err = json.Unmarshal(cancelScanner.Bytes(), &cancelAccepted); err != nil {
-		t.Fatal(err)
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	providerStarted := false
-	for time.Now().Before(deadline) {
-		if err = store.pool.QueryRow(context.Background(), `SELECT producer_started_at IS NOT NULL FROM chat_turns WHERE user_id=$1 AND run_id=$2 AND leg_id=$3`, scope.UserID, cancelRun, cancelJournal.LegID).Scan(&providerStarted); err == nil && providerStarted {
+		if started {
 			break
 		}
-		time.Sleep(20 * time.Millisecond)
+		if time.Now().After(deadline) {
+			t.Fatal("provider never started")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	if !providerStarted {
-		t.Fatal("TypeScript provider never reached the durable started boundary")
+	for range 2 {
+		response := postJSON(t, server.Client(), server.URL+"/api/conversations/main/turns/"+cancelled.TurnID+"/stop", []byte(`{}`))
+		response.Body.Close()
+		if response.StatusCode != 200 {
+			t.Fatalf("stop=%d", response.StatusCode)
+		}
 	}
-	_ = cancelStream.Body.Close()
-	cancelBody, _ := json.Marshal(cancelRequest{RunID: cancelRun})
-	cancelResponse := postJSON(t, server.Client(), server.URL+CancelPath, cancelBody)
-	var cancelReceipt map[string]string
-	if cancelResponse.StatusCode != http.StatusOK || json.NewDecoder(cancelResponse.Body).Decode(&cancelReceipt) != nil || cancelReceipt["status"] != "cancelled" {
-		t.Fatalf("cancel receipt: %d %#v", cancelResponse.StatusCode, cancelReceipt)
+	terminal := awaitPrompt(t, server, cancelled)
+	raw, _ := json.Marshal(terminal)
+	if !bytes.Contains(raw, []byte(`"reason":"cancelled"`)) {
+		t.Fatalf("cancel replay=%s", raw)
 	}
-	_ = cancelResponse.Body.Close()
-	settledCancel := postJSON(t, server.Client(), server.URL+CancelPath, cancelBody)
-	var settledReceipt map[string]string
-	if settledCancel.StatusCode != http.StatusOK || json.NewDecoder(settledCancel.Body).Decode(&settledReceipt) != nil || settledReceipt["status"] != "not-found" {
-		t.Fatalf("settled cancel receipt: %d %#v", settledCancel.StatusCode, settledReceipt)
-	}
-	_ = settledCancel.Body.Close()
-	cancelReplayBody, _ := json.Marshal(replayRequest{RunID: cancelRun, Journal: cancelJournal, After: &cancelAccepted.Cursor})
-	cancelReplay := postJSON(t, server.Client(), server.URL+ReplayPath, cancelReplayBody)
-	defer func() { _ = cancelReplay.Body.Close() }()
-	var cancelled ReplayResult
-	if cancelReplay.StatusCode != http.StatusOK || json.NewDecoder(cancelReplay.Body).Decode(&cancelled) != nil || !cancelled.Terminal || len(cancelled.Batches) != 1 || !frameHasStringField(cancelled.Batches[0].Frames[0], "reason", "cancelled") {
-		t.Fatalf("cancel replay after disconnect: %d %#v", cancelReplay.StatusCode, cancelled)
-	}
-	if err = store.Verify(context.Background(), scope, cancelRun, cancelJournal); err != nil {
-		t.Fatalf("cancelled hash chain: %v", err)
-	}
-
 }

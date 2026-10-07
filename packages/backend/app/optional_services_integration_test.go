@@ -282,18 +282,24 @@ func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
 	// Reading initialized content exercises native storage, not just SQL metadata.
 	contents := request("GET", "/api/repos/optionalowner/optional-repo/contents?ref=main", session, nil, 200)
 	require.Contains(t, string(contents), "README.md")
-	runID := "optional-" + uuid.NewString()
-	journal := chat.JournalRequest{Version: 1, LegID: uuid.NewString(), Token: strings.Repeat("a", 48)}
-	payload := map[string]any{"runId": runID, "journal": journal, "repositoryId": repo.ID, "instructions": "Answer briefly.", "messages": []any{map[string]string{"role": "user", "content": "Say hello"}}}
-	request("POST", chat.TurnPath, "", payload, http.StatusUnauthorized)
-	stream := request("POST", chat.TurnPath, session, payload, 200)
+	payload := map[string]string{"prompt": "Say hello", "idempotencyKey": "optional-" + uuid.NewString()}
+	request("POST", "/api/conversations/main/prompt", "", payload, http.StatusUnauthorized)
+	admitted := request("POST", "/api/conversations/main/prompt", session, payload, 202)
+	var receipt struct {
+		RunID string `json:"runId"`
+		LegID string `json:"legId"`
+	}
+	require.NoError(t, json.Unmarshal(admitted, &receipt))
+	runID := receipt.RunID
+	journal := chat.JournalRequest{LegID: receipt.LegID}
+	var stream []byte
+	require.Eventually(t, func() bool {
+		stream = request("GET", "/api/conversations/main", session, nil, 200)
+		return bytes.Contains(stream, []byte(`"type":"done"`))
+	}, 10*time.Second, 20*time.Millisecond)
 	require.Contains(t, string(stream), "optional services chat reply")
-	require.Contains(t, string(stream), `"type":"done"`)
-	replayBody := map[string]any{"runId": runID, "journal": journal}
-	request("POST", chat.ReplayPath, "", replayBody, http.StatusUnauthorized)
-	replay := request("POST", chat.ReplayPath, session, replayBody, 200)
-	require.Contains(t, string(replay), "optional services chat reply")
-	require.Contains(t, string(replay), `"type":"done"`)
+	replay := request("GET", "/api/conversations/main", session, nil, 200)
+	require.JSONEq(t, string(stream), string(replay))
 	select {
 	case grant := <-grants:
 		require.Equal(t, owner.ID, grant.OwnerID)
@@ -303,7 +309,7 @@ func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
 			RepositoryID int64 `json:"repositoryId"`
 		}
 		require.NoError(t, json.Unmarshal(grant.Request, &modelRequest))
-		require.Equal(t, repo.ID, modelRequest.RepositoryID)
+		require.Zero(t, modelRequest.RepositoryID, "repository authority is carried by the grant")
 		require.Equal(t, runID, grant.RunID)
 		require.Equal(t, journal.LegID, grant.LegID)
 		require.NotEmpty(t, grant.Token)
@@ -324,14 +330,14 @@ func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
 	default:
 	}
 	// Same request returns its terminal cursor without dispatching another inference.
-	repeated := request("POST", chat.TurnPath, session, payload, 200)
+	repeated := request("POST", "/api/conversations/main/prompt", session, payload, 202)
 	var existing chat.AdmitResult
 	require.NoError(t, json.Unmarshal(repeated, &existing))
 	require.Equal(t, "existing", existing.Status)
 	require.True(t, existing.Terminal)
 	require.Equal(t, runID, existing.Cursor.RunID)
 	require.Equal(t, journal.LegID, existing.Cursor.LegID)
-	require.Equal(t, replay, request("POST", chat.ReplayPath, session, replayBody, http.StatusOK))
+	require.Equal(t, replay, request("GET", "/api/conversations/main", session, nil, http.StatusOK))
 	select {
 	case <-grants:
 		t.Fatal("completed turn dispatched twice")

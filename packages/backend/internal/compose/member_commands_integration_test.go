@@ -115,7 +115,7 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 		{"GET", "/api/repos/maya/demo/mythical"}, {"GET", "/api/repos/maya/demo/mythical/events"}, {"GET", "/api/repos/maya/demo/mythical/items/T1"},
 		{"GET", "/api/github/sync"}, {"POST", "/api/github/sync"}, {"GET", "/api/live"},
 		{"GET", "/api/user/tokens"}, {"GET", "/api/user/orgs"}, {"GET", "/api/user/workspaces"}, {"POST", "/api/telemetry/errors"},
-		{"POST", "/api/agent/turn"}, {"POST", "/api/conversations/1/prompt"}, {"POST", "/api/agent/turn/replay"},
+		{"POST", "/api/conversations/1/prompt"}, {"POST", "/api/agent/turn/replay"},
 		{"GET", "/api/agent/conversations"}, {"POST", "/api/agent/conversations/replay"},
 		{"GET", "/api/issues"}, {"GET", "/api/issues/2"},
 		{"GET", "/api/todos"}, {"GET", "/api/todos/1"}, {"POST", "/api/todos"}, {"POST", "/api/todos/1"}, {"POST", "/api/todos/1/answer"},
@@ -162,7 +162,7 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 			// route still refuses at its installation boundary.
 			case who == "suspended" && key != "POST /api/agent/turn/erase":
 				want = http.StatusUnauthorized
-			case who == "member token" && (key == "GET /api/user/orgs" || key == "GET /api/user/workspaces" || key == "POST /api/telemetry/errors" || key == "GET /api/agent/conversations" || key == "POST /api/agent/conversations/replay" || key == "POST /api/agent/turn" || key == "POST /api/conversations/1/prompt" || key == "POST /api/agent/turn/replay"):
+			case who == "member token" && (key == "GET /api/user/orgs" || key == "GET /api/user/workspaces" || key == "POST /api/telemetry/errors" || key == "GET /api/agent/conversations" || key == "POST /api/agent/conversations/replay" || key == "POST /api/conversations/1/prompt" || key == "POST /api/agent/turn/replay"):
 				want = http.StatusOK
 			case ownerOnly[key], who == "off roster", who == "suspended", who == "member token":
 				want = http.StatusForbidden

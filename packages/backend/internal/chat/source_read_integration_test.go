@@ -18,7 +18,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/ports"
 )
@@ -161,7 +160,7 @@ func TestSourceReadServesOnlyALiveProducerAsItsAdmittingCredential(t *testing.T)
 			t.Fatalf("fenced read %+v = %d %s", attempt, status, body)
 		}
 	}
-	if _, err := store.Cancel(context.Background(), scope, runID); err != nil {
+	if _, err := stopStoredTurn(store, context.Background(), scope, runID); err != nil {
 		t.Fatal(err)
 	}
 	status, body = postSourceRead(t, server, grant.Token, grant.TurnID, grant.Generation, "JOURNEY.md")
@@ -323,7 +322,7 @@ func TestSourceListServesOnlyALiveProducerAndStatesEachRefusal(t *testing.T) {
 	if status != http.StatusForbidden || body != `{"code":"forbidden","status":"error"}` {
 		t.Fatalf("unadmitted turn listing = %d %s", status, body)
 	}
-	if _, err := store.Cancel(context.Background(), scope, runID); err != nil {
+	if _, err := stopStoredTurn(store, context.Background(), scope, runID); err != nil {
 		t.Fatal(err)
 	}
 	status, body = postSource(t, server, SourceListPath, grant.Token, grant.TurnID, grant.Generation, "")
@@ -473,70 +472,24 @@ func TestTurnCredentialsKeepTheFirstAdmissionForATurnLifetime(t *testing.T) {
 	}
 }
 
-// The turn route records the credential that admitted each turn, first
-// admission only, before the turn exists.
+// Prompt admission binds each credential to its own idempotency scope.
 func TestTurnRouteRecordsTheAdmittingCredential(t *testing.T) {
 	store := needStore(t)
 	scope := testScope()
-	host := &deterministicHost{store: store, entered: make(chan struct{}), release: make(chan struct{})}
-	close(host.release)
-	dispatcher, err := NewDispatcher(store, host, 8, time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, stop := context.WithCancel(context.Background())
-	defer stop()
-	go func() { _ = dispatcher.Run(ctx, 1) }()
 	credentials := newTurnCredentials()
-	handler := &Handler{Store: store, Dispatcher: dispatcher, credentials: credentials}
-	as := func(info *middleware.AuthInfo) *httptest.Server {
-		router := chi.NewRouter()
-		router.Use(func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				next.ServeHTTP(w, r.WithContext(middleware.ContextWithAuthInfo(r.Context(), info)))
-			})
-		})
-		handler.MountPublic(router)
-		server := httptest.NewServer(router)
-		t.Cleanup(server.Close)
-		return server
+	handler := &Handler{Store: store, Dispatcher: &Dispatcher{}, credentials: credentials}
+	server := httptest.NewServer(authenticatedRoutes(handler, scope.UserID, scope.Owner))
+	defer server.Close()
+	receipt := submitPrompt(t, server, "main", "credential", "hello")
+	key := turnKey{userID: scope.UserID, runID: receipt.RunID, legID: receipt.LegID}
+	if got, ok := credentials.credential(key); !ok || got.SessionHash != strings.Repeat("a", 64) {
+		t.Fatalf("credential=%+v %t", got, ok)
 	}
-	user := &db.User{ID: scope.UserID, Username: scope.Owner}
-	browser := as(&middleware.AuthInfo{User: user, SessionHash: session.SessionHash})
-	pat := as(&middleware.AuthInfo{User: user, IsTokenAuth: true, TokenHash: strings.Repeat("7", 64)})
-	runID, journal := "credential-"+uuid.NewString(), testJournal()
-	post := func(server *httptest.Server, body []byte) int {
-		response := postJSON(t, server.Client(), server.URL+TurnPath, body)
-		defer response.Body.Close()
-		_, _ = io.Copy(io.Discard, response.Body)
-		return response.StatusCode
+	duplicate := submitPrompt(t, server, "main", "credential", "hello")
+	if duplicate.TurnID != receipt.TurnID {
+		t.Fatal("duplicate changed identity")
 	}
-	key := turnKey{userID: scope.UserID, runID: runID, legID: journal.LegID}
-	if status := post(browser, turnBody(runID, journal)); status != http.StatusOK {
-		t.Fatalf("turn = %d", status)
-	}
-	if got, ok := credentials.credential(key); !ok || got != session {
-		t.Fatalf("admitted credential = %+v %t", got, ok)
-	}
-	// Reattaching with another credential leaves the admitting one.
-	if status := post(pat, turnBody(runID, journal)); status != http.StatusOK {
-		t.Fatalf("reattach = %d", status)
-	}
-	if got, _ := credentials.credential(key); got != session {
-		t.Fatalf("reattaching replaced the credential with %+v", got)
-	}
-	// An admission the store refuses forgets the credential it recorded.
-	refused, refusedJournal := "credential-refused-"+uuid.NewString(), testJournal()
-	var body map[string]any
-	if err = json.Unmarshal(turnBody(refused, refusedJournal), &body); err != nil {
-		t.Fatal(err)
-	}
-	body["conversationId"] = 5
-	invalid, _ := json.Marshal(body)
-	if status := post(pat, invalid); status == http.StatusOK {
-		t.Fatal("an invalid conversation id was admitted")
-	}
-	if _, ok := credentials.credential(turnKey{userID: scope.UserID, runID: refused, legID: refusedJournal.LegID}); ok {
-		t.Fatal("a refused admission kept its credential")
+	if _, ok := credentials.credential(key); !ok {
+		t.Fatal("duplicate removed original credential")
 	}
 }

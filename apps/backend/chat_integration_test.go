@@ -168,7 +168,9 @@ func TestOwnerChatHTTPIntegration(t *testing.T) {
 		result, readErr := io.ReadAll(response.Body)
 		require.NoError(t, readErr)
 		wantStatus := http.StatusOK
-		if path == "/api/user/repos" {
+		if strings.HasSuffix(path, "/prompt") {
+			wantStatus = http.StatusAccepted
+		} else if path == "/api/user/repos" {
 			wantStatus = http.StatusCreated
 		} else if strings.HasSuffix(path, "/workspaces") {
 			wantStatus = http.StatusServiceUnavailable
@@ -206,6 +208,10 @@ func TestOwnerChatHTTPIntegration(t *testing.T) {
 		require.NoError(t, err)
 		_, err = pool.Exec(t.Context(), `INSERT INTO collaborators(repository_id,user_id,permission,github_login) SELECT $1,id,'admin',username FROM users WHERE username='l3bowner'`, installed.ID)
 		require.NoError(t, err)
+		// This fixture imports source directly; publish its source binding for
+		// the same context reader used by an install after setup completes.
+		_, err = pool.Exec(t.Context(), `INSERT INTO install_settings(key,value) VALUES ('setup.source.repository','"l3bowner/flow-http-integration"'),('setup.step.source','{"status":"done"}') ON CONFLICT(key) DO UPDATE SET value=excluded.value`)
+		require.NoError(t, err)
 		// A flow call that names no box is refused: there is no repository-level host.
 		noBox, err := json.Marshal(map[string]any{"repo": "l3bowner/flow-http-integration"})
 		require.NoError(t, err)
@@ -235,6 +241,12 @@ func TestOwnerChatHTTPIntegration(t *testing.T) {
 		case received <- r.Header.Get("Authorization"):
 		default:
 		}
+		raw, _ := io.ReadAll(r.Body)
+		if bytes.Contains(raw, []byte("Choose relevant context")) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"[]\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, "data: {\"id\":\"chatcmpl-owner\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"owner chat reply\"},\"finish_reason\":null}]}\n\n")
 		_, _ = io.WriteString(w, "data: {\"id\":\"chatcmpl-owner\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n")
@@ -255,9 +267,28 @@ func TestOwnerChatHTTPIntegration(t *testing.T) {
 	require.NoError(t, err)
 	defer defaultResponse.Body.Close()
 	require.Equal(t, http.StatusOK, defaultResponse.StatusCode)
-	stream := post("/api/agent/turn", map[string]any{"runId": "owner-" + uuid.NewString(),
-		"journal":      map[string]any{"version": 1, "legId": uuid.NewString(), "token": strings.Repeat("a", 48)},
-		"instructions": "Answer briefly.", "messages": []any{map[string]string{"role": "user", "content": "Say hello"}}})
+	fastRequest, err := http.NewRequest(http.MethodPut, origin+"/api/agents/fast/model", bytes.NewReader(defaultBytes))
+	require.NoError(t, err)
+	fastRequest.Header.Set("Content-Type", "application/json")
+	authorize(fastRequest)
+	fastResponse, err := client.Do(fastRequest)
+	require.NoError(t, err)
+	fastResponse.Body.Close()
+	require.Equal(t, http.StatusOK, fastResponse.StatusCode)
+	post("/api/conversations/main/prompt", map[string]string{"prompt": "Say hello", "idempotencyKey": "owner-" + uuid.NewString()})
+	var stream []byte
+	require.Eventually(t, func() bool {
+		request, err := http.NewRequest(http.MethodGet, origin+"/api/conversations/main", nil)
+		require.NoError(t, err)
+		authorize(request)
+		response, err := client.Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+		stream, err = io.ReadAll(response.Body)
+		require.NoError(t, err)
+		require.Equal(t, 200, response.StatusCode, string(stream))
+		return bytes.Contains(stream, []byte("owner chat reply"))
+	}, 30*time.Second, 20*time.Millisecond)
 	require.Contains(t, string(stream), "owner chat reply")
 	require.NotContains(t, string(stream), key)
 	select {

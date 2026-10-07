@@ -1,7 +1,6 @@
 package compose
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -26,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
+	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
@@ -126,19 +126,12 @@ func TestLiveProviderChatPersistsAndReplays(t *testing.T) {
 		"messages": []any{map[string]string{"role": "user", "content": "Reply with the single word pong."}}})
 	local.stop(t)
 
-	deliveries := decodeDeliveries(t, result.stream)
-	require.Equal(t, "accepted", deliveries[0].Type)
-	last := deliveries[len(deliveries)-1]
-	require.Equal(t, "caught-up", last.Type)
-	require.NotNil(t, last.Terminal)
-	require.True(t, *last.Terminal)
-	var streamed []chat.Batch
-	for _, delivery := range deliveries[1 : len(deliveries)-1] {
-		require.Equal(t, "batch", delivery.Type)
-		streamed = append(streamed, *delivery.Batch)
-	}
-	// The browser reconnects to exactly what was streamed, in one hash chain.
-	require.Equal(t, streamed, result.batches)
+	// Reloaded shared output is backed by the same persisted hash chain.
+	streamed := result.batches
+	var visible chat.SharedTurn
+	require.NoError(t, json.Unmarshal([]byte(result.stream), &visible))
+	require.Equal(t, chat.StateCompleted, visible.State)
+	require.JSONEq(t, result.stream, string(result.replay))
 	require.NotEmpty(t, streamed)
 	var text strings.Builder
 	var frames []map[string]any
@@ -177,6 +170,7 @@ func TestLiveProviderChatPersistsAndReplays(t *testing.T) {
 }
 
 type localChat struct {
+	models          *httptest.Server
 	nodeBinary      string
 	hostBundle      string
 	api             func(*chat.Runtime) http.Handler
@@ -276,9 +270,31 @@ func startConfiguredLocalChat(t *testing.T, configure func(*localChat, *chat.Run
 	if configure != nil {
 		configure(local, &runtimeOptions)
 	}
+	// Compose install admission and credential issuance for every shared prompt fixture.
+	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1) ON CONFLICT DO NOTHING`, local.ownerID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'admin') ON CONFLICT DO NOTHING`, local.repoID, local.ownerID)
+	require.NoError(t, err)
+	binding, _ := json.Marshal(map[string]any{"owner_login": "chatowner", "repository_name": "chatrepo", "repository_id": local.repoID})
+	_, err = pool.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES('github.repository',$1) ON CONFLICT DO NOTHING`, binding)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO auth_sessions(user_id,username,session_key,expires_at) VALUES($1,'chatowner',$2,$3) ON CONFLICT DO NOTHING`, local.ownerID, strings.Repeat("a", 64), time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	if runtimeOptions.API == nil {
+		auth := services.NewAuthService(db.New(pool), config.AuthConfig{Mode: "selfhost"}, nil, nil)
+		auth.Members = &services.Members{Pool: pool}
+		runtimeOptions.API = services.InstallAPI{Auth: auth}
+	}
+	if runtimeOptions.ContextRepository == nil {
+		// No repository context is needed by tests focused on provider transport.
+		runtimeOptions.ContextRepository = func(context.Context, middleware.Credential, int64, int64, string) (json.RawMessage, error) {
+			return json.RawMessage(`{"state":"ready","candidates":[],"tokenBudget":24000}`), nil
+		}
+	}
 	local.composition, err = newChatComposition(runOptions{topology: localTopology, Options: Options{ChatHost: local.host}}, pool, runtimeOptions)
 	require.NoError(t, err)
 	t.Cleanup(local.composition.close)
+	local.composition.runtime.Handler.ResolveBranch = func(_ context.Context, _ chat.Scope, branch string) (string, error) { return branch, nil }
 	if local.api != nil {
 		local.composition.server.Handler = chatCallbackHandler(local.composition.runtime, local.api(local.composition.runtime))
 	}
@@ -293,7 +309,7 @@ func startConfiguredLocalChat(t *testing.T, configure func(*localChat, *chat.Run
 	router := chi.NewRouter()
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			userCtx := middleware.ContextWithAuthInfo(r.Context(), &middleware.AuthInfo{User: local.actor})
+			userCtx := middleware.ContextWithAuthInfo(r.Context(), &middleware.AuthInfo{User: local.actor, SessionHash: strings.Repeat("a", 64)})
 			next.ServeHTTP(w, r.WithContext(userCtx))
 		})
 	})
@@ -303,6 +319,7 @@ func startConfiguredLocalChat(t *testing.T, configure func(*localChat, *chat.Run
 	router.Post("/api/model/credential", ownerModels.Credential)
 	router.Put("/api/model/default", ownerModels.SetDefault)
 	local.public = httptest.NewServer(router)
+	local.models = local.public
 	t.Cleanup(local.public.Close)
 	return local
 }
@@ -311,41 +328,84 @@ func startConfiguredLocalChat(t *testing.T, configure func(*localChat, *chat.Run
 // committed batch the way a reconnecting browser does.
 func (local *localChat) turn(t *testing.T, fields map[string]any) localTurn {
 	t.Helper()
-	runID := "local-" + uuid.NewString()
-	journal := map[string]any{"version": 1, "legId": uuid.NewString(), "token": strings.Repeat("a", 48)}
-	payload := map[string]any{"runId": runID, "journal": journal,
-		"instructions": "Answer briefly.", "messages": []any{map[string]string{"role": "user", "content": "Say hello"}}}
-	for name, value := range fields {
-		payload[name] = value
+	if model, ok := fields["model"].(map[string]string); ok {
+		local.setDefault(t, model)
 	}
-	body, err := json.Marshal(payload)
-	require.NoError(t, err)
-	response, err := local.client.Post(local.public.URL+chat.TurnPath, "application/json", bytes.NewReader(body))
+	prompt := "Say hello"
+	if messages, ok := fields["messages"]; ok {
+		encoded, _ := json.Marshal(messages)
+		var decoded []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		}
+		require.NoError(t, json.Unmarshal(encoded, &decoded))
+		for _, m := range decoded {
+			if m.Role == "user" {
+				prompt = m.Content
+			}
+		}
+	}
+	body, _ := json.Marshal(map[string]string{"prompt": prompt, "idempotencyKey": uuid.NewString()})
+	response, err := local.client.Post(local.public.URL+"/api/conversations/main/prompt", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	defer response.Body.Close()
-	stream, err := io.ReadAll(response.Body)
+	raw, err := io.ReadAll(response.Body)
 	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, response.StatusCode, string(stream))
-	result := localTurn{runID: runID, stream: string(stream)}
-	var after any
-	for {
-		replayBody, err := json.Marshal(map[string]any{"runId": runID, "journal": journal, "after": after})
-		require.NoError(t, err)
-		replayed, err := local.client.Post(local.public.URL+chat.ReplayPath, "application/json", bytes.NewReader(replayBody))
-		require.NoError(t, err)
-		page, err := io.ReadAll(replayed.Body)
-		replayed.Body.Close()
-		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, replayed.StatusCode, string(page))
-		result.replay = append(result.replay, page...)
-		var decoded chat.ReplayResult
-		require.NoError(t, json.Unmarshal(page, &decoded))
-		result.batches = append(result.batches, decoded.Batches...)
-		if !decoded.More {
-			return result
-		}
-		after = decoded.Next
+	require.Equal(t, 202, response.StatusCode, string(raw))
+	var receipt struct {
+		RunID  string      `json:"runId"`
+		LegID  string      `json:"legId"`
+		Cursor chat.Cursor `json:"cursor"`
 	}
+	require.NoError(t, json.Unmarshal(raw, &receipt))
+	result := localTurn{runID: receipt.RunID}
+	var entry chat.SharedTurn
+	require.Eventually(t, func() bool {
+		replayed, e := local.client.Get(local.public.URL + "/api/conversations/main")
+		require.NoError(t, e)
+		defer replayed.Body.Close()
+		result.replay, e = io.ReadAll(replayed.Body)
+		require.NoError(t, e)
+		require.Equal(t, 200, replayed.StatusCode, string(result.replay))
+		var conversation chat.SharedConversation
+		require.NoError(t, json.Unmarshal(result.replay, &conversation))
+		for _, current := range conversation.Entries {
+			if current.RunID == receipt.RunID {
+				entry = current
+				return current.State != chat.StateAccepted && current.State != chat.StateQueued && current.State != chat.StateRunning
+			}
+		}
+		return false
+	}, 30*time.Second, 20*time.Millisecond)
+	// The shared projection is the person-facing proof; additionally verify its frames against the journal.
+	rows, e := local.pool.Query(local.ctx, `SELECT jsonb_build_object('version',1,'runId',t.run_id,'legId',t.leg_id,'batch',b.batch_number,'from',b.from_position,'previousHash',b.previous_hash,'frames',b.frames,'hash',b.hash) FROM chat_turn_batches b JOIN chat_turns t ON t.id=b.turn_id WHERE t.run_id=$1 ORDER BY b.batch_number`, receipt.RunID)
+	require.NoError(t, e)
+	for rows.Next() {
+		var batch chat.Batch
+		var raw []byte
+		require.NoError(t, rows.Scan(&raw))
+		require.NoError(t, json.Unmarshal(raw, &batch))
+		result.batches = append(result.batches, batch)
+	}
+	rows.Close()
+	require.NoError(t, rows.Err())
+	projected, err := json.Marshal(entry)
+	require.NoError(t, err)
+	result.stream = string(projected)
+	reloaded, err := local.client.Get(local.public.URL + "/api/conversations/main")
+	require.NoError(t, err)
+	defer reloaded.Body.Close()
+	var conversation chat.SharedConversation
+	require.NoError(t, json.NewDecoder(reloaded.Body).Decode(&conversation))
+	for _, current := range conversation.Entries {
+		if current.ID == entry.ID {
+			result.replay, err = json.Marshal(current)
+			require.NoError(t, err)
+		}
+	}
+	require.NotEmpty(t, result.replay)
+
+	return result
 }
 
 func (local *localChat) enroll(t *testing.T, name, origin, value string) {
@@ -365,7 +425,7 @@ func (local *localChat) setDefault(t *testing.T, model map[string]string) {
 	t.Helper()
 	body, err := json.Marshal(map[string]any{"model": model})
 	require.NoError(t, err)
-	request, err := http.NewRequest(http.MethodPut, local.public.URL+"/api/model/default", bytes.NewReader(body))
+	request, err := http.NewRequest(http.MethodPut, local.models.URL+"/api/model/default", bytes.NewReader(body))
 	require.NoError(t, err)
 	request.Header.Set("Content-Type", "application/json")
 	response, err := local.client.Do(request)
@@ -384,21 +444,6 @@ func (local *localChat) stop(t *testing.T) {
 		require.NoError(t, local.composition.server.Close())
 		require.ErrorIs(t, <-local.serveDone, http.ErrServerClosed)
 	})
-}
-
-func decodeDeliveries(t *testing.T, stream string) []chat.Delivery {
-	t.Helper()
-	var deliveries []chat.Delivery
-	scanner := bufio.NewScanner(strings.NewReader(stream))
-	scanner.Buffer(make([]byte, 0, 64<<10), 8<<20)
-	for scanner.Scan() {
-		var delivery chat.Delivery
-		require.NoError(t, json.Unmarshal(scanner.Bytes(), &delivery), scanner.Text())
-		deliveries = append(deliveries, delivery)
-	}
-	require.NoError(t, scanner.Err())
-	require.GreaterOrEqual(t, len(deliveries), 2, stream)
-	return deliveries
 }
 
 type lockedBuffer struct {
@@ -452,6 +497,13 @@ func localChatProvider(receivedKey chan string, fileQuestions ...string) *httpte
 			_, _ = fmt.Fprintf(w, "data: %s\n\n", chunk)
 			_, _ = io.WriteString(w, "data: {\"id\":\"chatcmpl-local\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n")
 			_, _ = io.WriteString(w, "data: [DONE]\n\n")
+		}
+		for _, message := range body.Messages {
+			var text string
+			if message.Role == "system" && json.Unmarshal(message.Content, &text) == nil && strings.Contains(text, "Choose relevant context") {
+				answer("[]")
+				return
+			}
 		}
 		var result *string
 		for _, message := range body.Messages {

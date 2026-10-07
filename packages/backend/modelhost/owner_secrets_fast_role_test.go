@@ -59,12 +59,12 @@ func TestResolveChatModelRunsUnnamedTurnsOnTheInstallFastRole(t *testing.T) {
 	require.Equal(t, "openai-value", fallback.CredentialValue)
 	require.Equal(t, "cerebras-value", binding.CredentialValue)
 
-	// A turn that names its model keeps it.
-	named, err := json.Marshal(map[string]any{"model": json.RawMessage(coding)})
-	require.NoError(t, err)
+	// A caller-selected model never overrides the persisted app role.
+	named := json.RawMessage(`{"model":{"protocol":"openai-chat","modelId":"hostile","credential":"MISSING"}}`)
 	binding = resolve(named)
 	require.JSONEq(t, coding, string(binding.Model))
 	require.Equal(t, "openai-value", binding.CredentialValue)
+
 }
 
 // On an install, an active roster member's app agent turn runs on the

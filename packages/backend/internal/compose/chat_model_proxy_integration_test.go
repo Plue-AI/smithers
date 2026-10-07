@@ -35,11 +35,11 @@ func TestModelProxyChargesChatTurnOwnerPostgres(t *testing.T) {
 	require.NoError(t, err)
 	store, err := chat.NewStore(pool)
 	require.NoError(t, err)
-	scope := chat.Scope{UserID: alice.ID, Owner: "owner-alice"}
+	scope := chat.Scope{RepositoryID: 1, UserID: alice.ID, Owner: "owner-alice"}
 	claim := func() (chat.ProducerGrant, string) {
 		runID := "chat-" + uuid.NewString()
 		journal := chat.JournalRequest{Version: 1, LegID: uuid.NewString(), Token: strings.Repeat("a", 48) + strings.ReplaceAll(uuid.NewString(), "-", "")}
-		request, _ := json.Marshal(map[string]any{"instructions": "", "messages": []any{map[string]string{"content": "hello", "role": "user"}}, "runId": runID})
+		request, _ := json.Marshal(map[string]any{"instructions": "", "messages": []any{map[string]string{"content": "hello", "role": "user"}}, "runId": runID, "conversationId": runID})
 		admitted, err := store.Admit(ctx, chat.AdmitInput{Scope: scope, RunID: runID, Journal: journal, Request: request})
 		require.NoError(t, err)
 		require.Equal(t, "accepted", admitted.Status)
@@ -49,7 +49,7 @@ func TestModelProxyChargesChatTurnOwnerPostgres(t *testing.T) {
 	}
 	live, _ := claim()
 	cancelled, cancelledRun := claim()
-	_, err = store.Cancel(ctx, scope, cancelledRun)
+	_, err = store.MutateQueuedTurn(ctx, scope, cancelledRun, cancelled.TurnID, http.MethodPost, "")
 	require.NoError(t, err)
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

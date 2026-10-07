@@ -251,7 +251,7 @@ func TestContextCallbackRefusesUnavailableOrRevokedInputs(t *testing.T) {
 						raw, err := json.Marshal(map[string]any{"state": strings.Repeat("a", maxPayloadBytes-70), "candidates": []any{}, "tokenBudget": 24000})
 						return raw, err
 					case "cancel-during-read":
-						_, err := f.handler.Store.Cancel(ctx, f.scope, current.RunID)
+						_, err := stopStoredTurn(f.handler.Store, ctx, f.scope, current.RunID)
 						return json.RawMessage(repositoryContext), err
 					case "suspend-during-read":
 						_, err := f.handler.Store.pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, f.scope.UserID)

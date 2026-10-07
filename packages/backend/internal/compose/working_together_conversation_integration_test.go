@@ -379,7 +379,7 @@ func TestBranchConversationCutover(t *testing.T) {
 		f.call(t, "ben", "POST", path, `{"runId":"legacy","prompt":"must not start"}`, 404)
 	}
 	// The private host API remains available, but malformed admissions do no work.
-	f.call(t, "ben", "POST", "/api/agent/turn", `{"runId":"legacy","prompt":"must not start"}`, 400)
+	f.call(t, "ben", "POST", "/api/agent/turn", `{"runId":"legacy","prompt":"must not start"}`, 404)
 	for _, method := range []string{"GET", "PUT", "PATCH", "DELETE"} {
 		f.call(t, "ben", method, "/api/app-timelines/retired", "", 404)
 	}

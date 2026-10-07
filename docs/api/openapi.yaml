@@ -897,47 +897,6 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
-  /api/agent/turn:
-    post:
-      summary: POST /api/agent/turn
-      operationId: post_api_agent_turn
-      tags:
-        - Agent
-      parameters: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AnyJSON'
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: A new turn streams newline-delimited deliveries, starting with an accepted delivery; a repeated turn returns its existing acceptance as JSON.
-          content:
-            application/x-ndjson:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
   /api/agent/turn/erase:
     post:
       summary: POST /api/agent/turn/erase

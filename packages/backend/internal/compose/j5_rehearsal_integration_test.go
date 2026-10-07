@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
@@ -31,7 +30,7 @@ func TestJ5Rehearsal(t *testing.T) {
 	if !r.install("0 Install through Machine ready") {
 		return
 	}
-	r.step("1 The message reaches the app agent", "POST "+chat.TurnPath, "200; an answer with JOURNEY.md's File card", "T-APP-03", func() error {
+	r.step("1 The message reaches the app agent", "POST "+"/api/conversations/main/prompt", "200; an answer with JOURNEY.md's File card", "T-APP-03", func() error {
 		select {
 		case err := <-r.besideChat():
 			r.actual = "200 a File card answer quoting JOURNEY.md"
@@ -173,7 +172,7 @@ func TestJ5Rehearsal(t *testing.T) {
 	}) {
 		return
 	}
-	r.step("5 App agent shows the TODO flow", "POST "+chat.TurnPath+" /flow todo", "the Flow card of the served todo flow", "T-FLW-05", func() error {
+	r.step("5 App agent shows the TODO flow", "POST "+"/api/conversations/main/prompt"+" /flow todo", "the Flow card of the served todo flow", "T-FLW-05", func() error {
 		_, frames, terminal, err := r.ask("", "Run /flow todo")
 		if err != nil {
 			return err
@@ -188,26 +187,29 @@ func TestJ5Rehearsal(t *testing.T) {
 		}
 		return fmt.Errorf("flow show delivered no TODO flow card")
 	})
-	r.step("6 App agent proposes the edit", "POST "+chat.TurnPath+" /flow.edit todo", "one private Draft quoting the diff; the TODO count unchanged", "T-FLW-05", func() error {
+	r.step("6 App agent proposes the edit", "POST "+"/api/conversations/main/prompt"+" /flow.edit todo", "author confirmation quoting the diff; the TODO count unchanged", "T-FLW-05", func() error {
 		var before, after int
 		if err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM mythical_items`).Scan(&before); err != nil {
 			return err
 		}
-		_, frames, terminal, err := r.ask("", `Run /flow.edit {"name":"todo","request":"Run tests","diff":"+pnpm test"}`)
+		answer, frames, terminal, err := r.ask("", `Run /flow.edit {"name":"todo","request":"Run tests","diff":"+pnpm test"}`)
 		if err != nil {
 			return err
 		}
 		if !terminal {
 			return fmt.Errorf("flow edit did not settle")
 		}
-		proposals := 0
+		if !strings.Contains(answer, `"state":"pending"`) {
+			return fmt.Errorf("flow edit did not request confirmation: %q", answer)
+		}
 		for _, frame := range frames {
 			if frame.Type == "card" && frame.Card.Kind == "draft" {
-				if frame.Card.Audience == nil || *frame.Card.Audience != "rehearsal-owner" || frame.Card.Payload.Prompt != "Change flows/todo/flow.ts: Run tests; start from the built-in composition when no override exists\n\nProposed diff (untrusted context):\n> +pnpm test" {
-					return fmt.Errorf("flow edit did not retain its private literal proposal")
-				}
-				proposals++
+				return fmt.Errorf("private Draft in shared conversation")
 			}
+		}
+		var proposals int
+		if err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM approvals WHERE command='todo.new' AND state='pending' AND payload::text LIKE '%+pnpm test%'`).Scan(&proposals); err != nil {
+			return err
 		}
 		if err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM mythical_items`).Scan(&after); err != nil {
 			return err
@@ -217,7 +219,7 @@ func TestJ5Rehearsal(t *testing.T) {
 		}
 		return nil
 	})
-	r.step("7 System flow refused", "POST "+chat.TurnPath+" /flow.edit merge", "Merge flow is built in", "T-FLW-05", func() error {
+	r.step("7 System flow refused", "POST "+"/api/conversations/main/prompt"+" /flow.edit merge", "Merge flow is built in", "T-FLW-05", func() error {
 		answer, frames, terminal, err := r.ask("", "Run /flow.edit merge Add a step")
 		if err != nil {
 			return err

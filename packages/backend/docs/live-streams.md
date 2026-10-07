@@ -17,7 +17,6 @@ owner, as another account and anonymously through the composed backend.
 | `GET /api/notifications` | SSE | the signed-in account, its own notifications | live hints; no replay | opens |
 | `GET /api/notifications/events/stream` | SSE | the signed-in account, its own notifications | durable facts; `Last-Event-ID` cursor | opens |
 | `GET /api/github/import/{id}` | SSE with `Accept: text/event-stream` | the account that started the import | polled import snapshots until terminal | opens |
-| `POST /api/agent/turn` | NDJSON | the signed-in account, its own chat responses | durable batches; journal proof replays through `/api/agent/turn/replay` | opens |
 | `POST /api/model/stream` | NDJSON | the signed-in account, its own model | relayed model output; no replay | opens |
 | `GET /api/repos/{owner}/{repo}/changes/events` | SSE | repository readers | live hints; no replay | opens |
 | `GET /api/repos/{owner}/{repo}/mythical/events` | SSE | repository readers | live hints; clients refetch the stack | opens |

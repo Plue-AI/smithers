@@ -15,8 +15,8 @@ import (
 func TestResolveChatModelAcrossOperatorKeyRotation(t *testing.T) {
 	f := newOwnerModelsFixture(t)
 	require.Equal(t, true, f.credential(t, "enroll", "enroll-rotation", "OPENAI_API_KEY", "https://api.openai.com", "owner-key")["ok"])
-	request, err := json.Marshal(map[string]any{"model": map[string]string{"protocol": "openai-chat", "modelId": "m", "credential": "OPENAI_API_KEY"}})
-	require.NoError(t, err)
+	require.Equal(t, true, f.call(t, f.handlers.SetDefault, "PUT", map[string]any{"model": map[string]string{"protocol": "openai-chat", "modelId": "m", "credential": "OPENAI_API_KEY"}})["ok"])
+	request := json.RawMessage(`{}`)
 
 	rotated, err := modelhost.NewOwnerSecretResolver(func() string { return f.url }, func() string { return "rotated-operator-key" },
 		modelhost.WithPreviousSecretKeys(func() string { return "unrelated-key, " + ownerModelsSecretKey }))

@@ -25,7 +25,6 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/admission"
@@ -329,11 +328,7 @@ var liveStreamRecipes = map[string]liveStreamRecipe{
 // liveChatRecipes need a composed chat host, which the multitenant product
 // composition of the isolation suite does not inject.
 var liveChatRecipes = map[string]liveStreamRecipe{
-	"post /api/agent/turn": {ownView: true, request: func(f liveStreamFixture) liveStreamRequest {
-		body := fmt.Sprintf(`{"runId":%q,"journal":{"version":1,"legId":%q,"token":%q},"instructions":"Answer briefly.","messages":[{"role":"user","content":%q}]}`,
-			"live-"+f.alice.user.Username, uuid.NewSHA1(uuid.NameSpaceOID, []byte("live-stream")).String(), strings.Repeat("c", 48), canary("chat"))
-		return liveStreamRequest{path: "/api/agent/turn", body: body}
-	}},
+
 	"post /api/model/stream": {ownView: true, ownerSees: true, request: func(liveStreamFixture) liveStreamRequest {
 		return liveStreamRequest{path: "/api/model/stream", body: `{"messages":[{"role":"user","content":"hello"}]}`}
 	}},
@@ -500,5 +495,5 @@ func TestLiveChatStreamsServeOnlyTheirSubscribersPostgres(t *testing.T) {
 		t.Run(row.key(), func(t *testing.T) { checkLiveStream(t, server, row, recipe, f) })
 	}
 	slices.Sort(tested)
-	require.Equal(t, []string{"post /api/agent/turn", "post /api/model/stream"}, tested)
+	require.Equal(t, []string{"post /api/model/stream"}, tested)
 }

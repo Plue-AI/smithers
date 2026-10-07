@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/smithersai/smithers/packages/backend/internal/buildcache"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/ports"
@@ -63,16 +64,16 @@ func (h *Handler) Prompt(w http.ResponseWriter, r *http.Request) {
 	accessHash := sha256.Sum256(append([]byte("branch-prompt-access-v1:"), identity...))
 	accessToken := hex.EncodeToString(accessHash[:])
 	runID, legID := "prompt-"+key, "prompt-leg-"+key
-	request, err := json.Marshal(map[string]any{
+	request, err := buildcache.CanonicalJSON(map[string]any{
 		"runId": runID, "conversationId": branch, "purpose": "conversation", "sharedConversation": true,
 		"instructions": ports.BuiltinAppInstructions,
-		"messages":     []map[string]string{{"role": "user", "content": input.Prompt}},
+		"messages":     []any{map[string]any{"role": "user", "content": input.Prompt}},
 	})
 	if err != nil {
 		queueError(w, err)
 		return
 	}
-	accepted, err := h.admit(r, scope, runID, JournalRequest{Version: 1, LegID: legID, Token: accessToken}, request)
+	accepted, err := h.admit(r, scope, runID, JournalRequest{Version: 1, LegID: legID, Token: accessToken}, json.RawMessage(request))
 	if err != nil {
 		if errors.Is(err, ErrConflict) {
 			pkgerrors.WriteError(w, pkgerrors.Conflict("Prompt key already used"))

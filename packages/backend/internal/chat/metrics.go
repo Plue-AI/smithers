@@ -14,7 +14,6 @@ type metrics struct {
 	claims         prometheus.Counter
 	failures       *prometheus.CounterVec
 	recoveryErrors prometheus.Counter
-	streamAborts   *prometheus.CounterVec
 	latencies      *turnLatencies
 }
 
@@ -41,15 +40,11 @@ func newMetrics(queued func() float64) *metrics {
 			Name: "smithers_chat_recovery_errors_total",
 			Help: "Failed scans for recoverable chat turns.",
 		}),
-		streamAborts: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "smithers_chat_stream_aborts_total",
-			Help: "Renderer turn streams that ended on a journal error, by code.",
-		}, []string{"code"}),
 	}
 }
 
 func (m *metrics) collectors() []prometheus.Collector {
-	return []prometheus.Collector{m.queued, m.running, m.claims, m.failures, m.recoveryErrors, m.streamAborts, m.latencies.seconds, m.latencies.omitted}
+	return []prometheus.Collector{m.queued, m.running, m.claims, m.failures, m.recoveryErrors, m.latencies.seconds, m.latencies.omitted}
 }
 
 // errorCode names a store error for logs and metric labels.

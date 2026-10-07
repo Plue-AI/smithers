@@ -88,7 +88,7 @@ func TestChatRuntimeUnitOptionsComposeIndependentlyWithoutLaunchingWork(t *testi
 					require.Equal(t, wantedLease, runtime.dispatcher.lease)
 					require.Same(t, wantedLogger, runtime.dispatcher.logger)
 					require.Same(t, wantedLogger, runtime.Handler.logger)
-					require.Same(t, runtime.store, runtime.Handler.Store)
+					require.Same(t, runtime.dispatcher.store, runtime.Handler.Store)
 					require.Same(t, runtime.dispatcher, runtime.Handler.Dispatcher)
 					require.Equal(t, "https://callback.invalid/prefix/", runtime.dispatcher.host.(PortHost).ProducerBaseURL)
 					require.Equal(t, "https://install.invalid:8443", runtime.dispatcher.host.(PortHost).InstallOrigin())

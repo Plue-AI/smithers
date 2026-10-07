@@ -64,7 +64,7 @@ func TestTurnModelCredentialVerifiesOnlyTheLiveProducerGeneration(t *testing.T) 
 	}
 
 	// Cancellation makes the turn terminal and refuses its credential.
-	if cancelled, err := clocked.Cancel(ctx, scope, runID); err != nil || cancelled.Count != 1 {
+	if cancelled, err := stopStoredTurn(clocked, ctx, scope, runID); err != nil || cancelled.Count != 1 {
 		t.Fatalf("cancel: %#v err=%v", cancelled, err)
 	}
 	refused(t, "cancelled", modelCredential(reclaimed))

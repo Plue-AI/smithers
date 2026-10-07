@@ -1,7 +1,6 @@
 package compose
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -812,6 +811,9 @@ func (r *rehearsal) setupSource() bool {
 		if _, err := r.expect("PUT", "/api/model/default", string(body), 200); err != nil {
 			return err
 		}
+		if _, err := r.expect("PUT", "/api/agents/fast/model", string(body), 200); err != nil {
+			return err
+		}
 		// Factory roles use the coding proxy's offered provider, while the
 		// app keeps its separate chat fixture. Configure through the owner's
 		// settings door rather than bypassing the runtime's seat resolution.
@@ -1276,60 +1278,77 @@ type rehearsalTurnFrame struct {
 // so the host runs the turn's reads. A bearer token asks as that token
 // instead of the owner's browser session.
 func (r *rehearsal) ask(bearer, question string) (string, []rehearsalTurnFrame, bool, error) {
-	body, _ := json.Marshal(map[string]any{"runId": r.keyPrefix + uuid.NewString(), "journal": map[string]any{"version": 1, "legId": uuid.NewString(), "token": strings.Repeat("a", 48)}, "instructions": "Answer briefly using file cards.", "messages": []any{map[string]string{"role": "user", "content": question}}})
-	var data []byte
-	var err error
-	if bearer == "" {
-		data, err = r.expect("POST", chat.TurnPath, string(body), 200)
-	} else {
-		req, reqErr := http.NewRequest("POST", r.origin+chat.TurnPath, bytes.NewReader(body))
-		if reqErr != nil {
-			return "", nil, false, reqErr
+	call := func(method, path string, body []byte) ([]byte, error) {
+		req, err := http.NewRequest(method, r.origin+path, bytes.NewReader(body))
+		if err != nil {
+			return nil, err
 		}
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+bearer)
-		resp, doErr := (&http.Client{Timeout: 30 * time.Second}).Do(req)
-		if doErr != nil {
-			return "", nil, false, doErr
+		client := &http.Client{Timeout: 30 * time.Second}
+		if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
+		} else {
+			client.Jar = r.jar
+			req.Header.Set("Origin", r.origin)
+			for _, cookie := range r.jar.Cookies(req.URL) {
+				if cookie.Name == "__csrf" {
+					req.Header.Set("X-CSRF-Token", cookie.Value)
+				}
+			}
 		}
-		data, err = io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		resp.Body.Close()
-		r.log("POST %s (bearer) → %d %s\n", chat.TurnPath, resp.StatusCode, data)
-		if err == nil && resp.StatusCode != 200 {
-			err = fmt.Errorf("bearer turn: HTTP %d %s", resp.StatusCode, data)
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
 		}
+		defer resp.Body.Close()
+		raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+		if err == nil && resp.StatusCode != 200 && resp.StatusCode != 202 {
+			err = fmt.Errorf("%s %s: HTTP %d %s", method, path, resp.StatusCode, raw)
+		}
+		return raw, err
 	}
+	body, _ := json.Marshal(map[string]string{"prompt": question, "idempotencyKey": r.keyPrefix + uuid.NewString()})
+	raw, err := call("POST", "/api/conversations/main/prompt", body)
 	if err != nil {
 		return "", nil, false, err
 	}
-	var answer strings.Builder
-	var frames []rehearsalTurnFrame
-	terminal := false
-	scanner := bufio.NewScanner(strings.NewReader(string(data)))
-	scanner.Buffer(make([]byte, 4096), 1<<20)
-	for scanner.Scan() {
-		var delivery chat.Delivery
-		if err = json.Unmarshal(scanner.Bytes(), &delivery); err != nil {
+	var receipt struct {
+		TurnID string `json:"turnId"`
+	}
+	if err = json.Unmarshal(raw, &receipt); err != nil {
+		return "", nil, false, err
+	}
+	deadline := time.Now().Add(time.Minute)
+	for time.Now().Before(deadline) {
+		raw, err = call("GET", "/api/conversations/main", nil)
+		if err != nil {
 			return "", nil, false, err
 		}
-		if delivery.Terminal != nil {
-			terminal = *delivery.Terminal
+		var conversation chat.SharedConversation
+		if err = json.Unmarshal(raw, &conversation); err != nil {
+			return "", nil, false, err
 		}
-		if delivery.Batch == nil {
-			continue
-		}
-		for _, raw := range delivery.Batch.Frames {
-			var frame rehearsalTurnFrame
-			if err = json.Unmarshal(raw, &frame); err != nil {
-				return "", nil, false, err
+		for _, entry := range conversation.Entries {
+			if entry.ID != receipt.TurnID || entry.State == chat.StateAccepted || entry.State == chat.StateQueued || entry.State == chat.StateRunning {
+				continue
 			}
-			if frame.Type == "delta" && frame.Kind == "text" {
-				answer.WriteString(frame.Text)
+			var answer strings.Builder
+			var frames []rehearsalTurnFrame
+			for _, raw := range entry.Frames {
+				var frame rehearsalTurnFrame
+				if err = json.Unmarshal(raw, &frame); err != nil {
+					return "", nil, false, err
+				}
+				if frame.Type == "delta" && frame.Kind == "text" {
+					answer.WriteString(frame.Text)
+				}
+				frames = append(frames, frame)
 			}
-			frames = append(frames, frame)
+			return answer.String(), frames, true, nil
 		}
+		time.Sleep(20 * time.Millisecond)
 	}
-	return answer.String(), frames, terminal, scanner.Err()
+	return "", nil, false, fmt.Errorf("conversation did not finish")
 }
 
 // token mints a personal access token through the production route.
@@ -1546,63 +1565,16 @@ func (r *rehearsal) prFiles(p githubfake.Pull) ([]string, error) {
 // card with main's bytes, quoted in a finished answer.
 func (r *rehearsal) besideChat() <-chan error {
 	settled := make(chan error, 1)
-	body, _ := json.Marshal(map[string]any{"runId": r.keyPrefix + uuid.NewString(), "journal": map[string]any{"version": 1, "legId": uuid.NewString(), "token": strings.Repeat("a", 48)}, "instructions": "Answer briefly using file cards.", "messages": []any{map[string]string{"role": "user", "content": "What is in JOURNEY.md? Show the file."}}})
-	req, err := http.NewRequest("POST", r.origin+chat.TurnPath, bytes.NewReader(body))
-	if err != nil {
-		settled <- err
-		return settled
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Origin", r.origin)
-	req.Header.Set("Idempotency-Key", r.keyPrefix+"beside-"+uuid.NewString())
-	for _, cookie := range r.jar.Cookies(req.URL) {
-		if cookie.Name == "__csrf" {
-			req.Header.Set("X-CSRF-Token", cookie.Value)
-		}
-	}
 	go func() {
-		settled <- func() error {
-			resp, err := (&http.Client{Jar: r.jar, Timeout: time.Minute}).Do(req)
-			if err != nil {
-				return err
-			}
-			data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-			resp.Body.Close()
-			r.log("POST %s (beside) → %d %s\n", chat.TurnPath, resp.StatusCode, data)
-			if err != nil || resp.StatusCode != 200 {
-				return fmt.Errorf("turn: HTTP %d: %v", resp.StatusCode, err)
-			}
-			var answer strings.Builder
-			card, terminal := false, false
-			scanner := bufio.NewScanner(bytes.NewReader(data))
-			scanner.Buffer(make([]byte, 4096), 1<<20)
-			for scanner.Scan() {
-				var delivery chat.Delivery
-				if err = json.Unmarshal(scanner.Bytes(), &delivery); err != nil {
-					return err
-				}
-				if delivery.Terminal != nil {
-					terminal = *delivery.Terminal
-				}
-				if delivery.Batch == nil {
-					continue
-				}
-				for _, raw := range delivery.Batch.Frames {
-					var frame rehearsalTurnFrame
-					if err = json.Unmarshal(raw, &frame); err != nil {
-						return err
-					}
-					if frame.Type == "delta" && frame.Kind == "text" {
-						answer.WriteString(frame.Text)
-					}
-					card = card || frame.Type == "card" && frame.Card.Kind == "file" && frame.Card.Payload.Path == "JOURNEY.md" && strings.Contains(frame.Card.Payload.Content, "Add a greeting to JOURNEY.md")
-				}
-			}
-			if !terminal || !card || !strings.Contains(answer.String(), "Add a greeting to JOURNEY.md") {
-				return fmt.Errorf("no File card answer (terminal=%t card=%t): %q", terminal, card, answer.String())
-			}
-			return nil
-		}()
+		answer, frames, terminal, err := r.ask("", "What is in JOURNEY.md? Show the file.")
+		card := false
+		for _, frame := range frames {
+			card = card || frame.Type == "card" && frame.Card.Kind == "file" && frame.Card.Payload.Path == "JOURNEY.md" && strings.Contains(frame.Card.Payload.Content, "Add a greeting to JOURNEY.md")
+		}
+		if err == nil && (!terminal || !card || !strings.Contains(answer, "Add a greeting to JOURNEY.md")) {
+			err = fmt.Errorf("no File card answer (terminal=%t card=%t): %q", terminal, card, answer)
+		}
+		settled <- err
 	}()
 	return settled
 }

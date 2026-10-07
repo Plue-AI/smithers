@@ -55,7 +55,6 @@ func Schema() ([]byte, error) { return schemaFS.ReadFile("schema.sql") }
 type Store struct {
 	pool      *pgxpool.Pool
 	now       func() time.Time
-	signals   turnSignals
 	latencies *turnLatencies
 	// afterReplayHead is a test seam that runs between the head read and the
 	// batch reads of Replay.
@@ -554,7 +553,7 @@ func (s *Store) Claim(ctx context.Context, scope Scope, turnID string, lease tim
 			return ProducerGrant{}, err
 		}
 		s.latencies.stopped(turn.ID)
-		s.signals.notify(turn.ID)
+
 		return ProducerGrant{}, ErrTerminal
 	}
 	if turn.ProducerLeaseExpiresAt != nil && turn.ProducerLeaseExpiresAt.After(now) {
@@ -569,7 +568,7 @@ func (s *Store) Claim(ctx context.Context, scope Scope, turnID string, lease tim
 			return ProducerGrant{}, err
 		}
 		s.latencies.stopped(turn.ID)
-		s.signals.notify(turn.ID)
+
 		return ProducerGrant{}, ErrUncertain
 	}
 	token, tokenHash, err := tokenPair()
@@ -1024,7 +1023,7 @@ func (s *Store) Commit(ctx context.Context, input CommitInput) (CommitResult, er
 		return CommitResult{}, err
 	}
 	s.latencies.committed(turn.ID, batch, time.Now())
-	s.signals.notify(turn.ID)
+
 	return CommitResult{Status: "committed", Batch: batch, Cursor: next}, nil
 }
 
@@ -1208,94 +1207,6 @@ func (s *Store) appendTerminalTx(ctx context.Context, tx pgx.Tx, turn *turnRecor
 	turn.HeadBatch, turn.HeadPosition, turn.CursorHash, turn.HeadHash = next.Batch, next.Position, &next.Hash, &hash
 	turn.OutputBytes, turn.Terminal, turn.State = nextBytes, true, state
 	return notifyTx(ctx, tx, turn.ID)
-}
-
-func (s *Store) Cancel(ctx context.Context, scope Scope, runID string) (CancelResult, error) {
-	if scope.UserID <= 0 || !validIdentity(runID) {
-		return CancelResult{}, ErrInvalidRequest
-	}
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return CancelResult{}, err
-	}
-	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
-	rows, err := tx.Query(ctx, `SELECT `+turnColumns+` FROM chat_turns WHERE user_id=$1 AND run_id=$2 AND state<>'retired' ORDER BY created_at FOR UPDATE`, scope.UserID, runID)
-	if err != nil {
-		return CancelResult{}, err
-	}
-	var turns []turnRecord
-	for rows.Next() {
-		turn, scanErr := scanTurn(rows)
-		if scanErr != nil {
-			rows.Close()
-			return CancelResult{}, scanErr
-		}
-		turns = append(turns, turn)
-	}
-	rows.Close()
-	if len(turns) == 0 {
-		return CancelResult{}, ErrNotFound
-	}
-	now := s.now().UTC()
-	result := CancelResult{}
-	for index := range turns {
-		turn := &turns[index]
-		if externalTurn(*turn) {
-			return CancelResult{}, ErrForbidden
-		}
-		if turn.Terminal {
-			continue
-		}
-		if err = s.cancelTurnTx(ctx, tx, turn, now); err != nil {
-			return CancelResult{}, err
-		}
-		result.TurnIDs = append(result.TurnIDs, turn.ID)
-	}
-	result.Count = len(result.TurnIDs)
-	if err = tx.Commit(ctx); err != nil {
-		return CancelResult{}, err
-	}
-	for _, turnID := range result.TurnIDs {
-		s.latencies.stopped(turnID)
-		s.signals.notify(turnID)
-	}
-	return result, nil
-}
-
-func (s *Store) Retire(ctx context.Context, input ReplayInput) error {
-	if !validIdentity(input.RunID) || !validJournal(input.Journal) {
-		return ErrInvalidRequest
-	}
-	ownerHash, accessHash, err := authHashes(input.Scope, input.Journal.Token)
-	if err != nil {
-		return err
-	}
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
-	turn, err := scanTurn(tx.QueryRow(ctx, `SELECT `+turnColumns+` FROM chat_turns WHERE user_id=$1 AND run_id=$2 AND leg_id=$3 FOR UPDATE`, input.Scope.UserID, input.RunID, input.Journal.LegID))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrNotFound
-	}
-	if err != nil {
-		return err
-	}
-	if turn.OwnerHash == nil || !equalSecret(*turn.OwnerHash, ownerHash) || !equalSecret(turn.AccessHash, accessHash) {
-		return ErrForbidden
-	}
-	if turn.State == StateRetired {
-		return tx.Commit(ctx)
-	}
-	if err = s.retireTurnTx(ctx, tx, turn); err != nil {
-		return err
-	}
-	if err = tx.Commit(ctx); err != nil {
-		return err
-	}
-	s.latencies.stopped(turn.ID)
-	return nil
 }
 
 // Erase is authorized only by the hash of a replay token. The proof cannot be
@@ -1502,7 +1413,7 @@ func (s *Store) stopProducerWith(ctx context.Context, grant ProducerGrant, code 
 		return false, err
 	}
 	s.latencies.stopped(turn.ID)
-	s.signals.notify(turn.ID)
+
 	return false, nil
 }
 

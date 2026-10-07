@@ -1,13 +1,10 @@
 package chat
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -72,28 +69,9 @@ func TestBranchTurnQueueHTTPSerializesMembers(t *testing.T) {
 			}
 		}
 	}()
-	var readers []io.ReadCloser
-	defer func() {
-		for _, r := range readers {
-			r.Close()
-		}
-	}()
 	branch := "branch-" + uuid.NewString()
 	start := func(server *httptest.Server, name string) string {
-		runID := name + uuid.NewString()
-		body, _ := json.Marshal(map[string]any{"runId": runID, "journal": testJournal(), "conversationId": branch, "instructions": "Answer", "messages": []any{map[string]string{"role": "user", "content": name}}})
-		response := postJSON(t, server.Client(), server.URL+TurnPath, body)
-		if response.StatusCode != 200 {
-			raw, _ := io.ReadAll(response.Body)
-			response.Body.Close()
-			t.Fatalf("admit=%d %s", response.StatusCode, raw)
-		}
-		readers = append(readers, response.Body)
-		line, err := bufio.NewReader(response.Body).ReadString('\n')
-		if err != nil || !strings.Contains(line, `"type":"accepted"`) {
-			t.Fatalf("acceptance=%s %v", line, err)
-		}
-		return runID
+		return submitPrompt(t, server, branch, uuid.NewString(), name).RunID
 	}
 	first := start(servers[0], "ben")
 	select {
@@ -115,7 +93,7 @@ func TestBranchTurnQueueHTTPSerializesMembers(t *testing.T) {
 		t.Fatalf("waiting state=%s err=%v", state, err)
 	}
 	// Closing the author's browser is not cancellation.
-	readers[0].Close()
+	servers[0].CloseClientConnections()
 	close(host.release)
 	select {
 	case got := <-host.started:

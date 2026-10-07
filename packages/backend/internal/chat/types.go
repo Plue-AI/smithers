@@ -135,15 +135,3 @@ type ReplayResult struct {
 	More     bool    `json:"more"`
 	Batches  []Batch `json:"batches"`
 }
-
-type Delivery struct {
-	Type     string `json:"type"`
-	Batch    *Batch `json:"batch,omitempty"`
-	Cursor   Cursor `json:"cursor"`
-	Terminal *bool  `json:"terminal,omitempty"`
-}
-
-type CancelResult struct {
-	TurnIDs []string `json:"-"`
-	Count   int      `json:"cancelled"`
-}

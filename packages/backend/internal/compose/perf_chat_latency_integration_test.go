@@ -8,15 +8,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
+	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/ports"
 	"github.com/stretchr/testify/require"
 )
@@ -39,13 +40,20 @@ func (h perfLatencyHost) RunChatTurn(ctx context.Context, grant ports.ChatTurnGr
 func TestPerfChatLatencyComposedInstall(t *testing.T) {
 	f := presenceInstall(t)
 	q := db.New(f.pool)
+	_, err := f.pool.Exec(t.Context(), `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'admin') ON CONFLICT DO NOTHING`, f.row.RepositoryID, f.user.ID)
+	require.NoError(t, err)
 	callbackRouter := chi.NewRouter()
 	callback := httptest.NewServer(callbackRouter)
 	defer callback.Close()
 	host := perfLatencyHost{grants: make(chan ports.ChatTurnGrant, 1)}
-	runtime, err := chat.NewRuntime(f.pool, host, callback.URL, chat.RuntimeOptions{})
+	runtime, err := chat.NewRuntime(f.pool, host, callback.URL, chat.RuntimeOptions{API: services.InstallAPI{Auth: func() *services.AuthService {
+		auth := services.NewAuthService(q, config.AuthConfig{Mode: "selfhost"}, nil, nil)
+		auth.Members = &services.Members{Pool: f.pool}
+		return auth
+	}()}})
 	require.NoError(t, err)
 	runtime.MountProducerCallbacks(callbackRouter)
+	runtime.Handler.ResolveBranch = func(_ context.Context, _ chat.Scope, branch string) (string, error) { return branch, nil }
 	ctx, cancel := context.WithCancel(t.Context())
 	dispatchDone := make(chan error, 1)
 	go func() { dispatchDone <- runtime.Run(ctx) }()
@@ -101,12 +109,9 @@ func TestPerfChatLatencyComposedInstall(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 200, before.StatusCode, string(beforeRaw))
 	require.NotContains(t, string(beforeRaw), `"name":"smithers_chat_durable_latency_seconds"`, "no turn means no latency samples")
-	response := request("POST", chat.TurnPath, []byte(`{"runId":"perf-latency","journal":{"version":1,"legId":"perf-latency-leg","token":"`+strings.Repeat("a", 48)+`"},"instructions":"Answer","messages":[{"role":"user","content":"Explain retry"}]}`))
+	response := request("POST", "/api/conversations/main/prompt", []byte(`{"prompt":"Explain retry","idempotencyKey":"perf-latency"}`))
 	defer response.Body.Close()
-	if response.StatusCode != 200 {
-		raw, _ := io.ReadAll(response.Body)
-		t.Fatalf("turn status %d: %s", response.StatusCode, raw)
-	}
+	require.Equal(t, 202, response.StatusCode)
 	var grant ports.ChatTurnGrant
 	select {
 	case grant = <-host.grants:
@@ -114,9 +119,9 @@ func TestPerfChatLatencyComposedInstall(t *testing.T) {
 		t.Fatal("production dispatcher did not launch")
 	}
 	frames := []json.RawMessage{
-		json.RawMessage(`{"runId":"perf-latency","type":"delta","kind":"text","text":"Retries three times"}`),
-		json.RawMessage(`{"runId":"perf-latency","type":"card","card":{"kind":"file","payload":{"path":"src/retry.ts"}}}`),
-		json.RawMessage(`{"runId":"perf-latency","type":"done","reason":"stop"}`),
+		json.RawMessage(`{"runId":"` + grant.RunID + `","type":"delta","kind":"text","text":"Retries three times"}`),
+		json.RawMessage(`{"runId":"` + grant.RunID + `","type":"card","card":{"kind":"file","payload":{"path":"src/retry.ts"}}}`),
+		json.RawMessage(`{"runId":"` + grant.RunID + `","type":"done","reason":"stop"}`),
 	}
 	body, err := json.Marshal(map[string]any{"turnId": grant.TurnID, "generation": grant.Generation, "expected": grant.Cursor, "frames": frames})
 	require.NoError(t, err)
@@ -136,26 +141,25 @@ func TestPerfChatLatencyComposedInstall(t *testing.T) {
 			require.Equal(t, 401, committed.StatusCode, string(raw))
 		}
 	}
-	stream, err := io.ReadAll(response.Body)
+	transcript := request("GET", "/api/conversations/main", nil)
+	stream, err := io.ReadAll(transcript.Body)
+	transcript.Body.Close()
 	require.NoError(t, err)
 	require.Contains(t, string(stream), "Retries three times")
-	cancelled := request("POST", chat.TurnPath, []byte(`{"runId":"perf-cancel","journal":{"version":1,"legId":"perf-cancel-leg","token":"`+strings.Repeat("b", 48)+`"},"instructions":"Answer","messages":[{"role":"user","content":"Explain retry"}]}`))
+	cancelled := request("POST", "/api/conversations/main/prompt", []byte(`{"prompt":"Explain retry","idempotencyKey":"perf-cancel"}`))
 	defer cancelled.Body.Close()
-	require.Equal(t, 200, cancelled.StatusCode)
+	require.Equal(t, 202, cancelled.StatusCode)
+	var cancelGrant ports.ChatTurnGrant
 	select {
-	case <-host.grants:
+	case cancelGrant = <-host.grants:
 	case <-time.After(5 * time.Second):
 		t.Fatal("cancelled turn was not dispatched")
 	}
-	proof := "7abf22d77fb2cb455cbbf86d39c31c4900b56b5dacfeef4827ca92f5893991f5"
-	stop := request("POST", chat.ErasePath, []byte(`{"runId":"perf-cancel","legId":"perf-cancel-leg","retirementProof":"`+proof+`"}`))
+	stop := request("POST", "/api/conversations/main/turns/"+cancelGrant.TurnID+"/stop", []byte(`{}`))
 	stopRaw, err := io.ReadAll(stop.Body)
 	stop.Body.Close()
 	require.NoError(t, err)
 	require.Equal(t, 200, stop.StatusCode, string(stopRaw))
-	cancelStream, err := io.ReadAll(cancelled.Body)
-	require.NoError(t, err)
-	require.NotContains(t, string(cancelStream), `"type":"batch"`)
 	snapshot := request("GET", "/api/install/metrics", nil)
 	defer snapshot.Body.Close()
 	raw, err := io.ReadAll(snapshot.Body)

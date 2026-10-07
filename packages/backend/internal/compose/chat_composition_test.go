@@ -128,7 +128,7 @@ func TestChatStreamingRoutesRequireAuthentication(t *testing.T) {
 		})
 	})
 	mountChatPublic(router, &chat.Runtime{Handler: &chat.Handler{}}, nil, &config.Config{})
-	for _, path := range []string{chat.TurnPath, chat.ReplayPath, chat.AccountReplayPath} {
+	for _, path := range []string{"/api/conversations/main/prompt", chat.ReplayPath, chat.AccountReplayPath} {
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, nil))
 		require.Equal(t, http.StatusUnauthorized, response.Code, path)

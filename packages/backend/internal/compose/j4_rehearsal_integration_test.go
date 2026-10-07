@@ -12,8 +12,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/smithersai/smithers/packages/backend/internal/chat"
 )
 
 // j4Card is what the retry rows read of GET /api/todos/{n} beyond
@@ -357,7 +355,7 @@ func TestJ4Rehearsal(t *testing.T) {
 	var retriedAt time.Time
 	var retriedTo int
 	var chats []<-chan error
-	if !r.step("7 Answer T2 while chatting", "POST /api/todos/{T2}/answer as Alice beside POST "+chat.TurnPath, "202 within 1 s; the same answer again 202; T2 reaches in_review as a draft behind T1", "T-STK-01, T-APP-03", func() error {
+	if !r.step("7 Answer T2 while chatting", "POST /api/todos/{T2}/answer as Alice beside POST "+"/api/conversations/main/prompt", "202 within 1 s; the same answer again 202; T2 reaches in_review as a draft behind T1", "T-STK-01, T-APP-03", func() error {
 		if alice == nil {
 			return fmt.Errorf("row 5b did not sign in Alice")
 		}
@@ -401,7 +399,7 @@ func TestJ4Rehearsal(t *testing.T) {
 	}) {
 		return
 	}
-	if !r.step("9 Merge T1 while chatting", "POST /api/todos/{T1}/merge as Alice then Ben beside POST "+chat.TurnPath, "202 within 1 s; reviewed head; one session-bound checks.Land", "T-STK-04", func() error {
+	if !r.step("9 Merge T1 while chatting", "POST /api/todos/{T1}/merge as Alice then Ben beside POST "+"/api/conversations/main/prompt", "202 within 1 s; reviewed head; one session-bound checks.Land", "T-STK-04", func() error {
 		if ben == nil || alice == nil {
 			return fmt.Errorf("row 5b did not sign in Ben and Alice")
 		}
@@ -451,7 +449,7 @@ func TestJ4Rehearsal(t *testing.T) {
 	}) {
 		return
 	}
-	if !r.step("8 Chat during answer and merge", "POST "+chat.TurnPath+" ×2", "both turns answer with JOURNEY.md's File card while the answer and the merge run", "T-APP-03", func() error {
+	if !r.step("8 Chat during answer and merge", "POST "+"/api/conversations/main/prompt"+" ×2", "both turns answer with JOURNEY.md's File card while the answer and the merge run", "T-APP-03", func() error {
 		if len(chats) != 2 {
 			return fmt.Errorf("%d chats ran beside the actions, want 2", len(chats))
 		}

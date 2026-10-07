@@ -64,11 +64,15 @@ func NewOwnerSecretResolver(databaseURL, secretKey func() string, options ...Own
 }
 
 func (resolver *OwnerSecretResolver) ResolveChatModel(ctx context.Context, ownerID, repositoryID int64, request json.RawMessage) (Binding, error) {
+	return resolver.resolveChatModel(ctx, ownerID, repositoryID, request, nil)
+}
+
+// resolveChatModel accepts an internal role binding only for the preflight model.
+func (resolver *OwnerSecretResolver) resolveChatModel(ctx context.Context, ownerID, repositoryID int64, request json.RawMessage, selected json.RawMessage) (Binding, error) {
 	var input struct {
 		SharedConversation bool            `json:"sharedConversation"`
 		ContextSelection   json.RawMessage `json:"contextSelection"`
 		RepositoryID       int64           `json:"repositoryId"`
-		Model              json.RawMessage `json:"model"`
 	}
 	var model struct {
 		Protocol   string `json:"protocol"`
@@ -107,20 +111,20 @@ func (resolver *OwnerSecretResolver) ResolveChatModel(ctx context.Context, owner
 		WHERE o.singleton AND o.user_id<>$1`, ownerID, installRepositoryID).Scan(&installOwner)
 	switch {
 	case err == nil:
-		ownerID, input.Model = installOwner, nil
+		ownerID = installOwner
 	case !errors.Is(err, pgx.ErrNoRows):
 		return Binding{}, fmt.Errorf("read install member: %w", err)
 	}
-	if len(input.Model) == 0 || string(input.Model) == "null" {
+	if len(selected) == 0 || string(selected) == "null" {
 		// A turn that names no model is the app agent's. On an install it runs
 		// on the fast role Model access wrote (mvp.md §6.5), which is the
 		// coding model when no fast key was saved; elsewhere, on the default.
 		var claimedOwner int64
 		err = pool.QueryRow(ctx, `SELECT user_id FROM self_host_owners WHERE user_id=$1`, ownerID).Scan(&claimedOwner)
 		if err == nil {
-			input.Model, err = db.New(pool).EffectiveInstallAgentModel(ctx, "app")
+			selected, err = db.New(pool).EffectiveInstallAgentModel(ctx, "app")
 		} else if errors.Is(err, pgx.ErrNoRows) {
-			err = pool.QueryRow(ctx, `SELECT model FROM owner_model_defaults WHERE user_id=$1`, ownerID).Scan(&input.Model)
+			err = pool.QueryRow(ctx, `SELECT model FROM owner_model_defaults WHERE user_id=$1`, ownerID).Scan(&selected)
 		}
 
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -130,7 +134,7 @@ func (resolver *OwnerSecretResolver) ResolveChatModel(ctx context.Context, owner
 			return Binding{}, fmt.Errorf("read owner default model: %w", err)
 		}
 	}
-	if json.Unmarshal(input.Model, &model) != nil || model.Protocol == "" || model.ModelID == "" || !validCredentialName(model.Credential) {
+	if json.Unmarshal(selected, &model) != nil || model.Protocol == "" || model.ModelID == "" || !validCredentialName(model.Credential) {
 		return Binding{}, errors.New("model turn requires a configured model")
 	}
 	if (model.Protocol == "openai-responses-chatgpt") != (model.Credential == services.InstallSubscriptionCredential) {
@@ -204,7 +208,7 @@ func (resolver *OwnerSecretResolver) ResolveChatModel(ctx context.Context, owner
 	if model.Credential != services.InstallSubscriptionCredential && subscriptiontoken.Holds(model.Credential, value) {
 		return Binding{}, fmt.Errorf("model credential %s holds a Claude or ChatGPT subscription token; replace it with an API key: %w", model.Credential, ports.ErrModelCredentialMissing)
 	}
-	binding := Binding{Model: input.Model, CredentialName: model.Credential, CredentialValue: value}
+	binding := Binding{Model: selected, CredentialName: model.Credential, CredentialValue: value}
 	if !builtinCredential(model.Credential) {
 		var origin string
 		if input.RepositoryID > 0 {
@@ -230,11 +234,7 @@ func (resolver *OwnerSecretResolver) ResolveChatModel(ctx context.Context, owner
 		if err != nil {
 			return Binding{}, fmt.Errorf("read preflight model: %w", err)
 		}
-		request, err := json.Marshal(map[string]json.RawMessage{"model": fast})
-		if err != nil {
-			return Binding{}, err
-		}
-		preflight, err := resolver.ResolveChatModel(ctx, ownerID, input.RepositoryID, request)
+		preflight, err := resolver.resolveChatModel(ctx, ownerID, input.RepositoryID, json.RawMessage(`{}`), fast)
 		if err != nil {
 			return Binding{}, fmt.Errorf("resolve preflight model: %w", err)
 		}
@@ -310,8 +310,7 @@ func (keys OwnerGatewayKeys) PlatformModelKey(ctx context.Context, provider stri
 	if json.Unmarshal(model, &binding) != nil || binding.Credential != "AI_GATEWAY_API_KEY" {
 		return "", ports.ErrModelCredentialMissing
 	}
-	request, _ := json.Marshal(map[string]any{"model": model})
-	result, err := resolver.ResolveChatModel(ctx, owner, 0, request)
+	result, err := resolver.resolveChatModel(ctx, owner, 0, json.RawMessage(`{}`), model)
 	if err != nil {
 		return "", err
 	}

@@ -8,8 +8,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/smithersai/smithers/packages/backend/internal/chat"
 )
 
 // This is an opt-in diagnostic, not a C-J1-04 reference-host passing receipt.
@@ -20,7 +18,7 @@ func TestJ1Rehearsal(t *testing.T) {
 	if !r.setupSource() {
 		return
 	}
-	if !r.step("App agent question", "POST "+chat.TurnPath, "200; answer with file cards after Source ready", "T-INS-06, T-APP-03, T-FLW-01", func() error {
+	if !r.step("App agent question", "POST "+"/api/conversations/main/prompt", "202; shared answer with file cards after Source ready", "T-INS-06, T-APP-03, T-FLW-01", func() error {
 		// Tokens are minted first, so the row's evidence ends on a question.
 		chatOnly, err := r.token("write:user")
 		if err != nil {
@@ -38,9 +36,8 @@ func TestJ1Rehearsal(t *testing.T) {
 		if !r.sourceReady {
 			return fmt.Errorf("Source ready absent before the answer; file-card journey remains blocked")
 		}
-		fileRead, fileCard, toolCall := false, false, false
+		fileCard, toolCall := false, false
 		for _, frame := range frames {
-			fileRead = fileRead || (frame.Type == "call.settled" && frame.Name == "files.read")
 			toolCall = toolCall || frame.Type == "tool_call"
 			if frame.Type == "card" && frame.Card.Kind == "file" && frame.Card.Payload.Path == "JOURNEY.md" {
 				// The card holds main's bytes at the mirrored commit.
@@ -51,55 +48,29 @@ func TestJ1Rehearsal(t *testing.T) {
 			}
 		}
 		// The answer quotes the file, which only the host's read put in its context.
-		if !terminal || !fileRead || !fileCard || toolCall || !strings.Contains(answer, "Add a greeting to JOURNEY.md") {
-			return fmt.Errorf("answer/file card missing (terminal=%t file_read=%t file_card=%t renderer_tool_call=%t) answer=%q", terminal, fileRead, fileCard, toolCall, answer)
+		if !terminal || !fileCard || toolCall || !strings.Contains(answer, "Add a greeting to JOURNEY.md") {
+			return fmt.Errorf("answer/file card missing (terminal=%t file_card=%t renderer_tool_call=%t) answer=%q", terminal, fileCard, toolCall, answer)
 		}
 		// A path out of the repository is refused, stated and answered; no card.
 		answer, frames, terminal, err = r.ask("", "Show ../../etc/passwd")
 		if err != nil {
 			return err
 		}
-		refused := false
 		for _, frame := range frames {
 			if frame.Type == "card" {
 				return fmt.Errorf("traversal read rendered a %s card", frame.Card.Kind)
 			}
-			refused = refused || (frame.Type == "gate.rejected" && frame.Kind == "call_failed" && strings.Contains(frame.Message, "is not a path inside this repository"))
 		}
-		if !terminal || !refused || !strings.Contains(answer, "failed: ../../etc/passwd is not a path inside this repository") {
-			return fmt.Errorf("traversal refusal missing (terminal=%t refused=%t) answer=%q", terminal, refused, answer)
+		if !terminal || !strings.Contains(answer, "failed: ../../etc/passwd is not a path inside this repository") {
+			return fmt.Errorf("traversal refusal missing (terminal=%t) answer=%q", terminal, answer)
 		}
-		// A token that may chat but not read repositories reads nothing
-		// through the agent: no tool is offered, a call made anyway runs
-		// nothing, and no byte of the file reaches the answer. A token that
-		// reads repositories gets the File card.
-		for _, question := range []string{"What is in JOURNEY.md? Show the file.", "What is in JOURNEY.md? (forced)"} {
-			answer, frames, terminal, err = r.ask(chatOnly, question)
-			if err != nil {
-				return err
+		// Delegated tokens cannot impersonate a person in the shared conversation,
+		// even when they carry repository read scopes.
+		for _, token := range []string{chatOnly, reader} {
+			_, _, _, err := r.ask(token, "What is in JOURNEY.md? Show the file.")
+			if err == nil || !strings.Contains(err.Error(), "HTTP 403") {
+				return fmt.Errorf("delegated prompt was not refused: %v", err)
 			}
-			for _, frame := range frames {
-				if frame.Type == "card" || frame.Type == "call.started" || frame.Type == "call.settled" || frame.Type == "gate.rejected" {
-					return fmt.Errorf("a write:user token's question ran %s %s", frame.Type, frame.Name)
-				}
-			}
-			if !terminal || strings.Contains(answer, "Add a greeting") {
-				return fmt.Errorf("a write:user token's question read source (terminal=%t) answer=%q", terminal, answer)
-			}
-		}
-		if !strings.Contains(answer, "unknown-tool: commands") {
-			return fmt.Errorf("a forced call by a write:user token was not refused: %q", answer)
-		}
-		answer, frames, terminal, err = r.ask(reader, "What is in JOURNEY.md? Show the file.")
-		if err != nil {
-			return err
-		}
-		fileCard = false
-		for _, frame := range frames {
-			fileCard = fileCard || (frame.Type == "card" && frame.Card.Kind == "file" && frame.Card.Payload.Content == "Add a greeting to JOURNEY.md\n")
-		}
-		if !terminal || !fileCard || !strings.Contains(answer, "Add a greeting to JOURNEY.md") {
-			return fmt.Errorf("a read:repository token's question got no File card (terminal=%t card=%t) answer=%q", terminal, fileCard, answer)
 		}
 		if len(r.compute.Creates()) != creates || len(r.compute.Live()) != live {
 			return fmt.Errorf("a question started a machine: creates %d→%d, live %d→%d", creates, len(r.compute.Creates()), live, len(r.compute.Live()))
@@ -194,52 +165,58 @@ func TestJ1Rehearsal(t *testing.T) {
 			}
 		}
 		for _, line := range strings.Split(answer, "\n") {
-			for _, name := range []string{"merge", "secrets.set", "approval.approve", "approval.deny", "todo.erase"} {
+			for _, name := range []string{"secrets.set", "approval.approve", "approval.deny", "todo.erase"} {
 				if strings.HasPrefix(line, "- /"+name+" ") {
 					return fmt.Errorf("the agent was offered forbidden command %s", name)
 				}
 			}
 		}
 		// /stack: each open TODO as its TODO card; the model reads the rows.
-		todoCard := func(frames []rehearsalTurnFrame, command string) bool {
-			card, settled := false, false
+		todoCard := func(frames []rehearsalTurnFrame) bool {
+			card := false
 			for _, frame := range frames {
 				card = card || (frame.Type == "card" && frame.Card.Kind == "todo" && frame.Card.ID == fmt.Sprintf("todo:%d", number) &&
 					frame.Card.Payload.N == number && frame.Card.Payload.Model != nil && frame.Card.Payload.Model.Title == "First TODO")
-				settled = settled || (frame.Type == "call.settled" && frame.Name == command)
 			}
-			return card && settled
+			return card
 		}
 		answer, frames, terminal, err := r.ask("", "What is on the stack? Run /stack")
 		if err != nil {
 			return err
 		}
-		if !terminal || !todoCard(frames, "stack") || !strings.Contains(answer, fmt.Sprintf(`{"n":%d,"title":"First TODO"`, number)) {
+		if !terminal || !todoCard(frames) || !strings.Contains(answer, fmt.Sprintf(`{"n":%d,"title":"First TODO"`, number)) {
 			return fmt.Errorf("/stack answered no TODO card for T%d: answer=%q", number, answer)
 		}
 		answer, frames, terminal, err = r.ask("", fmt.Sprintf("Open it. Run /todo T%d", number))
 		if err != nil {
 			return err
 		}
-		if !terminal || !todoCard(frames, "todo") || !strings.Contains(answer, `"title":"First TODO"`) {
+		if !terminal || !todoCard(frames) || !strings.Contains(answer, `"title":"First TODO"`) {
 			return fmt.Errorf("/todo T%d answered no TODO card: answer=%q", number, answer)
 		}
-		// /todo.new asks the person: a private Draft for the owner, and no TODO.
+		// /todo.new requests its author's server confirmation without filing work.
 		answer, frames, terminal, err = r.ask("", "Run /todo.new Add a farewell to JOURNEY.md")
 		if err != nil {
 			return err
 		}
-		drafted := false
-		for _, frame := range frames {
-			drafted = drafted || (frame.Type == "card" && frame.Card.Kind == "draft" && frame.Card.Audience != nil && *frame.Card.Audience == "rehearsal-owner" &&
-				frame.Card.Payload.Private && frame.Card.Payload.Prompt == "Add a farewell to JOURNEY.md")
+		if !terminal || !strings.Contains(answer, `"state":"pending"`) {
+			return fmt.Errorf("todo.new did not request confirmation: %q", answer)
 		}
-		if !terminal || !drafted || !strings.Contains(answer, "Nothing is filed until they press Commit") {
-			return fmt.Errorf("/todo.new showed no private Draft: answer=%q", answer)
+		for _, frame := range frames {
+			if frame.Type == "card" && frame.Card.Kind == "draft" {
+				return fmt.Errorf("private Draft leaked into shared conversation")
+			}
+		}
+		var pending int
+		if err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM approvals WHERE command='todo.new' AND state='pending'`).Scan(&pending); err != nil {
+			return err
+		}
+		if pending < 1 {
+			return fmt.Errorf("missing author confirmation")
 		}
 		// Merge asks the person and is not the host's; secrets are never the
 		// agent's; an unknown command does not exist. None runs anything.
-		for _, name := range []string{"merge", "approval.approve", "approval.deny", "secrets.set", "todo.erase"} {
+		for _, name := range []string{"approval.approve", "approval.deny", "secrets.set", "todo.erase"} {
 			answer, frames, terminal, err = r.ask("", fmt.Sprintf("Run /%s T%d", name, number))
 			if err != nil {
 				return err
@@ -248,37 +225,15 @@ func TestJ1Rehearsal(t *testing.T) {
 				return fmt.Errorf("/%s was not refused: answer=%q", name, answer)
 			}
 		}
-		// A token reads no TODO through the agent: the routes admit the owner's
-		// browser session only. A chat-only token is offered no tool; a
-		// repository reader is offered files.list and files.read alone.
-		chatOnly, err := r.token("write:user")
-		if err != nil {
-			return err
-		}
-		reader, err := r.token("write:user", "read:repository")
-		if err != nil {
-			return err
-		}
-		answer, frames, terminal, err = r.ask(chatOnly, "Run /stack (forced)")
-		if err != nil {
-			return err
-		}
-		if !terminal || ran(frames) || !strings.Contains(answer, "unknown-tool: commands") {
-			return fmt.Errorf("a write:user token's /stack was not refused: answer=%q", answer)
-		}
-		answer, _, terminal, err = r.ask(reader, "What can you run? (instructions)")
-		if err != nil {
-			return err
-		}
-		if !terminal || answer != files {
-			return fmt.Errorf("a read:repository token's instructions list %q, want %q", answer, files)
-		}
-		answer, frames, terminal, err = r.ask(reader, "Run /stack")
-		if err != nil {
-			return err
-		}
-		if !terminal || ran(frames) || !strings.Contains(answer, "unknown-command: stack") {
-			return fmt.Errorf("a read:repository token's /stack was not refused: answer=%q", answer)
+		for _, scopes := range [][]string{{"write:user"}, {"write:user", "read:repository"}} {
+			token, err := r.token(scopes...)
+			if err != nil {
+				return err
+			}
+			_, _, _, err = r.ask(token, "Run /stack")
+			if err == nil || !strings.Contains(err.Error(), "HTTP 403") {
+				return fmt.Errorf("delegated stack prompt was not refused: %v", err)
+			}
 		}
 		after, err := count()
 		if err != nil {
@@ -304,7 +259,7 @@ func TestJ1Rehearsal(t *testing.T) {
 	}
 	// After the state polls: in_review holds until the merge, so the agent's
 	// turns sit inside no transient state's poll window.
-	if !r.step("App agent lists TODOs", "POST "+chat.TurnPath, "200; /stack and /todo answer TODO cards; /todo.new a private Draft and no TODO; other commands and tokens refused", "T-APP-16, T-CAT-01", appAgentTodos) {
+	if !r.step("App agent lists TODOs", "POST "+"/api/conversations/main/prompt", "200; /stack and /todo answer TODO cards; /todo.new an author confirmation and no TODO; other commands and tokens refused", "T-APP-16, T-CAT-01", appAgentTodos) {
 		return
 	}
 	if !r.step("PR", "GET GitHub fake /repos/rehearsal-owner/app/pulls/{n}", "head smithers/<slug>; base main; reviewed head", "T-STK-01", func() error {

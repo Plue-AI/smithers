@@ -86,7 +86,7 @@ func TestBranchConversationQueueMutationInstall(t *testing.T) {
 	for _, path := range []string{"/api/agent/turn/cancel", "/api/agent/turn/retire", "/api/chat/turn", "/api/chat/cancel"} {
 		call("POST", path, `{"runId":"retired","messages":[],"instructions":"never"}`, benCookie, 404)
 	}
-	call("POST", chat.TurnPath, `{"runId":"retired","messages":[],"instructions":"never"}`, benCookie, 400)
+	call("POST", "/api/agent/turn", `{"runId":"retired","messages":[],"instructions":"never"}`, benCookie, 404)
 	var retiredWrites int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM chat_turns`).Scan(&retiredWrites))
 	require.Zero(t, retiredWrites)
@@ -118,7 +118,7 @@ func TestBranchConversationQueueMutationInstall(t *testing.T) {
 	call("POST", "/api/conversations/main/prompt", `{"prompt":" ","idempotencyKey":"bad"}`, benCookie, 400)
 	call("POST", "/api/conversations/main/prompt", `{"prompt":"hello","idempotencyKey":"bad","instructions":"browser canary"}`, benCookie, 400)
 	call("POST", "/api/conversations/main/prompt", `{"prompt":"hello"}`, benCookie, 400)
-	call("POST", chat.TurnPath, `{"runId":"forged-shared","conversationId":"main","sharedConversation":true,"instructions":"private","messages":[{"role":"user","content":"private legacy canary"}],"journal":{"version":1,"legId":"forged-shared-leg","token":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}`, benCookie, 400)
+	call("POST", "/api/agent/turn", `{"runId":"forged-shared","conversationId":"main","sharedConversation":true,"instructions":"private","messages":[{"role":"user","content":"private legacy canary"}],"journal":{"version":1,"legId":"forged-shared-leg","token":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}`, benCookie, 404)
 
 	// Unknown branches and another repository's UUID never admit a turn.
 	call("POST", "/api/conversations/missing/prompt", `{"prompt":"unknown","idempotencyKey":"unknown"}`, benCookie, 404)
@@ -384,8 +384,8 @@ func TestBranchConversationQueueMutationInstall(t *testing.T) {
 	_, pendingID := admit("pending")
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, ben.ID)
 	require.NoError(t, err)
-	call("POST", "/api/conversations/main/prompt", `{"prompt":"revoked","idempotencyKey":"revoked"}`, benCookie, 403)
-	call("GET", "/api/conversations/main", "", benCookie, 403)
-	call("PATCH", path(pendingID), `{"prompt":"revoked"}`, benCookie, 403)
-	call("POST", path(holdID)+"/stop", "", benCookie, 403)
+	call("POST", "/api/conversations/main/prompt", `{"prompt":"revoked","idempotencyKey":"revoked"}`, benCookie, 401)
+	call("GET", "/api/conversations/main", "", benCookie, 401)
+	call("PATCH", path(pendingID), `{"prompt":"revoked"}`, benCookie, 401)
+	call("POST", path(holdID)+"/stop", "", benCookie, 401)
 }

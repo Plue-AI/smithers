@@ -138,7 +138,7 @@ func (s *Store) MutateQueuedTurn(ctx context.Context, scope Scope, branch, id, m
 	if err = tx.Commit(ctx); err != nil {
 		return Cursor{}, err
 	}
-	s.signals.notify(turn.ID)
+
 	return cursor, nil
 }
 

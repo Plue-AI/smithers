@@ -142,9 +142,9 @@ func TestResolveChatModelCredentialSources(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(resolver.Close)
 	request := func(credential string) json.RawMessage {
-		encoded, err := json.Marshal(map[string]any{"model": map[string]string{"protocol": "openai-chat", "modelId": "m", "credential": credential}})
-		require.NoError(t, err)
-		return encoded
+		model := map[string]string{"protocol": "openai-chat", "modelId": "m", "credential": credential}
+		require.Equal(t, true, f.call(t, f.handlers.SetDefault, http.MethodPut, map[string]any{"model": model})["ok"])
+		return json.RawMessage(`{}`)
 	}
 
 	_, err = resolver.ResolveChatModel(ctx, f.owner, 0, json.RawMessage(`{}`))
@@ -250,8 +250,8 @@ func TestOwnerModelCredentialsRefuseSubscriptionTokens(t *testing.T) {
 	resolver, err := modelhost.NewOwnerSecretResolver(func() string { return f.url }, func() string { return ownerModelsSecretKey })
 	require.NoError(t, err)
 	t.Cleanup(resolver.Close)
-	request, err := json.Marshal(map[string]any{"model": map[string]string{"protocol": "anthropic-messages", "modelId": "m", "credential": "ANTHROPIC_API_KEY"}})
-	require.NoError(t, err)
+	require.Equal(t, true, f.call(t, f.handlers.SetDefault, http.MethodPut, map[string]any{"model": map[string]string{"protocol": "anthropic-messages", "modelId": "m", "credential": "ANTHROPIC_API_KEY"}})["ok"])
+	request := json.RawMessage(`{}`)
 	binding, err := resolver.ResolveChatModel(ctx, f.owner, f.repo, request)
 	require.NoError(t, err)
 	require.Equal(t, "sk-ant-api03-key", binding.CredentialValue)

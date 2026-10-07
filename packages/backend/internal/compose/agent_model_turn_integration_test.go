@@ -47,11 +47,22 @@ func TestComposedAppModelSwitchPreservesInflightCall(t *testing.T) {
 	unblock := func() { releaseOnce.Do(func() { close(release) }) }
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Model string `json:"model"`
+			Model    string `json:"model"`
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"messages"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "invalid request", 400)
 			return
+		}
+		for _, message := range body.Messages {
+			if message.Role == "system" && strings.Contains(message.Content, "Choose relevant context") {
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"[]\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+				return
+			}
 		}
 		started <- body.Model
 		if body.Model == "model-a" {
@@ -95,13 +106,38 @@ func TestComposedAppModelSwitchPreservesInflightCall(t *testing.T) {
 		require.Equal(t, 200, res.StatusCode, string(raw))
 		require.Contains(t, string(raw), `"id":"`+model+`"`)
 	}
-	turn := func(run string) *http.Response {
-		return request("POST", chat.TurnPath, fmt.Sprintf(`{"runId":%q,"journal":{"version":1,"legId":%q,"token":%q},"instructions":"Answer briefly.","messages":[{"role":"user","content":"Hello"}]}`, run, run+"-leg", strings.Repeat("a", 48)))
+	turn := func(run string) string {
+		response := request("POST", "/api/conversations/main/prompt", fmt.Sprintf(`{"prompt":"Hello","idempotencyKey":%q}`, run))
+		defer response.Body.Close()
+		raw, err := io.ReadAll(response.Body)
+		require.NoError(t, err)
+		require.Equal(t, 202, response.StatusCode, string(raw))
+		var receipt struct {
+			TurnID string `json:"turnId"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &receipt))
+		return receipt.TurnID
+	}
+	read := func(id string) string {
+		var output string
+		require.Eventually(t, func() bool {
+			response := request("GET", "/api/conversations/main", "")
+			defer response.Body.Close()
+			var conversation chat.SharedConversation
+			require.NoError(t, json.NewDecoder(response.Body).Decode(&conversation))
+			for _, entry := range conversation.Entries {
+				if entry.ID == id && entry.State == chat.StateCompleted {
+					raw, _ := json.Marshal(entry)
+					output = string(raw)
+					return true
+				}
+			}
+			return false
+		}, 30*time.Second, 20*time.Millisecond)
+		return output
 	}
 	assign("coding", "model-a")
 	first := turn("app-switch-before")
-	defer first.Body.Close()
-	require.Equal(t, 200, first.StatusCode)
 	select {
 	case model := <-started:
 		require.Equal(t, "model-a", model)
@@ -113,15 +149,9 @@ func TestComposedAppModelSwitchPreservesInflightCall(t *testing.T) {
 	require.NoError(t, local.pool.QueryRow(local.ctx, `SELECT count(*) FROM mythical_items WHERE repository_id=$1`, local.repoID).Scan(&todos))
 	require.Zero(t, todos, "a model assignment creates no TODO")
 	unblock()
-	raw, err := io.ReadAll(first.Body)
-	require.NoError(t, err)
-	require.Contains(t, string(raw), "answered on model-a", local.logs.String())
+	require.Contains(t, read(first), "answered on model-a", local.logs.String())
 	next := turn("app-switch-after")
-	defer next.Body.Close()
-	raw, err = io.ReadAll(next.Body)
-	require.NoError(t, err)
-	require.Equal(t, 200, next.StatusCode, string(raw))
-	require.Contains(t, string(raw), "answered on model-b", local.logs.String())
+	require.Contains(t, read(next), "answered on model-b", local.logs.String())
 	select {
 	case model := <-started:
 		require.Equal(t, "model-b", model)

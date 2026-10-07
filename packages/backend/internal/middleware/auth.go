@@ -532,7 +532,7 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "telemetry.report", regexp.MustCompile(`^/api/telemetry/errors$`)},
 	// The app agent answers a member as that member, in their own
 	// conversations.
-	{http.MethodPost, "agent.turn", regexp.MustCompile(`^/api/agent/turn(/replay)?$`)},
+	{http.MethodPost, "agent.turn", regexp.MustCompile(`^/api/agent/turn/replay$`)},
 	// Tool-free issue drafting uses the same packaged model host and member gate.
 	{http.MethodPost, "agent.turn", regexp.MustCompile(`^/api/model/stream$`)},
 	{http.MethodGet, "agent.turn", regexp.MustCompile(`^/api/agent/conversations$`)},

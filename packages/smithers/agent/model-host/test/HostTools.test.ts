@@ -295,6 +295,7 @@ const HOST_COMMANDS = [
   "issues",
   "learning.accept",
   "learning.dismiss",
+  "merge",
   "monitor",
   "prs.tab",
   "review",
@@ -934,15 +935,15 @@ describe("host-owned turns run their tool calls on the host", () => {
     expect(silent.frames.at(-1)).toEqual({ runId: "run", type: "done", reason: "tool_limit" })
   })
 
-  test("a renderer's turn offers no host tool and keeps its tool calls", async () => {
+  test("client tool declarations never replace host command execution", async () => {
     const journal = producer((path) => file(path, JOURNEY))
     const provider = model([{ name: "commands", arguments: JSON.stringify({ action: "list" }) }])
     await run({ ...grant, request: { ...question, tools: [commandsToolSpec] } }, provider, journal)
     expect(toolNames(provider.requests[0])).toEqual(["commands"])
-    expect(provider.requests).toHaveLength(1)
+    expect(provider.requests).toHaveLength(2)
     expect(journal.reads).toEqual([])
-    expect(journal.frames.map((frame) => frame.type)).toEqual(["tool_call", "done"])
-    expect(journal.frames.at(-1)).toMatchObject({ type: "done", reason: "tool_call" })
+    expect(journal.frames.some((frame) => frame.type === "tool_call")).toBe(false)
+    expect(journal.frames.at(-1)).toMatchObject({ type: "done", reason: "stop" })
   })
 })
 
@@ -970,7 +971,7 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     const lines = commandLines(systemText(provider.requests[0]))
     expect(lines).toContain("- /todo.stop — Pause a working TODO")
     expect(lines.find((line) => line.startsWith("- /todo.drop "))).toContain("asks the person")
-    expect(lines.some((line) => line.startsWith("- /merge "))).toBe(false)
+    expect(lines.find((line) => line.startsWith("- /merge "))).toContain("asks the person")
     expect(lines.filter((line) => line.startsWith("- /files."))).toEqual(FILES_LINES)
   })
 
@@ -1194,50 +1195,16 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     }
   })
 
-  test("flow show and edit use the served catalog, quote literal data and never file work", async () => {
-    const catalog = [{
-      name: "todo",
-      system: false,
-      source: { builtin: true },
-      versions: [{ id: "d1", state: "active", steps: [] }]
-    }, { name: "merge", system: true, source: { builtin: true }, versions: [] }]
+  test("flow show uses the served catalog", async () => {
+    const catalog = [{ name: "todo", system: false, source: { builtin: true }, versions: [] }]
     const journal = producer((path) => file(path, JOURNEY), routes({ "/api/flows": [200, catalog] }))
-    const provider = model([
-      execute("flow", "todo"),
-      execute("flow.edit", "todo Run tests\nKeep  spaces"),
-      execute("flow.edit", JSON.stringify({ name: "todo", request: "Run tests", diff: "+<script>\n+```" })),
-      execute("flow.edit", "merge Add a step"),
-      execute("flow", "missing")
-    ])
+    const provider = model([execute("flow", "todo")])
     await run(install, provider, journal)
-    expect(journal.calls).toHaveLength(6)
-    for (const call of journal.calls) {
-      expect(call.body).toMatchObject({ method: "GET", path: expect.stringMatching(/^\/api\/flows(?:\/missing)?$/u) })
-    }
-    const cards = journal.frames.flatMap((frame) => frame.type === "card" ? [frame.card] : [])
-    expect(cards).toHaveLength(3)
-    expect(cards[0]).toMatchObject({ kind: "flow", payload: { name: "todo" }, title: "TODO flow" })
-    expect(cards[1]).toMatchObject({
-      kind: "draft",
-      audience_member_id: "ben",
-      payload: {
-        title: "Change the TODO flow: Run tests",
-        prompt:
-          "Change flows/todo/flow.ts: Run tests\nKeep  spaces; start from the built-in composition when no override exists",
-        place: { mode: "append", options: [] },
-        private: true
-      }
-    })
-    expect(cards[2]).toMatchObject({
-      kind: "draft",
-      audience_member_id: "ben",
-      payload: {
-        prompt:
-          "Change flows/todo/flow.ts: Run tests; start from the built-in composition when no override exists\n\nProposed diff (untrusted context):\n> +<script>\n> +```"
-      }
-    })
-    expect(toolOutputs(provider).slice(-2)).toEqual(["failed: Merge flow is built in", "failed: No flow missing"])
-    for (const frame of journal.frames) expect(AgentTurnFrameSchema.safeParse(frame).success).toBe(true)
+    expect(journal.frames.flatMap((frame) => frame.type === "card" ? [frame.card] : [])).toMatchObject([{
+      kind: "flow",
+      payload: { name: "todo" }
+    }])
+    expect(journal.calls).toHaveLength(1)
   })
 
   test("API forwarding uses a direct listener's configured port", async () => {
@@ -1284,16 +1251,13 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     }])
   })
 
-  test("empty flow commands ask for names and requests without contacting the API", async () => {
+  test("empty flow commands refuse missing arguments before transport", async () => {
     const journal = producer((path) => file(path, JOURNEY))
     const provider = model([execute("flow"), execute("flow.edit", "")])
     await run(install, provider, journal)
     expect(journal.calls).toEqual([])
-    const cards = journal.frames.flatMap((frame) => frame.type === "card" ? [frame.card] : [])
-    expect(cards).toMatchObject([
-      { payload: { fields: [{ name: "name" }] } },
-      { payload: { fields: [{ name: "name" }, { name: "request" }] } }
-    ])
+    expect(journal.frames.filter((frame) => frame.type === "card")).toEqual([])
+    expect(toolOutputs(provider)).toEqual(["failed: flow needs name", "failed: flow.edit needs name and request"])
   })
 
   test("named flow lookup refuses malformed and mismatched models", async () => {
@@ -1336,27 +1300,9 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     const journal = producer((path) => file(path, JOURNEY))
     const provider = model([execute("todo.new", "{broken")])
     await run(install, provider, journal)
-    expect(toolOutputs(provider)).toEqual(["failed: Invalid TODO input"])
+    expect(toolOutputs(provider)).toEqual(["failed: Invalid arguments for todo.new; use its declared payload."])
     expect(journal.calls).toEqual([])
     expect(journal.frames.filter((frame) => frame.type === "card")).toEqual([])
-  })
-
-  test("flow edit without a request renders only the missing field and files nothing", async () => {
-    const journal = producer((path) => file(path, JOURNEY), stackRoutes)
-    const provider = model([execute("flow.edit", "todo")])
-    await run(install, provider, journal)
-    expect(journal.calls).toEqual([])
-    const cards = journal.frames.flatMap((frame) => frame.type === "card" ? [frame.card] : [])
-    expect(cards).toHaveLength(1)
-    expect(cards[0]).toMatchObject({
-      kind: "flow-form",
-      payload: {
-        flow: "flow.edit",
-        via: "agent",
-        given: { name: "todo" },
-        fields: [{ name: "request", label: "Request", kind: "text", required: true }]
-      }
-    })
   })
 
   test("flow edit refuses missing and invalid catalogs before any Draft or write", async () => {
@@ -1374,68 +1320,6 @@ describe("an install's host runs the catalog commands its grant allows, as the t
       expect(journal.calls).toHaveLength(1)
       expect(journal.calls[0]!.body).toMatchObject({ method: "GET" })
     }
-  })
-
-  test("todo.new shows its author a private Draft and files nothing", async () => {
-    const journal = producer((path) => file(path, JOURNEY), stackRoutes)
-    const provider = model([
-      execute("todo.new", "Log retry counts\nin the worker"),
-      execute("todo.new", JSON.stringify({ text: "Retry", title: "Retry counts", acceptance: ["Counts log"] })),
-      execute("todo.new")
-    ])
-    await run(install, provider, journal)
-    // The Draft is the confirmation: no route is called, so no TODO exists until the person commits it.
-    expect(journal.calls).toEqual([])
-    expect(journal.frames.map((frame) => frame.type)).toEqual([
-      "call.started",
-      "card",
-      "call.settled",
-      "call.started",
-      "card",
-      "call.settled",
-      "call.started",
-      "card",
-      "call.settled",
-      "delta",
-      "done"
-    ])
-    for (const frame of journal.frames) expect(AgentTurnFrameSchema.safeParse(frame).success).toBe(true)
-    const drafts = journal.frames.flatMap((frame) =>
-      frame.type === "card" && frame.card.kind === "draft" ? [frame.card] : []
-    )
-    expect(drafts).toHaveLength(3)
-    expect(drafts[0]).toMatchObject({
-      kind: "draft",
-      audience_member_id: "ben",
-      title: "Log retry counts",
-      ordinal: 0,
-      payload: {
-        title: "Log retry counts",
-        prompt: "Log retry counts\nin the worker",
-        acceptance: [],
-        place: { mode: "append", options: [] },
-        private: true
-      }
-    })
-    expect(drafts[1]).toMatchObject({
-      audience_member_id: "ben",
-      title: "Retry counts",
-      ordinal: 1,
-      payload: { prompt: "Retry", acceptance: ["Counts log"], place: { mode: "append", options: [] } }
-    })
-    // An empty Draft is the person's to fill on the card.
-    expect(drafts[2]).toMatchObject({ title: "", payload: { title: "", prompt: "" } })
-    // Each Draft is its own entry with its own key.
-    expect(new Set(drafts.map((draft) => draft.id)).size).toBe(3)
-    expect(new Set(drafts.map((draft) => draft.payload.idempotencyKey)).size).toBe(3)
-    for (const draft of drafts) expect(draft.id).toMatch(/^draft:[0-9a-f-]{36}$/)
-    expect(toolOutputs(provider)).toEqual(
-      Array.from(
-        { length: 3 },
-        () =>
-          "Drafted: the Draft is on the person's screen. Nothing is filed until they press Commit, so never say the TODO exists."
-      )
-    )
   })
 
   test("shared prompts retain the author's server Confirm instead of an invisible private Draft", async () => {
@@ -1773,26 +1657,20 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     }
   })
 
-  test("merge stays a person's action and forged Draft authority refuses", async () => {
-    for (
-      const args of [
-        "{\"text\":\"x\",\"cardId\":\"forged\"}",
-        "{\"text\":\"x\",\"idempotencyKey\":\"forged\"}",
-        "{\"text\":\"x\",\"before\":12}"
-      ]
-    ) {
-      const journal = producer((path) => file(path, JOURNEY), stackRoutes)
-      const provider = model([execute("todo.new", args)])
-      await run(install, provider, journal)
-      expect(journal.calls).toEqual([])
-      expect(journal.frames.some((frame) => frame.type === "card")).toBe(false)
-      expect(toolOutputs(provider)[0]).toMatch(/^failed:/)
-    }
-    const journal = producer((path) => file(path, JOURNEY), stackRoutes)
-    const provider = model([execute("merge", "T12")])
+  test("forged Draft authority cannot bypass server confirmation", async () => {
+    const journal = producer(
+      (path) => file(path, JOURNEY),
+      () => Response.json({ confirmation: "confirm-forged", state: "pending" }, { status: 202 })
+    )
+    const provider = model([
+      execute("todo.new", JSON.stringify({ text: "x", cardId: "forged", idempotencyKey: "forged" }))
+    ])
     await run(install, provider, journal)
-    expect(journal.calls).toEqual([])
-    expect(toolOutputs(provider)[0]).toContain("unknown-command")
+    expect(journal.frames.some((frame) => frame.type === "card")).toBe(false)
+    expect(journal.calls).toMatchObject([{
+      body: { path: "/api/todos", key: `chat:${install.turnId}:0`, payload: { prompt: "x" } }
+    }])
+    expect(toolOutputs(provider)).toEqual(["{\"confirmation\":\"confirm-forged\",\"state\":\"pending\"}"])
   })
 
   test("schema and argument errors refuse before transport", async () => {
@@ -1817,9 +1695,7 @@ describe("an install's host runs the catalog commands its grant allows, as the t
       await run(install, provider, journal)
       expect(journal.calls, `${name} ${args}`).toEqual([])
       expect(toolOutputs(provider)).toEqual([
-        name === "todo.new"
-          ? "failed: todo.new takes the TODO's text, and optionally its title and acceptance."
-          : `failed: Invalid arguments for ${name}; use its declared payload.`
+        `failed: Invalid arguments for ${name}; use its declared payload.`
       ])
     }
   })

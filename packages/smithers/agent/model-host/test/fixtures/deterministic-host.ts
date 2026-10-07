@@ -12,10 +12,7 @@ const release = await Effect.runPromise(Deferred.make<void>())
 const events: ReadonlyArray<ModelEvent.ModelEvent> = [
   { type: "text-delta", id: "text", text: "deterministic fixture-sec" },
   { type: "text-delta", id: "text", text: "ret-do-not-persist safe" },
-  { type: "tool-call-start", id: "call-1", name: "inspect" },
-  { type: "tool-call-delta", id: "call-1", arguments: "{\"path\":" },
-  { type: "tool-call-end", id: "call-1", arguments: "{\"path\":\"README.md\"}" },
-  { type: "settle", stopReason: "tool-calls" }
+  { type: "settle", stopReason: "stop" }
 ]
 const modelOrigin = process.env.SMITHERS_FIXTURE_MODEL_ORIGIN
 const handler = createModelTurnHandler({
@@ -34,7 +31,12 @@ const handler = createModelTurnHandler({
       : Stream.fromIterable(events)
     return Effect.succeed({
       model: Model.make({ stream: () => stream }),
-      options: { modelId: "deterministic-fixture", credential }
+      options: { modelId: "deterministic-fixture", credential },
+      preflight: {
+        input: {branch:"main", prompt: typeof content === "string" ? content : "hello", author:"context-ben",state:"ready",recent:[],wikiOnly:false, candidates:[],tokenBudget:24000},
+        model: Model.make({stream:()=>Stream.fromIterable([{type:"text-delta",id:"select",text:"[]"},{type:"settle",stopReason:"stop"}] as const)}),
+        options:{modelId:"fixture-selector"}
+      }
     })
   } : environmentModelResolver({
     binding: { protocol: "openai-chat", baseUrl: modelOrigin, modelId: "recording-coding", credential: "FIXTURE" },
