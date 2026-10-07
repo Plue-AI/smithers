@@ -13,6 +13,10 @@ import (
 // This extends Runtime's existing capacity mutex; providers must be supplied by
 // the install before the dark scheduler can grant repository-backed work.
 type AdmissionRequest struct {
+	// RetainOnly is a reconstruction hint: completed/paused demand may retain
+	// an existing VM but must never queue a new wake. Live queue rows omit it.
+	RetainOnly                          bool
+	RecoveryTodoScope                   string
 	Holder, Actor, Reason, Class, State string
 	Position                            int
 	sequence                            uint64
@@ -372,11 +376,18 @@ func (r *Runtime) AdmissionForceStops(now time.Time) []string {
 	return holders
 }
 
-// ReconcileAdmissionReleases retries overdue stops without relinquishing the
-// slot on a CLI acknowledgment. Only an observed stopped or missing VM frees it.
+// ReconcileAdmissionReleases requests normal stops, escalating after 60 seconds,
+// without relinquishing the slot on a CLI acknowledgment. Only an observed
+// stopped or missing VM frees it.
 func (r *Runtime) ReconcileAdmissionReleases(ctx context.Context, now time.Time) error {
 	var errs []error
 	r.mu.Lock()
+	// Presence and session reconstruction own the first thirty seconds. Even
+	// a cancelled boot cannot make another holder's slot reusable early.
+	if r.admissionStarted.IsZero() || now.Sub(r.admissionStarted) < 30*time.Second {
+		r.mu.Unlock()
+		return nil
+	}
 	holders := []string{}
 	for holder, h := range r.admission {
 		if h.held && !h.releasing.IsZero() {
@@ -398,12 +409,13 @@ func (r *Runtime) ReconcileAdmissionReleases(ctx context.Context, now time.Time)
 			errs = append(errs, ErrUnavailable)
 			continue
 		}
-		var stopErr error
+		grace := "10"
 		if overdue {
-			stopCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			_, stopErr = r.cli.run(stopCtx, nil, "stop", "-t", "0", "-q", machine)
-			cancel()
+			grace = "0"
 		}
+		stopCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		_, stopErr := r.cli.run(stopCtx, nil, "stop", "-t", grace, "-q", machine)
+		cancel()
 		status, found, err := r.cli.sandboxStatus(ctx, machine)
 		if err != nil || found && status != "stopped" {
 			if err != nil {
@@ -432,6 +444,7 @@ func (r *Runtime) ReconcileAdmissionReleases(ctx context.Context, now time.Time)
 			for _, ws := range r.workspaces {
 				if ws.Machine == machine {
 					ws.State = "stopped"
+					ws.recovering = false
 					ws.guestOK = false
 					if err := writeMetadata(ws); err != nil {
 						errs = append(errs, err)
@@ -554,6 +567,13 @@ func (r *Runtime) admitMachineLocked(ctx context.Context, maximum int, machine s
 		return errors.New("machine has no active admission grant")
 	}
 	if h.machine != "" {
+		if h.machine == machine {
+			for _, ws := range r.workspaces {
+				if ws.Machine == machine && ws.recovering && !ws.booting {
+					return nil
+				}
+			}
+		}
 		return errors.New("admission slot already has a machine")
 	}
 	h.machine = machine
@@ -584,6 +604,12 @@ func (r *Runtime) detachAdmissionMachineLocked(machine string, release bool) {
 // The grant context carries the same slot through preparation and branch boot.
 // Caller authority is checked by Ready on every grant; a missing adapter fails closed.
 func (r *Runtime) WaitAdmission(ctx context.Context, p AdmissionProviders, class, holder, actor, reason string) (context.Context, error) {
+	r.mu.Lock()
+	recovering := r.admissionRecoveryPending
+	r.mu.Unlock()
+	if recovering {
+		return ctx, ErrAdmissionNotReady
+	}
 	if p.Ready == nil || p.FreeDisk == nil {
 		return ctx, errors.New("admission providers unavailable")
 	}
