@@ -3580,7 +3580,9 @@ func (st *mythicalItemStep) pushCurrentProposal(ctx context.Context, item db.Myt
 		if err != nil {
 			return err
 		}
-		if current.Version != item.Version || current.Generation != item.Generation ||
+		if mythicalMergeFenced(current) || current.State != item.State || current.Attempt != item.Attempt ||
+			current.WorkspaceID != item.WorkspaceID || !bytes.Equal(current.PendingOp, item.PendingOp) ||
+			current.Version != item.Version || current.Generation != item.Generation ||
 			!current.CandidateVerified || current.CandidateHead != item.CandidateHead || current.CandidateBase != item.CandidateBase {
 			return errors.New("the TODO changed before its proposal could be published")
 		}
