@@ -651,11 +651,13 @@ impl<D: Disk> Host<D> {
         if digest(bytes) == doc.last_disk {
             return Ok(());
         }
-        let version = disk.record_outside(path, bytes, actor)?;
-        let theirs = std::str::from_utf8(bytes).map_err(|_| Error::ReadOnly)?;
+        // Disk reads use a bounded prefix to detect oversized files. Never
+        // publish that prefix as the exact outside version or delete its inode.
         if bytes.len() > MAX_TEXT_BYTES {
             return Err(Error::ReadOnly);
         }
+        let version = disk.record_outside(path, bytes, actor)?;
+        let theirs = std::str::from_utf8(bytes).map_err(|_| Error::ReadOnly)?;
         let ours = doc
             .doc
             .get_or_insert_text("content")
