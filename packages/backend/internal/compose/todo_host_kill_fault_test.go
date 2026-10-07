@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
 
@@ -68,8 +70,8 @@ export default Flow.make("todo", {
 		require.NotNil(t, before.Run)
 		require.NotNil(t, before.FlowVersion)
 		require.Equal(t, digest, before.FlowVersion.Digest)
-		var workspace, service string
-		require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT h.workspace_id,h.service_name FROM flow_runtime_host_bindings h JOIN mythical_items i ON h.workspace_id=i.workspace_id WHERE i.number=$1`, number).Scan(&workspace, &service))
+		workspace, service, err := r.todoHostBinding(number)
+		require.NoError(t, err)
 		host, err := r.processRuntime.InspectService(r.ctx, workspace, service)
 		require.NoError(t, err)
 		require.Positive(t, host.PID)
@@ -116,4 +118,13 @@ export default Flow.make("todo", {
 		require.NoError(t, r.drop(number))
 		fmt.Println(`CRASH-OBSERVATION {"point":"host-keyless-crossing","subject":"todo","stepsReRun":0,"automaticKeylessRepeats":0,"retryAttempts":1}`)
 	})
+}
+
+// The actual PostgreSQL schemas use UUID host bindings and text item selectors.
+// Even an absent item must return no rows, not an operator/type error.
+func TestTodoHostBindingMissingSelector(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	r := &rehearsal{ctx: t.Context(), pool: pool}
+	_, _, err := r.todoHostBinding(-1)
+	require.ErrorIs(t, err, pgx.ErrNoRows)
 }

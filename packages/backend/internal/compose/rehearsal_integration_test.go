@@ -1936,3 +1936,9 @@ func (r *rehearsal) drop(number int64) error {
 	r.actual = fmt.Sprintf("202 in %dms; again 202; T%d dropped; %s; live runs 0, cancelled %d; lane released; new press 409", took.Milliseconds(), number, closed, cancelled)
 	return nil
 }
+
+// Retained items store workspace selectors as text; host bindings use UUIDs.
+func (r *rehearsal) todoHostBinding(number int64) (workspace, service string, err error) {
+	err = r.pool.QueryRow(r.ctx, `SELECT h.workspace_id,h.service_name FROM flow_runtime_host_bindings h JOIN mythical_items i ON h.workspace_id::text=i.workspace_id WHERE i.number=$1`, number).Scan(&workspace, &service)
+	return
+}
