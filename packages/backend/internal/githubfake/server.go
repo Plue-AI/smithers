@@ -100,11 +100,14 @@ type Server struct {
 	codes       map[string]string
 	// signIns are the one-time OAuth codes that sign in a collaborator
 	// (SignInAs) rather than the owner, by code.
-	signIns map[string]int64
-	writes  []Write
-	reads   []Read
-	tokens  map[string]int64
-	pulls   map[string]Pull
+	signIns         map[string]int64
+	writes          []Write
+	reads           []Read
+	resourceBudgets map[string]resourceBudget
+	streamLimits    map[string]streamLimit
+	counters        map[string]map[int]RequestCounter
+	tokens          map[string]int64
+	pulls           map[string]Pull
 	// grants are each installation token's permissions: those requested
 	// when it was minted, or the installation's when none were.
 	grants map[string]map[string]string
@@ -682,8 +685,15 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	var status int
 	var response any
+	stream := requestStream(r)
+	s.writeBudgetHeaders(w, stream)
+	limit, limited := s.streamLimits[stream]
+	delete(s.streamLimits, stream)
 	write := r.Method != http.MethodGet && r.Method != http.MethodHead
 	switch {
+	case limited:
+		w.Header().Set("Retry-After", limit.retryAfter)
+		status, response = failure(limit.status, "rate limited")
 	case err != nil:
 		status, response = failure(http.StatusBadRequest, "request body unreadable")
 	case write && s.failures[r.URL.Path] > 0:
@@ -721,6 +731,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		s.reads = append(s.reads, Read{Path: r.URL.RequestURI(), IfNoneMatch: r.Header.Get("If-None-Match"), Status: status})
 	}
+	s.countRequest(stream, status)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if status != http.StatusNotModified {

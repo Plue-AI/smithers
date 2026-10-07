@@ -78,21 +78,16 @@ func newInstallPollingComposition(t *testing.T, ready bool) *installPollingCompo
 		f.calls = append(f.calls, r.Method+" "+r.URL.Path)
 		f.mu.Unlock()
 		reset := f.resetAt.Load()
-		w.Header().Set("X-RateLimit-Limit", "10000")
-		w.Header().Set("X-RateLimit-Remaining", "9000")
-		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(reset, 10))
-		w.Header().Set("X-RateLimit-Resource", "core")
+		remaining := 9000
 		if f.low.Load() {
-			w.Header().Set("X-RateLimit-Remaining", "1999")
+			remaining = 1999
 		}
 		if f.clock.Load() >= reset {
-			w.Header().Set("X-RateLimit-Remaining", "9000")
-			w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(reset+3600, 10))
+			remaining, reset = 9000, reset+3600
 		}
+		fake.SetResourceBudget("core", 10000, remaining, reset)
 		if f.pauseIssues.Load() != 0 && r.URL.Path == "/repos/acme/app/issues" {
-			w.Header().Set("Retry-After", "50")
-			w.WriteHeader(int(f.pauseIssues.Load()))
-			return
+			fake.LimitNextStream("issues", int(f.pauseIssues.Load()), "50")
 		}
 		fake.Handler().ServeHTTP(w, r)
 	}))
