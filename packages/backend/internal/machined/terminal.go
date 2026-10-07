@@ -22,7 +22,6 @@ type Terminal struct {
 	reattachMu sync.Mutex
 	pending    []byte
 	exit       error
-	exitSeen   bool
 	ended      bool
 	once       sync.Once
 	closeErr   error
@@ -32,6 +31,13 @@ type ExitError struct {
 	Code   int32
 	Signal byte
 	Core   bool
+}
+
+func (e *ExitError) ExitStatus() int {
+	if e.Signal != 0 {
+		return 128 + int(e.Signal)
+	}
+	return int(e.Code)
 }
 
 func (e *ExitError) Error() string {
@@ -53,7 +59,7 @@ func (s *Sessions) OpenTerminal(ctx context.Context, user SessionUser, argv []st
 		_ = s.CloseSession(cleanupCtx, id)
 		return nil, err
 	}
-	terminalCtx, cancel := context.WithCancel(ctx)
+	terminalCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	t := &Terminal{ctx: terminalCtx, cancel: cancel, stream: stream}
 	context.AfterFunc(terminalCtx, func() { _ = t.Close() })
 	return t, nil
@@ -105,7 +111,6 @@ func (t *Terminal) Read(dst []byte) (int, error) {
 		case 1:
 			t.pending = frame[2:]
 		case 5:
-			t.exitSeen = true
 			if frame[1] == 0 {
 				code := int32(binary.BigEndian.Uint32(frame[2:]))
 				if code != 0 {

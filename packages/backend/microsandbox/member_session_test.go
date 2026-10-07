@@ -34,7 +34,7 @@ with open(%q,'a') as f:f.write(json.dumps([operands,sys.stdin.buffer.read().deco
 	digest := workspaceapi.SessionCredentialIdentity(token)
 	path, err := credential.PutSessionToken(t.Context(), "branch-a", "session-a", token, "")
 	require.NoError(t, err)
-	require.Equal(t, workspaceapi.SessionTokenRoot+"/session-a/token", path)
+	require.Equal(t, "/run/smithers/20001/token/sessions/session-a/token", path)
 	body, err := os.ReadFile(log)
 	require.NoError(t, err)
 	require.Contains(t, string(body), `["put-member-token", "ben", "20001", "session-a", "absent"]`)

@@ -19,7 +19,12 @@ type MemberCredentials struct {
 	member  MemberIdentity
 }
 
-func (r *Runtime) SessionCredentialsForMember(ctx context.Context, id string, member MemberIdentity) (*MemberCredentials, error) {
+type MemberSessionCredentials interface {
+	workspaceapi.SessionCredentialWriter
+	OpenTerminal(context.Context, string, string, string, workspaceapi.Command) (workspaceapi.Terminal, error)
+}
+
+func (r *Runtime) SessionCredentialsForMember(ctx context.Context, id string, member MemberIdentity) (MemberSessionCredentials, error) {
 	if _, err := r.EnsureMember(ctx, id, member); err != nil {
 		return nil, err
 	}
@@ -45,7 +50,7 @@ func (c *MemberCredentials) PutSessionToken(ctx context.Context, id, session str
 	if _, err = c.runtime.guest(ctx, ws.Machine, token, "put-member-token", c.member.Login, strconv.Itoa(c.member.UID), session, tokenIdentityArgument(expected)); err != nil {
 		return "", err
 	}
-	return workspaceapi.SessionTokenRoot + "/" + session + "/token", nil
+	return fmt.Sprintf("/run/smithers/%d/token/sessions/%s/token", c.member.UID, session), nil
 }
 func (c *MemberCredentials) DeleteSessionToken(ctx context.Context, id, session, expected string) error {
 	if err := workspaceapi.ValidateSessionCredential(session, nil); err != nil {
@@ -134,7 +139,7 @@ func (c *MemberCredentials) openAdmitted(ctx context.Context, ws *workspace, ses
 		environment[k] = v
 	}
 	environment["TERM"] = "xterm-256color"
-	if environment["SMITHERS_TOKEN_FILE"] != workspaceapi.SessionTokenRoot+"/"+session+"/token" || environment["SMITHERS_URL"] == "" {
+	if environment["SMITHERS_TOKEN_FILE"] != fmt.Sprintf("/run/smithers/%d/token/sessions/%s/token", c.member.UID, session) || environment["SMITHERS_URL"] == "" {
 		return nil, fmt.Errorf("terminal credential environment is missing")
 	}
 	binding := struct {
