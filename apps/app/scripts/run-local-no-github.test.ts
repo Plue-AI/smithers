@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { requiresMacOS } from "./RequiresMacOS"
 import { createServer } from "node:net"
 import { lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -55,7 +56,8 @@ describe("local no-GitHub orchestration", () => {
     } finally { rmSync(account, { recursive: true, force: true }) }
   })
   // The bundle is macOS-only: there the backend approves this data root.
-  test.skipIf(process.platform !== "darwin")("the real home has no group- or world-writable ancestor", () => {
+  // Home privacy (§8.7.2) is a security invariant, so it is release trust.
+  requiresMacOS("the real home has no group- or world-writable ancestor", () => {
     const home = walkHome()
     try {
       for (let at = realpathSync(home); ; at = dirname(at)) {
