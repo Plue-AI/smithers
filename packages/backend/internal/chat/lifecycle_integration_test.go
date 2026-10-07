@@ -79,8 +79,10 @@ func TestDispatcherRenewsLeaseWhileHealthyHostOutlivesIt(t *testing.T) {
 	store := needStore(t)
 	scope, runID, journal := testScope(), "long-"+uuid.NewString(), testJournal()
 	accepted := admit(t, store, scope, runID, journal)
-	// The host keeps committing for about four lease lengths.
-	dispatcher, err := NewDispatcher(store, streamingHost{store: store, ticks: 16, every: 50 * time.Millisecond}, 1, 200*time.Millisecond)
+	// The host keeps committing for four lease lengths. A one-second lease
+	// leaves scheduling room on the shared integration host; the former 200ms
+	// fixture could expire under compiler load before a healthy renewal ran.
+	dispatcher, err := NewDispatcher(store, streamingHost{store: store, ticks: 16, every: 250 * time.Millisecond}, 1, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
