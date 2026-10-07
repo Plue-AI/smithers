@@ -28,8 +28,9 @@ type WorkspaceAccess struct {
 	UID      uint32
 }
 
-// WorkspaceBridge validates an access grant and proxies an authenticated
-// public session into the workspace's private SSH server.
+// WorkspaceBridge validates composition-owned access and serves an authenticated
+// channel through its execution transport: daemon sessions on the install,
+// or the existing private SSH grant hop in the hosted composition.
 type WorkspaceBridge interface {
 	Validate(context.Context, WorkspaceAccess) error
 	Serve(gliderssh.Session, WorkspaceAccess) (int, error)
