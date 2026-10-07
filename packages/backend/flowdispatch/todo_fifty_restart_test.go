@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync/atomic"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,11 +19,12 @@ func TestTodoFiftyPendingSignalsRestoreAfterDispatcherRestart(t *testing.T) {
 	store, _ := newFlowDispatchStore(t)
 	runtime := newRecordingRuntime()
 	runtime.status = "waiting"
-	var granted atomic.Bool
-	resolver := flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
-		if !granted.Load() {
+	var grants, resolved sync.Map
+	resolver := flowruntime.ResolverFunc(func(_ context.Context, target flowruntime.Target) (flowruntime.Runtime, error) {
+		if _, ok := grants.Load(target.WorkspaceID); !ok {
 			return nil, &testRuntimeFailure{code: "runtime_host_not_running"}
 		}
+		resolved.LoadOrStore(target.WorkspaceID, time.Now())
 		return todoWakeRuntime{runtime}, nil
 	})
 	before, err := New(Config{Store: store, Resolver: resolver})
@@ -56,15 +57,38 @@ func TestTodoFiftyPendingSignalsRestoreAfterDispatcherRestart(t *testing.T) {
 		require.Equal(t, receipts[i].OperationID, duplicate.OperationID)
 	}
 	restored := time.Since(ready)
-	granted.Store(true)
-	grant := time.Now()
-	startTestWorker(t, after, "fifty-after")
-	for i := range receipts {
-		waitOperation(t, store, scope, receipts[i].OperationID, func(op jobs.Operation) bool { return op.State == jobs.StateCompleted })
-	}
-	delivered := time.Since(grant)
 	require.Less(t, restored, 60*time.Second)
-	require.Less(t, delivered, 60*time.Second)
+	startTestWorker(t, after, "fifty-after")
+	for start := 0; start < 50; start += 10 {
+		grant := time.Now()
+		for i := start; i < start+10; i++ {
+			grants.Store(requests[i].Target.WorkspaceID, grant)
+		}
+		for i := start; i < start+10; i++ {
+			require.Eventually(t, func() bool {
+				op, err := store.Get(context.Background(), scope, receipts[i].OperationID)
+				require.NoError(t, err)
+				return op.State == jobs.StateCompleted
+			}, 60*time.Second, 5*time.Millisecond)
+			first, ok := resolved.Load(requests[i].Target.WorkspaceID)
+			require.True(t, ok)
+			resolverReady := first.(time.Time)
+			require.False(t, resolverReady.Before(grant))
+			require.Less(t, time.Since(resolverReady), 60*time.Second)
+			t.Logf("run=%s readiness_to_grant=%s grant_to_resolver=%s resolver_to_completed=%s; protocol fixture, not guest wake/attachment", requests[i].RunID, grant.Sub(ready), resolverReady.Sub(grant), time.Since(resolverReady))
+		}
+		runtime.mu.Lock()
+		signals := append([]flowruntime.Signal(nil), runtime.signals...)
+		runtime.mu.Unlock()
+		require.Len(t, signals, start+10, "a grant must not release another workspace")
+		for _, signal := range signals {
+			found := false
+			for i := 0; i < start+10; i++ {
+				found = found || signal.RunID == requests[i].RunID
+			}
+			require.True(t, found, "ungranted run received input: %s", signal.RunID)
+		}
+	}
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 	require.Len(t, runtime.signals, 50)
@@ -77,5 +101,5 @@ func TestTodoFiftyPendingSignalsRestoreAfterDispatcherRestart(t *testing.T) {
 	for i := range receipts {
 		require.Equal(t, requests[i].RunID, seen[receipts[i].OperationID])
 	}
-	t.Logf("restored_pending=50 readiness_to_replay=%s grant_to_all_delivered=%s; protocol fixture, no guest wake timing", restored, delivered)
+	t.Logf("restored_pending=50 readiness_to_replay=%s; five staggered grants; protocol fixture, no guest wake timing", restored)
 }
