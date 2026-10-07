@@ -68,27 +68,21 @@ func (s *WorkspaceService) OpenOwnerTerminal(ctx context.Context, registry *mach
 	if err != nil {
 		return nil, err
 	}
-	join, err := s.transactions.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if err = s.authorizeBranchMachine(ctx, join, repo, member, row.TargetBookmark, row.ID); err == nil {
-		err = ensureWorkspaceShare(ctx, db.New(join), row, member)
-	}
-	if err != nil {
-		_ = join.Rollback(context.WithoutCancel(ctx))
-		return nil, err
-	}
-	if err = join.Commit(ctx); err != nil {
-		return nil, err
-	}
 	ctx, err = s.admitWorkspaceOperation(personMachineDemand(ctx), row, member)
 	if err != nil {
 		return nil, err
 	}
-	// The person's existing branch entry supplies admission and the shared
-	// lifecycle barrier; a terminal never creates a second branch machine.
-	err = s.withBranchMachineMutation(ctx, row, member, func(ctx context.Context) error {
+	join, err := s.transactions.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer join.Rollback(context.WithoutCancel(ctx))
+	if err = s.authorizeBranchMachine(ctx, join, repo, member, row.TargetBookmark, row.ID); err != nil {
+		return nil, err
+	}
+	// Hold branch.join authority through wake. Owner-uid terminals do not
+	// grant legacy same-user write shares, including alongside a coding host.
+	err = commitWorkspaceMutation(ctx, join, workspaceMutationAuthority{workspaceID: row.ID, userID: member}, func(ctx context.Context) error {
 		var err error
 		row, err = s.ensureExistingWorkspaceRunningFor(personMachineDemand(ctx), row, member)
 		return err
