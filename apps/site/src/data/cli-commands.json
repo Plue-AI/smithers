@@ -228,6 +228,35 @@
       }
     },
     {
+      "name": "branch archive",
+      "description": "Archive a scratch branch; waits for the person's confirmation",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "branch": {
+              "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "branch",
+            "verbose"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
       "name": "branch fork",
       "description": "Fork a scratch branch",
       "schema": {
@@ -848,6 +877,12 @@
               ]
             },
             "sourceCard": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "workspaceId": {
               "type": [
                 "string",
                 "null"
