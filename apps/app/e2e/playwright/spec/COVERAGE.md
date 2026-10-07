@@ -14,6 +14,10 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | id | spec file | status | ticket |
 | --- | --- | --- | --- |
 | C-UI-12 · Setup/Settings | [C-UI-12.spec.ts](C-UI-12.spec.ts) | Empty/supplied model slot, zero dispatch, keyboard; 390px capacity line passed | T-UI-02 |
+| C-FM-01 | [C-FM-01.spec.ts](C-FM-01.spec.ts) | fixme-before-implementation | T-FM-01 |
+| C-FM-02 | [C-FM-02.spec.ts](C-FM-02.spec.ts) | fixme-before-implementation | T-FM-02 |
+| C-MCH-12 | [C-MCH-12.spec.ts](C-MCH-12.spec.ts) | fixme-before-implementation | T-MCH-16 |
+| C-UI-14 | [C-UI-14.spec.ts](C-UI-14.spec.ts) | fixme-before-implementation | T-UI-19 |
 | C-J1-01 | [C-J1-01.spec.ts](C-J1-01.spec.ts) | fixme-before-implementation | T-INS-08 |
 | C-J1-02 | [C-J1-02.spec.ts](C-J1-02.spec.ts) | passing: mounted install seam, live readiness, reload, squash/image fixes; reference Mac/LAN/OAuth evidence pending | T-APP-03 |
 | C-J1-03 | [C-J1-03.spec.ts](C-J1-03.spec.ts) | partial: mirrored read-only File card during held machine build and reload; question journey pending | T-APP-15 |
