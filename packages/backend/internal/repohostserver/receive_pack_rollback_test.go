@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -225,13 +226,27 @@ func TestRestoreGitRefsNeverDereferences(t *testing.T) {
 	require.NoError(t, err, string(out))
 	require.Equal(t, before, f.refs(t))
 
-	// A dangling alias drops out of every listing. Restoring it by name
-	// must not write the ref it names: the rollback fails instead, which
-	// holds the repository.
+	// A dangling alias drops out of the listing. Git versions may refuse
+	// its replacement or replace the alias itself with --no-deref. Neither
+	// outcome may create its target or move an unrelated ref.
 	out, err = exec.Command("git", "--git-dir", f.gitDir, "symbolic-ref", "refs/heads/stray", "refs/heads/ghost").CombinedOutput()
 	require.NoError(t, err, string(out))
-	require.Error(t, restoreGitRefs(context.Background(), f.gitDir, map[string]string{"refs/heads/stray": f.oldOID}, map[string]string{}))
-	assert.Equal(t, before, f.refs(t), "the rollback wrote through a dangling alias")
+	restoreErr := restoreGitRefs(context.Background(), f.gitDir, map[string]string{"refs/heads/stray": f.oldOID}, map[string]string{})
+	refs := f.refs(t)
+	target, symbolicErr := exec.Command("git", "--git-dir", f.gitDir, "symbolic-ref", "--quiet", "refs/heads/stray").Output()
+	if restoreErr != nil {
+		assert.Equal(t, before, refs, "a refused rollback changed refs")
+		require.NoError(t, symbolicErr)
+		assert.Equal(t, "refs/heads/ghost", strings.TrimSpace(string(target)))
+	} else {
+		expected := maps.Clone(before)
+		expected["refs/heads/stray"] = f.oldOID
+		assert.Equal(t, expected, refs, "the rollback changed more than its named ref")
+		var exit *exec.ExitError
+		require.ErrorAs(t, symbolicErr, &exit)
+		assert.Equal(t, 1, exit.ExitCode(), "the restored ref must be direct")
+	}
+	assert.NotContains(t, refs, "refs/heads/ghost", "the rollback wrote through a dangling alias")
 }
 
 // Round 4, fail closed: a push whose refs cannot be listed after git applied

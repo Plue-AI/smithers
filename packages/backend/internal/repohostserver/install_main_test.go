@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"os/exec"
@@ -517,15 +518,34 @@ func TestSymbolicNamespaceRefsNeverWriteTheirTarget(t *testing.T) {
 			protected("the workspace-ref delete")
 			assert.NotContains(t, f.repo.refs(), repohost.BranchHeadRef(userRefWorkspace))
 
-			// Retaining a user ref never writes through a symbolic source ref:
-			// git refuses to replace a dangling symbolic ref, and nothing moves.
+			// Retaining a user ref never writes through a symbolic source ref.
+			// Git may refuse or replace the dangling alias itself; check all refs
+			// in either case, rather than assuming a version-specific refusal.
 			withUserRefClock(t, later.Add(3*repohost.DefaultUserRefTTL))
 			rec = pushAs(t, f, "42", f.userRefPush(laneZeroOID, tip, repohost.UserRef(42, "work")))
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-			git("symbolic-ref", repohost.WorkspaceSourceRef(userRefWorkspace, tip), "refs/heads/planted")
+			sourceRef := repohost.WorkspaceSourceRef(userRefWorkspace, tip)
+			git("symbolic-ref", sourceRef, "refs/heads/planted")
+			beforeRetain := rawRefs(t, f.repo.gitDir)
 			rec = userRefRequest(t, f, http.MethodPost, "42/retain", map[string]string{"name": "work", "workspace_id": userRefWorkspace})
-			require.Equal(t, http.StatusInternalServerError, rec.Code, rec.Body.String())
-			assert.NotContains(t, f.repo.refs(), "refs/heads/planted", "retain wrote through a symbolic source ref")
+			afterRetain := rawRefs(t, f.repo.gitDir)
+			target, symbolicErr := exec.Command("git", "--git-dir", f.repo.gitDir, "symbolic-ref", "--quiet", sourceRef).Output()
+			switch rec.Code {
+			case http.StatusOK:
+				expected := maps.Clone(beforeRetain)
+				expected[sourceRef] = tip
+				assert.Equal(t, expected, afterRetain, "retain changed more than its source ref")
+				var exit *exec.ExitError
+				require.ErrorAs(t, symbolicErr, &exit)
+				assert.Equal(t, 1, exit.ExitCode(), "the retained source ref must be direct")
+			case http.StatusInternalServerError:
+				assert.Equal(t, beforeRetain, afterRetain, "a refused retain changed refs")
+				require.NoError(t, symbolicErr)
+				assert.Equal(t, "refs/heads/planted", strings.TrimSpace(string(target)))
+			default:
+				t.Fatalf("unexpected retain status %d: %s", rec.Code, rec.Body.String())
+			}
+			assert.NotContains(t, afterRetain, "refs/heads/planted", "retain wrote through a symbolic source ref")
 			protected("the retain")
 		})
 	}
