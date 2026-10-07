@@ -461,6 +461,7 @@ var installMemberRoutes = []struct {
 	// numbered issue door. Execution credentials have no list-all grant.
 	{http.MethodGet, "issue.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:issue-views|labels(?:/[^/]+)?|issues(?:/state-events(?:/stream)?|/[0-9]+(?:/comments|/labels|/events)?)?)$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+(?:/home|/topics)?$`)},
+	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/repository-source$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/caches(?:/stats)?$`)},
 	{http.MethodGet, "run.view", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workflow/runs/[0-9]+/artifacts(?:/[^/]+)?$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/user/workflow-runs/active-count$`)},
@@ -479,6 +480,7 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "terminal.watch", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspace/sessions/[^/]+/terminal$`)},
 	{http.MethodGet, "self", regexp.MustCompile(`^/api/user$`)},
 	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/notifications(?:/(?:list|events(?:/stream)?|preferences))?$`)},
+	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/integrations/(?:mcp|skills)$`)},
 	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/user/(?:emails|connections|settings/(?:notifications|signup))$`)},
 	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/users/[^/]+(?:/(?:activity|repos))?$`)},
 	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/user/keys(?:/[0-9]+)?$`)},

@@ -23,7 +23,10 @@ func TestInstallMemberAccountReadsPostgres(t *testing.T) {
 	cfg.Server.PublicURL = "http://example.com"
 	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
 	service := services.NewUserService(f.q)
-	router := buildRouterCompat(cfg, f.q, f.pool, &routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{ProfileService: service, EmailService: services.NewEmailService(f.q, nil, services.EmailServiceConfig{}), SignupProfiles: services.NewSignupProfileService(f.q)}, &routes.SSHKeyHandler{}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil)
+	router := buildRouterCompat(cfg, f.q, f.pool, &routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{ProfileService: service, EmailService: services.NewEmailService(f.q, nil, services.EmailServiceConfig{}), SignupProfiles: services.NewSignupProfileService(f.q)}, &routes.SSHKeyHandler{}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, &routes.RepositoryJobHandler{RepositoryJobs: services.NewRepositoryJobService(f.q, nil, f.pool)})
+
+	_, sourceErr := f.pool.Exec(f.ctx, `INSERT INTO github_synced_repos(owner_login,owner_login_lower,repo_name,repo_name_lower,mirror_owner,mirror_repo,sync_state) VALUES('source-owner','source-owner','source-repo','source-repo','gate-owner','app','ready')`)
+	require.NoError(t, sourceErr)
 
 	for _, item := range []struct {
 		user int64
@@ -51,7 +54,7 @@ func TestInstallMemberAccountReadsPostgres(t *testing.T) {
 		name, bearer, cookie string
 		status               int
 	}{{"person", "", cookie, 200}, {"external", external, "", 200}, {"app", app, "", 200}, {"run", run, "", 403}, {"machine", machine, "", 403}, {"scope", f.token(f.other, "list-scope", "write:workspace,via:codex", true), "", 403}, {"anonymous", "", "", 401}} {
-		for _, path := range []string{"/api/user/emails", "/api/user/connections", "/api/user/settings/notifications", "/api/user/settings/signup"} {
+		for _, path := range []string{"/api/user/emails", "/api/user/connections", "/api/user/settings/notifications", "/api/user/settings/signup", "/api/integrations/mcp", "/api/integrations/skills", "/api/repos/gate-owner/app/repository-source"} {
 			t.Run(actor.name+path, func(t *testing.T) {
 				req := httptest.NewRequest("GET", cfg.Server.PublicURL+path, nil)
 				if actor.bearer != "" {
@@ -64,12 +67,16 @@ func TestInstallMemberAccountReadsPostgres(t *testing.T) {
 				req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) { commands = append(commands, command) }))
 				out := httptest.NewRecorder()
 				router.ServeHTTP(out, req)
-				require.Equal(t, actor.status, out.Code, out.Body.String())
+				status := actor.status
+				if actor.name == "anonymous" && path == "/api/repos/gate-owner/app/repository-source" {
+					status = 404 // The private repository remains undisclosed.
+				}
+				require.Equal(t, status, out.Code, out.Body.String())
 				if actor.status == 401 {
 					require.Empty(t, commands)
 				} else {
 					command := "self.read"
-					if path == "/api/user/readable-repos" {
+					if path == "/api/repos/gate-owner/app/repository-source" {
 						command = "repo.read"
 					}
 					require.Equal(t, []string{command}, commands)
@@ -78,7 +85,11 @@ func TestInstallMemberAccountReadsPostgres(t *testing.T) {
 				require.NotContains(t, out.Body.String(), "private-owner")
 				require.NotContains(t, out.Body.String(), "never-disclose")
 				if actor.status == 200 {
-					if path == "/api/user/settings/notifications" {
+					if path == "/api/repos/gate-owner/app/repository-source" {
+						require.JSONEq(t, `{"source":"github","full_name":"source-owner/source-repo"}`, out.Body.String())
+					} else if path == "/api/integrations/mcp" || path == "/api/integrations/skills" {
+						require.JSONEq(t, `[]`, out.Body.String(), "no provider or skills catalog is configured in this composition")
+					} else if path == "/api/user/settings/notifications" {
 						require.Contains(t, out.Body.String(), `"email_notifications_enabled":false`)
 					} else {
 						require.Contains(t, out.Body.String(), "private-member")
