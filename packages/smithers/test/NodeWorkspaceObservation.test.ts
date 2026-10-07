@@ -223,29 +223,36 @@ describe("NodeWorkspaceObservation.changes", () => {
     const root = checkout()
     for (let index = 0; index < 2_000; index++) write(root, `src/gen/${index % 40}/f${index}.ts`, "x")
     const { feed, settled, close } = await feedOver(root)
-    // Let the events of building the tree drain, so they do not read as moves.
-    await settled()
-    // A walk slower than any fence this host delivers, so the race is the feed's
-    // to win whenever the tree is unmoved.
-    let walks = 0
-    const slowWalk = WorkspaceObservation.observeHost(host, root).pipe(
-      Effect.tap(() => Effect.sleep("20 seconds")),
-      Effect.tap(() =>
-        Effect.sync(() => {
-          walks++
-        })
+    try {
+      // Let the events of building the tree drain, so they do not read as moves.
+      await settled()
+      // A walk slower than any fence this host delivers, so the race is the feed's
+      // to win whenever the tree is unmoved.
+      let walks = 0
+      const slowWalk = WorkspaceObservation.observeHost(host, root).pipe(
+        Effect.tap(() => Effect.sleep("20 seconds")),
+        Effect.tap(() =>
+          Effect.sync(() => {
+            walks++
+          })
+        )
       )
-    )
-    const observe = () => Effect.runPromise(WorkspaceObservation.cached(slowWalk, feed))
-    const first = await observe()
-    for (let frame = 0; frame < 5; frame++) expect((await observe()).digest).toBe(first.digest)
-    expect(walks).toBe(1)
-    write(root, "src/main.ts", "moved")
-    const moved = await observe()
-    expect(walks).toBe(2)
-    expect(moved.digest).not.toBe(first.digest)
-    expect(moved).toEqual(await native(root))
-    await close()
+      // Keep one observer across frames, as the executor composition does.
+      const cached = WorkspaceObservation.cached(slowWalk, feed)
+      const observe = () => Effect.runPromise(cached)
+      const first = await observe()
+      for (let frame = 0; frame < 5; frame++) {
+        expect((await observe()).digest).toBe(first.digest)
+        expect(walks).toBe(1)
+      }
+      write(root, "src/main.ts", "moved")
+      const moved = await observe()
+      expect(walks).toBe(2)
+      expect(moved.digest).not.toBe(first.digest)
+      expect(moved).toEqual(await native(root))
+    } finally {
+      await close()
+    }
   }, 120_000)
 
   it("leaves no fence behind and stops vouching once its scope closes", patient, async () => {
