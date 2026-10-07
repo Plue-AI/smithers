@@ -316,7 +316,7 @@ export interface AppController extends IssueFlowsController {
   readonly registerTrigger: TriggersSeam["registerTrigger"]
   /** Ask 5: the Flows pane — the surface switch and the listing that fills it. */
   readonly showFlows: () => Promise<string | void | { readonly value: string }>
-  readonly runWorkflow: (name: string, repo?: string, input?: Record<string, unknown>, sourceCard?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
+  readonly runWorkflow: WorkflowController["runWorkflow"]
   /** What a flow WOULD run (flow.plan). */
   readonly planFlow: WorkflowController["planFlow"]
   /* Wave 12 §2 — the answer to "which loaded repository?" (one act). */

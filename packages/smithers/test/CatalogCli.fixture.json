@@ -339,14 +339,21 @@
         "run",
         "lint-fix",
         "--input",
-        "{\"fix\":true}"
+        "{\"fix\":true}",
+        "--workspaceId",
+        "00000000-0000-4000-8000-000000000003",
+        "--repo",
+        "owner/repo",
+        "--sourceCard",
+        "catalog"
       ],
       "method": "POST",
       "path": "/api/flows/lint-fix/run",
       "body": {
         "input": {
           "fix": true
-        }
+        },
+        "workspaceId": "00000000-0000-4000-8000-000000000003"
       }
     },
     {

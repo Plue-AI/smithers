@@ -161,10 +161,10 @@ export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   }),
   flow({
     name: "flow.run",
-     slash: "/flow.run", cli: ["flow","run"], journey: [], group: "Flows", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/flows/{name}/run"}, form: {
-      fields: { name: { label: "Flow" }, repo: { optionsFrom: "cloud-repos", kind: "text" }, input: { label: "Input JSON" } },
+     slash: "/flow.run", cli: ["flow","run"], journey: [], group: "Flows", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: { method: "POST", path: "/api/flows/{name}/run", body: { workspaceId: "workspaceId", input: "input" } }, form: {
+      fields: { name: { label: "Flow" }, repo: { optionsFrom: "cloud-repos", kind: "text" }, input: { label: "Input JSON" }, workspaceId: { hidden: true } },
       partial: flowRunParts,
-      args: (payload) => line(text(payload, "sourceCard") === undefined ? undefined : `sourceCard=${text(payload, "sourceCard")}`,
+      args: (payload) => payload.workspaceId !== undefined ? JSON.stringify(payload) : line(text(payload, "sourceCard") === undefined ? undefined : `sourceCard=${text(payload, "sourceCard")}`,
         text(payload, "name"), text(payload, "repo"),
         payload.input === undefined ? undefined : typeof payload.input === "string" ? text(payload, "input") : JSON.stringify(payload.input))
     },
@@ -176,9 +176,10 @@ export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
       name: Schema.String,
       repo: Schema.optional(Schema.String),
       sourceCard: Schema.optional(Schema.String),
+      workspaceId: Schema.optional(Schema.String),
       input: Schema.optional(Schema.Record(Schema.String, Schema.Json))
     }),
-    handler: ({ name, repo, input, sourceCard }) => actions.runWorkflow(name, repo, input, sourceCard, true)
+    handler: ({ name, repo, input, sourceCard, workspaceId }) => actions.runWorkflow(name, repo, input, sourceCard, true, workspaceId)
   }),
   /*
    * The plan door (docs/flow-builder): the same address as a launch, stopping

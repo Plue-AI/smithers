@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -19,6 +20,20 @@ type FlowsHandler struct {
 	Queries   *db.Queries
 	Proposals services.FlowProposalReader
 	Runs      *services.InstallFlowRuns
+}
+
+func flowNameParam(r *http.Request) (string, error) {
+	name := chi.URLParam(r, "name")
+	// Chi routes RawPath when present; otherwise its parameter already came
+	// from Go's decoded Path. A literal percent must never be decoded twice.
+	if r.URL.RawPath == "" {
+		return name, nil
+	}
+	name, err := url.PathUnescape(name)
+	if err != nil {
+		return "", &services.TodoControlError{Status: 400, Code: "invalid_flow_name", Class: "user", Message: "Invalid flow name"}
+	}
+	return name, nil
 }
 
 // List answers overridable flows and measured refusals of repository files
@@ -57,7 +72,11 @@ func (h *FlowsHandler) Show(w http.ResponseWriter, r *http.Request) {
 		todoRouteError(w, &services.TodoControlError{Status: 503, Class: "infra", Code: "flows_unavailable", Message: "Flows unavailable"})
 		return
 	}
-	name := chi.URLParam(r, "name")
+	name, err := flowNameParam(r)
+	if err != nil {
+		todoRouteError(w, err)
+		return
+	}
 	var selected *services.FlowCard
 	for i := range cards {
 		if cards[i].Name == name {

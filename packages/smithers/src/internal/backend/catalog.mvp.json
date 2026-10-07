@@ -4735,7 +4735,11 @@
       "summary": "Run a flow with typed input",
       "http": {
         "method": "POST",
-        "path": "/api/flows/{name}/run"
+        "path": "/api/flows/{name}/run",
+        "body": {
+          "workspaceId": "workspaceId",
+          "input": "input"
+        }
       },
       "payload": {
         "dialect": "draft-2020-12",
@@ -4756,6 +4760,16 @@
               ]
             },
             "sourceCard": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "workspaceId": {
               "anyOf": [
                 {
                   "type": "string"

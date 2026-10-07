@@ -108,6 +108,7 @@ export interface FlowInput {
     readonly name: string
     readonly repo?: string
     readonly sourceCard?: string
+    readonly workspaceId?: string
     readonly input?: Readonly<Record<string, unknown>>
   }
   /** The same address as a launch, stopping at the plan. */
@@ -269,7 +270,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "review": (payload) => line(token(payload, "number"), token(payload, "repo")),
   "issue.add-flow": (payload) => JSON.stringify(payload),
   "issues.comment": (payload) => JSON.stringify(payload),
-  "flow.run": (payload) => line(keyed(payload, "sourceCard"), token(payload, "name"), token(payload, "repo"),
+  "flow.run": (payload) => payload.workspaceId !== undefined ? JSON.stringify(payload) : line(keyed(payload, "sourceCard"), token(payload, "name"), token(payload, "repo"),
     payload.input === undefined ? undefined : JSON.stringify(payload.input)),
   "flow.plan": (payload) => line(keyed(payload, "sourceCard"), keyed(payload, "against"), token(payload, "name"), token(payload, "repo"),
     payload.input === undefined ? undefined : JSON.stringify(payload.input)),

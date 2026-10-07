@@ -101,7 +101,19 @@ export const issueViewParts = (args: string | undefined): Record<string, unknown
 }
 
 /** Preserve JSON string whitespace when extracting the optional flow input. */
-export const flowRunParts = (args: string | undefined): { name?: string; repo?: string; input?: string; sourceCard?: string } => {
+export const flowRunParts = (args: string | undefined): { name?: string; repo?: string; input?: string; sourceCard?: string; workspaceId?: string } => {
+  if (trimmed(args).startsWith("{")) {
+    try {
+      const payload = JSON.parse(args!)
+      return {
+        ...(typeof payload.name === "string" ? { name: payload.name } : {}),
+        ...(typeof payload.repo === "string" ? { repo: payload.repo } : {}),
+        ...(typeof payload.sourceCard === "string" ? { sourceCard: payload.sourceCard } : {}),
+        ...(typeof payload.workspaceId === "string" ? { workspaceId: payload.workspaceId } : {}),
+        ...(payload.input === undefined ? {} : { input: JSON.stringify(payload.input) })
+      }
+    } catch { return {} }
+  }
   const source = splitRunSource(args)
   const parts = flowRunBody(source.args)
   return source.sourceCard === undefined ? parts : { ...parts, sourceCard: source.sourceCard }
@@ -528,7 +540,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "triggers.register": (args) => triggerRegistration(args),
   "triggers.resume": (args, known) => triggerRun(args, known),
   "triggers.run": (args, known) => triggerRun(args, known),
-  "flow.run": (args) => flowTarget("flow.run", args),
+  "flow.run": (args) => trimmed(args).startsWith("{") ? jsonObject("flow.run")(args) : flowTarget("flow.run", args),
   /*
    * The plan door takes the launch's own line, because it is the launch's own
    * address stopped at the plan. Without this entry the grammar answered
