@@ -119,8 +119,9 @@ type boxHostLauncher struct {
 	targets flowHostEnvironment
 	// codingModel is the install's coding seat (ownerCodingSeat), used when
 	// the catalog pins no implementation model; nil keeps the catalog's.
-	codingModel   func(context.Context) (string, error)
-	codingProject func(context.Context, flowhost.HostLaunch) ([]byte, error)
+	codingModel    func(context.Context) (string, error)
+	codingProject  func(context.Context, flowhost.HostLaunch) ([]byte, error)
+	pinCodingModel func(context.Context, flowhost.HostLaunch, string) (string, error)
 }
 
 // withCodingModel gives a catalog that pins no implementation model the
@@ -140,6 +141,12 @@ func (l *boxHostLauncher) ConfigureFlowHost(ctx context.Context, launch flowhost
 	seat, err := l.codingModel(ctx)
 	if err != nil {
 		return launch, fmt.Errorf("read the install's coding model: %w", err)
+	}
+	if l.pinCodingModel != nil {
+		seat, err = l.pinCodingModel(ctx, launch, seat)
+		if err != nil {
+			return launch, err
+		}
 	}
 	launch.Catalog.ImplementationModel = seat
 	return launch, nil

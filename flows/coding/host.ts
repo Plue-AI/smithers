@@ -4,9 +4,13 @@ import * as SeatResolver from "@smthrs/agent/SeatResolver"
 import type * as SeatRouter from "@smthrs/agent/SeatRouter"
 import * as Digest from "@smthrs/core/Digest"
 import { HumanTask, Interpreter } from "@smthrs/flow"
+import * as Action from "@smthrs/flow/Action"
+import * as FlowRuntime from "@smthrs/flow/FlowRuntime"
+import * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import * as Executable from "@smthrs/registry/Executable"
 import * as Registry from "@smthrs/registry/Registry"
-import { Context, Effect, FileSystem, Layer } from "effect"
+import { Context, Effect, FileSystem, Layer, Option, Schema } from "effect"
+import * as Crypto from "effect/Crypto"
 import { join, resolve } from "node:path"
 import type * as Application from "../../packages/smithers/src/Application.ts"
 import * as NativeControl from "../../packages/smithers/src/internal/NativeControl.ts"
@@ -315,7 +319,8 @@ const configured = (options: Options) => {
 export const roleResolver = (
   base: SeatResolver.Service,
   implementationModel: string,
-  models: RoleModels = {}
+  models: RoleModels = {},
+  factoryBases: Readonly<Record<string, SeatResolver.Service>> = {}
 ): SeatResolver.Service => {
   const roles = effectiveRoles(implementationModel, models)
   const routed = (id: string) => Object.hasOwn(roles, id) && roles[id] === Seat.auto
@@ -326,10 +331,12 @@ export const roleResolver = (
       ? reviewSeats(models.seats?.["coding/implement"] ?? implementationModel)
       : [Object.hasOwn(roles, id) ? roles[id]! : id]
   return SeatResolver.make({
-    resolve: (id) =>
-      routed(id)
+    resolve: (id, declaredRole) =>
+      declaredRole !== undefined && declaredRole !== id && Object.hasOwn(factoryBases, declaredRole)
+        ? factoryBases[declaredRole]!.resolve(id)
+        : routed(id)
         ? Effect.fail(new Seat.SeatUnresolved({ seat: id, message: `${id} routes by the routing graph` }))
-        : firstResolved(base, candidates(id)).pipe(
+        : firstResolved(Object.hasOwn(factoryBases, id) ? factoryBases[id]! : base, candidates(id)).pipe(
           Effect.map((seat) => Object.hasOwn(roles, id) ? Seat.make({ ...seat, id }) : seat)
         ),
     routedAs: (id) => routed(id) ? { phase: Object.hasOwn(rolePhases, id) ? rolePhases[id] : undefined } : undefined
@@ -439,7 +446,121 @@ export const roleSeats = (options: Options, suppliedSeats?: SeatResolver.Service
   return (environment: Readonly<Record<string, string | undefined>>) =>
     Layer.merge(
       Layer.effect(SeatResolver.SeatResolver)(
-        Effect.map(SeatResolver.SeatResolver, (base) => roleResolver(base, options.implementationModel, models))
+        Effect.gen(function*() {
+          const base = yield* SeatResolver.SeatResolver
+          const factoryBases: Record<string, SeatResolver.Service> = {}
+          const factorySeats = { ...models.seats }
+          for (
+            const [seat, role] of [["coding/plan", "PLANNER"], ["coding/implement", "IMPLEMENTER"], [
+              "coding/review",
+              "REVIEWER"
+            ]] as const
+          ) {
+            const credential = environment[`SMITHERS_MODEL_ROLE_${role}_KEY`]
+            const origin = environment.SMITHERS_MODEL_PROXY_URL
+            if (credential === undefined || origin === undefined) continue
+            const executor = yield* RequestExecutor.RequestExecutor
+            const scopedEnvironment = { ...environment }
+            for (
+              const key of [
+                "ANTHROPIC_API_KEY",
+                "OPENAI_API_KEY",
+                "CEREBRAS_API_KEY",
+                "OPENROUTER_API_KEY",
+                "AI_GATEWAY_API_KEY"
+              ]
+            ) {
+              scopedEnvironment[key] = credential
+            }
+            delete scopedEnvironment.SMITHERS_ACCOUNT_POOL_URL
+            delete scopedEnvironment.SMITHERS_ACCOUNT_POOL_KEY
+            delete scopedEnvironment.SMITHERS_ACCOUNT_POOL_PROVIDERS
+            const responses = yield* NativeEquipment.scopedSeatResolver(scopedEnvironment, executor)
+            const chat = yield* NativeEquipment.scopedSeatResolver({
+              ...scopedEnvironment,
+              SMITHERS_OPENAI_COMPATIBLE_BASE_URL: `${origin.replace(/\/+$/, "")}/openai`
+            }, executor)
+            const current = () =>
+              Effect.tryPromise({
+                try: async (signal) => {
+                  const response = await fetch(`${origin.replace(/\/+$/, "")}/factory-seat`, {
+                    headers: { Authorization: `Bearer ${credential}` },
+                    signal
+                  })
+                  if (!response.ok) throw new Error("Factory model is unavailable")
+                  const binding = await response.json() as { seat?: unknown; protocol?: unknown }
+                  if (
+                    typeof binding.seat !== "string" ||
+                    seatRefusal(binding.seat) !== undefined && binding.seat !== "auto"
+                  ) throw new Error("Invalid factory model")
+                  if (binding.protocol !== undefined && typeof binding.protocol !== "string") {
+                    throw new Error("Invalid factory model protocol")
+                  }
+                  return {
+                    seat: binding.seat,
+                    ...(typeof binding.protocol === "string" ? { protocol: binding.protocol } : {})
+                  }
+                },
+                catch: () => new Seat.SeatUnresolved({ seat, message: "Factory model is unavailable" })
+              })
+            const durableCurrent = (callKey?: string) =>
+              Effect.gen(function*() {
+                if (callKey === undefined) return yield* current()
+                const instance = yield* Effect.serviceOption(FlowRuntime.FlowInstance)
+                const runtime = yield* Effect.serviceOption(FlowRuntime.FlowRuntime)
+                const crypto = yield* Effect.serviceOption(Crypto.Crypto)
+                if (Option.isNone(instance) || Option.isNone(runtime) || Option.isNone(crypto)) {
+                  return yield* Effect.fail(
+                    new Seat.SeatUnresolved({ seat, message: "Factory model journal is unavailable" })
+                  )
+                }
+                return yield* Action.make({
+                  name: `${seat}/model-binding`,
+                  tier: "sealed",
+                  idempotencyKey: callKey,
+                  success: Schema.Struct({ seat: Schema.String, protocol: Schema.optionalKey(Schema.String) }),
+                  error: Seat.SeatUnresolved,
+                  execute: current()
+                }).pipe(
+                  Effect.provideService(FlowRuntime.FlowInstance, instance.value),
+                  Effect.provideService(FlowRuntime.FlowRuntime, runtime.value),
+                  Effect.provideService(Crypto.Crypto, crypto.value)
+                )
+              })
+            const initial = yield* current().pipe(Effect.orDie)
+            factorySeats[seat] = initial.seat
+            const resolve = (routedSeat: string, callKey?: string) =>
+              durableCurrent(callKey).pipe(
+                Effect.flatMap((binding) => {
+                  const chosen = expandSeat(binding.seat === "auto" ? routedSeat : binding.seat)
+                  const provider = seatProvider(chosen)
+                  const offered = (environment.SMITHERS_MODEL_PROXY_PROVIDERS ?? "").split(",")
+                  let transport = chosen
+                  if (!offered.includes(provider)) {
+                    if (!offered.includes("vercel")) {
+                      return Effect.fail(new Seat.SeatUnresolved({ seat, message: "Factory model is unavailable" }))
+                    }
+                    const separator = chosen.indexOf(":")
+                    if (separator < 1) {
+                      return Effect.fail(new Seat.SeatUnresolved({ seat, message: "Factory model is unavailable" }))
+                    }
+                    transport = `vercel:${chosen.slice(0, separator)}/${chosen.slice(separator + 1)}`
+                  }
+                  return (binding.protocol === "openai-chat" ? chat : responses).resolve(transport)
+                }),
+                Effect.map((resolved) => Seat.make({ ...resolved, id: seat }))
+              )
+            factoryBases[seat] = SeatResolver.make({
+              resolve: (routedSeat) =>
+                resolve(routedSeat).pipe(
+                  Effect.map((resolved) =>
+                    Seat.make({ ...resolved, refresh: (callKey) => resolve(routedSeat, callKey) })
+                  )
+                )
+            })
+          }
+          return roleResolver(base, options.implementationModel, { ...models, seats: factorySeats }, factoryBases)
+        })
       ).pipe(
         Layer.provide(
           suppliedSeats === undefined

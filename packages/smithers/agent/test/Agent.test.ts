@@ -407,6 +407,59 @@ describe("capacity seat chain", () => {
     expect(prepared).toBeGreaterThan(0)
     expect(contacted).toBe(0)
   })
+  it("refreshes the host seat before each sealed call without rebinding an in-flight call", async () => {
+    const selected: string[] = []
+    const sealed: string[] = []
+    const sent: string[] = []
+    const answers = recordedCells([], ["console.log(1)", "ctx.done('done')"])
+    const model = Model.make({
+      stream: (request) => {
+        sent.push(request.modelId)
+        return answers.stream(request)
+      }
+    })
+    let binding = "model-a"
+    const dynamic = Seat.make({
+      id: "reviewer",
+      modelId: "stale-model",
+      model,
+      route,
+      contextWindowTokens: 0,
+      refresh: () =>
+        Effect.sync(() => {
+          const modelId = binding
+          selected.push(modelId)
+          return Seat.make({
+            id: "reviewer",
+            modelId,
+            model,
+            contextWindowTokens: 0,
+            route: {
+              prepare: (request) =>
+                Effect.sync(() => {
+                  sealed.push(request.modelId)
+                  binding = "model-b"
+                  return { ...prepared, body: new TextEncoder().encode(JSON.stringify({ model: request.modelId })) }
+                })
+            }
+          })
+        })
+    })
+    const outcome = await drive(
+      collect({
+        model,
+        seat: dynamic,
+        capacity: { park: false },
+        registry: registryOf([])
+      })
+    )
+    expect(outcome._tag).toBe("completed")
+    expect(selected).toEqual(["model-a", "model-b"])
+    expect(sent).toEqual(["model-a", "model-b"])
+    expect(sealed).toContain("model-a")
+    expect(sealed).toContain("model-b")
+  })
+
   it("streams a transport retry and keeps the settled reply free of the failed attempt", async () => {
     let calls = 0
     const completed = recordedCells([], ["ctx.done('complete')"])
