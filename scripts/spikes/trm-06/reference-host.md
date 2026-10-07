@@ -90,7 +90,7 @@ to the check evidence directory without converting partial/NO results to PASS.
 
 The named root-check operations are implemented as partial campaigns and return
 78, even when their current subset passes. Complete the missing controls listed
-in README.md before collecting passing receipts. The ten-run campaign also needs
-continuous independent cgroup observation: a removed group in its post-drain
-snapshot remains NO, never populated 0. Terminal fixtures and restart samples do
+in README.md before collecting passing receipts. The ten-run campaign arms a held-descriptor cgroup observer before revocation;
+validate its raw independent populated-0 samples on the reference host. Missing
+or errored observations remain NO, never inferred emptiness. Terminal fixtures and restart samples do
 not replace the second-Mac video or the VS Code-connected ten-run requirement.

@@ -215,7 +215,7 @@ func compareOutside(before, after []byte) error {
 	return nil
 }
 func runGuestFixture(ctx context.Context, a *installedAuthority, home, machine, source, mode string) ([]byte, error) {
-	if mode != "positive" && mode != "race-parent" && mode != "poison-imports" && mode != "symlink-opt" && mode != "symlink-run" && mode != "existing-prototype" && mode != "sample" && mode != "fingerprint" && mode != "restart" {
+	if mode != "positive" && mode != "race-parent" && mode != "poison-imports" && mode != "symlink-opt" && mode != "symlink-run" && mode != "existing-prototype" && mode != "sample" && mode != "fingerprint" && mode != "restart" && mode != "arm" && mode != "drain" {
 		return nil, errAuthority
 	}
 	// Set argv in install-controlled source, never concatenate member data or
@@ -261,13 +261,16 @@ func validateSessionBoundary(ctx context.Context, control relayControl, observe 
 			body := make([]byte, length)
 			_, err = io.ReadFull(stream, body)
 			var reply controlReply
-			if err == nil && strictControlReply(body, &reply) == nil && reply.Code == "" {
+			if err != nil || strictControlReply(body, &reply) != nil || reply.Class != "invalid" || reply.Code != "session_refused" {
 				stream.Close()
-				return errors.New("invalid root session envelope accepted")
+				return errors.New("invalid session envelope lacked an explicit refusal")
 			}
 			_ = os.WriteFile(filepath.Join(evidence, fmt.Sprintf("refusal-%d.json", i)), body, 0600)
 		}
 		stream.Close()
+		if err != nil && err != io.EOF {
+			return fmt.Errorf("invalid session envelope did not close: %w", err)
+		}
 	}
 	for _, bad := range []string{`{"type":"signal","name":"STOP"}`, `{"type":"signal","name":"TERM","uid":0}`, `{"type":"window","bytes":0}`, `{"type":"window","bytes":262145}`, `{"type":"data","stream":3,"bytes":[1]}`} {
 		stream, err := control.connect(ctx)

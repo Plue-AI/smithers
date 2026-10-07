@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net"
 	"path/filepath"
@@ -78,5 +79,22 @@ func TestEvidenceDoesNotInferPopulatedZeroFromRemoval(t *testing.T) {
 	}
 	if err := systemInstallTree(t.TempDir()); err == nil {
 		t.Fatal("owner-writable tree became installed system authority")
+	}
+}
+
+func TestDrainSummaryRequiresItsLiteralRawKernelSample(t *testing.T) {
+	for _, rows := range [][]json.RawMessage{
+		nil,
+		{json.RawMessage(`{"utc":"now","events":{}}`)},
+		{json.RawMessage(`{"utc":"before","events":{"s-001":"populated 0\n"}}`)},
+		{json.RawMessage(`{"utc":"now","events":{"s-001":{"error":"removed"}}}`)},
+		{json.RawMessage(`{"utc":"now","events":{"s-001":"populated 1\n"}}`)},
+	} {
+		if zeroHasRawSample("s-001", "now", rows) {
+			t.Fatal("summary supplied absent kernel evidence")
+		}
+	}
+	if !zeroHasRawSample("s-001", "now", []json.RawMessage{json.RawMessage(`{"utc":"now","events":{"s-001":"populated 0\nfrozen 0\n"}}`)}) {
+		t.Fatal("direct kernel evidence refused")
 	}
 }

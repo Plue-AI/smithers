@@ -161,9 +161,9 @@ and match config's Ben public key; no agent or root SSH key is admitted.
 `run.sh measure` starts ten fresh installed runs and preserves terminal-only
 revocation and restart samples. It requires direct populated-0 observations for
 every old cgroup, refuses to infer emptiness from removal, and cannot certify
-VS Code. Current post-drain sampling can miss removed cgroups; add a continuous
-independent held-descriptor observer on the reference host before treating this
-campaign as complete. `last-drain.json` is observed before VM deletion.
+VS Code. The campaign arms an independent root observer with held kernel events
+descriptors before revocation, retaining timestamped changes and 100 ms samples.
+This observer remains unrun on real cgroups; missing observations remain NO. `last-drain.json` is observed before VM deletion.
 
 `run.sh root-prototype-install-validation` and
 `run.sh root-session-input-validation` run disposable real-VM fixture subsets.

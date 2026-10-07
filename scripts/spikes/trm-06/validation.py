@@ -8,6 +8,9 @@ import json
 import os
 from pathlib import Path
 import signal
+import select
+import time
+from datetime import datetime, timezone
 import stat
 import subprocess
 import sys
@@ -58,10 +61,122 @@ def sample():
     return {"processes": processes, "supervisors": supervisors, "cgroups": cgroups, "outside": fingerprint() if OUTSIDE.exists() else None}
 
 
+OBSERVER = Path("/run/smithers/trm06/observer.json")
+
+
+def arm_observer():
+    # Hold kernel events descriptors before revocation/removal. No member path
+    # or supervisor-reported population participates in this observation.
+    handles = {}
+    root = os.open("/sys/fs/cgroup/smithers/sessions", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for name in os.listdir(root):
+            if not name.startswith("s-"):
+                continue
+            if len(name) != 18 or any(c not in "0123456789abcdef" for c in name[2:]):
+                raise ValueError("invalid observed cgroup")
+            group = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=root)
+            try:
+                handles[name] = os.open("cgroup.events", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=group)
+            finally:
+                os.close(group)
+    finally:
+        os.close(root)
+    if not handles:
+        raise ValueError("no live cgroups to observe")
+    output = os.open(OBSERVER, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    read_ready, write_ready = os.pipe()
+    pid = os.fork()
+    if pid:
+        os.close(write_ready)
+        os.close(output)
+        for fd in handles.values():
+            os.close(fd)
+        try:
+            if not select.select([read_ready], [], [], 1)[0] or os.read(read_ready, 1) != b'1':
+                raise ValueError("observer did not arm")
+        finally:
+            os.close(read_ready)
+        print(json.dumps({"armed": True, "observer": pid}))
+        return
+    os.close(read_ready)
+    os.setsid()
+    started = time.monotonic()
+    rows = []
+    zero = {}
+    prior = {}
+    last_full = started
+    try:
+        os.write(write_ready, b'1')
+        os.close(write_ready)
+        # Detached observer must not retain the msb exec output pipes.
+        for fd in (0, 1, 2):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        while time.monotonic() - started < 6:
+            utc = datetime.now(timezone.utc).isoformat()
+            events = {}
+            for name, fd in handles.items():
+                try:
+                    raw = os.pread(fd, 4097, 0).decode('ascii')
+                    if len(raw) > 4096:
+                        raise ValueError("oversized cgroup events")
+                    events[name] = raw
+                    if "populated 0" in raw.splitlines() and name not in zero:
+                        zero[name] = utc
+                except OSError as error:
+                    events[name] = {"error": str(error)}
+            now = time.monotonic()
+            changed = {name: value for name, value in events.items() if prior.get(name) != value}
+            if now - last_full >= .1:
+                changed = events
+                last_full = now
+            if changed:
+                rows.append({"utc": utc, "monotonic": now, "events": changed})
+            prior = events
+            if len(zero) == len(handles):
+                break
+            time.sleep(.002)
+        body = json.dumps({"zero": zero, "groups": list(handles), "samples": rows}).encode()
+        os.write(output, body)
+        os.fsync(output)
+    finally:
+        os.close(output)
+        for fd in handles.values():
+            os.close(fd)
+        os._exit(0)
+
+
+def observed_drain():
+    # The observer is our fixed root-only file in this disposable VM. Missing,
+    # partial or errored observations remain absent; removal never means zero.
+    for _ in range(300):
+        fd = os.open(OBSERVER, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd, 'rb') as source:
+            info = os.fstat(source.fileno())
+            if info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1 or not stat.S_ISREG(info.st_mode):
+                raise ValueError("untrusted observer output")
+            raw = source.read(4 * 1024 * 1024 + 1)
+        if raw:
+            if len(raw) > 4 * 1024 * 1024:
+                raise ValueError("oversized observer output")
+            return json.loads(raw)
+        time.sleep(.02)
+    raise ValueError("independent observer did not finish")
+
+
 def main():
     if os.getuid() != 0 or os.geteuid() != 0:
         raise ValueError("root fixture requires installed provider")
     operation = sys.argv[1] if len(sys.argv) == 2 else ""
+    if operation == "arm":
+        arm_observer()
+        return
+    if operation == "drain":
+        print(json.dumps({"sample": sample(), "observation": observed_drain() if OBSERVER.exists() else None}))
+        return
     if operation == "fingerprint":
         print(json.dumps({"outside": fingerprint()}))
         return

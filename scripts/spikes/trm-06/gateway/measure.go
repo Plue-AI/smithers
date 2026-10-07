@@ -191,6 +191,11 @@ func measurementRun(ctx context.Context, a *installedAuthority, root string, con
 		}
 		result["before"] = json.RawMessage(before)
 	}
+	armed, err := ownerObservation(execution, root, "arm")
+	if err != nil {
+		return result, err
+	}
+	result["observer_armed"] = json.RawMessage(armed)
 	disconnected := make(chan time.Time, 1)
 	go func() { _ = session.Wait(); disconnected <- time.Now() }()
 	invoked := time.Now()
@@ -229,16 +234,26 @@ func measurementRun(ctx context.Context, a *installedAuthority, root string, con
 		time.Sleep(20 * time.Millisecond)
 	}
 	result["drain"] = drain
-	var after, old guestSnapshot
-	if json.Unmarshal(drain.Sample, &after) != nil || json.Unmarshal(before, &old) != nil || drain.GatewayError != "" || drain.ObserverError != "" || len(after.Processes) != 0 {
+	var observed struct {
+		Sample      guestSnapshot `json:"sample"`
+		Observation struct {
+			Zero    map[string]string `json:"zero"`
+			Groups  []string          `json:"groups"`
+			Samples []json.RawMessage `json:"samples"`
+		} `json:"observation"`
+	}
+	var old guestSnapshot
+	if json.Unmarshal(drain.Sample, &observed) != nil || json.Unmarshal(before, &old) != nil || drain.GatewayError != "" || drain.ObserverError != "" || len(observed.Sample.Processes) != 0 {
 		return result, errors.New("independent drain observation failed")
 	}
 	zero := len(old.Cgroups) > 0
 	for name := range old.Cgroups {
-		events, exists := after.Cgroups[name]
-		if !exists || !containsPopulatedZero(events) {
+		stamp, exists := observed.Observation.Zero[name]
+		timestamp, parseErr := time.Parse(time.RFC3339Nano, stamp)
+		if !exists || parseErr != nil || timestamp.Before(invoked) || timestamp.Sub(invoked) > 5*time.Second || !zeroHasRawSample(name, stamp, observed.Observation.Samples) {
 			zero = false
 		}
+
 	}
 	result["zero_observed"] = zero
 	if err != nil || !zero {
@@ -265,7 +280,7 @@ func containsPopulatedZero(events string) bool {
 	return false
 }
 func ownerObservation(ctx context.Context, root, operation string) ([]byte, error) {
-	if operation != "sample" && operation != "restart" {
+	if operation != "sample" && operation != "restart" && operation != "arm" {
 		return nil, errAuthority
 	}
 	connection, err := (&net.Dialer{}).DialContext(ctx, "unix", filepath.Join(root, "control.sock"))
@@ -286,4 +301,23 @@ func ownerObservation(ctx context.Context, root, operation string) ([]byte, erro
 		return nil, errors.New("independent guest observation unavailable")
 	}
 	return body, nil
+}
+
+// A summary timestamp alone is not a population observation. Match it to the
+// actual independent kernel-events sample; absence/removal/error cannot pass.
+func zeroHasRawSample(name, stamp string, rows []json.RawMessage) bool {
+	for _, raw := range rows {
+		var row struct {
+			UTC    string                     `json:"utc"`
+			Events map[string]json.RawMessage `json:"events"`
+		}
+		if json.Unmarshal(raw, &row) != nil || row.UTC != stamp {
+			continue
+		}
+		var events string
+		if json.Unmarshal(row.Events[name], &events) == nil && containsPopulatedZero(events) {
+			return true
+		}
+	}
+	return false
 }
