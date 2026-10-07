@@ -7,6 +7,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	"github.com/smithersai/smithers/packages/backend/internal/routes"
 )
 
 // presenceLease is the roster lease. A daemon snapshot older than one lease no
@@ -55,6 +56,13 @@ func (d *daemonSnapshots) current(branch string, link *machined.Link, now time.T
 type presenceRevocation interface {
 	Positioned() bool
 	Done() <-chan struct{}
+}
+
+// liveRevocation is the revocation source the live socket consults; browser
+// presence exists only while it does. Nil when none is installed.
+func liveRevocation() presenceRevocation {
+	source, _ := routes.CurrentRevocationSource().(presenceRevocation)
+	return source
 }
 
 // sourceCensus is the production PresenceOn readiness check. Every source that

@@ -39,6 +39,12 @@ func currentRevocationSource() RevocationSource {
 	return revocationSource
 }
 
+// CurrentRevocationSource is the source the live socket consults, for
+// composition checks that must agree with it. Nil when none is installed.
+func CurrentRevocationSource() RevocationSource {
+	return currentRevocationSource()
+}
+
 // requestPrincipal describes the caller of r for revocation matching, merged
 // with what the handler knows about the resource it serves. The loaded
 // repository supplies its organization unless the handler already named one,

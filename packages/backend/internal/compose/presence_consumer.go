@@ -59,6 +59,10 @@ func (p *branchPresence) consumeDaemons(ctx context.Context, registry *machined.
 	if p == nil || registry == nil {
 		return func() {}
 	}
+	// The daemon consumer is the last presence source composed and the only
+	// writer of daemon snapshots, so it binds the PresenceOn census. Without it
+	// sourcesReady stays nil and PresenceOn stays unknown.
+	p.sourcesReady = p.sourceCensus(liveRevocation(), registry)
 	ctx, cancel := context.WithCancel(ctx)
 	var wg sync.WaitGroup
 	wg.Add(1)

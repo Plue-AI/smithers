@@ -13,6 +13,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/stretchr/testify/require"
@@ -148,17 +149,20 @@ func TestPresenceSourceCensus(t *testing.T) {
 	require.False(t, ready(t.Context(), asleep), "attribution consumer stopped")
 }
 
-// The production census reaches the real TS roster through the authenticated
-// bridge: PresenceOn and the rebase reader leave unknown only while the daemon
+// The census the daemon consumer binds reaches the real TS roster through the
+// authenticated bridge: PresenceOn and the rebase reader leave unknown only while the daemon
 // consumer has applied the current link's snapshot, and return to unknown when
 // the machine's link is replaced.
 func TestPresenceOnCensusThroughInstall(t *testing.T) {
 	f := presenceInstall(t)
 	registry, _ := censusRegistry(t)
 	f.p.terminalManager = routes.NewTerminalSessionManager(nil)
-	f.p.sourcesReady = f.p.sourceCensus(f.bus, registry)
+	require.Nil(t, f.p.sourcesReady)
+	// The production binding: the daemon consumer installs the census against
+	// the live socket's revocation source.
 	stopDaemons := f.p.consumeDaemons(t.Context(), registry)
 	t.Cleanup(stopDaemons)
+	require.NotNil(t, f.p.sourcesReady)
 	presenceOn := func() string {
 		raw, err := f.p.call(t.Context(), f.row, "presence-owner/app", "Branch.PresenceOn", map[string]any{})
 		require.NoError(t, err)
@@ -198,4 +202,15 @@ func TestPresenceOnCensusThroughInstall(t *testing.T) {
 	require.NoError(t, browser.Close(1000, ""))
 	require.Eventually(t, func() bool { return presenceOn() == "empty" }, time.Second, 10*time.Millisecond)
 	require.Equal(t, services.RebasePresenceEmpty, rebase())
+}
+
+// The census reads the same revocation source the live socket admits presence
+// under; with none installed it has nothing to bind.
+func TestLiveRevocationFollowsTheLiveSocketSource(t *testing.T) {
+	t.Cleanup(func() { routes.SetRevocationSource(nil) })
+	routes.SetRevocationSource(nil)
+	require.Nil(t, liveRevocation())
+	bus := revocation.NewBus(nil, nil)
+	routes.SetRevocationSource(bus)
+	require.Equal(t, presenceRevocation(bus), liveRevocation())
 }
