@@ -2,6 +2,7 @@ package compose
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -82,6 +83,15 @@ await bundle(entry, output);`,
 	require.NoError(t, err)
 	require.Equal(t, fixtureBefore, fixtureAfter, "bundling must never mutate the entry source")
 	require.NoError(t, os.Chmod(bundle, 0644))
+	artifact, err := os.ReadFile(bundle)
+	require.NoError(t, err)
+	provenance, err := json.Marshal(map[string]string{
+		"commit":        strings.TrimSpace(string(run("git", "rev-parse", "HEAD"))),
+		"fixtureSHA256": fmt.Sprintf("%x", sha256.Sum256(fixtureBefore)),
+		"runnerSHA256":  fmt.Sprintf("%x", sha256.Sum256(artifact)),
+	})
+	require.NoError(t, err)
+	writeEvidence("source-provenance.json", append(provenance, '\n'))
 	nonce := strings.ReplaceAll(uuid.NewString(), "-", "")
 	markerName := ".smithers-canary-" + nonce
 	home, err := os.UserHomeDir()
