@@ -59,7 +59,7 @@ export interface WorkflowController {
   readonly showFlows: () => Promise<string | void | { readonly value: string }>
   readonly requireBox: (repo: string, act: { readonly flow: string; readonly args?: string; readonly afterBox?: { readonly kind: "prs.triage"; readonly number: number } }, title: string) => string | { readonly value: string } | undefined
   readonly requireJobBox: (repo: string, act: { readonly flow: string; readonly args?: string }, title: string) => string | { readonly value: string } | undefined
-  readonly runWorkflow: (name: string, repo?: string, input?: Record<string, unknown>, sourceCard?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
+  readonly runWorkflow: (name: string, repo?: string, input?: Record<string, unknown>, sourceCard?: string, humanDoor?: boolean, workspaceId?: string) => Promise<string | void | { readonly value: string }>
   /** A flow on one named box: a first import's box runs before the box list has caught up with it. */
   readonly runWorkflowOnBox: (name: string, repo: string, workspaceId: string, input: Record<string, unknown>) => Promise<string | { readonly value: string }>
   /** What a flow WOULD run: the plan card, filled in the background. */
@@ -852,11 +852,11 @@ export const createWorkflowController = (
       ? card.payload.workflows.find(flow => flow.key === name)?.inputSchema : undefined
   }
 
-  const runWorkflow = async (name: string, repoArg?: string, inputArg?: Record<string, unknown>, sourceCard?: string, humanDoor = false): Promise<string | void | { readonly value: string }> => {
+  const runWorkflow = async (name: string, repoArg?: string, inputArg?: Record<string, unknown>, sourceCard?: string, humanDoor = false, workspaceId?: string): Promise<string | void | { readonly value: string }> => {
     const input = inputArg ?? {}
     const guard = workflowIdentityGuard()
     if (guard !== undefined) return guard
-    if (humanDoor && sourceCard === undefined) {
+    if (humanDoor && sourceCard === undefined && workspaceId === undefined) {
       const selected = workflowTargetRepo(repoArg)
       if ("error" in selected) return selected.error
       const binding = gatewayBindingFor(store, selected.repo)
@@ -864,8 +864,11 @@ export const createWorkflowController = (
         flow: "flow.run", args: flowArgs("flow.run", { name, repo: selected.repo, input: inputArg })
       }, `Open a box to run ${name} in ${selected.repo}`)
     }
-    const target = workflowScope(repoArg, sourceCard)
+    const selected = workspaceId === undefined ? undefined : workflowTargetRepo(repoArg)
+    const target = selected === undefined || sourceCard !== undefined ? workflowScope(repoArg, sourceCard)
+      : "error" in selected ? selected : { repo: selected.repo, binding: { workspaceId: workspaceId! } }
     if ("error" in target) return target.error
+    if (workspaceId !== undefined && target.binding.workspaceId !== workspaceId) return "The source card belongs to another branch machine."
     const { repo, binding } = target
     // A box executes with its own configured provider. Its gateway enforces
     // box access, capacity and provider setup.

@@ -3,7 +3,7 @@ import { flowArgs } from "./FlowArgs"
 import type { FlowInput, FlowWithInput } from "./FlowArgs"
 import { FLOW_NAMES } from "./FlowName"
 import type { FlowName } from "./FlowName"
-import { payloadFor } from "./SlashPayload"
+import { flowRunParts, payloadFor } from "./SlashPayload"
 import { pendingControlFlows } from "./entries/controls"
 import { triggersFlows } from "./entries/triggers"
 import type { CommandActions } from "./Flows"
@@ -24,6 +24,11 @@ const roundTrip = <N extends FlowWithInput>(name: N, input: FlowInput[N], line: 
 }
 
 describe("flowArgs — one serialisation, and the grammar gives the values back", () => {
+  test("flow.run retains the selected branch machine and source card", () => {
+    const input = { name: "checks/fast", repo: "owner/repo", workspaceId: "00000000-0000-4000-8000-000000000003", sourceCard: "catalog", input: { fix: true } }
+    roundTrip("flow.run", input, JSON.stringify(input), input)
+    expect(flowRunParts(JSON.stringify(input))).toEqual({ ...input, input: JSON.stringify(input.input) })
+  })
   test("a flow list row opens its named version card", () => {
     roundTrip("flow", { name: "issue/repro" }, '{"name":"issue/repro"}', { name: "issue/repro" })
   })

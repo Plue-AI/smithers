@@ -3,6 +3,7 @@ import type { RunSummaryRow } from "./gateway"
 import { GATEWAY_REFUSED } from "./GatewayFailureCopy"
 import { scopedControllers } from "../ControllerTestScope"
 import { createAppStore } from "../AppStore"
+import type { AppServices } from "../AppController"
 import { json, loadBox, memoryStorage, scriptedToolAgent, settle, waitFor } from "../TestFixtures"
 
 const createAppController = scopedControllers()
@@ -13,7 +14,7 @@ const deferred = <T>() => {
   return { promise, resolve }
 }
 
-async function fixture(options: { workflowPreparationTimeoutMs?: number; answer?: (path: string, method: string) => Response | undefined } = {}) {
+async function fixture(options: { sharedChat?: boolean; workflowPreparationTimeoutMs?: number; answer?: (path: string, method: string) => Response | undefined } = {}) {
   const disk = memoryStorage()
   let failNextWrite = false
   const storage = { ...disk, setItem: (key: string, value: string) => {
@@ -36,9 +37,19 @@ async function fixture(options: { workflowPreparationTimeoutMs?: number; answer?
     turns: 1, calls: 1, callsFailed: 0, editsAttempted: 0, editsSucceeded: 0, inputTokens: 1, outputTokens: 1,
     verdict: status === "failed" ? failedVerdict : status, diagnosis: status })
   const chat = scriptedToolAgent([() => [{ type: "delta", kind: "text", text: "Still here." }, { type: "done", reason: "stop" }]])
-  const services = { workflowPollMs: 5, workflowPreparationTimeoutMs: options.workflowPreparationTimeoutMs, toastAutoDismissMs: 60_000, fetchImpl: async (url: RequestInfo | URL, init?: RequestInit) => {
+  const chatRequests: Array<{ prompt: string; idempotencyKey: string }> = []
+  const bootstrap: AppServices["bootstrap"] = options.sharedChat ? { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["install", "cloud", "identity"], authFlow: "redirect", sandbox: null } : undefined
+  const services = { bootstrap, workflowPollMs: 5, workflowPreparationTimeoutMs: options.workflowPreparationTimeoutMs, toastAutoDismissMs: 60_000, fetchImpl: async (url: RequestInfo | URL, init?: RequestInit) => {
     const path = String(url)
     if (path.endsWith("/api/user")) return session()
+    // Chat admission is independent of the deliberately unresolved machine
+    // launch. The install reads completed host output, never a browser model.
+    if (path.endsWith("/api/conversations/main/prompt") && init?.method === "POST") {
+      chatRequests.push(JSON.parse(String(init.body)))
+      return json(202, { turnId: `chat-${chatRequests.length}`, terminal: true })
+    }
+    if (path.endsWith("/api/conversations/main")) return json(200, { id: "main", entries: chatRequests.map((request, i) => ({ id: `chat-${i + 1}`, author: 1, authorLogin: "owner", runId: `chat-run-${i + 1}`, prompt: request.prompt, state: "completed", frames: [{ runId: `chat-run-${i + 1}`, type: "delta", kind: "text", text: "Still here." }, { runId: `chat-run-${i + 1}`, type: "done", reason: "stop" }] })) })
+    if (path.endsWith("/api/conversations/main/view-state")) return json(200, {})
     if (path.endsWith("/api/workflow/provision")) { provisions += 1; return provision() }
     const answered = options.answer?.(new URL(path, "http://app.test").pathname, init?.method ?? "GET")
     if (answered !== undefined) return answered
@@ -54,12 +65,38 @@ async function fixture(options: { workflowPreparationTimeoutMs?: number; answer?
   const controller = createAppController(store, chat.agent, services)
   const cards = () => [...store.collections.cards.values()].filter(card => card.kind === "run-trace")
   const toasts = () => [...store.collections.toasts.values()].filter(toast => toast.key.startsWith("flow.request."))
-  return { store, storage, controller, services, calls, cards, toasts, chat,
+  return { store, storage, controller, services, calls, cards, toasts, chat, chatRequests,
     failNextWrite: () => { failNextWrite = true },
     provisions: () => provisions, session: (fn: typeof session) => { session = fn },
     provision: (fn: typeof provision) => { provision = fn }, run: (fn: typeof run) => { run = fn }, status: (value: RunSummaryRow["status"]) => { status = value },
     summaryRunId: (value: string) => { summaryRunId = value }, failedVerdict: (value: string) => { failedVerdict = value } }
 }
+
+test("flow.run's typed branch machine reaches the shared launch while the launch remains unresolved", async () => {
+  const t = await fixture()
+  const launch = deferred<Response>()
+  const workspaceId = "00000000-0000-4000-8000-000000000003"
+  t.run(() => launch.promise)
+  try {
+    const result = await Promise.race([
+      t.controller.commands.run("flow.run", JSON.stringify({ name: "review", repo, workspaceId, input: {} })),
+      new Promise(resolve => setTimeout(() => resolve("blocked"), 100))
+    ])
+    expect(result).toMatchObject({ status: "executed" })
+    await waitFor(() => t.calls.some(call => call.procedure === "Run"))
+    expect(t.calls.filter(call => call.procedure === "Plan" || call.procedure === "Run").every(call => call.workspaceId === workspaceId)).toBe(true)
+    await waitFor(() => t.toasts()[0]?.status === "running")
+    expect(t.toasts()[0]?.status).toBe("running")
+    const before = t.calls.length
+    const refusal = await t.controller.commands.run("flow.run", JSON.stringify({ name: "review", repo, workspaceId: "00000000-0000-4000-8000-000000000004", sourceCard: t.cards()[0]!.id, input: {} }))
+    expect(refusal).toMatchObject({ status: "failed", error: "The source card belongs to another branch machine." })
+    expect(t.calls).toHaveLength(before)
+  } finally {
+    launch.resolve(json(200, { ok: true, payload: { runId: "run-1" } }))
+    await t.controller.dispose()
+    await t.store.dispose?.()
+  }
+})
 
 test("an unclassified journal failure keeps its raw verdict on the card and uses the existing failure wording in the toast", async () => {
   const t = await fixture()
@@ -114,7 +151,7 @@ test("repeated failed runs of the same work keep one retryable failure notice", 
 })
 
 test("flow.run persists a request and returns during unresolved preparation; duplicate input and Chat stay usable", async () => {
-  const t = await fixture()
+  const t = await fixture({ sharedChat: true })
   const gate = deferred<Response>()
   t.provision(() => gate.promise)
   const result = await Promise.race([t.controller.commands.run("flow.run", `review ${repo} {"args":"inspect"}`), new Promise(resolve => setTimeout(() => resolve("blocked"), 100))])
@@ -124,7 +161,8 @@ test("flow.run persists a request and returns during unresolved preparation; dup
   await t.controller.commands.run("flow.run", `review ${repo} {"args":"inspect"}`)
   expect(t.cards()).toHaveLength(1)
   t.controller.send("Are you still here?")
-  await waitFor(() => t.chat.requests.length === 1 && t.store.session().phase === "idle")
+  await waitFor(() => t.chatRequests.length === 1 && t.store.session().sharedPrompts?.[0]?.state === "completed")
+  expect(t.chat.requests).toHaveLength(0)
   await waitFor(() => t.toasts()[0]?.status === "running")
   expect(t.calls).toHaveLength(0)
   gate.resolve(json(200, { status: "ready" }))
@@ -133,7 +171,7 @@ test("flow.run persists a request and returns during unresolved preparation; dup
 })
 
 test("the shared 300 ms toast spans an unresolved launch and running job, and settles only on completion", async () => {
-  const t = await fixture()
+  const t = await fixture({ sharedChat: true })
   const gate = deferred<Response>()
   t.run(() => gate.promise)
   const result = await Promise.race([t.controller.commands.run("flow.run", `review ${repo}`), new Promise(resolve => setTimeout(() => resolve("blocked"), 100))])
@@ -143,13 +181,14 @@ test("the shared 300 ms toast spans an unresolved launch and running job, and se
   await waitFor(() => t.calls.some(call => call.procedure === "Run"))
   await waitFor(() => t.toasts()[0]?.status === "running")
   t.controller.send("Chat during launch")
-  await waitFor(() => t.chat.requests.length === 1 && t.store.session().phase === "idle")
+  await waitFor(() => t.chatRequests.length === 1 && t.store.session().sharedPrompts?.[0]?.state === "completed")
   gate.resolve(json(200, { ok: true, payload: { runId: "run-1" } }))
   await waitFor(() => t.cards()[0]?.payload.phase === "running")
   expect(t.cards()[0]!.id).toBe(id)
   expect(t.toasts()[0]?.status).toBe("running")
   t.controller.send("Chat during execution")
-  await waitFor(() => t.chat.requests.length === 2 && t.store.session().phase === "idle")
+  await waitFor(() => t.chatRequests.length === 2 && t.store.session().sharedPrompts?.every(row => row.state === "completed") === true)
+  expect(t.chat.requests).toHaveLength(0)
   await t.controller.commands.run("flow.run", `review ${repo}`)
   expect(t.calls.filter(call => call.procedure === "Run")).toHaveLength(1)
   t.status("completed")
