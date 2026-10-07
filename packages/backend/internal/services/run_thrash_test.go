@@ -31,6 +31,7 @@ func TestRunThrashRules(t *testing.T) {
 		{name: "different checks", ids: []string{"a", "b", "c"}, want: 1},
 		{name: "normalized signatures", ids: []string{"", "", ""}, messages: []string{"bad /tmp/a.ts:12 value 1", "bad /tmp/b.ts:98 value 2", "bad /tmp/c.ts:7 value 9"}, want: 3},
 		{name: "named edit", ids: []string{"unit", "unit", "unit"}, edit: []string{"src/retry.ts"}, want: 0},
+		{name: "drive path edit", ids: []string{"unit", "unit", "unit"}, messages: []string{"bad C:/checkout/src/retry.ts:12:4", "bad C:/checkout/src/retry.ts:13:4", "bad C:/checkout/src/retry.ts:14:4"}, edit: []string{"src/retry.ts"}, want: 0},
 		{name: "unrelated edit", ids: []string{"unit", "unit", "unit"}, edit: []string{"src/other.ts"}, want: 3},
 		{name: "pass clears", ids: []string{"unit", "unit", "unit"}, passed: true, want: 0},
 	}

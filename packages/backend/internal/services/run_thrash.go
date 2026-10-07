@@ -28,6 +28,7 @@ type runCheckFailure struct {
 
 var failurePath = regexp.MustCompile(`(?:[A-Za-z]:)?(?:[./\\\w-]+/)?[\w.-]+\.[A-Za-z][A-Za-z0-9]*(?::\d+(?::\d+)?)?`)
 var failureNumber = regexp.MustCompile(`\d+`)
+var failureLocation = regexp.MustCompile(`(?::\d+){1,2}$`)
 
 func failureSignature(message string) string {
 	return strings.Join(strings.Fields(failureNumber.ReplaceAllString(failurePath.ReplaceAllString(message, "<path>"), "#")), " ")
@@ -35,7 +36,7 @@ func failureSignature(message string) string {
 func failureFiles(message string) []string {
 	files := []string{}
 	for _, name := range failurePath.FindAllString(message, -1) {
-		name = strings.Split(name, ":")[0]
+		name = failureLocation.ReplaceAllString(name, "")
 		name = path.Clean(strings.ReplaceAll(name, "\\", "/"))
 		if !slices.Contains(files, name) {
 			files = append(files, name)
