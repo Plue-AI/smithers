@@ -40,7 +40,8 @@ store_digest = None
 if not store_only:
     with tarfile.open(store_archive) as archive:
         archive.extractall(store, filter='data')
-    store_digest = hashlib.file_digest(store_archive.open('rb'), 'sha256').hexdigest()
+    with store_archive.open('rb') as archive_stream:
+        store_digest = hashlib.file_digest(archive_stream, 'sha256').hexdigest()
     store_archive.unlink()
 
 node = root / 'snapshot-node' 
@@ -70,7 +71,6 @@ subprocess.run([str(root / 'col01-jj'), 'git', 'clone', '--no-colocate', '--dept
                 'https://github.com/smithersai/smithers.git', str(repo)], env=env, check=True)
 # An offline frozen install also reads registry metadata; store.sh archives it
 # under cache/ beside the content-addressable v11/ store.
-metadata = ['--cache-dir', str(store / 'cache')] if (store / 'cache').is_dir() else []
 install = ['node', str(pnpm / 'package/bin/pnpm.cjs'), 'install',
            '--frozen-lockfile', '--store-dir', str(store), '--cache-dir', str(store / 'cache')]
 if store_only:
@@ -83,7 +83,8 @@ if store_only:
     with tarfile.open(store_archive, 'w') as archive:
         for path in sorted(store.iterdir()):
             archive.add(path, arcname=path.name, filter=archive_filter)
-    store_digest = hashlib.file_digest(store_archive.open('rb'), 'sha256').hexdigest()
+    with store_archive.open('rb') as archive_stream:
+        store_digest = hashlib.file_digest(archive_stream, 'sha256').hexdigest()
 else:
     subprocess.run(install + ['--offline'], cwd=repo, env=env, check=True)
 
