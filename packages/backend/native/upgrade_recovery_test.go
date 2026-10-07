@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -192,13 +193,22 @@ func TestRealFailedUpgradeRecoveryPostgreSQL(t *testing.T) {
 		t.Fatal(err)
 	}
 	backup := backupFixture(t, oldRelease)
-	command("pg_dump", "--dbname="+source.ConnectionString, "--format=custom", "--no-owner", "--file="+filepath.Join(backup, "postgres.dump"))
+	dump, err := os.OpenFile(filepath.Join(backup, "postgres.dump"), os.O_WRONLY|os.O_TRUNC, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := errors.Join(source.Dump(t.Context(), dump), dump.Sync(), dump.Close()); err != nil {
+		t.Fatal(err)
+	}
+	if size, err := source.DatabaseSize(t.Context()); err != nil || size == 0 {
+		t.Fatalf("database size: %d %v", size, err)
+	}
 	cmd := exec.Command("tar", "-C", data, "-cf", filepath.Join(backup, "files.tar"), ".")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("tar: %v %s", err, out)
 	}
 	manifestFixture(t, backup, oldRelease)
-	err := Upgrade(context.Background(), data, backup, newRelease, &UpgradeSteps{Migrate: func(context.Context) error {
+	err = Upgrade(context.Background(), data, backup, newRelease, &UpgradeSteps{Migrate: func(context.Context) error {
 		query(source, "UPDATE recovery_proof SET value = 'partial migration'; ALTER TABLE recovery_proof ADD COLUMN partial text; CREATE TABLE partial_only(value text)")
 		return errors.New("exit 42")
 	}})
@@ -228,6 +238,20 @@ func TestRealFailedUpgradeRecoveryPostgreSQL(t *testing.T) {
 		t.Fatal(string(got))
 	}
 	target := start("target-pg")
+	if err := target.RestoreDump(t.Context(), strings.NewReader("invalid custom dump")); err == nil {
+		t.Fatal("invalid dump accepted")
+	}
+	if got := query(target, "SELECT count(*) FROM information_schema.tables WHERE table_name='recovery_proof'"); got != "0" {
+		t.Fatal("failed restore mutated target", got)
+	}
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := source.Dump(cancelled, io.Discard); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled dump: %v", err)
+	}
+	if err := target.RestoreDump(cancelled, strings.NewReader("invalid")); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled restore: %v", err)
+	}
 	// Restore into a private install root; TempDir does not promise mode 0700.
 	restored := filepath.Join(t.TempDir(), "restored")
 	if err := os.Mkdir(restored, 0700); err != nil {
@@ -236,7 +260,13 @@ func TestRealFailedUpgradeRecoveryPostgreSQL(t *testing.T) {
 	if err := CheckRestore(backup, oldRelease, restored, false); err != nil {
 		t.Fatal(err)
 	}
-	command("pg_restore", "--dbname="+target.ConnectionString, "--exit-on-error", "--single-transaction", "--no-owner", "--no-privileges", filepath.Join(backup, "postgres.dump"))
+	dump, err = os.Open(filepath.Join(backup, "postgres.dump"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := errors.Join(target.RestoreDump(t.Context(), dump), dump.Close()); err != nil {
+		t.Fatal(err)
+	}
 	cmd = exec.Command("tar", "-C", restored, "-xf", filepath.Join(backup, "files.tar"))
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("tar: %v %s", err, out)
