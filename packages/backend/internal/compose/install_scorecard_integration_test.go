@@ -353,6 +353,32 @@ func TestInstallScorecardOwnerReadsRealCreationReceipts(t *testing.T) {
 	require.Equal(t, float64(1), burstCard.Measures["second_member_actions"].Value)
 	require.Equal(t, map[string]any{"todos": float64(0), "merged": float64(1), "percent": float64(0)}, burstCard.Measures["no_hand_written_code"].Value)
 	require.Equal(t, malformedStart.Measures["core_value"], burstCard.Measures["core_value"])
+	// Pair durable answer deliveries with their settled wait, using its ID.
+	// Quoted/delegated actor references never replace the confirming person.
+	var benLogin string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT username FROM users WHERE id=$1`, ben).Scan(&benLogin))
+	wait, err := json.Marshal([]map[string]any{{"id": "scorecard-wait", "kind": "question", "since": "2026-10-04T06:40:00Z", "settled_at": "2026-10-04T06:45:00Z", "answer": "Yes", "answered_by": benLogin}})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{waits}',$2::jsonb) WHERE id=$1::uuid`, item, wait)
+	require.NoError(t, err)
+	for n := 0; n < 2; n++ {
+		tx, err := pool.Begin(ctx)
+		require.NoError(t, err)
+		answer, err := json.Marshal(map[string]any{"item": item, "wait": "scorecard-wait", "actor": map[string]any{"kind": "person", "id": ben, "login": benLogin}, "by": map[string]any{"agent": "coding", "run": "delegated-sponsor"}})
+		require.NoError(t, err)
+		_, err = jobs.RecordFactInTx(ctx, tx, jobs.Scope{TenantID: fmt.Sprint(repo), PrincipalID: "todo:" + item}, uuid.NewString(), "todo.answered", "merged", answer)
+		require.NoError(t, err)
+		require.NoError(t, tx.Commit(ctx))
+	}
+	answeredCard := readState()
+	require.Equal(t, float64(2), answeredCard.Measures["second_member_actions"].Value)
+	require.Equal(t, burstCard.Measures["terminal_edits"], answeredCard.Measures["terminal_edits"])
+	require.Equal(t, burstCard.Measures["no_hand_written_code"], answeredCard.Measures["no_hand_written_code"])
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=checks-'waits' WHERE id=$1::uuid`, item)
+	require.NoError(t, err)
+	require.Equal(t, "source_missing", readState().Measures["second_member_actions"].Verdict)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{waits}',$2::jsonb) WHERE id=$1::uuid`, item, wait)
+	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `ALTER TABLE mythical_items RENAME TO scorecard_hidden_todos`)
 	require.NoError(t, err)
 	withoutTODOs := readState()

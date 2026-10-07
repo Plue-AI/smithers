@@ -13,6 +13,43 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const scorecardAnswers = `-- name: ScorecardAnswers :many
+SELECT i.id::text AS todo_id, i.checks, e.data
+FROM mythical_items i JOIN product_job_events e
+ ON e.tenant_id=i.repository_id::text AND e.principal_id='todo:' || i.id::text
+ AND e.data->>'item'=i.id::text
+WHERE e.event_type='todo.answered'
+`
+
+type ScorecardAnswersRow struct {
+	TodoID string          `json:"todo_id"`
+	Checks json.RawMessage `json:"checks"`
+	Data   json.RawMessage `json:"data"`
+}
+
+// The existing answer writer records the confirming person on the event and
+// keeps the settled wait in checks. Pair those receipts; delivery IDs are not
+// action identities and delegated sponsorship is not person participation.
+func (q *Queries) ScorecardAnswers(ctx context.Context) ([]ScorecardAnswersRow, error) {
+	rows, err := q.db.Query(ctx, scorecardAnswers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScorecardAnswersRow{}
+	for rows.Next() {
+		var i ScorecardAnswersRow
+		if err := rows.Scan(&i.TodoID, &i.Checks, &i.Data); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const scorecardBurstTODOs = `-- name: ScorecardBurstTODOs :many
 SELECT id::text AS id, repository_id::text AS tenant_id, workspace_id
 FROM mythical_items WHERE workspace_id <> '' AND (source='todo' OR checks->>'todo'='true')

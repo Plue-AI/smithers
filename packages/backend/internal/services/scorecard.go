@@ -135,6 +135,42 @@ func (s *ScorecardService) Summary(ctx context.Context, from, to time.Time) (Sco
 			}
 			facts.TODOs = append(facts.TODOs, scorecardTODO{Repository: row.RepositoryID, Signatures: signatures, ID: row.ID, Owner: fmt.Sprint(row.Owner), Accepted: row.Accepted, State: state, StateAt: stateAt})
 		}
+		answers, err := queries.ScorecardAnswers(ctx)
+		if err != nil {
+			return Scorecard{}, err
+		}
+		for _, row := range answers {
+			var checks mythicalChecks
+			var answer struct {
+				Wait  string `json:"wait"`
+				Actor struct {
+					Kind  string `json:"kind"`
+					ID    int64  `json:"id"`
+					Login string `json:"login"`
+				} `json:"actor"`
+			}
+			if json.Unmarshal(row.Checks, &checks) != nil || json.Unmarshal(row.Data, &answer) != nil ||
+				answer.Wait == "" || answer.Actor.Kind != "person" || answer.Actor.ID <= 0 {
+				facts.IncompleteStates["second_member_actions"] = true
+				continue
+			}
+			paired := false
+			for _, wait := range checks.Waits {
+				if wait.ID != answer.Wait {
+					continue
+				}
+				if (wait.Kind != "question" && wait.Kind != "conflict") || wait.Since.IsZero() || wait.SettledAt == nil || wait.SettledAt.Before(wait.Since) ||
+					wait.Answer == "" || wait.AnsweredBy == "" || wait.AnsweredBy != answer.Actor.Login {
+					continue
+				}
+				paired = true
+				facts.Actions = append(facts.Actions, scorecardAction{SourceKey: wait.ID, TODO: row.TodoID,
+					Person: fmt.Sprint(answer.Actor.ID), Kind: "answer", At: *wait.SettledAt})
+			}
+			if !paired {
+				facts.IncompleteStates["second_member_actions"] = true
+			}
+		}
 		facts.Coverage["T-STK-01"] = complete
 		mergedCoverage, err := queries.ScorecardMergeCoverage(ctx)
 		if err != nil {

@@ -105,3 +105,13 @@ JOIN mythical_items i ON n.accepted_todo = i.number::text
 JOIN repositories r ON r.id=i.repository_id
 JOIN users u ON u.id=r.user_id
 WHERE n.namespace_kind='flow' AND n.status='accepted';
+
+-- The existing answer writer records the confirming person on the event and
+-- keeps the settled wait in checks. Pair those receipts; delivery IDs are not
+-- action identities and delegated sponsorship is not person participation.
+-- name: ScorecardAnswers :many
+SELECT i.id::text AS todo_id, i.checks, e.data
+FROM mythical_items i JOIN product_job_events e
+ ON e.tenant_id=i.repository_id::text AND e.principal_id='todo:' || i.id::text
+ AND e.data->>'item'=i.id::text
+WHERE e.event_type='todo.answered';
