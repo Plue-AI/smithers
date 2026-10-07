@@ -16,25 +16,31 @@ pub(crate) struct Settlement {
     pub old: Oid,
     pub head: Oid,
     pub result: Oid,
+    // Older pending records remain readable. New records retain the outcome so
+    // a completed conflict does not depend on an ACK-released object pin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conflict: Option<bool>,
 }
 impl Settlement {
     pub fn new(old: Oid, head: Oid, result: Oid) -> io::Result<Self> {
         let mut event_id = [0; 16];
         getrandom::fill(&mut event_id).map_err(|e| io::Error::other(e.to_string()))?;
         let value = Self {
-            version: 1,
+            version: if old == head { 2 } else { 1 },
             event_id,
             old,
             head,
             result,
+            conflict: None,
         };
         value.validate()?;
         Ok(value)
     }
     fn validate(&self) -> io::Result<()> {
-        if self.version != 1
-            || self.event_id == [0; 16]
-            || self.old == self.head
+        if !matches!(
+            (self.version, self.old == self.head),
+            (1, false) | (2, true)
+        ) || self.event_id == [0; 16]
             || [self.old, self.head, self.result].contains(&[0; 20])
         {
             return Err(io::ErrorKind::InvalidData.into());
@@ -83,7 +89,13 @@ impl Journal {
         Ok(Some(bytes))
     }
     pub fn pending(&self) -> io::Result<Option<Settlement>> {
-        self.read("wake.settlement")?
+        self.record("wake.settlement")
+    }
+    pub fn completed(&self) -> io::Result<Option<Settlement>> {
+        self.record("wake.completed")
+    }
+    fn record(&self, name: &str) -> io::Result<Option<Settlement>> {
+        self.read(name)?
             .map(|bytes| {
                 let value: Settlement = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
                 value.validate()?;
@@ -104,23 +116,29 @@ impl Journal {
         }
         // A pre-rename temporary file has published no event or acknowledgement.
         // It can be discarded after the ordinary native checkpoint restores.
-        self.remove("wake.settlement.tmp")?;
+        self.persist("wake.settlement", value)
+    }
+    fn persist(&self, name: &str, value: &Settlement) -> io::Result<()> {
+        let temporary = format!("{name}.tmp");
+        self.remove(&temporary)?;
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
             .mode(0o600)
-            .open(self.0.join("wake.settlement.tmp"))?;
+            .open(self.0.join(&temporary))?;
         file.write_all(&serde_json::to_vec(value).map_err(io::Error::other)?)?;
         file.sync_all()?;
-        fs::rename(
-            self.0.join("wake.settlement.tmp"),
-            self.0.join("wake.settlement"),
-        )?;
+        fs::rename(self.0.join(temporary), self.0.join(name))?;
         File::open(&self.0)?.sync_all()
     }
     pub fn clear(&self) -> io::Result<()> {
         // Malformed authority is never silently discarded.
-        self.pending()?;
+        self.completed()?;
+        if let Some(value) = self.pending()? {
+            // Retain the last result before removing recovery authority. A
+            // resolved same-head wake must survive both ACK and daemon restart.
+            self.persist("wake.completed", &value)?;
+        }
         self.remove("wake.settlement.tmp")?;
         self.remove("wake.settlement")?;
         File::open(&self.0)?.sync_all()
@@ -183,7 +201,7 @@ mod tests {
             let file = dir.path().join("wake.settlement");
             let mut json = serde_json::to_value(&value).unwrap();
             match case {
-                "version" => json["version"] = 2.into(),
+                "version" => json["version"] = 3.into(),
                 "unknown" => json["extra"] = true.into(),
                 "zero" => json["event_id"] = serde_json::to_value([0u8; 16]).unwrap(),
                 "equal" => json["head"] = json["old"].clone(),
@@ -212,6 +230,39 @@ mod tests {
             assert!(journal.clear().is_err(), "{case}");
             assert!(fs::symlink_metadata(&file).is_ok(), "{case}");
         }
+    }
+    #[test]
+    fn same_head_resolution_survives_completed_record_and_interrupted_cleanup() {
+        let (dir, journal, conflict) = fixture();
+        journal.save(&conflict).unwrap();
+        journal.clear().unwrap();
+        assert_eq!(journal.completed().unwrap(), Some(conflict));
+        let resolution = Settlement::new([2; 20], [2; 20], [4; 20]).unwrap();
+        journal.save(&resolution).unwrap();
+        // Simulate the durable completed rename, before pending removal.
+        journal.persist("wake.completed", &resolution).unwrap();
+        let reopened = Journal::open(dir.path()).unwrap();
+        assert_eq!(reopened.pending().unwrap(), Some(resolution.clone()));
+        reopened.clear().unwrap();
+        reopened.clear().unwrap();
+        assert_eq!(reopened.pending().unwrap(), None);
+        assert_eq!(reopened.completed().unwrap(), Some(resolution));
+    }
+    #[test]
+    fn failed_completed_write_keeps_pending_authority() {
+        let (dir, journal, value) = fixture();
+        journal.save(&value).unwrap();
+        private(&dir.path().join("target"), b"keep");
+        symlink("target", dir.path().join("wake.completed.tmp")).unwrap();
+        assert!(journal.clear().is_err());
+        assert_eq!(journal.pending().unwrap(), Some(value.clone()));
+        assert_eq!(journal.completed().unwrap(), None);
+        fs::remove_file(dir.path().join("wake.completed.tmp")).unwrap();
+        journal.clear().unwrap();
+        assert_eq!(journal.completed().unwrap(), Some(value));
+        fs::write(dir.path().join("wake.completed"), b"{").unwrap();
+        assert!(journal.completed().is_err());
+        assert!(journal.clear().is_err());
     }
     #[test]
     fn untrusted_temporary_entry_cannot_replace_a_record() {

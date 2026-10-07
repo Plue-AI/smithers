@@ -57,6 +57,14 @@ impl NativeCore {
             .native
             .conflict_paths(settlement.result)
             .map_err(hook)?;
+        if settlement
+            .conflict
+            .is_some_and(|conflict| conflict != !paths.is_empty())
+        {
+            return Err(hook(io::Error::other(
+                "wake outcome differs from selected result",
+            )));
+        }
         let outcome = if paths.is_empty() {
             crate::reconcile::Outcome::Moved(settlement.result)
         } else {
@@ -73,6 +81,21 @@ impl NativeCore {
             .clone()
             .acknowledge_and_sync(settlement.head)
             .map_err(hook)
+    }
+    fn settle_wake(&self, old: Oid, head: Oid, result: Oid, conflict: bool) -> hooks::Result<()> {
+        let mut settlement =
+            crate::wake_journal::Settlement::new(old, head, result).map_err(hook)?;
+        settlement.conflict = Some(conflict);
+        self.git
+            .clone()
+            .pin_and_sync(settlement.event_id, result)
+            .map_err(hook)?;
+        self.native
+            .wake_journal()
+            .map_err(hook)?
+            .save(&settlement)
+            .map_err(hook)?;
+        self.finish_wake(&settlement)
     }
     fn require_settled_wake(&self) -> hooks::Result<()> {
         if self
@@ -183,6 +206,39 @@ impl Core for NativeCore {
                     self.native.settled().map_err(hook)?;
                 }
                 let old = self.git.acknowledged().map_err(hook)?;
+                let completed = self
+                    .native
+                    .wake_journal()
+                    .map_err(hook)?
+                    .completed()
+                    .map_err(hook)?;
+                if old == Some(head) && completed.as_ref().is_some_and(|last| last.head == head) {
+                    let last = completed.unwrap();
+                    let conflicted = match last.conflict {
+                        Some(conflict) => conflict,
+                        None => !self
+                            .native
+                            .conflict_paths(last.result)
+                            .map_err(hook)?
+                            .is_empty(),
+                    };
+                    if conflicted {
+                        // Flush documents and stop writers before selecting the
+                        // resolution. Merely seeing the same host head proves
+                        // nothing about the current working-copy conflict.
+                        let outcome = crate::freeze::freeze_then(cx, &Actor::Outside, |_| {
+                            let snapshot = self.native.current().map_err(hook)?.0;
+                            let paths = self.native.conflict_paths(snapshot).map_err(hook)?;
+                            if !paths.is_empty() {
+                                return Ok(crate::reconcile::Outcome::Conflict(paths));
+                            }
+                            self.settle_wake(head, head, snapshot, false)?;
+                            Ok(crate::reconcile::Outcome::Unchanged)
+                        })?;
+                        self.native.settled().map_err(hook)?;
+                        return outcome.result();
+                    }
+                }
                 if old.is_none() || old == Some(head) {
                     // A repeated wake is not proof that a retained conflict was
                     // resolved. Snapshot actual edits before testing readiness.
@@ -217,20 +273,13 @@ impl Core for NativeCore {
                     } else {
                         crate::reconcile::Outcome::Conflict(paths)
                     };
-                    let settlement =
-                        crate::wake_journal::Settlement::new(old, head, moved).map_err(hook)?;
-                    // Persist objects, then commit the chosen result and event
-                    // identity before publishing either the event or new base.
-                    self.git
-                        .clone()
-                        .pin_and_sync(settlement.event_id, moved)
-                        .map_err(hook)?;
-                    self.native
-                        .wake_journal()
-                        .map_err(hook)?
-                        .save(&settlement)
-                        .map_err(hook)?;
-                    self.finish_wake(&settlement)?;
+                    // Persist the immutable result and identity before event or base.
+                    self.settle_wake(
+                        old,
+                        head,
+                        moved,
+                        matches!(outcome, crate::reconcile::Outcome::Conflict(_)),
+                    )?;
                     Ok(outcome)
                 })?;
                 self.native.settled().map_err(hook)?;
@@ -395,6 +444,15 @@ pub(crate) mod tests {
             .1
             .to_vec()
     }
+    fn reconciliations(dir: &std::path::Path) -> Vec<conn::Durable> {
+        let owner = rustix::process::geteuid().as_raw();
+        let store = crate::outbox_store::Store::open(&dir.join("state/outbox"), owner).unwrap();
+        store
+            .sequences()
+            .map(|seq| conn::Durable::decode(&store.read(seq, owner).unwrap()).unwrap())
+            .filter(|event| event.event[0] == 3)
+            .collect()
+    }
     #[test]
     fn wake_rpc_reports_conflict_and_repeat_cannot_admit_until_resolved() {
         let (dir, core) = fixture();
@@ -440,8 +498,8 @@ pub(crate) mod tests {
             value
         );
         assert_eq!(
-            core.events.depth().unwrap(),
-            depth,
+            reconciliations(dir.path()).len(),
+            1,
             "retry adds no duplicate reconciliation"
         );
         assert_eq!(fs::read_to_string(root.join("conflict")).unwrap(), markers);
@@ -450,6 +508,22 @@ pub(crate) mod tests {
         assert_eq!(
             fs::read(root.join("conflict")).unwrap(),
             b"both versions resolved\n"
+        );
+        let events = reconciliations(dir.path());
+        assert_eq!(events.len(), 2);
+        assert_ne!(events[0].id, events[1].id);
+        let fields = conn::fields("reconciled", &events[1].event[1..]).unwrap();
+        assert_eq!(fields[0].1, onto);
+        assert_eq!(fields[1].1, onto);
+        assert_eq!(fields[2].1, [1]);
+        let core = reopened_core(&core, dir.path());
+        assert_eq!(wake_result(&call(core.clone(), 5, &[field(1, onto)]))[0], 1);
+        assert_eq!(
+            reconciliations(dir.path())
+                .iter()
+                .map(|e| e.id)
+                .collect::<Vec<_>>(),
+            events.iter().map(|e| e.id).collect::<Vec<_>>()
         );
     }
     struct ReconcileFails;
@@ -567,6 +641,190 @@ pub(crate) mod tests {
                 .pending()
                 .unwrap()
                 .is_none());
+        }
+    }
+    fn conflict_fixture() -> (tempfile::TempDir, Arc<NativeCore>, Oid) {
+        let (dir, core) = fixture();
+        let file = dir.path().join("workspace/conflict");
+        fs::write(&file, b"original\n").unwrap();
+        let base = core.native.snapshot().unwrap().0;
+        crate::native::tests::child(&core.native, base, "host changed");
+        fs::write(&file, b"host\n").unwrap();
+        let head = core.native.snapshot().unwrap().0;
+        core.native.move_to(base).unwrap();
+        core.git.clone().acknowledge_and_sync(base).unwrap();
+        fs::write(&file, b"local\n").unwrap();
+        assert_eq!(wake_result(&call(core.clone(), 5, &[field(1, head)]))[0], 3);
+        assert_eq!(
+            core.native
+                .wake_journal()
+                .unwrap()
+                .completed()
+                .unwrap()
+                .unwrap()
+                .conflict,
+            Some(true)
+        );
+        (dir, core, head)
+    }
+    #[test]
+    fn acknowledged_conflict_still_resolves_after_restart_and_acknowledged_resolution_stays_quiet()
+    {
+        fn acknowledge_and_restart(
+            core: Arc<NativeCore>,
+            dir: &std::path::Path,
+        ) -> Arc<NativeCore> {
+            let native = core.native.clone();
+            let git = core.git.clone();
+            drop(core);
+            let owner = rustix::process::geteuid().as_raw();
+            let mut outbox = crate::outbox::Outbox::open(
+                crate::outbox_store::Store::open(&dir.join("state/outbox"), owner).unwrap(),
+                owner,
+                git.clone(),
+            )
+            .unwrap();
+            // Exercise the real durable ACK removal boundary. Bundle transport
+            // is covered independently; this fixture assumes import completed.
+            while let Some(event) = outbox.front().unwrap() {
+                outbox.after_bundle(event.seq).unwrap();
+                outbox
+                    .acknowledge(&Frame {
+                        kind: 2,
+                        stream: 0,
+                        payload: tagged(
+                            3,
+                            &[
+                                field(1, event.seq.to_be_bytes()),
+                                field(2, [if event.event[0] == 3 { 1 } else { 5 }]),
+                            ],
+                        ),
+                    })
+                    .unwrap();
+            }
+            assert!(git.clone().pending().unwrap().is_empty());
+            Arc::new(NativeCore {
+                native,
+                git: git.clone(),
+                events: Arc::new(Events::new(outbox, git, || Ok(1)).unwrap()),
+                sessions: Arc::new(Disabled),
+            })
+        }
+        let (dir, core, head) = conflict_fixture();
+        let core = acknowledge_and_restart(core, dir.path());
+        fs::write(
+            dir.path().join("workspace/conflict"),
+            b"resolved after ACK\n",
+        )
+        .unwrap();
+        assert_eq!(wake_result(&call(core.clone(), 5, &[field(1, head)]))[0], 1);
+        assert_eq!(reconciliations(dir.path()).len(), 1);
+        let core = acknowledge_and_restart(core, dir.path());
+        assert_eq!(wake_result(&call(core.clone(), 5, &[field(1, head)]))[0], 1);
+        assert!(reconciliations(dir.path()).is_empty());
+        assert_eq!(core.events.depth().unwrap(), 0);
+        assert_eq!(
+            fs::read(dir.path().join("workspace/conflict")).unwrap(),
+            b"resolved after ACK\n"
+        );
+    }
+    #[test]
+    fn same_head_resolution_flushes_documents_before_selecting_clean_result() {
+        let (dir, core, head) = conflict_fixture();
+        let response = call_with_documents(
+            core.clone(),
+            5,
+            &[field(1, head)],
+            Arc::new(FlushWrite(dir.path().join("workspace/conflict"))),
+        );
+        assert_eq!(wake_result(&response)[0], 1);
+        let record = core
+            .native
+            .wake_journal()
+            .unwrap()
+            .completed()
+            .unwrap()
+            .unwrap();
+        assert_eq!(record.old, head);
+        assert_eq!(record.head, head);
+        assert_eq!(record.conflict, Some(false));
+        assert!(core
+            .native
+            .conflict_paths(record.result)
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            fs::read(dir.path().join("workspace/conflict")).unwrap(),
+            b"typing flushed during freeze\n"
+        );
+        assert_eq!(reconciliations(dir.path()).len(), 2);
+    }
+    #[test]
+    fn same_head_resolution_restarts_after_document_thaw_or_journal_failure() {
+        for phase in ["documents", "thaw", "journal"] {
+            let (dir, core, head) = conflict_fixture();
+            let state = dir.path().join("state");
+            let root = dir.path().join("workspace");
+            fs::write(root.join("conflict"), b"resolved\n").unwrap();
+            let documents: Arc<dyn Documents> = if phase == "documents" {
+                Arc::new(ReconcileFails)
+            } else {
+                Arc::new(Flushed)
+            };
+            let broker: Arc<dyn Broker> = if phase == "thaw" {
+                Arc::new(ThawFails)
+            } else {
+                Arc::new(Flushed)
+            };
+            if phase == "journal" {
+                std::os::unix::fs::symlink("untouched", state.join("wake.settlement.tmp")).unwrap();
+            }
+            let mut cx = LockCx::recovering(
+                recovery_hooks(core.clone(), documents, broker),
+                crate::rewrite_journal::Journal::open(&state).unwrap(),
+            )
+            .unwrap();
+            let response = call_in(&mut cx, 5, &[field(1, head)]);
+            assert_eq!(
+                conn::fields("response", &response.payload[1..]).unwrap()[1].1[0],
+                255,
+                "{phase}"
+            );
+            let pending = core.native.wake_journal().unwrap().pending().unwrap();
+            if phase == "journal" {
+                assert!(pending.is_none());
+                assert_eq!(reconciliations(dir.path()).len(), 1);
+                fs::remove_file(state.join("wake.settlement.tmp")).unwrap();
+            } else {
+                assert!(cx.rewrite_pending);
+                assert_eq!(pending.as_ref().unwrap().conflict, Some(false));
+                assert_eq!(reconciliations(dir.path()).len(), 2);
+            }
+            drop(cx);
+            let core = reopened_core(&core, dir.path());
+            let mut cx = LockCx::recovering(
+                recovery_hooks(core.clone(), Arc::new(Flushed), Arc::new(Flushed)),
+                crate::rewrite_journal::Journal::open(&state).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(wake_result(&call_in(&mut cx, 5, &[field(1, head)]))[0], 1);
+            assert!(!cx.rewrite_pending);
+            assert_eq!(fs::read(root.join("conflict")).unwrap(), b"resolved\n");
+            let events = reconciliations(dir.path());
+            assert_eq!(events.len(), 2);
+            if let Some(pending) = pending {
+                assert_eq!(events[1].id, pending.event_id);
+            }
+            assert_eq!(core.git.acknowledged().unwrap(), Some(head));
+            assert!(core
+                .native
+                .wake_journal()
+                .unwrap()
+                .pending()
+                .unwrap()
+                .is_none());
+            assert_eq!(wake_result(&call_in(&mut cx, 5, &[field(1, head)]))[0], 1);
+            assert_eq!(reconciliations(dir.path()).len(), 2);
         }
     }
     #[test]
