@@ -1,6 +1,7 @@
 package compose
 
 import (
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"net/http"
 	"strings"
 
@@ -65,7 +66,7 @@ func mountChatPublic(router chi.Router, runtime *chat.Runtime, queries *db.Queri
 	})
 }
 
-func mountModelPublic(router chi.Router, models modelhost.OwnerModels, queries *db.Queries, cfg *config.Config) {
+func mountModelPublic(router chi.Router, models modelhost.OwnerModels, queries *db.Queries, cfg *config.Config, sources ...workspaceapi.SourceFiles) {
 	router.Group(func(r chi.Router) {
 		r.Use(cors.Handler(apiCORSOptions(cfg)))
 		r.Use(middleware.JSONAllowContentType("application/json"))
@@ -84,7 +85,7 @@ func mountModelPublic(router chi.Router, models modelhost.OwnerModels, queries *
 		r.Get("/api/model/credential/receipt", models.CredentialReceipt)
 		r.Get("/api/model/default", models.Default)
 		if config.IsSingleOwner(cfg.Auth) {
-			r.Get("/api/agents", serveAgents(queries))
+			r.Get("/api/agents", serveAgents(queries, sources...))
 		}
 		r.Group(func(writes chi.Router) {
 			writes.Use(middleware.RequireScope(middleware.ScopeWriteUser))
@@ -92,7 +93,7 @@ func mountModelPublic(router chi.Router, models modelhost.OwnerModels, queries *
 			writes.Put("/api/model/default", models.SetDefault)
 			writes.Post("/api/model/test", models.Test)
 			if config.IsSingleOwner(cfg.Auth) {
-				writes.Put("/api/agents/{role}/model", assignAgentModel(queries))
+				writes.Put("/api/agents/{role}/model", assignAgentModel(queries, sources...))
 			}
 		})
 	})
