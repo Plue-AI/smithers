@@ -1158,6 +1158,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		// An owner's TODO runs the existing coding path on its own lane;
 		// Plue's composition admits none.
 		mythicalService.EnableTodoAdmission()
+		mythicalService.EnableLearningAdmission(commandJobs)
 	}
 	// A lane's coding host starts only on a box with its declared tools.
 	services.WithWorkspaceBoxTools(mythicalService.LaneTools)(workspaceService)
@@ -2038,6 +2039,13 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	var joinedWorkers []*joinedBackgroundWorker
 	launchWorker := func(run func()) {
 		joinedWorkers = append(joinedWorkers, startJoinedBackgroundWorker(run))
+	}
+	if config.IsSingleOwner(cfg.Auth) && options.topology.workers() {
+		launchWorker(func() {
+			if err := commandJobs.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "learning-" + uuid.NewString(), Capacity: 1, Lease: time.Minute, Operations: []string{services.LearningAdmissionOperation}}, mythicalService.HandleLearningAdmission); err != nil && workerCtx.Err() == nil {
+				slog.Error("Learning admission worker stopped", "error", err)
+			}
+		})
 	}
 	if flowWorker != nil {
 		launchWorker(func() { flow.maintainRetired(workerCtx) })

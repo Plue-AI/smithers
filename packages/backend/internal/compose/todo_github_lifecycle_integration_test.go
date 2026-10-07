@@ -313,6 +313,26 @@ func testTODOGitHubCloseReopenComposedInstall(t *testing.T, days int) {
 	var land []byte
 	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT pr_merge_commit,checks->'land' FROM mythical_items WHERE number=$1`, filed.N).Scan(&mergeCommit, &land))
 	require.NotEmpty(t, mergeCommit)
+	// Production fetched-merge admission retains one background obligation,
+	// even with no ephemeral allocator or qualified Learning runtime.
+	var learningCount int
+	var learningPayload []byte
+	require.Eventually(t, func() bool {
+		return r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests WHERE operation='learning.admission' AND payload->>'todo'=$1`, fmt.Sprint(filed.N)).Scan(&learningCount) == nil && learningCount == 1
+	}, 10*time.Second, 50*time.Millisecond)
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT payload FROM product_job_requests WHERE operation='learning.admission' AND payload->>'todo'=$1`, fmt.Sprint(filed.N)).Scan(&learningPayload))
+	var intent map[string]any
+	require.NoError(t, json.Unmarshal(learningPayload, &intent))
+	require.Equal(t, mergeCommit, intent["commit"])
+	require.Equal(t, float64(repository), intent["repository"])
+	require.Equal(t, float64(owner), intent["actor"])
+	var forbiddenLaunches int
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.launch' AND payload->>'flowId'='learning'`).Scan(&forbiddenLaunches))
+	require.Zero(t, forbiddenLaunches, "missing isolation/allocator cannot launch Learning")
+	hint("closed")
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests WHERE operation='learning.admission' AND payload->>'todo'=$1`, fmt.Sprint(filed.N)).Scan(&learningCount))
+	require.Equal(t, 1, learningCount)
+
 	require.True(t, len(land) == 0 || string(land) == "null", "external merge never invents approval")
 	mirrored, err := r.gitDoor(token, "-C", work, "ls-remote", "origin", "refs/heads/main")
 	require.NoError(t, err)

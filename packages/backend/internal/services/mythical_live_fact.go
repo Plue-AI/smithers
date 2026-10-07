@@ -14,6 +14,11 @@ import (
 // its source fact. Replay must never substitute today's card for yesterday's
 // transition. This adds no projection table, writer or transport cursor.
 func (s *MythicalService) recordTodoFact(ctx context.Context, tx pgx.Tx, item db.MythicalItem, operation, kind, state string, raw json.RawMessage) (jobs.Event, error) {
+	if kind == "todo.github_merged" && state == "merged" {
+		if err := s.admitLearningInTx(ctx, tx, item); err != nil {
+			return jobs.Event{}, err
+		}
+	}
 	// Serialize the aggregate read before assigning the repository source position.
 	if _, err := tx.Exec(ctx, `INSERT INTO product_job_streams(tenant_id,principal_id,head) VALUES($1,'repository:todos',0) ON CONFLICT DO NOTHING`, todoOperationScope(item).TenantID); err != nil {
 		return jobs.Event{}, err
