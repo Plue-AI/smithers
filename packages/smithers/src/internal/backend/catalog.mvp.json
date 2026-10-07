@@ -572,7 +572,13 @@
       "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Dismiss a background run",
-      "http": null,
+      "http": {
+        "method": "POST",
+        "path": "/api/runs/{id}",
+        "defaults": {
+          "op": "dismiss"
+        }
+      },
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
@@ -606,7 +612,13 @@
       "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Retry a background run",
-      "http": null,
+      "http": {
+        "method": "POST",
+        "path": "/api/runs/{id}",
+        "defaults": {
+          "op": "retry"
+        }
+      },
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {

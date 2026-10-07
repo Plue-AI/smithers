@@ -11,7 +11,7 @@ import (
 )
 
 const getWorkflowRunByTaskGuestToken = `-- name: GetWorkflowRunByTaskGuestToken :one
-SELECT wr.id, wr.repository_id, wr.workflow_definition_id, wr.status, wr.trigger_event, wr.trigger_ref, wr.trigger_commit_sha, wr.dispatch_inputs, wr.agent_token_hash, wr.agent_token_expires_at, wr.jjhub_token_id, wr.check_run_id, wr.check_run_url, wr.started_at, wr.completed_at, wr.created_at, wr.updated_at, wr.execution_plane, wr.log_bytes, wr.log_entry_count, wr.cancel_reason,
+SELECT wr.id, wr.repository_id, wr.workflow_definition_id, wr.status, wr.trigger_event, wr.trigger_ref, wr.trigger_commit_sha, wr.dispatch_inputs, wr.agent_token_hash, wr.agent_token_expires_at, wr.jjhub_token_id, wr.check_run_id, wr.check_run_url, wr.started_at, wr.completed_at, wr.created_at, wr.updated_at, wr.execution_plane, wr.log_bytes, wr.log_entry_count, wr.cancel_reason, wr.dismissed_by, wr.dismissed_at,
        wt.id AS workflow_task_id,
        wt.status AS task_status,
        gt.expires_at AS token_expires_at
@@ -56,6 +56,8 @@ func (q *Queries) GetWorkflowRunByTaskGuestToken(ctx context.Context, tokenHash 
 		&i.WorkflowRun.LogBytes,
 		&i.WorkflowRun.LogEntryCount,
 		&i.WorkflowRun.CancelReason,
+		&i.WorkflowRun.DismissedBy,
+		&i.WorkflowRun.DismissedAt,
 		&i.WorkflowTaskID,
 		&i.TaskStatus,
 		&i.TokenExpiresAt,

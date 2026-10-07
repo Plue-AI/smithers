@@ -2,8 +2,8 @@
  * The Home card's own flows (T-APP-01): `/stack` (the card), reorder, merge,
  * background runs and main's sync retry. Reorder and merge go through the TODO seam: the seeded design
  * world where this host has no TODO provider, else POST /api/todos/{n} {op: move} and
- * /api/todos/{n}/merge (spec §6.3). MOCK SEAM: the background run handlers act on the seeded design world
- * (state/seams/DesignWorld/home.ts); installs refuse until /api/runs/{id} supplies stored, pinned admission.
+ * /api/todos/{n}/merge (spec §6.3). Background controls use the install’s stored, pinned admission;
+ * the seeded design world remains the fallback off an install.
  * Sync Retry calls the real door where
  * this host serves one: the install's POST /api/github/sync (GitHubSyncSeam), or the Cloud's `github.reconcile` (GitHubSeam).
  */
@@ -79,12 +79,12 @@ export const homeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
         return { value: await actions.presentSubject(mergeCard(todo, viewer)) }
       }, () => actions.reviewTodoMerge(n))
     } }),
-  flow({ name: "background.retry", agent: "run", minimumRole: "member", actors: ["person","app_agent"], visibility: "in-card",  summary: "Retry a background run", args: "<id>", hidden: true, grammar: idGrammar,
+  flow({ name: "background.retry", http: { method: "POST", path: "/api/runs/{id}", defaults: { op: "retry" } }, agent: "run", minimumRole: "member", actors: ["person","app_agent"], visibility: "in-card",  summary: "Retry a background run", args: "<id>", hidden: true, grammar: idGrammar,
     input: Schema.Struct({ id: Id }),
-    handler: ({ id }) => actions.design.enabled ? result(actions.design.retryRun(id)) : "Background runs unavailable" }),
-  flow({ name: "background.dismiss", agent: "run", minimumRole: "member", actors: ["person","app_agent"], visibility: "in-card",  summary: "Dismiss a background run", args: "<id>", hidden: true, grammar: idGrammar,
+    handler: ({ id }) => actions.backgroundRun(id, "retry") }),
+  flow({ name: "background.dismiss", http: { method: "POST", path: "/api/runs/{id}", defaults: { op: "dismiss" } }, agent: "run", minimumRole: "member", actors: ["person","app_agent"], visibility: "in-card",  summary: "Dismiss a background run", args: "<id>", hidden: true, grammar: idGrammar,
     input: Schema.Struct({ id: Id }),
-    handler: ({ id }) => actions.design.enabled ? result(actions.design.dismissRun(id)) : "Background runs unavailable" }),
+    handler: ({ id }) => actions.backgroundRun(id, "dismiss") }),
   flow({ name: "github",   slash: "/github", cli: ["github"], journey: ["J10"], group: "GitHub", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/github/sync"}, summary: "Show sync status and retry", agent: "run", input: NoPayload,
     handler: () => result(openDesignHome(actions.design, actions.design.viewer())) }),
   flow({ name: "github.retry", agent: "run", minimumRole: "member", actors: ["person", "app_agent", "external_agent"], visibility: "in-card", http: { method: "POST", path: "/api/github/sync" }, summary: "Retry GitHub sync", hidden: true, input: NoPayload,

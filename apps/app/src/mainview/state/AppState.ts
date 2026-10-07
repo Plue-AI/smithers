@@ -887,6 +887,10 @@ export const SessionSchema = z.object({
   }).strict()).optional(),
   /* Wiki refreshes asked of a repository's stack (StackSeam.refreshWiki): each notice reconnects after a reload until the Wiki settles. */
   githubSyncRequest: z.object({ id: z.string(), owner: z.string(), lastSuccessAt: z.string().nullable(), phase: z.enum(["requested", "running", "failed"]), error: z.string().optional() }).optional(),
+  homeBackgroundRequests: z.array(z.object({
+    key: z.string(), owner: z.string(), id: z.string(), op: z.enum(["retry", "dismiss"]),
+    state: z.enum(["requested", "running", "completed", "failed"]), run_id: z.number().int().positive().optional(), error: z.string().optional()
+  })).optional(),
   wikiRequests: z.array(z.object({ repo: z.string(), owner: z.string(), requestedAt: z.number() })).optional(),
 
   /** Optional so previously saved sessions still parse. */
@@ -1354,6 +1358,7 @@ export type AppTransition =
   | { type: "issue.todo.requests.changed"; actor: Actor; requests: NonNullable<Session["issueTodoRequests"]> }
   | { type: "coding.provider.requests.changed"; actor: Actor; requests: NonNullable<Session["codingProviderRequests"]> }
   | { type: "github.sync.request.changed"; actor: Actor; request?: Session["githubSyncRequest"] }
+  | { type: "home.background.requests.changed"; actor: Actor; requests: NonNullable<Session["homeBackgroundRequests"]> }
   | { type: "stack.wiki.requests.changed"; actor: Actor; requests: NonNullable<Session["wikiRequests"]> }
   | { type: "wiki.saves.changed"; actor: Actor; requests: NonNullable<Session["wikiSaves"]> }
   | { type: "review.requests.changed"; actor: Actor; requests: NonNullable<Session["reviewRequests"]> }
