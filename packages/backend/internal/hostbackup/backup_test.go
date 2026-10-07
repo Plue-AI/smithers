@@ -48,7 +48,12 @@ func (a *backupAuthorityFixture) Dump(_ context.Context, w io.Writer) error {
 func (a *backupAuthorityFixture) Summary(context.Context) (Manifest, error) {
 	return Manifest{Stack: json.RawMessage(`[{"tip":"abc"}]`), BranchHeads: json.RawMessage(`{"branch":"def"}`), MachineDisks: json.RawMessage(`[]`), RunJournals: json.RawMessage(`[]`)}, a.step("summary")
 }
-func (a *backupAuthorityFixture) Reopen(context.Context, string) error { return a.step("reopen") }
+func (a *backupAuthorityFixture) Reopen(ctx context.Context, _ string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return a.step("reopen")
+}
 
 type backupCopyFixture struct{ fail bool }
 
