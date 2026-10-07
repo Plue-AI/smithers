@@ -96,7 +96,7 @@ export const runContextPreflight = (
               }))
             }))],
             tools: [],
-            params: { maxTokens: 2048 }
+            params: options.outputTokenLimitSupported === false ? {} : { maxTokens: 2048 }
           })
           let output = ""
           const cutter = new StreamingCredentialCutter(options.credential)

@@ -185,6 +185,7 @@ type localChat struct {
 	actor        *db.User
 	codec        *webhook.AESGCMSecretCodec
 	resolver     *modelhost.OwnerSecretResolver
+	launcher     *modelhost.LocalLauncher
 	host         *modelhost.Host
 	composition  *chatComposition
 	public       *httptest.Server
@@ -260,6 +261,7 @@ func startConfiguredLocalChat(t *testing.T, configure func(*localChat, *chat.Run
 	require.NoError(t, err)
 	local.resolver, err = modelhost.NewOwnerSecretResolver(func() string { return databaseURL }, func() string { return "local-chat-secret-key" })
 	require.NoError(t, err)
+	local.launcher = launcher
 	local.host, err = modelhost.New(local.resolver, launcher)
 	require.NoError(t, err)
 	runtimeOptions := chat.RuntimeOptions{Logger: logger}

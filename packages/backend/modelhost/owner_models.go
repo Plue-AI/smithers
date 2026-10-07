@@ -17,6 +17,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/subscriptiontoken"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 )
@@ -147,7 +148,17 @@ func (s OwnerModels) Catalog(w http.ResponseWriter, r *http.Request) {
 		modelJSON(w, http.StatusServiceUnavailable, map[string]string{"code": "storage_failed"})
 		return
 	}
-	modelJSON(w, http.StatusOK, map[string]any{"models": []any{}, "credentials": credentials, "seats": []string{"chat"}, "enrollment": map[string]bool{"available": true}})
+	access, err := services.InstallSubscriptionDigest(r.Context(), s.Pool, owner)
+	if err != nil {
+		modelJSON(w, http.StatusServiceUnavailable, map[string]string{"code": "storage_failed"})
+		return
+	}
+	models := []any{}
+	if access != "" {
+		credentials = append(credentials, credentialRow{Name: services.InstallSubscriptionCredential, Present: true, Origins: []string{"https://chatgpt.com"}})
+		models = append(models, map[string]any{"id": "chatgpt", "protocol": "openai-responses-chatgpt", "modelId": "gpt-6-sol", "credential": services.InstallSubscriptionCredential, "builtin": true})
+	}
+	modelJSON(w, http.StatusOK, map[string]any{"models": models, "credentials": credentials, "seats": []string{"chat"}, "enrollment": map[string]bool{"available": true}})
 }
 
 type credentialRequest struct {
@@ -200,7 +211,7 @@ func (s OwnerModels) Credential(w http.ResponseWriter, r *http.Request) {
 	// A model credential is an API key. A Claude or ChatGPT subscription
 	// login is never one; where a deployment allows them, they belong to the
 	// provider connections pool (#2222).
-	if input.Action != "remove" && subscriptiontoken.Holds(input.Name, input.Value) {
+	if input.Name == services.InstallSubscriptionCredential || (input.Action != "remove" && subscriptiontoken.Holds(input.Name, input.Value)) {
 		modelJSON(w, http.StatusOK, credentialFailure("invalid", "value"))
 		return
 	}
@@ -343,7 +354,7 @@ func (s OwnerModels) SetDefault(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(bytes.NewReader(input.Model))
 	decoder.DisallowUnknownFields()
 	if decoder.Decode(&binding) != nil ||
-		(binding.Protocol != "openai-chat" && binding.Protocol != "openai-responses" && binding.Protocol != "anthropic-messages") ||
+		(binding.Protocol != "openai-chat" && binding.Protocol != "openai-responses" && binding.Protocol != "anthropic-messages" && binding.Protocol != "openai-responses-chatgpt") ||
 		binding.ModelID == "" || len(binding.ModelID) > 256 || !validCredentialName(binding.Credential) {
 		modelJSON(w, http.StatusBadRequest, map[string]string{"code": "request_invalid"})
 		return
