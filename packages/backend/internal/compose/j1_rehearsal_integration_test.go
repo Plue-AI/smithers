@@ -111,8 +111,8 @@ func TestJ1Rehearsal(t *testing.T) {
 		todoPath = fmt.Sprintf("/api/todos/%d", number)
 	}
 	// The app agent reads the stack and one TODO with the TODO cards the
-	// person's /todo shows, and writes a TODO only as the person's private
-	// Draft, as the owner's browser session. Person-only commands and scoped
+	// person's /todo shows, and proposes a TODO in the shared conversation
+	// for its author to confirm. Person-only commands and scoped
 	// tokens cannot exercise that authority.
 	appAgentTodos := func() error {
 		if number <= 0 {

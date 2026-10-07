@@ -368,13 +368,22 @@ func TestRuntimeWorkspaceNeverActivatesBeforeArtifactBootstrap(t *testing.T) {
 				t.Fatal("activated before bootstrap")
 				return db.Workspace{}, nil
 			}}
+			q.updateWorkspaceExecutionInfoFn = func(context.Context, db.UpdateWorkspaceExecutionInfoParams) (db.Workspace, error) {
+				t.Fatal("bound runtime before bootstrap")
+				return db.Workspace{}, nil
+			}
 			client := newArtifactRecordingClient()
 			client.failWrite = 1
 			runtime := &lifecycleArtifactRuntime{state: scenario.state}
 			svc := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(runtime), WithWorkspaceSandboxClient(client))
 			_, err := svc.ensureRuntimeWorkspaceRunningLocked(t.Context(), row, row.UserID)
-			require.ErrorContains(t, err, "transfer interrupted")
-			require.Len(t, client.writes, 1)
+			if scenario.status == "suspended" {
+				require.ErrorContains(t, err, "branch wake requires admission and validated privileged entry")
+				require.Empty(t, client.writes, "unqualified wake cannot reach bootstrap")
+			} else {
+				require.ErrorContains(t, err, "transfer interrupted")
+				require.Len(t, client.writes, 1)
+			}
 		})
 	}
 }

@@ -192,6 +192,7 @@ const editCell = (hosted, greeting) => {
     `  if (written.ok === false) throw new Error(written.error?.message ?? "write failed");`,
     `};`,
     `const put = async (path, content) => {`,
+    `  await ctx.call("read", { path });`,
     `  const written = await ctx.call("write", { path, content });`,
     `  if (written.ok === false) throw new Error(written.error?.message ?? "write failed");`,
     `};`

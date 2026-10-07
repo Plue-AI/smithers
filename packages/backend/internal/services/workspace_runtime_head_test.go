@@ -257,6 +257,11 @@ func TestRuntimeWorkspaceKeepsRepositoryCredentialWhileRunning(t *testing.T) {
 		current.Status = arg.Status
 		return current, nil
 	}
+	mock.updateWorkspaceExecutionInfoFn = func(_ context.Context, arg db.UpdateWorkspaceExecutionInfoParams) (db.Workspace, error) {
+		require.Equal(t, row.ID, arg.VmID, "bind only the verified runtime workspace")
+		current.Status, current.VmID = arg.Status, arg.VmID
+		return current, nil
+	}
 	mock.createAccessTokenFn = func(_ context.Context, arg db.CreateAccessTokenParams) (db.AccessToken, error) {
 		return tokens.issue(arg), nil
 	}
@@ -280,6 +285,7 @@ func TestRuntimeWorkspaceKeepsRepositoryCredentialWhileRunning(t *testing.T) {
 	running, err := service.ensureRuntimeWorkspaceRunningLocked(context.Background(), row, row.UserID)
 	require.NoError(t, err)
 	require.Equal(t, "running", running.Status)
+	require.Equal(t, row.ID, running.VmID, "capture and sleep retain the real runtime binding")
 	firstToken := queries.recordedHeadTokenID()
 	require.NotZero(t, firstToken, "the workspace credential is recorded so suspend, stop and delete revoke it")
 	eventuallyListsMain(t, runtime, row.ID, mainCommit)

@@ -43,6 +43,8 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
@@ -402,6 +404,9 @@ path = "lib.rs"
 		HostProfile: &microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: 400 << 30, MacOSVersion: "15.6", Hypervisor: true},
 		// A label on GitHub is read within seconds, not the product's 120 s.
 		GitHubIssueEventsEvery: 2 * time.Second}
+	if !realMicroVM {
+		options.BranchCapture = rehearsalPublishedCapture{r}
+	}
 	if realMicroVM {
 		configurePinnedMicroVMRehearsal(t, r, &options)
 	}
@@ -451,14 +456,25 @@ path = "lib.rs"
 		})
 	}
 	t.Cleanup(func() {
-		r.stopBackend()
-		_ = os.WriteFile(filepath.Join(r.evidence, "backend.log"), []byte(r.logs.String()), 0600)
+		// Capture before shutdown retires the managed host and removes its state.
 		// Each coding host's journal (control.db, engine.db) names why a run
 		// failed; the runtime's directory is gone after the test.
-		states, _ := filepath.Glob(filepath.Join(processRoot, "workspaces", "*", "state", "managed-hosts"))
+		rows, err := r.pool.Query(context.Background(), `SELECT id,status,vm_id,head_commit_id FROM workspaces`)
+		if err == nil {
+			for rows.Next() {
+				var id, status, vm, head string
+				if rows.Scan(&id, &status, &vm, &head) == nil {
+					fmt.Fprintf(r.logs, "rehearsal workspace %s status=%s vm=%s head=%s\n", id, status, vm, head)
+				}
+			}
+			rows.Close()
+		}
+		states, _ := filepath.Glob(filepath.Join(processRoot, "workspaces", "*", "state"))
 		for n, state := range states {
 			_ = exec.Command("/bin/cp", "-R", state, filepath.Join(r.evidence, fmt.Sprintf("host-state-%d", n))).Run()
 		}
+		r.stopBackend()
+		_ = os.WriteFile(filepath.Join(r.evidence, "backend.log"), []byte(r.logs.String()), 0600)
 	})
 	r.jar, err = cookiejar.New(nil)
 	require.NoError(t, err)
@@ -1587,12 +1603,13 @@ func (r *rehearsal) besideChat() <-chan error {
 
 func mustRehearsalURL(raw string) *url.URL { u, _ := url.Parse(raw); return u }
 
-// buildRehearsalCodingHost builds the packaged coding host from source and
-// pins it the way the install bundle's flow-hosts.json does.
+// buildRehearsalCodingHost pins the shared coding host with an explicit
+// controlled-process mutation adapter. It does not qualify the installed daemon
+// or microVM isolation; the production entry cannot select this adapter.
 func buildRehearsalCodingHost(t *testing.T, node, root string) flowmanifest.Registry {
 	t.Helper()
 	coding := filepath.Join(t.TempDir(), "smithers-coding-host")
-	build := exec.Command(node, filepath.Join(root, "flows/coding/build.mjs"), coding)
+	build := exec.Command(node, filepath.Join(root, "flows/test/rehearsal-coding-host-build.mjs"), coding)
 	build.Dir = root
 	output, err := build.CombinedOutput()
 	require.NoError(t, err, string(output))
@@ -2005,4 +2022,52 @@ func (r *rehearsal) restartBackend() {
 			}
 		})
 	}
+}
+
+// The controlled process journey has no daemon/outbox. The same native helper
+// snapshots its working copy, then Git delivers the immutable object into the
+// fixture's real repository store and publishes the branch ref. Never main.
+// This is not a guest capture or isolation qualification receipt.
+type rehearsalPublishedCapture struct{ r *rehearsal }
+
+func (c rehearsalPublishedCapture) Capture(ctx context.Context, id string) (result machined.CaptureResult, captureErr error) {
+	defer func() { fmt.Fprintf(c.r.logs, "rehearsal capture %s head=%s error=%v\n", id, result.Head, captureErr) }()
+	observed, err := c.r.processRuntime.InspectWorkspace(ctx, id)
+	if err != nil {
+		return result, err
+	}
+	request, err := json.Marshal(map[string]any{"operation": "read", "repositoryPath": observed.Root})
+	if err != nil {
+		return result, err
+	}
+	command := exec.CommandContext(ctx, os.Getenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"), "--local")
+	command.Stdin = bytes.NewReader(request)
+	output, err := command.Output()
+	if err != nil {
+		return result, fmt.Errorf("rehearsal native capture: %w", err)
+	}
+	var receipt struct {
+		Head struct {
+			CommitID string `json:"commitId"`
+			TreeID   string `json:"treeId"`
+		} `json:"head"`
+	}
+	if err := json.Unmarshal(output, &receipt); err != nil {
+		return result, err
+	}
+	head, tree := receipt.Head.CommitID, receipt.Head.TreeID
+	if len(head) != 40 || len(tree) != 40 {
+		return result, errors.New("rehearsal capture has no immutable native head")
+	}
+	hostGit := filepath.Join(c.r.repositoryRoot, "rehearsal-owner", "app", ".jj", "repo", "store", "git")
+	if output, err := exec.CommandContext(ctx, "/usr/bin/git", "-c", "core.hooksPath=/dev/null", "-C", observed.Root, "push", hostGit, head+":"+repohost.BranchHeadRef(id)).CombinedOutput(); err != nil {
+		return result, fmt.Errorf("rehearsal capture delivery: %w: %s", err, output)
+	}
+	if _, err := c.r.repoClient.GetChange(ctx, "rehearsal-owner", "app", head); err != nil {
+		return result, err
+	}
+	if _, err := c.r.pool.Exec(ctx, `UPDATE workspaces SET head_commit_id=$2 WHERE id=$1 AND status='releasing'`, id, head); err != nil {
+		return result, err
+	}
+	return machined.CaptureResult{Head: head, Tree: tree}, nil
 }

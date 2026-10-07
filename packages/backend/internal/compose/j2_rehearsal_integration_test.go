@@ -23,7 +23,7 @@ import (
 // Make TODO and through the todo label, the TODO queues, starts and works,
 // its PR opens with evidence, the owner merges it in Smithers, it turns
 // Merged and the issue closes because the TODO fixes it. On the way the run
-// asks which greeting to use (Needs you: the Draft's [ASK] marker makes the
+// asks which greeting to use (Needs you: the TODO's [ASK] marker makes the
 // scripted model of distribution/fake-todo-turns.mjs ask its QUESTION) and
 // the owner's answer is written into the line the PR adds. Setup runs as J1's rows and shows as one row. The
 // state rows follow Make TODO at once, since the TODO starts on the stack's
@@ -101,7 +101,7 @@ func rehearseIssueTodo(t *testing.T, security bool) {
 		}
 		return count, err
 	}
-	// The Draft carries fake-todo-turns.mjs's [ASK] marker, so planning's
+	// The TODO carries fake-todo-turns.mjs's [ASK] marker, so planning's
 	// review asks its QUESTION, and the edit writes the answer.
 	const (
 		ask      = "[ASK]"

@@ -446,8 +446,14 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 		return row, err
 	}
 
-	if row.Status != "running" {
-		updated, updateErr := s.q.UpdateWorkspaceStatus(ctx, db.UpdateWorkspaceStatusParams{ID: row.ID, Status: "running"})
+	if row.Status != "running" || row.VmID == "" {
+		// Persist the verified runtime binding only after start and repository
+		// materialization succeed. Sleep and capture fence on this identity.
+		runtimeID := row.VmID
+		if runtimeID == "" {
+			runtimeID = observed.ID
+		}
+		updated, updateErr := s.q.UpdateWorkspaceExecutionInfo(ctx, db.UpdateWorkspaceExecutionInfoParams{ID: row.ID, VmID: runtimeID, Status: "running"})
 		if updateErr != nil {
 			return row, pkgerrors.Internal("update workspace status: " + updateErr.Error())
 		}
