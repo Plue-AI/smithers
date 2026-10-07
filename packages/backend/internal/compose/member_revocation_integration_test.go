@@ -26,7 +26,7 @@ import (
 // 5b77095672's desktop-share revocation test. Only committed access and
 // transport assertions survive; no retired Pair surface is restored.
 func exerciseMemberRevocation(t *testing.T, pool *pgxpool.Pool, origin string, writer db.User, bus *revocation.Bus,
-	request func(string, string, string, string) (int, string), session func(db.User, string)) {
+	request func(string, string, string, string) (int, string), session func(db.User, string), signIn func()) {
 	t.Helper()
 	ctx := t.Context()
 	var repository, ownerID int64
@@ -43,7 +43,7 @@ func exerciseMemberRevocation(t *testing.T, pool *pgxpool.Pool, origin string, w
 		require.NoError(t, err)
 	}
 	grant()
-	// W7's unlanded guest process boundary is represented only by this fake.
+	// Guest process termination is represented only by this test fake.
 	// Database, DELETE, durable recovery and roster delivery are production code.
 	var guestMu sync.Mutex
 	var partitioned, guestMember, guestChild bool
@@ -185,6 +185,10 @@ func exerciseMemberRevocation(t *testing.T, pool *pgxpool.Pool, origin string, w
 			if run > 1 {
 				status, body := request("POST", "/api/members", `{"login":"writer"}`, "owner-cookie")
 				require.Equal(t, 204, status, body)
+				signIn()
+				guestMu.Lock()
+				require.NoError(t, pool.QueryRow(ctx, `SELECT unix_uid FROM collaborators WHERE user_id=$1`, writer.ID).Scan(&memberUID))
+				guestMu.Unlock()
 			}
 			require.Eventually(t, func() bool { return !bus.IsUserDisabled(writer.ID) }, 3*time.Second, 10*time.Millisecond)
 			grant()
@@ -307,6 +311,10 @@ func exerciseMemberRevocation(t *testing.T, pool *pgxpool.Pool, origin string, w
 		t.Logf("live max over 20 runs: %.6f seconds; NOTIFY delivery disabled", maxElapsed.Seconds())
 		status, body := request("POST", "/api/members", `{"login":"writer"}`, "owner-cookie")
 		require.Equal(t, 204, status, body)
+		signIn()
+		guestMu.Lock()
+		require.NoError(t, pool.QueryRow(ctx, `SELECT unix_uid FROM collaborators WHERE user_id=$1`, writer.ID).Scan(&memberUID))
+		guestMu.Unlock()
 	})
 	stopRoster()
 	t.Run("restoration_cannot_preserve_revoked_guest_descendants", func(t *testing.T) {
