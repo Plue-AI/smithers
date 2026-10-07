@@ -333,6 +333,11 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 		require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&count))
 		require.Zero(t, count, table)
 	}
+	t.Run("ephemeral machine adapter and real delivery", func(t *testing.T) {
+		upstream.UpdatePull("review-owner/app", 50, func(p *githubfake.Pull) { p.User = &githubfake.PullAuthor{ID: 4242, Login: "alice", Type: "User"} })
+		exerciseReviewMachine(t, pool, service, chatStore, router, repo.ID, owner.ID)
+		service.SetReviewBackground(nil)
+	})
 	t.Run("durable admission and worker recovery", func(t *testing.T) {
 		upstream.UpdatePull("review-owner/app", 50, func(p *githubfake.Pull) { p.User = &githubfake.PullAuthor{ID: 4242, Login: "alice", Type: "User"} })
 		machine := &reviewMachineFixture{runs: map[string]string{}}
@@ -426,15 +431,16 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 		require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 		var conversation chat.SharedConversation
 		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &conversation))
-		require.Len(t, conversation.Entries, 2)
-		result := conversation.Entries[1]
+		require.Len(t, conversation.Entries, 3)
+		result := conversation.Entries[2]
 		require.Equal(t, "/review #50", result.Prompt)
 		require.Equal(t, chat.StateCompleted, result.State)
-		require.Len(t, result.Frames, 2)
+		require.Len(t, result.Frames, 3)
+		require.Contains(t, string(result.Frames[1]), "https://github.com/review-owner/app/pull/50")
 		require.Contains(t, string(result.Frames[0]), `"facet":"findings"`)
 		require.Contains(t, string(result.Frames[0]), `"path":"cache.ts"`)
 		require.Contains(t, string(result.Frames[0]), `"commitId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"`)
-		require.ErrorIs(t, chatStore.DeliverReview(ctx, chat.Scope{RepositoryID: repo.ID, UserID: owner.ID}, "main", selected.OperationID, 50, json.RawMessage(`{"findings":[]}`)), chat.ErrConflict)
+		require.ErrorIs(t, chatStore.DeliverReview(ctx, chat.Scope{RepositoryID: repo.ID, UserID: owner.ID}, "main", selected.OperationID, selected.URL, 50, json.RawMessage(`{"findings":[]}`)), chat.ErrConflict)
 		_, err = chatStore.Claim(ctx, chat.Scope{RepositoryID: repo.ID, UserID: owner.ID, Owner: "review-owner"}, result.ID, time.Minute)
 		require.Error(t, err, "completed delivery is never claimable")
 		// Read the persisted findings through the same install router.
@@ -496,7 +502,7 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 		pending := requestConfirm("delegated-review")
 		require.Equal(t, pending, requestConfirm("delegated-review"))
 		var jobCount int
-		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review'`).Scan(&jobCount))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review' AND request_id <> 'adapter-review'`).Scan(&jobCount))
 		require.Equal(t, 1, jobCount)
 		require.Equal(t, 403, confirmCall("/api/confirmations/"+pending.ID+"/approve", "agent-review-press", "", true).Code)
 		require.Equal(t, 403, confirmCall("/api/confirmations/"+pending.ID+"/approve", "other-review-press", "alice-review-cookie", false).Code)
@@ -504,7 +510,7 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 			approved := confirmCall("/api/confirmations/"+pending.ID+"/approve", "person-review-press", "review-cookie", false)
 			require.Equal(t, 200, approved.Code, approved.Body.String())
 		}
-		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review'`).Scan(&jobCount))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review' AND request_id <> 'adapter-review'`).Scan(&jobCount))
 		require.Equal(t, 2, jobCount)
 		var confirmedID string
 		require.NoError(t, pool.QueryRow(ctx, `SELECT payload->'effect'->>'review' FROM approvals WHERE id=$1`, pending.ID).Scan(&confirmedID))
@@ -519,7 +525,7 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 		require.NoError(t, err)
 		appPending := requestConfirm("app-agent-review")
 		require.Equal(t, 403, confirmCall("/api/confirmations/"+appPending.ID+"/approve", "app-agent-review-press", "", true).Code)
-		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review'`).Scan(&jobCount))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review' AND request_id <> 'adapter-review'`).Scan(&jobCount))
 		require.Equal(t, 2, jobCount)
 		appApproved := confirmCall("/api/confirmations/"+appPending.ID+"/approve", "person-app-review-press", "review-cookie", false)
 		require.Equal(t, 200, appApproved.Code, appApproved.Body.String())
@@ -528,12 +534,12 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 		stale := requestConfirm("stale-review-confirm")
 		upstream.UpdatePull("review-owner/app", 50, func(p *githubfake.Pull) { p.Head.SHA = strings.Repeat("8", 40) })
 		require.Equal(t, 409, confirmCall("/api/confirmations/"+stale.ID+"/approve", "stale-review-press", "review-cookie", false).Code)
-		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review'`).Scan(&jobCount))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review' AND request_id <> 'adapter-review'`).Scan(&jobCount))
 		require.Equal(t, 3, jobCount)
 		cancelled := requestConfirm("cancel-review-confirm")
 		denied := confirmCall("/api/confirmations/"+cancelled.ID+"/deny", "person-cancel-review", "review-cookie", false)
 		require.Equal(t, 200, denied.Code, denied.Body.String())
-		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review'`).Scan(&jobCount))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review' AND request_id <> 'adapter-review'`).Scan(&jobCount))
 		require.Equal(t, 3, jobCount)
 		machine.mu.Lock()
 		require.Len(t, machine.runs, 1)

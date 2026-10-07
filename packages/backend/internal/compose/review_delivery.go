@@ -31,7 +31,7 @@ func (d reviewConversationDelivery) Deliver(ctx context.Context, id string, a se
 	if err != nil {
 		return err
 	}
-	return d.store.DeliverReview(ctx, scope, branch, id, a.Number, change)
+	return d.store.DeliverReview(ctx, scope, branch, id, a.URL, a.Number, change)
 }
 
 var _ services.ReviewDelivery = reviewConversationDelivery{}
