@@ -1,5 +1,5 @@
 import { expect, test } from "./browserTest"
-import type { Page } from "./browserTest"
+import type { Page, Route } from "./browserTest"
 
 /*
  * The Home card (T-APP-01) on the seeded design world: it stands first in
@@ -114,11 +114,13 @@ test("T-UI-06 Home sync, actions, keyboard menu and inert text in both Paper the
   }
 })
 
-test("install Home keeps the next Merge after an earlier item merged and exposes reorder controls", async ({ page }) => {
+test("install Home keeps the next Merge after an earlier item merged and exposes reorder controls", async ({ page, baseURL }) => {
   const { installCloudFixture } = await import("./cloudFixture")
   const { fixtures } = await import("@smthrs/rpc/fixtures/Todo")
   await installCloudFixture(page, { capabilities: ["agent", "identity", "install"] })
-  let login = "ben"
+  const memberOf = (route: Route) => /(?:^|;\s*)home-member=([a-z]+)/.exec(route.request().headers()["cookie"] ?? "")?.[1] ?? "ben"
+  const signIn = (login: string) => page.context().addCookies([{ name: "home-member", value: login, url: baseURL! }])
+  await signIn("ben")
   const memberViews: Record<string, Record<string, unknown>> = {
     ben: { scroll_anchor: "entry-8", last_seen_seq: 12, home: { filter: null }, toasts_hidden: false },
     alice: { home: { filter: null }, toasts_hidden: false },
@@ -126,13 +128,17 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
   }
   const viewWrites: Array<{ login: string; body: unknown }> = []
   await page.route("**/api/conversations/main/view-state", route => {
+    const login = memberOf(route)
     if (route.request().method() === "PUT") {
       const body = route.request().postDataJSON()
       viewWrites.push({ login, body }); memberViews[login] = body
     }
     return route.fulfill({ json: memberViews[login] })
   })
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: login, is_admin: false } }))
+  await page.route("**/api/user", route => {
+    const login = memberOf(route)
+    return route.fulfill({ json: { id: ({ maya: 1, ben: 2, alice: 3 } as Record<string, number>)[login], username: login, is_admin: false } })
+  })
   await page.route("**/api/install", route => route.fulfill({ json: {
     steps: ["address", "app_manifest", "sign_in", "repository", "models", "source", "machine"].map(id => ({ id, state: "done" })), capacity: 2, this_mac: { capacity: 2, memory_gb: 16, disk_free_gb: 100 },
     github: { app_installed: true, signed_in: true, owner: "maya", squash_allowed: true },
@@ -209,22 +215,28 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
   expect(drops[0]!.key).toMatch(/^[0-9a-f-]{36}$/)
   await expect(home.locator(".stack-row .ref")).toHaveText(["T3"])
 
+  await expect.poll(() => memberViews.ben?.scroll_anchor).toBe("todo:3")
+  const beforeFilter = structuredClone(memberViews.ben!)
   viewWrites.length = 0
   const reviewFilter = home.locator('[data-filter="in_review"]')
   await reviewFilter.click()
   await expect.poll(() => viewWrites.length).toBe(1)
-  expect(viewWrites[0]).toEqual({ login: "ben", body: { scroll_anchor: expect.stringMatching(/^(home|todo:3)$/), last_seen_seq: 12, home: { filter: "in_review", menu: null }, toasts_hidden: false, timeline_visible_until: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/) } })
+  expect(beforeFilter).toMatchObject({ scroll_anchor: expect.stringMatching(/^(home|todo:3)$/), last_seen_seq: 12, toasts_hidden: false, timeline_visible_until: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/) })
+  expect(viewWrites[0]).toEqual({ login: "ben", body: { ...beforeFilter, home: { filter: "in_review", menu: null } } })
   await page.reload()
+  await expect(home).toBeVisible({ timeout: 30_000 })
   await expect(reviewFilter).toHaveAttribute("aria-pressed", "true")
-  login = "alice"
+  await signIn("alice")
   await page.reload()
+  await expect(home).toBeVisible({ timeout: 30_000 })
   await expect(home.getByText("T3", { exact: true })).toBeVisible()
   await expect(home.getByText("T2", { exact: true })).toHaveCount(0)
   await expect(home.getByRole("button", { name: "Merge", exact: true })).toHaveCount(0)
   await expect(reviewFilter).toHaveAttribute("aria-pressed", "false")
   expect(memberViews.ben?.home).toEqual({ filter: "in_review", menu: null })
-  login = "maya"
+  await signIn("maya")
   await page.reload()
+  await expect(home).toBeVisible({ timeout: 30_000 })
   await expect(home.getByRole("button", { name: "Merge", exact: true })).toHaveCount(1)
   conflict = true
   await expect(home.getByRole("button", { name: "Resolve", exact: true })).toBeVisible()
