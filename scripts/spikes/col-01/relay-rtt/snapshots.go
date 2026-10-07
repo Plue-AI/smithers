@@ -21,20 +21,34 @@ func (h *harness) snapshots(dir string, cpus int) (retErr error) {
 		copyCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		completed := retErr == nil
-		for destination, source := range map[string]string{
+		artifacts := map[string]string{
 			"snapshot-prepare.json": "snapshot-prepare.json",
 			"snapshot-samples.csv":  "jj-snapshot-output/samples.csv",
 			"snapshot-summary.json": "jj-snapshot-output/summary.json",
 			"snapshot-env.json":     "jj-snapshot-output/env.json",
 			"snapshot-failure.json": "jj-snapshot-output/failure.json",
 			"kernel-probes.json":    "kernel-probes.json",
+			"retention-samples.csv": "jj-growth-output/retention-samples.csv",
+			"retention-cycles.json": "jj-growth-output/retention-cycles.json",
 			"growth-samples.csv":    "jj-growth-output/growth.csv",
 			"versions-samples.csv":  "jj-growth-output/versions.csv",
 			"growth-abandon.log":    "jj-growth-output/abandon.log",
 			"growth-gc.log":         "jj-growth-output/gc.log",
 			"growth-summary.json":   "jj-growth-output/summary.json",
 			"growth-failure.json":   "jj-growth-output/failure.json",
-		} {
+		}
+		if h.dailyCycles {
+			for cycle := 1; cycle <= 3; cycle++ {
+				for _, suffix := range []string{"operations.tsv", "abandon.log", "gc.log"} {
+					name := fmt.Sprintf("cycle-%d-%s", cycle, suffix)
+					artifacts[name] = "jj-growth-output/" + name
+				}
+			}
+		}
+		for destination, source := range artifacts {
+			if !h.dailyCycles && (destination == "retention-samples.csv" || destination == "retention-cycles.json") {
+				continue
+			}
 			data, err := h.runtime.ReadFile(copyCtx, h.id, source)
 			if err != nil {
 				if errors.Is(err, os.ErrNotExist) && (!completed || (destination == "snapshot-failure.json" || destination == "growth-failure.json")) {
@@ -108,6 +122,9 @@ func (h *harness) snapshots(dir string, cpus int) (retErr error) {
 		{"python3", "/workspace/snapshot-measure.py", "/workspace/snapshot-repo", "/workspace/jj-snapshot-output", "--jj", "/workspace/col01-jj", "--busy-workers", fmt.Sprint(cpus), "--samples", "100"},
 		{"python3", "/workspace/growth.py", "/workspace/snapshot-repo", "/workspace/jj-growth-output", "--jj", "/workspace/col01-jj"},
 		{"python3", "/workspace/kernel.py", "/workspace/snapshot-repo", "/workspace/kernel-probes.json"},
+	}
+	if h.dailyCycles {
+		commands[2] = append(commands[2], "--daily-cycles")
 	}
 	for i, args := range commands {
 		fmt.Println("SNAPSHOT", args)
