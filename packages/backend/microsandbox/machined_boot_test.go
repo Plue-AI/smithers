@@ -17,6 +17,11 @@ func TestMachinedInstalledBootSupplemental(t *testing.T) {
 	require.NoError(t, err)
 	script := `import importlib.util,os,stat,sys,tempfile,types,subprocess,hashlib
 spec=importlib.util.spec_from_file_location("g",sys.argv[1]);g=importlib.util.module_from_spec(spec);spec.loader.exec_module(g)
+messages=[]
+real_fail=g.fail
+def recorded_fail(code,message):
+ messages.append(message);real_fail(code,message)
+g.fail=recorded_fail
 # The fixture models root-protected ancestors independently of the host umask.
 os.umask(0o022)
 with tempfile.TemporaryDirectory() as root:
@@ -43,14 +48,14 @@ with tempfile.TemporaryDirectory() as root:
  body=b'boot_id='+b'01'*16+b'\nrelay_secret='+b'02'*32+b'\ncredential='+b'03'*32+b'\ntopology=relay\n'
  for bad in [b'',b'x'*4097,body+b'credential=other\n',body.replace(b'relay',b'bridge'),body+b'executable=/workspace/a\n',body+b'\x00',body.replace(b'01',b'GG')]:
   try:g.machined_boot_body(bad)
-  except SystemExit:pass
+  except SystemExit as error:assert error.code==3 and messages[-1]=='invalid machined boot authority',messages
   else:raise AssertionError('invalid authority accepted')
  assert not calls and not os.path.exists(root+'/run')
  assert not g.machined_program(digest)
  for mode in (0o775,0o757):
   os.chmod(root,mode)
   try:g.machined_program(digest,program)
-  except SystemExit:pass
+  except SystemExit as error:assert error.code==3 and messages[-1]=='protected directory is not root-owned and protected',messages
   else:raise AssertionError('writable protected ancestor accepted')
   assert not calls
  os.chmod(root,0o700)
@@ -65,15 +70,15 @@ with tempfile.TemporaryDirectory() as root:
  g.fcntl.flock=locked
  assert g.start_machined(digest,body)=='current' and len(calls)==1
  try:g.machined_program(digest,program)
- except SystemExit:pass
+ except SystemExit as error:assert error.code==3 and messages[-1]=='machined update requires a stopped broker',messages
  else:raise AssertionError('serving executable replaced')
  try:g.start_machined(digest,body.replace(b'01',b'04'))
- except SystemExit:pass
+ except SystemExit as error:assert error.code==3 and messages[-1]=='serving machined boot differs from host authority',messages
  else:raise AssertionError('serving authority replaced')
  assert open(root+'/run/smithers/machined/boot','rb').read()==body and len(calls)==1
  os.geteuid=lambda:20001
  try:g.start_machined(digest,body)
- except SystemExit:pass
+ except SystemExit as error:assert error.code==3 and messages[-1]=='machined startup requires root',messages
  else:raise AssertionError('member started root broker')
 `
 	out, err := exec.Command(python, "-B", "-c", script, filepath.Join("guest", "smithers-guest.py")).CombinedOutput()

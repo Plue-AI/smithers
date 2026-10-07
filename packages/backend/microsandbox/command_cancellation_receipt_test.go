@@ -107,7 +107,8 @@ def monotonic():
 namespace['time'] = types.SimpleNamespace(monotonic=monotonic, sleep=lambda _: None)
 try:
     namespace['cgroup_kill'](group)
-except RuntimeError:
+except RuntimeError as error:
+    assert str(error)=="command cgroup remains populated after cancellation", error
     if scenario != 'populated1':
         raise
     print('unconfirmed')

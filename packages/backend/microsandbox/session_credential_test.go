@@ -17,9 +17,32 @@ func TestSessionTokenRootInputsValidatedBeforeUseSupplemental(t *testing.T) {
 	require.NotZero(t, os.Geteuid())
 	python, err := exec.LookPath("python3")
 	require.NoError(t, err)
-	script := `import hashlib,importlib.util,os,stat,sys,tempfile,types
+	script := `import errno,hashlib,importlib.util,os,stat,sys,tempfile,types
 spec=importlib.util.spec_from_file_location("g",sys.argv[1]); g=importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
 scenario=sys.argv[2]
+messages=[]
+real_fail=g.fail
+def recorded_fail(code,message):
+ messages.append(message);real_fail(code,message)
+g.fail=recorded_fail
+refusals={'foreign-token': ('SystemExit', 'session credential identity differs'),
+ 'writable-token': ('SystemExit', 'untrusted session credential'),
+ 'hardlink-token': ('SystemExit', 'untrusted session credential'),
+ 'delete-extra': ('SystemExit', 'unexpected session credential entries'),
+ 'stale-rotation': ('SystemExit', 'session credential identity differs'),
+ 'stale-close': ('SystemExit', 'session credential identity differs'),
+ 'lock-link': ('OSError', None),
+ 'session-link': ('NotADirectoryError', None),
+ 'parent-link': ('NotADirectoryError', None),
+ 'leaf-link': ('OSError', None),
+ 'temporary-link': ('SystemExit', 'unexpected session credential entries'),
+ 'writable-session': ('SystemExit', 'untrusted session token directory'),
+ 'space': ('SystemExit', 'invalid session token'),
+ 'newline': ('SystemExit', 'invalid session token'),
+ 'oversized': ('SystemExit', 'invalid session token'),
+ 'empty': ('SystemExit', 'invalid session token'),
+ 'bad-session': ('SystemExit', 'invalid session id'),
+ 'unprivileged': ('SystemExit', 'session token writer requires root')}
 os.umask(0o077) # fixture ancestors must be private regardless of the host umask
 with tempfile.TemporaryDirectory() as root:
  root=os.path.realpath(root); os.makedirs(root+"/run/smithers/sessions")
@@ -57,14 +80,14 @@ with tempfile.TemporaryDirectory() as root:
  if scenario=="empty": body=b""
  if scenario=="bad-session": session="../escape"
  if scenario=="unprivileged": os.geteuid=lambda:19999
- refused=False
+ refused=None
  try:
   if scenario in ("delete-extra","stale-close"): g.delete_session_token(session,expected)
   else: g.put_session_token(session,body,expected)
- except (SystemExit,OSError): refused=True
+ except (SystemExit,OSError) as error: refused=error
  assert open(outside,"rb").read()==b"root canary"
  if scenario=="valid":
-  assert not refused,scenario
+  assert refused is None,scenario
   assert not os.path.islink(directory+"/token")
   assert open(directory+"/token","rb").read()==b"smithers_token\n"
   assert stat.S_IMODE(os.stat(directory+"/token").st_mode)==0o600
@@ -75,7 +98,10 @@ with tempfile.TemporaryDirectory() as root:
   assert not os.path.exists(directory)
   g.delete_session_token(session,hashlib.sha256(b"smithers_rotated").hexdigest())
  else:
-  assert refused,scenario
+  kind,message=refusals[scenario]
+  assert type(refused).__name__==kind,(scenario,refused,messages)
+  if message is not None: assert messages==[message],(scenario,messages)
+  else: assert refused.errno==({"NotADirectoryError":errno.ENOTDIR,"FileExistsError":errno.EEXIST,"OSError":errno.ELOOP}[kind]),(scenario,refused)
   if scenario in ("foreign-token","writable-token","hardlink-token","delete-extra","stale-rotation","stale-close"):
    assert open(directory+"/token","rb").read()==b"smithers_foreign\n"
   if scenario=="delete-extra": assert open(directory+"/unrelated","rb").read()==b"keep"

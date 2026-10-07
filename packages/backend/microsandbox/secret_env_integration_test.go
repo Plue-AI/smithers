@@ -15,9 +15,28 @@ func TestSecretEnvRootInputsValidatedBeforeUseSupplemental(t *testing.T) {
 	require.NotZero(t, os.Geteuid())
 	python, err := exec.LookPath("python3")
 	require.NoError(t, err)
-	script := `import importlib.util,os,stat,sys,tempfile,types
+	script := `import errno,importlib.util,os,stat,sys,tempfile,types
 spec=importlib.util.spec_from_file_location("g",sys.argv[1]); g=importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
 scenario=sys.argv[2]
+messages=[]
+real_fail=g.fail
+def recorded_fail(code,message):
+ messages.append(message);real_fail(code,message)
+g.fail=recorded_fail
+refusals={'parent-link': ('NotADirectoryError', None),
+ 'leaf-link': ('SystemExit', 'untrusted secret environment destination'),
+ 'fifo': ('SystemExit', 'untrusted secret environment destination'),
+ 'writable-parent': ('SystemExit', 'untrusted directory ancestor'),
+ 'temporary-link': ('FileExistsError', None),
+ 'oversized': ('SystemExit', 'secret environment exceeds limit'),
+ 'nul': ('SystemExit', 'invalid secret environment entry'),
+ 'duplicate': ('SystemExit', 'duplicate secret environment key'),
+ 'invalid-name': ('SystemExit', 'invalid secret environment entry'),
+ 'not-map': ('SystemExit', 'invalid secret environment'),
+ 'non-string': ('SystemExit', 'invalid secret environment entry'),
+ 'too-many': ('SystemExit', 'invalid secret environment'),
+ 'disk': ('SystemExit', 'not tmpfs'),
+ 'group': ('SystemExit', 'no team')}
 with tempfile.TemporaryDirectory() as root:
  root=os.path.realpath(root); os.mkdir(root+"/run"); parent=root+"/run/smithers"; os.mkdir(parent)
  outside=root+"/outside"; open(outside,"wb").write(b"root canary")
@@ -46,14 +65,17 @@ with tempfile.TemporaryDirectory() as root:
  if scenario=="too-many": body=g.json.dumps({"A"+str(i):"x" for i in range(1001)}).encode()
  if scenario=="disk": g.require_secret_tmpfs=lambda fd:g.fail(3,"not tmpfs")
  if scenario=="group": g.secret_team=lambda:g.fail(3,"no team")
- refused=False
+ refused=None
  try: g.put_secret_environment(body)
- except (SystemExit,OSError,ValueError): refused=True
+ except (SystemExit,OSError,ValueError) as error: refused=error
  assert open(outside,"rb").read()==b"root canary"
  if scenario!="valid":
-  assert refused,scenario
+  kind,message=refusals[scenario]
+  assert type(refused).__name__==kind,(scenario,refused,messages)
+  if message is not None: assert messages==[message],(scenario,messages)
+  else: assert refused.errno==({"NotADirectoryError":errno.ENOTDIR,"FileExistsError":errno.EEXIST,"OSError":errno.ELOOP}[kind]),(scenario,refused)
  else:
-  assert not refused
+  assert refused is None
   assert open(target,"rb").read()==body
   assert stat.S_IMODE(real_stat(target).st_mode)==0o640
   old=open(target,"rb")

@@ -61,6 +61,11 @@ g.main(sys.argv[sys.argv.index('run')+1:])
 	require.Equal(t, "bytes", string(content))
 	boundaryPython(t, `
 g.os.geteuid=lambda: 0
+messages=[]
+real_fail=g.fail
+def recorded_fail(code,message):
+ messages.append(message);real_fail(code,message)
+g.fail=recorded_fail
 calls=[]
 # Dispatch-envelope assertion; real fork/drop ordering is covered separately.
 def managed(exec_id,action):
@@ -75,7 +80,7 @@ except SystemExit as error:assert error.code==0,error.code
 assert calls==['agent',('/workspace','file',0o600)],calls
 for user in ('root','other','1500'):
  try: g.main(['fs',user,'write','/workspace','file','600'])
- except SystemExit: pass
+ except SystemExit as error: assert error.code==125 and messages[-1]=='invalid fs identity',messages
  else: raise AssertionError('accepted '+user)
 `)
 }

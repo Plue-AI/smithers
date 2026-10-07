@@ -120,6 +120,22 @@ func TestGuestCodingBindingRefusesPathAndAuthorityAttacks(t *testing.T) {
 			}
 			output, err := runCodingBindingGuest(t, base, config, "")
 			require.Error(t, err, output)
+			refusal := map[string]string{
+				"parent symlink":     "protected directory is a link or not a directory",
+				"ancestor symlink":   "protected directory is a link or not a directory",
+				"target symlink":     "coding binding target is not a root-owned file",
+				"writable parent":    "protected directory is not root-owned and protected",
+				"writable ancestor":  "protected directory is not root-owned and protected",
+				"invalid fields":     "coding binding fields are invalid",
+				"runtime root":       "coding binding authority is invalid",
+				"runtime user":       "coding binding authority is invalid",
+				"runtime socket":     "coding binding authority is invalid",
+				"zero actor":         "coding binding authority is invalid",
+				"boolean repository": "coding binding authority is invalid",
+				"invalid workspace":  "coding binding authority is invalid",
+			}[name]
+			require.NotEmpty(t, refusal, "every refusal names its guard")
+			require.Contains(t, output, refusal)
 			body, err := os.ReadFile(sentinel)
 			require.NoError(t, err)
 			require.Equal(t, "unchanged", string(body))
@@ -213,7 +229,18 @@ guest.install_coding_helper(sys.argv[4],base64.b64decode(sys.argv[3]))
 				require.Equal(t, os.FileMode(0755), info.Mode().Perm())
 			} else {
 				require.Error(t, err, string(output))
-				require.Contains(t, string(output), "smithers-guest:")
+				refusal := map[string]string{
+					"invalid ELF":        "coding helper is not Linux arm64",
+					"digest mismatch":    "protected file bytes differ from the approved digest",
+					"invalid digest":     "coding helper digest is invalid",
+					"target symlink":     "protected file is not a root-owned file",
+					"writable directory": "protected directory is not root-owned and protected",
+					"ancestor symlink":   "protected directory is a link or not a directory",
+					"writable ancestor":  "protected directory is not root-owned and protected",
+					"non-root":           "coding helper requires root",
+				}[name]
+				require.NotEmpty(t, refusal, "every refusal names its guard")
+				require.Contains(t, string(output), refusal)
 			}
 			contents, err := os.ReadFile(sentinel)
 			require.NoError(t, err)
@@ -296,7 +323,17 @@ print("current" if guest.coding_helper_current(sys.argv[3]) else "replace")
 				require.Equal(t, "replace\n", string(output))
 			default:
 				require.Error(t, err, string(output))
-				require.Contains(t, string(output), "smithers-guest:")
+				refusal := map[string]string{
+					"invalid digest":     "coding helper digest is invalid",
+					"target symlink":     "protected file is not a root-owned file",
+					"writable directory": "protected directory is not root-owned and protected",
+					"ancestor symlink":   "protected directory is a link or not a directory",
+					"writable ancestor":  "protected directory is not root-owned and protected",
+					"non-root":           "coding helper check requires root",
+					"wrong owner":        "protected file is not a root-owned file",
+				}[name]
+				require.NotEmpty(t, refusal, "every refusal names its guard")
+				require.Contains(t, string(output), refusal)
 			}
 		})
 	}
