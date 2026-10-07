@@ -15,7 +15,7 @@ func scorecardCountFixture() (ScorecardWindow, scorecardFacts) {
 	start, answer := from, from.Add(5*time.Minute)
 	facts := scorecardFacts{Coverage: map[string]bool{}, InstallStart: &start, FirstAnswer: &answer,
 		MainCommits: map[string]bool{}, Activations: map[string]time.Time{"v1": from, "v2": from.Add(24 * time.Hour)}}
-	for _, ticket := range []string{"T-INS-06", "T-STK-01", "T-STK-04", "T-GH-02", "T-APP-16", "T-FLW-03", "T-COL-04", "T-COL-06", "T-FLW-06"} {
+	for _, ticket := range []string{"T-INS-06", "T-STK-01", "T-STK-04", "T-GH-02", "T-APP-16", "T-APP-04", "T-FLW-03", "T-COL-04", "T-COL-06", "T-FLW-06"} {
 		facts.Coverage[ticket] = true
 	}
 	for i := 0; i < 60; i++ {
@@ -73,6 +73,7 @@ func TestScorecardCountsCoverageIndependent(t *testing.T) {
 	affected := map[string][]string{
 		"T-INS-06": {"install_start", "activation"},
 		"T-APP-16": {"first_answer"},
+		"T-APP-04": {"second_member_actions"},
 		"T-STK-01": {"accepted", "merged", "dropped", "failed", "first_merge", "dogfood", "activation", "core_value", "second_member_actions", "no_hand_written_code", "outside_work", "retention", "self_improvement"},
 		"T-STK-04": {"merged", "first_merge", "dogfood", "activation", "no_hand_written_code", "self_improvement"},
 		"T-GH-02":  {"merged", "first_merge", "dogfood", "activation", "no_hand_written_code", "outside_work"},

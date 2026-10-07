@@ -274,6 +274,30 @@ func (s *ScorecardService) Summary(ctx context.Context, from, to time.Time) (Sco
 		}
 		facts.Coverage["T-COL-06"] = complete
 	}
+	if present["approvals"] && present["mythical_items"] {
+		rows, err := queries.ScorecardReviews(ctx)
+		if err != nil {
+			return Scorecard{}, err
+		}
+		complete := len(rows) > 0
+		for _, row := range rows {
+			if row.TodoID == "" || !row.MemberID.Valid || row.MemberID.Int64 <= 0 || row.CreatedAt.IsZero() {
+				complete = false
+				continue
+			}
+			if row.State != "approved" {
+				continue
+			}
+			if !row.DecidedAt.Valid || row.DecidedAt.Time.Before(row.CreatedAt) ||
+				!row.DecidedBy.Valid || row.DecidedBy.Int64 != row.MemberID.Int64 || row.DecisionCredential == "" {
+				complete = false
+				continue
+			}
+			facts.Actions = append(facts.Actions, scorecardAction{SourceKey: row.ID, TODO: row.TodoID,
+				Person: fmt.Sprint(row.DecidedBy.Int64), Kind: "review", At: row.DecidedAt.Time})
+		}
+		facts.Coverage["T-APP-04"] = complete
+	}
 	if present["memory_notes"] && present["mythical_items"] {
 		rows, err := queries.ScorecardLearnings(ctx)
 		if err != nil {
@@ -331,7 +355,7 @@ func unavailableScorecard(window ScorecardWindow) Scorecard {
 	add("activation", "first merge within 60 minutes", "two of three teams need help (manual)", append([]string{"install_settings"}, todoTables...), append([]string{"T-INS-06"}, merges...))
 	add("core_value", "at least 10 accepted TODOs per week; sampled median under 15 person-minutes (manual)", "fewer than 3 accepted in week 2 or rising sampled median (manual)", todoTables, []string{"T-STK-01"})
 	add("terminal_edits", "diagnostic", "none", []string{"product_job_events", "burst_files"}, []string{"T-COL-04"})
-	add("second_member_actions", "diagnostic", "none", todoTables, []string{"T-STK-01", "T-COL-04"})
+	add("second_member_actions", "diagnostic", "none", append([]string{"approvals"}, todoTables...), []string{"T-STK-01", "T-COL-04", "T-APP-04"})
 	add("no_hand_written_code", "diagnostic", "none", []string{"mythical_items", "product_job_events", "burst_files"}, append([]string{"T-COL-04"}, merges...))
 	add("flow_revisions", "diagnostic", "none", []string{"workflow_definitions"}, []string{"T-FLW-03"})
 	add("outside_work", "diagnostic", "over 50% of changes to main", []string{"github_synced_repos", "mythical_items"}, []string{"T-GH-02", "T-STK-01"})

@@ -40,7 +40,7 @@ func TestScorecardMissingCoverage(t *testing.T) {
 		"dogfood":    {"T-STK-01", "T-STK-04", "T-GH-02"},
 		"activation": {"T-INS-06", "T-STK-01", "T-STK-04", "T-GH-02"},
 		"core_value": {"T-STK-01"}, "terminal_edits": {"T-COL-04"},
-		"second_member_actions": {"T-STK-01", "T-COL-04"},
+		"second_member_actions": {"T-STK-01", "T-COL-04", "T-APP-04"},
 		"no_hand_written_code":  {"T-COL-04", "T-STK-01", "T-STK-04", "T-GH-02"},
 		"flow_revisions":        {"T-FLW-03"}, "outside_work": {"T-GH-02", "T-STK-01"},
 		"multiplayer": {"T-COL-06"}, "retention": {"T-STK-01"},

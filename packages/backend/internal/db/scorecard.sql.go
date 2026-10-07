@@ -294,6 +294,58 @@ func (q *Queries) ScorecardPresence(ctx context.Context) ([]ScorecardPresenceRow
 	return items, nil
 }
 
+const scorecardReviews = `-- name: ScorecardReviews :many
+SELECT a.id::text AS id, COALESCE(i.id::text, '')::text AS todo_id,
+       a.member_id, a.state, a.created_at, a.decided_at, a.decided_by,
+       COALESCE(a.decision_credential, '')::text AS decision_credential
+FROM approvals a LEFT JOIN mythical_items i ON i.repository_id=a.repository_id
+ AND a.subject->>'kind'='todo' AND a.subject->>'ref'='T'||i.number::text
+ AND (i.source='todo' OR i.checks->>'todo'='true')
+WHERE a.member_id IS NOT NULL AND a.kind='review_merge' AND a.command='merge'
+`
+
+type ScorecardReviewsRow struct {
+	ID                 string             `json:"id"`
+	TodoID             string             `json:"todo_id"`
+	MemberID           pgtype.Int8        `json:"member_id"`
+	State              string             `json:"state"`
+	CreatedAt          time.Time          `json:"created_at"`
+	DecidedAt          pgtype.Timestamptz `json:"decided_at"`
+	DecidedBy          pgtype.Int8        `json:"decided_by"`
+	DecisionCredential string             `json:"decision_credential"`
+}
+
+// Review sessions retain their own confirmation identity. The requester may
+// be delegated; only the successful confirming person is participation.
+func (q *Queries) ScorecardReviews(ctx context.Context) ([]ScorecardReviewsRow, error) {
+	rows, err := q.db.Query(ctx, scorecardReviews)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScorecardReviewsRow{}
+	for rows.Next() {
+		var i ScorecardReviewsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TodoID,
+			&i.MemberID,
+			&i.State,
+			&i.CreatedAt,
+			&i.DecidedAt,
+			&i.DecidedBy,
+			&i.DecisionCredential,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const scorecardSourceRelations = `-- name: ScorecardSourceRelations :many
 SELECT source.name::text AS name,
        (to_regclass('public.' || source.name) IS NOT NULL
@@ -301,12 +353,13 @@ SELECT source.name::text AS name,
              (SELECT count(*) = 2 FROM information_schema.columns
               WHERE table_schema = 'public' AND table_name = 'mythical_items'
                 AND column_name IN ('owner_id', 'created_by')))
+        AND (source.name <> 'approvals' OR EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='approvals' AND column_name='member_id'))
         AND (source.name <> 'chat_turns' OR EXISTS(
              SELECT 1 FROM information_schema.columns WHERE table_schema = 'public'
               AND table_name = 'chat_turns' AND column_name = 'conversation_id')))::boolean AS present
 FROM unnest(ARRAY['install_settings', 'mythical_items', 'product_job_events',
                  'chat_turns', 'chat_turn_batches', 'burst_files', 'audit_log',
-                 'workflow_definitions', 'memory_notes']) AS source(name)
+                 'workflow_definitions', 'memory_notes', 'approvals']) AS source(name)
 `
 
 type ScorecardSourceRelationsRow struct {
