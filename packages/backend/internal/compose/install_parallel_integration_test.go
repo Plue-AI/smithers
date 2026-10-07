@@ -10,6 +10,8 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -28,7 +30,11 @@ import (
 
 // This exercises the install router's actual auth, CSRF and owner setting
 // against PostgreSQL, including persistence when capacity falls to zero.
-func TestParallelOwnerOnlyInstallBoundary(t *testing.T) {
+func TestParallelOwnerOnlyInstallBoundary(t *testing.T) { testParallelInstallBoundary(t, false) }
+
+func TestParallelSettingsCardBoundary(t *testing.T) { testParallelInstallBoundary(t, true) }
+
+func testParallelInstallBoundary(t *testing.T, card bool) {
 	// Use only this lane's database. The shared test harness's automatic
 	// orphan sweep must never remove a database this test did not create.
 	server := os.Getenv("SMITHERS_STK03_DATABASE_URL")
@@ -83,7 +89,7 @@ func TestParallelOwnerOnlyInstallBoundary(t *testing.T) {
 	cfg.Server.AllowedOrigins = []string{"http://localhost:4000"}
 	capacity := &services.InstallCapacityService{AuthorizeParallel: func(ctx context.Context) error { _, err := services.Authorize(ctx, q, "settings.parallel"); return err }, Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: 400 << 30, MacOSVersion: "15.6", Hypervisor: true}}
 	setupSessions := &services.InstallSetupSessions{Pool: pool}
-	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{Sessions: setupSessions, Owners: q, Origins: middleware.FixedOrigins("http://localhost:4000"), Setup: &services.InstallSetupService{Pool: pool, Capacity: capacity}})
+	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{Sessions: setupSessions, Owners: q, Origins: middleware.FixedOrigins("http://localhost:4000"), Setup: &services.InstallSetupService{Pool: pool, Capacity: capacity}}, &routes.UserHandler{ProfileService: services.NewUserService(q)})
 	request := func(method, path, token, body string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, "http://localhost:4000"+path, strings.NewReader(body))
 		r.RemoteAddr = "127.0.0.1:1234"
@@ -125,6 +131,23 @@ func TestParallelOwnerOnlyInstallBoundary(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, capacity.Set(ctx, owner.ID, 2))
+	if card {
+		require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "parallel", Value: []byte(`2`)}))
+		server := httptest.NewServer(router)
+		defer server.Close()
+		app, err := filepath.Abs("../../../../apps/app")
+		require.NoError(t, err)
+		command := exec.CommandContext(ctx, "bun", "test", "--isolate", "src/mainview/cards/ParallelSettingsBoundary.test.tsx")
+		command.Dir = app
+		command.Env = append(os.Environ(), "SMITHERS_PARALLEL_BOUNDARY_URL="+server.URL, "SMITHERS_PARALLEL_BOUNDARY_COOKIE=quiesceowner-session")
+		output, err := command.CombinedOutput()
+		require.NoError(t, err, string(output))
+		t.Log(string(output))
+		saved, err := q.GetInstallParallel(ctx)
+		require.NoError(t, err)
+		require.JSONEq(t, `3`, string(saved))
+		return
+	}
 
 	// Every credential goes through the composed authentication chain. Refusal
 	// must preserve the requested value, including when the bearer belongs to
@@ -163,7 +186,7 @@ func TestParallelOwnerOnlyInstallBoundary(t *testing.T) {
 	}
 	// The former per-repository setter must not remain an owner bypass.
 	require.Equal(t, 404, request("PUT", "/api/repos/quiesceowner/fixture/mythical/config", "quiesceowner-session", `{"maxParallel":8}`).Code)
-	for _, body := range []string{`{"parallel":0}`, `{"parallel":9}`, `{"parallel":2.5}`} {
+	for _, body := range []string{`{"parallel":0}`, `{"parallel":9}`, `{"parallel":2.5}`, `{"parallel":null}`, `{"capacity":null}`, `{"chatgpt":null}`, `{"parallel":"2"}`, `{"parallel":2,"unknown":true}`} {
 		require.Equal(t, 400, request("PUT", "/api/install", "quiesceowner-session", body).Code)
 	}
 	w := request("PUT", "/api/install", "quiesceowner-session", `{"parallel":8}`)
