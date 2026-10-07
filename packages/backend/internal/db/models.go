@@ -1440,6 +1440,15 @@ type LinearSyncRun struct {
 	CreatedAt      time.Time          `json:"created_at"`
 }
 
+type MachineActorReference struct {
+	ID          string          `json:"id"`
+	WorkspaceID string          `json:"workspace_id"`
+	MachineID   string          `json:"machine_id"`
+	Actor       json.RawMessage `json:"actor"`
+	Digest      []byte          `json:"digest"`
+	CreatedAt   time.Time       `json:"created_at"`
+}
+
 type MachineEventReceipt struct {
 	WorkspaceID          string    `json:"workspace_id"`
 	EventID              string    `json:"event_id"`
