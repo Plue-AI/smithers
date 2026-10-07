@@ -14,6 +14,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/subscriptiontoken"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/ports"
@@ -131,7 +132,40 @@ func (resolver *OwnerSecretResolver) ResolveChatModel(ctx context.Context, owner
 	if json.Unmarshal(input.Model, &model) != nil || model.Protocol == "" || model.ModelID == "" || !validCredentialName(model.Credential) {
 		return Binding{}, errors.New("model turn requires a configured model")
 	}
+	if (model.Protocol == "openai-responses-chatgpt") != (model.Credential == services.InstallSubscriptionCredential) {
+		return Binding{}, errors.New("invalid ChatGPT model binding")
+	}
 	read := func(name string) (string, error) {
+		if name == services.InstallSubscriptionCredential {
+			digest, err := services.InstallSubscriptionDigest(ctx, pool, ownerID)
+			if err != nil {
+				return "", err
+			}
+			if digest == "" {
+				return "", ports.ErrModelCredentialMissing
+			}
+			if input.RepositoryID == 0 {
+				input.RepositoryID, err = db.New(pool).InstallRepositoryID(ctx)
+				if err != nil {
+					return "", err
+				}
+			}
+			connections := services.NewProviderConnectionService(db.New(pool), codec,
+				services.NewHTTPProviderTokenRefresher(services.DefaultProviderConnectionsConfig(), nil),
+				services.WithSubscriptionConnectionsSetting(func() bool {
+					enabled, err := services.InstallChatGPTEnabled(ctx, db.New(pool))
+					return err == nil && enabled
+				}))
+			pick, err := connections.PickForModelCall(ctx, ownerID, input.RepositoryID, "codex", nil)
+			if err != nil {
+				return "", err
+			}
+			if pick.Connection == nil {
+				return "", ports.ErrModelCredentialMissing
+			}
+			access, err := json.Marshal(map[string]string{"accessToken": pick.Connection.AccessToken, "accountId": pick.Connection.AccountID})
+			return string(access), err
+		}
 		var encrypted []byte
 		if input.RepositoryID > 0 {
 			// A chat turn is an agent's: a main-only secret never reaches it,
@@ -166,7 +200,7 @@ func (resolver *OwnerSecretResolver) ResolveChatModel(ctx context.Context, owner
 	// secret overriding the credential, is not an API key: the turn fails as
 	// a missing credential to replace. The error names the credential, never
 	// its value (#2222).
-	if subscriptiontoken.Holds(model.Credential, value) {
+	if model.Credential != services.InstallSubscriptionCredential && subscriptiontoken.Holds(model.Credential, value) {
 		return Binding{}, fmt.Errorf("model credential %s holds a Claude or ChatGPT subscription token; replace it with an API key: %w", model.Credential, ports.ErrModelCredentialMissing)
 	}
 	binding := Binding{Model: input.Model, CredentialName: model.Credential, CredentialValue: value}
@@ -237,7 +271,7 @@ func (resolver *OwnerSecretResolver) Close() {
 
 func builtinCredential(name string) bool {
 	switch name {
-	case "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CEREBRAS_API_KEY", "OPENROUTER_API_KEY", "AI_GATEWAY_API_KEY":
+	case "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CEREBRAS_API_KEY", "OPENROUTER_API_KEY", "AI_GATEWAY_API_KEY", services.InstallSubscriptionCredential:
 		return true
 	default:
 		return false
