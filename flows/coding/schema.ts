@@ -222,6 +222,7 @@ export class CodingError extends Schema.TaggedError<CodingError>()("coding/Error
     "source_missing",
     "source_changed",
     "source_refused",
+    "not_a_todo_run",
     "source_unavailable",
     "declined",
     "stalled",
@@ -238,6 +239,7 @@ Fault.register(
     source_missing: "user",
     source_changed: "user",
     source_refused: "user",
+    not_a_todo_run: "user",
     // The plan, its checks, or its correction rounds did not converge: a replan's.
     invalid_plan: "factory",
     fast_gate: "factory",

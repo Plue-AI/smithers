@@ -203,3 +203,22 @@ func TestPresenceRPCNeverStartsOrRebindsHost(t *testing.T) {
 	require.Equal(t, 3, resolver.reads)
 	require.Zero(t, resolver.starts)
 }
+
+func TestDraftRelayRunsTodoWithoutStackAuthority(t *testing.T) {
+	runtime := &observedRuntime{flows: map[string]string{"todo-run": "todo"}}
+	service := &Service{resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) { return runtime, nil }), runtimeCallTimeout: time.Second, relayPlans: memoryRelayPlans{}}
+	target := flowruntime.Target{TenantID: "repository:1", PrincipalID: "user:1", WorkspaceID: "scratch", BindingKind: DraftBindingKind}
+	for _, call := range []struct{ procedure, payload string }{
+		{"Plan", `{"flowId":"todo","input":{}}`},
+		{"Run", `{"_tag":"Plan","planId":"plan-of-todo","digest":"d","envelope":{},"idempotencyKey":"draft"}`},
+		{"Resume", `{"runId":"todo-run"}`},
+	} {
+		_, err := service.CallRPC(t.Context(), target, call.procedure, json.RawMessage(call.payload))
+		require.NoError(t, err, call.procedure)
+	}
+	require.Equal(t, []string{"Plan", "Run", "Resume"}, runtime.calls)
+	_, err := service.CallRPC(t.Context(), target, "Plan", json.RawMessage(`{"flowId":"coding/vibe"}`))
+	require.ErrorIs(t, err, ErrEngineFlowOutsideStack)
+	_, err = service.CallRPC(t.Context(), target, "Run", json.RawMessage(`{"_tag":"Plan","planId":"unknown"}`))
+	require.ErrorIs(t, err, ErrRelayPlanUnknown)
+}
