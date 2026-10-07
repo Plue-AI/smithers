@@ -11,7 +11,13 @@ import (
 )
 
 func TestInstalledRevocationBoundaryWaitsForDrainAndRejectsMalformedRequests(t *testing.T) {
-	root := t.TempDir()
+	// Keep the socket below Darwin's sockaddr_un path limit independently
+	// of the test name and the caller's temporary-directory prefix.
+	root, err := os.MkdirTemp("/tmp", "smthrs-ctl-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
 	path := filepath.Join(root, "control.sock")
 	listener, err := net.Listen("unix", path)
 	if err != nil {
