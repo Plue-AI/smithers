@@ -44,7 +44,7 @@ export function preflightTiming(events, runId) {
   if (!starts.length || !completed.length) throw new Error('T-APP-16: preflight phases unavailable in Inspect')
   const start = starts[0], end = completed.at(-1)
   if (!Number.isFinite(start.at) || !Number.isFinite(end.at) || end.at < start.at ||
-      typeof start.clock !== 'string' || !start.clock.includes('monotonic') || start.clock !== end.clock) throw new Error('T-APP-16: preflight host-clock start/end unavailable')
+      typeof start.clock !== 'string' || !start.clock.startsWith('host monotonic:') || start.clock.length <= 'host monotonic:'.length || start.clock !== end.clock) throw new Error('T-APP-16: preflight host-clock start/end unavailable')
   if (!end.result?.model || !Array.isArray(end.result.context)) throw new Error('preflight model/context missing')
   return { start: start.at, end: end.at, durationMs: end.at - start.at, model: end.result.model, clock: start.clock, context: end.result.context }
 }
@@ -60,14 +60,14 @@ export function wakeCount(metrics) {
 }
 
 export async function run(env = process.env, { persist = true } = {}) {
-  const result = { timestamp: new Date().toISOString().replace(/[:.]/g, '-'), check: 'C-PERF-01', status: 'failed', samples: [], clock: 'second Mac browser performance.now()' }
+  const result = { version: 1, commit: null, installVersion: env.SMITHERS_PERF_INSTALL_VERSION ?? null, origin: null, host: null, browser: null, models: null, timestamp: new Date().toISOString().replace(/[:.]/g, '-'), check: 'C-PERF-01', status: 'failed', samples: [], clock: 'second Mac browser performance.now()' }
   let browser
   try {
+    result.commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
     const config = configuration(env)
     if (process.platform !== 'darwin') throw new Error('C-PERF-01 requires the second Mac')
     result.origin = config.origin
     result.host = await readHost(config.origin, { cookie: env.SMITHERS_PERF_OWNER_COOKIE })
-    result.commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
     result.installVersion = env.SMITHERS_PERF_INSTALL_VERSION
     const beforeMetrics = await fetch(`${config.origin}/api/install/metrics`, { headers: { Cookie: env.SMITHERS_PERF_OWNER_COOKIE }, redirect: 'error', signal: AbortSignal.timeout(10000) })
     if (beforeMetrics.status !== 200) throw new Error(`metrics cross-check returned ${beforeMetrics.status}`)
@@ -84,7 +84,7 @@ export async function run(env = process.env, { persist = true } = {}) {
     result.member = await authenticatedMember(context, config.origin)
     const page = await context.newPage()
     await page.goto(config.page)
-    await page.locator('[data-shared-conversation="main"]').waitFor({ timeout: 15000 })
+    await page.waitForFunction(id => document.querySelector('[data-shared-conversation]')?.getAttribute('data-shared-conversation') === id, result.member.conversation, { timeout: 15000 })
     // Track the real Home projection throughout, including warmup.
     await page.evaluate(async origin => {
       window.__perfMachineFailure = undefined
@@ -115,7 +115,7 @@ export async function run(env = process.env, { persist = true } = {}) {
       const composer = page.getByTestId('composer-input')
       await composer.fill(question)
       await page.evaluate(() => {
-        const root = document.querySelector('[data-shared-conversation="main"]')
+        const root = document.querySelector('[data-shared-conversation]')
         const seen = new Set([...root.querySelectorAll('[data-shared-turn]')].map(el => el.dataset.sharedTurn))
         const input = document.querySelector('[data-testid="composer-input"]')
         window.__perfAnswer = new Promise((resolveAnswer, reject) => {
@@ -167,7 +167,7 @@ export async function run(env = process.env, { persist = true } = {}) {
     result.status = 'passed'
   } catch (error) { result.error = error.message }
   finally { await browser?.close() }
-  const directory = persist ? await writeRun(process.cwd(), { ...result, budgets: [{ ...result, name: 'agent-first-token' }] }) : undefined
+  const directory = persist ? await writeRun(env.SMITHERS_PERF_ARTIFACT_ROOT ?? process.cwd(), { ...result, budgets: [{ ...result, name: 'agent-first-token' }] }) : undefined
   return { result, directory }
 }
 
