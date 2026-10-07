@@ -110,7 +110,7 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 	}
 	if command == "stack.candidate" && input.Source == nil {
 		// Admission must refuse missing plan/runtime before guest capture too.
-		if machine.runtime == nil || machine.runtime.Isolation() != workspaceapi.IsolationSandboxed || len(item.Plan) == 0 {
+		if s.launcher == nil || machine.runtime == nil || machine.runtime.Isolation() != workspaceapi.IsolationSandboxed || len(item.Plan) == 0 {
 			return empty, 0, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "candidate verification unavailable")
 		}
 		return empty, 204, tx.Commit(live)

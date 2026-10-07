@@ -25,7 +25,7 @@ func (st *mythicalItemStep) consumeCapturedEdits(ctx context.Context, item db.My
 	if _, pinned := mythicalPinOf(item); !pinned {
 		return nil, false, nil
 	}
-	if checks.Rebase != nil && !checks.Rebase.Rebased {
+	if checks.Rebase != nil && !checks.Rebase.Rebased && capture.SourceRef == "" {
 		return nil, false, nil
 	}
 	if item.State == "verifying" && item.VerifyOutcome == "" {
@@ -48,7 +48,8 @@ func (st *mythicalItemStep) consumeCapturedEdits(ctx context.Context, item db.My
 	if st.s == nil || st.r == nil || item.WorkspaceID == "" || item.CandidateBase == "" {
 		return nil, false, nil
 	}
-	if item.CandidateBase != st.prefix(item) {
+	onto := st.prefix(item)
+	if item.CandidateBase != onto && (capture.SourceRef == "" || !st.s.mayRebaseAtBoundary(ctx, item.RepositoryID, item.WorkspaceID)) {
 		return nil, false, nil
 	}
 	var plan struct {
@@ -102,12 +103,28 @@ func (st *mythicalItemStep) consumeCapturedEdits(ctx context.Context, item db.My
 	} else if len(paths) > 0 {
 		return nil, false, errors.New("captured edits change protected paths")
 	}
-	return st.verifyCandidate(ctx, item, next, item.CandidateBase, capture.Head, capture)
+	head := capture.Head
+	if item.CandidateBase != onto {
+		if err := st.fetchOnto(ctx, onto); err != nil {
+			return nil, false, err
+		}
+		head, err = st.r.g.rebaseCandidate(ctx, onto, mythicalCandidate{ItemID: uuidString(item.ID), Issue: item.IssueNumber.Int64, Base: item.CandidateBase, Head: capture.Head}, mythicalChainLimit)
+		if err != nil {
+			return nil, false, err
+		}
+		next.CandidateBase, next.CandidateHead = onto, head
+		if paths, err := st.protectedChanges(ctx, next); err != nil {
+			return nil, false, err
+		} else if len(paths) > 0 {
+			return nil, false, errors.New("rebased capture changes protected paths")
+		}
+	}
+	return st.verifyCandidate(ctx, item, next, onto, head, capture)
 }
 
 // Take the stack -> items -> workspace locks before the launch writes any
 // rows. An intervening capture, pause, prefix or claim change consumes nothing.
-func (st *mythicalItemStep) lockCapturedContinuation(ctx context.Context, tx pgx.Tx, item db.MythicalItem, capture MachineCapturePending) error {
+func (st *mythicalItemStep) lockCapturedContinuation(ctx context.Context, tx pgx.Tx, item db.MythicalItem, capture MachineCapturePending, expectedPrefix string) error {
 	var live bool
 	var main string
 	if err := tx.QueryRow(ctx, `SELECT state='active' AND running AND claim=$2 AND lease_expires_at>clock_timestamp(),landed_main FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, item.RepositoryID, st.r.row.Claim).Scan(&live, &main); err != nil {
@@ -133,7 +150,7 @@ func (st *mythicalItemStep) lockCapturedContinuation(ctx context.Context, tx pgx
 	}
 	fresh := *st
 	fresh.items = order
-	if current.CandidateBase != fresh.prefix(current) {
+	if expectedPrefix != fresh.prefix(current) {
 		return errors.New("prefix moved before captured edits were consumed")
 	}
 	var head string

@@ -193,6 +193,7 @@ if (parsed.values.version) {
                   ...models,
                   planning,
                   ...(landing === undefined ? {} : {
+                    nativeRepositoryToken: landing.token,
                     landing: Landing.layer(landing).pipe(Layer.provide(http), Layer.orDie),
                     repositoryRemote: Layer.merge(
                       remoteLayer({ ...landing, gatewayId: options.gatewayId, credential: options.credential ?? "" }),

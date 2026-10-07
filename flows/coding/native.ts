@@ -3,7 +3,7 @@
  */
 import * as Digest from "@smthrs/core/Digest"
 import { Action } from "@smthrs/flow"
-import { Cause, Context, Effect, Layer, Option, Schema, Stream } from "effect"
+import { Cause, Context, Effect, Layer, Option, Redacted, Schema, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 
 import { helperPath } from "./helper.ts"
@@ -58,6 +58,8 @@ export class NativeCoding extends Context.Service<NativeCoding, {
 }>()("coding/NativeCoding") {}
 
 export interface NativeOptions {
+  /** Executable-owned credential, supplied only to native publication. */
+  readonly nativeRepositoryToken?: Redacted.Redacted<string> | undefined
   /** Must exactly match the path bound by Plue provisioning. */
   readonly repositoryPath: string
   /** Host-selected executable location; never part of a flow input. */
@@ -138,6 +140,10 @@ export const nativeLayer = (options: NativeOptions) =>
         const process = yield* spawner.spawn(
           ChildProcess.make(helperPath(options), ["--local"], {
             stdin: Stream.make(new TextEncoder().encode(input)),
+            ...(options.nativeRepositoryToken !== undefined && "operation" in request &&
+                ["publish_source", "stack.candidate", "stack.propose"].includes(String(request.operation))
+              ? { extendEnv: true, env: { SMITHERS_NATIVE_REPOSITORY_TOKEN: Redacted.value(options.nativeRepositoryToken) } }
+              : {}),
             cwd: options.repositoryPath
           })
         )

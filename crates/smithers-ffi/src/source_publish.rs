@@ -131,6 +131,14 @@ fn config_valid(config: &Config, path: &Path) -> bool {
 }
 
 fn credential(config: &Config) -> Result<String> {
+    // The executable consumes its private landing credential before ordinary
+    // tools start and supplies it only to the installed native transport.
+    if let Ok(token) = std::env::var("SMITHERS_NATIVE_REPOSITORY_TOKEN") {
+        if token.is_empty() || token.len() > 4096 || token.bytes().any(|b| b <= 32 || b >= 127) {
+            return Err(unavailable());
+        }
+        return Ok(token);
+    }
     let mut cascade = gix::credentials::helper::Cascade {
         programs: vec![gix::credentials::Program::from_custom_definition(format!(
             "cache --socket {}",
@@ -263,7 +271,11 @@ fn push_source(repo: &ReadonlyRepo, config: &Config, source: &Source, name: &str
         ("credential.helper", String::new()),
         (
             "credential.helper",
-            format!("cache --socket {}", config.credential_socket),
+            if std::env::var_os("SMITHERS_NATIVE_REPOSITORY_TOKEN").is_some() {
+                "!f() { printf 'username=smithers\npassword=%s\n' \"$SMITHERS_NATIVE_REPOSITORY_TOKEN\"; }; f".into()
+            } else {
+                format!("cache --socket {}", config.credential_socket)
+            },
         ),
         ("credential.useHttpPath", "true".into()),
         ("core.hooksPath", "/dev/null".into()),
@@ -281,6 +293,11 @@ fn push_source(repo: &ReadonlyRepo, config: &Config, source: &Source, name: &str
         options
             .environment
             .insert(format!("GIT_CONFIG_VALUE_{index}").into(), value.into());
+    }
+    if let Some(token) = std::env::var_os("SMITHERS_NATIVE_REPOSITORY_TOKEN") {
+        options
+            .environment
+            .insert("SMITHERS_NATIVE_REPOSITORY_TOKEN".into(), token);
     }
     for key in [
         "GIT_TERMINAL_PROMPT",

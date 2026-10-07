@@ -806,7 +806,17 @@ func (s *WorkspaceService) ReportWorkspaceHead(ctx context.Context, input Report
 		return s.reportWorkspaceHead(ctx, input)
 	}
 	subject := InstallSubject{RepositoryID: input.RepositoryID, WorkspaceID: strings.TrimSpace(input.WorkspaceID)}
-	if _, err := Authorize(ctx, s.installQueries, "workspace.head", subject); err != nil {
+	command := "workspace.head"
+	if info := middleware.AuthInfoFromContext(ctx); input.RetainSource != nil && info != nil && info.CredentialKind() == middleware.CredentialAgentRun {
+		var err error
+		subject, err = ResolveReservedStackSubject(ctx, s.installQueries, input.RepositoryID, input.WorkspaceID)
+		if err != nil {
+			return WorkspaceResponse{}, err
+		}
+		command = "stack.candidate"
+		input.TokenWorkspaceID = subject.WorkspaceID
+	}
+	if _, err := Authorize(ctx, s.installQueries, command, subject); err != nil {
 		return WorkspaceResponse{}, err
 	}
 	if s.transactions == nil {
@@ -840,7 +850,11 @@ func (s *WorkspaceService) ReportWorkspaceHead(ctx context.Context, input Report
 	if refusal := identity.NewMemberBoundary(q).AuthorizeMember(identity.WithMemberRoute(live), middleware.UserFromContext(live).ID); refusal != nil {
 		return WorkspaceResponse{}, refusal
 	}
-	if _, err := authorizeWorkspaceHead(live, q, subject); err != nil {
+	if command == "stack.candidate" {
+		if _, err := authorizeStackCandidate(live, q, subject); err != nil {
+			return WorkspaceResponse{}, err
+		}
+	} else if _, err := authorizeWorkspaceHead(live, q, subject); err != nil {
 		return WorkspaceResponse{}, err
 	}
 	scoped := *s

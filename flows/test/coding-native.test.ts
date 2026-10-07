@@ -1,7 +1,7 @@
 import { NodeCrypto, NodeServices } from "@effect/platform-node"
 import { FlowEngine } from "@smthrs/engine"
 import { Action, Flow, Interpreter } from "@smthrs/flow"
-import { Effect, Layer, ManagedRuntime, Schema } from "effect"
+import { Effect, Layer, ManagedRuntime, Redacted, Schema } from "effect"
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
@@ -203,7 +203,7 @@ test("reserved native providers preserve typed native refusals", async (t) => {
 })
 
 const packagedHelper = process.env.SMITHERS_STACK_TEST_HELPER ?? helper
-test("unsupported packaged reserved dispatch refuses through the Action boundary without touching the workspace", {
+test("unprovisioned packaged reserved dispatch refuses through the Action boundary without touching the workspace", {
   skip: packagedHelper === undefined ? "Build smithers-jj-export and set SMITHERS_STACK_TEST_HELPER" : false
 }, async (t) => {
   assert.ok(packagedHelper)
@@ -227,10 +227,27 @@ test("unsupported packaged reserved dispatch refuses through the Action boundary
   )
   t.after(() => runtime.dispose())
   const error = await runtime.runPromise(
-    Effect.flip(Capture.execute({}, { executionId: "unsupported-reserved-dispatch" }))
+    Effect.flip(Capture.execute({}, { executionId: "unprovisioned-reserved-dispatch" }))
   )
   assert.ok(error instanceof NativeCodingError)
   assert.equal(error.code, "invalid_request")
-  assert.equal(error.message, "unsupported local coding operation")
+  assert.equal(error.message, "Invalid provisioned source publication configuration or native identity")
   assert.deepEqual(await readdir(root), [])
+})
+
+
+test("private native credential reaches only publication and reserved transports", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "coding-native-private-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const helper = join(root, "helper")
+  await writeFile(helper, `#!/bin/sh\ncat > request.json\nprintf '%s' "$SMITHERS_NATIVE_REPOSITORY_TOKEN" > credential.txt\nprintf '%s' '${JSON.stringify(candidate)}'\n`, { mode: 0o700 })
+  const layer = nativeLayer({ repositoryPath: root, helperPath: helper, sourcePublication: "cloud", nativeRepositoryToken: Redacted.make("fixture-private-token") })
+    .pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NativeTransport.layerFrom(NodeServices.layer))))
+  const run = <A, E>(call: (native: NativeCoding["Service"]) => Effect.Effect<A, E>) =>
+    Effect.runPromise(Effect.flatMap(NativeCoding, call).pipe(Effect.provide(layer)))
+  await run((native) => native.stackCandidate!(requestId))
+  assert.equal(await readFile(join(root, "credential.txt"), "utf8"), "fixture-private-token")
+  assert.equal((await readFile(join(root, "request.json"), "utf8")).includes("fixture-private-token"), false)
+  await run((native) => Effect.result(native.read()))
+  assert.equal(await readFile(join(root, "credential.txt"), "utf8"), "")
 })

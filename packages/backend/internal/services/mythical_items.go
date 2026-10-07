@@ -715,6 +715,12 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			if err != nil {
 				return err
 			}
+			if s.installAuthorization && pinned && projection.Phase == "todo" &&
+				item.RequestRunID == "" && saved.RequestRunID != "" && mythicalChecksOf(saved).RunAttached {
+				if err := bindInitialTodoHostCredential(ctx, tx, saved, update.Checkpoint.Target); err != nil {
+					return err
+				}
+			}
 			if mythicalTodo(saved) && saved.Number.Valid {
 				fact, _ := json.Marshal(map[string]any{"item": uuidString(saved.ID), "n": saved.Number.Int64, "attempt": saved.Attempt, "generation": saved.Generation, "phase": projection.Phase, "run": runID, "actor": map[string]string{"kind": "run", "id": runID}, "from": todoState(item), "to": todoState(saved)})
 				if _, err := s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.run_updated", todoState(saved), fact); err != nil {
@@ -3099,7 +3105,7 @@ func (st *mythicalItemStep) verifyCandidate(ctx context.Context, item, next db.M
 		rebase.Capture, rebase.Rebase, rebase.Review, rebase.Land = nil, nil, nil, nil
 		next.Integration, _ = json.Marshal(map[string]any{"kind": "captured", "head": captured.Head, "tree": captured.Tree})
 		before = func(tx pgx.Tx) error {
-			if err := st.lockCapturedContinuation(ctx, tx, item, *captured); err != nil {
+			if err := st.lockCapturedContinuation(ctx, tx, item, *captured, onto); err != nil {
 				return err
 			}
 			// Native publication can survive a rolled-back SQL projection.

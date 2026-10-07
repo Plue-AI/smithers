@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -208,4 +209,32 @@ func TestPrepareBoxHostBindsATrustedProcessBoxOnlyWhenItsRuntimeInstallsTheBindi
 		require.NotContains(t, environment, "SMITHERS_JJHUB_TOKEN")
 		require.Empty(t, q.tokens)
 	})
+}
+
+type daemonCodingBindingRuntime struct{ *codingBindingRuntime }
+
+func (r *daemonCodingBindingRuntime) EnsureMachined(context.Context, string) error {
+	r.events = append(r.events, "daemon")
+	return r.probeErr
+}
+
+func TestBoxHostCodingBindingUsesInstalledDaemonWithoutRetiredPublisher(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(fmt.Sprintf("daemon_failure_%t", fail), func(t *testing.T) {
+			service, runtime, _, row := codingBindingServiceFixture(t)
+			row.HeadPushTokenID = pgtype.Int8{}
+			service.runtime = &daemonCodingBindingRuntime{runtime}
+			if fail {
+				runtime.probeErr = errors.New("daemon unavailable")
+			}
+			err := service.installRuntimeBoxCodingBinding(t.Context(), row, row.UserID)
+			if fail {
+				require.EqualError(t, err, "daemon unavailable")
+				require.Equal(t, []string{"daemon"}, runtime.events)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, []string{"daemon", "binding:coding-lane"}, runtime.events)
+			}
+		})
+	}
 }

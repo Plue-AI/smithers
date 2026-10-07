@@ -1,18 +1,27 @@
 package compose
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/stretchr/testify/require"
 )
 
@@ -34,7 +43,14 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 	objects := &reservedSourceReader{}
 	machine := services.NewWorkspaceService(f.q, services.WithWorkspaceInstallAuthorization(f.q), services.WithWorkspaceTransactions(f.pool), services.WithWorkspaceRuntime(runtime), services.WithWorkspaceSourceReader(objects))
 	service := services.NewMythicalService(f.pool, nil, services.WithMythicalInstallAuthorization(true))
-	service.SetOrchestration(nil, nil, services.NewWorkspaceMythicalLanes(machine))
+	store, err := jobs.NewStore(f.pool)
+	require.NoError(t, err)
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+		t.Error("admission must not contact the guest flow runtime")
+		return nil, errors.New("runtime unavailable")
+	})})
+	require.NoError(t, err)
+	service.SetOrchestration(nil, dispatcher, services.NewWorkspaceMythicalLanes(machine))
 	_, err = f.pool.Exec(f.ctx, `INSERT INTO mythical_stacks(repository_id,actor_user_id,state,landed_main) VALUES($1,$2,'active',$3)`, f.repoID, f.owner.ID, base)
 	require.NoError(t, err)
 	var itemID string
@@ -102,6 +118,81 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, item.CandidateVerified)
 		require.EqualValues(t, 7, item.Generation)
+	})
+
+	t.Run("missing verification provider refuses before capture", func(t *testing.T) {
+		service.SetLauncher(nil)
+		defer service.SetLauncher(dispatcher)
+		before := runtime.calls
+		call(t, token, "candidate", request, 503)
+		require.Equal(t, before, runtime.calls)
+	})
+
+	t.Run("first trusted attachment grants only the current host", func(t *testing.T) {
+		hostID := uuid.NewString()
+		_, err := f.pool.Exec(f.ctx, `INSERT INTO flow_runtime_host_bindings(id,tenant_id,principal_id,binding_kind,binding_id,repository_id,user_id,workspace_id,catalog_key,service_name,runtime_artifact_digest,source_revision,owner_generation,credential_ciphertext,credential_hash,state) VALUES($1,'fixture','fixture','mythical-item',$2,$3,$4,$5,'coding','fixture',$6,$7,1,'fixture',decode(repeat('00',32),'hex'),'running')`, hostID, itemID, f.repoID, f.owner.ID, row.ID, strings.Repeat("d", 64), base)
+		require.NoError(t, err)
+		scopes := strings.Join(append([]string{"write:repository", middleware.RepositoryRestrictionScope(f.repoID), middleware.LandingWorkspaceScope(row.ID)}, middleware.PathRestrictionScopes([]string{"**"})...), ",")
+		older := f.token(f.owner, "old-host-"+hostID, scopes, true)
+		_, err = f.pool.Exec(f.ctx, `UPDATE access_tokens SET name=$2,created_at=clock_timestamp()-interval '1 day' WHERE name=$1`, "old-host-"+hostID, "flow-host-landing-"+hostID)
+		require.NoError(t, err)
+		initial := f.token(f.owner, "flow-host-landing-"+hostID, scopes, true)
+		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='',lane_started_at=clock_timestamp()-interval '1 second',checks=jsonb_set(jsonb_set(checks,'{run_attached}','false'),'{run_launched}','true') WHERE id=$1`, itemID)
+		require.NoError(t, err)
+		before := runtime.calls
+		call(t, initial, "candidate", request, 403)
+		projection, _ := json.Marshal(map[string]any{"kind": "mythical-item", "itemId": itemID, "generation": 7, "attempt": 1, "phase": "todo", "flowDigest": strings.Repeat("d", 64), "flowSource": base})
+		err = service.ProjectFlowRuntime(f.ctx, flowdispatch.ProjectionUpdate{State: jobs.StateRunning, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: projection, FlowID: "todo", RunID: "current-run", ExecutionDigest: strings.Repeat("d", 64), Target: flowruntime.Target{WorkspaceID: row.ID, BindingKind: "mythical-item", BindingID: itemID}, Run: &flowruntime.FlowRuntimeRun{RunID: "current-run"}}})
+		require.NoError(t, err)
+		require.Equal(t, before, runtime.calls)
+		call(t, initial, "propose", proposal, 200)
+		beforeOlder := runtime.calls
+		call(t, older, "candidate", request, 403)
+		require.Equal(t, beforeOlder, runtime.calls, "an older-attempt token gets no first-run grant")
+		// Actual packaged native dispatch against this composed router. The
+		// feature-enabled local helper substitutes provisioning only; no code
+		// or branch artifact is installed or executed as root.
+		if helper := os.Getenv("SMITHERS_STK12_NATIVE_HELPER"); helper != "" {
+			server := httptest.NewUnstartedServer(nil)
+			defer server.Close()
+			nativeConfig := cfg
+			nativeConfig.Server.PublicURL = "http://" + server.Listener.Addr().String()
+			nativeConfig.Server.AllowedOrigins = []string{nativeConfig.Server.PublicURL}
+			server.Config.Handler = githubAppSetupComposeRouter(nativeConfig, f.pool, nil, &routes.WorkspaceHandler{Service: machine}, routerExtras{Mythical: &routes.MythicalHandler{Service: service}})
+			server.Start()
+			directory := t.TempDir()
+			configPath := filepath.Join(directory, "workspace-coding.json")
+			config, _ := json.Marshal(map[string]any{"version": 1, "workspaceId": row.ID, "repositoryId": f.repoID, "actorId": f.owner.ID, "repositoryPath": directory, "repositorySlug": "gate-owner/app", "apiBaseUrl": server.URL + "/api", "gitUrl": server.URL + "/gate-owner/app.git", "credentialSocket": "/tmp/absent-native-credential"})
+			require.NoError(t, os.WriteFile(configPath, config, 0600))
+			root, err := filepath.Abs("../../../..")
+			require.NoError(t, err)
+			cmd := exec.CommandContext(t.Context(), "node", "--experimental-strip-types", filepath.Join(root, "flows/test/coding-reserved-install-rehearsal.mjs"))
+			cmd.Env = append(os.Environ(), "SMITHERS_WORKSPACE_CODING_CONFIG="+configPath, "SMITHERS_NATIVE_REPOSITORY_TOKEN="+initial, "SMITHERS_STK12_REPOSITORY_PATH="+directory, "SMITHERS_STK12_NATIVE_HELPER="+helper)
+			var stderr bytes.Buffer
+			cmd.Stderr = &stderr
+			output, err := cmd.Output()
+			require.NoError(t, err, stderr.String())
+			require.JSONEq(t, fmt.Sprintf(`{"generation":7,"head":%q}`, head), string(output))
+			entries, err := os.ReadDir(directory)
+			require.NoError(t, err)
+			require.Len(t, entries, 1, "proposal never opens or locks the native repository")
+		}
+		retained, _ := json.Marshal(map[string]any{"retain_source": source})
+		req := httptest.NewRequest("POST", fmt.Sprintf("http://example.com/api/repos/gate-owner/app/workspaces/%s/head", row.ID), strings.NewReader(string(retained)))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+initial)
+		out := httptest.NewRecorder()
+		router.ServeHTTP(out, req)
+		require.Equal(t, 200, out.Code, out.Body.String())
+
+		// Issuer attachment never selects a later run for an already-bound token.
+		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='replacement' WHERE id=$1`, itemID)
+		require.NoError(t, err)
+		before = runtime.calls
+		call(t, initial, "propose", proposal, 403)
+		require.Equal(t, before, runtime.calls)
+		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='current-run' WHERE id=$1`, itemID)
+		require.NoError(t, err)
 	})
 	t.Run("stale generation refuses before observation", func(t *testing.T) {
 		before := runtime.calls

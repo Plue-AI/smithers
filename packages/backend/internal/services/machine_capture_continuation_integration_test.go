@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -206,6 +207,14 @@ func TestCapturedContinuationChecksSnapshotBeforeLaunch(t *testing.T) {
 // the production worker's owning claim can pin it, allocate a generation, and
 // launch checks; no candidate head is accepted by the HTTP admission write.
 func TestReservedSourceCaptureContinuesUnderOwningClaim(t *testing.T) {
+	for _, moved := range []bool{false, true} {
+		t.Run(fmt.Sprintf("prefix_moved_%t", moved), func(t *testing.T) {
+			testReservedSourceCapture(t, moved)
+		})
+	}
+}
+
+func testReservedSourceCapture(t *testing.T, moved bool) {
 	f := newRebaseFixture(t)
 	item := f.candidate("Reserved snapshot", f.main, "AGENT.md", "agent work\n")
 	pool := f.pool.(*pgxpool.Pool)
@@ -234,6 +243,16 @@ func TestReservedSourceCaptureContinuesUnderOwningClaim(t *testing.T) {
 	item.Checks = checks.encode()
 	item, err = db.New(pool).SaveMythicalItem(t.Context(), item)
 	require.NoError(t, err)
+	// A predecessor lands while the immutable capture is pending. The
+	// same owning claim rebases retained bytes; it never rewrites the guest.
+	onto := item.CandidateBase
+	if moved {
+		f.git(f.work, "checkout", "-q", f.main)
+		onto = f.commit("prefix advances", "PREFIX.md", "prefix bytes\n")
+		f.git(f.work, "push", "-q", f.hostDir, onto+":refs/heads/main", onto+":refs/smithers/mythical/keep/"+onto)
+		_, err = pool.Exec(t.Context(), `UPDATE mythical_stacks SET landed_main=$2 WHERE repository_id=$1`, f.repoID, onto)
+		require.NoError(t, err)
+	}
 	// A crash before the combined generation/launch commit preserves pending bytes.
 	_, err = pool.Exec(t.Context(), `ALTER TABLE product_job_requests ADD CONSTRAINT reject_reserved_verify CHECK (operation <> 'flow.runtime.launch') NOT VALID`)
 	require.NoError(t, err)
@@ -248,13 +267,19 @@ func TestReservedSourceCaptureContinuesUnderOwningClaim(t *testing.T) {
 	next := f.item(item.Number.Int64)
 	require.Equal(t, "verifying", next.State, next.Reason)
 	require.Equal(t, item.Generation+1, next.Generation)
-	require.Equal(t, head, next.CandidateHead)
+	require.Equal(t, onto, next.CandidateBase)
+	if moved {
+		require.NotEqual(t, head, next.CandidateHead)
+		require.Equal(t, "prefix bytes", strings.TrimSpace(f.git(f.hostDir, "show", next.CandidateHead+":PREFIX.md")))
+	} else {
+		require.Equal(t, head, next.CandidateHead)
+	}
 	require.False(t, next.CandidateVerified)
 	require.Nil(t, mythicalChecksOf(next).Capture)
 	var count int
 	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.launch'`).Scan(&count))
 	require.Equal(t, 1, count)
-	require.Equal(t, "reserved bytes", strings.TrimSpace(f.git(f.hostDir, "show", head+":MEMBER.md")))
+	require.Equal(t, "reserved bytes", strings.TrimSpace(f.git(f.hostDir, "show", next.CandidateHead+":MEMBER.md")))
 	f.wake()
 	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.launch'`).Scan(&count))
 	require.Equal(t, 1, count)

@@ -10,9 +10,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-
 	"github.com/smithersai/smithers/packages/backend/flowhost"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -422,3 +423,27 @@ func (e boxToolsMissing) Error() string {
 }
 func (boxToolsMissing) FlowRuntimeCode() string    { return placementToolsMissing }
 func (boxToolsMissing) FlowRuntimeRetryable() bool { return false }
+
+// Bind once, in the trusted launch projection transaction. An initial host
+// token has no run authority until that projection attaches the current TODO.
+// Existing restrictions never rotate to another run. Older-attempt tokens and
+// retired hosts cannot become authorized by a replacement attachment.
+func bindInitialTodoHostCredential(ctx context.Context, tx pgx.Tx, item db.MythicalItem, target flowruntime.Target) error {
+	if !item.OwnerID.Valid || item.RequestRunID == "" || !item.LaneStartedAt.Valid || target.WorkspaceID != item.WorkspaceID || target.BindingID == "" || (target.BindingKind != "mythical-item" && target.BindingKind != "browser-flow") {
+		return nil
+	}
+	runScope := middleware.AgentSessionRestrictionScope(item.RequestRunID)
+	if middleware.ParseTokenAgentSessionRestriction(runScope) != item.RequestRunID {
+		return pkgerrors.Forbidden("invalid current TODO run")
+	}
+	_, err := tx.Exec(ctx, `UPDATE access_tokens t SET scopes=t.scopes || ',' || $1
+ FROM flow_runtime_host_bindings b
+ WHERE t.name='flow-host-landing-' || b.id::text AND t.user_id=$2 AND t.system_issued
+ AND t.scopes=$3 AND t.created_at >= $4 AND (t.expires_at IS NULL OR t.expires_at>clock_timestamp())
+ AND b.workspace_id=$5::uuid AND b.repository_id=$6 AND b.user_id=$2
+ AND b.state IN ('starting','running') AND b.catalog_key='coding'
+ AND b.source_revision=$7 AND b.binding_kind=$8 AND b.binding_id=$9`,
+		runScope, item.OwnerID.Int64, boxHostLandingTokenScopes(item.RepositoryID, item.WorkspaceID), item.LaneStartedAt.Time,
+		item.WorkspaceID, item.RepositoryID, mythicalChecksOf(item).FlowSource, target.BindingKind, target.BindingID)
+	return err
+}

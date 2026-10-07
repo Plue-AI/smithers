@@ -126,7 +126,7 @@ func TestCapturedContinuationRevalidatesItsTransaction(t *testing.T) {
 				_, err = tx.Exec(ctx, `UPDATE mythical_items SET checks=checks-'capture' WHERE id=$1`, id)
 			}
 			require.NoError(t, err)
-			err = step.lockCapturedContinuation(ctx, tx, item, capture)
+			err = step.lockCapturedContinuation(ctx, tx, item, capture, item.CandidateBase)
 			if change == "none" {
 				require.NoError(t, err)
 			} else if change == "prefix" {

@@ -209,6 +209,44 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				next.ServeHTTP(w, r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, subject)))
 				return
 			}
+			if command == "workspace.head" && info != nil && info.CredentialKind() == middleware.CredentialAgentRun {
+				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 65536))
+				if err != nil {
+					writeConfirmationDispatchError(w, err)
+					return
+				}
+				r.Body = io.NopCloser(bytes.NewReader(raw))
+				var source map[string]json.RawMessage
+				if json.Unmarshal(raw, &source) == nil && len(source) == 1 && source["retain_source"] != nil {
+					parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+					repository, err := services.InstallRepositoryID(r.Context(), queries)
+					if err != nil {
+						writeConfirmationDispatchError(w, err)
+						return
+					}
+					if len(parts) != 7 {
+						writeConfirmationDispatchError(w, &services.AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"})
+						return
+					}
+					row, err := queries.GetRepoByOwnerAndLowerName(r.Context(), db.GetRepoByOwnerAndLowerNameParams{Owner: strings.ToLower(parts[2]), LowerName: strings.ToLower(parts[3])})
+					if err != nil || row.ID != repository {
+						writeConfirmationDispatchError(w, &services.AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"})
+						return
+					}
+					subject, err := services.ResolveReservedStackSubject(r.Context(), queries, repository, parts[5])
+					if err != nil {
+						writeConfirmationDispatchError(w, err)
+						return
+					}
+					decision, err := services.Authorize(r.Context(), queries, "stack.candidate", subject)
+					if err != nil {
+						writeConfirmationDispatchError(w, err)
+						return
+					}
+					next.ServeHTTP(w, r.WithContext(services.WithInstallAuthorization(r.Context(), "stack.candidate", decision, subject)))
+					return
+				}
+			}
 			if command == "workspace.head" || strings.HasPrefix(command, "workspace.children.") {
 				subject := services.InstallSubject{}
 				if repo := middleware.RepoFromContext(r.Context()); repo != nil {

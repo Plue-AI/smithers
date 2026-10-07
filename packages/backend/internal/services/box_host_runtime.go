@@ -35,12 +35,20 @@ func (s *WorkspaceService) installRuntimeBoxCodingBinding(ctx context.Context, r
 	if err := binding.Validate(); err != nil {
 		return pkgerrors.Conflict("workspace coding source binding configuration is invalid").WithCause(err)
 	}
-	updated, err := s.repairRuntimeWorkspaceHeadReporter(ctx, row, userID)
-	if err != nil {
-		return err
-	}
-	if !updated.HeadPushTokenID.Valid {
-		return pkgerrors.Conflict("workspace source publisher is unavailable")
+	if daemon, installed := s.runtime.(interface {
+		EnsureMachined(context.Context, string) error
+	}); installed {
+		if err := daemon.EnsureMachined(ctx, row.ID); err != nil {
+			return err
+		}
+	} else {
+		updated, err := s.repairRuntimeWorkspaceHeadReporter(ctx, row, userID)
+		if err != nil {
+			return err
+		}
+		if !updated.HeadPushTokenID.Valid {
+			return pkgerrors.Conflict("workspace source publisher is unavailable")
+		}
 	}
 	operationCtx, err := s.workspaceRuntimeContext(ctx, row, row.UserID, workspaceLifecycleOperation(row, "coding-binding"))
 	if err != nil {
