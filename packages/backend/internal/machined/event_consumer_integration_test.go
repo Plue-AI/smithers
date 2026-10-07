@@ -254,6 +254,8 @@ func TestEventConsumerRequiresLiveBinding(t *testing.T) {
 	registry := new(Registry)
 	_, err = registry.ConsumeEvents(t.Context(), nil)
 	require.ErrorIs(t, err, ErrNotReady)
+	_, err = registry.ConsumeEvents(t.Context(), func(context.Context, *Link, string, Event) (Acknowledgement, error) { return Acknowledgement{}, nil }, nil, nil)
+	require.ErrorIs(t, err, ErrNotReady)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	_, err = registry.ConsumeEvents(ctx, func(context.Context, *Link, string, Event) (Acknowledgement, error) { return Acknowledgement{}, nil })
@@ -292,4 +294,59 @@ func TestEventConsumerRegistryCloseCancelsTransaction(t *testing.T) {
 	var count int
 	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM machine_event_receipts`).Scan(&count))
 	require.Zero(t, count)
+}
+
+func TestEventConsumerTransientHints(t *testing.T) {
+	for _, mode := range []string{"absent", "published", "refused"} {
+		t.Run(mode, func(t *testing.T) {
+			registry := new(Registry)
+			authority, err := registry.MintBoot("branch", "vm")
+			require.NoError(t, err)
+			var writes, hints atomic.Int32
+			apply := func(_ context.Context, _ *Link, _ string, event Event) (Acknowledgement, error) {
+				writes.Add(1)
+				return Acknowledgement{Seq: event.Seq, Outcome: AckApplied}, nil
+			}
+			var consumeHint HintHandler
+			if mode != "absent" {
+				consumeHint = func(_ context.Context, link *Link, branch string, event Event) error {
+					hints.Add(1)
+					require.NotNil(t, link.Connection)
+					require.Equal(t, "branch", branch)
+					require.Zero(t, event.Seq)
+					require.Zero(t, event.EventID)
+					written, err := wire.DecodeFileWritten(event.Payload)
+					require.NoError(t, err)
+					require.Equal(t, "changed.ts", written.Path)
+					if mode == "refused" {
+						return ErrNotReady
+					}
+					return nil
+				}
+			}
+			stop, err := registry.ConsumeEvents(t.Context(), apply, consumeHint)
+			require.NoError(t, err)
+			t.Cleanup(stop)
+			_, peer := connectTest(t, registry, "branch", authority)
+			require.NoError(t, peer.SetDeadline(time.Now().Add(5*time.Second)))
+			hint := wire.Union(1, wire.Field(1, wire.String("changed.ts")), wire.Field(2, wire.Union(4)))
+			require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Events, Payload: wire.Union(2, wire.Field(1, hint))}))
+			if mode == "refused" {
+				_, err = wire.Read(peer)
+				require.Error(t, err)
+				require.Equal(t, int32(1), hints.Load())
+				require.Zero(t, writes.Load())
+				return
+			}
+			sendConsumerEvent(t, peer, capturedEvent(7, [16]byte{1}))
+			// The first frame is the durable event's ACK, never a hint ACK.
+			readConsumerAck(t, peer, 7, AckApplied)
+			require.Equal(t, int32(1), writes.Load())
+			if mode == "published" {
+				require.Equal(t, int32(1), hints.Load())
+			} else {
+				require.Zero(t, hints.Load())
+			}
+		})
+	}
 }

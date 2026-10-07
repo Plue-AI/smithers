@@ -328,6 +328,13 @@ func TestChangeIntegrationLandsDark(t *testing.T) {
 	require.ErrorIs(t, pump.Bursts.Hint(t.Context(), link.Connection, branch, hint), ErrUnauthorized)
 	_, err = pump.Commit(t.Context(), link.Connection, branch, event)
 	require.ErrorIs(t, err, ErrUnauthorized)
+	// A resolver can rotate admission while it runs; no old-lease hint may
+	// publish after it returns, and resolving must not hold the registry lock.
+	pump.Bursts.ResolveActor = func(context.Context, string, wire.Actor) (json.RawMessage, error) {
+		_, err := registry.MintBoot(branch, "replacement")
+		return json.RawMessage(`{"kind":"outside"}`), err
+	}
+	require.ErrorIs(t, pump.Bursts.Hint(t.Context(), link.Connection, branch, hint), ErrUnauthorized)
 	for _, table := range []string{"product_job_events", "burst_files", "machine_event_receipts"} {
 		var count int
 		require.NoError(t, pool.QueryRow(t.Context(), "SELECT count(*) FROM "+table).Scan(&count))
