@@ -682,6 +682,27 @@ describe("RuntimeBridge", () => {
         ok: true,
         value: { run: { runId: "run-1" }, terminal: true }
       })
+      const monitored = yield* Effect.promise(() =>
+        fetch(`${base}/monitor`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ protocol: RuntimeBridge.protocol, runId: "run-1", at: 1 })
+        })
+      )
+      expect(monitored.status).toBe(200)
+      expect(yield* Effect.promise(() => monitored.json())).toMatchObject({
+        ok: true,
+        value: { flow: "fixture/small", tokens: 0, cost_usd: 0 }
+      })
+      const invalidMonitor = yield* Effect.promise(() =>
+        fetch(`${base}/monitor`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ protocol: RuntimeBridge.protocol, runId: "run-1", at: -1 })
+        })
+      )
+      expect(invalidMonitor.status).toBe(400)
+      expect(yield* Effect.promise(() => invalidMonitor.json())).toMatchObject({ error: { code: "invalid_request" } })
       const invalidObservation = yield* Effect.promise(() =>
         fetch(`${base}/observe`, {
           method: "POST",
@@ -849,12 +870,51 @@ describe("RuntimeBridge", () => {
     }))
 })
 
-
 it.effect("refuses an unknown USD total rather than reporting model usage as free", () =>
   Effect.gen(function*() {
-    const result = yield* Effect.flip(RuntimeBridge.monitor(service({ watch: () => Stream.make({
-      sequence:1,kind:"control.agent.model-settled",runId:"run-1",occurredAt:1,
-      payload:{usage:{inputTokens:5,outputTokens:3},text:"answer"}
-    }) }), "run-1"))
-    expect(result).toMatchObject({code:"unavailable",retryable:true})
+    const result = yield* Effect.flip(RuntimeBridge.monitor(
+      service({
+        watch: () =>
+          Stream.make({
+            sequence: 1,
+            kind: "control.agent.model-settled",
+            runId: "run-1",
+            occurredAt: 1,
+            payload: { usage: { inputTokens: 5, outputTokens: 3 }, text: "answer" }
+          })
+      }),
+      "run-1"
+    ))
+    expect(result).toMatchObject({ code: "unavailable", retryable: true })
+  }))
+
+it.effect("refuses monitor lookups that return no matching run", () =>
+  Effect.gen(function*() {
+    for (
+      const control of [
+        service({ list: () => Effect.succeed({ _tag: "flows", items: [] }) }),
+        service({ list: () => Effect.succeed({ _tag: "runs", items: [] }) }),
+        service({ list: () => Effect.succeed({ _tag: "runs", items: [{ ...summary, runId: "other" }] }) })
+      ]
+    ) {
+      expect(yield* Effect.flip(RuntimeBridge.monitor(control, "run-1"))).toMatchObject({
+        code: "run_not_found",
+        retryable: false
+      })
+    }
+  }))
+
+it.effect("refuses monitors exceeding the journal scan or encoded response bounds", () =>
+  Effect.gen(function*() {
+    const row = { sequence: 1, kind: "control.run.completed", runId: "run-1", occurredAt: 1, payload: null }
+    const tooMany = service({ watch: () => Stream.fromIterable(Array.from({ length: 100_001 }, () => row)) })
+    expect(yield* Effect.flip(RuntimeBridge.monitor(tooMany, "run-1"))).toMatchObject({
+      code: "resource_limit",
+      message: "Run journal exceeds the inspection limit"
+    })
+    const tooLarge = service({ watch: () => Stream.make({ ...row, payload: { text: "x".repeat(4 * 1024 * 1024) } }) })
+    expect(yield* Effect.flip(RuntimeBridge.monitor(tooLarge, "run-1"))).toMatchObject({
+      code: "resource_limit",
+      message: "Run monitor exceeds the inspection limit"
+    })
   }))

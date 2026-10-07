@@ -21413,6 +21413,22 @@
     }
   },
   {
+    "label": "//packages/smithers/control:adapterPostgresDatabase",
+    "package": "packages/smithers/control",
+    "name": "adapterPostgresDatabase",
+    "rule": "Docker.Service",
+    "kinds": [
+      "run"
+    ],
+    "cacheable": false,
+    "inputs": [],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "packages/smithers/control/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//packages/smithers/control:check",
     "package": "packages/smithers/control",
     "name": "check",
@@ -21650,6 +21666,50 @@
     ],
     "outputs": [],
     "dependencies": [],
+    "source": {
+      "file": "packages/smithers/control/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//packages/smithers/control:postgresInventory",
+    "package": "packages/smithers/control",
+    "name": "postgresInventory",
+    "rule": "Shell.Test",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/control/test/SqlControlRuntimePostgres.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/control/test/DurableStack.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/control/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/control/vitest.config.ts"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [
+      "//packages/smithers/control:adapterPostgresDatabase",
+      "//packages/smithers/control:lib"
+    ],
+    "hosts": [
+      "linux"
+    ],
     "source": {
       "file": "packages/smithers/control/PACKAGE.ts"
     }
@@ -39364,6 +39424,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/control/docs/guides/observe-health.md"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/control/docs/guides/postgres-tests.md"
       },
       {
         "kind": "file",

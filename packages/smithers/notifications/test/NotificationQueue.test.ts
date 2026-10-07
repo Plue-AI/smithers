@@ -1323,3 +1323,98 @@ it("refuses outside-change admission without journaling or consuming pending cap
     }).pipe(Effect.provide(NotificationQueue.layer), Effect.provide(TestJournal.layer()), Effect.scoped)
   )
 })
+
+it.each([undefined, 1])(
+  "replaces a pending payload by version and rebuilds it from the journal (initial %s)",
+  async (initialVersion) => {
+    await Effect.runPromise(
+      Effect.gen(function*() {
+        const queue = yield* NotificationQueue.NotificationQueue.pipe(Effect.provide(NotificationQueue.layerWith()))
+        const original = item("editable", "steer")
+        const edited = { ...original, payload: { body: "edited" } }
+        yield* queue.admit("run", original, initialVersion)
+        expect((yield* queue.admit("run", edited, 2)).decision).toBe("coalesced")
+        expect(yield* queue.pending("run")).toEqual([edited])
+        expect((yield* queue.admit("run", original, 1)).duplicate).toBe(true)
+        const replay = yield* NotificationQueue.NotificationQueue.pipe(Effect.provide(NotificationQueue.layerWith()))
+        expect(yield* replay.pending("run")).toEqual([edited])
+        expect(
+          (yield* replay.drain({ runId: "run", targetLineageId: "run/root", boundary: "edited", wouldIdle: false }))
+            .notifications
+        ).toEqual([edited])
+        expect(yield* replay.admit("run", { ...original, payload: { body: "too late" } }, 3)).toMatchObject({
+          decision: "coalesced",
+          duplicate: true,
+          consumed: true,
+          consumedNotification: edited
+        })
+        expect(yield* replay.pending("run")).toEqual([])
+      }).pipe(Effect.provide(TestJournal.layer()), Effect.scoped)
+    )
+  }
+)
+
+it.each(["owner", "binding"] as const)("refuses an edit changing the %s", async (field) => {
+  await run(Effect.gen(function*() {
+    const queue = yield* NotificationQueue.NotificationQueue
+    const original = item("editable", "steer")
+    yield* queue.admit("run", original, 1)
+    const edited = field === "owner"
+      ? { ...original, provenance: { ...original.provenance, sourceActor: "human:other" } }
+      : { ...original, targetLineageId: "run/other" }
+    expect(yield* queue.admit("run", edited, 2).pipe(Effect.flip)).toMatchObject({
+      code: "notification_id_reused",
+      notificationId: "editable"
+    })
+    expect(yield* queue.pending("run")).toEqual([original])
+  }))
+})
+
+it("refuses an outside-change edit and retains the pending human input", async () => {
+  await run(Effect.gen(function*() {
+    const queue = yield* NotificationQueue.NotificationQueue, journal = yield* Journal.Journal
+    const original = item("editable", "steer")
+    yield* queue.admit("run", original, 1)
+    expect(yield* queue.admit("run", { ...original, payload: { kind: "outside_change" } }, 2).pipe(Effect.flip))
+      .toMatchObject({ code: "notification_refused", notificationId: "editable" })
+    expect(yield* queue.pending("run")).toEqual([original])
+    expect((yield* journal.entries({ runId: JournalEvent.RunId.make("run"), limit: 512 })).entries).toHaveLength(1)
+  }))
+})
+
+it.each(["pending", "consumed"] as const)(
+  "refuses an unreadable %s edit without changing the admission",
+  async (state) => {
+    let exactReads = 0
+    let hideExact = false
+    const journal = Layer.effect(
+      Journal.Journal,
+      Effect.map(Journal.Journal, (underlying) =>
+        Journal.make({
+          ...underlying,
+          entries: (options) =>
+            underlying.entries(options).pipe(Effect.map((page) => {
+              if (!hideExact || options.limit !== 1) return page
+              exactReads++
+              // A consumed edit verifies identity first, then reads the consumed payload.
+              return exactReads >= (state === "pending" ? 1 : 2) ? { entries: [], hasMore: false } : page
+            }))
+        }))
+    ).pipe(Layer.provide(TestJournal.layer()))
+    await Effect.runPromise(
+      Effect.gen(function*() {
+        const queue = yield* NotificationQueue.NotificationQueue
+        const original = item("editable", "steer")
+        yield* queue.admit("run", original, 1)
+        if (state === "consumed") {
+          yield* queue.drain({ runId: "run", targetLineageId: "run/root", boundary: "consumed", wouldIdle: false })
+        }
+        hideExact = true
+        expect(yield* queue.admit("run", { ...original, payload: { body: "edit" } }, 2).pipe(Effect.flip))
+          .toMatchObject({ code: "notification_unavailable" })
+        hideExact = false
+        expect(yield* queue.pending("run")).toEqual(state === "pending" ? [original] : [])
+      }).pipe(Effect.provide(NotificationQueue.layer), Effect.provide(journal), Effect.scoped)
+    )
+  }
+)
