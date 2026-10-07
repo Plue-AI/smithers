@@ -275,7 +275,6 @@ const HOST_COMMANDS = [
   "learning.accept",
   "learning.dismiss",
   "monitor",
-  "review",
   "run",
   "run.inspect",
   "runs",

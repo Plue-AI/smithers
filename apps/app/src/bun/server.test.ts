@@ -1,3 +1,5 @@
+import { createChatStub } from "../../e2e/support/ChatStub"
+import { TITLE_INSTRUCTIONS } from "../mainview/state/seams/TimelineTitleSeam"
 import { decodeAgentTurnFrame, type AgentTurnFrame } from "@smthrs/rpc/NativeAgent"
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
@@ -29,6 +31,7 @@ beforeAll(async () => {
   server = await startLocalServer({
     port: 0,
     distDir: dist,
+    agent: createChatStub,
     home: "/fake/home",
     log: (line) => logs.push(line)
   })
