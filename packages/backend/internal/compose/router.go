@@ -1075,10 +1075,12 @@ func buildRouter(
 		}
 		if config.IsSingleOwner(cfg.Auth) {
 			var proposals services.FlowProposalReader
+			var edits routes.FlowEditService
 			if extras.Mythical != nil {
 				proposals, _ = extras.Mythical.Service.(services.FlowProposalReader)
+				edits, _ = extras.Mythical.Service.(routes.FlowEditService)
 			}
-			mountFlowReads(r, &routes.FlowsHandler{Queries: queries, Proposals: proposals})
+			mountFlowReads(r, &routes.FlowsHandler{Queries: queries, Proposals: proposals, Edits: edits})
 			if smithersMetrics != nil && queries != nil {
 				h := &routes.InstallMetricsHandler{Metrics: smithersMetrics}
 				if extras.GitHubAppSetup != nil && extras.GitHubAppSetup.Setup != nil {
@@ -2170,6 +2172,7 @@ func mountTodoReads(r chi.Router, todos *routes.TodoHandler) {
 // mountFlowReads mounts the install's flow catalog, which the Flow card and
 // the app agent's host-run commands read through the public API.
 func mountFlowReads(r chi.Router, flows *routes.FlowsHandler) {
+	r.Post("/flows/{name}/edit", flows.Edit)
 	r.Get("/flows", flows.List)
 	r.Get("/flows/{name}", flows.Show)
 }

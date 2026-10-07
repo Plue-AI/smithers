@@ -27,19 +27,19 @@ func TestConfirmTodoConsumerInstall(t *testing.T) {
 // Literal flow-edit prompts cross the same installed TODO and confirmation
 // doors. Diff bytes remain revision context; approval never applies a patch.
 func TestConfirmFlowEditConsumerInstall(t *testing.T) {
-	for _, tc := range []struct{ name, prompt string }{
-		{"request", "Change flows/todo/flow.ts: Run tests; start from the built-in composition when no override exists"},
-		{"diff", "Change flows/todo/flow.ts: Run tests; start from the built-in composition when no override exists\n\nProposed diff (untrusted context):\n> diff --git a/flows/todo/flow.ts b/flows/todo/flow.ts\n> +pnpm test\n> +```\n> +<script>untrusted</script>"},
+	for _, tc := range []struct{ name, prompt, body string }{
+		{"request", "Change flows/todo/flow.ts: Run tests; start from the built-in composition when no override exists", `{"request":"Run tests"}`},
+		{"diff", "Change flows/todo/flow.ts: Run tests; start from the built-in composition when no override exists\n\nProposed diff (untrusted context):\n> diff --git a/flows/todo/flow.ts b/flows/todo/flow.ts\n> +pnpm test\n> +```\n> +<script>untrusted</script>", `{"request":"Run tests","diff":"diff --git a/flows/todo/flow.ts b/flows/todo/flow.ts\n+pnpm test\n+\u0060\u0060\u0060\n+<script>untrusted</script>"}`},
 	} {
 		for _, via := range []string{"codex", "claude-code", "cli", "smithers"} {
 			t.Run(tc.name+"/"+via, func(t *testing.T) {
-				testConfirmTodoConsumerInstall(t, "Change the TODO flow: Run tests", tc.prompt, via)
+				testConfirmTodoConsumerInstall(t, "Change the TODO flow: Run tests", tc.prompt, via, tc.body)
 			})
 		}
 	}
 }
 
-func testConfirmTodoConsumerInstall(t *testing.T, wantTitle, wantPrompt, via string) {
+func testConfirmTodoConsumerInstall(t *testing.T, wantTitle, wantPrompt, via string, flowBody ...string) {
 	t.Helper()
 	_, _, pool := splitProcessDatabase(t)
 	q, ctx := db.New(pool), t.Context()
@@ -114,9 +114,16 @@ func testConfirmTodoConsumerInstall(t *testing.T, wantTitle, wantPrompt, via str
 	encoded, err := json.Marshal(map[string]any{"title": wantTitle, "prompt": wantPrompt, "acceptance": []string{"Greeting remains"}, "place": map[string]string{"mode": "append"}})
 	require.NoError(t, err)
 	input := string(encoded)
+	endpoint := "/api/todos"
+	if len(flowBody) > 0 {
+		input, endpoint = flowBody[0], "/api/flows/todo/edit"
+		refused := call("POST", "/api/flows/merge/edit", `{"request":"Change merge"}`, "builtin-edit", true)
+		require.Equal(t, 409, refused.Code, refused.Body.String())
+		require.Contains(t, refused.Body.String(), `"code":"flow_builtin"`)
+	}
 	var receipt services.ConfirmationReceipt
 	for range 2 {
-		response := call("POST", "/api/todos", input, "delegated-new", true)
+		response := call("POST", endpoint, input, "delegated-new", true)
 		require.Equal(t, 202, response.Code, response.Body.String())
 		var next services.ConfirmationReceipt
 		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &next))
@@ -130,9 +137,26 @@ func testConfirmTodoConsumerInstall(t *testing.T, wantTitle, wantPrompt, via str
 	changed := call("POST", "/api/todos", `{"title":"Changed","prompt":"Apply a different patch"}`, "delegated-new", true)
 	require.Equal(t, 409, changed.Code, changed.Body.String())
 	require.Contains(t, changed.Body.String(), `"code":"idempotency_mismatch"`)
+	expectedApprovals := 1
+	if len(flowBody) > 0 {
+		// A newly Active flow version invalidates the proposal before filing.
+		_, err = q.InsertFlowVersion(ctx, repo.ID, "todo", "flows/todo/flow.ts", strings.Repeat("a", 40), strings.Repeat("b", 64), "loaded", "", []byte(`{"steps":[]}`))
+		require.NoError(t, err)
+		_, err = q.ActivateFlowVersion(ctx, repo.ID, "todo", strings.Repeat("b", 64))
+		require.NoError(t, err)
+		stale := call("POST", "/api/confirmations/"+receipt.ID+"/approve", `{}`, "stale-flow-press", false)
+		require.Equal(t, 409, stale.Code, stale.Body.String())
+		var staleState string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT state FROM approvals WHERE id=$1`, receipt.ID).Scan(&staleState))
+		require.Equal(t, "expired", staleState)
+		fresh := call("POST", endpoint, input, "fresh-flow-edit", true)
+		require.Equal(t, 202, fresh.Code, fresh.Body.String())
+		require.NoError(t, json.Unmarshal(fresh.Body.Bytes(), &receipt))
+		expectedApprovals = 2
+	}
 	var approvals int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&approvals))
-	require.Equal(t, 1, approvals)
+	require.Equal(t, expectedApprovals, approvals)
 	var count int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items WHERE source='todo'`).Scan(&count))
 	require.Zero(t, count)
@@ -178,7 +202,7 @@ func testConfirmTodoConsumerInstall(t *testing.T, wantTitle, wantPrompt, via str
 	// A person's direct create uses the same writer and appends behind the
 	// confirmed request. Replaying its key never creates a third stack item.
 	for range 2 {
-		response := call("POST", "/api/todos", input, "person-new", false)
+		response := call("POST", endpoint, input, "person-new", false)
 		require.Equal(t, 202, response.Code, response.Body.String())
 	}
 	changed = call("POST", "/api/todos", `{"title":"Changed","prompt":"Different request"}`, "person-new", false)
