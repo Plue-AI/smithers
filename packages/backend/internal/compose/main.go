@@ -1791,7 +1791,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			presence.dispatcher = flow.dispatcher
 			presence.hosts = flow.bindings
 		}
-		stopEvents, err := bindMachineEvents(ctx, options.Machined, pool, repoHostClient, presence, machineBurstObservations(smithersMetrics, options.Machined))
+		stopEvents, err := bindMachineEvents(ctx, options.Machined, pool, repoHostClient, machineBurstObservations(smithersMetrics, options.Machined))
 		if err != nil {
 			return fmt.Errorf("bind machine events: %w", err)
 		}

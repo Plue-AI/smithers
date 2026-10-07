@@ -19,9 +19,17 @@ attributed launches; old request and actor recordings still decode. Late
 
 Still unfinished: migrate the coding launcher that uses the older execution
 adapter, direct host writes, document edits and rewrites to these same committed
-references; replace legacy session/run replay's live adapter with retained
-historical authority; and prove the installed cgroup/restart path on a real
+references; prove the installed cgroup/restart path on a real
 machine. These component checks are not installed recovery acceptance.
+
+The production event consumer no longer resolves legacy session/run actors from
+live presence or mutable run checkpoints. Exact completed legacy bursts replay
+against their committed payload digest without creating new activity. Split
+bursts recover the original author from retained staged parts only when the
+logical burst, actor envelope, immutable versions and part count all match.
+Unknown legacy identities and hints return an explicit historical-authority
+recovery error; their durable outbox entries remain unacknowledged. Old recorded
+activity remains readable. This is historical recovery, never new authorization.
 
 ## Required behavior
 
@@ -53,8 +61,8 @@ restart, after a member is removed, and after numeric session IDs are reused.
   retained event and cannot identify an older event after restart.
 - [Installed observed-write attribution](../../../crates/smithers-machined/src/installed.rs)
   now emits the committed principal reference from broker entries. Legacy
-  `Actor::Session(id)` recordings still require retained historical authority;
-  their live-presence adapter does not prove replay across a broker restart.
+  `Actor::Session(id)` recordings use retained receipts only in production;
+  current presence is never an authority for their earlier authors.
 
 Do not use `SessionPresence` as the durable resolver, infer a former identity
 from today's roster, label an unresolved actor as outside, or treat the next

@@ -159,7 +159,6 @@ func TestBurstIngestProductionBoundary(t *testing.T) {
 	for name, alter := range map[string]func(*BurstIngest){
 		"database": func(s *BurstIngest) { s.Pool = nil },
 		"objects":  func(s *BurstIngest) { s.Objects = nil },
-		"actor":    func(s *BurstIngest) { s.ResolveActor = nil },
 	} {
 		t.Run("unavailable_"+name, func(t *testing.T) {
 			copy := *s
@@ -170,6 +169,14 @@ func TestBurstIngestProductionBoundary(t *testing.T) {
 			counts(1, 2, 1)
 		})
 	}
+	// Once an exact legacy event is committed, retiring its old resolver must
+	// not strand replay of a lost ACK or fabricate another activity entry.
+	retired := *s
+	retired.ResolveActor = nil
+	ack, err = retired.Apply(ctx, connection, scope, event)
+	require.NoError(t, err)
+	require.Equal(t, AckDuplicate, ack.Outcome)
+	counts(1, 2, 1)
 	newBoot := uuid.New()
 	require.NoError(t, registry.BindBoot(branch, "vm2", newBoot, []byte("new-secret")))
 	_, err = s.Apply(ctx, connection, scope, event)

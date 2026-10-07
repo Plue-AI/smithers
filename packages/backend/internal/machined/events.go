@@ -40,11 +40,13 @@ type BurstStore interface {
 type BurstIngest struct {
 	Pool    *pgxpool.Pool
 	Objects BurstStore
-	// ResolveActor is the existing live session/run adapter for legacy actor
-	// variants. It runs before acquiring a transaction or the registry lock.
-	// Principal references never use it: they resolve from immutable storage in
-	// the event transaction. Session/run variants still need the coordinated
-	// admission protocol migration for historical attribution after restart.
+	// ResolveActor is an optional legacy migration adapter. It must use retained
+	// historical authority, never current presence, roster or run checkpoints.
+	// The installed consumer leaves it nil: ambiguous session/run identifiers
+	// cannot establish an earlier author. Exact committed unchunked replays are
+	// acknowledged from their immutable receipt without resolving a new author.
+	// Split bursts use the historical identity retained with their staged parts.
+	// Principal references always resolve in the event transaction instead.
 	ResolveActor func(context.Context, string, wire.Actor) (json.RawMessage, error)
 	// ObserveCommitted records one successfully committed logical burst, never
 	// staging, duplicates or refusals. It runs under the connection fence and
@@ -98,10 +100,13 @@ func (s *BurstIngest) Apply(ctx context.Context, connection *Connection, scope j
 	if !current {
 		return ack, ErrUnauthorized
 	}
-	// Session attribution consults this same registry. Resolve outside its
-	// lock, then recheck the exact connection before any persistent effect.
-	// A slow lookup must not delay another boot replacing this connection.
-	actor, err := s.resolveLegacyActor(ctx, branch, b.Actor)
+	// A legacy migration provider may read storage. Resolve outside the
+	// registry lock, then fence the same connection before persistent effects.
+	legacyReplay := (b.Actor.Kind == 2 || b.Actor.Kind == 3) && s.ResolveActor == nil
+	var actor json.RawMessage
+	if !legacyReplay {
+		actor, err = s.resolveLegacyActor(ctx, branch, b.Actor)
+	}
 	if err != nil {
 		return ack, err
 	}
@@ -110,7 +115,13 @@ func (s *BurstIngest) Apply(ctx context.Context, connection *Connection, scope j
 		return ack, err
 	}
 	defer rollbackActorEvent(ctx, tx)
-	if actor == nil {
+	if legacyReplay && b.Parts != 0 {
+		actor, err = retainedLegacyBurstActor(ctx, tx, branch, b)
+		if err != nil {
+			return ack, err
+		}
+	}
+	if actor == nil && !legacyReplay {
 		actor, err = resolveStoredEventActor(ctx, tx, branch, connection.boot.machine, b.Actor)
 		if err != nil {
 			return ack, err
@@ -129,6 +140,13 @@ func (s *BurstIngest) Apply(ctx context.Context, connection *Connection, scope j
 	}
 	if scope.TenantID != fmt.Sprint(repository) || scope.PrincipalID != "branch:"+branch {
 		return ack, ErrUnauthorized
+	}
+	if legacyReplay && b.Parts == 0 {
+		// Only a complete, byte-identical receipt proves this old event was
+		// already accepted. No author is inferred and no new activity is made.
+		if err = requireLegacyBurstReceipt(ctx, tx, branch, event, b); err != nil {
+			return ack, err
+		}
 	}
 	multipart := b.Parts != 0
 	if multipart {
@@ -204,6 +222,9 @@ func commitBurst(ctx context.Context, tx pgx.Tx, objects BurstObjects, branch st
 		return ack, err
 	}
 	if !duplicate {
+		if actor == nil {
+			return ack, ErrHistoricalActorUnavailable
+		}
 		data, marshalErr := json.Marshal(map[string]any{"id": burstID, "kind": "burst", "branch": branch, "actor": json.RawMessage(actor), "files": b.Files, "versions": b.Versions, "source_key": burstID, "machine_event_id": id})
 		if marshalErr != nil {
 			return ack, marshalErr
@@ -243,6 +264,62 @@ func commitBurst(ctx context.Context, tx pgx.Tx, objects BurstObjects, branch st
 	return ack, nil
 }
 
+// ErrHistoricalActorUnavailable is a recovery refusal. Old wire records remain
+// decodable, but today's sessions cannot prove who produced their earlier bytes.
+var ErrHistoricalActorUnavailable = fmt.Errorf("%w: historical machine actor unavailable", ErrNotReady)
+
+func requireLegacyBurstReceipt(ctx context.Context, tx pgx.Tx, branch string, event Event, b wire.Burst) error {
+	if b.Parts != 0 {
+		return ErrHistoricalActorUnavailable
+	}
+	var previous string
+	err := tx.QueryRow(ctx, `SELECT outcome FROM machine_event_receipts WHERE workspace_id=$1 AND event_id=$2`, branch, uuid.UUID(event.EventID).String()).Scan(&previous)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrHistoricalActorUnavailable
+	}
+	if err != nil {
+		return err
+	}
+	want := fmt.Sprintf("applied:%s:%x", uuid.UUID(b.ID).String(), sha256.Sum256(event.Payload))
+	if previous != want {
+		return wire.BadValue
+	}
+	return nil
+}
+
+type burstStage struct {
+	Payload []byte
+	Actor   json.RawMessage
+}
+
+// A durably staged part binds the whole logical burst's author, actor envelope,
+// part count and immutable versions. That is historical authority for the other
+// parts of that same burst, not permission to reuse a session for a new burst.
+func retainedLegacyBurstActor(ctx context.Context, tx pgx.Tx, branch string, incoming wire.Burst) (json.RawMessage, error) {
+	prefix := "staged:" + uuid.UUID(incoming.ID).String() + ":"
+	var outcome string
+	err := tx.QueryRow(ctx, `SELECT outcome FROM machine_event_receipts WHERE workspace_id=$1 AND outcome LIKE $2 ORDER BY event_id LIMIT 1`, branch, prefix+"%").Scan(&outcome)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrHistoricalActorUnavailable
+	}
+	if err != nil {
+		return nil, err
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(outcome, prefix))
+	if err != nil {
+		return nil, wire.BadValue
+	}
+	var stage burstStage
+	if json.Unmarshal(raw, &stage) != nil || !json.Valid(stage.Actor) || string(stage.Actor) == "null" {
+		return nil, wire.BadValue
+	}
+	part, err := wire.DecodeBurst(stage.Payload)
+	if err != nil || part.ID != incoming.ID || part.Parts != incoming.Parts || part.Versions != incoming.Versions || !reflect.DeepEqual(part.Actor, incoming.Actor) || part.Part == 0 || part.Part > part.Parts {
+		return nil, wire.BadValue
+	}
+	return stage.Actor, nil
+}
+
 // DispatchBurst binds the commit and its acknowledgement to the same admitted
 // link. A boot change can never redirect an old event's ack to a new daemon.
 func (s *BurstIngest) DispatchBurst(ctx context.Context, link *Link, scope jobs.Scope, event Event) error {
@@ -278,10 +355,7 @@ func stageBurst(ctx context.Context, tx pgx.Tx, branch string, event Event, inco
 			rows.Close()
 			return false, incoming, wire.BadValue
 		}
-		var stage struct {
-			Payload []byte
-			Actor   json.RawMessage
-		}
+		var stage burstStage
 		if json.Unmarshal(stored, &stage) != nil {
 			rows.Close()
 			return false, incoming, wire.BadValue
@@ -318,10 +392,7 @@ func stageBurst(ctx context.Context, tx pgx.Tx, branch string, event Event, inco
 		return false, incoming, wire.BadValue
 	}
 	id := uuid.UUID(event.EventID).String()
-	stored, err := json.Marshal(struct {
-		Payload []byte
-		Actor   json.RawMessage
-	}{event.Payload, actor})
+	stored, err := json.Marshal(burstStage{event.Payload, actor})
 	if err != nil {
 		return false, incoming, err
 	}
@@ -378,8 +449,8 @@ func (s *BurstIngest) Hint(ctx context.Context, connection *Connection, branch s
 	if err := connection.RequireReady(branch); err != nil {
 		return err
 	}
-	// Attribution can consult the registry. Recheck the same lease after it
-	// resolves, as durable bursts do, before publishing anything.
+	// Resolve historical authority outside the registry lock. Recheck the
+	// same lease before publishing anything.
 	actor, err := s.resolveLegacyActor(ctx, branch, hint.Actor)
 	if err != nil {
 		return err
@@ -418,14 +489,15 @@ func (s *BurstIngest) Hint(ctx context.Context, connection *Connection, branch s
 	return tx.Commit(ctx)
 }
 
-// Preserve the legacy wire path without exposing host references to its adapter.
-// It may need a pool connection or the live registry, so it precedes both locks.
+// Preserve legacy migration without exposing host references to its adapter.
+// It may need a pool connection, so it precedes both locks. Current presence
+// cannot establish historical authority and is never bound by production.
 func (s *BurstIngest) resolveLegacyActor(ctx context.Context, branch string, actor wire.Actor) (json.RawMessage, error) {
 	if actor.Kind != 2 && actor.Kind != 3 {
 		return nil, nil
 	}
 	if s.ResolveActor == nil {
-		return nil, ErrNotReady
+		return nil, ErrHistoricalActorUnavailable
 	}
 	value, err := s.ResolveActor(ctx, branch, actor)
 	if err != nil {

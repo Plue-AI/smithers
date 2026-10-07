@@ -79,7 +79,7 @@ func TestMachineCaptureTransactionBinding(t *testing.T) {
 	client := repohost.NewLocalClient(http.NotFoundHandler(), cfg.AuthToken)
 	client.BindMachineRepository(server.WithMachineRepository)
 	registry := new(machined.Registry)
-	stop, err := bindMachineEvents(t.Context(), registry, pool, client, nil, nil)
+	stop, err := bindMachineEvents(t.Context(), registry, pool, client, nil)
 	require.NoError(t, err)
 	t.Cleanup(stop)
 	event := func(seq uint64, id byte, c wire.Captured) machined.Event {

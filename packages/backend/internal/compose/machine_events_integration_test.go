@@ -20,8 +20,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	dto "github.com/prometheus/client_model/go"
-	"github.com/smithersai/smithers/packages/backend/flowdispatch"
-	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
@@ -29,7 +27,6 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostserver"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
-	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/stretchr/testify/require"
 )
 
@@ -43,8 +40,7 @@ func TestMachineEventsProductionLiveBinding(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission,unix_login,unix_uid) VALUES($1,$2,'admin','maya',20001) ON CONFLICT(repository_id,user_id) WHERE user_id IS NOT NULL DO UPDATE SET unix_login='maya',unix_uid=20001`, f.row.RepositoryID, f.user.ID)
 	require.NoError(t, err)
-	config, err := pgxpool.ParseConfig(f.pool.Config().ConnString())
-	require.NoError(t, err)
+	config := f.pool.Config()
 	config.MaxConns = 1
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	require.NoError(t, err)
@@ -122,13 +118,23 @@ func TestMachineEventsProductionLiveBinding(t *testing.T) {
 	observeBurst := machineBurstObservations(metrics, registry)
 	zero, one, four, five := 0.0, 1.0, 4.0, 5.0
 	readBursts(&zero)
-	stop, err := bindMachineEvents(ctx, registry, pool, client, f.p, observeBurst)
+	stop, err := bindMachineEvents(ctx, registry, pool, client, observeBurst)
 	require.NoError(t, err)
 	t.Cleanup(stop)
 	require.True(t, registry.EventConsumerReady())
 	link, guest := presenceTestLink(t, registry, f.row.ID)
 	require.NoError(t, link.Reconciled())
-	sessions := machined.NewSessions(link.Connection, f.row.ID, registry.Sessions(f.row.ID)).WithActor([]byte("actor-reference1"), "").WithPresenceVia("ssh")
+	commitActor := func(identity machined.ActorIdentity) []byte {
+		t.Helper()
+		ref, err := machined.CommitActor(ctx, pool, f.row.ID, "machine", func(context.Context, pgx.Tx) (machined.ActorIdentity, error) { return identity, nil })
+		require.NoError(t, err)
+		return ref
+	}
+	person := commitActor(machined.ActorIdentity{Kind: "person", MemberID: f.user.ID, Via: "ssh"})
+	external := commitActor(machined.ActorIdentity{Kind: "agent", MemberID: f.user.ID, Via: "agent", AgentKind: "external", Run: "external-run"})
+	coding := commitActor(machined.ActorIdentity{Kind: "agent", MemberID: f.user.ID, Via: "agent", AgentKind: "coding", Run: "event-run"})
+	principal := func(ref []byte) []byte { return wire.Union(1, wire.Field(1, wire.Bytes(ref))) }
+	sessions := machined.NewSessions(link.Connection, f.row.ID, registry.Sessions(f.row.ID)).WithActor(person, "").WithPresenceVia("ssh")
 	opened := make(chan error, 1)
 	go func() {
 		_, err := sessions.OpenSession(ctx, machined.SessionUser{Login: "maya", UID: 20001}, machined.SessionPTY, nil, nil)
@@ -153,7 +159,7 @@ func TestMachineEventsProductionLiveBinding(t *testing.T) {
 		require.NoError(t, <-done)
 	}
 	exchange(wire.OpenSession, [][]byte{wire.Field(1, wire.U32(2))}, func() error {
-		_, err := sessions.WithActor([]byte("actor-reference1"), "event-run").OpenSession(ctx, machined.SessionUser{Login: "agent", UID: 19999}, machined.SessionExec, []string{"codex"}, nil)
+		_, err := sessions.WithActor(coding, "event-run").OpenSession(ctx, machined.SessionUser{Login: "agent", UID: 19999}, machined.SessionExec, []string{"codex"}, nil)
 		return err
 	})
 	exchange(wire.RegisterRun, nil, func() error { return sessions.RegisterRun(ctx, "event-run", 2) })
@@ -177,27 +183,14 @@ func TestMachineEventsProductionLiveBinding(t *testing.T) {
 		require.Equal(t, e.Seq, binary.BigEndian.Uint64(fields[1]))
 		require.Equal(t, []byte{byte(outcome)}, fields[2])
 	}
-	first := event(1, 1, wire.Union(2, wire.Field(1, wire.U32(1))))
+	first := event(1, 1, principal(person))
 	send(first, machined.AckApplied)
 	readBursts(&one)
 	send(first, machined.AckDuplicate)
 	readBursts(&one)
 	send(event(2, 2, wire.Union(4)), machined.AckApplied)
-	runActor := wire.Union(3, wire.Field(1, wire.String("event-run")))
-	send(event(3, 3, runActor), machined.AckApplied)
-	jobsStore, err := jobs.NewStore(f.pool)
-	require.NoError(t, err)
-	scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", f.row.RepositoryID), PrincipalID: fmt.Sprintf("user:%d", f.user.ID)}
-	_, err = jobsStore.Admit(ctx, jobs.Admission{Scope: scope, Operation: flowdispatch.OperationLaunch, RequestID: "event-runtime", Payload: json.RawMessage(`{}`), AuthorizationContext: json.RawMessage(`{"role":"owner"}`), EffectPolicy: jobs.EffectIdempotent, EffectKey: "event-runtime"})
-	require.NoError(t, err)
-	claim, err := jobsStore.ClaimForOperations(ctx, "events", time.Minute, []string{flowdispatch.OperationLaunch})
-	require.NoError(t, err)
-	checkpoint := flowdispatch.RuntimeCheckpoint{Version: 1, RunID: "event-run", FlowID: "todo", Target: flowruntime.Target{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID, WorkspaceID: f.row.ID, BindingKind: "mythical-item"}, Run: &flowruntime.Run{RunID: "event-run", FlowID: "todo", Status: "running"}}
-	checkpointBytes, err := json.Marshal(checkpoint)
-	require.NoError(t, err)
-	_, err = jobsStore.Checkpoint(ctx, claim, checkpointBytes)
-	require.NoError(t, err)
-	send(event(4, 4, runActor), machined.AckApplied)
+	send(event(3, 3, principal(external)), machined.AckApplied)
+	send(event(4, 4, principal(coding)), machined.AckApplied)
 	readBursts(&four)
 
 	// The installed consumer also resolves a host reference whose original run
@@ -238,7 +231,7 @@ func TestMachineEventsProductionLiveBinding(t *testing.T) {
 	require.Equal(t, before, entries[0].Files[0]["before_blob"])
 	sendPresenceFrame(t, socket, fmt.Sprintf(`{"t":"sub","id":2,"topic":"branch:%s:files"}`, f.row.ID))
 	readPresenceFrame(t, socket)
-	hint := wire.Union(1, wire.Field(1, wire.String("a.ts")), wire.Field(2, wire.Union(2, wire.Field(1, wire.U32(1)))), wire.Field(3, digest[:]))
+	hint := wire.Union(1, wire.Field(1, wire.String("a.ts")), wire.Field(2, principal(person)), wire.Field(3, digest[:]))
 	require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Events, Payload: wire.Union(2, wire.Field(1, hint))}))
 	update := readPresenceFrame(t, socket)
 	var changed struct {
@@ -253,6 +246,26 @@ func TestMachineEventsProductionLiveBinding(t *testing.T) {
 	require.Equal(t, "ssh", changed.Written[0].Actor["via"])
 	socket.CloseNow()
 	var unexpected [1]byte
+	// These legacy identifiers match sessions which are live right now. They
+	// still cannot establish who authored an older event. A reconnect then
+	// reuses numeric session 1 with another identity; it grants no history.
+	for n, actor := range [][]byte{wire.Union(2, wire.Field(1, wire.U32(1))), wire.Union(2, wire.Field(1, wire.U32(1))), wire.Union(3, wire.Field(1, wire.String("event-run")))} {
+		require.NoError(t, guest.SetDeadline(time.Now().Add(5*time.Second)))
+		require.NoError(t, wire.Write(guest, transcriptEventFrame(event(uint64(6+n), byte(10+n), actor))))
+		_, err = guest.Read(unexpected[:])
+		require.ErrorIs(t, err, io.EOF, "legacy author must not be guessed from live sessions")
+		link, guest = presenceTestLink(t, registry, f.row.ID)
+		require.NoError(t, link.Reconciled())
+		sessions = machined.NewSessions(link.Connection, f.row.ID, registry.Sessions(f.row.ID)).WithActor(coding, "event-run")
+		exchange(wire.OpenSession, [][]byte{wire.Field(1, wire.U32(1))}, func() error {
+			_, err := sessions.OpenSession(ctx, machined.SessionUser{Login: "agent", UID: 19999}, machined.SessionExec, []string{"codex"}, nil)
+			return err
+		})
+		user, run, _, err := link.SessionPresence(f.row.ID, 1)
+		require.NoError(t, err)
+		require.Equal(t, uint32(19999), user.UID)
+		require.Equal(t, "event-run", run)
+	}
 	// Unknown host principals cannot fabricate authors or receive a receipt.
 	require.NoError(t, guest.SetDeadline(time.Now().Add(5*time.Second)))
 	require.NoError(t, wire.Write(guest, transcriptEventFrame(event(6, 5, wire.Union(1, wire.Field(1, wire.Bytes([]byte("member:2"))))))))
