@@ -241,6 +241,10 @@ func TestFileRestoreCommandBoundary(t *testing.T) {
 	_, err = f.pool.Exec(ctx, `UPDATE flow_runtime_host_bindings SET state='retired' WHERE workspace_id=$1 AND catalog_key='coding'`, f.row.ID)
 	require.NoError(t, err)
 	// A member removed after opening a version cannot restore it.
+	// The presence fixture seeds a private coding host. End that host before
+	// granting shared write access, as the installed database requires.
+	_, err = f.pool.Exec(ctx, `UPDATE flow_runtime_host_bindings SET state='retired' WHERE workspace_id=$1 AND catalog_key='coding'`, f.row.ID)
+	require.NoError(t, err)
 	member, err := q.CreateUser(ctx, db.CreateUserParams{Username: "w6-member", LowerUsername: "w6-member"})
 	require.NoError(t, err)
 	_, err = f.pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, f.row.RepositoryID, member.ID)
