@@ -204,9 +204,9 @@ export const loadRepositoryFlows = (
       const metadata = {
         ...(dependencies.length === 0 ? {} : { dependencies }),
         ...(inspection === undefined ? {} : { inspection }),
-        // An input-dependent declaration remains runnable. Never publish an
-        // invented path through it or erase the historical display on refusal.
-        ...(inspection === undefined || inspection.diagnostics.length > 0 ? {} : { steps: inspection.steps })
+        // Input-dependent internals stay an opaque flow boundary. Every new
+        // inspected version owns its display, including an empty graph.
+        ...(inspection === undefined ? {} : { steps: inspection.steps })
       }
       versions.push(
         dependenciesReady._tag === "Failure" ?
