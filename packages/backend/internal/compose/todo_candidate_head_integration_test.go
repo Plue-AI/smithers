@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +33,7 @@ type candidateHeadRuntime struct {
 	fail                                         bool
 	calls                                        int
 	host                                         bool
+	repositoryDir                                string
 }
 
 func (r *candidateHeadRuntime) Isolation() workspaceapi.IsolationLevel {
@@ -46,10 +50,28 @@ func (r *candidateHeadRuntime) ExecuteCommand(ctx context.Context, _ string, com
 		return workspaceapi.CommandResult{}, fmt.Errorf("live read reused an execution identity")
 	}
 	r.operations[operation.OperationID] = true
+	if r.repositoryDir != "" {
+		cmd := exec.CommandContext(ctx, command.Args[0], command.Args[1:]...)
+		cmd.Dir = r.repositoryDir
+		cmd.Env = os.Environ()
+		for key, value := range command.Environment {
+			cmd.Env = append(cmd.Env, key+"="+value)
+		}
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return workspaceapi.CommandResult{}, fmt.Errorf("fixture guest command: %w: %s", err, out)
+		}
+		return workspaceapi.CommandResult{Stdout: string(out)}, nil
+	}
 	if r.fail {
 		return workspaceapi.CommandResult{ExitCode: 1}, nil
 	}
 	if command.Args[0] == "jj" {
+		for _, arg := range command.Args {
+			if arg == "--ignore-working-copy" {
+				return workspaceapi.CommandResult{}, fmt.Errorf("live observation ignored unsnapshotted edits")
+			}
+		}
 		return workspaceapi.CommandResult{Stdout: r.head + " " + r.change}, nil
 	}
 	if command.Args[0] != "git" || len(command.Args) != 4 {
@@ -134,7 +156,14 @@ func TestCandidateHeadReportComposedInstall(t *testing.T) {
 	require.Equal(t, 503, refused.Code, refused.Body.String())
 	require.Zero(t, runtime.calls, "a TODO head report cannot execute repository tools on the host")
 	runtime.host = false
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET pending_op=jsonb_build_object('kind','merge','target','1','desired',$2::text,'precondition','open','state','intended') WHERE id=$1`, itemID, priorHead)
+	require.NoError(t, err)
 	response := report(runtime.head, true)
+	require.Equal(t, 409, response.Code, response.Body.String())
+	require.Zero(t, runtime.calls, "a merge fence refuses before snapshotting the working copy")
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET pending_op=$2 WHERE id=$1`, itemID, originalPending)
+	require.NoError(t, err)
+	response = report(runtime.head, true)
 	require.Equal(t, 200, response.Code, response.Body.String())
 	verified, version, head := state()
 	require.True(t, verified, "equal trees preserve verification even with distinct commits")
@@ -186,4 +215,46 @@ func TestCandidateHeadReportComposedInstall(t *testing.T) {
 	require.Equal(t, 200, response.Code, response.Body.String())
 	v, _, _ = state()
 	require.False(t, v, "a later equal report cannot restore verification")
+
+	t.Run("unsnapshotted tracked edits reject the previous report", func(t *testing.T) {
+		// Real JJ and Git bytes through the same composed HTTP boundary. Only
+		// the guest process adapter is test-owned; this is not microVM proof.
+		root := t.TempDir()
+		jj := func(args ...string) string {
+			command := exec.Command("jj", args...)
+			command.Dir = root
+			out, err := command.CombinedOutput()
+			require.NoError(t, err, string(out))
+			return strings.TrimSpace(string(out))
+		}
+		jj("git", "init", "--colocate", ".")
+		jj("config", "set", "--repo", "user.name", "Candidate fixture")
+		jj("config", "set", "--repo", "user.email", "fixture@example.com")
+		file := filepath.Join(root, "tracked.txt")
+		require.NoError(t, os.WriteFile(file, []byte("verified\n"), 0600))
+		ids := strings.Fields(jj("log", "--no-graph", "-r", "@", "-T", `commit_id ++ " " ++ change_id`))
+		require.Len(t, ids, 2)
+		runtime.head, runtime.change = ids[0], ids[1]
+		runtime.repositoryDir = root
+		_, err := pool.Exec(ctx, `UPDATE mythical_items SET candidate_head=$2,candidate_verified=true WHERE id=$1`, itemID, ids[0])
+		require.NoError(t, err)
+		response := report(ids[0], true)
+		require.Equal(t, 200, response.Code, response.Body.String())
+		require.NoError(t, os.WriteFile(file, []byte("edited without jj\n"), 0600))
+		response = report(ids[0], true)
+		require.Equal(t, 409, response.Code, response.Body.String())
+		verified, _, head := state()
+		require.False(t, verified, "a stale report still invalidates a different authoritative live tree")
+		require.Equal(t, ids[0], head, "the stale report never writes a head")
+		current := strings.Fields(jj("log", "--no-graph", "-r", "@", "-T", `commit_id ++ " " ++ change_id`))
+		require.NotEqual(t, ids[0], current[0])
+		response = report(current[0], true)
+		require.Equal(t, 200, response.Code, response.Body.String())
+		verified, _, head = state()
+		require.False(t, verified)
+		require.Equal(t, current[0], head)
+		bytes, err := os.ReadFile(file)
+		require.NoError(t, err)
+		require.Equal(t, "edited without jj\n", string(bytes))
+	})
 }
