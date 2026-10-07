@@ -180,6 +180,7 @@ export const executeAgentToolCall = async (
    * naming the visible alternative, never a silent refusal.
    */
   const target = registry.find(name)
+  if (target === undefined) return unknownCommandResult(name)
   if (target !== undefined && !registry.callable().includes(target)) {
     return userOnlyError(name, target.metadata.agentReason)
   }

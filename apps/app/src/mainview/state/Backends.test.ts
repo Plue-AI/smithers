@@ -3,7 +3,6 @@ import { CLOUD_AUTH_SESSION_PATH } from "@smthrs/rpc/CloudTunnel"
 import { describe, expect, test } from "bun:test"
 import { refusalOf } from "@smthrs/rpc/Refusal"
 import { refusalLead } from "@smthrs/rpc/RefusalCopy"
-import type { AgentTurnFrame } from "@smthrs/rpc/NativeAgent"
 import type { AgentPort } from "../runtime/AgentPort"
 import { scopedControllers } from "./ControllerTestScope"
 import type { AppServices } from "./AppController"
@@ -147,7 +146,7 @@ describe("identity session record", () => {
     expect(identity?.login).toBeNull()
   })
 
-  test("a signed-out send reaches the backend: identity is not a gate on the chat", async () => {
+  test("a signed-out prompt never falls back to the native browser agent", async () => {
     const store = await webStore()
     let turns = 0
     const countingAgent: AgentPort = {
@@ -167,14 +166,14 @@ describe("identity session record", () => {
     controller.send("can you help me?")
     await settled()
 
-    expect(turns).toBe(1)
+    expect(turns).toBe(0)
     const reply = [...store.collections.messages.values()].find((message) =>
       message.text.includes("Sign in with GitHub first")
     )
     expect(reply).toBeUndefined()
   })
 
-  test("a selected backend user can send without an access gate", async () => {
+  test("a signed-in user without shared admission never falls back to the native agent", async () => {
     const store = await webStore()
     let turns = 0
     const countingAgent: AgentPort = {
@@ -193,7 +192,7 @@ describe("identity session record", () => {
     controller.send("can you help me?")
     await settled()
 
-    expect(turns).toBe(1)
+    expect(turns).toBe(0)
     const reply = [...store.collections.messages.values()].find((message) =>
       message.text.includes("design partners only")
     )
@@ -249,7 +248,7 @@ describe("billing record", () => {
     expect(cardOf(store, "billing-balance", "balance").payload.introUsd).toBeNull()
   })
 
-  test("a definitive $0 NEVER pauses chat — the turn runs (chat is on us during the alpha)", async () => {
+  test("a hosted balance cannot enable the retired native chat path", async () => {
     const store = await webStore()
     let turns = 0
     const countingAgent: AgentPort = {
@@ -268,15 +267,14 @@ describe("billing record", () => {
     controller.send("do more work")
     await settled()
 
-    // The free-chat ruling (2026-08-09): interactive chat is complimentary —
-    // the pause discipline applies only to non-complimentary (paid) work.
-    expect(turns).toBe(1)
+    // Hosted billing does not authorize a fallback to the removed executor.
+    expect(turns).toBe(0)
     const pause = [...store.collections.messages.values()].find((message) => message.text.includes("balance is at $0"))
     expect(pause).toBeUndefined()
     const submitted = [...store.collections.messages.values()].find(
       (message) => message.text === "do more work"
     )
-    expect(submitted?.role).toBe("user")
+    expect(submitted).toBeUndefined()
   })
 
   test("an unconfigured billing seam is honest and never pauses work", async () => {
@@ -500,126 +498,25 @@ describe("approval round trip", () => {
   })
 })
 
-describe("turn cost + stop discipline", () => {
-  const streamingAgent = (
-    emit: (runId: string, push: (frame: AgentTurnFrame) => void) => void
-  ): { agent: AgentPort; cancelled: string[] } => {
-    const listeners = new Set<(frame: AgentTurnFrame) => void>()
-    const cancelled: string[] = []
-    return {
-      cancelled,
-      agent: {
-        available: true,
-        startTurn: async (request) => {
-          queueMicrotask(() => emit(request.runId, (frame) => listeners.forEach((l) => l(frame))))
-          return { status: "started" }
-        },
-        cancelTurn: async (runId) => {
-          cancelled.push(runId)
-        },
-        subscribe: (listener) => {
-          listeners.add(listener)
-          return () => listeners.delete(listener)
-        }
-      }
-    }
-  }
-
-  test("a completed turn carries NO per-turn dollar line — chat is complimentary", async () => {
-    const store = await webStore()
-    let usageReads = 0
-    const { agent } = streamingAgent((runId, push) => {
-      push({ runId, type: "delta", kind: "text", text: "Done." })
-      push({ runId, type: "done" })
-    })
-    const controller = createAppController(store, agent, {
-      ...backend({
-        "/api/billing/balance": json(200, balanceBody("499.94625", 1)),
-        "/api/billing/usage": () => {
-          usageReads += 1
-          return json(200, { runId: "x", charges: [{ chargeId: "c1" }], totalUsd: "0.05375" })
-        }
-      })
-    })
-    controller.send("hello")
-    await settled()
-    await settled()
-    const response = [...store.collections.messages.values()].find((m) => m.text === "Done.")
-    // The true cost is recorded by the billing seam (zero debited); the UI
-    // never states a per-turn dollar line and never asks for one.
-    expect("costUsd" in (response ?? {})).toBe(false)
-    expect(usageReads).toBe(0)
-    // The balance chip still refreshes from the real answer after the turn.
-    expect(store.collections.billingAccounts.get("billing")?.totalUsd).toBe("499.94625")
+// Completion, interruption and author-only Stop are exercised against the
+// mounted shared seam in SharedConversationApp.test.tsx. Native turn frames
+// are no longer an app input; historical receipts remain decoder inputs.
+test("a native agent port cannot receive prompts or supply transcript frames", async () => {
+  const store = await webStore()
+  let starts = 0, subscriptions = 0, stops = 0
+  const controller = createAppController(store, {
+    available: true,
+    startTurn: async () => { starts++; return { status: "started" } },
+    cancelTurn: async () => { stops++ },
+    subscribe: () => { subscriptions++; return () => {} }
   })
-
-  test("a turn that dies server-side mid-stream surfaces as an honest failure", async () => {
-    const store = await webStore()
-    const { agent } = streamingAgent((runId, push) => {
-      push({ runId, type: "delta", kind: "text", text: "partial" })
-      push({
-        runId,
-        type: "done",
-        error: "The response stream ended before Smithers finished the turn."
-      })
-    })
-    const controller = createAppController(store, agent, backend({}))
-    controller.send("hello")
-    await settled()
-    const response = [...store.collections.messages.values()].find((m) => m.text === "partial")
-    expect(response?.status).toBe("failed")
-    expect(response?.statusDetail).toContain("stream ended")
-    expect(store.session().phase).toBe("idle")
-  })
-
-  test("a server-side kill surfaces as an interrupted turn with the honest line", async () => {
-    const store = await webStore()
-    const { agent } = streamingAgent((runId, push) => {
-      push({ runId, type: "delta", kind: "text", text: "partial work" })
-      // The Worker's terminal frame for a kill through /api/agent/turn/cancel.
-      push({ runId, type: "done", reason: "cancelled" })
-    })
-    const controller = createAppController(store, agent, backend({}))
-    controller.send("hello")
-    await settled()
-    const response = [...store.collections.messages.values()].find((m) => m.text === "partial work")
-    expect(response?.status).toBe("interrupted")
-    expect(response?.statusDetail).toBe("That turn was stopped by the server.")
-    expect(store.session().phase).toBe("idle")
-  })
-
-  test("a kill landing before the first delta still describes the turn, never silence", async () => {
-    const store = await webStore()
-    const { agent } = streamingAgent((runId, push) => {
-      // No delta at all: the kill beat the model's first token.
-      push({ runId, type: "done", reason: "cancelled" })
-    })
-    const controller = createAppController(store, agent, backend({}))
-    controller.send("hello")
-    await settled()
-    const response = [...store.collections.messages.values()].find(
-      (m) => m.text === "That turn was stopped by the server."
-    )
-    expect(response?.role).toBe("smithers")
-    expect(response?.status).toBe("interrupted")
-    expect(store.session().phase).toBe("idle")
-  })
-
-  test("stop cancels the endpoint and says what it stopped, keeping the partial text", async () => {
-    const store = await webStore()
-    const { agent, cancelled } = streamingAgent((runId, push) => {
-      push({ runId, type: "delta", kind: "text", text: "working on it" })
-    })
-    const controller = createAppController(store, agent, backend({}))
-    controller.send("hello")
-    await settled()
-    controller.stop()
-    expect(cancelled).toHaveLength(1)
-    const response = [...store.collections.messages.values()].find((m) => m.text === "working on it")
-    expect(response?.status).toBe("interrupted")
-    expect(response?.statusDetail).toBe("Stopped the current response.")
-    expect(store.session().phase).toBe("idle")
-  })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
+  controller.changeDraft("preserve this draft")
+  controller.send("preserve this draft")
+  controller.stop()
+  await settled()
+  expect({ starts, subscriptions, stops }).toEqual({ starts: 0, subscriptions: 0, stops: 0 })
+  expect(store.session().draft).toBe("preserve this draft")
 })
 
 for (const state of ["signed-in", "signed-out", "degraded"] as const) {
