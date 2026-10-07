@@ -1,6 +1,6 @@
 # One product, self-hosted and hosted: merged design
 
-> **Status: proposal awaiting Will's review (2026-10-06).** Produced by a four-way panel and a merger at Will's request. Not normative: spec.md and mvp.md govern until Will accepts it. **Known conflict:** this design has the install dial out to remote computers and Cloud machines after launch, while M-40 (on main, a90c199253) has workers dial the install with a stage-1 falsifier on beaver. M-40 governs until Will rules.
+> **Status: proposal; two decisions settled (2026-10-06).** Produced by a four-way panel and a merger at Will's request. Not normative except where marked **Decided**: spec.md and mvp.md govern otherwise. The earlier conflict with M-40 is resolved: M-40 was revised to match this design (the install connects out; remote computers are the first item after launch; 76f526e2dc). Will reviews the two remaining choices, one copy (cell) per team and metering only at the gateway, on his brief due Oct 19; until then this document's position is the default.
 
 
 Merger: Claude Fable, 2026-10-06. Inputs: `codex-sol.md`, `codex-astra.md`, `fable.md`, `opus.md`. Every contested fact below was re-read in `~/smithers-frontrun` (origin/frontrun, `0384b6be9a`) and `~/plue` (main). Paths without a prefix are in smithers-frontrun; `B/` is `packages/backend/`; `P/` is `~/plue`.
@@ -14,7 +14,7 @@ Merger: Claude Fable, 2026-10-06. Inputs: `codex-sol.md`, `codex-astra.md`, `fab
 - **The hosted GitHub App's private key lives in one small broker**; team copies only ever receive short-lived tokens for their one repository.
 - **Smithers meters model usage only at its own model gateway** (the fast model). Team copies hold their own keys like a Mac and never platform keys. Billing, when it comes, is a limit set from outside the copy, never code inside it.
 - **The old hosted product (organizations, billing pages, repository jobs, previews) is frozen now and deleted after launch**, together with our own scripts that still use it (issue-sweep's Cloud sandboxes, benchmarks), once those run on the new shape.
-- **One build per release produces the Mac bundle and the Linux image**, and the same journey tests run against both.
+- **Decided (engineering call, 8a, 2026-10-06; no Will review needed): one build per release produces the Mac bundle and the Linux image**, and the same journey tests run against both.
 
 ## Where the panel disagreed
 
@@ -272,7 +272,7 @@ P0 lands before plue's next bump; P1 this week. Everything else the panel put be
 | 6 | Lifting admission (F1) reorders grants | Recorded-trace equality test; any reordering blocks the land |
 | 7 | Retiring the forge breaks unknown callers | Grep public callers plus 7 days of plue request logs grouped by route family; issue-sweep and the benchmark pool are known callers and move first (H3) |
 | 8 | One shared GitHub App exhausts its rate budget | Limits are per installation. Staging C-GH-08 telemetry stays above 50 % remaining at M-03 cadence |
-| 9 | The fast model through a Smithers sign-in contradicts "needs no Smithers account" (mvp.md §12 item 5) | Product rules within a day by comparing the two texts. Until then the gateway source is optional and J1 passes with a BYOK fast model |
+| 9 | The fast model through a Smithers sign-in contradicted "needs no Smithers account" (mvp.md §12 item 5) | **Decided (product, 98, 2026-10-06):** the macOS install needs no Smithers account. The Smithers gateway is an optional fast-model source, and J1's default is the owner's own key. |
 | 10 | Per-node volume attach limits cap the number of cells | Staging load script at 200 cells; move cell volumes to a shared filestore if a node hits its limit |
 | 11 | Moving the controller public exposes code that was safe only while private | smithers-3f reviews `B/fleet` before F2 lands. Any embedded credential or trust in network position blocks the move |
 | 12 | The same GitHub repository bound to two cells | Rule: one active cell per GitHub installation and repository within a deployment; a transfer freezes writes and preserves identity. Try the double binding on staging before H1 lands |
