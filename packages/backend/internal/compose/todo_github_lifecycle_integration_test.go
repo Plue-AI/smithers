@@ -253,13 +253,10 @@ func TestTODOGitHubCloseReopenComposedInstall(t *testing.T) {
 			require.Equal(t, 1, reopened)
 		}
 	}
-	// Qualify the confirmed transition from a paused TODO as well as the
-	// ordinary review state; the precondition is fixture state, not a merge event.
-	if days == 6 {
-		_, err := r.pool.Exec(r.ctx, `UPDATE mythical_items SET paused_at=clock_timestamp() WHERE number=$1`, filed.N)
-		require.NoError(t, err)
-		require.True(t, cardState("paused"))
-	}
+	// Qualify the confirmed transition from a paused TODO.
+	_, err = r.pool.Exec(r.ctx, `UPDATE mythical_items SET paused_at=clock_timestamp() WHERE number=$1`, filed.N)
+	require.NoError(t, err)
+	require.True(t, cardState("paused"))
 	// A person's merge on GitHub is followed through the real mirror sync and
 	// fetched-PR worker, without an in-product approval or second merge call.
 	access, err = connections.CreateGitHubInstallationToken(r.ctx, 93, services.GitHubTokenScope{AllRepositories: true, Permissions: map[string]string{"pull_requests": "write", "contents": "write"}})
