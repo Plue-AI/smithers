@@ -135,3 +135,30 @@ test("C-J11-03: the instruction link reads the activated main revision after rel
  expect(reads[0]).toBe("Answer the repository question as Smithers for the prompt author.")
  expect(reads.at(-1)).toBe(draft)
 })
+
+
+test("C-J11-03: a member reads agent models and instructions without assignment controls", async ({ page }) => {
+ await installCloudFixture(page, { capabilities: ["agent", "identity", "install"] })
+ await page.route("**/api/public/repos", route => route.fulfill({ json: { repos: [] } }))
+ await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
+ const writes: string[] = []
+ await page.route("**/api/agents/reviewer/model", route => {
+  writes.push(route.request().method())
+  return route.fulfill({ status: 403, json: { class: "permission" } })
+ })
+ await page.route("**/api/agents", route => route.fulfill({ json: { native: false, canAssign: false, agents: [
+  { id: "reviewer", label: "Reviewer agent", purpose: "", model: { id: "model-b", label: "model-b", provider: "openai-responses" }, binding: { protocol: "openai-responses", modelId: "model-b", credential: "OPENAI_API_KEY" }, builtin: true, available: false, account: "", reason: "", source: "owner", instructions: "flows/todo/flow.ts", runs: [{ id: "review-1", model: "model-b" }] }
+ ] } }))
+ await page.goto("/smithersai/smithers")
+ await say(page, "/agents")
+ await expect(page.locator('[data-agent="reviewer"]')).toContainText("model-b")
+ await expect(page.getByTestId("agent-source-reviewer")).toHaveText("owner")
+ await expect(page.getByTestId("agent-recent-runs-reviewer")).toContainText("review-1 · model-b")
+ await expect(page.locator('[data-agent="reviewer"] [data-flow="files.read"]')).toBeVisible()
+ await expect(page.getByTestId("agent-model-reviewer")).toHaveCount(0)
+ await page.reload()
+ await say(page, "/agents")
+ await expect(page.locator('[data-agent="reviewer"]')).toContainText("model-b")
+ await expect(page.getByTestId("agent-model-reviewer")).toHaveCount(0)
+ expect(writes).toEqual([])
+})

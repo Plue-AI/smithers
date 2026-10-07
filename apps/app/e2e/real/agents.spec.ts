@@ -86,7 +86,7 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
   }
   // Bind the answer and model receipt to this newly admitted turn, rather
   // than accepting any historical app run with the expected model.
-  const ask = async () => {
+  const ask = async (expectedModel = modelF) => {
    await fillComposer(page, "What is this repository for? Answer in one sentence.")
    const admission = page.waitForResponse(response =>
     new URL(response.url()).pathname === "/api/conversations/main/prompt" &&
@@ -105,7 +105,7 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
    await expect.poll(async () => {
     const agents = await f.read("Will", "/api/agents")
     return agents.agents.find((row: any) => row.id === "app").runs.find((run: any) => run.id === runId)?.model
-   }, { timeout: 30_000 }).toBe(modelF)
+   }, { timeout: 30_000 }).toBe(expectedModel)
    await attachJson(info, `app-turn-${id}`, await f.read("Will", "/api/conversations/main"))
    return answer.innerText()
   }
@@ -118,7 +118,10 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
   await runSlash(page, "/agents")
   const before = await f.read("Will", "/api/todos")
   const priorAgents = await f.read("Will", "/api/agents")
-  expect(priorAgents.agents.find((row: any) => row.id === "reviewer").runs.every((run: any) => run.model === modelA)).toBe(true)
+  const priorReviewerRuns = priorAgents.agents.find((row: any) => row.id === "reviewer").runs
+  // Empty history is valid for a fresh install; a later observation must be new.
+  expect(priorReviewerRuns.every((run: any) => run.model === modelA)).toBe(true)
+  await attachJson(info, "reviewer-runs-before-switch", priorReviewerRuns)
   const bindingsBefore = f.sql("SELECT id,binding_id,runtime_artifact_digest FROM flow_runtime_host_bindings WHERE state='running' AND binding_kind='mythical-item' AND repository_id=(SELECT (value->>'repository_id')::bigint FROM install_settings WHERE key='github.repository')")
   expect(bindingsBefore.length, "TODO X must already be working before the switch").toBeGreaterThan(0)
   await attachJson(info, "ongoing-todo-bindings-before-switch", bindingsBefore)
@@ -138,12 +141,22 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
   })
   expect(denied.status()).toBe(403)
   expect((await denied.json()).class).toBe("permission")
+  await runSlash(f.members.Ben.page, "/agents")
+  await expect(f.members.Ben.page.getByTestId("agent-model-reviewer")).toHaveCount(0)
+  const maintainerDenied = await f.members.Ben.context.request.put("/api/agents/reviewer/model", {
+   data: { model: { protocol: "openai-responses", modelId: modelA, credential: "OPENAI_API_KEY" } }
+  })
+  expect(maintainerDenied.status()).toBe(403)
+  expect((await maintainerDenied.json()).class).toBe("permission")
+  await attachJson(info, "member-model-write-refusal", await denied.json())
+  await attachJson(info, "maintainer-model-write-refusal", await maintainerDenied.json())
   const delegated = await f.members.Alice.context.request.put("/api/agents/reviewer/model", {
    headers: { Authorization: `Bearer ${required("SMITHERS_JOURNEY_DELEGATED_TOKEN")}` },
    data: { model: { protocol: "openai-responses", modelId: modelA, credential: "OPENAI_API_KEY" } }
   })
   expect(delegated.status()).toBe(403)
   expect((await delegated.json()).class).toBe("permission")
+  await attachJson(info, "delegated-model-write-refusal", await delegated.json())
   expect(f.sql("SELECT value FROM install_settings WHERE key='agent:reviewer'")[0].value.modelId).toBe(modelB)
   const switched = await f.read("Will", "/api/agents")
   expect(switched.agents.find((row: any) => row.id === "reviewer").source).toBe("owner")
@@ -151,7 +164,7 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
   await expect.poll(async () => {
    const agents = await f.read("Will", "/api/agents")
    return agents.agents.find((row: any) => row.id === "reviewer").runs.some((run: any) =>
-    run.model === modelB && bindingsBefore.some(binding => binding.binding_id === run.id))
+    run.model === modelB && !priorReviewerRuns.some((old: any) => old.id === run.id && old.model === modelB) && bindingsBefore.some(binding => binding.binding_id === run.id))
   }, { timeout: 780_000, intervals: [2000, 5000] }).toBe(true)
   const bindingsAfter = f.sql("SELECT id,binding_id,runtime_artifact_digest FROM flow_runtime_host_bindings WHERE binding_kind='mythical-item'")
   for (const binding of bindingsBefore) {
@@ -175,6 +188,23 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
    return agents.agents.find((row: any) => row.id === "reviewer").runs.some((run: any) =>
     run.model === modelB && run.id === itemY[0].id)
   }, { timeout: 780_000, intervals: [2000, 5000] }).toBe(true)
+  // Exercise the existing owner credential boundary. The Settings removal
+  // gesture remains a separate pending reference-host observation.
+  const fastSetting = f.sql("SELECT value FROM install_settings WHERE key='agent:fast'")
+  expect(fastSetting).toHaveLength(1)
+  const fastCredential = fastSetting[0].value.credential
+  expect(fastCredential).toEqual(expect.any(String))
+  expect(fastCredential.length).toBeGreaterThan(0)
+  const codingSetting = f.sql("SELECT value FROM install_settings WHERE key='agent:coding'")
+  expect(codingSetting).toHaveLength(1)
+  expect(fastCredential, "Use separate fast and coding keys for the removal journey").not.toBe(codingSetting[0].value.credential)
+  const removed = await f.members.Will.context.request.post("/api/model/credential", {
+   data: { action: "remove", requestId: `c-j11-03-remove-fast-${Date.now()}`, name: fastCredential }
+  })
+  expect(removed.status()).toBe(200)
+  expect((await removed.json()).ok).toBe(true)
+  await attachJson(info, "fast-credential-removal", await removed.json())
+  expect((await ask(modelA)).trim()).not.toMatch(/\bDONE[.!]?$/)
   const readInstructions = async () => {
    const response = await page.context().request.get("/api/branches/main/files/.smithers/instructions/app.md")
    expect(response.status()).toBe(200)
@@ -190,9 +220,14 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
    timeout: 900_000, intervals: [1000, 2000]
   }).toContain("always end answers with the word DONE")
   const activated = await readInstructions()
-  expect((await ask()).trim()).toMatch(/\bDONE[.!]?$/)
+  expect((await ask(modelA)).trim()).toMatch(/\bDONE[.!]?$/)
   expect(activated.digest).not.toBe(original.digest)
   await attachJson(info, "activated-app-instructions", activated)
+  await runSlash(page, "/help")
+  for (const name of ["model", "model.list", "model.new", "model.edit", "model.save", "model.show", "model.remove", "model.test", "model.assign", "model.compose", "model.ask", "model.fixture"]) {
+   await expect(page.locator('.smithers-card[data-kind="commands"]').last().getByText(name, { exact: true })).toHaveCount(0)
+  }
+  await info.attach("owner-help", { body: await page.locator('.smithers-card[data-kind="commands"]').last().innerText(), contentType: "text/plain" })
   await page.reload()
   await runSlash(page, "/agents")
   await expect(page.locator('[data-agent="reviewer"]')).toContainText(modelB)
