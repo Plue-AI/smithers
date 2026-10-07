@@ -19,7 +19,7 @@ import type * as Layer from "effect/Layer"
 import type * as PlatformError from "effect/PlatformError"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
-import { minimatch } from "minimatch"
+import { escape, minimatch } from "minimatch"
 import { createHash } from "node:crypto"
 import * as NodeFs from "node:fs"
 import * as NodeOs from "node:os"
@@ -3363,8 +3363,8 @@ export const LlmReviewLive = (options: {
  * Attributes for {@link LlmLint}.
  *
  * `changes` names the base revision whose diff selects the reviewed files.
- * `include` globs match workspace-relative changed paths; a path is reviewed
- * when it matches at least one glob. `context` globs are always read into
+ * `include` files and globs match workspace-relative changed paths; a path is reviewed
+ * when it matches at least one declaration. `context` files and globs are always read into
  * every batch prompt whether or not they changed. Execution resolves context
  * from the workspace root (with optional `//`) and crosses nested `PACKAGE.ts`
  * boundaries: references can belong to other packages. Workspace confinement,
@@ -3384,9 +3384,9 @@ export const LlmReviewLive = (options: {
  */
 export const Attrs = Schema.Struct({
   changes: Input.GitDiff,
-  include: Schema.Array(Input.Glob).check(Schema.isMaxLength(maximumGlobDeclarations)),
-  context: Schema.Array(Input.Glob).check(Schema.isMaxLength(maximumContextFiles)).pipe(
-    Schema.withConstructorDefault(Effect.succeed<ReadonlyArray<Input.Glob>>([]))
+  include: Schema.Array(Schema.Union([Input.Glob, Input.File])).check(Schema.isMaxLength(maximumGlobDeclarations)),
+  context: Schema.Array(Schema.Union([Input.Glob, Input.File])).check(Schema.isMaxLength(maximumContextFiles)).pipe(
+    Schema.withConstructorDefault(Effect.succeed<ReadonlyArray<Input.Glob | Input.File>>([]))
   ),
   deps: Schema.Array(Target.Target),
   prompt: Schema.String.check(Schema.isMaxLength(maximumConfigurationText)),
@@ -3468,8 +3468,8 @@ export const LlmLint = Target.make("LlmLint", {
   implementation: (attrs) =>
     LlmReview.call({
       base: attrs.changes.base,
-      include: attrs.include,
-      context: attrs.context,
+      include: attrs.include.map((input) => input._tag === "File" ? Input.glob(escape(input.path, { windowsPathsNoEscape: true })) : input),
+      context: attrs.context.map((input) => input._tag === "File" ? Input.glob(escape(input.path, { windowsPathsNoEscape: true })) : input),
       prompt: attrs.prompt,
       rubric: attrs.rubric,
       engine: attrs.engine,

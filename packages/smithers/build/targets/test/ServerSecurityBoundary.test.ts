@@ -48,8 +48,8 @@ describe("deployed server security boundaries", () => {
         ]
       ) {
         expect(authorization).toContain(gate)
-        expect(attrs.include.map((glob) => glob.pattern)).toContain(`//${gate}`)
-        expect(attrs.context.map((glob) => glob.pattern)).toContain(`//${gate}`)
+        expect(attrs.include.map((glob) => (glob._tag === "File" ? glob.path : glob.pattern))).toContain(`//${gate}`)
+        expect(attrs.context.map((glob) => (glob._tag === "File" ? glob.path : glob.pattern))).toContain(`//${gate}`)
       }
     }
   )
