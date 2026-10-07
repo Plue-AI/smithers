@@ -481,6 +481,13 @@ func localChatProvider(receivedKey chan string, fileQuestions ...string) *httpte
 			case message.Role == "system":
 				system = text
 			case message.Role != "user":
+			case strings.HasPrefix(text, `{"quoted_issue_snapshot":`):
+				if len(body.Tools) != 0 {
+					http.Error(w, "issue drafting offered tools", http.StatusBadRequest)
+					return
+				}
+				answer(`{"title":"Fix frozen issue","prompt":"Fix the observed issue","acceptance":["Reproduction passes"]}`)
+				return
 			case strings.Contains(text, "(instructions)"):
 				var lines []string
 				for _, line := range strings.Split(system, "\n") {
