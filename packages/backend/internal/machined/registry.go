@@ -21,12 +21,13 @@ var (
 // cannot authenticate a boot or fence an old connection's reconciliation.
 // The zero value is usable; host restart requires fresh boot registration.
 type Registry struct {
-	mu         sync.Mutex
-	closed     bool
-	branches   map[string]*boot
-	boots      map[[16]byte]*boot
-	rosterSync func(context.Context, string) error
-	objects    ObjectImporter
+	mu             sync.Mutex
+	closed         bool
+	branches       map[string]*boot
+	boots          map[[16]byte]*boot
+	rosterSync     func(context.Context, string) error
+	objects        ObjectImporter
+	objectExporter ObjectExporter
 	// Consumer cancellation cannot wait for mu: an in-flight writer holds
 	// that fence until its cancelled transaction rolls back.
 	eventsMu      sync.Mutex
@@ -41,6 +42,8 @@ type boot struct {
 	secret          [32]byte
 	link            *Link
 	connection      *Connection
+	nextObject      uint32
+	wakeGate        chan struct{}
 }
 
 // Connection is an authenticated lease, not a wire frame. Only the ADR 0004
@@ -81,7 +84,7 @@ func (r *Registry) BindBoot(branch, machine string, id [16]byte, credential []by
 		old = previous.connection
 		previous.connection = nil
 	}
-	b := &boot{branch: branch, machine: machine, id: id, credential: sha256.Sum256(credential)}
+	b := &boot{branch: branch, machine: machine, id: id, credential: sha256.Sum256(credential), wakeGate: make(chan struct{}, 1)}
 	r.branches[branch], r.boots[id] = b, b
 	r.mu.Unlock()
 	if old != nil {

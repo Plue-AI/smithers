@@ -143,11 +143,19 @@ func (r *Registry) WakeReconcile(ctx context.Context, branch, head string) (Reco
 	if err != nil {
 		return ReconcileResult{}, err
 	}
+	return l.wakeReconcile(ctx, branch, head)
+}
+func (l *Link) wakeReconcile(ctx context.Context, branch, head string) (ReconcileResult, error) {
 	bytes, err := oid(head)
 	if err != nil {
 		return ReconcileResult{}, err
 	}
-	fields, err := l.call(ctx, branch, wire.WakeReconcile, wire.Field(1, bytes))
+	var fields map[byte][]byte
+	err = l.withWake(ctx, branch, head, func(ctx context.Context) error {
+		var callErr error
+		fields, callErr = l.call(ctx, branch, wire.WakeReconcile, wire.Field(1, bytes))
+		return callErr
+	})
 	if err != nil {
 		return ReconcileResult{}, err
 	}

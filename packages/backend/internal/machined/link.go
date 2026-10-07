@@ -134,6 +134,7 @@ func (r *Registry) Connect(ctx context.Context, branch string, stream net.Conn) 
 	}
 	lease.boot.link = l
 	l.objectImporter = r.objects
+	l.objectExporter = r.objectExporter
 	// Register before releasing admission's lock, so consumer shutdown cannot
 	// miss a connection admitted concurrently with its final worker snapshot.
 	r.eventsMu.Lock()
@@ -176,6 +177,8 @@ type Link struct {
 	objectQueue      chan struct{}
 	objectData       []byte
 	objectImporter   ObjectImporter
+	objectExporter   ObjectExporter
+	objectSend       *objectSend
 	objectStream     uint32
 	objectPending    int
 	objectEOF        bool
@@ -313,6 +316,12 @@ func (l *Link) read() {
 				return
 			}
 		case wire.Objects:
+			if f.Stream >= 0x80000000 {
+				if !l.receiveObjectReceipt(f) {
+					return
+				}
+				continue
+			}
 			if !l.receiveObject(f) {
 				return
 			}

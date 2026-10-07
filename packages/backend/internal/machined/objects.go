@@ -127,7 +127,7 @@ func (l *Link) importObjects() {
 			if f.Payload[0] == 1 {
 				size += int64(len(f.Payload) - 2)
 				// Disk is bounded independently of the transport's memory credit.
-				if size > 256<<20 {
+				if size > maxObjectBundleSize {
 					return
 				}
 				if _, err := file.Write(f.Payload[2:]); err != nil {

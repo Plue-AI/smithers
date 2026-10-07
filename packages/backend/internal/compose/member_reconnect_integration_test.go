@@ -3,6 +3,7 @@ package compose
 import (
 	"bytes"
 	"context"
+	"io"
 	"net"
 	"strings"
 	"testing"
@@ -31,6 +32,9 @@ func exerciseRevocationReconnect(t *testing.T, pool *pgxpool.Pool, writer db.Use
 	require.NoError(t, pool.QueryRow(ctx, `SELECT c.unix_login,c.unix_uid FROM collaborators c JOIN self_host_owners o ON o.user_id=c.user_id`).Scan(&ownerLogin, &ownerUID))
 	ownerEntry := wire.Struct(wire.Field(1, wire.String(ownerLogin)), wire.Field(2, wire.U32(ownerUID)))
 	registry := new(machined.Registry)
+	registry.BindObjectExporter(func(context.Context, string, string, uint32) (io.ReadCloser, error) {
+		return io.NopCloser(strings.NewReader("roster fixture bundle")), nil
+	})
 	roster := &machineRoster{pool: pool, client: registry}
 	registry.BindRosterSync(roster.syncBranch)
 	authority, err := registry.MintBoot(branch, "reconnect-proof")
@@ -131,6 +135,18 @@ func exerciseRevocationReconnect(t *testing.T, pool *pgxpool.Pool, writer db.Use
 		}
 		require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Control, Payload: wire.Union(2,
 			wire.Field(1, wire.U32(id)), wire.Field(2, wire.Union(byte(wire.SetRoster))))}))
+		for {
+			frame, err := wire.Read(peer)
+			require.NoError(t, err)
+			require.Equal(t, wire.Objects, frame.Kind)
+			require.GreaterOrEqual(t, frame.Stream, uint32(0x80000000))
+			if frame.Payload[0] == 2 {
+				require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Objects, Stream: frame.Stream, Payload: []byte{7}}))
+				break
+			}
+			require.Equal(t, byte(1), frame.Payload[0])
+			require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Objects, Stream: frame.Stream, Payload: append([]byte{6}, wire.U32(uint32(len(frame.Payload)-2))...)}))
+		}
 		reply(peer, wire.WakeReconcile, wire.Field(1, wire.Union(1)))
 		reply(peer, wire.Status, wire.Field(1, []byte{3}), wire.Field(2, wire.U16(1)),
 			wire.Field(3, wire.String("guest")), wire.Field(4, wire.U32(0)), wire.Field(6, wire.U16(0)))

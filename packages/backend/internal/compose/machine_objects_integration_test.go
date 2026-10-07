@@ -94,6 +94,56 @@ func TestMachineObjectsProductionBinding(t *testing.T) {
 	row, err := b.GetWorkspace(t.Context(), branch)
 	require.NoError(t, err)
 	require.Empty(t, row.HeadCommitID, "capture publication is a separate verified transaction")
+	// The same production binding exports only this branch's authoritative head.
+	// The peer imports real Git bytes before granting the stream receipt.
+	git("-C", store, "update-ref", "refs/smithers/branches/"+branch+"/head", base)
+	exporter := machineObjectExporter(t.Context(), b.pool, client)
+	for _, id := range []string{"not-a-uuid", strings.ToUpper(branch), "11111111-1111-4111-8111-111111111111"} {
+		source, err := exporter(t.Context(), id, base, 0x80000005)
+		require.ErrorIs(t, err, machined.ErrUnauthorized)
+		require.Nil(t, source)
+	}
+	sourceSnapshot, err := exporter(t.Context(), branch, head, 0x80000005)
+	require.ErrorIs(t, err, machined.ErrNotReady, "a stored object is not authority for this branch")
+	require.Nil(t, sourceSnapshot)
+	wake := make(chan error, 1)
+	go func() { _, err := registry.WakeReconcile(t.Context(), branch, base); wake <- err }()
+	var received []byte
+	var incomingStream uint32
+	for {
+		frame, err := wire.Read(peer)
+		require.NoError(t, err)
+		require.Equal(t, wire.Objects, frame.Kind, "wake RPC preceded bundle import")
+		require.GreaterOrEqual(t, frame.Stream, uint32(0x80000000))
+		if incomingStream == 0 {
+			incomingStream = frame.Stream
+		}
+		require.Equal(t, incomingStream, frame.Stream)
+		if frame.Payload[0] == 2 {
+			break
+		}
+		require.Equal(t, byte(1), frame.Payload[0])
+		received = append(received, frame.Payload[2:]...)
+		require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Objects, Stream: incomingStream, Payload: append([]byte{6}, wire.U32(uint32(len(frame.Payload)-2))...)}))
+	}
+	target := filepath.Join(t.TempDir(), "receiver")
+	git("init", "--bare", target)
+	wakeBundle := filepath.Join(t.TempDir(), "wake.bundle")
+	require.NoError(t, os.WriteFile(wakeBundle, received, 0600))
+	git("-C", target, "bundle", "verify", wakeBundle)
+	git("-C", target, "bundle", "unbundle", wakeBundle)
+	require.Equal(t, base, git("-C", target, "rev-parse", base+"^{commit}"))
+	require.Empty(t, git("-C", target, "for-each-ref"))
+	require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Objects, Stream: incomingStream, Payload: []byte{7}}))
+	request, err := wire.Read(peer)
+	require.NoError(t, err)
+	requestID, method, _, err := request.Request()
+	require.NoError(t, err)
+	require.Equal(t, byte(wire.WakeReconcile), method)
+	require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(requestID)), wire.Field(2, wire.Union(5, wire.Field(1, wire.Union(1)))))}))
+	require.NoError(t, <-wake)
+	require.Empty(t, git("-C", store, "for-each-ref", "refs/smithers/xfer"))
+	require.Equal(t, base, git("-C", store, "rev-parse", "refs/heads/main"))
 	file, err := os.Open(bundle)
 	require.NoError(t, err)
 	defer file.Close()
@@ -110,6 +160,9 @@ func TestMachineObjectsProductionBinding(t *testing.T) {
 	} {
 		b.exec(change.sql, branch)
 		require.ErrorIs(t, importer(t.Context(), branch, file), machined.ErrUnauthorized)
+		snapshot, err := exporter(t.Context(), branch, base, 0x80000005)
+		require.ErrorIs(t, err, machined.ErrUnauthorized)
+		require.Nil(t, snapshot)
 		b.exec(change.restore, branch)
 	}
 	require.Error(t, machineObjectImporter(t.Context(), b.pool, &repohost.Client{})(t.Context(), branch, file), "an unbound repository port cannot certify an import")

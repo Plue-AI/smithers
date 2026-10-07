@@ -16,6 +16,7 @@ import (
 func rpcFixture(t *testing.T) (*Registry, *Link, net.Conn) {
 	t.Helper()
 	r := new(Registry)
+	bindFixtureExporter(r)
 	a, err := r.MintBoot("a", "vm")
 	require.NoError(t, err)
 	l, peer := connectTest(t, r, "a", a)
@@ -24,6 +25,9 @@ func rpcFixture(t *testing.T) (*Registry, *Link, net.Conn) {
 }
 func answer(t *testing.T, peer net.Conn, method wire.Method, fields ...[]byte) {
 	t.Helper()
+	if method == wire.WakeReconcile {
+		acceptFixtureBundle(t, peer)
+	}
 	f, err := wire.Read(peer)
 	require.NoError(t, err)
 	id, m, _, err := f.Request()
@@ -75,7 +79,7 @@ func TestRegistryFileRPC(t *testing.T) {
 	require.ErrorIs(t, err, ErrUnauthorized)
 }
 func TestRegistryAdmissionRPC(t *testing.T) {
-	r, _, peer := rpcFixture(t)
+	r, link, peer := rpcFixture(t)
 	head := strings.Repeat("a", 40)
 	headBytes, _ := hex.DecodeString(head)
 	results := make(chan error, 1)
@@ -95,6 +99,7 @@ func TestRegistryAdmissionRPC(t *testing.T) {
 		require.NoError(t, <-results)
 		require.Equal(t, test.outcome, (<-received).Outcome)
 	}
+	require.NoError(t, link.Reconciled()) // independent ready fixture for the remaining RPCs
 	go func() { results <- r.SetRoster(t.Context(), "a", []SessionUser{{Login: "alice", UID: 20001}}) }()
 	answer(t, peer, wire.SetRoster)
 	require.NoError(t, <-results)
@@ -186,6 +191,7 @@ func TestRegistryAdmissionRequiresActualReady(t *testing.T) {
 	for _, state := range []byte{2, 3} {
 		t.Run(string(rune('0'+state)), func(t *testing.T) {
 			r := new(Registry)
+			bindFixtureExporter(r)
 			a, err := r.MintBoot("a", "vm")
 			require.NoError(t, err)
 			link, peer := connectTest(t, r, "a", a)
@@ -248,6 +254,7 @@ func TestRegistryDocumentRequiresSequencedLiveProtocol(t *testing.T) {
 
 func TestRegistryReconnectUsesCurrentRosterBeforeReady(t *testing.T) {
 	r := new(Registry)
+	bindFixtureExporter(r)
 	authority, err := r.MintBoot("a", "vm")
 	require.NoError(t, err)
 	current := []SessionUser{{Login: "alice", UID: 20001}}

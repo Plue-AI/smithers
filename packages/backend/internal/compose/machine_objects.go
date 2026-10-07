@@ -2,6 +2,7 @@ package compose
 
 import (
 	"context"
+	"io"
 	"os"
 	"time"
 
@@ -50,11 +51,55 @@ func machineObjectImporter(lifetime context.Context, pool *pgxpool.Pool, host *r
 	}
 }
 
+// Export uses the same authoritative workspace/owner lookup and native
+// maintenance fence as import, but releases both before streaming the snapshot.
+func machineObjectExporter(lifetime context.Context, pool *pgxpool.Pool, host *repohost.Client) machined.ObjectExporter {
+	return func(ctx context.Context, branch, head string, stream uint32) (io.ReadCloser, error) {
+		if pool == nil || host == nil {
+			return nil, machined.ErrNotReady
+		}
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		stop := context.AfterFunc(lifetime, cancel)
+		defer stop()
+		if lifetime.Err() != nil {
+			return nil, lifetime.Err()
+		}
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			return nil, err
+		}
+		defer func() {
+			cleanup, done := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+			defer done()
+			_ = tx.Rollback(cleanup)
+		}()
+		var source io.ReadCloser
+		err = withMachineRepositoryTx(ctx, tx, branch, host, func(path string) error {
+			export := machined.GitBundleExporter(func(context.Context, string) (string, error) { return path, nil })
+			var e error
+			source, e = export(ctx, branch, head, stream)
+			return e
+		})
+		if err == nil {
+			err = tx.Commit(ctx)
+		}
+		if err != nil {
+			if source != nil {
+				_ = source.Close()
+			}
+			return nil, err
+		}
+		return source, nil
+	}
+}
+
 func bindMachineObjects(ctx context.Context, registry *machined.Registry, pool *pgxpool.Pool, host *repohost.Client) func() {
 	if registry == nil {
 		return func() {}
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	registry.BindObjectImporter(machineObjectImporter(ctx, pool, host))
-	return func() { cancel(); registry.BindObjectImporter(nil) }
+	registry.BindObjectExporter(machineObjectExporter(ctx, pool, host))
+	return func() { cancel(); registry.BindObjectImporter(nil); registry.BindObjectExporter(nil) }
 }
