@@ -428,3 +428,23 @@ func TestCallRPCRoutesGatewayProceduresToProjections(t *testing.T) {
 		})
 	}
 }
+
+func TestClientSteerTransportsInputVersion(t *testing.T) {
+	client, _ := runtimeClient(t, http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		var input struct {
+			Version   int64  `json:"version"`
+			MessageID string `json:"messageId"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
+			t.Fatal(err)
+		}
+		if input.Version != 2 || input.MessageID != "comment-42" {
+			t.Fatalf("input = %+v", input)
+		}
+		writeCommand(t, response, "steer", "edit-2")
+	}))
+	_, err := client.Steer(context.Background(), flowruntime.Steer{ApplicationRequestID: "edit-2", OwnerGeneration: 7, RunID: "run-1", MessageID: "comment-42", InputVersion: 2, Kind: "Message", Body: "edited"})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

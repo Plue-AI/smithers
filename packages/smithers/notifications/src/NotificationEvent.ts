@@ -72,7 +72,8 @@ export const Admitted = Schema.Struct({
   notification: Notification.Notification,
   decision: AdmissionDecision,
   /** SHA-256 of canonical validated input, absent in legacy admission rows. */
-  fingerprint: Schema.optional(Schema.String)
+  fingerprint: Schema.optional(Schema.String),
+  version: Schema.optional(Schema.Number)
 })
 
 /**

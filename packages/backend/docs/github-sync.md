@@ -22,11 +22,12 @@ next attempt after checking current membership again.
 
 Outsiders contribute GitHub activity only. App comments are ignored. GitHub
 approvals remain review facts and cannot grant a Smithers merge approval.
-Edits update activity; held inputs can be replaced or withdrawn. The current runtime
-bridge has no atomic replace-if-unconsumed operation: after admission, edits
-update activity only, even if the run has not consumed the input. Completing
-that lifecycle requires the runtime consumption fence; admission is not proof
-of consumption.
+Edits update activity and carry a monotonically increasing input version through
+the shared runtime bridge. The notification journal replaces a pending steer in
+place, preserving its admission order. Turn-boundary promotion fences consumption:
+later edits cannot change the delivered payload or its replay. Deleted comments
+hide activity and withdraw only held input. Versioned edits never grant a new
+merge approval or restart a completed attempt.
 
 Reference-host validation must additionally prove guest wake, non-root execution,
 and a pushed fix on the same PR. The Linux protocol fixtures prove transaction

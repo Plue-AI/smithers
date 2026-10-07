@@ -565,6 +565,12 @@ type mythicalProjection struct {
 // and wakes the worker. Generation-scoped phase runs reject old generations;
 // the attempt-bound composition can continue across candidate generations.
 func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdispatch.ProjectionUpdate) error {
+	var kind struct {
+		Kind string `json:"kind"`
+	}
+	if json.Unmarshal(update.Checkpoint.Projection, &kind) == nil && kind.Kind == "mythical-steer" {
+		return s.projectTodoSteerReceipt(ctx, update)
+	}
 	var projection mythicalProjection
 	if json.Unmarshal(update.Checkpoint.Projection, &projection) != nil {
 		return nil

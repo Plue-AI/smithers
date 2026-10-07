@@ -861,6 +861,7 @@ export const ApprovalInputSchema = ApprovalPayload
  * @category models
  */
 export const SteerInputSchema = Schema.Struct({
+  version: Schema.optional(Schema.Number),
   runId: RunId,
   message: SteerMessage,
   idempotencyKey: IdempotencyKey
@@ -1349,11 +1350,18 @@ export type RunHost = typeof RunHost.Type
  */
 export const Receipt = Schema.Union([
   Schema.TaggedStruct("Accepted", {
+    inputConsumed: Schema.optional(Schema.Boolean),
+    inputBody: Schema.optional(Schema.String),
     receiptId: Schema.String,
     runId: Schema.optional(RunId),
     handedTo: Schema.optional(RunHost)
   }),
-  Schema.TaggedStruct("AlreadyApplied", { receiptId: Schema.String, runId: Schema.optional(RunId) }),
+  Schema.TaggedStruct("AlreadyApplied", {
+    receiptId: Schema.String,
+    runId: Schema.optional(RunId),
+    inputConsumed: Schema.optional(Schema.Boolean),
+    inputBody: Schema.optional(Schema.String)
+  }),
   Schema.TaggedStruct("Parked", {
     receiptId: Schema.String,
     planId: Schema.String,
