@@ -5,7 +5,7 @@ use super::{invalid, Framer, Record, READ_BYTES};
 use rustix::fs::{self, inotify, Mode, OFlags, ResolveFlags};
 use std::{
     fs::File,
-    io::{self, Read, Seek, SeekFrom},
+    io::{self, Read, Seek, SeekFrom, Write},
     mem::MaybeUninit,
     os::{
         fd::{AsRawFd, OwnedFd},
@@ -24,6 +24,119 @@ pub struct Tail {
     watch: Option<OwnedFd>,
     checked: Option<Instant>,
     stopped: bool,
+    source: Option<super::wire::Source>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Checkpoint {
+    version: u8,
+    root: (u64, u64),
+    path: String,
+    owner: u32,
+    inode: Option<(u64, u64)>,
+    framer: SavedFramer,
+    anchor: Vec<u8>,
+    stopped: bool,
+    source: Option<super::wire::Source>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SavedFramer {
+    generation: u64,
+    offset: u64,
+    pending: Vec<u8>,
+    failed: bool,
+}
+
+/// One checkpoint per broker-bound source lifetime in the existing daemon
+/// state directory. All operations use a held descriptor, never a home path.
+pub struct CheckpointStore {
+    directory: File,
+    name: String,
+    owner: u32,
+}
+
+impl CheckpointStore {
+    pub fn new(directory: File, lifetime: [u8; 16]) -> io::Result<Self> {
+        let owner = rustix::process::geteuid().as_raw();
+        let meta = directory.metadata()?;
+        if owner == 0
+            || !meta.is_dir()
+            || meta.uid() != owner
+            || meta.mode() & 0o7777 != 0o700
+            || lifetime == [0; 16]
+        {
+            return Err(invalid("invalid transcript checkpoint directory"));
+        }
+        let name = lifetime
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+            + ".tail";
+        Ok(Self {
+            directory,
+            name,
+            owner,
+        })
+    }
+
+    pub fn load(&self) -> io::Result<Option<Vec<u8>>> {
+        let file = match open(&self.directory, &self.name) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let meta = file.metadata()?;
+        let bound = super::MAX_RECORD_BYTES * 4 + 32768;
+        if !meta.is_file()
+            || meta.uid() != self.owner
+            || meta.nlink() != 1
+            || meta.mode() & 0o7777 != 0o600
+            || meta.len() > bound as u64
+        {
+            return Err(invalid("invalid transcript checkpoint file"));
+        }
+        let mut bytes = Vec::new();
+        file.take(bound as u64 + 1).read_to_end(&mut bytes)?;
+        if bytes.len() > bound {
+            return Err(invalid("checkpoint grew beyond limit"));
+        }
+        Ok(Some(bytes))
+    }
+
+    pub fn save(&self, bytes: &[u8]) -> io::Result<()> {
+        if bytes.len() > super::MAX_RECORD_BYTES * 4 + 32768 {
+            return Err(invalid("oversized transcript checkpoint"));
+        }
+        let mut nonce = [0; 16];
+        getrandom::fill(&mut nonce).map_err(|e| io::Error::other(e.to_string()))?;
+        let temporary = nonce.iter().map(|b| format!("{b:02x}")).collect::<String>() + ".tail.tmp";
+        let fd = fs::openat2(
+            &self.directory,
+            temporary.as_str(),
+            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::CLOEXEC | OFlags::NOFOLLOW,
+            Mode::RUSR | Mode::WUSR,
+            ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS,
+        )?;
+        let mut file = File::from(fd);
+        let result = (|| {
+            file.write_all(bytes)?;
+            file.sync_all()?;
+            fs::renameat(
+                &self.directory,
+                temporary.as_str(),
+                &self.directory,
+                self.name.as_str(),
+            )?;
+            self.directory.sync_all()
+        })();
+        if result.is_err() {
+            let _ = fs::unlinkat(&self.directory, temporary.as_str(), fs::AtFlags::empty());
+        }
+        result
+    }
 }
 
 fn open(root: &File, path: &str) -> io::Result<File> {
@@ -41,6 +154,106 @@ fn open(root: &File, path: &str) -> io::Result<File> {
 }
 
 impl Tail {
+    /// Opaque reader state. The daemon fsyncs this only AFTER outbox append.
+    /// A crash before checkpoint persistence replays the same source ranges.
+    pub fn checkpoint(&self) -> io::Result<Vec<u8>> {
+        let meta = self.root.metadata()?;
+        serde_json::to_vec(&Checkpoint {
+            version: 1,
+            root: (meta.dev(), meta.ino()),
+            path: self.path.clone(),
+            owner: self.owner,
+            inode: self.inode,
+            framer: SavedFramer {
+                generation: self.framer.generation,
+                offset: self.framer.offset,
+                pending: self.framer.pending.clone(),
+                failed: self.framer.failed,
+            },
+            anchor: self.anchor.clone(),
+            stopped: self.stopped,
+            source: self.source.clone(),
+        })
+        .map_err(|_| invalid("cannot encode transcript checkpoint"))
+    }
+
+    /// Bind recovered state to the same held owner root and linked source.
+    /// Never accept a checkpoint as permission to choose another owner/path.
+    pub fn resume(root: File, path: &str, owner: u32, bytes: &[u8]) -> io::Result<Self> {
+        if bytes.len() > super::MAX_RECORD_BYTES * 4 + 32768 {
+            return Err(invalid("oversized transcript checkpoint"));
+        }
+        let state: Checkpoint =
+            serde_json::from_slice(bytes).map_err(|_| invalid("invalid transcript checkpoint"))?;
+        let mut tail = Self::new(root, path, owner)?;
+        let meta = tail.root.metadata()?;
+        if state.version != 1
+            || state.root != (meta.dev(), meta.ino())
+            || state.path != path
+            || state.owner != owner
+            || state.framer.generation == 0
+            || state.framer.pending.len() > super::MAX_RECORD_BYTES
+            || state.framer.pending.len() as u64 > state.framer.offset
+            || state.framer.pending.contains(&b'\n')
+            || state.anchor.len() > 64
+            || state.anchor.len() as u64 > state.framer.offset
+            || (state.inode.is_none() && state.framer.offset != 0)
+            || (state.framer.failed && !state.stopped)
+        {
+            return Err(invalid("transcript checkpoint binding mismatch"));
+        }
+        tail.inode = state.inode;
+        tail.framer = Framer {
+            generation: state.framer.generation,
+            offset: state.framer.offset,
+            pending: state.framer.pending,
+            failed: state.framer.failed,
+        };
+        tail.anchor = state.anchor;
+        tail.stopped = state.stopped;
+        tail.source = state.source;
+        Ok(tail)
+    }
+
+    /// The owner reader waits for `persist` to fsync each event in the daemon's
+    /// existing outbox (through the broker IPC, never by opening daemon state
+    /// under the owner's UID). `save` then atomically replaces and fsyncs the
+    /// checkpoint. Failure restores the cursor for transactional host replay.
+    pub fn poll_durable(
+        &mut self,
+        now: Instant,
+        source: &super::wire::Source,
+        mut persist: impl FnMut(&[u8]) -> io::Result<()>,
+        mut save: impl FnMut(&[u8]) -> io::Result<()>,
+    ) -> io::Result<usize> {
+        if self.source.as_ref().is_some_and(|bound| bound != source) {
+            return Err(invalid("transcript source binding changed"));
+        }
+        // Validate identity even at EOF, before opening the linked source.
+        source
+            .event(&Record {
+                generation: 1,
+                start: 0,
+                end: 2,
+                text: "x".into(),
+            })
+            .map_err(|_| invalid("invalid transcript source"))?;
+        self.source = Some(source.clone());
+        let previous = self.checkpoint()?;
+        let result = self.poll(now, |record| {
+            let event = source
+                .event(record)
+                .map_err(|_| invalid("invalid transcript source"))?;
+            persist(&event)
+        });
+        // Preserve terminal refusal as well as successful/partial progress.
+        let checkpoint = self.checkpoint()?;
+        if let Err(error) = save(&checkpoint) {
+            *self = Self::resume(self.root.try_clone()?, &self.path, self.owner, &previous)?;
+            return Err(error);
+        }
+        result
+    }
     /// No root fallback: this module never reads a home under daemon/root uid.
     /// Broker must separately bind groups, process lifetime and revocation.
     pub fn new(root: File, path: &str, owner: u32) -> io::Result<Self> {
@@ -76,6 +289,7 @@ impl Tail {
             watch: None,
             checked: None,
             stopped: false,
+            source: None,
         })
     }
     /// Remove watches and prevent all subsequent reads, including reconciliation.
@@ -208,8 +422,9 @@ impl Tail {
                 return Err(e);
             }
         }
+        let consumed = (next.offset() - self.framer.offset()) as usize;
         self.framer = next;
-        self.anchor.extend_from_slice(&bytes[..n]);
+        self.anchor.extend_from_slice(&bytes[..consumed]);
         if self.anchor.len() > 64 {
             self.anchor.drain(..self.anchor.len() - 64);
         }
