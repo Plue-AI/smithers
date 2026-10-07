@@ -512,7 +512,7 @@ const branchFileOperations = (ctx: SeamContext, options?: BranchFileOptions): Br
       createdAt: previous?.createdAt ?? Date.now(), ordinal: previous?.ordinal ?? ctx.nextOrdinal(),
       payload: { ...(previous?.kind === "file" ? previous.payload : {}), repo: model.branch, path: model.path,
         content: text, truncated: false, binary: model.content.kind === "binary", digest: model.digest,
-        file: model, ref: options?.scope()?.sleeping ? options.scope()?.capturedHead : undefined, compare: false, comparison: undefined, ...(line === undefined ? {} : { line }) }
+        file: { ...model, ...(line === undefined ? {} : { reveal: { line } }) }, ref: options?.scope()?.sleeping ? options.scope()?.capturedHead : undefined, compare: false, comparison: undefined, ...(line === undefined ? {} : { line }) }
     } }).isPersisted.promise
     return readResult(text)
   }
@@ -528,7 +528,10 @@ const branchFileOperations = (ctx: SeamContext, options?: BranchFileOptions): Br
       if (!snapshot || snapshot.error || snapshot.cursor === cursor) return
       cursor = snapshot.cursor
       const data = snapshot.data
-      const events = isRecord(data) && data.written ? [data.written] : Array.isArray(data) ? data : [data]
+      const events = isRecord(data) && data.written ? [data.written]
+        : isRecord(data) && Array.isArray(data.changed) ? data.changed.map(row => isRecord(row)
+          ? { kind: "file_written", path: row.path, post_digest: row.post_digest, actor: row.last_writer } : row)
+        : Array.isArray(data) ? data : [data]
       for (const event of events) {
         const parsed = FileWrittenSchema.safeParse(event)
         if (!parsed.success) continue
