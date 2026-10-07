@@ -58,7 +58,11 @@ func TestInstallFlowCatalogShowsReservedDeclarationRefusal(t *testing.T) {
 	var success atomic.Bool
 	runtime := &installFlowRuntime{launches: make(chan flowruntime.Launch, 2)}
 	entered, release := make(chan struct{}, 1), make(chan struct{})
-	// Bound the worker's backoff to the fixture's five-second completion window.
+	revocationEntered, revocationRelease := make(chan struct{}, 1), make(chan struct{})
+	const revokedMachine = "22222222-2222-4222-8222-222222222222"
+	targetResolver := browserFlowTarget{queries: q, install: q}
+	// Keep the real worker's idle backoff within the fixture's completion window.
+	// Production polling may back off to 30 seconds; this test waits five.
 	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, ObservationDelay: 10 * time.Millisecond, MaxObservationDelay: 20 * time.Millisecond, Resolver: flowruntime.ResolverFunc(func(ctx context.Context, target flowruntime.Target) (flowruntime.Runtime, error) {
 		resolutions.Add(1)
 		select {
@@ -69,6 +73,20 @@ func TestInstallFlowCatalogShowsReservedDeclarationRefusal(t *testing.T) {
 		case <-release:
 		case <-ctx.Done():
 			return nil, ctx.Err()
+		}
+		if target.WorkspaceID == revokedMachine {
+			select {
+			case revocationEntered <- struct{}{}:
+			default:
+			}
+			select {
+			case <-revocationRelease:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		if _, err := targetResolver.ResolveFlowHostTarget(ctx, target); err != nil {
+			return nil, err
 		}
 		if success.Load() {
 			return runtime, nil
@@ -247,6 +265,33 @@ func TestInstallFlowCatalogShowsReservedDeclarationRefusal(t *testing.T) {
 			status := call("GET", "/api/flows/runs/"+retried.OperationID, "", "", true)
 			return strings.Contains(status.Body.String(), `"state":"completed"`)
 		}, 5*time.Second, 10*time.Millisecond)
+		// Revocation after HTTP admission must win before any guest launch.
+		_, err = pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,name,vm_id,status) VALUES($1,$2,$3,'revoked','revoked','running')`, revokedMachine, repo, owner.ID)
+		require.NoError(t, err)
+		before := runtime.started.Load()
+		queued := call("POST", "/api/flows", strings.Replace(body, machine, revokedMachine, 1), "revoked", true)
+		require.Equal(t, 202, queued.Code, queued.Body.String())
+		var revoked jobs.RequestReceipt
+		require.NoError(t, json.Unmarshal(queued.Body.Bytes(), &revoked))
+		select {
+		case <-revocationEntered:
+		case <-time.After(5 * time.Second):
+			t.Fatal("request did not reach held resolver")
+		}
+		_, err = pool.Exec(ctx, `UPDATE users SET prohibit_login=true WHERE id=$1`, owner.ID)
+		require.NoError(t, err)
+		close(revocationRelease)
+		require.Eventually(t, func() bool {
+			operation, err := store.Get(ctx, jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo), PrincipalID: fmt.Sprintf("user:%d", owner.ID)}, revoked.OperationID)
+			if err != nil || operation.State != jobs.StateFailed {
+				return false
+			}
+			var terminal struct {
+				Code string `json:"errorCode"`
+			}
+			return json.Unmarshal(operation.TerminalReceipt, &terminal) == nil && terminal.Code == "permission"
+		}, 5*time.Second, 10*time.Millisecond)
+		require.Equal(t, before, runtime.started.Load(), "revoked authority must start no flow")
 	})
 
 }
@@ -264,12 +309,14 @@ type installFlowRuntime struct {
 	flowruntime.Runtime
 	launches chan flowruntime.Launch
 	finished atomic.Bool
+	started  atomic.Int64
 }
 
 func (*installFlowRuntime) Identity(context.Context) (flowruntime.Identity, error) {
 	return flowruntime.Identity{Protocol: flowruntime.Protocol, RuntimeArtifactDigest: strings.Repeat("a", 64), SourceRevision: strings.Repeat("b", 40), OwnerGeneration: 1}, nil
 }
 func (r *installFlowRuntime) Launch(_ context.Context, input flowruntime.Launch) (flowruntime.LaunchResult, error) {
+	r.started.Add(1)
 	select {
 	case r.launches <- input:
 	default:
