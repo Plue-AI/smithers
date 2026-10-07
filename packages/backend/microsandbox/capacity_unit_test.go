@@ -1025,7 +1025,9 @@ func TestAdmissionOrdinaryStopRequiresRuntimeObservation(t *testing.T) {
 	require.NoError(t, r.BindAdmissionMachine("workspace:A", "vm-a"))
 	ws := newWorkspace(metadata{ID: "A", Machine: "vm-a", State: "running"}, root)
 	r.workspaces["A"] = ws
-	require.ErrorContains(t, r.StopWorkspace(t.Context(), "A"), "stop is not confirmed")
+	stopCtx, cancelStop := context.WithTimeout(t.Context(), 250*time.Millisecond)
+	defer cancelStop()
+	require.ErrorContains(t, r.StopWorkspace(stopCtx, "A"), "stop is not confirmed")
 	require.Equal(t, 1, r.InUse())
 	_, err = r.Request("person", "workspace:B", "Ben", "terminal")
 	require.NoError(t, err)

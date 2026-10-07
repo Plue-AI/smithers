@@ -826,17 +826,28 @@ func (r *Runtime) stopMachine(ctx context.Context, name string) error {
 	stopCtx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	_, err := r.cli.run(stopCtx, nil, "stop", "-t", "10", "-q", name)
-	status, found, statusErr := r.cli.sandboxStatus(ctx, name)
-	if statusErr == nil && (!found || status == "stopped") {
-		return nil
+	// The command acknowledges the request before the hypervisor necessarily
+	// finishes suspension. Keep the disk and admission slot until observation
+	// confirms completion, under the same deadline as the stop request.
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		status, found, statusErr := r.cli.sandboxStatus(stopCtx, name)
+		if statusErr != nil {
+			return fmt.Errorf("observe stopped microVM %s: %w", name, statusErr)
+		}
+		if !found || status == "stopped" {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("stop microVM %s: %w", name, err)
+		}
+		select {
+		case <-stopCtx.Done():
+			return fmt.Errorf("microVM %s stop is not confirmed: %s: %w", name, status, stopCtx.Err())
+		case <-ticker.C:
+		}
 	}
-	if statusErr != nil {
-		return fmt.Errorf("observe stopped microVM %s: %w", name, statusErr)
-	}
-	if err == nil {
-		return fmt.Errorf("microVM %s stop is not confirmed: %s", name, status)
-	}
-	return fmt.Errorf("stop microVM %s: %w", name, err)
 }
 
 func (r *Runtime) InspectWorkspace(ctx context.Context, id string) (workspaceapi.Workspace, error) {
