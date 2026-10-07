@@ -10,8 +10,8 @@ type Entry = {
   readonly _alias?: true
   readonly _group?: true
   readonly commands?: ReadonlyMap<string, Entry>
+  readonly root?: Entry
   readonly args?: z.ZodObject<any>
-  readonly options?: z.ZodObject<any>
   run?: (context: { readonly args: Record<string, unknown> }) => unknown
 }
 
@@ -19,7 +19,10 @@ type Entry = {
 const leaves = (commands: ReadonlyMap<string, Entry>, prefix: ReadonlyArray<string> = []) =>
   [...commands].flatMap(([name, entry]): Array<readonly [ReadonlyArray<string>, Entry]> => {
     if (entry._alias === true) return []
-    if (entry._group === true) return leaves(entry.commands!, [...prefix, name])
+    if (entry._group === true) {
+      const path = [...prefix, name]
+      return [...(entry.root ? [[path, entry.root] as const] : []), ...leaves(entry.commands!, path)]
+    }
     return [[[...prefix, name], entry]]
   })
 
@@ -38,8 +41,21 @@ describe("surplus positionals", () => {
 
   it("enumerates the unified command tree", () => {
     expect(commands.map(([path]) => path.join(" "))).toEqual(
-      expect.arrayContaining(["clean", "doctor", "mcp add", "runs logs", "flow start", "tui"])
+      expect.arrayContaining([
+        "clean",
+        "doctor",
+        "mcp add",
+        "runs logs",
+        "flow start",
+        "tui",
+        "review",
+        "agent",
+        "run",
+        "search",
+        "stack"
+      ])
     )
+    expect(new Set(commands.map(([path]) => path.join(" "))).size).toBe(commands.length)
   })
 
   it.each(commands.map(([path, entry]) => [path.join(" "), path, entry] as const))(
@@ -53,16 +69,7 @@ describe("surplus positionals", () => {
       let output = ""
       let exitCode = 0
       const values = fields(entry).map((field) => field instanceof z.ZodEnum ? String(field.options[0]) : "value")
-      // Review's trusted policy is a required option, independent of its
-      // variadic target arguments. Satisfy the real schema before checking
-      // positional consumption; the audit still never invokes a review job.
-      const required = path.join(" ") === "review"
-        ? ["--policy-revision", "a".repeat(40)]
-        : []
-      if (required.length > 0) {
-        expect(entry.options!.parse({ policyRevision: required[1] }).policyRevision).toBe(required[1])
-      }
-      await cli.serve([...path, ...values, "surplus", ...required, "--format", "json"], {
+      await cli.serve([...path, ...values, "surplus", "--format", "json"], {
         env: {},
         stdout: (text) => {
           output += text
