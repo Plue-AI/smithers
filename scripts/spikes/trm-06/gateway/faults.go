@@ -20,12 +20,11 @@ type relayFaults struct {
 }
 type faultConnection struct {
 	net.Conn
-	owner         *relayFaults
-	once          sync.Once
-	mode          string
-	readBuffer    []byte
-	writeBuffer   []byte
-	initialWindow bool
+	owner       *relayFaults
+	once        sync.Once
+	mode        string
+	readBuffer  []byte
+	writeBuffer []byte
 }
 
 func (c *faultConnection) Close() error {
@@ -100,11 +99,8 @@ func (c *faultConnection) Read(p []byte) (int, error) {
 			Type string `json:"type"`
 		}
 		if json.Unmarshal(body, &frame) == nil && frame.Type == "window" {
-			if c.initialWindow {
-				c.Close()
-				return 0, io.EOF
-			}
-			c.initialWindow = true
+			c.Close()
+			return 0, io.EOF
 		}
 		c.readBuffer = append(header[:], body...)
 	}

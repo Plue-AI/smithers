@@ -129,7 +129,7 @@ func TestFrameFaultsAreOneShotAndPreserveControl(t *testing.T) {
 				done := make(chan error, 1)
 				go func() {
 					writer := &frameWriter{w: peer}
-					for _, value := range []any{map[string]string{"session": "s-0000000000000001"}, map[string]any{"type": "window", "bytes": 262144}, map[string]any{"type": "window", "bytes": 8192}} {
+					for _, value := range []any{map[string]string{"session": "s-0000000000000001"}, map[string]any{"type": "window", "bytes": 8192}} {
 						if err := writer.write(value); err != nil {
 							done <- err
 							return
@@ -139,9 +139,6 @@ func TestFrameFaultsAreOneShotAndPreserveControl(t *testing.T) {
 				}()
 				if reply, err := controlExchangeReadOnly(owned); err != nil || reply.Session == "" {
 					t.Fatalf("control lost: %+v %v", reply, err)
-				}
-				if frame, err := readFrame(owned); err != nil || frame.Type != "window" || *frame.Credit != 262144 {
-					t.Fatalf("initial credit lost: %+v %v", frame, err)
 				}
 				if _, err := readFrame(owned); err != io.EOF {
 					t.Fatalf("consumed window leaked: %v", err)
@@ -189,4 +186,100 @@ func controlExchangeReadOnly(connection net.Conn) (controlReply, error) {
 	var reply controlReply
 	err := strictControlReply(body, &reply)
 	return reply, err
+}
+
+func TestAttachedStreamRecoversActualTCPFrameFaults(t *testing.T) {
+	for _, mode := range []string{"lost-window", "delivered-eof"} {
+		t.Run(mode, func(t *testing.T) {
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			faults := &relayFaults{}
+			if err = faults.arm(mode); err != nil {
+				t.Fatal(err)
+			}
+			dial := func() (net.Conn, error) {
+				connection, err := net.Dial("tcp", listener.Addr().String())
+				if err != nil {
+					return nil, err
+				}
+				connection.SetDeadline(time.Now().Add(3 * time.Second))
+				return faults.admit(connection)
+			}
+			first, err := dial()
+			if err != nil {
+				t.Fatal(err)
+			}
+			stream := newAttachedStream(first, "s-0000000000000001", dial)
+			defer stream.Close()
+			failures := make(chan error, 1)
+			go func() {
+				guest, err := listener.Accept()
+				if err != nil {
+					failures <- err
+					return
+				}
+				defer guest.Close()
+				guest.SetDeadline(time.Now().Add(3 * time.Second))
+				frame, err := readFrameInput(guest)
+				if err != nil || frame.Type != "data" || len(frame.Data) != 3 {
+					failures <- io.ErrUnexpectedEOF
+					return
+				}
+				if mode == "delivered-eof" {
+					frame, err = readFrameInput(guest)
+					if err != nil || frame.Type != "eof" {
+						failures <- io.ErrUnexpectedEOF
+						return
+					}
+				} else if err = (&frameWriter{w: guest}).write(map[string]any{"type": "window", "bytes": 3}); err != nil {
+					failures <- err
+					return
+				}
+				attached, err := listener.Accept()
+				if err != nil {
+					failures <- err
+					return
+				}
+				defer attached.Close()
+				attached.SetDeadline(time.Now().Add(3 * time.Second))
+				request := receiveControl(attached)
+				if request["type"] != "attach_session" || request["received"] != float64(0) {
+					failures <- io.ErrUnexpectedEOF
+					return
+				}
+				writer := &frameWriter{w: attached}
+				if err = writer.write(map[string]any{"session": "s-0000000000000001", "received": 3, "written": 3, "input_eof": mode == "delivered-eof"}); err != nil {
+					failures <- err
+					return
+				}
+				failures <- writer.write(frameOutputFixture())
+			}()
+			writer := &frameWriter{w: stream}
+			if err = writer.write(frame{Type: "data", Stream: ptr(uint8(0)), Data: frameBytes{1, 2, 3}}); err != nil {
+				t.Fatal(err)
+			}
+			if mode == "delivered-eof" {
+				if err = writer.write(frame{Type: "eof", Stream: ptr(uint8(0))}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			credit, err := readFrame(stream)
+			if err != nil || credit.Type != "window" || *credit.Credit != 3 {
+				t.Fatalf("lost credit not repaired: %+v %v", credit, err)
+			}
+			output, err := readFrame(stream)
+			if err != nil || output.Type != "data" || len(output.Data) != 1 || output.Data[0] != 7 {
+				t.Fatalf("recovered output: %+v %v", output, err)
+			}
+			if err = <-failures; err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+func frameOutputFixture() frame {
+	return frame{Type: "data", Stream: ptr(uint8(1)), Data: frameBytes{7}}
 }
