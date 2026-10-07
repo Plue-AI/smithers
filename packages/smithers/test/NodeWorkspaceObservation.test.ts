@@ -279,6 +279,32 @@ describe("NodeWorkspaceObservation.changes", () => {
     await missing.close()
   })
 
+  it("does not write observer fences into a pinned library directory", async () => {
+    const root = workspace()
+    write(root, "node_modules/pinned/index.js", "pinned")
+    const { feed, settled, close } = await feedOver(root)
+    try {
+      expect(await settled()).toEqual(Option.none())
+      expect(await Effect.runPromise(feed.delivered)).toEqual(Option.none())
+      expect(readdirSync(join(root, "node_modules"))).toEqual(["pinned"])
+    } finally {
+      await close()
+    }
+    expect(readdirSync(join(root, "node_modules"))).toEqual(["pinned"])
+  })
+
+  it("uses another pruned directory when libraries come first", async () => {
+    const root = checkout()
+    write(root, "node_modules/pinned/index.js", "pinned")
+    const { feed, close } = await feedOver(root, { prune: ["node_modules", ".git"] })
+    try {
+      expect(Option.isSome(await Effect.runPromise(feed.delivered))).toBe(true)
+      expect(readdirSync(join(root, "node_modules"))).toEqual(["pinned"])
+    } finally {
+      await close()
+    }
+  })
+
   it("cannot settle once its fence cannot be written", patient, async () => {
     const root = checkout()
     const { feed, settled, close } = await feedOver(root)
