@@ -200,7 +200,7 @@
       "document": "factory/wiki/pages/coding-request.md",
       "inputs": [
         "flows/coding/request.md",
-        "flows/coding/request/flow.ts",
+        "flows/coding/request-flow.ts",
         "flows/coding/request.ts",
         "flows/coding/prototype/flow.ts"
       ],
