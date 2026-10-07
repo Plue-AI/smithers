@@ -37,6 +37,35 @@ test("Settings Address saves the install contract without blocking Chat", async 
   await expect(page.getByTestId("composer-input")).toBeEditable()
 })
 
+test("Settings retains a refused address reason and retries without changing the active origin", async ({ page }) => {
+  await owner(page)
+  const model = installFixture()
+  const writes: unknown[] = []
+  await page.route("**/api/install", async route => {
+    if (route.request().method() === "PUT") {
+      writes.push(route.request().postDataJSON())
+      return route.fulfill({ status: 503, json: { code: "address_unavailable", class: "transient", message: "Install listener unavailable" } })
+    }
+    return route.fulfill({ json: model })
+  })
+  await page.goto("/")
+  await say(page, "/settings")
+  const card = page.getByTestId("card-settings")
+  await card.getByRole("button", { name: "Network", exact: true }).press("Enter")
+  await card.getByLabel("Bind", { exact: true }).fill("0.0.0.0:4000")
+  await card.getByLabel("Origins", { exact: true }).fill("http://mini.lan:4000")
+  await card.locator('form[data-flow="settings.address"]').getByRole("button", { name: "Save", exact: true }).press("Enter")
+  const failed = card.locator(".setup-address-failed")
+  await expect(failed).toBeVisible()
+  await failed.locator("summary").press("Enter")
+  await expect(failed.getByRole("region", { name: "Failure details", exact: true })).toHaveText("Install listener unavailable")
+  await expect(failed.locator("code")).toHaveText("http://localhost:4000")
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+  await failed.getByRole("button", { name: "Retry", exact: true }).press("Enter")
+  await expect.poll(() => writes.length).toBe(2)
+  expect(writes).toEqual(Array(2).fill({ bind: "0.0.0.0:4000", origins: ["http://mini.lan:4000"] }))
+})
+
 test("Settings keeps a refused image package in its field", async ({ page }) => {
   await owner(page)
   await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
