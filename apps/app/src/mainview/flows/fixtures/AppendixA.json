@@ -1282,7 +1282,9 @@
     "name": "ssh",
     "summary": "Copy the SSH line for a branch",
     "slash": "/ssh",
-    "cli": null,
+    "cli": [
+      "ssh"
+    ],
     "journey": [
       "J3"
     ],
@@ -1293,7 +1295,13 @@
     ],
     "minimumRole": "member",
     "agent": "never",
-    "http": null
+    "http": {
+      "method": "GET",
+      "path": "/api/ssh",
+      "query": {
+        "branch": "branch"
+      }
+    }
   },
   {
     "name": "sign-in",

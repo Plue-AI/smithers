@@ -717,6 +717,7 @@
     "ssh-key delete",
     "ssh-key list",
     "workspace ssh",
+    "ssh",
     "shell",
     "exec",
     "cp",
