@@ -267,7 +267,7 @@ func TestConflictDoneComposedInstall(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(stored.Checks, &waits))
 	require.Len(t, waits.Waits, 1)
-	require.Equal(t, "c-ac8c6e0340460eaf", waits.Waits[0].ID)
+	require.Equal(t, "c-9e92f3542b87a2a3", waits.Waits[0].ID)
 	require.Equal(t, []string{"a.txt"}, waits.Waits[0].Paths)
 	require.Equal(t, "change", waits.Waits[0].ConflictChange)
 	require.Equal(t, "onto", waits.Waits[0].OntoRevision)
