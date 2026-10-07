@@ -69,3 +69,28 @@ func (q *Queries) RecentAppAgentRuns(ctx context.Context) ([]AgentModelRun, erro
 	}
 	return runs, rows.Err()
 }
+
+// RecentFactoryAgentRuns projects only persisted, run-bound factory steps.
+// Unattributed proxy calls and other repositories never become agent runs.
+func (q *Queries) RecentFactoryAgentRuns(ctx context.Context, role string) ([]AgentModelRun, error) {
+	runs := []AgentModelRun{}
+	rows, err := q.db.Query(ctx, `SELECT u.workflow_run_id::text, u.model FROM model_usage u
+ JOIN workflow_steps s ON s.id=u.workflow_step_id AND s.workflow_run_id=u.workflow_run_id AND s.repository_id=u.repository_id
+ WHERE u.source='agent_run'
+ AND u.repository_id=(SELECT (value->>'repository_id')::bigint FROM install_settings WHERE key='github.repository')
+ AND s.name=CASE $1 WHEN 'planner' THEN 'coding/plan' WHEN 'implementer' THEN 'coding/implement' WHEN 'reviewer' THEN 'coding/review' ELSE '' END
+ AND u.outcome IN ('pending','succeeded','unknown')
+ ORDER BY u.created_at DESC,u.id DESC LIMIT 10`, role)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var run AgentModelRun
+		if err := rows.Scan(&run.ID, &run.Model); err != nil {
+			return nil, err
+		}
+		runs = append(runs, run)
+	}
+	return runs, rows.Err()
+}
