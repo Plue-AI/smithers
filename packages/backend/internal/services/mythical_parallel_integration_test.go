@@ -146,3 +146,44 @@ func (l *fakeMythicalLanes) MachineHeld(_ context.Context, id string) (bool, err
 	}
 	return false, nil
 }
+
+// The engine fixture has no VM runtime. Supply the cutoff contract here; the
+// runtime implementation is exercised separately with the composed card route.
+func (l *fakeMythicalLanes) SyncTodoMachines(items []db.MythicalItem, limit int, _ time.Time) error {
+	l.todoEligible = map[[16]byte]bool{}
+	for _, item := range items {
+		if item.WorkspaceID != "" {
+			held, _ := l.MachineHeld(context.Background(), item.WorkspaceID)
+			if held {
+				limit--
+				l.todoEligible[item.ID.Bytes] = true
+			}
+		}
+	}
+	for _, item := range items {
+		if (item.State == "queued" || item.State == "retrying") && !l.todoEligible[item.ID.Bytes] && limit > 0 {
+			l.todoEligible[item.ID.Bytes] = true
+			limit--
+		}
+	}
+	return nil
+}
+func (l *fakeMythicalLanes) TodoMachineEligible(item db.MythicalItem) bool {
+	return l.todoEligible[item.ID.Bytes]
+}
+func (l *parallelObservedLanes) SyncTodoMachines(items []db.MythicalItem, limit int, _ time.Time) error {
+	l.todoEligible = map[[16]byte]bool{}
+	for _, item := range items {
+		if l.held[item.WorkspaceID] {
+			limit--
+			l.todoEligible[item.ID.Bytes] = true
+		}
+	}
+	for _, item := range items {
+		if (item.State == "queued" || item.State == "retrying") && !l.todoEligible[item.ID.Bytes] && limit > 0 {
+			l.todoEligible[item.ID.Bytes] = true
+			limit--
+		}
+	}
+	return nil
+}

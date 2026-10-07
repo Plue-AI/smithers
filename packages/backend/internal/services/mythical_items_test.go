@@ -386,10 +386,11 @@ func (l *fakeMythicalLauncher) all(flowID string) []flowdispatch.LaunchRequest {
 }
 
 type fakeMythicalLanes struct {
-	mu      sync.Mutex
-	created []string
-	deleted []string
-	owned   map[string]bool
+	todoEligible map[[16]byte]bool
+	mu           sync.Mutex
+	created      []string
+	deleted      []string
+	owned        map[string]bool
 	// provision observes a bound lane where the real lanes start its box.
 	provision func(id string)
 	narrowed  []string

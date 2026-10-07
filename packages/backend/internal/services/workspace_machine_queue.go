@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -184,6 +185,10 @@ func (s *WorkspaceService) EnableMachineAdmission(freeDisk func(context.Context)
 			if err := s.requireBranchMachineProviders(); err != nil {
 				return err
 			}
+			if strings.HasPrefix(request.Holder, "todo:") {
+				// Stack demand has no executable branch binding until handoff.
+				return microsandbox.ErrAdmissionNotReady
+			}
 			id := strings.TrimPrefix(request.Holder, "workspace:")
 			row, err := s.q.GetWorkspace(ctx, id)
 			if err != nil {
@@ -263,10 +268,10 @@ func (l *workspaceMythicalLanes) MachineHeld(ctx context.Context, id string) (bo
 		return true, err
 	}
 	held, known := runtime.AdmissionOwnership(machineQueueHolder(id))
-	if held || row.Status == "pending" || row.Status == "starting" {
+	if held {
 		return true, nil
 	}
-	if !known && row.Status != "stopped" {
+	if !known && row.Status != "stopped" && row.Status != "pending" && row.Status != "starting" {
 		return true, errors.New("machine release unconfirmed")
 	}
 	return false, nil
@@ -292,4 +297,82 @@ func (s *MythicalService) orderTodoMachines(items []db.MythicalItem) {
 	if lanes, ok := s.lanes.(interface{ OrderTodoMachines([]db.MythicalItem) }); ok {
 		lanes.OrderTodoMachines(items)
 	}
+}
+
+// TODO demand exists before a branch machine does. The runtime is the only
+// ordered waiting set; this key persists across stack reorder and handoff.
+func todoMachineHolder(item db.MythicalItem) string {
+	if item.WorkspaceID != "" {
+		return machineQueueHolder(item.WorkspaceID)
+	}
+	return "todo:" + uuidString(item.ID)
+}
+
+type todoMachineDemandKey struct{}
+
+func (l *workspaceMythicalLanes) SyncTodoMachines(items []db.MythicalItem, limit int, now time.Time) error {
+	runtime, ok := l.workspaces.runtime.(interface {
+		SyncTodoAdmission(string, []string, int) error
+		AdmissionOwnership(string) (bool, bool)
+	})
+	if !ok {
+		return errors.New("ordered TODO admission unavailable")
+	}
+	ordered := append([]db.MythicalItem(nil), items...)
+	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].StackPosition.Int64 < ordered[j].StackPosition.Int64 })
+	holders := []string{}
+	var repo int64
+	for _, item := range ordered {
+		repo = item.RepositoryID
+		if item.Source != "todo" {
+			continue
+		}
+		holder := todoMachineHolder(item)
+		held, _ := runtime.AdmissionOwnership(holder)
+		eligible := !item.PausedAt.Valid && len(item.PendingOp) == 0 && (item.State == "queued" || item.State == "retrying") && (!item.NextAttemptAt.Valid || !item.NextAttemptAt.Time.After(now)) && item.Reason != todoDailyLimitReason
+		starting := item.WorkspaceID != "" && !item.PausedAt.Valid && mythicalHoldsLane(item)
+		if held || eligible || starting {
+			holders = append(holders, holder)
+		}
+	}
+	if repo == 0 {
+		return nil
+	}
+	return runtime.SyncTodoAdmission(fmt.Sprintf("repository:%d", repo), holders, limit)
+}
+func (l *workspaceMythicalLanes) TodoMachineEligible(item db.MythicalItem) bool {
+	runtime, ok := l.workspaces.runtime.(interface{ TodoAdmissionEligible(string) bool })
+	return ok && runtime.TodoAdmissionEligible(todoMachineHolder(item))
+}
+func (l *workspaceMythicalLanes) TodoMachinePlace(item db.MythicalItem) (int, bool) {
+	queue, ok := l.workspaces.runtime.(workspaceMachineQueue)
+	if !ok {
+		return 0, false
+	}
+	holder := todoMachineHolder(item)
+	if runtime, ok := l.workspaces.runtime.(interface{ TodoAdmissionHolder(string) string }); ok {
+		holder = runtime.TodoAdmissionHolder(holder)
+	}
+	return machineQueuePlace(queue, holder)
+}
+func (s *MythicalService) syncTodoMachines(ctx context.Context, items []db.MythicalItem) error {
+	if !s.installParallelRequired {
+		s.orderTodoMachines(items)
+		return nil
+	}
+	limit := 0
+	if s.installParallel != nil {
+		setting, err := s.installParallel.Parallel(ctx)
+		if err != nil {
+			return err
+		}
+		limit = setting.Effective
+	}
+	lanes, ok := s.lanes.(interface {
+		SyncTodoMachines([]db.MythicalItem, int, time.Time) error
+	})
+	if !ok {
+		return errors.New("ordered TODO admission unavailable")
+	}
+	return lanes.SyncTodoMachines(items, limit, s.now())
 }

@@ -24,6 +24,10 @@ type admissionHolder struct {
 	machine       string
 	releasing     time.Time
 	idlePreparing bool
+	todoScope     string
+	todoLimit     int
+	todoEligible  bool
+	todoOrigins   []string
 }
 
 // AdmissionProviders keeps missing authority fail-closed. Ready must verify the
@@ -55,6 +59,10 @@ func admissionPriority(class string) int {
 func (r *Runtime) Request(class, holder, actor, reason string) (AdmissionRequest, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.requestLocked(class, holder, actor, reason)
+}
+
+func (r *Runtime) requestLocked(class, holder, actor, reason string) (AdmissionRequest, error) {
 	if r.closed {
 		return AdmissionRequest{}, errors.New("microsandbox runtime is closed")
 	}
@@ -151,6 +159,7 @@ func (r *Runtime) AdmissionHeld(holder string) bool {
 func (r *Runtime) AdmissionOwnership(holder string) (held, known bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	holder = r.todoAdmissionHolderLocked(holder)
 	if h := r.admission[holder]; h != nil && h.held {
 		return true, true
 	}
@@ -174,6 +183,10 @@ func (r *Runtime) AdmissionOwnership(holder string) (held, known bool) {
 func (r *Runtime) ReorderTodoAdmission(holders []string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.reorderTodoAdmissionLocked(holders)
+}
+
+func (r *Runtime) reorderTodoAdmissionLocked(holders []string) {
 	wanted := []string{}
 	eligible := map[string]bool{}
 	for _, head := range r.rankAdmissionLocked() {
@@ -239,7 +252,29 @@ func (r *Runtime) GrantNext(ctx context.Context, p AdmissionProviders) (Admissio
 		return AdmissionRequest{}, errors.New("admission providers unavailable")
 	}
 	r.mu.Lock()
-	heads := r.rankAdmissionLocked()
+	parallelReader := r.todoParallelReader
+	r.mu.Unlock()
+	parallel := -1
+	if parallelReader != nil {
+		value, err := parallelReader(ctx)
+		if err != nil {
+			return AdmissionRequest{}, err
+		}
+		parallel = max(0, value)
+	}
+	r.mu.Lock()
+	if parallel >= 0 {
+		scopes := map[string]bool{}
+		for _, h := range r.admission {
+			if h.todoScope != "" {
+				scopes[h.todoScope] = true
+			}
+		}
+		for scope := range scopes {
+			r.refreshTodoEligibilityLocked(scope, parallel)
+		}
+	}
+	heads := r.grantableAdmissionLocked()
 	if len(heads) == 0 {
 		r.mu.Unlock()
 		return AdmissionRequest{}, nil
@@ -266,7 +301,18 @@ func (r *Runtime) GrantNext(ctx context.Context, p AdmissionProviders) (Admissio
 	if err := ctx.Err(); err != nil {
 		return AdmissionRequest{}, err
 	}
-	heads = r.rankAdmissionLocked()
+	if parallel >= 0 {
+		scopes := map[string]bool{}
+		for _, h := range r.admission {
+			if h.todoScope != "" {
+				scopes[h.todoScope] = true
+			}
+		}
+		for scope := range scopes {
+			r.refreshTodoEligibilityLocked(scope, parallel)
+		}
+	}
+	heads = r.grantableAdmissionLocked()
 	// Demand can be cancelled/promoted while providers do I/O. Retry on the next event.
 	if len(heads) == 0 || heads[0].sequence != candidate.sequence || heads[0].Class != candidate.Class {
 		return AdmissionRequest{}, nil

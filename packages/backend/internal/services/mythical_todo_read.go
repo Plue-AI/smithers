@@ -59,6 +59,15 @@ func todoAvatar(user db.User) string {
 // machine #2". items is the repository's ListMythicalItems page, or nil to
 // read it; an item past that page queues after every listed one.
 func (s *MythicalService) todoQueuePosition(ctx context.Context, item db.MythicalItem, items []db.MythicalItem) (int64, error) {
+	if s.installParallelRequired && item.Reason != todoDailyLimitReason {
+		if lanes, ok := s.lanes.(interface {
+			TodoMachinePlace(db.MythicalItem) (int, bool)
+		}); ok {
+			position, _ := lanes.TodoMachinePlace(item)
+			return int64(position), nil
+		}
+		return 0, nil
+	}
 	if items == nil {
 		var err error
 		if items, err = s.queries().ListMythicalItems(ctx, item.RepositoryID, 500); err != nil {
@@ -95,7 +104,9 @@ func (s *MythicalService) todoCardAtQueuePosition(ctx context.Context, item db.M
 			return nil, err
 		}
 	}
-	s.orderTodoMachines(items)
+	if err := s.syncTodoMachines(ctx, items); err != nil && s.installParallelRequired {
+		s.logger.Warn("mythical.todo_projection_demand_failed", "error", err)
+	}
 	var owner db.User
 	var err error
 	if item.OwnerID.Valid {
@@ -241,7 +252,9 @@ func (s *MythicalService) todoCardAtQueuePosition(ctx context.Context, item db.M
 				return nil, err
 			}
 		}
-		card["queue"] = map[string]any{"reason": "machine", "position": position}
+		if position > 0 {
+			card["queue"] = map[string]any{"reason": "machine", "position": position}
+		}
 		if item.Reason == todoDailyLimitReason {
 			card["queue"] = map[string]any{"reason": "daily_limit", "position": position}
 		}
