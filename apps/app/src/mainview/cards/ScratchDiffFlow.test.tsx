@@ -63,7 +63,7 @@ for (const branch of ["scratch/ben/try-retry", "b12"]) test(`${branch} Diff pers
     expect(reads).toBe(1)
     await wait(() => [...store.collections.toasts.values()].some(toast => toast.sourceCard === id && toast.status === "running"))
     // Unrelated Chat commands remain usable while repo-host has not answered.
-    expect((await controller.runCommandForResult("branch.fork", "T2")).status).toBe("failed")
+    expect((await controller.runCommandForResult("branch.fork", "T2")).status).toBe("executed")
     answer(Response.json({ files: [expected] }))
     await wait(() => card()?.payload.branchDiffPending === false)
     expect(card()?.payload).toMatchObject({ branchFiles: [expected] })

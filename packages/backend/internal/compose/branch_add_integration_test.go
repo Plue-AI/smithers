@@ -153,6 +153,28 @@ func runBranchAddComposed(t *testing.T, remove string) {
 		require.Equal(t, 2, count)
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='branch.fork.completed'`).Scan(&count))
 		require.Equal(t, 1, count)
+		// A fresh retained hosted caller resolves main through the same writer.
+		sourceRow, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: owner.ID, Name: "main", TargetBookmark: "main", Status: "running"})
+		require.NoError(t, err)
+		hosted := request.Clone(ctx)
+		hosted.URL.Path = "/api/repos/ben/demo/workspaces/" + sourceRow.ID + "/fork"
+		hosted.Header.Set("Idempotency-Key", "hosted-fresh")
+		hosted.Body = io.NopCloser(strings.NewReader(`{"name":"hosted-fresh"}`))
+		hostedResponse := httptest.NewRecorder()
+		handler.ServeHTTP(hostedResponse, hosted)
+		require.Equal(t, 201, hostedResponse.Code, hostedResponse.Body.String())
+		retainedSource, err := q.GetWorkspace(ctx, sourceRow.ID)
+		require.NoError(t, err)
+		require.Equal(t, "running", retainedSource.Status)
+		var hostedReceipt struct {
+			ID             string
+			TargetBookmark string `json:"target_bookmark"`
+		}
+		require.NoError(t, json.Unmarshal(hostedResponse.Body.Bytes(), &hostedReceipt))
+		hostedChild, err := q.GetWorkspace(ctx, hostedReceipt.ID)
+		require.NoError(t, err)
+		require.Equal(t, base, hostedChild.SourceCommit)
+		require.Equal(t, "scratch/ben/hosted-fresh", hostedChild.TargetBookmark)
 		return
 	}
 	if remove != "" {
