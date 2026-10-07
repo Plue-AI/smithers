@@ -27,7 +27,14 @@ if (Result.isFailure(result)) {
 }
 ```
 
-This is a caller sketch, not an activated importer. T-AGT-02 owns atomic storage,
+The install-shipped caller is `apps/model-host/src/transcript.ts`, served at
+`POST /v1/transcript/normalize` with the existing host bearer. It calls these
+public transcript exports with trusted registration context and one framed
+record, retaining the checkpoint between requests. The packaged host HTTP tests replay committed real-agent fixtures and verify
+inert identities, checkpoint replay and tool correlations across records.
+Synthetic fixtures remain regression evidence only.
+
+T-AGT-02 owns atomic storage,
 receipt deduplication, UID/source validation and publication; T-AGT-03 owns the
 conversation view. The host forwards daemon-framed complete records with their
 line terminators, or persists `pending` until the next chunk. A complete JSON
