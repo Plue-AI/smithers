@@ -661,7 +661,6 @@ describe("parseWorkflow", () => {
       "rust",
       "rust-ffi",
       "wasm-repro",
-      "e2e-faults",
       "browser",
       "packages",
       "go-backend",
