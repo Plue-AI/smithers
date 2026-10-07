@@ -51,6 +51,8 @@ type AuthLoaderQuerier interface {
 
 // workspaceHeadReportPath matches the one API route a workspace-restricted
 // token may call: POST /api/repos/{owner}/{repo}/workspaces/{id}/head.
+var installSystemTodoReadPath = regexp.MustCompile(`^/api/todos/[0-9]+$`)
+
 var workspaceHeadReportPath = regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/([^/]+)/head$`)
 
 // workspaceChildrenPath and workspaceChildStopPath are the routes a
@@ -81,6 +83,11 @@ func allowWorkspaceRestrictedToken(w http.ResponseWriter, r *http.Request, info 
 	own := func(pattern *regexp.Regexp) bool {
 		m := pattern.FindStringSubmatch(r.URL.Path)
 		return m != nil && strings.EqualFold(m[1], workspaceID)
+	}
+	// The singular TODO read is checked against its stored lane by Authorize.
+	// A workspace scope alone grants neither a global list nor another TODO.
+	if len(install) > 0 && install[0] && !ParseTokenWorkspaceChildrenCredential(info.RawScopes) && r.Method == http.MethodGet && installSystemTodoReadPath.MatchString(r.URL.Path) {
+		return true
 	}
 	if ParseTokenWorkspaceChildrenCredential(info.RawScopes) {
 		if ((r.Method == http.MethodGet || r.Method == http.MethodPost) && own(workspaceChildrenPath)) ||
@@ -483,6 +490,7 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "learning.dismiss", regexp.MustCompile(`^/api/proposals/[^/]+/dismiss$`)},
 	{http.MethodGet, "flows.read", regexp.MustCompile(`^/api/flows(/[^/]+)?$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/files/.+$`)},
+	{http.MethodPost, "file.restore", regexp.MustCompile(`^/api/branches/[^/]+/files/.+$`)},
 	{http.MethodGet, "branches.read", regexp.MustCompile(`^/api/branches$`)},
 	{http.MethodGet, "ssh", regexp.MustCompile(`^/api/ssh$`)},
 	{http.MethodGet, "ssh", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(workspaces|workspace/sessions)/[^/]+/ssh$`)},
@@ -502,6 +510,29 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "review.done", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/landings/[0-9]+/threads/[0-9]+/done$`)},
 	{http.MethodPost, "review.reopen", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/landings/[0-9]+/threads/[0-9]+/reopen$`)},
 	{http.MethodPatch, "approval.deny", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/landings/[0-9]+/reviews/[0-9]+$`)},
+	{http.MethodGet, "approvals.list", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/approvals(?:/[^/]+)?$`)},
+	{http.MethodPost, "approval.decide", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/approvals/[^/]+/decide$`)},
+	{http.MethodPost, "workspace.head", workspaceHeadReportPath},
+	{http.MethodGet, "workspace.children.read", workspaceChildrenPath},
+	{http.MethodPost, "workspace.children.spawn", workspaceChildrenPath},
+	{http.MethodPost, "workspace.children.stop", workspaceChildStopPath},
+	{http.MethodPost, "box.terminal", regexp.MustCompile(`^/api/terminals$`)},
+	{http.MethodPut, "settings", regexp.MustCompile(`^/api/install$`)},
+	{http.MethodPost, "settings", regexp.MustCompile(`^/api/install/quiesce$`)},
+	{http.MethodDelete, "settings", regexp.MustCompile(`^/api/install/quiesce$`)},
+	{http.MethodGet, "install.read", regexp.MustCompile(`^/api/install/metrics$`)},
+	{http.MethodPut, "agent.model", regexp.MustCompile(`^/api/model/default$`)},
+	{http.MethodGet, "github.app", regexp.MustCompile(`^/api/repo-connection$`)},
+	{http.MethodPost, "github.app", regexp.MustCompile(`^/api/repo-connection$`)},
+	{http.MethodDelete, "github.app", regexp.MustCompile(`^/api/repo-connection$`)},
+	{http.MethodGet, "secrets.connections", regexp.MustCompile(`^/api/user/provider-connections(?:/[^/]+)?$`)},
+	{http.MethodPost, "secrets.connect", regexp.MustCompile(`^/api/user/provider-connections$`)},
+	{http.MethodPut, "secrets.move", regexp.MustCompile(`^/api/user/provider-connections/order$`)},
+	{http.MethodPost, "secrets.connect.codex", regexp.MustCompile(`^/api/user/provider-connections/codex/device(?:/[^/]+)?$`)},
+	{http.MethodDelete, "secrets.revoke", regexp.MustCompile(`^/api/user/provider-connections/[^/]+$`)},
+	{http.MethodPost, "secrets.connect", regexp.MustCompile(`^/api/user/provider-connections/[^/]+/refresh$`)},
+	{http.MethodPost, "secrets.scope", regexp.MustCompile(`^/api/user/provider-connections/[^/]+/grants$`)},
+	{http.MethodDelete, "secrets.scope", regexp.MustCompile(`^/api/user/provider-connections/[^/]+/grants/[^/]+$`)},
 	{http.MethodGet, "members.list", regexp.MustCompile(`^/api/members$`)},
 	{http.MethodPost, "members.write", regexp.MustCompile(`^/api/members$`)},
 	{http.MethodPatch, "members.write", regexp.MustCompile(`^/api/members/[^/]+$`)},

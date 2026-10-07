@@ -164,7 +164,7 @@ func newLandingGateFixtureWithFactory(t *testing.T, commits map[string]string, f
 		&routes.JJVCSHandler{RepoResolver: q, RepoHost: vcsClient},
 		&routes.AgentInternalHandler{},
 		nil, nil,
-		&routes.ApprovalsHandler{Enabled: true},
+		&routes.ApprovalsHandler{Enabled: true, Service: services.NewApprovalsService(q)},
 		nil,
 		nil, nil, nil,
 		nil, nil, nil,

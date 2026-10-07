@@ -17,7 +17,6 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
-	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/modelhost"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
@@ -148,10 +147,10 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 			{"members MX", "MX", "/api/members", 403, "permission"},
 			{"secrets MO", "MO", "/api/secrets", 403, "permission"},
 			{"secrets MX", "MX", "/api/secrets", 403, "permission"},
-			{"ssh DO", "DO", "/api/ssh", 403, "never"},
-			{"ssh DM", "DM", "/api/ssh", 403, "never"},
-			{"ssh DE", "DE", "/api/ssh", 403, "never"},
-			{"ssh RO", "RO", "/api/ssh", 403, "permission"},
+			{"ssh DO", "DO", "/api/repos/maya/demo/workspaces/box/ssh", 403, "never"},
+			{"ssh DM", "DM", "/api/repos/maya/demo/workspaces/box/ssh", 403, "never"},
+			{"ssh DE", "DE", "/api/repos/maya/demo/workspaces/box/ssh", 403, "never"},
+			{"ssh RO", "RO", "/api/repos/maya/demo/workspaces/box/ssh", 403, "permission"},
 			{"workspace ssh DO", "DO", "/api/repos/maya/demo/workspaces/box/ssh", 403, "never"},
 			{"workspace ssh DM", "DM", "/api/repos/maya/demo/workspaces/box/ssh", 403, "never"},
 			{"workspace ssh DE", "DE", "/api/repos/maya/demo/workspaces/box/ssh", 403, "never"},

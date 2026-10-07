@@ -45,6 +45,23 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				r.Body = io.NopCloser(bytes.NewReader(raw))
 			}
 
+			if command == "todo.read" && strings.HasPrefix(r.URL.Path, "/api/todos/") && !strings.Contains(strings.TrimPrefix(r.URL.Path, "/api/todos/"), "/") {
+				if number, err := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/api/todos/"), 10, 64); err == nil && number > 0 {
+					r = r.WithContext(services.WithInstallTodoSubject(r.Context(), number))
+				}
+			}
+			if command == "workspace.head" || strings.HasPrefix(command, "workspace.children.") {
+				parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+				if len(parts) < 7 {
+					writeConfirmationDispatchError(w, &services.AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"})
+					return
+				}
+				subject := services.InstallWorkspaceSubject{Owner: parts[2], Repo: parts[3], Workspace: parts[5]}
+				if command == "workspace.children.stop" && len(parts) == 9 {
+					subject.Child = parts[7]
+				}
+				r = r.WithContext(services.WithInstallWorkspaceSubject(r.Context(), subject))
+			}
 			if info != nil && info.User != nil && info.IsTokenAuth && command == "" {
 				// AuthLoader already confines these system grants to their exact
 				// workspace/child or verified coding batch before dispatch.
@@ -79,6 +96,23 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 			if binding, ok := middleware.CodingFileCredential(info); ok && command == "branch.join" && middleware.CodingFileBatchVerified(info, binding.BatchDigest) {
 				next.ServeHTTP(w, r)
 				return
+			}
+			if command == "approval.decide" {
+				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 8192))
+				var input struct {
+					Decision string `json:"decision"`
+				}
+				decoder := json.NewDecoder(bytes.NewReader(raw))
+				decoder.DisallowUnknownFields()
+				if err != nil || decoder.Decode(&input) != nil || decoder.Decode(new(any)) != io.EOF || (input.Decision != services.ApprovalStateApproved && input.Decision != services.ApprovalStateRejected) {
+					writeConfirmationDispatchError(w, &services.AccessError{Status: 400, Class: "user", Code: "invalid_approval", Message: "Invalid approval decision"})
+					return
+				}
+				command = "approval.approve"
+				if input.Decision == services.ApprovalStateRejected {
+					command = "approval.deny"
+				}
+				r.Body = io.NopCloser(bytes.NewReader(raw))
 			}
 			if command == "file.restore" {
 				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 8192))

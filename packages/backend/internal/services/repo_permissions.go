@@ -326,10 +326,30 @@ type InstallAuthorization struct {
 	Role   InstallRole
 }
 
+// InstallWorkspaceSubject is resolved from the addressed system route. It is
+// evidence to check against stored workspace state, never a grant by itself.
+type InstallWorkspaceSubject struct{ Owner, Repo, Workspace, Child string }
+type installWorkspaceSubjectKey struct{}
+type installTodoSubjectKey struct{}
+
+func WithInstallTodoSubject(ctx context.Context, number int64) context.Context {
+	return context.WithValue(ctx, installTodoSubjectKey{}, number)
+}
+func installTodoSubject(ctx context.Context) int64 {
+	number, _ := ctx.Value(installTodoSubjectKey{}).(int64)
+	return number
+}
+
+func WithInstallWorkspaceSubject(ctx context.Context, subject InstallWorkspaceSubject) context.Context {
+	return context.WithValue(ctx, installWorkspaceSubjectKey{}, subject)
+}
+
 type installAuthorizationKey struct{}
 
 type boundInstallAuthorization struct {
 	command    string
+	subject    InstallWorkspaceSubject
+	todo       int64
 	credential *middleware.AuthInfo
 	decision   InstallAuthorization
 }
@@ -337,7 +357,7 @@ type boundInstallAuthorization struct {
 // WithInstallAuthorization carries the decision made before dispatch. Binding
 // both command and principal prevents reuse after a dispatcher changes either.
 func WithInstallAuthorization(ctx context.Context, command string, decision InstallAuthorization) context.Context {
-	return context.WithValue(ctx, installAuthorizationKey{}, boundInstallAuthorization{command: command, credential: middleware.AuthInfoFromContext(ctx), decision: decision})
+	return context.WithValue(ctx, installAuthorizationKey{}, boundInstallAuthorization{command: command, subject: installWorkspaceSubject(ctx), todo: installTodoSubject(ctx), credential: middleware.AuthInfoFromContext(ctx), decision: decision})
 }
 
 type authorizationObserverKey struct{}
@@ -361,12 +381,19 @@ func WithAuthorizationObserver(ctx context.Context, observe func(string)) contex
 func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAuthorization, error) {
 	if bound, ok := ctx.Value(installAuthorizationKey{}).(boundInstallAuthorization); ok {
 		info := middleware.AuthInfoFromContext(ctx)
-		if info != nil && info.User != nil && info == bound.credential && info.User.ID == bound.decision.UserID && command == bound.command {
+		if info != nil && info.User != nil && info == bound.credential && info.User.ID == bound.decision.UserID && command == bound.command && installWorkspaceSubject(ctx) == bound.subject && installTodoSubject(ctx) == bound.todo {
 			return bound.decision, nil
 		}
 	}
 	if observe, ok := ctx.Value(authorizationObserverKey{}).(func(string)); ok && observe != nil {
 		observe(command)
+	}
+	switch command {
+	case "workspace.head", "workspace.children.read", "workspace.children.spawn", "workspace.children.stop":
+		return authorizeInstallWorkspace(ctx, q, command)
+	}
+	if info := middleware.AuthInfoFromContext(ctx); command == "todo.read" && info != nil && info.IsTokenAuth && info.TokenSystemIssued && (info.CredentialKind() == middleware.CredentialAgentRun || info.CredentialKind() == middleware.CredentialMachine) {
+		return authorizeInstallSystemTodoRead(ctx, q, info)
 	}
 	policy, ok := installCommandPolicy(command)
 	if !ok {
@@ -619,4 +646,154 @@ func InstallRoleOf(ctx context.Context, q *db.Queries, userID int64) (InstallRol
 		return InstallMember, nil
 	}
 	return "", nil
+}
+
+func installWorkspaceSubject(ctx context.Context) InstallWorkspaceSubject {
+	subject, _ := ctx.Value(installWorkspaceSubjectKey{}).(InstallWorkspaceSubject)
+	return subject
+}
+
+// System actions reuse the workspace issuer's existing restrictions, with
+// exact stored subjects. They have no person-command or delegated policy.
+func authorizeInstallWorkspace(ctx context.Context, q *db.Queries, command string) (InstallAuthorization, error) {
+	refuse := func() (InstallAuthorization, error) {
+		return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"}
+	}
+	info := middleware.AuthInfoFromContext(ctx)
+	subject := installWorkspaceSubject(ctx)
+	var workspaceID pgtype.UUID
+	if q == nil || info == nil || info.User == nil || !info.IsTokenAuth || !info.TokenSystemIssued || info.CredentialKind() != middleware.CredentialMachine || subject.Owner == "" || subject.Repo == "" || subject.Workspace == "" || workspaceID.Scan(subject.Workspace) != nil || !workspaceID.Valid || !strings.EqualFold(info.WorkspaceRestriction(), subject.Workspace) {
+		return refuse()
+	}
+	children := middleware.ParseTokenWorkspaceChildrenCredential(info.RawScopes)
+	scope := middleware.ScopeWriteRepository
+	if command != "workspace.head" {
+		if !children {
+			return refuse()
+		}
+		scope = middleware.ScopeWriteWorkspace
+		if command == "workspace.children.read" {
+			scope = middleware.ScopeReadWorkspace
+		}
+	} else if children {
+		return refuse()
+	}
+	if !info.Scopes.Has(scope) || !info.Scopes.Has(middleware.ScopeReadRepository) {
+		return refuse()
+	}
+	workspace, err := q.GetWorkspace(ctx, subject.Workspace)
+	if stdErrors.Is(err, pgx.ErrNoRows) {
+		return refuse()
+	}
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	repo, err := q.GetRepoByOwnerAndName(ctx, db.GetRepoByOwnerAndNameParams{Owner: subject.Owner, Name: subject.Repo})
+	if stdErrors.Is(err, pgx.ErrNoRows) {
+		return refuse()
+	}
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	installed, err := InstallRepositoryID(ctx, q)
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if installed != repo.ID || workspace.RepositoryID != repo.ID || workspace.UserID != info.User.ID || (info.RepositoryRestriction() != 0 && info.RepositoryRestriction() != repo.ID) {
+		return refuse()
+	}
+	role, err := InstallRoleOf(ctx, q, info.User.ID)
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if role == "" {
+		return refuse()
+	}
+	if command == "workspace.children.stop" {
+		var childID pgtype.UUID
+		if subject.Child == "" || childID.Scan(subject.Child) != nil || !childID.Valid {
+			return refuse()
+		}
+		child, err := q.GetWorkspace(ctx, subject.Child)
+		if stdErrors.Is(err, pgx.ErrNoRows) {
+			return refuse()
+		}
+		if err != nil {
+			return InstallAuthorization{}, err
+		}
+		if !child.ParentWorkspaceID.Valid || child.ParentWorkspaceID.Bytes != workspaceID.Bytes || child.RepositoryID != repo.ID || child.UserID != info.User.ID {
+			return refuse()
+		}
+	}
+	return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
+}
+
+// A system read is singular and bound to the current stored TODO lane. A run
+// also names the current run; a machine can read only its own workspace's TODO.
+func authorizeInstallSystemTodoRead(ctx context.Context, q *db.Queries, info *middleware.AuthInfo) (InstallAuthorization, error) {
+	refuse := func() (InstallAuthorization, error) {
+		return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"}
+	}
+	number := installTodoSubject(ctx)
+	if q == nil || info.User == nil || number <= 0 || middleware.ParseTokenWorkspaceChildrenCredential(info.RawScopes) || !info.Scopes.Has(middleware.ScopeReadRepository) {
+		return refuse()
+	}
+	repository, err := InstallRepositoryID(ctx, q)
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if info.RepositoryRestriction() != 0 && info.RepositoryRestriction() != repository {
+		return refuse()
+	}
+	paths := middleware.ParseTokenPathRestrictions(info.RawScopes)
+	if len(paths) > 0 && (len(paths) != 1 || paths[0] != "**") {
+		return refuse()
+	}
+	item, err := q.GetMythicalItemByNumber(ctx, repository, number)
+	if stdErrors.Is(err, pgx.ErrNoRows) {
+		return refuse()
+	}
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if !item.OwnerID.Valid || item.OwnerID.Int64 != info.User.ID || item.WorkspaceID == "" || item.RequestRunID == "" || item.Attempt <= 0 {
+		return refuse()
+	}
+	if info.CredentialKind() == middleware.CredentialMachine {
+		if !strings.EqualFold(info.WorkspaceRestriction(), item.WorkspaceID) {
+			return refuse()
+		}
+	} else {
+		if info.RepositoryRestriction() != repository || middleware.ParseTokenAgentSessionRestriction(info.RawScopes) != item.RequestRunID || !strings.EqualFold(middleware.ParseTokenLandingWorkspace(info.RawScopes), item.WorkspaceID) {
+			return refuse()
+		}
+	}
+	lane, err := q.GetMythicalLane(ctx, item.WorkspaceID)
+	if stdErrors.Is(err, pgx.ErrNoRows) {
+		return refuse()
+	}
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if lane.RepositoryID != repository || lane.ItemID != item.ID || lane.RetiredAt.Valid {
+		return refuse()
+	}
+	workspace, err := q.GetWorkspace(ctx, item.WorkspaceID)
+	if stdErrors.Is(err, pgx.ErrNoRows) {
+		return refuse()
+	}
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if workspace.RepositoryID != repository || workspace.UserID != info.User.ID {
+		return refuse()
+	}
+	role, err := InstallRoleOf(ctx, q, info.User.ID)
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if role == "" {
+		return refuse()
+	}
+	return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
 }

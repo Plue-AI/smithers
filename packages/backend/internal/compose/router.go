@@ -163,6 +163,15 @@ func buildRouter(
 			confirmations = services.NewApprovalsService(queries, services.WithConfirmationTodos(pool, todos))
 		}
 	}
+	if config.IsSingleOwner(cfg.Auth) && approvalsHandler != nil {
+		if service, ok := approvalsHandler.Service.(*services.ApprovalsService); ok {
+			if pool != nil {
+				service.ConfigureInstallAuthorization(queries, pool)
+			} else {
+				service.ConfigureInstallAuthorization(queries)
+			}
+		}
+	}
 	if extras.Catalog == nil {
 		extras.Catalog = routes.NewPublicRepositoryCatalog(queries)
 	}
@@ -667,7 +676,11 @@ func buildRouter(
 			r.With(vmProvision...).Delete("/api/repos/{owner}/{repo}/workspaces/{id}", workspaceHandler.DeleteWorkspace)
 			r.With(vmProvision...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/suspend", workspaceHandler.SuspendWorkspace)
 			// RFD-004: guest head reports; a workspace-bound token reaches only this route.
-			r.With(vmProvision...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/head", workspaceHandler.ReportWorkspaceHead)
+			headReport := append([]func(http.Handler) http.Handler{}, vmProvision...)
+			if config.IsSingleOwner(cfg.Auth) {
+				headReport = append(headReport, memberCommands(queries))
+			}
+			r.With(headReport...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/head", workspaceHandler.ReportWorkspaceHead)
 			r.With(vmProvision...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/snapshot", workspaceHandler.CreateWorkspaceSnapshot)
 			r.With(vmProvision...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/coding/operations", workspaceHandler.ApplyCodingOperation)
 			if jjVCSHandler != nil {
@@ -1609,9 +1622,12 @@ func buildRouter(
 					// downstream notifications from a buggy client.
 					// A decision is a person's: a run credential acts
 					// as its user but is held by an agent.
+					approvalWrite := append([]func(http.Handler) http.Handler{}, writeRepo...)
+					if !config.IsSingleOwner(cfg.Auth) {
+						approvalWrite = append(approvalWrite, middleware.RefuseRunCredentials)
+					}
 					r.With(append(
-						append([]func(http.Handler) http.Handler{}, writeRepo...),
-						middleware.RefuseRunCredentials,
+						approvalWrite,
 						middleware.ApprovalDecideRateLimitWithObserver(
 							queries,
 							cfg.RateLimit.ApprovalDecidePerMin,

@@ -13,12 +13,36 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 // Todo returns the shared TodoCard contract from the canonical item. The
 // legacy mythical snapshot retains its engine-state decoder for old sessions.
 func (s *MythicalService) Todo(ctx context.Context, repositoryID, number int64) (map[string]any, error) {
+	info := middleware.AuthInfoFromContext(ctx)
+	systemRead := info != nil && info.IsTokenAuth && (info.CredentialKind() == middleware.CredentialAgentRun || info.CredentialKind() == middleware.CredentialMachine)
+	if systemRead {
+		_, err := s.queries().GetSelfHostOwner(ctx)
+		if errors.Is(err, pgx.ErrNoRows) {
+			systemRead = false
+		} else if err != nil {
+			return nil, err
+		}
+	}
+	if systemRead {
+		ctx = WithInstallTodoSubject(ctx, number)
+		if _, err := Authorize(ctx, s.queries(), "todo.read"); err != nil {
+			return nil, err
+		}
+		installed, err := InstallRepositoryID(ctx, s.queries())
+		if err != nil {
+			return nil, err
+		}
+		if installed != repositoryID {
+			return nil, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"}
+		}
+	}
 	item, err := s.queries().GetMythicalItemByNumber(ctx, repositoryID, number)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, &TodoControlError{404, "todo_not_found", "user", "TODO not found"}
@@ -26,7 +50,22 @@ func (s *MythicalService) Todo(ctx context.Context, repositoryID, number int64) 
 	if err != nil {
 		return nil, err
 	}
-	return s.todoCard(ctx, item, nil)
+	card, err := s.todoCard(ctx, item, nil)
+	if err != nil {
+		return nil, err
+	}
+	if systemRead {
+		// System readers get coding facts only, never member presence, private
+		// decision cards, approval state or another person's view state.
+		read := map[string]any{}
+		for _, key := range []string{"n", "title", "state", "prompt_revisions", "steps", "evidence", "flow_version", "run", "branch"} {
+			if value, ok := card[key]; ok {
+				read[key] = value
+			}
+		}
+		return read, nil
+	}
+	return card, nil
 }
 func (s *MythicalService) Todos(ctx context.Context, repositoryID int64) ([]map[string]any, error) {
 	items, err := s.queries().ListMythicalItems(ctx, repositoryID, 500)
