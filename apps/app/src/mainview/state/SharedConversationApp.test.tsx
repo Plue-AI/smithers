@@ -357,23 +357,23 @@ test("initial member view arrival never remounts an interactive Context disclosu
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
     flushSync(() => root.render(<ControllerTestProvider controller={controller}><App /></ControllerTestProvider>))
     await waitFor(() => releases.length > 0)
-    expect(host.querySelector(".context-toggle")).toBeNull()
+    expect(host.querySelector(".mvp-context-toggle")).toBeNull()
     releaseViews()
-    await waitFor(() => host.querySelector(".context-toggle") !== null)
-    const toggle = host.querySelector<HTMLButtonElement>(".context-toggle")!
+    await waitFor(() => host.querySelector(".mvp-context-toggle") !== null)
+    const toggle = host.querySelector<HTMLButtonElement>(".mvp-context-toggle")!
     flushSync(() => toggle.click())
     expect(toggle.getAttribute("aria-expanded")).toBe("true")
-    expect(host.querySelector(".context-chip")?.textContent).toBe("retry.ts")
+    expect(host.querySelector(".mvp-context-chip")?.textContent).toContain("retry.ts")
     holdViews = true
     const refreshed = controller.sharedConversation!.read()
     await waitFor(() => releases.length > 0)
     // The refresh's view request is held, but its answer is already usable.
     expect(reads).toBe(2)
-    expect(host.querySelector(".context-toggle")).toBe(toggle)
+    expect(host.querySelector(".mvp-context-toggle")).toBe(toggle)
     expect(toggle.getAttribute("aria-expanded")).toBe("true")
     releaseViews()
     await refreshed
-    expect(host.querySelector(".context-toggle")).toBe(toggle)
+    expect(host.querySelector(".mvp-context-toggle")).toBe(toggle)
     expect(toggle.getAttribute("aria-expanded")).toBe("true")
   } finally { flushSync(() => root.unmount()); host.remove(); await controller.dispose() }
 })

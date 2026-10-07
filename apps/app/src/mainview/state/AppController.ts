@@ -1075,7 +1075,7 @@ export const createAppController = (
     const owner = ctx.accountOwner()
     const turn = [...store.collections.httpTurns.values()].find(row => row.turnId === id && row.owner === owner)
     if (turn) return contextMonitor(turn)
-    const shared = sharedConversation?.get().conversation?.entries.find(entry => entry.id === id || entry.runId === id)
+    const shared = sharedConversation?.get().conversation?.entries.filter(entry => "runId" in entry).find(entry => entry.id === id || entry.runId === id)
     return shared?.preflight === undefined ? undefined : contextMonitor({
       turnId: shared.runId, preflight: shared.preflight, preflightPhase: "completed",
       status: shared.state === "completed" ? "complete" : shared.state === "failed" ? "failed"
