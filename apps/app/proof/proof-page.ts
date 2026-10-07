@@ -4,7 +4,7 @@
  * journey, in mock order; each mock step shows its caption, the screenshot the
  * proof run recorded for the feature covering it, and a verdict.
  *
- * Inputs (EVIDENCE-CONTRACT.md): .specs/product/features.json, the Playwright
+ * Inputs: an explicit feature manifest, the Playwright
  * JSON results of playwright.proof.config.ts, and apps/app/proof/mock-steps.json
  * (read from the mock's journeys when that file is absent). Output: <out>/index.html
  * with every screenshot embedded and each journey's video copied beside it.
