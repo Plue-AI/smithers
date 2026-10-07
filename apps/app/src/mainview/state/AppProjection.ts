@@ -234,6 +234,7 @@ export const APP_TRANSITION_TYPES = {
   "repository.imports.changed": true,
   "secret.requests.changed": true,
   "egress.requests.changed": true,
+  "branch.archive.requests.changed": true,
   "conversation.ui.applied": true,
   "conversation.prompt.changed": true,
   "branch.navigation.changed": true,
@@ -2154,6 +2155,10 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
         }
         case "secret.requests.changed": {
           collections.sessions.update(SESSION_ID, draft => { draft.secretRequests = transition.requests })
+          break
+        }
+        case "branch.archive.requests.changed": {
+          collections.sessions.update(SESSION_ID, draft => { draft.branchArchiveRequests = transition.requests })
           break
         }
         case "egress.requests.changed": {

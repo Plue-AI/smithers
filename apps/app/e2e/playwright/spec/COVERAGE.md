@@ -416,3 +416,5 @@ T-APP-04 merge admission additionally passes the Confirm browser contract: a per
 T-ACC-04 removes the C-ACC-02 and C-J6-02 browser fixmes using the install live confirmation seam. The browser contracts cover stale expiry, a fresh revision held by required checks, a person press, pending admission, reload, settlement and issuer attribution. These mocked transport projections supplement the composed PostgreSQL/CLI/GitHub-fake boundaries; they do not replace a real-host journey or the full C-ACC-01 command ledger.
 
 T-ACC-03 wave 2 adds the Member install-seam journey and C-ACC-02 current-check/pending-merge reload evidence. Exhaustive retained-route/system authorization and reference-host recovery remain separate pending evidence.
+
+T-MCH-09 scratch archive: [A-BRANCH-ARCHIVE.spec.ts](A-BRANCH-ARCHIVE.spec.ts) browser contract passed (1 Chromium case): durable request, pending HTTP with usable Chat, duplicate input and reload. Composed PostgreSQL/HTTP archive and fail-closed cleanup passed separately. C-MCH-05 remains fixme pending authenticated capture/broker composition and real-microVM recovery/security qualification.

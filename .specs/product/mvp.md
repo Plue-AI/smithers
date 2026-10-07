@@ -695,6 +695,7 @@ This is what `/help`, the palette, the CLI and the Smithers skill list for a mem
 | `/branches` | List branches with presence | J3 | branches.list, box.list |
 | `/branch <name\|T12>` | Open a branch's card | J3 | box.open |
 | `/branch.fork` | Fork a scratch branch | J7 | new |
+| `/branch.archive` | Archive a scratch branch (T-MCH-09) | J7 | new |
 | `/branch.add-to-stack` | Add a scratch branch as a TODO | J7 | new |
 | `/branch.rebase` | Rebase this branch now | J7 | new |
 | `/terminal` | Open a terminal on a branch | J3, J6 | box.terminal |
@@ -819,6 +820,7 @@ Coding agents and external agents can't call these (they have no screen). The ap
 | `box.delete`, `box.session.destroy` | Clean up a machine or session | S (P for own session) | Hide (cleanup rules, §6.7) | – |
 | `box.select` | Pick a box | – | Cut | – |
 | (new) `branch.fork`, `branch.add-to-stack`, `branch.rebase` | Fork, add to stack, rebase now | P, X; A for fork and rebase, A✓ for add to stack | Keep, Missing | branch |
+| (new) `branch.archive` | Archive a scratch branch (T-MCH-09) | P, A✓, X✓ | Keep, Missing | branch |
 | `files.read`, `files.list`, `files.open-diff`, `box.file`, `box.files`, `repo.tree` | Read files (`main`, a branch, a snapshot) | P, A, C, X | Rename → `/file`, `/files` | File |
 | `files.add` | Attach files | – | Cut | – |
 | `code.hover`, `code.definition`, `code.diagnostics` | Code intelligence | P, A | Keep (File card) | File |

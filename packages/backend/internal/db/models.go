@@ -314,6 +314,16 @@ type BuildCacheRepositoryUsage struct {
 	SizeBytes    int64 `json:"size_bytes"`
 }
 
+type BurstFile struct {
+	EventID    string      `json:"event_id"`
+	Path       string      `json:"path"`
+	Change     string      `json:"change"`
+	BeforeBlob pgtype.Text `json:"before_blob"`
+	AfterBlob  pgtype.Text `json:"after_blob"`
+	PostDigest pgtype.Text `json:"post_digest"`
+	RenamedTo  pgtype.Text `json:"renamed_to"`
+}
+
 type CanonicalImportReceipt struct {
 	SourceKind  string          `json:"source_kind"`
 	SourceID    string          `json:"source_id"`
@@ -807,6 +817,7 @@ type GithubMainPull struct {
 	FactoryError        string             `json:"factory_error"`
 	HealthCause         string             `json:"health_cause"`
 	RetryAt             pgtype.Timestamptz `json:"retry_at"`
+	ResetIntent         []byte             `json:"reset_intent"`
 }
 
 type GithubMirrorRefresh struct {
@@ -1429,6 +1440,14 @@ type LinearSyncRun struct {
 	CreatedAt      time.Time          `json:"created_at"`
 }
 
+type MachineEventReceipt struct {
+	WorkspaceID          string    `json:"workspace_id"`
+	EventID              string    `json:"event_id"`
+	Outcome              string    `json:"outcome"`
+	At                   time.Time `json:"at"`
+	TranscriptCheckpoint []byte    `json:"transcript_checkpoint"`
+}
+
 type MemoryNote struct {
 	ID             string      `json:"id"`
 	NamespaceKind  string      `json:"namespace_kind"`
@@ -1844,15 +1863,16 @@ type ProductJobDispatch struct {
 }
 
 type ProductJobEvent struct {
-	TenantID    string          `json:"tenant_id"`
-	PrincipalID string          `json:"principal_id"`
-	Sequence    int64           `json:"sequence"`
-	EventID     string          `json:"event_id"`
-	OperationID string          `json:"operation_id"`
-	EventType   string          `json:"event_type"`
-	State       string          `json:"state"`
-	Data        json.RawMessage `json:"data"`
-	RecordedAt  time.Time       `json:"recorded_at"`
+	TenantID           string          `json:"tenant_id"`
+	PrincipalID        string          `json:"principal_id"`
+	Sequence           int64           `json:"sequence"`
+	EventID            string          `json:"event_id"`
+	OperationID        string          `json:"operation_id"`
+	EventType          string          `json:"event_type"`
+	State              string          `json:"state"`
+	Data               json.RawMessage `json:"data"`
+	RecordedAt         time.Time       `json:"recorded_at"`
+	RepositorySequence pgtype.Int8     `json:"repository_sequence"`
 }
 
 type ProductJobRequest struct {
@@ -2878,6 +2898,10 @@ type Workspace struct {
 	DiskMb                  pgtype.Int4        `json:"disk_mb"`
 	ForkedFromItem          pgtype.UUID        `json:"forked_from_item"`
 	ForkedFromBase          string             `json:"forked_from_base"`
+	BranchArchivedAt        pgtype.Timestamptz `json:"branch_archived_at"`
+	CleanupPendingHead      string             `json:"cleanup_pending_head"`
+	CleanupPendingCaptureID string             `json:"cleanup_pending_capture_id"`
+	DiskReclaimedAt         pgtype.Timestamptz `json:"disk_reclaimed_at"`
 }
 
 type WorkspaceChild struct {

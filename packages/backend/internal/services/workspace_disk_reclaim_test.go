@@ -194,7 +194,7 @@ func TestWorkspaceCleanerAtomicFinalCaptureReclaim(t *testing.T) {
 	for _, name := range []string{"verified", "unsettled", "busy", "missing capture", "wrong workspace", "wrong candidate", "unverified ref", "resumed", "rebound", "missing head", "capture failure", "runtime failure"} {
 		t.Run(name, func(t *testing.T) {
 			row := db.Workspace{ID: "settled", VmID: "machine", Status: "suspended", HeadCommitID: "pinned"}
-			authority := &captureReclaimAuthority{ids: []string{row.ID}, capture: WorkspaceDiskReclaimCapture{WorkspaceID: row.ID, CandidateHead: "pinned", RetainedHead: "pinned", CaptureID: "complete-notes-capture", Settled: true, Quiet: true}}
+			authority := &captureReclaimAuthority{ids: []string{row.ID}, capture: WorkspaceDiskReclaimCapture{WorkspaceID: row.ID, CandidateHead: "pinned", RetainedHead: "pinned", CaptureID: "complete-notes-capture", Settled: true, Quiet: true, BindingVerified: true, CaptureComplete: true, InventoryCurrent: true}}
 			switch name {
 			case "unsettled":
 				authority.capture.Settled = false
@@ -264,7 +264,7 @@ func TestFinalCaptureReclaimPropagatesFailures(t *testing.T) {
 	for _, stage := range []string{"capture", "runtime"} {
 		t.Run(stage, func(t *testing.T) {
 			row := db.Workspace{ID: "settled", Status: "suspended", HeadCommitID: "pinned"}
-			a := &captureReclaimAuthority{ids: []string{row.ID}, capture: WorkspaceDiskReclaimCapture{WorkspaceID: row.ID, CandidateHead: "pinned", RetainedHead: "pinned", CaptureID: "capture", Settled: true, Quiet: true}}
+			a := &captureReclaimAuthority{ids: []string{row.ID}, capture: WorkspaceDiskReclaimCapture{WorkspaceID: row.ID, CandidateHead: "pinned", RetainedHead: "pinned", CaptureID: "capture", Settled: true, Quiet: true, BindingVerified: true, CaptureComplete: true, InventoryCurrent: true}}
 			r := &authorizedReclaimRuntime{authority: a}
 			if stage == "capture" {
 				a.failure = failure

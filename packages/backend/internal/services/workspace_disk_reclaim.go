@@ -13,7 +13,7 @@ import (
 // Candidates are hints only. WithFinalCapture must re-read settlement, lane
 // binding, retained objects and terminal/service inventory, and fence admission
 // and all writers until remove returns. No authority means no disk deletion.
-// Scratch workspaces are deliberately excluded from this S1 TODO contract.
+// Scratch archive timestamps and TODO settlements share this same authority.
 type WorkspaceDiskReclaimAuthority interface {
 	Candidates(context.Context) ([]string, error)
 	WithFinalCapture(context.Context, db.Workspace, func(WorkspaceDiskReclaimCapture) error) error
@@ -22,14 +22,7 @@ type WorkspaceDiskReclaimAuthority interface {
 // WorkspaceDiskReclaimCapture names the verified, complete retained capture.
 // The authority verifies the host ref through the head report, including the
 // working-copy files needed by reopen, before invoking the callback.
-type WorkspaceDiskReclaimCapture struct {
-	WorkspaceID   string
-	CandidateHead string
-	RetainedHead  string
-	CaptureID     string
-	Settled       bool
-	Quiet         bool
-}
+type WorkspaceDiskReclaimCapture = workspaceapi.DiskReclaimCapture
 
 func WithWorkspaceDiskReclaimAuthority(authority WorkspaceDiskReclaimAuthority) WorkspaceServiceOption {
 	return func(s *WorkspaceService) { s.diskReclaimAuthority = authority }
@@ -76,8 +69,15 @@ func (s *WorkspaceService) reclaimAgentWorkspaceDisk(ctx context.Context, id str
 	if err != nil {
 		return err
 	}
-	if row.DeletedAt.Valid || (row.Status != "suspended" && row.Status != "stopped") {
+	if row.DeletedAt.Valid || row.DiskReclaimedAt.Valid || (row.Status != "suspended" && row.Status != "stopped" && row.Status != "running") {
 		return nil
+	}
+	if row.Status == "running" {
+		// Only the combined broker/capture lifecycle can stop settled
+		// services, capture their final writes and publish a stopped row.
+		if _, ok := s.runtime.(WorkspaceCleanupFence); !ok {
+			return nil
+		}
 	}
 	if s.diskReclaimAuthority == nil {
 		return nil
@@ -102,7 +102,7 @@ func (s *WorkspaceService) reclaimAgentWorkspaceDisk(ctx context.Context, id str
 		if current.VmID != row.VmID || current.RepositoryID != row.RepositoryID || current.UserID != row.UserID {
 			return nil
 		}
-		if !capture.Settled || !capture.Quiet || capture.WorkspaceID != id || capture.CaptureID == "" ||
+		if !capture.Settled || !capture.Quiet || !capture.BindingVerified || !capture.CaptureComplete || !capture.InventoryCurrent || capture.WorkspaceID != id || capture.CaptureID == "" ||
 			capture.CandidateHead == "" || capture.CandidateHead != current.HeadCommitID || capture.RetainedHead != capture.CandidateHead {
 			return nil
 		}
