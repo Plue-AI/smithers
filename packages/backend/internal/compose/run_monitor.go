@@ -17,7 +17,6 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
@@ -174,12 +173,6 @@ func (m *runMonitors) read(ctx context.Context, repo int64, id string, at *int64
 	}
 
 	return json.Marshal(value)
-}
-func (m *runMonitors) source(ctx context.Context, repo int64, id string) (live.Source, string) {
-	if _, err := m.read(ctx, repo, id, nil); err != nil {
-		return live.Source{}, live.Forbidden
-	}
-	return live.Source{Key: fmt.Sprintf("run:%d:%s", repo, id), Every: time.Second, FailClosed: true, Build: func(ctx context.Context) (json.RawMessage, error) { return m.read(ctx, repo, id, nil) }}, ""
 }
 func mountRunMonitors(router chi.Router, cfg *config.Config, q *db.Queries, m *runMonitors) {
 	access := []func(http.Handler) http.Handler{authLoader(q, cfg.Auth), middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)}
