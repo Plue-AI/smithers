@@ -95,6 +95,37 @@ func TestInstallApprovalCatalogDecisionsPostgres(t *testing.T) {
 	require.ErrorAs(t, err, &access)
 	require.Equal(t, "permission", access.Code)
 
+	t.Run("private confirmations never enter retained approval doors", func(t *testing.T) {
+		id := uuid.NewString()
+		_, err := f.pool.Exec(f.ctx, `INSERT INTO approvals(id,repository_id,member_id,credential_id,command,subject,revision,kind,state,title,payload,expires_at) VALUES($1,$2,$3,'private-credential','todo.new','{}','private-revision','one_click','pending','Private confirmation','{"private":"confirmation-private-canary"}',now()+interval '1 hour')`, id, f.repoID, f.owner.ID)
+		require.NoError(t, err)
+		base := "/api/repos/gate-owner/app/approvals"
+		for _, cell := range []struct {
+			method, path, body string
+			status             int
+		}{
+			{"GET", base, "", 200},
+			{"GET", base + "/" + id, "", 404},
+			{"POST", base + "/" + id + "/decide", `{"decision":"approved"}`, 404},
+		} {
+			req := httptest.NewRequest(cell.method, "http://example.com"+cell.path, strings.NewReader(cell.body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Origin", "http://example.com")
+			req.AddCookie(&http.Cookie{Name: "session", Value: cookie})
+			req.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
+			req.Header.Set("X-CSRF-Token", "csrf")
+			out := httptest.NewRecorder()
+			f.router.ServeHTTP(out, req)
+			require.Equal(t, cell.status, out.Code, out.Body.String())
+			require.NotContains(t, out.Body.String(), "confirmation-private-canary")
+			require.NotContains(t, out.Body.String(), id)
+		}
+		row, err := f.q.GetMemberConfirmation(f.ctx, id, f.owner.ID)
+		require.NoError(t, err)
+		require.Equal(t, "pending", row.State)
+		require.Contains(t, string(row.Payload), "confirmation-private-canary")
+	})
+
 	service.ConfigureInstallAuthorization(f.q, f.pool)
 	t.Run("expiry commits despite refusal", func(t *testing.T) {
 		id := uuid.NewString()
