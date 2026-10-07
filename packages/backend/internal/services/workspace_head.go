@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -761,6 +762,99 @@ func (s *WorkspaceService) ReportWorkspaceHead(ctx context.Context, input Report
 	if err := validateCodingProjections(input.CodingOperations); err != nil {
 		return WorkspaceResponse{}, err
 	}
+	if err := s.persistWorkspaceHeadReport(ctx, workspace, input); err != nil {
+		return WorkspaceResponse{}, err
+	}
+	updated, err := s.q.GetWorkspace(ctx, workspace.ID)
+	if err != nil {
+		return WorkspaceResponse{}, pkgerrors.Internal("reload workspace: " + err.Error())
+	}
+	s.notifyWorkspaceHead(ctx, updated)
+	return s.toWorkspaceResponse(updated), nil
+}
+
+// Persist the live observation and its verification invalidation in one ordered
+// transaction. Stack mutations and publication take the stack lock first too.
+func (s *WorkspaceService) persistWorkspaceHeadReport(ctx context.Context, workspace db.Workspace, input ReportWorkspaceHeadInput) error {
+	if s.transactions == nil {
+		return s.saveWorkspaceHeadReport(ctx, workspace, input)
+	}
+	return pgx.BeginFunc(ctx, s.transactions, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, workspace.RepositoryID); err != nil {
+			return err
+		}
+		q := db.New(tx)
+		items, err := q.LockMythicalStackOrder(ctx, workspace.RepositoryID)
+		if err != nil {
+			return err
+		}
+		liveTree := ""
+		for _, item := range items {
+			if item.WorkspaceID != workspace.ID || !mythicalTodo(item) {
+				continue
+			}
+			if liveTree == "" {
+				if s.runtime == nil || !codingCommitID.MatchString(input.CommitID) || !codingChangeID.MatchString(input.ChangeID) {
+					return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "live candidate observation unavailable")
+				}
+				// Never reuse a cached execution result for a live observation.
+				observed, err := s.runtimeRepositoryCommandOutput(ctx, workspace, workspace.UserID, "head-report-"+uuid.NewString(), workspaceapi.Command{
+					Args: []string{"jj", "--ignore-working-copy", "--no-pager", "log", "--no-graph", "-r", "@", "-T", `commit_id ++ " " ++ change_id`},
+				})
+				if err != nil {
+					return err
+				}
+				if observed != input.CommitID+" "+input.ChangeID {
+					return pkgerrors.Conflict("workspace head report is no longer the live revision")
+				}
+				liveTree, err = s.runtimeRepositoryCommandOutput(ctx, workspace, workspace.UserID, "head-tree-"+uuid.NewString(), workspaceapi.Command{
+					Args: []string{"git", "rev-parse", "--verify", input.CommitID + "^{tree}"},
+				})
+				if err != nil {
+					return err
+				}
+				if !codingCommitID.MatchString(liveTree) {
+					return pkgerrors.Conflict("live tree could not be verified")
+				}
+			}
+			if !item.CandidateVerified || item.CandidateHead == "" {
+				continue
+			}
+			if !codingCommitID.MatchString(item.CandidateHead) || s.runtime == nil {
+				return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "candidate tree verification unavailable")
+			}
+			tree, err := s.runtimeRepositoryCommandOutput(ctx, workspace, workspace.UserID, "candidate-tree-"+uuid.NewString(), workspaceapi.Command{
+				Args: []string{"git", "rev-parse", "--verify", item.CandidateHead + "^{tree}"},
+			})
+			if err != nil {
+				return err
+			}
+			if !codingCommitID.MatchString(tree) {
+				return pkgerrors.Conflict("candidate tree could not be verified")
+			}
+			if liveTree == tree {
+				continue
+			}
+			// Preserve candidate bytes, prior PR head and pending push recovery.
+			// A later equal report cannot re-enable verification of this generation.
+			item.CandidateVerified = false
+			checks := mythicalChecksOf(item)
+			checks.Land = nil
+			item.Checks = checks.encode()
+			if _, err := q.SaveMythicalItem(ctx, item); err != nil {
+				return err
+			}
+			if _, err := q.RequestMythicalStack(ctx, workspace.RepositoryID); err != nil {
+				return err
+			}
+		}
+		bound := *s
+		bound.q = q
+		return bound.saveWorkspaceHeadReport(ctx, workspace, input)
+	})
+}
+
+func (s *WorkspaceService) saveWorkspaceHeadReport(ctx context.Context, workspace db.Workspace, input ReportWorkspaceHeadInput) error {
 	for _, projection := range input.CodingOperations {
 		revisions := make([]WorkspaceCodingRevision, 0, len(projection.ChangeIDs))
 		for _, id := range projection.ChangeIDs {
@@ -773,7 +867,7 @@ func (s *WorkspaceService) ReportWorkspaceHead(ctx context.Context, input Report
 			OperationID: projection.OperationID, ParentOperationID: projection.ParentOperationID,
 			Timestamp: projection.Timestamp, Revisions: revisions,
 		}); err != nil {
-			return WorkspaceResponse{}, err
+			return err
 		}
 	}
 	if err := s.UpdateWorkspaceHead(ctx, UpdateWorkspaceHeadInput{
@@ -783,14 +877,9 @@ func (s *WorkspaceService) ReportWorkspaceHead(ctx context.Context, input Report
 		Ahead:       input.Ahead,
 		Behind:      input.Behind,
 	}); err != nil {
-		return WorkspaceResponse{}, err
+		return err
 	}
-	updated, err := s.q.GetWorkspace(ctx, workspace.ID)
-	if err != nil {
-		return WorkspaceResponse{}, pkgerrors.Internal("reload workspace: " + err.Error())
-	}
-	s.notifyWorkspaceHead(ctx, updated)
-	return s.toWorkspaceResponse(updated), nil
+	return nil
 }
 
 // notifyWorkspaceHead emits a head event on the workspace's status channel.

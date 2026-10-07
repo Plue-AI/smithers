@@ -3548,11 +3548,61 @@ func (st *mythicalItemStep) pushProposal(ctx context.Context, item db.MythicalIt
 	if item.CandidateBase != st.prefix(item) {
 		return errors.New("rebase_pending: the candidate prefix changed before publication")
 	}
-	lease := "--force-with-lease=refs/heads/" + op.Branch + ":" + op.Expected
-	if _, err := r.g.git(ctx, "push", "--porcelain", "--no-verify", lease, gh.GitURL, op.Head+":refs/heads/"+op.Branch); err != nil {
-		return fmt.Errorf("push the proposal: %s", sanitizeMirrorError(err, gh.GitURL))
+	return st.pushCurrentProposal(ctx, item, func() error {
+		lease := "--force-with-lease=refs/heads/" + op.Branch + ":" + op.Expected
+		if _, err := r.g.git(ctx, "push", "--porcelain", "--no-verify", lease, gh.GitURL, op.Head+":refs/heads/"+op.Branch); err != nil {
+			return fmt.Errorf("push the proposal: %s", sanitizeMirrorError(err, gh.GitURL))
+		}
+		return nil
+	})
+}
+
+// Serialize the external write with head reports and ordinary stack mutations.
+// The pass keeps its existing claim; this transaction does not claim the stack.
+// Checking before network reads is insufficient: a steer or prefix change may
+// commit during those reads. Keep the lock until the push has returned, including
+// an uncertain result, so the pending operation remains the recovery authority.
+func (st *mythicalItemStep) pushCurrentProposal(ctx context.Context, item db.MythicalItem, push func() error) error {
+	if st.s.store == nil {
+		// Object-only fixtures have no mutable database state.
+		return push()
 	}
-	return nil
+	return pgx.BeginFunc(ctx, st.s.store, func(tx pgx.Tx) error {
+		var live bool
+		if err := tx.QueryRow(ctx, `SELECT running AND claim=$2 AND lease_expires_at>clock_timestamp()
+			FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, item.RepositoryID, st.r.row.Claim).Scan(&live); err != nil {
+			return err
+		}
+		if !live {
+			return db.ErrMythicalLeaseLost
+		}
+		q := db.New(tx)
+		current, err := q.GetMythicalItem(ctx, item.ID)
+		if err != nil {
+			return err
+		}
+		if current.Version != item.Version || current.Generation != item.Generation ||
+			!current.CandidateVerified || current.CandidateHead != item.CandidateHead || current.CandidateBase != item.CandidateBase {
+			return errors.New("the TODO changed before its proposal could be published")
+		}
+		stack, err := q.GetMythicalStack(ctx, item.RepositoryID)
+		if err != nil {
+			return err
+		}
+		if stack.LandedMain != st.r.row.LandedMain {
+			return errors.New("rebase_pending: main changed before publication")
+		}
+		predecessors, err := q.ListMythicalPredecessors(ctx, item.RepositoryID, item.StackPosition.Int64)
+		if err != nil {
+			return err
+		}
+		fresh := *st
+		fresh.items = predecessors
+		if current.CandidateBase != fresh.prefix(current) {
+			return errors.New("rebase_pending: the candidate prefix changed before publication")
+		}
+		return push()
+	})
 }
 
 // holdForeignHead keeps a person's push: the push slot settles as a
