@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm, mkdir, symlink, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { run } from '../run.mjs'
+import { run, productionProviders } from '../run.mjs'
 import { publicOrigin, validateHost, readHost } from './host.mjs'
 
 const host = { profile: { memory_bytes: 68719476736, perf_cores: 10, physical_cores: 12, disk_free_bytes: 200000000000, macos_version: '15.7', hypervisor: true }, limits: { capacity: 5 } }
@@ -186,4 +186,17 @@ test('missing install version refuses enabled workloads before mutation', async 
   assert.equal(calls, 0)
   assert.equal(result.exit, 2)
   assert.match(result.summary.budgets[0].reason, /install version required/)
+}))
+
+test('failed first-token workloads retain partial samples and cross-checks in check evidence', async () => temporary(async root => {
+  const evidence = { models: [{ role: 'fast', provider: 'fixture', model: 'fixture' }], wakesBefore: 0, wakesAfter: 1, preflightSummary: { durationMs: { p95: 10 } }, member: { id: 'A' }, clock: 'fixture monotonic' }
+  const partial = samples.slice(0, 3)
+  const result = await run({ ...options, root, check: 'C-PERF-01', providers: { 'C-PERF-01': { available() {}, fields: productionProviders['C-PERF-01'].fields, async measure() { return { ...passing(), ...evidence, status: 'failed', error: 'unexpected machine wake', samples: partial } } } } })
+  assert.equal(result.exit, 1)
+  const saved = JSON.parse(await readFile(join(root, '.artifacts/checks/C-PERF-01', options.timestamp, 'summary.json'), 'utf8'))
+  assert.equal(saved.budgets[0].status, 'failed')
+  assert.equal(saved.budgets[0].reason, 'unexpected machine wake')
+  assert.deepEqual(saved.budgets[0].samples, partial)
+  assert.equal(saved.budgets[0].stats, undefined)
+  for (const [key, value] of Object.entries(evidence)) assert.deepEqual(saved.budgets[0][key], value)
 }))

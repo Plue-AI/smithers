@@ -58,6 +58,7 @@ export async function run(env = process.env) {
   let browser
   try {
     const config = configuration(env)
+    if (process.platform !== 'darwin') throw new Error('C-PERF-03 requires the second Mac')
     result.origin = config.origin
     result.host = await readHost(config.origin, { cookie: env.SMITHERS_PERF_OWNER_COOKIE })
     result.commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()

@@ -207,3 +207,7 @@ The unified runner retains driver models, preflight summaries, wake counters,
 and metric cross-checks alongside raw samples, including failed measurements.
 The warm-wake driver and its tests were restored from upstream commit
 3cd38de598; terminal startup and host observer export remain dependencies.
+
+Keystroke and disk-write workloads refuse Linux before opening browser or SSH
+connections. Failed first-token samples retain their question order as well as
+model, preflight and wake cross-checks in the full runner evidence.

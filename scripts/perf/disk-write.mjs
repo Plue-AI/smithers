@@ -56,6 +56,7 @@ export async function run(env = process.env) {
   let browser, directory, ssh, masterStarted = false
   try {
     const config = configuration(env)
+    if (process.platform !== 'darwin') throw new Error('C-PERF-04 requires a reference-network Mac')
     result.origin = config.origin
     result.host = await readHost(config.origin, { cookie: env.SMITHERS_PERF_OWNER_COOKIE })
     result.commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
@@ -71,6 +72,7 @@ export async function run(env = process.env) {
     distinctMembers([result.member, result.sshMember])
     if (String(result.sshMember.id) !== env.SMITHERS_PERF_SSH_MEMBER) throw new Error('SSH member differs from authenticated fixture')
     result.sshFingerprint = await authenticatedSSHKey(sshContext, config.origin, config.identity)
+    await sshContext.close()
     const page = await context.newPage()
     let arrival, resolveArrival
     await page.exposeBinding('__diskArrival', (_, text) => { resolveArrival?.({ text, t1: performance.now() }) })
