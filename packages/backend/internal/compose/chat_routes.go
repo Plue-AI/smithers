@@ -92,6 +92,7 @@ func mountModelPublic(router chi.Router, models modelhost.OwnerModels, queries *
 			writes.Post("/api/model/credential", models.Credential)
 			writes.Put("/api/model/default", models.SetDefault)
 			writes.Post("/api/model/test", models.Test)
+			writes.Get("/api/model/test/receipt", models.TestReceipt)
 			if config.IsSingleOwner(cfg.Auth) {
 				writes.Put("/api/agents/{role}/model", assignAgentModel(queries, sources...))
 			}
