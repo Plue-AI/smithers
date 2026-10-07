@@ -156,7 +156,12 @@ for mod in $(printf '%s\n' "$gomap" | awk 'NF{print $1}' | sort -u); do
     if selected=$(select_go_packages "$mod" "$pkgs"); then
       pkgs=$(printf '%s\n' "$selected" | tr '\n' ' ')
       count=$(printf '%s\n' "$selected" | awk 'NF{n++} END{print n+0}')
-      if [ "$count" -gt 60 ]; then par=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1); fi
+      # Overlap packages once a selection grows (internal/compose alone takes minutes).
+      # Hosts tune it with LANE_GATES_GO_P; only a positive integer is honored.
+      gop=${LANE_GATES_GO_P:-}; [[ "$gop" =~ ^[1-9][0-9]*$ ]] || gop=""
+      if [ "$count" -gt 60 ]; then par=${gop:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)}
+      elif [ "$count" -gt 5 ]; then par=${gop:-4}; fi
+      echo "go-test parallelism: -p $par for $count packages" >> "$log"
     else
       echo "FAIL Go package selection:$mod" >> "$log"
       newreds+=("go-selection:$mod"); continue
