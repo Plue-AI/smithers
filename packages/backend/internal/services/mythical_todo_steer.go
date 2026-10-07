@@ -44,7 +44,7 @@ func (s *MythicalService) AuthorizeFlowSteer(ctx context.Context, request flowdi
 	if json.Unmarshal(request.AuthorizationContext, &authority) != nil || authority.UserID <= 0 ||
 		authority.RepositoryID <= 0 || request.FlowID != flowdispatch.TodoFlow || request.Target.BindingKind != mythicalBindingKind ||
 		authority.ItemID != request.Target.BindingID || authority.Input != request.MessageID ||
-		request.RequestID != "todo-steer:"+request.MessageID || request.Scope.TenantID != "repository:"+strconv.FormatInt(authority.RepositoryID, 10) ||
+		request.RequestID != todoSteerRequestID(request.MessageID, request.InputVersion) || request.Scope.TenantID != "repository:"+strconv.FormatInt(authority.RepositoryID, 10) ||
 		request.Target.TenantID != request.Scope.TenantID || request.Target.PrincipalID != request.Scope.PrincipalID {
 		return refused
 	}
@@ -72,7 +72,7 @@ func (s *MythicalService) AuthorizeFlowSteer(ctx context.Context, request flowdi
 		matched := -1
 		for index, feedback := range checks.Steers {
 			if feedback.ID == request.MessageID && feedback.Author == authority.UserID && feedback.Attempt == item.Attempt &&
-				feedback.Text == request.Body && float64(feedback.At.UnixMilli()) == request.CreatedAt && maps.Equal(feedback.Attribution, request.Attribution) {
+				feedback.InputVersion == request.InputVersion && todoSteerDeliveryText(feedback) == request.Body && float64(feedback.At.UnixMilli()) == request.CreatedAt && maps.Equal(feedback.Attribution, request.Attribution) {
 				matched = index
 				break
 			}
@@ -406,7 +406,21 @@ func (s *MythicalService) admitTodoSteerIntent(ctx context.Context, tx pgx.Tx, s
 	id := uuidString(item.ID)
 	scope := jobs.Scope{TenantID: "repository:" + strconv.FormatInt(item.RepositoryID, 10), PrincipalID: "user:" + strconv.FormatInt(stack.ActorUserID.Int64, 10)}
 	authority, _ := json.Marshal(map[string]any{"repositoryId": item.RepositoryID, "userId": feedback.Author, "itemId": id, "input": feedback.ID, "by": feedback.Attribution})
-	projection, _ := json.Marshal(map[string]any{"kind": "mythical-steer", "itemId": id, "input": feedback.ID})
-	_, err := steerer.SteerInTx(ctx, tx, flowdispatch.SteerRequest{Scope: scope, RequestID: "todo-steer:" + feedback.ID, Target: flowruntime.Target{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID, WorkspaceID: item.WorkspaceID, BindingKind: mythicalBindingKind, BindingID: id}, FlowID: flowdispatch.TodoFlow, RunID: item.RequestRunID, MessageID: feedback.ID, CreatedAt: float64(feedback.At.UnixMilli()), Body: feedback.Text, Attribution: feedback.Attribution, AuthorizationContext: authority, Projection: projection})
+	projection, _ := json.Marshal(map[string]any{"kind": "mythical-steer", "itemId": id, "input": feedback.ID, "inputVersion": feedback.InputVersion, "runId": item.RequestRunID, "attempt": item.Attempt})
+	_, err := steerer.SteerInTx(ctx, tx, flowdispatch.SteerRequest{Scope: scope, RequestID: todoSteerRequestID(feedback.ID, feedback.InputVersion), InputVersion: feedback.InputVersion, Target: flowruntime.Target{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID, WorkspaceID: item.WorkspaceID, BindingKind: mythicalBindingKind, BindingID: id}, FlowID: flowdispatch.TodoFlow, RunID: item.RequestRunID, MessageID: feedback.ID, CreatedAt: float64(feedback.At.UnixMilli()), Body: todoSteerDeliveryText(feedback), Attribution: feedback.Attribution, AuthorizationContext: authority, Projection: projection})
 	return err
+}
+
+func todoSteerRequestID(id string, version int64) string {
+	if version > 1 {
+		return "todo-steer:" + id + ":" + strconv.FormatInt(version, 10)
+	}
+	return "todo-steer:" + id
+}
+
+func todoSteerDeliveryText(feedback todoSteer) string {
+	if feedback.EditText != "" {
+		return feedback.EditText
+	}
+	return feedback.Text
 }

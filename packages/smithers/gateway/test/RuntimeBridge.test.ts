@@ -101,6 +101,33 @@ describe("RuntimeBridge", () => {
     expect(() => Schema.decodeUnknownSync(RuntimeBridge.CommandResponse)(fixture.commandResponse)).not.toThrow()
     expect(() => Schema.decodeUnknownSync(RuntimeBridge.ObserveResponse)(fixture.observeResponse)).not.toThrow()
   })
+  it.effect("carries the input version to the authenticated control steer", () =>
+    Effect.gen(function*() {
+      let seen: unknown
+      const control = service({
+        steer: (input) => {
+          seen = input
+          return Effect.succeed(accepted)
+        }
+      })
+      yield* RuntimeBridge.execute(config, control, principal, {
+        protocol: RuntimeBridge.protocol,
+        operation: "steer",
+        applicationRequestId: "edit-2",
+        ownerGeneration: 7,
+        runId: "run-1",
+        messageId: "comment-42",
+        createdAt: 2,
+        version: 2,
+        steer: { kind: "Message", body: "edited" }
+      })
+      expect(seen).toMatchObject({
+        version: 2,
+        runId: "run-1",
+        message: { messageId: "comment-42", principal, body: "edited" }
+      })
+    }))
+
   it.effect("launches through Control with stable plan and attempt identities", () =>
     Effect.gen(function*() {
       const calls: Array<unknown> = []
