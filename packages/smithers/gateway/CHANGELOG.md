@@ -47,6 +47,15 @@
 
 ### Removed
 
+- Removed `sleepWaits` from `EngineTrace.EngineExecutionEvidence`; it is now `waits`,
+  whose entries carry `kind: "sleep" | "signal"` beside `id`, `since` and
+  `settledAt` (6a995431/5847ca8c, #3514). Migration: read
+  `waits.filter((wait) => wait.kind === "sleep")` where `sleepWaits` was read.
+  This RC change follows
+  [RELEASE_SUPPORT.md](https://github.com/smithersai/smithers/blob/main/RELEASE_SUPPORT.md),
+  whose opening RC policy states that the candidate is not a stable 1.0
+  compatibility or long-term support commitment.
+
 - Removed `"forks"` from `RunTrace.TraceFilter` and `TRACE_FILTER_IDS`.
   Migration: replace stored or supplied `"forks"` filters with `"all"` and
   remove exhaustive branches for the old value. This RC change follows
