@@ -97,6 +97,7 @@ import { latestOrdinal } from "./controller/spokenLines"
 import { createStorageRecoveryController } from "./controller/storage-recovery"
 import type { TabsController } from "./controller/tabs"
 import { createTabsController } from "./controller/tabs"
+import { createOrderAttentionSeam } from "./seams/OrderAttentionSeam"
 import { observeBackgroundWork } from "./controller/backgroundWork"
 import { createGitHubSyncRetry } from "./controller/githubSync"
 import { createPromptQueueController } from "./controller/promptQueue"
@@ -517,6 +518,7 @@ export interface AppController extends IssueFlowsController {
   readonly amendTodo: TodoSeam["amendTodo"]
   readonly draftImagePackage: TodoSeam["draftImagePackage"]
   readonly bringIn: TodoSeam["bringIn"]
+  readonly orderOK: (id: string, revision: number) => Promise<{ readonly value: string } | string>
   readonly discardForeign: TodoSeam["discardForeign"]
   readonly controlTodo: TodoSeam["controlTodo"]
   readonly openProposal: ProposalSeam["openProposal"]
@@ -1222,6 +1224,7 @@ export const createAppController = (
       return real.resolveProposal(id, action)
     } }
   })
+  const orderSeam = actors.pair(seamCtx, createOrderAttentionSeam)
   const todoSeam = actors.pair(seamCtx, context => withDesignTodos(createTodoSeam(context, { ...(installHost ? { draftIssue: (source, signal) => draftIssueTodo(context, source, signal), readIssue: async (number, repo) => {
     const issue = await issuesSeam.readTodoIssue(number, repo)
     if (typeof issue === "string") return issue
@@ -2276,6 +2279,7 @@ export const createAppController = (
     amendTodo: todoSeam.amendTodo,
     draftImagePackage: todoSeam.draftImagePackage,
     bringIn: todoSeam.bringIn,
+    orderOK: orderSeam.orderOK,
     discardForeign: todoSeam.discardForeign,
     controlTodo: todoSeam.controlTodo,
     openProposal: proposalSeam.openProposal,
@@ -2461,6 +2465,7 @@ export const createAppController = (
   repoImportSeam.resume()
   secretsSeam.resumeSecretRequests()
   egressSeam.resumeEgressRequests()
+  orderSeam.resumeOrderRequests()
   proposalSeam.resumeProposals()
   todoSeam.resumeTodos()
   stackSeam.resumeStacks()
@@ -2472,7 +2477,7 @@ export const createAppController = (
    */
   const setupIdentitySubscription = store.collections.identitySessions.subscribeChanges(() => {
     queueMicrotask(() => { if (!ctx.disposed) { conversationHistory.resume(); triggersSeam.resumePauses(); triggersSeam.resumePreparations() } })
-    queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests(); proposalSeam.resumeProposals() } })
+    queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests(); proposalSeam.resumeProposals(); orderSeam.resumeOrderRequests() } })
     workflowController.resumeWorkflowRequests()
     gitHubSyncRetry.resume()
     // Catalog recovery writes a card; leave the identity projection before dispatching it.
@@ -2487,7 +2492,7 @@ export const createAppController = (
   ctx.onDispose(() => setupIdentitySubscription.unsubscribe())
   const importCloudSubscription = store.collections.cloudSessions.subscribeChanges(() => {
     repoImportSeam.resume()
-    queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests(); proposalSeam.resumeProposals() } })
+    queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests(); proposalSeam.resumeProposals(); orderSeam.resumeOrderRequests() } })
   })
   ctx.onDispose(() => importCloudSubscription.unsubscribe())
   if (!sharedPrompts) subscribeToAgent()

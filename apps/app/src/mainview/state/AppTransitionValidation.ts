@@ -73,6 +73,7 @@ export const APP_TRANSITION_SCHEMAS = {
   "issue.todo.requests.changed": z.object({ type: z.literal("issue.todo.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.issueTodoRequests.unwrap() }).strict(),
   "coding.provider.requests.changed": z.object({ type: z.literal("coding.provider.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.codingProviderRequests.unwrap() }).strict(),
   "review.requests.changed": z.object({ type: z.literal("review.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.reviewRequests.unwrap() }).strict(),
+  "order.requests.changed": z.object({ type: z.literal("order.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.orderRequests.unwrap() }).strict(),
   "install.requests.changed": z.object({ type: z.literal("install.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.installRequests.unwrap() }).strict(),
   "repository.imports.changed": z.object({ type: z.literal("repository.imports.changed"), actor: ActorSchema, requests: SessionSchema.shape.repositoryImports.unwrap() }).strict(),
   "secret.requests.changed": z.object({ type: z.literal("secret.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.secretRequests.unwrap() }).strict(),

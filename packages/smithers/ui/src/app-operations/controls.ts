@@ -9,7 +9,7 @@ const Foreign = Schema.Struct({ branch: Text, id: Text, revision: Text })
 const Learning = Schema.Struct({ id: Text })
 const control = <const Name extends string, I extends OperationPayload>(name: Name, summary: string, input: I,
   agent: "run" | "confirm" | "never", minimumRole: "member" | "maintainer" | "owner" = "member") =>
-  operation({ name, summary, input, agent, hidden: true, minimumRole, visibility: "in-card", slash: null, cli: null, http: name === "branch.discard-foreign" || name === "branch.bring-in" ? { method: "POST" as const, path: "/api/branches/{branch}", defaults: { op: name === "branch.bring-in" ? "bring-in" : "discard-foreign" } } : name === "learning.accept" ? { method: "POST" as const, path: "/api/proposals/{id}/accept" } : name === "learning.dismiss" ? { method: "POST" as const, path: "/api/proposals/{id}/dismiss" } : null,
+  operation({ name, summary, input, agent, hidden: true, minimumRole, visibility: "in-card", slash: null, cli: null, http: name === "order.ok" ? { method: "POST" as const, path: "/api/stack/attention/{id}", body: { revision: "revision" } } : name === "branch.discard-foreign" || name === "branch.bring-in" ? { method: "POST" as const, path: "/api/branches/{branch}", defaults: { op: name === "branch.bring-in" ? "bring-in" : "discard-foreign" } } : name === "learning.accept" ? { method: "POST" as const, path: "/api/proposals/{id}/accept" } : name === "learning.dismiss" ? { method: "POST" as const, path: "/api/proposals/{id}/dismiss" } : null,
     journey: [], group: "", actors: agent === "never" ? ["person"] as const : ["person", "app_agent"] as const })
 
 export const pendingControls = [
@@ -24,7 +24,7 @@ export const pendingControls = [
   control("learning.dismiss", "Dismiss", Learning, "confirm"),
   control("todo.takeover", "Take over", Todo, "never", "maintainer"),
   control("merge.confirm", "Review & merge", Schema.Struct({ n: N, revision: Text }), "never", "maintainer"),
-  control("order.ok", "OK", Todo, "never", "maintainer"),
+  control("order.ok", "OK", Schema.Struct({ id: Text, revision: N }), "never", "maintainer"),
   control("main.reset-to-github", "Reset to GitHub main", Schema.Struct({ revision: Text }), "never", "owner"),
   control("settings.model.set", "Change model", Schema.Struct({ role: Schema.Literals(["fast", "coding", "jev"]), model: Text }), "never", "owner")
 ] as const

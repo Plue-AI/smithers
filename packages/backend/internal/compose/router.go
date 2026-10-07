@@ -1007,6 +1007,7 @@ func buildRouter(
 			r.Post("/todos/{n}", todos.Control)
 			r.Patch("/todos/{n}", todos.Amend)
 			r.Post("/todos/{n}/merge", todos.Merge)
+			r.Post("/stack/attention/{id}", todos.OrderOK)
 			r.Post("/todos/{n}/preapproval", todos.Preapprove)
 			r.Delete("/todos/{n}/preapproval", todos.Unapprove)
 			r.Post("/todos/{n}/answer", todos.Answer)

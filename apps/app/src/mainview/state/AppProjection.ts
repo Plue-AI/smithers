@@ -230,6 +230,7 @@ export const APP_TRANSITION_TYPES = {
   "github.sync.request.changed": true,
   "wiki.saves.changed": true,
   "review.requests.changed": true,
+  "order.requests.changed": true,
   "install.requests.changed": true,
   "repository.imports.changed": true,
   "secret.requests.changed": true,
@@ -2142,6 +2143,10 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
         }
         case "review.requests.changed": {
           collections.sessions.update(SESSION_ID, draft => { draft.reviewRequests = transition.requests })
+          break
+        }
+        case "order.requests.changed": {
+          collections.sessions.update(SESSION_ID, draft => { draft.orderRequests = transition.requests })
           break
         }
         case "install.requests.changed": {
