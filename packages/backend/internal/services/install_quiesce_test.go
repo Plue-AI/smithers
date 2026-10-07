@@ -79,14 +79,49 @@ func (s quiesceSteps) step(name string) error {
 func (s quiesceSteps) Drain(context.Context) error          { return s.step("drain") }
 func (s quiesceSteps) Stop(context.Context) error           { return s.step("stop") }
 func (s quiesceSteps) CaptureAndStop(context.Context) error { return s.step("capture") }
+func (s quiesceSteps) Resume(context.Context) error         { return s.step("resume") }
+
+type quiesceBarrierFixture struct {
+	calls  *[]string
+	fail   string
+	ticket string
+}
+
+func (s quiesceBarrierFixture) Check(context.Context) error {
+	if s.fail == "check-"+s.ticket {
+		return errors.New(s.fail)
+	}
+	return nil
+}
+func (s quiesceBarrierFixture) Drain(context.Context) error {
+	*s.calls = append(*s.calls, s.ticket)
+	if s.fail == s.ticket {
+		return errors.New(s.fail)
+	}
+	return nil
+}
+func (s quiesceBarrierFixture) Resume(context.Context) error {
+	*s.calls = append(*s.calls, "resume-"+s.ticket)
+	return nil
+}
+func barrierFixtures(calls *[]string, fail string) map[string]QuiesceBarrier {
+	return map[string]QuiesceBarrier{
+		"T-STK-04": quiesceBarrierFixture{calls, fail, "T-STK-04"},
+		"T-COL-08": quiesceBarrierFixture{calls, fail, "T-COL-08"},
+		"T-COL-09": quiesceBarrierFixture{calls, fail, "T-COL-09"},
+		"T-GH-09":  quiesceBarrierFixture{calls, fail, "T-GH-09"},
+		"T-TRM-07": quiesceBarrierFixture{calls, fail, "T-TRM-07"},
+		"T-SEC-01": quiesceBarrierFixture{calls, fail, "T-SEC-01"},
+	}
+}
 func TestQuiesceStepsAndRenewal(t *testing.T) {
-	for _, fail := range []string{"", "drain", "capture", "stop"} {
+	for _, fail := range []string{"", "drain", "capture", "stop", "T-STK-04", "T-COL-08", "T-COL-09", "T-GH-09", "T-TRM-07", "T-SEC-01"} {
 		t.Run("failure="+fail, func(t *testing.T) {
 			store := &memoryFreeze{}
 			gate := &QuiesceGate{Store: store, StateDir: t.TempDir()}
 			calls := []string{}
 			steps := quiesceSteps{&calls, fail}
-			service := &InstallQuiesce{Gate: gate, Admission: steps, Machines: steps, Host: steps}
+			service := &InstallQuiesce{Gate: gate, Admission: steps, Machines: steps, Host: steps, Barriers: barrierFixtures(&calls, fail)}
 			row, err := service.Freeze(t.Context(), "unique-op", 7)
 			if fail != "" {
 				if err == nil || store.row != nil {
@@ -97,12 +132,12 @@ func TestQuiesceStepsAndRenewal(t *testing.T) {
 			if err != nil || !row.Ready {
 				t.Fatalf("%v %v", row, err)
 			}
-			if len(calls) != 3 || calls[0] != "drain" || calls[1] != "capture" || calls[2] != "stop" {
+			if len(calls) != 9 || calls[0] != "drain" || calls[1] != "T-STK-04" || calls[2] != "T-COL-08" || calls[3] != "T-COL-09" || calls[4] != "T-GH-09" || calls[5] != "T-TRM-07" || calls[6] != "T-SEC-01" || calls[7] != "capture" || calls[8] != "stop" {
 				t.Fatal(calls)
 			}
 			until := row.LeaseUntil
 			row, err = service.Freeze(t.Context(), "unique-op", 7)
-			if err != nil || !row.LeaseUntil.After(until) || len(calls) != 3 {
+			if err != nil || !row.LeaseUntil.After(until) || len(calls) != 9 {
 				t.Fatalf("renew: %v %v", row, err)
 			}
 			if _, err = service.Freeze(t.Context(), "other-op", 7); err == nil {
@@ -139,12 +174,12 @@ func TestQuiesceDefaultFreezeReopens(t *testing.T) {
 }
 
 func TestHostMaintenanceUnavailableProvidersFailClosed(t *testing.T) {
-	for _, missing := range []string{"machines", "machine-pointer", "admission", "host"} {
+	for _, missing := range []string{"machines", "machine-pointer", "admission", "host", "T-STK-04", "T-COL-08", "T-COL-09", "T-GH-09", "T-TRM-07", "T-SEC-01"} {
 		t.Run(missing, func(t *testing.T) {
 			store := &memoryFreeze{}
 			calls := []string{}
 			steps := quiesceSteps{calls: &calls}
-			service := &InstallQuiesce{Gate: &QuiesceGate{Store: store, StateDir: t.TempDir()}, Machines: steps, Admission: steps, Host: steps}
+			service := &InstallQuiesce{Gate: &QuiesceGate{Store: store, StateDir: t.TempDir()}, Machines: steps, Admission: steps, Host: steps, Barriers: barrierFixtures(&calls, "")}
 			want := "T-MCH-07"
 			switch missing {
 			case "machines":
@@ -156,7 +191,10 @@ func TestHostMaintenanceUnavailableProvidersFailClosed(t *testing.T) {
 				want = "T-MCH-06"
 			case "host":
 				service.Host = nil
-				want = "T-INS-08"
+				want = "T-FLW-01"
+			default:
+				delete(service.Barriers, missing)
+				want = missing
 			}
 			_, err := service.Freeze(t.Context(), "backup", 7)
 			var dependency *QuiesceDependencyError
@@ -196,10 +234,47 @@ func TestQuiesceMissingAuthorityAndCancellationNeverFreeze(t *testing.T) {
 	store := &memoryFreeze{}
 	calls := []string{}
 	steps := quiesceSteps{calls: &calls}
-	service := &InstallQuiesce{Gate: &QuiesceGate{Store: store, StateDir: t.TempDir()}, Machines: steps, Admission: steps, Host: steps}
+	service := &InstallQuiesce{Gate: &QuiesceGate{Store: store, StateDir: t.TempDir()}, Machines: steps, Admission: steps, Host: steps, Barriers: barrierFixtures(&calls, "")}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if _, err := service.Freeze(ctx, "backup", 7); !errors.Is(err, context.Canceled) || store.updates != 0 || len(calls) != 0 {
 		t.Fatalf("cancelled freeze: %v writes=%d calls=%v", err, store.updates, calls)
+	}
+}
+
+func TestQuiesceBarrierChecksDoNotFreeze(t *testing.T) {
+	for _, ticket := range []string{"T-STK-04", "T-COL-08", "T-COL-09", "T-GH-09", "T-TRM-07", "T-SEC-01"} {
+		t.Run(ticket, func(t *testing.T) {
+			store := &memoryFreeze{}
+			calls := []string{}
+			steps := quiesceSteps{calls: &calls}
+			service := &InstallQuiesce{Gate: &QuiesceGate{Store: store, StateDir: t.TempDir()}, Machines: steps, Admission: steps, Host: steps, Barriers: barrierFixtures(&calls, "check-"+ticket)}
+			_, err := service.Freeze(t.Context(), "backup", 7)
+			if err == nil || store.updates != 0 || len(calls) != 0 {
+				t.Fatalf("preflight mutated: err=%v writes=%d calls=%v", err, store.updates, calls)
+			}
+		})
+	}
+}
+
+func TestQuiesceResumeFailurePreservesFreeze(t *testing.T) {
+	store := &memoryFreeze{}
+	calls := []string{}
+	steps := quiesceSteps{calls: &calls}
+	service := &InstallQuiesce{Gate: &QuiesceGate{Store: store, StateDir: t.TempDir()}, Machines: steps, Admission: steps, Host: steps, Barriers: barrierFixtures(&calls, "")}
+	if _, err := service.Freeze(t.Context(), "backup", 7); err != nil {
+		t.Fatal(err)
+	}
+	service.Host = quiesceSteps{calls: &calls, fail: "resume"}
+	if err := service.Reopen(t.Context(), "backup"); err == nil || store.row == nil {
+		t.Fatalf("resume failure lost freeze: %v", err)
+	}
+	store.row.LeaseUntil = time.Now().Add(-time.Second)
+	if err := service.Gate.Admit(t.Context(), "POST"); err == nil || store.row == nil {
+		t.Fatalf("expiry lost freeze: %v", err)
+	}
+	service.Host = steps
+	if err := service.Gate.Admit(t.Context(), "POST"); err != nil || store.row != nil {
+		t.Fatalf("resume retry: %v", err)
 	}
 }
