@@ -16,6 +16,8 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodGet, "/api/repos/local-owner/demo/workflow/runs/12/artifacts/report.txt", "run.view"},
 		{http.MethodGet, "/api/repos/local-owner/demo/caches", "repo.read"},
 		{http.MethodGet, "/api/repos/local-owner/demo/caches/stats", "repo.read"},
+		{http.MethodGet, "/api/user/workflow-runs/active-count", "repo.read"},
+		{http.MethodGet, "/api/public/repos", "public"},
 		{http.MethodGet, "/api/user", "self"},
 		{http.MethodPost, "/api/workflow/rpc", "flow.relay"},
 		{http.MethodPost, "/api/workflow/provision", "box.resume"},

@@ -457,6 +457,8 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+(?:/home|/topics)?$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/caches(?:/stats)?$`)},
 	{http.MethodGet, "run.view", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workflow/runs/[0-9]+/artifacts(?:/[^/]+)?$`)},
+	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/user/workflow-runs/active-count$`)},
+	{http.MethodGet, "public", regexp.MustCompile(`^/api/public/repos$`)},
 	{http.MethodGet, "run.view", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:actions/)?runs/[0-9]+/artifacts(?:/[^/]+/download)?$`)},
 	{http.MethodGet, "external.read", regexp.MustCompile(`^/api/external/sessions$`)},
 	{http.MethodGet, "runs.list", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/agent/sessions$`)},
