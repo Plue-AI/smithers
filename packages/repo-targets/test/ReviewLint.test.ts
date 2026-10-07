@@ -15,8 +15,8 @@ import * as Target from "@smthrs/targets/Target"
  */
 const attrsOf = (target: Target.AnyTarget): {
   readonly changes: Input.GitDiff
-  readonly include: ReadonlyArray<Input.Glob>
-  readonly context: ReadonlyArray<Input.Glob>
+  readonly include: ReadonlyArray<Input.Glob | Input.File>
+  readonly context: ReadonlyArray<Input.Glob | Input.File>
   readonly prompt: string
   readonly rubric: string
   readonly engine: string
@@ -27,9 +27,10 @@ const attrsOf = (target: Target.AnyTarget): {
 
 const workspaceRoot = fileURLToPath(new URL("../../../", import.meta.url))
 
-const expandContext = async (context: ReadonlyArray<Input.Glob>): Promise<ReadonlyArray<string>> => {
+const expandContext = async (context: ReadonlyArray<Input.Glob | Input.File>): Promise<ReadonlyArray<string>> => {
   const files = new Set<string>()
-  for (const declaration of context) {
+  for (const input of context) {
+    const declaration = input._tag === "File" ? Input.glob(input.path) : input
     for (const file of await Input.expandGlob(workspaceRoot, "", declaration, { packageScoped: false })) {
       files.add(file)
     }

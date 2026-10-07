@@ -903,6 +903,8 @@ export const FactoryProjectionAction = Action.make("smithers-build/factory-proje
 export const Attrs = Schema.Struct({
   /** The workspace-relative directory discovery walks. @default "flows" */
   root: Schema.NonEmptyString.pipe(Schema.withConstructorDefault(Effect.succeed("flows"))),
+  /** Explicit entry files when discovery spans packages; otherwise entries are package-scoped globs. */
+  entries: Schema.optional(Schema.Array(Input.File)),
   /** The workspace-relative declaration file the check is keyed on. @default ".smithers/FACTORY.ts" */
   declaration: Schema.NonEmptyString.pipe(Schema.withConstructorDefault(Effect.succeed(declarationPath))),
   /** The workspace-relative file the factory projection is written to. @default ".smithers/factory.json" */
@@ -957,7 +959,7 @@ export const FactoryProjection = Target.make("FactoryProjection", {
   error: Schema.Union([WriteFileError, DriftError, FlowCatalog.FlowCatalogError, FactoryProjectionError]),
   cache: (attrs) => attrs.mode !== "write",
   inputs: (attrs) => [
-    ...entryGlobs(attrs.root),
+    ...(attrs.entries ?? entryGlobs(attrs.root)),
     Input.file(`//${resolveOutputPath(attrs.declaration)}`),
     ...(attrs.mode === "write"
       ? []

@@ -1,3 +1,5 @@
+import { escape } from "minimatch"
+import * as Input from "../src/Input.ts"
 import * as Effect from "effect/Effect"
 import { execFile } from "node:child_process"
 import * as Fs from "node:fs/promises"
@@ -102,8 +104,8 @@ describe("SecurityReview boundary execution", () => {
     const attrs = Target.metadata(target).attrs as LlmLint.Attrs
     const reviewPayload: LlmLint.Payload = {
       base: attrs.changes.base,
-      include: attrs.include,
-      context: attrs.context,
+      include: attrs.include.map((input) => input._tag === "File" ? Input.glob(escape(input.path, { windowsPathsNoEscape: true })) : input),
+      context: attrs.context.map((input) => input._tag === "File" ? Input.glob(escape(input.path, { windowsPathsNoEscape: true })) : input),
       prompt: attrs.prompt,
       rubric: attrs.rubric,
       engine: attrs.engine,
