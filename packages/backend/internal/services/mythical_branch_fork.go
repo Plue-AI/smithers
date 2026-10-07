@@ -108,7 +108,7 @@ func (s *MythicalService) forkBranch(ctx context.Context, repositoryID, actorID 
 	if !ok {
 		return BranchMachineResponse{}, branchForkUnavailable("fork unavailable")
 	}
-	if _, err := Authorize(ctx, s.queries(), "branch.fork"); err != nil {
+	if _, err := Authorize(ctx, s.queries(), "branch.fork", InstallBranchForkSubject(ctx, repositoryID, input)); err != nil {
 		return BranchMachineResponse{}, err
 	}
 	from := strings.TrimSpace(input.From)
@@ -205,11 +205,11 @@ func (s *MythicalService) forkBranch(ctx context.Context, repositoryID, actorID 
 // a different payload cannot reuse its key. Authorization still runs on every
 // HTTP request before this receipt is read.
 func (s *MythicalService) ForkBranch(ctx context.Context, repositoryID, actorID int64, input BranchForkInput) (BranchMachineResponse, error) {
-	decision, err := Authorize(ctx, s.queries(), "branch.fork")
+	decision, err := Authorize(ctx, s.queries(), "branch.fork", InstallBranchForkSubject(ctx, repositoryID, input))
 	if err != nil {
 		return BranchMachineResponse{}, err
 	}
-	ctx = WithInstallAuthorization(ctx, "branch.fork", decision)
+	ctx = WithInstallAuthorization(ctx, "branch.fork", decision, InstallBranchForkSubject(ctx, repositoryID, input))
 	info := middleware.AuthInfoFromContext(ctx)
 	if info == nil || info.User == nil || info.User.ID != actorID {
 		return BranchMachineResponse{}, &BranchError{403, "permission", "permission", "Access denied"}
@@ -220,7 +220,7 @@ func (s *MythicalService) ForkBranch(ctx context.Context, repositoryID, actorID 
 		}
 		var branch BranchMachineResponse
 		err := pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
-			if err := guardInstallTodoWrite(ctx, tx, repositoryID, actorID); err != nil {
+			if err := guardInstallForkWrite(ctx, tx, repositoryID, actorID, input); err != nil {
 				return err
 			}
 			var err error
@@ -235,7 +235,7 @@ func (s *MythicalService) ForkBranch(ctx context.Context, repositoryID, actorID 
 	if s == nil || s.store == nil {
 		return BranchMachineResponse{}, branchForkUnavailable("fork unavailable")
 	}
-	credential, err := todoRequestCredential(ctx, actorID)
+	credential, err := branchForkRequestCredential(ctx, actorID)
 	if err != nil {
 		return BranchMachineResponse{}, err
 	}
@@ -245,7 +245,7 @@ func (s *MythicalService) ForkBranch(ctx context.Context, repositoryID, actorID 
 	intentID := uuid.NewSHA1(confirmationNamespace, []byte(id+"\x00intended")).String()
 	var branch BranchMachineResponse
 	err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
-		if err := guardInstallTodoWrite(ctx, tx, repositoryID, actorID); err != nil {
+		if err := guardInstallForkWrite(ctx, tx, repositoryID, actorID, input); err != nil {
 			return err
 		}
 		digest := sha256.Sum256([]byte(id))

@@ -26,7 +26,7 @@ import (
 // The reviewed SG oracle is literal and independent of catalog descriptors.
 // This supplements live execution tests: ordinary cells qualify the PostgreSQL
 // authorizer, SG-08 qualifies real confirmation HTTP and SG-09 route absence.
-// The three unlanded T-ACC-03 run grants are explicitly pending, never
+// The two unlanded T-ACC-03 run grants are explicitly pending, never
 // converted to passing permission refusals. Full C-ACC-01 requires their real
 // subjects and execution consumers as well as this independent decision oracle.
 func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
@@ -146,6 +146,16 @@ func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 			}
 			entry["trusted_kind"] = info.CredentialKind()
 			ledger = append(ledger, entry)
+			if cell.Group == "SG-04" && cell.Command == "branch.fork" && cell.Credential == "RO" && cell.Expected == "allow" {
+				proof := testInstallRunForkAuthorizationPostgres(t)
+				entry["credential_hash"] = proof["credential_hash"]
+				entry["subject"] = proof
+				entry["layer"], entry["execution"] = "composed install native fork HTTP", "passed"
+				entry["actual_status"] = 201
+				entry["receipt"] = "TestInstallRunForkAuthorizationPostgres"
+				resolved++
+				return
+			}
 			if cell.Expected == "allow" && cell.Command != "todo.read" && (cell.Credential[0] == 'R' || cell.Credential[0] == 'M') {
 				entry["pending_ticket"] = "T-ACC-03"
 				command := cell.Command

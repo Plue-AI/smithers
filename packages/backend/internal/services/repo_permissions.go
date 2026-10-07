@@ -413,6 +413,13 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 	if command == "stack.candidate" {
 		return authorizeStackCandidate(ctx, q, subject)
 	}
+	if command == "branch.fork" && InstallExecutionCredential(ctx) {
+		info := middleware.AuthInfoFromContext(ctx)
+		if info.CredentialKind() != middleware.CredentialAgentRun || !info.Scopes.Has(middleware.ScopeWriteRepository) {
+			return InstallAuthorization{}, confirmationPermission()
+		}
+		return authorizeExecutionTodoRead(ctx, q, subject)
+	}
 	if command == "todo.read" && InstallExecutionCredential(ctx) {
 		return authorizeExecutionTodoRead(ctx, q, subject)
 	}

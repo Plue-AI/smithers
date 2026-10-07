@@ -64,6 +64,32 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 					return
 				}
 			}
+			if command == "branch.fork" && services.InstallExecutionCredential(r.Context()) {
+				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
+				if err != nil {
+					writeConfirmationDispatchError(w, pkgerrors.BadRequest("Invalid fork request"))
+					return
+				}
+				input, err := routes.DecodeBranchFork(bytes.NewReader(raw))
+				if err != nil {
+					writeConfirmationDispatchError(w, err)
+					return
+				}
+				repository, err := services.InstallRepositoryID(r.Context(), queries)
+				if err != nil {
+					writeConfirmationDispatchError(w, err)
+					return
+				}
+				subject := services.InstallBranchForkSubject(r.Context(), repository, input)
+				decision, err := services.Authorize(r.Context(), queries, command, subject)
+				if err != nil {
+					writeConfirmationDispatchError(w, err)
+					return
+				}
+				r.Body = io.NopCloser(bytes.NewReader(raw))
+				next.ServeHTTP(w, r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, subject)))
+				return
+			}
 			if command == "stack.candidate" {
 				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 2<<20))
 				var input services.MythicalLaneSubmission

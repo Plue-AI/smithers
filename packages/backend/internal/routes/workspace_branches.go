@@ -1,9 +1,11 @@
 package routes
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -108,7 +110,24 @@ func InstallBranchAuthorizer(queries *db.Queries) func(*http.Request, string) (i
 		if queries == nil {
 			return 0, 0, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branches unavailable")
 		}
-		decision, err := services.Authorize(r.Context(), queries, command)
+		subject := services.InstallSubject{}
+		if command == "branch.fork" && services.InstallExecutionCredential(r.Context()) {
+			raw, err := io.ReadAll(io.LimitReader(r.Body, (64<<10)+1))
+			if err != nil || len(raw) > 64<<10 {
+				return 0, 0, pkgerrors.BadRequest("Invalid fork request")
+			}
+			input, err := DecodeBranchFork(bytes.NewReader(raw))
+			if err != nil {
+				return 0, 0, err
+			}
+			r.Body = io.NopCloser(bytes.NewReader(raw))
+			repository, err := services.InstallRepositoryID(r.Context(), queries)
+			if err != nil {
+				return 0, 0, err
+			}
+			subject = services.InstallBranchForkSubject(r.Context(), repository, input)
+		}
+		decision, err := services.Authorize(r.Context(), queries, command, subject)
 		if err != nil {
 			return 0, 0, err
 		}
@@ -168,11 +187,9 @@ func (h *BranchHandler) Fork(w http.ResponseWriter, r *http.Request) {
 		writeBranchError(w, r, err)
 		return
 	}
-	var input services.BranchForkInput
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
-	decoder.DisallowUnknownFields()
-	if err := decodeSingleJSONDocument(decoder, &input); err != nil || strings.TrimSpace(input.From) == "" {
-		writeBranchError(w, r, pkgerrors.BadRequest("invalid fork request"))
+	input, err := DecodeBranchFork(http.MaxBytesReader(w, r.Body, 64<<10))
+	if err != nil {
+		writeBranchError(w, r, err)
 		return
 	}
 	input.Request = r.Header.Get("Idempotency-Key")
@@ -216,4 +233,15 @@ func writeBranchError(w http.ResponseWriter, r *http.Request, err error) {
 		}
 	}
 	pkgerrors.WriteJSON(w, status, map[string]string{"code": code, "class": class, "message": message})
+}
+
+// DecodeBranchFork shares the body contract between admission and dispatch.
+func DecodeBranchFork(reader io.Reader) (services.BranchForkInput, error) {
+	var input services.BranchForkInput
+	decoder := json.NewDecoder(reader)
+	decoder.DisallowUnknownFields()
+	if err := decodeSingleJSONDocument(decoder, &input); err != nil || strings.TrimSpace(input.From) == "" {
+		return input, pkgerrors.BadRequest("invalid fork request")
+	}
+	return input, nil
 }
