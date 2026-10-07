@@ -397,8 +397,12 @@ func (s *MythicalService) forkSource(ctx context.Context, q *db.Queries, reposit
 	if mythicalSettledStates[item.State] {
 		return branchForkSource{}, &BranchError{http.StatusConflict, "todo_settled", "conflict", ref + " is " + todoState(item) + "; fork main"}
 	}
-	if item.WorkspaceID != "" {
-		row, err := q.GetWorkspace(ctx, item.WorkspaceID)
+	parent, err := s.forkItemWorkspace(ctx, item)
+	if err != nil {
+		return branchForkSource{}, err
+	}
+	if parent != "" {
+		row, err := q.GetWorkspace(ctx, parent)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return branchForkSource{}, err
 		}
@@ -427,16 +431,6 @@ func (s *MythicalService) forkSource(ctx context.Context, q *db.Queries, reposit
 	pin := repohost.MythicalReservedRefNS + "keep/" + item.CandidateHead
 	if !item.CandidateVerified || !isLowerHexRevision(item.CandidateHead) || !isLowerHexRevision(item.CandidateBase) || refs[pin] != item.CandidateHead {
 		return branchForkSource{}, &BranchError{http.StatusConflict, "no_verified_head", "conflict", ref + " has no verified head to fork yet"}
-	}
-	// The item's workspace: its lane, or the last one the stack bound once
-	// the item released it at review.
-	parent := item.WorkspaceID
-	if !mythicalWorkspaceID.MatchString(parent) {
-		parent = ""
-		if err := s.store.QueryRow(ctx, `SELECT l.workspace_id FROM mythical_lanes l JOIN workspaces w ON w.id::text = l.workspace_id
-            WHERE l.item_id = $1 AND w.deleted_at IS NULL ORDER BY l.created_at DESC LIMIT 1`, item.ID).Scan(&parent); err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return branchForkSource{}, err
-		}
 	}
 	return branchForkSource{ref: ref, commit: item.CandidateHead, base: item.CandidateBase, pin: pin, parent: parent, item: item.ID, number: number}, nil
 }
@@ -553,10 +547,14 @@ func (s *MythicalService) prepareForkCapture(ctx context.Context, repository, ac
 		if e != nil {
 			return e
 		}
-		if item.WorkspaceID == "" {
+		parent, e := s.forkItemWorkspace(ctx, item)
+		if e != nil {
+			return e
+		}
+		if parent == "" {
 			return nil
 		}
-		row, err = s.queries().GetWorkspace(ctx, item.WorkspaceID)
+		row, err = s.queries().GetWorkspace(ctx, parent)
 	} else {
 		return nil
 	}
@@ -594,4 +592,19 @@ func (s *MythicalService) prepareForkCapture(ctx context.Context, repository, ac
 		return branchForkUnavailable("Capture unavailable")
 	}
 	return capture.PrepareCapturedHead(ctx, row.ID, repository, actor)
+}
+
+// Review releases TODO execution ownership, not the shared branch. Members can
+// still have an awake machine on the last retained lane.
+func (s *MythicalService) forkItemWorkspace(ctx context.Context, item db.MythicalItem) (string, error) {
+	parent := item.WorkspaceID
+	if mythicalWorkspaceID.MatchString(parent) {
+		return parent, nil
+	}
+	parent = ""
+	err := s.store.QueryRow(ctx, `SELECT l.workspace_id FROM mythical_lanes l JOIN workspaces w ON w.id::text=l.workspace_id WHERE l.item_id=$1 AND w.deleted_at IS NULL ORDER BY l.created_at DESC LIMIT 1`, item.ID).Scan(&parent)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = nil
+	}
+	return parent, err
 }

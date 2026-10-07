@@ -34,7 +34,7 @@ func TestBranchAddComposedInstall(t *testing.T) {
 	}
 }
 func TestBranchCaptureComposedInstall(t *testing.T) {
-	for _, mode := range []string{"s2-add", "s2-confirm", "s2-fork", "s2-item-fork", "s2-fail", "s2-stale", "s2-missing-membership", "s2-missing-authorize", "s2-missing-lane", "s2-missing-microvm", "s2-missing-identity"} {
+	for _, mode := range []string{"s2-add", "s2-confirm", "s2-fork", "s2-item-fork", "s2-retained-item-fork", "s2-fail", "s2-stale", "s2-missing-membership", "s2-missing-authorize", "s2-missing-lane", "s2-missing-microvm", "s2-missing-identity"} {
 		t.Run(mode, func(t *testing.T) { runBranchAddComposed(t, mode) })
 	}
 }
@@ -161,7 +161,7 @@ func runBranchAddComposed(t *testing.T, remove string) {
 		captured := git("-C", source, "rev-parse", "HEAD")
 		git("-C", store, "fetch", source, captured)
 		tree := git("-C", source, "rev-parse", captured+"^{tree}")
-		if remove == "s2-item-fork" {
+		if strings.HasSuffix(remove, "item-fork") {
 			item, err := q.InsertMythicalTodo(ctx, repo.ID, owner.ID, "Source", "Fixed item", []byte(`[{"text":"Fixed item"}]`), []byte(`{"todo":true}`))
 			require.NoError(t, err)
 			_, err = pool.Exec(ctx, `UPDATE mythical_items SET workspace_id=$2,candidate_head=$3,candidate_base=$4,candidate_verified=true WHERE id=$1`, item.ID, workspace.ID, head, base)
@@ -170,12 +170,16 @@ func runBranchAddComposed(t *testing.T, remove string) {
 			require.NoError(t, err)
 			_, _, err = q.BindMythicalLane(ctx, db.MythicalLane{WorkspaceID: workspace.ID, RepositoryID: repo.ID, ItemID: item.ID, Name: "smithers/source"})
 			require.NoError(t, err)
+			if remove == "s2-retained-item-fork" {
+				_, err = pool.Exec(ctx, `UPDATE mythical_items SET workspace_id='' WHERE id=$1`, item.ID)
+				require.NoError(t, err)
+			}
 			git("-C", store, "update-ref", "refs/heads/smithers/source", head)
 		}
 		calls := branchCapturePeer(t, registry, workspace.ID, head, captured, tree, base, remove)
-		if remove == "s2-fork" || remove == "s2-item-fork" {
+		if remove == "s2-fork" || strings.HasSuffix(remove, "item-fork") {
 			body := `{"from":"scratch/ben/try","name":"captured-fork"}`
-			if remove == "s2-item-fork" {
+			if strings.HasSuffix(remove, "item-fork") {
 				body = `{"from":"T1","name":"captured-fork"}`
 			}
 			request := httptest.NewRequest("POST", "http://127.0.0.1:4000/api/branches", strings.NewReader(body))
@@ -205,12 +209,16 @@ func runBranchAddComposed(t *testing.T, remove string) {
 			require.NoError(t, json.Unmarshal([]byte(first), &receipt))
 			require.Equal(t, captured, receipt.ForkedFrom.Commit)
 			require.Equal(t, base, receipt.ForkedFrom.Base)
-			if remove == "s2-item-fork" {
+			if strings.HasSuffix(remove, "item-fork") {
 				require.Equal(t, "item", receipt.ForkedFrom.Kind)
 				require.Equal(t, "T1", receipt.ForkedFrom.Ref)
 				var verified bool
 				require.NoError(t, pool.QueryRow(ctx, `SELECT candidate_verified FROM mythical_items WHERE number=1`).Scan(&verified))
-				require.False(t, verified)
+				if remove == "s2-retained-item-fork" {
+					require.True(t, verified)
+				} else {
+					require.False(t, verified)
+				}
 			} else {
 				require.Equal(t, "branch", receipt.ForkedFrom.Kind)
 				require.Equal(t, "scratch/ben/try", receipt.ForkedFrom.Ref)
@@ -225,7 +233,7 @@ func runBranchAddComposed(t *testing.T, remove string) {
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, list)
 			require.Equal(t, 200, response.Code, response.Body.String())
-			if remove == "s2-item-fork" {
+			if strings.HasSuffix(remove, "item-fork") {
 				require.Contains(t, response.Body.String(), `"ref":"T1"`)
 			} else {
 				require.Contains(t, response.Body.String(), `"ref":"scratch/ben/try"`)
