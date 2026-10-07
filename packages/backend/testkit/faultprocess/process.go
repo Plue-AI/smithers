@@ -2,10 +2,13 @@ package faultprocess
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -127,4 +130,18 @@ func (c *Child) Resume(t *testing.T) {
 	require.NoError(t, c.cmd.Process.Signal(syscall.SIGCONT))
 	_, err := io.WriteString(c.stdin, "continue\n")
 	require.NoError(t, err)
+}
+
+// Identity describes the unprivileged test executable, never approved bundle
+// provenance. Cases retain it beside their observations, not as a check receipt.
+func Identity(t *testing.T) map[string]any {
+	t.Helper()
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	raw, err := os.ReadFile(executable)
+	require.NoError(t, err)
+	digest := sha256.Sum256(raw)
+	commit, err := exec.Command("git", "rev-parse", "HEAD").Output()
+	require.NoError(t, err)
+	return map[string]any{"commit": strings.TrimSpace(string(commit)), "test_executable": executable, "test_executable_sha256": hex.EncodeToString(digest[:]), "uid": os.Getuid(), "gid": os.Getgid(), "goos": runtime.GOOS, "goarch": runtime.GOARCH, "approved_bundle": false}
 }
