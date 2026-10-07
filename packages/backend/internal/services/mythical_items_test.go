@@ -962,6 +962,13 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 	require.Equal(t, oldTip, retainedConflict.Conflict.Base)
 	require.Equal(t, conflicting, retainedConflict.Conflict.PreRebaseHead)
 	require.Equal(t, retainedConflict.Conflict.Head, o.hostRef(repohost.MythicalReservedRefNS+"keep/"+retainedConflict.Conflict.Head))
+	reservation := mythicalChecksOf(twelve).ConflictReservation
+	require.NotNil(t, reservation)
+	require.Equal(t, 1, reservation.Limit)
+	require.Equal(t, 1, reservation.Reserved)
+	require.Equal(t, retainedConflict.Conflict.Head, reservation.Change)
+	require.Equal(t, stack.LandedMain, reservation.Onto)
+	require.Equal(t, twelve.RequestRunID, reservation.Run)
 
 	// A stale verify projection (an older generation) changes nothing.
 	o.project(requests[11], jobs.StateCompleted, "stale", `{"status":"failed","failed":["fast"]}`)

@@ -2821,6 +2821,10 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 	case errors.Is(err, errMythicalRewrite):
 		return mythicalRetry(item, "the stack moved while this attempt amended or inserted changes; re-planning on the new tip", nil, st.now), false, nil
 	case errors.As(err, &conflict):
+		reservation, reserveErr := st.reserveConflict(ctx, item, conflict.Head, onto)
+		if reserveErr != nil {
+			return mythicalInfraOutage(item, "launch", "the conflict budget could not be reserved: "+reserveErr.Error(), st.now), false, nil
+		}
 		if err := s.pin(ctx, r, conflict.Head); err != nil {
 			return mythicalInfraOutage(item, "launch", "the conflict could not be retained: "+err.Error(), st.now), false, nil
 		}
@@ -2828,6 +2832,7 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 			"head": conflict.Head, "tree": conflict.Tree, "base": item.CandidateBase, "pre_rebase_head": item.CandidateHead}})
 		next.Integration, next.Reason = integration, "rebase_conflict_pending"
 		checks := mythicalChecksOf(next)
+		checks.ConflictReservation = reservation
 		if checks.Rebase == nil {
 			checks.Rebase = &mythicalRebase{Onto: onto, Name: st.ontoName(onto), Since: st.now}
 		}
@@ -4985,6 +4990,7 @@ func appliedByMaintainer(applied gitHubLabelApplication, label string) bool {
 // made its issue a TODO and asked for automerge, and the review of its pull
 // request's head.
 type mythicalChecks struct {
+	ConflictReservation   *todoConflictReservation           `json:"conflictReservation,omitempty"`
 	MissingTool           *flowdispatch.CertifiedMissingTool `json:"missing_tool,omitempty"`
 	PlanReceipt           *todoRequestReceipt                `json:"planReceipt,omitempty"`
 	RouteReceipt          *todoRequestReceipt                `json:"routeReceipt,omitempty"`

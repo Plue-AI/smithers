@@ -3,10 +3,80 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
+
+// A reservation is durable intent, not evidence that a model executed. The
+// eventual guest continuation must use this identity for replay admission.
+type todoConflictReservation struct {
+	Change   string `json:"change"`
+	Onto     string `json:"onto"`
+	Limit    int    `json:"limit"`
+	Reserved int    `json:"reserved"`
+	Run      string `json:"run"`
+}
+
+func conflictAttemptLimit(raw []byte) (int, error) {
+	var config map[string]json.RawMessage
+	if json.Unmarshal(raw, &config) != nil || config == nil {
+		return 0, fmt.Errorf("invalid conflict configuration")
+	}
+	value, found := config["conflictAttempts"]
+	if !found {
+		return 1, nil
+	}
+	var limit int
+	if string(value) == "null" || json.Unmarshal(value, &limit) != nil || limit < 0 || limit > 8 {
+		return 0, fmt.Errorf("conflictAttempts must be an integer from 0 through 8")
+	}
+	return limit, nil
+}
+
+func (st *mythicalItemStep) reserveConflict(ctx context.Context, item db.MythicalItem, change, onto string) (*todoConflictReservation, error) {
+	if prior := mythicalChecksOf(item).ConflictReservation; prior != nil && prior.Change == change && prior.Onto == onto && prior.Run == item.RequestRunID {
+		return prior, nil
+	}
+	stored := []byte(`{}`)
+	row, err := st.s.queries().GetInstallSetting(ctx, InstallCodingProjectKey)
+	if err == nil {
+		stored = row.Value
+	} else if err != pgx.ErrNoRows {
+		return nil, err
+	}
+	// Read configuration as data at the attempt's source pin. Never execute a
+	// repository loader or reread the member's mutable working copy.
+	source := mythicalChecksOf(item).FlowSource
+	if source == "" {
+		source = st.r.row.LandedMain
+	}
+	var overlay []byte
+	if _, err := st.r.g.git(ctx, "cat-file", "-e", source+":"+mythicalWikiProject); err == nil {
+		text, err := st.r.g.git(ctx, "show", source+":"+mythicalWikiProject)
+		if err != nil {
+			return nil, err
+		}
+		overlay = []byte(text)
+	} else if !st.r.g.has(ctx, source) {
+		return nil, err
+	}
+	merged, err := MergeCodingProject(stored, overlay)
+	if err != nil {
+		return nil, err
+	}
+	limit, err := conflictAttemptLimit(merged)
+	if err != nil {
+		return nil, err
+	}
+	reserved := 0
+	if limit > 0 {
+		reserved = 1
+	}
+	return &todoConflictReservation{Change: change, Onto: onto, Run: item.RequestRunID, Limit: limit, Reserved: reserved}, nil
+}
 
 // ConflictValidation binds native unresolved-path inspection to the retained
 // change, target and attempt. A provider must inspect jj's conflict state in
