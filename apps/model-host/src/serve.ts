@@ -9,6 +9,7 @@ import { MODEL_TEST_BODY_MAX_BYTES, ModelTestRequestSchema } from "@smthrs/rpc/C
 import { createServer } from "node:http"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { parseArgs } from "node:util"
+import { docs } from "smithers:docs"
 import { normalizeTranscript } from "./transcript.ts"
 
 const parsed = parseArgs({
@@ -70,7 +71,8 @@ if (!Number.isSafeInteger(requestedMaxTokens) || requestedMaxTokens <= 0 || requ
 const handle = createModelTurnHandler({
   authorization,
   callbackBaseUrl,
-  resolve: environmentModelResolver({ binding, preflightBinding, env: process.env, maxTokens: requestedMaxTokens })
+  resolve: environmentModelResolver({ binding, preflightBinding, env: process.env, maxTokens: requestedMaxTokens }),
+  docs
 })
 const modelProbe = createModelProbe({ env: process.env, egress: true })
 const authorized = bearerAuthorization(authorization)

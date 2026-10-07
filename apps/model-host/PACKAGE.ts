@@ -6,9 +6,16 @@ import { Package as harnessPackage } from "../../packages/smithers/agent/harness
 
 const cwd = "apps/model-host"
 const sources = Smithers.glob("src/**/*.ts")
+/** The app's docs pages and their loader, which build.mjs bundles as `smithers:docs`. */
+const docsSources = [
+  Smithers.glob("//apps/app/src/docs/pages/*.md"),
+  Smithers.file("//apps/app/src/docs/Docs.ts"),
+  Smithers.file("//apps/app/src/docs/toc.ts"),
+  Smithers.file("//apps/app/src/mainview/cards/MarkdownLinks.ts")
+]
 
 /** Source identity for backend rehearsals that launch the production host. */
-const backendInputs = Smithers.Filegroup({ srcs: [sources], cwd })
+const backendInputs = Smithers.Filegroup({ srcs: [sources, Smithers.file("build.mjs"), ...docsSources], cwd })
 
 const check = Smithers.Typecheck({
   srcs: [sources],
@@ -21,7 +28,7 @@ const check = Smithers.Typecheck({
 
 const bundle = Smithers.NodeTest({
   runner: Smithers.entrypoint(Smithers.file("build.mjs")),
-  srcs: [sources, Smithers.file("build.mjs"), Smithers.file("package.json")],
+  srcs: [sources, Smithers.file("build.mjs"), Smithers.file("package.json"), ...docsSources],
   deps: [modelHostPackage.lib, harnessPackage.lib],
   cwd
 })
@@ -31,7 +38,7 @@ const bundle = Smithers.NodeTest({
  * disconnect cancellation and shutdown. */
 const test = Smithers.NodeTest({
   runner: Smithers.testRunner([Smithers.file("test/serve.test.mjs"), Smithers.file("test/transcript.test.mjs")]),
-  srcs: [sources, Smithers.file("build.mjs"), Smithers.file("package.json"),
+  srcs: [sources, Smithers.file("build.mjs"), Smithers.file("package.json"), ...docsSources,
     Smithers.file("../../packages/smithers/agent/harness/test/fixtures/external/codex-0.160/rollout.jsonl"),
     Smithers.file("../../packages/smithers/agent/harness/test/fixtures/external/claude-code-2.1/session.jsonl")],
   deps: [modelHostPackage.lib, harnessPackage.lib],

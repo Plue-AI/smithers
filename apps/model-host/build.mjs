@@ -1,12 +1,33 @@
 import { createHash } from "node:crypto"
-import { chmod, mkdir, writeFile } from "node:fs/promises"
+import { chmod, mkdir, readdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { build } from "esbuild"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 const output = resolve(process.argv[2] ?? resolve(root, "dist/model-host/smithers.mjs"))
+// `smithers:docs` is the app's in-app docs (M-35): the same page files, parsed
+// by the same loader, as the app bundles, so the app agent answers from them.
+const appDocs = resolve(root, "apps/app/src/docs")
+const docs = {
+  name: "smithers-docs",
+  setup(plugin) {
+    plugin.onResolve({ filter: /^smithers:docs$/ }, () => ({ path: "smithers:docs", namespace: "smithers-docs" }))
+    plugin.onLoad({ filter: /.*/, namespace: "smithers-docs" }, async () => {
+      const names = (await readdir(resolve(appDocs, "pages"))).filter((name) => name.endsWith(".md")).sort()
+      const files = Object.fromEntries(await Promise.all(names.map(async (name) =>
+        [`./pages/${name}`, await readFile(resolve(appDocs, "pages", name), "utf8")])))
+      return {
+        contents: `import { loadDocs } from "./Docs.ts"\nexport const docs = loadDocs(${JSON.stringify(files)}).pages\n`,
+        resolveDir: appDocs,
+        watchFiles: names.map((name) => resolve(appDocs, "pages", name)),
+        loader: "ts"
+      }
+    })
+  }
+}
 const result = await build({
+  plugins: [docs],
   alias: {
     "@smthrs/harness": resolve(root, "packages/smithers/agent/harness/src"),
     "@smthrs/model-host": resolve(root, "packages/smithers/agent/model-host/src"),
