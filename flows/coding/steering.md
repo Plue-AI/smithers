@@ -66,6 +66,29 @@ Messages arriving later remain pending for a newer boundary. Empty receipts are
 durable too. Model turns cannot consume the coordinator lineage; they still
 receive ordinary settings at their existing turn boundaries.
 
+## TODO runs
+
+A Message to a `todo` run keeps the root lineage. Every native handler under
+that root drains it through the root's harness source (ModuleAuthority), so the
+coding agent receives it at its next model-turn boundary. `ReceiveFeedback`
+drains the same lineage at the composition's step boundaries. Inside implement,
+`coding/ImplementAtom` also calls it after the atom's native entry and before
+`coding/edit-atom`:
+
+```ts
+ReceiveFeedback.call({ boundary: "implement", revision: ordinal })
+```
+
+A nonempty receipt reaches the edit as `feedback`, rendered by
+`renderFeedback`: one `[request message {id, provenance}]` header per message,
+then its body. A payload that is not a Message stays quoted JSON. A steer sent
+while one atom's model turn runs therefore reaches the next atom's first model
+request, and the harness covers turns inside one atom. The `implement` boundary
+reads nothing for a `coding/request` coordinator, whose messages wait for
+correction to settle, and nothing for an unowned or standalone implementation.
+A TODO run never closes its lineage through this recipe; a finished run refuses
+with `notification_closed`.
+
 After the action result is recorded, `appendFeedback(previous, receipt)` returns
 an Effect containing the combined planning feedback or a `CodingError`. It
 retains each notification's ID, actor and source provenance. The receipt matches

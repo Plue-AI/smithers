@@ -182,6 +182,14 @@ export const ReceiveFeedback = Action.make("coding/receive-request-feedback", {
 export const receiveFeedback = (input: typeof ReceiveFeedback.payloadSchema.Type) =>
   Effect.gen(function*() {
     const owner = yield* Effect.serviceOption(ModuleOwner)
+    // Inside implement only a TODO run takes messages (spec §10.7.3). A request
+    // coordinator's messages wait for correction to settle, and an unowned or
+    // standalone implementation has no lineage: both read nothing, so the
+    // queue is never touched without a proved TODO owner.
+    if (input.boundary === "implement" && (Option.isNone(owner) || owner.value.flowId !== todoFlowId)) {
+      const instance = yield* FlowRuntime.FlowInstance
+      return { boundary: feedbackBoundary(instance.executionId, input), messages: [] }
+    }
     if (Option.isNone(owner) || (owner.value.flowId !== flowId && owner.value.flowId !== todoFlowId)) {
       return yield* Effect.fail(
         new CodingError({
@@ -205,15 +213,24 @@ export const receiveFeedback = (input: typeof ReceiveFeedback.payloadSchema.Type
   })
 export const feedbackLayer = ReceiveFeedback.toLayer(receiveFeedback)
 
+/** Each received message as the step reads it, with its ID and attribution.
+ * A payload that is not a Message stays quoted JSON data, never dropped: the
+ * root lineage of a TODO run also carries what its harness would show.
+ */
+export const renderFeedback = (receipt: FeedbackReceipt): string =>
+  receipt.messages.map((message) => {
+    const payload = SteerPayload.decode(message)
+    const body = payload?.kind === "Message" ? payload.body : JSON.stringify(message.payload)
+    return `[request message ${JSON.stringify({ id: message.id, ...message.provenance })}]\n${body}`
+  }).join("\n\n")
+
 /** Apply only after ReceiveFeedback's native action result is recorded. A
  * refusal leaves the exact notifications, attribution and drain receipt in
  * the existing journals; it never truncates accepted instructions silently.
  */
 export const appendFeedback = (feedback: string, receipt: FeedbackReceipt): Effect.Effect<string, CodingError> => {
-  const rendered: Array<string> = []
   for (const message of receipt.messages) {
-    const payload = SteerPayload.decode(message)
-    if (payload?.kind !== "Message") {
+    if (SteerPayload.decode(message)?.kind !== "Message") {
       return Effect.fail(
         new CodingError({
           code: "invalid_plan",
@@ -221,9 +238,8 @@ export const appendFeedback = (feedback: string, receipt: FeedbackReceipt): Effe
         })
       )
     }
-    rendered.push(`[request message ${JSON.stringify({ id: message.id, ...message.provenance })}]\n${payload.body}`)
   }
-  const combined = [feedback, ...rendered].filter((value) => value.length > 0).join("\n\n")
+  const combined = [feedback, renderFeedback(receipt)].filter((value) => value.length > 0).join("\n\n")
   return Schema.decodeUnknownEffect(PlanningInput.fields.feedback)(combined).pipe(
     Effect.mapError(() =>
       new CodingError({

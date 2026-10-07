@@ -5,6 +5,7 @@ import { Effect, Layer, Schema } from "effect"
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import * as MemorySource from "../../packages/smithers/agent/memory/src/Source.ts"
+import * as NotificationQueue from "../../packages/smithers/notifications/src/NotificationQueue.ts"
 import { ApplyNative, EditAtom, Entry, Observe, Prepare } from "../coding/atoms.ts"
 import { ownerRepair, repairContext } from "../coding/correction.ts"
 import ImplementAtoms, { atomFlows } from "../coding/implementation/flow.ts"
@@ -19,6 +20,7 @@ import {
   withoutMemory
 } from "../coding/project-memory.ts"
 import { type Check, type Plan, ProjectMemory, type Revision } from "../coding/schema.ts"
+import { feedbackLayer } from "../coding/steering.ts"
 import { recalled } from "../coding/workflow.ts"
 
 /*
@@ -173,7 +175,12 @@ test("the implementation flow hands the plan's block to every edit step", async 
     Observe.toLayer(() => Effect.succeed(child)),
     EditAtom.toLayer((payload) =>
       Effect.sync(() => (edits.push(payload), { summary: "done", reads: [], writes: ["a.ts"] }))
-    )
+    ),
+    // No TODO owner: the implement drain reads nothing, so a queue that
+    // refuses every call proves the edit step never touched it.
+    feedbackLayer.pipe(Layer.provide(Layer.succeed(NotificationQueue.NotificationQueue, NotificationQueue.makeNoop({
+      drain: () => Effect.die("an unowned implementation must not drain the queue")
+    }))))
   )
   const change = {
     id: "fix",
@@ -199,6 +206,7 @@ test("the implementation flow hands the plan's block to every edit step", async 
   const implemented = await run({ change, parent, memoryRevision: "m", memory }, "with-memory")
   assert.equal(implemented.head.changeId, child.changeId)
   assert.deepEqual((edits[0] as { memory?: unknown }).memory, memory)
+  assert.equal("feedback" in (edits[0] as object), false)
   // A plan made before the block reaches the edit step without one.
   await run({ change, parent, memoryRevision: "m" }, "without-memory")
   assert.equal("memory" in (edits[1] as object), false)

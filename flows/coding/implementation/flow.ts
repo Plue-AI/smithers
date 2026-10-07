@@ -1,6 +1,7 @@
 /** One planned Change becomes native JJ atoms, one agent edit at a time. */
 import { Flow, Interpreter } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
+import type * as Planned from "@smthrs/plan/Planned"
 import { Layer, Schema } from "effect"
 // The flow below is this module's own default export. Discovery reads the
 // literal `export default Flow.make(` without importing the file, so the flow
@@ -8,6 +9,7 @@ import { Layer, Schema } from "effect"
 // back through this self-import, which resolves after this module evaluates.
 import { ApplyNative, atomError as Error, EditAtom, Entry, Observe, Prepare } from "../atoms.ts"
 import { AtomicPlan, Change, CodingError, Implementation, ProjectMemory, Revision } from "../schema.ts"
+import { ReceiveFeedback, renderFeedback } from "../steering.ts"
 import ImplementAtoms from "./flow.ts"
 
 const Atom = Flow.make("coding/ImplementAtom", {
@@ -29,8 +31,30 @@ const Atom = Flow.make("coding/ImplementAtom", {
     Entry.call({ change, atom, parent, ordinal }).pipe(
       Node.bindPlanned((operation) => ApplyNative.call({ operation })),
       Node.bindPlanned((result) => Observe.call({ result, parent, expectedChangeId: atom.changeId })),
-      Node.bindPlanned((revision) =>
-        EditAtom.call({ atom, parent, revision, memoryRevision, ...(memory === undefined ? {} : { memory }) }).pipe(
+      Node.bindPlanned((revision) => {
+        const edit = (feedback?: Planned.Planned<string>) =>
+          EditAtom.call({
+            atom,
+            parent,
+            revision,
+            memoryRevision,
+            ...(memory === undefined ? {} : { memory }),
+            ...(feedback === undefined ? {} : { feedback })
+          })
+        // A TODO's messages that arrived since its previous model turn reach
+        // this atom's first model request; its harness drains the rest between
+        // turns. Explicit sequencing keeps the drain after the native entry.
+        return Node.succeed(revision).pipe(
+          Node.andThen(
+            ReceiveFeedback.call({ boundary: "implement", revision: ordinal }).pipe(
+              Node.branch({
+                if: (receipt) => receipt.messages.length > 0,
+                then: (receipt) => Node.succeed(receipt).pipe(Node.map(renderFeedback), Node.bindPlanned(edit)),
+                else: () => edit()
+              })
+            )
+          )
+        ).pipe(
           Node.bindPlanned((report) =>
             Node.all({
               report: Node.succeed(report),
@@ -54,7 +78,7 @@ const Atom = Flow.make("coding/ImplementAtom", {
             }).pipe(Node.map(({ report, final }) => ({ revision: final, reads: report.reads, writes: report.writes })))
           )
         )
-      )
+      })
     )
 })
 

@@ -24,6 +24,8 @@ import * as NotificationEvent from "../../packages/smithers/notifications/src/No
 import * as NotificationQueue from "../../packages/smithers/notifications/src/NotificationQueue.ts"
 import * as LocalControl from "../../packages/smithers/src/internal/LocalControl.ts"
 import { ModuleOwner } from "../../packages/smithers/src/internal/ModuleOwner.ts"
+import { ApplyNative, EditAtom, Entry, Observe, Prepare } from "../coding/atoms.ts"
+import ImplementAtoms, { atomFlows } from "../coding/implementation/flow.ts"
 import {
   appendFeedback,
   feedbackBoundary,
@@ -798,4 +800,113 @@ test("TODO feedback actions consume messages admitted through the control door",
     assert.match(JSON.stringify(receipt.messages[0]), new RegExp(`Ben: ${boundary}`))
     assert.equal((await parent.runPromise(queue.pending(owner.runId))).length, 0)
   }
+})
+
+
+const native = (letter: string, parent?: string) => ({
+  kind: "resolved" as const,
+  changeId: letter.repeat(32),
+  commitId: (parent === undefined ? "a" : "b").repeat(40),
+  treeId: "c".repeat(40),
+  operationId: "d".repeat(128),
+  parentCommitIds: parent === undefined ? [] : [parent]
+})
+
+test("a TODO steer sent during one atom's model turn reaches the next atom's first edit request", {
+  timeout: 60_000
+}, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "todo-implement-steering-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const journal = await journalLayer(join(root, "control.db"))
+  let routed: NotificationQueue.Service | undefined
+  const parent = ManagedRuntime.make(LocalControl.layer(
+    Registry.layerNoop(), { runtime: controlLayer, journal: journal.pipe(Layer.orDie) },
+    Layer.succeed(ControlExecutor.ControlExecutor, ControlExecutor.makeNoop()),
+    (queue, control, journal) => (routed = routeMessages(queue, control, journal))
+  ).pipe(Layer.provideMerge(controlLayer)))
+  t.after(() => parent.dispose())
+  const steer = (runId: string, id: string, body: string) =>
+    parent.runPromise(Effect.gen(function*() {
+      const control = yield* ControlRuntime.ControlRuntime
+      const door = yield* Control.Control
+      const input = {
+        runId, idempotencyKey: id,
+        message: { runId, messageId: id, createdAt: 0, principal: yield* control.stampPrincipal(), body,
+          attribution: { by: "member:2", via: "web" } }
+      }
+      assert.equal((yield* door.steer(input))._tag, "Accepted")
+      // A retried request admits nothing new.
+      yield* door.steer(input)
+    }))
+  const base = native("k"), child = native("m", base.commitId)
+  const operation = {
+    operation: "snapshot" as const,
+    requestId: "11111111-1111-4111-8111-111111111111",
+    expectedOperationId: base.operationId,
+    target: base
+  }
+  const change = {
+    id: "retries",
+    title: "Retries",
+    intent: "Add retries",
+    implementation: "coding/ImplementAtoms",
+    implementationDigest: "i".repeat(64),
+    atoms: [0, 1, 2].map((n) => ({ changeId: null, message: `✨ feat: step ${n}`, intent: `step ${n}`, reads: [],
+      writes: ["src/deliver.ts"] })),
+    checks: []
+  }
+  const implement = async (flowId: string, label: string) => {
+    const owner = await parent.runPromise(Effect.gen(function*() {
+      return yield* launch(yield* ControlRuntime.ControlRuntime, flowId)
+    }))
+    const edits: Array<{ readonly atom: { readonly intent: string }; readonly feedback?: string }> = []
+    const runtime = ManagedRuntime.make(Layer.mergeAll(
+      atomFlows,
+      feedbackLayer,
+      Entry.toLayer(() => Effect.succeed(operation)),
+      Prepare.toLayer(() => Effect.succeed(operation)),
+      ApplyNative.toLayer(() =>
+        Effect.succeed({ status: "unchanged" as const, operationId: base.operationId, revision: child })
+      ),
+      Observe.toLayer(() => Effect.succeed(child)),
+      // Each edit stands for a model turn in flight: the person steers while
+      // it runs, so only a later atom can receive the message before dispatch.
+      EditAtom.toLayer((payload) =>
+        Effect.promise(async () => {
+          edits.push(payload)
+          if (edits.length < 3) await steer(owner.runId, `${label}-${edits.length}`, `Ben: use withRetry ${edits.length}`)
+          return { summary: "done", reads: [], writes: ["src/deliver.ts"] }
+        })
+      )
+    ).pipe(
+      Layer.provideMerge(Action.layerImplementations),
+      Layer.provideMerge(FlowEngine.layerMemory),
+      Layer.provide(Layer.succeed(NotificationQueue.NotificationQueue, routed!)),
+      Layer.provide(Layer.succeed(ModuleOwner, { rootId: owner.runId, flowId })),
+      Layer.provideMerge(NodeCrypto.layer)
+    ))
+    t.after(() => runtime.dispose())
+    const implemented = await runtime.runPromise(
+      ImplementAtoms.execute({ change, parent: base, memoryRevision: "m" }, { executionId: `${label}-implement` })
+    )
+    assert.equal(implemented.atoms.length, 3)
+    return { edits, pending: await parent.runPromise(routed!.pending(owner.runId)) }
+  }
+
+  const todo = await implement("todo", "todo")
+  assert.equal("feedback" in todo.edits[0]!, false)
+  for (const n of [1, 2]) {
+    const feedback = todo.edits[n]!.feedback!
+    assert.match(feedback, new RegExp(`^\\[request message \\{"id":"todo-${n}"`))
+    assert.match(feedback, /"attribution":\{"by":"member:2","via":"web"\}/)
+    assert.ok(feedback.endsWith(`\nBen: use withRetry ${n}`))
+    // One message per atom: a retried steer is never delivered twice.
+    assert.equal(feedback.split("[request message").length, 2)
+  }
+  assert.deepEqual(todo.pending, [])
+
+  // A request coordinator's message waits for correction to settle.
+  const request = await implement("coding/request", "request")
+  assert.ok(request.edits.every((edit) => !("feedback" in edit)))
+  assert.deepEqual(request.pending.map((n) => n.id), ["request-1", "request-2"])
 })
