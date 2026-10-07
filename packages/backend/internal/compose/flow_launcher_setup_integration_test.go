@@ -9,11 +9,14 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -38,9 +41,8 @@ func (b *isolationOutput) Write(p []byte) (int, error) {
 }
 func (b *isolationOutput) snapshot() string { b.Lock(); defer b.Unlock(); return b.Buffer.String() }
 
-// Qualifies the real launcher stdout, not the backend pipe or the service
-// handoff. No owner is synthesized: served OAuth claim and post-claim silence
-// remain separate reference-host requirements.
+// Qualifies real launcher stdout and served OAuth claim, without tapping the
+// backend pipe or synthesizing owner rows.
 func TestCSEC02BundledLauncherSetupRotation(t *testing.T) {
 	bundle := os.Getenv("SMITHERS_CHECK_BUNDLE")
 	if bundle == "" {
@@ -71,14 +73,15 @@ func TestCSEC02BundledLauncherSetupRotation(t *testing.T) {
 	address := listener.Addr().String()
 	require.NoError(t, listener.Close())
 	state := filepath.Join(home, "Library", "Application Support", "Smithers")
+	proxy, caFile := isolationGitHubProxy(t, root)
 	tokens := []string{}
 	client := &http.Client{Timeout: time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	for attempt := 0; attempt < 2; attempt++ {
+	for attempt := 0; attempt < 3; attempt++ {
 		func() {
 			ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 			defer cancel()
 			cmd := exec.CommandContext(ctx, approved.Path("bin/smithers-server"), "--bind", address)
-			cmd.Env = []string{"HOME=" + home, "PATH=" + hostileBin + ":/opt/homebrew/bin:/usr/bin:/bin", "SMITHERS_BACKEND_MODE=plue", "SMITHERS_WORKSPACE_ISOLATION=process", "SMITHERS_MICROSANDBOX_BIN=/bin/false"}
+			cmd.Env = []string{"HOME=" + home, "PATH=" + hostileBin + ":/opt/homebrew/bin:/usr/bin:/bin", "SMITHERS_BACKEND_MODE=plue", "SMITHERS_WORKSPACE_ISOLATION=process", "SMITHERS_MICROSANDBOX_BIN=/bin/false", "HTTPS_PROXY=" + proxy, "NO_PROXY=localhost,127.0.0.1", "SSL_CERT_FILE=" + caFile}
 			var stdout, stderr isolationOutput
 			cmd.Stdout = &stdout
 			cmd.Stderr = &stderr
@@ -110,7 +113,18 @@ func TestCSEC02BundledLauncherSetupRotation(t *testing.T) {
 				defer response.Body.Close()
 				return response.StatusCode == 200
 			}, 60*time.Second, 100*time.Millisecond, "real bundled launcher must reach readiness")
+			isolationChildInventory(t, ctx, cmd.Process.Pid, approved.Root())
 			output := stdout.snapshot()
+			if attempt == 2 {
+				require.NotContains(t, output, `"setup_urls"`, "claimed install emits no setup token")
+				stop()
+				require.NotContains(t, stdout.snapshot(), `"setup_urls"`)
+				for _, secret := range tokens {
+					require.NotContains(t, stdout.snapshot(), secret)
+					require.NotContains(t, stderr.snapshot(), secret)
+				}
+				return
+			}
 			var setupLine, token string
 			count := 0
 			for _, line := range strings.SplitAfter(output, "\n") {
@@ -172,6 +186,15 @@ func TestCSEC02BundledLauncherSetupRotation(t *testing.T) {
 				require.NoError(t, err)
 				require.NoError(t, response.Body.Close())
 				require.Equal(t, http.StatusUnauthorized, response.StatusCode, "old token refused by served exchange")
+				// Step 8 is an isolated credential qualification, not a full setup
+				// journey. Preserve the explicit-port launcher fixture and seed only
+				// Address completion; the owner is still claimed through served OAuth.
+				_, err = database.Exec(ctx, `UPDATE install_settings SET value='{"status":"done"}'::jsonb WHERE key='setup.step.address'`)
+				require.NoError(t, err)
+				isolationClaimOwner(t, client, address, token, "http://localhost:4000", "isolation-owner", false)
+				var owners int
+				require.NoError(t, database.QueryRow(ctx, `SELECT count(*) FROM self_host_owners`).Scan(&owners))
+				require.Equal(t, 1, owners, "served OAuth persists the owner before restart")
 			}
 			stop()
 			_, markerErr := os.Stat(marker)
@@ -200,10 +223,181 @@ func TestCSEC02BundledLauncherSetupRotation(t *testing.T) {
 			}))
 		}()
 	}
+	require.NoError(t, filepath.WalkDir(state, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".log") {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for _, token := range tokens {
+			require.False(t, bytes.Contains(data, []byte(token)), "setup token in post-claim logs")
+		}
+		return nil
+	}))
 	if evidence := os.Getenv("SMITHERS_FLOW_ISOLATION_EVIDENCE_DIR"); evidence != "" {
 		require.NoError(t, os.MkdirAll(evidence, 0700))
-		receipt, err := json.Marshal(map[string]any{"revision": approved.Revision(), "manifestSHA256": approved.ManifestSHA256(), "launcherEmissions": 2, "digestMatched": true, "rotated": true, "oldTokenRefused": true, "tokensAbsentOutsidePrintedLine": true, "pending": []string{"served OAuth claim", "post-claim silence", "child PATH and dylib resolution", "TODO and canary lifecycle"}})
+		receipt, err := json.Marshal(map[string]any{"revision": approved.Revision(), "manifestSHA256": approved.ManifestSHA256(), "launcherEmissions": 2, "digestMatched": true, "rotated": true, "oldTokenRefused": true, "tokensAbsentOutsidePrintedLine": true, "servedOAuthClaim": true, "postClaimSilent": true, "childPathAndLibrariesQualified": true, "pending": []string{"TODO and canary lifecycle"}})
 		require.NoError(t, err)
 		require.NoError(t, os.WriteFile(filepath.Join(evidence, "launcher-setup-rotation.json"), append(receipt, '\n'), 0600))
 	}
+}
+
+// Every mutation goes through the install router with its setup cookie and CSRF
+// token. Readiness is not a setup completion receipt.
+func isolationClaimOwner(t *testing.T, base *http.Client, address, token, origin, owner string, configureAddress bool) {
+	t.Helper()
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+	client := *base
+	client.Jar = jar
+	originURL, err := url.Parse(origin)
+	require.NoError(t, err)
+	request := func(method, path, body string, status int) ([]byte, string) {
+		t.Helper()
+		req, err := http.NewRequest(method, "http://"+address+path, strings.NewReader(body))
+		require.NoError(t, err)
+		req.Host = originURL.Host
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Idempotency-Key", "csec02-"+path)
+		for _, cookie := range jar.Cookies(req.URL) {
+			if cookie.Name == "__csrf" {
+				req.Header.Set("X-CSRF-Token", cookie.Value)
+			}
+		}
+		response, err := client.Do(req)
+		require.NoError(t, err)
+		defer response.Body.Close()
+		data, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+		require.NoError(t, err)
+		// Never include a response body in failure output: it may contain a token.
+		require.Equal(t, status, response.StatusCode, "served %s %s", method, strings.Split(path, "?")[0])
+		return data, response.Header.Get("Location")
+	}
+	request("GET", "/setup?token="+url.QueryEscape(token), "", 303)
+	request("GET", "/api/install", "", 200)
+	if configureAddress {
+		body, err := json.Marshal(map[string]any{"bind": "127.0.0.1:4000", "origins": []string{origin, "http://lan-a:4000", "https://box.example"}})
+		require.NoError(t, err)
+		request("POST", "/api/install/setup/address", string(body), 202)
+		require.Eventually(t, func() bool {
+			data, _ := request("GET", "/api/install", "", 200)
+			var status struct{ Steps []struct{ ID, State string } }
+			require.NoError(t, json.Unmarshal(data, &status))
+			for _, step := range status.Steps {
+				if step.ID == "address" {
+					return step.State == "done"
+				}
+			}
+			return false
+		}, 10*time.Second, 100*time.Millisecond)
+	}
+	appBody, err := json.Marshal(map[string]string{"owner": owner})
+	require.NoError(t, err)
+	data, _ := request("POST", "/api/install/setup/app", string(appBody), 200)
+	var manifest struct{ State string }
+	require.NoError(t, json.Unmarshal(data, &manifest))
+	require.NotEmpty(t, manifest.State)
+	request("GET", "/setup/github/callback?code=manifest-code&state="+url.QueryEscape(manifest.State), "", 303)
+	_, location := request("GET", "/api/auth/github", "", 302)
+	redirect, err := url.Parse(location)
+	require.NoError(t, err)
+	state := redirect.Query().Get("state")
+	require.NotEmpty(t, state)
+	request("GET", "/api/auth/github/callback?code=owner-code&state="+url.QueryEscape(state), "", 302)
+}
+
+// Linux verifies the same served claim driver against the composed install;
+// the launcher/launchd/microVM qualification remains a separate Mac check.
+func TestCSEC02ClaimDriverThroughComposedInstall(t *testing.T) {
+	t.Setenv("SMITHERS_CSEC02_CLAIM_DRIVER", "1")
+	r := newRehearsal(t, "SMITHERS_CSEC02_CLAIM_DRIVER", "C-SEC-02", "csec02-claim-")
+	var printed struct {
+		URLs []string `json:"setup_urls"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(r.stdout.String()), &printed))
+	require.NotEmpty(t, printed.URLs)
+	setup, err := url.Parse(printed.URLs[0])
+	require.NoError(t, err)
+	server, err := url.Parse(r.origin)
+	require.NoError(t, err)
+	isolationClaimOwner(t, r.client, server.Host, setup.Query().Get("token"), r.origin, "rehearsal-owner", true)
+	var owners int
+	require.NoError(t, r.pool.QueryRow(t.Context(), `SELECT count(*) FROM self_host_owners`).Scan(&owners))
+	require.Equal(t, 1, owners)
+}
+
+// Only redacted counts are retained. ps environment output is inspected in
+// memory and never written, because it may include the install's credentials.
+func isolationChildInventory(t *testing.T, ctx context.Context, rootPID int, bundle string) {
+	t.Helper()
+	output, err := exec.CommandContext(ctx, "/bin/ps", "-axo", "pid,ppid,command").Output()
+	require.NoError(t, err)
+	type child struct{ pid, parent int }
+	var rows []child
+	for _, line := range strings.Split(string(output), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		pid, e1 := strconv.Atoi(fields[0])
+		parent, e2 := strconv.Atoi(fields[1])
+		if e1 == nil && e2 == nil {
+			rows = append(rows, child{pid, parent})
+		}
+	}
+	owned := map[int]bool{rootPID: true}
+	for changed := true; changed; {
+		changed = false
+		for _, row := range rows {
+			if owned[row.parent] && !owned[row.pid] {
+				owned[row.pid] = true
+				changed = true
+			}
+		}
+	}
+	require.GreaterOrEqual(t, len(owned), 3, "launcher, backend and PostgreSQL must be observed")
+	expectedPath := "PATH=" + bundle + "/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+	checked := 0
+	for pid := range owned {
+		if pid == rootPID {
+			continue
+		} // The launcher itself inherits hostile input.
+		environment, err := exec.CommandContext(ctx, "/bin/ps", "eww", "-p", strconv.Itoa(pid), "-o", "command=").Output()
+		if err != nil {
+			continue
+		} // Short-lived children can exit between samples.
+		found := false
+		match := regexp.MustCompile(`(?:^| )PATH=(.*?)(?: [A-Za-z_][A-Za-z0-9_]*=|$)`).FindStringSubmatch(string(environment))
+		if len(match) == 2 {
+			require.Equal(t, expectedPath, "PATH="+match[1], "child PATH must be pinned")
+			found = true
+		}
+		require.True(t, found, "live child must expose its PATH")
+		mappings, err := exec.CommandContext(ctx, "/usr/sbin/lsof", "-p", strconv.Itoa(pid), "-d", "txt", "-Fn").Output()
+		if err != nil {
+			continue
+		}
+		paths := 0
+		for _, line := range strings.Split(string(mappings), "\n") {
+			if !strings.HasPrefix(line, "n/") {
+				continue
+			}
+			path := strings.TrimPrefix(line, "n")
+			approved := strings.HasPrefix(path, bundle+"/")
+			for _, prefix := range []string{"/System/", "/usr/lib/", "/usr/bin/", "/usr/sbin/", "/bin/", "/sbin/", "/Library/Apple/", "/private/preboot/Cryptexes/OS/", "/private/var/db/dyld/"} {
+				approved = approved || strings.HasPrefix(path, prefix)
+			}
+			require.True(t, approved, "child executable or dylib outside bundle/OS: %s", path)
+			paths++
+		}
+		require.Positive(t, paths, "lsof must observe executable mappings")
+		checked++
+	}
+	require.GreaterOrEqual(t, checked, 2, "backend and PostgreSQL executable inventory is required")
 }
