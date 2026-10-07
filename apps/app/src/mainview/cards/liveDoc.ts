@@ -30,7 +30,7 @@ export function documentAuthors(doc: Y.Doc, context: ActorContext = {}): AuthorR
 }
 
 /** Compose sync and own-edit undo with authenticated awareness and own-edit history. */
-export function liveBinding(doc: Y.Doc, context: ActorContext = {}, canEdit: () => boolean = () => true, awareness?: Awareness): EditorBinding & { readonly undo: Y.UndoManager; dispose(): void } {
+export function liveBinding(doc: Y.Doc, context: ActorContext = {}, canEdit: () => boolean = () => true, awareness?: Awareness, remoteCarets = false): EditorBinding & { readonly undo: Y.UndoManager; dispose(): void } {
   const text = doc.getText("content")
   const undo = new Y.UndoManager(text, { trackedOrigins: new Set() })
   const changed = StateEffect.define<readonly AuthorRange[]>()
@@ -53,7 +53,7 @@ export function liveBinding(doc: Y.Doc, context: ActorContext = {}, canEdit: () 
     return { destroy: () => { disposed = true; doc.off("afterTransaction", refresh) } }
   })
   return { get text() { return text.toString() }, undo,
-    extensions: [EditorState.transactionFilter.of(transaction => !canEdit() && transaction.docChanged && !transaction.annotation(ySyncAnnotation) ? [] : transaction), ranges, attribution, yCollab(text, awareness ?? null, { undoManager: undo }), keymap.of(yUndoManagerKeymap)],
+    extensions: [EditorState.transactionFilter.of(transaction => !canEdit() && transaction.docChanged && !transaction.annotation(ySyncAnnotation) ? [] : transaction), ranges, attribution, yCollab(text, remoteCarets ? awareness ?? null : null, { undoManager: undo }), keymap.of(yUndoManagerKeymap)],
     dispose: () => undo.destroy() }
 }
 
@@ -89,13 +89,13 @@ export interface FileDocumentBinding { readonly provider: import("../runtime/Liv
 export const LiveFileContext = createContext<{ resolve(branch: string, path: string, initial?: import("@smthrs/rpc/FileCard").FileCard): FileDocumentBinding | undefined } | null>(null)
 
 /** Own one binding per document identity, including the replacement after an epoch reset. */
-export function fileDocument(provider: import("../runtime/LiveDocProvider").LiveDocProvider, context: ActorContext = {}): FileDocumentBinding & { dispose(): void } {
+export function fileDocument(provider: import("../runtime/LiveDocProvider").LiveDocProvider, context: ActorContext = {}, remoteCarets = false): FileDocumentBinding & { dispose(): void } {
   let current: { doc: Y.Doc; awareness: Awareness; binding: ReturnType<typeof liveBinding> } | undefined
   return { provider,
     get binding() {
       if (current?.doc !== provider.doc || current?.awareness !== provider.awareness) {
         current?.binding.dispose()
-        current = { doc: provider.doc, awareness: provider.awareness, binding: liveBinding(provider.doc, context, () => provider.editable, provider.awareness) }
+        current = { doc: provider.doc, awareness: provider.awareness, binding: liveBinding(provider.doc, context, () => provider.editable, provider.awareness, remoteCarets) }
       }
       return current.binding
     },

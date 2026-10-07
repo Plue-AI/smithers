@@ -173,7 +173,7 @@ test("every View story: light/dark, desktop/mobile, axe and overflow", async ({ 
     await page.evaluate(() => document.fonts.ready)
     // Worker highlighting can replace an entering annotation. Audit its settled projection.
     const flagCount = story.name === "CodeEditorView/live_separate" ? 3
-      : /^CodeEditorView\/(live|five_editors)$/.test(story.name) ? 1 : 0
+      : /^CodeEditorView\/(live|five_editors|remote_carets_on|remote_carets_off)$/.test(story.name) ? 1 : 0
     await expect.poll(() => page.locator(".code-name-flag").evaluateAll(flags =>
       flags.map(flag => getComputedStyle(flag).opacity))).toEqual(Array(flagCount).fill("1"))
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -1191,5 +1191,26 @@ test("ContextLine empty state and chip presentation", async ({ page }) => {
     const heights = await page.locator(".context-chip").evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().height))
     expect(heights.length).toBe(3)
     expect(new Set(heights).size).toBe(1)
+  }
+})
+
+
+test("File remote carets and selections follow the person colour only with the flag on", async ({ page }) => {
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) for (const flag of ["on", "off"]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto(`/view-stories.html?story=CodeEditorView/remote_carets_${flag}&theme=${theme}`)
+    await expect(page.locator('.code-name-flag')).toHaveText('Ben+1')
+    if (flag === "on") {
+      await expect(page.locator('.cm-ySelectionInfo')).toHaveText('Ben')
+      await expect(page.locator('.cm-ySelection')).toHaveCount(1)
+      const colours = await page.locator('.cm-ySelectionCaret').evaluate(node => {
+        const flag = document.querySelector('.code-name-flag')!
+        return { caret: getComputedStyle(node).borderLeftColor, flag: getComputedStyle(flag).borderLeftColor,
+          selection: getComputedStyle(document.querySelector('.cm-ySelection')!).backgroundColor }
+      })
+      expect(colours.caret).toBe(colours.flag)
+      expect(colours.selection).not.toBe('rgba(0, 0, 0, 0)')
+    } else await expect(page.locator('.cm-ySelectionCaret, .cm-ySelection')).toHaveCount(0)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   }
 })

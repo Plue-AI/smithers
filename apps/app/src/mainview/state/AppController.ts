@@ -815,6 +815,8 @@ export interface AppServices {
 }
 
 export interface AppFeatures {
+  /** M-43: stays off until the two-Mac C-UI-14 receipt passes. */
+  readonly remoteCarets?: boolean
   readonly suggestionPills?: boolean
 }
 
@@ -843,6 +845,7 @@ export const createAppController = (
   ctx.onDispose(ctx.onAccountChange(wikiAttachments.clear))
   ctx.onDispose(wikiAttachments.dispose)
   const features: Required<AppFeatures> = {
+    remoteCarets: services.features?.remoteCarets ?? false,
     suggestionPills: services.features?.suggestionPills ?? services.bootstrap?.host === "cloud"
   }
   /*
@@ -1406,7 +1409,7 @@ export const createAppController = (
   })).read
   const installDiffReader = installHost ? createBranchDiffReader(ctx, branchFileOptions).readBranchDiff : undefined
   const diffFilesSeam = actors.pair(seamCtx, context => createDiffFilesSeam(context, branchFileOptions ? { ...branchFileOptions, topics: services.live, onDispose: ctx.onDispose } : undefined, filesSeam.branchFiles, installDiffReader))
-  const fileDocuments = services.documentOptions && services.live === services.documentOptions.channel ? new FileDocuments(services.documentOptions.channel, services.documentOptions.prerequisites, filesSeam.branchFiles, { storage: store.documentRecoveryStorage, member: () => store.collections.identitySessions.get("identity")?.login?.toLowerCase() }) : undefined
+  const fileDocuments = services.documentOptions && services.live === services.documentOptions.channel ? new FileDocuments(services.documentOptions.channel, services.documentOptions.prerequisites, filesSeam.branchFiles, { storage: store.documentRecoveryStorage, member: () => store.collections.identitySessions.get("identity")?.login?.toLowerCase() }, features.remoteCarets) : undefined
   ctx.onDispose(() => fileDocuments?.dispose())
   const { recoverFile } = actors.pair(seamCtx, context => ({
     recoverFile: (tag: "file.compare" | "file.restore-deleted" | "file.follow-rename" | "file.reapply", path: string, branch?: string) => fileDocuments?.has(path, branch) ? fileDocuments.recover(tag, path, async (file, from) => {

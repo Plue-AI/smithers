@@ -1,12 +1,17 @@
 import type { CodeEditorViewProps } from "@smthrs/rpc/FileCard"
 import { fixtures } from "@smthrs/rpc/fixtures/File"
 import { CodeEditorView } from "./CodeEditorView"
+import { ViewPlugin } from "@codemirror/view"
+import * as Y from "yjs"
+import { Awareness } from "y-protocols/awareness"
+import { actorName, actorColour } from "./ActorChip"
+import { liveBinding } from "../liveDoc"
 import { authorRanges } from "../liveAttribution"
 import type { EditorBinding } from "@smthrs/ui/adapters/code-editor"
 import type { ViewStory } from "./stories"
 const { live, saved, outside, text, binary, too_large, live_separate } = fixtures
 const unsaved = fixtures.unsaved
-export const fileStories = { live, live_separate, no_binding: live, saved, unsaved, outside, text, binary, too_large,
+export const fileStories = { remote_carets_on: live, remote_carets_off: live, live, live_separate, no_binding: live, saved, unsaved, outside, text, binary, too_large,
   missing_reapply: { ...unsaved, actions: [] },
   five_editors: { ...live, model: { ...live.model, editors: [...live.model.editors, ...live.model.editors, live.model.editors[0]!] } },
   unsaved_one: { ...unsaved, model: { ...unsaved.model, unsaved: { count: 1, text: "Recovered text" } }, expect: ["Recovered text"] },
@@ -15,6 +20,17 @@ export const fileStories = { live, live_separate, no_binding: live, saved, unsav
 function storyBinding(name: string, model: CodeEditorViewProps["model"]): EditorBinding | undefined {
   if (model.mode !== "live" || model.content.kind !== "text") return undefined
   const text = model.content.text
+  if (name.startsWith("remote_carets_")) {
+    const doc = new Y.Doc(); doc.getText("content").insert(0, text)
+    const awareness = new Awareness(doc)
+    const actor = model.editors[0]!.actor
+    const position = (index: number) => Y.createRelativePositionFromTypeIndex(doc.getText("content"), Math.min(index, text.length))
+    awareness.getStates().set(doc.clientID + 1, { cursor: { anchor: position(1), head: position(4) },
+      user: { name: actorName(actor), color: actorColour(actor), colorLight: `color-mix(in srgb, ${actorColour(actor)} 20%, transparent)` } })
+    const binding = liveBinding(doc, {}, () => true, awareness, name === "remote_carets_on")
+    return { text, extensions: [binding.extensions, authorRanges.of([{ actor, from: 0, to: Math.min(6, text.length) }]),
+      ViewPlugin.define(() => ({ destroy: () => { binding.dispose(); awareness.destroy(); doc.destroy() } }))] }
+  }
   // Fixed fixture attribution exercises the production CodeMirror extension.
   if (name === "live_separate") return { text, extensions: authorRanges.of([
     { from: 0, to: 13, actor: model.authors[0]! },

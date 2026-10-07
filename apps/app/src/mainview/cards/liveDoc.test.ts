@@ -75,19 +75,23 @@ test("served document size, binary and gone metadata all refuse a live binding",
 })
 
 
-test("authenticated awareness renders the remote caret and keeps own undo", async () => {
+test.each([false, true])("authenticated awareness gates remote carets and selections (%s) and keeps own undo", async remoteCarets => {
   const doc = new Y.Doc(); doc.clientID = 7; doc.getText("content").insert(0, "hello")
   const awareness = new Awareness(doc)
-  const binding = liveBinding(doc, {}, () => true, awareness)
+  const binding = liveBinding(doc, {}, () => true, awareness, remoteCarets)
   const host = document.createElement("div"); document.body.append(host)
   const view = new EditorView({ parent: host, state: EditorState.create({ doc: "hello", extensions: binding.extensions }) })
   const remote = new Y.Doc(); remote.clientID = 8; Y.applyUpdate(remote, Y.encodeStateAsUpdate(doc))
   const other = new Awareness(remote)
   const position = Y.createRelativePositionFromTypeIndex(remote.getText("content"), 3)
-  other.setLocalState({ cursor: { anchor: position, head: position }, user: { name: "Bob", color: "#123456" } })
+  other.setLocalState({ cursor: { anchor: Y.createRelativePositionFromTypeIndex(remote.getText("content"), 1), head: position }, user: { name: "Bob", color: "#123456" } })
   applyAwarenessUpdate(awareness, encodeAwarenessUpdate(other, [8]), "host")
-  expect(host.querySelector(".cm-ySelectionCaret")).not.toBeNull()
-  expect(host.querySelector(".cm-ySelectionInfo")?.textContent).toBe("Bob")
+  if (remoteCarets) {
+    expect(host.querySelector(".cm-ySelectionCaret")).not.toBeNull()
+    expect(host.querySelector(".cm-ySelectionInfo")?.textContent).toBe("Bob")
+    expect(host.querySelector<HTMLElement>(".cm-ySelectionCaret")?.style.borderLeftColor).toBe("#123456")
+    expect(host.querySelector(".cm-ySelection")).not.toBeNull()
+  } else expect(host.querySelector(".cm-ySelectionCaret, .cm-ySelection")).toBeNull()
   view.dispatch({ changes: { from: 5, insert: "!" } })
   binding.undo.undo(); expect(view.state.doc.toString()).toBe("hello")
   view.destroy(); host.remove(); binding.dispose(); awareness.destroy(); other.destroy(); remote.destroy(); doc.destroy()

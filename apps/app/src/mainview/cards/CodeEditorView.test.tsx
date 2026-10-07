@@ -1,3 +1,4 @@
+import "./testing/editorDom"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { afterAll, afterEach, expect, test } from "bun:test"
 import { flushSync } from "react-dom"
@@ -7,10 +8,11 @@ import { CodeEditorSurface } from "./CodeEditorSurface"
 import type { EditorBinding } from "@smthrs/ui/adapters/code-editor"
 import { EditorView } from "@codemirror/view"
 import { Compartment } from "@codemirror/state"
-import { authorRanges } from "./liveDoc"
+import { authorRanges, liveBinding } from "./liveDoc"
+import * as Y from "yjs"
+import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from "y-protocols/awareness"
 import { cardActions } from "../flows/cardActions"
 
-GlobalRegistrator.register()
 const roots: Root[] = []
 afterEach(() => { for (const root of roots.splice(0)) flushSync(() => root.unmount()); document.body.replaceChildren() })
 afterAll(async () => { for (let i = 0; i < 3; i++) await new Promise(resolve => setTimeout(resolve, 0)); await GlobalRegistrator.unregister() })
@@ -139,4 +141,33 @@ test("keyboard diagnostics exposes the literal type error and its line", () => {
   expect(host.querySelector(".cm-diagnosticText")?.textContent).toBe("Argument of type 'string' is not assignable to parameter of type 'number'.")
   expect(host.querySelectorAll(".cm-lintRange-error")).toHaveLength(1)
   expect(host.querySelector(".cm-lintRange-error")?.closest(".cm-line")?.textContent).toBe('add(1, "2")')
+})
+
+
+test.each([false, true])("mounted File gates person-coloured remote carets and selections (%s)", remoteCarets => {
+  const doc = new Y.Doc(); doc.clientID = 7; doc.getText("content").insert(0, "alpha\nbeta\n")
+  const awareness = new Awareness(doc)
+  const remote = new Y.Doc(); remote.clientID = 8; Y.applyUpdate(remote, Y.encodeStateAsUpdate(doc))
+  const other = new Awareness(remote)
+  const binding = liveBinding(doc, {}, () => true, awareness, remoteCarets)
+  const { host, update } = render(live, false, binding)
+  try {
+    other.setLocalState({ cursor: {
+      anchor: Y.createRelativePositionFromTypeIndex(remote.getText("content"), 1),
+      head: Y.createRelativePositionFromTypeIndex(remote.getText("content"), 4)
+    }, user: { name: "Alice", color: "#123456" } })
+    applyAwarenessUpdate(awareness, encodeAwarenessUpdate(other, [8]), "host")
+    expect(host.querySelector(".code-name-flag")?.textContent).toBe("Alice")
+    if (remoteCarets) {
+      expect(host.querySelector(".cm-ySelectionInfo")?.textContent).toBe("Alice")
+      expect(host.querySelector<HTMLElement>(".cm-ySelectionCaret")?.style.borderLeftColor).toBe("#123456")
+      expect(host.querySelector<HTMLElement>(".cm-ySelection")?.style.backgroundColor).toBe("#12345633")
+    } else expect(host.querySelector(".cm-ySelectionCaret, .cm-ySelection")).toBeNull()
+    update({ ...live, mode: "read_only" })
+    expect(host.querySelector(".cm-ySelectionCaret, .cm-ySelection")).toBeNull()
+  } finally {
+    // Unmount before releasing the awareness resource used by the binding.
+    update({ ...live, mode: "read_only" }, undefined)
+    binding.dispose(); awareness.destroy(); other.destroy(); remote.destroy(); doc.destroy()
+  }
 })

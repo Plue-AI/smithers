@@ -70,6 +70,7 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
         agent,
         {
           fetchImpl: runtime.http,
+          features: { remoteCarets: import.meta.env.VITE_SMITHERS_REMOTE_CARETS === "1" },
           live: liveChannel(),
           documentOptions: { channel: liveChannel(), prerequisites: { contract: true, actor: true, file: true, recovery: true, catalog: true, machine: true } },
           // Selection needs a backend that serves it; one that does not advertises no row and turns run on the pinned commands.

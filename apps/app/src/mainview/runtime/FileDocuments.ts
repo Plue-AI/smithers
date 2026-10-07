@@ -15,7 +15,7 @@ export class FileDocuments {
   private readonly releases = new Map<string, () => void>()
   constructor(private readonly channel: LiveChannel, private readonly prerequisites: DocumentPrerequisites,
     private readonly files: BranchFileOperations,
-    private readonly recovery?: { storage?: StorageApi | undefined; member: () => string | undefined }) {}
+    private readonly recovery?: { storage?: StorageApi | undefined; member: () => string | undefined }, private readonly remoteCarets = false) {}
   resolve(branch: string, path: string, initial?: FileCard) {
     if (initial && initial.content.kind !== "text") return undefined
     const member = this.recovery?.member()
@@ -26,7 +26,7 @@ export class FileDocuments {
         read: () => { const raw = this.recovery!.storage!.getItem(`${PERSISTED_KEY_PREFIX}live-doc:${key}`); return raw ? JSON.parse(raw) : undefined },
         write: value => { const storage = this.recovery!.storage!; const storageKey = `${PERSISTED_KEY_PREFIX}live-doc:${key}`; if (value) storage.setItem(storageKey, JSON.stringify(value)); else storage.removeItem(storageKey) }
       } : undefined)
-      resource = fileDocument(provider)
+      resource = fileDocument(provider, {}, this.remoteCarets)
       this.documents.set(key, resource)
       if (initial) provider.setFile(initial)
       const topic = `branch:${branch}:files`

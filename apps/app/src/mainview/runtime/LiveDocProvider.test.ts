@@ -214,7 +214,7 @@ test("caret positions use the wire JSON shape and authenticated remote names", a
   await new Promise(resolve => setTimeout(resolve, 70))
   b.event({ kind: "awareness", payload: a.sent.at(-1)! })
   const remote = b.provider.awareness.getStates().get(7)!
-  expect(remote.user).toEqual({ name: "alice", color: "#123456" })
+  expect(remote.user).toEqual({ name: "alice", color: "#123456", colorLight: "color-mix(in srgb, #123456 20%, transparent)" })
   expect(Y.createAbsolutePositionFromRelativePosition(remote.cursor.head, b.provider.doc)?.index).toBe(5)
   a.provider.dispose(); b.provider.dispose()
 })

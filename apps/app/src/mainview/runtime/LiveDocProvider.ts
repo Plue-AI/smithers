@@ -243,7 +243,7 @@ export class LiveDocProvider {
           const parsed = raw === null ? undefined : LiveDocAwareness.extend({ actor: LiveDocAwareness.shape.actor.or(ActorSchema) }).safeParse(raw)
           if (raw !== null && !parsed?.success) return
           const state = parsed?.success ? parsed.data : null
-          const projected = state?.anchor && state.head ? { ...state, cursor: { anchor: Y.createRelativePositionFromJSON(state.anchor), head: Y.createRelativePositionFromJSON(state.head) }, user: { name: "name" in state.actor ? state.actor.name : "login" in state.actor ? state.actor.login : "id" in state.actor ? state.actor.id : state.actor.kind, color: state.colour } } : state
+          const projected = state?.anchor && state.head ? { ...state, cursor: { anchor: Y.createRelativePositionFromJSON(state.anchor), head: Y.createRelativePositionFromJSON(state.head) }, user: { name: "name" in state.actor ? state.actor.name : "login" in state.actor ? state.actor.login : "id" in state.actor ? state.actor.id : state.actor.kind, color: state.colour, colorLight: `color-mix(in srgb, ${state.colour} 20%, transparent)` } } : state
           encoding.writeVarUint(encoder, client); encoding.writeVarUint(encoder, clock); encoding.writeVarString(encoder, JSON.stringify(projected))
         }
         if (decoding.hasContent(decoder)) return
