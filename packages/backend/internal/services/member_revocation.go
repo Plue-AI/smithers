@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -87,6 +88,13 @@ func revokeMemberCredentials(ctx context.Context, tx pgx.Tx, repo, user, actor i
 	}
 	for _, item := range workspaces {
 		row, err := q.GetWorkspace(ctx, item.workspace)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Soft deletion leaves grants behind. Revoke them without a live VM.
+			if err := revokeWorkspaceShare(ctx, q, db.Workspace{ID: item.workspace}, item.member); err != nil {
+				return err
+			}
+			continue
+		}
 		if err != nil {
 			return err
 		}
@@ -100,6 +108,7 @@ func revokeMemberCredentials(ctx context.Context, tx pgx.Tx, repo, user, actor i
 		}
 	}
 	for _, statement := range []string{
+		`DELETE FROM workspace_shares WHERE grantee_user_id=$1 OR owner_user_id=$1`,
 		`UPDATE users SET prohibit_login=true WHERE id=$1`,
 		`DELETE FROM auth_sessions WHERE user_id=$1`,
 		`DELETE FROM access_tokens WHERE user_id=$1`,
