@@ -30,7 +30,8 @@ func TestInstallProviderPoolAuthorizationPostgres(t *testing.T) {
 	codec, err := webhook.NewSecretCodec("pool-host-test-key")
 	require.NoError(t, err)
 	scopes := services.NewProviderPoolScopes(f.q, f.pool, codec, true)
-	router := githubAppSetupComposeRouter(cfg, f.pool, nil, &routes.ProviderConnectionHandler{Service: pool, Pool: &routes.ProviderPoolHandler{Pool: pool, Scopes: scopes}})
+	handler := &routes.ProviderConnectionHandler{Service: pool, Pool: &routes.ProviderPoolHandler{Pool: pool, Scopes: scopes}}
+	router := githubAppSetupComposeRouter(cfg, f.pool, nil, handler)
 	raw := services.ProviderPoolTokenScopes(f.repoID, workspace.ID)
 	machine := f.token(f.owner, "provider-pool-workspace-"+workspace.ID, raw, true)
 	wrong := f.token(f.owner, "wrong-pool-name", raw, true)
@@ -72,6 +73,36 @@ func TestInstallProviderPoolAuthorizationPostgres(t *testing.T) {
 		_, err = services.Authorize(ctx, f.q, "workspace.provider-pool", services.InstallSubject{RepositoryID: f.repoID, WorkspaceID: "another"})
 		require.Error(t, err)
 	})
+	t.Run("disabled feature keeps credential death priority", func(t *testing.T) {
+		require.NoError(t, f.q.UpsertInstallSetting(f.ctx, db.UpsertInstallSettingParams{Key: "models.chatgpt", Value: []byte("false")}))
+		defer func() {
+			require.NoError(t, f.q.UpsertInstallSetting(f.ctx, db.UpsertInstallSettingParams{Key: "models.chatgpt", Value: []byte("true")}))
+		}()
+
+		disabled := *cfg
+		disabled.FeatureFlags.SubscriptionConnections = false
+		boundary := githubAppSetupComposeRouter(&disabled, f.pool, nil, handler)
+		dead := f.token(f.owner, "expired-pool-probe", "write:repository,via:codex", true)
+		digest := sha256.Sum256([]byte(dead))
+		_, err := f.pool.Exec(f.ctx, `UPDATE access_tokens SET expires_at=now()-interval '1 second' WHERE token_hash=$1`, hex.EncodeToString(digest[:]))
+		require.NoError(t, err)
+		for _, tc := range []struct {
+			token             string
+			status, decisions int
+		}{{dead, 401, 0}, {machine, 403, 1}} {
+			req := httptest.NewRequest("GET", "http://example.com/provider-pool/routes", nil)
+			req.Header.Set("Authorization", "Bearer "+tc.token)
+			calls := 0
+			req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(string) { calls++ }))
+			out := httptest.NewRecorder()
+			boundary.ServeHTTP(out, req)
+			require.Equal(t, tc.status, out.Code, out.Body.String())
+			require.Equal(t, tc.decisions, calls)
+			if tc.status == 401 {
+				require.Contains(t, out.Body.String(), `"code":"unauthenticated"`)
+			}
+		}
+	})
 	t.Run("managed host uses its verified stored binding", func(t *testing.T) {
 		id := uuid.NewString()
 		control := "pool-host-control"
@@ -108,6 +139,14 @@ func TestInstallProviderPoolAuthorizationPostgres(t *testing.T) {
 		_, err = f.pool.Exec(f.ctx, `UPDATE flow_runtime_host_bindings SET state='retired' WHERE id=$1`, id)
 		require.NoError(t, err)
 		call(401, 0)
+		disabled := *cfg
+		disabled.FeatureFlags.SubscriptionConnections = false
+		require.NoError(t, f.q.UpsertInstallSetting(f.ctx, db.UpsertInstallSettingParams{Key: "models.chatgpt", Value: []byte("false")}))
+		disabledBoundary := githubAppSetupComposeRouter(&disabled, f.pool, nil, handler)
+		original := router
+		router = disabledBoundary
+		call(401, 0)
+		router = original
 	})
 
 }

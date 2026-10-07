@@ -13827,7 +13827,7 @@
       "visibility": "hidden",
       "actors": [],
       "minimumRole": "member",
-      "credentialScope": "write:workspace",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "workspace.head",
       "http": {

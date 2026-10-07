@@ -22,7 +22,7 @@ const reservedStack = Schema.Struct({ requestId: Schema.String, source: Schema.o
 export const httpProjections = [
   system("stack.candidate", "POST", "/api/repos/{owner}/{repo}/workspaces/{id}/stack/candidate", "write:repository", reservedStack),
   system("stack.propose", "POST", "/api/repos/{owner}/{repo}/workspaces/{id}/stack/propose", "write:repository", reservedStack),
-  system("workspace.head", "POST", "/api/repos/{owner}/{repo}/workspaces/{id}/head", "write:workspace", Schema.Struct({
+  system("workspace.head", "POST", "/api/repos/{owner}/{repo}/workspaces/{id}/head", "write:repository", Schema.Struct({
     retain_source: Schema.optional(source), change_id: Schema.optional(Schema.String), commit_id: Schema.optional(Schema.String),
     ahead: Schema.optional(Schema.Number), behind: Schema.optional(Schema.Number), coding_operations: Schema.optional(Schema.Array(Schema.Unknown))
   })),

@@ -781,10 +781,16 @@ func buildRouter(
 	// from the /api surface.
 	if providerConnectionHandler != nil && providerConnectionHandler.Pool != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(gateSubscriptionConnections)
+			if !config.IsSingleOwner(cfg.Auth) {
+				r.Use(gateSubscriptionConnections)
+			}
 			r.Use(routes.ProviderPoolAuth(func(next http.Handler) http.Handler {
 				return authLoader(queries, cfg.Auth)(middleware.RequireAuth(next))
 			}))
+			if config.IsSingleOwner(cfg.Auth) {
+				r.Use(providerConnectionHandler.Pool.Authorize)
+				r.Use(gateSubscriptionConnections)
+			}
 			r.Get(services.ProviderPoolPath+"/routes", providerConnectionHandler.Pool.ServeHTTP)
 			r.Post(services.ProviderPoolPath+"/*", providerConnectionHandler.Pool.ServeHTTP)
 		})

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"io"
@@ -107,7 +108,41 @@ func (h *ProviderPoolHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	h.servePool(w, r, provider, route, body, userID, repositoryID)
 }
 
+type providerPoolAuthorizationKey struct{}
+type providerPoolAuthorization struct {
+	handler          *ProviderPoolHandler
+	credential       *middleware.AuthInfo
+	bearer           [sha256.Size]byte
+	method, path     string
+	user, repository int64
+}
+
+// Authorize runs before install feature gates. The handler consumes the same
+// scoped decision; changing the credential or HTTP door cannot reuse it.
+func (h *ProviderPoolHandler) Authorize(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, repository, ok := h.authorizePool(w, r)
+		if !ok {
+			return
+		}
+		bound := providerPoolAuthorization{h, middleware.AuthInfoFromContext(r.Context()), sha256.Sum256([]byte(poolBearer(r))), r.Method, r.URL.EscapedPath(), user, repository}
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), providerPoolAuthorizationKey{}, bound)))
+	})
+}
+
 func (h *ProviderPoolHandler) authorizePool(w http.ResponseWriter, r *http.Request) (int64, int64, bool) {
+	if bound, ok := r.Context().Value(providerPoolAuthorizationKey{}).(providerPoolAuthorization); ok {
+		if bound.handler != h || bound.credential != middleware.AuthInfoFromContext(r.Context()) || bound.bearer != sha256.Sum256([]byte(poolBearer(r))) || bound.method != r.Method || bound.path != r.URL.EscapedPath() {
+			writeRouteError(w, r, &services.AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"})
+			return 0, 0, false
+		}
+		return bound.user, bound.repository, true
+	}
+	if h.Scopes == nil {
+		writeModelPoolError(w, http.StatusForbidden, "permission_error", "A pool credential is required.", 0)
+		return 0, 0, false
+	}
+
 	if typed, ok := h.Scopes.(interface {
 		ScopeDecision(context.Context, string) (int64, int64, error)
 	}); ok {
