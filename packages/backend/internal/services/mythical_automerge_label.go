@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
@@ -15,7 +16,7 @@ import (
 // grants standing approval. A label's presence alone never grants authority.
 func (s *MythicalService) observeAutomergeLabel(ctx context.Context, admission pgx.Tx, repositoryID int64, gh mythicalGitHubRepo, event mythicalIssueEvent) error {
 	approved := event.Event == "labeled"
-	if event.ID <= 0 || event.Issue <= 0 || event.Pull {
+	if event.ID <= 0 || event.Issue <= 0 {
 		return nil
 	}
 	var user int64
@@ -97,7 +98,19 @@ func (s *MythicalService) observeAutomergeLabel(ctx context.Context, admission p
 		if err := q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: cursorKey, Value: cursor}); err != nil {
 			return err
 		}
-		item, err := q.GetActiveMythicalItemByIssue(ctx, repositoryID, event.Issue)
+		var item db.MythicalItem
+		var err error
+		if event.Pull {
+			// GitHub shares issue/PR numbers, but a PR label must resolve the
+			// published pull, never a TODO's linked issue.
+			var id pgtype.UUID
+			err = tx.QueryRow(ctx, `SELECT id FROM mythical_items WHERE repository_id=$1 AND pr_number=$2 AND state NOT IN ('landed','cancelled','rejected','declined')`, repositoryID, event.Issue).Scan(&id)
+			if err == nil {
+				item, err = q.GetMythicalItem(ctx, id)
+			}
+		} else {
+			item, err = q.GetActiveMythicalItemByIssue(ctx, repositoryID, event.Issue)
+		}
 		if errors.Is(err, pgx.ErrNoRows) {
 			return q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: key, Value: []byte(`{"ignored":true}`)})
 		}
