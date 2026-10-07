@@ -1058,6 +1058,9 @@ for (const theme of ["light", "dark"]) test(`Conversation shell uses app Paper s
     expect(cards).not.toContain(selector)
     expect(appStyles()).not.toContain(`.mvp-${selector.slice(1)}`)
   }
+  for (const selector of [".context .context-item", ".context .context-text", ".context .context-chip", ".context button.context-chip", ".context button:disabled"]) {
+    expect(chat.split(`${selector} {`)).toHaveLength(2)
+  }
   document.documentElement.dataset.theme = theme
   const sheet = document.createElement("style")
   sheet.textContent = appStyles()
@@ -1130,7 +1133,7 @@ test("shell text is inert; private, empty and disabled boundaries", async () => 
   const context = await mounted({ name: "empty", expect: [], render: ({ onView, onAction }) => <ContextLine count={0} items={[]} actions={[]} onAction={onAction} expanded={false} onView={onView} /> })
   try {
     expect(context.host.textContent).toBe("")
-    expect(context.host.querySelector(".mvp-context-chip")).toBeNull()
+    expect(context.host.querySelector(".context-chip")).toBeNull()
     expect(context.host.querySelector("button")).toBeNull()
     expect(context.onView.mock.calls).toEqual([])
     expect(context.onAction.mock.calls).toEqual([])
@@ -3263,10 +3266,10 @@ test.each([false, true])("ContextLine item and Inspect actions expanded=%s", asy
       expect(item.querySelector("svg")).not.toBeNull()
       const plain = context.host.querySelector('[data-kind="page"]')!
       expect(plain.tagName).toBe("SPAN")
-      expect(plain.className).toBe("mvp-context-text")
+      expect(plain.className).toBe("context-text")
       expect(plain.querySelector("svg")).not.toBeNull()
       const inspect = context.host.querySelector('[data-flow="context.inspect"]')!
-      expect(inspect.className).toBe("mvp-context-chip")
+      expect(inspect.className).toBe("context-chip")
       expect(inspect.querySelector("svg.lucide-maximize2")).not.toBeNull()
       await act(async () => item.click())
       await act(async () => context.host.querySelector<HTMLButtonElement>('[data-flow="context.inspect"]')!.click())

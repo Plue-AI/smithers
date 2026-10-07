@@ -754,6 +754,7 @@
 
 /* ContextLine (T-UI-07): item actions and Inspect. */
 .context .context-item { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; }
+.context .context-text { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font: 11.5px var(--font-mono); overflow-wrap: anywhere; }
 .context .context-chip { display: inline-flex; align-items: center; gap: 5px; background: transparent; }
 .context button.context-chip { cursor: pointer; }
 .context button:disabled { cursor: default; opacity: .5; }
