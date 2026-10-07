@@ -131,6 +131,7 @@ const Steer = Schema.Union([
  * @category models
  */
 export const SteerCommand = Schema.Struct({
+  version: Schema.optional(Schema.Number),
   ...common,
   operation: Schema.Literal("steer"),
   runId: Schema.NonEmptyString,
@@ -370,6 +371,7 @@ export const execute = (
         const receipt = yield* control.steer({
           runId: input.runId,
           idempotencyKey: idempotencyKey(input, "steer"),
+          ...(input.version === undefined ? {} : { version: input.version }),
           message: {
             ...input.steer,
             runId: input.runId,
