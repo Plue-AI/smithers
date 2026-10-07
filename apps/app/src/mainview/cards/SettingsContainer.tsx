@@ -10,8 +10,8 @@ import type { CardProps } from "@smthrs/rpc/CardAction"
 import type { SettingsCard } from "@smthrs/rpc/SettingsCard"
 import { cardActions, type CardActionDefinition } from "../flows/cardActions"
 import { installKeyAction, type InstallCardDispatch } from "./installKeyAction"
-import { limitFix, plainHttpOffLoopback, settingsCardModel } from "../state/seams/InstallModel"
-import type { InstallAddress, InstallSnapshots } from "../state/seams/InstallSeam"
+import { limitFix, plainHttpOffLoopback, settingsCardModel, type InstallModel } from "../state/seams/InstallModel"
+import type { InstallSnapshots } from "../state/seams/InstallSeam"
 import { addressPort as port, parseOrigins as origins, roleKeyActions } from "./SetupCard"
 
 export interface SettingsContainerProps {
@@ -29,10 +29,18 @@ export interface SettingsContainerProps {
  * mvp.md J1 2.1 / §6.15 Address: "This Mac only" binds loopback at this Mac's own address; "Network" shows Bind (prefilled
  * with every interface when the install is loopback-bound now) and Origins, the addresses teammates use.
  */
-export const addressActions = (address: InstallAddress): CardActionDefinition<"settings.address">[] => {
+export const addressActions = (address: InstallModel["address"]): CardActionDefinition<"settings.address">[] => {
+  const retry: CardActionDefinition<"settings.address">[] = []
+  if (address.change_failed) {
+    const failed = address.change_failed
+    const bind = failed.bind ?? address.bind
+    retry.push({ tag: "settings.address", label: "Retry", args: { step: "address", field: "address" },
+      command_input: { listen: /^(127\.|localhost:|\[::1\]:)/.test(bind) ? "mac" : "network", bind, origins: failed.origins ?? [failed.to] } })
+  }
   const mac = { listen: "mac" as const, bind: `127.0.0.1:${port(address.bind)}`, origins: [`http://localhost:${port(address.bind)}`] }
   const network = { listen: "network" as const, bind: address.listen === "network" ? address.bind : `0.0.0.0:${port(address.bind)}`, origins: address.origins }
   return [
+    ...retry,
     { tag: "settings.address", label: "Save", args: { field: "address", listen: "mac" }, command_input: mac },
     { tag: "settings.address", label: "Save", args: { field: "address", listen: "network" }, command_input: network,
       input: [

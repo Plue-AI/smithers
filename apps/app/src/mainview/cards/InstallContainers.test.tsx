@@ -78,6 +78,20 @@ describe("T-APP-03 Containers with recording Views", () => {
     props.onAction("settings.address", { field: "address", listen: "network", bind: "0.0.0.0:4000", origins: "http://one.test, https://two.test" })
     expect(h.commands).toEqual([{ tag: "settings.address", input: { listen: "network", bind: "0.0.0.0:4000", origins: ["http://one.test", "https://two.test"] } }])
   })
+  test("a refused Address retries its exact bind and all origins through the shared flow", () => {
+    const model = installFixture()
+    model.address.change_failed = { from: "http://localhost:4000", to: "http://mini.lan:4100", reason: "Address refused",
+      bind: "10.0.0.5:4100", origins: ["http://mini.lan:4100", "http://10.0.0.5:4100"] }
+    const h = harness({ model }); h.renderSettings(); const props = h.settings()!
+    const retry = props.actions.find(action => action.label === "Retry")!
+    expect(retry.tag).toBe("settings.address")
+    expect(props.model.address.origins).toEqual(model.address.origins)
+    props.onAction(retry.tag, retry.args)
+    expect(h.commands).toEqual([{ tag: "settings.address", input: { listen: "network", bind: "10.0.0.5:4100",
+      origins: ["http://mini.lan:4100", "http://10.0.0.5:4100"] } }])
+    const member = harness({ model }); member.renderSettings(false)
+    expect(member.settings()).toBeUndefined()
+  })
   test("a loopback-bound install choosing Network gets Bind and Origins, prefilled for teammates; This Mac only binds loopback", () => {
     const model = installFixture(); model.address = { listen: "mac", bind: "127.0.0.1:4100", origins: ["http://localhost:4100"] }
     const h = harness({ model }); h.renderSettings(); const props = h.settings()!
