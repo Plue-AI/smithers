@@ -217,6 +217,34 @@ func TestTodoStopResumeComposedInstall(t *testing.T) {
 	_, card = call("GET", "", "")
 	require.Equal(t, "paused", card["state"])
 	require.Equal(t, "person", card["pause"].(map[string]any)["reason"])
+	// Persisted waits must belong to this exact cycle and authority. A stale
+	// wait cannot admit a freshly reconstructed signal for another cycle.
+	parked, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	for _, corrupt := range []struct{ name, path, value string }{
+		{"cycle", "{pause,wait,name}", `"resume#99"`},
+		{"flow", "{pause,wait,flow}", `"review"`},
+		{"tenant", "{pause,wait,scope,TenantID}", `"repository:999"`},
+		{"principal", "{pause,wait,scope,PrincipalID}", `"user:999"`},
+	} {
+		t.Run("Resume refuses stale "+corrupt.name, func(t *testing.T) {
+			_, err := pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,$2::text[],$3::jsonb) WHERE id=$1`, item.ID, corrupt.path, corrupt.value)
+			require.NoError(t, err)
+			before, err := q.GetMythicalItem(ctx, item.ID)
+			require.NoError(t, err)
+			var intentsBefore, intentsAfter int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.signal'`).Scan(&intentsBefore))
+			status, body := call("POST", `{"op":"resume"}`, "stale-"+corrupt.name)
+			require.Equal(t, 503, status, body)
+			after, err := q.GetMythicalItem(ctx, item.ID)
+			require.NoError(t, err)
+			require.Equal(t, before, after)
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.signal'`).Scan(&intentsAfter))
+			require.Equal(t, intentsBefore, intentsAfter)
+			_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=$2 WHERE id=$1`, item.ID, parked.Checks)
+			require.NoError(t, err)
+		})
+	}
 	// A branch wait masks the pause, and Resume leaves that wait untouched.
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{waits}','[{"id":"foreign","kind":"foreign_push","prompt":"Push","since":"2026-10-06T00:00:00Z"}]') WHERE id=$1`, item.ID)
 	require.NoError(t, err)

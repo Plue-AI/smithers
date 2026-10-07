@@ -104,7 +104,9 @@ func (s *MythicalService) pauseTodo(ctx context.Context, number int64, input Tod
 			checks.Pause = &todoPause{Generation: generation, Run: item.RequestRunID, Requested: true}
 		} else {
 			pause := checks.Pause
-			if pause.Run != item.RequestRunID || pause.Wait.Run != item.RequestRunID || pause.Wait.Target != target {
+			if pause.Run != item.RequestRunID || pause.Wait.Run != item.RequestRunID || pause.Wait.Target != target ||
+				pause.Wait.Scope != scope || pause.Wait.Flow != flowdispatch.TodoFlow ||
+				pause.Wait.Name != fmt.Sprintf("resume#%d", pause.Generation) {
 				return todoControlUnavailable()
 			}
 			generation = pause.Generation
