@@ -8,6 +8,7 @@ import { join } from "node:path"
 const origin = process.env.SMITHERS_CONFIRMATION_ORIGIN!
 const member = process.env.SMITHERS_CONFIRMATION_MEMBER!
 const token = process.env.SMITHERS_CONFIRMATION_TOKEN!
+const wikiToken = process.env.SMITHERS_CONFIRMATION_WIKI_TOKEN!
 if (!origin || !member || !token) throw new Error("The owned PostgreSQL browser fixture is required")
 const vite = await createServer({ configLoader: "runner", logLevel: "error", server: { host: "127.0.0.1", port: 0 } })
 await vite.listen()
@@ -41,9 +42,9 @@ console.log("CATALOG_RESULT " + JSON.stringify({ exitCode, output }));`
 }
 const browser = await chromium.launch({ headless: true })
 try {
-  const api = async (path: string, method = "GET", body?: unknown, agent = false, key = "fixture") => {
+  const api = async (path: string, method = "GET", body?: unknown, agent: boolean | string = false, key = "fixture") => {
     const response = await fetch(`${origin}${path}`, { method, headers: { Origin: origin, "Content-Type": "application/json", "Idempotency-Key": key,
-      ...(agent ? { Authorization: `Bearer ${token}` } : { Cookie: "session=maya-browser-session; __csrf=csrf", "X-CSRF-Token": "csrf" }) },
+      ...(agent ? { Authorization: `Bearer ${typeof agent === "string" ? agent : token}`, "Smithers-Via": "codex", "Smithers-Actor": "person", "Smithers-Profile": "app_agent" } : { Cookie: "session=maya-browser-session; __csrf=csrf", "X-CSRF-Token": "csrf" }) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
     const value = await response.json()
     return { status: response.status, value }
@@ -133,11 +134,23 @@ try {
   await drop.focus(); await page.keyboard.press("Enter")
   await expect.poll(async () => (await api(`/api/todos/${n}`)).value.state).toBe("dropped")
   await expect(page.locator('[data-kind="confirm"] [data-flow="approval.approve"]')).toHaveCount(0)
+  const wikiPath = "/api/repos/maya/demo/wiki/confirm-delete"
+  const deletion = await api(wikiPath, "DELETE", {}, wikiToken, "browser-wiki-delete")
+  expect(deletion.status).toBe(202)
+  expect(Object.keys(deletion.value).sort()).toEqual(["confirmation", "state"])
+  expect((await api(wikiPath)).status).toBe(200)
+  const remove = page.locator('[data-kind="confirm"] [data-flow="approval.approve"]').filter({ hasText: "Delete" })
+  await expect(remove).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByTestId("transcript")).toContainText("The exact page to delete")
+  await expect(other.locator('[data-kind="confirm"]')).toHaveCount(0)
+  await remove.focus(); await page.keyboard.press("Enter")
+  await expect.poll(async () => (await api(wikiPath)).status).toBe(404)
+  await expect(page.locator('[data-kind="confirm"] [data-flow="approval.approve"]')).toHaveCount(0)
   const agentRows = (await api("/api/confirmations", "GET", undefined, true)).value
-  expect(agentRows).toHaveLength(3)
+  expect(agentRows).toHaveLength(4)
   for (const row of agentRows) expect(Object.keys(row).sort()).toEqual(["id", "state"])
   expect(errors).toEqual([])
-  console.log("CONFIRMATION_BROWSER_PASS installed skill, source CLI, named pending result, private delivery, keyboard approval, Before placement, admission progress, reload, other-member refusal, Drop, delegated redaction")
+  console.log("CONFIRMATION_BROWSER_PASS installed skill, source CLI, named pending result, private delivery, keyboard approval, Before placement, admission progress, reload, other-member refusal, Drop, Wiki Delete, delegated redaction")
 } finally {
   await browser.close()
   await vite.close()

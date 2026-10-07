@@ -39,6 +39,9 @@ export const createConfirmationSeam = (ctx: SeamContext, options: {
           const press = presses.get(row.id)
           press?.abort(); presses.delete(row.id)
           const notice = `todo.request.confirmation:${row.id}`
+          if (row.state === "approved" && !row.payload.effect && (press || ctx.store.collections.toasts.get(`toast-${notice}`)?.status === "running")) {
+            ctx.resolveToast?.(notice, { status: "ok", detail: row.payload.card.receipt?.text ?? "Approved" })
+          }
           if (row.state !== "approved" && (press || ctx.store.collections.toasts.get(`toast-${notice}`)?.status === "running")) {
             ctx.resolveToast?.(notice, row.state === "rejected" ? { status: "cancelled", detail: "Cancelled" } : { status: "failed", detail: "Expired" })
           }
