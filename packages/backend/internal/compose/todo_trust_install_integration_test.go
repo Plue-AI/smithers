@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/stretchr/testify/require"
@@ -30,11 +32,13 @@ func TestTodoTrustInstallLabelMatrix(t *testing.T) {
 	for i, member := range []struct{ login, permission string }{{"mia", "maintain"}, {"ben", "write"}, {"erin", "write"}, {"carol", "write"}} {
 		r.fake.SetCollaborator(int64(208+i), member.login, member.permission)
 		if member.login != "carol" {
-			_, err := r.expect("POST", "/api/members", fmt.Sprintf(`{"login":%q}`, member.login), 204)
+			_, err := r.member(member.login, int64(208+i), member.permission)
 			require.NoError(t, err)
 		}
 	}
-	_, err := r.pool.Exec(r.ctx, `UPDATE collaborators SET suspended_at=now() WHERE github_login='erin'`)
+	_, err := r.expect("PATCH", "/api/members/mia", `{"role":"maintainer"}`, 204)
+	require.NoError(t, err)
+	_, err = r.pool.Exec(r.ctx, `UPDATE collaborators SET suspended_at=now() WHERE github_login='erin'`)
 	require.NoError(t, err)
 	type fixture struct {
 		name, text, actor string
@@ -183,7 +187,10 @@ func TestTodoTrustInstallLabelMatrix(t *testing.T) {
 		userID := ownerID
 		if actorIndex != 0 {
 			username := strings.ReplaceAll(strings.ReplaceAll(actor.login, "[", "-"), "]", "")
-			user, err := db.New(r.pool).CreateUser(r.ctx, db.CreateUserParams{Username: username, LowerUsername: username})
+			user, err := db.New(r.pool).GetUserByLowerUsername(r.ctx, username)
+			if errors.Is(err, pgx.ErrNoRows) {
+				user, err = db.New(r.pool).CreateUser(r.ctx, db.CreateUserParams{Username: username, LowerUsername: username})
+			}
 			require.NoError(t, err)
 			userID = user.ID
 			_, err = r.pool.Exec(r.ctx, `UPDATE collaborators SET user_id=$1 WHERE github_login=$2`, userID, actor.login)
