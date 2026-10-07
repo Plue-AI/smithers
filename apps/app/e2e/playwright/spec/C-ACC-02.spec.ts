@@ -19,6 +19,7 @@ test("C-ACC-02: a changed generation expires the merge approval and requires a f
     cwd: resolve("../../packages/backend"), env: { ...process.env, SMITHERS_ACCESS_MERGE_PHASE_DIR: directory }, stdio: ["pipe", "pipe", "pipe"]
   })
   let logs = "", complete = false
+  let releaseApproval: (() => void) | undefined
   backend.stdout.on("data", bytes => { logs += String(bytes) })
   backend.stderr.on("data", bytes => { logs += String(bytes) })
   const exited = new Promise<number | null>((done, reject) => { backend.on("exit", done); backend.on("error", reject) })
@@ -32,10 +33,22 @@ test("C-ACC-02: a changed generation expires the merge approval and requires a f
     await page.goto(origin)
     const review = page.getByRole("button", { name: "Review & merge", exact: true })
     await expect(review).toBeEnabled({ timeout: 60_000 })
+    // Hold the real person request while the stored generation changes.
+    // Live refresh may retire the displayed card; the in-flight HTTP decision
+    // still has to refuse its stale binding before admitting a merge.
+    let requested!: () => void
+    const started = new Promise<void>(resolve => { requested = resolve })
+    const held = new Promise<void>(resolve => { releaseApproval = resolve })
+    const approvalPath = `**/api/confirmations/${id}/approve`
+    await page.route(approvalPath, async route => { requested(); await held; await route.continue() })
+    const stale = page.waitForResponse(response => response.url().endsWith(`/api/confirmations/${id}/approve`) && response.request().method() === "POST")
+    const press = review.press("Enter")
+    await started
     await writeFile(join(directory, "shown"), "shown")
     await wait(/ACCESS_MERGE_CHANGED/)
-    const stale = page.waitForResponse(response => response.url().endsWith(`/api/confirmations/${id}/approve`) && response.request().method() === "POST")
-    await review.press("Enter")
+    releaseApproval!()
+    await press
+    await page.unroute(approvalPath)
     expect((await stale).status()).toBe(409)
     await expect(page.locator('[data-kind="confirm"]').last()).toContainText("Expired")
     await expect(review).toHaveCount(0)
@@ -52,6 +65,7 @@ test("C-ACC-02: a changed generation expires the merge approval and requires a f
     await writeFile(join(directory, "approved"), "approved")
     complete = true
   } finally {
+    releaseApproval?.()
     await writeFile(join(directory, "done"), "done")
     try { const status = await exited; if (complete) expect(status, logs).toBe(0) } finally { await rm(directory, { recursive: true, force: true }) }
   }
