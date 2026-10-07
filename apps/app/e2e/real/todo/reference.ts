@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto"
+import { cardCaptureInventory } from "../support/card-capture"
 import { registerKeyboardJourney, journeyActivate } from "../support/keyboard-journey-input"
 import { execFileSync } from "node:child_process"
 import type { Browser, BrowserContext, Page, TestInfo } from "@playwright/test"
@@ -51,27 +51,13 @@ export const withReference = async (browser: Browser, info: TestInfo, body: (fix
   const theme = process.env.SMITHERS_JOURNEY_THEME
   if (theme !== undefined && theme !== "light" && theme !== "dark") throw new JourneyUnavailable("SMITHERS_JOURNEY_THEME must be light or dark")
   if (process.env.SMITHERS_JOURNEY_KEYBOARD !== undefined && process.env.SMITHERS_JOURNEY_KEYBOARD !== "1") throw new JourneyUnavailable("SMITHERS_JOURNEY_KEYBOARD must be 1 or absent")
-  let capture = 0
-  const captured = new Map<string, string>()
+  const captures = cardCaptureInventory(async (name, bytes) => {
+    await info.attach(name, { body: bytes, contentType: "image/png" })
+  })
   const captureReady = new Set<Actor>()
   const captureCards = async (actor: Actor) => {
     if (!theme || !captureReady.has(actor)) return
-    const page = members[actor].page
-    await expect(page.locator("html")).toHaveAttribute("data-theme", theme)
-    const cards = page.locator(".smithers-card:visible")
-    for (const [index, card] of (await cards.all()).entries()) {
-      // Hash only for deduplication; never retain field values or markup as logs.
-      const digest = createHash("sha256").update(await card.evaluate(element => JSON.stringify({
-        html: element.outerHTML,
-        fields: Array.from(element.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input,textarea,select"))
-          .map(field => ({ value: field.value, checked: field instanceof HTMLInputElement ? field.checked : undefined,
-            selected: field instanceof HTMLSelectElement ? field.selectedIndex : undefined, focused: field === document.activeElement }))
-      }))).digest("hex")
-      const key = `${actor}:${index}:${await card.getAttribute("data-testid")}:${await card.getAttribute("data-kind")}`
-      if (captured.get(key) === digest) continue
-      await info.attach(`card-${theme}-${actor}-${++capture}`, { body: await card.screenshot(), contentType: "image/png" })
-      captured.set(key, digest)
-    }
+    await captures.capture(members[actor].page, actor, theme)
   }
   const checkpoint = async (actor: Actor) => {
     const keys = keyboard.get(actor)
@@ -123,6 +109,7 @@ export const withReference = async (browser: Browser, info: TestInfo, body: (fix
       if (keys?.snapshot().inputs.length) keys.finish()
     }
   } finally {
+    await attachJson(info, "card-capture-inventory", captures.snapshot())
     for (const [actor, keys] of keyboard) await attachJson(info, `keyboard-${actor}`, keys.snapshot())
     for (const [index, context] of contexts.entries()) {
       await context.tracing.stop({ path: info.outputPath(`member-${index}.zip`) })

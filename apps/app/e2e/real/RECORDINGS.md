@@ -157,3 +157,14 @@ when keyboard mode is enabled, retaining its detailed running/new model and
 instruction receipts. A generic coding-agent dropdown is not J11 evidence.
 The flow's review-step navigation and scratch Run composition remain separate
 pending behavior; neither pass substitutes for them.
+
+Prepared reference passes retain `card-capture-inventory` even when a pass
+fails. Each row identifies the actor, theme, capture checkpoint, DOM card
+instance, card kind, attachment name, UTC time and exact PNG SHA-256. Review
+this inventory alongside the step log for each browser/theme run; it is an
+inventory of observed captures, never an assertion that all required cards
+were reached. Replaced cards get separate identities even at the same transcript
+position. Unchanged cards are deduplicated; changed input values are captured
+without placing those values in the inventory. The raw images still need the
+credential review required above. Supplemental HTTP-served Chromium tests
+exercise both themes and transient-card capture; they cannot qualify C-UI-01.
