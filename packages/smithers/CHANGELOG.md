@@ -4,6 +4,15 @@
 
 ### Added
 
+- `@smthrs/cli/Catalog` exports `catalogDescriptors`, the typed list of
+  product API operations, and `@smthrs/cli/CatalogRequest` exports
+  `catalogRequest`, which builds one operation's HTTP request and refuses
+  with a typed `CatalogRequestError` (`binding_unavailable`,
+  `binding_invalid`, `field_invalid`).
+- `@smthrs/cli/suggest/Checklist` evidence carries the detected machine
+  recipe (`MachineRecipe`, or `MachineRecipeError` when detection fails);
+  `CliError` gains an optional failure `class`, and
+  `@smthrs/cli/cli/Presentation` exports `withErrorEnvelope`.
 - `Providers.seatDescriptions` and `Providers.describeSeat` give every seat
   alias and key-backed default seat its display label, one strength line, and
   a relative cost tier (`low`, `mid`, `high`) read off the committed rate
