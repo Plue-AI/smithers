@@ -209,6 +209,11 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
   await expect(home.locator(".stack-row .ref")).toHaveText(["T3"])
   await expect(home.locator('[data-filter="in_review"]')).toContainText("1")
 
+  // Navigation has already persisted a newer anchor and timeline preference.
+  // Filtering must retain that independently recorded server state.
+  const beforeFilter = structuredClone(memberViews.ben)
+  expect(beforeFilter?.scroll_anchor).toBe("home")
+  expect(beforeFilter?.last_seen_seq).toBe(12)
   viewWrites.length = 0
   const reviewFilter = home.locator('[data-filter="in_review"]')
   await reviewFilter.click()
