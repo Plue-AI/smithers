@@ -757,3 +757,8 @@ func (h *WorkspaceTerminalHandler) pipeWSToTerminalSession(ctx, authorization co
 
 // Ensure WorkspaceService satisfies WorkspaceTerminalService at compile time.
 var _ WorkspaceTerminalService = (*services.WorkspaceService)(nil)
+
+// SharedTerminalSessions exposes the one manager to install projections.
+func (h *WorkspaceTerminalHandler) SharedTerminalSessions() *TerminalSessionManager {
+	return h.terminalSessionManager()
+}

@@ -1524,6 +1524,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		SessionCookieName: cfg.Auth.SessionCookieName,
 		ActiveConnections: terminalActiveCounter,
 	}
+	if presence != nil {
+		workspaceTerminalHandler.TerminalSessions = workspaceTerminalHandler.SharedTerminalSessions()
+		presence.terminals = workspaceTerminalHandler.TerminalSessions
+		defer workspaceTerminalHandler.TerminalSessions.Close()
+	}
 	telemetryHandler := &routes.TelemetryHandler{
 		Metrics: smithersMetrics,
 	}
