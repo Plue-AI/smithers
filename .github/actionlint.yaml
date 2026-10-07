@@ -1,0 +1,6 @@
+# Custom labels of this repository's self-hosted runners, so actionlint's
+# runner-label check accepts them. reference-host is the Mac mini runner
+# (scripts/reference-host/setup-runner.sh, #3471).
+self-hosted-runner:
+  labels:
+    - reference-host

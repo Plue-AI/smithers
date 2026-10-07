@@ -1,0 +1,94 @@
+# macOS release-trust suite on the reference host (#3471, path 1).
+#
+# Ubuntu CI skips every `[requires macOS]` test (apps/app/scripts/RequiresMacOS.ts)
+# since 4dc985222b, so this job is the only place they run. It runs on the Mac
+# mini registered as the self-hosted runner `reference-host`
+# (scripts/reference-host/setup-runner.sh).
+#
+# TRUST. smithers-3f, #3471 issuecomment-6020436303: the runner is persistent
+# and wipes its workspace before every job, so it may only ever run code that
+# is already on main. Hence:
+#   - triggers are push to main and workflow_dispatch only. Adding
+#     any pull-request trigger reverses 3f's decision and makes an
+#     ephemeral runner mandatory;
+#   - permissions: {} (a public checkout needs no token scope);
+#   - a guard step refuses pull-request events and other repositories;
+#   - the runner's root-owned job-started hook
+#     (scripts/reference-host/job-started.sh) refuses any job that is not this
+#     file on refs/heads/main, before any step runs. The org is on the free
+#     plan, which has no runner groups, so that hook, not this file, is what
+#     keeps another workflow (a fork PR's included) off the runner.
+#
+# PASS COUNT. The job fails if any `[requires macOS]` test skips or if the pass
+# count is not exactly 10 (issuecomment-6029135006). Raise EXPECTED_PASS
+# deliberately in the change that adds a macOS test.
+#
+# LINTING. ci.yml names this file in its actionlint step (PACKAGE.ts), and
+# release.yml copies that step.
+name: Reference host
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: reference-host
+  cancel-in-progress: false
+
+jobs:
+  macos-release-trust:
+    name: macOS release-trust suite
+    runs-on: [self-hosted, reference-host]
+    timeout-minutes: 30
+    env:
+      EXPECTED_PASS: "10"
+    steps:
+      - name: Refuse untrusted refs
+        env:
+          PULL_REQUEST: ${{ toJSON(github.event.pull_request) }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$PULL_REQUEST" != "null" ]; then echo "::error::refused: a pull-request event"; exit 1; fi
+          if [ "$REPOSITORY" != "smithersai/smithers" ]; then echo "::error::refused: repository $REPOSITORY"; exit 1; fi
+          case "$EVENT" in push | workflow_dispatch) ;; *) echo "::error::refused: event $EVENT"; exit 1 ;; esac
+          if [ "$REF" != "refs/heads/main" ]; then echo "::error::refused: ref $REF"; exit 1; fi
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        run: |
+          echo /opt/reference-host/bin >> "$GITHUB_PATH"
+          /opt/reference-host/bin/node --version
+          /opt/reference-host/bin/bun --version
+          /opt/reference-host/bin/pnpm --version
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: macOS release-trust tests
+        working-directory: apps/app
+        run: |
+          set -o pipefail
+          mkdir -p test-results
+          bun test scripts -t "requires macOS" 2>&1 | tee "$RUNNER_TEMP/requires-macos.log"
+      - name: Require every macOS test to run
+        if: always()
+        run: |
+          log="$RUNNER_TEMP/requires-macos.log"
+          test -s "$log" || { echo "::error::no test output"; exit 1; }
+          if grep -F '[requires macOS]' "$log" | grep -F '(skip)'; then
+            echo "::error::a [requires macOS] test skipped on the reference host"; exit 1
+          fi
+          # Without a TTY bun prints no per-test (skip) lines, only the summary
+          # count, and tests the -t filter excluded count as "filtered out".
+          if grep -E '^ *[1-9][0-9]* skip$' "$log"; then
+            echo "::error::a [requires macOS] test skipped on the reference host"; exit 1
+          fi
+          passed=$(sed -n 's/^ *\([0-9][0-9]*\) pass$/\1/p' "$log" | tail -1)
+          if [ "$passed" != "$EXPECTED_PASS" ]; then
+            echo "::error::expected exactly $EXPECTED_PASS passing [requires macOS] tests, got '${passed:-none}'"; exit 1
+          fi
+          echo "$passed [requires macOS] tests passed, none skipped"

@@ -244,6 +244,10 @@
       {
         "kind": "file",
         "path": ".github/workflows/drift.yml"
+      },
+      {
+        "kind": "file",
+        "path": ".github/workflows/reference-host.yml"
       }
     ],
     "outputs": [
@@ -44943,6 +44947,10 @@
         "path": "scripts/run-jj-abi-campaign.test.mjs"
       },
       {
+        "kind": "file",
+        "path": "scripts/reference-host/job-started.test.mjs"
+      },
+      {
         "kind": "glob",
         "pattern": "scripts/**/*.mjs",
         "exclude": []
@@ -44960,6 +44968,10 @@
       {
         "kind": "file",
         "path": "scripts/ci/coding-check.sh"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/reference-host/job-started.sh"
       },
       {
         "kind": "file",
