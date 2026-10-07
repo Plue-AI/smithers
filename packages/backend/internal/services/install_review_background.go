@@ -102,14 +102,14 @@ func (b *ReviewBackground) admit(ctx context.Context, admission ReviewAdmission,
 // admitInTx shares the person's confirmation transaction: a job and an
 // approved card either both commit, or neither does.
 func (b *ReviewBackground) admitInTx(ctx context.Context, tx pgx.Tx, admission ReviewAdmission, request ReviewRequest) (ReviewAdmission, error) {
-	bound, repository, err := lockInstallWriteCredential(ctx, tx, middleware.AuthInfoFromContext(ctx))
+	// Validate current credential/member liveness under locks without replacing
+	// the admitted command decision or its credential pointer.
+	err := guardInstallTodoWrite(ctx, tx, admission.RepositoryID, admission.RequesterID)
 	if err != nil {
 		return ReviewAdmission{}, err
 	}
-	if repository != admission.RepositoryID {
-		return ReviewAdmission{}, reviewNonMember()
-	}
-	decision, err := Authorize(bound, db.New(tx), "review")
+	repository := admission.RepositoryID
+	decision, err := Authorize(ctx, db.New(tx), "review")
 	if err != nil {
 		return ReviewAdmission{}, err
 	}
@@ -146,7 +146,7 @@ func (b *ReviewBackground) admitInTx(ctx context.Context, tx pgx.Tx, admission R
 		return ReviewAdmission{}, err
 	}
 	payload, _ := json.Marshal(reviewJob{Request: request, Admission: admission})
-	credential, _ := json.Marshal(middleware.CredentialOf(middleware.AuthInfoFromContext(bound)))
+	credential, _ := json.Marshal(middleware.CredentialOf(middleware.AuthInfoFromContext(ctx)))
 	receipt, err := b.store.AdmitInTx(ctx, tx, jobs.Admission{Scope: reviewScope(repository, admission.RequesterID), Operation: reviewOperation, RequestID: admission.IdempotencyKey, Payload: payload, AuthorizationContext: credential, EffectPolicy: jobs.EffectIdempotent})
 	if errors.Is(err, jobs.ErrPayloadConflict) {
 		return ReviewAdmission{}, todoRequestMismatch()
