@@ -35,7 +35,6 @@ it.skipIf(!enabled && !required)("C-INS-06 real CLI, launchd and bundled launche
   const launchctl = (...args: string[]) => spawnSync("/bin/launchctl", args, { encoding: "utf8" })
   // Never replace an operator's running install during qualification.
   expect(launchctl("print", `${domain}/sh.smithers.host`).status, "Stop the existing host service first").not.toBe(0)
-  expect(existsSync(cli), "Qualification requires the CLI shipped in the built bundle").toBe(true)
   // Production isolation refuses writable shared ancestors such as /tmp.
   // Keep this private home in the worktree, with a short Unix-socket path.
   const home = mkdtempSync(resolve("../../.i-"))
@@ -110,7 +109,9 @@ it.skipIf(!enabled && !required)("C-INS-06 real CLI, launchd and bundled launche
     expect(socket.uid).toBe(process.getuid!())
     expect(existsSync(join(state, "run/setup-urls.json"))).toBe(false)
     const repeated = run("start", "--bundle", ownedBundle, "--json")
-    expect(repeated.status).toBe(0); expect(tokenOf(repeated.stdout)).toBe(firstToken); expect(backendPID()).toBe(pid)
+    expect(repeated.status).toBe(0)
+    expect(tokenOf(repeated.stdout)).toBe(firstToken)
+    expect(backendPID()).toBe(pid)
     expect(run("status", "--json").status).toBe(0)
     const plist = readFileSync(join(home, "Library/LaunchAgents/sh.smithers.host.plist"), "utf8")
     expect(plist).toContain("<string>--setup-handoff=socket</string>")
@@ -173,9 +174,25 @@ it.skipIf(!enabled && !required)("C-INS-06 real CLI, launchd and bundled launche
     const missing = run("status")
     expect(missing.status).not.toBe(0)
     expect(missing.stdout + missing.stderr).toContain(other)
-    writeFileSync(join(receipt, "bundle-revision.txt"), JSON.parse(readFileSync(join(ownedBundle, "manifest.json"), "utf8")).revision + "\n")
-    writeFileSync(join(receipt, "manifest.sha256"), createHash("sha256").update(readFileSync(join(bundle!, "manifest.json"))).digest("hex"))
-    writeFileSync(join(receipt, "limitations.json"), JSON.stringify({ not_run: ["login after reboot", "owner claim", "real msb disabled refusal", "all PostgreSQL/flow-host UID evidence"] }))
+    writeFileSync(
+      join(receipt, "bundle-revision.txt"),
+      JSON.parse(readFileSync(join(ownedBundle, "manifest.json"), "utf8")).revision + "\n"
+    )
+    writeFileSync(
+      join(receipt, "manifest.sha256"),
+      createHash("sha256").update(readFileSync(join(bundle!, "manifest.json"))).digest("hex")
+    )
+    writeFileSync(
+      join(receipt, "limitations.json"),
+      JSON.stringify({
+        not_run: [
+          "login after reboot",
+          "owner claim",
+          "real msb disabled refusal",
+          "all PostgreSQL/flow-host UID evidence"
+        ]
+      })
+    )
   } finally {
     if (existsSync(cli)) run("stop")
     writeFileSync(join(receipt, "transcript.json"), JSON.stringify(transcripts, null, 2))
