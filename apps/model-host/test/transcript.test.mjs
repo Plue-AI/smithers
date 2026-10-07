@@ -32,8 +32,8 @@ test("packaged transcript HTTP normalization preserves inert identities, checkpo
     assert.equal((await post({})).status, 422)
     const context = { owner_id: "42", participant_id: "01000000-0000-0000-0000-000000000000", session_id: "9", source_generation: "02000000-0000-0000-0000-000000000000:1" }
     for (const [fixture, file, profile, count, firstSource, toolCall] of [
-      ["codex-0.160", "rollout.jsonl", "codex/0.160.0", 32, "01a10d62-91c7-7163-b038-72dab55a2e8c:10", "exec-72424bde-7b89-43fe-9962-8fe21e4a3d4b"],
-      ["claude-code-2.1", "session.jsonl", "claude-code/2.1.0", 36, "93469675-c700-423f-be09-43aefb36a280:6", "toolu_01JD3dL8cHy7FW7iBubC6yjY"]
+      ["codex-0.160", "rollout.jsonl", "codex-rollout/0.160", 32, "01a10d62-91c7-7163-b038-72dab55a2e8c:10", "exec-72424bde-7b89-43fe-9962-8fe21e4a3d4b"],
+      ["claude-code-2.1", "session.jsonl", "claude-code/2.1", 36, "93469675-c700-423f-be09-43aefb36a280:6", "toolu_01JD3dL8cHy7FW7iBubC6yjY"]
     ]) {
       const bytes = await readFile(new URL(`../../../packages/smithers/agent/harness/test/fixtures/external/${fixture}/${file}`, import.meta.url), "utf8")
       let state
@@ -59,7 +59,10 @@ test("packaged transcript HTTP normalization preserves inert identities, checkpo
       assert.equal(entries[0].source_id, firstSource)
       assert.equal(entries[0].author_id, "42")
       assert.equal(entries[0].kind, "prompt")
-      if (fixture === "codex-0.160") assert.equal(entries[0].body, "How do I use ultrafast")
+      assert.equal(entries[0].seq, 0)
+      assert.equal(entries[0].at, fixture === "codex-0.160" ? 1791225945426 : 1789775623241)
+      assert.equal(entries[0].body.type, "prompt")
+      if (fixture === "codex-0.160") assert.equal(entries[0].body.text, "How do I use ultrafast")
       const tool = entries.find(entry => entry.call_id === toolCall)
       assert.equal(tool.kind, "tool_result")
       assert.equal(tool.author_id, context.participant_id)
@@ -83,8 +86,22 @@ test("packaged transcript HTTP normalization preserves inert identities, checkpo
         { ...next, profile: "codex/unsupported" }, { ...next, record: "{}\n{}" }
       ]) assert.equal((await post(forged)).status, 422)
     }
+    // Constructed maximum-sized metadata record. Its escaped HTTP envelope
+    // exceeds the model-turn body limit; normalization keeps its own bound.
+    const maximum = JSON.stringify({ type: "session_meta", payload: { id: "large", cli_version: "0.160.0", cwd: "\\".repeat(524247) + "x" } })
+    assert.equal(Buffer.byteLength(maximum), 1048576)
+    const large = { profile: "codex-rollout/0.160", context, record: maximum, start: 0, end: 1048577 }
+    assert.ok(Buffer.byteLength(JSON.stringify(large)) > 2097152)
+    const maximumResponse = await post(large)
+    assert.equal(maximumResponse.status, 200)
+    const maximumOutput = await maximumResponse.json()
+    assert.deepEqual(maximumOutput.entries, [])
+    assert.equal(maximumOutput.state.offset, 1048577)
+    assert.equal(maximumOutput.state.decoder.session.cwd.length, 524248)
+    assert.equal((await post({ ...large, record: maximum + "x", end: 1048578 })).status, 422)
+    assert.equal((await post({ blob: "x".repeat(8388608) })).status, 413)
     const unsupported = '{"type":"session_meta","payload":{"id":"other","cli_version":"99.0.0"}}'
-    assert.equal((await post({ profile: "codex/0.160.0", context, record: unsupported, start: 0, end: Buffer.byteLength(unsupported) + 1 })).status, 422)
+    assert.equal((await post({ profile: "codex-rollout/0.160", context, record: unsupported, start: 0, end: Buffer.byteLength(unsupported) + 1 })).status, 422)
   } finally {
     child.kill("SIGTERM")
     await exited

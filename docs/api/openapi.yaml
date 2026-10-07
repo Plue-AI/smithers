@@ -1241,24 +1241,26 @@ paths:
                   entries:
                     type: array
                     items:
-                      type: object
-                      required: [id, author, runId, prompt, state, frames]
-                      properties:
-                        id:
-                          type: string
-                        author:
-                          type: integer
-                          format: int64
-                        runId:
-                          type: string
-                        prompt:
-                          type: string
-                        state:
-                          type: string
-                        frames:
-                          type: array
-                          items:
-                            $ref: '#/components/schemas/AnyJSON'
+                      oneOf:
+                        - $ref: '#/components/schemas/ImportedConversationMessage'
+                        - type: object
+                          required: [id, author, runId, prompt, state, frames]
+                          properties:
+                            id:
+                              type: string
+                            author:
+                              type: integer
+                              format: int64
+                            runId:
+                              type: string
+                            prompt:
+                              type: string
+                            state:
+                              type: string
+                            frames:
+                              type: array
+                              items:
+                                $ref: '#/components/schemas/AnyJSON'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -24540,6 +24542,46 @@ components:
           type: string
         duplicate:
           type: boolean
+    ImportedConversationMessage:
+      type: object
+      additionalProperties: false
+      required: [id, origin, agent_kind, format_version, source_id, session_id, participant_id, actor, read_only, role, text, status, createdAt, ordinal]
+      properties:
+        id: {type: string}
+        origin: {type: string, enum: [external]}
+        agent_kind: {type: string, enum: [codex, claude-code]}
+        format_version: {type: string, minLength: 1}
+        source_id: {type: string, minLength: 1}
+        session_id: {type: string, minLength: 1}
+        participant_id: {type: string, minLength: 1}
+        actor:
+          type: object
+          required: [kind, avatar_url, color_index]
+          properties:
+            kind: {type: string, enum: [person, agent]}
+            id: {type: string}
+            login: {type: string}
+            name: {type: string}
+            agent: {type: string, enum: [codex, claude-code]}
+            session_id: {type: string}
+            avatar_url: {type: string}
+            color_index: {type: integer, minimum: 0, maximum: 5}
+            for_member:
+              type: object
+              required: [login, name, avatar_url]
+              properties:
+                login: {type: string, minLength: 1}
+                name: {type: string}
+                avatar_url: {type: string}
+        read_only: {type: boolean, enum: [true]}
+        role: {type: string, enum: [user, smithers]}
+        text: {type: string}
+        reasoning: {type: string}
+        act: {type: string}
+        correlation_id: {type: string, minLength: 1}
+        status: {type: string, enum: [complete, failed]}
+        createdAt: {type: integer, format: int64}
+        ordinal: {type: integer, minimum: 0}
     SavedConversationCursor:
       type: object
       additionalProperties: false

@@ -28,13 +28,18 @@ type ExternalDraft struct {
 	Body         json.RawMessage `json:"body"`
 	CallID       string          `json:"call_id,omitempty"`
 	Failed       bool            `json:"failed,omitempty"`
+	Sequence     uint64          `json:"seq,omitempty"`
+	At           int64           `json:"at,omitempty"`
+	TurnID       string          `json:"turn_id,omitempty"`
 }
 
 func (d ExternalDraft) valid() bool {
 	if d.ID == "" || d.SourceID == "" || d.Origin != "external" || !d.ReadOnly || d.Session == "" || d.Participant == "" || d.Owner == "" || !json.Valid(d.Body) {
 		return false
 	}
-	if !((d.Agent == "claude-code" && d.Profile == "claude-code/2.1.0") || (d.Agent == "codex" && d.Profile == "codex/0.160.0")) {
+	// The release-valued aliases remain readable for already persisted rows.
+	// New host drafts use the adapter's canonical minor-version profile.
+	if !((d.Agent == "claude-code" && oneOf(d.Profile, "claude-code/2.1", "claude-code/2.1.0")) || (d.Agent == "codex" && oneOf(d.Profile, "codex-rollout/0.160", "codex/0.160.0"))) {
 		return false
 	}
 	if !oneOf(d.Kind, "prompt", "assistant", "thinking", "attachment", "tool_request", "tool_result", "edit", "error") {
@@ -82,7 +87,7 @@ func (s *Store) ImportExternalTx(ctx context.Context, tx pgx.Tx, scope Scope, br
 		id := uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("external:%d:%s:%s", scope.RepositoryID, branch, d.ID))).String()
 		prompt := ""
 		if d.Kind == "prompt" {
-			_ = json.Unmarshal(d.Body, &prompt)
+			prompt, _ = externalText(d)
 		}
 		request, err := json.Marshal(map[string]any{"origin": "external", "external": d, "purpose": "conversation", "conversationId": branch, "sharedConversation": true, "messages": []any{map[string]any{"role": "user", "content": prompt}}})
 		if err != nil {
@@ -120,11 +125,9 @@ func (s *Store) ImportExternalTx(ctx context.Context, tx pgx.Tx, scope Scope, br
 		}
 		frames := []json.RawMessage{}
 		if d.Kind == "assistant" {
-			var text string
-			if json.Unmarshal(d.Body, &text) == nil {
-				f, _ := json.Marshal(map[string]any{"runId": id, "type": "delta", "kind": "text", "text": text})
-				frames = append(frames, f)
-			}
+			text, _ := externalText(d)
+			f, _ := json.Marshal(map[string]any{"runId": id, "type": "delta", "kind": "text", "text": text})
+			frames = append(frames, f)
 		}
 		done, _ := json.Marshal(map[string]any{"runId": id, "type": "done", "reason": "stop"})
 		frames = append(frames, done)
