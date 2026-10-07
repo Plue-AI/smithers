@@ -87,6 +87,12 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 		req.Header.Set("Smithers-Via", "smithers")
 		req.Header.Set("Smithers-Actor", "person")
 		req.Header.Set("Smithers-Profile", "app_agent")
+		if strings.HasPrefix(path, "/api/branches/") {
+			// Attribution cannot select a trusted actor or widen its profile.
+			req.Header.Set("Smithers-Via", "smithers")
+			req.Header.Set("Smithers-Actor", "person")
+			req.Header.Set("Smithers-Profile", "full")
+		}
 		if person {
 			req.AddCookie(&http.Cookie{Name: "__csrf", Value: "matrix-csrf"})
 			req.Header.Set("X-CSRF-Token", "matrix-csrf")
@@ -673,6 +679,8 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 		credential, err := issuer.MintForTurn(ctx, users[1].ID, turn, 1)
 		require.NoError(t, err)
 		tokens[1] = credential.Token
+		_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: users[2].ID, Name: "branch-external", TokenHash: hashes[2], TokenLastEight: hashes[2][56:], Scopes: "write:repository,read:user,via:codex", SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+		require.NoError(t, err)
 		head := strings.Repeat("1", 40)
 		branch := "smithers/member-answer"
 		checks := fmt.Sprintf(`{"todo":true,"branch":%q,"foreignHead":%q,"waits":[{"id":"foreign-1","kind":"foreign_push","sha":%q,"prompt":"Outside push","since":"2026-10-06T12:00:00Z"}]}`, branch, head, head)
@@ -681,6 +689,20 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 		path := "/api/branches/smithers%2Fmember-answer"
 		payload := func(op string) string { return fmt.Sprintf(`{"op":%q,"id":"foreign-1","revision":%q}`, op, head) }
 		before := count("approvals")
+		for _, op := range []string{"bring-in", "discard-foreign"} {
+			status, refused := call(2, false, path, "external-"+op, payload(op))
+			require.Equal(t, 403, status, refused)
+			require.Equal(t, "permission", refused["class"])
+			require.Equal(t, "permission", refused["code"])
+		}
+		// A trusted app actor still needs the descriptor's write scope.
+		_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes=$2 WHERE id=$1`, credential.ID, "read:repository,read:user,via:smithers,terminal-session:"+turn+"/1")
+		require.NoError(t, err)
+		status, scoped := call(1, false, path, "read-only-bring-in", payload("bring-in"))
+		require.Equal(t, 403, status, scoped)
+		require.Equal(t, "permission", scoped["code"])
+		_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes=$2 WHERE id=$1`, credential.ID, strings.Join(credential.Scopes, ","))
+		require.NoError(t, err)
 		status, bad := call(1, false, path, "bad-branch-command", payload("merge"))
 		require.Equal(t, 400, status, bad)
 		require.Equal(t, before, count("approvals"))
