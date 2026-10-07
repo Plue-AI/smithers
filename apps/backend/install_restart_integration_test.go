@@ -693,7 +693,7 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 	admitted := post("before-crash")
 	require.Eventually(t, func() bool {
 		var held bool
-		err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND objid=90345506 AND NOT granted)`).Scan(&held)
+		err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_locks WHERE database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND locktype='advisory' AND objid=90345506 AND NOT granted)`).Scan(&held)
 		return err == nil && held
 	}, 10*time.Second, 20*time.Millisecond)
 	var before struct {
