@@ -1004,6 +1004,47 @@ type AdminCreditGrantReceipt struct {
 	Duplicate    bool    `json:"duplicate"`
 }
 
+// ImportedConversationMessage is generated from docs/api/openapi.yaml.
+type ImportedConversationMessage struct {
+	ID            string                           `json:"id"`
+	Origin        string                           `json:"origin"`
+	AgentKind     string                           `json:"agent_kind"`
+	FormatVersion string                           `json:"format_version"`
+	SourceID      string                           `json:"source_id"`
+	SessionID     string                           `json:"session_id"`
+	ParticipantID string                           `json:"participant_id"`
+	Actor         ImportedConversationMessageActor `json:"actor"`
+	ReadOnly      bool                             `json:"read_only"`
+	Role          string                           `json:"role"`
+	Text          string                           `json:"text"`
+	Reasoning     *string                          `json:"reasoning,omitempty"`
+	Act           *string                          `json:"act,omitempty"`
+	CorrelationID *string                          `json:"correlation_id,omitempty"`
+	Status        string                           `json:"status"`
+	CreatedAt     int64                            `json:"createdAt"`
+	Ordinal       int64                            `json:"ordinal"`
+}
+
+// ImportedConversationMessageActor is generated from docs/api/openapi.yaml.
+type ImportedConversationMessageActor struct {
+	Kind       string                                     `json:"kind"`
+	ID         *string                                    `json:"id,omitempty"`
+	Login      *string                                    `json:"login,omitempty"`
+	Name       *string                                    `json:"name,omitempty"`
+	Agent      *string                                    `json:"agent,omitempty"`
+	SessionID  *string                                    `json:"session_id,omitempty"`
+	AvatarURL  string                                     `json:"avatar_url"`
+	ColorIndex int64                                      `json:"color_index"`
+	ForMember  *ImportedConversationMessageActorForMember `json:"for_member,omitempty"`
+}
+
+// ImportedConversationMessageActorForMember is generated from docs/api/openapi.yaml.
+type ImportedConversationMessageActorForMember struct {
+	Login     string `json:"login"`
+	Name      string `json:"name"`
+	AvatarURL string `json:"avatar_url"`
+}
+
 // SavedConversationCursor is generated from docs/api/openapi.yaml.
 type SavedConversationCursor struct {
 	Version  int64  `json:"version"`
@@ -1755,18 +1796,8 @@ type GetAPIAgentConversationsParams struct {
 
 // GetAPIConversationResponse is generated from docs/api/openapi.yaml.
 type GetAPIConversationResponse struct {
-	ID      string                                  `json:"id"`
-	Entries []GetAPIConversationResponseEntriesItem `json:"entries"`
-}
-
-// GetAPIConversationResponseEntriesItem is generated from docs/api/openapi.yaml.
-type GetAPIConversationResponseEntriesItem struct {
-	ID     string    `json:"id"`
-	Author int64     `json:"author"`
-	RunID  string    `json:"runId"`
-	Prompt string    `json:"prompt"`
-	State  string    `json:"state"`
-	Frames []AnyJSON `json:"frames"`
+	ID      string            `json:"id"`
+	Entries []json.RawMessage `json:"entries"`
 }
 
 // PostAPIConversationPromptBody is generated from docs/api/openapi.yaml.

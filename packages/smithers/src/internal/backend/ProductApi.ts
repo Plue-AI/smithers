@@ -552,6 +552,40 @@ export type AdminCreditGrantReceipt = {
   duplicate: boolean
 }
 
+export type ImportedConversationMessage = {
+  id: string
+  origin: "external"
+  agent_kind: "codex" | "claude-code"
+  format_version: string
+  source_id: string
+  session_id: string
+  participant_id: string
+  actor: {
+    kind: "person" | "agent"
+    id?: string
+    login?: string
+    name?: string
+    agent?: "codex" | "claude-code"
+    session_id?: string
+    avatar_url: string
+    color_index: number
+    for_member?: {
+      login: string
+      name: string
+      avatar_url: string
+    }
+  }
+  read_only: true
+  role: "user" | "smithers"
+  text: string
+  reasoning?: string
+  act?: string
+  correlation_id?: string
+  status: "complete" | "failed"
+  createdAt: number
+  ordinal: number
+}
+
 export type SavedConversationCursor = {
   version: 1
   runId: string
@@ -1326,7 +1360,7 @@ export const postApiAgentConversationsReplay = (transport: Transport, input: Pos
 
 export type GetApiConversationResponse = {
   id: string
-  entries: Array<{
+  entries: Array<ImportedConversationMessage | {
     id: string
     author: number
     runId: string

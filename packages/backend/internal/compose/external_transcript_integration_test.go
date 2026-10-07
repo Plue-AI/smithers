@@ -329,8 +329,8 @@ func TestExternalImportCommitReplay(t *testing.T) {
 		directory, file, profile string
 		count                    int
 	}{
-		{"codex-0.160", "rollout.jsonl", "codex/0.160.0", 32},
-		{"claude-code-2.1", "session.jsonl", "claude-code/2.1.0", 36},
+		{"codex-0.160", "rollout.jsonl", "codex-rollout/0.160", 32},
+		{"claude-code-2.1", "session.jsonl", "claude-code/2.1", 36},
 	} {
 		_, sourceFile, _, ok := goruntime.Caller(0)
 		require.True(t, ok)
@@ -338,11 +338,12 @@ func TestExternalImportCommitReplay(t *testing.T) {
 		data, err := os.ReadFile(filepath.Join(root, "packages/smithers/agent/harness/test/fixtures/external", fixture.directory, fixture.file))
 		require.NoError(t, err)
 		sessionBinding.Source = [16]byte{byte(8 + index)}
+		sessionBinding.Participant = [16]byte{byte(3 + index)}
 		sessionBinding.Profile = fixture.profile
 		var offset uint64
 		for _, line := range strings.Split(strings.TrimSuffix(string(data), "\n"), "\n") {
 			end := offset + uint64(len(line)) + 1
-			record := wire.Transcript{Version: 1, Session: 1, Participant: participant, Source: sessionBinding.Source, Profile: fixture.profile, Generation: 1, Start: offset, End: end, Record: line}
+			record := wire.Transcript{Version: 1, Session: 1, Participant: sessionBinding.Participant, Source: sessionBinding.Source, Profile: fixture.profile, Generation: 1, Start: offset, End: end, Record: line}
 			payload, err := wire.EncodeTranscript(record)
 			require.NoError(t, err)
 			event.Seq++
@@ -359,9 +360,6 @@ func TestExternalImportCommitReplay(t *testing.T) {
 		}
 		var imported int
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM chat_turns WHERE request_payload->'external'->>'source_format_version'=$1`, fixture.profile).Scan(&imported))
-		if index == 1 {
-			imported--
-		} // The earlier literal assistant fixture.
 		require.Equal(t, fixture.count, imported)
 	}
 	for _, cookie := range []string{benCookie, aliceCookie} {
@@ -369,7 +367,23 @@ func TestExternalImportCommitReplay(t *testing.T) {
 		require.Contains(t, history, "How do I use ultrafast")
 		require.Contains(t, history, "exec-72424bde-7b89-43fe-9962-8fe21e4a3d4b")
 		require.Contains(t, history, "toolu_01JD3dL8cHy7FW7iBubC6yjY")
+		require.Contains(t, history, `"participant_id":"03000000-0000-0000-0000-000000000000"`)
+		require.Contains(t, history, `"participant_id":"04000000-0000-0000-0000-000000000000"`)
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM chat_turns WHERE NOT terminal`).Scan(&entries))
+		require.Zero(t, entries)
 		require.Contains(t, history, `"read_only":true`)
+		_, sourceFile, _, ok := goruntime.Caller(0)
+		require.True(t, ok)
+		root := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "../../../.."))
+		// Decode the actual authenticated HTTP response with the app's existing
+		// seam; no fake message projection is injected at this boundary.
+		bun, err := exec.LookPath("bun")
+		require.NoError(t, err)
+		check := exec.CommandContext(t.Context(), bun, "-e", `import { SharedConversationSchema } from "./apps/app/src/mainview/state/seams/SharedConversationSeam.ts"; const conversation = SharedConversationSchema.parse(JSON.parse(await Bun.stdin.text())); if (conversation.entries.length !== 69) throw new Error("lost imported history"); for (const row of conversation.entries) { if (row.origin !== "external" || row.read_only !== true || row.turnId !== undefined || row.runId !== undefined) throw new Error("executable imported history"); }`)
+		check.Dir = root
+		check.Stdin = strings.NewReader(history)
+		output, err := check.CombinedOutput()
+		require.NoError(t, err, string(output))
 	}
 }
 
