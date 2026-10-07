@@ -215,8 +215,13 @@ func TestGitHubIndividualPullUsesExistingFollowWithoutEffects(t *testing.T) {
 	stack := NewMythicalService(pool, nil)
 	stack.UseInstallGitHubPolling(s)
 	now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
-	step := &mythicalItemStep{s: stack, now: now}
+	step := &mythicalItemStep{s: stack, q: q, now: now}
 	item := db.MythicalItem{RepositoryID: repo.ID, State: "proposed", PRNumber: pgtype.Int8{Int64: 7, Valid: true}, PRHead: "original", Checks: json.RawMessage(`{"foreignHead":"held"}`)}
+	stored, _, err := q.InsertMythicalItem(t.Context(), item)
+	require.NoError(t, err)
+	stored.PRNumber, stored.PRHead = item.PRNumber, item.PRHead
+	item, err = q.SaveMythicalItem(t.Context(), stored)
+	require.NoError(t, err)
 	for range 2 {
 		next, saved, err := step.advance(t.Context(), item)
 		require.NoError(t, err)
