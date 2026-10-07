@@ -45,7 +45,10 @@ for (const [repository, checks] of [
     await expect.poll(() => !!publish).toBe(true)
     model = { ...model, steps: model.steps.map(step => step.id === "machine" ? { ...step, state: "failed", error: { class: "user", code: "layer_failed", message: "Dependency install failed" } } : step) }
     publish!()
-    await expect(page.getByRole("region", { name: "Set up Smithers" }).getByRole("alert")).toContainText("Dependency install failed")
+    const setup = page.getByRole("region", { name: "Set up Smithers" })
+    await expect(setup.getByRole("alert")).toHaveText("user")
+    await setup.getByText("Details", { exact: true }).click()
+    await expect(setup.getByRole("region", { name: "Failure details" })).toContainText("Dependency install failed")
     await sourceReady(page)
     model = { ...model, steps: model.steps.map(step => step.id === "machine" ? { id: step.id, state: "done", pct: 100 } : step) }
     publish!()
