@@ -1043,7 +1043,7 @@ describe("Forensics runaway incidents", () => {
     expect(decided).not.toContain("Stop      ")
   })
 
-  it("runs Continue and Stop as the exact argv of real commands, however hostile the run id", () => {
+  it("runs Continue and Stop as the exact argv of real commands, however hostile the run id", async () => {
     const runId = "run-'id\n$(printf changed)\n`printf changed`"
     const d: Forensics.Digest = {
       ...Forensics.digest([]),
@@ -1057,12 +1057,18 @@ describe("Forensics runaway incidents", () => {
       card.slice(card.indexOf(name.padEnd(10)) + 10, card.indexOf(`\n${next.padEnd(10)}`))
     expect(recordArguments(between("Continue", "Stop"))).toEqual([["runs", "continue", runId]])
     expect(recordArguments(between("Stop", "Next"))).toEqual([["runs", "stop", runId]])
-    // Both verbs are commands the CLI registers.
-    const registered = new Set(
-      (JSON.parse(readFileSync(join(import.meta.dirname, "../../../apps/site/src/data/cli-commands.json"), "utf8")) as {
-        commands: ReadonlyArray<{ name: string }>
-      }).commands.map((command) => command.name)
-    )
-    for (const verb of ["runs continue", "runs stop", "runs cancel"]) expect(registered.has(verb)).toBe(true)
+    // Recovery commands remain callable for library runs. The install's
+    // discovery manifest intentionally lists only the MVP command surface.
+    const { Cli } = await import("incur")
+    const { makeCli } = await import("../src/Cli.ts")
+    const { installCommandPaths } = await import("../src/internal/backend/InstallDiscovery.ts")
+    const cli = makeCli({ environment: {} })
+    const runs = Cli.toCommands.get(cli as never)?.get("runs")
+    if (runs === undefined || !("_group" in runs)) throw new Error("the CLI has no runs command group")
+    const discovered = new Set(installCommandPaths(cli))
+    for (const verb of ["continue", "stop", "cancel"]) {
+      expect(runs.commands.get(verb)).toMatchObject({ run: expect.any(Function) })
+      expect(discovered.has(`runs ${verb}`)).toBe(false)
+    }
   })
 })

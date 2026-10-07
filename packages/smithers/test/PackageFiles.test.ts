@@ -22,6 +22,7 @@ describe("package files", () => {
     const missing: string[] = []
     for (const source of sources(join(root, "src"))) {
       for (const [, specifier] of readFileSync(source, "utf8").matchAll(jsonImport)) {
+        if (specifier === undefined) throw new Error(`JSON import has no specifier in ${source}`)
         const target = relative(join(root, "src"), resolve(dirname(source), specifier))
         for (const flavor of ["esm", "cjs"]) {
           const shipped = `dist/${flavor}/${target}`
