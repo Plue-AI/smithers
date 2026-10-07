@@ -903,7 +903,7 @@ export const SessionSchema = z.object({
   }).strict()).optional(),
   /* Wiki refreshes asked of a repository's stack (StackSeam.refreshWiki): each notice reconnects after a reload until the Wiki settles. */
   branchArchiveRequests: z.array(z.object({ id:z.string(), owner:z.string(), branch:z.string(), state:z.enum(["requested","completed","failed"]), error:z.string().optional() }).strict()).optional(),
-  githubSyncRequest: z.object({ id: z.string(), owner: z.string(), lastSuccessAt: z.string().nullable(), phase: z.enum(["requested", "running", "failed"]), error: z.string().optional() }).optional(),
+  githubSyncRequest: z.object({ id: z.string(), owner: z.string(), lastSuccessAt: z.string().nullable(), phase: z.enum(["requested", "running", "failed"]), error: z.string().optional(), mainReset: z.object({ id: z.string().min(1), old: z.string().regex(/^[0-9a-f]{40}$/), new: z.string().regex(/^[0-9a-f]{40}$/) }).optional() }).optional(),
   homeBackgroundRequests: z.array(z.object({
     key: z.string(), owner: z.string(), id: z.string(), op: z.enum(["retry", "dismiss"]),
     state: z.enum(["requested", "running", "completed", "failed"]), run_id: z.number().int().positive().optional(), error: z.string().optional()

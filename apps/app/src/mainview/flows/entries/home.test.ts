@@ -13,14 +13,14 @@ import { modelInvocable, nameOf } from "../registry"
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 import { fixtures } from "../../../../../../packages/rpc/test/fixtures/Todo"
 
-const boot = async (options: { readonly bootstrap?: AppBootstrap; readonly fetch?: (url: string, init?: RequestInit) => Response | Promise<Response> | undefined } = {}) => {
+const boot = async (options: { readonly bootstrap?: AppBootstrap; readonly fetch?: (url: string, init?: RequestInit) => Response | undefined | Promise<Response | undefined> } = {}) => {
   const storage = memoryStorage()
   const store = await createAppStore({ kind: "localStorage", storage })
   const requests: string[] = []
   const profile = signupProfileFetch(async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
     requests.push(`${init?.method ?? "GET"} ${new URL(url, "http://local.test").pathname}`)
-    return options.fetch?.(url, init) ?? new Response("{}", { status: 404 })
+    return (await options.fetch?.(url, init)) ?? new Response("{}", { status: 404 })
   })
   const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl, ...(options.bootstrap ? { bootstrap: options.bootstrap } : {}) })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maya", admin: false, scopesPlain: null }).isPersisted.promise
@@ -382,4 +382,80 @@ test("install background failure keeps transport details out of the durable requ
     await waitFor(() => [...h.store.collections.toasts.values()].some(row => row.key.startsWith("background.") && row.status === "failed"))
     expect(JSON.stringify([...h.store.collections.toasts.values()])).not.toContain("RAW PRIVATE TRANSPORT TRACE")
   } finally { await h.controller.dispose() }
+})
+
+test("main reset is an owner-only typed flow; agents cannot act or ask for confirmation", async () => {
+  const h = await boot()
+  const binding = { id: "force-19", old: "1".repeat(40), new: "2".repeat(40) }
+  try {
+    const entry = h.controller.commands.entries().find(each => nameOf(each) === "main.reset-to-github")!
+    expect(entry.metadata).toMatchObject({ agent: "never", minimumRole: "owner", visibility: "in-card", actors: ["person"], http: { method: "POST", path: "/api/stack/attention/{id}" } })
+    expect(modelInvocable(entry)).toBe(false)
+    const before = h.requests.length
+    expect(await h.controller.commands.runForAgent("main.reset-to-github", JSON.stringify(binding))).toMatchObject({ status: "failed", error: expect.stringContaining("Only a person") })
+    expect(h.requests.slice(before).filter(each => each.startsWith("POST"))).toEqual([])
+    expect([...h.store.collections.messages.values()].filter(each => each.action?.flow === "main.reset-to-github")).toEqual([])
+  } finally { h.controller.dispose() }
+})
+
+test("the owner reset flow persists and acknowledges before HTTP, with one bound POST", async () => {
+  const bootstrap: AppBootstrap = { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["identity", "install"], authFlow: "redirect", sandbox: null }
+  const binding = { id: "force-19", old: "1".repeat(40), new: "2".repeat(40) }
+  let health = { state: "stale", last_success_at: "2026-10-06T00:00:00Z" }
+  let release!: (response: Response) => void
+  const posts: RequestInit[] = []
+  const h = await boot({ bootstrap, fetch: (url, init) => {
+    if (url.endsWith("/api/members")) return Response.json({ members: [{ login: "maya", name: "Maya", avatar_url: "https://github.com/avatar.png", color_index: 0, role: "owner", suspended: false, needs_access: false, actions: [] }], access_url: "https://github.com/acme/app/settings/access" })
+    if (url.endsWith("/api/github/sync")) return Response.json(health)
+    if (url.endsWith("/api/stack/attention/force-19") && init?.method === "POST") { posts.push(init); return new Promise<Response>(resolve => { release = resolve }) }
+    return undefined
+  } })
+  const stop = h.controller.githubSyncSnapshots.subscribe(() => {})
+  try {
+    await waitFor(() => h.controller.githubSyncSnapshots.get()?.state === "stale" && h.controller.membersRoster.get().model?.members[0]?.role === "owner")
+    expect(await button(h, "main.reset-to-github", binding)).toEqual({ status: "executed", value: "Reset requested" })
+    expect(h.store.session().githubSyncRequest?.mainReset).toEqual(binding)
+    expect(await button(h, "main.reset-to-github", binding)).toEqual({ status: "executed", value: "Reset requested" })
+    await waitFor(() => posts.length === 1)
+    expect(JSON.parse(String(posts[0]!.body))).toEqual({ old: binding.old, new: binding.new })
+    expect(new Headers(posts[0]!.headers).get("Idempotency-Key")).toBe(h.store.session().githubSyncRequest!.id)
+    // The unrelated read remains usable while the network request is unresolved.
+    expect((await slash(h, "github")).status).toBe("executed")
+    expect(h.store.session().githubSyncRequest?.phase).toBe("requested")
+    release(Response.json({ state: "settled" }))
+    await waitFor(() => h.store.session().githubSyncRequest === undefined)
+    expect(health.state).toBe("stale") // Reset's bound settled receipt completed it, not an unrelated health delta.
+  } finally { stop(); h.controller.dispose() }
+}, 20_000)
+
+
+test("an install reconnects its persisted running reset after controller restart without a second POST", async () => {
+  const storage = memoryStorage()
+  const first = await createAppStore({ kind: "localStorage", storage })
+  await first.dispatch({ type: "github.sync.request.changed", actor: "system", request: {
+    id: "recovered-reset", owner: "maya", phase: "running", lastSuccessAt: "2026-10-06T00:00:00Z", mainReset: { id: "force-19", old: "1".repeat(40), new: "2".repeat(40) }
+  } }).isPersisted.promise
+  const store = await createAppStore({ kind: "localStorage", storage })
+  expect(store.session().githubSyncRequest?.id).toBe("recovered-reset")
+  expect(store.session().githubSyncRequest?.mainReset).toEqual({ id: "force-19", old: "1".repeat(40), new: "2".repeat(40) })
+  const calls: string[] = []
+  const fetchImpl = signupProfileFetch(async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+    if (url.endsWith("/api/github/sync")) {
+      calls.push(init?.method ?? "GET")
+      return Response.json({ state: "fresh", last_success_at: "2026-10-06T00:01:00Z" })
+    }
+    return new Response("{}", { status: 404 })
+  }).fetchImpl
+  const bootstrap: AppBootstrap = { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["identity", "install"], authFlow: "redirect", sandbox: null }
+  const controller = createAppController(store, unavailableAgent, { fetchImpl, bootstrap })
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maya", admin: false, scopesPlain: null }).isPersisted.promise
+    await waitFor(() => store.session().githubSyncRequest === undefined)
+    expect(calls.length).toBeGreaterThan(0)
+    expect(calls.every(method => method === "GET")).toBe(true)
+    await store.settled?.()
+    const recovered = await createAppStore({ kind: "localStorage", storage })
+    expect(recovered.session().githubSyncRequest).toBeUndefined()
+  } finally { controller.dispose() }
 })
