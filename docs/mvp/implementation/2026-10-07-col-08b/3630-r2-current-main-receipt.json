@@ -1,0 +1,88 @@
+{
+  "ticket": "T-COL-08b",
+  "issue": 3630,
+  "lane": "fr7-t-col-08b-r2",
+  "tested_revision": "b10e811b598016232add2468343fd4c738a44e0f",
+  "scope": "Component verification through composed /api/live with PostgreSQL and fake daemon; no real-Mac, microVM, durability or latency acceptance. No product code changed.",
+  "unlanded_recovery_branch": "Absent: git ls-remote --heads origin fr-unlanded/fr7-t-col-08b returned no refs.",
+  "checks": [
+    {
+      "cwd": "packages/backend",
+      "command": "export LANE=fr7-t-col-08b-r2; source ~/lanes/env.sh; export SMITHERS_TEST_DATABASE_URL='postgres://smithers@127.0.0.1:55440/postgres?sslmode=disable'; export SMITHERS_FFI_LIBRARY_PATH=/home/lane/.cache/cargo-target-gate/debug/libsmithers_ffi.so; go test ./internal/compose -run '^TestDocRelay' -count=1 -v",
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0,
+      "output": [
+        "--- PASS: TestDocRelayWireContract (1.75s)",
+        "--- PASS: TestDocRelayAuthorization (3.27s)",
+        "    --- PASS: TestDocRelayAuthorization/foreign_client (1.71s)",
+        "    --- PASS: TestDocRelayAuthorization/authors_map (1.56s)",
+        "--- PASS: TestDocRelayMirrorRecovery (1.66s)",
+        "--- PASS: TestDocRelayDarkLanding (8.89s)",
+        "    --- PASS: TestDocRelayDarkLanding/host (1.62s)",
+        "    --- PASS: TestDocRelayDarkLanding/authorizer (1.72s)",
+        "    --- PASS: TestDocRelayDarkLanding/connection (1.73s)",
+        "    --- PASS: TestDocRelayDarkLanding/daemon (1.81s)",
+        "    --- PASS: TestDocRelayDarkLanding/wiki (2.01s)",
+        "--- PASS: TestDocRelayDataOnly (1.79s)",
+        "--- PASS: TestDocRelayRevocation (3.73s)",
+        "    --- PASS: TestDocRelayRevocation/startup (1.75s)",
+        "    --- PASS: TestDocRelayRevocation/admitted (1.98s)",
+        "--- PASS: TestDocRelayBackpressure (2.18s)",
+        "--- PASS: TestDocRelaySharedMirror (1.82s)",
+        "--- PASS: TestDocRelayRebuildBarrier (1.95s)",
+        "--- PASS: TestDocRelayReconnectUnreceipted (3.39s)",
+        "--- PASS: TestDocRelayAuthorizationAwareness (2.26s)",
+        "--- PASS: TestDocRelayEpochResync (2.18s)",
+        "--- PASS: TestDocRelayReplacementBootDiscardsOldActorCache (3.30s)",
+        "ok  \tgithub.com/smithersai/smithers/packages/backend/internal/compose\t40.092s"
+      ],
+      "passed_including_subtests": 22
+    },
+    {
+      "cwd": ".",
+      "command": "export LANE=fr7-t-col-08b-r2; source ~/lanes/env.sh; cargo test -p smithers-machined --test golden",
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0,
+      "output": [
+        "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s"
+      ]
+    },
+    {
+      "cwd": "packages/rpc",
+      "command": "export LANE=fr7-t-col-08b-r2; source ~/lanes/env.sh; pnpm exec vitest run test/LiveDoc.test.ts",
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0,
+      "output": [
+        "      Tests  8 passed (8)"
+      ]
+    }
+  ],
+  "remaining": [
+    {
+      "item": "Conditional relay-only path",
+      "status": "pending decision",
+      "source": "docs/architecture/0003-live-code-co-editing.md:19",
+      "reason": "ADR remains proposed and delegates topology to T-COL-11. Spike recommendation does not constitute acceptance; no topology selected here."
+    },
+    {
+      "item": "C-J3-04, C-DUR-04 K7, C-PERF-03",
+      "status": "pending reference host",
+      "source": ".specs/engineering/tickets/T-COL-08.md:38",
+      "reason": "Real Mac/microVM evidence belongs to T-COL-08; Mac mini offline. file-coedit.spec.ts and machined/fault_test.go still absent; scripts/perf/keystroke.mjs exists."
+    },
+    {
+      "item": "T-COL-11 topology/security qualification",
+      "status": "pending owner/reference host",
+      "source": ".specs/engineering/tickets/T-COL-11.md:62"
+    },
+    {
+      "item": "C-COL-01 stale restore UI",
+      "status": "pending providers",
+      "source": "apps/app/e2e/playwright/spec/C-COL-01.spec.ts:7",
+      "reason": "Relay component rerun does not supply restore/multiple-file providers; fixme retained."
+    }
+  ]
+}
