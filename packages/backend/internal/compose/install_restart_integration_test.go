@@ -39,7 +39,8 @@ import (
 
 // This child is the compiled Go host with the production setup router, job
 // worker and readiness persistence. The external mirror/image service is an
-// independent idempotent fixture; this does not certify microVM isolation.
+// independent idempotent fixture with filesystem artifacts; this does not
+// certify microVM isolation or execute an image recipe.
 func TestInstallRestartHostProcess(t *testing.T) {
 	raw := os.Getenv("SMITHERS_RESTART_CHILD_DATABASE")
 	if raw == "" {
@@ -132,6 +133,7 @@ func TestInstallCompiledHostKillRecoveryHTTPPostgres(t *testing.T) {
 				mirrorRoot := t.TempDir()
 				upstream := filepath.Join(mirrorRoot, "upstream.git")
 				mirror := filepath.Join(mirrorRoot, "mirror.git")
+				imagePath := filepath.Join(mirrorRoot, "published-main-image")
 				if step == "source" {
 					restartGit(t, "init", "--bare", upstream)
 					tree := restartGit(t, "--git-dir="+upstream, "mktree")
@@ -140,8 +142,10 @@ func TestInstallCompiledHostKillRecoveryHTTPPostgres(t *testing.T) {
 					var repoID int64
 					require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name,default_bookmark) VALUES($1,'app','app','main') RETURNING id`, owner.ID).Scan(&repoID))
 					require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "repository", Value: []byte(`"restartowner/app"`)}))
-					restartGitHub(t, setup)
 				}
+				// Both steps run with sealed App credentials present, so image
+				// recovery must also keep them off its observable surfaces.
+				restartGitHub(t, setup)
 				var hostLogs []string
 				var mu sync.Mutex
 				artifacts := map[string]bool{}
@@ -158,6 +162,13 @@ func TestInstallCompiledHostKillRecoveryHTTPPostgres(t *testing.T) {
 						if err != nil {
 							mu.Unlock()
 							http.Error(w, string(output), 500)
+							return
+						}
+					}
+					if !artifacts[r.URL.Path] && step == "machine" {
+						if err := os.WriteFile(imagePath, []byte(r.URL.Path), 0600); err != nil {
+							mu.Unlock()
+							http.Error(w, "image publication failed", 500)
 							return
 						}
 					}
@@ -209,6 +220,7 @@ func TestInstallCompiledHostKillRecoveryHTTPPostgres(t *testing.T) {
 					require.Eventually(t, func() bool { value, err := os.ReadFile(ready); origin = string(value); return err == nil }, 15*time.Second, 20*time.Millisecond, "compiled host did not start; log: %s", logPath)
 					return origin, stop
 				}
+				var responses []string
 				request := func(origin, method, key string) []byte {
 					req, err := http.NewRequestWithContext(ctx, method, origin+"/api/install"+map[string]string{"POST": "/setup/" + step}[method], strings.NewReader(`{}`))
 					require.NoError(t, err)
@@ -229,6 +241,7 @@ func TestInstallCompiledHostKillRecoveryHTTPPostgres(t *testing.T) {
 						expected = 202
 					}
 					require.Equal(t, expected, response.StatusCode, string(body))
+					responses = append(responses, string(body))
 					return body
 				}
 				origin, stop := start(boundary == "running admission")
@@ -244,6 +257,11 @@ func TestInstallCompiledHostKillRecoveryHTTPPostgres(t *testing.T) {
 				} else {
 					select {
 					case <-published:
+						if step == "machine" {
+							artifact, err := os.ReadFile(imagePath)
+							require.NoError(t, err)
+							require.NotEmpty(t, artifact, "image is published before host termination")
+						}
 						old.OperationID = admitted.OperationID
 						require.NoError(t, pool.QueryRow(ctx, `SELECT generation,claim_token,worker_id,attempt FROM product_job_dispatches WHERE operation_id=$1`, admitted.OperationID).Scan(&old.Generation, &old.Token, &old.WorkerID, &old.Attempt))
 					case <-time.After(15 * time.Second):
@@ -286,6 +304,12 @@ func TestInstallCompiledHostKillRecoveryHTTPPostgres(t *testing.T) {
 				require.GreaterOrEqual(t, attempt, 2)
 				if step == "machine" {
 					require.Equal(t, "published-main-image", layer)
+					artifact, err := os.ReadFile(imagePath)
+					require.NoError(t, err)
+					var revision string
+					require.NoError(t, pool.QueryRow(ctx, `SELECT value->>'revision' FROM install_settings WHERE key='setup.step.machine'`).Scan(&revision))
+					require.Equal(t, "0123456789abcdef0123456789abcdef01234567", revision)
+					require.Equal(t, "/"+revision, string(artifact), "recovery reuses the published main image")
 				} else {
 					require.Equal(t, restartGit(t, "--git-dir="+upstream, "rev-parse", "refs/heads/main"), restartGit(t, "--git-dir="+mirror, "rev-parse", "refs/heads/main"))
 					var receipt string
@@ -310,14 +334,21 @@ func TestInstallCompiledHostKillRecoveryHTTPPostgres(t *testing.T) {
 				stopRecovered()
 				// Host API, durable job projections and captured process output must never
 				// reveal the sealed App credential used by the real owner verifier.
-				if step == "source" {
+				{
 					codec, err := webhook.NewSecretCodec("restart-sealing-key")
 					require.NoError(t, err)
 					credential, err := services.NewGitHubAppCredentialStore(pool, codec).Load(ctx)
 					require.NoError(t, err)
 					var projection string
 					require.NoError(t, pool.QueryRow(ctx, `SELECT coalesce(string_agg(data::text,E'\n'),'') FROM product_job_events WHERE operation_id=$1`, operation).Scan(&projection))
-					surfaces := []string{string(before.Value), projection}
+					var dispatch string
+					require.NoError(t, pool.QueryRow(ctx, `SELECT coalesce(external_receipt::text,'') FROM product_job_dispatches WHERE operation_id=$1`, operation).Scan(&dispatch))
+					surfaces := append(responses, string(before.Value), projection, dispatch)
+					if step == "machine" {
+						artifact, err := os.ReadFile(imagePath)
+						require.NoError(t, err)
+						surfaces = append(surfaces, string(artifact))
+					}
 					for _, path := range hostLogs {
 						bytes, err := os.ReadFile(path)
 						require.NoError(t, err)
@@ -327,6 +358,9 @@ func TestInstallCompiledHostKillRecoveryHTTPPostgres(t *testing.T) {
 						for _, secret := range []string{credential.ClientSecret, credential.WebhookSecret, credential.PEM} {
 							require.NotEmpty(t, secret)
 							require.NotContains(t, surface, secret)
+							encoded, err := json.Marshal(secret)
+							require.NoError(t, err)
+							require.NotContains(t, surface, string(encoded[1:len(encoded)-1]), "JSON-escaped secrets must also stay sealed")
 						}
 					}
 				}
