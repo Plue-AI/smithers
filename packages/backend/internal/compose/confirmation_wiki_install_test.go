@@ -17,6 +17,7 @@ import (
 )
 
 func TestConfirmWikiDeleteComposedInstall(t *testing.T) {
+	confirmationNativeLibrary(t)
 	_, _, pool := splitProcessDatabase(t)
 	q, ctx := db.New(pool), t.Context()
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "wiki-owner", LowerUsername: "wiki-owner", DisplayName: "Owner"})
