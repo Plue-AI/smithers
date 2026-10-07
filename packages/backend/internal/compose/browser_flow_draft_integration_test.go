@@ -74,6 +74,14 @@ func TestBrowserFlowDraftComposedAdmission(t *testing.T) {
 	authority, err := dispatcher.resolver.ResolveFlowHostTarget(t.Context(), target)
 	require.NoError(t, err)
 	require.Nil(t, authority.ExecutionPin)
+	require.NotNil(t, dispatcher.spec)
+	require.Equal(t, "1", dispatcher.spec.Environment["SMITHERS_FLOW_DRAFT_VERSION"])
+	require.Equal(t, "1", dispatcher.spec.Environment["SMITHERS_CODING_LOCAL_OWNER"])
+	require.NotContains(t, dispatcher.spec.Environment, "SMITHERS_FLOW_SOURCE_PINNED")
+	require.NotContains(t, dispatcher.spec.Environment, "SMITHERS_TODO_EXECUTION_DIGEST")
+	var draftItems int
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM mythical_items WHERE repository_id=$1`, b.repo.ID).Scan(&draftItems))
+	require.Zero(t, draftItems, "planning a working-copy TODO must not place work on the stack")
 	// A stale draft target cannot keep its authority after branch conversion.
 	b.exec(`UPDATE workspaces SET target_bookmark='smithers/filed' WHERE id=$1`, box)
 	_, err = dispatcher.resolver.ResolveFlowHostTarget(t.Context(), target)
@@ -113,13 +121,19 @@ func (d *draftAuthorityDispatcher) CallRPC(ctx context.Context, target flowrunti
 	if err != nil {
 		return nil, err
 	}
-	if authority.ExecutionPin != nil {
+	if authority.ExecutionPin != nil || target.BindingKind == "draft-flow" {
 		// The machine transport is a fixture; pin resolution and production
 		// launch assembly are real, and must refuse before any machine RPC.
+		sourceRevision := authority.SourceRevision
+		if sourceRevision == "" {
+			// Draft authority leaves revision selection to the installed
+			// host binding; it never supplies a TODO execution pin.
+			sourceRevision = strings.Repeat("d", 40)
+		}
 		spec, err := flowhost.BuildProcessSpec(flowhost.HostLaunch{
 			Binding: flowhost.Binding{ID: uuid.NewString(), TenantID: target.TenantID, PrincipalID: target.PrincipalID,
 				BindingKind: target.BindingKind, BindingID: target.BindingID, RepositoryID: authority.RepositoryID, UserID: authority.UserID,
-				WorkspaceID: authority.WorkspaceID, SourceRevision: authority.SourceRevision, CatalogKey: flowhost.CatalogCoding,
+				WorkspaceID: authority.WorkspaceID, SourceRevision: sourceRevision, CatalogKey: flowhost.CatalogCoding,
 				RuntimeArtifactDigest: strings.Repeat("c", 64), OwnerGeneration: 1, State: "pending"},
 			Authority: authority, Credential: "test-bearer",
 			Catalog: flowhost.Catalog{Key: flowhost.CatalogCoding, Family: flowhost.CatalogCoding, Executable: "/opt/smithers/coding-host", ArtifactDigest: strings.Repeat("c", 64)},

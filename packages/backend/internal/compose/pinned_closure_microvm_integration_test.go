@@ -176,6 +176,14 @@ export default Flow.make("todo", {
 	require.NoError(t, err)
 	require.Equal(t, retried.Run.Attempt+1, current.Run.Attempt)
 	assertLivePin(a, current, commit2, digest2)
+	// Pin metadata alone cannot prove that Retry-current loaded the new
+	// immutable helper. Require the literal result from both v2 machines.
+	for _, card := range []rehearsalTodo{second, current} {
+		_, err = socket.wait("run:"+card.Run.ID, 5*time.Minute, func(frame liveFrame) bool {
+			return strings.Contains(string(frame.Data), "approved-v2")
+		})
+		require.NoError(t, err, "new admission and Retry-current must execute the v2 helper")
+	}
 	preserved := false
 	for _, evidence := range current.Evidence {
 		if evidence.Attempt == int32(first.Run.Attempt) && evidence.FlowDigest == digest1 && evidence.SourceCommit == commit1 {
@@ -183,4 +191,80 @@ export default Flow.make("todo", {
 		}
 	}
 	require.True(t, preserved, "Retry-current must retain earlier attempt evidence")
+}
+
+// The built-in composition contains the qualified pause boundary. Use it
+// rather than relaxing production Stop's digest allowlist for an override.
+func TestPinnedClosureMicroVMStopResume(t *testing.T) {
+	t.Setenv("SMITHERS_FEATURE_FLAGS_FLOW_LOAD", "true")
+	r := newRehearsal(t, pinnedMicroVMRehearsal, "T-FLW-04", "pinned-controls-vm-")
+	require.True(t, r.install("Install through Machine ready"))
+	number, err := r.file("Keep the stopped version", "[HOLD pinned-stop] [FILE pinned-resume.md] Add a greeting to pinned-resume.md")
+	require.NoError(t, err)
+	require.NoError(t, r.waitHeld("pinned-stop", 8*time.Minute))
+	waiting, err := r.waitTodoWithin(number, time.Minute, "working")
+	require.NoError(t, err)
+	require.NotNil(t, waiting.Run)
+	require.NotNil(t, waiting.FlowVersion)
+	require.Empty(t, waiting.Waits)
+	_, err = r.expect("POST", fmt.Sprintf("/api/todos/%d", number), `{"op":"stop"}`, 202)
+	require.NoError(t, err)
+	// Stop is cooperative. Release the held model turn so the original
+	// composition reaches its next durable boundary inside the real guest.
+	require.NoError(t, r.release("pinned-stop"))
+	paused, err := r.waitTodoWithin(number, 8*time.Minute, "paused")
+	require.NoError(t, err)
+	require.NotNil(t, paused.Run)
+	require.Equal(t, waiting.Run.ID, paused.Run.ID)
+	require.Equal(t, waiting.FlowVersion, paused.FlowVersion)
+	commit2, digest2 := activateWatchdogOverride(t, r, `import { Flow } from "@smthrs/flow"
+import { Node } from "@smthrs/plan"
+import { Schema } from "effect"
+export default Flow.make("todo", {
+ description: "New Active must not replace a paused run", capabilities: [], modelInvocable: false,
+ effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "sealed" },
+ payload: {}, success: Schema.String,
+ body: () => Node.succeed("wrong-active-version")
+})`)
+	require.NotEqual(t, waiting.FlowVersion.Digest, digest2)
+	_, err = r.expect("POST", fmt.Sprintf("/api/todos/%d", number), `{"op":"resume"}`, 202)
+	require.NoError(t, err)
+	finished, err := r.waitTodoWithin(number, 8*time.Minute, "in_review")
+	require.NoError(t, err)
+	require.NotNil(t, finished.Run)
+	require.NotNil(t, finished.PR)
+	require.Equal(t, waiting.Run.ID, finished.Run.ID)
+	require.Equal(t, waiting.Run.Attempt, finished.Run.Attempt)
+	require.Equal(t, waiting.FlowVersion, finished.FlowVersion)
+	pull, err := r.checkPull(finished.PR.Number, finished.PR.Head)
+	require.NoError(t, err)
+	files, err := r.prFiles(pull)
+	require.NoError(t, err)
+	require.Equal(t, []string{"pinned-resume.md"}, files, "Resume must execute the original coding composition")
+	socket, err := r.openLive(r.jar)
+	require.NoError(t, err)
+	defer socket.stop()
+	for _, topic := range []string{fmt.Sprintf("todo:%d", number), "run:" + finished.Run.ID} {
+		_, err = socket.subscribe(topic)
+		require.NoError(t, err)
+		frame, err := socket.wait(topic, 30*time.Second, func(frame liveFrame) bool {
+			var view struct {
+				Version struct {
+					Digest string `json:"digest"`
+					Commit string `json:"source_commit"`
+				} `json:"flow_version"`
+			}
+			return json.Unmarshal(frame.Data, &view) == nil && view.Version.Digest == waiting.FlowVersion.Digest && view.Version.Commit == waiting.FlowVersion.SourceCommit
+		})
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "resumed-"+topic[:3]+".json"), frame.Data, 0600))
+	}
+	// A fresh TODO is the positive control for the newer Active provider.
+	newNumber, err := r.file("Use the new Active", "Return the new version")
+	require.NoError(t, err)
+	newTodo, err := r.waitTodoWithin(newNumber, 8*time.Minute, "failed")
+	require.NoError(t, err)
+	require.NotNil(t, newTodo.FlowVersion)
+	require.Equal(t, digest2, newTodo.FlowVersion.Digest)
+	require.Equal(t, commit2, newTodo.FlowVersion.SourceCommit)
 }
