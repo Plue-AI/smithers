@@ -168,14 +168,22 @@ func (r *machineRoster) start(ctx context.Context, bus *revocation.Bus) func() {
 }
 
 func readMachineMembers(ctx context.Context, tx pgx.Tx, branch string) ([]machined.SessionUser, error) {
+	// Freeze allocations before locking linked users: invited GitHub writers
+	// can be provisioned before login, but a linked inactive user cannot enter.
+	if _, err := tx.Exec(ctx, `SELECT c.id FROM collaborators c JOIN workspaces w ON w.repository_id=c.repository_id WHERE w.id=$1::uuid FOR SHARE OF c,w`, branch); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, `SELECT u.id FROM users u JOIN collaborators c ON c.user_id=u.id JOIN workspaces w ON w.repository_id=c.repository_id WHERE w.id=$1::uuid FOR SHARE OF u`, branch); err != nil {
+		return nil, err
+	}
 	rows, err := tx.Query(ctx, `SELECT c.unix_login,c.unix_uid FROM collaborators c
  JOIN workspaces w ON w.repository_id=c.repository_id
- JOIN users u ON u.id=c.user_id
+ LEFT JOIN users u ON u.id=c.user_id
  WHERE w.id=$1::uuid AND c.suspended_at IS NULL
  AND (c.github_id IS NOT NULL OR c.user_id IS NOT NULL)
  AND c.permission IN ('admin','write') AND coalesce(u.prohibit_login,false)=false
- AND u.is_active AND u.deleted_at IS NULL
- ORDER BY c.unix_uid FOR SHARE OF c,u,w`, branch)
+ AND (c.user_id IS NULL OR (u.is_active AND u.deleted_at IS NULL))
+ ORDER BY c.unix_uid FOR SHARE OF c,w`, branch)
 	if err != nil {
 		return nil, err
 	}
