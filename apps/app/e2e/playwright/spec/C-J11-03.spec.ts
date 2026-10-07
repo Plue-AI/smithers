@@ -6,6 +6,8 @@ import { say } from "./j1-fixtures"
 // Browser proof of the production command/card/seam wiring. PostgreSQL and
 // credential refusals are exercised by model_routes_owner_test.go.
 test("C-J11-03: the owner switches the reviewer model immediately", async ({ page }) => {
+ // Plain-HTTP LAN browsers expose getRandomValues, but not randomUUID.
+ await page.addInitScript(() => Object.defineProperty(crypto, "randomUUID", { configurable: true, value: undefined }))
  await installCloudFixture(page, { capabilities: ["agent", "identity", "install"] })
  await page.route("**/api/public/repos", route => route.fulfill({ json: { repos: [] } }))
  await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
@@ -67,6 +69,7 @@ test("C-J11-03: the owner switches the reviewer model immediately", async ({ pag
  await expect(record.getByRole("button", { name: "Test", exact: true })).toBeDisabled()
  await expect.poll(() => probeIds.length).toBe(2)
  expect(new Set(probeIds).size).toBe(1)
+ expect(probeIds[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
  probeComplete = true
  await expect(record).toContainText("2 ms")
  await say(page, "/model.assign reviewer review-c")
