@@ -30,7 +30,8 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, local.Shutdown(context.Background())) })
 	for key, value := range map[string]string{
 		"SMITHERS_DATABASE_URL": databaseURL, "SMITHERS_BLOB_DATA_DIR": t.TempDir(),
-		"SMITHERS_AUTH_MODE": "selfhost", "SMITHERS_AUTH_BOOTSTRAP_TOKEN": "release-audit-bootstrap",
+		"SMITHERS_AUTH_SESSION_COOKIE_NAME": "smithers_session",
+		"SMITHERS_AUTH_MODE":                "selfhost", "SMITHERS_AUTH_BOOTSTRAP_TOKEN": "release-audit-bootstrap",
 		"SMITHERS_AUTH_SESSION_SECRET": "release-audit-session", "SMITHERS_LFS_SIGNING_SECRET": "release-audit-lfs",
 		"SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY": "release-audit-webhook", "SMITHERS_REPO_HOST_AUTH_TOKEN": "release-audit-repo",
 		"SMITHERS_PUSH_HOOK_CALLBACK_TOKEN": "release-audit-push", "SMITHERS_SERVER_ADDR": "127.0.0.1:0",
@@ -50,6 +51,7 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 	server := httptest.NewServer(instance.Handler())
 	t.Cleanup(server.Close)
 	token := ""
+	browserSession := ""
 	request := func(method, path, body string, want int, headers map[string]string) (map[string]any, http.Header) {
 		t.Helper()
 		var reader io.Reader
@@ -61,7 +63,9 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 		if body != "" {
 			req.Header.Set("Content-Type", "application/json")
 		}
-		if token != "" {
+		if browserSession != "" {
+			attachBrowserSession(req, browserSession)
+		} else if token != "" {
 			req.Header.Set("Authorization", "token "+token)
 		}
 		for k, v := range headers {
@@ -99,6 +103,10 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 		view, _ := request("GET", path, "", 200, nil)
 		require.Equal(t, result["can_write"], view["can_write"])
 	}
+	// Personal tokens cannot perform person-only secret actions. The remaining
+	// payload checks use a real browser session so they reach body validation.
+	request("POST", path+"/secrets", `{"name":"DISCARDED","value":"scratch"}`, http.StatusForbidden, nil)
+	browserSession = ownerBrowserSession(t, pool)
 	for _, tc := range []struct{ route, body string }{
 		{"/api/user/repos", `{"name":"discarded"}`},
 		{"/api/app-timelines", `{"client_key":"discarded"}`},

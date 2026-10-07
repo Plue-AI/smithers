@@ -67,7 +67,8 @@ func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
 	require.NoError(t, os.WriteFile(configFile, []byte(`{"email":{"smtp_host":"","smtp_user":"","smtp_pass":""},"auth":{"github_client_id":"","github_client_secret":""},"wiki_sync":{"obsidian":[]}}`), 0600))
 	for key, value := range map[string]string{
 		"SMITHERS_DATABASE_URL": databaseURL, "SMITHERS_DATA_ROOT": t.TempDir(), "SMITHERS_BLOB_DATA_DIR": t.TempDir(),
-		"SMITHERS_AUTH_MODE": "selfhost", "SMITHERS_AUTH_BOOTSTRAP_TOKEN": "optional-bootstrap",
+		"SMITHERS_AUTH_SESSION_COOKIE_NAME": "smithers_session",
+		"SMITHERS_AUTH_MODE":                "selfhost", "SMITHERS_AUTH_BOOTSTRAP_TOKEN": "optional-bootstrap",
 		"SMITHERS_AUTH_SESSION_SECRET": "optional-session", "SMITHERS_LFS_SIGNING_SECRET": "optional-lfs",
 		"SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY": "optional-webhook", "SMITHERS_REPO_HOST_AUTH_TOKEN": "optional-repo-token",
 		"SMITHERS_REPO_HOST_URL": "", "SMITHERS_PUSH_HOOK_CALLBACK_TOKEN": "optional-push-callback",
@@ -212,15 +213,15 @@ func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
 	server := httptest.NewServer(instance.Handler())
 	t.Cleanup(server.Close)
 	client := &http.Client{Timeout: 30 * time.Second}
-	request := func(method, path, token string, payload any, want int) []byte {
+	request := func(method, path, session string, payload any, want int) []byte {
 		t.Helper()
 		raw, err := json.Marshal(payload)
 		require.NoError(t, err)
 		req, err := http.NewRequestWithContext(ctx, method, server.URL+path, bytes.NewReader(raw))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/json")
-		if token != "" {
-			req.Header.Set("Authorization", "token "+token)
+		if session != "" {
+			attachBrowserSession(req, session)
 		}
 
 		res, err := client.Do(req)
@@ -236,49 +237,51 @@ func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(request("GET", "/api/bootstrap", "", nil, http.StatusOK), &bootstrap))
 	require.Contains(t, bootstrap.Capabilities, "agent")
-	require.NotContains(t, bootstrap.Capabilities, "github")
+	// GitHub setup and sign-in are core install capabilities, even before
+	// the owner configures credentials. Optional billing stays absent.
+	require.Contains(t, bootstrap.Capabilities, "github")
 	for _, capability := range bootstrap.Capabilities {
 		require.False(t, strings.HasPrefix(capability, "billing."), "unexpected optional capability %q", capability)
 	}
 	ready := request("GET", "/readyz", "", nil, 200)
 	require.Contains(t, string(ready), `"database":"ok"`)
-	token, err := seed.OwnerToken(t.Context(), pool, "optionalowner")
+	_, err = seed.OwnerToken(t.Context(), pool, "optionalowner")
 	require.NoError(t, err)
-	auth := struct{ Token string }{Token: token}
+	session := ownerBrowserSession(t, pool)
 
 	var owner struct {
 		ID int64 `json:"id"`
 	}
-	require.NoError(t, json.Unmarshal(request("GET", "/api/user", auth.Token, nil, http.StatusOK), &owner))
+	require.NoError(t, json.Unmarshal(request("GET", "/api/user", session, nil, http.StatusOK), &owner))
 	require.Positive(t, owner.ID)
 	for _, path := range []string{chat.CommitPath, chat.ProviderStartedPath} {
-		request("POST", path, auth.Token, map[string]any{}, http.StatusNotFound)
+		request("POST", path, session, map[string]any{}, http.StatusNotFound)
 	}
 	var repo struct {
 		ID   int64  `json:"id"`
 		Name string `json:"name"`
 	}
-	require.NoError(t, json.Unmarshal(request("POST", "/api/user/repos", auth.Token, map[string]any{"name": "optional-repo", "private": true, "auto_init": true, "default_bookmark": "main"}, 201), &repo))
+	require.NoError(t, json.Unmarshal(request("POST", "/api/user/repos", session, map[string]any{"name": "optional-repo", "private": true, "auto_init": true, "default_bookmark": "main"}, 201), &repo))
 	require.Positive(t, repo.ID)
 	require.Equal(t, "optional-repo", repo.Name)
 	var readRepo struct {
 		ID int64 `json:"id"`
 	}
-	require.NoError(t, json.Unmarshal(request("GET", "/api/repos/optionalowner/optional-repo", auth.Token, nil, 200), &readRepo))
+	require.NoError(t, json.Unmarshal(request("GET", "/api/repos/optionalowner/optional-repo", session, nil, 200), &readRepo))
 	require.Equal(t, repo.ID, readRepo.ID)
 	// Reading initialized content exercises native storage, not just SQL metadata.
-	contents := request("GET", "/api/repos/optionalowner/optional-repo/contents?ref=main", auth.Token, nil, 200)
+	contents := request("GET", "/api/repos/optionalowner/optional-repo/contents?ref=main", session, nil, 200)
 	require.Contains(t, string(contents), "README.md")
 	runID := "optional-" + uuid.NewString()
 	journal := chat.JournalRequest{Version: 1, LegID: uuid.NewString(), Token: strings.Repeat("a", 48)}
 	payload := map[string]any{"runId": runID, "journal": journal, "repositoryId": repo.ID, "instructions": "Answer briefly.", "messages": []any{map[string]string{"role": "user", "content": "Say hello"}}}
 	request("POST", chat.TurnPath, "", payload, http.StatusUnauthorized)
-	stream := request("POST", chat.TurnPath, auth.Token, payload, 200)
+	stream := request("POST", chat.TurnPath, session, payload, 200)
 	require.Contains(t, string(stream), "optional services chat reply")
 	require.Contains(t, string(stream), `"type":"done"`)
 	replayBody := map[string]any{"runId": runID, "journal": journal}
 	request("POST", chat.ReplayPath, "", replayBody, http.StatusUnauthorized)
-	replay := request("POST", chat.ReplayPath, auth.Token, replayBody, 200)
+	replay := request("POST", chat.ReplayPath, session, replayBody, 200)
 	require.Contains(t, string(replay), "optional services chat reply")
 	require.Contains(t, string(replay), `"type":"done"`)
 	select {
@@ -312,14 +315,14 @@ func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
 	default:
 	}
 	// Same request returns its terminal cursor without dispatching another inference.
-	repeated := request("POST", chat.TurnPath, auth.Token, payload, 200)
+	repeated := request("POST", chat.TurnPath, session, payload, 200)
 	var existing chat.AdmitResult
 	require.NoError(t, json.Unmarshal(repeated, &existing))
 	require.Equal(t, "existing", existing.Status)
 	require.True(t, existing.Terminal)
 	require.Equal(t, runID, existing.Cursor.RunID)
 	require.Equal(t, journal.LegID, existing.Cursor.LegID)
-	require.Equal(t, replay, request("POST", chat.ReplayPath, auth.Token, replayBody, http.StatusOK))
+	require.Equal(t, replay, request("POST", chat.ReplayPath, session, replayBody, http.StatusOK))
 	select {
 	case <-grants:
 		t.Fatal("completed turn dispatched twice")

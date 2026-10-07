@@ -88,8 +88,8 @@ func TestStartServesReadyAndBootstrapFromProductPostgres(t *testing.T) {
 			}
 		}
 		if path == "/api/bootstrap" {
-			// The self-host bootstrap is a web host with owner credentials, never the native shell.
-			if body["host"] != "cloud" || body["authFlow"] != "credentials" {
+			// The self-host bootstrap uses the owner GitHub sign-in flow in the web app.
+			if body["host"] != "cloud" || body["authFlow"] != "redirect" {
 				t.Fatalf("bootstrap response: %v", body)
 			}
 		}
