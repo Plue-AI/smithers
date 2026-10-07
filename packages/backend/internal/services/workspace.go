@@ -554,7 +554,8 @@ type WorkspaceQuerier interface {
 // lifecycle reconciliation around either a shared runtime or the legacy
 // sandbox transport during migration.
 type WorkspaceService struct {
-	installQueries *db.Queries
+	installQueries       *db.Queries
+	diskReclaimAuthority WorkspaceDiskReclaimAuthority
 	// revisionFork delegates retained workspace Fork to the sole history writer.
 	revisionFork         func(context.Context, db.Workspace, ForkWorkspaceInput) (WorkspaceResponse, error)
 	credentialIssuer     *AuthService
