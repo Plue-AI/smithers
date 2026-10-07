@@ -90,6 +90,145 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result), w.Body.String())
 		return w.Code, result
 	}
+	t.Run("literal read and retired cells", func(t *testing.T) {
+		// SG-06 and SG-09 literals: expectations are not generated from the
+		// catalog or route table. Read handlers use real PostgreSQL services.
+		members := &services.Members{Pool: pool, Credentials: rosterAppCredentials{}, Minter: services.NewRepoConnectionService(nil, rosterAppCredentials{})}
+		secrets := &routes.SecretHandler{Service: services.NewSecretService(q, nil, services.WithSecretInstallAuthorization(true, pool))}
+		boundary := buildRouterCompat(cfg, q, pool, &routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, nil, nil, nil, nil, nil, nil, nil, secrets, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, routerExtras{Members: &routes.MembersHandler{Service: members}, GitHubAppSetup: &routes.GitHubAppSetupHandler{Owners: q, Roster: q, Setup: &services.InstallSetupService{Pool: pool}}})
+		_, err := q.CreateOrUpdateSecret(ctx, db.CreateOrUpdateSecretParams{RepositoryID: repo.ID, Name: "MATRIX_NAME", ValueEncrypted: []byte("never-return-this-value")})
+		require.NoError(t, err)
+		defer func() {
+			require.NoError(t, q.DeleteSecret(ctx, db.DeleteSecretParams{RepositoryID: repo.ID, Name: "MATRIX_NAME"}))
+		}()
+		credentials := map[string]string{"DO": tokens[0], "DM": tokens[1], "DE": tokens[2]}
+		for i, fixture := range []struct{ key, scopes string }{
+			{"RO", fmt.Sprintf("read:repository,repo:%d,path:**", repo.ID)},
+			{"RX", fmt.Sprintf("read:repository,repo:%d,path:**", repo.ID+1000)},
+			{"MO", "read:repository,workspace:11111111-1111-4111-8111-111111111111"},
+			{"MX", "read:repository,workspace:22222222-2222-4222-8222-222222222222"},
+		} {
+			raw := fmt.Sprintf("smithers_%040x", 8200+i)
+			sum := sha256.Sum256([]byte(raw))
+			hash := hex.EncodeToString(sum[:])
+			_, err := q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: users[0].ID, Name: fixture.key, TokenHash: hash, TokenLastEight: hash[56:], Scopes: fixture.scopes, SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+			require.NoError(t, err)
+			credentials[fixture.key] = raw
+		}
+		for _, cell := range []struct {
+			name, credential, path string
+			status                 int
+			code                   string
+		}{
+			{"install DO", "DO", "/api/install", 403, "never"},
+			{"install DM", "DM", "/api/install", 403, "permission"},
+			{"install DE", "DE", "/api/install", 403, "permission"},
+			{"members SE", "SE", "/api/members", 200, ""},
+			{"members DO", "DO", "/api/members", 403, "never"},
+			{"members DM", "DM", "/api/members", 403, "never"},
+			{"members DE", "DE", "/api/members", 403, "never"},
+			{"members RO", "RO", "/api/members", 403, "permission"},
+			{"members RX", "RX", "/api/members", 403, "permission"},
+			{"secrets SE", "SE", "/api/secrets", 200, ""},
+			{"secrets DO", "DO", "/api/secrets", 403, "never"},
+			{"secrets DM", "DM", "/api/secrets", 403, "never"},
+			{"secrets DE", "DE", "/api/secrets", 403, "never"},
+			{"secrets RO", "RO", "/api/secrets", 403, "permission"},
+			{"secrets RX", "RX", "/api/secrets", 403, "permission"},
+			{"members MO", "MO", "/api/members", 403, "permission"},
+			{"members MX", "MX", "/api/members", 403, "permission"},
+			{"secrets MO", "MO", "/api/secrets", 403, "permission"},
+			{"secrets MX", "MX", "/api/secrets", 403, "permission"},
+			{"agents RO", "RO", "/api/agents", 403, "permission"},
+			{"agents RX", "RX", "/api/agents", 403, "permission"},
+			{"agents MO", "MO", "/api/agents", 403, "permission"},
+			{"agents MX", "MX", "/api/agents", 403, "permission"},
+			{"retired SO", "SO", "/api/repos/maya/demo/repository-jobs", 404, "not_found"},
+			{"retired SM", "SM", "/api/repos/maya/demo/repository-jobs", 404, "not_found"},
+			{"retired SE", "SE", "/api/repos/maya/demo/repository-jobs", 404, "not_found"},
+			{"retired DO", "DO", "/api/repos/maya/demo/repository-jobs", 404, "not_found"},
+			{"retired DM", "DM", "/api/repos/maya/demo/repository-jobs", 404, "not_found"},
+			{"retired DE", "DE", "/api/repos/maya/demo/repository-jobs", 404, "not_found"},
+		} {
+			t.Run(cell.name, func(t *testing.T) {
+				for _, forged := range []bool{false, true} {
+					req := httptest.NewRequest("GET", "http://example.com"+cell.path, nil)
+					if token := credentials[cell.credential]; token != "" {
+						req.Header.Set("Authorization", "Bearer "+token)
+					} else {
+						index := map[string]int{"SO": 0, "SM": 1, "SE": 2}[cell.credential]
+						req.AddCookie(&http.Cookie{Name: "session", Value: sessions[index]})
+					}
+					if forged {
+						req.Header.Set("Smithers-Via", "smithers")
+						req.Header.Set("Smithers-Actor", "person")
+						req.Header.Set("Smithers-Profile", "full")
+					}
+					out := httptest.NewRecorder()
+					boundary.ServeHTTP(out, req)
+					require.Equal(t, cell.status, out.Code, out.Body.String())
+					require.NotContains(t, out.Body.String(), "never-return-this-value")
+					if cell.code != "" {
+						var refusal map[string]any
+						require.NoError(t, json.Unmarshal(out.Body.Bytes(), &refusal))
+						require.Equal(t, cell.code, refusal["code"], out.Body.String())
+						if cell.status == 403 {
+							require.Equal(t, cell.code, refusal["class"], out.Body.String())
+						}
+					} else if cell.path == "/api/secrets" {
+						require.Contains(t, out.Body.String(), "MATRIX_NAME")
+					}
+				}
+			})
+		}
+		t.Run("setup DO SG-01", func(t *testing.T) {
+			req := httptest.NewRequest("POST", "http://example.com/api/install/setup/models", strings.NewReader(`{}`))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+credentials["DO"])
+			out := httptest.NewRecorder()
+			boundary.ServeHTTP(out, req)
+			require.Equal(t, 403, out.Code, out.Body.String())
+			require.JSONEq(t, `{"code":"never","class":"never","message":"Only a person can do this"}`, out.Body.String())
+			var count int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM install_settings WHERE key LIKE 'setup.step.%'`).Scan(&count))
+			require.Zero(t, count)
+		})
+		// SG-08: explicit creation is delegated-only; system credentials
+		// cannot enumerate private confirmations either. These refusals never
+		// insert a pending row, even with an otherwise eligible target.
+		for _, cell := range []struct{ method, credential string }{
+			{"POST", "SO"}, {"POST", "SM"}, {"POST", "SE"},
+			{"POST", "RO"}, {"POST", "RX"}, {"POST", "MO"}, {"POST", "MX"},
+			{"GET", "RO"}, {"GET", "RX"}, {"GET", "MO"}, {"GET", "MX"},
+		} {
+			t.Run("confirmation "+cell.method+" "+cell.credential, func(t *testing.T) {
+				req := httptest.NewRequest(cell.method, "http://example.com/api/confirmations", strings.NewReader(`{"command":"todo.new","payload":{"title":"Must not file","prompt":"Must not file"}}`))
+				req.Header.Set("Origin", "http://example.com")
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("Idempotency-Key", "literal-"+cell.credential)
+				if token := credentials[cell.credential]; token != "" {
+					req.Header.Set("Authorization", "Bearer "+token)
+				} else {
+					index := map[string]int{"SO": 0, "SM": 1, "SE": 2}[cell.credential]
+					req.AddCookie(&http.Cookie{Name: "session", Value: sessions[index]})
+					req.AddCookie(&http.Cookie{Name: "__csrf", Value: "matrix-csrf"})
+					req.Header.Set("X-CSRF-Token", "matrix-csrf")
+				}
+				out := httptest.NewRecorder()
+				boundary.ServeHTTP(out, req)
+				require.Equal(t, 403, out.Code, out.Body.String())
+				var refusal map[string]any
+				require.NoError(t, json.Unmarshal(out.Body.Bytes(), &refusal))
+				require.Equal(t, "permission", refusal["code"], out.Body.String())
+				require.Equal(t, "permission", refusal["class"], out.Body.String())
+				var count int
+				require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&count))
+				require.Zero(t, count)
+				require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items`).Scan(&count))
+				require.Zero(t, count)
+			})
+		}
+	})
 	t.Run("relay concrete authorization", func(t *testing.T) {
 		// Authorization, membership, repository and workspace lookup are real.
 		// The external coding host is recorded so refusals prove zero relay IO.
@@ -141,7 +280,9 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 	for i := range users {
 		key := "new-" + users[i].Username
 		payload := `{"title":"Keep greeting","prompt":"Keep greeting","acceptance":[]}`
-		status, result := call(i, false, "/api/todos", key, payload)
+		// SG-08 DO/DM/DE: explicit create and the direct TODO door share
+		// one credential-scoped operation, confirmation and eventual effect.
+		status, result := call(i, false, "/api/confirmations", key, `{"command":"todo.new","payload":`+payload+`}`)
 		require.Equal(t, 202, status, result)
 		require.Equal(t, "pending", result["state"])
 		id := result["confirmation"].(string)
