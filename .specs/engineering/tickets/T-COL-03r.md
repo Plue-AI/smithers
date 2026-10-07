@@ -2,7 +2,7 @@
 
 Stage S2 · Size M · Depends on — · Unblocks T-AGT-02, T-COL-03, T-COL-03a, T-COL-03f, T-COL-04, T-COL-04a, T-COL-05, T-COL-06, T-COL-08a, T-COL-08b, T-STK-08, T-TRM-07 · Issue: [#3626](https://github.com/smithersai/smithers/issues/3626)
 Spec: spec.md §5.3 (`machine`), §7.6.1–7.6.3, §9 (intro), §9.1.1–9.1.4, §9.4.1, §9.5, §9.6.2 · Delta: delta.md §4 (`smithers-machined`, host relay) · Product: mvp.md §6.7, M-27, M-29
-Ready: 2026-10-03 smithers-8a sha256:ff456be85e43
+Ready: 2026-10-07 smithers-8a sha256:29d170c30d62
 
 Rescoped by the minimal-code synthesis, 2026-10-03 (v1 §3): the wire contract, golden frames and codecs move here from T-COL-10, because this is their first consumer.
 
@@ -44,6 +44,12 @@ New (no daemon wire exists to reuse; the terminal WebSocket in `packages/backend
 
 - [C-COL-03](../checks/C-COL-03.md): the daemon-host wire contract (ADR 0004) holds under its fault cases
 - [C-COL-01](../checks/C-COL-01.md), S2 wire component only: the named Tests above pass and ADR 0004 is merged with smithers-8a acceptance and smithers-3f wire/API sign-off. C-COL-01 is folded into ticket tests; this ticket owns the wire assertions, not T-COL-10’s stale-write gate or later integration, durability and journey gates.
+
+## 2026-10-07 amendment (8a; 3f's audit on #3626)
+- "Lands dark" is superseded for the daemon binary: T-TRM-07's 9f52a972e2 made `src/main.rs` a working daemon. It still exits 78 with no subcommand and refuses uids other than 19998 without connecting; `TestMachinedSkeletonDisabled` asserts those two refusals instead of "nonzero exit for every start". Planting and starting in a machine remain T-COL-03's.
+- Protocol is exactly 5, with no negotiation (ADR 0004 §handshake, 8a ruling). Collapse Go's `Protocol`, `SessionActorProtocol`, `SessionKillProtocol`, `DocumentActorProtocol` and `SequencedDocumentProtocol` into one `Protocol = 5`, and Rust's `PROTOCOL` and `SEQUENCED_DOCUMENT_PROTOCOL` into one `PROTOCOL = 5`. Delete the per-feature protocol branches and the protocol 1–4 decoders. Set `testdata/cocontracts/MANIFEST.json` `protocol` to 5 and regenerate all 142 frames.
+- New cross-language guard: a Go test and a Rust test each read `MANIFEST.json` and fail unless its `protocol` equals their own constant, and the handshake tests assert `version_mismatch` for 4 and 6.
+- ADR 0004 says 142 literal frames, not 113.
 
 ## Risks and notes
 - No backend, transport deployment or real session dependency. The boot file selects relay or bridge; neither this ticket nor T-COL-03a waits on T-COL-01. T-TRM-06 supplies session-feasibility evidence.

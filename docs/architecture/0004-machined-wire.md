@@ -133,7 +133,7 @@ The boot file `/run/smithers/machined/boot` (written by the runtime, T-COL-03; o
 
 Rejected: the host presenting the relay secret as a bearer value (§9.5.3's wording). A process that reached the listening port first, or a stale bridge listener, would learn the secret; the HMAC proof costs one extra half round trip and leaks nothing. Rejected: version negotiation. Host and daemon ship in one bundle and the daemon is planted, digest-checked, on every boot (§16.1.1), so a skew lives only until the machine's next boot; one exact `protocol` value keeps one code path.
 
-`protocol` is `1`. Any change to any byte of this contract increments it and regenerates the golden frames.
+`protocol` is `5` (8a ruling, 2026-10-07, #3626): exactly one connection protocol, with no negotiation and no older protocol accepted. The host plants the daemon from the same verified install bundle (spec §17.3), so the two never differ in a working install. A handshake whose `protocol` differs from the receiver's ends the connection with `version_mismatch` (error 13). Document bodies are part of the connection protocol, with no separate document version. Any change to any byte of this contract increments `protocol`, regenerates every golden frame, and fails both codecs until both pass. The amendment sections below record how protocol 5 was reached (documents in 2, session actors in 3, command cancellation in 4, opaque document authors in 5); their "older recordings still decode" provisions are superseded: no protocol 1–4 decoder or recording is retained.
 
 ### Control RPC
 
@@ -326,7 +326,7 @@ The exported Go `Read`, `Decode`, `DecodeLocal`, `Encode`, `EncodeLocal` and
 `RequestFrame` and Rust `Frame::{read,decode,decode_local,encode,encode_local}`
 share the framing above. `msg` exposes method and error discriminants; tagged
 payload builders construct requests without a second framing implementation.
-The 113 literal frames include 1 MiB and 1 MiB + 1 content fixtures and preserve
+The 142 literal frames include 1 MiB and 1 MiB + 1 content fixtures and preserve
 the browser document fixtures. The JSON companion records kind, stream and the
 canonical payload as hex; it never records JSON sent over the connection.
 `gen.mjs --check` verifies the independent byte tables and manifest hashes.
