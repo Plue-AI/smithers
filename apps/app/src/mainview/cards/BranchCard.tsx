@@ -56,6 +56,16 @@ export const liveBranchActionDefinitions = (model: BranchModel, providers: Reado
     command_input: { path: "", branch: model.name },
     resolve_input: input => ({ path: input.path ?? "", branch: model.name,
       ...(input.line === undefined ? {} : { line: Number(input.line) }) }) })
+  if (model.machine.state !== "closed") {
+    if (model.machine.state === "awake") definitions.push({ tag: "box.suspend", label: "Sleep", command_input: { branch: model.name } })
+    if (model.machine.state === "asleep") definitions.push({ tag: "box.resume", label: "Wake", command_input: { branch: model.name } })
+    if (model.scratch) definitions.push({ tag: "branch.add-to-stack", label: "Add to stack", command_input: { text: model.name } })
+    if (model.moved_off) definitions.push(
+      { tag: "todo.return-to-item", label: `Return to T${model.moved_off.item}`, command_input: { n: model.moved_off.item } },
+      { tag: "todo.keep-moved", label: "Keep for now", command_input: { n: model.moved_off.item } }
+    )
+    if (model.rebase?.state === "pending") definitions.push({ tag: "branch.rebase-now", label: "Rebase now", command_input: { branch: model.name } })
+  }
   if (model.machine.state !== "closed" && n !== undefined) {
     const question = [...model.activity].reverse().find(entry => entry.kind === "question" || entry.kind === "answer")
     if (model.item?.state === "needs_you" && question?.kind === "question") definitions.push({
@@ -132,10 +142,17 @@ export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branc
   if (controller.branchFiles?.available()) providers.add("file")
   if (controller.terminalCards?.available()) providers.add("terminal.watch")
   if (controller.forkBranch) providers.add("branch.fork")
+  const controls = controller.branchControls
+  if (controls?.available("sleep")) providers.add("box.suspend")
+  if (controls?.available("wake")) providers.add("box.resume")
+  if (controls?.available("add-to-stack")) providers.add("branch.add-to-stack")
+  if (controls?.available("rebase")) providers.add("branch.rebase-now")
+  if (controls?.available("return-to-item")) providers.add("todo.return-to-item")
+  if (controls?.available("keep-moved")) providers.add("todo.keep-moved")
   if (typeof controller.answerTodo === "function") providers.add("todo.answer")
   if (typeof controller.steerTodo === "function") providers.add("todo.steer")
   const dispatch: CardCommandDispatch = (tag, input) => controller.commands.submit({
-    name: tag, payload: { branch: card.payload.id, ...(input ?? {}) }, actor: "user", originCardId: card.id
+    name: tag, payload: { branch: model?.name ?? card.payload.id, ...(input ?? {}) }, actor: "user", originCardId: card.id
   })
   const bindings = cardActions<Gesture>(dispatch, model ? liveBranchActionDefinitions(model, providers) : [])
   if (!model) return null

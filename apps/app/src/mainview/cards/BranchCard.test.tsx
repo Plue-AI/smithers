@@ -302,7 +302,7 @@ test("registered live terminal links dispatch Watch and disappear with unavailab
     const link = host.querySelector<HTMLButtonElement>('[data-flow="terminal.watch"]')!
     expect(link.textContent).toBe("Ben's shell")
     await act(async () => link.click())
-    expect(submitted).toEqual([{ name: "terminal.watch", payload: { branch: "b1", id: "t-ben" }, actor: "user", originCardId: "branch:b1" }])
+    expect(submitted).toEqual([{ name: "terminal.watch", payload: { branch: "retry-webhooks", id: "t-ben" }, actor: "user", originCardId: "branch:b1" }])
     viewer = undefined; await render()
     expect(host.querySelector('[data-flow="terminal.watch"]')).toBeNull()
   } finally { await act(async () => root.unmount()); provider.dispose(); live.dispose(); controller.design.dispose() }

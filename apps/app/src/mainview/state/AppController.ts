@@ -1,3 +1,4 @@
+import { createBranchControlsSeam } from "./seams/BranchControlsSeam"
 import { projectHome } from "../runtime/HomeProjection"
 import { projectTodoCard } from "../runtime/TodoProjection"
 import { draftIssueTodo } from "./seams/IssueTodoDraft"
@@ -539,6 +540,7 @@ export interface AppController extends IssueFlowsController {
   readonly selectConversationBranch: (name: string) => Promise<void>
   readonly setBranchNavigationView: (patch: { selected_branch?: string; selected_archive?: string; previous_branch?: string; open?: boolean }) => Promise<void>
   readonly setCardTab: (id: string, tab: string) => void
+  readonly branchControls?: import("./seams/BranchControlsSeam").BranchControls
   readonly branchSshLine?: (name: string, signal?: AbortSignal) => Promise<string | { readonly value: string }>
   readonly openBranch?: (name: string) => Promise<string | { readonly value: string }>
   readonly forkBranch?: (input: { readonly from: string; readonly name?: string }) => Promise<string | { readonly value: string }>
@@ -679,6 +681,7 @@ export interface AppController extends IssueFlowsController {
 export interface AppServices {
   /** Host-owned branch authority and provider receipts; absent keeps S2 files dark. */
   readonly documentOptions?: { channel: LiveChannel; prerequisites: DocumentPrerequisites }
+  readonly branchControlOptions?: import("./seams/BranchControlsSeam").BranchControlOptions
   readonly branchOptions?: BranchFileOptions
   /** The page's `/api/live` channel; production supplies the tab's one channel, and a controller without it subscribes to no topic. */
   readonly live?: LiveTopics
@@ -1004,6 +1007,7 @@ export const createAppController = (
     await presentCard("branch", branch.name, branch.id)
     return { value: `Opened ${branch.name}` }
   } : undefined
+  const branchControls = services.branchControlOptions ? createBranchControlsSeam(seamCtx, services.branchControlOptions) : undefined
   const pendingSshReads = new Set<() => void>()
   ctx.onDispose(() => { for (const cancel of pendingSshReads) cancel() })
   const branchSshLine: AppController["branchSshLine"] = installHost ? async (target, signal) => {
@@ -2059,6 +2063,7 @@ export const createAppController = (
     setCardTab,
     ...(openBranch ? { openBranch } : {}),
     ...(forkBranch ? { forkBranch } : {}),
+    ...(branchControls ? { branchControls } : {}),
     ...(branchSshLine ? { branchSshLine } : {}),
     promptStorageRecovery,
     exportStorageRecovery,

@@ -78,23 +78,19 @@ export const workspaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
   }),
   flow({
     name: "box.suspend", agent: "run", minimumRole: "member", actors: ["person","app_agent"], visibility: "in-card",
-    summary: "Suspend a box",
-    runtime: ["cloud"],
-    confirm: "suspend the box",
+    summary: "Sleep this branch",
     args: "[workspaceId]",
     requires: ["signed-in"],
-    input: Schema.Struct({ workspaceId: Schema.optional(Schema.String) }),
-    handler: ({ workspaceId }) => actions.live || actions.bootstrap?.capabilities.includes("install") ? "Branch unavailable" : actions.suspendWorkspace(workspaceId)
+    input: Schema.Struct({ workspaceId: Schema.optional(Schema.String), branch: Schema.optional(Schema.String) }),
+    handler: ({ workspaceId, branch }) => actions.branchControls && branch ? actions.branchControls.request("sleep", branch) : actions.live || actions.bootstrap?.capabilities.includes("install") ? "Branch unavailable" : actions.suspendWorkspace(workspaceId)
   }),
   flow({
     name: "box.resume", agent: "run", minimumRole: "member", actors: ["person","app_agent"], visibility: "in-card",
-    summary: "Resume a box",
-    runtime: ["cloud"],
-    confirm: "resume the box",
+    summary: "Wake this branch",
     args: "[workspaceId]",
     requires: ["signed-in"],
-    input: Schema.Struct({ workspaceId: Schema.optional(Schema.String) }),
-    handler: ({ workspaceId }) => actions.live || actions.bootstrap?.capabilities.includes("install") ? "Branch unavailable" : actions.resumeWorkspace(workspaceId)
+    input: Schema.Struct({ workspaceId: Schema.optional(Schema.String), branch: Schema.optional(Schema.String) }),
+    handler: ({ workspaceId, branch }) => actions.branchControls && branch ? actions.branchControls.request("wake", branch) : actions.live || actions.bootstrap?.capabilities.includes("install") ? "Branch unavailable" : actions.resumeWorkspace(workspaceId)
   }),
   flow({
     name: "box.sessions",
