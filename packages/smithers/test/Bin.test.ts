@@ -2221,6 +2221,7 @@ describe("the smthrs init scaffold, launched as written", processBudget, () => {
       expect(flow).toContain("Provider credentials are read from the environment.")
       expect(flow.split("---\n")[2]).not.toContain("OPENAI_API_KEY")
       expect(flow).not.toContain(environment.OPENAI_API_KEY)
+      expect(flow).not.toContain("sk-not-used-by-init")
     } finally {
       rmSync(cwd, { recursive: true, force: true })
     }
