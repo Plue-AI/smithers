@@ -332,6 +332,9 @@ export class Session {
     }
   }
   target(hostname?: string): { api_url: string; host: string } {
+    if (this.managedFile && !this.tokenFile) {
+      throw new Refused({ fault: "user", code: "token_file_unavailable", message: "Cannot read a valid SMITHERS_TOKEN_FILE" })
+    }
     const configured = text(this.config().api_origin)
     let origin = hostname || configured
     if (!origin) {
