@@ -5,7 +5,7 @@
     "path": "packages/backend/docs/github-app.md",
     "digest": "88f824c7b728474d7dc892b5bb9062e0893a9f65b9885400a75f6a7dfb1ad092"
   },
-  "closure": "955f824b43eb9a16e5c3a272b5e1cc0937876c3cac21d9d19025b475976e6dfd",
+  "closure": "6792ee1e699567127b339b9bf4292a4867f4ae7b62aa13fc1ef8093592152d82",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
@@ -49,7 +49,7 @@
     },
     {
       "path": "packages/backend/internal/compose/main.go",
-      "digest": "3fe0d7c80e1d379fd648cb9dbd0672f44359a40368276922a12a104172f1dee8"
+      "digest": "65f5ad9e14528ea541a65e55486335dd6ef87f1f1463796183da51966eaef56d"
     },
     {
       "path": "packages/backend/internal/compose/runtime_helpers.go",
@@ -237,7 +237,7 @@
     },
     {
       "path": "packages/backend/internal/services/mythical.go",
-      "digest": "a6cccef4b24cfb272e239a0e327c0aefacba9ca167fcbc69ad9fa4a4d8c20ad9"
+      "digest": "c6d83d130ec7c33f501b575cf8ee8d5d1f027ad3dc7cf1c3c458f277be27948d"
     },
     {
       "path": "packages/backend/internal/services/mythical_github.go",
@@ -253,7 +253,7 @@
     },
     {
       "path": "packages/backend/internal/services/mythical_items.go",
-      "digest": "fe800d872180495b2f5474dc85c8cb01ea95d83ffe6f386713862efad6d1cdc3"
+      "digest": "6bd93fc11384f58dbcf01138a04dc7d0dd76d1fc30d79d34cdc1e62a5c74e957"
     },
     {
       "path": "packages/backend/internal/services/mythical_outbound.go",
@@ -265,11 +265,11 @@
     },
     {
       "path": "packages/backend/internal/services/mythical_todo_read.go",
-      "digest": "2fbe7f4b0ab6d668f096ad35df338acb6f6d973aa213eececc3fb39aab2480c0"
+      "digest": "8fea268f7e69c7ec206ae946bc4903d722c04398f14e6827d1d6995cc1775dba"
     },
     {
       "path": "packages/backend/internal/services/mythical_todo_state.go",
-      "digest": "853e422227455e47d4a8b49759976ef6fafb70839f5a8229c8d7a63c60ca2852"
+      "digest": "938fb5db0e6f3c458b07d54e4b0e86c547c161a442badd0bfaa149c7ce44a4d3"
     },
     {
       "path": "packages/backend/internal/services/repo_connection_github_app.go",
