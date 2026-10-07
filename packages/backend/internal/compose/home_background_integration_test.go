@@ -201,62 +201,64 @@ func TestHomeBackgroundRetryIdempotent(t *testing.T) {
 	require.Equal(t, 503, post("home-member", "retry", "three").StatusCode)
 	provider.Machine = nil
 	require.Equal(t, 503, post("home-member", "retry", "three").StatusCode)
-	require.Equal(t, 200, post("home-member", "dismiss", "dismiss").StatusCode)
-	require.Equal(t, 200, post("home-owner", "dismiss", "dismiss-again").StatusCode)
-	var dismissed int64
-	require.NoError(t, pool.QueryRow(ctx, `SELECT dismissed_by FROM workflow_runs WHERE id=$1 AND dismissed_at IS NOT NULL`, failed.ID).Scan(&dismissed))
-	require.Equal(t, member.ID, dismissed)
-	// Independently seed the ticket's 200-item send-budget boundary. Both
-	// members read it through the composed live door, never a helper builder.
-	_, err = pool.Exec(ctx, `INSERT INTO mythical_items(repository_id,source,state,title,number,stack_position,base_commit,candidate_head)
+	t.Run("HomeDismissShared", func(t *testing.T) {
+		require.Equal(t, 200, post("home-member", "dismiss", "dismiss").StatusCode)
+		require.Equal(t, 200, post("home-owner", "dismiss", "dismiss-again").StatusCode)
+		var dismissed int64
+		require.NoError(t, pool.QueryRow(ctx, `SELECT dismissed_by FROM workflow_runs WHERE id=$1 AND dismissed_at IS NOT NULL`, failed.ID).Scan(&dismissed))
+		require.Equal(t, member.ID, dismissed)
+		// Independently seed the ticket's 200-item send-budget boundary. Both
+		// members read it through the composed live door, never a helper builder.
+		_, err = pool.Exec(ctx, `INSERT INTO mythical_items(repository_id,source,state,title,number,stack_position,base_commit,candidate_head)
         SELECT $1,'chat','queued','Queued TODO ' || n,n,n,'main-' || n,'candidate-' || n FROM generate_series(1,200) n`, repo)
-	require.NoError(t, err)
-	var sharedHome json.RawMessage
-	for _, token := range []string{"home-owner", "home-member"} {
-		readCtx, done := context.WithTimeout(ctx, 10*time.Second)
-		conn, _, err := websocket.Dial(readCtx, "ws"+strings.TrimPrefix(origin, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{"smithers.live.v1"}, HTTPHeader: http.Header{"Origin": {origin}, "Cookie": {"smithers_session=" + token}}})
 		require.NoError(t, err)
-		conn.SetReadLimit(2 << 20)
-		require.NoError(t, conn.Write(readCtx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"home"}`)))
-		for {
-			_, raw, err := conn.Read(readCtx)
+		var sharedHome json.RawMessage
+		for _, token := range []string{"home-owner", "home-member"} {
+			readCtx, done := context.WithTimeout(ctx, 10*time.Second)
+			conn, _, err := websocket.Dial(readCtx, "ws"+strings.TrimPrefix(origin, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{"smithers.live.v1"}, HTTPHeader: http.Header{"Origin": {origin}, "Cookie": {"smithers_session=" + token}}})
 			require.NoError(t, err)
-			var frame liveFrame
-			require.NoError(t, json.Unmarshal(raw, &frame))
-			require.NotEqual(t, "err", frame.T, string(raw))
-			if frame.T != "snap" {
-				continue
+			conn.SetReadLimit(2 << 20)
+			require.NoError(t, conn.Write(readCtx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"home"}`)))
+			for {
+				_, raw, err := conn.Read(readCtx)
+				require.NoError(t, err)
+				var frame liveFrame
+				require.NoError(t, json.Unmarshal(raw, &frame))
+				require.NotEqual(t, "err", frame.T, string(raw))
+				if frame.T != "snap" {
+					continue
+				}
+				if sharedHome == nil {
+					sharedHome = append(json.RawMessage(nil), frame.Data...)
+				} else {
+					require.Equal(t, sharedHome, frame.Data, "members must receive identical committed Home bytes")
+				}
+				require.Less(t, len(raw), 2<<20, "200-item Home exceeds the live send budget")
+				var home struct {
+					Runs  []map[string]any `json:"background_runs"`
+					Items []struct {
+						N     int    `json:"n"`
+						Title string `json:"title"`
+					} `json:"items"`
+					Counts map[string]int `json:"counts"`
+				}
+				require.NoError(t, json.Unmarshal(frame.Data, &home))
+				require.Len(t, home.Items, 200)
+				require.Equal(t, 200, home.Counts["queued"])
+				for index, item := range home.Items {
+					require.Equal(t, index+1, item.N)
+					require.Equal(t, fmt.Sprintf("Queued TODO %d", index+1), item.Title)
+				}
+				require.Len(t, home.Runs, 2)
+				for _, row := range home.Runs {
+					require.NotEqual(t, fmt.Sprint(failed.ID), row["id"])
+				}
+				break
 			}
-			if sharedHome == nil {
-				sharedHome = append(json.RawMessage(nil), frame.Data...)
-			} else {
-				require.Equal(t, sharedHome, frame.Data, "members must receive identical committed Home bytes")
-			}
-			require.Less(t, len(raw), 2<<20, "200-item Home exceeds the live send budget")
-			var home struct {
-				Runs  []map[string]any `json:"background_runs"`
-				Items []struct {
-					N     int    `json:"n"`
-					Title string `json:"title"`
-				} `json:"items"`
-				Counts map[string]int `json:"counts"`
-			}
-			require.NoError(t, json.Unmarshal(frame.Data, &home))
-			require.Len(t, home.Items, 200)
-			require.Equal(t, 200, home.Counts["queued"])
-			for index, item := range home.Items {
-				require.Equal(t, index+1, item.N)
-				require.Equal(t, fmt.Sprintf("Queued TODO %d", index+1), item.Title)
-			}
-			require.Len(t, home.Runs, 2)
-			for _, row := range home.Runs {
-				require.NotEqual(t, fmt.Sprint(failed.ID), row["id"])
-			}
-			break
+			conn.CloseNow()
+			done()
 		}
-		conn.CloseNow()
-		done()
-	}
+	})
 	statusRequest, err := http.NewRequest(http.MethodGet, origin+fmt.Sprintf("/api/runs/%d/background-status", receipt.RunID), nil)
 	require.NoError(t, err)
 	statusRequest.Header.Set("Cookie", "smithers_session=home-member")
