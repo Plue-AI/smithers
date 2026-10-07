@@ -1,5 +1,6 @@
 //! Real recursive inotify with held directory descriptors. The lock-thread
 //! adapter drains this before RPC writes; this module never mutates files.
+use crate::events::Provider as _;
 use crate::ignore::{relative, Ignore};
 use rustix::fs::{self, inotify, Mode, OFlags, ResolveFlags};
 use std::{
@@ -360,13 +361,81 @@ impl<I: Ignore> Inotify<I> {
     }
 }
 
+/// The watcher owns the session-presence sink. Event/object providers cannot
+/// substitute an unauthenticated location callback for the admitted broker.
+struct SessionPresence<P> {
+    provider: P,
+    sessions: std::sync::Arc<dyn crate::hooks::Sessions>,
+}
+impl<P: crate::versions::Objects> crate::versions::Objects for SessionPresence<P> {
+    type Blob = P::Blob;
+    type Commit = P::Commit;
+    fn blob(&mut self, bytes: &[u8]) -> io::Result<Self::Blob> {
+        self.provider.blob(bytes)
+    }
+    fn parentless(
+        &mut self,
+        tree: &std::collections::BTreeMap<String, (Self::Blob, u32)>,
+    ) -> io::Result<Self::Commit> {
+        self.provider.parentless(tree)
+    }
+}
+impl<P: crate::events::Provider<crate::hooks::Actor>> crate::events::Provider<crate::hooks::Actor>
+    for SessionPresence<P>
+{
+    fn activate(&mut self) -> io::Result<()> {
+        self.sessions.ready().map_err(provider_error)?;
+        self.provider.activate()
+    }
+    fn actor_session(&mut self, actor: &crate::hooks::Actor) -> io::Result<Option<u32>> {
+        self.provider.actor_session(actor)
+    }
+    fn samples(&mut self) -> io::Result<Vec<crate::attrib::Sample<crate::hooks::Actor>>> {
+        self.provider.samples()
+    }
+    fn read(&mut self, path: &str) -> io::Result<Option<(Vec<u8>, u32)>> {
+        self.provider.read(path)
+    }
+    fn checkpoint(
+        &mut self,
+        state: &crate::events::Checkpoint<crate::hooks::Actor, Self::Blob>,
+    ) -> io::Result<()> {
+        self.provider.checkpoint(state)
+    }
+    fn append(
+        &mut self,
+        event: &crate::events::Closed<crate::hooks::Actor, Self::Blob, Self::Commit>,
+    ) -> io::Result<()> {
+        self.provider.append(event)
+    }
+    fn hint(
+        &mut self,
+        path: &str,
+        actor: Option<&crate::hooks::Actor>,
+        digest: Option<[u8; 32]>,
+    ) -> io::Result<()> {
+        self.provider.hint(path, actor, digest)
+    }
+    fn where_file(&mut self, session: u32, path: &str) -> io::Result<()> {
+        self.sessions
+            .where_file(session, path)
+            .map_err(provider_error)
+    }
+    fn moved_off(&mut self) -> io::Result<()> {
+        self.provider.moved_off()
+    }
+    fn snapshot(&mut self) -> io::Result<()> {
+        self.provider.snapshot()
+    }
+}
+
 /// Dispatcher adapter. This mutex protects hook interior state while the
 /// existing FIFO LockCx owns working-copy mutation ordering; no executor or
 /// second mutation queue is created by the watcher.
 pub struct InotifyWatcher<I, P> {
     state: std::sync::Mutex<(
         crate::resync::WatchLoop<I, crate::hooks::Actor, crate::hooks::Oid>,
-        P,
+        SessionPresence<P>,
     )>,
     origin: std::time::Instant,
 }
@@ -431,11 +500,15 @@ impl<I: Ignore, P: crate::events::Provider<crate::hooks::Actor, Blob = crate::ho
     }
     fn mount(
         watch: Inotify<I>,
-        mut provider: P,
+        provider: P,
         checkpoint: crate::events::Checkpoint<crate::hooks::Actor, crate::hooks::Oid>,
         cx: &mut crate::lock::LockCx,
     ) -> crate::hooks::Result<Self> {
-        provider.activate().map_err(hook_error)?;
+        let mut provider = SessionPresence {
+            provider,
+            sessions: cx.hooks.sessions.clone(),
+        };
+        crate::events::Provider::activate(&mut provider).map_err(hook_error)?;
         let mut watcher =
             crate::resync::WatchLoop::new(watch, crate::events::Changes::new(checkpoint));
         watcher.resync(&mut provider, 0).map_err(hook_error)?;
@@ -449,7 +522,7 @@ impl<I: Ignore, P: crate::events::Provider<crate::hooks::Actor, Blob = crate::ho
         cx: &mut crate::lock::LockCx,
         f: impl FnOnce(
             &mut crate::resync::WatchLoop<I, crate::hooks::Actor, crate::hooks::Oid>,
-            &mut P,
+            &mut SessionPresence<P>,
             u64,
         ) -> io::Result<T>,
     ) -> crate::hooks::Result<T> {
@@ -474,6 +547,13 @@ impl<
         P: crate::events::Provider<crate::hooks::Actor, Blob = crate::hooks::Oid> + Send,
     > crate::hooks::Watcher for InotifyWatcher<I, P>
 {
+    fn ready(&self) -> crate::hooks::Result<()> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| hook_error(io::Error::other("watcher state poisoned")))?;
+        state.1.activate().map_err(hook_error)
+    }
     fn drain(&self, cx: &mut crate::lock::LockCx) -> crate::hooks::Result<()> {
         self.job(cx, |w, p, now| w.drain(p, now))
     }
