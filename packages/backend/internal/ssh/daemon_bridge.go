@@ -28,12 +28,24 @@ type DaemonClient interface {
 	Stream(context.Context, uint32) (DaemonStream, error)
 }
 
-type daemonClient struct{ *machined.Sessions }
+type daemonClient struct {
+	*machined.Sessions
+	stream func(context.Context, uint32) (DaemonStream, error)
+}
 
 func (c daemonClient) Stream(ctx context.Context, id uint32) (DaemonStream, error) {
-	return c.Sessions.Stream(ctx, id)
+	if c.Sessions == nil || c.stream == nil {
+		return nil, ErrWorkspaceUnavailable
+	}
+	return c.stream(ctx, id)
 }
-func NewDaemonClient(s *machined.Sessions) DaemonClient { return daemonClient{s} }
+
+// NewDaemonClient binds controls and streams from the same authenticated,
+// boot-fenced transport. The stream provider is unavailable until T-TRM-07
+// supplies its production implementation; no host or private SSH fallback.
+func NewDaemonClient(s *machined.Sessions, stream func(context.Context, uint32) (DaemonStream, error)) DaemonClient {
+	return daemonClient{Sessions: s, stream: stream}
+}
 
 // DaemonBridge requires every authority before authentication succeeds. Ready
 // is read-only; Admit waits as a person, reconciles the wake and returns the
