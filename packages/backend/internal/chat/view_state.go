@@ -173,7 +173,7 @@ func (s *Store) memberViewState(ctx context.Context, userID int64, conversation 
 			return nil, err
 		}
 		// Keep the conversation flag independent from the member-wide preference.
-		row = tx.QueryRow(ctx, `UPDATE collaborators c SET view_state=jsonb_set(c.view_state,ARRAY[$2],$3::jsonb-'global_toasts_hidden',true),
+		row = tx.QueryRow(ctx, `UPDATE collaborators c SET view_state=jsonb_set(c.view_state,ARRAY[$2],($3::jsonb-'global_toasts_hidden') || jsonb_strip_nulls(jsonb_build_object('toasts_hidden',coalesce($3::jsonb->'toasts_hidden',c.view_state->$2->'toasts_hidden'))),true),
    toasts_hidden=COALESCE($4,c.toasts_hidden)
    WHERE c.repository_id=$5
    AND c.user_id=$1 AND c.suspended_at IS NULL RETURNING (c.view_state->$2) || jsonb_build_object('global_toasts_hidden',c.toasts_hidden),
