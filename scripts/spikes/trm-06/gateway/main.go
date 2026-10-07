@@ -17,8 +17,17 @@ import (
 var errAuthority = errors.New("prototype_authority_unavailable: main-pinned installed provider required")
 
 func main() {
-	fmt.Fprintln(os.Stderr, errAuthority)
-	os.Exit(78)
+	operation := "run"
+	if len(os.Args) == 2 {
+		operation = os.Args[1]
+	} else if len(os.Args) != 1 {
+		fmt.Fprintln(os.Stderr, errAuthority)
+		os.Exit(78)
+	}
+	if err := installedMain(context.Background(), operation); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(78)
+	}
 }
 
 // Only the installed authority provider may supply a fresh workspace/runtime.

@@ -119,6 +119,18 @@ an installed-provider daemon loop with idle grace maintenance, bounded owned
 connections and shutdown drain, plus a gateway lifecycle adapter that stops
 admission and pending opens before revocation. Authenticated SSH fixtures prove
 that a drain receipt follows guest confirmation and preserves failure; control
-cancellation closes the actual transport. These functions remain behind the
-unimplemented installed authority/launcher/init path. No root-validation,
+cancellation closes the actual transport. These functions are wired to the
+installed authority/launcher/init path described below; activation remains gated. No root-validation,
 VS Code, real relay or measured timing result is supplied by these tests.
+
+Wave-3 pass-3 installed-provider handoff (still unmeasured): the disposable probe
+now implements a protected installed launcher, signed review/digest preflight,
+fresh-runtime provisioning, root-only guest install, fixed boot/inode validation,
+init replacement, mutually authenticated relay readiness, SSH admission and
+owner-only host revocation. None has been exercised on a real microVM. The new
+review-key/approval, launcher, installer and boot-proof seams need smithers-3f
+acceptance; their presence is not receipt evidence. The additional guest HMAC
+proof and fresh adapter agent-home reuse are described in the spike README.
+The named real root subchecks, ten revocation runs, restart/RSS/identity samples,
+nine reference-host steps and second-Mac recording remain required. No measured
+numbers or passing C-SPK-08 result are supplied by this lane.

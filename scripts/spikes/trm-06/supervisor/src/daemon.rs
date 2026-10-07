@@ -165,13 +165,16 @@ mod tests {
         assert_eq!(peer.read(&mut [0]).unwrap(), 0);
         server.join().unwrap().unwrap();
         assert!(cleaned.load(Ordering::Acquire));
-        assert!(TcpStream::connect(address).is_err());
     }
 
     #[test]
     fn failed_maintenance_stops_admission_and_preserves_drain_failure() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
+        // Hold a connection to this exact listener. A new connect after close
+        // can hit another parallel test that reused the ephemeral port.
+        let mut peer = TcpStream::connect(address).unwrap();
+        peer.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
         let error = run(
             listener,
             |_| panic!("admitted after maintenance failure"),
@@ -181,6 +184,10 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(error.to_string(), "drain failure");
-        assert!(TcpStream::connect(address).is_err());
+        match peer.read(&mut [0]) {
+            Ok(0) => (),
+            Err(error) if error.kind() == io::ErrorKind::ConnectionReset => (),
+            result => panic!("failed listener retained its queued connection: {result:?}"),
+        }
     }
 }

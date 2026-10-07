@@ -1,6 +1,9 @@
 #!/bin/sh
-# No branch-built script, compiler or binary is promoted to a root/host probe.
-# T-SEC-01 has not supplied an authenticated installed-prototype provider.
+# Checkout scripts cannot execute host/root prototype bytes. The system install
+# is main-pinned; its loader verifies gateway bytes before exec.
 set -eu
-printf '%s\n' '{"class":"unavailable","code":"prototype_authority_unavailable","check":"C-SPK-08","missing":["accepted T-SEC-01 R1-R3 receipts","main-pinned installed prototype","accepted root-prototype-install-validation","accepted root-session-input-validation"]}' >&2
+if [ "$0" = "/usr/local/lib/smithers/current/share/trm06/run.sh" ] && [ "$#" -eq 0 ]; then
+    exec /usr/bin/python3 -I -S /usr/local/lib/smithers/current/share/trm06/launcher.py run
+fi
+printf '%s\n' '{"class":"unavailable","code":"prototype_authority_unavailable","check":"C-SPK-08"}' >&2
 exit 78

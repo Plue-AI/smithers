@@ -75,7 +75,12 @@ fn account(text: &str, login: &str, uid: u32, passwd: bool) -> io::Result<bool> 
             if passwd
                 && (fields[3] != uid.to_string()
                     || fields[5] != format!("/home/{login}")
-                    || fields[6] != "/bin/sh")
+                    || fields[6]
+                        != if login == "agent" {
+                            "/bin/bash"
+                        } else {
+                            "/bin/sh"
+                        })
             {
                 return Err(refused());
             }
@@ -112,7 +117,7 @@ fn home(parent: &OwnedFd, login: &str, uid: u32) -> io::Result<()> {
     }
     Ok(())
 }
-/// Fresh images only: existing member homes are refused rather than traversed
+/// Fresh images only: existing Ben homes are refused rather than traversed
 /// or repaired by root. Restart invokes only cgroup cleanup, never this setup.
 pub fn provision_fresh() -> io::Result<()> {
     if unsafe { libc::getuid() } != 0 || unsafe { libc::geteuid() } != 0 {
@@ -136,6 +141,7 @@ pub fn provision_fresh() -> io::Result<()> {
     }
     // Fresh-home refusal happens before any account mutation, including
     // symlink/replaced-home fixtures. Never recursively repair retained data.
+    let mut existing_agent_home = false;
     for login in ["ben", "agent"] {
         let name = CString::new(login).unwrap();
         let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
@@ -148,7 +154,20 @@ pub fn provision_fresh() -> io::Result<()> {
             )
         } == 0
         {
-            return Err(refused());
+            let info = unsafe { stat.assume_init() };
+            // The shared fresh adapter has already provisioned agent. Reuse
+            // only its exact private directory; do not read or repair its data.
+            if login != "agent"
+                || info.st_mode & libc::S_IFMT != libc::S_IFDIR
+                || info.st_uid != 19999
+                || info.st_gid != 19999
+                || info.st_mode & 0o7777 != 0o700
+                || !account(&passwd, "agent", 19999, true)?
+            {
+                return Err(refused());
+            }
+            existing_agent_home = true;
+            continue;
         }
         if io::Error::last_os_error().raw_os_error() != Some(libc::ENOENT) {
             return Err(io::Error::last_os_error());
@@ -171,7 +190,11 @@ pub fn provision_fresh() -> io::Result<()> {
                 "-d",
                 &format!("/home/{login}"),
                 "-s",
-                "/bin/sh",
+                if login == "agent" {
+                    "/bin/bash"
+                } else {
+                    "/bin/sh"
+                },
                 login,
             ],
         )?;
@@ -183,7 +206,9 @@ pub fn provision_fresh() -> io::Result<()> {
         if !account(&passwd, login, id, true)? || !account(&group, login, id, false)? {
             return Err(refused());
         }
-        home(&homes, login, id)?;
+        if login != "agent" || !existing_agent_home {
+            home(&homes, login, id)?;
+        }
     }
     // Fixed top-level workspace is initialized before branch content arrives.
     let workspace = directory(root.as_raw_fd(), "workspace")?;
@@ -230,6 +255,24 @@ mod tests {
             assert!(account(text, "ben", 20001, true).is_err());
         }
         assert!(account("ben:x:20001:", "ben", 20001, false).unwrap());
+        assert!(
+            account(
+                "agent:x:19999:19999::/home/agent:/bin/bash",
+                "agent",
+                19999,
+                true
+            )
+            .unwrap()
+        );
+        assert!(
+            account(
+                "agent:x:19999:19999::/home/agent:/bin/sh",
+                "agent",
+                19999,
+                true
+            )
+            .is_err()
+        );
     }
     #[test]
     fn unprivileged_setup_refuses_before_any_account_command() {
