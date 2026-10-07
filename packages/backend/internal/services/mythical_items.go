@@ -248,7 +248,7 @@ func (s *MythicalService) observeIssueInTx(ctx context.Context, admission pgx.Tx
 		}
 		fact, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "attempt": item.Attempt,
 			"from": "issue", "to": "queued", "issue": issue.Number, "label_event": applied.EventID, "by": applied.By})
-		if _, err = jobs.RecordFactInTx(ctx, tx, todoOperationScope(item), uuid.NewString(), "todo.created", "queued", fact); err != nil {
+		if _, err = s.recordTodoFlowFact(ctx, tx, item, uuid.NewString(), "todo.created", "queued", fact); err != nil {
 			return err
 		}
 		if _, err = q.RequestMythicalStack(ctx, repositoryID); err != nil {
@@ -613,7 +613,7 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			}
 			if mythicalTodo(saved) && saved.Number.Valid {
 				fact, _ := json.Marshal(map[string]any{"item": uuidString(saved.ID), "n": saved.Number.Int64, "attempt": saved.Attempt, "generation": saved.Generation, "phase": projection.Phase, "run": runID, "actor": map[string]string{"kind": "run", "id": runID}, "from": todoState(item), "to": todoState(saved)})
-				if _, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.run_updated", todoState(saved), fact); err != nil {
+				if _, err := s.recordTodoFlowFact(ctx, tx, saved, uuid.NewString(), "todo.run_updated", todoState(saved), fact); err != nil {
 					return err
 				}
 			}
@@ -2869,7 +2869,7 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 	next.Checks = rebase.encode()
 	payload, _ := json.Marshal(map[string]any{"source": map[string]string{"commitId": rebased, "ref": ref}, "checks": plan.Checks, "writes": writes})
 	saved, err := st.commitWith(ctx, next, "verify", "coding/verify", payload, func(tx pgx.Tx, saved db.MythicalItem) error {
-		return recordTodoRebased(ctx, tx, saved, from, name)
+		return st.s.recordTodoRebased(ctx, tx, saved, from, name)
 	})
 	if err != nil {
 		return mythicalInfraOutage(item, "launch", "verification could not be launched: "+err.Error(), st.now), false, nil
@@ -2883,14 +2883,14 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 // recordTodoRebased writes a TODO's activity entry for a done rebase, in the
 // transaction that launches its checks: "Rebased onto main" or "Rebased
 // onto T<k>" (§10.5.3). A legacy issue item has no TODO activity.
-func recordTodoRebased(ctx context.Context, tx pgx.Tx, saved db.MythicalItem, from, onto string) error {
+func (s *MythicalService) recordTodoRebased(ctx context.Context, tx pgx.Tx, saved db.MythicalItem, from, onto string) error {
 	if !mythicalTodo(saved) || !saved.Number.Valid {
 		return nil
 	}
 	fact, _ := json.Marshal(map[string]any{"item": uuidString(saved.ID), "n": saved.Number.Int64, "attempt": saved.Attempt,
 		"generation": saved.Generation, "from": from, "onto": saved.CandidateBase, "onto_name": onto, "head": saved.CandidateHead,
 		"text": "Rebased onto " + onto, "actor": map[string]string{"kind": "system", "id": "stack"}})
-	_, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.rebased", todoState(saved), fact)
+	_, err := s.recordTodoFlowFact(ctx, tx, saved, uuid.NewString(), "todo.rebased", todoState(saved), fact)
 	return err
 }
 
@@ -3277,7 +3277,7 @@ func (s *MythicalService) consumeGitHubRefTodos(ctx context.Context, tx pgx.Tx, 
 		activity, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "wait": waitID, "lease": noPR,
 			"sha": head, "by": by, "url": "https://github.com/" + source.OwnerLogin + "/" + source.RepoName + "/commit/" + head,
 			"from": todoState(item), "to": todoState(saved), "ref_claim": fact.RefClaim})
-		if _, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.foreign_push", todoState(saved), activity); err != nil {
+		if _, err := s.recordTodoFlowFact(ctx, tx, saved, uuid.NewString(), "todo.foreign_push", todoState(saved), activity); err != nil {
 			return nil, err
 		}
 		if _, err := q.RequestMythicalStack(ctx, item.RepositoryID); err != nil {
@@ -3437,7 +3437,7 @@ func (s *MythicalService) AnswerBranch(ctx context.Context, branch string, input
 		fact := map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "wait": input.Wait,
 			"sha": input.Revision, "by": wait.By, "kept": repohost.KeptCommitRefPrefix + input.Revision,
 			"actor": map[string]any{"kind": "person", "id": person.ID, "login": person.Username}, "from": todoState(item), "to": todoState(saved)}
-		if err := recordTodoControl(ctx, tx, saved, input, credential, operation, receipt, fact); err != nil {
+		if err := s.recordTodoControl(ctx, tx, saved, input, credential, operation, receipt, fact); err != nil {
 			return err
 		}
 		if _, err := q.RequestMythicalStack(ctx, input.Repository); err != nil {
