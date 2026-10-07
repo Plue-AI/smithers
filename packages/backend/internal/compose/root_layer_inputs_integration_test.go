@@ -33,6 +33,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/flowmanifest"
 	"github.com/smithersai/smithers/packages/backend/installbundle"
+	"github.com/smithersai/smithers/packages/backend/installbundle/bundletest"
 	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostserver"
@@ -152,12 +153,9 @@ func TestRootLayerInputsValidatedBeforeUse(t *testing.T) {
 		branchCommit := h.pushBranch(t, "r4-attacker", branch)
 		h.reader.reset()
 		from := h.msb.mark()
-		// This public-runtime case records recipe bytes with an uninstalled
-		// msb fixture. It cannot provision installed member helpers; those are
-		// qualified separately against approved bundles. Keep that independent
-		// boundary out of this recipe-selection assertion.
 		h.runtime.BindMemberRoster(nil)
-		created, err := h.runtime.CreateWorkspace(h.ctx(t), workspaceapi.WorkspaceSpec{ID: "r4-attacker-branch",
+		workspaceID := uuid.NewString()
+		created, err := h.runtime.CreateWorkspace(h.ctx(t), workspaceapi.WorkspaceSpec{ID: workspaceID,
 			Source: &workspaceapi.WorkspaceSource{Repository: h.slug, Revision: "r4-attacker"}})
 		require.NoError(t, err)
 		require.Equal(t, workspaceapi.WorkspaceRunning, created.State)
@@ -181,7 +179,7 @@ func TestRootLayerInputsValidatedBeforeUse(t *testing.T) {
 			require.NotContains(t, call.Stdin, "attacker.example")
 			require.NotContains(t, call.Stdin, `"evil"`)
 		}
-		require.NoError(t, h.runtime.DeleteWorkspace(h.ctx(t), "r4-attacker-branch"))
+		require.NoError(t, h.runtime.DeleteWorkspace(h.ctx(t), workspaceID))
 	})
 
 	// f: with main's machine.json fixed, every §8.6.2 fixture sends root the
@@ -662,6 +660,11 @@ func startRootLayerHarnessRuntime(t *testing.T, direct bool, coding ...rootLayer
 func newRootLayerRuntime(t *testing.T, binary string, environments bool, configure ...func(*microsandbox.Config)) *microsandbox.Runtime {
 	config := microsandbox.Config{Binary: binary, Root: t.TempDir(), CPUs: 1, MemoryMiB: 1024, DiskMiB: 4096, MaxRunningVMs: 2,
 		SkipQualification: os.Getenv("SMITHERS_REQUIRE_MICROVM_TESTS") != "1"}
+	if config.SkipQualification {
+		config.Bundle = recordingRootLayerBundle(t, binary)
+		config.Binary = ""
+		config.Root = bundletest.ProtectedTempDir(t)
+	}
 	if environments {
 		config.Environments = &microsandbox.EnvironmentConfig{PrepareCPUs: 1, PrepareMemoryMiB: 1024, PrepareDiskMiB: 4096, MinFreeBytes: 1 << 30, LayerBudgetBytes: 8 << 30}
 	}
@@ -677,6 +680,53 @@ func newRootLayerRuntime(t *testing.T, binary string, environments bool, configu
 		}
 	})
 	return runtime
+}
+
+// The recording provider consumes manifests and records privileged operations;
+// it never boots or executes these payloads. Real-host qualification must not
+// use this fixture or substitute its bytes for an approved installed artifact.
+func recordingRootLayerBundle(t *testing.T, binary string) *installbundle.Bundle {
+	t.Helper()
+	require.NotZero(t, os.Geteuid(), "recording fixtures must never run as root")
+	require.NotEqual(t, "1", os.Getenv("SMITHERS_REQUIRE_MICROVM_TESTS"))
+	recorder, err := os.ReadFile(binary)
+	require.NoError(t, err)
+	require.Contains(t, string(recorder), "\nREAL = \"\"\n", "bundle fixture must never forward to a real runtime")
+	// Detection still executes real Node with repository bytes as data.
+	node, err := exec.LookPath("node")
+	require.NoError(t, err)
+	nodeBytes, err := os.ReadFile(node)
+	require.NoError(t, err)
+	root := bundletest.ProtectedTempDir(t)
+	helper := make([]byte, 64)
+	copy(helper, "\x7fELF")
+	helper[4], helper[5], helper[18] = 2, 1, 183
+	files := map[string][]byte{
+		"bin/node":                              nodeBytes,
+		"bin/msb":                               recorder,
+		"bin/linux-arm64/smithers-jj-export":    helper,
+		"bin/linux-arm64/jj":                    append(append([]byte(nil), helper...), "jj"...),
+		"lib/libkrunfw.5.dylib":                 []byte("recording fixture; never loaded"),
+		"share/microsandbox/base-image.oci.tar": []byte("recording fixture; never booted"),
+	}
+	entries := make([]installbundle.Entry, 0, len(files))
+	for name, body := range files {
+		mode := os.FileMode(0755)
+		if !strings.HasPrefix(name, "bin/") {
+			mode = 0644
+		}
+		path := filepath.Join(root, name)
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0755))
+		require.NoError(t, os.WriteFile(path, body, mode))
+		sum := sha256.Sum256(body)
+		entries = append(entries, installbundle.Entry{Path: name, SHA256: hex.EncodeToString(sum[:]), Stage: "recording-fixture", Mode: int(mode)})
+	}
+	manifest, err := json.Marshal(map[string]any{"version": 1, "platform": "darwin-arm64", "revision": strings.Repeat("1", 40), "files": entries})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(root, "manifest.json"), manifest, 0644))
+	bundle, err := installbundle.Open(root)
+	require.NoError(t, err)
+	return bundle
 }
 
 // sweepRealOwner removes the machines and layer snapshots this test's
@@ -1025,7 +1075,7 @@ type msbCall struct {
 }
 
 const recordingMSBScript = `#!/usr/bin/python3 -I
-import fcntl, json, os, re, shutil, subprocess, sys
+import fcntl, hashlib, json, os, re, shutil, subprocess, sys
 STATE = __STATE__
 LOG = __LOG__
 REAL = __REAL__
@@ -1084,7 +1134,18 @@ elif command == "exec" and "--" in args:
     if "-c" in rest and len(rest) > rest.index("-c") + 3 and rest[rest.index("-c") + 3] == "run":
         sub = rest[rest.index("-c") + 4:]
         out = ""
-        if sub and sub[0] == "exec":
+        if sub and sub[0] in ("coding-helper-check", "coding-helper"):
+            helper = sub[2] if len(sub) > 2 else "smithers-jj-export"
+            path = os.path.join(machine(name), "helper-" + hashlib.sha256(helper.encode()).hexdigest())
+            if sub[0] == "coding-helper-check":
+                current = open(path, "rb").read() if os.path.exists(path) else b""
+                out = "current" if hashlib.sha256(current).hexdigest() == sub[1] else "replace"
+            else:
+                if hashlib.sha256(data).hexdigest() != sub[1]:
+                    sys.exit(1)
+                with open(path, "wb") as f:
+                    f.write(data)
+        elif sub and sub[0] == "exec":
             request = json.loads(data or b"{}")
             argv = request.get("argv") or []
             script = argv[2] if len(argv) > 2 else ""
