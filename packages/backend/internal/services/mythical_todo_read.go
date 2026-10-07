@@ -334,6 +334,9 @@ func (s *MythicalService) todoCardAtQueuePosition(ctx context.Context, item db.M
 			evidence[i].Items[j] = captured
 		}
 	}
+	if checks.GitHubClosedAt != nil && todoState(item) == "dropped" {
+		card["note"] = item.Reason
+	}
 	if checks.MergedVia != nil {
 		card["merged_via"] = checks.MergedVia.Number
 		card["note"] = checks.MergedVia.Note

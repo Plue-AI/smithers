@@ -280,6 +280,7 @@ export function TodoView({ model: todo, actions, onAction, conflictTerminal }: T
       ))}
       {todo.approval_cleared && <p className="todo-attention">Approval cleared by rebase · checks rerun</p>}
       {todo.state === "merged" && <LessonsCount count={todo.lessons} />}
+      {todo.state === "dropped" && todo.note && <p>{todo.note}</p>}
       {todo.merged_via && <p>Merged · in T{todo.merged_via}'s commit</p>}
       <div className="todo-actions">
         {actions.map((action, index) =>

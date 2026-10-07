@@ -1265,7 +1265,7 @@ export const createAppController = (
     } }
   })
   const orderSeam = actors.pair(seamCtx, createOrderAttentionSeam)
-  const todoSeam = actors.pair(seamCtx, context => withDesignTodos(createTodoSeam(context, { ...(installHost ? { draftIssue: (source, signal) => draftIssueTodo(context, source, signal), readIssue: async (number, repo) => {
+  const todoSeam = actors.pair(seamCtx, context => withDesignTodos(createTodoSeam(context, { actors: () => ({ roster: (membersRoster.get().model?.members ?? []).map(member => ({ ...member, id: member.login })) }), ...(installHost ? { draftIssue: (source, signal) => draftIssueTodo(context, source, signal), readIssue: async (number, repo) => {
     const issue = await issuesSeam.readTodoIssue(number, repo)
     if (typeof issue === "string") return issue
     if (issue.state === "closed") return `Issue #${number} is closed.`

@@ -117,6 +117,7 @@ func testGitHubInboundCloseReopen(t *testing.T, mode string) {
 		require.Eventually(t, func() bool { return f.item(second.Number.Int64).State == "rejected" }, 10*time.Second, 20*time.Millisecond)
 		dropped := f.item(second.Number.Int64)
 		require.Equal(t, "closed on GitHub", dropped.Reason)
+		require.Equal(t, "closed on GitHub", f.card(second.Number.Int64)["note"])
 		require.NotNil(t, mythicalChecksOf(dropped).GitHubClosedAt)
 		require.NoError(t, synced.pollInstallPull(ctx, row, second.PRNumber.Int64))
 		require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_dropped'`))

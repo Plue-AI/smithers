@@ -36,14 +36,14 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J4-01 | [C-J4-01.spec.ts](C-J4-01.spec.ts) | fixme-before-implementation | T-APP-01 |
 | C-J4-02 | [C-J4-02.spec.ts](C-J4-02.spec.ts) | passing app HTTP-seam proof: Answer, head-bound Merge (acceptance stays In review until terminal projection), Move, Retry, displayed-wait/head Bring in, durable pause/resume projections and pending execution; runtime pause/checkpoint backend, real flow/GitHub and reference-host timing remain pending | T-STK-02, T-STK-05, T-APP-02 |
 | C-J4-03 | [C-J4-03.spec.ts](C-J4-03.spec.ts) | fixme-before-implementation | T-STK-04, T-REL-02 |
-| C-J10-01 | [C-J10-01.spec.ts](C-J10-01.spec.ts) | fixme-before-implementation | T-GH-03, T-REL-02 |
+| C-J10-01 | [C-J10-01.spec.ts](C-J10-01.spec.ts) | composed-install Chromium: publication, drafts and item-only diff; packaged guest dispatch pending | T-GH-03, T-REL-02 |
 | C-J10-02 | [C-J10-02.spec.ts](C-J10-02.spec.ts) | fixme-before-implementation | T-GH-04 |
 | C-J10-03 | [C-J10-03.spec.ts](C-J10-03.spec.ts), [install Discard cases](C-UI-12-todo-install.spec.ts) | Passing Chromium install HTTP seam: stale Discard refresh, displayed wait/SHA binding, person confirmation, independent question, pending toast, usable Chat and reload; machine Bring in ancestry and full reference-host journey pending | T-GH-06 |
 | C-J10-04 | [C-J10-04.spec.ts](C-J10-04.spec.ts) | fixme-before-implementation | T-STK-08 |
 | C-J10-05 | [C-J10-05.spec.ts](C-J10-05.spec.ts) | fixme-before-implementation | T-GH-03 |
 | C-J10-06 | [C-J10-06.spec.ts](C-J10-06.spec.ts) | passed: install HTTP seam, 120 s boundary, pending/deduplicated Retry, usable Chat, recovery and installation refusal; backend/reference-host qualification separate | T-GH-07 |
 | C-J10-07 | [C-J10-07.spec.ts](C-J10-07.spec.ts) | fixme-before-implementation | T-GH-07, T-ACC-03 |
-| C-J10-08 | [C-J10-08.spec.ts](C-J10-08.spec.ts) | fixme-before-implementation | T-GH-03, T-STK-05, T-MCH-14 |
+| C-J10-08 | [C-J10-08.spec.ts](C-J10-08.spec.ts) | composed-install Chromium: close, reopen, merge and reload; reference guest qualification pending | T-GH-03, T-STK-05, T-MCH-14 |
 | C-J10-09 | [C-J10-09.spec.ts](C-J10-09.spec.ts) | fixme-before-implementation | T-FLW-13, T-MCH-06, T-REL-02 |
 | C-J3-01 | [C-J3-01.spec.ts](C-J3-01.spec.ts) | fixme-before-implementation | T-COL-06, T-APP-10, T-REL-02 |
 | C-J3-02 | [C-J3-02.spec.ts](C-J3-02.spec.ts) | fixme-before-implementation | T-TRM-01, T-APP-12 |
@@ -86,7 +86,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-STK-01 | [C-STK-01.spec.ts](C-STK-01.spec.ts) | fixme-before-implementation | T-STK-01 |
 | C-STK-02 | [C-STK-02.spec.ts](C-STK-02.spec.ts) | Partial: real Settings card → install dispatcher and HTTP/live scheduler positions pass; full machine/safe-idle journey remains fixme pending T-MCH-06 | T-STK-03 |
 | C-STK-03 | [C-STK-03.spec.ts](C-STK-03.spec.ts), [current-flow Retry](todo-current-flow.spec.ts) | current-flow Retry passes; Stop/Resume pending | T-STK-05 |
-| C-STK-04 | [C-STK-04.spec.ts](C-STK-04.spec.ts) | fixme-before-implementation | T-GH-03 |
+| C-STK-04 | [C-STK-04.spec.ts](C-STK-04.spec.ts) | composed-install Chromium: external fold, retained note and keyboard OK; reference rebase qualification pending | T-GH-03 |
 | C-STK-05 | [C-STK-05.spec.ts](C-STK-05.spec.ts) | fixme-before-implementation | T-MCH-14 |
 | C-STK-06 | [C-STK-06.spec.ts](C-STK-06.spec.ts) | passing install REST/live seam: rebased checks hold, retained review, reload, displayed-head merge; guest/tree/reference-host receipts separate | T-STK-12, T-FLW-11, T-STK-01, T-GH-09, T-MCH-14 |
 | C-STK-07 | [C-STK-07.spec.ts](C-STK-07.spec.ts) | passing REST seam UI; complete folded backend and reference-host receipts remain separate | T-STK-04 |

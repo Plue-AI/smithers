@@ -1632,6 +1632,7 @@ type MythicalStack struct {
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 	FactoryState        string             `json:"factory_state"`
 	FactoryError        string             `json:"factory_error"`
+	Attention           json.RawMessage    `json:"attention"`
 }
 
 type MythicalWiki struct {

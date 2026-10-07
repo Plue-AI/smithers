@@ -372,6 +372,20 @@ path = "lib.rs"
 	select {
 	case h := <-ready:
 		server.Config.Handler = h
+		if spa := os.Getenv("SMITHERS_REHEARSAL_SPA_DIR"); spa != "" {
+			// Optional browser boundary over this same install, not a seeded app.
+			server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				if strings.HasPrefix(request.URL.Path, "/api/") || strings.HasPrefix(request.URL.Path, "/webhooks/") || strings.Contains(request.URL.Path, ".git/") || request.URL.Path == "/setup" || strings.HasPrefix(request.URL.Path, "/setup/") {
+					h.ServeHTTP(w, request)
+					return
+				}
+				path := filepath.Join(spa, filepath.Clean("/"+request.URL.Path))
+				if info, err := os.Stat(path); err != nil || info.IsDir() {
+					path = filepath.Join(spa, "index.html")
+				}
+				http.ServeFile(w, request, path)
+			})
+		}
 	case err := <-done:
 		t.Fatalf("composition: %v\n%s", err, r.logs.String())
 	case <-time.After(45 * time.Second):

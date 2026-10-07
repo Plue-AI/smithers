@@ -59,3 +59,13 @@ test("real file projection records the diff commit instead of the current head",
     expect(card.payload.readAt).toEqual({ changeId: "change", commitId: "abc123" })
   }
 })
+
+test("installed TODO and scratch diffs use the retained reader without machine providers", async () => {
+  const { store } = await setup(async () => { throw new Error("unexpected direct diff read") })
+  const seen: string[] = []
+  const seam = createDiffFilesSeam({ store, dispatch: store.dispatch, actor: () => "user", nextOrdinal: () => 1,
+    http: async () => { throw new Error("unexpected machine diff read") }, baseUrl: "https://app.test" },
+    { ready: () => false, scope: () => null }, undefined, async branch => { seen.push(branch); return "Requested" })
+  for (const branch of ["smithers/retry-webhooks", "scratch/retry-webhooks"]) expect(await seam.branchDiff(branch)).toBe("Requested")
+  expect(seen).toEqual(["smithers/retry-webhooks", "scratch/retry-webhooks"])
+})
