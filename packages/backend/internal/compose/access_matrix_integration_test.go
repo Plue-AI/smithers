@@ -729,6 +729,12 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 		var foreign string
 		require.NoError(t, pool.QueryRow(ctx, `SELECT COALESCE(checks->>'foreignHead','') FROM mythical_items WHERE number=1`).Scan(&foreign))
 		require.Empty(t, foreign)
+		for _, action := range []string{"restore", "restore-deleted"} {
+			status, refused := call(2, false, path+"/files/src/a.ts", "external-"+action, fmt.Sprintf(`{"action":%q,"version":%q,"base_digest":"absent"}`, action, head))
+			require.Equal(t, 403, status, refused)
+			require.Equal(t, "permission", refused["class"])
+			require.Equal(t, "permission", refused["code"])
+		}
 	})
 
 }
