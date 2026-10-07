@@ -1759,6 +1759,34 @@ const launch = (cwd: string, args: ReadonlyArray<string>) =>
   })
 
 describe("an attached launch's exit status", processBudget, () => {
+  it("the installed bin door preserves up failure and terminal cancel status", () => {
+    const cwd = stageUnservableSeat()
+    const invoke = (...args: Array<string>) => spawnSync(process.execPath, [
+      "--no-warnings", "--import", scriptedHost, shim, ...args, "--root", cwd, "--json"
+    ], {
+      cwd, encoding: "utf8", timeout: 180_000,
+      env: { ...process.env, HOME: cwd, SMITHERS_OPENAI_AUTH: "chatgpt", PATH: `${join(cwd, "codex")}:${process.env.PATH ?? ""}` }
+    })
+    try {
+      const failed = invoke("up", "failing")
+      expect(failed.error).toBeUndefined()
+      expect(failed.status, failed.stderr).toBe(1)
+      const receipt = JSON.parse(failed.stdout)
+      expect(receipt.status).toBe("failed")
+      const db = new DatabaseSync(join(cwd, ".flows", "control.db"))
+      try {
+        const row = db.prepare("SELECT state_json FROM flows_runs WHERE run_id=?").get(receipt.runId)!
+        const state = { ...JSON.parse(String(row.state_json)), runId: "terminal-cancelled", status: "cancelled" }
+        db.prepare("INSERT INTO flows_runs(run_id,status,created_at_ms,state_json) VALUES(?, 'cancelled', ?, ?)")
+          .run(state.runId, Date.now(), JSON.stringify(state))
+      } finally { db.close() }
+      // A terminal receipt needs no driver; pin its process status at the bin boundary.
+      const cancelled = invoke("runs", "cancel", "terminal-cancelled")
+      expect(cancelled.error).toBeUndefined()
+      expect(cancelled.status, cancelled.stderr).toBe(130)
+      expect(JSON.parse(cancelled.stdout)).toMatchObject({ _tag: "Terminal", status: "cancelled" })
+    } finally { rmSync(cwd, { recursive: true, force: true }) }
+  })
   it("exits 1 for a run that settled failed, and still prints the receipt", () => {
     const cwd = stageUnservableSeat()
     try {

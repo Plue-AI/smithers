@@ -13,6 +13,7 @@ import * as Unsupported from "../Unsupported.ts"
 import * as NodeOutput from "../NodeOutput.ts"
 import * as FlowCatalog from "./FlowCatalog.ts"
 import * as RunReads from "./RunReads.ts"
+import * as Settlement from "./Settlement.ts"
 /**
  * Resolve a supplied flow name or an interactive selection.
  * @category constructors
@@ -186,12 +187,16 @@ export const output = (runId: string, nodeId?: string) => Effect.gen(function*()
   if (node === undefined) return yield* Effect.fail(new CliError.UsageError({ message: NodeOutput.notFound(runId, nodeId, nodes) }))
   return node
 })
+const reportTerminal = (receipt: ControlSchema.Receipt) =>
+  Settlement.report(receipt._tag === "Terminal" ? { kind: `control.run.${receipt.status}` } : undefined)
+
 /**
  * Cancel a run with a stable mutation key.
  * @category constructors
  * @since 1.0.0
  */
-export const cancel = (runId: string) => Effect.flatMap(ControlService.Control, control => control.cancel({ runId, idempotencyKey: `cli:cancel:${runId}` }))
+export const cancel = (runId: string) => Effect.flatMap(ControlService.Control, control =>
+  control.cancel({ runId, idempotencyKey: `cli:cancel:${runId}` }).pipe(Effect.tap(reportTerminal)))
 /**
  * Deliver a signal with a payload-specific mutation key.
  * @category constructors
@@ -200,7 +205,7 @@ export const cancel = (runId: string) => Effect.flatMap(ControlService.Control, 
 export const deliverSignal = (runId: string, serialized: string) => Effect.gen(function*() {
   const payload = yield* signal(serialized)
   const control = yield* ControlService.Control
-  return yield* control.signal({ runId, signal: payload, idempotencyKey: signalKey(runId, payload) })
+  return yield* control.signal({ runId, signal: payload, idempotencyKey: signalKey(runId, payload) }).pipe(Effect.tap(reportTerminal))
 })
 /**
  * Deliver an attributed operator steering message.

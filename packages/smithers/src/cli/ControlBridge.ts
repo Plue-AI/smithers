@@ -288,6 +288,7 @@ export const query = async <A, E>(
   settle(
     provideServices(
       operation.pipe(
+        Effect.provideService(CommandStatus.CommandStatus, (code) => runtime.exit?.(code)),
         Effect.provide(NodeControl.layer({ ...configuration(options, runtime), startsRuns: false, ...hostOptions }))
       ),
       options,

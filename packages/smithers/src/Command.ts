@@ -133,6 +133,18 @@ const render = (value: unknown) =>
     yield* Console.log(rendered.text)
   })
 
+// Shared launch Effects report before returning their document. Rendering also
+// reports output status, so defer the settlement sink until after the receipt.
+const renderSettlement = <A, E, R>(operation: Effect.Effect<A, E, R>) =>
+  Effect.gen(function*() {
+    let status: number | undefined
+    const value = yield* operation.pipe(
+      Effect.provideService(CommandStatus.CommandStatus, (code) => { status = code })
+    )
+    yield* render(value)
+    if (status !== undefined) yield* CommandStatus.set(status)
+  })
+
 /** Forces JSON rendering, for the `events` alias and the `--json` contract. */
 const renderJson = (value: unknown) =>
   Effect.gen(function*() {
@@ -174,7 +186,7 @@ const allowCodeDriftFlag = Flag.Boolean("allow-code-drift").pipe(
   Flag.withDescription("Resume even though the run's flow changed since it started")
 )
 
-const runResume = (id: string, drift: boolean) => Effect.flatMap(quiet, suppressed => Effect.flatMap(Launch.resume(id, drift, suppressed), render))
+const runResume = (id: string, drift: boolean) => Effect.flatMap(quiet, suppressed => renderSettlement(Launch.resume(id, drift, suppressed)))
 
 const run = Command.make("run", {
   plan: requiredArgument("plan-payload"),
@@ -187,7 +199,7 @@ const run = Command.make("run", {
   Effect.gen(function*() {
     yield* guardGlobals
     if (config.resume) return yield* runResume(config.plan, config.allowCodeDrift)
-    yield* render(yield* Launch.execute(config.plan, yield* quiet))
+    yield* renderSettlement(Launch.execute(config.plan, yield* quiet))
   })).pipe(Command.withDescription(Verb.find("run")!.help))
 
 const resume = Command.make("resume", {
@@ -265,7 +277,7 @@ const up = Command.make("up", upFlags, (config) =>
       "max-concurrency": config["max-concurrency"]
     })
     const globals = yield* rootCommand
-    yield* render(yield* Launch.start({ ...config, quiet: yield* quiet, remote: Option.fromUndefinedOr(Option.getOrUndefined(globals.remote) ?? Environment.read(process.env, "SMITHERS_REMOTE")), root: globals.root, mcpConfig: globals.mcpConfig }))
+    yield* renderSettlement(Launch.start({ ...config, quiet: yield* quiet, remote: Option.fromUndefinedOr(Option.getOrUndefined(globals.remote) ?? Environment.read(process.env, "SMITHERS_REMOTE")), root: globals.root, mcpConfig: globals.mcpConfig }))
   })).pipe(Command.withDescription(Verb.find("up")!.help))
 
 const approve = Command.make("approve", {
@@ -281,19 +293,19 @@ const approve = Command.make("approve", {
 }, (config) =>
   Effect.gen(function*() {
     yield* guardGlobals
-    yield* render(yield* Launch.approve(config.approval, config.scope, yield* quiet))
+    yield* renderSettlement(Launch.approve(config.approval, config.scope, yield* quiet))
   })).pipe(Command.withDescription(Verb.find("approve")!.help))
 
 const deny = Command.make("deny", { approval: requiredArgument("approval") }, (config) =>
   Effect.gen(function*() {
     yield* guardGlobals
-    yield* render(yield* Launch.deny(config.approval, yield* quiet))
+    yield* renderSettlement(Launch.deny(config.approval, yield* quiet))
   })).pipe(Command.withDescription(Verb.find("deny")!.help))
 
 const cancel = Command.make("cancel", { runId: requiredArgument("run-id") }, (config) =>
   Effect.gen(function*() {
     yield* guardGlobals
-    yield* render(yield* RunControl.cancel(config.runId))
+    yield* renderSettlement(RunControl.cancel(config.runId))
   })).pipe(Command.withDescription(Verb.find("cancel")!.help))
 
 /**
@@ -316,7 +328,7 @@ const signalCommand = Command.make("signal", {
 }, (config) =>
   Effect.gen(function*() {
     yield* guardGlobals
-    yield* render(yield* RunControl.deliverSignal(config.runId, config.payload))
+    yield* renderSettlement(RunControl.deliverSignal(config.runId, config.payload))
   })).pipe(Command.withDescription(Verb.find("signal")!.help))
 
 const steer = Command.make("steer", {
