@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
@@ -112,5 +113,55 @@ func TestConflictDoneComposedInstall(t *testing.T) {
 	provider.unresolved = nil
 	call(202, "")
 	call(202, "")
+	require.Equal(t, 1, provider.signals)
+	// Both branch doors are mounted and authorized, but the install has no
+	// native conflict/recovery provider. Neither request admits any rewrite.
+	tokens := map[string]string{}
+	for _, kind := range []string{"run", "machine"} {
+		raw := "smithers_" + strings.Repeat("a", 40)
+		if kind == "machine" {
+			raw = "smithers_" + strings.Repeat("b", 40)
+		}
+		sum := sha256.Sum256([]byte(raw))
+		digest := hex.EncodeToString(sum[:])
+		scopes := "write:repository," + middleware.RepositoryRestrictionScope(repo.ID)
+		if kind == "machine" {
+			scopes += "," + middleware.WorkspaceRestrictionScope("11111111-1111-4111-8111-111111111111")
+		}
+		_, err := q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: kind, TokenHash: digest, TokenLastEight: digest[len(digest)-8:], Scopes: scopes, SystemIssued: true})
+		require.NoError(t, err)
+		tokens[kind] = raw
+	}
+	for _, body := range []string{`{"rebase":true}`, `{"conflict_change":"change","onto_revision":"onto"}`} {
+		for _, principal := range []string{"person", "anonymous", "run", "machine"} {
+			request, err := http.NewRequest("POST", origin+"/api/branches/scratch%2Fben%2Fwork", strings.NewReader(body))
+			require.NoError(t, err)
+			if principal == "person" {
+				request.AddCookie(&http.Cookie{Name: "smithers_session", Value: "pin-cookie"})
+			}
+			if token := tokens[principal]; token != "" {
+				request.Header.Set("Authorization", "Bearer "+token)
+			}
+			request.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
+			request.Header.Set("X-CSRF-Token", "csrf")
+			request.Header.Set("Origin", origin)
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Idempotency-Key", "same-press")
+			response, err := http.DefaultClient.Do(request)
+			require.NoError(t, err)
+			var result map[string]any
+			require.NoError(t, json.NewDecoder(response.Body).Decode(&result))
+			response.Body.Close()
+			if principal == "person" {
+				require.Equal(t, 503, response.StatusCode, result)
+				require.Equal(t, "rebase_execution_unavailable", result["code"])
+			} else if principal == "anonymous" {
+				require.Equal(t, 401, response.StatusCode, result)
+			} else {
+				require.Equal(t, 403, response.StatusCode, result)
+				require.Equal(t, "permission", result["code"])
+			}
+		}
+	}
 	require.Equal(t, 1, provider.signals)
 }
