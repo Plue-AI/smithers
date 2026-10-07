@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -106,6 +107,48 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result), w.Body.String())
 		return w.Code, result
 	}
+	t.Run("relay concrete authorization", func(t *testing.T) {
+		// Authorization, membership, repository and workspace lookup are real.
+		// The external coding host is recorded so refusals prove zero relay IO.
+		dispatcher := &browserFlowRecordingDispatcher{}
+		browser := &browserFlowAPI{repos: services.NewRepoService(q, nil, ""), queries: q, dispatcher: dispatcher}
+		relay := chi.NewRouter()
+		mountBrowserFlow(relay, cfg, q, browser)
+		original := router
+		router = relay
+		defer func() { router = original }()
+		workspace := uuid.NewString()
+		_, err := pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,name,vm_id,status) VALUES($1,$2,$3,'matrix-relay','matrix-relay','running')`, workspace, repo.ID, users[2].ID)
+		require.NoError(t, err)
+		cases := []struct {
+			name, procedure, payload string
+			person                   bool
+			status                   int
+			code                     string
+		}{
+			{"person approves", "Approval.Submit", `{"target":{"_tag":"Run","runId":"r","requestId":"a"},"decision":"approve"}`, true, 200, ""},
+			{"agent cannot approve", "Approval.Submit", `{"target":{"_tag":"Run","runId":"r","requestId":"a"},"decision":"approve"}`, false, 403, "never"},
+			{"agent cannot deny", "Approval.Submit", `{"target":{"_tag":"Run","runId":"r","requestId":"a"},"decision":"deny"}`, false, 403, "never"},
+			{"invalid decision", "Approval.Submit", `{"decision":"unknown"}`, true, 400, "invalid_workflow"},
+			{"external actor excluded from stop", "Cancel", `{"runId":"r"}`, false, 403, "permission"},
+			{"person stops", "Cancel", `{"runId":"r"}`, true, 200, ""},
+			{"agent plans", "Plan", `{"flowId":"greeting","input":{}}`, false, 200, ""},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				before := len(dispatcher.calls)
+				body := fmt.Sprintf(`{"repo":"maya/demo","workspaceId":%q,"procedure":%q,"payload":%s}`, workspace, tc.procedure, tc.payload)
+				status, result := call(2, tc.person, "/api/workflow/rpc", "", body)
+				require.Equal(t, tc.status, status, result)
+				if tc.code != "" {
+					require.Equal(t, tc.code, result["code"], result)
+					require.Len(t, dispatcher.calls, before)
+				} else {
+					require.Len(t, dispatcher.calls, before+1)
+				}
+			})
+		}
+	})
 	count := func(table string) int {
 		t.Helper()
 		var n int
