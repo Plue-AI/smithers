@@ -3,10 +3,54 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
+	"path/filepath"
 	"testing"
 
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/stretchr/testify/require"
 )
+
+func TestConflictReservationSurvivesRestartPostgres(t *testing.T) {
+	for _, limit := range []int{0, 1, 8} {
+		t.Run(fmt.Sprint(limit), func(t *testing.T) {
+			o := newMythicalOrchestration(t)
+			ctx := t.Context()
+			source := o.git(o.work, "rev-parse", "HEAD")
+			require.NoError(t, o.service.queries().UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: InstallCodingProjectKey, Value: []byte(fmt.Sprintf(`{"conflictAttempts":%d}`, limit))}))
+			item, _, err := o.service.queries().InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: o.repoID, State: "integrating", RequestRunID: "pinned-run", Checks: []byte(`{}`)})
+			require.NoError(t, err)
+			item.RequestRunID = "pinned-run"
+			item, err = o.service.queries().SaveMythicalItem(ctx, item)
+			require.NoError(t, err)
+			step := &mythicalItemStep{s: o.service, r: &mythicalRun{g: mythicalGit{dir: filepath.Join(o.work, ".git")}, row: db.MythicalStack{LandedMain: source}}}
+			reservation, err := step.reserveConflict(ctx, item, "retained-change", "onto")
+			require.NoError(t, err)
+			require.Equal(t, limit, reservation.Limit)
+			want := 1
+			if limit == 0 {
+				want = 0
+			}
+			require.Equal(t, want, reservation.Reserved)
+			checks := mythicalChecksOf(item)
+			checks.ConflictReservation = reservation
+			item.Checks = checks.encode()
+			item, err = o.service.queries().SaveMythicalItem(ctx, item)
+			require.NoError(t, err)
+			// A changed setting and a new service cannot replenish this binding.
+			require.NoError(t, o.service.queries().UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: InstallCodingProjectKey, Value: []byte(`{"conflictAttempts":0}`)}))
+			step.s = NewMythicalService(o.pool, nil)
+			for range 10 {
+				retained, err := step.s.queries().GetMythicalItem(ctx, item.ID)
+				require.NoError(t, err)
+				again, err := step.reserveConflict(ctx, retained, "retained-change", "onto")
+				require.NoError(t, err)
+				require.Equal(t, reservation, again)
+			}
+			require.Empty(t, o.launcher.all("todo"), "reservation is not an agent execution receipt")
+		})
+	}
+}
 
 type conflictValidationFake struct {
 	calls []ConflictValidation
