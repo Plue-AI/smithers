@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -269,4 +270,144 @@ esac
 			})
 		}
 	}
+}
+
+func TestRecoverAdmissionReconstructsRetainedBootOnce(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		wanted, confirms bool
+	}{
+		{"retained demand", true, true}, {"no demand", false, true}, {"stop unconfirmed", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, log := reclaimFakeMSB(t, 0)
+			ws := addReclaimWorkspace(t, r, "boot", "starting", "")
+			marker := filepath.Join(t.TempDir(), "stopped")
+			script := fmt.Sprintf(`#!/bin/sh
+printf '%%s\n' "$*" >> %q
+case "$1" in
+ list) if [ -f %q ]; then echo '[{"name":%q,"status":"stopped"}]'; else echo '[{"name":%q,"status":"starting"}]'; fi ;;
+ stop) if [ %t = true ]; then touch %q; fi ;;
+ *) exit 99 ;;
+esac
+`, log, marker, ws.Machine, ws.Machine, tc.confirms, marker)
+			require.NoError(t, os.WriteFile(r.cli.binary, []byte(script), 0700))
+			r.config.RecoverAdmission = true
+			r.admissionRecoveryPending = true
+			require.NoError(t, r.recover(t.Context()))
+			require.Equal(t, 1, r.InUse())
+			calls, err := os.ReadFile(log)
+			require.NoError(t, err)
+			require.NotContains(t, string(calls), "stop ")
+			_, err = r.WaitAdmission(t.Context(), AdmissionProviders{}, "person", "workspace:boot", "Alice", "terminal")
+			require.ErrorIs(t, err, ErrAdmissionNotReady)
+			require.False(t, r.NeedsWorkspaceReattachment("boot"))
+			demand := []AdmissionRequest{}
+			if tc.wanted {
+				demand = append(demand, AdmissionRequest{Holder: "workspace:boot", Actor: "Alice", Class: "person", Reason: "terminal"})
+			}
+			err = r.ReconstructAdmission(t.Context(), demand)
+			if !tc.wanted && !tc.confirms {
+				require.Error(t, err)
+				require.True(t, r.admissionRecoveryPending)
+				require.Equal(t, 1, r.InUse())
+				return
+			}
+			require.NoError(t, err)
+			require.NoError(t, r.ReconstructAdmission(t.Context(), demand))
+			require.False(t, r.admissionRecoveryPending)
+			if tc.wanted {
+				require.Equal(t, 1, r.InUse())
+				require.True(t, r.NeedsWorkspaceReattachment("boot"))
+				rows := r.AdmissionSnapshot()
+				require.Len(t, rows, 1)
+				require.Equal(t, "granted", rows[0].State)
+				require.NoError(t, r.admitMachineLocked(WithAdmissionHolder(t.Context(), "workspace:boot"), 1, ws.Machine))
+				require.Equal(t, 1, r.InUse(), "reattachment reuses the retained VM slot")
+				ws.booting = true
+				require.False(t, r.NeedsWorkspaceReattachment("boot"))
+				require.Error(t, r.admitMachineLocked(WithAdmissionHolder(t.Context(), "workspace:boot"), 1, ws.Machine))
+				ws.booting = false
+				calls, err = os.ReadFile(log)
+				require.NoError(t, err)
+				require.NotContains(t, string(calls), "stop ")
+				require.NotContains(t, string(calls), "start ")
+			} else {
+				require.Zero(t, r.InUse())
+				require.Equal(t, "stopped", readReclaimMetadata(t, ws).State)
+			}
+		})
+	}
+}
+
+func TestRecoverAdmissionMissingVMHasNoPhantomSlot(t *testing.T) {
+	r, _ := reclaimFakeMSB(t, 0) // authoritative empty runtime list
+	addReclaimWorkspace(t, r, "boot", "starting", "")
+	r.config.RecoverAdmission = true
+	r.admissionRecoveryPending = true
+	require.NoError(t, r.recover(t.Context()))
+	require.NoError(t, r.ReconstructAdmission(t.Context(), []AdmissionRequest{{Holder: "workspace:boot", Actor: "run", Class: "todo", Reason: "machine"}}))
+	require.Zero(t, r.InUse())
+	rows := r.AdmissionSnapshot()
+	require.Len(t, rows, 1)
+	require.Equal(t, "waiting", rows[0].State)
+	require.Equal(t, 1, rows[0].Position)
+}
+
+func TestRecoverAdmissionRetainOnlyNeverWakesAnAbsentMachine(t *testing.T) {
+	r, _ := reclaimFakeMSB(t, 0)
+	r.config.RecoverAdmission = true
+	r.admissionRecoveryPending = true
+	require.NoError(t, r.recover(t.Context()))
+	require.NoError(t, r.ReconstructAdmission(t.Context(), []AdmissionRequest{{Holder: "workspace:review", Actor: "run", Class: "todo", Reason: "machine", RetainOnly: true}}))
+	require.Zero(t, r.InUse())
+	require.Empty(t, r.AdmissionSnapshot())
+}
+
+func TestRecoverAdmissionValidationAndConcurrentReplay(t *testing.T) {
+	r, _ := reclaimFakeMSB(t, 0)
+	r.admissionRecoveryPending = true
+	demand := []AdmissionRequest{{Holder: "workspace:A", Actor: "run", Class: "todo", Reason: "machine"}}
+	require.Error(t, r.ReconstructAdmission(t.Context(), []AdmissionRequest{{Holder: "workspace:A", Class: "todo", Reason: "machine"}}))
+	require.True(t, r.admissionRecoveryPending)
+	require.Empty(t, r.AdmissionSnapshot())
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	require.ErrorIs(t, r.ReconstructAdmission(ctx, demand), context.Canceled)
+	require.True(t, r.admissionRecoveryPending)
+	var workers sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		workers.Add(1)
+		go func() { defer workers.Done(); require.NoError(t, r.ReconstructAdmission(t.Context(), demand)) }()
+	}
+	workers.Wait()
+	require.Len(t, r.AdmissionSnapshot(), 1)
+	require.Equal(t, "waiting", r.AdmissionSnapshot()[0].State)
+	require.Zero(t, r.InUse())
+	r.closed = true
+	require.Error(t, r.ReconstructAdmission(t.Context(), demand))
+}
+
+func TestRecoverAdmissionStopsUnrecordedVM(t *testing.T) {
+	r, log := reclaimFakeMSB(t, 0)
+	marker := filepath.Join(t.TempDir(), "removed")
+	script := fmt.Sprintf(`#!/bin/sh
+printf '%%s\n' "$*" >> %q
+case "$1" in
+ list) if [ -f %q ]; then echo '[]'; else echo '[{"name":"orphan-vm","status":"running"}]'; fi ;;
+ remove) touch %q ;;
+ *) exit 99 ;;
+esac
+`, log, marker, marker)
+	require.NoError(t, os.WriteFile(r.cli.binary, []byte(script), 0700))
+	r.config.RecoverAdmission = true
+	r.admissionRecoveryPending = true
+	require.NoError(t, r.recover(t.Context()))
+	require.FileExists(t, marker)
+	require.NoError(t, r.ReconstructAdmission(t.Context(), nil))
+	require.Zero(t, r.InUse())
+	calls, err := os.ReadFile(log)
+	require.NoError(t, err)
+	require.Contains(t, string(calls), "remove ")
+	require.NotContains(t, string(calls), "start ")
 }

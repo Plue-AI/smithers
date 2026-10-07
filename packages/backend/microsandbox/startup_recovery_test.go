@@ -86,3 +86,23 @@ func TestRetainedWorkspaceRecoveryFailurePreventsPreparationAndAdmission(t *test
 	require.NotContains(t, strings.Join(invocations(t, log), "\n"), "setup")
 	require.Equal(t, []string{"list", "install", "kill-all", "recover-files", "stop", "list"}, invocations(t, log))
 }
+
+func TestRecoveredBootReattachmentUsesTrustedRecoveryWithoutSecondStart(t *testing.T) {
+	r, ws, log := startupRecoveryTransport(t, "recover-files")
+	ws.State = "starting"
+	r.config.RecoverAdmission = true
+	r.admissionRecoveryPending = true
+	require.NoError(t, r.recover(t.Context()))
+	holder := "workspace:" + ws.ID
+	require.NoError(t, r.ReconstructAdmission(t.Context(), []AdmissionRequest{{Holder: holder, Actor: "run", Class: "todo", Reason: "machine"}}))
+	require.True(t, r.NeedsWorkspaceReattachment(ws.ID))
+	require.Equal(t, 1, r.InUse())
+	_, err := r.StartWorkspace(WithAdmissionHolder(t.Context(), holder), ws.ID)
+	require.ErrorIs(t, err, ErrUnavailable)
+	require.ErrorContains(t, err, "injected recover-files failure")
+	require.Equal(t, []string{"list", "list", "install", "kill-all", "recover-files", "stop", "list"}, invocations(t, log))
+	require.Zero(t, r.InUse())
+	require.False(t, r.NeedsWorkspaceReattachment(ws.ID))
+	require.Equal(t, "released", r.AdmissionSnapshot()[0].State)
+	require.False(t, ws.guestOK)
+}

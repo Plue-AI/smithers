@@ -387,7 +387,11 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 		return row, pkgerrors.Internal(validationErr.Error())
 	}
 
-	if observed.State == workspaceapi.WorkspaceStopped {
+	reattach := false
+	if runtime, ok := s.runtime.(interface{ NeedsWorkspaceReattachment(string) bool }); ok {
+		reattach = runtime.NeedsWorkspaceReattachment(row.ID)
+	}
+	if observed.State == workspaceapi.WorkspaceStopped || reattach {
 		// Creation already holds the admission made before the product row was
 		// inserted. A later resume must recheck the common billing policy.
 		if !create {
