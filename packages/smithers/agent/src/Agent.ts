@@ -977,8 +977,11 @@ const runProductionUnmeasured: Service["run"] = (options) =>
               modelRetryPolicy: options.modelRetryPolicy
             })
           const seats = [options.seat, ...(options.fallbackSeats ?? [])]
-          const ports = yield* Effect.forEach(seats, (seat) =>
-            Effect.gen(function*() {
+          const ports = yield* Effect.forEach(seats, (seat) => {
+            if (seat.refresh === undefined) {
+              return Effect.map(makePort(seat), (engine) => ({ seat, engine, update: (_next: Seat.Seat) => {} }))
+            }
+            return Effect.gen(function*() {
               // One port owns the durable activity registration for the whole
               // invocation. Refresh its delegates before sealing, never replace
               // the port and capture an earlier call's event sink.
@@ -995,7 +998,8 @@ const runProductionUnmeasured: Service["run"] = (options) =>
                   selected = next
                 }
               }
-            }))
+            })
+          })
           const capacityServices = yield* Effect.context<
             | FlowRuntime.FlowRuntime
             | FlowRuntime.FlowInstance
