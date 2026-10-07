@@ -5,10 +5,10 @@ import { join } from "node:path"
 
 // Exercise the public test-runner door: selecting the spec directly must refuse
 // before Playwright's reporter or webServer can start a development install.
-test("direct activation selection refuses a missing reference install during config admission", () => {
-  const env = { ...process.env, SMITHERS_JOURNEY: "j1-activation.spec.ts" }
+for (const spec of ["j1-activation.spec.ts", "j1.spec.ts", "keyboard-journeys.spec.ts"]) test(`direct ${spec} selection refuses a missing reference install during config admission`, () => {
+  const env = { ...process.env, SMITHERS_JOURNEY: spec }
   for (const name of ["SMITHERS_REAL_BASE_URL", "SMITHERS_E2E_BASE_URL", "SMITHERS_J1_PRECONDITIONS"]) delete (env as NodeJS.ProcessEnv)[name]
-  const result = spawnSync("pnpm", ["exec", "playwright", "test", "--config", "playwright.real.config.ts", "e2e/real/j1-activation.spec.ts", "--list", "--reporter", "list"], {
+  const result = spawnSync("pnpm", ["exec", "playwright", "test", "--config", "playwright.real.config.ts", `e2e/real/${spec}`, "--list", "--reporter", "list"], {
     cwd: new URL("../../..", import.meta.url), env, encoding: "utf8", timeout: 30_000
   })
   expect(result.error).toBeUndefined()
