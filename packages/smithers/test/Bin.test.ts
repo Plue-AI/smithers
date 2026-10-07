@@ -1005,10 +1005,8 @@ describe("the SQLite-only database contract", processBudget, () => {
 })
 
 describe("the served gateway", processBudget, () => {
-  /** A loopback port nothing else in this suite is using. */
-  const port = 34_000 + Math.floor(Math.random() * 8000)
-
   it.each(["serve", "gateway"])("%s answers every mount and starts the scheduler", async (verb) => {
+    const port = await freePort()
     const cwd = mkdtempSync(temporaryDirectoryPrefix)
     const child = spawn(process.execPath, [
       "--no-warnings",

@@ -179,6 +179,10 @@
     {
       "path": "agent",
       "agent": "run"
+    },
+    {
+      "path": "branch archive",
+      "agent": "confirm"
     }
   ],
   "excluded": [
@@ -252,9 +256,8 @@
         "Ship retries"
       ],
       "method": "POST",
-      "path": "/api/branches/retry-webhooks",
+      "path": "/api/branches/retry-webhooks/add-to-stack",
       "body": {
-        "op": "add-to-stack",
         "text": "Ship retries"
       }
     },
@@ -646,6 +649,17 @@
         "repo": "owner/repo",
         "conversation": "main"
       }
+    },
+    {
+      "argv": [
+        "branch",
+        "archive",
+        "--branch",
+        "scratch/member/demo"
+      ],
+      "method": "POST",
+      "path": "/api/branches/scratch%2Fmember%2Fdemo/archive",
+      "body": {}
     }
   ],
   "unavailable": [

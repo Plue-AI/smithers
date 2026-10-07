@@ -84,26 +84,43 @@ it(
       // Freeze the live owner while injecting the split so its own recovery
       // cannot reclaim the root before the peer observes it. PID probing still
       // reports this stopped process as alive.
-      original.kill("SIGSTOP")
-      database(root, "control", (db) => {
-        db.prepare("UPDATE flows_runs SET heartbeat_at_ms = ? WHERE run_id = ?").run(Date.now() - 60_000, runId)
-        db.prepare("UPDATE flows_consensus_leases SET heartbeat_at_ms = ? WHERE run_id = ?").run(
-          Date.now() - 60_000,
-          runId
-        )
-      })
-
       const rootOwner = rows(root).find((row) => row.run_id === runId)!
-      // Reproduce the durable split from #2958: budget suspension released the
-      // engine root while the original control fence and detached child live.
-      // SQL injects that inter-store fault; both recoverers are shipped hosts.
-      database(root, "engine", (db) => {
-        db.prepare(`UPDATE flows_runs SET status = 'suspended',
+      // Acquire both write slots before stopping the owner. SIGSTOP during a
+      // heartbeat transaction would otherwise pin SQLite's lock indefinitely.
+      await poll(() => {
+        let stopped = false
+        try {
+          return database(root, "control", control => database(root, "engine", engine => {
+            control.exec("BEGIN IMMEDIATE")
+            try {
+              engine.exec("BEGIN IMMEDIATE")
+              try {
+                if (!original.kill("SIGSTOP")) throw new Error("Original owner exited before fault injection")
+                stopped = true
+                control.prepare("UPDATE flows_runs SET heartbeat_at_ms = ? WHERE run_id = ?").run(Date.now() - 60_000, runId)
+                control.prepare("UPDATE flows_consensus_leases SET heartbeat_at_ms = ? WHERE run_id = ?").run(Date.now() - 60_000, runId)
+                // Reproduce #2958's released engine root with live control
+                // ownership and a detached child. Both recoverers are shipped.
+                engine.prepare(`UPDATE flows_runs SET status = 'suspended',
       waiting_reason = 'released', owner_host_id = NULL, owner_pid = NULL, owner_nonce = NULL,
       heartbeat_at_ms = NULL, claim_host_id = NULL, claim_pid = NULL, claim_nonce = NULL,
       claimed_at_ms = NULL WHERE run_id = ?`).run(runId)
-        db.prepare("DELETE FROM flows_consensus_leases WHERE run_id = ?").run(runId)
-      })
+                engine.prepare("DELETE FROM flows_consensus_leases WHERE run_id = ?").run(runId)
+                engine.exec("COMMIT")
+                control.exec("COMMIT")
+                return true
+              } finally {
+                if (engine.isTransaction) engine.exec("ROLLBACK")
+              }
+            } finally {
+              if (control.isTransaction) control.exec("ROLLBACK")
+            }
+          }))
+        } catch (error) {
+          if (!stopped && error instanceof Error && /database is locked/.test(error.message)) return false
+          throw error
+        }
+      }, "owner outside SQLite write transactions")
       // A real release also records its decision. Without that receipt the
       // injected row is unproven corruption, which recovery must not admit.
       await Effect.runPromise(

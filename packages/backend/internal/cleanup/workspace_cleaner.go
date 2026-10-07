@@ -20,7 +20,7 @@ type WorkspaceCleanupStore interface {
 }
 
 // WorkspaceCleaner periodically cleans up idle sessions, suspends idle or
-// over-quota workspaces, reclaims long-stopped agent workspace disks,
+// over-quota workspaces, reclaims settled, captured and quiet branch disks,
 // reclaims workspaces whose client lease lapsed, reaps child workspaces
 // whose parent stopped or whose batch expired, and drops the flow journals of
 // deleted workspaces.

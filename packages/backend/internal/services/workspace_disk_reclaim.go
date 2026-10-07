@@ -50,12 +50,14 @@ func (s *WorkspaceService) CleanupStoppedAgentWorkspaceDisks(ctx context.Context
 		if err := ctx.Err(); err != nil {
 			return errors.Join(append(failures, err)...)
 		}
-		if err := s.reclaimAgentWorkspaceDisk(ctx, id); err != nil {
+		if err := s.reclaimAgentWorkspaceDisk(ctx, id); err != nil && !errors.Is(err, errCleanupRetained) {
 			failures = append(failures, err)
 		}
 	}
 	return errors.Join(failures...)
 }
+
+var errCleanupRetained = errors.New("cleanup retained")
 
 type cleanupRuntimeLockKey struct{}
 type cleanupRuntimeLockOwner struct {
@@ -110,20 +112,20 @@ func (s *WorkspaceService) reclaimAgentWorkspaceDisk(ctx context.Context, id str
 			// keeps settlement/binding and quiet inventory fenced across the callback.
 			current, err := s.q.GetWorkspace(ctx, id)
 			if errors.Is(err, pgx.ErrNoRows) {
-				return nil
+				return errCleanupRetained
 			}
 			if err != nil {
 				return err
 			}
 			if len(current.CapturePending) != 0 || current.DiskReclaimedAt.Valid || current.DeletedAt.Valid || (current.Status != "suspended" && current.Status != "stopped") {
-				return nil
+				return errCleanupRetained
 			}
 			if current.VmID != row.VmID || current.RepositoryID != row.RepositoryID || current.UserID != row.UserID || current.TargetBookmark != row.TargetBookmark {
-				return nil
+				return errCleanupRetained
 			}
 			if !capture.Settled || !capture.Quiet || !capture.BindingVerified || !capture.CaptureComplete || !capture.InventoryCurrent || capture.WorkspaceID != id || capture.CaptureID == "" ||
 				capture.CandidateHead == "" || capture.CandidateHead != current.HeadCommitID || capture.RetainedHead != capture.CandidateHead {
-				return nil
+				return errCleanupRetained
 			}
 			if store, ok := s.q.(interface {
 				GetMythicalLane(context.Context, string) (db.MythicalLane, error)
@@ -132,7 +134,7 @@ func (s *WorkspaceService) reclaimAgentWorkspaceDisk(ctx context.Context, id str
 				lane, err := store.GetMythicalLane(ctx, id)
 				if errors.Is(err, pgx.ErrNoRows) {
 					if branchKind(current.TargetBookmark) != "scratch" || !current.BranchArchivedAt.Valid {
-						return nil
+						return errCleanupRetained
 					}
 				} else {
 					if err != nil {
@@ -143,12 +145,12 @@ func (s *WorkspaceService) reclaimAgentWorkspaceDisk(ctx context.Context, id str
 						return err
 					}
 					if lane.WorkspaceID != id || lane.RepositoryID != current.RepositoryID || item.ID != lane.ItemID || item.RepositoryID != current.RepositoryID || (!lane.RetiredAt.Valid && item.WorkspaceID != id) || item.PausedAt.Valid || item.CandidateHead != capture.CandidateHead {
-						return nil
+						return errCleanupRetained
 					}
 					switch item.State {
 					case "landed", "cancelled", "rejected", "declined", "skipped", "dropped":
 					default:
-						return nil
+						return errCleanupRetained
 					}
 				}
 			}

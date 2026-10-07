@@ -19,7 +19,7 @@ import (
 func TestCleanupPolicyCombinations(t *testing.T) {
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	for _, state := range []string{"merged", "dropped", "in_review", "working", "scratch archived", "scratch open"} {
-		for _, captured := range []string{"ok", "failed", "ref differs", "incomplete", "unbound", "stale inventory"} {
+		for _, captured := range []string{"ok", "failed", "ref differs", "incomplete", "unbound", "stale inventory", "pending capture"} {
 			for _, inventory := range []string{"quiet", "terminal", "ssh", "service", "unavailable"} {
 				for _, age := range []time.Duration{24*time.Hour - time.Minute, 24 * time.Hour} {
 					t.Run(fmt.Sprintf("%s/%s/%s/%s", state, captured, inventory, age), func(t *testing.T) {
@@ -29,6 +29,9 @@ func TestCleanupPolicyCombinations(t *testing.T) {
 						}
 						row := db.Workspace{ID: "branch", Status: "suspended", HeadCommitID: "head"}
 						c := WorkspaceDiskReclaimCapture{WorkspaceID: row.ID, CandidateHead: "head", RetainedHead: "head", CaptureID: "capture", Settled: true, Quiet: inventory == "quiet", BindingVerified: true, CaptureComplete: true, InventoryCurrent: true}
+						if captured == "pending capture" {
+							row.CapturePending = []byte(`{"head":"head"}`)
+						}
 						if captured == "failed" {
 							c.CaptureID = ""
 						}
@@ -136,7 +139,7 @@ func TestWorkspaceCleanerTransactionalPolicyAndRecovery(t *testing.T) {
 	owner, err := q.GetBranchMachineOwner(ctx)
 	require.NoError(t, err)
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
-	for _, name := range []string{"merged", "failed capture", "post capture write", "terminal", "ssh", "service stop failure", "dropped before retention", "in review", "archived scratch", "unfinished removal", "reopened", "missing settlement time", "unarchived scratch", "pending reopen", "pending writer", "pending admission", "service final writes", "running service final writes"} {
+	for _, name := range []string{"merged", "failed capture", "post capture write", "terminal", "ssh", "service stop failure", "dropped before retention", "in review", "archived scratch", "unfinished removal", "reopened", "missing settlement time", "unarchived scratch", "pending reopen", "pending writer", "pending admission", "service final writes", "running service final writes", "pending capture", "pending capture publication", "pending candidate"} {
 		t.Run(name, func(t *testing.T) {
 			branch := "smithers/" + name
 			if name == "archived scratch" || name == "unarchived scratch" {
@@ -152,6 +155,10 @@ func TestWorkspaceCleanerTransactionalPolicyAndRecovery(t *testing.T) {
 			}
 			row, err = q.GetWorkspace(ctx, row.ID)
 			require.NoError(t, err)
+			if name == "pending capture" {
+				_, err = pool.Exec(ctx, `UPDATE workspaces SET capture_pending='{"head":"head"}'::jsonb WHERE id=$1`, row.ID)
+				require.NoError(t, err)
+			}
 			var item db.MythicalItem
 			if name == "archived scratch" {
 				_, err = pool.Exec(ctx, `UPDATE workspaces SET branch_archived_at=$2 WHERE id=$1`, row.ID, now.Add(-24*time.Hour))
@@ -171,7 +178,7 @@ func TestWorkspaceCleanerTransactionalPolicyAndRecovery(t *testing.T) {
 				if name == "missing settlement time" {
 					item.Checks = json.RawMessage(`{}`)
 				}
-				_, err = pool.Exec(ctx, `UPDATE mythical_items SET state=$2,checks=$3 WHERE id=$1`, item.ID, item.State, item.Checks)
+				_, err = pool.Exec(ctx, `UPDATE mythical_items SET source='todo',state=$2,checks=$3 WHERE id=$1`, item.ID, item.State, item.Checks)
 				require.NoError(t, err)
 			}
 			runtime := &cleanupPolicyRuntime{capture: WorkspaceDiskReclaimCapture{CandidateHead: "head", RetainedHead: "head", CaptureID: "capture", Settled: true, Quiet: true, BindingVerified: true, CaptureComplete: true, InventoryCurrent: true}}
@@ -190,6 +197,8 @@ func TestWorkspaceCleanerTransactionalPolicyAndRecovery(t *testing.T) {
 				runtime.before = func() {
 					_, err := pool.Exec(ctx, `UPDATE workspaces SET head_commit_id='final',status='suspended' WHERE id=$1`, row.ID)
 					require.NoError(t, err)
+					_, err = pool.Exec(ctx, `UPDATE mythical_items SET candidate_head='final' WHERE id=$1`, item.ID)
+					require.NoError(t, err)
 					runtime.capture.CandidateHead = "final"
 					runtime.capture.RetainedHead = "final"
 				}
@@ -200,7 +209,7 @@ func TestWorkspaceCleanerTransactionalPolicyAndRecovery(t *testing.T) {
 				}
 			}
 			var transactions RepositoryJobTransactions = pool
-			if name == "pending reopen" || name == "pending writer" || name == "pending admission" {
+			if name == "pending reopen" || name == "pending writer" || name == "pending admission" || name == "pending capture publication" || name == "pending candidate" {
 				transactions = &cleanupInterleavingTransactions{RepositoryJobTransactions: pool, beforeRemoval: func() {
 					var err error
 					switch name {
@@ -208,6 +217,10 @@ func TestWorkspaceCleanerTransactionalPolicyAndRecovery(t *testing.T) {
 						_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='proposed' WHERE id=$1`, item.ID)
 					case "pending writer":
 						_, err = pool.Exec(ctx, `UPDATE workspaces SET head_commit_id='new' WHERE id=$1`, row.ID)
+					case "pending candidate":
+						_, err = pool.Exec(ctx, `UPDATE mythical_items SET candidate_head='new' WHERE id=$1`, item.ID)
+					case "pending capture publication":
+						_, err = pool.Exec(ctx, `UPDATE workspaces SET capture_pending='{"head":"head"}'::jsonb WHERE id=$1`, row.ID)
 					case "pending admission":
 						_, err = pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, row.ID)
 					}
@@ -266,10 +279,12 @@ func TestWorkspaceCleanerTransactionalPolicyAndRecovery(t *testing.T) {
 				cleanupPolicyTick(t, restarted)
 				require.Len(t, runtime.calls, 2, "completed removal is not repeated")
 			}
-			if name == "post capture write" || name == "pending writer" {
+			if name == "post capture write" || name == "pending writer" || name == "pending candidate" {
 				// A later complete capture of the changed head makes the retained
 				// disk eligible; the previous receipt cannot authorize this removal.
 				_, err = pool.Exec(ctx, `UPDATE workspaces SET head_commit_id='new' WHERE id=$1`, row.ID)
+				require.NoError(t, err)
+				_, err = pool.Exec(ctx, `UPDATE mythical_items SET candidate_head='new' WHERE id=$1`, item.ID)
 				require.NoError(t, err)
 				runtime.capture.CandidateHead = "new"
 				runtime.capture.RetainedHead = "new"
@@ -278,6 +293,19 @@ func TestWorkspaceCleanerTransactionalPolicyAndRecovery(t *testing.T) {
 				after, err := q.GetWorkspace(ctx, row.ID)
 				require.NoError(t, err)
 				require.True(t, after.DiskReclaimedAt.Valid)
+				require.Equal(t, []string{row.ID}, runtime.calls)
+			}
+			if name == "pending capture publication" {
+				require.JSONEq(t, `{"head":"head"}`, string(stored.CapturePending))
+				require.Equal(t, "capture", stored.CleanupPendingCaptureID)
+				_, err = pool.Exec(ctx, `UPDATE workspaces SET capture_pending=NULL WHERE id=$1`, row.ID)
+				require.NoError(t, err)
+				runtime.capture.CaptureID = "recaptured"
+				cleanupPolicyTick(t, svc)
+				after, err := q.GetWorkspace(ctx, row.ID)
+				require.NoError(t, err)
+				require.True(t, after.DiskReclaimedAt.Valid)
+				require.Empty(t, after.CleanupPendingCaptureID)
 				require.Equal(t, []string{row.ID}, runtime.calls)
 			}
 			if item.ID.Valid {

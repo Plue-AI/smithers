@@ -69,7 +69,7 @@ afterEach(() => {
 })
 
 /** A project whose `steps` runs recorded both steps and parked on their task; `cancelled` more are then cancelled. */
-const parkedProject = async (runs = 1, cancelled = 0, adopt = false) => {
+const parkedProject = async (runs = 1, cancelled = 0, adopt = false, startupWithin: "60 seconds" | "180 seconds" = "60 seconds") => {
   const root = mkdtempSync(join(tmpdir(), "smithers-verify-"))
   roots.push(root)
   symlinkSync(resolve("node_modules"), join(root, "node_modules"), "dir")
@@ -132,7 +132,7 @@ const parkedProject = async (runs = 1, cancelled = 0, adopt = false) => {
         Layer.merge(engine.runtime, registry)
       )),
       Effect.scoped,
-      Effect.timeout("60 seconds")
+      Effect.timeout(startupWithin)
     )
   )
   return { root, runId: runIds[0]!, runIds }
@@ -174,10 +174,11 @@ it("reports a re-keyed step as dropped and the step that would execute", async (
 }, 120_000)
 
 it("refuses a copy that does not stop in time", async () => {
-  const { root, runId } = await parkedProject()
+  // Keep fixture startup separate from the one-millisecond replay deadline.
+  const { root, runId } = await parkedProject(1, 0, false, "180 seconds")
   await expect(Verify.verify(root, runId, { settleWithin: "1 millis" })).rejects
     .toMatchObject({ code: "verify_timeout" })
-}, 120_000)
+}, 240_000)
 
 it("refuses a project with no history", async () => {
   const root = mkdtempSync(join(tmpdir(), "smithers-verify-empty-"))
@@ -246,7 +247,8 @@ it("verifies every run a store holds and lists the settled ones apart", async ()
 }, 240_000)
 
 it("lists a run whose copy does not stop in time instead of ending the whole verification", async () => {
-  const { root, runId } = await parkedProject()
+  // Coverage load affects fixture startup, not the replay timeout under test.
+  const { root, runId } = await parkedProject(1, 0, false, "180 seconds")
   const summary = await Verify.verifyAll(root, { settleWithin: "1 millis" })
   expect(summary.reports).toEqual([])
   expect(summary.unverified).toEqual([

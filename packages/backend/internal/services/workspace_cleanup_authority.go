@@ -94,7 +94,10 @@ func cleanupSettlement(item db.MythicalItem) time.Time {
 }
 
 func cleanupCaptureMatches(row db.Workspace, capture WorkspaceDiskReclaimCapture, settled, now time.Time) bool {
+	// Verified objects do not finish the capture's durable publication/drain.
+	// Re-read its pending marker in both the decision and removal transactions.
 	return !settled.IsZero() && !settled.After(now) && now.Sub(settled) >= 24*time.Hour &&
+		len(row.CapturePending) == 0 &&
 		!row.DeletedAt.Valid && !row.DiskReclaimedAt.Valid && (row.Status == "suspended" || row.Status == "stopped") &&
 		capture.Settled && capture.Quiet && capture.BindingVerified && capture.CaptureComplete && capture.InventoryCurrent && capture.WorkspaceID == row.ID && capture.CaptureID != "" &&
 		capture.CandidateHead != "" && capture.CandidateHead == row.HeadCommitID && capture.RetainedHead == capture.CandidateHead
@@ -219,6 +222,9 @@ func (a *transactionalWorkspaceCleanup) WithFinalCapture(ctx context.Context, ex
 				return nil
 			}
 			if err := remove(ctx, capture); err != nil {
+				if errors.Is(err, errCleanupRetained) {
+					return nil
+				}
 				return err
 			}
 			_, err = removal.Exec(ctx, `UPDATE workspaces SET cleanup_pending_head='',cleanup_pending_capture_id='',disk_reclaimed_at=$2,updated_at=$2 WHERE id=$1`, current.ID, a.now())

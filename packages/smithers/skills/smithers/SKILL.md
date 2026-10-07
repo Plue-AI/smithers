@@ -174,6 +174,7 @@ Tools manage their own login in the selected home; profiles describe locations.
 - `smthrs agents` — run. The factory's agents
 - `smthrs branch show` — run. Open a branch's card
 - `smthrs branch add-to-stack` — confirm; waits for the person's confirmation. Add a scratch branch as a TODO
+- `smthrs branch archive` — confirm; waits for the person's confirmation. Archive a scratch branch
 - `smthrs branch fork` — run. Fork a scratch branch
 - `smthrs branch rebase` — run. Rebase this branch now
 - `smthrs branches` — run. List branches with presence

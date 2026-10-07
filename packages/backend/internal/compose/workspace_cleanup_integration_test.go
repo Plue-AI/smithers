@@ -18,6 +18,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/operations"
 	"github.com/smithersai/smithers/packages/backend/process"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,6 +26,18 @@ type cleanupInstallRuntime struct{ *process.Runtime }
 
 func (*cleanupInstallRuntime) ReclaimWorkspaceDisk(context.Context, string) error {
 	panic("unavailable capture/broker must retain install disk")
+}
+
+// This fake supplies the missing dependency contract to exercise the durable
+// pending-capture guard through the actual install cleaner and HTTP projection.
+type cleanupPendingInstallRuntime struct {
+	*cleanupInstallRuntime
+	calls int
+}
+
+func (r *cleanupPendingInstallRuntime) WithFinalCapture(_ context.Context, row workspaceapi.CleanupWorkspace, fn func(workspaceapi.DiskReclaimCapture) error) error {
+	r.calls++
+	return fn(workspaceapi.DiskReclaimCapture{WorkspaceID: row.ID, CandidateHead: row.Head, RetainedHead: row.Head, CaptureID: "fixture-capture", Settled: true, Quiet: true, BindingVerified: true, CaptureComplete: true, InventoryCurrent: true})
 }
 
 // Isolate other scheduler jobs, while the production reclaim service is the
@@ -49,6 +62,14 @@ func (s *cleanupInstallTick) CleanupOrphanFlowJournals(context.Context) error {
 }
 
 func TestCleanupComposedInstallRetainsWithoutCaptureBroker(t *testing.T) {
+	testCleanupComposedInstallRetains(t, false)
+}
+
+func TestCleanupComposedInstallRetainsPendingCapture(t *testing.T) {
+	testCleanupComposedInstallRetains(t, true)
+}
+
+func testCleanupComposedInstallRetains(t *testing.T, pending bool) {
 	_, _, pool := splitProcessDatabase(t)
 	ctx := t.Context()
 	q := db.New(pool)
@@ -77,7 +98,14 @@ func TestCleanupComposedInstallRetainsWithoutCaptureBroker(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
 	providers := services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), nil)
 	var service *services.WorkspaceService
-	handler := startSplitProcess(t, Options{FlowHostProductAPIURL: "http://127.0.0.1:4000", Workspace: &cleanupInstallRuntime{runtime}, BranchMachines: &providers, ChatHost: unusedChatHost{}, ReadyBindings: func(b operations.Bindings) { service = b.Workspaces.(*services.WorkspaceService) }})
+	var installRuntime workspaceapi.WorkspaceRuntime = &cleanupInstallRuntime{runtime}
+	fenced := &cleanupPendingInstallRuntime{cleanupInstallRuntime: &cleanupInstallRuntime{runtime}}
+	if pending {
+		_, err = pool.Exec(ctx, `UPDATE workspaces SET capture_pending='{"head":"head"}'::jsonb WHERE id=$1`, row.ID)
+		require.NoError(t, err)
+		installRuntime = fenced
+	}
+	handler := startSplitProcess(t, Options{FlowHostProductAPIURL: "http://127.0.0.1:4000", Workspace: installRuntime, BranchMachines: &providers, ChatHost: unusedChatHost{}, ReadyBindings: func(b operations.Bindings) { service = b.Workspaces.(*services.WorkspaceService) }})
 	require.NotNil(t, service)
 	tick := &cleanupInstallTick{service, make(chan struct{}, 1)}
 	runner := cleanup.NewWorkspaceCleaner(tick, 100*time.Millisecond)
@@ -94,6 +122,10 @@ func TestCleanupComposedInstallRetainsWithoutCaptureBroker(t *testing.T) {
 	require.False(t, stored.DiskReclaimedAt.Valid)
 	require.Empty(t, stored.CleanupPendingHead)
 	require.False(t, stored.DeletedAt.Valid)
+	if pending {
+		require.GreaterOrEqual(t, fenced.calls, 1)
+		require.JSONEq(t, `{"head":"head"}`, string(stored.CapturePending))
+	}
 	request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:4000/api/branches/"+row.ID, nil)
 	request.RemoteAddr = "127.0.0.1:12345"
 	request.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
