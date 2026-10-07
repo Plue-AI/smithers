@@ -91,7 +91,21 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 		if command != "" && command != "self" {
 			// A same-command service entry reuses the middleware decision even
 			// without a second database lookup.
-			_, err := services.Authorize(r.Context(), nil, command)
+			var subjects []services.InstallSubject
+			if services.InstallExecutionCredential(r.Context()) {
+				var subject services.InstallSubject
+				var err error
+				if command == "stack.candidate" {
+					var input services.MythicalLaneSubmission
+					require.NoError(t, json.NewDecoder(r.Body).Decode(&input))
+					subject, err = services.ResolveInstallCandidateSubject(r.Context(), q, repo.ID, input)
+				} else {
+					subject, err = services.ResolveInstallExecutionSubject(r.Context(), q, repo.ID)
+				}
+				require.NoError(t, err)
+				subjects = []services.InstallSubject{subject}
+			}
+			_, err := services.Authorize(r.Context(), nil, command, subjects...)
 			require.NoError(t, err)
 		}
 		w.WriteHeader(http.StatusOK)
@@ -191,8 +205,23 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 	}
 	// The real provisioned landing shape retains its scoped stack read, but
 	// never gains chat, merge or any other person command.
-	landingScopes := strings.Join(append([]string{"write:repository", middleware.RepositoryRestrictionScope(repo.ID), middleware.LandingWorkspaceScope("11111111-1111-4111-a111-111111111111")}, middleware.PathRestrictionScopes([]string{"**"})...), ",")
+	landingScopes := strings.Join(append([]string{"write:repository", middleware.RepositoryRestrictionScope(repo.ID), middleware.LandingWorkspaceScope("11111111-1111-4111-a111-111111111111"), middleware.AgentSessionRestrictionScope("current-run")}, middleware.PathRestrictionScopes([]string{"**"})...), ",")
 	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes=$2 WHERE user_id=$1`, owner.ID, landingScopes)
+	require.NoError(t, err)
+	// Scope strings alone cannot manufacture an execution subject. The real
+	// provisioned credential needs its stored lane, sponsored attempt and run.
+	status, _ = call("GET", "/api/repos/maya/demo/mythical", "", ownerToken)
+	require.Equal(t, http.StatusForbidden, status)
+	_, err = pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,name)
+ VALUES('11111111-1111-4111-a111-111111111111',$1,$2,'delivery')`, repo.ID, owner.ID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,actor_user_id,state) VALUES($1,$2,'active')`, repo.ID, owner.ID)
+	require.NoError(t, err)
+	var itemID string
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,source,state,number,stack_position,title,workspace_id,request_run_id,owner_id,attempt,base_commit)
+ VALUES($1,'todo','delivering',1,1,'Delivery','11111111-1111-4111-a111-111111111111','current-run',$2,1,'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa') RETURNING id::text`, repo.ID, owner.ID).Scan(&itemID))
+	_, err = pool.Exec(ctx, `INSERT INTO mythical_lanes(workspace_id,repository_id,item_id,name)
+ VALUES('11111111-1111-4111-a111-111111111111',$1,$2,'delivery')`, repo.ID, itemID)
 	require.NoError(t, err)
 	status, _ = call("GET", "/api/repos/maya/demo/mythical", "", ownerToken)
 	require.Equal(t, http.StatusOK, status)
@@ -200,12 +229,18 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 		status, _ = call("POST", path, "", ownerToken)
 		require.Equal(t, http.StatusForbidden, status, path)
 	}
-	const submission = `{"workspaceId":"11111111-1111-4111-a111-111111111111"}`
+	const submission = `{"workspaceId":"11111111-1111-4111-a111-111111111111","base":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","source":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","requestRunId":"current-run","summary":"Delivery"}`
 	status, _ = call("PUT", "/api/repos/maya/demo/mythical/lanes", "", ownerToken, submission)
 	require.Equal(t, http.StatusOK, status)
-	for _, body := range []string{`{}`, `{"workspaceId":"22222222-2222-4222-a222-222222222222"}`, submission + `{}`} {
+	for _, body := range []string{strings.Replace(submission, "11111111-1111-4111-a111-111111111111", "22222222-2222-4222-a222-222222222222", 1), strings.Replace(submission, "current-run", "other-run", 1)} {
 		status, _ = call("PUT", "/api/repos/maya/demo/mythical/lanes", "", ownerToken, body)
 		require.Equal(t, http.StatusForbidden, status, body)
+	}
+	for _, invalid := range []struct{ body, code string }{{`{}`, "bad_request"}, {submission + `{}`, "invalid_candidate"}} {
+		status, envelope = call("PUT", "/api/repos/maya/demo/mythical/lanes", "", ownerToken, invalid.body)
+		require.Equal(t, http.StatusBadRequest, status, invalid.body)
+		require.Equal(t, "user", envelope["class"])
+		require.Equal(t, invalid.code, envelope["code"])
 	}
 	for _, path := range []string{"/api/repos/maya/demo/mythical/wiki", "/api/user/tokens"} {
 		status, _ = call("PUT", path, "", ownerToken, submission)
