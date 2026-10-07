@@ -465,6 +465,7 @@ func TestTodoOrderedRecovery(t *testing.T) {
 	cycle := 0
 	projectControl := func(name string) {
 		checkpoint := update
+		checkpoint.Scope = jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo.ID), PrincipalID: fmt.Sprintf("user:%d", owner.ID)}
 		checkpoint.Checkpoint.Target = flowruntime.Target{TenantID: fmt.Sprintf("repository:%d", repo.ID), PrincipalID: fmt.Sprintf("user:%d", owner.ID),
 			WorkspaceID: read.WorkspaceID, BindingKind: "mythical-item", BindingID: fmt.Sprintf("%x-%x-%x-%x-%x", item.ID.Bytes[0:4], item.ID.Bytes[4:6], item.ID.Bytes[6:8], item.ID.Bytes[8:10], item.ID.Bytes[10:16])}
 		checkpoint.Checkpoint.Run = &flowruntime.Run{RunID: "pinned-run", FlowID: "todo", Status: "running"}
