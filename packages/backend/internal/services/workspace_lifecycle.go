@@ -106,8 +106,16 @@ func (s *WorkspaceService) stopWorkspaceRetaining(ctx context.Context, store wor
 	if owned, err := s.branchMachineOwned(ctx, workspace.UserID); err != nil {
 		return workspace, err
 	} else if owned {
-		if err := s.suspendWorkspace(ctx, workspace); err != nil {
+		unlock := s.lockRuntimeWorkspace(workspace.ID)
+		defer unlock()
+		current, err := s.q.GetWorkspace(ctx, workspace.ID)
+		if err != nil {
 			return workspace, err
+		}
+		if current.Status != "suspended" && current.Status != "stopped" {
+			if err := s.captureAndSleepLocked(ctx, current, false); err != nil {
+				return workspace, err
+			}
 		}
 		if _, err := store.StopWorkspaceRetainingRow(ctx, workspace.ID); err != nil {
 			return workspace, err

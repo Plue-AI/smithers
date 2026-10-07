@@ -18,6 +18,11 @@ const system = (name: string, method: "GET" | "POST", path: string, credentialSc
     http: { method, path }, minimumRole: "member", agent: "never", credentialScope, actors: [] })
 const source = Schema.Struct({ change_id: Schema.String, commit_id: Schema.String, tree_id: Schema.String, parent_commit_ids: Schema.Array(Schema.String) })
 const reservedStack = Schema.Struct({ requestId: Schema.String, source: Schema.optional(source), generation: Schema.optional(Schema.Number) })
+const machine = (op: "sleep" | "wake") => operation({
+  name: `branch.${op}`, input: Schema.Struct({ branch: Schema.String }), summary: op === "sleep" ? "Sleep branch" : "Wake branch",
+  hidden: true, visibility: "hidden", slash: null, cli: null, agent: "never", actors: ["person"], minimumRole: "member",
+  http: { method: "POST", path: "/api/branches/{branch}", defaults: { op } }
+})
 
 export const httpProjections = [
   system("stack.candidate", "POST", "/api/repos/{owner}/{repo}/workspaces/{id}/stack/candidate", "write:repository", reservedStack),
@@ -52,6 +57,7 @@ export const httpProjections = [
     credentialScope: "write:repository",
     actors: ["person", "external_agent"]
   }),
+  machine("sleep"), machine("wake"),
   read("install.read", "/api/install", "never", "owner"),
   read("install.scorecard", "/api/install/scorecard", "never", "owner"),
   read("external.read", "/api/external/sessions", "never", "owner"),

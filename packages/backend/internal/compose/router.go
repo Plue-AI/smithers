@@ -1141,6 +1141,7 @@ func buildRouter(
 			if workspaceHandler != nil {
 				branches.Reads, _ = workspaceHandler.Service.(routes.BranchReadService)
 				branches.Archives, _ = workspaceHandler.Service.(routes.BranchArchiveService)
+				branches.Machines, _ = workspaceHandler.Service.(routes.BranchMachineControl)
 				branches.Files, _ = workspaceHandler.Service.(routes.BranchFileReadService)
 			}
 			if extras.Mythical != nil {
