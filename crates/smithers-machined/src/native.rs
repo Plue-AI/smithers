@@ -135,6 +135,24 @@ impl Repository {
             .ok_or_else(|| invalid("unresolved tree"))?
             .as_bytes())
     }
+    /// Compare complete logical trees, including retained conflict terms.
+    /// A wake must not choose one side or refuse to examine an existing conflict.
+    pub fn same_tree(&self, left: Oid, right: Oid) -> io::Result<bool> {
+        let (_, repo) = self.load()?;
+        Ok(Self::commit(&repo, left)?.tree().tree_ids()
+            == Self::commit(&repo, right)?.tree().tree_ids())
+    }
+    pub fn conflict_paths(&self, head: Oid) -> io::Result<Vec<String>> {
+        let (_, repo) = self.load()?;
+        Self::commit(&repo, head)?
+            .tree()
+            .conflicts()
+            .map(|(path, value)| {
+                value.map_err(invalid)?;
+                Ok(path.as_internal_file_string().to_owned())
+            })
+            .collect()
+    }
     /// Save the exact operation before a rewrite. Failure never truncates a
     /// previous checkpoint. fsync orders it before the shared rewrite fence.
     pub fn checkpoint(&self) -> io::Result<()> {

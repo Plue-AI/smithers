@@ -1,6 +1,6 @@
 //! Native repository operations mounted on the existing daemon RPC dispatcher.
 use crate::{
-    conn::{self, field, structure_bytes, tagged},
+    conn::{self, field, structure_bytes},
     hooks::{self, Actor, Core, EventSink, Oid},
     lock::LockCx,
     outbox::Refs,
@@ -109,33 +109,48 @@ impl Core for NativeCore {
                     crate::freeze::restore(cx, &Actor::Outside)?;
                 }
                 let old = self.git.acknowledged().map_err(hook)?;
-                let snapshot = self.native.snapshot().map_err(hook)?.0;
                 if old.is_none() || old == Some(head) {
+                    // A repeated wake is not proof that a retained conflict was
+                    // resolved. Snapshot actual edits before testing readiness.
+                    let snapshot = self.native.snapshot().map_err(hook)?.0;
+                    let paths = self.native.conflict_paths(snapshot).map_err(hook)?;
+                    let outcome = if paths.is_empty() {
+                        crate::reconcile::Outcome::Unchanged
+                    } else {
+                        crate::reconcile::Outcome::Conflict(paths)
+                    };
+                    let result = outcome.result()?;
                     let mut git = self.git.clone();
                     git.acknowledge_and_sync(head).map_err(hook)?;
-                    return Ok(structure_bytes(&[field(1, tagged(1, &[]))]));
+                    return Ok(result);
                 }
                 let old = old.unwrap();
-                let moved = crate::freeze::freeze_then(cx, &Actor::Outside, |_| {
-                    let moved = if self.native.tree(snapshot).map_err(hook)?
-                        == self.native.tree(old).map_err(hook)?
-                    {
+                let outcome = crate::freeze::freeze_then(cx, &Actor::Outside, |_| {
+                    // freeze_then flushes documents, drains writers and captures
+                    // under the lock. A snapshot selected before that preparation
+                    // omits the typing and outside writes it just preserved.
+                    let snapshot = self.native.current().map_err(hook)?.0;
+                    let moved = if self.native.same_tree(snapshot, old).map_err(hook)? {
                         self.native.move_to(head).map_err(hook)?
                     } else {
                         self.native
                             .rebase_delta(snapshot, old, head)
                             .map_err(hook)?
                     };
-                    self.events.append(
-                        &tagged(3, &[field(1, old), field(2, head), field(3, [1])]),
-                        Some(moved),
-                    )?;
+                    let paths = self.native.conflict_paths(moved).map_err(hook)?;
+                    let outcome = if paths.is_empty() {
+                        crate::reconcile::Outcome::Moved(moved)
+                    } else {
+                        crate::reconcile::Outcome::Conflict(paths)
+                    };
+                    self.events
+                        .append(&outcome.event(old, head)?, Some(moved))?;
                     let mut git = self.git.clone();
                     git.acknowledge_and_sync(head).map_err(hook)?;
-                    Ok(moved)
+                    Ok(outcome)
                 })?;
                 self.native.settled().map_err(hook)?;
-                Ok(structure_bytes(&[field(1, tagged(2, &[field(1, moved)]))]))
+                outcome.result()
             }
             _ => Err(hooks::Error::unsupported()),
         }
@@ -146,7 +161,7 @@ impl Core for NativeCore {
 mod tests {
     use super::*;
     use crate::{
-        conn::Frame,
+        conn::{tagged, Frame},
         hooks::{Broker, Disabled, Documents, Hooks, Watcher},
         rpc,
     };
@@ -179,10 +194,18 @@ mod tests {
         }
     }
     fn call(core: Arc<NativeCore>, method: u8, fields: &[Vec<u8>]) -> Frame {
+        call_with_documents(core, method, fields, Arc::new(Flushed))
+    }
+    fn call_with_documents(
+        core: Arc<NativeCore>,
+        method: u8,
+        fields: &[Vec<u8>],
+        documents: Arc<dyn Documents>,
+    ) -> Frame {
         let mut cx = LockCx::new(Hooks {
             events: core.events.clone(),
             core,
-            documents: Arc::new(Flushed),
+            documents,
             watcher: Arc::new(Flushed),
             broker: Arc::new(Flushed),
             ..Default::default()
@@ -272,6 +295,137 @@ mod tests {
         assert_eq!(
             fs::read(dir.path().join("workspace/file")).unwrap(),
             b"literal member bytes\n"
+        );
+    }
+    fn wake_result(frame: &Frame) -> Vec<u8> {
+        let fields = conn::fields("response", &frame.payload[1..]).unwrap();
+        assert_eq!(fields[1].1[0], 5, "{fields:?}");
+        conn::fields("result5", &fields[1].1[1..]).unwrap()[0]
+            .1
+            .to_vec()
+    }
+    #[test]
+    fn wake_rpc_reports_conflict_and_repeat_cannot_admit_until_resolved() {
+        let (dir, core) = fixture();
+        let root = dir.path().join("workspace");
+        fs::write(root.join("conflict"), b"original\n").unwrap();
+        let base = core.native.snapshot().unwrap().0;
+        crate::native::tests::child(&core.native, base, "host changed");
+        fs::write(root.join("conflict"), b"host version\n").unwrap();
+        let onto = core.native.snapshot().unwrap().0;
+        core.native.move_to(base).unwrap();
+        core.git.clone().acknowledge_and_sync(base).unwrap();
+        fs::write(root.join("conflict"), b"local version\n").unwrap();
+        let value = wake_result(&call(core.clone(), 5, &[field(1, onto)]));
+        assert_eq!(value[0], 3, "conflict must not be reported as moved");
+        let paths = conn::fields("conflict", &value[1..]).unwrap();
+        assert_eq!(
+            paths[0].1,
+            [0, 1, 0, 8, b'c', b'o', b'n', b'f', b'l', b'i', b'c', b't']
+        );
+        let markers = fs::read_to_string(root.join("conflict")).unwrap();
+        assert!(markers.contains("local version"), "{markers}");
+        assert!(markers.contains("host version"), "{markers}");
+        assert!(markers.contains("<<<<<<<"), "{markers}");
+        assert_eq!(core.git.acknowledged().unwrap(), Some(onto));
+        let depth = core.events.depth().unwrap();
+        let store = crate::outbox_store::Store::open(
+            &dir.path().join("state/outbox"),
+            rustix::process::geteuid().as_raw(),
+        )
+        .unwrap();
+        let raw = store
+            .read(depth.into(), rustix::process::geteuid().as_raw())
+            .unwrap();
+        let event = conn::Durable::decode(&raw).unwrap();
+        assert_eq!(event.event[0], 3);
+        let fields = conn::fields("reconciled", &event.event[1..]).unwrap();
+        assert_eq!(fields[0].1, base);
+        assert_eq!(fields[1].1, onto);
+        assert_eq!(fields[2].1, [2]);
+        assert_eq!(fields[3].1, paths[0].1);
+        assert_eq!(
+            wake_result(&call(core.clone(), 5, &[field(1, onto)])),
+            value
+        );
+        assert_eq!(
+            core.events.depth().unwrap(),
+            depth,
+            "retry adds no duplicate reconciliation"
+        );
+        assert_eq!(fs::read_to_string(root.join("conflict")).unwrap(), markers);
+        fs::write(root.join("conflict"), b"both versions resolved\n").unwrap();
+        assert_eq!(wake_result(&call(core.clone(), 5, &[field(1, onto)]))[0], 1);
+        assert_eq!(
+            fs::read(root.join("conflict")).unwrap(),
+            b"both versions resolved\n"
+        );
+    }
+    struct FlushWrite(std::path::PathBuf);
+    impl Documents for FlushWrite {
+        fn flush_all(&self, _: &mut LockCx) -> hooks::Result<u16> {
+            fs::write(&self.0, b"typing flushed during freeze\n").map_err(hook)?;
+            Ok(1)
+        }
+        fn reconcile_all(&self, _: &mut LockCx, _: &Actor) -> hooks::Result<()> {
+            Ok(())
+        }
+    }
+    #[test]
+    fn wake_rpc_rebases_snapshot_taken_after_document_flush() {
+        for dirty_before_flush in [false, true] {
+            let (dir, core) = fixture();
+            let root = dir.path().join("workspace");
+            fs::write(root.join("base"), b"original\n").unwrap();
+            let base = core.native.snapshot().unwrap().0;
+            crate::native::tests::child(&core.native, base, "host changed");
+            fs::write(root.join("host"), b"host version\n").unwrap();
+            let onto = core.native.snapshot().unwrap().0;
+            core.native.move_to(base).unwrap();
+            core.git.clone().acknowledge_and_sync(base).unwrap();
+            if dirty_before_flush {
+                fs::write(root.join("local"), b"local version\n").unwrap();
+            }
+            let response = call_with_documents(
+                core.clone(),
+                5,
+                &[field(1, onto)],
+                Arc::new(FlushWrite(root.join("late"))),
+            );
+            assert_eq!(wake_result(&response)[0], 2);
+            if dirty_before_flush {
+                assert_eq!(fs::read(root.join("local")).unwrap(), b"local version\n");
+            }
+            assert_eq!(fs::read(root.join("host")).unwrap(), b"host version\n");
+            assert_eq!(
+                fs::read(root.join("late")).unwrap(),
+                b"typing flushed during freeze\n"
+            );
+        }
+    }
+    #[test]
+    fn wake_rpc_reports_conflicts_when_moving_to_a_conflicted_host_head() {
+        let (dir, core) = fixture();
+        let root = dir.path().join("workspace");
+        fs::write(root.join("file"), b"original\n").unwrap();
+        let base = core.native.snapshot().unwrap().0;
+        crate::native::tests::child(&core.native, base, "one side");
+        fs::write(root.join("file"), b"one\n").unwrap();
+        let one = core.native.snapshot().unwrap().0;
+        crate::native::tests::child(&core.native, base, "other side");
+        fs::write(root.join("file"), b"two\n").unwrap();
+        core.native.snapshot().unwrap();
+        let conflict = core.native.rebase(one).unwrap();
+        let markers = fs::read(root.join("file")).unwrap();
+        core.native.move_to(base).unwrap();
+        core.git.clone().acknowledge_and_sync(base).unwrap();
+        let result = wake_result(&call(core.clone(), 5, &[field(1, conflict)]));
+        assert_eq!(result[0], 3);
+        assert_eq!(core.native.current().unwrap().0, conflict);
+        assert_eq!(fs::read(root.join("file")).unwrap(), markers);
+        assert_eq!(
+            wake_result(&call(core.clone(), 5, &[field(1, conflict)])),
+            result
         );
     }
     #[test]
