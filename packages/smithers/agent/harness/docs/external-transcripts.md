@@ -71,8 +71,9 @@ returned parser state with the machine receipt in the same transaction as
 conversation entries; rejected records do not advance the checkpoint. Replay
 checks the retained record hash before reusing the checkpoint.
 
-Current main has no model-host normalization endpoint or production construction
-of `TranscriptIngest`. The Go host contract expects caller-owned identities,
+`apps/model-host/src/transcript.ts` exposes authenticated HTTP normalization
+through `/v1/transcript/normalize`, calling the canonical API below. Current main
+still has no production construction of `TranscriptIngest`. The Go host contract expects caller-owned identities,
 explicit profile, byte range and parser checkpoint. `Transcript.decodeClaudeCode(profile, context, chunk, state?)` and
 `Transcript.decodeCodex(profile, context, chunk, state?)` adapt the same parsers
 to canonical backend drafts. Context supplies trusted owner, participant, session
