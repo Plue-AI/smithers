@@ -10,7 +10,9 @@ import { validateAppTransition } from "./AppTransitionValidation"
 import { cardAvailable } from "./CardAvailability"
 import { canonicalEventValue, decodeEventValue, encodeEventValue } from "./EventValue"
 import { memoryStorage, waitFor } from "./TestFixtures"
-import { createAppController } from "./AppController"
+import { scopedControllers } from "./ControllerTestScope"
+
+const createAppController = scopedControllers()
 
 const kinds = ["repository-setup", "admin-health", "registration", "notifications", "connect", "agent", "grant-confirm", "flow-form"] as const
 const opened: AppStore[] = []
