@@ -143,8 +143,7 @@ test("install live dispatcher refuses absent Branch and Terminal providers befor
       ["terminal.watch", { id: "term-retry-1" }, "Terminal unavailable"],
       ["terminal.send", { id: "term-retry-1", command: "bad" }, "Terminal unavailable"],
       ["branch", { name: "retry-webhooks" }, "Branch unavailable"],
-      ["branch.rebase", { branch: "b-retry" }, "Branch unavailable"],
-      ["branch.fork", { from: "T9" }, "Branch unavailable"]
+      ["branch.rebase", { branch: "b-retry" }, "Branch unavailable"]
     ] as const) {
       expect(await submit(h, name, payload)).toMatchObject({ status: "failed", error })
     }
@@ -173,7 +172,7 @@ test("bootstrap and an unanswered live channel keep seeded Home branch doors ava
   } finally { await controller.dispose() }
 })
 
-test("On an install Fork is POST /api/branches {from, name}: the value is the new scratch branch, a refusal is the server message", async () => {
+test("On an install Fork requests POST /api/branches {from, name} in the background", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const posts: Array<{ body: unknown; key: string | null }> = []
   const profile = signupProfileFetch(async (input, init) => {
@@ -184,15 +183,18 @@ test("On an install Fork is POST /api/branches {from, name}: the value is the ne
       if (body.from === "T9") return Response.json({ code: "no_verified_head", class: "conflict", message: "T9 has no verified head to fork yet" }, { status: 409 })
       return Response.json({ name: `scratch/ben/${body.name ?? `fork-${body.from.toLowerCase()}`}`, kind: "scratch" }, { status: 201 })
     }
+    if (path.startsWith("/api/branches/") && init?.method !== "POST") return Response.json({ state: "asleep" })
     return new Response("{}", { status: 404 })
   })
   const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl,
     bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null } })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
   try {
-    expect(await controller.submitCommand({ name: "branch.fork", payload: { from: "T2", name: "try-retry" }, actor: "user" })).toEqual({ status: "executed", value: "scratch/ben/try-retry" })
-    expect(await controller.runCommandForResult("branch.fork", "T2")).toMatchObject({ status: "executed", value: "scratch/ben/fork-t2" })
-    expect((await controller.submitCommand({ name: "branch.fork", payload: { from: "T9" }, actor: "user" })).status).toBe("failed")
+    expect(await controller.submitCommand({ name: "branch.fork", payload: { from: "T2", name: "try-retry" }, actor: "user" })).toEqual({ status: "executed", value: "Requested" })
+    expect(await controller.runCommandForResult("branch.fork", "T2")).toMatchObject({ status: "executed", value: "Requested" })
+    expect((await controller.submitCommand({ name: "branch.fork", payload: { from: "T9" }, actor: "user" })).status).toBe("executed")
+    for (let i = 0; i < 100 && store.session().branchRequests?.some(row => row.state === "requested" || row.state === "provisioning"); i++) await new Promise(resolve => setTimeout(resolve, 10))
+    expect(store.session().branchRequests?.find(row => row.input.from === "T9")?.error).toBe("T9 has no verified head to fork yet")
     // A name is never a substitute for the required source; no HTTP mutation.
     expect(await controller.submitCommand({ name: "branch.fork", payload: { name: "T2" }, actor: "user" })).toMatchObject({ status: "form", fields: ["from"] })
     expect(posts.map(post => post.body)).toEqual([{ from: "T2", name: "try-retry" }, { from: "T2" }, { from: "T9" }])
@@ -314,4 +316,125 @@ test("the installed terminal flow acknowledges unresolved launch through button,
   expect(controller.design.world().terminals).toEqual([])
   expect([...store.collections.cards.values()].some(card=>card.kind==="terminal")).toBe(false)
  } finally {launch.resolve(new Response("{}",{status:503}));await controller.dispose()}
+})
+
+test("install Watch discovers the machine topic from the real branch-list wire shape", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const topics: string[] = []
+  const live = {
+    subscribe: (topic: string) => { topics.push(topic); return () => {} },
+    getSnapshot: (topic: string) => topic === "branch:machine-retry" ? { topic, data: {
+      id: "machine-retry", ssh_line: "ssh -p 2222 smithers/retry@factory.example",
+      terminals: [{ id: "terminal-retry", title: "Shell", owner: { kind: "person", login: "ben", name: "Ben", avatar_url: "https://github.com/ben.png", color_index: 0 }, agents: [], watchers: [], frozen: false }]
+    } } : undefined
+  }
+  const profile = signupProfileFetch(async input => {
+    const path = new URL(String(input), "https://install.test").pathname
+    if (path === "/api/todos/2") return Response.json({ branch: { name: "smithers/retry" } })
+    if (path === "/api/branches/smithers%2Fretry") return Response.json({ name: "smithers/retry", machine: { id: "machine-retry" } })
+    return path === "/api/branches" ? Response.json([{ name: "smithers/retry", kind: "item", state: "asleep", machine: { id: "machine-retry" } }]) : new Response("{}", { status: 404 })
+  })
+  const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl, live,
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null } })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+  const stop = controller.terminalCards!.subscribe!(() => {})
+  try {
+    for (let i = 0; i < 100 && !controller.terminalCards?.branch("terminal-retry"); i++) await new Promise(resolve => setTimeout(resolve, 1))
+    expect(topics).toContain("branch:machine-retry")
+    expect(topics).not.toContain("branch:smithers/retry")
+    for (const branch of ["T2", "smithers/retry"]) expect(await controller.submitCommand({ name: "ssh", payload: { branch }, actor: "user" })).toEqual({ status: "executed", value: "ssh -p 2222 smithers/retry@factory.example" })
+    expect((await controller.submitCommand({ name: "ssh", payload: { branch: "missing" }, actor: "user" })).status).toBe("failed")
+    expect(await controller.submitCommand({ name: "terminal.watch", payload: { id: "terminal-retry" }, actor: "user" })).toMatchObject({ status: "executed" })
+    expect(store.collections.cards.get("terminal:terminal-retry")).toMatchObject({ kind: "terminal", payload: { id: "terminal-retry" } })
+  } finally { stop(); controller.dispose() }
+})
+
+
+test("SSH clipboard completion waits for the copy and reports its failure", async () => {
+  const { branchFlows } = await import("./branch")
+  const { FlowGesture } = await import("../CommandGesture")
+  const { Effect, Option } = await import("effect")
+  const Cell = await import("@smthrs/harness/Cell")
+  const h = await boot({ subscribe: () => () => {}, getSnapshot: topic => ({ topic, data: { id: "b-real", ssh_line: "ssh -p 2222 retry@localhost" } }) }, true)
+  const { nameOf } = await import("../registry")
+  const entry = branchFlows({ ...h.controller, snapshot: () => { throw new Error("SSH does not read command snapshots") } }).find(entry => nameOf(entry) === "ssh")!
+  const call = new Cell.Call({ flowName: "ssh", input: { branch: "b-real" }, capabilities: [],
+    effects: { reads: [], writes: [], mode: "hermetic", onConflict: "serialize", tier: "sealed" },
+    placement: Option.none(), identity: new Cell.CallIdentity({ session: "ssh-copy", frame: 0, cell: "copy", ordinal: 0, declaration: "ssh", layers: [] }) })
+  let complete!: () => void
+  const pending = new Promise<void>(resolve => { complete = resolve })
+  const copied: string[] = []
+  let settled = false
+  try {
+    const result = Effect.runPromise(entry.binding.run(call).pipe(Effect.provideService(FlowGesture, {
+      name: "ssh", release: () => {}, copyText: async text => { copied.push(text); await pending }
+    }))).then(value => { settled = true; return value })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(settled).toBe(false)
+    expect(copied).toEqual(["ssh -p 2222 retry@localhost"])
+    complete()
+    expect(await result).toMatchObject({ outcome: "success", value: { value: "ssh -p 2222 retry@localhost" } })
+    expect(await Effect.runPromise(entry.binding.run(call).pipe(Effect.provideService(FlowGesture, {
+      name: "ssh", release: () => {}, copyText: async () => { throw new Error("denied") }
+    })))).toMatchObject({ outcome: "failure", message: "Flow ssh failed: Copy failed" })
+  } finally { complete(); h.controller.dispose() }
+})
+
+
+test("standalone install SSH owns a read subscription and releases it on success, refusal, identity change and disposal", async () => {
+  for (const outcome of ["success", "forbidden", "malformed", "identity", "dispose"] as const) {
+    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    let snapshot: import("../../runtime/LiveChannel").TopicSnapshot | undefined
+    let notify = () => {}
+    let subscribed = 0, released = 0
+    const profile = signupProfileFetch(async input => new URL(String(input), "https://install.test").pathname === "/api/branches/scratch%2Fben%2Fretry"
+      ? Response.json({ name: "scratch/ben/retry", machine: { id: "b-ssh" } }) : new Response("{}", { status: 404 }))
+    const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl,
+      live: { subscribe: (topic, listener) => { if (topic === "branch:b-ssh") { subscribed++; notify = listener; return () => { released++ } } return () => {} }, getSnapshot: topic => topic === "branch:b-ssh" ? snapshot : undefined },
+      bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null } })
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    try {
+      let settled = false
+      const request = controller.submitCommand({ name: "ssh", payload: { branch: "scratch/ben/retry" }, actor: "user" }).then(value => { settled = true; return value })
+      for (let i = 0; i < 100 && subscribed === 0; i++) await new Promise(resolve => setTimeout(resolve, 1))
+      expect(subscribed).toBe(1)
+      expect(settled).toBe(false)
+      expect(store.collections.cards.get("branch:b-ssh")).toBeUndefined()
+      if (outcome === "identity") await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
+      else if (outcome === "dispose") controller.dispose()
+      else {
+        snapshot = outcome === "forbidden" ? { topic: "branch:b-ssh", error: "forbidden" }
+          : { topic: "branch:b-ssh", data: { id: outcome === "malformed" ? "another-branch" : "b-ssh", ssh_line: "ssh -p 2222 scratch/ben/retry@localhost" } }
+        notify()
+      }
+      expect(await request).toMatchObject(outcome === "success" ? { status: "executed", value: "ssh -p 2222 scratch/ben/retry@localhost" } : { status: "failed" })
+      expect(released).toBe(1)
+    } finally { controller.dispose() }
+  }
+})
+
+test("install Add dispatches its placement and text once through the real HTTP adapter", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const posts: Array<{ path: string; body: unknown; key: string | null }> = []
+  const profile = signupProfileFetch(async (input, init) => {
+    const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url, "https://install.test").pathname
+    if (path.endsWith("/add-to-stack") && init?.method === "POST") {
+      posts.push({ path, body: JSON.parse(String(init.body)), key: new Headers(init.headers).get("Idempotency-Key") })
+      return Response.json({ state: "accepted", n: 12, rev: 1 }, { status: 202 })
+    }
+    return new Response("{}", { status: 404 })
+  })
+  const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl,
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null } })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+  try {
+    for (const placement of [{ after: 2 }, { before: 3 }, {}]) {
+      expect(await controller.submitCommand({ name: "branch.add-to-stack", payload: { branch: "scratch/ben/retry", text: "Keep retry", ...placement }, actor: "user" })).toMatchObject({ status: "executed", value: "Requested" })
+    }
+    expect(posts.map(post => post.body)).toEqual([{ text: "Keep retry", after: 2 }, { text: "Keep retry", before: 3 }, { text: "Keep retry" }])
+    expect(posts.every(post => post.path === "/api/branches/scratch%2Fben%2Fretry/add-to-stack" && !!post.key)).toBe(true)
+    expect(await controller.submitCommand({ name: "branch.add-to-stack", payload: { branch: "scratch/ben/retry", after: 2, before: 3 }, actor: "user" })).toMatchObject({ status: "failed" })
+    expect(posts).toHaveLength(3)
+    expect(controller.design.world().repo.stack).not.toContain("T12")
+  } finally { await controller.dispose() }
 })

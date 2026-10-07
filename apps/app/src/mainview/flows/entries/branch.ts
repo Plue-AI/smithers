@@ -5,6 +5,7 @@
  * those routes and the card reads topic `branch:<id>`.
  */
 import { Schema } from "effect"
+import { TodoPlacementSchema } from "@smthrs/rpc/CardAction"
 import { z } from "zod"
 import { flow, type CommandActions, type CommandResult } from "./Declare"
 import type { FlowEntry } from "../registry"
@@ -53,13 +54,14 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
         if (!result.ok) return result.refusal
         return result.id === undefined ? undefined : openBranch(result.id)
       } }),
-    flow({ name: "branch.add-to-stack",   slash: "/branch.add-to-stack", cli: ["branch","add-to-stack"], journey: ["J7"], group: "Branches and machines", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/branches/{branch}","defaults":{"op":"add-to-stack"}}, summary: "Add a scratch branch as a TODO", args: "<branch>", hidden: true, discloseToAgent: true,
-      grammar: field("branch"), agent: "confirm", input: Schema.Struct({ branch: Schema.String, text: Schema.optional(Schema.String) }),
+    flow({ name: "branch.add-to-stack",   slash: "/branch.add-to-stack", cli: ["branch","add-to-stack"], journey: ["J7"], group: "Branches and machines", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/branches/{branch}/add-to-stack"}, summary: "Add a scratch branch as a TODO", args: "<branch>", hidden: true, discloseToAgent: true,
+      grammar: field("branch"), agent: "confirm", input: Schema.Struct({ branch: Schema.String, text: Schema.optional(Schema.String), title: Schema.optional(Schema.NonEmptyString), acceptance: Schema.optional(Schema.Array(Schema.String)), after: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))), before: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))) }),
       // A✓ (mvp.md Appendix B): the agent asks; only the person's press commits the TODO. The confirmation carries the branch it named.
       confirm: payload => `add ${String(payload.branch)} to the stack`,
-      confirmArgs: payload => payload.text === undefined ? String(payload.branch) : JSON.stringify(payload),
-      handler: ({ branch, text }) => {
-        if (actions.branchControls) return actions.branchControls.request("add-to-stack", branch, text === undefined ? {} : { text })
+      confirmArgs: payload => payload.text === undefined && payload.after === undefined && payload.before === undefined && payload.title === undefined && payload.acceptance === undefined ? String(payload.branch) : JSON.stringify(payload),
+      handler: ({ branch, text, title, acceptance, after, before }) => {
+        if (!TodoPlacementSchema.safeParse({ after, before }).success) return "Choose after or before"
+        if (actions.addBranchToStack) return actions.addBranchToStack({ branch, ...(title === undefined ? {} : { title }), ...(acceptance === undefined ? {} : { acceptance }), ...(text === undefined ? {} : { text }), ...(after === undefined ? {} : { after }), ...(before === undefined ? {} : { before }) })
         if (actions.design.enabled === false) return "Branch unavailable"
         const target = branchOf(branch)
         if (target === undefined) return `No branch ${branch}`
