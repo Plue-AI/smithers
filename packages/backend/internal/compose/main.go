@@ -1164,6 +1164,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithGitHubImportSyncedRepos(gitHubSyncedRepoService),
 		services.WithGitHubImportProvisioningStore(options.RepositoryProvisioning),
 	)
+	if config.IsSingleOwner(cfg.Auth) {
+		services.WithGitHubImportInstallAuthorization(pool)(gitHubImportService)
+	}
 	gitHubSyncedRepoService.SetMirrorer(gitHubImportService)
 	if options.topology.hosted() {
 		services.WithGitHubImportWorkspaceProvisioner(workspaceService)(gitHubImportService)

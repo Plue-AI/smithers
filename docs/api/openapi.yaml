@@ -4077,6 +4077,11 @@ paths:
   /api/github/import/{id}:
     get:
       summary: GET /api/github/import/{id}
+      description: >-
+        On a self-hosted install, the Owner reads their own import receipt through
+        one bound command decision. JSON reads and every SSE poll recheck the live
+        browser session. Verified source progress remains readable before the
+        local mirror exists; a different receipt or expired credential is refused.
       operationId: get_api_github_import_id
       tags:
         - Github

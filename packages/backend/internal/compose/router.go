@@ -823,6 +823,9 @@ func buildRouter(
 		r.Group(func(r chi.Router) {
 			r.Use(browserCORS(apiCORS, config.IsSingleOwner(cfg.Auth)))
 			r.Use(authLoader(queries, cfg.Auth))
+			if config.IsSingleOwner(cfg.Auth) {
+				r.Use(memberCommands(queries))
+			}
 			r.Use(middleware.GlobalAPIRateLimit(queries))
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)).
 				Get("/api/github/import/{id}", gitHubImportHandler.GetImportJob)

@@ -25,6 +25,20 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			info := middleware.AuthInfoFromContext(r.Context())
 			command := middleware.InstallMemberCommand(r.Method, r.URL.EscapedPath())
+			if command == "github.import-read" {
+				subject, validation := services.InstallGitHubImportReadSubject(strings.TrimPrefix(r.URL.Path, "/api/github/import/"))
+				decision, err := services.Authorize(r.Context(), queries, command, subject)
+				if err != nil {
+					writeConfirmationDispatchError(w, err)
+					return
+				}
+				if validation != nil {
+					writeConfirmationDispatchError(w, validation)
+					return
+				}
+				next.ServeHTTP(w, r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, subject)))
+				return
+			}
 			if command == "background.retry" && r.Method == http.MethodPost {
 				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1024))
 				if err != nil {

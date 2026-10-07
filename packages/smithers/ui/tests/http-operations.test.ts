@@ -245,3 +245,11 @@ test("retained webhook administration stays owner-only and requires repository w
   expect(Schema.decodeUnknownSync(update.input)({ url: null, secret: null, events: null, is_active: false })).toEqual({ url: null, secret: null, events: null, is_active: false })
   expect(() => Schema.decodeUnknownSync(update.input)({ events: [3] })).toThrow()
 })
+
+
+test("private import progress retains the owner person read door", () => {
+  expect(httpProjections.find(row => row.name === "github.import-read")).toMatchObject({
+    minimumRole: "owner", agent: "never", actors: ["person"], credentialScope: "read:repository",
+    visibility: "hidden", cli: null, slash: null, http: { method: "GET", path: "/api/github/import/{id}" }
+  })
+})

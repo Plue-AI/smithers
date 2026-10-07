@@ -25,6 +25,9 @@ type installImports interface {
 // App installation sweep, the durable importer and the stack service. No
 // provider loads a flow or prepares a host recipe.
 func (s *InstallSetupService) BindRepositoryProviders(access *GitHubUserReposService, app *GitHubAppCredentialStore, connections *RepoConnectionService, imports installImports, members *Members, stacks *MythicalService) {
+	if service, ok := imports.(*GitHubImportService); ok {
+		imports = installImportReceiptReader{service}
+	}
 	if s.Providers == nil {
 		s.Providers = map[string]func(context.Context, *jobs.Lease, InstallSetupInput) error{}
 	}

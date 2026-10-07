@@ -296,19 +296,20 @@ type GitHubImportInstallationTokenIssuer interface {
 var gitHubImportPermissions = map[string]string{"contents": "read"}
 
 type GitHubImportService struct {
-	db         GitHubImportDB
-	repoDB     GitHubImportRepoDB
-	orgs       GitHubImportOrgDB
-	tokenDB    GitHubImportTokenDB
-	repoHost   GitHubImportRepoHost
-	workspaces GitHubImportWorkspaceProvisioner
-	decrypter  OAuthAccessTokenDecrypter
-	refresher  GitHubUserTokenRefresher
-	appTokens  GitHubImportInstallationTokenIssuer
-	readAccess RepositoryJobGitHubReadAccess
-	httpClient *http.Client
-	gitBaseURL string
-	metrics    GitHubImportMetrics
+	installRead *installImportReadStore
+	db          GitHubImportDB
+	repoDB      GitHubImportRepoDB
+	orgs        GitHubImportOrgDB
+	tokenDB     GitHubImportTokenDB
+	repoHost    GitHubImportRepoHost
+	workspaces  GitHubImportWorkspaceProvisioner
+	decrypter   OAuthAccessTokenDecrypter
+	refresher   GitHubUserTokenRefresher
+	appTokens   GitHubImportInstallationTokenIssuer
+	readAccess  RepositoryJobGitHubReadAccess
+	httpClient  *http.Client
+	gitBaseURL  string
+	metrics     GitHubImportMetrics
 	// installMainMirror is the engine's install fact
 	// (repohost.Client.InstallMainMirror): a refresh never rewrites main.
 	installMainMirror bool
@@ -1565,6 +1566,13 @@ func (s *GitHubImportService) resolveLocalOwner(ctx context.Context, userID int6
 }
 
 func (s *GitHubImportService) GetImportJob(ctx context.Context, userID int64, id string) (ImportJob, error) {
+	if s != nil && s.installRead != nil {
+		return s.getInstallImportJob(ctx, userID, id)
+	}
+	return s.getImportJob(ctx, userID, id)
+}
+
+func (s *GitHubImportService) getImportJob(ctx context.Context, userID int64, id string) (ImportJob, error) {
 	if s == nil || s.db == nil {
 		return ImportJob{}, pkgerrors.Internal("github import service unavailable")
 	}
