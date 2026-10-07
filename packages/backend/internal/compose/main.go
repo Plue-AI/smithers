@@ -1626,6 +1626,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			// The owner's calls are recorded and held to each repository's
 			// daily token budget, as its TODO launches are.
 			proxy.Owner = modelproxy.OwnerMeter{DB: pool, DailyTokens: mythicalService.DailyTokenBudget}
+			proxy.ResolveFactorySeat = resolveFactorySeat(queries, repositorySourceFiles{client: repoHostClient})
 		}
 		modelProxyHandler = proxy
 	}

@@ -2165,6 +2165,7 @@ func mountModelProxy(r chi.Router, queries *db.Queries, cfg *config.Config, hand
 			return authLoader(queries, cfg.Auth)(middleware.RequireAuth(next))
 		}))
 		r.Post(modelproxy.Path+"/*", handler.ServeHTTP)
+		r.Get(modelproxy.Path+"/factory-seat", handler.ServeHTTP)
 		for _, seat := range modelproxy.Seats {
 			r.Post(modelproxy.APIPath+"/"+seat.Provider+"/*", handler.ServeHTTP)
 		}
