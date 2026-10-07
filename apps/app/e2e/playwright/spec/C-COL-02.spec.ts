@@ -18,15 +18,18 @@ test("C-COL-02: a TODO card resumes committed facts once and recovers a gap", as
   ]
   let head = 0
   let active: { id: number; send: (raw: string) => void; close: () => void } | undefined
+  let recovery: Promise<void> | undefined
+  let outageAt = 0, recoveredAt = 0
   const subscriptions: Array<number | undefined> = []
   const model = () => head === 0 ? queued : facts[head - 1]!.Data.card
   await page.route("**/api/todos", route => route.fulfill({ json: [model()] }))
   await page.route("**/api/todos/12", route => route.fulfill({ json: model() }))
-  await page.routeWebSocket("**/api/live", socket => socket.onMessage(raw => {
+  await page.routeWebSocket("**/api/live", socket => socket.onMessage(async raw => {
     if (typeof raw !== "string") return
     const frame = JSON.parse(raw)
     if (frame.t !== "sub") return
     if (frame.topic !== "todo:12") { socket.send(JSON.stringify({ t: "err", id: frame.id, code: "unsupported" })); return }
+    if (frame.cursor !== undefined && recovery) { await recovery; recoveredAt = Date.now() }
     subscriptions.push(frame.cursor)
     active = { id: frame.id, send: raw => socket.send(raw), close: () => socket.close({ code: 1001, reason: "fixture network fault" }) }
     if (frame.cursor === undefined) socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: head, data: model() }))
@@ -44,9 +47,15 @@ test("C-COL-02: a TODO card resumes committed facts once and recovers a gap", as
   head = 2
   active!.send(JSON.stringify({ t: "delta", id: active!.id, cursor: 2, data: facts[1] }))
   await expect(card).toContainText("Working")
+  outageAt = Date.now()
+  recovery = new Promise(resolve => setTimeout(resolve, 10_000))
   active!.close()
   head = 4 // Two facts commit while the client has no connection.
-  await expect.poll(() => subscriptions.length).toBe(2)
+  await expect(page.getByTestId("composer-input")).toBeEnabled()
+  await expect(card).toContainText("Working")
+  await expect.poll(() => subscriptions.length, { timeout: 15_000 }).toBe(2)
+  expect(recoveredAt - outageAt).toBeGreaterThanOrEqual(10_000)
+  recovery = undefined
   expect(subscriptions).toEqual([undefined, 2])
   await expect(card).toContainText("In review")
   await expect(card).toHaveCount(1)
