@@ -1,6 +1,6 @@
 import { captureCloudOwner } from "./SeamContext"
 import { renderPlanLimit } from "./HostedBilling"
-import { Effect, Exit, Fiber, FiberMap, Layer, ManagedRuntime, Schedule, Scope } from "effect"
+import { Effect, Fiber, FiberMap, Layer, ManagedRuntime, Schedule, Scope } from "effect"
 import { preparedView, type ViewAction } from "../PreparedView"
 import { refuseCloudSignIn, SIGN_OUT_REFUSAL } from "./CloudSignIn"
 import { actorSharedState } from "../ActorBindings"
@@ -64,7 +64,6 @@ import { resolveTargetRepo } from "../RepoContext"
 import { loadEgressPage, workspaceEgressPath } from "./EgressSeam"
 import { workspaceCardFacts } from "../WorkspaceViews"
 import { cloudUnreachable, createCloudClient } from "./CloudClient"
-import { mayAutoRetry, statedRetryDelayMs, storedRefusal } from "@smthrs/rpc/Refusal"
 import type { Refusal, StoredRefusal } from "@smthrs/rpc/Refusal"
 import { refusalSentence } from "@smthrs/rpc/RefusalCopy"
 import type { SeamContext } from "./SeamContext"
@@ -81,24 +80,6 @@ export const DEGRADED_WORKSPACE_REFUSAL =
  * itself: a paraphrase would hide which boundary failed.
  */
 export const EGRESS_PROXY_UNAVAILABLE = "egress_proxy_unavailable"
-
-/**
- * plue#504: the terminal session POST answers `503 { code: "guest_not_ready" }`
- * with a `Retry-After` header while a vm guest finishes its NixOS
- * activation. The backend sets `RetryAfter: 3` on it.
- */
-export const GUEST_NOT_READY = "guest_not_ready"
-
-/**
- * The bounded retry the `guest_not_ready` 503 buys: 30 attempts, which at
- * plue's own `Retry-After: 3` is 90 s — its activation window. Module-level so
- * tests shorten the wait rather than sleeping.
- */
-export const terminalSessionRetry = {
-  maxAttempts: 30,
-  /** Used only when the refusal carried no `Retry-After` this app could read. */
-  defaultDelayMs: 3_000
-}
 
 export type WorkspaceFacet = "terminal" | "files" | "services" | "egress"
 
@@ -122,12 +103,8 @@ export interface WorkspaceSeam {
   ) => Promise<string | void | { readonly value: string }>
   /** `box.view <id>`: re-read one workspace and render its card. */
   readonly viewWorkspace: (workspaceId: string) => Promise<string | void | { readonly value: string }>
-  /** `box.terminal [workspaceId]`: open (or re-attach) the workspace's terminal tab. */
-  readonly openTerminal: (workspaceId?: string) => Promise<string | void | { readonly value: string }>
   readonly suspendWorkspace: (workspaceId?: string) => Promise<string | void | { readonly value: string }>
   readonly resumeWorkspace: (workspaceId?: string) => Promise<string | void | { readonly value: string }>
-  /** A workspace created FROM a snapshot (the snapshot row's "Fork from"): POST /workspaces { snapshot_id }. */
-  readonly listSessions: (workspaceId?: string) => Promise<string | void | { readonly value: string }>
   readonly destroySession: (sessionId: string, workspaceId?: string) => Promise<string | void | { readonly value: string }>
   /** `box.delete <id> <name>`: the workspace's name typed back is the gate — a mismatch refuses, whoever invoked. */
   readonly deleteWorkspace: (workspaceId: string, confirmName: string) => Promise<string | void | { readonly value: string }>
@@ -196,15 +173,6 @@ interface CardAux {
 }
 
 const UNSETTLED: ReadonlySet<string> = new Set(["pending", "starting"])
-
-/** The statuses plue's workspace sessions move through. */
-const SESSION_LIVE = "running"
-
-const DEFAULT_COLS = 80
-const DEFAULT_ROWS = 24
-
-/** How long a new terminal session may take to reach running before the honest refusal. */
-const SESSION_SETTLE_ATTEMPTS = 30
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value)
@@ -501,15 +469,11 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     return `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}${rest}`
   }
 
-  const { runtime, watching, sleepers, terminalOpenEpochs, lifecycle, workspaceEpochs, recoveryFlights } = actorSharedState(ctx, "workspace", () => {
+  const { runtime, watching, lifecycle, workspaceEpochs, recoveryFlights } = actorSharedState(ctx, "workspace", () => {
     const runtime = ManagedRuntime.make(Layer.empty)
-    const [watching, sleepers] = Effect.runSync(Effect.all([
-      FiberMap.make<string, void>(),
-      FiberMap.make<{ readonly workspaceId: string }, void>()
-    ]).pipe(Scope.provide(runtime.scope)))
+    const watching = Effect.runSync(FiberMap.make<string, void>().pipe(Scope.provide(runtime.scope)))
     return {
-      runtime, watching, sleepers,
-      terminalOpenEpochs: new Map<string, number>(),
+      runtime, watching,
       lifecycle: { disposed: false },
       recoveryFlights: new Map<string, Promise<unknown>>(),
       workspaceEpochs: new Map<string, number>()
@@ -535,25 +499,10 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
   /** 5s cadence × 120 = ten minutes, the provisioning ceiling the workspaces spec names. */
   const MAX_WATCH_POLLS = 120
 
-  const sleep = (ms: number, workspaceId: string): Promise<boolean> => {
-    if (lifecycle.disposed) return Promise.resolve(false)
-    return runtime.runPromiseExit(Effect.flatMap(
-      FiberMap.run(sleepers, { workspaceId }, Effect.sleep(ms)), Fiber.join
-    )).then(Exit.isSuccess)
-  }
-
-  const cancelSleeps = (workspaceId?: string): void => {
-    for (const [key] of sleepers) {
-      if (workspaceId === undefined || key.workspaceId === workspaceId) runtime.runFork(FiberMap.remove(sleepers, key))
-    }
-  }
-
   const dispose = (): void => {
     if (lifecycle.disposed) return
     lifecycle.disposed = true
     void runtime.dispose()
-    /* The controller is going away, so no facet can be mounted: the credential goes with it. */
-    terminalOpenEpochs.clear()
   }
 
   /*
@@ -1264,26 +1213,6 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     return { value: `Box "${fresh.name}" (${fresh.id}) is ${fresh.status}.` }
   }
 
-  const listSessions: WorkspaceSeam["listSessions"] = async (workspaceId) => {
-    const refusal = gate()
-    if (refusal !== undefined) return refusal
-    const resolved = resolveWorkspace(workspaceId)
-    if ("error" in resolved) return resolved.error
-    const { workspace } = resolved
-    const current = currentOperation(workspace.id)
-    const sessions = await loadSessions(workspace.repoId, workspace.id)
-    if (!current()) return SIGN_OUT_REFUSAL
-    if (sessions === null) return `The sessions of box ${workspace.id} couldn't be read right now.`
-    renderWorkspace(workspace, { sessions })
-    return {
-      value: sessions.length === 0
-        ? `Box "${workspace.name}" (${workspace.id}) has no sessions.`
-        : `Box "${workspace.name}" (${workspace.id}) sessions: ${
-          sessions.map((session) => `${session.id} (${session.status})`).join(", ")
-        }.`
-    }
-  }
-
   const destroySession: WorkspaceSeam["destroySession"] = async (sessionId, workspaceId) => {
     const refusal = gate()
     if (refusal !== undefined) return refusal
@@ -1338,12 +1267,9 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
      * terminal tabs leave in one transaction; the list refresh after it
      * re-reads the repository's truth.
      */
-    /* Invalidate reads and both session phases before removing the workspace. */
+    /* Invalidate reads before removing the workspace. */
     workspaceEpochs.set(workspace.id, (workspaceEpochs.get(workspace.id) ?? 0) + 1)
-    terminalOpenEpochs.set(workspace.id, (terminalOpenEpochs.get(workspace.id) ?? 0) + 1)
     runtime.runFork(FiberMap.remove(watching, workspace.id))
-    cancelSleeps(workspace.id)
-    /* A retry loop for a computer that no longer exists has nothing to mint. */
     ctx.dispatch({ type: "workspace.deleted", actor: ctx.actor(), workspaceId: workspace.id })
     const owner = captureCloudOwner(ctx)
     const loaded = await loadList(workspace.repoId, owner)
@@ -1611,117 +1537,13 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     }
   }
 
-  /* One terminal-open loop per workspace: a later open supersedes the one before it. */
-
-  const openTerminal: WorkspaceSeam["openTerminal"] = async (workspaceId) => {
-    const refusal = gate()
-    if (refusal !== undefined) return refusal
-    const resolved = resolveWorkspace(workspaceId)
-    if ("error" in resolved) return resolved.error
-    const { workspace } = resolved
-    if (workspace.status !== "running") {
-      return failOnCard(
-        workspace,
-        `"${workspace.name}" (${workspace.id}) is ${workspace.status}, not running — ${
-          workspace.status === "suspended" || workspace.status === "stopped"
-            ? "/box.resume it first"
-            : "wait for it to settle (the card tracks it)"
-        }.`
-      )
-    }
-    const epoch = (terminalOpenEpochs.get(workspace.id) ?? 0) + 1
-    terminalOpenEpochs.set(workspace.id, epoch)
-    const authorized = currentOperation(workspace.id)
-    const current = (): boolean => authorized() && gate() === undefined && terminalOpenEpochs.get(workspace.id) === epoch
-    const card = ctx.store.collections.cards.get(cardIdOf(workspace.id))
-    const attached = card?.kind === "workspace" ? card.payload.terminalSessionId : undefined
-    if (attached !== undefined && attached !== "") {
-      const session = await getJson(repoPath(workspace.repoId, `/workspace/sessions/${encodeURIComponent(attached)}`))
-      if (!current()) return
-      const parsed = "error" in session ? null : parseSession(session.body)
-      if (parsed !== null && parsed.status === SESSION_LIVE) {
-        renderWorkspace(workspace, { facet: "terminal" })
-        return { value: `Re-attached to session ${attached} of "${workspace.name}" (${workspace.id}).` }
-      }
-    }
-    /*
-     * The session POST, and — plue#504 — the 503 it may answer while a vm or
-     * desktop guest finishes its NixOS activation. The auto-retry is the
-     * server's instruction, not this app's optimism: it runs ONLY for a `wait`
-     * fault (plue's own word for "nothing is wrong, it is not ready yet",
-     * which is what `guest_not_ready` is), waits exactly the pacing the
-     * refusal stated, gives up after `terminalSessionRetry.maxAttempts`, and
-     * leaves plue's own words on the terminal facet the whole time. A later
-     * open on the same workspace supersedes it. Every other refusal —
-     * user, infra, dependency, bug — is answered once.
-     */
-    let created: { readonly body: unknown }
-    for (let attempt = 1;; attempt += 1) {
-      const answer = await sendJson("POST", repoPath(workspace.repoId, "/workspace/sessions"), {
-        workspace_id: workspace.id,
-        cols: DEFAULT_COLS,
-        rows: DEFAULT_ROWS
-      })
-      if (!current()) return
-      if (!("error" in answer)) {
-        created = answer
-        break
-      }
-      /* No HTTP answer at all: there is no status or code to render, only the reach failure. */
-      if (answer.status === null) return failOnCard(workspace, answer)
-      if (answer.refusal.rawCode === "plan_limit_exceeded") return renderPlanLimit(ctx.store, answer.refusal, ctx.checkout ?? false, ctx.actor())
-      /* The worker's own credential-boundary refusal keeps the card-level marker it always had. */
-      const proxyGone = answer.code === EGRESS_PROXY_UNAVAILABLE
-      renderWorkspace(workspace, {
-        facet: "terminal",
-        ...(proxyGone ? { egressProxyUnavailable: true } : {}),
-        terminalRefusal: storedRefusal(answer.refusal)
-      })
-      if (!mayAutoRetry(answer.refusal) || attempt >= terminalSessionRetry.maxAttempts) {
-        return refusalSentence(answer.refusal)
-      }
-      if (!await sleep(statedRetryDelayMs(answer.refusal) ?? terminalSessionRetry.defaultDelayMs, workspace.id)) return
-      if (!current()) return
-    }
-    const session = parseSession(created.body)
-    if (session === null) return `Smithers Cloud's answer for the new session on ${workspace.id} was malformed.`
-    /*
-     * A fresh session may still be pending: poll it until it runs, or the
-     * honest refusal names what it settled as.
-     */
-    let live = session
-    for (let attempt = 0; live.status !== SESSION_LIVE && attempt < SESSION_SETTLE_ATTEMPTS; attempt += 1) {
-      if (live.status === "failed" || live.status === "stopped") break
-      if (!await sleep(pollMs, workspace.id) || !current()) return
-      const answer = await getJson(repoPath(workspace.repoId, `/workspace/sessions/${encodeURIComponent(session.id)}`))
-      if (!current()) return
-      const parsed = "error" in answer ? null : parseSession(answer.body)
-      if (parsed === null) break
-      live = parsed
-    }
-    if (live.status !== SESSION_LIVE) {
-      return failOnCard(workspace, `Session ${live.id} of "${workspace.name}" settled as ${live.status}, not running.`)
-    }
-    const sessions = await loadSessions(workspace.repoId, workspace.id)
-    if (!current()) return
-    renderWorkspace(workspace, {
-      facet: "terminal",
-      terminalSessionId: live.id,
-      ...(sessions === null ? {} : { sessions })
-    })
-    /* A refusal belongs to the act that just ran; this render already dropped it. */
-    return { value: `Terminal open on session ${live.id} of "${workspace.name}" (${workspace.id}).` }
-  }
-
   return {
     listWorkspaces,
     refreshWorkspaces,
     openWorkspace,
     viewWorkspace,
-    openTerminal,
     suspendWorkspace: (workspaceId) => transitionWorkspace("suspend", workspaceId),
     resumeWorkspace: (workspaceId) => transitionWorkspace("resume", workspaceId),
-    listSessions,
     destroySession,
     deleteWorkspace,
     setFacet,

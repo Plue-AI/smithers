@@ -654,10 +654,8 @@ export interface AppController extends IssueFlowsController {
   readonly listWorkspaces: WorkspaceSeam["listWorkspaces"]
   readonly openWorkspace: WorkspaceSeam["openWorkspace"]
   readonly viewWorkspace: WorkspaceSeam["viewWorkspace"]
-  readonly openWorkspaceTerminal: WorkspaceSeam["openTerminal"]
   readonly suspendWorkspace: WorkspaceSeam["suspendWorkspace"]
   readonly resumeWorkspace: WorkspaceSeam["resumeWorkspace"]
-  readonly listWorkspaceSessions: WorkspaceSeam["listSessions"]
   readonly destroyWorkspaceSession: WorkspaceSeam["destroySession"]
   readonly deleteWorkspace: WorkspaceSeam["deleteWorkspace"]
   readonly setWorkspaceFacet: WorkspaceSeam["setFacet"]
@@ -2434,10 +2432,8 @@ export const createAppController = (
     listWorkspaces: workspaceSeam.listWorkspaces,
     openWorkspace: workspaceSeam.openWorkspace,
     viewWorkspace: workspaceSeam.viewWorkspace,
-    openWorkspaceTerminal: workspaceSeam.openTerminal,
     suspendWorkspace: workspaceSeam.suspendWorkspace,
     resumeWorkspace: workspaceSeam.resumeWorkspace,
-    listWorkspaceSessions: workspaceSeam.listSessions,
     destroyWorkspaceSession: workspaceSeam.destroySession,
     deleteWorkspace: workspaceSeam.deleteWorkspace,
     setWorkspaceFacet: workspaceSeam.setFacet,

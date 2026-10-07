@@ -6,7 +6,7 @@ import { createAppStore } from "../AppStore"
 import { createActorBindings } from "../ActorBindings"
 import type { AppStore } from "../AppStore"
 import type { CloudWorkspaceInput } from "../AppState"
-import { createWorkspaceSeam as makeWorkspaceSeam, DEGRADED_WORKSPACE_REFUSAL, terminalSessionRetry } from "./WorkspaceSeam"
+import { createWorkspaceSeam as makeWorkspaceSeam, DEGRADED_WORKSPACE_REFUSAL } from "./WorkspaceSeam"
 import type { WorkspaceSeam } from "./WorkspaceSeam"
 import type { SeamContext } from "./SeamContext"
 import { INFRA_NOT_YOUR_FAULT } from "@smthrs/rpc/RefusalCopy"
@@ -141,10 +141,8 @@ const createWorkspaceSeam: typeof makeWorkspaceSeam = (...args) => {
     refreshWorkspaces: (...args) => observe(seam.refreshWorkspaces(...args)),
     openWorkspace: (...args) => observe(seam.openWorkspace(...args)),
     viewWorkspace: (...args) => observe(seam.viewWorkspace(...args)),
-    openTerminal: (...args) => observe(seam.openTerminal(...args)),
     suspendWorkspace: (...args) => observe(seam.suspendWorkspace(...args)),
     resumeWorkspace: (...args) => observe(seam.resumeWorkspace(...args)),
-    listSessions: (...args) => observe(seam.listSessions(...args)),
     destroySession: (...args) => observe(seam.destroySession(...args)),
     deleteWorkspace: (...args) => observe(seam.deleteWorkspace(...args)),
     listFiles: (...args) => observe(seam.listFiles(...args)),
@@ -310,7 +308,6 @@ describe("workspace seam gates", () => {
     const { seam } = await harness({}, { signedIn: false })
     expect(await seam.listWorkspaces()).toBe("Sign in to Smithers Cloud to continue.")
     expect(await seam.openWorkspace("main", "will/smithers")).toBe("Sign in to Smithers Cloud to continue.")
-    expect(await seam.openTerminal("ws-1")).toBe("Sign in to Smithers Cloud to continue.")
   })
 })
 
@@ -693,184 +690,7 @@ describe("workspace seam acts", () => {
 describe("workspace seam snapshots", () => {
 })
 
-describe("workspace seam terminal", () => {
-  test("a suspended workspace refuses honestly and says how to fix it", async () => {
-    const { store, seam } = await harness({})
-    await seedWorkspace(store, { ...wsRow, status: "suspended" })
-    const refusal = await seam.openTerminal("ws-1")
-    expect(typeof refusal).toBe("string")
-    expect(refusal).toContain("suspended")
-    expect(refusal).toContain("/box.resume")
-    expect(tabsOf(store)).toEqual([])
-  })
-
-  test("open creates a session, waits for running, and embeds it without switching away from chat", async () => {
-    let polls = 0
-    const { store, seam } = await harness({
-      "POST api/repos/will/smithers/workspace/sessions": json(201, { id: "sess-1", status: "pending", workspace_id: "ws-1", created_at: null }),
-      "api/repos/will/smithers/workspace/sessions/sess-1": () => {
-        polls += 1
-        return json(200, { id: "sess-1", status: polls < 2 ? "pending" : "running", workspace_id: "ws-1", created_at: null })
-      },
-      "api/repos/will/smithers/workspace/sessions": json(200, [{ id: "sess-1", status: "running", workspace_id: "ws-1", created_at: null }])
-    })
-    await seedWorkspace(store)
-    const result = await seam.openTerminal("ws-1")
-    expect(typeof result).toBe("object")
-    expect(polls).toBeGreaterThanOrEqual(2)
-    expect(tabsOf(store)).toEqual([])
-    expect(store.session().activeTabId).toBe("main")
-    const payload = payloadOf(store)
-    expect(payload?.terminalSessionId).toBe("sess-1")
-    expect(payload?.facet).toBe("terminal")
-    expect(payload?.sessions).toEqual([{ id: "sess-1", status: "running", createdAt: null, kind: null, language: null }])
-  })
-
-  test("a live attached session re-attaches instead of creating", async () => {
-    const { store, seam, requests } = await harness({
-      "api/repos/will/smithers/workspace/sessions/sess-1": json(200, { id: "sess-1", status: "running", workspace_id: "ws-1", created_at: null })
-    })
-    await seedWorkspace(store)
-    await seedCard(store, "sess-1")
-    const result = await seam.openTerminal("ws-1")
-    expect(typeof result).toBe("object")
-    expect(requests).not.toContain("POST api/repos/will/smithers/workspace/sessions")
-    expect(store.collections.tabs.get("sess-1")).toBeUndefined()
-    expect(payloadOf(store)?.terminalSessionId).toBe("sess-1")
-  })
-
-  test("a 503 guest_not_ready reads plue's own body and code, and retries the session POST on the Retry-After it named (plue#504)", async () => {
-    const previous = { ...terminalSessionRetry }
-    /* plue asks for 3s; the test shortens the wait rather than sleeping through it. */
-    terminalSessionRetry.defaultDelayMs = 1
-    try {
-      let posts = 0
-      const { store, seam, requests } = await harness({
-        "POST api/repos/will/smithers/workspace/sessions": () => {
-          posts += 1
-          /*
-           * plue's own 503 (routes/workspace_terminal_test.go): writeRouteError
-           * sanitizes a 5xx MESSAGE to the status text but keeps `code`, and
-           * `GuestNotReady` carries RetryAfter 3 onto the header.
-           */
-          return posts < 3
-            ? json(503, { code: "guest_not_ready", message: "service unavailable" }, { "retry-after": "0" })
-            : json(201, { id: "sess-1", status: "running", workspace_id: "ws-1", created_at: null })
-        },
-        "api/repos/will/smithers/workspace/sessions/sess-1": json(200, { id: "sess-1", status: "running", workspace_id: "ws-1", created_at: null }),
-        "api/repos/will/smithers/workspace/sessions": json(200, [{ id: "sess-1", status: "running", workspace_id: "ws-1", created_at: null }])
-      })
-      await seedWorkspace(store)
-
-      const result = await seam.openTerminal("ws-1")
-
-      /* The server asked to be retried, so it was — and the third answer created the session. */
-      expect(posts).toBe(3)
-      expect(requests.filter((request) => request === "POST api/repos/will/smithers/workspace/sessions")).toHaveLength(3)
-      expect(typeof result).toBe("object")
-      expect(store.collections.tabs.get("sess-1")).toBeUndefined()
-    expect(payloadOf(store)?.terminalSessionId).toBe("sess-1")
-      /* A POST that finally succeeded leaves no refusal behind. */
-      expect(payloadOf(store)?.terminalRefusal).toBeUndefined()
-    } finally {
-      Object.assign(terminalSessionRetry, previous)
-    }
-  })
-
-  test("a guest_not_ready that never clears gives up at the bound, with plue's code and whose fault it is on the terminal facet", async () => {
-    const previous = { ...terminalSessionRetry }
-    /* The default is deliberately NOT used here: the wait must come from the header. */
-    terminalSessionRetry.defaultDelayMs = 0
-    terminalSessionRetry.maxAttempts = 2
-    try {
-      let posts = 0
-      const { store, seam } = await harness({
-        "POST api/repos/will/smithers/workspace/sessions": () => {
-          posts += 1
-          return json(503, { code: "guest_not_ready", message: "service unavailable" }, { "retry-after": "1" })
-        }
-      })
-      await seedWorkspace(store)
-
-      const startedAt = Date.now()
-      const refusal = await seam.openTerminal("ws-1")
-
-      expect(posts).toBe(2)
-      /* One retry, and it waited the second the header asked for — not the app's own default. */
-      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(900)
-      expect(refusal).toBe("guest_not_ready — The request to Smithers Cloud failed (503). Not ready yet — nothing is wrong.")
-      expect(refusal).not.toContain("service unavailable")
-      expect(payloadOf(store)?.terminalRefusal).toEqual({
-        status: 503,
-        message: "The request to Smithers Cloud failed (503)",
-        code: "guest_not_ready",
-        retryAfterSeconds: 1,
-        fault: "wait",
-        origin: "plue"
-      })
-      expect(payloadOf(store)?.facet).toBe("terminal")
-      expect(tabsOf(store)).toEqual([])
-    } finally {
-      Object.assign(terminalSessionRetry, previous)
-    }
-  })
-
-  test("any other session refusal is answered once — a code the server did not ask to be retried is not retried", async () => {
-    let posts = 0
-    const { store, seam } = await harness({
-      "POST api/repos/will/smithers/workspace/sessions": () => {
-        posts += 1
-        return json(409, { message: "workspace is not running" })
-      }
-    })
-    await seedWorkspace(store)
-
-    const refusal = await seam.openTerminal("ws-1")
-
-    expect(posts).toBe(1)
-    expect(refusal).toBe("workspace is not running. Smithers can't do that as asked.")
-    expect(payloadOf(store)?.terminalRefusal).toEqual({
-      status: 409,
-      message: "workspace is not running",
-      code: null,
-      retryAfterSeconds: null,
-      fault: "user",
-      origin: "worker"
-    })
-  })
-
-  test("a second terminal open supersedes a pending guest_not_ready retry", async () => {
-    const previous = { ...terminalSessionRetry }
-    /* No Retry-After on the wire, so the loop parks for this long — long enough to open again mid-wait. */
-    terminalSessionRetry.defaultDelayMs = 50
-    try {
-      let posts = 0
-      const { store, seam } = await harness({
-        "POST api/repos/will/smithers/workspace/sessions": () => {
-          posts += 1
-          return posts === 1
-            ? json(503, { code: "guest_not_ready", message: "service unavailable" })
-            : json(201, { id: "sess-1", status: "running", workspace_id: "ws-1", created_at: null })
-        },
-        "api/repos/will/smithers/workspace/sessions/sess-1": json(200, { id: "sess-1", status: "running", workspace_id: "ws-1", created_at: null }),
-        "api/repos/will/smithers/workspace/sessions": json(200, [])
-      })
-      await seedWorkspace(store)
-
-      const pending = seam.openTerminal("ws-1")
-      await wait(5)
-      await seam.openTerminal("ws-1")
-      await pending
-
-      /* The first loop stopped at the second open instead of posting again. */
-      expect(posts).toBe(2)
-      expect(store.collections.tabs.get("sess-1")).toBeUndefined()
-    expect(payloadOf(store)?.terminalSessionId).toBe("sess-1")
-    } finally {
-      Object.assign(terminalSessionRetry, previous)
-    }
-  })
-
+describe("workspace seam sessions", () => {
   test("destroy session detaches the card that pointed at it and closes its tab in the same transaction", async () => {
     const { store, seam, dispatched } = await harness({
       "POST api/repos/will/smithers/workspace/sessions/sess-1/destroy": json(204, null),
@@ -1698,103 +1518,6 @@ describe("workspace seam lifecycle cancellation", () => {
       }
     })
   }
-
-  for (const operation of ["terminal retry", "terminal settle"] as const) {
-    for (const cancellation of ["dispose", "delete"] as const) {
-      test(`${cancellation} settles a pending ${operation} sleep`, async () => {
-        const entered = deferred<void>(undefined)
-        const { ctx, store, seam: unused, dispatched } = await harness({
-          "POST api/repos/will/smithers/workspace/sessions": () => {
-            entered.resolve()
-            return operation === "terminal settle"
-              ? json(201, { id: "sess-old", status: "pending", workspace_id: "ws-1" })
-              : json(503, { code: "guest_not_ready" }, { "retry-after": "60" })
-          },
-          "POST api/repos/will/smithers/workspaces/ws-1/desktop/session": () => {
-            entered.resolve()
-            return json(503, { code: "desktop_not_ready" }, { "retry-after": "60" })
-          },
-          "DELETE api/repos/will/smithers/workspaces/ws-1": json(204, null),
-          "api/repos/will/smithers/workspaces": json(200, [])
-        })
-        const seam = createWorkspaceSeam(ctx, { pollMs: 60_000 })
-        await seedWorkspace(store)
-        const pending = seam.openTerminal("ws-1")
-        try {
-          await entered.promise
-          await checkpoint()
-          if (cancellation === "dispose") seam.dispose()
-          else await seam.deleteWorkspace("ws-1", "review")
-          const count = dispatched.length
-          await bounded<unknown>(pending)
-          expect(dispatched.length).toBe(count)
-        } finally {
-          seam.dispose()
-          unused.dispose()
-        }
-      })
-    }
-  }
-
-  for (const boundary of ["settling GET", "attached GET", "session list"] as const) {
-    for (const cancellation of ["delete", "second open", "sign-out", "sign-in again", "dispose"] as const) {
-      test(`${cancellation} fences a terminal awaiting its ${boundary}`, async () => {
-        const entered = deferred<void>(undefined)
-        const release = deferred<Response>(json(503, { message: "fixture retired" }))
-        let posts = boundary === "attached GET" ? 1 : 0
-        let gets = 0
-        let lists = 0
-        const { store, seam, dispatched } = await harness({
-          "POST api/repos/will/smithers/workspace/sessions": () => json(201, {
-            id: ++posts === 1 ? "sess-old" : "sess-new", status: posts === 1 && boundary === "settling GET" ? "pending" : "running", workspace_id: "ws-1"
-          }),
-          "api/repos/will/smithers/workspace/sessions/sess-old": () => {
-            if (++gets > 1) return json(200, { id: "sess-old", status: "stopped", workspace_id: "ws-1" })
-            entered.resolve()
-            return release.promise
-          },
-          "api/repos/will/smithers/workspace/sessions": () => {
-            if (++lists > 1 || boundary !== "session list") return json(200, [])
-            entered.resolve()
-            return release.promise
-          },
-          "DELETE api/repos/will/smithers/workspaces/ws-1": json(204, null),
-          "api/repos/will/smithers/workspaces": json(200, [])
-        })
-        await seedWorkspace(store)
-        if (boundary === "attached GET") await seedCard(store, "sess-old")
-        const pending = seam.openTerminal("ws-1")
-        try {
-          await entered.promise
-          if (cancellation === "delete") await seam.deleteWorkspace("ws-1", "review")
-          if (cancellation === "second open") await seam.openTerminal("ws-1")
-          if (cancellation === "sign-out" || cancellation === "sign-in again") await store.dispatch({
-            type: "cloud.session.loaded", actor: "system", state: "signed-out", username: null, expiresAt: null, scopes: null
-          }).isPersisted.promise
-          if (cancellation === "sign-in again") await store.dispatch({
-            type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "will", expiresAt: null, scopes: null
-          }).isPersisted.promise
-          if (cancellation === "dispose") seam.dispose()
-          const count = dispatched.length
-          release.resolve(json(200, { id: "sess-old", status: "running", workspace_id: "ws-1" }))
-          await pending
-          expect(dispatched.length).toBe(count)
-          expect(store.collections.tabs.get("sess-old")).toBeUndefined()
-          if (cancellation === "second open") {
-            expect(store.collections.tabs.get("sess-new")).toBeUndefined()
-            expect(store.session().activeTabId).toBe("main")
-            expect(payloadOf(store)?.terminalSessionId).toBe("sess-new")
-          } else if (cancellation === "delete" || boundary !== "attached GET") {
-            expect(cardOf(store)).toBeUndefined()
-          }
-          if (cancellation === "delete") expect(workspacesOf(store)).toEqual([])
-        } finally {
-          release.resolve(json(200, { id: "sess-old", status: "running", workspace_id: "ws-1" }))
-          seam.dispose()
-        }
-      })
-    }
-  }
 })
 
 describe("Mac plan sandbox limits retain the typed failure without an upgrade door", () => {
@@ -1973,11 +1696,11 @@ describe("workspace authorization and transition receipts", () => {
         : condition === "degraded" ? DEGRADED_WORKSPACE_REFUSAL : "The workspace controller is disposed."
       const outcomes = await Promise.all([
         seam.viewWorkspace("ws-1"), seam.suspendWorkspace("ws-1"),
-        seam.resumeWorkspace("ws-1"), seam.listSessions("ws-1"), seam.destroySession("session-1", "ws-1"),
+        seam.resumeWorkspace("ws-1"), seam.destroySession("session-1", "ws-1"),
         seam.deleteWorkspace("ws-1", "review"), seam.listFiles("src", "ws-1"), seam.readFile("README.md", "ws-1"),
         seam.listServices("ws-1"), seam.listEgress("ws-1"), seam.listEnvironmentImages("will/smithers")
       ])
-      expect([...outcomes]).toEqual(Array.from({ length: 11 }, () => refusal))
+      expect([...outcomes]).toEqual(Array.from({ length: 10 }, () => refusal))
       expect(requests).toEqual([])
       expect({
         workspaces: [...store.collections.cloudWorkspaces.values()],
