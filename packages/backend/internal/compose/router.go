@@ -182,6 +182,29 @@ func buildRouter(
 					return
 				}
 			}
+			if config.IsSingleOwner(cfg.Auth) && strings.HasPrefix(request.URL.Path, "/api/") {
+				path := request.URL.Path
+				if request.URL.RawPath != "" {
+					path = request.URL.RawPath
+				}
+				// An absent door grants no command authority. Resolve existence
+				// without running handlers or mutating the request's route context,
+				// before the owner/token fallback can turn its 404 into a refusal.
+				found := r.Match(chi.NewRouteContext(), request.Method, path)
+				if !found {
+					// Keep the router's method-not-allowed behavior for a real door.
+					for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions, http.MethodTrace, http.MethodConnect} {
+						if r.Match(chi.NewRouteContext(), method, path) {
+							found = true
+							break
+						}
+					}
+				}
+				if !found {
+					pkgerrors.WriteError(w, pkgerrors.NotFound("not found"))
+					return
+				}
+			}
 			next.ServeHTTP(w, request)
 		})
 	})

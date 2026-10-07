@@ -18,6 +18,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
+	"github.com/smithersai/smithers/packages/backend/modelhost"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
@@ -84,8 +85,15 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 		} else {
 			req.Header.Set("Authorization", "Bearer "+tokens[i])
 		}
+		var decisions []string
+		req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) {
+			decisions = append(decisions, command)
+		}))
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
+		if w.Code == http.StatusAccepted || w.Code == http.StatusCreated {
+			require.Len(t, decisions, 1, "one decision before confirmation/effect: %v", decisions)
+		}
 		var result map[string]any
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result), w.Body.String())
 		return w.Code, result
@@ -96,6 +104,7 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 		members := &services.Members{Pool: pool, Credentials: rosterAppCredentials{}, Minter: services.NewRepoConnectionService(nil, rosterAppCredentials{})}
 		secrets := &routes.SecretHandler{Service: services.NewSecretService(q, nil, services.WithSecretInstallAuthorization(true, pool))}
 		boundary := buildRouterCompat(cfg, q, pool, &routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, nil, nil, nil, nil, nil, nil, nil, secrets, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, routerExtras{Members: &routes.MembersHandler{Service: members}, GitHubAppSetup: &routes.GitHubAppSetupHandler{Owners: q, Roster: q, Setup: &services.InstallSetupService{Pool: pool}}})
+		mountModelPublic(boundary.(chi.Router), modelhost.OwnerModels{Pool: pool}, q, cfg)
 		_, err := q.CreateOrUpdateSecret(ctx, db.CreateOrUpdateSecretParams{RepositoryID: repo.ID, Name: "MATRIX_NAME", ValueEncrypted: []byte("never-return-this-value")})
 		require.NoError(t, err)
 		defer func() {
@@ -139,13 +148,10 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 			{"members MX", "MX", "/api/members", 403, "permission"},
 			{"secrets MO", "MO", "/api/secrets", 403, "permission"},
 			{"secrets MX", "MX", "/api/secrets", 403, "permission"},
-			{"ssh DO", "DO", "/api/ssh", 403, "never"},
-			{"ssh DM", "DM", "/api/ssh", 403, "never"},
-			{"ssh DE", "DE", "/api/ssh", 403, "never"},
-			{"ssh RO", "RO", "/api/ssh", 403, "permission"},
-			{"workspace ssh DO", "DO", "/api/repos/maya/demo/workspaces/box/ssh", 403, "never"},
-			{"workspace ssh DM", "DM", "/api/repos/maya/demo/workspaces/box/ssh", 403, "never"},
-			{"workspace ssh DE", "DE", "/api/repos/maya/demo/workspaces/box/ssh", 403, "never"},
+			{"ssh DO", "DO", "/api/repos/maya/demo/workspaces/box/ssh", 403, "never"},
+			{"ssh DM", "DM", "/api/repos/maya/demo/workspaces/box/ssh", 403, "never"},
+			{"ssh DE", "DE", "/api/repos/maya/demo/workspaces/box/ssh", 403, "never"},
+			{"ssh RO", "RO", "/api/repos/maya/demo/workspaces/box/ssh", 403, "permission"},
 			{"session ssh DO", "DO", "/api/repos/maya/demo/workspace/sessions/terminal/ssh", 403, "never"},
 			{"session ssh DM", "DM", "/api/repos/maya/demo/workspace/sessions/terminal/ssh", 403, "never"},
 			{"session ssh DE", "DE", "/api/repos/maya/demo/workspace/sessions/terminal/ssh", 403, "never"},

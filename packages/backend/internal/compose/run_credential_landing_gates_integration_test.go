@@ -383,6 +383,14 @@ func TestInstallProtectedBookmarkMutationMatrixPostgres(t *testing.T) {
 			}
 			w := httptest.NewRecorder()
 			f.router.ServeHTTP(w, req)
+			// The legacy Land door is absent before authentication for every
+			// credential kind. Mounted bookmark and queue doors still refuse
+			// protected mutations before any repo-host effect.
+			if operation.method == http.MethodPut {
+				require.Equal(t, 404, w.Code, "%s %s: %s", operation.method, operation.path, w.Body.String())
+				require.Zero(t, f.hostCalls.Load(), "retired door reached repo-host")
+				continue
+			}
 			require.Equal(t, 403, w.Code, "%s %s %s: %s", kind, operation.method, operation.path, w.Body.String())
 			var body map[string]any
 			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))

@@ -191,6 +191,7 @@ func TestFileRestoreCommandBoundary(t *testing.T) {
 	// An active member with a write share uses the same concrete command as
 	// the owner. Previously the outer route fell into owner-only admission.
 	delete(provider.files, "src/a.ts")
+	seed("deleted", "")
 	require.Equal(t, 200, call("src/a.ts", deleted, "w6-member-cookie"))
 	require.Equal(t, fmt.Sprint(member.ID), provider.actor)
 	require.Equal(t, 3, provider.writes)

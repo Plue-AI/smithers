@@ -58,9 +58,14 @@ func TestInstallLandingCatalogDecisionsPostgres(t *testing.T) {
 				req.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
 				req.Header.Set("X-CSRF-Token", "csrf")
 			}
+			var decisions []string
+			req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) {
+				decisions = append(decisions, command)
+			}))
 			out := httptest.NewRecorder()
 			f.router.ServeHTTP(out, req)
 			require.Equal(t, cell.status, out.Code, out.Body.String())
+			require.Equal(t, []string{"review.ack"}, decisions, "router and service share one decision")
 			var state string
 			require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT state FROM landing_request_comments WHERE id=$1`, thread.ID).Scan(&state))
 			if cell.code != "" {
