@@ -432,6 +432,50 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 			_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=NULL WHERE user_id=$1`, member.ID)
 			require.NoError(t, err)
 		})
+		for _, revoked := range []struct {
+			name, revoke, restore string
+			user                  int64
+		}{
+			{"author", `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, `UPDATE collaborators SET suspended_at=NULL WHERE user_id=$1`, member.ID},
+			{"requester", `UPDATE users SET prohibit_login=true WHERE id=$1`, `UPDATE users SET prohibit_login=false WHERE id=$1`, owner.ID},
+		} {
+			t.Run("revocation after a persisted run/"+revoked.name, func(t *testing.T) {
+				machine.mu.Lock()
+				beforeRetired, beforeObserved, beforeRuns := machine.retired, machine.observed, len(machine.runs)
+				machine.observeHook = func() error {
+					_, err := pool.Exec(ctx, revoked.revoke, revoked.user)
+					return err
+				}
+				machine.mu.Unlock()
+				answer := call(body, "persisted-run-revoked-"+revoked.name)
+				require.Equal(t, 202, answer.Code, answer.Body.String())
+				var pending services.ReviewAdmission
+				require.NoError(t, json.Unmarshal(answer.Body.Bytes(), &pending))
+				workerCtx, cancel := context.WithCancel(ctx)
+				done := make(chan error, 1)
+				go func() {
+					done <- background.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "review-running-recovery", Capacity: 1, Lease: time.Second, PollInterval: time.Millisecond, RetryDelay: time.Millisecond})
+				}()
+				t.Cleanup(func() { cancel(); <-done })
+				require.Eventually(t, func() bool {
+					op, e := store.Get(ctx, scope, pending.OperationID)
+					return e == nil && op.State == jobs.StateFailed
+				}, 5*time.Second, 10*time.Millisecond)
+				op, err := store.Get(ctx, scope, pending.OperationID)
+				require.NoError(t, err)
+				require.JSONEq(t, `{"class":"permission","code":"permission"}`, string(op.TerminalReceipt))
+				machine.mu.Lock()
+				require.Len(t, machine.runs, beforeRuns+1)
+				require.Equal(t, beforeRetired+1, machine.retired)
+				require.Equal(t, beforeObserved+1, machine.observed, "revoked run is not observed again")
+				machine.mu.Unlock()
+				delivery.mu.Lock()
+				require.Equal(t, selected.OperationID, delivery.id, "revoked run never delivers findings")
+				delivery.mu.Unlock()
+				_, err = pool.Exec(ctx, revoked.restore, revoked.user)
+				require.NoError(t, err)
+			})
+		}
 		// Membership revocation also prevents reconnection to a private result.
 		_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, member.ID)
 		require.NoError(t, err)
@@ -457,6 +501,7 @@ type reviewMachineFixture struct {
 	observed       int
 	retireFailOnce bool
 	startHook      func() error
+	observeHook    func() error
 }
 
 func (*reviewMachineFixture) Isolation() workspace.IsolationLevel {
@@ -490,8 +535,16 @@ func (m *reviewMachineFixture) Start(_ context.Context, id string, a services.Re
 }
 func (m *reviewMachineFixture) Observe(context.Context, string, services.ReviewAdmission) (services.ReviewObservation, error) {
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.observed++
-	m.mu.Unlock()
+	if m.observeHook != nil {
+		hook := m.observeHook
+		m.observeHook = nil
+		if err := hook(); err != nil {
+			return services.ReviewObservation{}, err
+		}
+		return services.ReviewObservation{State: jobs.StateRunning}, nil
+	}
 	return services.ReviewObservation{State: jobs.StateCompleted, Change: json.RawMessage(`{"findings":[{"path":"cache.ts","line":20,"severity":"fix","body":"Off by one"}]}`)}, nil
 }
 func (m *reviewMachineFixture) Retire(context.Context, string, services.ReviewAdmission) error {
