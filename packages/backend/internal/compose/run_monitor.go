@@ -125,30 +125,52 @@ func (m *runMonitors) read(ctx context.Context, repo int64, id string, at *int64
 		if err := json.Unmarshal(checks, &facts); err != nil {
 			return nil, err
 		}
-		if at == nil {
-			waits, _ := value["waits"].([]any)
-			for _, wait := range facts.Waits {
-				if wait.Signal == nil || wait.Signal.Run != cps[0].RunID {
-					continue
+		// TODO waits retain their opening and settlement receipts. Replay uses
+		// the selected journal's timestamp, never today's settled state.
+		var cursor *time.Time
+		if at != nil {
+			journal, _ := value["journal"].([]any)
+			for _, entry := range journal {
+				row, _ := entry.(map[string]any)
+				sequence, ok := row["seq"].(float64)
+				stamp, stampOK := row["at"].(string)
+				if !ok || sequence < 0 || sequence > float64(*at) || sequence != float64(int64(sequence)) || !stampOK {
+					return nil, errors.New("invalid replay journal")
 				}
-				switch wait.Kind {
-				case "question", "approval", "pause", "sleep", "signal", "external_job":
-				default:
-					continue
+				point, err := time.Parse(time.RFC3339Nano, stamp)
+				if err != nil {
+					return nil, errors.New("invalid replay timestamp")
 				}
-				projected := map[string]any{"id": wait.ID, "kind": wait.Kind, "label": wait.Prompt, "since": wait.Since.UTC().Format(time.RFC3339Nano)}
-				if wait.SettledAt != nil {
-					var by any = map[string]any{"kind": "system", "color_index": 7}
-					if len(wait.By) > 0 && string(wait.By) != "null" {
-						if err := json.Unmarshal(wait.By, &by); err != nil {
-							return nil, err
-						}
-					}
-					projected["settled"] = map[string]any{"by": by, "at": wait.SettledAt.UTC().Format(time.RFC3339Nano)}
+				if cursor == nil || point.After(*cursor) {
+					cursor = &point
 				}
-				waits = append(waits, projected)
 			}
-			value["waits"] = waits
+		}
+		waits, _ := value["waits"].([]any)
+		for _, wait := range facts.Waits {
+			if wait.Signal == nil || wait.Signal.Run != cps[0].RunID ||
+				(at != nil && (cursor == nil || wait.Since.After(*cursor))) {
+				continue
+			}
+			switch wait.Kind {
+			case "question", "approval", "pause", "sleep", "signal", "external_job":
+			default:
+				continue
+			}
+			projected := map[string]any{"id": wait.ID, "kind": wait.Kind, "label": wait.Prompt, "since": wait.Since.UTC().Format(time.RFC3339Nano)}
+			if wait.SettledAt != nil && (at == nil || !wait.SettledAt.After(*cursor)) {
+				var by any = map[string]any{"kind": "system", "color_index": 7}
+				if len(wait.By) > 0 && string(wait.By) != "null" {
+					if err := json.Unmarshal(wait.By, &by); err != nil {
+						return nil, err
+					}
+				}
+				projected["settled"] = map[string]any{"by": by, "at": wait.SettledAt.UTC().Format(time.RFC3339Nano)}
+			}
+			waits = append(waits, projected)
+		}
+		value["waits"] = waits
+		if at == nil {
 			if facts.Thrash != nil && facts.Thrash.Attempt == attempt {
 				for _, failure := range facts.Thrash.Failures {
 					if failure.Count >= 3 {

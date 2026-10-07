@@ -216,6 +216,49 @@ func TestLiveTodoNativeThrash(t *testing.T) {
 		require.NotContains(t, string(raw), "repo-only-secret")
 	}
 
+	// Retained SQL wait receipts are visible at their opening, not before;
+	// today's settlement becomes visible only at its own timestamp.
+	waits := []map[string]any{}
+	for _, kind := range []string{"question", "approval", "pause", "sleep", "signal", "external_job", "unsupported"} {
+		waits = append(waits, map[string]any{"id": kind, "kind": kind, "prompt": "Continue?",
+			"since": "2026-10-07T00:00:02Z", "settled_at": "2026-10-07T00:00:03Z",
+			"by": map[string]any{"kind": "system", "color_index": 4}, "signal": map[string]any{"run": "thrash-run"}})
+	}
+	waits = append(waits, map[string]any{"id": "foreign", "kind": "question", "since": "2026-10-07T00:00:01Z", "signal": map[string]any{"run": "foreign-run"}})
+	waits = append(waits, map[string]any{"id": "unbound", "kind": "question", "since": "2026-10-07T00:00:01Z"})
+	waitJSON, err := json.Marshal(waits)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{waits}',$2::jsonb) WHERE id=$1`, item.ID, waitJSON)
+	require.NoError(t, err)
+	for _, position := range []string{"0", "1", "2", "3", "4", ""} {
+		path := "/api/runs/thrash-run/trace"
+		if position != "" {
+			path += "?at=" + position
+		}
+		code, raw = httpRead(path, true)
+		require.Equal(t, 200, code)
+		var model struct {
+			Waits []map[string]any `json:"waits"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &model))
+		if position == "0" || position == "1" {
+			require.Empty(t, model.Waits)
+			continue
+		}
+		require.Len(t, model.Waits, 6)
+		for i, kind := range []string{"question", "approval", "pause", "sleep", "signal", "external_job"} {
+			wait := model.Waits[i]
+			require.Equal(t, kind, wait["id"])
+			require.Equal(t, kind, wait["kind"])
+			require.Equal(t, "2026-10-07T00:00:02Z", wait["since"])
+			if position == "2" {
+				require.NotContains(t, wait, "settled")
+			} else {
+				require.Equal(t, map[string]any{"at": "2026-10-07T00:00:03Z", "by": map[string]any{"kind": "system", "color_index": float64(4)}}, wait["settled"])
+			}
+		}
+	}
+
 	preview, _ := json.Marshal(`{"writes":["src/retry.ts"]}`)
 	update.Events = []flowruntime.Event{{RunID: "thrash-run", Sequence: 4, Kind: "control.engine.event", Payload: json.RawMessage(fmt.Sprintf(`{"version":1,"executionId":"edit","eventType":"flows.engine.node-settled","payload":{"nodeId":"edit","action":"coding/edit-atom","outcome":"built","result":{"preview":%s,"truncated":false}}}`, preview))}}
 	require.NoError(t, service.ProjectFlowRuntime(ctx, update))
