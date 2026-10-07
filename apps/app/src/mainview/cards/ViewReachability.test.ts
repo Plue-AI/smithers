@@ -33,6 +33,15 @@ test("every card and shell view is reachable from its renderer", () => {
     .toEqual(Object.keys(PENDING_WIRING).sort())
 })
 
+test("T-UI-14 mounts Commands and keeps the retired catalog renderers deleted", () => {
+  visit(join(root, "cards/CardRenderers.tsx"))
+  expect(reachable.has(join(root, "cards/views/CommandsView.tsx"))).toBe(true)
+  for (const file of ["CommandsCases.ts", "CommandsExpectations.ts", "CommandActionView.tsx"]) {
+    expect(() => statSync(join(root, "cards/views", file))).toThrow()
+  }
+  expect(readFileSync(join(root, "state/AppController.ts"), "utf8")).not.toContain("showCommandCatalog")
+})
+
 // T-APP-14a replaces CodeSurface's CodeFileView with the restored CodeMirror View.
 test("the restored file editor is mounted and its replaced renderer is deleted", () => {
   expect(reachable.has(join(root, "cards/views/CodeEditorView.tsx"))).toBe(true)
