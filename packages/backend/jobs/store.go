@@ -202,12 +202,20 @@ func appendEvent(ctx context.Context, tx pgx.Tx, scope Scope, operationID, event
 		Scope: scope, Sequence: sequence, EventID: uuid.NewString(),
 		OperationID: operationID, Type: eventType, State: state, Data: canonical,
 	}
+	// Only TODO facts use the repository ordering extension. Ordinary job
+	// admissions keep their historical shape, including admissions in flight
+	// while an older product schema is being upgraded.
+	columns, values := "", ""
+	args := []any{scope.TenantID, scope.PrincipalID, sequence, event.EventID, operationID, eventType, state, canonical}
+	if repositorySequence != nil {
+		columns, values = ", repository_sequence", ", $9"
+		args = append(args, *repositorySequence)
+	}
 	err = tx.QueryRow(ctx, `
 		INSERT INTO product_job_events
-			(tenant_id, principal_id, sequence, event_id, operation_id, event_type, state, data, repository_sequence)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-		RETURNING recorded_at`, scope.TenantID, scope.PrincipalID, sequence, event.EventID,
-		operationID, eventType, state, canonical, repositorySequence).Scan(&event.RecordedAt)
+			(tenant_id, principal_id, sequence, event_id, operation_id, event_type, state, data`+columns+`)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8`+values+`)
+		RETURNING recorded_at`, args...).Scan(&event.RecordedAt)
 	if err != nil {
 		return Event{}, err
 	}
