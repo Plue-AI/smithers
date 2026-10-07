@@ -1,6 +1,7 @@
 package microsandbox
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -102,6 +103,7 @@ func TestRealMicroVMWorkspaceConformance(t *testing.T) {
 		FileContent:   []byte("persistent fixture\n"),
 		FileMode:      0o640,
 		WantIsolation: workspaceapi.IsolationSandboxed,
+		TerminalError: ErrUnavailable,
 		WantCapabilities: workspaceapi.WorkspaceCapabilities{
 			PersistentFiles: true, Execution: true, ManagedServices: true, ManagedHTTPHosts: true, SourceRevision: true,
 			Terminal: true, LoopbackPreview: true, FileOperations: true, ColdSnapshots: true,
@@ -303,6 +305,34 @@ func TestRealMicroVMManagedHost(t *testing.T) {
 	}
 	_, err = runtime.InspectManagedHost(ctx, "microvm-terminal", spec)
 	require.ErrorIs(t, err, workspaceapi.ErrManagedHostNotRunning)
+	if runtime.config.Bundle != nil {
+		// Installed managed hosts require the composed run admission providers.
+		// This adapter fixture has none: prove refusal, then exercise the R3
+		// service relay through its ordinary unprivileged execution boundary.
+		_, err = runtime.StartManagedHost(ctx, "microvm-terminal", spec)
+		require.EqualError(t, err, "session credential: invalid token")
+		require.NoError(t, runtime.WriteFile(ctx, "microvm-terminal", "relay-control.txt", []byte("guest-relay-control\n"), 0o644))
+		_, err = runtime.StartService(ctx, "microvm-terminal", workspaceapi.ServiceSpec{
+			Name: "relay-control", Command: workspaceapi.Command{Args: []string{"/usr/bin/python3", "-I", "-S", "-m", "http.server", "18081", "--bind", "127.0.0.1", "--directory", "/workspace"}},
+			ReadyAddress: "127.0.0.1:18081", ReadyTimeout: 30 * time.Second,
+		})
+		require.NoError(t, err)
+		connection, err := runtime.DialWorkspacePort(ctx, "microvm-terminal", workspaceapi.PortRequest{Port: 18081})
+		require.NoError(t, err)
+		defer connection.Close()
+		require.NoError(t, connection.SetDeadline(time.Now().Add(30*time.Second)))
+		_, err = io.WriteString(connection, "GET /relay-control.txt HTTP/1.0\r\nHost: guest\r\n\r\n")
+		require.NoError(t, err)
+		response, err := http.ReadResponse(bufio.NewReader(connection), nil)
+		require.NoError(t, err)
+		defer response.Body.Close()
+		require.Equal(t, http.StatusOK, response.StatusCode)
+		body, err := io.ReadAll(response.Body)
+		require.NoError(t, err)
+		require.Equal(t, "guest-relay-control\n", string(body))
+		require.NoError(t, runtime.StopService(ctx, "microvm-terminal", "relay-control"))
+		return
+	}
 	connection, err := runtime.StartManagedHost(ctx, "microvm-terminal", spec)
 	require.NoError(t, err)
 	require.NotNil(t, connection.HTTPClient)

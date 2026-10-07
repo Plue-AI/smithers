@@ -29,6 +29,9 @@ type CoreHarness struct {
 	FileMode         fs.FileMode
 	WantIsolation    workspace.IsolationLevel
 	WantCapabilities workspace.WorkspaceCapabilities
+	// TerminalError is the required refusal for an adapter without a member
+	// session binding. A nil value requires a working terminal.
+	TerminalError error
 }
 
 // RunCore verifies real lifecycle state, execution evidence, durable file

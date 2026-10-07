@@ -35,6 +35,16 @@ func runTerminal(t *testing.T, h CoreHarness) {
 	ctx, cancel := context.WithTimeout(h.Context("terminal"), 20*time.Second)
 	defer cancel()
 	terminal, err := h.Runtime.OpenWorkspaceTerminal(ctx, h.Spec.ID, workspace.Command{Args: []string{"/bin/sh"}})
+	if h.TerminalError != nil {
+		if terminal != nil {
+			_ = terminal.Close()
+			t.Fatal("unbound terminal spawned a session")
+		}
+		if !errors.Is(err, h.TerminalError) {
+			t.Fatalf("unbound terminal = %v; want %v", err, h.TerminalError)
+		}
+		return
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
