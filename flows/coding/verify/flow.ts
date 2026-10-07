@@ -16,6 +16,7 @@ import { RunCheck } from "../workflow.ts"
 export default Flow.make("coding/Verify", {
   description: "Run the project's required checks on one retained commit of the repository's mythical stack.",
   capabilities: ["*"],
+  modelInvocable: false,
   effects: { reads: ["**"], writes: ["**"], mode: "expected", onConflict: "serialize", tier: "irreversible" },
   payload: VerifyInput,
   success: VerifyResult,
