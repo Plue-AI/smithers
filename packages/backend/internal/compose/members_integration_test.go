@@ -619,6 +619,9 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	status, _ = request("GET", "/api/members", "", "writer-cookie-2")
 	require.Equal(t, 401, status, "restoring never revives a revoked session")
 	login("writer", 302)
+	t.Run("imported_keys_authenticate_and_revoke_real_ssh", func(t *testing.T) {
+		exerciseImportedSSHKeys(t, pool, members, github, writer, bus, request, createSession)
+	})
 	exerciseMemberRevocation(t, pool, origin, writer, bus, request, createSession, func() { login("writer", 302) })
 	// The old login can now belong to a writer with a different ID. The
 	// original account resolves to its renamed login and has lost permission.
