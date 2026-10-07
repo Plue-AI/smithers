@@ -500,16 +500,16 @@ var installMemberRoutes = []struct {
 	// owner's delegated credentials are refused here too. Org secrets stay
 	// the owner's.
 	{http.MethodGet, "secrets.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(secrets|agent-environment)$`)},
-	{http.MethodPut, "secrets.write", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/agent-environment(?:/secrets/[^/]+)?$`)},
-	{http.MethodDelete, "secrets.write", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/agent-environment/secrets/[^/]+$`)},
+	{http.MethodPut, "secrets.set", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/agent-environment(?:/secrets/[^/]+)?$`)},
+	{http.MethodDelete, "secrets.delete", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/agent-environment/secrets/[^/]+$`)},
 	{http.MethodGet, "secrets.read", regexp.MustCompile(`^/api/secrets$`)},
-	{http.MethodPut, "secrets.write", regexp.MustCompile(`^/api/secrets$`)},
-	{http.MethodDelete, "secrets.write", regexp.MustCompile(`^/api/secrets$`)},
-	{http.MethodPatch, "secrets.write", regexp.MustCompile(`^/api/secrets/[^/]+$`)},
-	{http.MethodDelete, "secrets.write", regexp.MustCompile(`^/api/secrets/[^/]+$`)},
-	{http.MethodPost, "secrets.write", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/secrets$`)},
-	{http.MethodPatch, "secrets.write", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/secrets/[^/]+$`)},
-	{http.MethodDelete, "secrets.write", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/secrets/[^/]+$`)},
+	{http.MethodPut, "secrets.set", regexp.MustCompile(`^/api/secrets$`)},
+	{http.MethodDelete, "secrets.delete", regexp.MustCompile(`^/api/secrets$`)},
+	{http.MethodPatch, "secrets.scope", regexp.MustCompile(`^/api/secrets/[^/]+$`)},
+	{http.MethodDelete, "secrets.delete", regexp.MustCompile(`^/api/secrets/[^/]+$`)},
+	{http.MethodPost, "secrets.set", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/secrets$`)},
+	{http.MethodPatch, "secrets.scope", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/secrets/[^/]+$`)},
+	{http.MethodDelete, "secrets.delete", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/secrets/[^/]+$`)},
 }
 
 // InstallMemberCommand is the command a roster member's request to method
