@@ -337,7 +337,7 @@ Smithers wraps the team's GitHub repository; it doesn't replace it. GitHub stays
 
 | Feature | Behavior | Status |
 | --- | --- | --- |
-| Models | Three roles, set in Settings. A **fast model** (Cerebras by default) runs the app agent and writes timeline summaries; it is what makes the app agent "very fast". A **coding model** runs the coding agent: a provider key or a ChatGPT sign-in. A **Decisions** model makes typed decisions through the AI Gateway key (its internal id is `jev`; UI copy never shows that name). J1 asks for all three. Without a fast-model key, the app agent uses the coding model and is slower. | Partial: model routing exists; the fast-model role and setup are missing. |
+| Models | Three roles, set in Settings. A **fast model** (Cerebras by default) runs the app agent and writes timeline summaries; it is what makes the app agent "very fast". A **coding model** runs the coding agent: a provider key or a ChatGPT sign-in. A **Decisions** model makes typed decisions through the AI Gateway key (its internal id is `jev`; UI copy never shows that name). J1 asks for all three. The fast model defaults to the Smithers sign-in; with neither the sign-in nor a fast-model key, the app agent uses the coding model and is slower. | Partial: model routing exists; the fast-model role and setup are missing. |
 | Answers | Answers questions about the repository with cards. The Decisions model chooses the commands it needs. | Built. Self-host needs an owner default model and an AI Gateway key. |
 | Context preflight (Will) | A conversation isn't the agent's context window. Before answering, the agent runs a preflight that chooses what to add to its context: files, wiki pages, TODOs, runs. An answer carries a small "Context · 4" chip that expands to list what preflight added. Inspect shows the preflight as its first step. This is what keeps `main`'s long conversation usable. | Partial: Jev's command selection and the coding agent's `memory` flow exist; an app-agent context preflight and the Context line are Missing. |
 | Drives the app | Calls the same flows a button calls, through one tool. Missing inputs become a form card. | Built |
@@ -599,7 +599,7 @@ The MVP ships when:
 2. The Smithers team meets the dogfood target.
 3. Every §8 cut is gone from the product surface.
 4. The docs are one quickstart for this user, plus the reference for flows.
-5. The macOS install is public and needs no Smithers account.
+5. The macOS install is public and needs no Smithers account for the coding model; the fast model defaults to a Smithers sign-in, and a team may bring its own key.
 6. Upgrade in place is rehearsed: a launch candidate upgrades to a later candidate with `smthrs host upgrade`, keeping its data, and a backup restores cleanly (M-26, #3444). The real receipt, an install made on launch day upgrading to the maintainer release, gates the maintainer release (§14).
 
 ## 13. Unresolved, with owners
