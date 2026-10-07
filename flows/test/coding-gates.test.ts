@@ -60,23 +60,16 @@ test("every flows fixture belongs to a declared gate; native targets stay separa
   // runs the whole file under the prerequisites the rest of it requires.
   const twice = ordinary.filter((name, index) => ordinary.indexOf(name) !== index).sort()
   assert.deepEqual([...new Set(twice)], [
-    "coding-build-only.test.ts",
-    "coding-candidate-equality.test.ts",
     "coding-host-modules.test.ts",
     "coding-host-policy.test.ts",
-    "coding-install-project.test.ts",
     "coding-landing-config.test.ts",
     "coding-landing.test.ts",
-    "coding-pinned-source.test.ts",
     "coding-project-config.test.ts",
     "coding-source-publication.test.ts",
-    "coding-stack-reserved.test.ts",
     "coding-vibe-admission.test.ts",
     "coding-vibe-evidence.test.ts",
     "coding-vibe-landing.test.ts",
-    "coding-wiki-registry.test.ts",
-    "coding-wiki-relay.test.ts",
-    "wiki-install-defaults.test.ts"
+    "coding-wiki-registry.test.ts"
   ], "a fixture in two ordinary targets is a declared runtime pair")
   assert.deepEqual([...new Set(ordinary)].filter((name) => nativeTests.includes(name)).sort(), [
     "repository-check-context.test.ts",
