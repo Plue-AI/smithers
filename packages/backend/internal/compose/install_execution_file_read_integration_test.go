@@ -181,7 +181,12 @@ func TestInstallExecutionFileReadsPostgres(t *testing.T) {
 	for _, actor := range []struct {
 		name, token string
 		status      int
-	}{{"run", own, 200}, {"machine", machine, 200}, {"other run", otherRun, 403}, {"unbound", unbound, 403}, {"children", children, 403}, {"insufficient scope", readUser, 403}} {
+	}{{"unknown run profile", f.token(f.owner, "unknown-run-profile", scopes+",profile:unknown", true), 403},
+		{"unknown run kind", f.token(f.owner, "unknown-run-kind", scopes+",credential:unknown", true), 403},
+		{"unknown machine profile", f.token(f.owner, "unknown-machine-profile", "read:repository,"+middleware.RepositoryRestrictionScope(f.repoID)+","+middleware.WorkspaceRestrictionScope(ws.ID)+",profile:unknown", true), 403},
+		{"unknown machine kind", f.token(f.owner, "unknown-machine-kind", "read:repository,"+middleware.RepositoryRestrictionScope(f.repoID)+","+middleware.WorkspaceRestrictionScope(ws.ID)+",credential:unknown", true), 403},
+		{"unknown delegated profile", f.token(f.other, "unknown-delegated-profile", "read:repository,via:codex,profile:unknown", true), 403},
+		{"run", own, 200}, {"machine", machine, 200}, {"other run", otherRun, 403}, {"unbound", unbound, 403}, {"children", children, 403}, {"insufficient scope", readUser, 403}} {
 		for _, door := range []struct {
 			name, path string
 			own        bool

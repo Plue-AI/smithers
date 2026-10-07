@@ -464,6 +464,16 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 	if observe, ok := ctx.Value(authorizationObserverKey{}).(func(string)); ok && observe != nil {
 		observe(command)
 	}
+	if info := middleware.AuthInfoFromContext(ctx); info != nil && info.User != nil && info.IsTokenAuth {
+		// New or historical kind/profile names grant no install authority.
+		for _, entry := range strings.Split(info.RawScopes, ",") {
+			entry = strings.ToLower(strings.TrimSpace(entry))
+			if strings.HasPrefix(entry, "credential:") && entry != middleware.SyncCredentialScope() && entry != middleware.WorkspaceChildrenCredentialScope() ||
+				strings.HasPrefix(entry, "profile:") && entry != "profile:"+middleware.TerminalProfileS1 && entry != "profile:"+middleware.CodingFileProfileS1 {
+				return InstallAuthorization{}, confirmationPermission()
+			}
+		}
+	}
 	policy, known := installCommandPolicy(command)
 	if !known {
 		return InstallAuthorization{}, confirmationPermission()
@@ -625,7 +635,7 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 	if terminal {
 		// S1 was checked before specialized and bound command dispatch above.
 	} else if !fullDelegated && (info.IsTokenAuth || info.IsAgent() || info.SessionHash == "") &&
-		!(command == "branch.read" && info.CredentialKind() == middleware.CredentialDelegated) {
+		!(command == "branch.read" && info.CredentialKind() == middleware.CredentialDelegated && delegation.Profile == "") {
 		message := "Sign in with a browser session"
 		if command == "merge" {
 			message = mythicalMergeForbidden().Message
@@ -1004,6 +1014,13 @@ func authorizeExecutionTodoRead(ctx context.Context, q *db.Queries, subject Inst
 	}
 	if middleware.ParseTokenWorkspaceChildrenCredential(info.RawScopes) || !info.Scopes.Has(middleware.ScopeReadRepository) || subject.RepositoryID <= 0 || subject.TodoNumber <= 0 || info.RepositoryRestriction() != subject.RepositoryID {
 		return deny()
+	}
+	// Ordinary execution read grants exclude specialized credential profiles.
+	for _, entry := range strings.Split(info.RawScopes, ",") {
+		entry = strings.ToLower(strings.TrimSpace(entry))
+		if strings.HasPrefix(entry, "credential:") || strings.HasPrefix(entry, "profile:") {
+			return deny()
+		}
 	}
 	workspaceID := info.WorkspaceRestriction()
 	if info.CredentialKind() == middleware.CredentialAgentRun {
