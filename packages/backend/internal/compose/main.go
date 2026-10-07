@@ -2074,7 +2074,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			GitHubSync:         gitHubSyncRoute, Live: liveHandler, ExternalSessions: externalSessionsHandler},
 	)
 	if flow != nil && options.topology.servesHTTP() {
-		browser := &browserFlowAPI{repos: repoService, queries: queries, dispatcher: flow.dispatcher, boxes: workspaceService,
+		browser := &browserFlowAPI{installTransactions: pool, repos: repoService, queries: queries, dispatcher: flow.dispatcher, boxes: workspaceService,
 			resumes: background.Jobs[string]{Timeout: 6 * time.Minute, FailureTTL: time.Minute},
 			limit:   middleware.GlobalAPIRateLimit(queries)}
 		mountBrowserFlow(router, cfg, queries, browser)

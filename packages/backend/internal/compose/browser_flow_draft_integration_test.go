@@ -43,6 +43,7 @@ func TestBrowserFlowDraftComposedAdmission(t *testing.T) {
 	require.NoError(t, err)
 	dispatcher := &draftAuthorityDispatcher{resolver: browserFlowTarget{queries: b}}
 	api := b.api()
+	api.installTransactions = pool
 	api.dispatcher = dispatcher
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = config.AuthModeSelfHosted

@@ -42,9 +42,12 @@ var browserFlowProcedures = map[string]bool{
 
 type browserFlowAPI struct {
 	// Set by the install composition; Plue retains its repository ACL gates.
-	installQueries *db.Queries
-	install        bool
-	repos          interface {
+	installQueries      *db.Queries
+	install             bool
+	installTransactions interface {
+		Begin(context.Context) (pgx.Tx, error)
+	}
+	repos interface {
 		GetRepoView(context.Context, *db.User, string, string) (services.RepoView, error)
 	}
 	// queries finds the named box: the caller's own, or a TODO's lane shared
@@ -305,6 +308,18 @@ func (api *browserFlowAPI) checkInstallBinding(ctx context.Context, request brow
 	return nil
 }
 
+func (api *browserFlowAPI) withInstallEffect(ctx context.Context, request browserFlowRequest, target flowruntime.Target, provision bool, effect func(context.Context) error) error {
+	if !api.install {
+		return effect(ctx)
+	}
+	return services.WithInstallCredentialFence(ctx, api.installTransactions, func(ctx context.Context) error {
+		if err := api.checkInstallBinding(ctx, request, target, provision); err != nil {
+			return err
+		}
+		return effect(ctx)
+	})
+}
+
 func validBrowserWorkspaceID(value string) bool {
 	id, err := uuid.Parse(value)
 	return err == nil && id.String() == value
@@ -322,11 +337,10 @@ func (api *browserFlowAPI) wake(ctx context.Context, request browserFlowRequest,
 	}
 	if workspace.Status == "suspended" || (provision && workspace.Status == "stopped") {
 		api.resumes.Start(ctx, workspace.ID, func(ctx context.Context) error {
-			if err := api.checkInstallBinding(ctx, request, target, provision); err != nil {
+			return api.withInstallEffect(ctx, request, target, provision, func(ctx context.Context) error {
+				_, err := api.boxes.ResumeWorkspace(ctx, workspace.ID, workspace.RepositoryID, workspace.UserID)
 				return err
-			}
-			_, err := api.boxes.ResumeWorkspace(ctx, workspace.ID, workspace.RepositoryID, workspace.UserID)
-			return err
+			})
 		})
 	}
 	return false, nil
@@ -335,6 +349,11 @@ func (api *browserFlowAPI) wake(ctx context.Context, request browserFlowRequest,
 // browserFlowWakeFailed answers a box that could not be resumed: a product
 // refusal (a plan limit, a quota) as itself, anything else as resume failed.
 func browserFlowWakeFailed(w http.ResponseWriter, err error) {
+	var access *services.AccessError
+	if errors.As(err, &access) {
+		writeConfirmationDispatchError(w, err)
+		return
+	}
 	var refusal *pkgerrors.APIError
 	if errors.As(err, &refusal) {
 		pkgerrors.WriteError(w, refusal)
@@ -366,7 +385,12 @@ func (api *browserFlowAPI) provision(w http.ResponseWriter, r *http.Request) {
 		browserFlowProvisioning(w)
 		return
 	}
-	ready, err := api.dispatcher.StartHost(r.Context(), target)
+	var ready bool
+	err = api.withInstallEffect(r.Context(), request, target, true, func(ctx context.Context) error {
+		var err error
+		ready, err = api.dispatcher.StartHost(ctx, target)
+		return err
+	})
 	if err != nil {
 		browserFlowUnavailable(w, err, "provision")
 		return
@@ -381,6 +405,11 @@ func (api *browserFlowAPI) provision(w http.ResponseWriter, r *http.Request) {
 }
 
 func browserFlowUnavailable(w http.ResponseWriter, err error, procedure string) {
+	var access *services.AccessError
+	if errors.As(err, &access) {
+		writeConfirmationDispatchError(w, err)
+		return
+	}
 	// A plan limit that refused the box's resume or host start is the user's
 	// own answer, with its upgrade path, not an unavailable host. A box whose
 	// coding host could not be readied (a helper refresh that failed, #3111)
@@ -465,10 +494,18 @@ func (api *browserFlowAPI) relay(w http.ResponseWriter, r *http.Request, request
 		browserFlowTyped(w, http.StatusConflict, "workspace_starting", "This box is starting.")
 		return
 	}
-	answer, err := api.dispatcher.CallRPC(r.Context(), target, request.Procedure, request.Payload)
+	var answer json.RawMessage
+	err = api.withInstallEffect(r.Context(), request, target, false, func(ctx context.Context) error {
+		var err error
+		answer, err = api.dispatcher.CallRPC(ctx, target, request.Procedure, request.Payload)
+		return err
+	})
 	var failure flowruntime.Failure
 	if (snapshot || request.Procedure == "List") && errors.As(err, &failure) && (failure.FlowRuntimeCode() == "runtime_host_not_running" || failure.FlowRuntimeCode() == "runtime_host_starting") {
-		if _, err = api.dispatcher.StartHost(r.Context(), target); err == nil {
+		if err = api.withInstallEffect(r.Context(), request, target, false, func(ctx context.Context) error {
+			_, err := api.dispatcher.StartHost(ctx, target)
+			return err
+		}); err == nil {
 			browserFlowProvisioning(w)
 			return
 		}

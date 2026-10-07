@@ -257,7 +257,7 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 		// Authorization, membership, repository and workspace lookup are real.
 		// The external coding host is recorded so refusals prove zero relay IO.
 		dispatcher := &browserFlowRecordingDispatcher{}
-		browser := &browserFlowAPI{repos: services.NewRepoService(q, nil, ""), queries: q, dispatcher: dispatcher}
+		browser := &browserFlowAPI{installTransactions: pool, repos: services.NewRepoService(q, nil, ""), queries: q, dispatcher: dispatcher}
 		relay := chi.NewRouter()
 		mountBrowserFlow(relay, cfg, q, browser)
 		original := router

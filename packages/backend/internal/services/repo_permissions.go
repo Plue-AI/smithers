@@ -367,6 +367,30 @@ func WithInstallAuthorization(ctx context.Context, command string, decision Inst
 	return context.WithValue(ctx, installAuthorizationKey{}, boundInstallAuthorization{subject: subject, command: command, credential: middleware.AuthInfoFromContext(ctx), decision: decision})
 }
 
+// WithInstallCredentialFence serializes an admitted effect with credential
+// death and member removal. It preserves the original role decision; the
+// consumer rechecks its stored subject under its existing authority fence.
+func WithInstallCredentialFence(ctx context.Context, transactions interface {
+	Begin(context.Context) (pgx.Tx, error)
+}, effect func(context.Context) error) error {
+	bound, ok := ctx.Value(installAuthorizationKey{}).(boundInstallAuthorization)
+	if !ok || transactions == nil || bound.subject.RepositoryID <= 0 {
+		return confirmationPermission()
+	}
+	if _, err := Authorize(ctx, nil, bound.command, bound.subject); err != nil {
+		return err
+	}
+	tx, err := transactions.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if err := guardInstallMemberCredential(ctx, tx, bound.subject.RepositoryID, bound.decision.UserID, false); err != nil {
+		return err
+	}
+	return effect(ctx)
+}
+
 type authorizationObserverKey struct{}
 
 // WithAuthorizationObserver observes evaluated command decisions. Reusing a

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -40,12 +42,34 @@ func TestBrowserFlowStoredBindingComposedInstall(t *testing.T) {
 	request := browserFlowRequest{Repo: f.owner.Username + "/" + repo.Name, WorkspaceID: workspace.ID, Procedure: "Plan", Payload: json.RawMessage(`{"flowId":"greeting","input":{}}`)}
 	raw, err := json.Marshal(request)
 	require.NoError(t, err)
-	for _, change := range []string{"unchanged", "bookmark", "generation", "machine", "status", "owner", "credential", "trailing JSON", "unknown field", "classifier payload"} {
+	for _, change := range []string{"unchanged", "bookmark", "generation", "machine", "status", "owner", "credential", "trailing JSON", "unknown field", "classifier payload", "expired", "suspended", "missing fence", "serialized revocation"} {
 		t.Run(change, func(t *testing.T) {
 			_, err := f.pool.Exec(f.ctx, `UPDATE workspaces SET target_bookmark=$2,vm_id=$3,provisioning_generation=$4,status='running',user_id=$5 WHERE id=$1`, workspace.ID, workspace.TargetBookmark, workspace.VmID, workspace.ProvisioningGeneration, f.other.ID)
 			require.NoError(t, err)
+			_, err = f.pool.Exec(f.ctx, `UPDATE auth_sessions SET expires_at=now()+interval '1 hour' WHERE user_id=$1`, f.other.ID)
+			require.NoError(t, err)
+			_, err = f.pool.Exec(f.ctx, `UPDATE collaborators SET suspended_at=NULL WHERE repository_id=$1 AND user_id=$2`, f.repoID, f.other.ID)
+			require.NoError(t, err)
 			recorder := &browserBindingDispatcher{mutate: change == "classifier payload"}
-			api := &browserFlowAPI{repos: services.NewRepoService(f.q, nil, ""), queries: f.q, dispatcher: recorder}
+			api := &browserFlowAPI{installTransactions: f.pool, repos: services.NewRepoService(f.q, nil, ""), queries: f.q, dispatcher: recorder}
+			if change == "missing fence" {
+				api.installTransactions = nil
+			}
+			if change == "serialized revocation" {
+				recorder.during = func() {
+					// A concurrent revocation cannot commit while guest IO uses
+					// the admitted session. No timing-only assertion supplies proof.
+					tx, err := f.pool.Begin(f.ctx)
+					require.NoError(t, err)
+					defer func() { _ = tx.Rollback(f.ctx) }()
+					_, err = tx.Exec(f.ctx, `SET LOCAL lock_timeout='100ms'`)
+					require.NoError(t, err)
+					_, err = tx.Exec(f.ctx, `UPDATE auth_sessions SET expires_at=now()-interval '1 second' WHERE user_id=$1`, f.other.ID)
+					var refused *pgconn.PgError
+					require.ErrorAs(t, err, &refused)
+					require.Equal(t, "55P03", refused.Code)
+				}
+			}
 			api.limit = func(next http.Handler) http.Handler {
 				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					switch change {
@@ -59,6 +83,10 @@ func TestBrowserFlowStoredBindingComposedInstall(t *testing.T) {
 						_, err = f.pool.Exec(f.ctx, `UPDATE workspaces SET status='stopped' WHERE id=$1`, workspace.ID)
 					case "owner":
 						_, err = f.pool.Exec(f.ctx, `UPDATE workspaces SET user_id=$2 WHERE id=$1`, workspace.ID, f.owner.ID)
+					case "expired":
+						_, err = f.pool.Exec(f.ctx, `UPDATE auth_sessions SET expires_at=now()-interval '1 second' WHERE user_id=$1`, f.other.ID)
+					case "suspended":
+						_, err = f.pool.Exec(f.ctx, `UPDATE collaborators SET suspended_at=now() WHERE repository_id=$1 AND user_id=$2`, f.repoID, f.other.ID)
 					case "credential":
 						clone := *middleware.AuthInfoFromContext(r.Context())
 						r = r.WithContext(middleware.ContextWithAuthInfo(r.Context(), &clone))
@@ -87,10 +115,14 @@ func TestBrowserFlowStoredBindingComposedInstall(t *testing.T) {
 			out := httptest.NewRecorder()
 			router.ServeHTTP(out, req)
 			switch change {
-			case "unchanged", "classifier payload":
+			case "unchanged", "classifier payload", "serialized revocation":
 				require.Equal(t, 200, out.Code, out.Body.String())
 				require.Len(t, recorder.calls, 1)
 				require.JSONEq(t, string(request.Payload), string(recorder.calls[0].payload))
+			case "expired", "suspended":
+				require.Equal(t, 401, out.Code, out.Body.String())
+				require.Contains(t, out.Body.String(), `"code":"unauthenticated"`)
+				require.Empty(t, recorder.calls)
 			case "trailing JSON", "unknown field":
 				require.Equal(t, 400, out.Code, out.Body.String())
 				require.Empty(t, commands)
@@ -103,6 +135,18 @@ func TestBrowserFlowStoredBindingComposedInstall(t *testing.T) {
 			if change != "trailing JSON" && change != "unknown field" {
 				require.Equal(t, []string{"flow.plan"}, commands, fmt.Sprint(commands))
 			}
+			if change == "serialized revocation" {
+				ctx, cancel := context.WithTimeout(f.ctx, time.Second)
+				defer cancel()
+				_, err := f.pool.Exec(ctx, `UPDATE auth_sessions SET expires_at=now()-interval '1 second' WHERE user_id=$1`, f.other.ID)
+				require.NoError(t, err, "the fence is released after guest IO")
+				replay := req.Clone(req.Context())
+				replay.Body = io.NopCloser(strings.NewReader(string(raw)))
+				replayed := httptest.NewRecorder()
+				router.ServeHTTP(replayed, replay)
+				require.Equal(t, 401, replayed.Code, replayed.Body.String())
+				require.Len(t, recorder.calls, 1, "revoked replay has no guest effect")
+			}
 		})
 	}
 }
@@ -110,6 +154,14 @@ func TestBrowserFlowStoredBindingComposedInstall(t *testing.T) {
 type browserBindingDispatcher struct {
 	browserFlowRecordingDispatcher
 	mutate bool
+	during func()
+}
+
+func (d *browserBindingDispatcher) CallRPC(ctx context.Context, target flowruntime.Target, procedure string, payload json.RawMessage) (json.RawMessage, error) {
+	if d.during != nil {
+		d.during()
+	}
+	return d.browserFlowRecordingDispatcher.CallRPC(ctx, target, procedure, payload)
 }
 
 func (d *browserBindingDispatcher) RefuseRelay(ctx context.Context, target flowruntime.Target, procedure string, payload json.RawMessage) error {
