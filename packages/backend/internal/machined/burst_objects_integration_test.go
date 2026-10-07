@@ -52,6 +52,7 @@ func TestBurstIngestProductionBoundaryRealObjects(t *testing.T) {
 	authority, err := registry.MintBoot(branch, "vm")
 	require.NoError(t, err)
 	link, daemon := connectTest(t, registry, branch, authority)
+	require.NoError(t, link.Reconciled())
 	objects := GitBurstObjects{Resolve: func(_ context.Context, id string) (string, error) {
 		if id != branch {
 			return "", ErrUnauthorized
@@ -67,6 +68,13 @@ func TestBurstIngestProductionBoundaryRealObjects(t *testing.T) {
 	// database and retained object independently of the acknowledgement.
 	done := make(chan error, 1)
 	go func() {
+		// Hints share the pump but never produce an ACK; the first response
+		// must belong to the durable burst below.
+		hint := wire.Union(1, wire.Field(1, wire.String("a.ts")), wire.Field(2, wire.Union(4)), wire.Field(3, digest[:]))
+		if e := wire.Write(daemon, wire.Frame{Kind: wire.Events, Payload: wire.Union(2, wire.Field(1, hint))}); e != nil {
+			done <- e
+			return
+		}
 		if e := wire.Write(daemon, wire.Frame{Kind: wire.Events, Payload: wire.Union(1, wire.Field(1, wire.U64(1)), wire.Field(2, eventID[:]), wire.Field(3, payload))}); e != nil {
 			done <- e
 			return

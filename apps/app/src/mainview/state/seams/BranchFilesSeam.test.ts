@@ -198,3 +198,72 @@ test("live documents never use S2 text reload or snapshot-before Restore", async
   expect(await seam.restore(live, { version: "before-17", post_digest: "one" })).toEqual({ error: "Use document recovery." })
   expect(requests).toEqual([])
 })
+
+
+test("committed burst snapshots reload open files after missed hints and retain other cards", async () => {
+  const cards = new Map<string, any>()
+  let changed!: () => void
+  let snapshot: any
+  let projection!: (previous: unknown, delta: unknown) => unknown
+  let dispose!: () => void
+  let subscriptions = 0
+  const reads: string[] = []
+  let latest = file()
+  const ctx = {
+    http: async (url: string) => { reads.push(url); return json(latest) },
+    store: { collections: { cards } }, baseUrl: "", isDisposed: () => false,
+    actor: () => "user", nextOrdinal: () => cards.size,
+    dispatch: (action: any) => {
+      cards.set(action.card.id, action.card)
+      return { isPersisted: { promise: Promise.resolve() } }
+    }
+  } as unknown as SeamContext
+  const seam = createFilesSeam(ctx, { ...ready,
+    onDispose: fn => { dispose = fn },
+    topics: {
+      registerProjection: (_topic, fn) => { projection = fn },
+      getSnapshot: () => snapshot,
+      subscribe: (_topic, listener) => { changed = listener; subscriptions++; return () => { subscriptions-- } }
+    }
+  }).branchFiles
+  await seam.open(file().path, scope.branch)
+  expect(subscriptions).toBe(1)
+  const id = [...cards.keys()][0]!
+  cards.set("unrelated", { kind: "file", payload: { path: "other.ts", file: { ...file(), path: "other.ts" } } })
+  const unrelated = cards.get("unrelated")
+  latest = { ...file("two", "committed bytes\n"), last_writer: writer }
+  const delta = { changed: [
+    { path: file().path, change: "modified", post_digest: "two", last_writer: writer },
+    { path: "unopened.ts", change: "modified", post_digest: "three", last_writer: writer }
+  ], open: [] }
+  snapshot = { cursor: 2, data: projection({ changed: [], open: [] }, delta) }
+  changed()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(cards.get(id).payload.file).toMatchObject({ digest: "two", content: { text: "committed bytes\n" }, last_writer: writer })
+  expect(cards.get("unrelated")).toBe(unrelated)
+  expect(reads).toHaveLength(2)
+  changed()
+  snapshot = { cursor: 3, data: projection(snapshot.data, delta) }
+  changed()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(reads).toHaveLength(2)
+  // A retained participant that is not a rendered Actor must not prevent
+  // invalidation: the authoritative file read supplies current attribution.
+  latest = { ...file("three", "next bytes\n"), last_writer: writer }
+  snapshot = { cursor: 4, data: { changed: [{ path: file().path, post_digest: "three", last_writer: { kind: "outside", id: "outside" } }], open: [] } }
+  changed()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(cards.get(id).payload.file).toMatchObject({ digest: "three", last_writer: writer })
+  expect(reads).toHaveLength(3)
+  latest = { ...file("four", "immediate bytes\n"), last_writer: writer }
+  snapshot = { cursor: 5, data: projection(snapshot.data, { ...delta, written: [
+    { kind: "file_written", path: file().path, post_digest: "four", actor: { kind: "outside", id: "outside" } },
+    { kind: "file_written", path: "unopened.ts", post_digest: "four", actor: writer }
+  ] }) }
+  changed()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(cards.get(id).payload.file).toMatchObject({ digest: "four", content: { text: "immediate bytes\n" }, last_writer: writer })
+  expect(reads).toHaveLength(4)
+  dispose()
+  expect(subscriptions).toBe(0)
+})
