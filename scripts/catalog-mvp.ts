@@ -22,7 +22,7 @@ export const generateCatalog = () => {
     const m = entry.metadata
     return { name, slash: m.slash ?? null, cli: m.cli ?? null, journey: m.journey ?? [], group: m.group ?? "",
       visibility: m.visibility ?? "hidden", actors: m.actors ?? [], minimumRole: m.minimumRole ?? "member", credentialScope: m.credentialScope ?? "write:repository",
-      agent: m.agent ?? "never", summary: m.summary, http: m.http ?? null,
+      agent: m.agent ?? "never", summary: m.summary, http: m.http ?? null, ...("client" in m && m.client ? { client: m.client } : {}),
       payload: Schema.toJsonSchemaDocument(entry.input) }
   }).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
 }

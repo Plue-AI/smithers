@@ -27,6 +27,7 @@ export interface CatalogDescriptor {
     readonly schema: Readonly<Record<string, unknown>>
     readonly definitions?: Readonly<Record<string, unknown>>
   }
+  readonly client?: { readonly kind: "issue-draft"; readonly http: CatalogHttpBinding }
   readonly http: CatalogHttpBinding | null
 }
 
