@@ -450,7 +450,18 @@ func (service *Service) handleRunMutation(ctx context.Context, lease *jobs.Lease
 	if payload.FlowID == TodoFlow && payload.Target.BindingKind == StackBindingKind {
 		// Answer and Steer share one committed input sequence. A retry or
 		// slow/lost acknowledgment must not let another worker overtake it.
-		fragment := mustJSON(map[string]any{"target": payload.Target, "flowId": payload.FlowID, "runId": payload.RunID})
+		match := map[string]any{"target": payload.Target, "flowId": payload.FlowID, "runId": payload.RunID}
+		var projection struct {
+			Kind string `json:"kind"`
+		}
+		if kind == "signal" && json.Unmarshal(payload.Projection, &projection) == nil && projection.Kind == "mythical-pause" {
+			// Pause controls are not conversation inputs. Resume must reach the
+			// durable wait even when earlier text is held by that very pause.
+			// Only the person-authorized control admission sets this projection.
+			// Keep controls ordered with each other; text still orders behind both.
+			match["projection"] = map[string]any{"kind": "mythical-pause"}
+		}
+		fragment := mustJSON(match)
 		pending, err := service.store.HasEarlierPending(ctx, claim.Scope, claim.OperationID,
 			[]string{OperationSignal, OperationSteer}, fragment)
 		if err != nil {

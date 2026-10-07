@@ -33,6 +33,7 @@ type orderedFeedbackReceiver struct {
 	order       []string
 	lostAcks    map[string]chan struct{}
 	recoverAcks map[string]chan struct{}
+	controls    chan flowruntime.Signal
 }
 
 func (r *orderedFeedbackReceiver) receive(ctx context.Context, text string) error {
@@ -74,6 +75,15 @@ func (r *orderedFeedbackReceiver) Steer(ctx context.Context, input flowruntime.S
 	}
 }
 func (r *orderedFeedbackReceiver) Signal(ctx context.Context, input flowruntime.Signal) (flowruntime.MutationResult, error) {
+	if input.Name == "pause" || strings.HasPrefix(input.Name, "resume#") {
+		select {
+		case r.controls <- input:
+		case <-ctx.Done():
+			return flowruntime.MutationResult{}, ctx.Err()
+		}
+		return flowruntime.MutationResult{Operation: "signal", ApplicationRequestID: input.ApplicationRequestID,
+			Receipt: flowruntime.Receipt{Tag: "Accepted", ReceiptID: input.ApplicationRequestID, RunID: input.RunID}}, nil
+	}
 	var text string
 	if err := json.Unmarshal(input.Payload, &text); err != nil {
 		return flowruntime.MutationResult{}, err
@@ -87,7 +97,8 @@ func (r *orderedFeedbackReceiver) Signal(ctx context.Context, input flowruntime.
 
 // Real PostgreSQL and the install router/auth; seeded attempt facts qualify
 // the public projection, not production machine source loading.
-func TestTodoFeedbackComposedInstall(t *testing.T) {
+func TestTodoOrderedRecovery(t *testing.T) {
+	t.Setenv("SMITHERS_TEST_DATABASE_NAMESPACE", "fr6todoordered")
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx, q := t.Context(), db.New(pool)
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "pin-owner", LowerUsername: "pin-owner", DisplayName: "Owner"})
@@ -102,7 +113,7 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "owner.access", Value: access}))
 	_, err = q.RequestMythicalBootstrap(ctx, repo.ID, owner.ID, 1, false)
 	require.NoError(t, err)
-	source, digest := strings.Repeat("a", 40), strings.Repeat("b", 64)
+	source, digest := strings.Repeat("a", 40), "e274ce85c2e7f9fdef2bb4de75700e9847920893d24e6f69d692a573ff11ed3d"
 	item, _, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo.ID, State: "running", Checks: []byte(fmt.Sprintf(`{"todo":true,"run_launched":true,"run_attached":true,"flowSource":"%s"}`, source))})
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET source='todo',number=1,owner_id=$2,attempt=1,flow_digest=$3,request_run_id='pinned-run',workspace_id='11111111-1111-4111-8111-111111111111',revisions='[{"text":"Original","acceptance":[],"reason":"create"}]',title='Pinned source' WHERE id=$1`, item.ID, owner.ID, digest)
@@ -120,6 +131,7 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 	})
 	service.EnableTodoSteering()
 	receiver := &orderedFeedbackReceiver{reviewFixtureReceiver: &reviewFixtureReceiver{messages: map[string]flowruntime.Steer{}},
+		controls:    make(chan flowruntime.Signal, 16),
 		lostAcks:    map[string]chan struct{}{"Lost acknowledgment steer": make(chan struct{}), "Lost acknowledgment amendment": make(chan struct{})},
 		recoverAcks: map[string]chan struct{}{"Lost acknowledgment steer": make(chan struct{}), "Lost acknowledgment amendment": make(chan struct{})}, entered: make(chan string, 2), holds: map[string]chan struct{}{"Ordered steer": make(chan struct{}), "Ordered answer": make(chan struct{})}}
 	store, err := jobs.NewStore(pool)
@@ -136,10 +148,14 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 		done <- dispatcher.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "todo-feedback", Capacity: 2, Lease: time.Second, RetryDelay: 10 * time.Millisecond, MaxRetryDelay: 20 * time.Millisecond, PollInterval: 10 * time.Millisecond})
 	}()
 	t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
+	controlHash := sha256.Sum256([]byte("control-cookie"))
+	_, err = pool.Exec(ctx, `INSERT INTO auth_sessions(session_key,user_id,username,expires_at) VALUES($1,$2,'pin-owner',NOW()+interval '1 hour')`, hex.EncodeToString(controlHash[:]), owner.ID)
+	require.NoError(t, err)
+	controlCookie := "pin-cookie"
 	call := func(method, body, key string) map[string]any {
 		req, err := http.NewRequest(method, origin+"/api/todos/1", strings.NewReader(body))
 		require.NoError(t, err)
-		req.AddCookie(&http.Cookie{Name: "smithers_session", Value: "pin-cookie"})
+		req.AddCookie(&http.Cookie{Name: "smithers_session", Value: controlCookie})
 		req.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "csrf"})
 		req.Header.Set("X-CSRF-Token", "csrf")
 		req.Header.Set("Origin", origin)
@@ -444,6 +460,45 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 		}
 		return count
 	}
+	// HTTP admission, durable dispatcher, and runtime projection replace direct
+	// paused_at writes. The guest is a protocol fixture, not microVM evidence.
+	cycle := 0
+	projectControl := func(name string) {
+		checkpoint := update
+		checkpoint.Checkpoint.Target = flowruntime.Target{TenantID: fmt.Sprintf("repository:%d", repo.ID), PrincipalID: fmt.Sprintf("user:%d", owner.ID),
+			WorkspaceID: read.WorkspaceID, BindingKind: "mythical-item", BindingID: fmt.Sprintf("%x-%x-%x-%x-%x", item.ID.Bytes[0:4], item.ID.Bytes[4:6], item.ID.Bytes[6:8], item.ID.Bytes[8:10], item.ID.Bytes[10:16])}
+		checkpoint.Checkpoint.Run = &flowruntime.Run{RunID: "pinned-run", FlowID: "todo", Status: "running"}
+		if name != "" {
+			checkpoint.Checkpoint.Run.PendingWaits = []flowruntime.PendingWait{{RunID: "child", Token: "pause-token", Name: name, Reason: "approval", Request: json.RawMessage(`{"kind":"pause"}`)}}
+		}
+		require.NoError(t, service.ProjectFlowRuntime(ctx, checkpoint))
+	}
+	control := func(op string) {
+		if op == "stop" {
+			cycle++
+		}
+		call("POST", fmt.Sprintf(`{"op":%q}`, op), fmt.Sprintf("%s-%d", op, cycle))
+		select {
+		case signal := <-receiver.controls:
+			require.Equal(t, "pinned-run", signal.RunID)
+			if op == "stop" {
+				require.Equal(t, "pause", signal.Name)
+			} else {
+				require.Equal(t, fmt.Sprintf("resume#%d", cycle), signal.Name)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("control was not dispatched")
+		}
+		if op == "stop" {
+			projectControl(fmt.Sprintf("resume#%d", cycle))
+		} else {
+			require.Eventually(t, func() bool {
+				saved, e := q.GetMythicalItem(ctx, item.ID)
+				return e == nil && strings.Contains(string(saved.Checks), `"delivered": true`)
+			}, 5*time.Second, 10*time.Millisecond)
+			projectControl("")
+		}
+	}
 	for _, amendment := range []bool{false, true} {
 		text := fmt.Sprintf("Retain while provider is absent amendment=%t", amendment)
 		method, field := "POST", "steer"
@@ -454,16 +509,14 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 		require.NoError(t, err)
 		before, err := q.GetMythicalItem(ctx, item.ID)
 		require.NoError(t, err)
-		_, err = pool.Exec(ctx, `UPDATE mythical_items SET paused_at=NOW() WHERE id=$1`, item.ID)
-		require.NoError(t, err)
+		control("stop")
 		accepted := call(method, string(body), text)
 		service.SetTodoFlow(nil)
-		_, err = pool.Exec(ctx, `UPDATE mythical_items SET paused_at=NULL WHERE id=$1`, item.ID)
-		require.NoError(t, err)
 		require.Never(t, func() bool { return seen(text) > 0 }, 200*time.Millisecond, 10*time.Millisecond)
 		service.SetTodoFlow(func(ctx context.Context, repositoryID int64, sourceCommit string) (string, error) {
 			return services.ActiveFlowDigest(ctx, q, repositoryID, "todo")
 		})
+		control("resume")
 		require.Eventually(t, func() bool { return seen(text) == 1 }, 5*time.Second, 10*time.Millisecond)
 		require.Equal(t, accepted, call(method, string(body), text))
 		require.Equal(t, 1, seen(text))
@@ -493,8 +546,7 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 		if input.amendment {
 			method, field = "PATCH", "prompt"
 		}
-		_, err = pool.Exec(ctx, `UPDATE mythical_items SET paused_at=NOW() WHERE id=$1`, item.ID)
-		require.NoError(t, err)
+		control("stop")
 		body, err := json.Marshal(map[string]string{field: text})
 		require.NoError(t, err)
 		confirmationCall(method, "/api/todos/1", string(body), text, delegated, 202)
@@ -504,8 +556,12 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 			_, err = pool.Exec(ctx, `UPDATE auth_sessions SET expires_at=NOW()-interval '1 minute' WHERE session_key=$1`, hex.EncodeToString(hash[:]))
 		}
 		require.NoError(t, err)
-		_, err = pool.Exec(ctx, `UPDATE mythical_items SET paused_at=NULL WHERE id=$1`, item.ID)
-		require.NoError(t, err)
+		// Resume uses an independent live browser session; expired input authority
+		// must still fail when the worker rechecks its original credential.
+		priorCookie := controlCookie
+		controlCookie = "control-cookie"
+		control("resume")
+		controlCookie = priorCookie
 		require.Eventually(t, func() bool {
 			var failed int
 			err := pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer' AND payload->>'body'=$1 AND state='failed'`, text).Scan(&failed)
