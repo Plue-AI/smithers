@@ -125,17 +125,6 @@
     },
     {
       "kind": "verb",
-      "anchor": "diff",
-      "name": "diff",
-      "group": "Time travel and checkpoints",
-      "reason": "use `smthrs runs inspect|replay|fork|rewind` for current execution history",
-      "subcommands": [],
-      "spellings": [
-        "smthrs diff"
-      ]
-    },
-    {
-      "kind": "verb",
       "anchor": "worktrees",
       "name": "worktrees",
       "group": "Time travel and checkpoints",
@@ -206,17 +195,6 @@
       "subcommands": [],
       "spellings": [
         "smthrs gui"
-      ]
-    },
-    {
-      "kind": "verb",
-      "anchor": "monitor",
-      "name": "monitor",
-      "group": "Old gateway and UI hosting",
-      "reason": "replaced by `smthrs serve`; the terminal monitor is deleted",
-      "subcommands": [],
-      "spellings": [
-        "smthrs monitor"
       ]
     },
     {
@@ -467,7 +445,7 @@
       "anchor": "make-workflow",
       "name": "make-workflow",
       "group": "Packs and scaffolding",
-      "reason": "JSX pack tooling is gone; `smthrs migrate` replaces `upgrade`",
+      "reason": "JSX pack tooling is gone; `smithers-migrate` replaces `upgrade`",
       "subcommands": [],
       "spellings": [
         "smthrs make-workflow"
@@ -478,7 +456,7 @@
       "anchor": "starters",
       "name": "starters",
       "group": "Packs and scaffolding",
-      "reason": "JSX pack tooling is gone; `smthrs migrate` replaces `upgrade`",
+      "reason": "JSX pack tooling is gone; `smithers-migrate` replaces `upgrade`",
       "subcommands": [],
       "spellings": [
         "smthrs starters"
@@ -489,7 +467,7 @@
       "anchor": "share",
       "name": "share",
       "group": "Packs and scaffolding",
-      "reason": "JSX pack tooling is gone; `smthrs migrate` replaces `upgrade`",
+      "reason": "JSX pack tooling is gone; `smithers-migrate` replaces `upgrade`",
       "subcommands": [],
       "spellings": [
         "smthrs share"
@@ -500,7 +478,7 @@
       "anchor": "add",
       "name": "add",
       "group": "Packs and scaffolding",
-      "reason": "JSX pack tooling is gone; `smthrs migrate` replaces `upgrade`",
+      "reason": "JSX pack tooling is gone; `smithers-migrate` replaces `upgrade`",
       "subcommands": [],
       "spellings": [
         "smthrs add"
@@ -511,7 +489,7 @@
       "anchor": "remove",
       "name": "remove",
       "group": "Packs and scaffolding",
-      "reason": "JSX pack tooling is gone; `smthrs migrate` replaces `upgrade`",
+      "reason": "JSX pack tooling is gone; `smithers-migrate` replaces `upgrade`",
       "subcommands": [],
       "spellings": [
         "smthrs remove"
@@ -522,7 +500,7 @@
       "anchor": "eject",
       "name": "eject",
       "group": "Packs and scaffolding",
-      "reason": "JSX pack tooling is gone; `smthrs migrate` replaces `upgrade`",
+      "reason": "JSX pack tooling is gone; `smithers-migrate` replaces `upgrade`",
       "subcommands": [],
       "spellings": [
         "smthrs eject"
@@ -533,7 +511,7 @@
       "anchor": "upgrade",
       "name": "upgrade",
       "group": "Packs and scaffolding",
-      "reason": "JSX pack tooling is gone; `smthrs migrate` replaces `upgrade`",
+      "reason": "JSX pack tooling is gone; `smithers-migrate` replaces `upgrade`",
       "subcommands": [],
       "spellings": [
         "smthrs upgrade"
@@ -544,7 +522,7 @@
       "anchor": "packs",
       "name": "packs",
       "group": "Packs and scaffolding",
-      "reason": "JSX pack tooling is gone; `smthrs migrate` replaces `upgrade`",
+      "reason": "JSX pack tooling is gone; `smithers-migrate` replaces `upgrade`",
       "subcommands": [
         "list",
         "update"
@@ -559,7 +537,7 @@
       "anchor": "workflow",
       "name": "workflow",
       "group": "Packs and scaffolding",
-      "reason": "JSX pack tooling is gone; `smthrs migrate` replaces `upgrade`",
+      "reason": "JSX pack tooling is gone; `smithers-migrate` replaces `upgrade`",
       "subcommands": [
         "run",
         "path",
@@ -700,17 +678,6 @@
       "subcommands": [],
       "spellings": [
         "smthrs start"
-      ]
-    },
-    {
-      "kind": "verb",
-      "anchor": "exec",
-      "name": "exec",
-      "group": "Old aliases and did-you-mean keys",
-      "reason": "use `smthrs flow start`",
-      "subcommands": [],
-      "spellings": [
-        "smthrs exec"
       ]
     },
     {
@@ -923,9 +890,7 @@
     "claude-shell",
     "cron",
     "databases",
-    "diff",
     "eject",
-    "exec",
     "flows",
     "fork",
     "gateway",
@@ -942,7 +907,6 @@
     "listeners",
     "log",
     "make-workflow",
-    "monitor",
     "node",
     "observability",
     "openapi",
@@ -993,14 +957,12 @@
     "retry-task",
     "tree",
     "timeline",
-    "diff",
     "worktrees",
     "hijack",
     "pause",
     "gateway",
     "ui",
     "gui",
-    "monitor",
     "supervise",
     "supervisor",
     "top",
@@ -1040,7 +1002,6 @@
     "stop",
     "kill",
     "start",
-    "exec",
     "log",
     "help",
     "supervision",
