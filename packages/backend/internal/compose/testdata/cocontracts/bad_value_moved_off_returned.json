@@ -1,7 +1,7 @@
 {
   "kind": 2,
   "stream": 0,
-  "payload": "010000004b01000000000000000b02ebebebebebebebebebebebebebebebeb03040000002b0102000000050100000007020000000000000002031234567890abcdef1234567890abcdef123456780401",
+  "payload": "010000004b01000000000000000b02ecececececececececececececececec03040000002b0102000000050100000007020000000000000002031234567890abcdef1234567890abcdef123456780402",
   "local": false,
   "literal": {
     "variant": 1,
@@ -15,7 +15,7 @@
       [
         2,
         {
-          "hex": "ebebebebebebebebebebebebebebebeb"
+          "hex": "ecececececececececececececececec"
         }
       ],
       [
@@ -52,7 +52,7 @@
             [
               4,
               {
-                "u8": 1
+                "u8": 2
               }
             ]
           ]

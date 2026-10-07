@@ -222,9 +222,12 @@ emit('req_delete_files',1,batchReq(f(1,deletion),f(2,batchActor)));
 emit('local_delete_files',1,batchReq(f(1,deletion)),0,'ok','host-to-daemon',true);
 emit('res_delete_files',1,batchRes(f(1,list(st(f(1,un(2)))))),0,'ok','daemon-to-host');
 emit('req_move_files',1,batchReq(f(1,list(st(f(1,str('a')),f(2,un(1,f(1,sha('before'))))),st(f(1,str('b')),f(2,un(2)),f(3,bytes(Buffer.from('before')))))),f(2,batchActor)));
-// #3562 committed these bytes by hand (moved_off tag 4 `returned`, and
-// ev_transcript's event_id); generated here so --check covers them.
-emit('ev_moved_off_returned',2,durable(11,un(4,f(1,un(2,f(1,num(7,4)))),f(2,num(2,8)),f(3,Buffer.from('1234567890abcdef1234567890abcdef12345678','hex')),f(4,[1])),id),0,'ok','daemon-to-host');
+// moved_off tag 4 `returned: bool?` (ADR 0004 wire-review ruling 6): 1 means
+// returned to its item; a value other than 0 or 1 is bad_value. #3562 first
+// committed ev_moved_off_returned by hand with ev_transcript's event_id.
+const movedOff=(returned)=>un(4,f(1,un(2,f(1,num(7,4)))),f(2,num(2,8)),f(3,Buffer.from('1234567890abcdef1234567890abcdef12345678','hex')),f(4,[returned]));
+emit('ev_moved_off_returned',2,durable(11,movedOff(1),eid(0xeb)),0,'ok','daemon-to-host');
+emit('bad_value_moved_off_returned',2,durable(11,movedOff(2),eid(0xec)),0,'bad_value','daemon-to-host');
 // A move's receipts: absent for the source deletion, the written digest for
 // the destination (ADR:549-554).
 emit('res_move_files',1,batchRes(f(1,list(st(f(1,un(2))),st(f(1,un(1,f(1,sha('before')))))))),0,'ok','daemon-to-host');
