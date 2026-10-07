@@ -1671,6 +1671,21 @@ export const getApiBootstrap = (transport: Transport): Promise<GetApiBootstrapRe
 export const headApiBootstrap = (transport: Transport): Promise<void> =>
   transport.request("HEAD", `/api/bootstrap`).then(() => undefined)
 
+export type GetApiSshResponse = {
+  branch: string
+  host: string
+  port: 2222
+  value: string
+}
+
+export interface GetApiSshInput {
+  readonly query: { readonly branch: string }
+}
+
+/** GET /api/ssh: Read branch SSH connection details */
+export const getApiSsh = (transport: Transport, input: GetApiSshInput): Promise<GetApiSshResponse> =>
+  transport.request("GET", `/api/ssh${search({ branch: input.query.branch })}`) as Promise<GetApiSshResponse>
+
 export type GetApiBranchesResponse = Array<Branch>
 
 /** GET /api/branches: List the install repository's branches */
@@ -2599,6 +2614,30 @@ export interface PostApiModelVercelPathInput {
 /** POST /api/model/vercel/{path} */
 export const postApiModelVercelPath = (transport: Transport, input: PostApiModelVercelPathInput): Promise<PostApiModelVercelPathResponse> =>
   transport.request("POST", `/api/model/vercel/${segment(input.path.path)}`, input.body) as Promise<PostApiModelVercelPathResponse>
+
+export type DeleteApiModelFastResponse = {
+  ok: boolean
+}
+
+/** DELETE /api/model/fast: Sign out of owner fast-model access */
+export const deleteApiModelFast = (transport: Transport): Promise<DeleteApiModelFastResponse> =>
+  transport.request("DELETE", `/api/model/fast`) as Promise<DeleteApiModelFastResponse>
+
+export type PostApiModelFastSignInResponse = {
+  url: string
+}
+
+/** POST /api/model/fast/sign-in: Start owner fast-model sign-in */
+export const postApiModelFastSignIn = (transport: Transport): Promise<PostApiModelFastSignInResponse> =>
+  transport.request("POST", `/api/model/fast/sign-in`) as Promise<PostApiModelFastSignInResponse>
+
+export interface GetApiModelFastReturnInput {
+  readonly query: { readonly state: string; readonly code: string }
+}
+
+/** GET /api/model/fast/return: Complete owner fast-model sign-in */
+export const getApiModelFastReturn = (transport: Transport, input: GetApiModelFastReturnInput): Promise<void> =>
+  transport.request("GET", `/api/model/fast/return${search({ state: input.query.state, code: input.query.code })}`).then(() => undefined)
 
 export type GetApiNotificationsResponse = AnyJSON
 

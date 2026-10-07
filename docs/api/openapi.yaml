@@ -5654,6 +5654,122 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/model/fast:
+    x-composition: install
+    delete:
+      summary: Sign out of owner fast-model access
+      operationId: delete_api_model_fast
+      tags:
+        - Model
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - ok
+                properties:
+                  ok:
+                    type: boolean
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          description: Sign-in or storage unavailable
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                properties:
+                  code:
+                    type: string
+  /api/model/fast/sign-in:
+    x-composition: install
+    post:
+      summary: Start owner fast-model sign-in
+      operationId: post_api_model_fast_sign_in
+      tags:
+        - Model
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - url
+                properties:
+                  url:
+                    type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          description: Sign-in or storage unavailable
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                properties:
+                  code:
+                    type: string
+  /api/model/fast/return:
+    x-composition: install
+    get:
+      summary: Complete owner fast-model sign-in
+      operationId: get_api_model_fast_return
+      tags:
+        - Model
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '303':
+          description: Redirect to the install
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '400':
+          description: Sign-in refused
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                properties:
+                  code:
+                    type: string
   /api/notifications:
     get:
       summary: GET /api/notifications

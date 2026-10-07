@@ -1945,6 +1945,19 @@ type PostAPIBillingCheckoutBody struct {
 	Interval string `json:"interval"`
 }
 
+// GetAPISSHParams is the query of GET /api/ssh.
+type GetAPISSHParams struct {
+	Branch string
+}
+
+// GetAPISSHResponse is generated from docs/api/openapi.yaml.
+type GetAPISSHResponse struct {
+	Branch string `json:"branch"`
+	Host   string `json:"host"`
+	Port   int64  `json:"port"`
+	Value  string `json:"value"`
+}
+
 // PostAPIBranchesBody is generated from docs/api/openapi.yaml.
 type PostAPIBranchesBody struct {
 	From string  `json:"from"`
@@ -2159,6 +2172,22 @@ type PatchAPIMembersLoginBody struct {
 // GetAPIModelTestReceiptParams is the query of GET /api/model/test/receipt.
 type GetAPIModelTestReceiptParams struct {
 	RequestID string
+}
+
+// DeleteAPIModelFastResponse is generated from docs/api/openapi.yaml.
+type DeleteAPIModelFastResponse struct {
+	Ok bool `json:"ok"`
+}
+
+// PostAPIModelFastSignInResponse is generated from docs/api/openapi.yaml.
+type PostAPIModelFastSignInResponse struct {
+	URL string `json:"url"`
+}
+
+// GetAPIModelFastReturnParams is the query of GET /api/model/fast/return.
+type GetAPIModelFastReturnParams struct {
+	State string
+	Code  string
 }
 
 // GetAPINotificationsEventsParams is the query of GET /api/notifications/events.
@@ -3115,6 +3144,15 @@ func (c *Client) HeadAPIBootstrap(ctx context.Context) error {
 	return c.do(ctx, "HEAD", "/api/bootstrap", nil, nil, nil)
 }
 
+// GetAPISSH calls GET /api/ssh.
+func (c *Client) GetAPISSH(ctx context.Context, params GetAPISSHParams) (GetAPISSHResponse, error) {
+	query := url.Values{}
+	query.Set("branch", params.Branch)
+	var out GetAPISSHResponse
+	err := c.do(ctx, "GET", "/api/ssh", query, nil, &out)
+	return out, err
+}
+
 // GetAPIBranches calls GET /api/branches.
 func (c *Client) GetAPIBranches(ctx context.Context) ([]Branch, error) {
 	var out []Branch
@@ -3691,6 +3729,28 @@ func (c *Client) PostAPIModelVercelPath(ctx context.Context, pathParam string, b
 	var out AnyJSON
 	err := c.do(ctx, "POST", "/api/model/vercel/"+url.PathEscape(pathParam), nil, body, &out)
 	return out, err
+}
+
+// DeleteAPIModelFast calls DELETE /api/model/fast.
+func (c *Client) DeleteAPIModelFast(ctx context.Context) (DeleteAPIModelFastResponse, error) {
+	var out DeleteAPIModelFastResponse
+	err := c.do(ctx, "DELETE", "/api/model/fast", nil, nil, &out)
+	return out, err
+}
+
+// PostAPIModelFastSignIn calls POST /api/model/fast/sign-in.
+func (c *Client) PostAPIModelFastSignIn(ctx context.Context) (PostAPIModelFastSignInResponse, error) {
+	var out PostAPIModelFastSignInResponse
+	err := c.do(ctx, "POST", "/api/model/fast/sign-in", nil, nil, &out)
+	return out, err
+}
+
+// GetAPIModelFastReturn calls GET /api/model/fast/return.
+func (c *Client) GetAPIModelFastReturn(ctx context.Context, params GetAPIModelFastReturnParams) error {
+	query := url.Values{}
+	query.Set("state", params.State)
+	query.Set("code", params.Code)
+	return c.do(ctx, "GET", "/api/model/fast/return", query, nil, nil)
 }
 
 // GetAPINotifications calls GET /api/notifications.
