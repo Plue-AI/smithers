@@ -203,17 +203,47 @@ func TestTodoStopResumeComposedInstall(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Stop not dispatched")
 	}
+	projectWaits := func(waits []flowruntime.PendingWait) {
+		require.NoError(t, service.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{Scope: scope, State: jobs.StateWaiting, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: projection, Target: target, FlowID: "todo", RunID: "run-1", ExecutionDigest: digest, Run: &flowruntime.Run{RunID: "run-1", FlowID: "todo", Status: "running", PendingWaits: waits}}}))
+	}
 	project := func(name string) {
 		var waits []flowruntime.PendingWait
 		if name != "" {
 			waits = []flowruntime.PendingWait{{RunID: "child", Token: "durable-token", Name: name, Reason: "approval", Request: json.RawMessage(`{"kind":"pause"}`)}}
 		}
-		require.NoError(t, service.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{Scope: scope, State: jobs.StateWaiting, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: projection, Target: target, FlowID: "todo", RunID: "run-1", ExecutionDigest: digest, Run: &flowruntime.Run{RunID: "run-1", FlowID: "todo", Status: "running", PendingWaits: waits}}}))
+		projectWaits(waits)
+	}
+	for _, invalid := range []struct {
+		name   string
+		mutate func(*flowruntime.PendingWait)
+	}{
+		{"missing token", func(w *flowruntime.PendingWait) { w.Token = "" }},
+		{"question reason", func(w *flowruntime.PendingWait) { w.Reason = "question" }},
+		{"question request", func(w *flowruntime.PendingWait) { w.Request = json.RawMessage(`{"kind":"question"}`) }},
+		{"malformed request", func(w *flowruntime.PendingWait) { w.Request = json.RawMessage(`"not JSON"`) }},
+		{"old cycle", func(w *flowruntime.PendingWait) { w.Name, w.Attempt = "resume", 0 }},
+		{"future cycle", func(w *flowruntime.PendingWait) { w.Name, w.Attempt = "resume", 2 }},
+		{"fractional cycle", func(w *flowruntime.PendingWait) { w.Name, w.Attempt = "resume", 1.5 }},
+	} {
+		t.Run("Stop ignores invalid park "+invalid.name, func(t *testing.T) {
+			wait := flowruntime.PendingWait{RunID: "child", Token: "durable-token", Name: "resume#1", Reason: "approval", Request: json.RawMessage(`{"kind":"pause"}`)}
+			invalid.mutate(&wait)
+			projectWaits([]flowruntime.PendingWait{wait})
+			_, card := call("GET", "", "")
+			require.Equal(t, "working", card["state"])
+			require.Equal(t, "requested", card["stop"])
+			require.NotContains(t, card, "pause")
+			saved, err := q.GetMythicalItem(ctx, item.ID)
+			require.NoError(t, err)
+			require.False(t, saved.PausedAt.Valid)
+			require.Equal(t, "run-1", saved.RequestRunID)
+			require.EqualValues(t, 1, saved.Attempt)
+		})
 	}
 	project("resume#99")
 	_, card = call("GET", "", "")
 	require.Equal(t, "working", card["state"])
-	project("resume#1")
+	projectWaits([]flowruntime.PendingWait{{RunID: "child", Token: "durable-token", Name: "resume", Attempt: 1, Reason: "approval", Request: json.RawMessage(`"{\"kind\":\"pause\",\"name\":\"resume#1\"}"`)}})
 	_, card = call("GET", "", "")
 	require.Equal(t, "paused", card["state"])
 	require.Equal(t, "person", card["pause"].(map[string]any)["reason"])
