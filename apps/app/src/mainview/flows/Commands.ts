@@ -305,7 +305,8 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
    * row that shares one (`chat`, `flow.list`) gets no leaf, so no name ever
    * resolves to two entries.
    */
-  const standsIn = (entry: FlowEntry): boolean => entry.metadata.workflow === nameOf(entry)
+  // #3612 (42a4fa17b0) names review's run; its authorized host door is never a leaf.
+  const standsIn = (entry: FlowEntry): boolean => nameOf(entry) !== "review" && entry.metadata.workflow === nameOf(entry)
   let leafCache: { readonly repo: string; readonly loadedAt: number; readonly leaves: ReadonlyArray<FlowEntry> } | undefined
   const leaves = (): ReadonlyArray<FlowEntry> => {
     const catalog = actions.repositoryFlows()
