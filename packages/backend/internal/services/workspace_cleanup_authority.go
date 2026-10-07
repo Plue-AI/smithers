@@ -121,7 +121,7 @@ func (a *transactionalWorkspaceCleanup) lockFacts(ctx context.Context, tx pgx.Tx
 		if err != nil {
 			return db.Workspace{}, settled, err
 		}
-		if item.RepositoryID == expected.RepositoryID && lane.RepositoryID == expected.RepositoryID && branchKind(expected.TargetBookmark) == "item" {
+		if item.RepositoryID == expected.RepositoryID && item.WorkspaceID == expected.ID && !item.PausedAt.Valid && lane.RepositoryID == expected.RepositoryID && branchKind(expected.TargetBookmark) == "item" {
 			settled = cleanupSettlement(item)
 		}
 	} else if !errors.Is(err, pgx.ErrNoRows) {
