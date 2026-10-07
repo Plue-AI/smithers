@@ -291,7 +291,7 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		t.Setenv("SMITHERS_SERVER_ALLOWED_ORIGINS", origin)
 		t.Setenv("SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY", "merge-route-sealing-key")
 		browserOptions := Options{ChatHost: unusedChatHost{}}
-		if len(delegatedBrowser) > 0 && delegatedBrowser[0] {
+		if browserJourney || len(delegatedBrowser) > 0 && delegatedBrowser[0] {
 			// This journey observes admission before execution. Run the real
 			// HTTP half; the worker is exercised by the recovery journey.
 			browserOptions.Duties = DutiesHTTP
@@ -305,7 +305,7 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		t.Cleanup(storageServer.Close)
 		host := repohost.NewClient(&repohost.StaticStorageSetResolver{URL: storageServer.URL}, "access-merge-test")
 		require.NoError(t, host.InitRepo(ctx, owner.Username, repo.Name, "main", true))
-		if len(delegatedBrowser) > 0 && delegatedBrowser[0] {
+		if browserJourney || len(delegatedBrowser) > 0 && delegatedBrowser[0] {
 			// The native mirror reads the same accepted main and candidate as
 			// the production merge fixture, rather than an unrelated init tree.
 			nativeGit := &pollingGitHost{dir: filepath.Join(storagePath, owner.Username, repo.Name, ".jj", "repo", "store", "git")}
