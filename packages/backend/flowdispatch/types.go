@@ -150,6 +150,18 @@ type SteerAuthorizer interface {
 	AuthorizeFlowSteer(context.Context, SteerRequest) error
 }
 
+// CertifiedMissingTool is supplied only by the product receipt verifier,
+// never decoded from a guest run's output or its failure prose.
+type CertifiedMissingTool struct {
+	Name        string `json:"name"`
+	File        string `json:"file"`
+	OperationID string `json:"operationId"`
+}
+
+type FailureCertifier interface {
+	CertifyFlowFailure(context.Context, ProjectionUpdate) (*CertifiedMissingTool, error)
+}
+
 type RuntimeCheckpoint struct {
 	Version         int                             `json:"version"`
 	Target          flowruntime.FlowRuntimeTarget   `json:"target"`
@@ -170,6 +182,7 @@ type RuntimeCheckpoint struct {
 	RunID               string                          `json:"runId,omitempty"`
 	Cursor              string                          `json:"cursor,omitempty"`
 	Run                 *flowruntime.FlowRuntimeRun     `json:"run,omitempty"`
+	FailureMissingTool  *CertifiedMissingTool           `json:"failureMissingTool,omitempty"`
 	FailureClass        string                          `json:"failureClass,omitempty"`
 	FailureCode         string                          `json:"failureCode,omitempty"`
 	FailureObservedAt   int64                           `json:"failureObservedAt,omitempty"`
@@ -266,13 +279,14 @@ type steerPayload struct {
 }
 
 type terminalReceipt struct {
-	Kind       string                          `json:"kind"`
-	Runtime    flowruntime.FlowRuntimeIdentity `json:"runtime"`
-	Receipt    *flowruntime.FlowRuntimeReceipt `json:"receipt,omitempty"`
-	Run        *flowruntime.FlowRuntimeRun     `json:"run,omitempty"`
-	Cursor     string                          `json:"cursor,omitempty"`
-	ErrorClass string                          `json:"errorClass,omitempty"`
-	ErrorCode  string                          `json:"errorCode,omitempty"`
-	ErrorStep  string                          `json:"errorStep,omitempty"`
-	Projection json.RawMessage                 `json:"projection"`
+	MissingTool *CertifiedMissingTool           `json:"missing_tool,omitempty"`
+	Kind        string                          `json:"kind"`
+	Runtime     flowruntime.FlowRuntimeIdentity `json:"runtime"`
+	Receipt     *flowruntime.FlowRuntimeReceipt `json:"receipt,omitempty"`
+	Run         *flowruntime.FlowRuntimeRun     `json:"run,omitempty"`
+	Cursor      string                          `json:"cursor,omitempty"`
+	ErrorClass  string                          `json:"errorClass,omitempty"`
+	ErrorCode   string                          `json:"errorCode,omitempty"`
+	ErrorStep   string                          `json:"errorStep,omitempty"`
+	Projection  json.RawMessage                 `json:"projection"`
 }
