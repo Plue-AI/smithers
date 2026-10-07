@@ -66,7 +66,13 @@ func (s *InstallObsidianSettings) authorizedFolder(ctx context.Context, setting 
 	if err != nil || owner.ID != setting.OwnerID || owner.ProhibitLogin {
 		return nil, api.Forbidden("Obsidian owner unavailable")
 	}
-	person := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: setting.Session})
+	// A sync pass rebuilds the stored person. Set runs inside that person's own
+	// request, whose decision for this command is bound to its credential; a
+	// rebuilt credential there is a substitution the bound fence refuses.
+	person := ctx
+	if info := middleware.AuthInfoFromContext(ctx); info == nil || info.User == nil || info.User.ID != owner.ID || info.SessionHash != setting.Session {
+		person = middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: setting.Session})
+	}
 	if _, err = Authorize(person, s.Queries, "settings.obsidian"); err != nil {
 		return nil, err
 	}
