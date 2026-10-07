@@ -72,14 +72,17 @@ func TestInstalledRevocationBoundaryWaitsForDrainAndRejectsMalformedRequests(t *
 	}
 }
 func TestProtectedStateRefusesSymlinksAndOverbroadModes(t *testing.T) {
-	// Create the unsafe ancestor explicitly; TMPDIR may be a protected home.
-	// Its leaf mode alone must never confer host authority.
-	root := t.TempDir()
-	if err := os.Chmod(root, 0777); err != nil {
+	// Use a protected parent so each refusal reaches the inode under test.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.MkdirTemp(home, ".trm06-")
+	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if err := os.Chmod(root, 0700); err != nil {
+		if err := os.RemoveAll(root); err != nil {
 			t.Error(err)
 		}
 	})
@@ -87,8 +90,17 @@ func TestProtectedStateRefusesSymlinksAndOverbroadModes(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"listen":"127.0.0.1:48000"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
+	if data, err := readState(path, 65536); err != nil || string(data) != `{"listen":"127.0.0.1:48000"}` {
+		t.Fatalf("protected state: %q %v", data, err)
+	}
+	if err := os.Chmod(root, 0777); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := readState(path, 65536); err == nil {
 		t.Fatal("accepted writable ancestor")
+	}
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
 	}
 	link := filepath.Join(root, "link")
 	if err := os.Symlink(path, link); err != nil {
