@@ -180,28 +180,37 @@ func (s *InstallQuiesce) Reopen(ctx context.Context, op string) error {
 	})
 }
 
+// Available checks every provider without acquiring a freeze.
+func (s *InstallQuiesce) Available() error {
+	// Check composition before writing the durable freeze. An unavailable
+	// provider is not an empty queue, and must not briefly close admissions.
+	if s == nil || s.Gate == nil || s.Gate.Store == nil {
+		return errors.New("quiesce authority unavailable")
+	}
+	machines := s.Machines
+	switch machines.(type) {
+	case nil, UnavailableMachineQuiescer, *UnavailableMachineQuiescer:
+		return &QuiesceDependencyError{"T-MCH-07"}
+	}
+	if s.Admission == nil {
+		return &QuiesceDependencyError{"T-MCH-06"}
+	}
+	if s.Host == nil {
+		return &QuiesceDependencyError{"T-INS-08"}
+	}
+	return nil
+}
+
 // Freeze renews an existing ready operation. Callers POST the same op every 10s,
 // including while the initial drain request is outstanding.
 func (s *InstallQuiesce) Freeze(ctx context.Context, op string, by int64) (freeze *QuiesceFreeze, err error) {
 	if op == "" {
 		return nil, errors.New("quiesce op required")
 	}
-	// Check composition before writing the durable freeze. An unavailable
-	// provider is not an empty queue, and must not briefly close admissions.
-	if s == nil || s.Gate == nil || s.Gate.Store == nil {
-		return nil, errors.New("quiesce authority unavailable")
+	if err := s.Available(); err != nil {
+		return nil, err
 	}
 	machines := s.Machines
-	switch machines.(type) {
-	case nil, UnavailableMachineQuiescer, *UnavailableMachineQuiescer:
-		return nil, &QuiesceDependencyError{"T-MCH-07"}
-	}
-	if s.Admission == nil {
-		return nil, &QuiesceDependencyError{"T-MCH-06"}
-	}
-	if s.Host == nil {
-		return nil, &QuiesceDependencyError{"T-INS-08"}
-	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
