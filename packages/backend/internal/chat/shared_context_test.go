@@ -80,3 +80,15 @@ func TestSharedEntryLabels(t *testing.T) {
 	require.Equal(t, "Choose timeout", entryTitle("\n  Choose timeout  \nDetails"))
 	require.Equal(t, "", entryTitle(" \n\t"))
 }
+
+func TestSharedInspectCandidatesExcludeRepositoryBytes(t *testing.T) {
+	candidates := sharedCandidateItems([]map[string]json.RawMessage{{"kind": json.RawMessage(`"file"`), "label": json.RawMessage(`"retry.ts"`), "ref": json.RawMessage(`"src/retry.ts"`), "revision": json.RawMessage(`"pinned"`), "text": json.RawMessage(`"private-canary"`), "token": json.RawMessage(`"secret-canary"`)}})
+	require.Len(t, candidates, 1)
+	require.JSONEq(t, `{"kind":"file","label":"retry.ts","ref":"src/retry.ts","revision":"pinned"}`, string(candidates[0]))
+	require.Empty(t, sharedCandidateItems(nil))
+	for _, raw := range []string{`{"kind":"file","label":"private-canary","ref":"private"}`, `{"kind":"issue","label":"Issue","ref":"1"}`, `{"kind":"run","label":"","ref":"run"}`, `{"kind":42,"label":"Invalid","ref":"run"}`, `{"kind":"todo","label":"T1","ref":null}`, `{"kind":"todo","label":"T1","ref":"T1","revision":42}`, `{"kind":"run","label":"Run","ref":"run","revision":null}`} {
+		var item map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal([]byte(raw), &item))
+		require.Empty(t, sharedCandidateItems([]map[string]json.RawMessage{item}))
+	}
+}

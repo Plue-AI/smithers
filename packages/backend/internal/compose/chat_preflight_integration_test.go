@@ -313,6 +313,28 @@ func testLocalSharedPreflight(t *testing.T, browser bool) {
 		require.Equal(t, memberID, entry.Author)
 		require.NotNil(t, entry.Context)
 		require.Len(t, *entry.Context, 1)
+		response, err = client.Get(public.URL + "/api/conversations/main")
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, response.StatusCode)
+		var projection chat.SharedConversation
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&projection))
+		require.NoError(t, response.Body.Close())
+		var inspected *chat.SharedContextPreflight
+		for _, sharedEntry := range projection.Entries {
+			if sharedEntry.ID == admitted.TurnID {
+				inspected = sharedEntry.Preflight
+			}
+		}
+		require.NotNil(t, inspected)
+		require.Equal(t, role, inspected.Model)
+		require.Equal(t, *entry.Context, inspected.Context)
+		candidates, err := json.Marshal(inspected.Candidates)
+		require.NoError(t, err)
+		require.Contains(t, string(candidates), "catalog-0499-")
+		for _, forbidden := range []string{"canary-C", "private-wiki-canary", "unselected-content-canary", "background-content-canary"} {
+			require.NotContains(t, string(candidates), forbidden)
+		}
+
 		require.JSONEq(t, `{"kind":"file","label":"retry.ts","ref":"src/webhooks/retry.ts","revision":"`+revision+`","reason":"Retry implementation"}`, string((*entry.Context)[0]))
 		frames, err := json.Marshal(entry.Frames)
 		require.NoError(t, err)

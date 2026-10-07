@@ -307,6 +307,19 @@ func entryTone(state State) string {
 func sharedCandidateItems(items []map[string]json.RawMessage) []json.RawMessage {
 	result := make([]json.RawMessage, 0, len(items))
 	for _, item := range items {
+		var kind, label, ref string
+		var revision *string
+		if json.Unmarshal(item["kind"], &kind) != nil || !oneOf(kind, "file", "page", "todo", "run") ||
+			json.Unmarshal(item["label"], &label) != nil || label == "" ||
+			json.Unmarshal(item["ref"], &ref) != nil || ref == "" {
+			continue
+		}
+		if value, present := item["revision"]; present && (json.Unmarshal(value, &revision) != nil || revision == nil) {
+			continue
+		}
+		if (kind == "file" || kind == "page") && (revision == nil || *revision == "") {
+			continue
+		}
 		selected := map[string]json.RawMessage{}
 		for _, key := range []string{"kind", "label", "ref", "revision"} {
 			if value, ok := item[key]; ok {
