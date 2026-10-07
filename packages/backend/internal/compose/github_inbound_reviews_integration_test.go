@@ -14,6 +14,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,6 +25,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -105,7 +109,7 @@ var reviewFixtureInstallation atomic.Int64
 func testGitHubCommentSteerThroughComposedInstall(t *testing.T, revocation string) {
 	// Token caches span service instances. Each fake installation owns its token.
 	installationID := 9000 + reviewFixtureInstallation.Add(1)
-	pool, _ := postgresfixture.NewProductDatabase(t)
+	pool, databaseURL := postgresfixture.NewProductDatabase(t)
 	q := db.New(pool)
 	ctx := t.Context()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -392,6 +396,9 @@ func testGitHubCommentSteerThroughComposedInstall(t *testing.T, revocation strin
 		require.NoError(t, err)
 		require.Contains(t, string(settled.Checks), `"input_consumed": true`)
 	}
+	if os.Getenv("SMITHERS_REVIEW_ASSETS_URL") != "" {
+		t.Run("browser", func(t *testing.T) { serveGitHubReviewBrowser(t, databaseURL, owner.ID) })
+	}
 	require.True(t, upstream.DeleteComment("owner/app", comment))
 	require.NoError(t, assembled.synced.ReadInstallPullFacts(ctx, row, 1, "head", "reviews"))
 	require.NoError(t, assembled.synced.ReadInstallPullFacts(ctx, row, 1, "head", "reviews"))
@@ -410,4 +417,62 @@ func testGitHubCommentSteerThroughComposedInstall(t *testing.T, revocation strin
 		expectedIntents = 2
 	}
 	require.Equal(t, expectedIntents, count)
+}
+
+func TestGitHubFactsBrowserPostgres(t *testing.T) {
+	if os.Getenv("SMITHERS_REVIEW_ASSETS_URL") == "" {
+		t.Skip("run C-GH-13 against the composed install")
+	}
+	testGitHubCommentSteerThroughComposedInstall(t, "")
+}
+
+// The browser reads the same committed TODO and activity through the complete
+// install composition; only GitHub and the packaged steer receiver are fixtures.
+func serveGitHubReviewBrowser(t *testing.T, databaseURL string, ownerID int64) {
+	t.Helper()
+	server := httptest.NewUnstartedServer(nil)
+	origin := "http://" + server.Listener.Addr().String()
+	repoHost := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(200)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(repoHost.Close)
+	for name, value := range map[string]string{
+		"SMITHERS_AUTH_MODE": "selfhost", "SMITHERS_DATABASE_URL": databaseURL,
+		"SMITHERS_PUBLIC_URL": origin, "SMITHERS_SERVER_ALLOWED_ORIGINS": origin,
+		"SMITHERS_SERVER_ADDR": "127.0.0.1:0", "SMITHERS_AUTH_SESSION_COOKIE_NAME": "session",
+		"SMITHERS_REPO_HOST_URL": repoHost.URL, "SMITHERS_REPO_HOST_AUTH_TOKEN": "review-browser-repo",
+		"SMITHERS_PUSH_HOOK_CALLBACK_TOKEN": "review-browser-callback",
+		"SMITHERS_AUTH_SESSION_SECRET":      "review-browser-session-secret", "SMITHERS_LFS_SIGNING_SECRET": "review-browser-lfs-secret",
+		"SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY": "review-install-key", "SMITHERS_BLOB_DATA_DIR": t.TempDir(),
+		"SMITHERS_FEATURE_FLAGS_WORKFLOWS": "false", "SMITHERS_FEATURE_FLAGS_SANDBOXES": "false", "SMITHERS_FEATURE_FLAGS_WORKSPACES": "false",
+	} {
+		t.Setenv(name, value)
+	}
+	pool, err := pgxpool.New(t.Context(), databaseURL)
+	require.NoError(t, err)
+	defer pool.Close()
+	sum := sha256.Sum256([]byte("review-browser-session"))
+	_, err = db.New(pool).CreateAuthSession(t.Context(), db.CreateAuthSessionParams{UserID: ownerID, Username: "owner", SessionKey: hex.EncodeToString(sum[:]), ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
+	api := startSplitProcess(t, Options{ChatHost: unusedChatHost{}})
+	assets, err := url.Parse(os.Getenv("SMITHERS_REVIEW_ASSETS_URL"))
+	require.NoError(t, err)
+	proxy := httputil.NewSingleHostReverseProxy(assets)
+	rewrite := proxy.Director
+	proxy.Director = func(r *http.Request) { rewrite(r); r.Host = assets.Host }
+	server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			api.ServeHTTP(w, r)
+		} else {
+			proxy.ServeHTTP(w, r)
+		}
+	})
+	server.Start()
+	defer server.Close()
+	fmt.Println("REVIEW_BROWSER_READY " + origin)
+	require.Eventually(t, func() bool { _, err := os.Stat(os.Getenv("SMITHERS_REVIEW_DONE_FILE")); return err == nil }, 3*time.Minute, 20*time.Millisecond)
 }

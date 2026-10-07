@@ -1,26 +1,41 @@
 import { expect, test } from "../browserTest"
-import { owner, say } from "./j1-fixtures"
+import { spawn } from "node:child_process"
+import { mkdtemp, writeFile, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { resolve, join } from "node:path"
 
-// UI projection of .specs/engineering/checks/C-GH-13.md.
-// Integration and reference-host evidence remains required separately.
-// Written before implementation: mvp.md §6.1–6.3; lands with T-GH-04
-test("C-GH-13: GitHub facts use one pure decision seam", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md §6.1–6.3; lands with T-GH-04")
-  // Required seed: replay first, duplicate and stale GitHub review/check/push
-  // facts, then restart the inbound consumer at each transaction boundary.
-  // The fixed scenario finishes T8 once and retains T9's foreign-push wait.
-  await owner(page)
-  await page.goto("/")
-  await say(page, "/todo T8")
-  const card = page.locator(".smithers-card").last()
-  await expect(card).toContainText("Merged into main")
-  await expect(card.getByRole("button", { name: "Merge", exact: true })).toHaveCount(0)
-  await page.reload()
-  await say(page, "/todo T8")
-  await expect(page.locator(".smithers-card").last()).toContainText("Merged into main")
-  await say(page, "/todo T9")
-  await expect(page.locator(".smithers-card").last()).toContainText("Needs you")
-  await expect(page.getByRole("button", { name: "Bring in", exact: true })).toBeVisible()
-  await expect(page.getByRole("button", { name: "Discard", exact: true })).toBeVisible()
-  // Consumer effects and the exhaustive pure matrix require T-GH-04 receipts.
+// PostgreSQL, signed webhook, polling, delivery replay and install reads are real.
+// The backend also asserts the transaction and runtime acknowledgement fences.
+test("C-GH-13: GitHub facts use one pure decision seam", async ({ page, baseURL }) => {
+  test.setTimeout(240_000)
+  if (!process.env.SMITHERS_FFI_LIBRARY_PATH || !process.env.SMITHERS_TEST_DATABASE_URL) throw new Error("Native FFI and PostgreSQL are required")
+  const directory = await mkdtemp(join(tmpdir(), "smithers-review-browser-"))
+  const doneFile = join(directory, "done")
+  const backend = spawn("go", ["test", "./internal/compose", "-run", "^TestGitHubFactsBrowserPostgres$", "-count=1", "-v"], {
+    cwd: resolve("../../packages/backend"), env: { ...process.env, SMITHERS_REVIEW_ASSETS_URL: baseURL!, SMITHERS_REVIEW_DONE_FILE: doneFile }, stdio: ["pipe", "pipe", "pipe"]
+  })
+  let logs = "", origin = ""
+  backend.stdout.on("data", bytes => { logs += String(bytes); origin = logs.match(/REVIEW_BROWSER_READY (http:\/\/[^\s]+)/)?.[1] ?? "" })
+  backend.stderr.on("data", bytes => { logs += String(bytes) })
+  const exited = new Promise<number | null>((done, reject) => { backend.on("exit", done); backend.on("error", reject) })
+  try {
+    await expect.poll(() => { if (backend.exitCode !== null) throw new Error(logs); return origin }, { timeout: 120_000 }).not.toBe("")
+    await page.context().addCookies([{ name: "session", value: "review-browser-session", url: origin }])
+    await page.goto(`${origin}/owner/app`)
+    await page.getByRole("button", { name: "Review fixture", exact: true }).click()
+    const card = page.locator(".smithers-card").last()
+    await expect(card).toContainText("Working")
+    const response = await page.request.get(`${origin}/api/todos/1/events`)
+    expect(response.status()).toBe(200)
+    const events = await response.json()
+    expect(JSON.stringify(events)).toContain("Use the existing backoff helper")
+    await page.reload()
+    await page.getByRole("button", { name: "Review fixture", exact: true }).click()
+    await expect(page.locator(".smithers-card").last()).toContainText("Working")
+    const replay = await page.request.get(`${origin}/api/todos/1/events`)
+    expect(await replay.json()).toEqual(events)
+  } finally {
+    await writeFile(doneFile, "done")
+    try { expect(await exited, logs).toBe(0) } finally { await rm(directory, { recursive: true, force: true }) }
+  }
 })
