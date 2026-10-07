@@ -66,3 +66,10 @@ for (const reporter of ['spec', 'tap']) test(`real node:test ${reporter}`, t => 
   const parsed = spawnSync('bash', ['-c', 'source "$1"; extract', '_', script], { input: run.stdout, encoding: 'utf8' });
   assert.match(parsed.stdout, /^some test$/m);
 });
+
+test('baseline without baseline-run marker is refused before touching host state', () => {
+  const env = { ...process.env, LANE: 'l22-gate' };
+  const result = spawnSync('bash', [script, '--baseline'], { encoding: 'utf8', env });
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /REFUSED: only .*baseline-run.sh/);
+});

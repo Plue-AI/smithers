@@ -75,6 +75,8 @@ NODE
   exit $?
 fi
 mode=gate; [ "${1:-}" = "--baseline" ] && mode=baseline
+# Only ~/lanes/baseline-run.sh (LANE=fr-baseline-main) may write the shared baseline; a lane that writes it corrupts every host's gate.
+[ $mode = baseline ] && [ "${LANE:-}" != fr-baseline-main ] && { echo "REFUSED: only ~/lanes/baseline-run.sh writes the main baseline. Wait for it (see ~/lanes/fr-baseline.log); never run --baseline from a lane." >&2; exit 2; }
 root=$(git rev-parse --show-toplevel) || exit 2
 cd "$root"
 lane=${LANE:-lane}
