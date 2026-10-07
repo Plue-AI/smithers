@@ -24,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/ports"
 	"github.com/stretchr/testify/require"
 )
@@ -61,6 +62,14 @@ func (liveBrowserChatHost) RunChatTurn(ctx context.Context, grant ports.ChatTurn
 // Opt-in browser proof over the complete install composition. PostgreSQL,
 // command dispatch, TODO cards and live replay are real; only network delivery
 // is interrupted. This control-only journey does not execute repository code.
+// The queue contract uses the reference profile without a provisioned VM.
+// All admission ordering is real; no guest is booted by this control journey.
+type liveBrowserAdmissionRuntime struct{ microsandbox.Runtime }
+
+func (*liveBrowserAdmissionRuntime) FreeDisk(context.Context) (int64, error) {
+	return 400 << 30, nil
+}
+
 func TestLiveTodoBrowserPostgres(t *testing.T) {
 	if os.Getenv("SMITHERS_LIVE_BROWSER") != "1" {
 		t.Skip("set SMITHERS_LIVE_BROWSER=1 for the composed live browser journey")
@@ -94,7 +103,10 @@ func TestLiveTodoBrowserPostgres(t *testing.T) {
 	t.Setenv("SMITHERS_AUTH_SESSION_COOKIE_NAME", "session")
 	t.Setenv("SMITHERS_PUBLIC_URL", origin)
 	t.Setenv("SMITHERS_SERVER_ALLOWED_ORIGINS", origin)
-	api := startSplitProcess(t, Options{ChatHost: liveBrowserChatHost{}})
+	runtime := new(liveBrowserAdmissionRuntime)
+	profile := microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, DiskFreeBytes: 400 << 30}
+	api := startSplitProcess(t, Options{ChatHost: liveBrowserChatHost{}, Workspace: runtime, HostProfile: &profile, FlowHostProductAPIURL: origin})
+	t.Cleanup(func() { require.Zero(t, runtime.InUse(), "the control-path journey never boots a VM") })
 	app, err := filepath.Abs("../../../../apps/app")
 	require.NoError(t, err)
 	command := exec.CommandContext(ctx, "bun", "e2e/real/live-todo.browser.ts")
