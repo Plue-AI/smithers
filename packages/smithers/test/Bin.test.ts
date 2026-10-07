@@ -1763,6 +1763,9 @@ const launch = (cwd: string, args: ReadonlyArray<string>) =>
 describe("an attached launch's exit status", processBudget, () => {
   it("the installed bin door preserves up failure and terminal cancel status", () => {
     const cwd = stageUnservableSeat()
+    rmSync(join(cwd, "flows", "failing", "flow.mdx"))
+    writeFileSync(join(cwd, "flows", "failing", "flow.ts"), readFileSync(new URL("./fixtures/bin-failing/flow.ts", import.meta.url)))
+    symlinkSync(join(packageRoot, "node_modules"), join(cwd, "node_modules"), "dir")
     const invoke = (...args: Array<string>) => spawnSync(process.execPath, [
       "--no-warnings", "--import", scriptedHost, shim, ...args, "--root", cwd, "--json"
     ], {
@@ -1773,6 +1776,7 @@ describe("an attached launch's exit status", processBudget, () => {
       const failed = invoke("up", "failing")
       expect(failed.error).toBeUndefined()
       expect(failed.status, failed.stderr).toBe(1)
+      expect(failed.stdout, failed.stderr).not.toBe("")
       const receipt = JSON.parse(failed.stdout)
       expect(receipt.status).toBe("failed")
       const db = new DatabaseSync(join(cwd, ".flows", "control.db"))
