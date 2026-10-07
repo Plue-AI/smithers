@@ -157,7 +157,7 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
   const thirdTodo = { ...review, n: 3, place: 3, title: "Third TODO" }
   const currentTodos = () => (moved ? [{ ...thirdTodo, place: 2 }, { ...secondTodo, place: 3 }] : [secondTodo, thirdTodo]).filter(todo => !dropped || todo.n !== 2).map(todo => conflict && todo.n === 3 ? { ...todo, state: "needs_you", waits: fixtures.conflict.model.waits } : todo)
   await page.route("**/api/todos", route => route.fulfill({ json: [
-    { ...fixtures.merged.model, n: 1, place: 1 }, ...currentTodos()
+    { ...fixtures.merged.model, n: 1, place: 1 }, { ...fixtures.dropped.model, n: 4, place: 4 }, ...currentTodos()
   ] }))
   await page.route("**/api/todos/2", route => {
     if (route.request().method() === "POST") {
@@ -179,6 +179,7 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
   const home = page.locator(".home").first()
   await expect(home).toBeVisible()
   await expect(home.locator(".stack-row .ref")).toHaveText(["T2", "T3"])
+  await expect(home.locator('[data-filter="in_review"]')).toContainText("2")
   const second = home.locator(".stack-row").filter({ hasText: "Second TODO" })
   const third = home.locator(".stack-row").filter({ hasText: "Third TODO" })
   await expect(second.getByRole("button", { name: "Merge", exact: true })).toBeVisible()
@@ -206,6 +207,7 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
   expect(drops[0]!.body).toEqual({ op: "drop" })
   expect(drops[0]!.key).toMatch(/^[0-9a-f-]{36}$/)
   await expect(home.locator(".stack-row .ref")).toHaveText(["T3"])
+  await expect(home.locator('[data-filter="in_review"]')).toContainText("1")
 
   viewWrites.length = 0
   const reviewFilter = home.locator('[data-filter="in_review"]')
@@ -224,6 +226,18 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
   login = "maya"
   await page.reload()
   await expect(home.getByRole("button", { name: "Merge", exact: true })).toHaveCount(1)
+  const backgroundWrites: string[] = []
+  await page.route("**/api/runs/**", route => {
+    if (route.request().method() === "POST") backgroundWrites.push(route.request().url())
+    return route.fulfill({ status: 503, json: { error: { code: "unavailable", message: "Unavailable" } } })
+  })
+  for (const name of ["retry", "dismiss"]) {
+    await command(page, `/background.${name} stored-failure`)
+    await expect(page.getByText("Background runs unavailable", { exact: true }).first()).toBeVisible()
+  }
+  expect(backgroundWrites).toEqual([])
+  await expect(home.locator(".run-row")).toHaveCount(0)
+  await expect(home.locator(".stack-row .ref")).toHaveText(["T3"])
   conflict = true
   await expect(home.getByRole("button", { name: "Resolve", exact: true })).toBeVisible()
   await expect(home.getByRole("button", { name: "Answer", exact: true })).toHaveCount(0)
