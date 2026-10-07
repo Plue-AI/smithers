@@ -56,8 +56,9 @@ are not copied into artifacts. A driver is not reference-host evidence: no
 passing real-stack run has been recorded yet. The operator must ensure this
 runner is the second Mac and the selected install is the reference Mac mini.
 
-Outstanding: production Inspect, warm-wake and rebase-hold bindings,
-reference-host browser/SSH fixture qualification and remaining §20.3 latency observations,
+Outstanding: production Inspect and rebase-hold bindings, authenticated
+machine-budget activation, reference-host browser/SSH fixture qualification
+and remaining document/rebase §20.3 latency observations,
 qualified network/machine security evidence,
 real raw-sample artifacts, second-Mac runs, and
 C-PERF-01–06 results. Receipt approval remains with `scripts/check-run.mjs`;
