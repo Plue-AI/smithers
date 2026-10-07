@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -93,11 +94,34 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, lab
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx := context.Background()
 	q := db.New(pool)
+	var mirror *pollingGitHost
+	gitRoot, base := "", ""
+	if confirmations {
+		// Real Git transport behind the existing native-host test adapter.
+		// GitHub and the install mirror are distinct bare repositories.
+		gitRoot = t.TempDir()
+		upstream := &pollingGitHost{dir: filepath.Join(gitRoot, "rehearsal-owner", "app.git")}
+		require.NoError(t, upstream.git(ctx, nil, io.Discard, "init", "--bare", upstream.dir))
+		var tree, commit, blob bytes.Buffer
+		require.NoError(t, upstream.git(ctx, strings.NewReader(""), &tree, "mktree"))
+		require.NoError(t, upstream.git(ctx, nil, &commit, "commit-tree", strings.TrimSpace(tree.String()), "-m", "Main"))
+		base = strings.TrimSpace(commit.String())
+		require.NoError(t, upstream.git(ctx, nil, io.Discard, "update-ref", "refs/heads/main", base))
+		require.NoError(t, upstream.git(ctx, strings.NewReader("Hello\n"), &blob, "hash-object", "-w", "--stdin"))
+		tree.Reset()
+		require.NoError(t, upstream.git(ctx, strings.NewReader("100644 blob "+strings.TrimSpace(blob.String())+"\twave.md\n"), &tree, "mktree"))
+		commit.Reset()
+		require.NoError(t, upstream.git(ctx, nil, &commit, "commit-tree", strings.TrimSpace(tree.String()), "-p", base, "-m", "Wave"))
+		require.NoError(t, upstream.git(ctx, nil, io.Discard, "update-ref", "refs/heads/smithers/wave", strings.TrimSpace(commit.String())))
+		mirror = &pollingGitHost{dir: filepath.Join(t.TempDir(), "mirror.git")}
+		require.NoError(t, mirror.git(ctx, nil, io.Discard, "init", "--bare", mirror.dir))
+		require.NoError(t, mirror.git(ctx, nil, io.Discard, "fetch", upstream.dir, "refs/heads/main:refs/heads/main", "refs/heads/smithers/wave:"+repohost.MythicalReservedRefNS+"keep/"+strings.TrimSpace(commit.String())))
+	}
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 	app := services.GitHubAppCredentials{ID: 42, Slug: "smithers-install", OwnerLogin: "rehearsal-owner", OwnerKind: "user", ClientID: "client",
 		ClientSecret: "secret", WebhookSecret: "webhook", PEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))}
-	fake, err := githubfake.New(githubfake.Config{OAuthCode: "owner-code", AppID: app.ID, Slug: app.Slug, OwnerLogin: app.OwnerLogin, OwnerKind: app.OwnerKind,
+	fake, err := githubfake.New(githubfake.Config{OAuthCode: "owner-code", GitRoot: gitRoot, AppID: app.ID, Slug: app.Slug, OwnerLogin: app.OwnerLogin, OwnerKind: app.OwnerKind,
 		ClientID: app.ClientID, ClientSecret: app.ClientSecret, WebhookSecret: app.WebhookSecret, PrivateKeyPEM: app.PEM, ConversionCode: "manifest-code",
 		Installations: []githubfake.Installation{{ID: installation, Repositories: []githubfake.Repository{{ID: 100, FullName: "rehearsal-owner/app"}}}}})
 	require.NoError(t, err)
@@ -165,17 +189,27 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, lab
 	require.NoError(t, err)
 	require.NoError(t, connections.ReconcileGitHubAppInstallations(ctx))
 	mythical := services.NewMythicalService(pool, nil)
+	if confirmations {
+		mythical = services.NewMythicalService(pool, mirror)
+	}
 	mythical.SetOrchestration(services.NewMythicalGitHub(q, connections, userRepos, connections), nil, nil)
 	mythical.SetPolicyReader(noPolicy{})
 	mythical.EnableTodoPublication(credentials, connections, services.NewBudgetTracker())
 	_, err = q.RequestMythicalBootstrap(ctx, repo.ID, owner.ID, 100, false)
 	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET state = 'active' WHERE repository_id = $1`, repo.ID)
-	require.NoError(t, err)
+	if confirmations {
+		require.NoError(t, mythical.PollOnce(ctx))
+		stack, err := q.GetMythicalStack(ctx, repo.ID)
+		require.NoError(t, err)
+		require.Equal(t, "active", stack.State, stack.LastError)
+	} else {
+		_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET state = 'active' WHERE repository_id = $1`, repo.ID)
+		require.NoError(t, err)
+	}
 
 	// A TODO in review: filed by the owner, its pull request open on GitHub.
-	// The run that would put it there is T-STK-01's and dark, so only its
-	// end state is written here.
+	// Candidate execution belongs to T-STK-01; this fixture supplies its
+	// accepted result, then exercises the real confirmation and merge worker.
 	filed, err := mythical.FileTodo(middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: ownerSession}), repo.ID, owner.ID,
 		services.MythicalTodoInput{Title: "Wave", Prompt: "Wave hello", Request: "file-wave"})
 	require.NoError(t, err)
@@ -240,7 +274,7 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, lab
 	}
 
 	if confirmations {
-		_, err = pool.Exec(ctx, `UPDATE mythical_items SET attempt=1 WHERE id=$1`, before.ID)
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET attempt=1,candidate_base=$2,candidate_head=pr_head,checks=jsonb_set(checks,'{branch}','"smithers/wave"'::jsonb) WHERE id=$1`, before.ID, base)
 		require.NoError(t, err)
 		call := func(method, path, cookie, bearer, key, body string) (int, map[string]any) {
 			r, err := http.NewRequest(method, origin+path, strings.NewReader(body))
@@ -332,6 +366,64 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, lab
 		for _, write := range fake.Writes() {
 			require.False(t, write.Method == "PUT" && strings.HasSuffix(write.Path, "/merge"), "admission never sends a merge")
 		}
+		// Lose GitHub's answer after it receives the authorized squash. The
+		// next worker is reconstructed from durable rows, as after a restart.
+		fake.LoseNextResponses(fmt.Sprintf("/repos/rehearsal-owner/app/pulls/%d/merge", pull.Number), 1)
+		pass := func(worker *services.MythicalService) {
+			_, err := pool.Exec(ctx, `UPDATE mythical_items SET next_attempt_at=now() WHERE id=$1`, before.ID)
+			require.NoError(t, err)
+			worker.MainMoved(ctx, repo.ID)
+			require.NoError(t, worker.PollOnce(ctx))
+		}
+		confirmationState := func() string {
+			request, err := http.NewRequest("GET", origin+"/api/confirmations", nil)
+			require.NoError(t, err)
+			request.AddCookie(&http.Cookie{Name: "smithers_session", Value: "owner-browser-session"})
+			response, err := fake.Client().Do(request)
+			require.NoError(t, err)
+			defer response.Body.Close()
+			require.Equal(t, 200, response.StatusCode)
+			var rows []db.Confirmation
+			require.NoError(t, json.NewDecoder(response.Body).Decode(&rows))
+			for _, row := range rows {
+				if row.ID == id {
+					return row.State
+				}
+			}
+			t.Fatal("confirmation disappeared")
+			return ""
+		}
+		pass(mythical)
+		var intent struct {
+			State string `json:"state"`
+		}
+		require.NoError(t, json.Unmarshal(item().PendingOp, &intent))
+		require.Equal(t, "unknown", intent.State)
+		require.Equal(t, "pending", confirmationState())
+		recovered := services.NewMythicalService(pool, mirror)
+		recovered.SetOrchestration(services.NewMythicalGitHub(q, connections, userRepos, connections), nil, nil)
+		recovered.SetPolicyReader(noPolicy{})
+		recovered.EnableTodoPublication(credentials, connections, services.NewBudgetTracker())
+		for attempt := 0; attempt < 4; attempt++ {
+			pass(recovered)
+		}
+		require.Equal(t, "landed", item().State)
+		require.Empty(t, item().PendingOp)
+		require.Equal(t, "approved", confirmationState())
+		var merges []githubfake.Write
+		for _, write := range fake.Writes() {
+			if write.Method == "PUT" && strings.HasSuffix(write.Path, "/merge") {
+				merges = append(merges, write)
+			}
+		}
+		require.Len(t, merges, 1)
+		var sent struct {
+			SHA    string `json:"sha"`
+			Method string `json:"merge_method"`
+		}
+		require.NoError(t, json.Unmarshal(merges[0].Body, &sent))
+		require.Equal(t, pull.Head.SHA, sent.SHA)
+		require.Equal(t, "squash", sent.Method)
 		return
 	}
 
