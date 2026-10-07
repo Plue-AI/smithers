@@ -1023,7 +1023,20 @@ func (s *WorkspaceService) OpenWorkspaceTerminal(ctx context.Context, sessionID 
 		if credential != nil {
 			command.Environment = credential.environment()
 		}
-		terminal, err = s.runtime.OpenWorkspaceTerminal(operationCtx, row.ID, command)
+		if credential != nil {
+			if bound, ok := credential.writer.(interface {
+				OpenTerminal(context.Context, string, string, string, workspaceapi.Command) (workspaceapi.Terminal, error)
+			}); ok {
+				credential.mu.Lock()
+				digest := credential.identity
+				credential.mu.Unlock()
+				terminal, err = bound.OpenTerminal(operationCtx, row.ID, session.ID, digest, command)
+			} else {
+				terminal, err = s.runtime.OpenWorkspaceTerminal(operationCtx, row.ID, command)
+			}
+		} else {
+			terminal, err = s.runtime.OpenWorkspaceTerminal(operationCtx, row.ID, command)
+		}
 		if err != nil {
 			if credential != nil {
 				credential.Close()

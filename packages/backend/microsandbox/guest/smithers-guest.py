@@ -2053,6 +2053,159 @@ def protected_directory(names, create):
         raise
 
 
+def machined_boot_body(body):
+    # Host-minted authority only. Root never evaluates an environment, home,
+    # command, repository config or branch-produced executable at this door.
+    if not 0 < len(body) <= 4096 or b"\x00" in body:
+        fail(3, "invalid machined boot authority")
+    try:
+        lines = body.decode("ascii").splitlines()
+        values = dict(line.split("=", 1) for line in lines)
+    except (ValueError, UnicodeError):
+        fail(3, "invalid machined boot authority")
+    if (len(values) != len(lines) or set(values) != {"boot_id", "relay_secret", "credential", "topology"}
+            or not re.fullmatch(r"[0-9a-f]{32}", values["boot_id"])
+            or not valid_digest(values["relay_secret"]) or not valid_digest(values["credential"])
+            or values["topology"] != "relay"):
+        fail(3, "invalid machined boot authority")
+    return body
+
+
+def machined_program(digest, body=None):
+    if os.geteuid() != 0 or not valid_digest(digest):
+        fail(3, "machined installation requires approved root inputs")
+    names = ("opt", "smithers", "bin")
+    if body is None:
+        return protected_file_current(names, "smithers-machined", digest, MANAGED_ARTIFACT_LIMIT)
+    if (len(body) < 64 or body[:6] != b"\x7fELF\x02\x01"
+            or int.from_bytes(body[18:20], "little") != 183):
+        fail(3, "machined executable is not Linux arm64")
+    # An active broker must keep the executable bytes its boot admitted. Updating
+    # its pathname underneath it would misidentify an older running artifact.
+    parent = protected_directory(("run", "smithers", "machined"), create=True)
+    lock = None
+    try:
+        require_secret_tmpfs(parent)
+        lock = os.open("broker.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=parent)
+        info = os.fstat(lock)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0
+                or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1):
+            fail(3, "untrusted machined startup lock")
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            fail(3, "machined update requires a stopped broker")
+        install_protected_file(names, "smithers-machined", digest, body, MANAGED_ARTIFACT_LIMIT)
+    finally:
+        if lock is not None:
+            os.close(lock)
+        os.close(parent)
+
+
+def start_machined(digest, body):
+    if os.geteuid() != 0:
+        fail(3, "machined startup requires root")
+    machined_boot_body(body)
+    if not machined_program(digest):
+        fail(3, "installed machined executable differs from bundle")
+    prepare_system_identity()
+    parent = protected_directory(("run", "smithers", "machined"), create=True)
+    lock = None
+    try:
+        require_secret_tmpfs(parent)
+        lock = os.open("broker.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=parent)
+        info = os.fstat(lock)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0
+                or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1):
+            fail(3, "untrusted machined startup lock")
+        running = False
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            running = True
+        try:
+            fd = os.open("boot", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        except FileNotFoundError:
+            if running:
+                fail(3, "serving machined has no boot authority")
+        else:
+            with os.fdopen(fd, "rb") as handle:
+                info = os.fstat(handle.fileno())
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid != 19998
+                        or stat.S_IMODE(info.st_mode) != 0o400 or info.st_nlink != 1 or info.st_size > 4096):
+                    fail(3, "untrusted machined boot file")
+                current = handle.read(4097)
+            if running:
+                if current != body:
+                    fail(3, "serving machined boot differs from host authority")
+                return "current"
+        temporary = ".boot-" + secrets.token_hex(16)
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(body)
+                handle.flush()
+                os.fchown(handle.fileno(), 19998, 20000)
+                os.fchmod(handle.fileno(), 0o400)
+                os.fsync(handle.fileno())
+            os.replace(temporary, "boot", src_dir_fd=parent, dst_dir_fd=parent)
+            os.fsync(parent)
+        finally:
+            try:
+                os.unlink(temporary, dir_fd=parent)
+            except FileNotFoundError:
+                pass
+        state = protected_directory(("var", "lib"), create=False)
+        try:
+            try:
+                os.mkdir("smithers-machined", 0o700, dir_fd=state)
+            except FileExistsError:
+                pass
+            directory = os.open("smithers-machined", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=state)
+            try:
+                info = os.fstat(directory)
+                if info.st_uid == 0 and stat.S_IMODE(info.st_mode) == 0o700:
+                    os.fchown(directory, 19998, 20000)
+                elif info.st_uid != 19998 or stat.S_IMODE(info.st_mode) != 0o700:
+                    fail(3, "untrusted machined state directory")
+            finally:
+                os.close(directory)
+        finally:
+            os.close(state)
+        admission = protected_directory(("run", "smithers", "admission"), create=True)
+        os.close(admission)
+        # Preserve the team's live environment. Creation is the empty literal
+        # default, never a branch's env.json or caller-selected file.
+        env_parent = protected_directory(("run", "smithers"), create=False)
+        try:
+            try:
+                info = os.stat("env", dir_fd=env_parent, follow_symlinks=False)
+            except FileNotFoundError:
+                put_secret_environment(b"{}")
+            else:
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 20000
+                        or stat.S_IMODE(info.st_mode) != 0o640 or info.st_nlink != 1):
+                    fail(3, "untrusted team environment")
+        finally:
+            os.close(env_parent)
+        # The native broker acquires this same fixed lock before binding its
+        # listener. No PID selected by a caller is signalled or reused.
+        fcntl.flock(lock, fcntl.LOCK_UN)
+        import subprocess
+        child = subprocess.Popen(["/opt/smithers/bin/smithers-machined", "broker"],
+                                 cwd="/", env={"PATH": "/usr/bin:/bin", "HOME": "/"},
+                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, start_new_session=True)
+        time.sleep(0.05)
+        if child.poll() is not None:
+            fail(3, "machined broker refused startup")
+        return "started"
+    finally:
+        if lock is not None:
+            os.close(lock)
+        os.close(parent)
+
+
 def protected_file_current(names, target, digest, limit):
     # Whether the root-owned file target under names already holds exactly
     # the approved bytes with mode 0755. Anything but a root-owned regular
@@ -2271,6 +2424,15 @@ def main(args):
     if not args:
         fail(125, "missing subcommand")
     command = args[0]
+    if command == "machined-check" and len(args) == 2:
+        print("current" if machined_program(args[1]) else "replace")
+        return
+    if command == "machined-install" and len(args) == 2:
+        machined_program(args[1], sys.stdin.buffer.read(MANAGED_ARTIFACT_LIMIT + 1))
+        return
+    if command == "machined-start" and len(args) == 2:
+        print(start_machined(args[1], sys.stdin.buffer.read(4097)))
+        return
     if command == "put-env" and len(args) == 1:
         put_secret_environment(sys.stdin.buffer.read(SECRET_ENV_LIMIT + 1))
         return

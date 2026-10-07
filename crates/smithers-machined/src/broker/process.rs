@@ -61,6 +61,7 @@ fn high(fd: &impl std::os::fd::AsFd) -> io::Result<OwnedFd> {
     Ok(rustix::io::fcntl_dupfd_cloexec(fd, 10)?)
 }
 pub struct Installed {
+    _lock: File,
     controls:
         super::supervisor::Supervisor<super::spawn::Processes<super::spawn::InstalledAdmission>>,
     local: UnixListener,
@@ -77,9 +78,27 @@ impl Installed {
             "/opt/smithers/bin",
             "/run",
             "/run/smithers",
+            "/run/smithers/machined",
         ] {
             protected(path, true)?;
         }
+        let root = File::open("/")?;
+        let fd = rustix::fs::openat2(
+            &root,
+            "run/smithers/machined/broker.lock",
+            OFlags::RDWR | OFlags::CREATE | OFlags::CLOEXEC | OFlags::NOFOLLOW,
+            Mode::from_raw_mode(0o600),
+            ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS,
+        )?;
+        let lock = File::from(fd);
+        let meta = lock.metadata()?;
+        if !meta.is_file() || meta.uid() != 0 || meta.mode() & 0o7777 != 0o600 || meta.nlink() != 1
+        {
+            return Err(invalid());
+        }
+        // One root owner per boot. Never unlink the inode: the installer and
+        // broker use the same lock to distinguish retained serving from startup.
+        rustix::fs::flock(&lock, rustix::fs::FlockOperation::NonBlockingLockExclusive)?;
         let executable = protected(EXECUTABLE, false)?;
         if executable.metadata()?.mode() & 0o6000 != 0 {
             return Err(invalid());
@@ -132,6 +151,7 @@ impl Installed {
             Topology::Bridge(_) => None,
         };
         Ok(Self {
+            _lock: lock,
             controls: super::supervisor::Supervisor::new(super::spawn::Processes::new(
                 controls,
                 super::spawn::InstalledAdmission,

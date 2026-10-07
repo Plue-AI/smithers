@@ -10,6 +10,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
@@ -62,6 +63,37 @@ func (s *WorkspaceService) signInWorkspaceTerminal(ctx context.Context, row db.W
 	url := strings.TrimRight(strings.TrimSpace(s.gitBaseURL), "/")
 	if !ok || s.q == nil || url == "" {
 		return nil, nil
+	}
+	if runtime, installed := s.runtime.(interface {
+		SessionCredentialsForMember(context.Context, string, microsandbox.MemberIdentity) (*microsandbox.MemberCredentials, error)
+	}); installed {
+		roster, available := s.q.(interface {
+			ListCollaboratorsByRepo(context.Context, int64) ([]db.Collaborator, error)
+		})
+		if !available {
+			return nil, errors.New("terminal member roster unavailable")
+		}
+		members, err := roster.ListCollaboratorsByRepo(ctx, row.RepositoryID)
+		if err != nil {
+			return nil, err
+		}
+		var allocated *microsandbox.MemberIdentity
+		for _, member := range members {
+			if member.UserID.Valid && member.UserID.Int64 == userID && !member.SuspendedAt.Valid && (member.Permission == "write" || member.Permission == "admin") && member.UnixLogin.Valid && member.UnixUid >= 20000 {
+				if allocated != nil {
+					return nil, errors.New("terminal member allocation is ambiguous")
+				}
+				allocated = &microsandbox.MemberIdentity{Login: member.UnixLogin.String, UID: int(member.UnixUid), Active: true}
+			}
+		}
+		if allocated == nil {
+			return nil, errors.New("terminal member allocation unavailable")
+		}
+		bound, err := runtime.SessionCredentialsForMember(ctx, row.ID, *allocated)
+		if err != nil {
+			return nil, err
+		}
+		writer = bound
 	}
 	credential := &terminalCredential{registry: s.terminalCredentials, issuer: s.credentialIssuer, tokens: s.q, writer: writer, workspaceID: row.ID,
 		sessionID: sessionID, userID: userID, repositoryID: row.RepositoryID, url: url}

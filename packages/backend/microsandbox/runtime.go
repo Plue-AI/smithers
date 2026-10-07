@@ -141,6 +141,7 @@ type metadata struct {
 }
 
 type workspace struct {
+	sessionMu sync.Mutex // serializes sealed admission with its broker spawn
 	metadata
 	booting   bool // guarded by Runtime.mu; an in-flight launcher can still create a VM
 	directory string
