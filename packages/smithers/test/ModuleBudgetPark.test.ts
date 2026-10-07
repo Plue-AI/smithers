@@ -4,10 +4,9 @@
  * The host is `NodeControl.layerExecutor` with a registered module whose flow
  * makes two `AgentAction` steps, an Undici mock for the provider and the
  * offline judge, so nothing leaves the process. The ceiling is the planner's,
- * as `flow start --budget-*` sets it: 50 tokens with `onExceeded: park`. Every
- * provider call costs 20 tokens and a step answers in two frames under the
- * judged completion brake, so the first step spends 40 and the second step's
- * first call is projected at 40 + 20 and parks the run for an operator's
+ * as `flow start --budget-*` sets it: 30 tokens with `onExceeded: park`. Each typed step completes in one
+ * 20-token response, so the first step spends 20 and the second step's call
+ * is projected at 20 + 20 and parks the run for an operator's
  * raise (#2739).
  */
 import { NodeHttpClient } from "@effect/platform-node"
@@ -93,7 +92,7 @@ const task = (body: string): string | undefined => /Report step \d\./.exec(body)
 const parkedModuleRun = async (
   decision: "approve" | "deny",
   ceiling: { readonly budget: ControlSchema.Envelope["budget"]; readonly delayMs: number } = {
-    budget: { tokens: 50, onExceeded: "park" },
+    budget: { tokens: 30, onExceeded: "park" },
     delayMs: 0
   }
 ) => {
@@ -211,14 +210,15 @@ describe("a module run's parked budget", () => {
     // The second step parked the run instead of failing it with BudgetExceeded.
     expect(observed.first).toBe("control.approval.requested")
     expect(observed.parked).toMatchObject({ status: "parked", waitingReason: "budget" })
-    expect(observed.stepsWhileParked).toEqual(["Report step 1.", "Report step 1."])
-    // Spent 40, next 20, plus one more 50-token allowance.
-    expect(observed.approval?.target.envelope.budget).toEqual({ tokens: 110, onExceeded: "park" })
+    expect(observed.callsWhileParked).toBe(1)
+    expect(observed.stepsWhileParked).toEqual(["Report step 1."])
+    // Spent 20, next 20, plus one more 30-token allowance.
+    expect(observed.approval?.target.envelope.budget).toEqual({ tokens: 70, onExceeded: "park" })
     // The approved raise reached the resumed module handlers, and the first
     // step replayed from its journal rather than calling the provider again.
     expect(observed.last).toBe("control.run.completed")
     expect(observed.settled?.status).toBe("completed")
-    expect(observed.prompts.slice(observed.callsWhileParked).map(task)).toEqual(["Report step 2.", "Report step 2."])
+    expect(observed.prompts.slice(observed.callsWhileParked).map(task)).toEqual(["Report step 2."])
     expect(new Set(observed.prompts).size).toBe(observed.prompts.length)
   }, 60_000)
 
@@ -228,6 +228,7 @@ describe("a module run's parked budget", () => {
     expect(observed.first).toBe("control.approval.requested")
     expect(observed.last).toBe("control.run.failed")
     expect(observed.settled?.status).toBe("failed")
+    expect(observed.callsWhileParked).toBe(1)
     expect(observed.prompts).toHaveLength(observed.callsWhileParked!)
   }, 60_000)
 
@@ -246,6 +247,7 @@ describe("a module run's parked budget", () => {
     // No replacement request: the run settled on the denial.
     expect(observed.last).toBe("control.run.failed")
     expect(observed.settled?.status).toBe("failed")
+    expect(observed.callsWhileParked).toBe(1)
     expect(observed.prompts).toHaveLength(observed.callsWhileParked!)
   }, 60_000)
 })
