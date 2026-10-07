@@ -39,17 +39,21 @@ import (
 // Candidate contents come from the actual native repository and filesystem wiki.
 // Only the external model endpoint records scripted selection/answer responses.
 func TestLocalSharedPreflightUsesFastRoleThenCodingFallback(t *testing.T) {
-	testLocalSharedPreflight(t, false)
+	testLocalSharedPreflight(t, false, false)
 }
 
 func TestLocalSharedPreflightBrowser(t *testing.T) {
 	if os.Getenv("SMITHERS_CONTEXT_BROWSER") != "1" {
 		t.Skip("set SMITHERS_CONTEXT_BROWSER=1 for the unified browser proof")
 	}
-	testLocalSharedPreflight(t, true)
+	testLocalSharedPreflight(t, true, false)
 }
 
-func testLocalSharedPreflight(t *testing.T, browser bool) {
+func TestPerfPreflightTimingComposedInstall(t *testing.T) {
+	testLocalSharedPreflight(t, false, true)
+}
+
+func testLocalSharedPreflight(t *testing.T, browser, fullInstall bool) {
 	type call struct{ role, key, body string }
 	calls := make(chan call, 8)
 	runRef := ""
@@ -174,21 +178,48 @@ func testLocalSharedPreflight(t *testing.T, browser bool) {
 	router.Get("/api/user", user.GetAuthenticatedUser)
 	_, err = local.pool.Exec(local.ctx, `UPDATE users SET display_name=$1 WHERE id=$2`, "DEBUG-RESPONSE-PRIVATE-3559", memberID)
 	require.NoError(t, err)
-	public := httptest.NewServer(router)
+	public := httptest.NewUnstartedServer(router)
+	if fullInstall {
+		cfg := testConfigAllFlagsOn()
+		cfg.Auth.Mode = "selfhost"
+		cfg.Auth.SessionCookieName = "context_session"
+		cfg.Server.PublicURL = "http://" + public.Listener.Addr().String()
+		cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
+		// The parent mounts real install auth, membership and CSRF. Unrelated
+		// constructor dependencies are not used by these conversation requests.
+		installed := githubAppSetupComposeRouter(cfg, local.pool, nil, user).(chi.Router)
+		mountChatPublic(installed, local.composition.runtime, q, cfg)
+		public.Config.Handler = installed
+	}
+	public.Start()
 	defer public.Close()
 	jar, err := cookiejar.New(nil)
 	require.NoError(t, err)
 	origin, err := url.Parse(public.URL)
 	require.NoError(t, err)
-	jar.SetCookies(origin, []*http.Cookie{{Name: "context_session", Value: "composed-context-session"}})
+	jar.SetCookies(origin, []*http.Cookie{{Name: "context_session", Value: "composed-context-session"}, {Name: "__csrf", Value: "preflight-csrf"}})
 	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
+	postContext := func(target, contentType string, body io.Reader) (*http.Response, error) {
+		req, err := http.NewRequestWithContext(local.ctx, http.MethodPost, target, body)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", contentType)
+		req.Header.Set("Origin", public.URL)
+		for _, cookie := range jar.Cookies(origin) {
+			if cookie.Name == middleware.CSRFCookieName {
+				req.Header.Set("X-CSRF-Token", cookie.Value)
+			}
+		}
+		return client.Do(req)
+	}
 	_, err = local.pool.Exec(local.ctx, `INSERT INTO approvals(id,repository_id,state,kind,title,member_id,credential_id,command,subject,revision,payload,expires_at)
       VALUES($1,$2,'pending','one_click','canary-C',$3,'alice-credential','todo.drop','{"kind":"todo","ref":"T1"}','revision-1','{"private":"canary-C"}',now()+interval '1 hour')`, uuid.NewString(), local.repoID, local.ownerID)
 	require.NoError(t, err)
 	if browser {
 		// Give the selected run a real completed packaged-host turn, rather than
 		// opening an absent engine record or a seeded DesignWorld monitor.
-		response, err := client.Post(public.URL+"/api/conversations/main/prompt", "application/json", strings.NewReader(`{"prompt":"Prepare retry context","idempotencyKey":"context-run-source"}`))
+		response, err := postContext(public.URL+"/api/conversations/main/prompt", "application/json", strings.NewReader(`{"prompt":"Prepare retry context","idempotencyKey":"context-run-source"}`))
 		require.NoError(t, err)
 		raw, err := io.ReadAll(response.Body)
 		response.Body.Close()
@@ -257,8 +288,26 @@ func testLocalSharedPreflight(t *testing.T, browser bool) {
 		command := exec.CommandContext(local.ctx, "bun", "e2e/playwright/debug-api/model-context.ts")
 		command.Dir = "../../../../apps/app"
 		command.Env = append(os.Environ(), "SMITHERS_API_ORIGIN="+public.URL)
-		output, err := command.CombinedOutput()
-		require.NoError(t, err, string(output))
+		var output []byte
+		if fullInstall {
+			response, err := client.Get(public.URL + "/api/user")
+			require.NoError(t, err)
+			raw, err := io.ReadAll(response.Body)
+			response.Body.Close()
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, response.StatusCode, string(raw))
+			require.Contains(t, string(raw), "DEBUG-RESPONSE-PRIVATE-3559")
+			payload, _ := json.Marshal(map[string]string{"prompt": "Where do we retry webhooks?", "idempotencyKey": "install-preflight-" + role})
+			response, err = postContext(public.URL+"/api/conversations/main/prompt", "application/json", strings.NewReader(string(payload)))
+			require.NoError(t, err)
+			output, err = io.ReadAll(response.Body)
+			response.Body.Close()
+			require.NoError(t, err)
+			require.Equal(t, http.StatusAccepted, response.StatusCode, string(output))
+		} else {
+			output, err = command.CombinedOutput()
+			require.NoError(t, err, string(output))
+		}
 		var admitted struct {
 			TurnID string `json:"turnId"`
 			RunID  string `json:"runId"`
@@ -409,7 +458,7 @@ func testLocalSharedPreflight(t *testing.T, browser bool) {
 	// and prove the originally admitted turn recovers without another prompt.
 	require.NoError(t, q.UpsertInstallSetting(local.ctx, db.UpsertInstallSettingParams{Key: "setup.step.source", Value: json.RawMessage(`{"status":"pending"}`)}))
 	payload, _ := json.Marshal(map[string]string{"prompt": "Where do we retry webhooks?", "idempotencyKey": "source-unavailable"})
-	response, err := client.Post(public.URL+"/api/conversations/main/prompt", "application/json", strings.NewReader(string(payload)))
+	response, err := postContext(public.URL+"/api/conversations/main/prompt", "application/json", strings.NewReader(string(payload)))
 	require.NoError(t, err)
 	raw, err := io.ReadAll(response.Body)
 	response.Body.Close()
@@ -464,7 +513,7 @@ func testLocalSharedPreflight(t *testing.T, browser bool) {
 			require.NoError(t, err)
 		}
 		payload, _ := json.Marshal(map[string]string{"prompt": "Where do we retry webhooks?", "idempotencyKey": fmt.Sprintf("item-snapshot-%t", snapshot)})
-		response, err := client.Post(public.URL+"/api/conversations/"+workspaceID+"/prompt", "application/json", strings.NewReader(string(payload)))
+		response, err := postContext(public.URL+"/api/conversations/"+workspaceID+"/prompt", "application/json", strings.NewReader(string(payload)))
 		require.NoError(t, err)
 		raw, err := io.ReadAll(response.Body)
 		response.Body.Close()
@@ -565,7 +614,7 @@ func testLocalSharedPreflight(t *testing.T, browser bool) {
 			prompt := func(key string) string {
 				t.Helper()
 				body, _ := json.Marshal(map[string]string{"prompt": "Where do we retry webhooks?", "idempotencyKey": key})
-				response, err := client.Post(public.URL+"/api/conversations/main/prompt", "application/json", strings.NewReader(string(body)))
+				response, err := postContext(public.URL+"/api/conversations/main/prompt", "application/json", strings.NewReader(string(body)))
 				require.NoError(t, err)
 				raw, err := io.ReadAll(response.Body)
 				response.Body.Close()
