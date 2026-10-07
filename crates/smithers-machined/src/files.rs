@@ -236,12 +236,16 @@ impl Files {
             .write_through(cx, &args.path, &args.base, &args.content, &args.actor)
             .ok_or_else(Error::unsupported)??;
         let mut fields = vec![conn::field(1, write.digest.ok_or_else(Error::unsupported)?)];
-        if let Some(displaced) = write.raced {
+        if let Some(displaced) = &write.raced {
             let mut path = (args.path.len() as u16).to_be_bytes().to_vec();
             path.extend(args.path.as_bytes());
             fields.push(conn::field(
                 2,
-                conn::structure_bytes(&[conn::field(1, path), conn::field(2, displaced)]),
+                conn::structure_bytes(&[
+                    conn::field(1, path),
+                    conn::field(2, displaced.digest),
+                    conn::field(3, version_bytes(&displaced.version)?),
+                ]),
             ));
         }
         Ok(conn::structure_bytes(&fields))
@@ -264,12 +268,16 @@ impl Files {
                 None => conn::tagged(2, &[]),
             };
             let mut fields = vec![conn::field(1, post)];
-            if let Some(displaced) = write.raced {
+            if let Some(displaced) = &write.raced {
                 let mut path = (change.path.len() as u16).to_be_bytes().to_vec();
                 path.extend(change.path.as_bytes());
                 fields.push(conn::field(
                     2,
-                    conn::structure_bytes(&[conn::field(1, path), conn::field(2, displaced)]),
+                    conn::structure_bytes(&[
+                        conn::field(1, path),
+                        conn::field(2, displaced.digest),
+                        conn::field(3, version_bytes(&displaced.version)?),
+                    ]),
                 ));
             }
             writes.extend(conn::structure_bytes(&fields));
@@ -342,4 +350,13 @@ impl Core for Files {
     fn restore_rewrite(&self, cx: &mut LockCx) -> hooks::Result<()> {
         self.next.restore_rewrite(cx)
     }
+}
+
+fn version_bytes(version: &str) -> hooks::Result<Vec<u8>> {
+    if version.is_empty() || version.len() > 1024 || version.contains('\0') {
+        return Err(error(12));
+    }
+    let mut bytes = (version.len() as u16).to_be_bytes().to_vec();
+    bytes.extend(version.as_bytes());
+    Ok(bytes)
 }

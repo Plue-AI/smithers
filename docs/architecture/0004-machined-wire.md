@@ -133,7 +133,7 @@ The boot file `/run/smithers/machined/boot` (written by the runtime, T-COL-03; o
 
 Rejected: the host presenting the relay secret as a bearer value (§9.5.3's wording). A process that reached the listening port first, or a stale bridge listener, would learn the secret; the HMAC proof costs one extra half round trip and leaks nothing. Rejected: version negotiation. Host and daemon ship in one bundle and the daemon is planted, digest-checked, on every boot (§16.1.1), so a skew lives only until the machine's next boot; one exact `protocol` value keeps one code path.
 
-`protocol` is `7`: protocol 5's exact live-connection rule (8a, 2026-10-07,
+`protocol` is `8`: protocol 5's exact live-connection rule (8a, 2026-10-07,
 #3626) continues, with the bump required by the compared text-batch addition
 and delete/move mutations below. There is no negotiation or older live protocol accepted. Host and daemon
 ship in the same verified install bundle (spec §17.3); a different handshake
@@ -176,7 +176,7 @@ The host picks `req_id`, unique among its in-flight requests. Responses may arri
 | 16 | `set_roster` | `1 members: list<User>` | — | working-together W5; `unsupported` until broker ready |
 | 17 | `write_files` | `1 changes: list<{1 path: str, 2 base: Base, 3 content: bytes?}>` (content absent deletes), `2 actor: Actor.principal` | `1 writes: list<{1 post: Base, 2 raced: Raced?}>`, `2 failure: BatchFailure`? | T-COL-10 (see Compared text batches; Delete and move batches) |
 
-`Raced := struct {1 path: str, 2 displaced_digest: digest}`. A write success
+`Raced := struct {1 path: str, 2 displaced_digest: digest, 3 version: version_ref}`. A write success
 without tag 2 is `applied`; with tag 2 it applied while preserving the displaced
 outside version. The existing `stale` error is unchanged. No rollback follows
 an exchange race. The roster is replaced atomically, including an empty roster;
@@ -339,7 +339,7 @@ The exported Go `Read`, `Decode`, `DecodeLocal`, `Encode`, `EncodeLocal` and
 `RequestFrame` and Rust `Frame::{read,decode,decode_local,encode,encode_local}`
 share the framing above. `msg` exposes method and error discriminants; tagged
 payload builders construct requests without a second framing implementation.
-The 211 literal frames (10 sequences, 7 refusal sequences) include 1 MiB and 1 MiB + 1 content fixtures and preserve
+The 229 literal frames (14 sequences, 7 refusal sequences) include 1 MiB and 1 MiB + 1 content fixtures and preserve
 the browser document fixtures. The JSON companion records kind, stream and the
 canonical payload as hex and, for tagged payloads, a `literal` tree of
 `[tag, value]` fields that `gen.mjs` builds alongside the bytes; it never
@@ -477,7 +477,7 @@ and other producer migrations.
 
 ### Wire review rulings (8a, 2026-10-07, #3626; 3f's independent review)
 
-1. **The version is authenticated.** The HostProof MAC covers `protocol` (row 2 above), so a relay cannot rewrite it unseen. The daemon checks `protocol` equality first (`version_mismatch`), then the MAC (`auth_failed`). The corpus carries committed vectors (secret, boot_id, nonce, protocol 7, mac), the two vectors introduced at bc7887554b regenerated for protocol 7, and a wrong-mac frame expecting `auth_failed`; both codecs must compute each exact mac.
+1. **The version is authenticated.** The HostProof MAC covers `protocol` (row 2 above), so a relay cannot rewrite it unseen. The daemon checks `protocol` equality first (`version_mismatch`), then the MAC (`auth_failed`). The corpus carries committed vectors (secret, boot_id, nonce, protocol 8, mac), the two vectors introduced at bc7887554b regenerated for protocol 8, and a wrong-mac frame expecting `auth_failed`; both codecs must compute each exact mac.
 2. **Durable event variant 5 (transcripts) is defined, not reserved** (superseding this ruling's first version: #3622 ships it, in both codecs). `5 transcript` payload: `1 version: u16` (must be 1), `2 session: u32` (1..=0x7FFFFFFF), `3 participant: id128` (non-zero), `4 source: id128` (non-zero; survives reconnects), `5 profile: str` (non-empty; names the pinned host adapter), `6 generation: u64` (≥ 1; changes only when the identified source is replaced or truncated), `7 start: u64`, `8 end: u64` (end > start, and end − start = length of record + 1, the omitted newline), `9 record: bytes` (length-prefixed, as #3622 encodes it: one transcript record without its newline. It must be UTF-8 without NUL, else `bad_utf8`; contain no newline, else `bad_value`; and be 1 byte to 1 MiB long, else `bad_value`, so an empty record is refused. Its length is `end − start − 1`). Any violated bound is `bad_value`; no path, home, uid or executable crosses this event. The transcript frames stay in the manifest under these bounds; an expectation of `bad_utf8` on valid UTF-8 is a fixture bug.
 3. **One rule for reserved variants:** a reserved union variant is refused with `bad_value` (a forbidden variant) whatever its body, before the body is decoded. Event variant 6 follows it (variant 5 is defined, ruling 2); document `msg` bytes keep their own §documents rule until T-COL-08b defines them.
 4. **Sequences that span connections** name each connection: every sequence step carries `conn` (`a`, `b`, …; default `a`). `seq_newer_boot` is: `a` completes its handshake; `b` (newer boot, same machine) completes its handshake and is accepted; `a` receives `Goodbye{superseded}`; a third connection `c` presenting the older boot's credential receives `auth_failed`.
@@ -577,3 +577,27 @@ outside recreation, before using the existing document save path.
 This is daemon and client component support. The public `WorkspaceCompareWriter`
 remains unmounted pending its remaining receipt/mode contracts and installed
 machine qualification; component tests do not establish full ticket acceptance.
+
+
+### Retained version receipts (connection protocol 8, 2026-10-07)
+
+Protocol 8 remains pending the recorded independent delta review on #3626;
+this component landing does not extend protocol 6 acceptance.
+
+Every `raced` receipt now includes required field 3, `version_ref`: a nonempty
+UTF-8 reference of at most 1,024 bytes, with no NUL. The displaced digest names
+the bytes; the version reference retrieves the retained version for Compare.
+The installed adapter supplies its durably pinned versions commit. Both method
+3 and method 17 propagate the actual storage receipt; neither substitutes the
+new content digest or fabricates a version. Missing, empty, oversized or invalid
+UTF-8 references are refused. The local coding client preserves the receipt in
+its JSON `raced` array, alongside `post_digest`, and escapes opaque text normally.
+The Go client retains path, displaced digest and version, including on partial
+application failures. The version change requires live protocol 8; earlier
+persisted disk/history formats remain readable.
+
+The shared document writer now creates new files with mode 0644, matching
+`WorkspaceCompareWriter`, while preserving ordinary existing permissions and
+retaining its refusal of unsafe set-ID modes. Binary-file mutation support,
+public provider activation, and installed coding/browser/security qualification
+remain required before the public cutover.

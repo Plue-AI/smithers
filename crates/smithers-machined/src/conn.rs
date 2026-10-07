@@ -1,7 +1,7 @@
 //! ADR 0004 framing and canonical tagged payload validation.
 use std::io::{Read, Write};
 include!("schema.rs");
-pub const PROTOCOL: u16 = 7;
+pub const PROTOCOL: u16 = 8;
 pub const MAX_FILE_BYTES: usize = 1_048_576;
 pub const INITIAL_CREDIT: usize = 262_144;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -308,15 +308,15 @@ impl<'a> Cursor<'a> {
                 self.take(16)?;
                 return Ok(());
             }
-            "str" | "str1024" | "content" | "bytes1024" | "record" => {
+            "str" | "str1024" | "version_ref" | "content" | "bytes1024" | "record" => {
                 let (width, limit) = match typ {
                     "str" => (2, 4096),
-                    "str1024" => (2, 1024),
+                    "str1024" | "version_ref" => (2, 1024),
                     "content" | "record" => (4, 1048576),
                     _ => (4, 1024),
                 };
                 let n = self.number(width)? as usize;
-                if n > limit {
+                if n > limit || (typ == "version_ref" && n == 0) {
                     return Err(BadValue);
                 };
                 let bytes = self.take(n)?;

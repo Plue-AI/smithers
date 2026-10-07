@@ -8,6 +8,7 @@ use super::{
     state::{digest, Digest, Record},
     Error, Result, MAX_STATE_BYTES, MAX_TEXT_BYTES,
 };
+use crate::hooks::RetainedVersion;
 use std::collections::{BTreeMap, BTreeSet};
 use yrs::updates::encoder::Encode;
 use yrs::{Doc, GetString, ReadTxn, Transact};
@@ -341,7 +342,7 @@ impl<D: Disk> Host<D> {
         text: &str,
         actor: &str,
         now: u64,
-    ) -> Result<Option<(Digest, Option<Digest>)>> {
+    ) -> Result<Option<(Digest, Option<RetainedVersion>)>> {
         if !self.write_through(path, base, text, actor, now)? {
             return Ok(None);
         }
@@ -356,20 +357,27 @@ impl<D: Disk> Host<D> {
                 && (pending.expected.is_none() || displaced != pending.saved)
             {
                 let version = self.disk.record_outside(path, &bytes, "outside")?;
+                let retained =
+                    RetainedVersion::new(displaced, version.clone()).map_err(Error::Provider)?;
                 doc.outside_change = Some((version.clone(), "outside".into()));
                 self.notices.push(Notice::Outside {
                     path: path.into(),
                     version,
                     by: "outside".into(),
                 });
-                raced = Some(displaced);
+                raced = Some(retained);
             }
         }
         Ok(Some((doc.last_disk, raced)))
     }
     /// A successful rename is irreversible. Failures afterward leave the original
     /// document gone and the retained inode recoverable; timers never re-create it.
-    pub fn delete_saved(&mut self, path: &str, actor: &str, now: u64) -> Result<Option<Digest>> {
+    pub fn delete_saved(
+        &mut self,
+        path: &str,
+        actor: &str,
+        now: u64,
+    ) -> Result<Option<RetainedVersion>> {
         self.ready()?;
         let doc = self.docs.get_mut(path).ok_or(Error::Invalid)?;
         if !doc.displaced.is_empty() {
@@ -427,13 +435,15 @@ impl<D: Disk> Host<D> {
             self.retired[index].observed = Some(actual);
             if Some(actual) != record.previous {
                 let version = self.disk.record_outside(path, &bytes, "outside")?;
+                let retained =
+                    RetainedVersion::new(actual, version.clone()).map_err(Error::Provider)?;
                 self.retired[index].recorded = Some(actual);
                 self.notices.push(Notice::Outside {
                     path: path.into(),
                     version,
                     by: "outside".into(),
                 });
-                raced = Some(actual);
+                raced = Some(retained);
             }
         }
         self.disk.own_delete(path, Some(actor))?;

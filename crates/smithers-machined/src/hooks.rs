@@ -74,7 +74,25 @@ pub trait Watcher: Send + Sync {
 pub struct DocumentWrite {
     /// None is a durably recorded deletion.
     pub digest: Option<Digest>,
-    pub raced: Option<Digest>,
+    pub raced: Option<RetainedVersion>,
+}
+/// Exact displaced bytes and the durable version used to retrieve them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetainedVersion {
+    pub digest: Digest,
+    pub version: String,
+}
+impl RetainedVersion {
+    pub fn new(digest: Digest, version: String) -> Result<Self> {
+        if version.is_empty() || version.len() > 1024 || version.contains('\0') {
+            return Err(Error {
+                code: 12,
+                detail: Some("invalid retained version receipt".into()),
+                ..Error::unsupported()
+            });
+        }
+        Ok(Self { digest, version })
+    }
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileWrite {

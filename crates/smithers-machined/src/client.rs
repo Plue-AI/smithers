@@ -158,7 +158,20 @@ pub fn exchange(
         }
         3 => {
             let f = conn::fields("result3", &result[1..]).map_err(|_| invalid())?;
-            writeln!(output, "{{\"post_digest\":\"{}\"}}", hex(f[0].1))?;
+            let mut raced = vec![];
+            if let Some((_, raw)) = f.iter().find(|(tag, _)| *tag == 2) {
+                let fields = conn::fields("raced", raw).map_err(|_| invalid())?;
+                raced.push(serde_json::json!({
+                    "path": std::str::from_utf8(&fields[0].1[2..]).map_err(|_| invalid())?,
+                    "displaced_digest": hex(fields[1].1),
+                    "version": std::str::from_utf8(&fields[2].1[2..]).map_err(|_| invalid())?,
+                }));
+            }
+            serde_json::to_writer(
+                &mut *output,
+                &serde_json::json!({"post_digest": hex(f[0].1), "raced": raced}),
+            )?;
+            writeln!(output)?;
         }
         _ => return Err(invalid()),
     }

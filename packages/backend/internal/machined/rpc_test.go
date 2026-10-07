@@ -243,7 +243,7 @@ func TestRegistryAckCanonicalAndRefusals(t *testing.T) {
 }
 
 func TestRegistryRequiresExactLiveProtocolBeforeCredentials(t *testing.T) {
-	for _, version := range []uint16{0, 1, 2, 3, 4, 5, 6, 8} {
+	for _, version := range []uint16{0, 1, 2, 3, 4, 5, 6, 7, 9} {
 		t.Run(fmt.Sprint(version), func(t *testing.T) {
 			r := new(Registry)
 			authority, err := r.MintBoot("a", "vm")

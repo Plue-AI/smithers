@@ -452,4 +452,67 @@ mod document_save_actor_tests {
             assert_eq!(saved_actor(label), Actor::Outside, "{label:?}");
         }
     }
+    #[test]
+    fn retained_version_names_exact_bytes_and_survives_outbox_restart() {
+        use crate::outbox::Refs;
+        assert_eq!(rustix::process::geteuid().as_raw(), 19998);
+        let root = tempfile::tempdir().unwrap();
+        fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        let workspace = root.path().join("repo");
+        gix::init(&workspace).unwrap();
+        let spool = root.path().join("spool");
+        let outbox_dir = root.path().join("outbox");
+        private(&spool).unwrap();
+        private(&outbox_dir).unwrap();
+        let git = crate::git::Repository::open(&workspace, &spool).unwrap();
+        let outbox = crate::outbox::Outbox::open(
+            crate::outbox_store::Store::open(&outbox_dir, 19998).unwrap(),
+            19998,
+            git.clone(),
+        )
+        .unwrap();
+        let events = Arc::new(Events::new(outbox, git.clone(), || Ok(1)).unwrap());
+        let mut versions = DocumentVersions {
+            git: git.clone(),
+            events: events.clone(),
+            watcher: Arc::new(OnceLock::new()),
+        };
+        let expected = b"outside\0literal\n";
+        let version = versions.outside("src/a.rs", expected, "outside").unwrap();
+        assert_eq!(version.len(), 40);
+        let output = std::process::Command::new("/usr/bin/git")
+            .current_dir(&workspace)
+            .args(["show", &format!("{version}:b/src/a.rs")])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(output.stdout, expected);
+        assert_eq!(events.depth().unwrap(), 1);
+        let pins = git.clone().pending().unwrap();
+        assert_eq!(pins.len(), 1);
+        drop(versions);
+        drop(events);
+        let reopened = crate::outbox::Outbox::open(
+            crate::outbox_store::Store::open(&outbox_dir, 19998).unwrap(),
+            19998,
+            git.clone(),
+        )
+        .unwrap();
+        let event = reopened.front().unwrap().unwrap();
+        assert_eq!(event.id, pins[0]);
+        let fields = conn::fields("burst", &event.event[1..]).unwrap();
+        let actual = fields.iter().find(|(tag, _)| *tag == 4).unwrap().1;
+        assert_eq!(
+            actual
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>(),
+            version
+        );
+        assert_eq!(git.clone().pending().unwrap(), pins);
+    }
 }

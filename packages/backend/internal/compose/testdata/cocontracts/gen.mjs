@@ -4,7 +4,7 @@ import {createHash,createHmac} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 const dir=fileURLToPath(new URL('.',import.meta.url));
 const check=process.argv.includes('--check');
-const protocol=7;
+const protocol=8;
 // ADR 0004 §handshake: one protocol value in four places, changed in one
 // commit. This reads the other three as text (it imports no codec) and fails
 // both --check and generation when any differs.
@@ -38,10 +38,10 @@ const err=(code,...fields)=>res(255,f(1,[code]),...fields);
 const MAC_LABEL='smithers-machined host';
 const range=(a,b)=>Buffer.from(Array.from({length:b-a},(_,i)=>a+i));
 const vectors={
-  a:{secret:range(0x00,0x20),boot_id:range(0xa0,0xb0),nonce:range(0x20,0x40),mac:'bf835b8b735a29000a5b1db8369ec694b8b8fa8f786ed931ff4dfc06be3566f4'},
-  b:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x60,0x80),mac:'c6fc90e2834fdc3176329238a8033b9a354b0b03d36036b7e12f5e164371e837'},
+  a:{secret:range(0x00,0x20),boot_id:range(0xa0,0xb0),nonce:range(0x20,0x40),mac:'5a3bf6b8cdc911f0e0b8b56b77fcb8313bb5c2910d9b51f52f76f440c26d84a2'},
+  b:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x60,0x80),mac:'d686bd784d6e1895c535d0e9444d0ed1e7db80443a19da25fbef382b9b797d8e'},
   // c: b's boot and secret, a fresh nonce (seq_newer_boot's third connection).
-  c:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x80,0xa0),mac:'f68cb22bfc24ddae7be2ca31d46e166a703fe7ea73f48675fd62558633549af1'},
+  c:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x80,0xa0),mac:'f2d4b2d45385f501dae86711a3fbb9439e21f6c4d2d98cc38245085bb8ae1536'},
 };
 const macInput=v=>cat(Buffer.from(MAC_LABEL),num(protocol,2),v.boot_id,v.nonce);
 for(const [name,v] of Object.entries(vectors))if(createHmac('sha256',v.secret).update(macInput(v)).digest('hex')!==v.mac)throw Error('HMAC vector '+name+' disagrees with node:crypto');
@@ -197,7 +197,7 @@ emit('doc-saved-v2-max',4,cat([6],num(1791028800000,8),num(0xffffffffffffffffn,8
 emit('req_set_roster',1,req(16,f(1,list(st(f(1,str('ben')),f(2,num(20001,4))),st(f(1,str('will')),f(2,num(20002,4)))))));
 emit('req_set_roster_empty',1,req(16,f(1,list())));
 emit('res_set_roster',1,res(16),0,'ok','daemon-to-host');
-emit('res_write_file_raced',1,res(3,f(1,digest),f(2,st(f(1,str('src/a.ts')),f(2,Buffer.alloc(32,0x55))))),0,'ok','daemon-to-host');
+emit('res_write_file_raced',1,res(3,f(1,digest),f(2,st(f(1,str('src/a.ts')),f(2,Buffer.alloc(32,0x55)),f(3,str('1111111111111111111111111111111111111111'))))),0,'ok','daemon-to-host');
 emit('bad_roster_missing_uid',1,req(16,f(1,list(st(f(1,str('ben')))))),0,'missing_field');
 emit('bad_raced_missing_digest',1,res(3,f(1,digest),f(2,st(f(1,str('src/a.ts'))))),0,'missing_field','daemon-to-host');
 // Variant 4 moved_off (#3562): session actor 7, TODO item 2, pre-move commit.
@@ -239,6 +239,15 @@ emit('bad_utf8_write_files_path_nul',1,batchReq(f(1,list(st(f(1,cat(num(3,2),Buf
 emit('bad_value_write_files_path_over_4096',1,deleteAt('a'.repeat(4097)),0,'bad_value');
 // Busy during deletion is an application failure, never a stale no-op (ADR:560).
 emit('res_write_files_busy',1,batchRes(f(1,list()),f(2,batchFailure(0,0,9,f(4,num(1,4))))),0,'ok','daemon-to-host');
+// Protocol 8: every race receipt names the retained recoverable version.
+const raceFields=[f(1,str('a')),f(2,digest)];
+const raceReply=v=>res(3,f(1,digest),f(2,st(...raceFields,...(v===null?[]:[f(3,v)]))));
+emit('bad_raced_missing_version',1,raceReply(null),0,'missing_field','daemon-to-host');
+emit('bad_raced_empty_version',1,raceReply(str('')),0,'bad_value','daemon-to-host');
+emit('bad_raced_long_version',1,raceReply(str('v'.repeat(1025))),0,'bad_value','daemon-to-host');
+emit('bad_raced_utf8_version',1,raceReply(cat(num(1,2),[255])),0,'bad_utf8','daemon-to-host');
+emit('res_raced_max_version',1,raceReply(str('v'.repeat(1024))),0,'ok','daemon-to-host');
+emit('res_write_files_raced_version',1,batchRes(f(1,list(st(f(1,un(1,f(1,sha('x')))),f(2,st(...raceFields,f(3,str('retained-version')))))))),0,'ok','daemon-to-host');
 const previous=JSON.parse(readFileSync(dir+'MANIFEST.json','utf8'));
 // Sequence steps name their connection (ADR 0004 ruling 4); `a` unless given.
 const steps=(...names)=>names.map(n=>typeof n==='string'?{conn:'a',frame:n}:n);

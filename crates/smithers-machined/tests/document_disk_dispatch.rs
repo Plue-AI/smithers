@@ -88,6 +88,14 @@ impl hooks::Clock for Clock {
         self.1 + std::time::Duration::from_millis(self.0.load(Ordering::Relaxed))
     }
 }
+// This suite isolates document/disk behavior after item admission. Production
+// coding-admission refusals are exercised by files::tests through local RPC.
+struct AdmittedItem;
+impl hooks::Core for AdmittedItem {
+    fn validate_coding_write(&self) -> hooks::Result<()> {
+        Ok(())
+    }
+}
 struct Fixture {
     root: PathBuf,
     clock: Arc<Clock>,
@@ -165,7 +173,7 @@ impl Fixture {
         ));
         let files = Files::new(
             File::open(self.root.join("workspace")).unwrap(),
-            Arc::new(hooks::Disabled),
+            Arc::new(AdmittedItem),
         )
         .unwrap();
         let cx = LockCx::new(hooks::Hooks {
@@ -1093,6 +1101,7 @@ fn create_reports_empty_outside_file_as_a_race_including_empty_output() {
         let raced = conn::fields("raced", receipt[1].1).unwrap();
         assert_eq!(&raced[0].1[2..], b"new.rs");
         assert_eq!(raced[1].1, digest(b""));
+        assert_eq!(&raced[2].1[2..], b"fixture:1");
         assert_eq!(fs::read(f.root.join("workspace/new.rs")).unwrap(), content);
         assert_eq!(*f.receipts.0.lock().unwrap(), vec![Vec::<u8>::new()]);
         assert_eq!(
@@ -1367,4 +1376,36 @@ fn corrupted_deletion_metadata_refuses_recovery_without_touching_recreated_file(
         .file_name()
         .to_string_lossy()
         .starts_with(".smithers-doc-")));
+}
+
+#[test]
+#[ignore = "requires Linux uid19998 and confined real filesystem"]
+fn new_files_use_public_default_mode_and_existing_permissions_survive() {
+    let f = Fixture::new();
+    fs::write(f.root.join("workspace/script"), b"before").unwrap();
+    fs::set_permissions(
+        f.root.join("workspace/script"),
+        fs::Permissions::from_mode(0o751),
+    )
+    .unwrap();
+    let (_service, mut cx) = f.service();
+    let reply = batch(
+        &mut cx,
+        &[
+            ("new", None, b""),
+            ("a.rs", Some(b"abc"), b"changed"),
+            ("script", Some(b"before"), b"after"),
+        ],
+    );
+    assert_eq!(conn::fields("result17", &reply[1..]).unwrap().len(), 1);
+    for (path, mode) in [("new", 0o644), ("a.rs", 0o640), ("script", 0o751)] {
+        assert_eq!(
+            fs::metadata(f.root.join("workspace").join(path))
+                .unwrap()
+                .mode()
+                & 0o7777,
+            mode,
+            "{path}"
+        );
+    }
 }

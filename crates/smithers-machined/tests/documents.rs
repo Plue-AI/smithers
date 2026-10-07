@@ -1709,7 +1709,11 @@ mod dispatcher {
             .unwrap()
             .unwrap();
         assert_eq!(applied.digest, Some(digest(b"tool")));
-        assert_eq!(applied.raced, Some(digest(b"outside in swap")));
+        assert_eq!(
+            applied.raced.as_ref().map(|r| r.digest),
+            Some(digest(b"outside in swap"))
+        );
+        assert_eq!(applied.raced.as_ref().unwrap().version, "v1");
         assert!(disk
             .0
             .lock()
@@ -2194,7 +2198,10 @@ mod dispatcher {
                 )
                 .unwrap();
             assert!(result.failure.is_none());
-            assert_eq!(result.writes[0].raced, Some(digest(b"")));
+            assert_eq!(
+                result.writes[0].raced.as_ref().map(|r| r.digest),
+                Some(digest(b""))
+            );
             {
                 let disk = disk.0.lock().unwrap();
                 assert_eq!(disk.files["new"], bytes);
@@ -2413,7 +2420,11 @@ fn compare_swap_race_keeps_displaced_and_later_outside_save_without_rollback() {
             .unwrap()
             .unwrap();
         assert_eq!(post, digest(b"tool"));
-        assert_eq!(raced, Some(digest(format!("outside-{round}").as_bytes())));
+        assert_eq!(
+            raced.as_ref().map(|r| r.digest),
+            Some(digest(format!("outside-{round}").as_bytes()))
+        );
+        assert_eq!(raced.as_ref().unwrap().version, "v1");
         assert!(h
             .disk
             .versions
@@ -2668,7 +2679,9 @@ fn raced_delete_records_displaced_bytes_and_pending_swap_requires_settling() {
     let (mut h, _) = host("before");
     h.disk.swap_race = Some(b"outside".to_vec());
     assert_eq!(
-        h.delete_saved("a.rs", "alice", 0).unwrap(),
+        h.delete_saved("a.rs", "alice", 0)
+            .unwrap()
+            .map(|r| r.digest),
         Some(digest(b"outside"))
     );
     assert_eq!(h.disk.versions, vec![b"outside".to_vec()]);
@@ -2702,5 +2715,16 @@ fn deletion_record_paths_are_bounded_confined_and_checksummed() {
         let mut corrupt = bytes.clone();
         corrupt[at] ^= 1;
         assert!(Record::decode(&corrupt).is_err());
+    }
+}
+
+#[test]
+fn retained_version_receipts_require_bounded_nonempty_identity() {
+    use smithers_machined::hooks::RetainedVersion;
+    for v in ["".to_string(), "a\0b".into(), "x".repeat(1025)] {
+        assert!(RetainedVersion::new([1; 32], v).is_err());
+    }
+    for v in ["retained".to_string(), "🦀".repeat(256)] {
+        assert_eq!(RetainedVersion::new([1; 32], v.clone()).unwrap().version, v);
     }
 }

@@ -180,7 +180,7 @@ func (r *Registry) WriteFiles(ctx context.Context, branch string, actor []byte, 
 			if err != nil || string(raced[1][2:]) != changes[i].Path {
 				return result, wire.BadValue
 			}
-			result.Raced = append(result.Raced, RacedFile{changes[i].Path, hex.EncodeToString(raced[2])})
+			result.Raced = append(result.Raced, RacedFile{changes[i].Path, hex.EncodeToString(raced[2]), string(raced[3][2:])})
 		}
 	}
 	if raw := fields[2]; raw != nil {

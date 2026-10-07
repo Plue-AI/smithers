@@ -40,7 +40,7 @@ type FileChange struct {
 	Content    []byte
 }
 type AppliedFile struct{ Path, PostDigest string }
-type RacedFile struct{ Path, DisplacedDigest string }
+type RacedFile struct{ Path, DisplacedDigest, Version string }
 type StaleFile struct {
 	Path          string
 	CurrentDigest *string // nil means the path is now absent

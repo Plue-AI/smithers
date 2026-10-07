@@ -12,6 +12,14 @@ use std::{
     os::unix::net::UnixStream,
     sync::Arc,
 };
+// This suite isolates document/disk behavior after item admission. Production
+// coding-admission refusals are exercised by files::tests through local RPC.
+struct AdmittedItem;
+impl hooks::Core for AdmittedItem {
+    fn validate_coding_write(&self) -> hooks::Result<()> {
+        Ok(())
+    }
+}
 struct Fixture(std::path::PathBuf);
 impl Fixture {
     fn new() -> Self {
@@ -43,7 +51,7 @@ fn request(method: u8, fields: &[Vec<u8>]) -> Frame {
     }
 }
 fn exchange(fixture: &Fixture, request: Frame, documents: Arc<dyn hooks::Documents>) -> Frame {
-    let files = Files::new(File::open(&fixture.0).unwrap(), Arc::new(hooks::Disabled)).unwrap();
+    let files = Files::new(File::open(&fixture.0).unwrap(), Arc::new(AdmittedItem)).unwrap();
     let mut cx = LockCx::new(Hooks {
         core: Arc::new(files),
         documents,

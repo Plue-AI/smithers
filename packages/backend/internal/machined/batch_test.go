@@ -21,7 +21,7 @@ func TestBatchWritePartialFailureRetainsVerifiedReceipts(t *testing.T) {
 		done <- response{result, err}
 	}()
 	digest := sha256.Sum256([]byte("a"))
-	receipt := wire.Struct(wire.Field(1, wire.Union(1, wire.Field(1, digest[:]))), wire.Field(2, wire.Struct(wire.Field(1, wire.String("first")), wire.Field(2, digest[:]))))
+	receipt := wire.Struct(wire.Field(1, wire.Union(1, wire.Field(1, digest[:]))), wire.Field(2, wire.Struct(wire.Field(1, wire.String("first")), wire.Field(2, digest[:]), wire.Field(3, wire.String("retained-outside")))))
 	failure := wire.Struct(wire.Field(1, wire.U16(1)), wire.Field(2, []byte{0}), wire.Field(3, wire.Struct(wire.Field(1, []byte{byte(wire.Internal)}))))
 	answer(t, peer, wire.WriteFiles, wire.Field(1, append(wire.U16(1), receipt...)), wire.Field(2, failure))
 	got := <-done
@@ -30,11 +30,11 @@ func TestBatchWritePartialFailureRetainsVerifiedReceipts(t *testing.T) {
 	require.Equal(t, "internal", refusal.Code)
 	require.Nil(t, got.result.Stale)
 	require.Equal(t, []AppliedFile{{"first", hex.EncodeToString(digest[:])}}, got.result.Applied)
-	require.Equal(t, []RacedFile{{"first", hex.EncodeToString(digest[:])}}, got.result.Raced)
+	require.Equal(t, []RacedFile{{"first", hex.EncodeToString(digest[:]), "retained-outside"}}, got.result.Raced)
 }
 func TestBatchWriteRefusesOldProtocolAndBadLaterInputBeforeSending(t *testing.T) {
 	r, link, _ := rpcFixture(t)
-	link.protocol = 6
+	link.protocol = 7
 	_, err := r.WriteFiles(t.Context(), "a", []byte("actor"), []FileChange{{Path: "first"}})
 	var refusal *SessionError
 	require.ErrorAs(t, err, &refusal)
@@ -62,7 +62,7 @@ func TestBatchWriteRejectsContradictoryOrWrongReceipts(t *testing.T) {
 			}
 			receiptFields := [][]byte{wire.Field(1, wire.Union(1, wire.Field(1, digest[:])))}
 			if kind == "race_path" {
-				receiptFields = append(receiptFields, wire.Field(2, wire.Struct(wire.Field(1, wire.String("foreign")), wire.Field(2, digest[:]))))
+				receiptFields = append(receiptFields, wire.Field(2, wire.Struct(wire.Field(1, wire.String("foreign")), wire.Field(2, digest[:]), wire.Field(3, wire.String("retained-outside")))))
 			}
 			fields := [][]byte{wire.Field(1, append(wire.U16(1), wire.Struct(receiptFields...)...))}
 			if kind == "stale_after_write" || kind == "failure_index" {

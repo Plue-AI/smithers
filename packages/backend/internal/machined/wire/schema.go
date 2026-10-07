@@ -38,7 +38,7 @@ var structures = map[string][]field{
 	"args15":          {{1, true, "u32"}, {2, true, "u64"}},
 	"args16":          {{1, true, "list:user"}},
 	"result16":        {},
-	"raced":           {{1, true, "str"}, {2, true, "digest"}},
+	"raced":           {{1, true, "str"}, {2, true, "digest"}, {3, true, "version_ref"}},
 	"args17":          {{1, true, "list:local_mutation"}, {2, true, "host_actor"}},
 	"local_mutation":  {{1, true, "str"}, {2, true, "base"}, {3, false, "content"}},
 	"mutation_result": {{1, true, "base"}, {2, false, "raced"}},

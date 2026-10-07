@@ -15,7 +15,7 @@ import (
 
 // Protocol is the sole live connection version. Decoding a historical frame
 // does not admit an older peer; link admission requires this exact version.
-const Protocol = 7
+const Protocol = 8
 const MaxWorkspaceFileBytes = 1048576
 const InitialCredit = 262144
 const (
@@ -285,9 +285,9 @@ func (c *cursor) value(typ string) error {
 	case "id128":
 		_, e := c.take(16)
 		return e
-	case "str", "str1024", "content", "bytes1024", "record":
+	case "str", "str1024", "version_ref", "content", "bytes1024", "record":
 		width, limit := 2, 4096
-		if typ == "str1024" {
+		if typ == "str1024" || typ == "version_ref" {
 			limit = 1024
 		}
 		if typ == "content" || typ == "record" {
@@ -302,7 +302,7 @@ func (c *cursor) value(typ string) error {
 		if e != nil {
 			return e
 		}
-		if n > uint64(limit) {
+		if n > uint64(limit) || (typ == "version_ref" && n == 0) {
 			return BadValue
 		}
 		b, e := c.take(int(n))

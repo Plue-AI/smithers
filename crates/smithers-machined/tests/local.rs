@@ -384,3 +384,42 @@ fn local_open_refuses_admission_fields_from_corpus() {
         assert_eq!(validate_open(args).is_ok(), allowed, "{name}");
     }
 }
+
+#[test]
+fn local_writer_keeps_recoverable_version_and_escapes_opaque_identity() {
+    let request = client::request(
+        &args(&["write-file", "a", "--base", "absent"]),
+        &mut &b"new"[..],
+    )
+    .unwrap();
+    let (mut caller, mut server) = UnixStream::pair().unwrap();
+    let expected = request.encode_local().unwrap();
+    let version = "retained-\"🦀\"";
+    let thread = std::thread::spawn(move || {
+        let mut input = vec![0; expected.len()];
+        server.read_exact(&mut input).unwrap();
+        assert_eq!(input, expected);
+        let mut text = (version.len() as u16).to_be_bytes().to_vec();
+        text.extend(version.as_bytes());
+        let raced = conn::structure_bytes(&[
+            conn::field(1, [0, 1, b'a']),
+            conn::field(2, [9; 32]),
+            conn::field(3, text),
+        ]);
+        smithers_machined::daemon::response(
+            1,
+            3,
+            conn::structure_bytes(&[conn::field(1, [8; 32]), conn::field(2, raced)]),
+        )
+        .write(&mut server)
+        .unwrap();
+    });
+    let mut output = vec![];
+    assert!(client::exchange(&mut caller, &request, &mut output).unwrap());
+    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(value["post_digest"], "08".repeat(32));
+    assert_eq!(value["raced"][0]["path"], "a");
+    assert_eq!(value["raced"][0]["version"], version);
+    assert_eq!(value["raced"][0]["displaced_digest"], "09".repeat(32));
+    thread.join().unwrap();
+}
