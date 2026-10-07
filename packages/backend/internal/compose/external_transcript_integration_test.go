@@ -401,8 +401,9 @@ func TestExternalImportCommitReplay(t *testing.T) {
 		directory, file, profile string
 		count                    int
 	}{
-		{"codex-0.160", "rollout.jsonl", "codex/0.160.0", 32},
-		{"claude-code-2.1", "session.jsonl", "claude-code/2.1.0", 36},
+		{"codex-0.160", "rollout.jsonl", "codex/0.160.0", 67},
+		{"claude-code-2.1", "session.jsonl", "claude-code/2.1.0", 62},
+		{"codex-machine-0.160", "rollout.jsonl", "codex/0.160.0", 86},
 	} {
 		_, sourceFile, _, ok := goruntime.Caller(0)
 		require.True(t, ok)
@@ -431,9 +432,6 @@ func TestExternalImportCommitReplay(t *testing.T) {
 		}
 		var imported int
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM chat_turns WHERE request_payload->'external'->>'source_format_version'=$1`, fixture.profile).Scan(&imported))
-		if index == 1 {
-			imported--
-		} // The earlier literal assistant fixture.
 		require.Equal(t, fixture.count, imported)
 	}
 	for _, cookie := range []string{benCookie, aliceCookie} {
@@ -442,6 +440,8 @@ func TestExternalImportCommitReplay(t *testing.T) {
 		require.Contains(t, history, "exec-72424bde-7b89-43fe-9962-8fe21e4a3d4b")
 		require.Contains(t, history, "toolu_01JD3dL8cHy7FW7iBubC6yjY")
 		require.Contains(t, history, `"read_only":true`)
+		require.Contains(t, history, "capture-error")
+		require.Contains(t, history, "Failed to find expected lines")
 	}
 }
 
