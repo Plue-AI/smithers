@@ -46,14 +46,20 @@ func (r relayControl) opener(ctx context.Context) sessionOpener {
 		}
 		// Authentication completes before any member argv or channel bytes cross
 		// the relay. No root/user/env/cwd selector exists in this control envelope.
+		modes := make(frameBytes, len(spec.Modes))
+		for i, b := range spec.Modes {
+			modes[i] = uint16(b)
+		}
 		request := struct {
-			Type string   `json:"type"`
-			Kind string   `json:"kind"`
-			Argv []string `json:"argv,omitempty"`
-			Cols uint16   `json:"cols,omitempty"`
-			Rows uint16   `json:"rows,omitempty"`
-			Port uint16   `json:"port,omitempty"`
-		}{"open_session", spec.Kind, spec.Argv, spec.Cols, spec.Rows, spec.Port}
+			Type  string     `json:"type"`
+			Kind  string     `json:"kind"`
+			Argv  []string   `json:"argv,omitempty"`
+			Cols  uint16     `json:"cols,omitempty"`
+			Rows  uint16     `json:"rows,omitempty"`
+			Port  uint16     `json:"port,omitempty"`
+			Term  string     `json:"term,omitempty"`
+			Modes frameBytes `json:"modes,omitempty"`
+		}{"open_session", spec.Kind, spec.Argv, spec.Cols, spec.Rows, spec.Port, spec.Term, modes}
 		reply, err := controlExchange(connection, request)
 		if err != nil || reply.Session == "" {
 			connection.Close()
@@ -62,7 +68,7 @@ func (r relayControl) opener(ctx context.Context) sessionOpener {
 			}
 			return nil, err
 		}
-		return connection, nil
+		return newAttachedStream(connection, reply.Session, func() (net.Conn, error) { return r.connect(ctx) }), nil
 	}
 }
 func (r relayControl) revoke(ctx context.Context) error {
@@ -81,6 +87,8 @@ func (r relayControl) revoke(ctx context.Context) error {
 type controlReply struct {
 	Session  string  `json:"session"`
 	Received *uint64 `json:"received,omitempty"`
+	Written  *uint64 `json:"written,omitempty"`
+	InputEOF *bool   `json:"input_eof,omitempty"`
 	OK       bool    `json:"ok,omitempty"`
 	Class    string  `json:"class,omitempty"`
 	Code     string  `json:"code,omitempty"`
@@ -137,7 +145,7 @@ func strictControlReply(body []byte, reply *controlReply) error {
 			return errors.New("duplicate control field")
 		}
 		switch key {
-		case "session", "received", "ok", "class", "code":
+		case "session", "received", "written", "input_eof", "ok", "class", "code":
 		default:
 			return errors.New("unknown control field")
 		}
@@ -169,8 +177,11 @@ func strictControlReply(body []byte, reply *controlReply) error {
 				return errors.New("invalid session identity")
 			}
 		}
-		if reply.OK || reply.Code != "" || reply.Class != "" || len(fields) > 2 {
+		if reply.OK || reply.Code != "" || reply.Class != "" || (len(fields) != 1 && len(fields) != 4) {
 			return errors.New("ambiguous control reply")
+		}
+		if len(fields) == 4 && (reply.Received == nil || reply.Written == nil || reply.InputEOF == nil || *reply.Written > *reply.Received) {
+			return errors.New("invalid attach counters")
 		}
 	} else if reply.OK {
 		if len(fields) != 1 {
