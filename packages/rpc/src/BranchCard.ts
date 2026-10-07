@@ -18,7 +18,7 @@ export interface BranchCard {
   rebase?:
     | { state: "pending"; onto: string; waiting_for?: { actor: Actor; terminal: string } }
     | { state: "rebasing"; onto: string }
-    | { state: "conflict"; onto: string; paths: string[] }
+    | { state: "conflict"; onto: string; paths: string[]; conflict_change?: string; onto_revision?: string }
   moved_off?: { by: Actor; item: number }
   presence: { actor: Actor; where:
     | { kind: "file"; path: string; line?: number }
