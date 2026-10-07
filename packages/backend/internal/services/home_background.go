@@ -76,7 +76,7 @@ func (s *HomeBackground) controlTx(ctx context.Context, tx pgx.Tx, repo, user, i
 	}
 	var err error
 	var state string
-	err = tx.QueryRow(ctx, `SELECT status FROM workflow_runs WHERE id=$1 AND repository_id=$2 FOR UPDATE`, id, repo).Scan(&state)
+	err = tx.QueryRow(ctx, `SELECT status FROM workflow_runs WHERE id=$1 AND repository_id=$2 AND execution_plane='flow' FOR UPDATE`, id, repo).Scan(&state)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return empty, homeBackgroundError(404, "run_not_found", "user", "Run unavailable")
 	}
