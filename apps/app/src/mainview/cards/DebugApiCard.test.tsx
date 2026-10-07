@@ -200,19 +200,29 @@ test("debug bodies are viewer-only and ephemeral: no storage write, store row or
   const writes: string[] = [], base = memoryStorage()
   const storage = { ...base, setItem: (key: string, value: string) => { writes.push(`${key}=${value}`); base.setItem(key, value) } }
   const store = await createAppStore({ kind: "localStorage", storage })
-  const requests: StartAgentTurnRequest[] = []
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+  const requests: StartAgentTurnRequest[] = [], prompts: unknown[] = []
   const agent: AgentPort = { available: true, startTurn: async request => { requests.push(request); return { status: "started" } }, cancelTurn: async () => {}, subscribe: () => () => {} }
   const controller = createController(store, agent, { openApi: async () => apiFixture, debugApiOrigin: "http://mini.local", debugApiGates: () => ({ view: true, catalog: true, authorizer: true }),
-    toastDebounceMs: 0, toastAutoDismissMs: 60_000, fetchImpl: async () => new Response(JSON.stringify({ secret_note: BODY }), { status: 500, headers: { "Content-Type": "application/json", "X-Request-Id": "req-7f3a", "X-Echo": BODY } }) })
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null },
+    toastDebounceMs: 0, toastAutoDismissMs: 60_000, fetchImpl: async (url, init) => {
+      if (String(url).endsWith("/prompt")) {
+        prompts.push(JSON.parse(String(init?.body)))
+        return Response.json({}, { status: 503 })
+      }
+      if (String(url).includes("/api/conversations/")) return Response.json({}, { status: 404 })
+      return new Response(JSON.stringify({ secret_note: BODY }), { status: 500, headers: { "Content-Type": "application/json", "X-Request-Id": "req-7f3a", "X-Echo": BODY } })
+    } })
   await controller.runCommandForResult("debug-api", "readFile")
   await settle(() => store.collections.cards.has("debug-api"))
   expect((await controller.runCommandForResult("debug.api", JSON.stringify({ operationId: "readFile", intent: "send", values: { "path:path": `${BODY}.ts` } }))).status).toBe("executed")
   await settle(() => store.collections.toasts.get("toast-debug.api.send")?.status === "failed")
   expect(JSON.stringify(controller.debugApi.get())).toContain(BODY)
   expect(await controller.send("What is on screen?")).toBe(true)
-  await settle(() => requests.length === 1)
-  expect(JSON.stringify(requests[0])).not.toContain(BODY)
-  expect(requests[0]!.context?.recentCards?.map(card => card.kind)).not.toContain("debug-api")
+  await settle(() => prompts.length === 1)
+  expect(prompts[0]).toEqual({ prompt: "What is on screen?", idempotencyKey: expect.any(String) })
+  expect(JSON.stringify(prompts[0])).not.toContain(BODY)
+  expect(requests).toEqual([])
   const rows = Object.values(store.collections).flatMap(collection => [...(collection as unknown as { values: () => Iterable<unknown> }).values()])
   expect(rows.length).toBeGreaterThan(0)
   expect(JSON.stringify(rows)).not.toContain(BODY)
