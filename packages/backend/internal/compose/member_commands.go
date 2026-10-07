@@ -384,6 +384,7 @@ func dispatchConfirmation(w http.ResponseWriter, r *http.Request, command string
 func writeConfirmationDispatchError(w http.ResponseWriter, err error) {
 	var access *services.AccessError
 	var control *services.TodoControlError
+	var branch *services.BranchError
 	var api *pkgerrors.APIError
 	w.Header().Set("Content-Type", "application/json")
 	switch {
@@ -393,6 +394,9 @@ func writeConfirmationDispatchError(w http.ResponseWriter, err error) {
 	case stdErrors.As(err, &control):
 		w.WriteHeader(control.Status)
 		_ = json.NewEncoder(w).Encode(control)
+	case stdErrors.As(err, &branch):
+		w.WriteHeader(branch.Status)
+		_ = json.NewEncoder(w).Encode(branch)
 	case stdErrors.As(err, &api):
 		pkgerrors.WriteError(w, api)
 	default:

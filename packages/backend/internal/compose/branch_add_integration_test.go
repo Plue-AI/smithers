@@ -130,6 +130,13 @@ func runBranchAddComposed(t *testing.T, remove string) {
 		handler.ServeHTTP(response, request)
 		return response
 	}
+	token := "smithers_" + strings.Repeat("c", 40)
+	tokenSum := sha256.Sum256([]byte(token))
+	tokenHash := hex.EncodeToString(tokenSum[:])
+	scopes := []string{"read:repository", "write:repository"}
+	scopes = append(scopes, middleware.DelegationScopes(middleware.Delegation{Via: "codex"})...)
+	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "delegated", TokenHash: tokenHash, TokenLastEight: tokenHash[len(tokenHash)-8:], Scopes: strings.Join(scopes, ","), SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+	require.NoError(t, err)
 	if remove == "fresh-fork" {
 		request := httptest.NewRequest("POST", "http://127.0.0.1:4000/api/branches", strings.NewReader(`{"from":"main","name":"fresh"}`))
 		request.RemoteAddr = "127.0.0.1:12345"
@@ -186,9 +193,21 @@ func runBranchAddComposed(t *testing.T, remove string) {
 	if remove != "" {
 		response := call(`{"text":"Keep scratch"}`, "refused", cookie)
 		require.Equal(t, 503, response.Code, response.Body.String())
+		delegated := httptest.NewRequest("POST", "http://127.0.0.1:4000/api/branches/scratch%2Fben%2Ftry/add-to-stack", strings.NewReader(`{"text":"Keep scratch"}`))
+		delegated.RemoteAddr = "127.0.0.1:12345"
+		delegated.Header.Set("Content-Type", "application/json")
+		delegated.Header.Set("Authorization", "Bearer "+token)
+		delegated.Header.Set("Idempotency-Key", "refused-delegated")
+		delegatedResponse := httptest.NewRecorder()
+		handler.ServeHTTP(delegatedResponse, delegated)
+		require.Equal(t, 503, delegatedResponse.Code, delegatedResponse.Body.String())
+		require.Contains(t, delegatedResponse.Body.String(), `"class":"infra"`)
+		require.NotContains(t, delegatedResponse.Body.String(), `"code":"internal"`)
 		var count int
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items`).Scan(&count))
 		require.Zero(t, count)
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&count))
+		require.Zero(t, count, "missing providers cannot persist a delegated confirmation")
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workspaces`).Scan(&count))
 		require.Equal(t, 1, count)
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='branch.added-to-stack'`).Scan(&count))
@@ -230,13 +249,6 @@ func runBranchAddComposed(t *testing.T, remove string) {
 	git("-C", store, "update-ref", "refs/heads/"+confirmed.TargetBookmark, head)
 	git("-C", store, "update-ref", repohost.BranchHeadRef(confirmed.ID), head)
 	require.NoError(t, local.Client().ImportRefs(ctx, "ben", "demo"))
-	token := "smithers_" + strings.Repeat("c", 40)
-	tokenSum := sha256.Sum256([]byte(token))
-	tokenHash := hex.EncodeToString(tokenSum[:])
-	scopes := []string{"read:repository", "write:repository"}
-	scopes = append(scopes, middleware.DelegationScopes(middleware.Delegation{Via: "codex"})...)
-	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "delegated", TokenHash: tokenHash, TokenLastEight: tokenHash[len(tokenHash)-8:], Scopes: strings.Join(scopes, ","), SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
-	require.NoError(t, err)
 	agentPayload := `{"text":"Confirmed scratch","before":1}`
 	expectedPlace := int64(1)
 	if placement == "after" {
