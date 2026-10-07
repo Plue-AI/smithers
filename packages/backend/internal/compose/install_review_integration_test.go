@@ -358,8 +358,8 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 			router.ServeHTTP(answer, req)
 			return answer
 		}
-		body := `{"number":50,"conversation":"ben"}`
-		wrongRepository := call(`{"number":50,"repo":"other/app","conversation":"ben"}`, "wrong-repository")
+		body := `{"number":50,"conversation":"main"}`
+		wrongRepository := call(`{"number":50,"repo":"other/app","conversation":"main"}`, "wrong-repository")
 		require.Equal(t, 403, wrongRepository.Code, wrongRepository.Body.String())
 		// Every preflight refusal remains before acceptance and allocation.
 		for _, code := range []string{"review_binding_unavailable", "review_source_unavailable", "review_digest_mismatch", "review_runtime_unavailable", "review_root_boundary_unavailable"} {
@@ -418,7 +418,7 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 		machine.mu.Unlock()
 		delivery.mu.Lock()
 		require.Equal(t, selected.OperationID, delivery.id)
-		require.Equal(t, "ben", delivery.conversation)
+		require.Equal(t, "main", delivery.conversation)
 		require.JSONEq(t, `{"repo":"review-owner/app","changeId":"review-50","description":"Review","commitId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","currentSeq":null,"revisionCount":null,"revisions":[],"authorName":null,"timestamp":null,"repos":[],"diff":null,"checks":null,"findings":[{"analyzer":"review","severity":"fix","path":"cache.ts","line":20,"summary":"Off by one","raisedAtSeq":null}],"reviews":null,"threads":null,"conflicts":null,"stack":null,"changeset":null}`, string(delivery.change))
 		delivery.mu.Unlock()
 		// Delivery actually committed before its lost reply. Recovery must

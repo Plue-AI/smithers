@@ -209,6 +209,9 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
             if (local && "run" in local) {
               catalogArgs.forEach((key, index) => { if (localArgs[index]) mapped[key] = context.args[localArgs[index]!] })
             }
+            if (row.name === "review" && Array.isArray(mapped.number) && mapped.number.length === 1) {
+              mapped.number = mapped.number[0]
+            }
             const parsed = local && "run" in local && row.http && row.name !== "todo.answer" ? z.object(args).parse(mapped) : mapped
             const value = await dispatchCatalog(client, row, { ...parsed, ...context.options })
             return ["md", "yaml", "toon"].includes(context.format) ? Failure.terminalSafeValue(value) : value
