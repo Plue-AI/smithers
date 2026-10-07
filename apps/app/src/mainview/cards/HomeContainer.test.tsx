@@ -81,27 +81,37 @@ test("the mounted Home admission holds Answer, order OK and Reset, so those rows
   for (const tag of ["todo.answer", "order.ok", "main.reset-to-github", "branch", "merge", "github.retry"] as const) expect(HOME_TAGS.has(tag)).toBe(true)
 })
 
-test("sync Retry is offered only while main's sync is stale", () => {
+test("sync Retry recovers stale and refused health while limited sync waits", () => {
   const base = Object.values(fixtures)[0]!.model
   const tags = (health: string) => mount({ ...base, main: { ...base.main, health, last_success_at: new Date(Date.now() - (health === "stale" ? 121_000 : 0)).toISOString() } }).props.actions.map(action => action.tag)
   expect(tags("fresh")).toEqual(["todo.new"])
   expect(tags("stale")).toEqual(["todo.new", "github.retry"])
   expect(tags("limited")).toEqual(["todo.new"])
-  expect(tags("refused")).toEqual(["todo.new", "settings"])
+  expect(tags("refused")).toEqual(["todo.new", "github.retry", "settings"])
 })
 
-test("a refused main sync offers Fix through the same settings flow as the slash door", async () => {
+for (const role of ["owner", "maintainer", "member"] as const) test(`a refused main sync keeps Fix and lets ${role} Retry once through the shared flow`, async () => {
   GlobalRegistrator.register()
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
   const host = document.createElement("div"), root = createRoot(host), calls: unknown[] = []
   try {
-    await act(async () => root.render(<HomeContainer model={fixtures.refused.model} role="owner" allowed={HOME_TAGS}
+    await act(async () => root.render(<HomeContainer model={fixtures.refused.model} role={role} allowed={HOME_TAGS}
       dispatch={(tag, input) => calls.push([tag, input])} view={{ maximized: false }} onView={() => {}} />))
     expect(host.textContent).toContain("Repository access refused")
     const fix = host.querySelector<HTMLButtonElement>('button[data-flow="settings"]')!
     expect(fix.textContent).toBe("Fix")
     await act(async () => fix.click())
     expect(calls).toEqual([["settings", undefined]])
+    const retries = host.querySelectorAll<HTMLButtonElement>('button[data-flow="github.retry"]')
+    expect(retries.length).toBe(1)
+    expect(retries[0]!.textContent).toBe("Retry")
+    await act(async () => retries[0]!.click())
+    expect(calls).toEqual([["settings", undefined], ["github.retry", undefined]])
+    // Admission retains authority even for the recovery door.
+    await act(async () => root.render(<HomeContainer model={fixtures.refused.model} role={role} allowed={new Set(["settings"])}
+      dispatch={(tag, input) => calls.push([tag, input])} view={{ maximized: false }} onView={() => {}} />))
+    expect(host.querySelector('button[data-flow="github.retry"]')).toBeNull()
+    expect(host.querySelector('button[data-flow="settings"]')).not.toBeNull()
   } finally { await act(async () => root.unmount()); await GlobalRegistrator.unregister() }
 })
 
@@ -450,6 +460,7 @@ test("an install's main row reads its GitHub sync over an unavailable stack: syn
   markup = render()
   expect(markup).toContain('data-health="refused"')
   expect(markup).toContain("GitHub App not installed")
+  expect(markup).toContain('data-flow="github.retry"')
   // Initial failures still carry authoritative health and a Retry door.
   for (const state of ["stale", "limited"] as const) {
     health = { state, last_success_at: null, ...(state === "limited" ? { retry_at: new Date(Date.now() + 60_000).toISOString() } : {}) }

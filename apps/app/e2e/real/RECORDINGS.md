@@ -182,3 +182,22 @@ Each member gets an initial capture after boot and theme selection. A transient
 confirmation or draft is retained before its action dismisses it, in both input
 modes. Direct pointer calls outside these shared doors still need migration;
 checkpoint images do not establish whole-journey completion or safe retention.
+
+`github-j10/sync-health.spec.ts` records the prepared J10.6 reference pass:
+five minutes of fresh Home age samples, a host GitHub network block, the stale
+boundary and six-minute row, Alice's Retry and usable Chat, app-agent retry after
+unblocking, installation suspension and recovery. It uses actual API/live data,
+never browser route interception. Keyboard mode and a theme are required.
+The owner operates the pre-approved host network block and GitHub suspension;
+the recording code runs no packet-filter or privileged command.
+
+Set `SMITHERS_JOURNEY_SYNC_OPERATOR_LOG` to an atomically replaced JSON array.
+During the pass the operator records `block-github`, `unblock-github`,
+`suspend-installation`, then `unsuspend-installation`, each as
+`{"action":"block-github","at":"<UTC ISO>","candidate":"<installed SHA>","operator":"<person>"}`.
+Events must occur during the pass, in order, for the installed candidate.
+Retain the approved block rules and sanitized host recording separately.
+Samples, home-delta times and operator events attach on failure too. This log
+is an observation, not a signed manual receipt. Rate-limit/budget timer recovery
+and authentication proofs remain the production integration checks; source
+collection and supplemental mounted Home tests cannot qualify C-J10-06.

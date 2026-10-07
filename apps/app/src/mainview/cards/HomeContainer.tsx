@@ -44,8 +44,9 @@ export const HomeContainer = ({ model: source, role, allowed, dispatch, View = H
     definitions.push(definition)
   }
   admitted({ tag: "todo.new", label: "New TODO", command_input: { text: "" } })
-  /* Sync Retry shows only once main's sync is stale; limited retries on its own, refused needs a fix. */
-  if (health === "stale") admitted({ tag: "github.retry", label: "Retry", command_input: undefined })
+  /* After access is fixed outside the app, Retry recovers a refusal (J10.6).
+   * Limited sync still waits for its persisted admission deadline. */
+  if (health === "stale" || health === "refused") admitted({ tag: "github.retry", label: "Retry", command_input: undefined })
   if (health === "refused") admitted({ tag: "settings", label: "Fix", command_input: undefined })
   const topCount = definitions.length
   const attention = parsed.attention.filter(row => row.kind === "force_push" ? role === "owner" : role !== "member").map(row => {
