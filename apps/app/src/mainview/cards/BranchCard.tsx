@@ -65,8 +65,8 @@ export const liveBranchActionDefinitions = (model: BranchModel, providers: Reado
     if (model.machine.state === "failed") definitions.push({ tag: "box.resume", label: "Retry", command_input: { branch: model.name } })
     if (model.machine.state === "asleep") definitions.push({ tag: "box.resume", label: "Wake", command_input: { branch: model.name } })
     if (model.moved_off) definitions.push(
-      { tag: "todo.return-to-item", label: `Return to T${model.moved_off.item}`, command_input: { n: model.moved_off.item, ...(movedWait ? { id: movedWait } : {}) } },
-      { tag: "todo.keep-moved", label: "Keep for now", command_input: { n: model.moved_off.item, ...(movedWait ? { id: movedWait } : {}) } }
+      { tag: "todo.return-to-item", label: `Return to T${model.moved_off.item}`, command_input: { n: model.moved_off.item, ...(movedWait ? { id: movedWait } : {}) }, resolve_input: () => ({ n: model.moved_off!.item, ...(movedWait ? { id: movedWait } : {}) }) },
+      { tag: "todo.keep-moved", label: "Keep for now", command_input: { n: model.moved_off.item, ...(movedWait ? { id: movedWait } : {}) }, resolve_input: () => ({ n: model.moved_off!.item, ...(movedWait ? { id: movedWait } : {}) }) }
     )
     if (model.scratch && model.rebase?.state === "conflict") {
       for (const path of model.rebase.paths) definitions.push({
