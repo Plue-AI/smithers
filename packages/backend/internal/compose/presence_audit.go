@@ -2,6 +2,7 @@ package compose
 
 import (
 	"context"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -16,6 +17,7 @@ type presenceVisit struct {
 	member      int64
 	name        string
 	via         string
+	vias        map[string]bool
 	start, last time.Time
 	sessions    map[string]time.Time
 }
@@ -46,9 +48,10 @@ func (v *presenceVisits) heartbeatVia(branch string, member int64, name, session
 		visit = nil
 	}
 	if visit == nil {
-		visit = &presenceVisit{branch: branch, member: member, name: name, via: via, start: now, sessions: map[string]time.Time{}}
+		visit = &presenceVisit{branch: branch, member: member, name: name, via: via, vias: map[string]bool{}, start: now, sessions: map[string]time.Time{}}
 		v.visits[key] = visit
 	}
+	visit.vias[via] = true
 	visit.last = now
 	visit.sessions[session] = now
 }
@@ -83,7 +86,18 @@ func (v *presenceVisits) finish(visit *presenceVisit, end time.Time) {
 	if end.Sub(visit.start) < 2*time.Minute || v.audit == nil {
 		return
 	}
-	v.audit.Log(context.Background(), services.AuditEvent{EventType: "presence", ActorID: &visit.member, ActorName: visit.name, TargetType: "branch", TargetName: visit.branch, Action: "visit", Metadata: map[string]any{"branch": visit.branch, "member": visit.member, "via": visit.via, "start": visit.start.UTC().Format(time.RFC3339Nano), "end": end.UTC().Format(time.RFC3339Nano)}})
+	metadata := map[string]any{"branch": visit.branch, "member": visit.member, "via": visit.via, "start": visit.start.UTC().Format(time.RFC3339Nano), "end": end.UTC().Format(time.RFC3339Nano)}
+	// Preserve the historical first transport while retaining all transports in
+	// a grouped visit, even after one of its sessions has expired or closed.
+	if len(visit.vias) > 1 {
+		vias := make([]string, 0, len(visit.vias))
+		for via := range visit.vias {
+			vias = append(vias, via)
+		}
+		sort.Strings(vias)
+		metadata["vias"] = vias
+	}
+	v.audit.Log(context.Background(), services.AuditEvent{EventType: "presence", ActorID: &visit.member, ActorName: visit.name, TargetType: "branch", TargetName: visit.branch, Action: "visit", Metadata: metadata})
 }
 func (v *presenceVisits) run(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
