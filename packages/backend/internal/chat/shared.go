@@ -140,7 +140,7 @@ func sharedFrame(raw json.RawMessage) bool {
 		return true
 	case "card":
 		switch frame.Card.Kind {
-		case "todo", "file", "diff", "run-trace", "home", "flow", "wiki":
+		case "todo", "file", "diff", "change", "run-trace", "home", "flow", "wiki":
 			return true
 		}
 	}
