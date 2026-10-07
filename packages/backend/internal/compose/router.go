@@ -1081,6 +1081,12 @@ func buildRouter(
 		if config.IsSingleOwner(cfg.Auth) {
 			// Any signed-in person reads the sync's health and retries it.
 			sync := &routes.GitHubSyncHandler{Service: extras.GitHubSync}
+			var attentionService routes.StackAttentionService
+			if extras.Mythical != nil {
+				attentionService, _ = extras.Mythical.Service.(routes.StackAttentionService)
+			}
+			attention := &routes.StackAttentionHandler{Queries: queries, Service: attentionService}
+			r.With(middleware.RequireAuth).Post("/stack/attention/{id}", attention.Handle)
 			r.With(middleware.RequireAuth).Get("/github/sync", sync.Status)
 			r.With(middleware.RequireAuth).Post("/github/sync", sync.Retry)
 			// The stack supplies the immutable accepted-prefix diff.

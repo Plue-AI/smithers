@@ -316,9 +316,18 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 		if t.todos == nil {
 			return live.Source{}, live.Unsupported
 		}
-		return live.Source{Key: topic, Hints: hints, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
-			return t.home(ctx, repository, slug)
-		}}, ""
+		var role services.InstallRole
+		if t.queries != nil {
+			var err error
+			role, err = services.InstallRoleOf(ctx, t.queries, member)
+			if err != nil || role == "" {
+				return live.Source{}, live.Forbidden
+			}
+		}
+		source := live.Source{Key: fmt.Sprintf("home:%d:member:%d:role:%s", repository, member, role), Hints: hints, Every: liveRefreshEvery, FailClosed: true, Build: func(ctx context.Context) (json.RawMessage, error) {
+			return t.home(ctx, repository, slug, member)
+		}}
+		return source, ""
 	case topic == "flows":
 		return live.Source{Key: topic, Hints: hints, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
 			cards, err := services.RepositoryFlowCatalog(ctx, t.queries, repository, flowProposalReader(t.todos))
@@ -393,7 +402,7 @@ func (t *liveTopics) externalSession(ctx context.Context, topic, rest string) (l
 // every state counted, a machine per TODO branch that is awake or waking,
 // and main's row from the install's GitHub sync. Last look and role filter
 // stay in the browser (§7.2.2).
-func (t *liveTopics) home(ctx context.Context, repository int64, slug string) (json.RawMessage, error) {
+func (t *liveTopics) home(ctx context.Context, repository int64, slug string, member int64) (json.RawMessage, error) {
 	todos, err := t.todos.Todos(ctx, repository)
 	if err != nil {
 		return nil, err
@@ -414,6 +423,15 @@ func (t *liveTopics) home(ctx context.Context, repository int64, slug string) (j
 		return nil, err
 	}
 	model := homeModel(slug, cards, sync)
+	if provider, ok := t.todos.(interface {
+		StackAttention(context.Context, int64, int64) ([]map[string]any, error)
+	}); ok {
+		attention, err := provider.StackAttention(ctx, repository, member)
+		if err != nil {
+			return nil, err
+		}
+		model["attention"] = attention
+	}
 	if provider, ok := t.todos.(interface {
 		LearningBackgroundRuns(context.Context, int64) ([]map[string]any, error)
 	}); ok {

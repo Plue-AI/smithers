@@ -296,6 +296,7 @@ export const stubCommandActions = (overrides: Partial<CommandActions> = {}): Com
   testModel: unexpected,
   assignAgentModel: unexpected,
   preapproveTodo: unexpected,
+  orderOK: unexpected,
   newFlowSourceTodo: unexpected,
   readFlowSource: unexpected,
   draftImagePackage: unexpected,

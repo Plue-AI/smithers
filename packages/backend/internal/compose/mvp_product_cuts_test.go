@@ -16,10 +16,9 @@ func TestServerRouterRetiresPairMarketplaceAndOAuthHosting(t *testing.T) {
 		"post /api/oauth2/token":      false,
 		"post /api/oauth2/revoke":     false,
 		"post /api/oauth2/revoke-all": false,
-		"post /api/app-timelines":     false,
 	}
 	for _, route := range served {
-		for _, prefix := range []string{"/api/pair-sessions", "/api/share", "/api/oauth2/applications"} {
+		for _, prefix := range []string{"/api/pair-sessions", "/api/share", "/api/oauth2/applications", "/api/app-timelines"} {
 			require.False(t, strings.HasPrefix(route.path, prefix), "retired route %s %s", route.method, route.path)
 		}
 		key := route.method + " " + route.path
@@ -31,7 +30,7 @@ func TestServerRouterRetiresPairMarketplaceAndOAuthHosting(t *testing.T) {
 		require.True(t, found, "retained route %s", route)
 	}
 	router := allFlagsRouterForTest()
-	for _, path := range []string{"/api/pair-sessions", "/api/pair-sessions/old-session/queue", "/api/pair-sessions/old-session/draft", "/api/share/listings", "/api/share/my/listings", "/api/oauth2/applications", "/api/oauth2/applications/1"} {
+	for _, path := range []string{"/api/app-timelines", "/api/pair-sessions", "/api/pair-sessions/old-session/queue", "/api/pair-sessions/old-session/draft", "/api/share/listings", "/api/share/my/listings", "/api/oauth2/applications", "/api/oauth2/applications/1"} {
 		for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete} {
 			req := httptest.NewRequest(method, path, nil)
 			rec := httptest.NewRecorder()

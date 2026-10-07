@@ -346,8 +346,15 @@ func TestGitHubUserReposService_FirstSyncPaginatesFullListing(t *testing.T) {
 
 func TestGitHubUserReposService_StaleCacheServesImmediatelyAndRefreshesOnce(t *testing.T) {
 	upstream := &countingRepoServer{items: testRepoItems(3)}
-	srv := httptest.NewServer(upstream.handler())
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	upstreamHandler := upstream.handler()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+		upstreamHandler.ServeHTTP(w, r)
+	}))
 	defer srv.Close()
+	defer releaseOnce.Do(func() { close(release) })
 	t.Setenv(envGitHubAppAPIBaseURL, srv.URL)
 
 	queries := newFakeGitHubUserReposDB()
@@ -375,6 +382,9 @@ func TestGitHubUserReposService_StaleCacheServesImmediatelyAndRefreshesOnce(t *t
 		}(i)
 	}
 	wg.Wait()
+	// Every stale read returns while GitHub is deliberately unresolved. A
+	// fast response must not turn this pending-refresh test into a scheduler race.
+	releaseOnce.Do(func() { close(release) })
 
 	for _, err := range listErrs {
 		require.NoError(t, err)

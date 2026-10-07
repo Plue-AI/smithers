@@ -877,6 +877,8 @@ export const SessionSchema = z.object({
     state: z.enum(["requested", "completed", "failed"])
   })).optional(),
   /** Atomic egress additions can be replayed; only the authorized owner, repository and host are saved. */
+  orderRequests: z.array(z.object({ id: z.string(), revision: z.number().int().positive(), owner: z.string(),
+    state: z.enum(["requested", "completed", "failed"]), error: z.string().optional() })).optional(),
   egressRequests: z.array(z.object({
     id: z.string(), owner: z.string(), repo: z.string(), host: z.string(),
     state: z.enum(["requested", "completed", "failed"]), error: z.string().max(1024).optional()
@@ -1355,6 +1357,7 @@ export type AppTransition =
   | { type: "install.requests.changed"; actor: Actor; requests: NonNullable<Session["installRequests"]> }
   | { type: "repository.imports.changed"; actor: Actor; requests: NonNullable<Session["repositoryImports"]> }
   | { type: "secret.requests.changed"; actor: Actor; requests: NonNullable<Session["secretRequests"]> }
+  | { type: "order.requests.changed"; actor: Actor; requests: NonNullable<Session["orderRequests"]> }
   | { type: "egress.requests.changed"; actor: Actor; requests: NonNullable<Session["egressRequests"]> }
   | { type: "conversation.ui.applied"; actor: "system"; owner: string; id: string }
   | { type: "conversation.prompt.changed"; actor: Actor; request: SharedPrompt; clearDraft?: boolean }

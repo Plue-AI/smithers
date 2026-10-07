@@ -428,7 +428,8 @@ func (q *Queries) ListMythicalGitHubBranchItems(ctx context.Context, repositoryI
 // recorded) and not yet settled (closed, or never on main).
 func (q *Queries) ListMythicalPendingCompletions(ctx context.Context, repositoryID int64) ([]MythicalItem, error) {
 	rows, err := q.db.Query(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items WHERE repository_id = $1 AND state = 'landed'
-		AND checks ? 'completion' AND COALESCE(checks->'completion'->>'outcome', '') = ''
+		AND ((checks ? 'completion' AND COALESCE(checks->'completion'->>'outcome', '') = '')
+		 OR (checks ? 'merged_via' AND COALESCE(checks->'merged_via'->>'commented', 'false') = 'false'))
 		ORDER BY issue_number NULLS LAST, created_at`, repositoryID)
 	return scanMythicalItems(rows, err)
 }

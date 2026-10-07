@@ -60,12 +60,21 @@ func TestLiveHomeCapacityDoesNotDependOnSubscriber(t *testing.T) {
 			disk = tc.disk
 			require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "parallel", Value: []byte(tc.saved)}))
 			var first json.RawMessage
+			keys := map[int64]string{}
 			// Reverse order too: shared data must not depend on who connects first.
 			for _, index := range []int{2, 1, 0, 0, 1, 2} {
 				person := people[index]
 				source, refusal := topics.resolve(ctx, "home", repository, "homeowner/app", person.ID)
 				require.Empty(t, refusal)
-				require.Equal(t, "home", source.Key)
+				if prior, ok := keys[person.ID]; ok {
+					require.Equal(t, prior, source.Key)
+				}
+				for id, key := range keys {
+					if id != person.ID {
+						require.NotEqual(t, key, source.Key, "private Home audiences never share a snapshot")
+					}
+				}
+				keys[person.ID] = source.Key
 				got, err := source.Build(ctx)
 				if tc.invalid {
 					require.ErrorContains(t, err, "saved parallel must be an integer", person.Username)

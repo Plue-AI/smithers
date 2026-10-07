@@ -10,6 +10,7 @@ import { createHomeViewSeam, type HomeViewSeam } from "./seams/HomeViewSeam"
 import { contextMonitor } from "./ContextMonitor"
 import type { MonitorCard } from "@smthrs/rpc/MonitorCard"
 import { designProposalCard } from "./seams/DesignWorld/proposal"
+import { createOrderAttentionSeam } from "./seams/OrderAttentionSeam"
 import { createProposalSeam, type ProposalSeam } from "./seams/ProposalSeam"
 import { FileDocuments } from "../runtime/FileDocuments"
 import type { DocumentPrerequisites } from "../runtime/LiveDocProvider"
@@ -512,6 +513,7 @@ export interface AppController extends IssueFlowsController {
   readonly setStackParallel: StackSeam["setStackParallel"]
   readonly retryStackItem: StackSeam["retryStackItem"]
   readonly newTodo: TodoSeam["newTodo"]
+  readonly orderOK: (id: string, revision: number) => Promise<string | { readonly value: string }>
   readonly preapproveTodo: TodoSeam["preapproveTodo"]
   readonly newFlowSourceTodo: TodoSeam["newFlowSourceTodo"]
   readonly mergeTodo: TodoSeam["mergeTodo"]
@@ -1228,6 +1230,7 @@ export const createAppController = (
       ? { error: "Branch files are unavailable." } as const : { branch: model.data.branch.id } as const
   }
   const proposalSource = installHost ? todoSource : todoSourceProbe(seamCtx, services.bootstrap !== undefined, "/api/proposals")
+  const orderAttentionSeam = actors.pair(seamCtx, createOrderAttentionSeam)
   const proposalSeam = actors.pair(seamCtx, context => {
     const real = createProposalSeam(context)
     return { ...real, openProposal: async (id: string) => {
@@ -2321,6 +2324,7 @@ export const createAppController = (
     showTodo: todoSeam.showTodo,
     readFlowSource,
     preapproveTodo: todoSeam.preapproveTodo,
+    orderOK: orderAttentionSeam.orderOK,
     mergeTodo: todoSeam.mergeTodo,
     reviewTodoMerge: todoSeam.reviewMerge,
     todoRoute: todoSeam.todoRoute,
@@ -2516,7 +2520,7 @@ export const createAppController = (
   repoImportSeam.resume()
   secretsSeam.resumeSecretRequests()
   egressSeam.resumeEgressRequests()
-  proposalSeam.resumeProposals()
+  proposalSeam.resumeProposals(); orderAttentionSeam.resume()
   todoSeam.resumeTodos()
   stackSeam.resumeStacks()
   workflowController.resumeWorkflowRequests()
@@ -2527,7 +2531,7 @@ export const createAppController = (
    */
   const setupIdentitySubscription = store.collections.identitySessions.subscribeChanges(() => {
     queueMicrotask(() => { if (!ctx.disposed) { conversationHistory.resume(); triggersSeam.resumePauses(); triggersSeam.resumePreparations() } })
-    queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests(); proposalSeam.resumeProposals() } })
+    queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests(); proposalSeam.resumeProposals(); orderAttentionSeam.resume() } })
     workflowController.resumeWorkflowRequests()
     gitHubSyncRetry.resume()
     // Catalog recovery writes a card; leave the identity projection before dispatching it.
@@ -2542,7 +2546,7 @@ export const createAppController = (
   ctx.onDispose(() => setupIdentitySubscription.unsubscribe())
   const importCloudSubscription = store.collections.cloudSessions.subscribeChanges(() => {
     repoImportSeam.resume()
-    queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests(); proposalSeam.resumeProposals() } })
+    queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests(); proposalSeam.resumeProposals(); orderAttentionSeam.resume() } })
   })
   ctx.onDispose(() => importCloudSubscription.unsubscribe())
   if (!sharedPrompts) subscribeToAgent()

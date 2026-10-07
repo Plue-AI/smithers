@@ -422,6 +422,9 @@ func mythicalIsTodo(item db.MythicalItem) bool {
 // mythicalMergeAfter is the first unmerged TODO ahead of item in stack
 // order (MergeReady row 2), or 0 when item is first.
 func mythicalMergeAfter(ctx context.Context, conn db.DBTX, item db.MythicalItem) (int64, error) {
+	if err := stackMergeAttention(ctx, conn, item.RepositoryID); err != nil {
+		return 0, err
+	}
 	if !item.StackPosition.Valid {
 		return 0, nil
 	}
@@ -503,6 +506,11 @@ func (s *MythicalService) todoMerge(ctx context.Context, item db.MythicalItem) (
 	}
 	before, err := mythicalMergeAfter(ctx, s.store, item)
 	if err != nil {
+		var attention *TodoControlError
+		if errors.As(err, &attention) {
+			block["state"], block["reason"], block["detail"] = "blocked", attention.Code, attention.Message
+			return block, nil
+		}
 		return nil, err
 	}
 	var refusal *TodoControlError
@@ -1122,6 +1130,20 @@ func (st *mythicalItemStep) claimMerge(ctx context.Context, item db.MythicalItem
 			return err
 		}
 		q := db.New(tx)
+		currentItem, err := q.GetMythicalItem(ctx, item.ID)
+		if err != nil {
+			return err
+		}
+		before, err := mythicalMergeAfter(ctx, tx, currentItem)
+		if err != nil {
+			return err
+		}
+		if err := mythicalMergeReady(currentItem, before, op.Desired, true); err != nil {
+			return err
+		}
+		if currentItem.Version != item.Version {
+			return mythicalMergeConflict("rechecking", "The TODO changed; review it again")
+		}
 		standing, err := readMergeStanding(ctx, tx, land.Session)
 		if land.StandingUser != 0 {
 			standing, err = st.s.standingMergePerson(ctx, tx, land.StandingUser)

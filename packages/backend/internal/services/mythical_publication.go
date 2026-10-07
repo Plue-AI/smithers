@@ -571,11 +571,19 @@ func (st *mythicalItemStep) appLookup(ctx context.Context, item db.MythicalItem,
 		reader, ok := st.s.github.(interface {
 			AppliedClose(context.Context, mythicalGitHubRepo, int64, time.Time) (bool, error)
 		})
-		drop := mythicalChecksOf(item).Dropped
-		if !ok || drop == nil {
+		checks := mythicalChecksOf(item)
+		drop := checks.Dropped
+		var since time.Time
+		if drop != nil {
+			since = drop.At
+		}
+		if checks.MergedVia != nil && checks.Completion != nil {
+			since = checks.Completion.Since
+		}
+		if !ok || since.IsZero() {
 			return "", false, errors.New("Waiting for canonical App close-event reconciliation")
 		}
-		applied, err := reader.AppliedClose(ctx, gh, number, drop.At)
+		applied, err := reader.AppliedClose(ctx, gh, number, since)
 		if err != nil {
 			return "", false, err
 		}
@@ -673,6 +681,12 @@ func (st *mythicalItemStep) appSend(ctx context.Context, item db.MythicalItem, o
 		}
 		// Drop's comment comes first, keyed by the drop, so a close repeated
 		// after a lost answer edits it rather than saying it twice.
+		if via := mythicalChecksOf(item).MergedVia; via != nil {
+			if !via.Commented {
+				return errors.New("Waiting for the retained merged-via comment")
+			}
+			return st.s.github.ClosePull(ctx, gh, number)
+		}
 		dropped := mythicalChecksOf(item).Dropped
 		key := "drop:" + uuidString(item.ID)
 		if dropped != nil {

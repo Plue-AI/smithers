@@ -17,6 +17,7 @@ export const pendingControlFlows = (actions: CommandActions) => bind(pendingCont
         preflight: (_payload: unknown, invoker?: "user" | "agent" | "system") => invoker === "agent" || invoker === "system" ? "Confirmation execution unavailable." : undefined }
     : operation),
   Object.fromEntries(pendingControls.map(operation => [operation.name, operation.name === "todo.preapprove" || operation.name === "todo.unapprove" ? (input: { n: number }) => actions.preapproveTodo(input.n, operation.name === "todo.preapprove")
+    : operation.name === "order.ok" ? (input: { id: string; revision: number }) => actions.orderOK(input.id, input.revision)
     : operation.name === "todo.takeover" ? (input: { n: number }) => actions.controlTodo(input.n, "takeover")
     : operation.name === "branch.rebase-now" ? (input: { branch: string }) => actions.branchControls?.request("rebase", input.branch) ?? { refusal: unavailable }
     : operation.name === "todo.return-to-item" || operation.name === "todo.keep-moved" ? (input: { n: number }) => actions.branchControls?.request(operation.name === "todo.return-to-item" ? "return-to-item" : "keep-moved", `T${input.n}`) ?? { refusal: unavailable }

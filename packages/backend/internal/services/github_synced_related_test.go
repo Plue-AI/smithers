@@ -206,8 +206,12 @@ func TestGitHubRelatedPauseKeepsTheExistingFollowCadence(t *testing.T) {
 	s.SetConditionalFetcherFactory(client.SyncedRepoConditionalFetcherFactory(&recordingMinter{}))
 	stack := NewMythicalService(pool, nil)
 	stack.UseInstallGitHubPolling(s)
-	step := &mythicalItemStep{s: stack, now: now}
-	item := db.MythicalItem{RepositoryID: repo.ID, State: "proposed", PRNumber: pgtype.Int8{Int64: 7, Valid: true}}
+	step := &mythicalItemStep{s: stack, q: q, now: now}
+	var id pgtype.UUID
+	err = pool.QueryRow(t.Context(), `INSERT INTO mythical_items(repository_id,state,pr_number) VALUES($1,'proposed',7) RETURNING id`, repo.ID).Scan(&id)
+	require.NoError(t, err)
+	item, err := q.GetMythicalItem(t.Context(), id)
+	require.NoError(t, err)
 	for i := 0; i < 2; i++ {
 		next, _, err := step.advance(t.Context(), item)
 		require.NoError(t, err)
