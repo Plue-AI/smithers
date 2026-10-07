@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -77,7 +78,7 @@ func TestWorkspaceResourcesPersistedAcrossProvisionAndReuse(t *testing.T) {
 }
 func TestWorkspaceOverMaxRefusesBeforeStoreOrProvider(t *testing.T) {
 	q := &mockWorkspaceQuerier{}
-	s := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{}), WithWorkspaceResourceLimits(16, 32768, 65536))
+	s := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{}), WithWorkspaceResourceLimits(16, 32768, 65536), resourceAdmissionTripwires(t))
 	for _, create := range []func(context.Context, CreateWorkspaceInput) (WorkspaceResponse, error){s.CreateWorkspace, s.CreateWorkspaceAsync} {
 		_, err := create(context.Background(), CreateWorkspaceInput{Resources: WorkspaceResources{CPUs: resourcePtr(17)}})
 		var api *pkgerrors.APIError
@@ -196,7 +197,8 @@ func TestRuntimeForkOfSizedWorkspaceRefusesBeforeSideEffects(t *testing.T) {
 	runtime := &forkQuotaRuntime{}
 	svc := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(runtime))
 	_, err := svc.ForkWorkspace(context.Background(), ForkWorkspaceInput{RepositoryID: source.RepositoryID, UserID: source.UserID, WorkspaceID: source.ID, Name: "fork"})
-	assert.ErrorContains(t, err, "revision-based fork unavailable")
+	assert.ErrorContains(t, err, "branch machine providers unavailable")
+	requireBranchMachineUnavailable(t, err)
 	assert.Zero(t, runtime.starts+runtime.creates+runtime.snapshots+runtime.forks)
 }
 
@@ -240,7 +242,7 @@ type resourceRuntime struct {
 func (r *resourceRuntime) Capabilities() workspaceapi.WorkspaceCapabilities { return r.caps }
 
 func TestWorkspacePartialRequestCannotExceedCapThroughDefault(t *testing.T) {
-	s := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{}), WithWorkspaceResourceLimits(16, 2048, 65536))
+	s := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{}), WithWorkspaceResourceLimits(16, 2048, 65536), resourceAdmissionTripwires(t))
 	_, err := s.CreateWorkspaceAsync(context.Background(), CreateWorkspaceInput{Resources: WorkspaceResources{CPUs: resourcePtr(4)}})
 	var api *pkgerrors.APIError
 	require.ErrorAs(t, err, &api)
@@ -292,4 +294,20 @@ func TestSnapshotResourceSizeRemainsReadableAfterDeletion(t *testing.T) {
 	got, err = s.workspaceSnapshotSource(context.Background(), row.ID)
 	require.NoError(t, err)
 	require.Equal(t, row, got)
+}
+
+// Resource refusals run with admission composed, so the resource bound is
+// exercised. Any attempt to reach a provider or transaction fails the test.
+func resourceAdmissionTripwires(t *testing.T) WorkspaceServiceOption {
+	return func(s *WorkspaceService) {
+		refuse := func() error { t.Fatal("invalid resources reached machine admission"); return nil }
+		s.transactions = refusingBranchTransactions{t}
+		s.branchMachineProviders = BranchMachineProviders{
+			Membership:      func(context.Context, pgx.Tx, int64, int64) error { return refuse() },
+			Authorize:       func(context.Context, pgx.Tx, string, int64, string, int64) error { return refuse() },
+			LaneBinding:     func(context.Context, pgx.Tx, int64, string, string) error { return refuse() },
+			MicroVM:         func(context.Context) error { return refuse() },
+			SessionIdentity: func(context.Context) error { return refuse() },
+		}
+	}
 }
