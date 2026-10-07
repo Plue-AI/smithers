@@ -670,6 +670,7 @@ fn authenticated_daemon_emits_production_broker_presence_after_roster_and_on_rec
                             principal: [7; 16],
                             closed: false,
                             exited: false,
+                            process: None,
                         })
                         .collect();
                     serde_json::to_vec(&entries).map_err(io::Error::other)
@@ -859,10 +860,17 @@ fn capture_delivery_case(mode: &str) {
     }
     let dir = tempfile::tempdir().unwrap();
     std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let outbox_dir = dir.path().join("outbox");
+    std::fs::create_dir(&outbox_dir).unwrap();
+    std::fs::set_permissions(&outbox_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
     let owner = rustix::process::geteuid().as_raw();
     let refs = References::default();
-    let outbox =
-        Outbox::open(Store::open(dir.path(), owner).unwrap(), owner, refs.clone()).unwrap();
+    let outbox = Outbox::open(
+        Store::open(&outbox_dir, owner).unwrap(),
+        owner,
+        refs.clone(),
+    )
+    .unwrap();
     let streams = AtomicU32::new(1);
     if let Some(mode) = mode.strip_prefix("incoming-") {
         incoming::run(mode, move |store| {
@@ -1025,7 +1033,7 @@ fn capture_delivery_case(mode: &str) {
                         } else {
                             if mode == "corrupt" {
                                 std::fs::write(
-                                    dir.path().join(format!("{:020}.ev", event.seq)),
+                                    outbox_dir.join(format!("{:020}.ev", event.seq)),
                                     b"damaged receipt",
                                 )
                                 .unwrap();
@@ -1044,7 +1052,7 @@ fn capture_delivery_case(mode: &str) {
                         assert_eq!(*refs.0.lock().unwrap(), Some([10; 20]));
                         drop(events);
                         let recovered =
-                            Outbox::open(Store::open(dir.path(), owner).unwrap(), owner, refs);
+                            Outbox::open(Store::open(&outbox_dir, owner).unwrap(), owner, refs);
                         if mode == "corrupt" {
                             assert!(recovered.is_err());
                         } else {

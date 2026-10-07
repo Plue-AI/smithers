@@ -19,6 +19,9 @@ use std::{
 /// Installed providers validate account, credential and environment availability
 /// before spawn. Test kernels are confined to tests; there is no host fallback.
 pub trait Kernel: Send {
+    fn process_identity(&mut self, _id: u32) -> io::Result<Option<sessions::ProcessIdentity>> {
+        Ok(None)
+    }
     fn available(&mut self) -> io::Result<()> {
         Err(io::ErrorKind::Unsupported.into())
     }
@@ -182,6 +185,15 @@ impl<K: Kernel> Supervisor<K> {
         {
             // Cleanup errors take precedence: the failed reservation remains
             // attributable and revocable, but cannot admit or attach traffic.
+            self.registry.abort_spawn(id, Instant::now())?;
+            return Err(error);
+        }
+        let binding = self.kernel.with(|k| k.process_identity(id));
+        let bound = binding.and_then(|binding| match binding {
+            Some(binding) => self.registry.bind_process(id, binding),
+            None => Ok(()),
+        });
+        if let Err(error) = bound {
             self.registry.abort_spawn(id, Instant::now())?;
             return Err(error);
         }

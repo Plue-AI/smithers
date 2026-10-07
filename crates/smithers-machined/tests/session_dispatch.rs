@@ -33,9 +33,16 @@ struct State {
     fail_before_fork: bool,
     ready_calls: usize,
     running: BTreeSet<u32>,
+    identity: Option<smithers_machined::broker::sessions::ProcessIdentity>,
 }
 struct OS(Arc<Mutex<State>>);
 impl Kernel for OS {
+    fn process_identity(
+        &mut self,
+        _: u32,
+    ) -> io::Result<Option<smithers_machined::broker::sessions::ProcessIdentity>> {
+        Ok(self.0.lock().unwrap().identity.clone())
+    }
     fn available(&mut self) -> io::Result<()> {
         Ok(())
     }
@@ -986,4 +993,56 @@ fn cancelling_one_command_confirms_cleanup_without_killing_run_siblings() {
         assert!(s.session(Request::KillSession(id)).is_err());
     }
     assert_eq!(state.lock().unwrap().kills, vec![first, sibling]);
+}
+
+#[test]
+fn process_binding_is_kernel_owned_and_invalid_identity_rolls_back_spawn() {
+    use smithers_machined::broker::sessions::{Entry, ProcessIdentity};
+    let identity = ProcessIdentity {
+        pid: 123,
+        start_ticks: 456,
+        gid: 20001,
+        groups: vec![20000],
+        home: "/home/ben".into(),
+    };
+    let (mut supervisor, state) = setup();
+    roster(&mut supervisor);
+    state.lock().unwrap().identity = Some(identity.clone());
+    let id = open(&mut supervisor, user(), Kind::Pty);
+    let reply = control::handle(&packet(25, &[]), &mut supervisor).unwrap();
+    let entries: Vec<Entry> = serde_json::from_slice(&reply[5..]).unwrap();
+    assert_eq!(entries[0].id, id);
+    assert_eq!(entries[0].process.as_ref(), Some(&identity));
+    assert_eq!(entries[0].user.uid, 20001);
+    let forged = control::handle(
+        &packet(25, br#"{"pid":1,"gid":0,"home":"/root"}"#),
+        &mut supervisor,
+    )
+    .unwrap();
+    assert_eq!(forged[4], 255);
+    assert_eq!(
+        supervisor.entries().next().unwrap().process.as_ref(),
+        Some(&identity)
+    );
+
+    for wrong in 0..6 {
+        let (mut supervisor, state) = setup();
+        roster(&mut supervisor);
+        let mut binding = identity.clone();
+        match wrong {
+            0 => binding.pid = 0,
+            1 => binding.start_ticks = 0,
+            2 => binding.gid = 20002,
+            3 => binding.groups = vec![0, 20000],
+            4 => binding.home = "/home/maya".into(),
+            5 => binding.groups = vec![],
+            _ => unreachable!(),
+        }
+        state.lock().unwrap().identity = Some(binding);
+        let reply =
+            control::handle(&packet(6, &host_open_bytes("ben", 20001)), &mut supervisor).unwrap();
+        assert_eq!(reply[4], 255);
+        assert_eq!(state.lock().unwrap().kills, vec![1]);
+        assert_eq!(supervisor.entries().count(), 0);
+    }
 }

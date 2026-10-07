@@ -212,6 +212,7 @@ struct Process {
     output: Option<std::process::ChildStdout>,
     error: Option<std::process::ChildStderr>,
     exit_observed: bool,
+    identity: Option<super::sessions::ProcessIdentity>,
 }
 pub struct Processes<A> {
     groups: Cgroups,
@@ -233,6 +234,12 @@ impl<A: Admission> Processes<A> {
     }
 }
 impl<A: Admission> Kernel for Processes<A> {
+    fn process_identity(
+        &mut self,
+        id: u32,
+    ) -> io::Result<Option<super::sessions::ProcessIdentity>> {
+        Ok(self.process(id)?.identity.clone())
+    }
     fn available(&mut self) -> io::Result<()> {
         self.admission.available()
     }
@@ -416,11 +423,23 @@ impl<A: Admission> Kernel for Processes<A> {
                     output,
                     error,
                     exit_observed: false,
+                    identity: None,
                 },
             );
             // Retain the child before any fallible descriptor configuration.
             // Supervisor-owned rollback must be able to kill AND reap it.
             let process = self.process(id)?;
+            // spawn has completed its permanent credential drop before exec.
+            // The still-owned child has not been reaped, so its PID cannot be
+            // recycled while capturing the kernel lifetime.
+            let start_ticks = super::process_identity::start_ticks(process.child.id())?;
+            process.identity = Some(super::sessions::ProcessIdentity {
+                pid: process.child.id(),
+                start_ticks,
+                gid: user.uid,
+                groups: vec![20000],
+                home: format!("/home/{}", user.login),
+            });
             if let Some(fd) = &process.input {
                 nonblocking(fd)?;
             }

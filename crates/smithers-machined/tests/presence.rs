@@ -31,6 +31,7 @@ impl Controls for Host {
                         principal: [7; 16],
                         closed: false,
                         exited: false,
+                        process: None,
                     })
                     .collect();
                 serde_json::to_vec(&entries).map_err(io::Error::other)
@@ -254,6 +255,7 @@ fn snapshot_excludes_forwarding_ended_and_unregistered_agent_sessions() {
             principal: [7; 16],
             closed: false,
             exited: false,
+            process: None,
         },
         Entry {
             id: 2,
@@ -263,6 +265,7 @@ fn snapshot_excludes_forwarding_ended_and_unregistered_agent_sessions() {
             principal: [7; 16],
             closed: false,
             exited: false,
+            process: None,
         },
         Entry {
             id: 3,
@@ -272,6 +275,7 @@ fn snapshot_excludes_forwarding_ended_and_unregistered_agent_sessions() {
             principal: [7; 16],
             closed: false,
             exited: false,
+            process: None,
         },
         Entry {
             id: 4,
@@ -281,6 +285,7 @@ fn snapshot_excludes_forwarding_ended_and_unregistered_agent_sessions() {
             principal: [7; 16],
             closed: true,
             exited: false,
+            process: None,
         },
         Entry {
             id: 5,
@@ -290,6 +295,7 @@ fn snapshot_excludes_forwarding_ended_and_unregistered_agent_sessions() {
             principal: [7; 16],
             closed: false,
             exited: true,
+            process: None,
         },
         Entry {
             id: 6,
@@ -299,6 +305,7 @@ fn snapshot_excludes_forwarding_ended_and_unregistered_agent_sessions() {
             principal: [7; 16],
             closed: false,
             exited: false,
+            process: None,
         },
     ];
     let (parent, child) = socketpair(
@@ -321,4 +328,167 @@ fn snapshot_excludes_forwarding_ended_and_unregistered_agent_sessions() {
     );
     drop(broker);
     worker.join().unwrap();
+}
+
+#[test]
+fn registry_socketpair_validates_retained_process_owner_before_presence() {
+    use smithers_machined::broker::sessions::{Entry, Kind, ProcessIdentity, User};
+    struct RegistryHost(Entry);
+    impl Controls for RegistryHost {
+        fn stream(&mut self, op: u8, _: &[u8]) -> io::Result<Vec<u8>> {
+            if op == 25 {
+                serde_json::to_vec(&vec![self.0.clone()]).map_err(io::Error::other)
+            } else {
+                Err(io::ErrorKind::Unsupported.into())
+            }
+        }
+        fn freeze(&mut self, _: Duration) -> io::Result<Option<u32>> {
+            Err(io::ErrorKind::Unsupported.into())
+        }
+        fn thaw(&mut self) -> io::Result<()> {
+            Err(io::ErrorKind::Unsupported.into())
+        }
+        fn kill(&mut self) -> io::Result<u16> {
+            Err(io::ErrorKind::Unsupported.into())
+        }
+    }
+    for valid in [true, false] {
+        let process = ProcessIdentity {
+            pid: 123,
+            start_ticks: 456,
+            gid: 20001,
+            groups: vec![20000],
+            home: if valid { "/home/maya" } else { "/home/ben" }.into(),
+        };
+        let entry = Entry {
+            id: 1,
+            user: User {
+                login: "maya".into(),
+                uid: 20001,
+            },
+            kind: Kind::Pty,
+            run: None,
+            principal: [7; 16],
+            closed: false,
+            exited: false,
+            process: Some(process.clone()),
+        };
+        let (parent, child) = socketpair(
+            AddressFamily::UNIX,
+            SocketType::SEQPACKET,
+            SocketFlags::CLOEXEC,
+            None,
+        )
+        .unwrap();
+        let worker =
+            std::thread::spawn(move || control::serve(&parent, &mut RegistryHost(entry)).unwrap());
+        let broker = SocketpairBroker::new(child).unwrap();
+        if valid {
+            let entries = broker.registry().unwrap();
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0].process.as_ref(), Some(&process));
+            assert!(broker.poll_presence(Instant::now()).unwrap().is_some());
+        } else {
+            assert!(broker.registry().is_err());
+            assert!(broker.poll_presence(Instant::now()).is_err());
+        }
+        drop(broker);
+        worker.join().unwrap();
+    }
+}
+
+#[test]
+fn full_registry_with_process_bindings_uses_bounded_private_packets() {
+    use smithers_machined::broker::sessions::{Entry, Kind, ProcessIdentity, User};
+    struct RegistryHost(Vec<Entry>);
+    impl Controls for RegistryHost {
+        fn stream(&mut self, op: u8, _: &[u8]) -> io::Result<Vec<u8>> {
+            if op == 25 {
+                serde_json::to_vec(&self.0).map_err(io::Error::other)
+            } else {
+                Err(io::ErrorKind::Unsupported.into())
+            }
+        }
+        fn freeze(&mut self, _: Duration) -> io::Result<Option<u32>> {
+            Err(io::ErrorKind::Unsupported.into())
+        }
+        fn thaw(&mut self) -> io::Result<()> {
+            Err(io::ErrorKind::Unsupported.into())
+        }
+        fn kill(&mut self) -> io::Result<u16> {
+            Err(io::ErrorKind::Unsupported.into())
+        }
+    }
+    let entries: Vec<_> = (1..=512)
+        .map(|id| Entry {
+            id,
+            user: User {
+                login: "agent".into(),
+                uid: 19999,
+            },
+            kind: Kind::Pty,
+            run: Some("r".repeat(4096)),
+            principal: [7; 16],
+            closed: false,
+            exited: false,
+            process: Some(ProcessIdentity {
+                pid: id,
+                start_ticks: 456,
+                gid: 19999,
+                groups: vec![20000],
+                home: "/home/agent".into(),
+            }),
+        })
+        .collect();
+    let (parent, child) = socketpair(
+        AddressFamily::UNIX,
+        SocketType::SEQPACKET,
+        SocketFlags::CLOEXEC,
+        None,
+    )
+    .unwrap();
+    let worker =
+        std::thread::spawn(move || control::serve(&parent, &mut RegistryHost(entries)).unwrap());
+    let broker = SocketpairBroker::new(child).unwrap();
+    let actual = broker.registry().unwrap();
+    assert_eq!(actual.len(), 512);
+    assert_eq!(actual[0].process.as_ref().unwrap().pid, 1);
+    assert_eq!(actual[511].process.as_ref().unwrap().pid, 512);
+    assert_eq!(actual[511].run.as_ref().unwrap().len(), 4096);
+    drop(broker);
+    worker.join().unwrap();
+}
+
+#[test]
+fn malformed_registry_packet_lengths_and_identities_poison_the_private_connection() {
+    use rustix::net::{recv, send, RecvFlags, SendFlags};
+    for response in [
+        vec![0, 0, 0, 1, 25, 1, 0, 0, 1], // declared size exceeds 16 MiB
+        vec![0, 0, 0, 2, 25, 0, 0, 0, 2, b'[', b']'], // foreign request id
+        vec![0, 0, 0, 1, 25, 0, 0, 0, 1, b'[', b']'], // body exceeds declaration
+        vec![0, 0, 0, 1, 25, 0, 0, 0, 3, b'[', b']'], // EOF before declared end
+        vec![0, 0, 0, 1, 25, 0, 0, 0],    // incomplete length
+    ] {
+        let (parent, child) = socketpair(
+            AddressFamily::UNIX,
+            SocketType::SEQPACKET,
+            SocketFlags::CLOEXEC,
+            None,
+        )
+        .unwrap();
+        let worker = std::thread::spawn(move || {
+            let mut request = [0; 32];
+            let (n, _) = recv(&parent, &mut request, RecvFlags::empty()).unwrap();
+            assert_eq!(&request[..n], &[0, 0, 0, 1, 25]);
+            assert_eq!(
+                send(&parent, &response, SendFlags::NOSIGNAL).unwrap(),
+                response.len()
+            );
+        });
+        let broker = SocketpairBroker::new(child).unwrap();
+        assert!(broker.registry().is_err());
+        assert!(broker.registry().is_err());
+        drop(broker);
+        worker.join().unwrap();
+    }
 }

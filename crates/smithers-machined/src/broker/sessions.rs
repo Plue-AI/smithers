@@ -73,6 +73,34 @@ pub struct Entry {
     pub principal: [u8; 16],
     pub closed: bool,
     pub exited: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process: Option<ProcessIdentity>,
+}
+
+/// Kernel lifetime and installed account binding retained by the root broker.
+/// No RPC request can set these fields or choose a home or supplementary group.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessIdentity {
+    pub pid: u32,
+    pub start_ticks: u64,
+    pub gid: u32,
+    pub groups: Vec<u32>,
+    pub home: String,
+}
+impl ProcessIdentity {
+    pub fn validate(&self, user: &User) -> io::Result<()> {
+        user.validate()?;
+        if self.pid == 0
+            || self.start_ticks == 0
+            || self.gid != user.uid
+            || self.groups != [20000]
+            || self.home != format!("/home/{}", user.login)
+        {
+            return Err(refusal("invalid process binding"));
+        }
+        Ok(())
+    }
 }
 impl Entry {
     pub fn cgroup(&self) -> String {
@@ -181,6 +209,7 @@ impl<C: Controls> Sessions<C> {
                 principal: admission.principal,
                 closed: false,
                 exited: false,
+                process: None,
             },
         );
         Ok(())
@@ -218,6 +247,18 @@ impl<C: Controls> Sessions<C> {
     }
     pub fn entries(&self) -> impl Iterator<Item = &Entry> {
         self.entries.values()
+    }
+    pub(super) fn bind_process(&mut self, id: u32, process: ProcessIdentity) -> io::Result<()> {
+        let entry = self
+            .entries
+            .get_mut(&id)
+            .ok_or_else(|| refusal("unknown session"))?;
+        process.validate(&entry.user)?;
+        if entry.process.is_some() || entry.closed || entry.exited {
+            return Err(refusal("invalid process binding"));
+        }
+        entry.process = Some(process);
+        Ok(())
     }
     pub fn register_run(&mut self, id: u32, run: &str) -> io::Result<()> {
         if run.is_empty() || run.len() > 4096 || run.contains('\0') {

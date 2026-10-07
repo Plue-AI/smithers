@@ -3,6 +3,7 @@
 //! argv remains data until that provider has dropped privileges.
 use crate::{conn, hooks::Error};
 use std::{io, time::Duration};
+const REGISTRY_LIMIT: usize = 16 * 1024 * 1024;
 pub trait Controls {
     fn tick(&mut self) -> io::Result<()> {
         Ok(())
@@ -155,12 +156,41 @@ impl SocketpairBroker {
             if send(&*fd, &request, SendFlags::NOSIGNAL)? != request.len() {
                 return Err(io::ErrorKind::WriteZero.into());
             }
-            let mut bytes = vec![0; 65561];
-            let (n, _) = recv(&*fd, &mut bytes, RecvFlags::empty())?;
-            if n < 5 || n > 65560 || bytes[..4] != id.to_be_bytes() {
+            let receive = || -> io::Result<Vec<u8>> {
+                let mut bytes = vec![0; 65561];
+                let (n, _) = recv(&*fd, &mut bytes, RecvFlags::empty())?;
+                if n < 5 || n > 65560 || bytes[..4] != id.to_be_bytes() {
+                    return Err(io::ErrorKind::InvalidData.into());
+                }
+                bytes.truncate(n);
+                Ok(bytes)
+            };
+            let first = receive()?;
+            if variant != 25 || first[4] != 25 {
+                return Ok(first);
+            }
+            // The sole registry is bounded independently of individual private
+            // packets. Owner/process bindings must not make valid large rosters
+            // fail or force an unbounded seqpacket allocation.
+            if first.len() < 9 {
                 return Err(io::ErrorKind::InvalidData.into());
             }
-            bytes.truncate(n);
+            let total = u32::from_be_bytes(first[5..9].try_into().unwrap()) as usize;
+            if total > REGISTRY_LIMIT {
+                return Err(io::ErrorKind::InvalidData.into());
+            }
+            let mut bytes = first[..5].to_vec();
+            bytes.extend_from_slice(&first[9..]);
+            while bytes.len() - 5 < total {
+                let next = receive()?;
+                if next[4] != 25 || next.len() == 5 {
+                    return Err(io::ErrorKind::InvalidData.into());
+                }
+                bytes.extend_from_slice(&next[5..]);
+            }
+            if bytes.len() - 5 != total {
+                return Err(io::ErrorKind::InvalidData.into());
+            }
             Ok(bytes)
         })();
         let bytes = match exchange {
@@ -246,8 +276,44 @@ pub fn serve(fd: &std::os::fd::OwnedFd, controls: &mut impl Controls) -> io::Res
             return Ok(());
         }
         let response = handle(&packet[..n], controls)?;
-        if send(fd, &response, SendFlags::NOSIGNAL)? != response.len() {
-            return Err(io::ErrorKind::WriteZero.into());
+        if response.get(4) == Some(&25) {
+            let body = &response[5..];
+            if body.len() > REGISTRY_LIMIT {
+                return Err(io::ErrorKind::InvalidData.into());
+            }
+            let mut framed = (body.len() as u32).to_be_bytes().to_vec();
+            framed.extend_from_slice(body);
+            let deadline = std::time::Instant::now() + Duration::from_secs(1);
+            for chunk in framed.chunks(65555) {
+                let remaining = deadline
+                    .checked_duration_since(std::time::Instant::now())
+                    .ok_or(io::ErrorKind::TimedOut)?;
+                // Keep timeval microseconds below one million. Rounding a
+                // duration just below one second upward would produce EDOM.
+                let micros = remaining.as_micros() as u64;
+                if micros == 0 {
+                    return Err(io::ErrorKind::TimedOut.into());
+                }
+                rustix::net::sockopt::set_socket_timeout(
+                    fd,
+                    rustix::net::sockopt::Timeout::Send,
+                    Some(Duration::from_micros(micros)),
+                )?;
+                let mut packet = response[..5].to_vec();
+                packet.extend_from_slice(chunk);
+                if send(fd, &packet, SendFlags::NOSIGNAL)? != packet.len() {
+                    return Err(io::ErrorKind::WriteZero.into());
+                }
+            }
+        } else {
+            rustix::net::sockopt::set_socket_timeout(
+                fd,
+                rustix::net::sockopt::Timeout::Send,
+                Some(Duration::from_secs(1)),
+            )?;
+            if send(fd, &response, SendFlags::NOSIGNAL)? != response.len() {
+                return Err(io::ErrorKind::WriteZero.into());
+            }
         }
     }
     // The process owner kills descendants after EOF. Never thaw a rewrite whose
@@ -348,6 +414,9 @@ impl SocketpairBroker {
         }
         for entry in &entries {
             entry.user.validate().map_err(map_io)?;
+            if let Some(process) = &entry.process {
+                process.validate(&entry.user).map_err(map_io)?;
+            }
             if entry.id == 0 || entry.id > 0x7fff_ffff {
                 return Err(error(12));
             }

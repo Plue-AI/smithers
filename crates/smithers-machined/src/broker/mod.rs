@@ -14,3 +14,6 @@ pub mod supervisor;
 
 #[cfg(target_os = "linux")]
 pub mod spawn;
+
+#[cfg(target_os = "linux")]
+pub mod process_identity;
