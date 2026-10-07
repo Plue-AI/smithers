@@ -148,6 +148,7 @@ test("install code intelligence uses the selected branch File card and daemon ex
   const branch = "scratch/maya/intelligence"
   const opens: unknown[] = []
   const methods: string[] = []
+  let qualified = true
   let liveSockets = 0
   let snapshot: import("../runtime/LiveChannel").TopicSnapshot = { topic: `branch:${branch}`, data: { id: "machine-1", name: branch, machine: { state: "running" } } }
   const listeners = new Set<() => void>()
@@ -172,7 +173,7 @@ test("install code intelligence uses the selected branch File card and daemon ex
     live: { subscribe: (topic, changed) => { if (topic === snapshot.topic) listeners.add(changed); return () => { listeners.delete(changed) } }, getSnapshot: topic => topic === snapshot.topic ? snapshot : undefined },
     socketProtocols: () => ["smithers.local.test"],
     daemonLsp: {
-      ready: () => true,
+      ready: () => qualified,
       openSession: async scope => { opens.push(scope); return Response.json({ id: "17", kind: "exec", language: "typescript" }) },
       socketUrl: () => `ws://127.0.0.1:${server.port}`
     },
@@ -184,7 +185,7 @@ test("install code intelligence uses the selected branch File card and daemon ex
   try {
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maya", admin: false, scopesPlain: null }).isPersisted.promise
     await store.dispatch({ type: "branch.navigation.changed", actor: "user", navigation: { owner: "maya", open: true, selected_branch: branch, nodes: [] } }).isPersisted.promise
-    expect(app.commands.find("code.hover")).toBeDefined()
+    expect(app.commands.find("code.hover")?.metadata.visibility).toBe("in-card")
     const outcome = await app.commands.submit({ name: "code.hover", payload: { path: "retry.ts", line: 1, column: 14 }, actor: "user" })
     expect(outcome).toMatchObject({ status: "executed" })
     expect(JSON.stringify(outcome)).toContain("literal daemon hover")
@@ -214,6 +215,10 @@ test("install code intelligence uses the selected branch File card and daemon ex
     update({ topic: snapshot.topic, error: "forbidden" })
     await waitClosed()
     expect((await app.commands.submit({ name: "code.hover", payload: { path: "retry.ts", line: 1, column: 14 }, actor: "user" })).status).toBe("failed")
+    expect(opens).toHaveLength(2)
+    qualified = false
+    expect(app.commands.find("code.hover")).toBeUndefined()
+    expect((await app.commands.runAsAgent("code.hover", "retry.ts:1:14")).status).toBe("unknown-command")
     expect(opens).toHaveLength(2)
   } finally { await app.dispose(); await server.stop(true) }
 })
