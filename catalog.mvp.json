@@ -11662,53 +11662,83 @@
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
-          "type": "object",
-          "properties": {
-            "branch": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "branch"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "terminal.send",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "hidden",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "run",
-      "summary": "Run a command in your terminal",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "id": {
-              "type": "string"
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "branch": {
+                  "type": "string"
+                },
+                "operation": {
+                  "anyOf": [
+                    {
+                      "not": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "id": {
+                  "anyOf": [
+                    {
+                      "not": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "command": {
+                  "anyOf": [
+                    {
+                      "not": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "branch"
+              ],
+              "additionalProperties": true
             },
-            "command": {
-              "type": "string"
+            {
+              "type": "object",
+              "properties": {
+                "branch": {
+                  "anyOf": [
+                    {
+                      "not": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "operation": {
+                  "type": "string",
+                  "enum": [
+                    "command"
+                  ]
+                },
+                "id": {
+                  "type": "string"
+                },
+                "command": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "operation",
+                "id",
+                "command"
+              ],
+              "additionalProperties": true
             }
-          },
-          "required": [
-            "id",
-            "command"
-          ],
-          "additionalProperties": true
+          ]
         },
         "definitions": {}
       }

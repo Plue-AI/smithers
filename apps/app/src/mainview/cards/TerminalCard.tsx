@@ -57,7 +57,7 @@ export function DesignTerminalCard({ card, actions }: { card: CardOf<"terminal">
   const writer = useRef<TerminalWriter | undefined>(undefined)
   const stream = useMemo(() => designTerminalStream(design, id, write => { writer.current = write }), [design, id])
   const input = useMemo(() => ownerInput(() => writer.current, command =>
-    controller.commands.submit({ name: "terminal.send", payload: { id, command }, actor: "user", originCardId: card.id })), [controller, id, card.id])
+    controller.commands.submit({ name: "terminal", payload: { operation: "command", id, command }, actor: "user", originCardId: card.id })), [controller, id, card.id])
   const terminal = world.terminals.find(each => each.id === id)
   if (!terminal) return null
   const model = designTerminalModel(world, terminal, design.viewer())

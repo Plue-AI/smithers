@@ -18,7 +18,7 @@ import { createProposalSeam, type ProposalSeam } from "./seams/ProposalSeam"
 import { FileDocuments } from "../runtime/FileDocuments"
 import type { DocumentPrerequisites } from "../runtime/LiveDocProvider"
 import type { LiveChannel } from "../runtime/LiveChannel"
-import { createTerminalSource, type TerminalCardSource } from "./seams/TerminalSeam"
+import { createTerminalBinding, createTerminalSource, type TerminalCardSource } from "./seams/TerminalSeam"
 import { debugApiOperation } from "@smthrs/ui/app-operations"
 import { bundledOpenApi } from "../../debugApi/bundled"
 import { createDebugApiSeam, debugApiFailureCopy, presentDebugApiFailure, type DebugApiSeam, type DebugApiInput, type DebugApiGates, type OpenApiDocument } from "./seams/DebugApiSeam"
@@ -381,6 +381,7 @@ export interface AppController extends IssueFlowsController {
   readonly dismissCard: FormsController["dismissCard"]
   /** Lane citc: the cloud-workspace terminal transport (one socket per workspace session). */
   /** T-APP-12 stays dark until the owner-only machine provider supplies this scope. */
+  readonly writeTerminal: (input: { id: string; command: string }) => import("../flows/entries/Declare").CommandResult
   readonly openBranchTerminal?: (branch: string) => Promise<import("../flows/entries/Declare").CommandResult>
   readonly terminalCards?: TerminalCardSource
   readonly cloudTerminal: CloudTerminalClient
@@ -1627,6 +1628,22 @@ export const createAppController = (
     http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init)
   }) : undefined
   if (terminalProvider) ctx.onDispose(terminalProvider.dispose)
+  const { writeTerminal } = actors.pair(ctx, context => ({ writeTerminal: (input: { id: string; command: string }): import("../flows/entries/Declare").CommandResult => {
+    if (context.commandActor !== "user") return "Terminal input is person-only"
+    if (installHost) {
+      const source = terminalProvider?.source, branch = source?.branch(input.id)
+      if (!source || !branch || !services.live) return "Terminal unavailable"
+      const binding = createTerminalBinding({ repo: source.repo, branch, id: input.id, client: cloudTerminal,
+        viewer: source.viewer, available: source.available,
+        metadata: () => { const snapshot = services.live!.getSnapshot(`branch:${branch}`); return snapshot?.error ? undefined : snapshot?.data } })
+      const model = binding.model()
+      if (!model?.viewer_is_owner || model.frozen) return "Terminal is read-only"
+      binding.input(input.command + "\r")
+      return
+    }
+    const result = design.typeTerminal(input.id, input.command, design.viewer())
+    return result.ok ? undefined : result.refusal
+  } }))
   const openBranchTerminal = installHost ? actors.pair(ctx, (context, select) => createTerminalRequests(context, {
     repo: () => {
       const repository = installSeam.snapshots.get().model?.repository
@@ -2202,6 +2219,7 @@ export const createAppController = (
     presentFlow,
     listRepositoryFlows,
     presentSubject,
+    writeTerminal,
     openBranchTerminal: installHost ? openBranchTerminal : undefined,
     presentBranchCard,
     showSetup: installSeam.showSetup, showSettings: installSeam.showSettings, setupStep: installSeam.setupStep,

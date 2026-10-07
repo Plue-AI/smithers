@@ -21,7 +21,7 @@ export const designTerminalStream = (design: DesignWorld, id: string, onWriter: 
   return design.subscribe(() => flush(false))
 }
 
-/** Seed-only line editing; Enter uses the same typed terminal.send flow as the slash door. */
+/** Seed-only line editing; Enter uses the same typed terminal flow as the slash door. */
 export const ownerInput = (write: () => TerminalWriter | undefined, send: (command: string) => void) => {
   let buffer = ""
   return (data: string) => {

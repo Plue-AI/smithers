@@ -3,7 +3,7 @@
  * `/branch`, Rebase now, New terminal, Enter in a terminal, Watch, `/ssh`,
  * Fork and Add to stack act on the seeded design world and open their cards.
  */
-import { expect, test } from "bun:test"
+import { expect, test, spyOn } from "bun:test"
 import { createAppController } from "../../state/AppController"
 import { createAppStore } from "../../state/AppStore"
 import { memoryStorage, signupProfileFetch, unavailableAgent } from "../../state/TestFixtures"
@@ -72,12 +72,12 @@ test("New terminal opens the member's own terminal; Enter runs there and nowhere
     const terminal = h.controller.design.world().terminals.find(each => each.owner === "maya")!
     expect(terminal).toMatchObject({ branch: "b-retry", lines: [], watchers: [] })
     expect(h.store.collections.cards.get(`terminal:${terminal.id}`)).toMatchObject({ kind: "terminal", title: terminal.title, payload: { id: terminal.id } })
-    expect((await submit(h, "terminal.send", { id: terminal.id, command: "pnpm test" })).status).toBe("executed")
+    expect((await submit(h, "terminal", { operation: "command", id: terminal.id, command: "pnpm test" })).status).toBe("executed")
     expect(h.controller.design.world().terminals.find(each => each.id === terminal.id)!.lines).toEqual([
       { text: "maya@retry-webhooks $ pnpm test", tone: "prompt" }, { text: "✓ 42 passed", tone: "ok" }
     ])
     const before = h.controller.design.world().terminals.find(each => each.id === "term-retry-1")!.lines
-    expect((await submit(h, "terminal.send", { id: "term-retry-1", command: "ls" })).status).toBe("failed")
+    expect((await submit(h, "terminal", { operation: "command", id: "term-retry-1", command: "ls" })).status).toBe("failed")
     expect(h.controller.design.world().terminals.find(each => each.id === "term-retry-1")!.lines).toEqual(before)
   } finally { h.controller.dispose() }
 })
@@ -141,7 +141,7 @@ test("install live dispatcher refuses absent Branch and Terminal providers befor
     for (const [name, payload, error] of [
       ["terminal", { branch: "b-retry" }, "Terminal unavailable"],
       ["terminal.watch", { id: "term-retry-1" }, "Terminal unavailable"],
-      ["terminal.send", { id: "term-retry-1", command: "bad" }, "Terminal unavailable"],
+      ["terminal", { operation: "command", id: "term-retry-1", command: "bad" }, "Terminal unavailable"],
       ["branch", { name: "retry-webhooks" }, "Branch unavailable"],
       ["branch.rebase", { branch: "b-retry" }, "Branch unavailable"]
     ] as const) {
@@ -221,7 +221,7 @@ test("non-install bootstrap keeps design terminals while installs require a know
         expect(opened.status).toBe("executed")
         const terminal = controller.design.world().terminals.find(each => each.owner === "maya")!
         expect(store.collections.cards.get(`terminal:${terminal.id}`)?.kind).toBe("terminal")
-        expect((await controller.submitCommand({ name: "terminal.send", payload: { id: terminal.id, command: "pnpm test" }, actor: "user" })).status).toBe("executed")
+        expect((await controller.submitCommand({ name: "terminal", payload: { operation: "command", id: terminal.id, command: "pnpm test" }, actor: "user" })).status).toBe("executed")
         expect(controller.design.world().terminals.find(each => each.id === terminal.id)!.lines.at(-1)?.text).toBe("✓ 42 passed")
         expect((await controller.submitCommand({ name: "terminal.watch", payload: { id: "term-retry-1" }, actor: "user" })).status).toBe("executed")
       }
@@ -379,11 +379,12 @@ test("Archive persists and acknowledges before HTTP; duplicate input and Chat st
 test("install Watch discovers the machine topic from the real branch-list wire shape", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const topics: string[] = []
+  let frozen = false
   const live = {
     subscribe: (topic: string) => { topics.push(topic); return () => {} },
     getSnapshot: (topic: string) => topic === "branch:machine-retry" ? { topic, data: {
       id: "machine-retry", ssh_line: "ssh -p 2222 smithers/retry@factory.example",
-      terminals: [{ id: "terminal-retry", title: "Shell", owner: { kind: "person", login: "ben", name: "Ben", avatar_url: "https://github.com/ben.png", color_index: 0 }, agents: [], watchers: [], frozen: false }]
+      terminals: [{ id: "terminal-retry", title: "Shell", owner: { kind: "person", login: "ben", name: "Ben", avatar_url: "https://github.com/ben.png", color_index: 0 }, agents: [], watchers: [], frozen }]
     } } : undefined
   }
   const profile = signupProfileFetch(async input => {
@@ -404,6 +405,19 @@ test("install Watch discovers the machine topic from the real branch-list wire s
     expect((await controller.submitCommand({ name: "ssh", payload: { branch: "missing" }, actor: "user" })).status).toBe("failed")
     expect(await controller.submitCommand({ name: "terminal.watch", payload: { id: "terminal-retry" }, actor: "user" })).toMatchObject({ status: "executed" })
     expect(store.collections.cards.get("terminal:terminal-retry")).toMatchObject({ kind: "terminal", payload: { id: "terminal-retry" } })
+    const bytes: unknown[] = []
+    spyOn(controller.cloudTerminal, "input").mockImplementation((id, data) => { bytes.push([id, data]) })
+    const payload = { operation: "command", id: "terminal-retry", command: "pwd" }
+    expect(await controller.submitCommand({ name: "terminal", payload, actor: "user" })).toMatchObject({ status: "executed" })
+    expect(bytes).toEqual([["terminal-retry", "pwd\r"]])
+    expect(await controller.submitCommand({ name: "terminal", payload, actor: "agent" })).toMatchObject({ status: "failed", error: "Terminal input is person-only" })
+    frozen = true
+    expect(await controller.submitCommand({ name: "terminal", payload, actor: "user" })).toMatchObject({ status: "failed", error: "Terminal is read-only" })
+    frozen = false
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other", admin: false, scopesPlain: null }).isPersisted.promise
+    expect((await controller.submitCommand({ name: "terminal", payload, actor: "user" })).status).toBe("failed")
+    expect(bytes).toHaveLength(1)
+
   } finally { stop(); controller.dispose() }
 })
 

@@ -196,7 +196,7 @@ interface CurrentCardCommandInput {
   readonly "branch.fork": z.infer<typeof BranchForkInputSchema>
   readonly "branch.add-to-stack": z.infer<typeof BranchAddToStackInputSchema>
   readonly "branch.rebase": { readonly branch: string; readonly conflict_change?: string; readonly onto_revision?: string } | undefined
-  readonly "terminal": { readonly branch: string } | undefined
+  readonly "terminal": { readonly branch: string } | { readonly operation: "command"; readonly id: string; readonly command: string } | undefined
   readonly "file": { readonly path: string; readonly branch?: string; readonly revision?: string }
   readonly "files": undefined
   readonly "diff": undefined

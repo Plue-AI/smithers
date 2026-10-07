@@ -20,6 +20,7 @@
  * button still runs; nothing writes these names.
  */
 export const RENAMED_FLOWS: Readonly<Record<string, string>> = {
+  "terminal.send": "terminal",
   "flow.list": "flows",
   "settings.address": "settings",
   "settings.capacity": "settings",
@@ -165,7 +166,6 @@ export const FLOW_NAMES = [
   "branch.rebase",
   "terminal",
   "terminal.watch",
-  "terminal.send",
   "ssh",
   "browser.open",
   "card.dismiss",

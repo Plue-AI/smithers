@@ -8,6 +8,7 @@ const unexpected = (): never => { throw new Error("Command action was not suppli
  * Unused actions fail loudly; each test supplies only the behavior it exercises.
  */
 export const stubCommandActions = (overrides: Partial<CommandActions> = {}): CommandActions => ({
+  writeTerminal: unexpected,
   promptStorageRecovery: unexpected,
   exportStorageRecovery: unexpected,
   resetStorageRecovery: unexpected,

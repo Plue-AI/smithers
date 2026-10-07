@@ -84,8 +84,13 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
         return result.ok ? undefined : result.refusal
       } }),
     flow({ name: "terminal",   slash: "/terminal", cli: null, journey: ["J3","J6"], group: "Branches and machines", visibility: "core", actors: ["person","app_agent"], minimumRole: "member", http: { method: "POST", path: "/api/terminals" }, summary: "Open a terminal on a branch", args: "<branch>", hidden: true, discloseToAgent: true,
-      grammar: field("branch"), agent: "run", input: BranchInput,
-      handler: async ({ branch }) => {
+      grammar: field("branch"), agent: "run", input: Schema.Union([
+        Schema.Struct({ branch: Schema.String, operation: Schema.optional(Schema.Never), id: Schema.optional(Schema.Never), command: Schema.optional(Schema.Never) }),
+        Schema.Struct({ branch: Schema.optional(Schema.Never), operation: Schema.Literal("command"), id: Schema.String, command: Schema.String })
+      ]),
+      handler: async ({ branch, operation, id, command }) => {
+        if (operation === "command") return actions.writeTerminal({ id, command })
+
         if (actions.openBranchTerminal) return actions.openBranchTerminal(branch)
         if (actions.bootstrap?.capabilities.includes("install") || (!actions.bootstrap && actions.live)) return "Terminal unavailable"
         const target = branchOf(branch)
@@ -105,13 +110,6 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
         const terminal = design.world().terminals.find(each => each.id === id)
         if (terminal !== undefined && terminal.owner !== design.viewer()) design.watchTerminal(id, design.viewer())
         return openTerminal(id)
-      } }),
-    flow({ name: "terminal.send", summary: "Run a command in your terminal", args: "<terminal> <command>", hidden: true,
-      grammar: field("id"), input: Schema.Struct({ id: Schema.String, command: Schema.String }),
-      handler: ({ id, command }) => {
-        if (actions.bootstrap?.capabilities.includes("install") || (!actions.bootstrap && actions.live)) return "Terminal unavailable"
-        const result = design.typeTerminal(id, command, design.viewer())
-        return result.ok ? undefined : result.refusal
       } }),
     flow({ name: "ssh", agent: "never",   slash: "/ssh", cli: ["ssh"], journey: ["J3"], group: "Account and settings", visibility: "core", actors: ["person"], minimumRole: "member", http: { method: "GET", path: "/api/ssh", query: { branch: "branch" } }, summary: "Copy the SSH line for a branch", args: "<branch>", hidden: true, discloseToAgent: true,
       grammar: field("branch"), input: BranchInput,
