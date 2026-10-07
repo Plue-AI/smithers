@@ -32,9 +32,6 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx := t.Context()
 	q := db.New(pool)
-	bus := revocation.NewBus(pool, q)
-	routes.SetRevocationSource(bus)
-	t.Cleanup(func() { routes.SetRevocationSource(nil) })
 	digest := sha256.Sum256([]byte("fixture-person"))
 	sessionHash := hex.EncodeToString(digest[:])
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "learnowner", LowerUsername: "learnowner"})
@@ -90,6 +87,10 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 	cfg.Server.AllowedOrigins = []string{origin}
 	hubCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	bus := revocation.NewBus(pool, q)
+	require.NoError(t, bus.Start(hubCtx))
+	routes.SetRevocationSource(bus)
+	defer routes.SetRevocationSource(nil)
 	topics := &liveTopics{queries: q, todos: service}
 	handler := &routes.LiveHandler{Queries: q, Hub: live.NewHub(hubCtx, nil), Origins: func() []string { return []string{origin} }, Topics: topics.resolver}
 	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{}, routerExtras{Live: handler, Mythical: &routes.MythicalHandler{Service: service}})
