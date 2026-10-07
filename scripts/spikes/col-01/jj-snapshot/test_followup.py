@@ -22,6 +22,13 @@ class FollowupTests(unittest.TestCase):
                 self.assertIn('guest agent uid 19999', result.stderr)
             self.assertEqual(list(root.iterdir()), [])
 
+    def test_privileged_probe_refuses_host_and_arguments_without_evidence(self):
+        result = subprocess.run([sys.executable, str(Path(__file__).with_name('cgroup_probe.py')), 'override'],
+                                capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('takes no arguments', result.stderr)
+        self.assertEqual(result.stdout, '')
+
     def test_projection_uses_pinned_workload_and_strict_budget(self):
         self.assertEqual(growth.PROJECTED_CAPTURES, 80640)
         self.assertEqual(growth.projection({'.jj': 0, '.git': 0}, {'.jj': 1000, '.git': 0}), 80640)
