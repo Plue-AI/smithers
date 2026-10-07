@@ -1,8 +1,32 @@
 import { expect, test } from "vitest"
-import { requireReachedGoFault } from "./durability.ts"
+import { requireReachedGoFault, requireReachedGoFaultMatrix } from "./durability.ts"
 
 const machine = "TestMachineKillRetainsDiskAndRecoveryIsolation"
 const log = (...events: ReadonlyArray<Record<string, string>>) => events.map(event => JSON.stringify(event)).join("\n")
+
+const githubPoints = ["github-push", "github-open", "github-body", "github-merge", "github-close"] as const
+const githubNames = ["TestPushKill", "TestOpenKill", "TestBodyKill", "TestMergeKill", "TestCloseKill"]
+const githubLog = () => log(...githubNames.flatMap((name, i) => [
+  { Action: "output", Test: name, Output: `CRASH-POINT ${githubPoints[i]}\n` },
+  { Action: "pass", Test: name }
+]))
+
+test("GitHub qualification requires all five operations across selected tests", () => {
+  expect(() => requireReachedGoFaultMatrix(githubLog(), githubNames, githubPoints)).not.toThrow()
+  expect(() => requireReachedGoFaultMatrix(githubLog(), githubNames.slice(0, 4), githubPoints))
+    .toThrow("github-close")
+})
+
+test("an unrelated operation cannot supply a matrix crossing", () => {
+  expect(() => requireReachedGoFaultMatrix(githubLog(), [githubNames[0]!], githubPoints))
+    .toThrow("github-open")
+})
+
+test("a matrix cannot qualify an empty selection or a selected test without a kill", () => {
+  expect(() => requireReachedGoFaultMatrix(githubLog(), [], githubPoints)).toThrow("no acceptance tests")
+  expect(() => requireReachedGoFaultMatrix(githubLog() + "\n" + log({ Action: "pass", Test: "TestUnreached" }),
+    [...githubNames, "TestUnreached"], githubPoints)).toThrow("logged no kill marker")
+})
 
 test("transport-only machine evidence cannot qualify TODO recovery", () => {
   const transcript = log(
