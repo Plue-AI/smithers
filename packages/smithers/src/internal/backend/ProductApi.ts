@@ -2318,16 +2318,6 @@ export interface PostApiModelTestInput {
 export const postApiModelTest = (transport: Transport, input?: PostApiModelTestInput): Promise<PostApiModelTestResponse> =>
   transport.request("POST", `/api/model/test`, input?.body) as Promise<PostApiModelTestResponse>
 
-export type GetApiModelTestReceiptResponse = AnyJSON
-
-export interface GetApiModelTestReceiptInput {
-  readonly query: { readonly requestId: string }
-}
-
-/** GET /api/model/test/receipt: Read a durable owner model probe */
-export const getApiModelTestReceipt = (transport: Transport, input: GetApiModelTestReceiptInput): Promise<GetApiModelTestReceiptResponse> =>
-  transport.request("GET", `/api/model/test/receipt${search({ requestId: input.query.requestId })}`) as Promise<GetApiModelTestReceiptResponse>
-
 export type PostApiModelVercelPathBody = AnyJSON
 
 export type PostApiModelVercelPathResponse = AnyJSON
