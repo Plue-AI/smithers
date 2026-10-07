@@ -70,6 +70,8 @@ export const HomeCardSchema = z.object({
   items: z.array(HomeItemSchema),
   counts: z.record(TodoStateSchema, z.number().int().nonnegative()),
   merged_since_last_look: z.array(z.number().int().positive()),
+  /** Shared committed merge facts; old records retain their original count. */
+  merge_history: z.array(z.object({ n: z.number().int().positive(), seq: z.number().int().nonnegative().safe() })).optional(),
   machines: z.object({
     in_use: z.number().int().nonnegative(),
     capacity: z.number().int().nonnegative(),
@@ -100,6 +102,7 @@ export type HomeCard = z.infer<typeof HomeCardSchema>
  * @category models
  */
 export interface HomeViewState {
+  readonly last_seen_seq?: number
   readonly on_screen?: boolean
   readonly menu?: number | undefined
 }
