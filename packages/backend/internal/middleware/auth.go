@@ -466,6 +466,8 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "order.ok", regexp.MustCompile(`^/api/stack/attention/[^/]+$`)},
 	{http.MethodGet, "public", regexp.MustCompile(`^/api/status$`)},
 	{http.MethodGet, "install.read", regexp.MustCompile(`^/api/admin/system/health$`)},
+	{http.MethodPost, "terminal", regexp.MustCompile(`^/api/terminals$`)},
+	{http.MethodGet, "terminal.watch", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspace/sessions/[^/]+/terminal$`)},
 	{http.MethodGet, "self", regexp.MustCompile(`^/api/user$`)},
 	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/notifications(?:/(?:list|events(?:/stream)?|preferences))?$`)},
 	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/user/(?:emails|connections|settings/(?:notifications|signup))$`)},
@@ -797,6 +799,12 @@ func loadTokenAuthByHash(ctx context.Context, queries AuthLoaderQuerier, tokenHa
 	if err != nil {
 		if !stdErrors.Is(err, pgx.ErrNoRows) {
 			return nil, err
+		}
+		if lookup, ok := ctx.Value(terminalTokenLookupKey{}).(TerminalTokenLookup); ok && lookup != nil {
+			info, err := lookup(ctx, tokenHash)
+			if err != nil || info != nil {
+				return info, err
+			}
 		}
 		return loadOAuth2TokenAuth(ctx, queries, tokenHash)
 	}

@@ -1633,6 +1633,18 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		ActiveConnections: terminalActiveCounter,
 	}
 	if presence != nil {
+		workspaceTerminalHandler.OwnerOnly = true
+		workspaceTerminalHandler.OwnerTerminals = &installOwnerTerminals{queries: queries, branches: workspaceService, registry: options.Machined}
+		workspaceTerminalHandler.TerminalSessions = workspaceTerminalHandler.SharedTerminalSessions()
+		presence.terminalManager = workspaceTerminalHandler.TerminalSessions
+		authService.TerminalSubject = presence.terminalManager.OwnsSubject
+		if runtime, ok := options.Workspace.(interface{ SetTerminalHoldSource(func(string) bool) }); ok {
+			runtime.SetTerminalHoldSource(func(holder string) bool {
+				return presence.terminalManager.HasBranchTerminal(0, strings.TrimPrefix(holder, "workspace:"))
+			})
+		}
+		workspaceTerminalHandler.TerminalTokenLookup = workspaceService.AuthenticateOwnerTerminalToken
+		defer workspaceTerminalHandler.TerminalSessions.Close()
 		presence.terminals = terminalProjection(pool, workspaceTerminalHandler.TerminalPresence, options.Machined)
 	}
 	if config.IsSingleOwner(cfg.Auth) && flow != nil && flow.dispatcher != nil {
@@ -1833,6 +1845,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		mythicalService.SetPublicOrigin(installAddress.Public)
 		authService.InstallSetup = &services.InstallSetupSessions{Pool: pool}
 		authService.Members = &services.Members{Pool: pool, Credentials: gitHubAppCredentials, Minter: repoConnectionService, Budget: gitHubBudgetTracker}
+		if presence != nil {
+			presence.members = authService.Members
+		}
 		composeGitHubPermissionPolling(authService.Members, gitHubSyncedRepoService, gitHubMainPullService, memberRecheck.Trigger)
 		authHandler.InstallSetup = authService.InstallSetup
 		setupOutput := stdout

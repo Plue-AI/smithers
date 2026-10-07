@@ -42,6 +42,9 @@ func (s *WorkspaceService) CreateSession(ctx context.Context, input CreateWorksp
 	if err != nil {
 		return WorkspaceSessionResponse{}, err
 	}
+	if kind == WorkspaceSessionKindTerminal && s.credentialIssuer != nil && s.credentialIssuer.TerminalSubject != nil {
+		return WorkspaceSessionResponse{}, pkgerrors.BadRequest("Open a branch terminal")
+	}
 	input.Kind = kind
 	input.Language = language
 

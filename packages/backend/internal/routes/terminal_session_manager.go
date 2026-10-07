@@ -437,16 +437,17 @@ func (m *TerminalSessionManager) Close() {
 }
 
 type terminalSession struct {
-	id        string
-	client    terminalSSHClient
-	sshSess   terminalSSHSession
-	stdin     io.WriteCloser
-	stdout    io.Reader
-	stderr    io.Reader
-	ring      *terminalRingBuffer
-	idleAfter time.Duration
-	keepalive time.Duration
-	onDone    func()
+	ownerSession bool
+	id           string
+	client       terminalSSHClient
+	sshSess      terminalSSHSession
+	stdin        io.WriteCloser
+	stdout       io.Reader
+	stderr       io.Reader
+	ring         *terminalRingBuffer
+	idleAfter    time.Duration
+	keepalive    time.Duration
+	onDone       func()
 	// principal is whose authorization the session rides on (user, token,
 	// repository, workspace, VM); RevokeMatching compares revocations to it.
 	principal revocation.Principal
@@ -812,15 +813,20 @@ func (s *terminalSession) markDeadWithCode(code websocket.StatusCode, err error)
 			go func() { _ = sink.close(code, msg) }()
 		}
 		close(s.done)
-		if s.onDone != nil {
+		if !s.ownerSession && s.onDone != nil {
 			s.onDone()
 		}
 		// State, sinks and publication are settled before returning. Transport
 		// closes may wait for the peer and must not delay revocation delivery.
 		go func() {
 			_ = s.stdin.Close()
-			_ = s.sshSess.Close()
-			_ = s.client.Close()
+			sessionErr := s.sshSess.Close()
+			clientErr := s.client.Close()
+			// An owner session holds safe-idle until broker teardown succeeds.
+			// Failed cleanup stays held, rather than treating lost transport as exit.
+			if s.ownerSession && (sessionErr == nil && clientErr == nil || err == nil || terminalExitStatus(err) >= 0) && s.onDone != nil {
+				s.onDone()
+			}
 		}()
 	})
 }

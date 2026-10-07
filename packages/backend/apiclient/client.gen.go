@@ -2369,6 +2369,12 @@ type PostAPIStackAttentionIDResponse struct {
 	State string `json:"state"`
 }
 
+// PostAPITerminalsResponse is generated from docs/api/openapi.yaml.
+type PostAPITerminalsResponse struct {
+	ID     string `json:"id"`
+	Branch string `json:"branch"`
+}
+
 // PostAPITodosBody is generated from docs/api/openapi.yaml.
 type PostAPITodosBody struct {
 	Title       string                 `json:"title"`
@@ -5875,8 +5881,10 @@ func (c *Client) PostAPITelemetryErrors(ctx context.Context) (AnyJSON, error) {
 }
 
 // PostAPITerminals calls POST /api/terminals.
-func (c *Client) PostAPITerminals(ctx context.Context, body PostAPITerminalsBody) error {
-	return c.do(ctx, "POST", "/api/terminals", nil, body, nil)
+func (c *Client) PostAPITerminals(ctx context.Context, body PostAPITerminalsBody) (PostAPITerminalsResponse, error) {
+	var out PostAPITerminalsResponse
+	err := c.do(ctx, "POST", "/api/terminals", nil, body, &out)
+	return out, err
 }
 
 // GetAPIStack calls GET /api/stack.

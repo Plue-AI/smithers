@@ -176,6 +176,8 @@ type Runtime struct {
 	owner                  string
 	holder                 string
 	semaphore              chan struct{}
+	terminalHold           func(string) bool
+	machinedDispatch       func(context.Context, *machined.Link, string) error
 
 	environments *environments
 	codingHelper codingHelperCache
