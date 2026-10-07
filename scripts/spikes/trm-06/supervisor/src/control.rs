@@ -283,6 +283,60 @@ fn pump(stream: &mut TcpStream, live: Arc<Live>, mut received: u64) -> io::Resul
 mod tests {
     use super::*;
     #[test]
+    fn framed_tcp_boundary_carries_live_binary_exec_and_exit_seven() {
+        // Unprivileged process + loopback frame transport, not the installed
+        // microVM relay or an accepted C-SPK-08 root-validation control.
+        let live = Arc::new(crate::live::tests::fixture("cat; printf err >&2; exit 7"));
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            pump(&mut stream, live, 0)
+        });
+        let mut client = TcpStream::connect(address).unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        Frame::Data {
+            stream: 0,
+            bytes: vec![0, 255, 10],
+        }
+        .write(&mut client)
+        .unwrap();
+        Frame::Eof { stream: 0 }.write(&mut client).unwrap();
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let mut eofs = [false; 3];
+        loop {
+            match Frame::read(&mut client).unwrap() {
+                Frame::Window { bytes } => assert_eq!(bytes, 3),
+                Frame::Data { stream, bytes } => {
+                    assert!(!eofs[stream as usize]);
+                    if stream == 1 {
+                        out.extend(bytes)
+                    } else if stream == 2 {
+                        err.extend(bytes)
+                    } else {
+                        panic!("guest stdin data");
+                    }
+                }
+                Frame::Eof { stream } => {
+                    assert!(!eofs[stream as usize]);
+                    eofs[stream as usize] = true;
+                }
+                Frame::Exit { code } => {
+                    assert_eq!(code, 7);
+                    break;
+                }
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+        assert_eq!(out, [0, 255, 10]);
+        assert_eq!(err, b"err");
+        assert!(eofs[1] && eofs[2]);
+        server.join().unwrap().unwrap();
+    }
+    #[test]
     fn authenticated_control_refuses_identity_and_path_injection() {
         for body in [
             r#"{"type":"open_session","kind":"exec","uid":0}"#,
