@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -17,11 +18,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type learningMachineFixture struct{ calls chan flowruntime.Pin }
+type learningMachineFixture struct {
+	calls       chan flowruntime.Pin
+	retired     chan flowruntime.Target
+	retireError error
+}
 
 func (f learningMachineFixture) EnsureLearningMachine(_ context.Context, repo, actor int64, item string, pin flowruntime.Pin) (flowruntime.Target, error) {
 	f.calls <- pin
 	return flowruntime.Target{TenantID: fmt.Sprintf("repository:%d", repo), PrincipalID: fmt.Sprintf("user:%d", actor), WorkspaceID: "isolated-learning-fixture", BindingKind: "learning", BindingID: item}, nil
+}
+
+func (f learningMachineFixture) RetireLearningMachine(_ context.Context, target flowruntime.Target) error {
+	if f.retired != nil {
+		f.retired <- target
+	}
+	return f.retireError
 }
 
 func TestLearningAdmissionDurablePinAndRefusal(t *testing.T) {
@@ -125,4 +137,23 @@ func TestLearningAdmissionDurablePinAndRefusal(t *testing.T) {
 	require.Equal(t, digest, saved.Pin.ExecutionDigest)
 	require.Equal(t, itemID, saved.Target.BindingID)
 	require.Equal(t, int64(1), saved.Payload["todo"])
+	var operationID string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT id FROM product_job_requests WHERE operation='flow.runtime.launch'`).Scan(&operationID))
+	cp := flowdispatch.RuntimeCheckpoint{Target: saved.Target, FlowID: "learning", RunID: "learning-1"}
+	checkpoint, _ := json.Marshal(cp)
+	_, err = pool.Exec(ctx, `UPDATE product_job_dispatches SET external_receipt=$2 WHERE operation_id=$1`, operationID, checkpoint)
+	require.NoError(t, err)
+	retired := make(chan flowruntime.Target, 2)
+	cleanupFailure := errors.New("allocator retirement failed")
+	service.SetLearningMachines(learningMachineFixture{retired: retired, retireError: cleanupFailure})
+	update := flowdispatch.ProjectionUpdate{OperationID: operationID, Scope: learningOperationScope(item), State: jobs.StateFailed, Checkpoint: cp}
+	require.ErrorIs(t, service.LearningRuntime().ProjectFlowRuntime(ctx, update), cleanupFailure)
+	require.Equal(t, saved.Target, <-retired)
+	service.SetLearningMachines(learningMachineFixture{retired: retired})
+	require.NoError(t, service.LearningRuntime().ProjectFlowRuntime(ctx, update))
+	require.Equal(t, saved.Target, <-retired)
+	update.Checkpoint.Target.WorkspaceID = "another-machine"
+	require.ErrorIs(t, service.LearningRuntime().ProjectFlowRuntime(ctx, update), ErrLearningBinding)
+	require.Empty(t, retired)
+
 }

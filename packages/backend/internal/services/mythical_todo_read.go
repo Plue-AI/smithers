@@ -359,6 +359,7 @@ type todoAttemptEvidence struct {
 	Attempt      int32                 `json:"attempt"`
 	Revision     string                `json:"revision"`
 	Items        []map[string]any      `json:"items"`
+	Failures     []LearningFailure     `json:"failures,omitempty"`
 	Previous     *todoRevisionEvidence `json:"previous,omitempty"`
 }
 
@@ -374,6 +375,7 @@ var wikiCitationDigest = regexp.MustCompile(`^[0-9a-f]{64}$`)
 // checks under the existing Previous contract, including their attempt logs.
 func todoEvidenceWithPrevious(current, stored todoAttemptEvidence) todoAttemptEvidence {
 	current.Previous = stored.Previous
+	current.Failures = mergeLearningFailures(stored.Failures, current.Failures)
 	if stored.Revision != "" && current.Revision != stored.Revision && len(stored.Items) > 0 {
 		current.Previous = &todoRevisionEvidence{Revision: stored.Revision, Items: stored.Items}
 	}
@@ -398,6 +400,13 @@ func currentTodoEvidence(item db.MythicalItem) todoAttemptEvidence {
 			if retained.Attempt == item.Attempt {
 				evidence.RunID = retained.RunID
 				break
+			}
+		}
+	}
+	if checks.Receipts != nil {
+		for _, receipt := range checks.Receipts.Checks {
+			if receipt.Commit == item.CandidateHead && receipt.Status == "failed" && receipt.Fault != "infra" && receipt.Check != "" {
+				evidence.Failures = append(evidence.Failures, learningCheckFailure(receipt.Check, receipt.Tier, receipt.Evidence))
 			}
 		}
 	}
@@ -473,6 +482,10 @@ func todoEvidence(item db.MythicalItem) []todoAttemptEvidence {
 	}
 	if current.Attempt > 0 && (len(current.Items) > 0 || current.Previous != nil) {
 		evidence = append(evidence, current)
+	}
+	// Mining reads canonical attempts; card evidence keeps its existing shape.
+	for i := range evidence {
+		evidence[i].Failures = nil
 	}
 	return evidence
 }
