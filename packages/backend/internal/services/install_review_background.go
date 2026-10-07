@@ -196,33 +196,34 @@ func (b *ReviewBackground) handle(ctx context.Context, lease *jobs.Lease) error 
 		}
 		return lease.Fail(ctx, json.RawMessage(`{"class":"permission","code":"permission"}`))
 	}
+	// Recheck live authority on observation and delivery recovery as well as launch.
+	var credential middleware.Credential
+	if err := json.Unmarshal(claim.AuthorizationContext, &credential); err != nil {
+		return err
+	}
+	info, err := middleware.ReloadCredential(ctx, b.service.queries(), credential, time.Now())
+	if err != nil && !errors.Is(err, middleware.ErrCredentialGone) {
+		return err
+	}
+	if errors.Is(err, middleware.ErrCredentialGone) || !middleware.BindInstallCredential(info) || info.User.ID != admission.RequesterID {
+		return refuse()
+	}
+	bound := middleware.ContextWithAuthInfo(ctx, info)
+	if _, err := Authorize(bound, b.service.queries(), "review"); err != nil {
+		var access *AccessError
+		if errors.As(err, &access) && access.Class == "infra" {
+			return err
+		}
+		return refuse()
+	}
+	if err := b.service.reviewMembers(ctx, admission); err != nil {
+		var refusal *TodoControlError
+		if errors.As(err, &refusal) && refusal.Class == "permission" {
+			return refuse()
+		}
+		return err
+	}
 	if checkpoint.Run == "" {
-		var credential middleware.Credential
-		if err := json.Unmarshal(claim.AuthorizationContext, &credential); err != nil {
-			return err
-		}
-		info, err := middleware.ReloadCredential(ctx, b.service.queries(), credential, time.Now())
-		if err != nil && !errors.Is(err, middleware.ErrCredentialGone) {
-			return err
-		}
-		if errors.Is(err, middleware.ErrCredentialGone) || !middleware.BindInstallCredential(info) || info.User.ID != admission.RequesterID {
-			return refuse()
-		}
-		bound := middleware.ContextWithAuthInfo(ctx, info)
-		if _, err := Authorize(bound, b.service.queries(), "review"); err != nil {
-			var access *AccessError
-			if errors.As(err, &access) && access.Class == "infra" {
-				return err
-			}
-			return refuse()
-		}
-		if err := b.service.reviewMembers(ctx, admission); err != nil {
-			var refusal *TodoControlError
-			if errors.As(err, &refusal) && refusal.Class == "permission" {
-				return refuse()
-			}
-			return err
-		}
 		if err := b.machine.Prepare(ctx, admission); err != nil {
 			return err
 		}
