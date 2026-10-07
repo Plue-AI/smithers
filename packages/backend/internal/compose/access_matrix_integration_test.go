@@ -424,7 +424,7 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 						require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body), w.Body.String())
 						// Branch mutations authenticate on their shared mounted POST door.
 						if pendingTicket := map[string]string{
-							"flow.edit": "T-FLW-05", "flow.run": "T-FLW-01", "issue.comment": "T-GH-04", "monitor": "T-FLW-07", "run": "T-FLW-07", "run.inspect": "T-FLW-07", "runs": "T-FLW-07",
+							"flow.edit": "T-FLW-05", "issue.comment": "T-GH-04", "monitor": "T-FLW-07", "run": "T-FLW-07", "run.inspect": "T-FLW-07", "runs": "T-FLW-07",
 						}[operation.Name]; pendingTicket != "" && w.Code == http.StatusNotFound {
 							// Unserved catalogue doors remain owned by their tickets.
 							// Never count a missing-route response as an auth pass.
