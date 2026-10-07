@@ -1062,10 +1062,10 @@ func buildRouter(
 		}
 		if config.IsSingleOwner(cfg.Auth) {
 			var proposals services.FlowProposalReader
-			var edits routes.FlowEditService
+			var edits routes.RepositoryEditService
 			if extras.Mythical != nil {
 				proposals, _ = extras.Mythical.Service.(services.FlowProposalReader)
-				edits, _ = extras.Mythical.Service.(routes.FlowEditService)
+				edits, _ = extras.Mythical.Service.(routes.RepositoryEditService)
 			}
 			mountFlowReads(r, &routes.FlowsHandler{Queries: queries, Proposals: proposals, Edits: edits})
 			if smithersMetrics != nil && queries != nil {
@@ -2156,6 +2156,7 @@ func mountTodoReads(r chi.Router, todos *routes.TodoHandler) {
 // the app agent's host-run commands read through the public API.
 func mountFlowReads(r chi.Router, flows *routes.FlowsHandler) {
 	r.Post("/flows/{name}/edit", flows.Edit)
+	r.Post("/agents/{role}/edit", flows.Edit)
 	r.Get("/flows", flows.List)
 	r.Get("/flows/{name}", flows.Show)
 }
