@@ -1,8 +1,8 @@
 /** The coding host's one run-scoped std read ledger and atomic provider boundary. */
 import { Preconditions, type VersionedFileSystem } from "@smthrs/std/Read"
 import { StdError } from "@smthrs/std/StdError"
-import { Effect, type FileSystem, PlatformError, Sink } from "effect"
-import type { ChildProcessSpawner } from "effect/unstable/process"
+import { Cause, Effect, type FileSystem, PlatformError, Sink, Stream } from "effect"
+import { ChildProcess, type ChildProcessSpawner } from "effect/unstable/process"
 import { createHash } from "node:crypto"
 import { isAbsolute, relative, resolve, sep } from "node:path"
 import type { NativeOptions } from "./native.ts"
@@ -38,18 +38,84 @@ const stale = (path: string, base: string, current: string) =>
     })
   )
 
+/** ADR 0004's installed client owns the codec and kernel-derived run identity.
+ * Never send the model-facing ledger's session string as authentication. The
+ * current wire settles one file only; batches/deletions refuse before spawning.
+ */
+const daemonProvider = (
+  spawner: ChildProcessSpawner.ChildProcessSpawner["Service"]
+): MutationProvider => ({
+  commit: (_session, changes) =>
+    Effect.gen(function*() {
+      if (changes.length !== 1) return yield* unavailable()
+      const change = changes[0]!
+      if (
+        change.content === null || change.content.byteLength > 1024 * 1024 ||
+        (change.base_digest !== "absent" && !/^[0-9a-f]{64}$/.test(change.base_digest))
+      ) return yield* unavailable()
+      const child = yield* spawner.spawn(ChildProcess.make(
+        "/opt/smithers/bin/smithers-machined",
+        ["client", "write-file", change.path, "--base", change.base_digest],
+        { cwd: "/workspace", stdin: Stream.make(change.content) }
+      ))
+      const capture = (stream: typeof child.stdout) =>
+        Stream.runFoldEffect(
+          stream,
+          () => ({ size: 0, text: "", decoder: new TextDecoder() }),
+          (state, bytes) =>
+            state.size + bytes.length > 64 * 1024 ? unavailable() : Effect.succeed({
+              size: state.size + bytes.length,
+              text: state.text + state.decoder.decode(bytes, { stream: true }),
+              decoder: state.decoder
+            })
+        ).pipe(Effect.map((state) => state.text + state.decoder.decode()))
+      const [output, , exit] = yield* Effect.all([
+        capture(child.stdout),
+        capture(child.stderr),
+        child.exitCode
+      ], { concurrency: "unbounded" })
+      const reply: unknown = yield* Effect.try(() => JSON.parse(output))
+      if (typeof reply !== "object" || reply === null || Array.isArray(reply)) return yield* unavailable()
+      if ("error" in reply) {
+        const error = reply.error
+        if (exit === 0 || typeof error !== "object" || error === null || !("code" in error) || error.code !== "stale") {
+          return yield* unavailable()
+        }
+        const current = "current_digest" in error ? error.current_digest : "absent"
+        if (
+          typeof current !== "string" || (current !== "absent" && !/^[0-9a-f]{64}$/.test(current))
+        ) return yield* unavailable()
+        return yield* stale(change.path, change.base_digest, current)
+      }
+      if (
+        exit !== 0 || !("post_digest" in reply) || reply.post_digest !== digest(change.content)
+      ) return yield* unavailable()
+    }).pipe(
+      Effect.scoped,
+      Effect.timeout("45 seconds"),
+      Effect.catchCause((cause) => {
+        if (Cause.hasInterruptsOnly(cause)) return Effect.interrupt
+        const error = Cause.squash(cause)
+        return error instanceof StdError ? Effect.fail(error) : unavailable()
+      })
+    )
+})
+
 /** A new filesystem instance has no inherited read authority, including on resume.
  * Only successful model-facing reads record bases. Mutation-internal reads do not.
  */
 export const make = (
   options: NativeOptions,
   fs: FileSystem.FileSystem,
-  _spawner: ChildProcessSpawner.ChildProcessSpawner["Service"],
+  spawner: ChildProcessSpawner.ChildProcessSpawner["Service"],
   canonicalRoot: string,
-  provider?: MutationProvider
+  suppliedProvider?: MutationProvider
 ): VersionedFileSystem => {
   const root = resolve(options.repositoryPath)
   const pinnedRoot = resolve(canonicalRoot)
+  // The shipped broker's socket is bound to this fixed guest workspace. A
+  // different root must never accidentally write into that machine's branch.
+  const provider = suppliedProvider ?? (pinnedRoot === "/workspace" ? daemonProvider(spawner) : undefined)
   const ledgers = new Map<string, Map<string, string>>()
   const key = (path: string) => {
     const absolute = resolve(root, path)
