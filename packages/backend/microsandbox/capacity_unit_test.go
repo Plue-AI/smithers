@@ -956,7 +956,15 @@ func TestAdmissionReleaseObservedWithoutWaitingCaller(t *testing.T) {
 			require.True(t, r.CancelAdmission("A", "Alice", now))
 			r.startAdmissionReconciler(t.Context())
 			t.Cleanup(func() { r.admissionCancel() })
-			require.Eventually(t, func() bool { _, err := os.Stat(log); return err == nil }, 3*time.Second, 10*time.Millisecond)
+			wantStop := "stop -t 10 -q vm-a"
+			if overdue {
+				wantStop = "stop -t 0 -q vm-a"
+			}
+			// Opening the log precedes writing argv; wait for the actual stop.
+			require.Eventually(t, func() bool {
+				calls, err := os.ReadFile(log)
+				return err == nil && strings.Contains(string(calls), wantStop)
+			}, 3*time.Second, 10*time.Millisecond)
 			require.Equal(t, 1, r.InUse(), "a successful stop command does not release the slot")
 			calls, err := os.ReadFile(log)
 			require.NoError(t, err)
