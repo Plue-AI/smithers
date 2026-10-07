@@ -213,15 +213,15 @@ describe("T-APP-03 install seam", () => {
   })
   test("limits reject invalid values before transport and allow both boundaries", async () => {
     const h = await harness(() => Response.json(installFixture())); await h.seam.readInstall()
-    for (const n of [-1, 3.5, NaN, Infinity, 4]) expect(typeof h.seam.setInstallCapacity(n)).toBe("string")
+    for (const n of [0, -1, 3.5, NaN, Infinity, 4]) expect(typeof h.seam.setInstallCapacity(n)).toBe("string")
     for (const n of [0, -1, 2.5, NaN, Infinity, 9]) expect(typeof h.seam.setInstallParallel(n)).toBe("string")
     expect(h.requests).toHaveLength(1)
     h.seam.setInstallCapacity(3); await h.idle()
     expect(JSON.parse(String(h.requests[1]?.init?.body))).toEqual({ capacity: 3 })
     h.seam.setInstallParallel(8); await h.idle()
     expect(JSON.parse(String(h.requests[2]?.init?.body))).toEqual({ parallel: 8 })
-    h.seam.setInstallCapacity(0); await h.idle()
-    expect(JSON.parse(String(h.requests[3]?.init?.body))).toEqual({ capacity: 0 })
+    h.seam.setInstallCapacity(1); await h.idle()
+    expect(JSON.parse(String(h.requests[3]?.init?.body))).toEqual({ capacity: 1 })
   })
   test("a done Address is sent again while setup is unfinished, and never once setup is done", async () => {
     const input = { step: "address" as const, bind: "0.0.0.0:4000", origins: ["http://williams-mac-mini.local:4000"] }
@@ -262,17 +262,17 @@ describe("T-APP-03 install seam", () => {
     h.seam.setInstallAddress(address); await h.idle()
     expect(h.seam.snapshots.get().model?.address.origins).not.toContain("http://refused.test")
     expect(h.seam.snapshots.get().error).toEqual(failure())
-    expect(h.seam.snapshots.get().model?.address.change_failed).toEqual({ from: "http://localhost:4000", to: "http://refused.test", reason: "Address refused" })
+    expect(h.seam.snapshots.get().model?.address.change_failed).toEqual({ from: "http://localhost:4000", to: "http://refused.test", reason: "The operation failed." })
     h.seam.setInstallAddress(address); await h.idle(); expect(h.toasts).toHaveLength(2)
   })
-  test("a transient address refusal retains the host's literal reason on the Settings row", async () => {
+  test("a transient address refusal retains the typed error and shows safe Settings copy", async () => {
     const refusal = { code: "address_unavailable", class: "transient" as const, message: "Install listener unavailable" }
     const h = await harness((_path, init) => init?.method === "PUT" ? Response.json(refusal, { status: 503 }) : Response.json(installFixture()))
     await h.seam.readInstall()
     h.seam.setInstallAddress({ listen: "network", bind: "0.0.0.0:4000", origins: ["http://mini.lan:4000"] })
     await h.idle()
     expect(h.seam.snapshots.get().error).toEqual(refusal)
-    expect(settingsCardModel(h.seam.snapshots.get().model!, "http://localhost:4000").address.failed?.reason.message).toBe("Install listener unavailable")
+    expect(settingsCardModel(h.seam.snapshots.get().model!, "http://localhost:4000").address.failed?.reason.message).toBe("The operation failed.")
     h.seam.dispose()
   })
   test("a refused setup write fails its own step and keeps the Setup card (gh-setup-walk-2)", async () => {
