@@ -16,11 +16,13 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
 type branchPresence struct {
 	hosts        *flowhost.Store
+	terminals    *routes.TerminalSessionManager
 	queries      *db.Queries
 	branches     *services.WorkspaceService
 	dispatcher   browserFlowDispatcher
@@ -281,6 +283,24 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 			origin = p.publicOrigin()
 		}
 		model := branchPresenceModel(current, presence, origin)
+		terminals := []any{}
+		for _, fact := range p.terminals.BranchTerminals(repository, current.ID) {
+			owner, err := p.queries.GetUserByID(ctx, fact.Owner)
+			if err != nil {
+				return nil, err
+			}
+			watchers := []any{}
+			for _, id := range fact.Watchers {
+				viewer, err := p.queries.GetUserByID(ctx, id)
+				if err != nil {
+					return nil, err
+				}
+				watchers = append(watchers, branchPersonActor(viewer, colors[viewer.Username]))
+			}
+			terminals = append(terminals, map[string]any{"id": fact.ID, "title": "Terminal", "owner": branchPersonActor(owner, colors[owner.Username]), "agents": []any{}, "watchers": watchers, "frozen": false})
+		}
+		model["terminals"] = terminals
+
 		if position, waiting := p.branches.MachinePlace(current); waiting {
 			model["machine"] = map[string]any{"state": "waiting", "position": position}
 		}
@@ -318,6 +338,9 @@ func (p *branchPresence) rebasePresence(ctx context.Context, repository int64, w
 	}
 	// The TS host can survive a Go host restart; its older startup clock must
 	// never shorten this host's own reconstruction window.
+	if p.terminals.HasBranchTerminal(repository, workspace) {
+		return services.RebasePresencePeople, nil
+	}
 	if p.startupUnknown() {
 		return services.RebasePresenceUnknown, nil
 	}
