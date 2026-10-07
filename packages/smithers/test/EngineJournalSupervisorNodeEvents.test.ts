@@ -1,3 +1,4 @@
+import * as SqlClient from "effect/unstable/sql/SqlClient"
 /**
  * The graph a real engine run drove, arriving in the CONTROL journal.
  *
@@ -137,6 +138,10 @@ const supervised = (
 
     const scope = yield* Scope.make()
     const supervisor = yield* Supervisor.make({
+      inControlTransaction: Effect.map(
+        Effect.serviceOption(Context.get(destination, SqlClient.SqlClient).transactionService),
+        (transaction) => transaction._tag === "Some"
+      ),
       engineJournal,
       controlJournal,
       engineState: Context.get(native, DurableEngineState.DurableEngineState),

@@ -1642,6 +1642,7 @@ export const make = (
         // reader only as the decision this observer copies, so `completed` must
         // not be journaled before that copy exists.
         const supervisor = yield* EngineJournalSupervisor.make({
+          inControlTransaction: Effect.map(Effect.serviceOption(controlSql.transactionService), Option.isSome),
           engineJournal: yield* Journal.Journal,
           controlJournal,
           engineState: yield* DurableEngineState.DurableEngineState,

@@ -40,7 +40,17 @@ const setup = Effect.gen(function*() {
       }),
     pageRunIds: () => Effect.sync(() => ({ ids: [...controls.keys()], through: controls.size }))
   }
-  const options = { engineJournal, controlJournal, engineState, runs, control }
+  const options = {
+    engineJournal,
+    controlJournal,
+    engineState,
+    runs,
+    control,
+    inControlTransaction: Effect.map(
+      Effect.serviceOption(Context.get(destination, SqlClient.SqlClient).transactionService),
+      Option.isSome
+    )
+  }
   const lifetime = yield* Scope.Scope
   return {
     ...options,
@@ -105,6 +115,67 @@ const isSettled = (rows: ReadonlyArray<JournalEvent.Entry>) =>
   rows.some((entry) => entry.eventType === Supervisor.settledKind)
 
 describe("private native journal supervision", () => {
+  it.each(
+    [
+      ["completed", false],
+      ["failed", false],
+      ["cancelled", false],
+      ["completed", true]
+    ] as const
+  )(
+    "orders %s reads after the result copy (resumed: %s) without blocking a mutation transaction",
+    (terminal, resumed) =>
+      Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+        const f = yield* setup
+        const reached = yield* Deferred.make<void>()
+        const drain = yield* Deferred.make<void>()
+        const supervisor = yield* f.make({
+          engineJournal: {
+            ...f.engineJournal,
+            entries: (request) =>
+              Effect.gen(function*() {
+                yield* Deferred.succeed(reached, undefined)
+                yield* Deferred.await(drain)
+                return yield* f.engineJournal.entries(request)
+              })
+          }
+        })
+        let status: ControlExecutor.ExecutionObservation = { _tag: "Observed", status: terminal }
+        const executor = supervisor.wrap(ControlExecutor.makeNoop({
+          launch: () => Effect.succeed("accepted"),
+          readExecution: () => Effect.sync(() => status)
+        }))
+        yield* f.create()
+        yield* f.finish()
+        yield* executor.launch(input(summary()))
+        yield* Deferred.await(reached)
+        // The projection cannot commit while this transaction holds its connection.
+        const mutationRead = yield* f.controlJournal.transact(executor.readExecution!("root")).pipe(
+          Effect.timeout("1 second")
+        )
+        expect(mutationRead).toEqual({ _tag: "Observed", status: terminal })
+        const observed = yield* Deferred.make<ControlExecutor.ExecutionObservation>()
+        yield* Effect.forkScoped(
+          executor.readExecution!("root").pipe(
+            Effect.flatMap((value) => Deferred.succeed(observed, value))
+          )
+        )
+        yield* Effect.repeat(Effect.yieldNow, { times: 20 })
+        expect(yield* Deferred.isDone(observed)).toBe(false)
+        if (resumed) status = { _tag: "Observed", status: "running" }
+        yield* Deferred.succeed(drain, undefined)
+        expect(yield* Deferred.await(observed)).toEqual({ _tag: "Observed", status: resumed ? "running" : terminal })
+        const rows = yield* f.rows()
+        expect(isSettled(rows)).toBe(true)
+        expect(rows.find((row) => row.eventType === Projection.eventKind)?.payload).toMatchObject({
+          payload: { actualResult: "root" }
+        })
+        // No active follower, no extra wait and no invented execution.
+        status = { _tag: "Missing" }
+        expect(yield* executor.readExecution!("unknown")).toEqual(status)
+      })))
+  )
+
   it(
     "retains the admission transaction for control reads while native reads and following use the clean host",
     () =>

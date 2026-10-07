@@ -27,6 +27,8 @@ export interface Options {
   readonly engineState: Pick<DurableEngineState.Service, "runChildren" | "runParents">
   readonly runs: Pick<RunStore.Service, "get"> & Partial<Pick<RunStore.Service, "lineage">>
   readonly control: Pick<ControlRuntime.Service, "getRun" | "pageRunIds">
+  /** Whether the caller holds a control write transaction that the projection needs. */
+  readonly inControlTransaction: Effect.Effect<boolean>
   /** Overrides {@link orderingGrace}; a suite with no follower to wait for shortens it. */
   readonly orderingGrace?: Duration.Duration | undefined
   /**
@@ -442,6 +444,24 @@ export const make = (options: Options) =>
     const start = (id: string) => startHeld(id, undefined)
     const wrap = (executor: ControlExecutor.Service): ControlExecutor.Service => ({
       ...executor,
+      ...(executor.readExecution === undefined ? {} : {
+        readExecution: (id: string) =>
+          Effect.gen(function*() {
+            const read = executor.readExecution!
+            const observed = yield* read(id)
+            if (
+              observed._tag === "Missing" || !terminalControl.has(observed.status) ||
+              !active.has(id) || (yield* options.inControlTransaction)
+            ) return observed
+            // Native completion precedes copying its result to the control journal.
+            // Order public reads with that copy just as terminal control writes are
+            // ordered. Mutation reads must stay prompt: their transaction can hold
+            // the very journal write this barrier awaits.
+            yield* awaitSettled(id)
+            // A resume may have started another generation while the copy drained.
+            return yield* read(id)
+          })
+      }),
       launch: (input) =>
         Effect.gen(function*() {
           const id = input.run.runId

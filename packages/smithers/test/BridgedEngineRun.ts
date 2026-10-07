@@ -1,4 +1,5 @@
 import * as DatabaseMigrations from "@smthrs/database/Migrations"
+import * as SqlClient from "effect/unstable/sql/SqlClient"
 /**
  * The gateway read path over a run the engine executes AND reports.
  *
@@ -844,7 +845,9 @@ const executor = Layer.effect(ControlExecutor.ControlExecutor)(
     // ambient context, for the reason `NestedHumanWaitAcrossDatabases.test.ts`
     // gives: only the executor crosses back in a host composition, and an
     // ambient `Journal` or `RunStore` here is the CONTROL plane's.
+    const controlSql = yield* SqlClient.SqlClient
     const supervisor = yield* EngineJournalSupervisor.make({
+      inControlTransaction: Effect.map(Effect.serviceOption(controlSql.transactionService), Option.isSome),
       engineJournal: engine.journal,
       controlJournal: yield* Journal.Journal,
       engineState: engine.state,

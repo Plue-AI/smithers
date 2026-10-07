@@ -118,6 +118,10 @@ const setup = Effect.gen(function*() {
       Effect.gen(function*() {
         const scope = yield* Scope.fork(lifetime)
         const supervisor = yield* Supervisor.make({
+          inControlTransaction: Effect.map(
+            Effect.serviceOption(Context.get(destination, SqlClient.SqlClient).transactionService),
+            (transaction) => transaction._tag === "Some"
+          ),
           engineJournal,
           controlJournal,
           engineState,
