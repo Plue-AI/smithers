@@ -249,7 +249,7 @@ func TestCSEC02BundledLauncherSetupRotation(t *testing.T) {
 
 // Every mutation goes through the install router with its setup cookie and CSRF
 // token. Readiness is not a setup completion receipt.
-func isolationClaimOwner(t *testing.T, base *http.Client, address, token, origin, owner string, configureAddress bool) {
+func isolationClaimOwner(t *testing.T, base *http.Client, address, token, origin, owner string, configureAddress bool) *http.Client {
 	t.Helper()
 	jar, err := cookiejar.New(nil)
 	require.NoError(t, err)
@@ -310,6 +310,7 @@ func isolationClaimOwner(t *testing.T, base *http.Client, address, token, origin
 	state := redirect.Query().Get("state")
 	require.NotEmpty(t, state)
 	request("GET", "/api/auth/github/callback?code=owner-code&state="+url.QueryEscape(state), "", 302)
+	return &client
 }
 
 // Linux verifies the same served claim driver against the composed install;
@@ -326,10 +327,28 @@ func TestCSEC02ClaimDriverThroughComposedInstall(t *testing.T) {
 	require.NoError(t, err)
 	server, err := url.Parse(r.origin)
 	require.NoError(t, err)
-	isolationClaimOwner(t, r.client, server.Host, setup.Query().Get("token"), r.origin, "rehearsal-owner", true)
+	ownerClient := isolationClaimOwner(t, r.client, server.Host, setup.Query().Get("token"), r.origin, "rehearsal-owner", true)
 	var owners int
 	require.NoError(t, r.pool.QueryRow(t.Context(), `SELECT count(*) FROM self_host_owners`).Scan(&owners))
 	require.Equal(t, 1, owners)
+	// The production router resolves this write to settings.parallel. Its
+	// capacity callback must recheck that same command, never "settings".
+	req, err := http.NewRequest("PUT", r.origin+"/api/install", strings.NewReader(`{"parallel":3}`))
+	require.NoError(t, err)
+	req.Header.Set("Origin", r.origin)
+	req.Header.Set("Content-Type", "application/json")
+	for _, cookie := range ownerClient.Jar.Cookies(req.URL) {
+		if cookie.Name == "__csrf" {
+			req.Header.Set("X-CSRF-Token", cookie.Value)
+		}
+	}
+	response, err := ownerClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, 200, response.StatusCode)
+	require.NoError(t, response.Body.Close())
+	var parallel int
+	require.NoError(t, r.pool.QueryRow(t.Context(), `SELECT (value #>> '{}')::int FROM install_settings WHERE key='parallel'`).Scan(&parallel))
+	require.Equal(t, 3, parallel)
 }
 
 // Only redacted counts are retained. ps environment output is inspected in
