@@ -3,7 +3,10 @@ import { buildStampValues } from "./build-stamp"
 
 test("release stamps use source time and refuse malformed reproducibility inputs", () => {
   const previous = process.env.SOURCE_DATE_EPOCH
+  const previousSha = process.env.SMITHERS_BUILD_SHA
   try {
+    // This test checks timestamp metadata; source lookup has its own contract.
+    process.env.SMITHERS_BUILD_SHA = "a".repeat(40)
     for (const epoch of ["0", "1791072000"]) {
       process.env.SOURCE_DATE_EPOCH = epoch
       expect(buildStampValues().builtAt).toBe(new Date(Number(epoch) * 1000).toISOString())
@@ -17,5 +20,7 @@ test("release stamps use source time and refuse malformed reproducibility inputs
   } finally {
     if (previous === undefined) delete process.env.SOURCE_DATE_EPOCH
     else process.env.SOURCE_DATE_EPOCH = previous
+    if (previousSha === undefined) delete process.env.SMITHERS_BUILD_SHA
+    else process.env.SMITHERS_BUILD_SHA = previousSha
   }
 })
