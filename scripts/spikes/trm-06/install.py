@@ -39,6 +39,20 @@ def directory(parent, name, create=False):
     return fd
 
 
+def linked(parent, name, held):
+    """Refuse a detached/replaced install inode before privileged startup."""
+    current = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, dir_fd=parent)
+    try:
+        expected = os.fstat(held)
+        actual = os.fstat(current)
+        if (actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino):
+            refuse()
+        if actual.st_uid != 0 or actual.st_mode & 0o022:
+            refuse()
+    finally:
+        os.close(current)
+
+
 def fresh_file(parent, name, contents, mode):
     fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, mode, dir_fd=parent)
     try:
@@ -106,6 +120,13 @@ def install():
             info = os.fstat(source.fileno())
             if info.st_uid != 0 or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o755 or hashlib.sha256(source.read()).hexdigest() != request["sha256"]:
                 refuse()
+        # Reopen every link through its held parent. A renamed ancestor must
+        # not leave an init running against a different absolute boot path.
+        for parent, name, child in [(root, "opt", opt), (opt, "smithers", smithers),
+                                    (root, "run", run), (run, "smithers", runtime),
+                                    (smithers, "prototype", prototype), (runtime, "trm06", state),
+                                    (prototype, "supervisor", fd)]:
+            linked(parent, name, child)
         logfd = os.open("init.log", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=state)
         with os.fdopen(logfd, "wb") as log:
             # Keep the verified inode through exec. The literal fixed descriptor
