@@ -24,6 +24,10 @@ publishers before submitting its move workload. The runner independently checks
 sample counts, clocks, commit/origin identity and literal p95 limits; a failed
 workload stays failed. Machine budgets remain skipped until their lifecycle
 security qualification is available. It adds no privileged step or check receipt.
+The keystroke, disk-write, warm-wake and rebase-hold CLI entrypoints select their
+budget through this same runner. Unavailable bindings or qualification remain
+skipped, with the required tickets recorded; invoking a standalone command cannot
+bypass that activation decision and launch its browser, SSH or terminal workload.
 `SMITHERS_PERF_ARTIFACT_ROOT` optionally selects the artifact parent directory.
 Each budget also gets a JSON artifact and an identical summary/evidence copy in
 `.artifacts/checks/C-PERF-01` through `C-PERF-06`, including refusals. Evidence
@@ -67,6 +71,16 @@ missing cards fail the run rather than dropping those questions.
 The composed install metrics route reuses the in-process Prometheus registry,
 reports actual live socket count and the existing host profile/derived limits.
 Missing latency producers are absent, never fabricated zero measurements.
+
+Chat's existing collectors now include `smithers_chat_durable_latency_seconds`
+for durable admission to first text and a completed answer with file/wiki
+references. These process-monotonic observations include preflight and queue
+time, but do not measure rendered cards. Duplicate/fenced callbacks cannot add
+samples; failed, stopped or erased answers cannot add completion samples.
+Only admissions observed in the same process are timed. The observer retains
+at most 4096 open spans for one hour and counts capacity/expiry omissions in
+`smithers_chat_latency_observations_omitted_total`; recovered admissions without
+a local start have no timing. Browser samples remain the passing values.
 
 The standalone keystroke driver uses the same artifact writer as the full runner,
 including symlink checks for evidence directories and refusal to overwrite runs.

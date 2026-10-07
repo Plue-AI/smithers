@@ -1,3 +1,4 @@
+import { runSelected } from './run.mjs'
 import { createRequire } from 'node:module'
 import { execFile, execFileSync } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -170,4 +171,4 @@ export async function run(env = process.env, { persist = true } = {}) {
   console.log(`${result.status}: ${evidence}${result.error ? ` (${result.error})` : ''}`)
   return result.status === 'passed' ? 0 : 1
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) process.exitCode = await run()
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) process.exitCode = await runSelected('C-PERF-04')

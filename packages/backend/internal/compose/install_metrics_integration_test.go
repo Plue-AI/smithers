@@ -258,40 +258,52 @@ catch (error) { console.log(error.message); process.exitCode = 1 }
 		defer server.Close()
 		root, err := filepath.Abs("../../../..")
 		require.NoError(t, err)
-		for _, credential := range []string{"session=" + cookies[0], "session=" + cookies[1]} {
-			output := t.TempDir()
-			command := exec.CommandContext(t.Context(), "node", "scripts/perf/run.mjs")
-			command.Dir = root
-			command.Env = append(os.Environ(), "SMITHERS_PERF_ORIGIN="+server.URL,
-				"SMITHERS_PERF_OWNER_COOKIE="+credential, "SMITHERS_PERF_TOKEN=",
-				"SMITHERS_PERF_MEMBER_A=", "SMITHERS_PERF_ARTIFACT_ROOT="+output)
-			bytes, err := command.CombinedOutput()
-			var exit *exec.ExitError
-			require.ErrorAs(t, err, &exit, string(bytes))
-			require.Equal(t, 2, exit.ExitCode(), string(bytes))
-			var summary struct {
-				Status  string          `json:"status"`
-				Host    json.RawMessage `json:"host"`
-				Budgets []struct {
-					Status, Reason string
-					Samples        []json.RawMessage
-				} `json:"budgets"`
-			}
-			require.NoError(t, json.Unmarshal(bytes, &summary), string(bytes))
-			require.Equal(t, "incomplete", summary.Status)
-			require.Len(t, summary.Budgets, 6)
-			for _, budget := range summary.Budgets {
-				require.Equal(t, "skipped", budget.Status)
-				require.Empty(t, budget.Samples)
-				require.NotEmpty(t, budget.Reason)
-				if credential == "session="+cookies[1] {
-					require.Contains(t, budget.Reason, "returned 403")
+		for _, program := range []string{"run", "keystroke", "disk-write", "warm-wake", "rebase-hold"} {
+			for _, credential := range []string{"session=" + cookies[0], "session=" + cookies[1]} {
+				output := t.TempDir()
+				command := exec.CommandContext(t.Context(), "node", "scripts/perf/"+program+".mjs")
+				command.Dir = root
+				command.Env = append(os.Environ(), "SMITHERS_PERF_ORIGIN="+server.URL,
+					"SMITHERS_PERF_OWNER_COOKIE="+credential, "SMITHERS_PERF_TOKEN=",
+					"SMITHERS_PERF_MEMBER_A=", "SMITHERS_PERF_ARTIFACT_ROOT="+output)
+				bytes, err := command.CombinedOutput()
+				var exit *exec.ExitError
+				require.ErrorAs(t, err, &exit, string(bytes))
+				require.Equal(t, 2, exit.ExitCode(), string(bytes))
+				var summary struct {
+					Status  string          `json:"status"`
+					Host    json.RawMessage `json:"host"`
+					Budgets []struct {
+						Check, Status, Reason string
+						Activation            []string
+						Samples               []json.RawMessage
+					} `json:"budgets"`
 				}
+				require.NoError(t, json.Unmarshal(bytes, &summary), string(bytes))
+				require.Equal(t, "incomplete", summary.Status)
+				if program == "run" {
+					require.Len(t, summary.Budgets, 6)
+				} else {
+					require.Len(t, summary.Budgets, 1)
+					require.Equal(t, map[string]string{"keystroke": "C-PERF-03", "disk-write": "C-PERF-04", "warm-wake": "C-PERF-05", "rebase-hold": "C-PERF-06"}[program], summary.Budgets[0].Check)
+				}
+				for _, budget := range summary.Budgets {
+					require.Equal(t, "skipped", budget.Status)
+					require.Empty(t, budget.Samples)
+					require.NotEmpty(t, budget.Reason)
+					if credential == "session="+cookies[1] {
+						require.Contains(t, budget.Reason, "returned 403")
+					} else if program != "run" {
+						for _, ticket := range []string{"T-INS-02", "T-MCH-11", "T-SEC-01", "T-MCH-10"} {
+							require.Contains(t, budget.Activation, ticket)
+						}
+					}
+				}
+				if credential == "session="+cookies[0] {
+					require.Contains(t, string(summary.Host), `"perf_cores":10`, string(bytes))
+				}
+				require.NotContains(t, string(bytes), credential)
 			}
-			if credential == "session="+cookies[0] {
-				require.Contains(t, string(summary.Host), `"perf_cores":10`, string(bytes))
-			}
-			require.NotContains(t, string(bytes), credential)
 		}
 	})
 }

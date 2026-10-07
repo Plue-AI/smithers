@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
@@ -31,16 +32,16 @@ test('200 unique markers and distinct per-write activity entries; unrelated base
   assert.throws(() => verifyActivity([...entries.slice(1), entries[1]], new Set(), 'C'))
   for (const patch of [{ kind: 'write' }, { actor: { member_id: 'agent', via: 'ssh' } }, { files: [] }, { files: [{ path: 'other' }] }]) assert.throws(() => verifyActivity([{ ...entries[0], ...patch }, ...entries.slice(1)], new Set(), 'C'))
 })
-test('public CLI failure retains identical raw artifacts without a timing pass', async () => {
+test('public CLI refusal retains identical skipped artifacts without a timing pass', async () => {
   const root = await mkdtemp(join(tmpdir(), 'disk-refusal-'))
   try {
-    const child = spawnSync(process.execPath, [new URL('./disk-write.mjs', import.meta.url).pathname], { cwd: root, env: { ...process.env, SMITHERS_PERF_ORIGIN: '' }, encoding: 'utf8' })
-    assert.equal(child.status, 1, child.stderr)
+    const child = spawnSync(process.execPath, [new URL('./disk-write.mjs', import.meta.url).pathname], { cwd: fileURLToPath(new URL('../../', import.meta.url)), env: { ...process.env, SMITHERS_PERF_ORIGIN: '', SMITHERS_PERF_ARTIFACT_ROOT: root }, encoding: 'utf8' })
+    assert.equal(child.status, 2, child.stderr)
     const [timestamp] = await readdir(join(root, '.artifacts/perf'))
     const bytes = await readFile(join(root, '.artifacts/perf', timestamp, 'disk-write.json'), 'utf8')
     assert.equal(bytes, await readFile(join(root, '.artifacts/checks/C-PERF-04', timestamp, 'disk-write.json'), 'utf8'))
     const result = JSON.parse(bytes)
-    assert.equal(result.status, 'failed'); assert.deepEqual(result.samples, []); assert.equal(result.summary, undefined)
+    assert.equal(result.status, 'incomplete'); assert.equal(result.budgets[0].status, 'skipped'); assert.deepEqual(result.budgets[0].samples, []); assert.equal(result.budgets[0].stats, undefined)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 

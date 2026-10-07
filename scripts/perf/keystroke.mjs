@@ -1,3 +1,4 @@
+import { runSelected } from './run.mjs'
 import { createRequire } from 'node:module'
 import { execFileSync } from 'node:child_process'
 import { resolve } from 'node:path'
@@ -136,4 +137,4 @@ export async function run(env = process.env, { persist = true } = {}) {
   return result.status === 'passed' ? 0 : 1
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) process.exitCode = await run()
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) process.exitCode = await runSelected('C-PERF-03')

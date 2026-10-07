@@ -26,17 +26,17 @@ test('200 unique six-character markers must occur exactly once and in order on b
   assert.throws(() => verifyTexts(text, `${text}\n`, text))
   assert.throws(() => verifyTexts(text, text, text.slice(0, -1)))
 })
-test('CLI refuses an unconfigured stack and retains failed evidence without a passing receipt', async () => {
+test('CLI refuses an unconfigured stack and retains skipped evidence without a passing receipt', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'keystroke-refusal-'))
   try {
-    const child = spawnSync(process.execPath, [fileURLToPath(new URL('./keystroke.mjs', import.meta.url))], { cwd: directory, env: { ...process.env, SMITHERS_PERF_ORIGIN: '' }, encoding: 'utf8' })
-    assert.equal(child.status, 1, child.stderr)
+    const child = spawnSync(process.execPath, [fileURLToPath(new URL('./keystroke.mjs', import.meta.url))], { cwd: fileURLToPath(new URL('../../', import.meta.url)), env: { ...process.env, SMITHERS_PERF_ORIGIN: '', SMITHERS_PERF_ARTIFACT_ROOT: directory }, encoding: 'utf8' })
+    assert.equal(child.status, 2, child.stderr)
     const [timestamp] = await readdir(join(directory, '.artifacts/perf'))
     const result = JSON.parse(await readFile(join(directory, '.artifacts/perf', timestamp, 'keystroke.json'), 'utf8'))
-    assert.equal(result.status, 'failed')
-    assert.equal(result.budgets[0].status, 'failed')
-    assert.deepEqual(result.samples, [])
-    assert.match(result.error, /configured public origin required/)
+    assert.equal(result.status, 'incomplete')
+    assert.equal(result.budgets[0].status, 'skipped')
+    assert.deepEqual(result.budgets[0].samples, [])
+    assert.match(result.budgets[0].reason, /configured public origin required/)
     assert.equal(await readFile(join(directory, '.artifacts/checks/C-PERF-03', timestamp, 'keystroke.json'), 'utf8'), await readFile(join(directory, '.artifacts/perf', timestamp, 'keystroke.json'), 'utf8'))
     assert.equal(result.summary, undefined)
   } finally { await rm(directory, { recursive: true, force: true }) }
@@ -67,8 +67,8 @@ test('standalone CLI refuses symlink check parents and writes nothing outside th
     await mkdir(join(directory, '.artifacts'))
     await mkdir(join(directory, 'outside'))
     await symlink(join(directory, 'outside'), join(directory, '.artifacts/checks'))
-    const child = spawnSync(process.execPath, [fileURLToPath(new URL('./keystroke.mjs', import.meta.url))], { cwd: directory, env: { ...process.env, SMITHERS_PERF_ORIGIN: '' }, encoding: 'utf8' })
-    assert.equal(child.status, 1)
+    const child = spawnSync(process.execPath, [fileURLToPath(new URL('./keystroke.mjs', import.meta.url))], { cwd: fileURLToPath(new URL('../../', import.meta.url)), env: { ...process.env, SMITHERS_PERF_ORIGIN: '', SMITHERS_PERF_ARTIFACT_ROOT: directory }, encoding: 'utf8' })
+    assert.equal(child.status, 2)
     assert.match(child.stderr, /unsafe artifact directory/)
     assert.deepEqual(await readdir(join(directory, 'outside')), [])
   } finally { await rm(directory, { recursive: true, force: true }) }
