@@ -87,6 +87,19 @@ func mythicalProjectWaits(next *db.MythicalItem, projection mythicalProjection, 
 		}
 	}
 	for _, question := range asked {
+		// Recovery may park the same retained conflict at a new named wait.
+		// Keep its card identity and native binding, but address Done to the
+		// current run wait. A settled conflict must never be reopened.
+		if canAsk && question.Kind == "conflict" && known[question.ID] {
+			for i := range checks.Waits {
+				existing := &checks.Waits[i]
+				if existing.ID == question.ID && existing.Kind == "conflict" && existing.SettledAt == nil &&
+					existing.ConflictChange == question.ConflictChange && existing.OntoRevision == question.OntoRevision &&
+					(existing.Signal == nil || existing.Signal.Name != question.Signal.Name) {
+					existing.Signal, changed = question.Signal, true
+				}
+			}
+		}
 		if canAsk && !known[question.ID] {
 			checks.Waits, changed = append(checks.Waits, question), true
 		}

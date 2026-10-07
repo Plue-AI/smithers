@@ -28,6 +28,7 @@ type conflictDoorProvider struct {
 	unresolved  []string
 	signals     int
 	validations int
+	lastSignal  flowdispatch.SignalRequest
 }
 
 func (p *conflictDoorProvider) UnresolvedPaths(context.Context, services.ConflictValidation) ([]string, error) {
@@ -37,8 +38,9 @@ func (p *conflictDoorProvider) UnresolvedPaths(context.Context, services.Conflic
 func (p *conflictDoorProvider) AdmitInTx(context.Context, pgx.Tx, flowdispatch.LaunchRequest) (jobs.RequestReceipt, error) {
 	panic("unexpected launch")
 }
-func (p *conflictDoorProvider) SignalInTx(context.Context, pgx.Tx, flowdispatch.SignalRequest) (jobs.RequestReceipt, error) {
+func (p *conflictDoorProvider) SignalInTx(_ context.Context, _ pgx.Tx, request flowdispatch.SignalRequest) (jobs.RequestReceipt, error) {
 	p.signals++
+	p.lastSignal = request
 	return jobs.RequestReceipt{}, nil
 }
 
@@ -309,5 +311,42 @@ func TestConflictDoneComposedInstall(t *testing.T) {
 	require.Equal(t, "change", waits.Waits[0].ConflictChange)
 	require.Equal(t, "onto", waits.Waits[0].OntoRevision)
 	require.Equal(t, 1, provider.signals, "projection never launches or answers an attempt")
+
+	// A recovered run parks the same conflict at a new wait. Done must
+	// signal that wait while retaining the original card and native paths.
+	update.Checkpoint.Run.PendingWaits[0].Name = "conflict-recovered"
+	update.Checkpoint.Run.PendingWaits[0].Token = "park-2"
+	for range 10 {
+		require.NoError(t, service.ProjectFlowRuntime(ctx, update))
+	}
+	stored, err = q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(stored.Checks, &waits))
+	require.Len(t, waits.Waits, 1)
+	require.Equal(t, "c-9e92f3542b87a2a3", waits.Waits[0].ID)
+	require.Equal(t, []string{"a.txt"}, waits.Waits[0].Paths)
+	require.Equal(t, "conflict-recovered", waits.Waits[0].Signal.Name)
+	done, err := http.NewRequest("POST", origin+"/api/todos/1/answer", strings.NewReader(`{"wait":"c-9e92f3542b87a2a3","answer":"done"}`))
+	require.NoError(t, err)
+	done.AddCookie(&http.Cookie{Name: "smithers_session", Value: "pin-cookie"})
+	done.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
+	done.Header.Set("X-CSRF-Token", "csrf")
+	done.Header.Set("Origin", origin)
+	done.Header.Set("Content-Type", "application/json")
+	completed, err := http.DefaultClient.Do(done)
+	require.NoError(t, err)
+	completed.Body.Close()
+	require.Equal(t, 202, completed.StatusCode)
+	require.Equal(t, 2, provider.signals)
+	require.Equal(t, "conflict-recovered", provider.lastSignal.Name)
+	// Replayed checkpoints after Done cannot reopen or retarget the wait.
+	update.Checkpoint.Run.PendingWaits[0].Name = "obsolete"
+	require.NoError(t, service.ProjectFlowRuntime(ctx, update))
+	stored, err = q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(stored.Checks, &waits))
+	require.Len(t, waits.Waits, 1)
+	require.NotNil(t, waits.Waits[0].SettledAt)
+	require.Equal(t, "conflict-recovered", waits.Waits[0].Signal.Name)
 
 }
