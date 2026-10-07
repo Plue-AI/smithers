@@ -43,8 +43,7 @@ console.log(JSON.stringify({ code, effects, result: JSON.parse(stdout) }));`
     })
     const receipt = JSON.parse(output.stdout)
     assert.equal(receipt.code, 1)
-    assert.equal(receipt.result.class, "never")
-    assert.equal(receipt.result.code, "never")
+    assert.equal(receipt.result.code, "COMMAND_NOT_FOUND")
     assert.equal(receipt.effects, 0)
     assert.ok(!output.stdout.includes(token))
   }

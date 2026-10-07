@@ -172,7 +172,7 @@ func TestCatalogCLIConfirmationsPostgres(t *testing.T) {
 	require.NotContains(t, receipt, "confirmation")
 	code, receipt = invoke("debug", "api")
 	require.Equal(t, 1, code, receipt)
-	require.Equal(t, "never", receipt["code"])
+	require.Equal(t, "COMMAND_NOT_FOUND", receipt["code"])
 }
 
 // The source parser and dispatcher run in an isolated home against the install listener.
