@@ -1,7 +1,7 @@
-"""Disposable C-SPK-06 input inventory. Never executes a VM or supplies a receipt.
+"""Disposable C-SPK-06 input inventory and approved real-host test entry point.
 
 Approval is read from local main, never from the lane or caller's environment.
-This deliberately stops at the dependency boundary until release inputs exist.
+Execution stops at the dependency boundary until approved release inputs exist.
 """
 import argparse
 import hashlib
@@ -76,6 +76,7 @@ def validate(root, bundle):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--bundle', required=True)
+    parser.add_argument('--execute', action='store_true', help='run real macOS tests after approved preflight')
     args = parser.parse_args()
     try:
         # Never forward an inherited VM/loader environment, even for a positive control.
@@ -87,6 +88,20 @@ def main():
         bundle = Path(args.bundle).resolve(strict=True)
         inventory = validate(root, bundle)
         print(json.dumps({'status': 'inputs-verified', 'vm_commands': 0, **inventory}, sort_keys=True))
+        if args.execute:
+            if sys.platform != 'darwin':
+                raise ValueError('fresh-user macOS reference host required')
+            for name in ('preflight.py', 'test_macos.py', 'run.sh'):
+                relative = 'scripts/spikes/homebrew-hypervisor/' + name
+                approved = subprocess.check_output(['/usr/bin/git', '-C', str(root), 'show', 'refs/heads/main:' + relative])
+                if (root / relative).read_bytes() != approved:
+                    raise ValueError('branch harness refused: ' + name)
+            os.environ['C_SPK_06_BUNDLE'] = str(bundle)
+            import unittest
+            from test_macos import HomebrewEvidence
+            suite = unittest.TestSuite(HomebrewEvidence(name) for name in (
+                'test_TestHomebrewSigningAndGUIBoot', 'test_TestHomebrewKegRelocation'))
+            return 0 if unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful() else 1
         # No alternate runner or invented passing check receipt. The existing
         # check-run runner needs a reviewed reference-host binding first.
         raise ValueError('qualification blocked: fresh-user install/pour, GUI login/relocation evidence and approved C-SPK-06 reference-host binding required')

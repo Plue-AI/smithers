@@ -1,9 +1,10 @@
 # C-SPK-06 input preflight (not qualified)
 
 Run `scripts/spikes/homebrew-hypervisor/run.sh --bundle <absolute-bundle>`.
-This disposable entry point currently performs input verification only and always
-exits 2. It does not install Homebrew formulas, sign binaries, launch a VM,
-bootstrap an agent, or publish receipts. Delete it after the spike is answered.
+Without `--execute`, this disposable entry point performs input verification and
+exits 2 without installing or booting anything. With `--execute`, it runs the real
+macOS harness after approval and refuses execution on Linux. Delete it after the
+spike is answered.
 
 Required approval: `distribution/homebrew-spike-approved.json` on local `main`,
 with version 1, revision (full main-built backend SHA), manifestSHA256, image
@@ -20,10 +21,23 @@ Git repository. These tests are refusal evidence only, never boot evidence.
 macOS strips DYLD variables before launching system Python; observable inherited
 MSB, SMITHERS and loader variables refuse before verification.
 
-Remaining: fresh macOS user; local unpublished tap A install/signing; bottle B
-build/pour; absolute installed msb version/boot/in-machine echo and backend doctor;
-resolved loaded library and signatures; keg relocation; disposable GUI LaunchAgent
-and logout/login repeat. TestHomebrewSigningAndGUIBoot and
-TestHomebrewKegRelocation have not run. No signing alternative is selected.
+Pending proof: fresh macOS user, A/B signing and boot, GUI service, relocated
+keg, logout/login repeat, owner-selected signing alternative and C-SPK-06 receipt.
 Use the existing scripts/check-run.mjs for qualification after its reference-host
-binding is approved; its current refusal is retained, not bypassed by this spike.
+binding is approved; its current refusal is retained.
+
+Real harness: `run.sh --bundle <absolute-approved-bundle> --execute`. The entry
+point verifies the inventory and main-committed harness before any Homebrew or
+VM command. It runs `TestHomebrewSigningAndGUIBoot` followed by
+`TestHomebrewKegRelocation`, retaining command argv, scrubbed environment, UID,
+wall time, exit status and SHA256-bound logs under `.artifacts/checks/C-SPK-06`.
+The local tap is unpublished. A failed variant retains evidence and stops;
+selection of an alternative remains with the named owners. This is raw evidence,
+not a passing receipt from a second check runner.
+
+After logout/login, repeat from the fresh user with the same approved bundle;
+remove the disposable tap/keg from the previous run first. Keep both evidence
+directories and bind them to the landed SHA using `scripts/check-run.mjs` only
+when its reference-host mapping is approved. Fresh-user and logout/login state
+are owner-observed requirements, not asserted by this harness. No Mac execution
+or C-SPK-06 qualification has been recorded on the Linux lane.

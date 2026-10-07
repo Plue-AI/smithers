@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -68,6 +69,12 @@ class TestHomebrewSpikeRootInputs(unittest.TestCase):
         self.assertEqual(rows[0]['status'], 'inputs-verified')
         self.assertEqual(rows[-1]['status'], 'refused')
         self.assertIn('fresh-user', rows[-1]['reason'])
+
+    @unittest.skipIf(sys.platform == 'darwin', 'positive fixture must never execute on macOS')
+    def test_execute_refuses_non_reference_host_before_any_vm_command(self):
+        rows = self.run_entry('--execute')
+        self.assertEqual(rows[0]['status'], 'inputs-verified')
+        self.assertIn('macOS reference host', rows[-1]['reason'])
 
     def test_branch_artifact(self):
         (self.bundle / 'bin/msb').write_text('branch executable')
