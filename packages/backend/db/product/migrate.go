@@ -174,6 +174,7 @@ var migrationRegistry = []migrationSpec{
 	{136, "migrations/0136_machine_receipt_payload.sql"},
 	{137, "migrations/0137_conversation_entry_sequence.sql"},
 	{138, "migrations/0138_conversation_summaries.sql"},
+	{139, "migrations/0139_run_summaries.sql"},
 }
 
 type migration struct {
