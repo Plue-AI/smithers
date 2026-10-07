@@ -46,7 +46,7 @@ test("C-J1-06 undeclared repository reaches Machine ready and checked review", j
       todo = todos.find((row: any) => (row.n ?? row.number) === 1)
       return todo?.state
     }, { timeout: 780_000, intervals: [1000, 2000] }).toBe("in_review")
-    const checks = todo.evidence.flatMap((attempt: any) => attempt.items).filter((item: any) => ["check", "machine_check"].includes(item.kind))
+    const checks = todo.evidence.flatMap((attempt: any) => attempt.items).filter((item: any) => item.kind === "check")
     expect(checks.map((c: any) => c.name)).toEqual(ids)
     for (const check of checks) {
       expect(check.state).toBe("passed")

@@ -79,6 +79,26 @@ interface Excuse {
  */
 const RESOLVES_ELSEWHERE: ReadonlyArray<Excuse> = [
   {
+    literal: "button.context-chip", file: "e2e/playwright/spec/C-UI-07-native.spec.ts",
+    reason: "Tag/class selector for ContextLine.tsx buttons with className=context-chip; not a dotted product identifier."
+  },
+  {
+    literal: "moved_off", file: "e2e/real/branch-moved-off.spec.ts",
+    reason: "TODO wait discriminator declared by packages/rpc/src/CardPrimitives.ts NeedsYouKindSchema; both callbacks inspect waits, never cards."
+  },
+  {
+    literal: "check", file: "e2e/real/fresh-repository.spec.ts",
+    reason: "TODO evidence item discriminator emitted by packages/backend/internal/services/mythical_todo_read.go; the filter inspects attempt.items, never cards."
+  },
+  {
+    literal: "live-drop-", file: "e2e/real/live-todo.browser.ts",
+    reason: "Test-owned HTTP Idempotency-Key for TODO drop requests, never an application card ID."
+  },
+  {
+    literal: "keystrokes.csv", file: "e2e/real/wiki-coedit.spec.ts",
+    reason: "Playwright CSV attachment filename for the 400 measured keystrokes; never a product identifier."
+  },
+  {
     literal: "fixture-", file: "e2e/real/portable/owned-repository.ts",
     reason: "A random text marker written into fixture.txt by pushLocalFixture; it is file content, never a card ID."
   },
@@ -328,18 +348,6 @@ const KNOWN_ORPHANS: ReadonlyArray<Excuse> = [
     reason: "e2e/real/issues/cloud.ts: RepoImportSeam retains import records but no live wire repo-import card/renderer exists; the job scenario needs an owner decision."
   },
   {
-    literal: "card-connector-setup-github-", file: "e2e/real/run-inspection.spec.ts",
-    reason: "e2e/real/run-inspection.spec.ts: the former connector setup card ID is absent; install Setup has a different model and readiness scenario."
-  },
-  {
-    literal: "account", file: "e2e/showcase/cases/accounts.case.ts",
-    reason: "e2e/showcase/cases/accounts.case.ts: account.show now opens Settings; the former account-login projection is absent, so changing the kind alone would leave the scenario dead."
-  },
-  {
-    literal: "provider-accounts", file: "e2e/showcase/cases/accounts.case.ts",
-    reason: "e2e/showcase/cases/accounts.case.ts: the former provider account pool is absent; connections now use Settings and do not expose the asserted account-claude-work row."
-  },
-  {
     literal: "branches", file: "e2e/showcase/cases/repo-home.case.ts",
     reason: "e2e/showcase/cases/repo-home.case.ts: branches now opens live Branch cards; the old repository-wide branches listing scenario needs a full rewrite."
   }
@@ -575,7 +583,7 @@ describe("every literal the suites assert against still resolves", () => {
   test("the allowlist stays small enough to read", () => {
     // The current-main sweep includes external protocol domains and deferred
     // retired surfaces. Keep a finite bound; stale and duplicate entries still fail.
-    expect(ALLOWLIST.length).toBeLessThanOrEqual(63)
+    expect(ALLOWLIST.length).toBeLessThanOrEqual(61)
   })
 })
 
