@@ -176,7 +176,7 @@ func (s *MythicalService) observeLabelEventInTx(ctx context.Context, admission p
 	if role == "" {
 		return s.refuseTodoLabel(ctx, admission, repositoryID, gh, event, "only members of this install can add `todo`")
 	}
-	applied.ByMember, applied.ByMaintainer = true, role == "admin" || role == "owner"
+	applied.ByMember, applied.ByMaintainer = true, role == string(InstallMaintainer) || role == string(InstallOwner)
 	if _, err := s.queries().GetActiveMythicalItemByIssue(ctx, repositoryID, issue.Number); err == nil {
 		// Existing TODOs freeze their text; an authorized fresh label is only
 		// consumed, without reconsidering edits or removing its label.

@@ -3,9 +3,12 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"testing"
+	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -24,6 +27,7 @@ func TestInstallIssueEventsCommitAMembersTodoLabelOnce(t *testing.T) {
 	f.fake.SetCollaborator(9, "eve", "read")
 	_, err := f.pool.Exec(ctx, `INSERT INTO collaborators(repository_id,github_login,github_id,permission) VALUES($1,'ben',8,'write')`, f.repoID)
 	require.NoError(t, err)
+	bindIssueEventMembers(t, f.pool, f.repoID)
 
 	key := mythicalIssueEventsCursor + strconv.FormatInt(f.repoID, 10)
 	count := func(issue int64) int {
@@ -108,6 +112,7 @@ func TestInstallTodoLabelsRequireRosterAndFreezeConsumedEvents(t *testing.T) {
 	_, err := f.pool.Exec(ctx, `INSERT INTO collaborators(repository_id,github_login,github_id,permission,suspended_at)
  VALUES($1,'ben',8,'write',NULL),($1,'mia',9,'admin',NULL),($1,'erin',11,'write',now()),($1,'rehearsal-owner',7,'write',NULL)`, f.repoID)
 	require.NoError(t, err)
+	bindIssueEventMembers(t, f.pool, f.repoID)
 	require.NoError(t, f.service.ReadIssueEvents(ctx, f.repoID))
 	cases := []struct {
 		actor, author, comment string
@@ -181,10 +186,14 @@ func TestInstallTodoLabelRejectsLaterOutsiderEdits(t *testing.T) {
 	}
 	_, err := f.pool.Exec(ctx, `INSERT INTO collaborators(repository_id,github_id,github_login,permission) VALUES($1,8,'ben','write'),($1,9,'mia','admin')`, f.repoID)
 	require.NoError(t, err)
+	bindIssueEventMembers(t, f.pool, f.repoID)
 	require.NoError(t, f.service.ReadIssueEvents(ctx, f.repoID))
 	for _, part := range []string{"body", "title"} {
 		number := f.fake.OpenIssue(repo, "ben", "Original", "Original body")
 		f.fake.LabelIssue(repo, number, "mia", "todo")
+		// macOS wall-clock reads can be equal for adjacent fixture operations.
+		// This case explicitly exercises an edit later than its label.
+		time.Sleep(time.Millisecond)
 		title, body := "Original", "Original body"
 		if part == "body" {
 			body = "Outsider body"
@@ -200,6 +209,7 @@ func TestInstallTodoLabelRejectsLaterOutsiderEdits(t *testing.T) {
 		require.Len(t, view.Comments, 1)
 		require.Contains(t, view.Comments[0].Body, "Changed after it was labeled. Label it again to make a TODO.")
 		// The next maintainer label approves precisely the new outsider text.
+		time.Sleep(time.Millisecond)
 		f.fake.LabelIssue(repo, number, "mia", "todo")
 		require.NoError(t, f.service.ReadIssueEvents(ctx, f.repoID))
 		item, err := db.New(f.pool).GetActiveMythicalItemByIssue(ctx, f.repoID, number)
@@ -229,4 +239,22 @@ func TestInstallTodoLabelRejectsLaterOutsiderEdits(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, appItem.Outsider)
 	require.Equal(t, "Install App text", appItem.IssueBody)
+}
+
+// Roster rows represent signed-in people, not GitHub-only collaborator metadata.
+func bindIssueEventMembers(t *testing.T, pool interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}, repository int64) {
+	t.Helper()
+	_, err := pool.Exec(t.Context(), `INSERT INTO users(username,lower_username,display_name)
+ SELECT github_login,lower(github_login),github_login FROM collaborators WHERE repository_id=$1 AND user_id IS NULL
+ ON CONFLICT(lower_username) DO NOTHING`, repository)
+	require.NoError(t, err)
+	_, err = pool.Exec(t.Context(), `UPDATE collaborators c SET user_id=u.id FROM users u
+ WHERE c.repository_id=$1 AND c.user_id IS NULL AND u.lower_username=lower(c.github_login)`, repository)
+	require.NoError(t, err)
+	binding := fmt.Sprintf(`{"owner_login":"rehearsal-owner","repository_name":"app","repository_id":%d}`, repository)
+	_, err = pool.Exec(t.Context(), `INSERT INTO install_settings(key,value) VALUES('github.repository',$1::jsonb)
+ ON CONFLICT(key) DO UPDATE SET value=excluded.value`, binding)
+	require.NoError(t, err)
 }
