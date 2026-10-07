@@ -93,9 +93,10 @@ describe("the generated product API client", () => {
     // (fc5676df0, #3565) and the mythical config setter (44b074f80, #3572) were removed. The flow catalog
     // read, GET /api/flows (#3499), was added. The install issue reads, GET /api/issues and
     // GET /api/issues/{n} (#3457), were added.
-    // Includes branch operations, live updates, TODO edits and named flow reads.
+    // Includes branch operations, live updates, TODO edits, named flow reads,
+    // and revision-bound flow/agent edit proposals (#3498).
     // Exact parity above and the literal resource inventory below remain independent.
-    expect(expected).toHaveLength(532)
+    expect(expected).toHaveLength(536)
     expect(spec.paths["/api/flows/{name}"]).toHaveProperty("get.operationId", "get_api_flows_name")
     expect(spec.paths).not.toHaveProperty("/api/repository-setup/{operation}")
     expect(

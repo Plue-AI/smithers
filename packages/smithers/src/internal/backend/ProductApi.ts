@@ -1433,6 +1433,22 @@ export type GetApiAgentsResponse = AnyJSON
 export const getApiAgents = (transport: Transport): Promise<GetApiAgentsResponse> =>
   transport.request("GET", `/api/agents`) as Promise<GetApiAgentsResponse>
 
+export type PostApiAgentsRoleEditBody = {
+  name?: string
+  request: string
+  diff?: string
+}
+
+export interface PostApiAgentsRoleEditInput {
+  readonly path: { readonly role: string }
+  readonly headers: { readonly "Idempotency-Key": string }
+  readonly body: PostApiAgentsRoleEditBody
+}
+
+/** POST /api/agents/{role}/edit: Propose agent instruction edits as a TODO */
+export const postApiAgentsRoleEdit = (transport: Transport, input: PostApiAgentsRoleEditInput): Promise<void> =>
+  transport.request("POST", `/api/agents/${segment(input.path.role)}/edit`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
+
 export type PutApiAgentsRoleModelBody = AnyJSON
 
 export type PutApiAgentsRoleModelResponse = AnyJSON
@@ -1778,6 +1794,22 @@ export interface GetApiFlowsNameInput {
 /** GET /api/flows/{name}: Read one flow */
 export const getApiFlowsName = (transport: Transport, input: GetApiFlowsNameInput): Promise<GetApiFlowsNameResponse> =>
   transport.request("GET", `/api/flows/${segment(input.path.name)}`) as Promise<GetApiFlowsNameResponse>
+
+export type PostApiFlowsNameEditBody = {
+  name?: string
+  request: string
+  diff?: string
+}
+
+export interface PostApiFlowsNameEditInput {
+  readonly path: { readonly name: string }
+  readonly headers: { readonly "Idempotency-Key": string }
+  readonly body: PostApiFlowsNameEditBody
+}
+
+/** POST /api/flows/{name}/edit: Propose a flow edit as a TODO */
+export const postApiFlowsNameEdit = (transport: Transport, input: PostApiFlowsNameEditInput): Promise<void> =>
+  transport.request("POST", `/api/flows/${segment(input.path.name)}/edit`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
 
 export type PostApiGatewaysHostFileWriteGrantsBody = {
   run_id: string
