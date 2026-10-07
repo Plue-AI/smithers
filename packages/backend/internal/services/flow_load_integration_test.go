@@ -143,11 +143,16 @@ func TestFlowLoadProductionPollKeepsPreviousAndCoalesces(t *testing.T) {
 		}
 		require.NoError(t, json.Unmarshal(event.Data, &projection))
 		require.NotEmpty(t, projection.Card)
-		versions := states(projection.Card[0])
-		if slices.Contains(versions, "merged-failed "+strings.Repeat("2", 64)+": flows/todo/flow.ts:29: Type 'number' is not assignable to type 'string'.") && projection.Card[0].Versions[0].ID == d1 {
+		// A committed catalog includes the built-in Learning card as well.
+		// Bind replay evidence to the named TODO flow, not its array position.
+		index := slices.IndexFunc(projection.Card, func(card FlowCard) bool { return card.Name == "todo" })
+		require.NotEqual(t, -1, index)
+		card := projection.Card[index]
+		versions := states(card)
+		if slices.Contains(versions, "merged-failed "+strings.Repeat("2", 64)+": flows/todo/flow.ts:29: Type 'number' is not assignable to type 'string'.") && card.Versions[0].ID == d1 {
 			sawFirstFailure = true
 		}
-		if projection.Card[0].Versions[0].ID == strings.Repeat("5", 64) {
+		if card.Versions[0].ID == strings.Repeat("5", 64) {
 			sawNewest = true
 		}
 	}
