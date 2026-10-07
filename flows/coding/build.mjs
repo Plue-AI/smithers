@@ -6,7 +6,7 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { policySources } from "../wiki/reuse.ts"
 import { hostModulesSource } from "./host-modules-build.mjs"
-import { typecheckInputs } from "./flow-typecheck-build.mjs"
+import { typecheckInputs, typecheckSource } from "./flow-typecheck-build.mjs"
 import { wikiPolicyIdentity } from "./wiki-policy.ts"
 
 /** Used to build the same runtime acceptance entry with the deployment bundler; not a package export. */
@@ -105,7 +105,7 @@ export const bundle = async (entryPoint, outfile) => {
   const todoSource = await readFile(resolve(root, "flows/todo/flow.ts"), "utf8")
   const flowTypes = await typecheckInputs(root, alias)
   const compiled = result.outputFiles[0].text.replace(/^(#![^\n]*\n)/,
-    (banner) => `${banner}const __SMITHERS_FLOW_TYPES__ = ${JSON.stringify(flowTypes)};\nconst __SMITHERS_CREATE_FLOW_PACK__ = ${JSON.stringify(pack)};\nconst __SMITHERS_CODING_WIKI_POLICY__ = ${JSON.stringify(wikiPolicyIdentity(policyTexts))};\nconst __SMITHERS_BUILTIN_TODO__ = ${JSON.stringify(todoSource)};\n`)
+    (banner) => `${banner}${typecheckSource(flowTypes)}const __SMITHERS_CREATE_FLOW_PACK__ = ${JSON.stringify(pack)};\nconst __SMITHERS_CODING_WIKI_POLICY__ = ${JSON.stringify(wikiPolicyIdentity(policyTexts))};\nconst __SMITHERS_BUILTIN_TODO__ = ${JSON.stringify(todoSource)};\n`)
   if (compiled === result.outputFiles[0].text) throw new Error("Coding artifact has no executable banner")
   const digest = createHash("sha256").update(compiled).digest("hex")
   // Hash the exact compiled artifact before inserting its own identity. This

@@ -3,6 +3,13 @@ import ts from "typescript"
 import { readFile, readdir } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, join, relative, resolve } from "node:path"
+import { gzipSync } from "node:zlib"
+
+/** Preserve the complete type graph inside the bounded, immutable executable. */
+export const typecheckSource = (inputs) => {
+  const compressed = gzipSync(JSON.stringify(inputs), { level: 9 }).toString("base64")
+  return `import {gunzipSync as __smithersGunzipTypes} from "node:zlib";\nconst __SMITHERS_FLOW_TYPES__ = JSON.parse(__smithersGunzipTypes(Buffer.from(${JSON.stringify(compressed)}, "base64")).toString("utf8"));\n`
+}
 
 export const typecheckInputs = async (root, aliases) => {
   const require = createRequire(join(root, "flows/package.json"))
