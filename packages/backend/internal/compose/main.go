@@ -143,6 +143,17 @@ func composeBranchMachines(options Options, hosted bool, members identity.Member
 		return options.Workspace.Isolation()
 	}
 	switch {
+	case options.HostedBranchMachines && (options.BranchMachines != nil || options.InstallBranchMachines):
+		return nil, errors.New("hosted branch machine providers exclude injected and install providers")
+	case options.HostedBranchMachines:
+		if !hosted {
+			return nil, errors.New("hosted branch machines require a hosted deployment")
+		}
+		if isolation() != workspace.IsolationSandboxed {
+			return nil, errors.New("hosted branch machines require the microVM workspace runtime")
+		}
+		providers := services.HostedBranchMachineProviders(options.Workspace)
+		return &providers, nil
 	case options.BranchMachines != nil && options.InstallBranchMachines:
 		return nil, errors.New("branch machine providers are injected or the install's, not both")
 	case options.BranchMachines != nil:
@@ -187,6 +198,11 @@ type Options struct {
 	// install with a microVM Workspace sets it (app.Config.BranchMachines);
 	// any other composition refuses to start with it.
 	InstallBranchMachines bool
+	// HostedBranchMachines composes a hosted deployment's branch machine
+	// providers (services.HostedBranchMachineProviders, #3751) on its microVM
+	// runtime: repository writers are the branch's members. Any other
+	// composition refuses to start with it.
+	HostedBranchMachines bool
 	// EnvGitHubAppCredentials is an explicit Plue adapter; self-hosting leaves it false.
 	EnvGitHubAppCredentials bool
 	CanaryRuns              ports.CanaryRunSource

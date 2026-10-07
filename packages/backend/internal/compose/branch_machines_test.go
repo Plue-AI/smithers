@@ -48,8 +48,9 @@ type guestMicroVM struct{ isolatedRuntime }
 func (guestMicroVM) GuestIdentity() (string, int) { return "agent", 19999 }
 
 // The install composes its own branch machine providers only on a
-// single-owner microVM runtime; injected providers stay a trusted-process
-// test seam, and no composition takes both.
+// single-owner microVM runtime, a hosted deployment its hosted providers only
+// on a microVM runtime; injected providers stay a trusted-process test seam,
+// and no composition takes two.
 func TestComposeBranchMachines(t *testing.T) {
 	trusted := isolatedRuntime{isolation: workspace.IsolationTrustedProcess}
 	microVM := guestMicroVM{isolatedRuntime{isolation: workspace.IsolationSandboxed}}
@@ -60,6 +61,9 @@ func TestComposeBranchMachines(t *testing.T) {
 		hosted  bool
 		want    string
 		install bool
+		// hostedProviders checks the hosted providers, whose membership and
+		// authority read the database (TestHostedBranchMachineMembership).
+		hostedProviders bool
 	}{
 		{name: "neither keeps machines dark", options: Options{Workspace: microVM}},
 		{name: "both", options: Options{Workspace: trusted, BranchMachines: injected, InstallBranchMachines: true},
@@ -76,6 +80,17 @@ func TestComposeBranchMachines(t *testing.T) {
 			want: "install branch machines require the microVM workspace runtime"},
 		{name: "install on a hosted deployment", options: Options{Workspace: microVM, InstallBranchMachines: true}, hosted: true,
 			want: "install branch machines require a single-owner install"},
+		{name: "hosted on a microVM", options: Options{Workspace: microVM, HostedBranchMachines: true}, hosted: true, hostedProviders: true},
+		{name: "hosted on an install", options: Options{Workspace: microVM, HostedBranchMachines: true},
+			want: "hosted branch machines require a hosted deployment"},
+		{name: "hosted on trusted process", options: Options{Workspace: trusted, HostedBranchMachines: true}, hosted: true,
+			want: "hosted branch machines require the microVM workspace runtime"},
+		{name: "hosted without a runtime", options: Options{HostedBranchMachines: true}, hosted: true,
+			want: "hosted branch machines require the microVM workspace runtime"},
+		{name: "hosted and install", options: Options{Workspace: microVM, HostedBranchMachines: true, InstallBranchMachines: true}, hosted: true,
+			want: "hosted branch machine providers exclude injected and install providers"},
+		{name: "hosted and injected", options: Options{Workspace: trusted, HostedBranchMachines: true, BranchMachines: injected}, hosted: true,
+			want: "hosted branch machine providers exclude injected and install providers"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			providers, err := composeBranchMachines(tc.options, tc.hosted, ownerOnly{owner: 7})
@@ -86,6 +101,14 @@ func TestComposeBranchMachines(t *testing.T) {
 			}
 			require.NoError(t, err)
 			switch {
+			case tc.hostedProviders:
+				require.NotNil(t, providers)
+				ctx := context.Background()
+				require.NoError(t, providers.MicroVM(ctx))
+				require.NoError(t, providers.SessionIdentity(ctx))
+				require.Error(t, providers.Authorize(ctx, nil, "branch.fork", 1, "main", 7), "an unknown command is refused before any read")
+				require.NotNil(t, providers.Membership)
+				require.NotNil(t, providers.LaneBinding)
 			case tc.options.BranchMachines != nil:
 				require.Same(t, injected, providers)
 			case !tc.install:

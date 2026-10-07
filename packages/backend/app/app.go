@@ -79,6 +79,11 @@ type Config struct {
 	// Only a single-owner install with a microVM Workspace may set it; unset,
 	// every branch machine stays dark.
 	BranchMachines bool
+	// HostedBranchMachines composes a hosted deployment's branch machine
+	// providers on its microVM Workspace: a repository's writers join its
+	// branch machines (#3751). Only a hosted deployment with a microVM
+	// Workspace may set it.
+	HostedBranchMachines bool
 	// FlowHostRegistry is the verified set of packaged canonical Flow hosts.
 	// Nil leaves durable Flow admission unavailable for development setups
 	// without a built host bundle.
@@ -230,6 +235,7 @@ func (cfg Config) options() compose.Options {
 		RepositoryProvisioning: cfg.RepositoryProvisioning,
 		Workspace:              cfg.Workspace,
 		InstallBranchMachines:  cfg.BranchMachines,
+		HostedBranchMachines:   cfg.HostedBranchMachines,
 		FlowHostRegistry:       cfg.FlowHostRegistry,
 		FlowHostConfig:         cfg.FlowHostConfig,
 		FlowHostProductAPIURL:  cfg.FlowHostProductAPIURL,
