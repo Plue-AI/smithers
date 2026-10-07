@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
@@ -91,8 +92,17 @@ func (r *candidateHeadRuntime) ExecuteCommand(ctx context.Context, _ string, com
 }
 
 func TestCandidateHeadReportComposedInstall(t *testing.T) {
+	for _, installAuthority := range []bool{false, true} {
+		t.Run(fmt.Sprintf("install_authority_%t", installAuthority), func(t *testing.T) {
+			testCandidateHeadReportComposedInstall(t, installAuthority)
+		})
+	}
+}
+
+func testCandidateHeadReportComposedInstall(t *testing.T, installAuthority bool) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
-	ctx := t.Context()
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
 	q := db.New(pool)
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "candidate-owner", LowerUsername: "candidate-owner"})
 	require.NoError(t, err)
@@ -122,6 +132,20 @@ func TestCandidateHeadReportComposedInstall(t *testing.T) {
 	var originalPending []byte
 	require.NoError(t, pool.QueryRow(ctx, `SELECT pending_op FROM mythical_items WHERE id=$1`, itemID).Scan(&originalPending))
 	service := services.NewWorkspaceService(q, services.WithWorkspaceTransactions(pool), services.WithWorkspaceRuntime(runtime))
+	var machineToken string
+	if installAuthority {
+		service = services.NewWorkspaceService(q, services.WithWorkspaceTransactions(pool), services.WithWorkspaceRuntime(runtime), services.WithWorkspaceInstallAuthorization(q))
+	}
+	{
+		machineToken = "smithers_" + strings.Repeat("a", 40)
+		digest := sha256.Sum256([]byte(machineToken))
+		hash := hex.EncodeToString(digest[:])
+		token, err := q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "candidate-machine", TokenHash: hash, TokenLastEight: hash[len(hash)-8:], SystemIssued: true,
+			Scopes: "write:repository," + middleware.RepositoryRestrictionScope(repo.ID) + "," + middleware.WorkspaceRestrictionScope(workspaceID), ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `UPDATE workspaces SET head_push_token_id=$2 WHERE id=$1`, workspaceID, token.ID)
+		require.NoError(t, err)
+	}
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode, cfg.Auth.SessionCookieName = "selfhost", "session"
 	cfg.Server.PublicURL = "http://example.com"
@@ -134,8 +158,9 @@ func TestCandidateHeadReportComposedInstall(t *testing.T) {
 		request.Header.Set("X-CSRF-Token", "candidate-csrf")
 		request.AddCookie(&http.Cookie{Name: "__csrf", Value: "candidate-csrf"})
 		if authenticated {
-			request.AddCookie(&http.Cookie{Name: "session", Value: "candidate-cookie"})
+			request.Header.Set("Authorization", "Bearer "+machineToken)
 		}
+		request = request.WithContext(ctx)
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, request)
 		return response
@@ -163,6 +188,33 @@ func TestCandidateHeadReportComposedInstall(t *testing.T) {
 	require.Zero(t, runtime.calls, "a merge fence refuses before snapshotting the working copy")
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET pending_op=$2 WHERE id=$1`, itemID, originalPending)
 	require.NoError(t, err)
+	if installAuthority {
+		t.Run("publication lock precedes workspace lock", func(t *testing.T) {
+			tx, err := pool.Begin(ctx)
+			require.NoError(t, err)
+			defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+			_, err = tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, repo.ID)
+			require.NoError(t, err)
+			done := make(chan *httptest.ResponseRecorder, 1)
+			go func() { done <- report(runtime.head, true) }()
+			// Observe the blocked production query before testing the other
+			// lock. This proves ordering without a scheduling sleep.
+			require.Eventually(t, func() bool {
+				var waiting bool
+				err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND wait_event_type='Lock' AND query LIKE '%mythical_stacks%FOR UPDATE%')`).Scan(&waiting)
+				return err == nil && waiting
+			}, 5*time.Second, 10*time.Millisecond)
+			_, err = tx.Exec(ctx, `SELECT 1 FROM workspaces WHERE id=$1 FOR UPDATE NOWAIT`, workspaceID)
+			require.NoError(t, err, "a report waiting on publication must not hold the workspace")
+			require.NoError(t, tx.Commit(ctx))
+			select {
+			case response := <-done:
+				require.Equal(t, 200, response.Code, response.Body.String())
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+		})
+	}
 	response = report(runtime.head, true)
 	require.Equal(t, 200, response.Code, response.Body.String())
 	verified, version, head := state()

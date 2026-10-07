@@ -753,8 +753,15 @@ func (s *WorkspaceService) ReportWorkspaceHead(ctx context.Context, input Report
 	if repository != subject.RepositoryID {
 		return WorkspaceResponse{}, confirmationPermission()
 	}
-	// Rotation/deletion of the recorded publisher and the report serialize on
-	// the workspace row. This is a live subject fence, not a second decision.
+	// Use publication's stack -> items -> workspace ordering before locking
+	// the publisher. The observation below shares this transaction, so it
+	// cannot wait on its own workspace lock through another connection.
+	if _, err := tx.Exec(live, `SELECT 1 FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, subject.RepositoryID); err != nil {
+		return WorkspaceResponse{}, err
+	}
+	if _, err := db.New(tx).LockMythicalStackOrder(live, subject.RepositoryID); err != nil {
+		return WorkspaceResponse{}, err
+	}
 	if _, err := tx.Exec(live, `SELECT 1 FROM workspaces WHERE id=$1 FOR UPDATE`, subject.WorkspaceID); err != nil {
 		return WorkspaceResponse{}, err
 	}
@@ -767,15 +774,20 @@ func (s *WorkspaceService) ReportWorkspaceHead(ctx context.Context, input Report
 	}
 	scoped := *s
 	scoped.q = q
+	scoped.transactions = tx
 	result, err := scoped.reportWorkspaceHead(live, input)
-	if err != nil {
+	if err != nil && !errors.Is(err, errStaleWorkspaceHeadReport) {
 		return WorkspaceResponse{}, err
 	}
 	if err := tx.Commit(live); err != nil {
 		return WorkspaceResponse{}, err
 	}
-	return result, nil
+	return result, err
 }
+
+// A delayed report still commits invalidation from the authoritative live
+// observation. Other failures roll back both the head and invalidation.
+var errStaleWorkspaceHeadReport = pkgerrors.Conflict("workspace head report is no longer the live revision")
 
 func (s *WorkspaceService) reportWorkspaceHead(ctx context.Context, input ReportWorkspaceHeadInput) (WorkspaceResponse, error) {
 
@@ -921,7 +933,7 @@ func (s *WorkspaceService) persistWorkspaceHeadReport(ctx context.Context, works
 		return err
 	}
 	if staleReport {
-		return pkgerrors.Conflict("workspace head report is no longer the live revision")
+		return errStaleWorkspaceHeadReport
 	}
 	return nil
 }
