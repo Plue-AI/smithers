@@ -1,5 +1,18 @@
 import { strict as assert } from "node:assert"
 
+// File-level acceptance can span top-level tests, but every selected test
+// must still execute a fault. A marker in an unrelated test cannot qualify it.
+export function requireReachedGoFaultMatrix(log: string, names: readonly string[], points: readonly string[], contexts: readonly string[] = []): void {
+  assert(names.length > 0, "required fault matrix has no acceptance tests")
+  for (const name of names) requireReachedGoFault(log, name, contexts.length === 0 ? [] : points, contexts)
+  for (const point of points) {
+    assert(names.some(name => {
+      try { requireReachedGoFault(log, name, [point]); return true }
+      catch { return false }
+    }), `required fault matrix boundary was not reached: ${point}`)
+  }
+}
+
 // Go exits successfully for an unmatched -run and for skipped integration
 // cases. Neither is fault evidence. Preserve the raw JSON stream in CI logs.
 export function requireReachedGoFault(log: string, name: string, requiredPoints: readonly string[] = [], requiredContexts: readonly string[] = []): void {
