@@ -393,6 +393,45 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 		_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: member.ID, Username: member.Username, SessionKey: hex.EncodeToString(memberSession[:]), ExpiresAt: time.Now().Add(time.Hour)})
 		require.NoError(t, err)
 		require.Equal(t, 404, readReview(selected.OperationID, "alice-review-cookie").Code)
+		t.Run("lost start reply followed by author revocation retires before failure", func(t *testing.T) {
+			machine.mu.Lock()
+			beforeRetired, beforeObserved := machine.retired, machine.observed
+			machine.loseStart = true
+			machine.retireFailOnce = true
+			machine.startHook = func() error {
+				_, err := pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, member.ID)
+				return err
+			}
+			machine.mu.Unlock()
+			answer := call(body, "lost-start-revoked-author")
+			require.Equal(t, 202, answer.Code, answer.Body.String())
+			var pending services.ReviewAdmission
+			require.NoError(t, json.Unmarshal(answer.Body.Bytes(), &pending))
+			workerCtx, cancel := context.WithCancel(ctx)
+			done := make(chan error, 1)
+			go func() {
+				done <- background.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "review-revoked-recovery", Capacity: 1, Lease: time.Second, PollInterval: time.Millisecond, RetryDelay: time.Millisecond})
+			}()
+			t.Cleanup(func() { cancel(); <-done })
+			require.Eventually(t, func() bool {
+				op, e := store.Get(ctx, scope, pending.OperationID)
+				return e == nil && op.State == jobs.StateFailed
+			}, 5*time.Second, 10*time.Millisecond)
+			op, err := store.Get(ctx, scope, pending.OperationID)
+			require.NoError(t, err)
+			require.JSONEq(t, `{"class":"permission","code":"permission"}`, string(op.TerminalReceipt))
+			machine.mu.Lock()
+			require.Len(t, machine.runs, 2, "recovery never starts a replacement run")
+			require.Equal(t, beforeRetired+2, machine.retired, "failed retirement retries before terminal refusal")
+			require.Equal(t, beforeObserved, machine.observed, "revoked admission never observes findings")
+			machine.mu.Unlock()
+			delivery.mu.Lock()
+			require.Equal(t, selected.OperationID, delivery.id, "revoked run never delivers findings")
+			delivery.mu.Unlock()
+			require.Equal(t, 403, readReview(pending.OperationID, "review-cookie").Code)
+			_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=NULL WHERE user_id=$1`, member.ID)
+			require.NoError(t, err)
+		})
 		// Membership revocation also prevents reconnection to a private result.
 		_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, member.ID)
 		require.NoError(t, err)
@@ -409,12 +448,15 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 // Test-only machine and delivery contracts. This is boundary/recovery evidence,
 // not C-J10-09 reference-host microVM qualification.
 type reviewMachineFixture struct {
-	mu        sync.Mutex
-	runs      map[string]string
-	selected  services.ReviewAdmission
-	refusal   string
-	loseStart bool
-	retired   int
+	mu             sync.Mutex
+	runs           map[string]string
+	selected       services.ReviewAdmission
+	refusal        string
+	loseStart      bool
+	retired        int
+	observed       int
+	retireFailOnce bool
+	startHook      func() error
 }
 
 func (*reviewMachineFixture) Isolation() workspace.IsolationLevel {
@@ -433,19 +475,33 @@ func (m *reviewMachineFixture) Start(_ context.Context, id string, a services.Re
 	if m.runs[id] == "" {
 		m.runs[id] = "review-run"
 	}
+	if m.startHook != nil {
+		hook := m.startHook
+		m.startHook = nil
+		if err := hook(); err != nil {
+			return "", err
+		}
+	}
 	if m.loseStart {
 		m.loseStart = false
 		return "", fmt.Errorf("lost Start reply")
 	}
 	return m.runs[id], nil
 }
-func (*reviewMachineFixture) Observe(context.Context, string, services.ReviewAdmission) (services.ReviewObservation, error) {
+func (m *reviewMachineFixture) Observe(context.Context, string, services.ReviewAdmission) (services.ReviewObservation, error) {
+	m.mu.Lock()
+	m.observed++
+	m.mu.Unlock()
 	return services.ReviewObservation{State: jobs.StateCompleted, Change: json.RawMessage(`{"findings":[{"path":"cache.ts","line":20,"severity":"fix","body":"Off by one"}]}`)}, nil
 }
 func (m *reviewMachineFixture) Retire(context.Context, string, services.ReviewAdmission) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.retired++
+	if m.retireFailOnce {
+		m.retireFailOnce = false
+		return fmt.Errorf("retirement unavailable")
+	}
 	return nil
 }
 

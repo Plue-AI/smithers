@@ -172,16 +172,16 @@ func (b *ReviewBackground) handle(ctx context.Context, lease *jobs.Lease) error 
 			return err
 		}
 		if errors.Is(err, middleware.ErrCredentialGone) || !middleware.BindInstallCredential(info) || info.User.ID != admission.RequesterID {
-			return lease.Fail(ctx, json.RawMessage(`{"class":"permission","code":"permission"}`))
+			return b.refuseAndRetire(ctx, lease, admission)
 		}
 		bound := middleware.ContextWithAuthInfo(ctx, info)
 		if _, err := Authorize(bound, b.service.queries(), "review"); err != nil {
-			return lease.Fail(ctx, json.RawMessage(`{"class":"permission","code":"permission"}`))
+			return b.refuseAndRetire(ctx, lease, admission)
 		}
 		if err := b.service.reviewMembers(ctx, admission); err != nil {
 			var refusal *TodoControlError
 			if errors.As(err, &refusal) && refusal.Class == "permission" {
-				return lease.Fail(ctx, json.RawMessage(`{"class":"permission","code":"permission"}`))
+				return b.refuseAndRetire(ctx, lease, admission)
 			}
 			return err
 		}
@@ -244,4 +244,15 @@ func (b *ReviewBackground) handle(ctx context.Context, lease *jobs.Lease) error 
 		return lease.ExternalCancelled(ctx, raw)
 	}
 	return lease.Fail(ctx, raw)
+}
+
+// A missing run checkpoint does not prove that Start allocated nothing: its
+// reply (or the checkpoint write) may have been lost. Reconcile retirement by
+// the stable operation ID before recording a terminal permission refusal.
+// A failed retirement stays retryable so recovery cannot strand a microVM.
+func (b *ReviewBackground) refuseAndRetire(ctx context.Context, lease *jobs.Lease, admission ReviewAdmission) error {
+	if err := b.machine.Retire(ctx, lease.Claim().OperationID, admission); err != nil {
+		return err
+	}
+	return lease.Fail(ctx, json.RawMessage(`{"class":"permission","code":"permission"}`))
 }
