@@ -286,7 +286,7 @@ func (s *InstallSetupService) readStep(ctx context.Context, q *db.Queries, id st
 		}
 	}
 	// A claimed owner is signed in, whatever an earlier refused attempt recorded.
-	if id == "sign_in" && step.Status != InstallReady {
+	if id == "sign_in" && step.Status != InstallReady && step.OperationID == "" {
 		if _, ownerErr := q.GetSelfHostOwner(ctx); ownerErr == nil {
 			step = InstallStep{ID: id, Status: InstallReady}
 		} else if !errors.Is(ownerErr, pgx.ErrNoRows) {
@@ -329,10 +329,10 @@ func (s *InstallSetupService) Admit(ctx context.Context, id, key string, raw jso
 	if len(key) == 0 || len(key) > 128 {
 		return jobs.RequestReceipt{}, pkgerrors.BadRequest("Idempotency-Key required")
 	}
-	if id == "app_manifest" || id == "sign_in" {
+	if id == "app_manifest" {
 		return jobs.RequestReceipt{}, pkgerrors.Conflict("use the browser sign-in action")
 	}
-	if id != "address" && id != "models" && s.Providers[id] == nil {
+	if id != "address" && id != "models" && id != "sign_in" && s.Providers[id] == nil {
 		return jobs.RequestReceipt{}, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "setup provider unavailable")
 	}
 	tx, err := s.Pool.Begin(ctx)
@@ -452,6 +452,13 @@ func (s *InstallSetupService) Handle(ctx context.Context, lease *jobs.Lease) err
 		// The new listener opens before the settings commit; the step stays
 		// running until both are done, and a bind that cannot listen fails it.
 		err = s.Address.apply(input.Bind)
+	case "sign_in":
+		// OAuth owns the claim. This job observes its durable receipt and never
+		// persists browser cookies or provider tokens in the operation payload.
+		_, err = db.New(s.Pool).GetSelfHostOwner(ctx)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return lease.Defer(ctx, json.RawMessage(`{"phase":"awaiting_owner_claim"}`), time.Second)
+		}
 	case "models":
 		// Provider calls run before the settings transaction opens.
 		models, err = s.checkModels(ctx)
