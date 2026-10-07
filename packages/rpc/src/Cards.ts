@@ -14,6 +14,7 @@ import { LegacySecretMetadataSchema, SecretsCardSchema } from "./SecretsCard.ts"
  */
 
 import { z } from "zod"
+import { ConfiguredModelSchema } from "./ConfiguredModel.ts"
 import { AGENT_ROLES, AgentRoleModelSchema } from "./AgentRoles.ts"
 import { BillingPlanSchema, SandboxEntitlementSchema } from "./BillingPlans.ts"
 import {
@@ -2116,6 +2117,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
           model: z.string(),
           state: z.enum(["requested", "failed"])
         }).optional(),
+        testRequests: z.record(z.string(), z.object({ requestId: z.string(), model: ConfiguredModelSchema })).optional(),
         agents: z.array(
           z.object({
             /** A built-in role id, or the flow id of a repository agent flow (`flows/<id>/flow.mdx` with a model). */
