@@ -209,6 +209,15 @@ func TestInstallLaneBinding(t *testing.T) {
 	bindLoad, err := q.BindFlowLoadWorkspace(ctx, repo, 0, loading)
 	require.NoError(t, err)
 	require.True(t, bindLoad)
+	// Wiki refreshes bind before provisioning, exactly as flow-load does.
+	wiki, oldWiki := machine("wiki"), machine("old wiki")
+	_, err = q.EnsureMythicalWiki(ctx, repo)
+	require.NoError(t, err)
+	boundWiki, err := q.BindMythicalWikiWorkspace(ctx, repo, 0, oldWiki)
+	require.NoError(t, err)
+	require.True(t, boundWiki)
+	_, err = pool.Exec(ctx, `UPDATE mythical_wikis SET generation=1,workspace_id=$2 WHERE repository_id=$1`, repo, wiki)
+	require.NoError(t, err)
 	laneBinding := InstallBranchMachineProviders(ownerAuthorizer{}, nil).LaneBinding
 	creating := withStackLaneCreation(ctx)
 	for _, tc := range []struct {
@@ -232,6 +241,10 @@ func TestInstallLaneBinding(t *testing.T) {
 		{name: "item branch by name, as the stack", ctx: creating, repo: repo, branch: "smithers/add-a-greeting", forbidden: true},
 		{name: "item branch through its lane", ctx: ctx, repo: repo, branch: "smithers/add-a-greeting", id: bound},
 		{name: "item branch through a retired lane", ctx: ctx, repo: repo, branch: "smithers/add-a-greeting", id: retired, forbidden: true},
+		{name: "current wiki machine", ctx: ctx, repo: repo, branch: MythicalBookmark, id: wiki},
+		{name: "wiki machine in another repository", ctx: ctx, repo: otherRepo, branch: MythicalBookmark, id: wiki, forbidden: true},
+		{name: "wiki machine on an item branch", ctx: ctx, repo: repo, branch: "smithers/add-a-greeting", id: wiki, forbidden: true},
+		{name: "previous wiki machine", ctx: ctx, repo: repo, branch: MythicalBookmark, id: oldWiki, forbidden: true},
 		{name: "the flow-load's machine", ctx: ctx, repo: repo, branch: MythicalBookmark, id: loading},
 		{name: "the flow-load's machine in another repository", ctx: ctx, repo: otherRepo, branch: MythicalBookmark, id: loading, forbidden: true},
 		{name: "the flow-load's machine on an item branch", ctx: ctx, repo: repo, branch: "smithers/add-a-greeting", id: loading, forbidden: true},

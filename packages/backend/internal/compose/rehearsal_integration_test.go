@@ -340,8 +340,8 @@ path = "lib.rs"
 		}
 		built := buildRehearsalCodingHost(t, node, r.root)
 		registry = &built
-		// The coding host's model is scripted: every turn it asks goes through
-		// the composed install's metered model proxy to this provider.
+		// The coding host's model is scripted: test-only owner keys route every
+		// turn through the composed install's metered proxy to this provider.
 		r.coder = startRehearsalCodingModel(t, node, r.root, r.evidence)
 		platformKeys = modelproxy.NewStaticKeys(map[string]string{modelproxy.ProviderCerebras: "scripted-coding-key", modelproxy.ProviderVercel: "scripted-evaluator-key"})
 		upstreams = map[string]string{modelproxy.ProviderCerebras: r.coder.url, modelproxy.ProviderVercel: r.coder.url}
@@ -362,7 +362,7 @@ path = "lib.rs"
 	go func() {
 		done <- StartWithOptions(ctx, nil, r.stdout, io.MultiWriter(r.logs, live), Options{Repository: engine.Client(), Workspace: workspace, MachineImages: trustedProcessImages{sources: repositorySourceFiles{client: engine.Client()}, holdUntilCancelled: enable == "SMITHERS_BRANCH_FILES_INTEGRATION"}, ComputeProvider: r.compute, ChatHost: offlineGatewayHost{host}, FlowHostProductAPIURL: r.origin,
 			FlowHostRegistry: registry, FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true},
-			PlatformModelKeys: platformKeys, ModelProxyUpstreams: upstreams, BranchMachines: rehearsalBranchMachines(pool),
+			OwnerModelKeys: platformKeys, ModelProxyUpstreams: upstreams, BranchMachines: rehearsalBranchMachines(pool),
 			// Explicit synthetic measurements model capacity 3 and default parallel 2.
 			// This process fixture does not qualify a production microVM host.
 			HostProfile: &microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: 400 << 30, MacOSVersion: "15.6", Hypervisor: true},
@@ -745,6 +745,14 @@ func (r *rehearsal) setupSource() bool {
 		body, _ := json.Marshal(map[string]any{"model": map[string]string{"protocol": "openai-chat", "modelId": "test-model", "credential": "TEST_PROVIDER", "baseUrl": r.provider.URL}})
 		if _, err := r.expect("PUT", "/api/model/default", string(body), 200); err != nil {
 			return err
+		}
+		// The factory selects each role through the same owner assignment door
+		// as the install. Environment defaults no longer replace that binding.
+		factory, _ := json.Marshal(map[string]any{"model": map[string]string{"protocol": "openai-chat", "modelId": "gpt-oss-120b", "credential": "CEREBRAS_API_KEY"}})
+		for _, role := range []string{"planner", "implementer", "reviewer"} {
+			if _, err := r.expect("PUT", "/api/agents/"+role+"/model", string(factory), 200); err != nil {
+				return err
+			}
 		}
 		if _, err := r.expect("POST", "/api/install/setup/models", `{}`, 202); err != nil {
 			return err
