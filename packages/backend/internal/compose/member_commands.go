@@ -25,6 +25,20 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			info := middleware.AuthInfoFromContext(r.Context())
 			command := middleware.InstallMemberCommand(r.Method, r.URL.EscapedPath())
+			if command == "background.retry" && r.Method == http.MethodPost {
+				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1024))
+				if err != nil {
+					writeConfirmationDispatchError(w, &services.TodoControlError{Status: 400, Class: "user", Code: "invalid_run_action", Message: "Invalid run action"})
+					return
+				}
+				r.Body = io.NopCloser(bytes.NewReader(raw))
+				var input struct {
+					Op string `json:"op"`
+				}
+				if json.Unmarshal(raw, &input) == nil && input.Op == "dismiss" {
+					command = "background.dismiss"
+				}
+			}
 			if r.Method == http.MethodPut && r.URL.Path == "/api/install" {
 				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 16<<10))
 				if err != nil {

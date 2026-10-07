@@ -121,6 +121,7 @@ func TestHomeBackgroundRetryIdempotent(t *testing.T) {
 	t.Run("HomeBackgroundAdmissionRefusals", func(t *testing.T) {
 		require.Equal(t, 400, post("home-member", "retry", "").StatusCode)
 		require.Equal(t, 400, post("home-member", "delete", "invalid").StatusCode)
+		require.Equal(t, 400, post("home-member", `retry"}`+strings.Repeat(" ", 1024)+`{"op":"retry`, "oversized").StatusCode)
 		_, err = pool.Exec(ctx, `UPDATE workflow_runs SET status='success' WHERE id=$1`, failed.ID)
 		require.NoError(t, err)
 		require.Equal(t, 409, post("home-member", "dismiss", "completed").StatusCode)
