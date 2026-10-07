@@ -496,10 +496,11 @@ evidence do not acquire invented phases, successful checks, or file changes.
   monitor: recorded step instances, deterministic phases, approval waits,
   bookkeeping and the raw journal. Declared native graph pages retain
   unreached nodes and dependency edges; recorded node instances supply their
-  live states. Rescheduled native nodes retain separate instance keys. A replay folds only records through `at`, derives terminal
+  live states. Rescheduled native nodes retain separate instance keys. A replay
+  folds only records through `at`, derives terminal
   state from that prefix, and returns `replay: { at, last }`. It does not fetch
   a registry or execute presentation code. The current adapter does not yet
-  reconstruct declared dependencies, all native wait kinds or priced usage;
+  reconstruct all native wait kinds or priced usage;
   callers must enforce the metering refusal described above.
 - `inspectLabel(tag)` reads the build-generated Appendix C Inspect rendering.
   Coding call and native execution spans use the same labels. Dynamic

@@ -1517,3 +1517,25 @@ test("native monitor keeps rescheduled instances, waits and bookkeeping apart", 
   expect(model.journal.at(-1)).toEqual({ seq:0,at:"1970-01-01T00:00:00.000Z",type:"event",text:"null" })
   expect(monitorFromJournal(RUN,rows,0).journal).toEqual([{ seq:0,at:"1970-01-01T00:00:00.000Z",type:"event",text:"null" }])
 })
+
+test("declared monitor nodes use recorded live states and retain unreached dependencies", () => {
+  const event = (sequence: number, eventType: string, payload: unknown): JournalRecord => ({ sequence, kind: "control.engine.event", occurredAt: sequence,
+    payload: { version: 1, executionId: "graph", generation: 0, sequence, eventId: `g${sequence}`, sourceId: "engine", sourceSequence: sequence, emittedAtMs: sequence, eventType, payload, meta: {} } })
+  const rows = [
+    event(1, "flows.engine.plan-recorded", { graph: { nodes: [
+      { id: "active", kind: "action", tier: "sealed", dependsOn: [], action: "coding/edit-atom" },
+      { id: "failed", kind: "action", tier: "sealed", dependsOn: [], action: "coding/check-command" },
+      { id: "wait", kind: "action", tier: "sealed", dependsOn: [] },
+      { id: "future", kind: "action", tier: "sealed", dependsOn: ["active"] }
+    ] } }),
+    event(2, "flows.engine.node-scheduled", { nodeId: "active", kind: "action", attempt: 1 }),
+    event(3, "flows.engine.node-settled", { nodeId: "failed", outcome: "failed", attempts: 1 }),
+    event(4, "flows.engine.node-settled", { nodeId: "wait", outcome: "deferred", attempts: 1 })
+  ]
+  expect(monitorFromJournal(RUN, rows).attempts[0]!.graph).toEqual([
+    { id: "engine-node:graph%3A0:active", label: "Edited the files", state: "current", deps: [] },
+    { id: "engine-node:graph%3A0:failed", label: "Ran checks", state: "failed", deps: [] },
+    { id: "engine-node:graph%3A0:wait", label: "Waited", state: "waiting", deps: [] },
+    { id: "engine-node:graph%3A0:future", label: "future", state: "next", deps: ["engine-node:graph%3A0:active"] }
+  ])
+})
