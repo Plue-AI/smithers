@@ -7,6 +7,7 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createHash } from 'node:crypto'
 import { publicOrigin, readHost } from './lib/host.mjs'
+import { authenticatedMember } from './lib/member.mjs'
 import { summarize } from './lib/stats.mjs'
 import { writeRun } from './lib/artifact.mjs'
 
@@ -62,6 +63,8 @@ export async function run(env = process.env) {
     browser = await chromium.launch()
     result.browser = browser.version()
     const context = await browser.newContext({ storageState: env.SMITHERS_PERF_MEMBER_A, permissions: ['clipboard-read', 'clipboard-write'] })
+    result.member = await authenticatedMember(context, config.origin)
+    if (String(result.member.id) === env.SMITHERS_PERF_SSH_MEMBER) throw new Error('distinct browser and SSH members required')
     const page = await context.newPage()
     let arrival, resolveArrival
     await page.exposeBinding('__diskArrival', (_, text) => { resolveArrival?.({ text, t1: performance.now() }) })
