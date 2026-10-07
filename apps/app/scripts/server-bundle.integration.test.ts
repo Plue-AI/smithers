@@ -141,7 +141,10 @@ for (const fault of [
 // Doctor and the launcher refuse during production runtime admission before
 // opening listeners. Faults modify a private copy of the real Mach-O,
 // never a shell stand-in, and no guest is booted from a modified artifact.
-boundary("packaged doctor and server refuse a real msb with an unqualified version", () => {
+for (const fault of [
+  { name: "an unqualified version", version: "0.6.15", refusal: "msb 0.6.15 is installed; this backend is qualified with msb 0.6.16", doctor: "FAIL msb", hypervisor: true },
+  { name: "missing hypervisor authority", version: "0.6.16", refusal: "msb lacks com.apple.security.hypervisor entitlement", doctor: "FAIL msb", hypervisor: false }
+]) boundary(`packaged doctor and server refuse a real msb with ${fault.name}`, () => {
   const temporary = mkdtempSync(join(homedir(), ".smithers-runtime-refusal-"))
   try {
     const copy = join(temporary, "bundle")
@@ -150,9 +153,9 @@ boundary("packaged doctor and server refuse a real msb with an unqualified versi
     const entitlements = join(temporary, "entitlements.plist")
     writeFileSync(entitlements, `<?xml version="1.0"?><plist version="1.0"><dict>
       <key>com.apple.security.cs.disable-library-validation</key><true/>
-      <key>com.apple.security.hypervisor</key><true/>
+      ${fault.hypervisor ? "<key>com.apple.security.hypervisor</key><true/>" : ""}
     </dict></plist>`)
-    {
+    if (fault.version !== "0.6.16") {
       const binary = readFileSync(msb)
       const original = Buffer.from("0.6.16")
       let replacements = 0
@@ -168,7 +171,7 @@ boundary("packaged doctor and server refuse a real msb with an unqualified versi
     const version = spawnSync(msb, ["--version"], { encoding: "utf8", timeout: 5000 })
     expect(version.error).toBeUndefined()
     expect(version.status).toBe(0)
-    expect(version.stdout.trim()).toBe("msb 0.6.15")
+    expect(version.stdout.trim()).toBe(`msb ${fault.version}`)
     // Declare the fault bytes so the refusal must reach version/host
     // qualification; a hash mismatch would not prove either behavior.
     const manifestPath = join(copy, "manifest.json")
@@ -185,8 +188,8 @@ boundary("packaged doctor and server refuse a real msb with an unqualified versi
     })
     expect(result.error).toBeUndefined()
     expect(result.status).not.toBe(0)
-    expect(result.stdout).toContain("FAIL msb")
-    expect(result.stdout).toContain("msb 0.6.15 is installed; this backend is qualified with msb 0.6.16")
+    expect(result.stdout, result.stderr).toContain(fault.doctor)
+    expect(result.stdout).toContain(fault.refusal)
     expect(result.stderr).toContain("microVM isolation is not ready")
     expect(result.stdout).not.toContain('"setup_urls"')
     expect(existsSync(join(state, "postgres"))).toBe(false)
@@ -210,7 +213,7 @@ boundary("packaged doctor and server refuse a real msb with an unqualified versi
     expect(launcher.status).not.toBeNull()
     expect(launcher.status).not.toBe(0)
     expect(performance.now() - started).toBeLessThan(30_000)
-    expect(launcher.stderr).toContain("msb 0.6.15 is installed; this backend is qualified with msb 0.6.16")
+    expect(launcher.stderr).toContain(fault.refusal)
     expect(launcher.stdout).not.toContain('"setup_urls"')
     expect(launcher.stdout).not.toContain("SMITHERS_LOCAL_ORIGIN=")
     expect(existsSync(join(home, "Library/Application Support/Smithers/postgres"))).toBe(false)
