@@ -8,7 +8,8 @@ import type { MemberConfirmation } from "@smthrs/rpc/ConfirmCard"
 // UI projection of C-CAT-02; its unit/CLI acceptance evidence remains separate.
 // Written before implementation: mvp.md §6.1.2a, Appendix A, B.6; lands with T-CAT-01
 test("C-CAT-02: External CLI confirmation waits for the person", async ({ page }) => {
-  // The source CLI/PostgreSQL half runs in TestConfirmationMergeAdmissionComposedPostgres.
+  // TestCatalogMergeBrowserPostgres repeats this journey through StartWithOptions,
+  // the source CLI, PostgreSQL and real Live; no browser routes are intercepted there.
   // This contract provider drives the mounted private live seam, without seeded cards.
   test.setTimeout(120_000)
   await owner(page)
