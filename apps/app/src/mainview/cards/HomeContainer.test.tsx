@@ -64,16 +64,16 @@ test("reset is owner-only and binds the actual main revision", () => {
 })
 test("order OK is a maintainer's: a member sees neither the order row nor its control", () => {
   const base = Object.values(fixtures)[0]!.model
-  const model = { ...base, attention: [{ kind: "order", text: "T3 merged before T2", todo: 3, actions: [{ tag: "order.ok", label: "OK" }] }] }
+  const model = { ...base, attention: [{ kind: "order", text: "T3 merged before T2", id: "order-three", revision: 2, actions: [{ tag: "order.ok", label: "OK" }] }] }
   for (const role of ["owner", "maintainer"] as const) {
     const h = mount(model, role)
-    expect(h.props.model.attention.map(row => row.actions)).toEqual([[{ tag: "order.ok", label: "OK", args: { n: "3" } }]])
-    h.props.onAction("order.ok", { n: "3" })
-    expect(h.calls).toEqual([{ tag: "order.ok", input: { n: 3 } }])
+    expect(h.props.model.attention.map(row => row.actions)).toEqual([[{ tag: "order.ok", label: "OK", args: { id: "order-three" } }]])
+    h.props.onAction("order.ok", { id: "order-three" })
+    expect(h.calls).toEqual([{ tag: "order.ok", input: { id: "order-three", revision: 2 } }])
   }
   const member = mount(model, "member")
   expect(member.props.model.attention).toEqual([])
-  member.props.onAction("order.ok", { n: "3" })
+  member.props.onAction("order.ok", { id: "order-three" })
   expect(member.calls).toEqual([])
 })
 
@@ -356,14 +356,14 @@ test("sync health ages at 120 seconds and preserves refused and limited facts", 
   } finally { Date.now = original }
 })
 
-test("order attention is private to maintainers and binds its TODO number", () => {
+test("order attention is private to maintainers and binds its attention revision", () => {
   const base = Object.values(fixtures)[0]!.model
-  const model = { ...base, attention: [{ kind: "order", text: "Order changed", todo: 42, actions: [{ tag: "order.ok", label: "OK" }] }] }
+  const model = { ...base, attention: [{ kind: "order", text: "Order changed", id: "order-fortytwo", revision: 4, actions: [{ tag: "order.ok", label: "OK" }] }] }
   for (const role of ["owner", "maintainer", "member"] as const) {
     const h = mount(model, role)
     expect(h.props.model.attention).toHaveLength(role === "member" ? 0 : 1)
     h.props.onAction("order.ok")
-    expect(h.calls).toEqual(role === "member" ? [] : [{ tag: "order.ok", input: { n: 42 } }])
+    expect(h.calls).toEqual(role === "member" ? [] : [{ tag: "order.ok", input: { id: "order-fortytwo", revision: 4 } }])
   }
 })
 

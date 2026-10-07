@@ -11,6 +11,7 @@ export const pendingControlFlows = (actions: CommandActions) => bind(pendingCont
   : operation.name === "branch.discard-foreign"
   ? { ...operation, grammar: (args: string | undefined) => args?.trim() ? carriedPayload(operation.name)(args) : { payload: {} },
       confirm: "discard this outside push", confirmArgs: (payload: Readonly<Record<string, unknown>>) => JSON.stringify(payload) }
+    : operation.name === "order.ok" ? { ...operation, grammar: carriedPayload(operation.name) }
     : operation.name === "learning.accept" || operation.name === "learning.dismiss"
     ? { ...operation, grammar: carriedPayload(operation.name),
         form: { submitLabel: operation.summary, args: (payload: Readonly<Record<string, unknown>>) => JSON.stringify(payload) },
@@ -22,6 +23,7 @@ export const pendingControlFlows = (actions: CommandActions) => bind(pendingCont
     : operation.name === "todo.return-to-item" || operation.name === "todo.keep-moved" ? (input: { n: number }) => actions.branchControls?.request(operation.name === "todo.return-to-item" ? "return-to-item" : "keep-moved", `T${input.n}`) ?? { refusal: unavailable }
     : operation.name === "branch.bring-in" ? (input: { branch: string; id: string; revision: string }) => actions.bringIn(input.branch, input.id, input.revision)
     : operation.name === "branch.discard-foreign" ? (input: { branch: string; id: string; revision: string }) => actions.discardForeign(input.branch, input.id, input.revision)
+    : operation.name === "order.ok" ? (input: { id: string; revision: number }) => actions.orderOK(input.id, input.revision)
     : operation.name === "learning.accept" ? (input: { id: string }) => actions.resolveProposal(input.id, "accept")
     : operation.name === "learning.dismiss" ? (input: { id: string }) => actions.resolveProposal(input.id, "dismiss")
     : operation.name === "settings.model.set" ? (input: { role: string; model: string }) => actions.assignAgentModel(input.role === "decisions" ? "jev" : input.role, input.model)
