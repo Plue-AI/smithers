@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -12,11 +13,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/blob"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
@@ -170,12 +174,57 @@ func TestLearningProposalsComposedInstall(t *testing.T) {
 		require.NoError(t, pool.QueryRow(ctx, `UPDATE mythical_items SET state='landed',pr_state='merged',pr_number=41,pr_url='https://github.com/maya/app/pull/41',pr_merge_commit=repeat('c',40) WHERE repository_id=$1 AND number=1 RETURNING id::text`, repo).Scan(&itemID))
 		store, err := jobs.NewStore(pool)
 		require.NoError(t, err)
+		busContext, stopBus := context.WithCancel(ctx)
+		defer stopBus()
+		bus := revocation.NewBus(pool, q)
+		require.NoError(t, bus.Start(busContext))
+		routes.SetRevocationSource(bus)
+		defer routes.SetRevocationSource(nil)
+		// Every read creates a new hub/router: reconnect cursors must come from
+		// the committed journal, including after a host restarts.
+		readLive := func(topic string, after *int64) live.Frame {
+			t.Helper()
+			hubContext, stopHub := context.WithCancel(ctx)
+			defer stopHub()
+			server := httptest.NewUnstartedServer(nil)
+			defer server.Close()
+			socketCfg := *cfg
+			socketCfg.Server.PublicURL = "http://" + server.Listener.Addr().String()
+			socketCfg.Server.AllowedOrigins = []string{socketCfg.Server.PublicURL}
+			topics := &liveTopics{queries: q, todos: service, jobs: store}
+			handler := &routes.LiveHandler{Queries: q, Hub: live.NewHub(hubContext, nil), Origins: func() []string { return socketCfg.Server.AllowedOrigins }, Topics: topics.resolver}
+			server.Config.Handler = githubAppSetupComposeRouter(&socketCfg, pool, nil, routerExtras{Mythical: &routes.MythicalHandler{Service: service}, Live: handler})
+			server.Start()
+			readContext, done := context.WithTimeout(ctx, 10*time.Second)
+			defer done()
+			conn, _, err := websocket.Dial(readContext, "ws"+strings.TrimPrefix(server.URL, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{live.Protocol}, HTTPHeader: http.Header{"Origin": {socketCfg.Server.PublicURL}, "Cookie": {"smithers_session=placement-session"}}})
+			require.NoError(t, err)
+			defer conn.CloseNow()
+			input := map[string]any{"t": "sub", "id": 1, "topic": topic}
+			if after != nil {
+				input["cursor"] = *after
+			}
+			request, err := json.Marshal(input)
+			require.NoError(t, err)
+			require.NoError(t, conn.Write(readContext, websocket.MessageText, request))
+			_, raw, err := conn.Read(readContext)
+			require.NoError(t, err)
+			var frame live.Frame
+			require.NoError(t, json.Unmarshal(raw, &frame))
+			return frame
+		}
+		before := map[string]live.Frame{}
 		scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo), PrincipalID: fmt.Sprintf("user:%d", owner.ID)}
 		target := flowruntime.Target{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID, WorkspaceID: "learning-machine-1", BindingKind: "learning", BindingID: itemID}
 		pin := flowruntime.Pin{Flow: "learning", SourceCommit: strings.Repeat("c", 40), ExecutionDigest: strings.Repeat("d", 64)}
 		launch, _ := json.Marshal(map[string]any{"target": target, "flowId": "learning", "payload": map[string]any{"todo": 1}, "pin": pin})
 		admitted, err := store.Admit(ctx, jobs.Admission{Scope: scope, Operation: flowdispatch.OperationLaunch, RequestID: "learning:" + itemID, Payload: launch, AuthorizationContext: json.RawMessage(`{}`), EffectPolicy: jobs.EffectIdempotent, EffectKey: "learning:" + itemID})
 		require.NoError(t, err)
+		for _, topic := range []string{"todo:1", "home"} {
+			before[topic] = readLive(topic, nil)
+			require.Equal(t, "snap", before[topic].T)
+			require.NotNil(t, before[topic].Cursor)
+		}
 		output := `{"repository":"maya/app","todo":1,"run":"learning-1","pages":[{"title":"Retry helper","body":"Use the existing retry helper because it already backs off. Change: https://github.com/maya/app/pull/41; commit cccccccccccccccccccccccccccccccccccccccc; attempt-1; attempt-2"}],"proposals":[{"signature":"check:test@verify","title":"Run tests","prompt":"Run tests before review","evidence":["1 of the last 1 failed tests"],"todos":[1]}]}`
 		cp := flowdispatch.RuntimeCheckpoint{Version: 1, Target: target, FlowID: "learning", RunID: "learning-1", ExecutionDigest: pin.ExecutionDigest, Identity: flowruntime.Identity{SourceRevision: pin.SourceCommit}, Run: &flowruntime.Run{RunID: "learning-1", FlowID: "learning", Status: "completed", FinalOutput: &output}}
 		saved, _ := json.Marshal(cp)
@@ -215,8 +264,24 @@ func TestLearningProposalsComposedInstall(t *testing.T) {
 		require.Zero(t, notes)
 		_, err = pool.Exec(ctx, `DROP TRIGGER reject_learning_receipt ON mythical_items; DROP FUNCTION reject_learning_receipt()`)
 		require.NoError(t, err)
+		// Refuse after pages, notes, receipt and the proposals fact were written.
+		// The TODO/Home fact cannot fail leaving any of those visible.
+		_, err = pool.Exec(ctx, `CREATE FUNCTION reject_learning_projection() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_type='todo.learning.receipt' AND NEW.tenant_id=`+fmt.Sprintf("'%d'", repo)+` THEN RAISE EXCEPTION 'injected Learning projection failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_learning_projection BEFORE INSERT ON product_job_events FOR EACH ROW EXECUTE FUNCTION reject_learning_projection()`)
+		require.NoError(t, err)
+		require.ErrorContains(t, runtime.ProjectFlowRuntime(ctx, update), "injected Learning projection failure")
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM wiki_pages WHERE repository_id=$1`, repo).Scan(&pages))
+		require.Zero(t, pages)
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM memory_notes WHERE namespace_id=$1 AND provenance_json::jsonb->>'signature'='check:test@verify'`, fmt.Sprintf("learning:%d", repo)).Scan(&notes))
+		require.Zero(t, notes)
+		for _, topic := range []string{"todo:1", "home"} {
+			after := readLive(topic, nil)
+			require.Equal(t, before[topic].Cursor, after.Cursor)
+			require.JSONEq(t, string(before[topic].Data), string(after.Data))
+		}
+		_, err = pool.Exec(ctx, `DROP TRIGGER reject_learning_projection ON product_job_events; DROP FUNCTION reject_learning_projection()`)
+		require.NoError(t, err)
 		var facts int
-		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='learning.receipt' AND data->>'itemId'=$1`, itemID).Scan(&facts))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type IN ('learning.receipt','todo.learning.receipt') AND data->>'itemId'=$1`, itemID).Scan(&facts))
 		require.Zero(t, facts)
 		// Several completion deliveries race the same immutable dispatch
 		// receipt. Only one may create lessons, a wiki revision and a fact.
@@ -235,11 +300,40 @@ func TestLearningProposalsComposedInstall(t *testing.T) {
 			require.NoError(t, err)
 		}
 		require.NoError(t, runtime.ProjectFlowRuntime(ctx, update))
-		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='learning.receipt' AND data->>'itemId'=$1`, itemID).Scan(&facts))
-		require.Equal(t, 1, facts)
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type IN ('learning.receipt','todo.learning.receipt') AND data->>'itemId'=$1`, itemID).Scan(&facts))
+		require.Equal(t, 2, facts, "one proposals fact and one shared TODO/Home fact")
 		var fact []byte
-		require.NoError(t, pool.QueryRow(ctx, `SELECT data FROM product_job_events WHERE event_type='learning.receipt' AND data->>'itemId'=$1`, itemID).Scan(&fact))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT data FROM product_job_events WHERE event_type IN ('learning.receipt','todo.learning.receipt') AND data->>'itemId'=$1 AND tenant_id=$2`, itemID, scope.TenantID).Scan(&fact))
 		require.Contains(t, string(fact), `"topics": ["todo:1", "home", "proposals"]`)
+		for _, topic := range []string{"todo:1", "home"} {
+			delta := readLive(topic, before[topic].Cursor)
+			require.Equal(t, "delta", delta.T, topic)
+			require.EqualValues(t, *before[topic].Cursor+1, *delta.Cursor)
+			var event struct {
+				State string
+				Data  struct {
+					Card struct {
+						State   string
+						Lessons int
+						Receipt services.LearningReceipt `json:"lessons_receipt"`
+					}
+					Home struct{ Counts map[string]int }
+				}
+			}
+			require.NoError(t, json.Unmarshal(delta.Data, &event))
+			require.Equal(t, "merged", event.State)
+			require.Equal(t, "merged", event.Data.Card.State)
+			require.Equal(t, 2, event.Data.Card.Lessons)
+			require.Equal(t, "learning-1", event.Data.Card.Receipt.Run)
+			require.Len(t, event.Data.Card.Receipt.Lessons, 2)
+			require.Equal(t, 1, event.Data.Home.Counts["merged"])
+			reloaded := readLive(topic, nil)
+			require.Equal(t, "snap", reloaded.T)
+			require.Equal(t, delta.Cursor, reloaded.Cursor, "completion replay must not advance the source again")
+			if topic == "todo:1" {
+				require.Contains(t, string(reloaded.Data), `"lessons":2`)
+			}
+		}
 
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM wiki_page_revisions WHERE repository_id=$1`, repo).Scan(&pages))
 		require.Equal(t, 1, pages)

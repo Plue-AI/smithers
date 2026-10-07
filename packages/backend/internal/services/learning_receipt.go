@@ -219,6 +219,15 @@ func (t *learningReceiptTx) RecordReceipt(ctx context.Context, b LearningBinding
 	if _, err = jobs.RecordFactInTx(ctx, t.tx, t.store.update.Scope, uuid.NewSHA1(uuid.NameSpaceOID, []byte("learning.receipt:"+uuidString(t.item.ID))).String(), "learning.receipt", "completed", payload); err != nil {
 		return err
 	}
+	// The proposals stream and the existing TODO/Home projection commit with
+	// the same receipt. Build the card from the updated row, never the old item.
+	item, err := db.New(t.tx).GetMythicalItem(ctx, t.item.ID)
+	if err != nil {
+		return err
+	}
+	if _, err = t.store.runtime.service.recordTodoFact(ctx, t.tx, item, uuid.NewSHA1(uuid.NameSpaceOID, []byte("learning.todo.receipt:"+uuidString(t.item.ID))).String(), "todo.learning.receipt", "merged", payload); err != nil {
+		return err
+	}
 	_, err = t.tx.Exec(ctx, `SELECT pg_notify($1,$2)`, "mythical_"+strconv.FormatInt(t.repository, 10), string(payload))
 	return err
 }
