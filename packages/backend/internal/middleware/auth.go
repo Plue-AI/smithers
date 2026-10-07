@@ -476,6 +476,7 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/agent/sessions/[^/]+/stream$`)},
 	{http.MethodGet, "sync.read", regexp.MustCompile(`^/api/github/sync$`)},
 	{http.MethodPost, "sync.retry", regexp.MustCompile(`^/api/github/sync$`)},
+	{http.MethodPost, "main.reset-to-github", regexp.MustCompile(`^/api/stack/attention/[^/]+$`)},
 	{http.MethodGet, "live", regexp.MustCompile(`^/api/live$`)},
 	{http.MethodPost, "telemetry.report", regexp.MustCompile(`^/api/telemetry/errors$`)},
 	// The app agent answers a member as that member, in their own
