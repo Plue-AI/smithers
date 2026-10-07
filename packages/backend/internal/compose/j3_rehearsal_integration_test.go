@@ -131,6 +131,28 @@ func (r *rehearsal) todoEvents(jar http.CookieJar, number int64, eventType strin
 	return events, nil
 }
 
+// settled waits up to within for topic's newest frame to be a snapshot that
+// satisfies ok. A refusal on the way is counted, not final: the hub serves
+// the topic again once its source builds, and the channel takes that snapshot.
+func settled(s *liveSocket, topic string, within time.Duration, ok func(liveFrame) bool) (liveFrame, int, error) {
+	for deadline := time.Now().Add(within); ; time.Sleep(100 * time.Millisecond) {
+		frames := s.received(topic)
+		refusals, last := 0, liveFrame{}
+		for _, frame := range frames {
+			if frame.T == "err" {
+				refusals++
+			}
+			last = frame
+		}
+		if last.T == "snap" && ok(last) {
+			return last, refusals, nil
+		}
+		if time.Now().After(deadline) {
+			return last, refusals, fmt.Errorf("%s did not settle as wanted within %s: newest frame %q %s, %d refusals", topic, within, last.T, last.Code, refusals)
+		}
+	}
+}
+
 // TestJ3Rehearsal walks journey J3 (mvp.md §5, join a branch; C-J3-01,
 // C-J3-05) on the install J1 sets up, as members Ben and Alice on the
 // trusted-process runtime. The owner files T2, whose run asks a question
@@ -465,7 +487,7 @@ func TestJ3Rehearsal(t *testing.T) {
 		}) {
 			return fmt.Errorf("no plan turn carries the answer (%d turns)", len(turns))
 		}
-		frame, err := benLive.latest(topic, 15*time.Second, func(frame liveFrame) bool {
+		frame, refusals, err := settled(benLive, topic, 30*time.Second, func(frame liveFrame) bool {
 			return slices.ContainsFunc(decodeBranch(frame).Presence, func(row j3Present) bool {
 				return row.Actor.Kind == "agent" && row.Actor.RunID == before.run && row.Where.Kind == "step" && row.Where.Label != ""
 			})
@@ -482,7 +504,7 @@ func TestJ3Rehearsal(t *testing.T) {
 				}
 			}
 		}
-		r.actual = fmt.Sprintf("T%d working, held at its edit, on run %s attempt %d, branch %s; the plan carries the answer; %s", t2, after.run, after.attempt, after.workspace, agent)
+		r.actual = fmt.Sprintf("T%d working, held at its edit, on run %s attempt %d, branch %s; the plan carries the answer; %s; %d branch refusals", t2, after.run, after.attempt, after.workspace, agent, refusals)
 		return err
 	})
 	r.step("6 The steer reaches the next model turn", "model trace (TRACE_MESSAGES=1)", "the first model turn after the answer carries the steer committed before it (spec §10.7.3)", "T-STK-06", func() error {
