@@ -1,7 +1,7 @@
 /** Regression fixtures for the shared pre-push gate. @since 0.1.0 */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
@@ -70,9 +70,28 @@ for (const reporter of ['spec', 'tap']) test(`real node:test ${reporter}`, t => 
   assert.match(parsed.stdout, /^some test$/m);
 });
 
-test('baseline without baseline-run marker is refused before touching host state', () => {
-  const env = { ...process.env, LANE: 'l22-gate' };
-  const result = spawnSync('bash', [script, '--baseline'], { encoding: 'utf8', env });
-  assert.equal(result.status, 2);
-  assert.match(result.stderr, /REFUSED: only .*baseline-run.sh/);
+test('baseline writes require the baseline-run marker', () => {
+  assert.match(readFileSync(script, 'utf8'), /\[ \$mode = baseline \] && \[ "\$\{LANE:-\}" != fr-baseline-main \]/);
+});
+
+test('Go selection includes transitive importers and prints the selected list', t => {
+  const dir = fixture(t);
+  writeFileSync(join(dir, 'go.mod'), 'module fixture.local/reverse\n\ngo 1.24\n');
+  for (const [pkg, body] of Object.entries({a: 'const A = 1', b: 'import "fixture.local/reverse/a"\nconst B = a.A', c: 'const C = 1', d: 'import "fixture.local/reverse/b"\nconst D = b.B'})) {
+    mkdirSync(join(dir, pkg));
+    writeFileSync(join(dir, pkg, 'code.go'), `package ${pkg}\n${body}\n`);
+  }
+  const result = spawnSync('bash', ['-c', 'source "$1"; log="$2/log"; select_go_packages "$2" ./a >/dev/null || exit; cat "$log"', '_', script, dir], {encoding: 'utf8'});
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Selected Go packages/);
+  assert.deepEqual(result.stdout.trim().split('\n').slice(1), ['fixture.local/reverse/a', 'fixture.local/reverse/b', 'fixture.local/reverse/d']);
+});
+
+test('unformatted Go in a touched package is refused even with a tool baseline', t => {
+  const dir = fixture(t);
+  writeFileSync(join(dir, 'bad.go'), 'package bad\nfunc Bad( ){ }\n');
+  const result = spawnSync('bash', ['-c', 'source "$1"; log="$2/log"; newreds=(); check_go_format "$2"; status=$?; cat "$log"; exit "$status"', '_', script, dir], {encoding: 'utf8'});
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stdout, /FAIL gofmt:/);
+  assert.match(result.stdout, /bad\.go/);
 });

@@ -34,6 +34,31 @@ check() {
   echo "FAIL $name (compared with main's baseline)" >> "$log"
 }
 
+# Resolve touched packages and their reverse dependencies within this module only.
+select_go_packages() {
+  local mod=$1 touched=$2 data selected
+  data=$(cd "$mod" && go list -f '{{.ImportPath}} {{join .Deps " "}}' ./...) || return 1
+  local imports
+  imports=$(cd "$mod" && go list $touched) || return 1
+  selected=$(printf '%s\n' "$data" | awk -v touched="$imports" '
+    BEGIN { split(touched, paths, "\n"); for (i in paths) changed[paths[i]]=1 }
+    { for (i=1; i<=NF; i++) if ($i in changed) { print $1; break } }
+  ' | sort -u)
+  printf 'Selected Go packages (%s):\n%s\n' "$mod" "$selected" >> "$log"
+  printf '%s\n' "$selected"
+}
+
+# Formatting failures are never grandfathered by a test-failure baseline.
+check_go_format() {
+  local target=$1 out
+  out=$(gofmt -l "$target" 2>&1) || { printf '%s\n' "$out" >> "$log"; newreds+=("gofmt:$target: tool failure"); return 1; }
+  if [ -n "$out" ]; then
+    printf 'FAIL gofmt:%s\n%s\n' "$target" "$out" >> "$log"
+    newreds+=("gofmt:$target"); return 1
+  fi
+  echo "PASS gofmt:$target" >> "$log"
+}
+
 # Sourcing exposes the same parser/check used by the executable to regression fixtures.
 if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then return 0; fi
 
@@ -109,15 +134,34 @@ if command -v smthrs >/dev/null; then check drift "smthrs lint //:driftCi //:tar
 else echo "SKIP drift: smthrs unavailable on this host" >> "$log"; fi
 
 # 2. Go: map each changed .go file to its nearest go.mod; build and vet each touched module and test its touched packages
-#    (existing directories only), one package at a time. Baseline mode tests every module fully.
+#    and their transitive importers, bounded to the module. Baseline mode tests every module fully.
 gomap=$(printf '%s\n' "$changed" | grep -E '\.go$' | while read f; do d=$(dirname "$f"); [ -d "$d" ] || continue
   m=$d; while [ "$m" != . ] && [ ! -f "$m/go.mod" ]; do m=$(dirname "$m"); done; [ -f "$m/go.mod" ] && echo "$m $d"; done | sort -u)
 if [ $mode = baseline ]; then gomap=$(git ls-files '*go.mod' | xargs -r -n1 dirname | sort -u | sed 's/$/ ALL/'); fi
 for mod in $(printf '%s\n' "$gomap" | awk 'NF{print $1}' | sort -u); do
   if [ $mode = baseline ]; then pkgs="./..."
   else pkgs=$(printf '%s\n' "$gomap" | awk -v m="$mod" '$1==m{print $2}' | while read d; do r=${d#"$mod"}; r=${r#/}; echo "./$r"; done | sed 's#^\./$#.#' | tr '\n' ' '); fi
+  par=1
+  if [ $mode = gate ]; then
+    if [ "$mod" = . ] && printf '%s\n' "$changed" | grep -q '^packages/backend/.*\.go$'; then check_go_format packages/backend; fi
+    # Other modules are checked in full; root-module files outside backend individually.
+    if [ "$mod" != . ]; then check_go_format "$mod"
+    else
+      while IFS= read -r f; do
+        [[ "$f" = packages/backend/* ]] && continue
+        [ -f "$f" ] && check_go_format "$f"
+      done < <(printf '%s\n' "$changed" | grep -E '\.go$')
+    fi
+    if selected=$(select_go_packages "$mod" "$pkgs"); then
+      pkgs=$(printf '%s\n' "$selected" | tr '\n' ' ')
+      count=$(printf '%s\n' "$selected" | awk 'NF{n++} END{print n+0}')
+      if [ "$count" -gt 60 ]; then par=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1); fi
+    else
+      echo "FAIL Go package selection:$mod" >> "$log"
+      newreds+=("go-selection:$mod"); continue
+    fi
+  else par=4; fi
   check "go-build:$mod" "cd $mod && go build ./... && go vet $pkgs"
-  par=1; [ $mode = baseline ] && par=4
   check "go-test:$mod" "cd $mod && go test -p $par $pkgs"
 done
 
