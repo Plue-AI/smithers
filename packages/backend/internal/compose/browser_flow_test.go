@@ -75,7 +75,8 @@ func TestRunCredentialCannotSteerOrCancelRuns(t *testing.T) {
 			user := &db.User{ID: 17, UserType: "user"}
 			payload := `{"runId":"run-42","marker":"` + procedure + `"}`
 			if procedure == "Approval.Submit" {
-				payload = `{"target":{"_tag":"Run","runId":"run-42","requestId":"approval-1"},"decision":"approve"}`			}
+				payload = `{"target":{"_tag":"Run","runId":"run-42","requestId":"approval-1"},"decision":"approve"}`
+			}
 			body := `{"repo":"owner/repo","workspaceId":"` + browserBoxID + `","procedure":"` + procedure + `","payload":` + payload + `}`
 			call := func(systemIssued bool) *httptest.ResponseRecorder {
 				request := httptest.NewRequest(http.MethodPost, "/api/workflow/rpc", strings.NewReader(body))
