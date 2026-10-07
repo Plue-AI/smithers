@@ -147,6 +147,10 @@ func (s *WikiService) GetWikiRevisionContent(ctx context.Context, viewer *db.Use
 	if err != nil {
 		return WikiContent{}, err
 	}
+	ctx, err = s.admitExecutionWikiRead(ctx, viewer, repository.ID, "wiki.public-revision", fmt.Sprintf("%d:%d", pageID, revision))
+	if err != nil {
+		return WikiContent{}, err
+	}
 	if err = s.requireReadAccess(ctx, repository, viewer); err != nil {
 		return WikiContent{}, err
 	}

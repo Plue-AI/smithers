@@ -53,6 +53,10 @@ func (s *WikiService) GetWikiDocument(ctx context.Context, viewer *db.User, owne
 	if err != nil {
 		return WikiDocumentResponse{}, err
 	}
+	ctx, err = s.admitExecutionWikiRead(ctx, viewer, repository.ID, "wiki.document", slug)
+	if err != nil {
+		return WikiDocumentResponse{}, err
+	}
 	if err = s.requireReadAccess(ctx, repository, viewer); err != nil {
 		return WikiDocumentResponse{}, err
 	}

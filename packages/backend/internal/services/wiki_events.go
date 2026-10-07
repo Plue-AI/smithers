@@ -70,6 +70,10 @@ func (s *WikiService) ListWikiEvents(ctx context.Context, viewer *db.User, owner
 	if err != nil {
 		return nil, err
 	}
+	ctx, err = s.admitExecutionWikiRead(ctx, viewer, repository.ID, "wiki.events", "")
+	if err != nil {
+		return nil, err
+	}
 	if err = s.requireReadAccess(ctx, repository, viewer); err != nil {
 		return nil, err
 	}
@@ -103,6 +107,10 @@ func (s *WikiService) ListWikiPageHistory(ctx context.Context, viewer *db.User, 
 	if err != nil {
 		return nil, 0, err
 	}
+	ctx, err = s.admitExecutionWikiRead(ctx, viewer, repository.ID, "wiki.public-history-id", fmt.Sprint(pageID))
+	if err != nil {
+		return nil, 0, err
+	}
 	if err = s.requireReadAccess(ctx, repository, viewer); err != nil {
 		return nil, 0, err
 	}
@@ -117,7 +125,14 @@ func (s *WikiService) ListWikiPageHistory(ctx context.Context, viewer *db.User, 
 	if err != nil {
 		return nil, 0, pkgerrors.Internal("failed to read wiki history").WithCause(err)
 	}
-	return s.wikiHistory(ctx, repository.ID, pageID, page, perPage)
+	rows, total, err := s.wikiHistory(ctx, repository.ID, pageID, page, perPage)
+	if err != nil {
+		return nil, 0, err
+	}
+	if err = s.wikiReadStillAuthorized(ctx, viewer, owner, repo, repository.ID); err != nil {
+		return nil, 0, err
+	}
+	return rows, total, nil
 }
 func (s *WikiService) wikiHistory(ctx context.Context, repoID, pageID int64, page, perPage int) ([]WikiRevisionResponse, int64, error) {
 	size, offset, _, _ := normalizePage(page, perPage)

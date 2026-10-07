@@ -112,6 +112,7 @@ type WikiDispatcher interface {
 }
 
 type WikiService struct {
+	install      *installWikiReadStore
 	content      blob.Store
 	queries      WikiQuerier
 	dispatcher   WikiDispatcher
@@ -132,6 +133,10 @@ func NewWikiService(querier WikiQuerier, dispatcher WikiDispatcher, options ...W
 
 func (s *WikiService) ListWikiPages(ctx context.Context, viewer *db.User, owner, repo string, input ListWikiPagesInput) ([]WikiPageResponse, int64, error) {
 	repository, err := s.resolveRepoByOwnerAndName(ctx, owner, repo)
+	if err != nil {
+		return nil, 0, err
+	}
+	ctx, err = s.admitExecutionWikiRead(ctx, viewer, repository.ID, "wiki.list", "")
 	if err != nil {
 		return nil, 0, err
 	}
@@ -178,6 +183,10 @@ func (s *WikiService) ListWikiPages(ctx context.Context, viewer *db.User, owner,
 
 func (s *WikiService) GetWikiPage(ctx context.Context, viewer *db.User, owner, repo, slug string) (WikiPageResponse, error) {
 	repository, err := s.resolveRepoByOwnerAndName(ctx, owner, repo)
+	if err != nil {
+		return WikiPageResponse{}, err
+	}
+	ctx, err = s.admitExecutionWikiRead(ctx, viewer, repository.ID, "wiki.public-page", slug)
 	if err != nil {
 		return WikiPageResponse{}, err
 	}
@@ -610,6 +619,9 @@ func (s *WikiService) resolveRepoByOwnerAndName(ctx context.Context, owner, repo
 }
 
 func (s *WikiService) requireReadAccess(ctx context.Context, repository db.Repository, viewer *db.User) error {
+	if err := s.revalidateExecutionWikiRead(ctx, viewer, repository.ID); err != nil {
+		return err
+	}
 	if repository.IsPublic && wikiVisibility(ctx) == "public" {
 		return nil
 	}
@@ -731,6 +743,10 @@ func (s *WikiService) ListWikiRevisions(ctx context.Context, viewer *db.User, ow
 	if err != nil {
 		return nil, 0, err
 	}
+	ctx, err = s.admitExecutionWikiRead(ctx, viewer, repository.ID, "wiki.public-history", slug)
+	if err != nil {
+		return nil, 0, err
+	}
 	if err := s.requireReadAccess(ctx, repository, viewer); err != nil {
 		return nil, 0, err
 	}
@@ -754,7 +770,14 @@ func (s *WikiService) ListWikiRevisions(ctx context.Context, viewer *db.User, ow
 	if s.documents == nil {
 		return nil, 0, wikiUnavailable("wiki history is unavailable")
 	}
-	return s.wikiHistory(ctx, repository.ID, current.ID, page, perPage)
+	rows, total, err := s.wikiHistory(ctx, repository.ID, current.ID, page, perPage)
+	if err != nil {
+		return nil, 0, err
+	}
+	if err = s.wikiReadStillAuthorized(ctx, viewer, owner, repo, repository.ID); err != nil {
+		return nil, 0, err
+	}
+	return rows, total, nil
 }
 
 func slugifyWikiTitle(value string) string {

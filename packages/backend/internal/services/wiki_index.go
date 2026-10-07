@@ -36,6 +36,10 @@ func (s *WikiService) GetWikiIndex(ctx context.Context, viewer *db.User, owner, 
 	if err != nil {
 		return result, err
 	}
+	ctx, err = s.admitExecutionWikiRead(ctx, viewer, repository.ID, "wiki.index", "")
+	if err != nil {
+		return result, err
+	}
 	if err = s.requireReadAccess(ctx, repository, viewer); err != nil {
 		return result, err
 	}
@@ -68,5 +72,8 @@ func (s *WikiService) GetWikiIndex(ctx context.Context, viewer *db.User, owner, 
 	resolveWikiLinks(result.Pages)
 	result.Tags = wikiUnique(result.Tags)
 	result.Folders = wikiUnique(result.Folders)
+	if err = s.wikiReadStillAuthorized(ctx, viewer, owner, repo, repository.ID); err != nil {
+		return WikiIndex{}, err
+	}
 	return result, nil
 }

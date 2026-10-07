@@ -48,9 +48,9 @@ func (h wikiSelection) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// The gate bound wiki.read to this lane's TODO; a lane that moved since
 	// then is refused rather than authorized again.
-	subject, err := services.ResolveInstallExecutionSubject(ctx, h.queries, repository.ID)
+	subject, err := services.InstallExecutionWikiSubject(ctx, h.queries, repository.ID, "wiki.public-selection", "")
 	if err == nil {
-		_, err = services.Authorize(ctx, h.queries, "wiki.read", subject)
+		err = services.RevalidateInstallWikiRead(ctx, h.queries, subject)
 	}
 	if err != nil {
 		writeConfirmationDispatchError(w, err)
@@ -93,9 +93,17 @@ func (h wikiSelection) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeConfirmationDispatchError(w, wikiSelectionUnavailable())
 		return
 	}
+	if err := services.RevalidateInstallWikiRead(ctx, h.queries, subject); err != nil {
+		writeConfirmationDispatchError(w, err)
+		return
+	}
 	raw, err := h.selector.SelectContext(ctx, ports.ContextSelectionGrant{OwnerID: info.User.ID, RepositoryID: repository.ID, Input: input})
 	if err != nil {
 		writeConfirmationDispatchError(w, wikiSelectionUnavailable())
+		return
+	}
+	if err := services.RevalidateInstallWikiRead(ctx, h.queries, subject); err != nil {
+		writeConfirmationDispatchError(w, err)
 		return
 	}
 	var result struct {

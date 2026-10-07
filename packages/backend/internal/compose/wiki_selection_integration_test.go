@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/blob"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
@@ -24,6 +25,7 @@ import (
 )
 
 type recordedSelector struct {
+	before func()
 	inputs []json.RawMessage
 	result string
 	err    error
@@ -31,6 +33,9 @@ type recordedSelector struct {
 
 func (s *recordedSelector) SelectContext(_ context.Context, grant ports.ContextSelectionGrant) (json.RawMessage, error) {
 	s.inputs = append(s.inputs, grant.Input)
+	if s.before != nil {
+		s.before()
+	}
 	return json.RawMessage(s.result), s.err
 }
 
@@ -43,7 +48,7 @@ func TestWikiPlanningSelectionComposedRoutePostgres(t *testing.T) {
 	content, err := blob.NewFilesystemStore(blob.FilesystemConfig{Root: filepath.Join(t.TempDir(), "wiki"), PublicBaseURL: "http://example.com", SigningKey: bytes.Repeat([]byte{0x32}, 32)})
 	require.NoError(t, err)
 	defer content.Close()
-	wiki := services.NewWikiService(f.q, nil, services.WithWikiContent(content), services.WithWikiCollaboration(f.q, nil))
+	wiki := services.NewWikiService(f.q, nil, services.WithWikiContent(content), services.WithWikiCollaboration(f.q, nil), services.WithWikiInstallAuthorization(f.q))
 	for _, page := range []services.CreateWikiPageInput{
 		{Title: "Retry policy", Slug: "retry-policy", Body: "Webhook retries use `retry()` with exponential backoff."},
 		{Title: "Release process", Slug: "release-process", Body: "Releases ship on Tuesdays."},
@@ -51,6 +56,11 @@ func TestWikiPlanningSelectionComposedRoutePostgres(t *testing.T) {
 		_, err = wiki.CreateWikiPage(f.ctx, &f.owner, "gate-owner", "app", page)
 		require.NoError(t, err)
 	}
+
+	privateContext, err := services.WithWikiVisibility(f.ctx, "private")
+	require.NoError(t, err)
+	privatePage, err := wiki.CreateWikiPage(privateContext, &f.owner, "gate-owner", "app", services.CreateWikiPageInput{Title: "Private decision", Slug: "private-decision", Body: "private-wiki-only-marker"})
+	require.NoError(t, err)
 	selector := &recordedSelector{result: `{"context":[{"kind":"page","label":"Retry policy","ref":"retry-policy","revision":"1","reason":"Retry decision"}],"candidates":[],"model":"owner-fast","durationMs":3}`}
 	router := func(cfgWiki bool, selector ports.ContextSelector) http.Handler {
 		cfg := testConfigAllFlagsOn()
@@ -86,7 +96,9 @@ func TestWikiPlanningSelectionComposedRoutePostgres(t *testing.T) {
 		}
 		return scopes
 	}
+	machineScopes := "read:repository," + middleware.RepositoryRestrictionScope(f.repoID) + "," + middleware.WorkspaceRestrictionScope(workspaces[0])
 	credentials := map[string]string{
+		"machine": f.token(f.owner, "wsel-machine", machineScopes, true),
 		"own":     f.token(f.owner, "wsel-own", landing(workspaces[0], "selection-run-31"), true),
 		"stale":   f.token(f.owner, "wsel-stale", landing(workspaces[0], "selection-run-xx"), true),
 		"unbound": f.token(f.owner, "wsel-unbound", landing(workspaces[0], ""), true),
@@ -104,6 +116,27 @@ func TestWikiPlanningSelectionComposedRoutePostgres(t *testing.T) {
 		return out, decisions
 	}
 
+	for _, credential := range []string{"own", "machine"} {
+		for _, path := range []string{"/private-decision?visibility=private", fmt.Sprintf("/history/%d/1/content?visibility=private", privatePage.ID), fmt.Sprintf("/history/%d?visibility=private", privatePage.ID), "/private-decision/revisions?visibility=private", "", "/navigation/index", "/search?q=Retry", "/history/events", "/retry-policy/document"} {
+			t.Run("privacy/"+credential+path, func(t *testing.T) {
+				out, decisions := call(served, credential, "GET", path, "")
+				require.Equal(t, 403, out.Code, out.Body.String())
+				require.Equal(t, []string{"wiki.read"}, decisions)
+				require.NotContains(t, out.Body.String(), "private-wiki-only-marker")
+			})
+		}
+		publicPage, err := f.q.GetWikiPageBySlug(f.ctx, db.GetWikiPageBySlugParams{RepositoryID: f.repoID, Visibility: "public", Slug: "retry-policy"})
+		require.NoError(t, err)
+		for _, path := range []string{"/retry-policy", "/retry-policy/revisions", fmt.Sprintf("/history/%d", publicPage.ID), fmt.Sprintf("/history/%d/1/content", publicPage.ID)} {
+			t.Run("public/"+credential+path, func(t *testing.T) {
+				out, decisions := call(served, credential, "GET", path, "")
+				require.Equal(t, 200, out.Code, out.Body.String())
+				require.Equal(t, []string{"wiki.read"}, decisions)
+				require.Contains(t, out.Body.String(), "Webhook retries")
+				require.NotContains(t, out.Body.String(), "private-wiki-only-marker")
+			})
+		}
+	}
 	t.Run("the own run reads the page it will cite", func(t *testing.T) {
 		out, decisions := call(served, "own", "GET", "/retry-policy", "")
 		require.Equal(t, 200, out.Code, out.Body.String())
@@ -120,6 +153,8 @@ func TestWikiPlanningSelectionComposedRoutePostgres(t *testing.T) {
 		require.Equal(t, []string{"wiki.read"}, decisions)
 		require.JSONEq(t, `{"pages":[{"slug":"retry-policy","revision":1,"reason":"Retry decision"}],"model":"owner-fast","durationMs":3}`, out.Body.String())
 		require.Len(t, selector.inputs, 1)
+		require.NotContains(t, string(selector.inputs[0]), "private-wiki-only-marker")
+		require.NotContains(t, string(selector.inputs[0]), "private-decision")
 		var input struct {
 			Prompt     string `json:"prompt"`
 			Branch     string `json:"branch"`
@@ -153,6 +188,77 @@ func TestWikiPlanningSelectionComposedRoutePostgres(t *testing.T) {
 		out, _ := call(served, "person", "POST", "/selection", `{"prompt":"Retry"}`)
 		require.Equal(t, 403, out.Code, out.Body.String())
 		require.Equal(t, before, len(selector.inputs))
+	})
+
+	t.Run("private selection is refused before the model", func(t *testing.T) {
+		before := len(selector.inputs)
+		out, decisions := call(served, "own", "POST", "/selection?visibility=private", `{"prompt":"Read private pages"}`)
+		require.Equal(t, 403, out.Code, out.Body.String())
+		require.Equal(t, []string{"wiki.read"}, decisions)
+		require.Len(t, selector.inputs, before)
+	})
+	t.Run("selection expiry refuses model output", func(t *testing.T) {
+		sum := sha256.Sum256([]byte(credentials["own"]))
+		hash := hex.EncodeToString(sum[:])
+		selector.before = func() {
+			_, err := f.pool.Exec(f.ctx, `UPDATE access_tokens SET expires_at=now()-interval '1 second' WHERE token_hash=$1`, hash)
+			require.NoError(t, err)
+		}
+		defer func() {
+			selector.before = nil
+			_, err := f.pool.Exec(f.ctx, `UPDATE access_tokens SET expires_at=now()+interval '1 hour' WHERE token_hash=$1`, hash)
+			require.NoError(t, err)
+		}()
+		out, decisions := call(served, "own", "POST", "/selection", `{"prompt":"Retry"}`)
+		require.Equal(t, 401, out.Code, out.Body.String())
+		require.Equal(t, []string{"wiki.read"}, decisions)
+		require.NotContains(t, out.Body.String(), "Retry decision")
+	})
+	t.Run("direct service retains the actual public page subject", func(t *testing.T) {
+		sum := sha256.Sum256([]byte(credentials["own"]))
+		hash := hex.EncodeToString(sum[:])
+		stored, err := f.q.GetAuthInfoByTokenHash(f.ctx, hash)
+		require.NoError(t, err)
+		scopes := landing(workspaces[0], "selection-run-31")
+		ctx := middleware.ContextWithAuthInfo(f.ctx, &middleware.AuthInfo{User: &f.owner, IsTokenAuth: true, TokenSystemIssued: true, TokenID: stored.TokenID, TokenHash: hash, RawScopes: scopes, Scopes: middleware.ParseTokenScopes(scopes)})
+		var commands []string
+		ctx = services.WithAuthorizationObserver(ctx, func(command string) { commands = append(commands, command) })
+		page, err := wiki.GetWikiPage(ctx, &f.owner, "gate-owner", "app", "retry-policy")
+		require.NoError(t, err)
+		require.Contains(t, page.Body, "Webhook retries")
+		require.Equal(t, []string{"wiki.read"}, commands)
+		subject, err := services.InstallExecutionWikiSubject(ctx, f.q, f.repoID, "wiki.public-page", "retry-policy")
+		require.NoError(t, err)
+		commands = nil
+		decision, err := services.Authorize(ctx, f.q, "wiki.read", subject)
+		require.NoError(t, err)
+		bound := services.WithInstallAuthorization(ctx, "wiki.read", decision, subject)
+		denied := func(err error) {
+			var refusal *services.AccessError
+			require.ErrorAs(t, err, &refusal)
+			require.Equal(t, 403, refusal.Status)
+		}
+		_, err = wiki.GetWikiPage(bound, &f.owner, "gate-owner", "app", "release-process")
+		denied(err)
+		_, err = wiki.GetWikiIndex(bound, &f.owner, "gate-owner", "app")
+		denied(err)
+		_, _, err = wiki.ListWikiPages(bound, &f.owner, "gate-owner", "app", services.ListWikiPagesInput{})
+		denied(err)
+		private, err := services.WithWikiVisibility(bound, "private")
+		require.NoError(t, err)
+		_, err = wiki.GetWikiPage(private, &f.owner, "gate-owner", "app", "retry-policy")
+		denied(err)
+		_, err = wiki.GetWikiPage(bound, &f.other, "gate-owner", "app", "retry-policy")
+		denied(err)
+		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET attempt=2 WHERE repository_id=$1 AND workspace_id=$2`, f.repoID, workspaces[0])
+		require.NoError(t, err)
+		defer func() {
+			_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET attempt=1 WHERE repository_id=$1 AND workspace_id=$2`, f.repoID, workspaces[0])
+			require.NoError(t, err)
+		}()
+		_, err = wiki.GetWikiPage(bound, &f.owner, "gate-owner", "app", "retry-policy")
+		denied(err)
+		require.Equal(t, []string{"wiki.read"}, commands)
 	})
 	t.Run("selection failures refuse, never an empty vault", func(t *testing.T) {
 		for _, tc := range []struct {

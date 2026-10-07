@@ -875,6 +875,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	transferStore := blobStore
 	wikiService := services.NewWikiService(queries, webhookDispatcher, services.WithWikiCollaboration(queries, repoHostClient), services.WithWikiContent(blobStore))
+	if config.IsSingleOwner(cfg.Auth) {
+		services.WithWikiInstallAuthorization(queries)(wikiService)
+	}
 
 	lfsVerifyTokenManager, err := lfsauth.NewManager(cfg.Auth.LFSSigningSecret)
 	if err != nil {
