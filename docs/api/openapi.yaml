@@ -2979,6 +2979,7 @@ paths:
           description: Flows unavailable
   /api/flows/{name}:
     get:
+      x-composition: install
       summary: Read one flow
       description: Resolves an overridable flow from the install catalog, or an install-owned system name as built in. This read never loads repository code.
       operationId: get_api_flows_name
@@ -17415,6 +17416,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/repos/{owner}/{repo}/landings/{number}/land:
     put:
+      x-composition: plue
       summary: PUT /api/repos/{owner}/{repo}/landings/{number}/land
       operationId: put_api_repos_owner_repo_landings_number_land
       tags:
