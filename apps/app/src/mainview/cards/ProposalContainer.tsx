@@ -66,7 +66,8 @@ const ProposalBody = ({ card, maximized }: { readonly card: CardOf<"proposal">; 
     payload: (input ?? {}) as Record<string, unknown>, actor: "user", originCardId: card.id })) as CardCommandDispatch,
     view: { maximized }, onView: () => {} }
   return <LiveProposalContainer id={card.payload.id} channel={controller.live}
-    fallback={<ProposalContainer model={model} {...props} />} {...props} />
+    fallback={<ProposalContainer model={model} allowed={props.allowed} dispatch={props.dispatch} view={props.view} onView={props.onView} />}
+    allowed={props.allowed} dispatch={props.dispatch} view={props.view} onView={props.onView} />
 }
 export const proposalCardFamily: CardFamily<"proposal"> = {
   proposal: { render: (card, actions) => <ProposalBody card={card} maximized={actions.presentation === "maximized"} />, pill: () => "" }

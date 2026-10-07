@@ -13,8 +13,11 @@ import type { InstallSnapshots } from "../state/seams/InstallSeam"
 import type { TodoListSnapshots } from "../state/seams/TodoSeam"
 import { actionFor } from "../flows/rowAction"
 import { homeFromTodos } from "../state/seams/HomeFromTodos"
+import { withHomeRowControls } from "../state/seams/HomeRowControls"
 import type { GitHubSyncHealth, GitHubSyncSnapshots } from "../state/seams/GitHubSyncSeam"
 import { useTodoRole } from "./TodoCard"
+
+export { withHomeRowControls } from "../state/seams/HomeRowControls"
 
 export interface HomeContainerProps {
   /** Injectable Home projection, like TodoContainer's seam-populated model. */
@@ -163,31 +166,6 @@ export const homeDispatch = (controller: Pick<AppController, "commands">): CardC
   const payload = (input ?? {}) as Record<string, unknown>
   if (tag === "todo.answer" && !payload.answer) return controller.commands.submit({ name: "todo", payload: { n: payload.n }, actor: "user" })
   return controller.commands.submit({ name: tag, payload, actor: "user" })
-}
-
-/** Bind the shared rows' order doors; snapshots remain shared facts. */
-export const withHomeRowControls = (model: HomeModel): HomeModel => {
-  const open = model.items.filter(row => row.state !== "merged" && row.state !== "dropped")
-  return { ...model, items: model.items.map(row => {
-    if (row.state === "merged" || row.state === "dropped") return row
-    const index = open.indexOf(row)
-    const args = { n: String(row.n) }
-    const actions = row.actions.flatMap(action => {
-      // Older served snapshots label every wait Answer. Keep the shared wait policy at the client boundary.
-      if (row.state !== "needs_you" || action.tag !== "todo.answer" || row.needs_you === undefined) return [action]
-      const primary = actionFor(row, { role: "member" })
-      return primary ? [{ ...primary, ...(primary.tag === "branch" ? { args: { name: row.branch.name } } : {}) }] : []
-    })
-    if (row.branch.name && !actions.some(action => action.tag === "branch" && action.args?.door === "branch"))
-      actions.push({ tag: "branch", label: row.branch.name, args: { name: row.branch.name, door: "branch" } })
-    for (const direction of ["up", "down"] as const) {
-      if (direction === "up" && index === 0 || direction === "down" && index === open.length - 1) continue
-      if (!actions.some(action => action.tag === "stack.move" && action.args?.direction === direction))
-        actions.push({ tag: "stack.move", label: direction === "up" ? "Move up" : "Move down", args: { ...args, direction } })
-    }
-    if (!actions.some(action => action.tag === "todo.drop")) actions.push({ tag: "todo.drop", label: "Drop", args })
-    return { ...row, actions }
-  }) }
 }
 
 /** Home as this host serves it to the viewer: which source answered, the model, the viewer's role on it, and whether the install's GitHub sync answers main's row. */
