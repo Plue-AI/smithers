@@ -22,7 +22,7 @@ import (
 // Historical output lives in the real journal; authentication and the install
 // router decide which member may read it. The app uses its shipped HTTP loader.
 func TestCutHistoryInstallEarlierMemberPrivacy(t *testing.T) {
-	t.Setenv("SMITHERS_TEST_DATABASE_NAMESPACE", "fr2_t_cut_04_r2")
+	t.Setenv("SMITHERS_TEST_DATABASE_NAMESPACE", "fr4b_cut04_e")
 	if _, err := repohostserver.FFILibraryPath(); err != nil {
 		t.Skipf("composed install requires the native wiki/repository library: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestCutHistoryInstallBrowserModelPrivacy(t *testing.T) {
 	if os.Getenv("SMITHERS_W17_WEB_ROOT") == "" {
 		t.Skip("set SMITHERS_W17_WEB_ROOT to the built app for Chromium qualification")
 	}
-	t.Setenv("SMITHERS_TEST_DATABASE_NAMESPACE", "fr4_cut04")
+	t.Setenv("SMITHERS_TEST_DATABASE_NAMESPACE", "fr4b_cut04_b")
 	f := workingConversation(t)
 	ctx := f.local.ctx
 	var benID int64
