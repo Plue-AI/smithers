@@ -60,10 +60,10 @@ func TestFileOperationPreservesOnlyValidCompareWriteStaleResponses(t *testing.T)
 				require.Equal(t, tc.want, stale.CurrentDigest)
 				require.Equal(t, "a:line\nnext", stale.Path)
 			}
-			// Adding transport decoding must not advertise an unqualified
-			// production write capability through the optional interface.
+			// The exported capability now uses only the authenticated daemon;
+			// decoding guest output never enables the guest candidate.
 			_, enabled := any(r).(workspaceapi.WorkspaceCompareWriter)
-			require.False(t, enabled)
+			require.True(t, enabled)
 		})
 	}
 }
@@ -120,7 +120,7 @@ func TestCompareWriteBatchTransportAndAcknowledgment(t *testing.T) {
 			require.Contains(t, string(args), "compare-write")
 			require.NotContains(t, string(args), "a odd:")
 			_, enabled := any(r).(workspaceapi.WorkspaceCompareWriter)
-			require.False(t, enabled)
+			require.True(t, enabled)
 		})
 	}
 }
