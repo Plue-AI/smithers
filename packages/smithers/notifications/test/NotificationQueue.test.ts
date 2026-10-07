@@ -62,6 +62,50 @@ const recording = (reads: Array<Read>) =>
       }))
   ).pipe(Layer.provide(TestJournal.layer()))
 
+it("holds legacy outside changes at parks and delivers them at the next ordinary boundary", async () => {
+  await Effect.runPromise(
+    Effect.gen(function*() {
+      const queue = yield* NotificationQueue.NotificationQueue, journal = yield* Journal.Journal
+      const runId = JournalEvent.RunId.make("legacy-outside-changes")
+      const outside: Notification = {
+        ...item("outside", "queue"),
+        _tag: "system-event",
+        delivery: "queue",
+        payload: { kind: "outside_change" }
+      }
+      // Legacy writers admitted these before the public admission seam refused them.
+      yield* journal.emitDurableUnfenced(
+        new JournalEvent.Input({
+          runId,
+          sourceId: JournalEvent.SourceId.make("/notifications/admission/outside"),
+          eventType: "flows/notifications/Admitted",
+          payload: { notification: outside, decision: "admitted" }
+        })
+      )
+      const ordinary = [
+        item("steer", "steer"),
+        { ...item("null", "queue"), payload: null },
+        { ...item("array", "queue"), payload: [] },
+        { ...item("string", "queue"), payload: "note" }
+      ]
+      for (const notification of ordinary) yield* queue.admit(runId, notification)
+      const park = {
+        runId,
+        targetLineageId: "run/root",
+        boundary: `0:${"a".repeat(64)}:park:0`,
+        wouldIdle: true
+      }
+      expect((yield* queue.drain(park)).notifications.map((note) => note.id)).toEqual(["steer"])
+      expect((yield* queue.pending(runId)).map((note) => note.id)).toEqual(["outside", "null", "array", "string"])
+      expect((yield* queue.drain(park)).duplicate).toBe(true)
+      const next = { ...park, boundary: "turn-close", wouldIdle: false }
+      expect((yield* queue.drain(next)).notifications).toEqual([outside])
+      expect((yield* queue.pending(runId)).map((note) => note.id)).toEqual(["null", "array", "string"])
+      expect((yield* queue.drain(next)).notifications).toEqual([outside])
+    }).pipe(Effect.provide(NotificationQueue.layerWith()), Effect.provide(TestJournal.layer()), Effect.scoped)
+  )
+})
+
 it("ignores noise-only tails while retaining canonical admission and promotion cursors", async () => {
   const reads: Read[] = []
   await Effect.runPromise(

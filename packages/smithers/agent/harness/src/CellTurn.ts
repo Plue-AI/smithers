@@ -2982,11 +2982,10 @@ const evaluate = (
         Effect.flatMap((blocked) =>
           blocked
             ? Effect.succeed(
-              new Cell.CallResult({
-                outcome: "failure",
-                value: null,
-                message: "Outside changes are pending; finish this cell and re-read the changed files in the next turn."
-              })
+              refusal(
+                undefined,
+                "Outside changes are pending; finish this cell and re-read the changed files in the next turn."
+              )
             )
             : handle(invocation)
         ),

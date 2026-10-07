@@ -184,6 +184,12 @@ transitions. A completion is an idle boundary: queued follow-ups can keep the
 run going. When the frame budget is exhausted, undeliverable notifications stay
 pending in the durable queue for the host to carry forward.
 
+Pending steering detected after the model returns holds the proposed cell until
+another model frame consumes the instruction. If no frame remains, the run fails
+with `engine_failed` and leaves the instruction pending, including when the
+proposed cell would have parked. If the drain finds nothing left to deliver,
+the proposed cell can execute.
+
 Enforced by `Notifications` and `Steering`.
 
 An outside-change note names changed files as untrusted data. Re-read those files

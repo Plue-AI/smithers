@@ -43,6 +43,11 @@ Each field decides something:
   delivered nothing. When it is `true` and no steer was promoted, the drain also
   promotes exactly one queued notification.
 
+Legacy journal admissions with an `outside_change` payload remain pending at
+coding park boundaries (`<frame>:<64-character lowercase hex digest>:park:<index>`).
+An ordinary boundary promotes them at its cutoff even when `wouldIdle` is false.
+New admissions of these reserved payloads are refused.
+
 ## Read the receipt
 
 `DrainReceipt.notifications` are the notifications the committed promotion

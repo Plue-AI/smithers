@@ -2263,7 +2263,42 @@ describe("CellTurn recorded observations", () => {
     expect(messagesOf(model, 1)).toContain("use the release branch")
   })
 
-  it("retains steering at a park when it was the run's last frame", async () => {
+  it("executes the proposed cell when another consumer drains steering after the probe", async () => {
+    let pending = true
+    const model = ScriptedModel.make([emits(`ctx.done("still current")`)])
+    const engine = ScriptedEngine.make(model.model, [])
+    const { events, failure } = await collect(
+      { state: state({ maxFrames: 2 }), flows: [lister] },
+      {
+        engine: engine.layer,
+        steering: Steering.layer({
+          read: () =>
+            Effect.succeed({
+              items: pending ?
+                [{
+                  _tag: "Insert",
+                  delivery: "steer",
+                  admittedAt: 0,
+                  message: ModelRequest.Message.user("already consumed elsewhere")
+                }] :
+                []
+            }),
+          drain: () =>
+            Effect.sync(() => {
+              pending = false
+              return { inserts: [], seatChanges: [], remaining: Steering.empty(), queued: false, duplicate: false }
+            })
+        })
+      }
+    )
+
+    expect(failure).toBeUndefined()
+    expect(pending).toBe(false)
+    expect(resolvedText(events)).toBe("still current")
+    expect(of(events, "steering-drained").map((event) => event.messages)).toEqual([[], []])
+  })
+
+  it("retains steering before a proposed park when no model frame remains", async () => {
     const queue = steeringQueue()
     queue.steer("finish up")
     const model = ScriptedModel.make([emits(`ctx.park("waiting-input", "which branch?")`)])
@@ -2273,8 +2308,14 @@ describe("CellTurn recorded observations", () => {
       { engine: engine.layer, steering: queue.layer }
     )
 
-    expect(failure).toMatchObject({ code: "suspended", message: "which branch?" })
-    expect(of(events, "suspended")[0]?.reason).toMatchObject({ code: "waiting-input", message: "which branch?" })
+    // Pending steering discards the proposed cell before it can execute its park.
+    // With no next model frame, the run fails without consuming the instruction.
+    expect(failure).toMatchObject({
+      code: "engine_failed",
+      message: "Outside changes require another model turn before tools can run"
+    })
+    expect(of(events, "suspended")).toHaveLength(0)
+    expect(engine.recorder.calls).toHaveLength(0)
     expect(of(events, "steering-drained")).toHaveLength(0)
     expect(queue.pending()).toEqual([ModelRequest.Message.user("finish up")])
     expect(of(events, "resolved")).toHaveLength(0)
