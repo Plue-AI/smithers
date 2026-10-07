@@ -578,6 +578,7 @@ type WorkspaceService struct {
 	// scoped advisory lock).
 	transactions                 RepositoryJobTransactions
 	branchMachineProviders       BranchMachineProviders
+	branchCapture                BranchCapture
 	machineAdmission             *microsandbox.AdmissionProviders
 	sandbox                      SandboxVMClient
 	runtime                      workspaceapi.WorkspaceRuntime
