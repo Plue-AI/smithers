@@ -105,11 +105,24 @@ Set `https://smithers.example.com` as a public origin. A proxy on another host m
 
 The install runs as a per-user launchd agent. If Hypervisor.framework refuses a daemon, use the LaunchAgent under the installing user's login session. Enable macOS automatic login for that user if the install must return after a reboot without someone logging in. Confirm Machine ready after restarting.
 
+Check the host before backup or upgrade:
+
+```sh
+smthrs host status
+smthrs host backup
+smthrs host upgrade
+```
+
+If a command returns `host_maintenance_unavailable`, recovery providers are unavailable; no backup or upgrade completed. Keep the current install and wait for a release with recovery support.
+
 Before restoring a backup on another Mac, stop the original install first:
 
 ```sh
 smthrs host stop
+smthrs host restore /Users/you/Smithers-backup
 ```
+
+Completed backups live under the install’s state directory at `backups/<version>-<UTC timestamp>/`. Replace `/Users/you/Smithers-backup` with that completed backup directory. Do not use a partial backup. A refusal is not a successful restore.
 
 Two running installs would both act on the same repository. Keep backup directories private: they contain the install key and member data. Restore requires a stopped install, verified backup hashes and a compatible installed version. Interrupted work resumes or offers Retry after recovery.
 

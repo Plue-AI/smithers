@@ -122,3 +122,14 @@ test("quickstart includes shipped LAN commands without duplicate sections", () =
   const headings = [...quickstart.matchAll(/^## (.+)$/gm)].map(match => match[1])
   expect(new Set(headings).size).toBe(headings.length)
 })
+
+
+test("recovery examples distinguish refusal and stop before restore", () => {
+  const quickstart = pages.get("quickstart.md")!
+  for (const command of ["smthrs host backup", "smthrs host upgrade", "smthrs host restore /Users/you/Smithers-backup"]) expect(quickstart).toContain(command)
+  expect(quickstart).toContain("smthrs host stop\nsmthrs host restore")
+  expect(quickstart).toContain("backups/<version>-<UTC timestamp>/")
+  expect(quickstart).toContain("host_maintenance_unavailable")
+  expect(quickstart).toContain("no backup or upgrade completed")
+  expect(quickstart).toContain("A refusal is not a successful restore")
+})
