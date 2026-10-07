@@ -3228,6 +3228,55 @@ paths:
           description: No such flow
         '503':
           description: Flows unavailable
+  /api/flows/{name}/run:
+    post:
+      x-composition: install
+      summary: Request a flow run on a branch machine
+      description: Persists a request for the shared Flow worker. Repository code runs only on the selected machine. Repeated Idempotency-Key values return the same receipt; changed input conflicts. TODO and review use their dedicated admission routes.
+      operationId: post_api_flows_name_run
+      tags:
+        - Flows
+      security: [{sessionCookie: []}]
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+        - {name: Idempotency-Key, in: header, required: true, schema: {type: string, maxLength: 255}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NamedFlowRunRequest'}
+      responses:
+        '202':
+          description: Requested; execution has not necessarily started
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FlowRunReceipt'}
+        '400': {description: Invalid request}
+        '401': {description: Not signed in}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404': {description: Branch unavailable}
+        '409': {description: Machine not running or idempotency mismatch}
+        '503': {description: Flow dispatcher unavailable}
+  /api/flows/runs/{id}:
+    get:
+      x-composition: install
+      summary: Read the requesting person's flow run status
+      operationId: get_api_flows_runs_id
+      tags:
+        - Flows
+      security: [{sessionCookie: []}]
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: Durable dispatch state, runtime run ID and typed failure when available
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FlowRunReceipt'}
+        '401': {description: Not signed in}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404': {description: Run unavailable to this person}
+        '503': {description: Flow dispatcher unavailable}
   /api/flows/{name}/edit:
     post:
       x-composition: install
