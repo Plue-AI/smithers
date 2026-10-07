@@ -120,6 +120,7 @@ struct Document {
     epoch: [u8; 16],
     base: String,
     last_disk: Digest,
+    disk_present: bool,
     dirty_since: Option<u64>,
     save_author: SaveAuthor,
     updated: u64,
@@ -136,7 +137,7 @@ struct Document {
 struct Pending {
     token: Displaced,
     base: String,
-    expected: Digest,
+    expected: Option<Digest>,
     saved: Digest,
     observed: Digest,
     quiet: u64,
@@ -313,7 +314,9 @@ impl<D: Disk> Host<D> {
         for pending in &doc.displaced[start..] {
             let bytes = self.disk.read_displaced(pending.token)?;
             let displaced = digest(&bytes);
-            if displaced != pending.expected && displaced != pending.saved {
+            if Some(displaced) != pending.expected
+                && (pending.expected.is_none() || displaced != pending.saved)
+            {
                 let version = self.disk.record_outside(path, &bytes, "outside")?;
                 doc.outside_change = Some((version.clone(), "outside".into()));
                 self.notices.push(Notice::Outside {
@@ -400,14 +403,19 @@ impl<D: Disk> Host<D> {
                     doc,
                     retired_clients: record.retired_clients,
                     epoch: record.epoch,
-                    save_author: if digest(&bytes) == record.previous && digest(&bytes) != saved {
+                    save_author: if Some(digest(&bytes)) == record.previous
+                        && digest(&bytes) != saved
+                    {
                         SaveAuthor::Unknown
                     } else {
                         SaveAuthor::Clean
                     },
                     base: record.text,
                     last_disk: saved,
-                    dirty_since: if digest(&bytes) == record.previous && digest(&bytes) != saved {
+                    disk_present: true,
+                    dirty_since: if Some(digest(&bytes)) == record.previous
+                        && digest(&bytes) != saved
+                    {
                         Some(now)
                     } else {
                         None
@@ -438,6 +446,7 @@ impl<D: Disk> Host<D> {
                     epoch: fresh_epoch,
                     base: text.into(),
                     last_disk: digest(&bytes),
+                    disk_present: !missing,
                     dirty_since: if readonly { None } else { Some(now) },
                     save_author: SaveAuthor::Clean,
                     updated: now,
@@ -821,7 +830,7 @@ impl<D: Disk> Host<D> {
             return Err(Error::Stale);
         }
         // Restore uses this same boundary and clears gone only after a real save.
-        if current != text || doc.gone.is_some() {
+        if !doc.disk_present || current != text || doc.gone.is_some() {
             let client = authors::allocate_current(&doc.doc, actor, &doc.retired_clients)?;
             let update = reconcile::replace(&doc.doc, text, client)?;
             core::apply(&doc.doc, core::decode(&update).map_err(|_| Error::Invalid)?)
@@ -925,7 +934,7 @@ impl<D: Disk> Host<D> {
         let key = digest(path.as_bytes());
         let record = Record {
             epoch: doc.epoch,
-            previous: doc.last_disk,
+            previous: doc.disk_present.then_some(doc.last_disk),
             previous_text: doc.base.clone(),
             text: text.clone(),
             state: core::state(&doc.doc),
@@ -940,7 +949,7 @@ impl<D: Disk> Host<D> {
             doc.displaced.push(Pending {
                 token,
                 base: doc.base.clone(),
-                expected: doc.last_disk,
+                expected: doc.disk_present.then_some(doc.last_disk),
                 saved: digest(text.as_bytes()),
                 observed: digest(&bytes),
                 quiet: now,
@@ -949,6 +958,7 @@ impl<D: Disk> Host<D> {
         }
         disk.own_write(path, text.as_bytes(), saved.mode, doc.save_author.actor())?;
         doc.last_disk = digest(text.as_bytes());
+        doc.disk_present = true;
         doc.base = text;
         doc.dirty_since = None;
         doc.saved_at_ms = Some(now);
@@ -977,7 +987,7 @@ impl<D: Disk> Host<D> {
                         p.quiet = now;
                     }
                     if now >= p.quiet.saturating_add(200) || now >= p.deadline {
-                        if observed != p.expected && observed != p.saved {
+                        if Some(observed) != p.expected && observed != p.saved {
                             Self::outside(
                                 (&mut self.disk, &mut self.notices),
                                 path,

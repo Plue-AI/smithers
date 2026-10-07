@@ -556,7 +556,7 @@ fn record_checksum_bounds_and_state_text_consistency() {
     let (mut h, _) = host("🦀");
     h.flush_all(0).unwrap();
     let bytes = h.disk.records[&digest(b"a.rs")].clone();
-    assert_eq!(&bytes[..8], b"SMTHDOC2");
+    assert_eq!(&bytes[..8], b"SMTHDOC3");
     assert_eq!(Record::decode(&bytes).unwrap().text, "🦀");
     for at in 0..bytes.len() {
         let mut bad = bytes.clone();
@@ -1215,7 +1215,7 @@ mod dispatcher {
         legacy.flush_all(0).unwrap();
         // Independent retained-v1 layout: no retired-client trailer existed.
         let raw = legacy.disk.records.get_mut(&digest(b"a.rs")).unwrap();
-        raw.truncate(raw.len() - 36); // empty v2 count + checksum
+        raw.truncate(raw.len() - 37); // empty v3 count + presence + checksum
         raw[..8].copy_from_slice(b"SMTHDOC1");
         raw.extend(digest(raw));
         let disk = Shared(Arc::new(Mutex::new(legacy.disk.clone())));
@@ -2059,6 +2059,101 @@ mod dispatcher {
         }
     }
     #[test]
+    fn absent_creation_retains_even_an_empty_outside_file() {
+        for bytes in [b"ours".as_slice(), b"".as_slice()] {
+            let mut model = Model::default();
+            model.swap_race = Some(vec![]);
+            let disk = Shared(Arc::new(Mutex::new(model)));
+            let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
+            let service = Service::new(Host::new(disk.clone(), gates(), ids()), clock);
+            let mut cx = LockCx::new(Default::default());
+            let result = service
+                .write_batch(
+                    &mut cx,
+                    &[change("new", None, bytes)],
+                    &hooks::Actor::Outside,
+                )
+                .unwrap();
+            assert!(result.failure.is_none());
+            assert_eq!(result.writes[0].raced, Some(digest(b"")));
+            {
+                let disk = disk.0.lock().unwrap();
+                assert_eq!(disk.files["new"], bytes);
+                assert_eq!(disk.versions, vec![Vec::<u8>::new()]);
+                assert_eq!(
+                    Record::decode(&disk.records[&digest(b"new")])
+                        .unwrap()
+                        .previous,
+                    None
+                );
+            }
+            let result = service
+                .write_batch(
+                    &mut cx,
+                    &[change("new", Some(bytes), b"next")],
+                    &hooks::Actor::Outside,
+                )
+                .unwrap();
+            assert!(result.failure.is_none());
+            let disk = disk.0.lock().unwrap();
+            assert_eq!(
+                Record::decode(&disk.records[&digest(b"new")])
+                    .unwrap()
+                    .previous,
+                Some(digest(bytes))
+            );
+        }
+    }
+    #[test]
+    fn empty_file_creation_keeps_the_authenticated_author() {
+        let disk = Shared(Arc::new(Mutex::new(Model::default())));
+        let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
+        let service = Service::new(Host::new(disk.clone(), gates(), ids()), clock);
+        let mut cx = LockCx::new(Default::default());
+        let result = service
+            .write_batch(
+                &mut cx,
+                &[change("new", None, b"")],
+                &hooks::Actor::Principal(vec![7; 16]),
+            )
+            .unwrap();
+        assert!(result.failure.is_none());
+        let disk = disk.0.lock().unwrap();
+        assert_eq!(disk.files["new"], b"");
+        assert_eq!(
+            disk.saved_authors,
+            [Some("07070707070707070707070707070707".into())]
+        );
+    }
+    #[test]
+    fn interrupted_create_does_not_recover_over_a_later_empty_outside_file() {
+        let mut model = Model::default();
+        model.fail = Some("swap");
+        let disk = Shared(Arc::new(Mutex::new(model)));
+        let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
+        let service = Service::new(Host::new(disk.clone(), gates(), ids()), clock);
+        let mut cx = LockCx::new(Default::default());
+        let result = service
+            .write_batch(
+                &mut cx,
+                &[change("new", None, b"uncommitted")],
+                &hooks::Actor::Outside,
+            )
+            .unwrap();
+        assert!(!result.failure.unwrap().preflight);
+        assert!(!disk.0.lock().unwrap().files.contains_key("new"));
+        drop(service);
+        let mut model = disk.0.lock().unwrap().clone();
+        model.fail = None;
+        model.files.insert("new".into(), vec![]);
+        let mut recovered = Host::new(model, gates(), ids());
+        let id = recovered.open("new", [8; 16], 1).unwrap();
+        assert_eq!(recovered.text(id).unwrap(), "");
+        recovered.flush_all(2).unwrap();
+        assert_eq!(recovered.disk.files["new"], b"");
+        assert_eq!(recovered.disk.versions, vec![Vec::<u8>::new()]);
+    }
+    #[test]
     fn mutation_executor_saves_without_a_connected_host() {
         let disk = Shared(Arc::new(Mutex::new(Model::with("before"))));
         let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
@@ -2344,4 +2439,41 @@ fn interrupted_save_cannot_claim_a_new_editors_identity_after_recovery() {
         .write_saved("a.rs", digest(b"alice"), "bob", "bob", 4)
         .unwrap();
     assert_eq!(recovered.disk.saved_authors, [None]);
+}
+
+#[test]
+fn record_predecessor_presence_is_canonical_and_legacy_empty_stays_present() {
+    let (mut h, _) = host("");
+    h.flush_all(0).unwrap();
+    let mut record = Record::decode(&h.disk.records[&digest(b"a.rs")]).unwrap();
+    assert_eq!(record.previous, Some(digest(b"")));
+    for version in [1, 2] {
+        let mut raw = record.encode().unwrap();
+        raw.truncate(raw.len() - if version == 1 { 37 } else { 33 });
+        raw[..8].copy_from_slice(if version == 1 {
+            b"SMTHDOC1"
+        } else {
+            b"SMTHDOC2"
+        });
+        raw.extend(digest(&raw));
+        assert_eq!(Record::decode(&raw).unwrap().previous, Some(digest(b"")));
+    }
+    record.previous = None;
+    let raw = record.encode().unwrap();
+    assert_eq!(Record::decode(&raw).unwrap().previous, None);
+    for flag in [2, 255] {
+        let mut corrupt = raw[..raw.len() - 32].to_vec();
+        *corrupt.last_mut().unwrap() = flag;
+        corrupt.extend(digest(&corrupt));
+        assert!(Record::decode(&corrupt).is_err());
+    }
+    record.previous_text = "not absent".into();
+    assert!(record.encode().is_err());
+    // A recomputed checksum cannot turn a nonempty predecessor into absent.
+    record.previous = Some(digest(b"not absent"));
+    let mut forged = record.encode().unwrap();
+    forged.truncate(forged.len() - 32);
+    *forged.last_mut().unwrap() = 0;
+    forged.extend(digest(&forged));
+    assert!(Record::decode(&forged).is_err());
 }

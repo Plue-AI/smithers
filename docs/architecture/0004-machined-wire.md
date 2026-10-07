@@ -511,3 +511,20 @@ empty content creates an empty file. Delete/move support and provider
 qualification are still required before it can implement the public
 `WorkspaceCompareWriter` contract. This addition does not enable that provider
 or claim installed-machine acceptance.
+
+### Absent document predecessors (disk record 3, 2026-10-07)
+
+`SMTHDOC3` distinguishes an absent predecessor from a present empty file. It
+retains the record-2 layout and adds one byte after the retired-client list,
+before the checksum: `0` for absent, `1` for present. An absent predecessor has
+empty baseline text and the SHA-256 of empty bytes in the legacy digest slot;
+all other flag values and noncanonical absent baselines are refused. The flag
+is covered by the checksum. Record-1 and record-2 files remain readable and keep
+their predecessor digest as present, including the digest of empty bytes.
+
+This prevents an outside empty-file creation from being mistaken for the base
+of an interrupted creation. A live create that displaces an empty outside file
+retains it and reports `raced`, even when the requested file is also empty.
+Creating an empty file is an attributed mutation. This is a disk-only migration;
+the connection protocol remains 6. Delete/move support and the public mutation
+provider still require their own implementation and installed qualification.

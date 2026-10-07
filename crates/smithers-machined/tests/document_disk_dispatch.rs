@@ -770,7 +770,7 @@ fn stale_recovery_comparison_leaves_real_file_and_record_unchanged() {
     core::apply(&doc, core::decode(&update).unwrap()).unwrap();
     let record = Record {
         epoch: [7; 16],
-        previous: digest(b"abc"),
+        previous: Some(digest(b"abc")),
         previous_text: "abc".into(),
         text: "pending".into(),
         state: core::state(&doc),
@@ -1012,4 +1012,114 @@ fn batch_retains_outside_edit_to_later_file_after_all_bases_were_compared() {
         conn::fields("raced", second[1].1).unwrap()[1].1,
         digest(b"late outside")
     );
+}
+
+#[test]
+#[ignore = "requires Linux uid19998 and confined real filesystem"]
+fn create_reports_empty_outside_file_as_a_race_including_empty_output() {
+    struct CreateEmpty {
+        receipts: Receipts,
+        workspace: PathBuf,
+    }
+    impl Versions for CreateEmpty {
+        fn outside(
+            &mut self,
+            path: &str,
+            bytes: &[u8],
+            actor: &str,
+        ) -> smithers_machined::doc::Result<String> {
+            self.receipts.outside(path, bytes, actor)
+        }
+        fn before_write(
+            &mut self,
+            path: &str,
+            _: Option<&str>,
+        ) -> smithers_machined::doc::Result<()> {
+            assert_eq!(path, "new.rs");
+            fs::write(self.workspace.join(path), b"")?;
+            Ok(())
+        }
+        fn own_write(
+            &mut self,
+            path: &str,
+            bytes: &[u8],
+            mode: u32,
+            actor: Option<&str>,
+        ) -> smithers_machined::doc::Result<()> {
+            self.receipts.own_write(path, bytes, mode, actor)
+        }
+    }
+    for content in [b"ours".as_slice(), b"".as_slice()] {
+        let f = Fixture::new();
+        let (_service, mut cx) = f.with_versions(CreateEmpty {
+            receipts: f.receipts.clone(),
+            workspace: f.root.join("workspace"),
+        });
+        let response = batch(&mut cx, &[("new.rs", None, content)]);
+        assert_eq!(response[0], 17);
+        let fields = conn::fields("result17", &response[1..]).unwrap();
+        assert_eq!(fields.len(), 1);
+        let receipt = conn::fields("result3", &fields[0].1[2..]).unwrap();
+        assert_eq!(receipt[0].1, digest(content));
+        let raced = conn::fields("raced", receipt[1].1).unwrap();
+        assert_eq!(&raced[0].1[2..], b"new.rs");
+        assert_eq!(raced[1].1, digest(b""));
+        assert_eq!(fs::read(f.root.join("workspace/new.rs")).unwrap(), content);
+        assert_eq!(*f.receipts.0.lock().unwrap(), vec![Vec::<u8>::new()]);
+        assert_eq!(
+            f.receipts.1.lock().unwrap()[0].2.as_deref(),
+            Some("00ff800102030405060708090a0b0c0d")
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires Linux uid19998 and confined real filesystem"]
+fn reopened_creation_record_distinguishes_empty_outside_file_from_interrupted_update() {
+    use smithers_machined::doc::disk::Disk;
+    for previous in [None, Some(digest(b""))] {
+        let f = Fixture::new();
+        fs::write(f.root.join("workspace/new.rs"), b"").unwrap();
+        let mut disk = LinuxDisk::new(
+            File::open(f.root.join("workspace")).unwrap(),
+            File::open(f.root.join("store")).unwrap(),
+            f.receipts.clone(),
+        )
+        .unwrap();
+        let doc = core::document(None);
+        doc.get_or_insert_map("authors");
+        let author = authors::allocate(&doc, "original").unwrap();
+        doc.get_or_insert_text("content");
+        let update = smithers_machined::doc::reconcile::replace(&doc, "pending", author).unwrap();
+        core::apply(&doc, core::decode(&update).unwrap()).unwrap();
+        let record = Record {
+            epoch: [7; 16],
+            previous,
+            previous_text: String::new(),
+            text: "pending".into(),
+            state: core::state(&doc),
+            retired_clients: Default::default(),
+        };
+        let key = digest(b"new.rs");
+        disk.store_record(key, &record).unwrap();
+        drop(disk);
+        let (service, mut cx) = f.service();
+        let response = batch(&mut cx, &[("new.rs", Some(b""), b"next")]);
+        assert_eq!(response[0], 17);
+        let fields = conn::fields("result17", &response[1..]).unwrap();
+        if previous.is_none() {
+            assert_eq!(fields.len(), 1);
+            assert_eq!(fs::read(f.root.join("workspace/new.rs")).unwrap(), b"next");
+            assert_eq!(*f.receipts.0.lock().unwrap(), vec![Vec::<u8>::new()]);
+        } else {
+            assert_eq!(&fields[0].1[..2], [0, 0]);
+            let failure = conn::fields("batch_failure", fields[1].1).unwrap();
+            assert_eq!(failure[1].1, [1]);
+            assert_eq!(conn::fields("error", failure[2].1).unwrap()[0].1, [4]);
+            f.clock.0.store(60_001, Ordering::Relaxed);
+            service.poll(&mut cx).unwrap();
+            assert_eq!(fs::read(f.root.join("workspace/new.rs")).unwrap(), b"");
+            assert!(f.receipts.0.lock().unwrap().is_empty());
+        }
+    }
 }

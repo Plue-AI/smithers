@@ -5,14 +5,15 @@ use sha2::{Digest as _, Sha256};
 use std::collections::BTreeSet;
 use yrs::{Doc, GetString, Transact};
 pub type Digest = [u8; 32];
-pub const MAX_RECORD_BYTES: usize = 2 * MAX_STATE_BYTES + 2 * MAX_TEXT_BYTES + 136;
+pub const MAX_RECORD_BYTES: usize = 2 * MAX_STATE_BYTES + 2 * MAX_TEXT_BYTES + 137;
 pub fn digest(bytes: &[u8]) -> Digest {
     Sha256::digest(bytes).into()
 }
 #[derive(Clone, Debug)]
 pub struct Record {
     pub epoch: [u8; 16],
-    pub previous: Digest,
+    /// None means the predecessor was absent, which differs from an empty file.
+    pub previous: Option<Digest>,
     pub previous_text: String,
     pub text: String,
     pub state: Vec<u8>,
@@ -26,12 +27,13 @@ impl Record {
             || self.text.len() > MAX_TEXT_BYTES
             || self.previous_text.len() > MAX_TEXT_BYTES
             || self.retired_clients.len() > MAX_STATE_BYTES / 8
+            || (self.previous.is_none() && !self.previous_text.is_empty())
         {
             return Err(Error::Invalid);
         }
-        let mut bytes = b"SMTHDOC2".to_vec();
+        let mut bytes = b"SMTHDOC3".to_vec();
         bytes.extend(self.epoch);
-        bytes.extend(self.previous);
+        bytes.extend(self.previous.unwrap_or_else(|| digest(b"")));
         bytes.extend(digest(self.text.as_bytes()));
         bytes.extend((self.text.len() as u32).to_be_bytes());
         bytes.extend((self.state.len() as u32).to_be_bytes());
@@ -43,13 +45,16 @@ impl Record {
         for id in &self.retired_clients {
             bytes.extend(id.to_be_bytes());
         }
+        bytes.push(u8::from(self.previous.is_some()));
         bytes.extend(digest(&bytes));
         Ok(bytes)
     }
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         if bytes.len() < 132
             || bytes.len() > MAX_RECORD_BYTES
-            || (&bytes[..8] != b"SMTHDOC1" && &bytes[..8] != b"SMTHDOC2")
+            || (&bytes[..8] != b"SMTHDOC1"
+                && &bytes[..8] != b"SMTHDOC2"
+                && &bytes[..8] != b"SMTHDOC3")
         {
             return Err(Error::Invalid);
         }
@@ -58,6 +63,8 @@ impl Record {
         let base_len = u32::from_be_bytes(bytes[96..100].try_into().unwrap()) as usize;
         let body_end = 100usize + text_len + state_len + base_len;
         let legacy = &bytes[..8] == b"SMTHDOC1";
+        let presence = &bytes[..8] == b"SMTHDOC3";
+        let mut previous_present = true;
         let mut retired_clients = BTreeSet::new();
         let expected = if legacy {
             body_end + 32
@@ -79,7 +86,15 @@ impl Record {
                 last = id;
                 retired_clients.insert(id);
             }
-            body_end + 4 + count * 8 + 32
+            let trailer = body_end + 4 + count * 8;
+            if presence {
+                previous_present = match bytes.get(trailer) {
+                    Some(0) => false,
+                    Some(1) => true,
+                    _ => return Err(Error::Invalid),
+                };
+            }
+            trailer + usize::from(presence) + 32
         };
         if text_len > MAX_TEXT_BYTES
             || base_len > MAX_TEXT_BYTES
@@ -92,7 +107,7 @@ impl Record {
         let mut record = Self {
             retired_clients,
             epoch: bytes[8..24].try_into().unwrap(),
-            previous: bytes[24..56].try_into().unwrap(),
+            previous: previous_present.then(|| bytes[24..56].try_into().unwrap()),
             text: String::from_utf8(bytes[100..100 + text_len].to_vec())
                 .map_err(|_| Error::Invalid)?,
             state: bytes[100 + text_len..100 + text_len + state_len].to_vec(),
@@ -100,7 +115,8 @@ impl Record {
                 .map_err(|_| Error::Invalid)?,
         };
         if digest(record.text.as_bytes()).as_slice() != &bytes[56..88]
-            || digest(record.previous_text.as_bytes()) != record.previous
+            || digest(record.previous_text.as_bytes()).as_slice() != &bytes[24..56]
+            || (!previous_present && !record.previous_text.is_empty())
         {
             return Err(Error::Invalid);
         }
