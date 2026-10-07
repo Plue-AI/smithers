@@ -139,7 +139,7 @@ func TestWorkspaceCleanerTransactionalPolicyAndRecovery(t *testing.T) {
 	owner, err := q.GetBranchMachineOwner(ctx)
 	require.NoError(t, err)
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
-	for _, name := range []string{"merged", "failed capture", "post capture write", "terminal", "ssh", "service stop failure", "dropped before retention", "in review", "archived scratch", "unfinished removal", "reopened", "missing settlement time", "unarchived scratch", "pending reopen", "pending writer", "pending admission", "pending capture publication", "pending capture reconciliation", "service final writes", "running service final writes"} {
+	for _, name := range []string{"merged", "paused settled item", "item rebound elsewhere", "failed capture", "post capture write", "terminal", "ssh", "service stop failure", "dropped before retention", "in review", "archived scratch", "unfinished removal", "reopened", "missing settlement time", "unarchived scratch", "pending reopen", "pending writer", "pending admission", "pending capture publication", "pending capture reconciliation", "service final writes", "running service final writes"} {
 		t.Run(name, func(t *testing.T) {
 			branch := "smithers/" + name
 			if name == "archived scratch" || name == "unarchived scratch" {
@@ -172,13 +172,19 @@ func TestWorkspaceCleanerTransactionalPolicyAndRecovery(t *testing.T) {
 				if name == "dropped before retention" {
 					item = mythicalDropped(item, todoDrop{At: now.Add(-24*time.Hour + time.Minute)})
 				}
+				if name == "paused settled item" {
+					item.PausedAt = pgtype.Timestamptz{Time: now, Valid: true}
+				}
+				if name == "item rebound elsewhere" {
+					item.WorkspaceID = "replacement"
+				}
 				if name == "in review" {
 					item.State = "proposed"
 				}
 				if name == "missing settlement time" {
 					item.Checks = json.RawMessage(`{}`)
 				}
-				_, err = pool.Exec(ctx, `UPDATE mythical_items SET state=$2,checks=$3 WHERE id=$1`, item.ID, item.State, item.Checks)
+				_, err = pool.Exec(ctx, `UPDATE mythical_items SET state=$2,checks=$3,paused_at=$4,workspace_id=$5 WHERE id=$1`, item.ID, item.State, item.Checks, item.PausedAt, item.WorkspaceID)
 				require.NoError(t, err)
 			}
 			runtime := &cleanupPolicyRuntime{capture: WorkspaceDiskReclaimCapture{CandidateHead: "head", RetainedHead: "head", CaptureID: "capture", Settled: true, Quiet: true, BindingVerified: true, CaptureComplete: true, InventoryCurrent: true}}
@@ -246,6 +252,9 @@ func TestWorkspaceCleanerTransactionalPolicyAndRecovery(t *testing.T) {
 			removed := name == "merged" || name == "archived scratch" || name == "service final writes" || name == "running service final writes"
 			require.Equal(t, removed, stored.DiskReclaimedAt.Valid)
 			require.False(t, stored.DeletedAt.Valid, "history row retained")
+			if name == "paused settled item" || name == "item rebound elsewhere" {
+				require.Empty(t, stored.CleanupPendingHead, "refusal must not record a removal decision")
+			}
 			if name == "service final writes" || name == "running service final writes" {
 				require.Equal(t, "final", stored.HeadCommitID)
 			} else if name == "pending writer" {
