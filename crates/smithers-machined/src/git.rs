@@ -497,6 +497,10 @@ impl Drop for Spool {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(all(feature = "killpoints", debug_assertions))]
+    mod faults {
+        include!("git_faults.rs");
+    }
     use super::*;
     use crate::{
         conn::{self, Frame},

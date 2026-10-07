@@ -33011,6 +33011,56 @@
     }
   },
   {
+    "label": "//crates/smithers-machined:linuxArm64",
+    "package": "crates/smithers-machined",
+    "name": "linuxArm64",
+    "rule": "Cargo.Build",
+    "kinds": [
+      "build"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "crates/smithers-machined/**/*.rs",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "crates/smithers-machined/Cargo.toml"
+      },
+      {
+        "kind": "file",
+        "path": "Cargo.toml"
+      },
+      {
+        "kind": "file",
+        "path": "Cargo.lock"
+      },
+      {
+        "kind": "file",
+        "path": "crates/flows-jj/Cargo.toml"
+      },
+      {
+        "kind": "file",
+        "path": "rust-toolchain.toml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [
+      "//crates/flows-jj:nativeSources",
+      "//packages/backend:machineContractInputs"
+    ],
+    "destinations": [
+      "github.com",
+      "index.crates.io",
+      "static.crates.io"
+    ],
+    "source": {
+      "file": "crates/smithers-machined/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//evals/agent:character",
     "package": "evals/agent",
     "name": "character",
@@ -37028,6 +37078,14 @@
       {
         "kind": "file",
         "path": "flows/test/coding-host.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/coding-host-registry.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/coding-wiki-selection.test.ts"
       },
       {
         "kind": "file",

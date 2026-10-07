@@ -1,4 +1,5 @@
 import { Smithers } from "@smthrs/targets"
+import { Package as jjPackage } from "../flows-jj/PACKAGE.ts"
 import { Package as backendPackage } from "../../packages/backend/PACKAGE.ts"
 
 const buildInputs = Smithers.Filegroup({ cwd: "crates/smithers-machined", srcs: [Smithers.glob("**/*")] })
@@ -22,6 +23,16 @@ const sources = [
   backendPackage.machineContractInputs
 ]
 const destinations = ["index.crates.io", "static.crates.io", "github.com"]
+// The image plants this static guest binary after verifying its digest.
+// Rust ships the static musl runtime and linker; no host libc is linked.
+const linuxArm64 = Smithers.Cargo.Build({
+  package: "smithers-machined", bins: ["smithers-machined"],
+  locked: true, profile: "release", target: "aarch64-unknown-linux-musl",
+  env: { CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: "rust-lld" },
+  data: [...sources, jjPackage.nativeSources,
+    Smithers.file("//crates/flows-jj/Cargo.toml"), Smithers.file("//rust-toolchain.toml")],
+  destinations
+})
 const cargoTest = Smithers.Cargo.Test({
   package: "smithers-machined", locked: true, data: sources, destinations
 })
@@ -29,4 +40,4 @@ const cargoClippy = Smithers.Cargo.Clippy({
   package: "smithers-machined", allTargets: true, locked: true,
   denyWarnings: true, data: sources, destinations
 })
-export const Package = Smithers.Package({ targets: { buildInputs, ffiInputs, documentComponents, cargoTest, cargoClippy } })
+export const Package = Smithers.Package({ targets: { buildInputs, ffiInputs, documentComponents, linuxArm64, cargoTest, cargoClippy } })

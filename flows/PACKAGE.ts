@@ -248,6 +248,8 @@ const codingPolicy = Smithers.NodeTest({
   runtime: node,
   runner: Smithers.testRunner([
     Smithers.file("//flows/test/coding-host.test.ts"),
+    Smithers.file("//flows/test/coding-host-registry.test.ts"),
+    Smithers.file("//flows/test/coding-wiki-selection.test.ts"),
     Smithers.file("//flows/test/coding-build-only.test.ts"),
     Smithers.file("//flows/test/coding-install-project.test.ts"),
     Smithers.file("//flows/test/coding-builtin-routes.test.ts"),

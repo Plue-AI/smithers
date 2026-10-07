@@ -121,7 +121,25 @@ impl Frame {
         let bytes = self
             .encode()
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        writer.write_all(&bytes)
+        writer.write_all(&bytes)?;
+        #[cfg(all(feature = "killpoints", debug_assertions))]
+        {
+            // Inject only after bytes have reached the production writer, not
+            // when a frame is merely queued. Never compiled into release builds.
+            if self.kind == 6 && self.stream < 0x8000_0000 {
+                match self.payload.first() {
+                    Some(1) => crate::events::killpoint("K5b"),
+                    Some(2) => crate::events::killpoint("K3b"),
+                    _ => (),
+                }
+            }
+            if self.kind == 2
+                && Durable::decode(&self.payload).is_ok_and(|event| event.captured_head().is_some())
+            {
+                crate::events::killpoint("K5c");
+            }
+        }
+        Ok(())
     }
     pub fn request(&self) -> Result<(u32, u8, &[u8]), ProtocolError> {
         if self.kind != 1 || self.payload.len() < 16 || self.payload[0] != 1 {

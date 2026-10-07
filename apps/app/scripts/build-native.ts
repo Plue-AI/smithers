@@ -16,6 +16,7 @@ import { foreignLibraries } from "./system-linkage"
 import { signHardenedBackend, writeBundleManifest, verifyBundleManifest } from "./server-bundle-manifest"
 import { bundleMicrosandbox } from "./bundle-microsandbox"
 import { archiveBundle, normalizeImageArchive } from "./server-bundle-archive"
+import { requireLinuxArm64 } from "./linux-arm64"
 import { validateGitBundle } from "./validate-git-bundle"
 
 const appDir = resolve(import.meta.dir, "..")
@@ -173,7 +174,8 @@ await run("pinned Rust toolchain", ["rustup", "toolchain", "install"])
 console.log("[build-native] canonical jj WebAssembly: using committed linux/amd64 artifact")
 await run("native FFI", ["cargo", "build", "--locked", "--release", "--package", "smithers-ffi", "--bin", "smithers-jj-export", "--lib"])
 const linuxTarget = "aarch64-unknown-linux-gnu"
-await run("Linux arm64 guest target", ["rustup", "target", "add", linuxTarget])
+const machinedTarget = "aarch64-unknown-linux-musl"
+await run("Linux arm64 guest target", ["rustup", "target", "add", linuxTarget, machinedTarget])
 // Guest programs are cross-built with zig against glibc 2.36, below the base
 // image's 2.41. The wrapper drops the Cortex-A53 erratum flag rustc passes and
 // cc-rs's --target spelling, which zig does not accept, and raises the
@@ -193,12 +195,6 @@ mkdirSync(zigWrapper, { recursive: true })
 const zigcc = join(zigWrapper, "zigcc")
 writeFileSync(zigcc, zigWrapperScript, { mode: 0o755 })
 const linuxEnvironment = { CC_aarch64_unknown_linux_gnu: zigcc, CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: zigcc }
-const requireLinuxArm64 = (path: string, label: string): void => {
-  const header = readFileSync(path).subarray(0, 20)
-  if (header.length < 20 || header.subarray(0, 6).toString("hex") !== "7f454c460201" || header.readUInt16LE(18) !== 183) {
-    throw new Error(`The ${label} build did not produce a Linux arm64 ELF executable: ${path}`)
-  }
-}
 const jjInstallRoot = join(nativeDir, ".jj-install")
 const guestJjInstallRoot = join(nativeDir, ".jj-linux-arm64-install")
 const jjSource = ["--git", "https://github.com/smithersai/jj.git", "--rev", jjRevision]
@@ -212,9 +208,9 @@ try {
   )
   await run(
     "Linux arm64 machine broker",
-    ["cargo", "build", "--locked", "--release", "--package", "smithers-machined", "--bin", "smithers-machined", "--target", linuxTarget],
+    ["cargo", "build", "--locked", "--release", "--package", "smithers-machined", "--bin", "smithers-machined", "--target", machinedTarget],
     root,
-    linuxEnvironment
+    { CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: "rust-lld" }
   )
   // Repository setup and the helper run `jj` in the guest, so the guest gets
   // the jj revision the helper's jj-lib pins, as the Mac does.
@@ -229,8 +225,8 @@ try {
 }
 const linuxHelper = join(cargoTargetDir, linuxTarget, "release", "smithers-jj-export")
 requireLinuxArm64(linuxHelper, "guest helper")
-const guestMachined = join(cargoTargetDir, linuxTarget, "release", "smithers-machined")
-requireLinuxArm64(guestMachined, "machine broker")
+const guestMachined = join(cargoTargetDir, machinedTarget, "release", "smithers-machined")
+requireLinuxArm64(guestMachined, "machine broker", true)
 const guestJj = join(guestJjInstallRoot, "bin", "jj")
 requireLinuxArm64(guestJj, "guest jj")
 await run(
