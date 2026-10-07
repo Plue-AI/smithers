@@ -101,6 +101,21 @@ func TestMainResetInstallOwnerOnlyAndMissingSerialization(t *testing.T) {
 			})
 		}
 	}
+	for _, input := range []string{`{"old":"same","new":"same"}`, `{"old":"","new":"new"}`, `{"old":"old","new":""}`} {
+		t.Run("invalid binding/"+input, func(t *testing.T) {
+			request := httptest.NewRequest("POST", "http://example.com/api/stack/attention/force-19", strings.NewReader(input))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Origin", "http://example.com")
+			request.AddCookie(&http.Cookie{Name: "session", Value: sessions[0]})
+			request.Header.Set("X-CSRF-Token", "reset-csrf")
+			request.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "reset-csrf"})
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			require.Equal(t, http.StatusConflict, response.Code, response.Body.String())
+			require.Contains(t, response.Body.String(), `"class":"conflict"`)
+			require.Contains(t, response.Body.String(), `"code":"stale_attention"`)
+		})
+	}
 	var requests int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM github_main_pulls`).Scan(&requests))
 	require.Zero(t, requests, "refused resets do not queue a pull")
@@ -137,103 +152,137 @@ func (f *resetStackContractFixture) SettleReset(ctx context.Context, tx pgx.Tx, 
 	}
 	return nil
 }
-func (*resetStackContractFixture) LeaveOpen(context.Context, pgx.Tx, services.GitHubMainResetIntent) error {
-	return nil
+func (*resetStackContractFixture) LeaveOpen(ctx context.Context, tx pgx.Tx, intent services.GitHubMainResetIntent) error {
+	_, err := tx.Exec(ctx, `UPDATE mythical_stacks SET reason=reason || '|open' WHERE repository_id=$1`, intent.RepositoryID)
+	return err
 }
 
 func TestMainResetJournalRecoveryThroughComposedInstall(t *testing.T) {
-	f := newInstallPollingComposition(t, true)
-	ctx := t.Context()
-	conversion, err := http.Post(f.upstream.URL+"/app-manifests/manifest/conversions", "application/json", nil)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, conversion.StatusCode)
-	require.NoError(t, conversion.Body.Close())
-	credentials, err := f.credentials.Load(ctx)
-	require.NoError(t, err)
-	_, err = f.pool.Exec(ctx, `INSERT INTO github_app_installations(installation_id) VALUES($1)`, credentials.InstallationID)
-	require.NoError(t, err)
-	_, err = f.pool.Exec(ctx, `INSERT INTO github_app_installation_repositories(installation_id,github_repository_id) VALUES($1,100)`, credentials.InstallationID)
-	require.NoError(t, err)
-	_, err = f.pool.Exec(ctx, `INSERT INTO repo_connections(user_id,repo_owner,repo_name,repo_owner_lower,repo_name_lower,license_spdx_id,github_repository_id) VALUES($1,'acme','app','acme','app','MIT',100)`, f.user.ID)
-	require.NoError(t, err)
-	root := t.TempDir()
-	source := &pollingGitHost{dir: filepath.Join(root, "github.git")}
-	mirror := &pollingGitHost{dir: filepath.Join(root, "mirror.git")}
-	for _, host := range []*pollingGitHost{source, mirror} {
-		require.NoError(t, host.git(ctx, nil, io.Discard, "init", "--bare", host.dir))
+	for _, crash := range []string{"after_write", "before_write", "third_tip"} {
+		t.Run(crash, func(t *testing.T) {
+			f := newInstallPollingComposition(t, true)
+			ctx := t.Context()
+			conversion, err := http.Post(f.upstream.URL+"/app-manifests/manifest/conversions", "application/json", nil)
+			require.NoError(t, err)
+			require.Equal(t, http.StatusCreated, conversion.StatusCode)
+			require.NoError(t, conversion.Body.Close())
+			credentials, err := f.credentials.Load(ctx)
+			require.NoError(t, err)
+			_, err = f.pool.Exec(ctx, `INSERT INTO github_app_installations(installation_id) VALUES($1)`, credentials.InstallationID)
+			require.NoError(t, err)
+			_, err = f.pool.Exec(ctx, `INSERT INTO github_app_installation_repositories(installation_id,github_repository_id) VALUES($1,100)`, credentials.InstallationID)
+			require.NoError(t, err)
+			_, err = f.pool.Exec(ctx, `INSERT INTO repo_connections(user_id,repo_owner,repo_name,repo_owner_lower,repo_name_lower,license_spdx_id,github_repository_id) VALUES($1,'acme','app','acme','app','MIT',100)`, f.user.ID)
+			require.NoError(t, err)
+			root := t.TempDir()
+			source := &pollingGitHost{dir: filepath.Join(root, "github.git")}
+			mirror := &pollingGitHost{dir: filepath.Join(root, "mirror.git")}
+			for _, host := range []*pollingGitHost{source, mirror} {
+				require.NoError(t, host.git(ctx, nil, io.Discard, "init", "--bare", host.dir))
+			}
+			var tree, old, newTip, third bytes.Buffer
+			require.NoError(t, source.git(ctx, strings.NewReader(""), &tree, "mktree"))
+			require.NoError(t, source.git(ctx, nil, &old, "commit-tree", strings.TrimSpace(tree.String()), "-m", "Mirror old"))
+			require.NoError(t, source.git(ctx, nil, &newTip, "commit-tree", strings.TrimSpace(tree.String()), "-m", "GitHub rewritten"))
+			require.NoError(t, source.git(ctx, nil, &third, "commit-tree", strings.TrimSpace(tree.String()), "-m", "Concurrent third tip"))
+			thirdSHA := strings.TrimSpace(third.String())
+			oldSHA, newSHA := strings.TrimSpace(old.String()), strings.TrimSpace(newTip.String())
+			require.NoError(t, source.git(ctx, nil, io.Discard, "update-ref", "refs/heads/main", newSHA))
+			require.NoError(t, source.git(ctx, nil, io.Discard, "push", mirror.dir, oldSHA+":refs/heads/main"))
+			backend := &cgi.Handler{Path: mustResetGit(t), Args: []string{"http-backend"}, Dir: root, Env: []string{"GIT_PROJECT_ROOT=" + root, "GIT_HTTP_EXPORT_ALL=1", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=" + os.DevNull}}
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.Contains(r.URL.Path, "receive-pack") {
+					t.Error("reset attempted upstream write")
+					w.WriteHeader(403)
+					return
+				}
+				r.URL.Path = "/github.git/" + strings.TrimPrefix(r.URL.Path, "/acme/app.git/")
+				backend.ServeHTTP(w, r)
+			}))
+			defer upstream.Close()
+			t.Setenv("SMITHERS_GITHUB_GIT_BASE_URL", upstream.URL)
+			contracts := &resetStackContractFixture{old: oldSHA, new: newSHA, fail: true}
+			journal := &services.GitHubMainResetJournal{Pool: f.pool, Stack: contracts}
+			main := services.NewGitHubMainPullService(f.q, mirror, f.sync.connections, f.sync.connections)
+			main.UseInstallPolicy()
+			main.SetMainSerialization(journal)
+			_, err = f.q.RequestGithubMainPull(ctx, f.repository)
+			require.NoError(t, err)
+			binding := fmt.Sprintf(`{"owner_login":"acme","repository_name":"app","repository_id":%d,"last_access_check_at":"%s"}`, f.repository, time.Now().UTC().Format(time.RFC3339))
+			require.NoError(t, f.q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "owner.access", Value: []byte(binding)}))
+			cfg := testConfigAllFlagsOn()
+			cfg.Auth.Mode = "selfhost"
+			cfg.Server.PublicURL = "http://example.com"
+			cfg.Server.AllowedOrigins = []string{"http://example.com"}
+			router := githubAppSetupComposeRouter(cfg, f.pool, nil, routerExtras{GitHubSync: main})
+			request := httptest.NewRequest("POST", "http://example.com/api/stack/attention/force-bound", strings.NewReader(fmt.Sprintf(`{"old":"%s","new":"%s"}`, oldSHA, newSHA)))
+			request.Header.Set("Origin", "http://example.com")
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("X-CSRF-Token", "reset-csrf")
+			request.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "reset-csrf"})
+			request = request.WithContext(middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &f.user, SessionHash: "reset-owner-session"}))
+			if crash != "after_write" {
+				// The persisted bound target becomes stale before the locked write.
+				require.NoError(t, source.git(ctx, nil, io.Discard, "update-ref", "refs/heads/main", thirdSHA))
+			}
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			observed, err := mirror.GetBookmark(ctx, "acme", "app", "main")
+			require.NoError(t, err)
+			if crash == "after_write" {
+				require.Equal(t, 500, response.Code, response.Body.String())
+				require.Equal(t, newSHA, observed.TargetCommitID, "write succeeded before settlement fault")
+			} else {
+				require.Equal(t, http.StatusConflict, response.Code, response.Body.String())
+				require.Contains(t, response.Body.String(), `"code":"stale_attention"`)
+				require.Equal(t, oldSHA, observed.TargetCommitID, "stale bound target cannot write")
+				if crash == "third_tip" {
+					require.NoError(t, source.git(ctx, nil, io.Discard, "push", "--force", mirror.dir, thirdSHA+":refs/heads/main"))
+				}
+			}
+			pending, err := journal.Pending(ctx)
+			require.NoError(t, err)
+			require.Len(t, pending, 1)
+			var reason string
+			require.NoError(t, f.pool.QueryRow(ctx, `SELECT reason FROM mythical_stacks WHERE repository_id=$1`, f.repository).Scan(&reason))
+			require.Empty(t, reason, "no projection before atomic settlement")
+			contracts.fail = false
+			restarted := services.NewGitHubMainPullService(f.q, mirror, f.sync.connections, f.sync.connections)
+			restarted.UseInstallPolicy()
+			restarted.SetMainSerialization(&services.GitHubMainResetJournal{Pool: f.pool, Stack: contracts})
+			require.NoError(t, restarted.RecoverMainResets(ctx))
+			require.NoError(t, restarted.RecoverMainResets(ctx))
+			pending, err = journal.Pending(ctx)
+			require.NoError(t, err)
+			require.Empty(t, pending)
+			require.NoError(t, f.pool.QueryRow(ctx, `SELECT reason FROM mythical_stacks WHERE repository_id=$1`, f.repository).Scan(&reason))
+			if crash != "after_write" {
+				require.Equal(t, "|open", reason, "recovery preserves attention without settlement")
+				observed, err := mirror.GetBookmark(ctx, "acme", "app", "main")
+				require.NoError(t, err)
+				want := oldSHA
+				if crash == "third_tip" {
+					want = thirdSHA
+				}
+				require.Equal(t, want, observed.TargetCommitID, "recovery never repeats a write or replaces a third tip")
+				observed, err = source.GetBookmark(ctx, "acme", "app", "main")
+				require.NoError(t, err)
+				require.Equal(t, thirdSHA, observed.TargetCommitID, "GitHub remains unchanged")
+				return
+			}
+			require.Equal(t, "|reset", reason)
+			replay := request.Clone(request.Context())
+			replay.Body = io.NopCloser(strings.NewReader(fmt.Sprintf(`{"old":"%s","new":"%s"}`, oldSHA, newSHA)))
+			replayed := httptest.NewRecorder()
+			router.ServeHTTP(replayed, replay)
+			require.Equal(t, http.StatusOK, replayed.Code, replayed.Body.String())
+			require.NoError(t, f.pool.QueryRow(ctx, `SELECT reason FROM mythical_stacks WHERE repository_id=$1`, f.repository).Scan(&reason))
+			require.Equal(t, "|reset", reason, "a lost reply replay does not settle twice")
+			observed, err = source.GetBookmark(ctx, "acme", "app", "main")
+			require.NoError(t, err)
+			require.Equal(t, newSHA, observed.TargetCommitID)
+		})
 	}
-	var tree, old, newTip bytes.Buffer
-	require.NoError(t, source.git(ctx, strings.NewReader(""), &tree, "mktree"))
-	require.NoError(t, source.git(ctx, nil, &old, "commit-tree", strings.TrimSpace(tree.String()), "-m", "Mirror old"))
-	require.NoError(t, source.git(ctx, nil, &newTip, "commit-tree", strings.TrimSpace(tree.String()), "-m", "GitHub rewritten"))
-	oldSHA, newSHA := strings.TrimSpace(old.String()), strings.TrimSpace(newTip.String())
-	require.NoError(t, source.git(ctx, nil, io.Discard, "update-ref", "refs/heads/main", newSHA))
-	require.NoError(t, source.git(ctx, nil, io.Discard, "push", mirror.dir, oldSHA+":refs/heads/main"))
-	backend := &cgi.Handler{Path: mustResetGit(t), Args: []string{"http-backend"}, Dir: root, Env: []string{"GIT_PROJECT_ROOT=" + root, "GIT_HTTP_EXPORT_ALL=1", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=" + os.DevNull}}
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "receive-pack") {
-			t.Error("reset attempted upstream write")
-			w.WriteHeader(403)
-			return
-		}
-		r.URL.Path = "/github.git/" + strings.TrimPrefix(r.URL.Path, "/acme/app.git/")
-		backend.ServeHTTP(w, r)
-	}))
-	defer upstream.Close()
-	t.Setenv("SMITHERS_GITHUB_GIT_BASE_URL", upstream.URL)
-	contracts := &resetStackContractFixture{old: oldSHA, new: newSHA, fail: true}
-	journal := &services.GitHubMainResetJournal{Pool: f.pool, Stack: contracts}
-	main := services.NewGitHubMainPullService(f.q, mirror, f.sync.connections, f.sync.connections)
-	main.UseInstallPolicy()
-	main.SetMainSerialization(journal)
-	_, err = f.q.RequestGithubMainPull(ctx, f.repository)
-	require.NoError(t, err)
-	binding := fmt.Sprintf(`{"owner_login":"acme","repository_name":"app","repository_id":%d,"last_access_check_at":"%s"}`, f.repository, time.Now().UTC().Format(time.RFC3339))
-	require.NoError(t, f.q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "owner.access", Value: []byte(binding)}))
-	cfg := testConfigAllFlagsOn()
-	cfg.Auth.Mode = "selfhost"
-	cfg.Server.PublicURL = "http://example.com"
-	cfg.Server.AllowedOrigins = []string{"http://example.com"}
-	router := githubAppSetupComposeRouter(cfg, f.pool, nil, routerExtras{GitHubSync: main})
-	request := httptest.NewRequest("POST", "http://example.com/api/stack/attention/force-bound", strings.NewReader(fmt.Sprintf(`{"old":"%s","new":"%s"}`, oldSHA, newSHA)))
-	request.Header.Set("Origin", "http://example.com")
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("X-CSRF-Token", "reset-csrf")
-	request.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "reset-csrf"})
-	request = request.WithContext(middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &f.user, SessionHash: "reset-owner-session"}))
-	response := httptest.NewRecorder()
-	router.ServeHTTP(response, request)
-	require.Equal(t, 500, response.Code, response.Body.String())
-	observed, err := mirror.GetBookmark(ctx, "acme", "app", "main")
-	require.NoError(t, err)
-	require.Equal(t, newSHA, observed.TargetCommitID, "write succeeded before settlement fault")
-	pending, err := journal.Pending(ctx)
-	require.NoError(t, err)
-	require.Len(t, pending, 1)
-	var reason string
-	require.NoError(t, f.pool.QueryRow(ctx, `SELECT reason FROM mythical_stacks WHERE repository_id=$1`, f.repository).Scan(&reason))
-	require.Empty(t, reason, "projection rolled back with failed settlement")
-	contracts.fail = false
-	restarted := services.NewGitHubMainPullService(f.q, mirror, f.sync.connections, f.sync.connections)
-	restarted.UseInstallPolicy()
-	restarted.SetMainSerialization(&services.GitHubMainResetJournal{Pool: f.pool, Stack: contracts})
-	require.NoError(t, restarted.RecoverMainResets(ctx))
-	require.NoError(t, restarted.RecoverMainResets(ctx))
-	pending, err = journal.Pending(ctx)
-	require.NoError(t, err)
-	require.Empty(t, pending)
-	require.NoError(t, f.pool.QueryRow(ctx, `SELECT reason FROM mythical_stacks WHERE repository_id=$1`, f.repository).Scan(&reason))
-	require.Equal(t, "|reset", reason)
-	replay := request.Clone(request.Context())
-	replay.Body = io.NopCloser(strings.NewReader(fmt.Sprintf(`{"old":"%s","new":"%s"}`, oldSHA, newSHA)))
-	replayed := httptest.NewRecorder()
-	router.ServeHTTP(replayed, replay)
-	require.Equal(t, http.StatusOK, replayed.Code, replayed.Body.String())
-	require.NoError(t, f.pool.QueryRow(ctx, `SELECT reason FROM mythical_stacks WHERE repository_id=$1`, f.repository).Scan(&reason))
-	require.Equal(t, "|reset", reason, "a lost reply replay does not settle twice")
-	observed, err = source.GetBookmark(ctx, "acme", "app", "main")
-	require.NoError(t, err)
-	require.Equal(t, newSHA, observed.TargetCommitID)
 }
 
 func mustResetGit(t *testing.T) string {
