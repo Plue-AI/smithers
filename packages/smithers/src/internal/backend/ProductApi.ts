@@ -1000,6 +1000,18 @@ export type HomeCard = {
   [key: string]: unknown
 }
 
+/** Coding fields for the credential's bound TODO. */
+export type TodoSystemRead = {
+  n: number
+  title: string
+  state: string
+  attempt: number
+  generation: number
+  workspace: string
+  run: string
+  base: string
+}
+
 /** One TODO as the TODO card shows it. TodoCardSchema in packages/rpc/src/TodoCard.ts is the full contract; members not listed here are kept. */
 export type TodoCard = {
   n: number
@@ -5725,7 +5737,7 @@ export interface GetApiTodosNEventsInput {
 export const getApiTodosNEvents = (transport: Transport, input: GetApiTodosNEventsInput): Promise<GetApiTodosNEventsResponse> =>
   transport.request("GET", `/api/todos/${segment(input.path.n)}/events${search({ cursor: input.query?.cursor })}`) as Promise<GetApiTodosNEventsResponse>
 
-export type GetApiTodosNResponse = TodoCard
+export type GetApiTodosNResponse = TodoCard | TodoSystemRead
 
 export interface GetApiTodosNInput {
   readonly path: { readonly n: number }

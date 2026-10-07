@@ -1624,6 +1624,18 @@ func (v HomeCard) MarshalJSON() ([]byte, error) {
 	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
+// TodoSystemRead — Coding fields for the credential's bound TODO.
+type TodoSystemRead struct {
+	N          int64  `json:"n"`
+	Title      string `json:"title"`
+	State      string `json:"state"`
+	Attempt    int64  `json:"attempt"`
+	Generation int64  `json:"generation"`
+	Workspace  string `json:"workspace"`
+	Run        string `json:"run"`
+	Base       string `json:"base"`
+}
+
 // TodoCard — One TODO as the TODO card shows it. TodoCardSchema in packages/rpc/src/TodoCard.ts is the full contract; members not listed here are kept.
 type TodoCard struct {
 	N                    int64                         `json:"n"`
@@ -5717,8 +5729,8 @@ func (c *Client) GetAPITodosNEvents(ctx context.Context, n int64, params GetAPIT
 }
 
 // GetAPITodosN calls GET /api/todos/{n}.
-func (c *Client) GetAPITodosN(ctx context.Context, n int64) (TodoCard, error) {
-	var out TodoCard
+func (c *Client) GetAPITodosN(ctx context.Context, n int64) (json.RawMessage, error) {
+	var out json.RawMessage
 	err := c.do(ctx, "GET", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10)), nil, nil, &out)
 	return out, err
 }
