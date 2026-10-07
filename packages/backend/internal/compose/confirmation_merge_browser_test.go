@@ -16,14 +16,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/smithersai/smithers/packages/backend/internal/live"
-	"github.com/smithersai/smithers/packages/backend/internal/revocation"
-	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/stretchr/testify/require"
 )
@@ -39,17 +35,7 @@ func runMergeConfirmationBrowser(t *testing.T, cfg *config.Config, pool *pgxpool
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'admin') ON CONFLICT(repository_id,user_id) WHERE user_id IS NOT NULL DO UPDATE SET permission='admin'`, repository, owner.ID)
 	require.NoError(t, err)
-	bus := revocation.NewBus(pool, q)
-	require.NoError(t, bus.Start(ctx))
-	routes.SetRevocationSource(bus)
-	defer routes.SetRevocationSource(nil)
-	topics := &liveTopics{queries: q, todos: todos, members: members}
-	liveHandler := &routes.LiveHandler{Hub: live.NewHub(ctx, nil), Queries: q, Origins: func() []string { return cfg.Server.AllowedOrigins }, Topics: topics.resolver}
-	router := githubAppSetupComposeRouter(cfg, pool, nil,
-		&routes.UserHandler{ProfileService: services.NewUserService(q)},
-		&routes.ApprovalsHandler{Service: services.NewApprovalsService(q, services.WithConfirmationTodos(pool, todos))},
-		routerExtras{Mythical: &routes.MythicalHandler{Service: todos}, Members: &routes.MembersHandler{Service: members}, Live: liveHandler})
-	api := withAppBootstrap(router, newAppBootstrap(bootstrapFeatures{install: true, identity: true, redirectAuth: true}), cors.Options{})
+	api := server.Config.Handler
 	app, err := filepath.Abs("../../../../apps/app")
 	require.NoError(t, err)
 	command := exec.CommandContext(ctx, "bun", "e2e/real/delegated-merge.browser.ts")
