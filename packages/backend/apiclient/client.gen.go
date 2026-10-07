@@ -1895,13 +1895,6 @@ type PostAPIBranchesBAddToStackResponse struct {
 	Confirmation *string `json:"confirmation,omitempty"`
 }
 
-// PostAPIBranchesBBody is generated from docs/api/openapi.yaml.
-type PostAPIBranchesBBody struct {
-	Op       string `json:"op"`
-	ID       string `json:"id"`
-	Revision string `json:"revision"`
-}
-
 // GetAPIBranchFileParams is the query of GET /api/branches/{b}/files/{path}.
 type GetAPIBranchFileParams struct {
 	At *string
@@ -2994,7 +2987,7 @@ func (c *Client) GetAPIBranchesB(ctx context.Context, b string) (Branch, error) 
 }
 
 // PostAPIBranchesB calls POST /api/branches/{b}.
-func (c *Client) PostAPIBranchesB(ctx context.Context, b string, idempotencyKey string, body PostAPIBranchesBBody) (json.RawMessage, error) {
+func (c *Client) PostAPIBranchesB(ctx context.Context, b string, idempotencyKey string, body any) (json.RawMessage, error) {
 	var out json.RawMessage
 	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/branches/"+url.PathEscape(b), nil, body, &out)
 	return out, err
