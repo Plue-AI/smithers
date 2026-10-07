@@ -140,7 +140,12 @@ export const verifyCiRun = ({ github, unpack, repo, landed, label }) => {
   }
   if (!evidence.rows.length) return refuse('label_absent', evidence)
   const failing = evidence.rows.filter(row => !PASSING.has(row.status))
-  return failing.length ? refuse('label_failed', evidence) : { pass: true, reason: 'pass', evidence }
+  if (failing.length) return refuse('label_failed', evidence)
+  // Artifact claims alone cannot authenticate success. Require GitHub's own
+  // completed successful check for this main workflow at the landed SHA.
+  const successful = checks.some(check => check.status === 'completed' && check.conclusion === 'success' &&
+    check.details_url?.startsWith(`https://github.com/${repo}/actions/runs/${run.id}/`))
+  return successful ? { pass: true, reason: 'pass', evidence } : refuse('check_not_successful', evidence)
 }
 
 /** A run that executed no tests is never a pass, whatever its exit code. */

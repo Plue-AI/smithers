@@ -299,7 +299,7 @@ const ciFixture = (overrides = {}) => {
     [earlier.toString(), [{ name: 'step.json', text: JSON.stringify({ version: 1, results: [{ label, status: 'ran', key: 'k' }] }) }]]
   ])
   const api = {
-    [`repos/o/r/commits/${L}/check-runs?per_page=100`]: { check_runs: [{ app: { slug: 'github-actions' }, head_sha: L, details_url: 'https://github.com/o/r/actions/runs/7/job/1', ...overrides.check }] },
+    [`repos/o/r/commits/${L}/check-runs?per_page=100`]: { check_runs: [{ app: { slug: 'github-actions' }, status: 'completed', conclusion: 'success', head_sha: L, details_url: 'https://github.com/o/r/actions/runs/7/job/1', ...overrides.check }] },
     'repos/o/r/actions/runs/7': { id: 7, head_sha: L, event: 'push', head_branch: 'main', path: '.github/workflows/ci.yml', repository: { full_name: 'o/r' }, status: 'completed', run_attempt: 2, html_url: 'https://github.com/o/r/actions/runs/7', ...overrides.run },
     'repos/o/r/actions/runs/7/attempts/2/jobs?per_page=100': { jobs: [{ name: 'test', conclusion: 'failure', run_attempt: overrides.testAttempt ?? 2 }, ...(overrides.jobs ?? [])] },
     'repos/o/r/actions/runs/7/artifacts?per_page=100': { artifacts: [
@@ -399,7 +399,7 @@ test('artifact unpacking is confined: symlinks, nested paths and oversize zips r
 test('unreadable results JSON refuses with a fixed reason and no file contents', () => {
   const L = 'a'.repeat(40); const bytes = Buffer.from('z')
   const api = {
-    [`repos/o/r/commits/${L}/check-runs?per_page=100`]: { check_runs: [{ app: { slug: 'github-actions' }, head_sha: L, details_url: 'https://github.com/o/r/actions/runs/7/job/1' }] },
+    [`repos/o/r/commits/${L}/check-runs?per_page=100`]: { check_runs: [{ app: { slug: 'github-actions' }, status: 'completed', conclusion: 'success', head_sha: L, details_url: 'https://github.com/o/r/actions/runs/7/job/1' }] },
     'repos/o/r/actions/runs/7': { id: 7, head_sha: L, event: 'push', head_branch: 'main', path: '.github/workflows/ci.yml', repository: { full_name: 'o/r' }, status: 'completed', run_attempt: 1 },
     'repos/o/r/actions/runs/7/attempts/1/jobs?per_page=100': { jobs: [] },
     'repos/o/r/actions/runs/7/artifacts?per_page=100': { artifacts: [{ id: 10, name: 'smthrs-results-test-0-1', workflow_run: { id: 7 }, expired: false, digest: digest(bytes) }] }
@@ -415,7 +415,7 @@ test('a partial rerun keeps each job leg at its newest attempt, and truncated li
   const rows = { a1: 'failed', b1: 'ran', a2: 'ran' }
   const artifact = (id, name, key) => ({ id, name, workflow_run: { id: 7 }, expired: false, digest: digest(bytes[key]) })
   const api = (extra = {}) => ({
-    [`repos/o/r/commits/${L}/check-runs?per_page=100`]: { check_runs: [{ app: { slug: 'github-actions' }, head_sha: L, details_url: 'https://github.com/o/r/actions/runs/7/job/1' }], ...extra.checks },
+    [`repos/o/r/commits/${L}/check-runs?per_page=100`]: { check_runs: [{ app: { slug: 'github-actions' }, status: 'completed', conclusion: 'success', head_sha: L, details_url: 'https://github.com/o/r/actions/runs/7/job/1' }], ...extra.checks },
     'repos/o/r/actions/runs/7': { id: 7, head_sha: L, event: 'push', head_branch: 'main', path: '.github/workflows/ci.yml', repository: { full_name: 'o/r' }, status: 'completed', run_attempt: 2 },
     'repos/o/r/actions/runs/7/attempts/2/jobs?per_page=100': { jobs: [{ name: 'a', conclusion: 'success', run_attempt: 2 }, { name: 'b', conclusion: 'success', run_attempt: 1 }], ...extra.jobs },
     'repos/o/r/actions/runs/7/artifacts?per_page=100': { artifacts: [artifact(1, 'smthrs-results-a-0-1', 'a1'), artifact(2, 'smthrs-results-b-0-1', 'b1'), artifact(3, 'smthrs-results-a-0-2', 'a2')], ...extra.artifacts }
@@ -475,7 +475,7 @@ test('a rate-limited CI read during closure defers the close instead of crashing
 test('an empty or non-JSON results file refuses the receipt (38L: a crashed run leaves 0 bytes)', () => {
   const L = 'a'.repeat(40); const bytes = Buffer.from('z')
   const api = {
-    [`repos/o/r/commits/${L}/check-runs?per_page=100`]: { check_runs: [{ app: { slug: 'github-actions' }, head_sha: L, details_url: 'https://github.com/o/r/actions/runs/7/job/1' }] },
+    [`repos/o/r/commits/${L}/check-runs?per_page=100`]: { check_runs: [{ app: { slug: 'github-actions' }, status: 'completed', conclusion: 'success', head_sha: L, details_url: 'https://github.com/o/r/actions/runs/7/job/1' }] },
     'repos/o/r/actions/runs/7': { id: 7, head_sha: L, event: 'push', head_branch: 'main', path: '.github/workflows/ci.yml', repository: { full_name: 'o/r' }, status: 'completed', run_attempt: 1 },
     'repos/o/r/actions/runs/7/attempts/1/jobs?per_page=100': { jobs: [] },
     'repos/o/r/actions/runs/7/artifacts?per_page=100': { artifacts: [{ id: 10, name: 'smthrs-results-test-0-1', workflow_run: { id: 7 }, expired: false, digest: digest(bytes) }] }
@@ -495,7 +495,7 @@ test('a crashed latest attempt (empty results) refuses the label; it never inher
     [crashed.toString(), [{ name: 'attempt.json', text: '{"version":1,"results":[]}' }, { name: '__run.json', text: '{"results":[],"version":1}' }]]
   ])
   const api = {
-    [`repos/o/r/commits/${L}/check-runs?per_page=100`]: { check_runs: [{ app: { slug: 'github-actions' }, head_sha: L, details_url: 'https://github.com/o/r/actions/runs/7/job/1' }] },
+    [`repos/o/r/commits/${L}/check-runs?per_page=100`]: { check_runs: [{ app: { slug: 'github-actions' }, status: 'completed', conclusion: 'success', head_sha: L, details_url: 'https://github.com/o/r/actions/runs/7/job/1' }] },
     'repos/o/r/actions/runs/7': { id: 7, head_sha: L, event: 'push', head_branch: 'main', path: '.github/workflows/ci.yml', repository: { full_name: 'o/r' }, status: 'completed', run_attempt: 2 },
     'repos/o/r/actions/runs/7/attempts/2/jobs?per_page=100': { jobs: [{ name: 'test', conclusion: 'failure', run_attempt: 2 }] },
     'repos/o/r/actions/runs/7/artifacts?per_page=100': { artifacts: [
@@ -686,4 +686,34 @@ test('spike-verdict accepts spike evidence only with the committed reviewer appr
     assert.equal(f.close([path],flags).code,0)
     assert.equal(f.writes.filter(args => args.includes('state_reason=completed')).length,1)
   } finally { f.cleanup() }
+})
+
+
+test('GitHub check success authenticates artifact claims at recorder and close boundaries', () => {
+  for (const change of [
+    {status: 'in_progress'}, {status: undefined}, {conclusion: 'failure'},
+    {conclusion: 'cancelled'}, {conclusion: 'neutral'}, {conclusion: 'skipped'},
+    {conclusion: undefined}, {details_url: 'https://github.com/foreign/repo/actions/runs/7/job/1'}
+  ]) {
+    const f = fixture()
+    try {
+      // Keep both the artifact bytes and their GitHub digest valid. Only the
+      // authenticated check-run record changes; neither boundary may trust it.
+      const paths = ['C-FIX-01', 'C-FIX-02'].map(f.evidence)
+      Object.assign(f.ci().responses[`repos/o/r/commits/${f.sha}/check-runs?per_page=100`].check_runs[0], change)
+      const recorded = f.recorded()
+      assert.equal(recorded.status, 1, recorded.stdout + recorded.stderr)
+      const receipt = JSON.parse(recorded.stdout).receipt
+      assert.equal(JSON.parse(readFileSync(join(f.root, receipt))).exit, 1)
+      const log = JSON.parse(readFileSync(join(f.root, receipt, '..', 'log.txt')))
+      assert.equal(log.reason, 'check_not_successful')
+      const closed = f.close(paths)
+      assert.equal(closed.code, 2)
+      assert.deepEqual(closed.out.checks, [
+        {check: 'C-FIX-01', receipt: paths[0], reason: 'failed'},
+        {check: 'C-FIX-02', receipt: paths[1], reason: 'failed'}
+      ])
+      assert.equal(f.writes.length, 0)
+    } finally { f.cleanup() }
+  }
 })

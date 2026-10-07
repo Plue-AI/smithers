@@ -66,7 +66,7 @@ Automation: \`smthrs test //fixture:canary\` · Runs in: CI
     zipFixture(join(root, 'ci'), join(root, 'artifact.zip'))
     const bytes = readFileSync(join(root, 'artifact.zip'))
     return cachedCi = { sha, repo, bytes, responses: {
-      [`repos/${repo}/commits/${sha}/check-runs?per_page=100`]: { check_runs: [{ app: { slug: 'github-actions' }, head_sha: sha, details_url: `https://github.com/${repo}/actions/runs/7/job/1` }] },
+      [`repos/${repo}/commits/${sha}/check-runs?per_page=100`]: { check_runs: [{ app: { slug: 'github-actions' }, status: 'completed', conclusion: 'success', head_sha: sha, details_url: `https://github.com/${repo}/actions/runs/7/job/1` }] },
       [`repos/${repo}/actions/runs/7`]: { id: 7, head_sha: sha, event: 'push', head_branch: 'main', path: '.github/workflows/ci.yml', repository: { full_name: repo }, status: 'completed', run_attempt: 1 },
       [`repos/${repo}/actions/runs/7/attempts/1/jobs?per_page=100`]: { jobs: [{ name: 'test', conclusion: 'success' }] },
       [`repos/${repo}/actions/runs/7/artifacts?per_page=100`]: { artifacts: [{ id: 10, name: 'smthrs-results-test-0-1', workflow_run: { id: 7 }, expired: false, digest: hash(bytes) }] }
