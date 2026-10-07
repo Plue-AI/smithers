@@ -551,7 +551,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	storageSetResolverTemplate := services.BuildStorageSetResolverTemplate(cfg.RepoHost.URL, activeStorageSetID)
 
-	storageSetResolver := services.NewDBStorageSetResolver(queries, storageSetResolverTemplate, options.RepositoryPlacement)
+	placement := options.RepositoryPlacement
+	if placement == nil && config.IsSingleOwner(cfg.Auth) {
+		placement = installRepositoryPlacement(activeStorageSetID)
+	}
+	storageSetResolver := services.NewDBStorageSetResolver(queries, storageSetResolverTemplate, placement)
 	repoHostClient := options.Repository
 	if repoHostClient == nil {
 		repoHostClient = repohost.NewClient(storageSetResolver, cfg.RepoHost.AuthToken, smithersMetrics)

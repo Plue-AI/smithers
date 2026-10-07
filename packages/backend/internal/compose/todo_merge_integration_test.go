@@ -40,6 +40,8 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	smitherscrypto "github.com/smithersai/smithers/packages/backend/internal/pkg/crypto"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
+	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
+	"github.com/smithersai/smithers/packages/backend/internal/repohostserver"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
@@ -234,6 +236,16 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		t.Setenv("SMITHERS_PUBLIC_URL", origin)
 		t.Setenv("SMITHERS_SERVER_ALLOWED_ORIGINS", origin)
 		t.Setenv("SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY", "merge-route-sealing-key")
+		native := repohostffi.New(os.Getenv("SMITHERS_FFI_LIBRARY_PATH"))
+		require.NoError(t, native.Load())
+		repositoryConfig := repohostserver.Config{StoragePath: t.TempDir(), AuthToken: "split-process-repo"}
+		_, err = native.InitRepo(repositoryConfig.RepoPath(owner.Username, repo.Name))
+		require.NoError(t, err)
+		repositoryHost, err := repohostserver.NewWithFFI(repositoryConfig, native)
+		require.NoError(t, err)
+		repositoryServer := httptest.NewServer(repositoryHost.Handler())
+		t.Cleanup(repositoryServer.Close)
+		t.Setenv("SMITHERS_REPO_HOST_URL", repositoryServer.URL)
 		api := startSplitProcess(t, Options{ChatHost: unusedChatHost{}})
 		spa, err := filepath.Abs("../../../../apps/app/dist")
 		require.NoError(t, err)
