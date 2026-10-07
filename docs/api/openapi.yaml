@@ -4551,7 +4551,12 @@ paths:
         steps and ordered events from the existing runtime journal; their cursor
         is the last complete journal entry. Missing retained entries produce gap
         and a cursor-free resubscription reads a fresh snapshot. Run reads require
-        branch access and never start a host. Snapshot-only topics update when their committed
+        branch access and never start a host. A pinned run includes flow_version with
+        flow_name, source_commit and digest from its admitted version, checked
+        against its runtime checkpoint; activating another version does not
+        change it. A scratch working-copy run has version "draft version" and
+        no flow_version. Legacy unversioned runs remain readable without inferred
+        version fields. Snapshot-only topics update when their committed
         facts change, every subscriber at the same cursor with the same
         bytes. A refused topic answers {"t":"err","id","code"} with
         unknown_topic, forbidden or unsupported, and the socket stays open.

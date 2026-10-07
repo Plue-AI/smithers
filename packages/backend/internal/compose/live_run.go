@@ -24,12 +24,12 @@ func (t *liveTopics) runSource(ctx context.Context, run string, repository, memb
 	if run == "" || repository <= 0 || member <= 0 {
 		return live.Source{}, live.UnknownTopic
 	}
-	var raw []byte
-	err := t.changePool.QueryRow(ctx, `SELECT d.external_receipt FROM product_job_dispatches d
+	var raw, admission []byte
+	err := t.changePool.QueryRow(ctx, `SELECT d.external_receipt, r.payload FROM product_job_dispatches d
 		JOIN product_job_requests r ON r.id=d.operation_id
 		WHERE r.operation=$1 AND d.external_receipt->>'runId'=$2
 		AND d.external_receipt->'target'->>'TenantID'=$3
-		ORDER BY r.created_at DESC LIMIT 1`, flowdispatch.OperationLaunch, run, "repository:"+strconv.FormatInt(repository, 10)).Scan(&raw)
+		ORDER BY r.created_at DESC LIMIT 1`, flowdispatch.OperationLaunch, run, "repository:"+strconv.FormatInt(repository, 10)).Scan(&raw, &admission)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return live.Source{}, live.UnknownTopic
 	}
@@ -44,7 +44,23 @@ func (t *liveTopics) runSource(ctx context.Context, run string, repository, memb
 	if err := authorize(ctx); err != nil {
 		return live.Source{}, live.Forbidden
 	}
-	reader := runProjectionReader{call: t.presence.dispatcher.CallRPC, target: checkpoint.Target, run: run}
+	var launch struct {
+		Target flowruntime.Target `json:"target"`
+		FlowID string             `json:"flowId"`
+		Pin    *flowruntime.Pin   `json:"pin"`
+	}
+	if json.Unmarshal(admission, &launch) != nil {
+		return live.Source{}, live.Unsupported
+	}
+	draft := checkpoint.Target.BindingKind == flowdispatch.DraftBindingKind
+	if launch.Pin != nil {
+		if draft || !launch.Pin.Valid() || launch.Target != checkpoint.Target || launch.FlowID != checkpoint.FlowID || launch.Pin.Flow != checkpoint.FlowID || launch.Pin.ExecutionDigest != checkpoint.ExecutionDigest {
+			return live.Source{}, live.Unsupported
+		}
+	}
+	// Legacy receipts without a pin retain their journal read. Only admitted
+	// metadata can name a version; reading never admits another TODO run.
+	reader := runProjectionReader{call: t.presence.dispatcher.CallRPC, target: checkpoint.Target, run: run, pin: launch.Pin, draft: draft}
 	return live.Source{Key: "run:" + run, Every: 250 * time.Millisecond, Log: &live.LogSource{Page: func(ctx context.Context, after *int64) (live.LogPage, error) {
 		if err := authorize(ctx); err != nil {
 			return live.LogPage{}, err
@@ -70,6 +86,8 @@ type runProjectionReader struct {
 	call   func(context.Context, flowruntime.Target, string, json.RawMessage) (json.RawMessage, error)
 	target flowruntime.Target
 	run    string
+	pin    *flowruntime.Pin
+	draft  bool
 }
 
 func (r runProjectionReader) snapshot(ctx context.Context, kind string, after *runProjectionCursor) (runProjectionSnapshot, error) {
@@ -190,7 +208,17 @@ func (r runProjectionReader) page(ctx context.Context, after *int64) (live.LogPa
 				return live.LogPage{Gap: true}, nil
 			}
 		}
-		data, err := json.Marshal(map[string]any{"summary": committedSummary, "steps": steps.Rows, "events": events})
+		projection := map[string]any{"summary": committedSummary, "steps": steps.Rows, "events": events}
+		if r.pin != nil {
+			if identity.FlowID != r.pin.Flow {
+				return live.LogPage{}, fmt.Errorf("run summary conflicts with admitted pin")
+			}
+			projection["flow_version"] = map[string]string{"flow_name": r.pin.Flow, "source_commit": r.pin.SourceCommit, "digest": r.pin.ExecutionDigest}
+		}
+		if r.draft {
+			projection["version"] = "draft version"
+		}
+		data, err := json.Marshal(projection)
 		return live.LogPage{Cursor: head, Data: data}, err
 	}
 	return live.LogPage{}, fmt.Errorf("run changed throughout snapshot read")

@@ -27,6 +27,7 @@ type liveRunFixture struct {
 	wrongRun   bool
 	wrongOrder bool
 	reads      int
+	flowID     string
 }
 
 func (f *liveRunFixture) CallRPC(_ context.Context, _ flowruntime.Target, procedure string, raw json.RawMessage) (json.RawMessage, error) {
@@ -54,7 +55,11 @@ func (f *liveRunFixture) CallRPC(_ context.Context, _ flowruntime.Target, proced
 		if f.head == 8 {
 			state = "completed"
 		}
-		rows = append(rows, json.RawMessage(fmt.Sprintf(`{"runId":"fixture-run","flowId":"fixture","status":%q,"statusRollup":{"sampledAt":%d}}`, state, f.reads)))
+		flow := f.flowID
+		if flow == "" {
+			flow = "fixture"
+		}
+		rows = append(rows, json.RawMessage(fmt.Sprintf(`{"runId":"fixture-run","flowId":%q,"status":%q,"statusRollup":{"sampledAt":%d}}`, flow, state, f.reads)))
 	case "run-tree":
 		if f.head >= 4 {
 			state := "running"
