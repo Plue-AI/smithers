@@ -112,8 +112,6 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "todo.takeover",
     "todo.unapprove",
     // Current MVP doors still owe real-host scenarios (#2290). These are gaps, never executed coverage.
-    "agent.claude",
-    "agent.codex",
     "auth.email",
     "background.dismiss",
     "background.retry",

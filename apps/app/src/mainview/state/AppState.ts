@@ -550,7 +550,7 @@ const savedDocsRead = (args?: string): string => {
   return JSON.stringify({ mode: "read", ...(page === undefined ? {} : { page }) })
 }
 const currentAction = <T extends { readonly flow: string; readonly args?: string }>(action: T): Omit<T, "flow" | "args"> & { flow: string; args?: string } => ({
-  ...action, flow: currentFlowName(action.flow), ...(action.flow === "debug.seams" ? { args: "--health" } : action.flow === "env.set" ? { args: undefined } : action.flow === "docs.read"
+  ...action, flow: currentFlowName(action.flow), ...(action.flow === "debug.seams" ? { args: "--health" } : ["env.set", "agent.codex", "agent.claude"].includes(action.flow) ? { args: undefined } : action.flow === "docs.read"
     ? { args: savedDocsRead(action.args) } : {})
 })
 const MessageActionSchema = MessageActionBaseSchema.transform(currentAction)

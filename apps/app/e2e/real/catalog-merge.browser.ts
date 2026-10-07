@@ -47,6 +47,7 @@ try {
   const help = page.getByRole("article", { name: "Commands", exact: true })
   await expect(help.getByText("/branch.archive <branch>", { exact: true })).toBeVisible()
   await help.getByText("Advanced", { exact: true }).click()
+  await expect(help.getByRole("button", { name: /agent\.(codex|claude)/ })).toHaveCount(0)
   await help.getByRole("button", { name: /debug-api/ }).click()
   const debug = page.getByRole("article", { name: "Debug API", exact: true })
   await expect(debug).toBeVisible()
