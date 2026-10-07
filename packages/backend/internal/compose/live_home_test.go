@@ -15,6 +15,9 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
+// Literal state inventory keeps the Home projection oracle independent.
+var homeStates = []string{"queued", "starting", "working", "needs_you", "paused", "failed", "in_review", "merged", "dropped"}
+
 // liveHomeTodos are TODO cards as GET /api/todos served them in a J4
 // rehearsal, plus failed, merged, paused and dropped copies.
 func liveHomeTodos(t *testing.T) []map[string]any {
