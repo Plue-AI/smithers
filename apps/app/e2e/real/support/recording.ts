@@ -8,8 +8,8 @@ import { z } from "zod"
 
 const review = z.object({
   candidate: z.string().regex(/^[a-f0-9]{40}$/),
-  operator: z.string().min(1),
-  reviewedBy: z.string().min(1),
+  operator: z.string().trim().min(1),
+  reviewedBy: z.string().trim().min(1),
   reviewedAt: z.string().datetime(),
   recording: z.string().min(1),
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
@@ -31,7 +31,8 @@ export async function retainReviewedRecording(input: {
   let approved: z.infer<typeof review>
   try { approved = review.parse(JSON.parse(await readFile(input.reviewPath, "utf8"))) }
   catch { throw refuse() }
-  if (approved.candidate !== input.candidate || approved.operator !== input.operator ||
+  if (approved.candidate !== input.candidate || approved.operator !== input.operator.trim() ||
+      approved.reviewedBy.toLowerCase() === approved.operator.toLowerCase() ||
       Date.parse(approved.reviewedAt) > Date.now()) throw refuse()
   if (await realpath(approved.recording) === await realpath(input.rawRecording)) throw refuse()
   const raw = await stat(input.rawRecording)

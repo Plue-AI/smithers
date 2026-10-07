@@ -24,7 +24,8 @@ will write this JSON before the test finishes:
 ```
 
 The completion hook retains only bytes matching that digest, on success or
-failure. Missing review, candidate/operator mismatch, partial capture, raw-file
+failure. Missing review, candidate/operator mismatch, self-review (including whitespace
+and case variations), blank reviewer, partial capture, raw-file
 aliases, empty files and digest mismatch refuse retention. Existing evidence
 is never overwritten. The raw capture is never copied and stays under the
 operator's control. Incomplete failed runs also require a full capture of the

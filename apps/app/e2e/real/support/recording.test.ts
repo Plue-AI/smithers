@@ -36,8 +36,12 @@ test("retains reviewed bytes with private permissions and leaves the raw capture
   expect((await readdir(f.dir)).some(name => name.startsWith(".recording-review-"))).toBe(false)
 }))
 
-for (const invalid of ["missing", "malformed", "candidate", "operator", "future", "partial", "unsafe", "digest", "changed", "empty", "raw", "raw-symlink", "raw-hardlink", "directory"] as const) {
+for (const invalid of ["self-review", "self-review-case", "self-review-space", "blank-reviewer", "missing", "malformed", "candidate", "operator", "future", "partial", "unsafe", "digest", "changed", "empty", "raw", "raw-symlink", "raw-hardlink", "directory"] as const) {
   test(`refuses ${invalid} recording without publishing bytes`, () => fixture(async f => {
+    if (invalid === "self-review") f.review.reviewedBy = f.review.operator
+    if (invalid === "self-review-case") f.review.reviewedBy = f.review.operator.toUpperCase()
+    if (invalid === "self-review-space") f.review.reviewedBy = `  ${f.review.operator}  `
+    if (invalid === "blank-reviewer") f.review.reviewedBy = "   "
     if (invalid === "missing") f.input.reviewPath = join(f.dir, "missing.json")
     if (invalid === "candidate") f.review.candidate = "b".repeat(40)
     if (invalid === "operator") f.review.operator = "different operator"
