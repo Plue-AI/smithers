@@ -702,3 +702,55 @@ func TestConfirmationMergeGitHubRefusalPostgres(t *testing.T) {
 	_, err = service.DecideConfirmation(h.ctx, row.ID, "approve", "refused-press")
 	requireConfirmationCode(t, err, "github_refused")
 }
+
+func TestBoundInstallCredentialReloadPostgres(t *testing.T) {
+	for _, scenario := range []string{"same grant", "replaced credential", "wrong principal", "removed member", "revoked session", "changed scopes"} {
+		t.Run(scenario, func(t *testing.T) {
+			f := newConfirmationFixture(t)
+			ctx := f.person
+			if scenario == "changed scopes" {
+				ctx = f.token("reload", "read:repository,write:repository,via:codex", true)
+			}
+			command := "todo.read"
+			decision, err := Authorize(ctx, f.q, command)
+			require.NoError(t, err)
+			subject := InstallSubject{RepositoryID: f.repo}
+			if scenario == "wrong principal" {
+				decision.UserID++
+			}
+			ctx = WithInstallAuthorization(ctx, command, decision, subject)
+			info := middleware.AuthInfoFromContext(ctx)
+			switch scenario {
+			case "replaced credential":
+				copy := *info
+				ctx = middleware.ContextWithAuthInfo(ctx, &copy)
+				info = &copy
+			case "removed member":
+				f.exec(`DELETE FROM collaborators WHERE repository_id=$1 AND user_id=$2`, f.repo, f.member.ID)
+			case "revoked session":
+				f.exec(`DELETE FROM auth_sessions WHERE session_key=$1`, info.SessionHash)
+			case "changed scopes":
+				f.exec(`UPDATE access_tokens SET scopes='read:repository,via:codex' WHERE id=$1`, info.TokenID)
+			}
+			tx, err := f.pool.Begin(t.Context())
+			require.NoError(t, err)
+			defer tx.Rollback(t.Context())
+			fresh, repository, err := lockInstallWriteCredential(ctx, tx, info)
+			if scenario != "same grant" {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, f.repo, repository)
+			require.NotSame(t, info, middleware.AuthInfoFromContext(fresh))
+			got, err := Authorize(fresh, nil, command, subject)
+			require.NoError(t, err)
+			require.Equal(t, decision, got)
+			_, err = Authorize(fresh, nil, "todo.new", subject)
+			require.Error(t, err)
+			subject.RepositoryID++
+			_, err = Authorize(fresh, nil, command, subject)
+			require.Error(t, err)
+		})
+	}
+}

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -18,6 +20,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
 )
@@ -29,7 +32,17 @@ func exerciseReviewMachine(t *testing.T, pool *pgxpool.Pool, service *services.M
 	ctx := t.Context()
 	store, err := jobs.NewStore(pool)
 	require.NoError(t, err)
-	runtime := &reviewRuntimeContract{head: strings.Repeat("a", 40), loseLaunch: true, failDelete: true}
+	root := t.TempDir()
+	binary := filepath.Join(root, "msb")
+	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\nif [ \"$1\" = list ]; then echo '[]'; else exit 99; fi\n"), 0700))
+	queue, err := microsandbox.New(ctx, microsandbox.Config{Root: filepath.Join(root, "runtime"), Binary: binary, CPUs: 2, MemoryMiB: 8192, DiskMiB: 32768, MaxRunningVMs: 1, HostProfile: &microsandbox.HostProfile{MemoryBytes: 64 << 30, PerfCores: 8, DiskFreeBytes: 140 << 30}, SkipQualification: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, queue.Close()) })
+	queue.SetCapacityReader(func(context.Context) (int, error) { return 1, nil })
+	personProviders := microsandbox.AdmissionProviders{Ready: func(context.Context, microsandbox.AdmissionRequest) error { return nil }, FreeDisk: func(context.Context) (int64, error) { return 140 << 30, nil }}
+	_, err = queue.WaitAdmission(ctx, personProviders, "person", "held", "owner", "terminal")
+	require.NoError(t, err)
+	runtime := &reviewRuntimeContract{queue: queue, head: strings.Repeat("a", 40), loseLaunch: true, failDelete: true}
 	source := &reviewSourceContract{}
 	machine := &reviewMachine{pool: pool, jobs: store, workspace: runtime, source: source}
 	resolver := &reviewResolverContract{machine: machine, runtime: runtime}
@@ -61,6 +74,15 @@ func exerciseReviewMachine(t *testing.T, pool *pgxpool.Pool, service *services.M
 	require.Equal(t, 503, refused.Code, refused.Body.String())
 	require.Zero(t, runtime.creates)
 	source.refusal = nil
+	machine.workspace = struct {
+		workspace.WorkspaceLifecycle
+		workspace.WorkspaceSourceRevisionResolver
+	}{runtime, runtime}
+	refused = call("adapter-no-admission")
+	require.Equal(t, 503, refused.Code, refused.Body.String())
+	require.Contains(t, refused.Body.String(), "review_admission_unavailable")
+	require.Zero(t, runtime.creates)
+	machine.workspace = runtime
 	accepted := call("adapter-review")
 	require.Equal(t, 202, accepted.Code, accepted.Body.String())
 	var admission services.ReviewAdmission
@@ -72,15 +94,54 @@ func exerciseReviewMachine(t *testing.T, pool *pgxpool.Pool, service *services.M
 		done <- background.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "review-adapter", Capacity: 1, Lease: time.Second, PollInterval: time.Millisecond, RetryDelay: time.Millisecond})
 	}()
 	defer func() { cancel(); require.NoError(t, <-done) }()
+	require.Eventually(t, func() bool {
+		for _, row := range queue.AdmissionSnapshot() {
+			if row.Actor == admission.OperationID {
+				return row.Class == "background" && row.State == "waiting" && row.Position == 1
+			}
+		}
+		return false
+	}, 5*time.Second, 10*time.Millisecond)
+	runtime.mu.Lock()
+	require.Zero(t, runtime.creates, "queued reviews never allocate a VM")
+	runtime.mu.Unlock()
+	_, err = queue.Request("person", "next-person", "Ben", "terminal")
+	require.NoError(t, err)
+	for _, row := range queue.AdmissionSnapshot() {
+		if row.Actor == admission.OperationID {
+			require.Equal(t, 2, row.Position)
+		}
+	}
+	queue.ConfirmAdmissionStop("held", false)
+	personProviders.Ready = func(_ context.Context, row microsandbox.AdmissionRequest) error {
+		if row.Class != "person" {
+			return microsandbox.ErrAdmissionNotReady
+		}
+		return nil
+	}
+	_, err = queue.WaitAdmission(ctx, personProviders, "person", "next-person", "Ben", "terminal")
+	require.NoError(t, err)
+	require.Equal(t, 1, queue.InUse())
+	runtime.mu.Lock()
+	require.Zero(t, runtime.creates, "a review cannot pass a waiting person")
+	runtime.mu.Unlock()
+	queue.ConfirmAdmissionStop("next-person", false)
 	scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repository), PrincipalID: fmt.Sprintf("user:%d", user)}
 	require.Eventually(t, func() bool {
 		op, e := store.Get(ctx, scope, admission.OperationID)
 		return e == nil && op.State == jobs.StateCompleted
 	}, 10*time.Second, 10*time.Millisecond)
 	runtime.mu.Lock()
+	require.Zero(t, queue.InUse(), "confirmed retirement releases the review slot")
+	for _, row := range queue.AdmissionSnapshot() {
+		if row.Actor == admission.OperationID {
+			require.Equal(t, "released", row.State)
+		}
+	}
 	require.Equal(t, 1, runtime.creates)
 	require.Equal(t, 2, runtime.launches, "lost launch reply reconnects the same application request")
 	require.Equal(t, 2, runtime.deletes, "failed retirement must retry")
+	require.Equal(t, 1, runtime.heldOnFailedDelete, "failed deletion retains capacity")
 	require.Equal(t, admission.OperationID, runtime.launch.ApplicationRequestID)
 	require.Equal(t, admission.Pin, *runtime.launch.Pin)
 	require.JSONEq(t, `{"repo":".","from":"9999999999999999999999999999999999999999","to":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","verify":true,"narrate":false}`, string(runtime.launch.Payload))
@@ -141,6 +202,8 @@ func (r *reviewResolverContract) ResolveExistingFlowRuntime(ctx context.Context,
 }
 
 type reviewRuntimeContract struct {
+	heldOnFailedDelete int
+	queue              *microsandbox.Runtime
 	workspace.WorkspaceLifecycle
 	flowruntime.Runtime
 	mu                             sync.Mutex
@@ -164,6 +227,9 @@ func (r *reviewRuntimeContract) InspectWorkspace(context.Context, string) (works
 func (r *reviewRuntimeContract) CreateWorkspace(_ context.Context, s workspace.WorkspaceSpec) (workspace.Workspace, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if err := r.queue.BindAdmissionMachine("workspace:"+s.ID, "review-vm"); err != nil {
+		return workspace.Workspace{}, err
+	}
 	r.creates++
 	r.id = s.ID
 	r.exists = true
@@ -174,10 +240,12 @@ func (r *reviewRuntimeContract) DeleteWorkspace(context.Context, string) error {
 	defer r.mu.Unlock()
 	r.deletes++
 	if r.failDelete {
+		r.heldOnFailedDelete = r.queue.InUse()
 		r.failDelete = false
 		return errors.New("lost delete reply")
 	}
 	r.exists = false
+	r.queue.ConfirmAdmissionStop("workspace:"+r.id, false)
 	return nil
 }
 func (r *reviewRuntimeContract) ResolveWorkspaceSourceRevision(context.Context, string) (string, error) {
@@ -200,4 +268,16 @@ func (r *reviewRuntimeContract) Launch(_ context.Context, l flowruntime.Launch) 
 func (*reviewRuntimeContract) Observe(context.Context, string, string, int) (flowruntime.Observation, error) {
 	output := `{"review":{"status":"success","ok":true,"comments":[{"path":"cache.ts","content":"Pinned adapter finding","startLine":20,"severity":"major","thinking":"private-thinking-canary"}]},"ui":{"html":"untrusted-html-canary"}}`
 	return flowruntime.Observation{Terminal: true, Run: flowruntime.Run{RunID: "review-engine-run", FlowID: "review", Status: "completed", FinalOutput: &output}}, nil
+}
+
+func (r *reviewRuntimeContract) FreeDisk(context.Context) (int64, error) { return 140 << 30, nil }
+func (r *reviewRuntimeContract) WaitAdmission(ctx context.Context, p microsandbox.AdmissionProviders, class, holder, actor, reason string) (context.Context, error) {
+	return r.queue.WaitAdmission(ctx, p, class, holder, actor, reason)
+}
+func (r *reviewRuntimeContract) CancelFailedAdmission(holder, actor string) {
+	r.queue.CancelFailedAdmission(holder, actor)
+}
+
+func (r *reviewRuntimeContract) AdmissionSnapshot() []microsandbox.AdmissionRequest {
+	return r.queue.AdmissionSnapshot()
 }

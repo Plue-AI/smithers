@@ -11,12 +11,25 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/workspace"
+	"time"
 )
 
 const reviewBindingKind = "review"
+
+// Ephemeral reviews share the runtime's one admission queue and slot accounting.
+// Retirement relies on runtime-confirmed deletion, never a job's completion.
+type reviewMachineAdmission interface {
+	FreeDisk(context.Context) (int64, error)
+	WaitAdmission(context.Context, microsandbox.AdmissionProviders, string, string, string, string) (context.Context, error)
+	CancelFailedAdmission(string, string)
+	AdmissionSnapshot() []microsandbox.AdmissionRequest
+}
 
 // reviewSource is the shared pinned-loader/read-credential boundary, not a
 // second loader. Prepare verifies availability, digest, and the qualified root
@@ -68,7 +81,13 @@ func (m *reviewMachine) Prepare(ctx context.Context, a services.ReviewAdmission)
 	if _, ok := m.workspace.(workspace.WorkspaceSourceRevisionResolver); !ok {
 		return reviewRefusal("review_source_unavailable")
 	}
-	return m.source.Prepare(ctx, a)
+	if err := m.source.Prepare(ctx, a); err != nil {
+		return err
+	}
+	if _, ok := m.workspace.(reviewMachineAdmission); !ok {
+		return reviewRefusal("review_admission_unavailable")
+	}
+	return nil
 }
 
 func reviewWorkspaceID(operation string) string {
@@ -84,7 +103,7 @@ func reviewMachineContext(ctx context.Context, operation, action string, a servi
 	return workspace.WithOperation(ctx, workspace.Operation{TenantID: user, PrincipalID: user, OperationID: "review:" + operation + ":" + action})
 }
 
-func (m *reviewMachine) Start(ctx context.Context, operation string, a services.ReviewAdmission) (string, error) {
+func (m *reviewMachine) Start(ctx context.Context, operation string, a services.ReviewAdmission) (runRef string, startErr error) {
 	if err := m.Prepare(ctx, a); err != nil {
 		return "", err
 	}
@@ -99,6 +118,63 @@ func (m *reviewMachine) Start(ctx context.Context, operation string, a services.
 	if err != nil {
 		return "", err
 	}
+	queue := m.workspace.(reviewMachineAdmission) // Prepare checked the shared runtime.
+	holder := "workspace:" + target.WorkspaceID
+	ctx, err = queue.WaitAdmission(ctx, microsandbox.AdmissionProviders{
+		FreeDisk: queue.FreeDisk,
+		Ready: func(ctx context.Context, request microsandbox.AdmissionRequest) error {
+			// A different caller must validate its own authority. A review's
+			// source qualification cannot grant a person's or TODO's demand.
+			if request.Holder != holder || request.Actor != operation || request.Class != "background" {
+				return microsandbox.ErrAdmissionNotReady
+			}
+			if _, err := m.ResolveFlowHostTarget(ctx, target); err != nil {
+				return err
+			}
+			// A person may be removed while this background request waits.
+			// Reload the accepted credential at the actual grant boundary.
+			job, err := m.jobs.Get(ctx, jobs.Scope{TenantID: target.TenantID, PrincipalID: target.PrincipalID}, operation)
+			if err != nil {
+				return err
+			}
+			var credential middleware.Credential
+			if err := json.Unmarshal(job.AuthorizationContext, &credential); err != nil {
+				return err
+			}
+			q := db.New(m.pool)
+			info, err := middleware.ReloadCredential(ctx, q, credential, time.Now())
+			if err != nil {
+				return err
+			}
+			if !middleware.BindInstallCredential(info) || info.User.ID != a.RequesterID {
+				return reviewRefusal("review_credential_unavailable")
+			}
+			if _, err := services.Authorize(middleware.ContextWithAuthInfo(ctx, info), q, "review"); err != nil {
+				return err
+			}
+			role, err := services.InstallRoleOf(ctx, q, a.AuthorID)
+			if err != nil {
+				return err
+			}
+			if role == "" {
+				return reviewRefusal("review_non_member")
+			}
+			return m.Prepare(ctx, a)
+		},
+	}, "background", holder, operation, "review")
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		if startErr == nil {
+			return
+		}
+		// Only a proven absent VM permits abandoning an unused grant. Lost
+		// launch replies retain their slot and reconnect the same operation.
+		if _, err := m.workspace.InspectWorkspace(context.WithoutCancel(ctx), target.WorkspaceID); errors.Is(err, workspace.ErrWorkspaceNotFound) {
+			queue.CancelFailedAdmission(holder, operation)
+		}
+	}()
 	current, err := m.workspace.InspectWorkspace(ctx, target.WorkspaceID)
 	if errors.Is(err, workspace.ErrWorkspaceNotFound) {
 		current, err = m.workspace.CreateWorkspace(ctx, workspace.WorkspaceSpec{ID: target.WorkspaceID})
@@ -199,6 +275,13 @@ func (m *reviewMachine) Retire(ctx context.Context, operation string, a services
 	}
 	if err := m.workspace.DeleteWorkspace(ctx, id); err != nil && !errors.Is(err, workspace.ErrWorkspaceNotFound) {
 		return err
+	}
+	if queue, ok := m.workspace.(reviewMachineAdmission); ok {
+		for _, row := range queue.AdmissionSnapshot() {
+			if row.Holder == "workspace:"+id && row.Actor == operation && (row.State == "waiting" || row.State == "granted") {
+				queue.CancelFailedAdmission(row.Holder, row.Actor)
+			}
+		}
 	}
 	_, err := m.pool.Exec(ctx, `DELETE FROM workspaces WHERE id=$1 AND repository_id=$2 AND user_id=$3`, id, a.RepositoryID, a.RequesterID)
 	return err

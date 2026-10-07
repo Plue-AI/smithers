@@ -181,6 +181,22 @@ func lockInstallCredential(ctx context.Context, tx pgx.Tx, info *middleware.Auth
 	if fresh.User.ID != info.User.ID {
 		return ctx, 0, confirmationPermission()
 	}
+	// Only this authenticated reload may carry the existing command grant
+	// onto a fresh credential object. Dispatchers still cannot replace it.
+	if binding, ok := ctx.Value(installAuthorizationKey{}).(boundInstallAuthorization); ok {
+		if binding.credential != info || binding.decision.UserID != fresh.User.ID || info.RawScopes != fresh.RawScopes || info.CredentialKind() != fresh.CredentialKind() {
+			return ctx, 0, confirmationPermission()
+		}
+		role, err := InstallRoleOf(ctx, q, fresh.User.ID)
+		if err != nil {
+			return ctx, 0, err
+		}
+		if role == "" {
+			return ctx, 0, confirmationPermission()
+		}
+		binding.credential = fresh
+		ctx = context.WithValue(ctx, installAuthorizationKey{}, binding)
+	}
 	return middleware.ContextWithAuthInfo(ctx, fresh), repository, nil
 }
 
