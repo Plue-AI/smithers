@@ -87,6 +87,9 @@ func TestOutsideNotesMachineEventsProductionLiveBinding(t *testing.T) {
 			var count int
 			require.NoError(t, f.pool.QueryRow(context.Background(), `SELECT count(*) FROM product_job_requests WHERE operation=$1`, flowdispatch.OperationSignal).Scan(&count))
 			require.Equal(t, 5, count, "five committed bursts, including a host actor reference; the transport replay admits none")
+			var fact []byte
+			require.NoError(t, f.pool.QueryRow(context.Background(), `SELECT data->'actor' FROM product_job_events WHERE event_type='branch.burst' AND data->>'id'=$1`, "01000000-0000-0000-0000-000000000000").Scan(&fact))
+			require.JSONEq(t, `{"kind":"person","id":"member:2","member_id":"2","via":"ssh"}`, string(fact), "the watcher keeps its stable actor identity")
 			var raw []byte
 			require.NoError(t, f.pool.QueryRow(context.Background(), `SELECT payload FROM product_job_requests WHERE request_id=$1`, "outside-change:"+f.row.ID+":01000000-0000-0000-0000-000000000000").Scan(&raw))
 			var saved struct {
@@ -109,5 +112,10 @@ func TestOutsideNotesMachineEventsProductionLiveBinding(t *testing.T) {
 			require.Equal(t, "run:retained-attempt", saved.Payload.Actor["id"])
 		})
 		return &machined.OutsideChangeNotes{Runs: &machined.PinnedCodingNoteRuns{Host: noteHostContractFixture{}}, Dispatcher: dispatcher}
+	}, func(f presenceInstallFixture) {
+		// A display-name change after commit must not alter the watcher fact's
+		// identity on transport replay or insert a second note.
+		_, err := f.pool.Exec(t.Context(), `UPDATE users SET display_name='Bob' WHERE id=$1`, f.user.ID)
+		require.NoError(t, err)
 	})
 }

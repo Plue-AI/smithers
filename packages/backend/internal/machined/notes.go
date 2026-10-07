@@ -3,7 +3,9 @@ package machined
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -84,6 +86,13 @@ func (s *OutsideChangeNotes) Admit(ctx context.Context, tx pgx.Tx, branch, burst
 	if participant.Kind == "agent" && participant.ID == run.ParticipantID {
 		return nil
 	}
+	// Display names belong to this durable note, not the watcher's burst
+	// identity. Changing a profile after commit must leave transport replay
+	// bound to the same fact and the first note's literal attribution.
+	actor, err = outsideNoteActorName(ctx, tx, actor)
+	if err != nil {
+		return err
+	}
 	payload, err := json.Marshal(map[string]any{"kind": "outside_change", "id": burst, "actor": actor, "files": files, "targetLineageId": run.LineageID})
 	if err != nil {
 		return err
@@ -97,4 +106,37 @@ func (s *OutsideChangeNotes) Admit(ctx context.Context, tx pgx.Tx, branch, burst
 		Target: run.Target, FlowID: run.FlowID, RunID: run.RunID, Name: "outside_change", Payload: payload, AuthorizationContext: authority,
 	})
 	return err
+}
+
+func outsideNoteActorName(ctx context.Context, tx pgx.Tx, actor json.RawMessage) (json.RawMessage, error) {
+	var identity struct {
+		Kind   string `json:"kind"`
+		Member string `json:"member_id"`
+		Name   string `json:"name"`
+	}
+	if json.Unmarshal(actor, &identity) != nil || identity.Kind != "person" || identity.Member == "" || identity.Name != "" {
+		return actor, nil
+	}
+	member, err := strconv.ParseInt(identity.Member, 10, 64)
+	if err != nil || member <= 0 {
+		return actor, nil
+	}
+	var name string
+	err = tx.QueryRow(ctx, `SELECT COALESCE(NULLIF(display_name,''),username) FROM users WHERE id=$1`, member).Scan(&name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Historical attribution survives a missing current profile.
+		return actor, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(actor, &fields); err != nil {
+		return nil, err
+	}
+	fields["name"], err = json.Marshal(name)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(fields)
 }

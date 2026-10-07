@@ -37,7 +37,7 @@ func TestMachineEventsProductionLiveBinding(t *testing.T) {
 	testMachineEventsProductionLiveBinding(t, nil)
 }
 
-func testMachineEventsProductionLiveBinding(t *testing.T, configure func(presenceInstallFixture) *machined.OutsideChangeNotes) {
+func testMachineEventsProductionLiveBinding(t *testing.T, configure func(presenceInstallFixture) *machined.OutsideChangeNotes, afterFirst ...func(presenceInstallFixture)) {
 	f := presenceInstall(t, true)
 	var notes *machined.OutsideChangeNotes
 	if configure != nil {
@@ -210,6 +210,9 @@ func testMachineEventsProductionLiveBinding(t *testing.T, configure func(presenc
 	first := event(1, 1, principal(person))
 	send(first, machined.AckApplied)
 	readBursts(&one)
+	for _, change := range afterFirst {
+		change(f)
+	}
 	send(first, machined.AckDuplicate)
 	readBursts(&one)
 	send(event(2, 2, wire.Union(4)), machined.AckApplied)
