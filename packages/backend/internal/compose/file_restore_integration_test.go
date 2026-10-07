@@ -246,6 +246,10 @@ func TestFileRestoreCommandBoundary(t *testing.T) {
 	// fixture's binding before granting write access to another member.
 	_, err = f.pool.Exec(ctx, `UPDATE flow_runtime_host_bindings SET state='retired' WHERE workspace_id=$1 AND catalog_key='coding'`, f.row.ID)
 	require.NoError(t, err)
+	// Retire the fixture's coding host before the independent member case.
+	// This case grants sharing only after private execution has ended.
+	_, err = f.pool.Exec(ctx, `UPDATE flow_runtime_host_bindings SET state='retired' WHERE workspace_id=$1 AND catalog_key='coding'`, f.row.ID)
+	require.NoError(t, err)
 	_, err = f.pool.Exec(ctx, `INSERT INTO workspace_shares(workspace_id,owner_user_id,grantee_user_id,level) VALUES($1,$2,$3,'write')`, f.row.ID, f.user.ID, member.ID)
 	require.NoError(t, err)
 	sum := sha256.Sum256([]byte("w6-member-cookie"))
