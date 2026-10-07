@@ -3,8 +3,7 @@
 Stage S1 · Size S · Depends on — · Unblocks T-MCH-01, T-REL-02 · Issue: [#3615](https://github.com/smithersai/smithers/issues/3615)
 Spec: spec.md §21.4–§21.4a · Delta: delta.md §11 (one check runner) · Product: mvp.md §12 item 1 (acceptance evidence), M-29 · Owner: smithers-22
 Rescoped by the minimal-code synthesis, 2026-10-03 (v2 ruling 3; v1 §6 host-profile readers). #3663 is re-scoped to this ticket.
-Ready: 2026-10-03 smithers-8a sha256:95198577c4ce
-Landed: 2026-10-06 smithers-8a (backfill audit, #3738) a109c5d0ca, 4e03c27d57
+Ready: 2026-10-06 smithers-8a sha256:607d3a4fc61d
 
 ## Goal
 A ticket closes only with a machine-written receipt for every named check, bound to `--landed <sha>`, and one check runner writes those receipts. A receipt is `.artifacts/checks/<id>/<ts>/receipt.json` with `{version: 1, check, commit, layer, command, exit, started, ended, log_digest}`; `commit` is a full SHA, `exit` an integer, times ISO UTC, `log_digest` `sha256:<hex>`. A receipt records CI's own result for the check's target at the landed SHA; it executes nothing locally.
@@ -14,7 +13,7 @@ In:
 - One runner, `scripts/check-run.mjs` (landed a109c5d0c). It maps Automation through `scripts/check-commands.json` to an approved smthrs target on CI, reads the check and mapping with `git show` at the required `--landed <sha>`, and records CI's own result. Argv mappings are not executable; map the check to a smthrs target. Absent, unwritten or unparsable mappings and non-CI hosts refuse.
 - `scripts/issue-claim.mjs` close gate through `scripts/check-evidence.mjs` (`issue-claim.mjs:42`): every `comment --close` variant needs `--landed <sha>`, a full SHA that is an ancestor of `origin/main`, and passing receipts for the check IDs derived from the ticket. Receipts and logs resolve under `.artifacts/checks/` with no symlinks, no `..` and realpath confinement. Refusal exits 2 with `action: "evidence-refused"` and per-check `{check, receipt?, reason: missing|coverage|failed|commit|digest}`, distinct from held-claim `action: "refused"`. `--force` and `--note` never bypass evidence.
 - Non-landing closes: `--reason not-planned|duplicate|superseded --note <link>` close with GitHub's `state_reason` and no receipts, never as completed.
-- Enforcement is on with no switch. Each new check implementation adds its mapping in the same change. NEEDS-OWNER and MANUAL entries remain uncloseable until an approved CI target supplies evidence; an owner signature alone does not bypass the gate. C-PRC-03 proves both markers refuse.
+- Enforcement is on with no switch. Each new check implementation adds its mapping in the same change. NEEDS-OWNER and MANUAL entries remain uncloseable until an approved CI or `reference-host` target supplies evidence; an owner signature alone does not bypass the gate. The one exception is a `Layer: spike` check, which closes with reason `spike-verdict` when its evidence directory exists and its verdict comment carries the named reviewer's approval (8a #3471 decision, 2026-10-06). C-PRC-03 proves both markers refuse.
 - No new ticket code or schema is called: Depends on remains empty. Missing CI results, unapproved mappings and unavailable targets fail closed per check, without disabling the close gate. Lands dark until T-SEC-01 for mappings that rely on R1–R3: keep them pending-owner until its root-validation checks pass. Apply the same refusal until T-MCH-10 for R4 and T-FLW-01 for R5. These are mapping activation conditions, not recorder dependencies (C-PRC-03/root-check-mapping-validation).
 
 Out: product runtime, check implementations, live-issue closure in tests, claim arbitration, release policy, a hosted evidence service, any bypass, local Automation execution, a second runner or qualifier, new host-profile readers, machine/bootstrap/toolchain/root setup, reference-host execution support and manual-receipt approval APIs.
@@ -54,6 +53,14 @@ Fail when:
 
 ## Acceptance
 - [C-PRC-03](../checks/C-PRC-03.md): every Pass when assertion holds.
+
+## 2026-10-06 amendment (8a; #3471 and 22's strict check on #3738)
+Not landed: 22's strict check (#3738, comment 6029279029) found the scope open, so the backfilled `Landed:` line is removed. Open items:
+- `validMapping` accepts `host: "reference-host"` beside `CI`, still `approvedBy: smithers-22` and no argv (#3471 path 1); the self-hosted runner itself is 3f's.
+- The `spike-verdict` close reason, limited to `Layer: spike` with an existing evidence path and the reviewer's approval on the issue (#3471 path 2); test it at the recorder and close boundaries like the other markers.
+- Bring the check inventory up to date with every check file on main (today: C-RMT-01..06, C-FM-01..02, C-MCH-12, C-UI-14), each with its marker or approved mapping.
+- Record at least one approved mapping, so `mappingsApprovedBy` is not null.
+Write the `Landed:` line when all four are on main.
 
 ## Risks and notes
 - Use an isolated fixture writer; the check closes no live issue. Before enforcement, smithers-22 inventories mappings and smithers-8a accepts coverage; an unimplemented check stays uncloseable, not waived.
