@@ -41,8 +41,8 @@ for (const [check, file, name, points] of selected) {
       .matchAll(/^func (Test\w+)\(t \*testing\.T\)/gm)]
       .map((match) => match[1]!).filter((entry) => !entry.includes("Child"))
     expect(names.length, `No acceptance tests in ${file}`).toBeGreaterThan(0)
-    // Candidate controls exercise outbound recovery while T-GH-09's native
-    // proposal binding is unavailable. They cannot satisfy the production
+    // Candidate controls exercise outbound recovery without qualifying the
+    // sandboxed native proposal binding. They cannot satisfy the production
     // propose marker, even when every outbound crossing passes.
     const githubControl = file === "internal/compose/github_outbound_kill_test.go"
     const evidenceNames = githubControl

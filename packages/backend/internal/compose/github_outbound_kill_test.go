@@ -30,9 +30,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// This control substitutes the accepted candidate/review receipts while
-// T-GH-09's packaged stack.propose binding is unavailable. It exercises the
-// composed browser callers and production worker, not joint C-DUR-03 acceptance.
+// This supplemental control substitutes accepted candidate/review receipts.
+// It exercises composed browser callers and the production worker, not the
+// sandboxed candidate capture and proposal admission required by C-DUR-03.
 // The required matrix also demands github-production-propose, which this
 // fixture deliberately cannot emit. Never qualify the substitution as a run.
 func TestGitHubOutboundKillComposedCandidateControl(t *testing.T) {
