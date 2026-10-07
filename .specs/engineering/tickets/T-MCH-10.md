@@ -3,6 +3,7 @@
 Stage S1 · Size M · Depends on — · Unblocks T-APP-02, T-APP-03, T-FLW-02, T-FLW-05, T-INS-06, T-MCH-01 · Issue: [#3439](https://github.com/smithersai/smithers/issues/3439)
 Spec: spec.md §8.6, §16.2 steps 5–6, §14.3 Setup · Delta: delta.md §3 (toolchain detector row) · Product: mvp.md J1.3, J1.4, §6.1 Machine image without declarations, M-29
 Ready: 2026-10-03 smithers-8a sha256:73acf3c70795
+Landed: 2026-10-06 smithers-22 (finish-first audit, #3738) 7a5ab6140c, 617c991b3e, 0ecf139ad1, ac8a20b256, 8c2f6817ee, 1287383dd5, 263c41d3d8
 
 Rescoped by the minimal-code synthesis, 2026-10-03 (v2 "Reuse named in tickets"; v2 reverts, `7a5ab6140`). Landed in part: `7a5ab6140`, `617c991b3`, `0ecf139ad`. What remains is the rework below.
 

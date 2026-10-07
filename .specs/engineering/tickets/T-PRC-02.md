@@ -3,6 +3,7 @@
 Stage S1 · Size S · Depends on — · Unblocks — · Issue: [#3614](https://github.com/smithersai/smithers/issues/3614)
 Spec: spec.md §21.3 · Delta: delta.md (engineering process) · Product: mvp.md §12.1 (acceptance evidence) · Owner: smithers-3f + smithers-8a
 Ready: 2026-10-03 smithers-8a sha256:ee84fb18860c
+Landed: 2026-10-06 smithers-22 (finish-first audit, #3738) a7d1b3cf1b, f810f08a98, 7918f29c84, e692d988ba, a996d6c189, c2e962b893, 263c41d3d8
 
 ## Goal
 
