@@ -74,8 +74,11 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Origin", "http://example.com")
 		req.Header.Set("Idempotency-Key", key)
+		req.AddCookie(&http.Cookie{Name: "session", Value: sessions[i]})
+		req.Header.Set("Smithers-Via", "smithers")
+		req.Header.Set("Smithers-Actor", "person")
+		req.Header.Set("Smithers-Profile", "app_agent")
 		if person {
-			req.AddCookie(&http.Cookie{Name: "session", Value: sessions[i]})
 			req.AddCookie(&http.Cookie{Name: "__csrf", Value: "matrix-csrf"})
 			req.Header.Set("X-CSRF-Token", "matrix-csrf")
 		} else {

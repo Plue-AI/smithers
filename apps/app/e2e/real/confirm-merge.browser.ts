@@ -43,7 +43,7 @@ const browser = await chromium.launch({ headless: true })
 try {
   const api = async (path: string, method = "GET", body?: unknown, agent = false, key = "fixture") => {
     const response = await fetch(`${origin}${path}`, { method, headers: { Origin: origin, "Content-Type": "application/json", "Idempotency-Key": key,
-      ...(agent ? { Authorization: `Bearer ${token}` } : { Cookie: "session=maya-browser-session; __csrf=csrf", "X-CSRF-Token": "csrf" }) },
+      ...(agent ? { Authorization: `Bearer ${token}`, "Smithers-Via": "codex", "Smithers-Actor": "person", "Smithers-Profile": "app_agent" } : { Cookie: "session=maya-browser-session; __csrf=csrf", "X-CSRF-Token": "csrf" }) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
     const value = await response.json()
     return { status: response.status, value }
@@ -71,6 +71,15 @@ try {
   const commit = page.locator('[data-kind="confirm"] [data-flow="approval.approve"]').filter({ hasText: "Commit" })
   await expect(commit).toBeVisible({ timeout: 90_000 })
   await expect(page.getByTestId("transcript")).toContainText("Retain the exact private prompt.")
+  // The credential's issuer owns attribution. Neither a forged via nor an
+  // accompanying person session can turn an agent request into an approval.
+  await expect(page.locator('[data-kind="confirm"]')).toContainText("Claude Code for Maya")
+  const agentApproval = await api(`/api/confirmations/${created.value.confirmation}/approve`, "POST", {}, true, "agent-press")
+  expect(agentApproval.status).toBe(403)
+  expect(agentApproval.value.class).toBe("permission")
+  expect(agentApproval.value.code).toBe("permission")
+  expect((await api("/api/todos")).value).toEqual([])
+
 
   const stranger = await browser.newContext()
   await stranger.addCookies([{ name: "session", value: "ben-browser-session", url: origin, httpOnly: true }, { name: "__csrf", value: "csrf", url: origin }])
