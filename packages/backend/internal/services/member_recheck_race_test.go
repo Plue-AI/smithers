@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -36,6 +38,7 @@ func TestMemberRecheckConcurrentRosterPostgres(t *testing.T) {
 			repo, err := q.CreateRepo(ctx, db.CreateRepoParams{UserID: pgtype.Int8{Int64: owner.ID, Valid: true}, Name: "app", LowerName: "app", DefaultBookmark: "main"})
 			require.NoError(t, err)
 			require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(fmt.Sprintf(`{"owner_login":"acme","repository_name":"app","repository_id":%d}`, repo.ID))}))
+			require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "owner.access", Value: []byte(fmt.Sprintf(`{"owner_login":"acme","repository_name":"app","repository_id":%d,"last_access_check_at":"2026-10-07T00:00:00Z"}`, repo.ID))}))
 			var userID *int64
 			if mode != "first sign-in" {
 				userID = &writer.ID
@@ -103,7 +106,11 @@ func TestMemberRecheckConcurrentRosterPostgres(t *testing.T) {
 			case <-ctx.Done():
 				t.Fatal(ctx.Err())
 			}
-			asOwner := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: "owner-session"})
+			sessionDigest := sha256.Sum256([]byte("owner-session"))
+			sessionHash := hex.EncodeToString(sessionDigest[:])
+			_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: owner.ID, Username: owner.Username, SessionKey: sessionHash, ExpiresAt: time.Now().Add(time.Hour)})
+			require.NoError(t, err)
+			asOwner := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: sessionHash})
 			if mode == "first sign-in" {
 				require.NoError(t, m.LinkGitHub(ctx, 102, writer.ID, "writer"))
 			} else {
