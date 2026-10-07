@@ -29,7 +29,8 @@ paths:
       x-composition: install
       summary: Answer the displayed stack attention
       operationId: post_api_stack_attention_id
-      tags: [Todos]
+      tags:
+        - Todos
       security: [{sessionCookie: []}]
       parameters:
         - name: id
@@ -41,20 +42,12 @@ paths:
         content:
           application/json:
             schema:
-              oneOf:
-                - type: object
-                  additionalProperties: false
-                  required: [revision]
-                  properties:
-                    revision: {type: integer, minimum: 1}
-                - type: object
-                  additionalProperties: false
-                  required: [old, new]
-                  properties:
-                    old: {type: string, pattern: '^[0-9a-f]{40}$'}
-                    new: {type: string, pattern: '^[0-9a-f]{40}$'}
+              type: object
+              additionalProperties: false
+              required: [revision]
+              properties:
+                revision: {type: integer, minimum: 1}
       responses:
-        '200': {description: Main reset settled by the install owner}
         '204': {description: Order attention settled by the current maintainer; same-person same-revision replay is idempotent}
         '400': {description: Invalid revision}
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}

@@ -15,6 +15,7 @@ export const stubCommandActions = (overrides: Partial<CommandActions> = {}): Com
   get identityProvider(): never { return unexpected() },
   get repositoryApp(): never { return unexpected() },
   dismissHint: unexpected,
+  orderOK: unexpected,
   repositoryFlows: () => undefined,
   knownRepositories: () => new Set<string>(),
   changeDraft: unexpected,
