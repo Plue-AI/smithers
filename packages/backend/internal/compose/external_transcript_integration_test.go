@@ -20,6 +20,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/ports"
 	"github.com/stretchr/testify/require"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -112,8 +113,8 @@ func TestExternalImportCommitReplay(t *testing.T) {
 	registry := new(machined.Registry)
 	authority, err := registry.MintBoot(branch.ID, "vm-external")
 	require.NoError(t, err)
-	connection, err := registry.Admit(authority.ID, []byte(authority.Credential), io.NopCloser(strings.NewReader("")))
-	require.NoError(t, err)
+	link, peer := externalTranscriptLink(t, registry, branch.ID, authority)
+	connection := link.Connection
 	participant := [16]byte{1}
 	source := [16]byte{2}
 	scope := chat.Scope{RepositoryID: repo.ID, UserID: ben.ID, Owner: "ben"}
@@ -141,16 +142,30 @@ func TestExternalImportCommitReplay(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts`).Scan(&receipts))
 	require.Zero(t, receipts)
 	fail = false
-	ack, err := ingestor.Commit(ctx, connection, branch.ID, event)
-	require.NoError(t, err)
-	require.Equal(t, machined.AckApplied, ack.Outcome)
+	// Commit on the authenticated production link while the peer deliberately
+	// does not consume its acknowledgment. Closing it then forces outbox replay.
+	dispatched := make(chan error, 1)
+	go func() { dispatched <- ingestor.Dispatch(ctx, link, branch.ID) }()
+	require.NoError(t, wire.Write(peer, transcriptEventFrame(event)))
+	require.Eventually(t, func() bool {
+		return pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts WHERE outcome='applied'`).Scan(&receipts) == nil && receipts == 1
+	}, 3*time.Second, 10*time.Millisecond)
+	require.NoError(t, peer.Close())
+	require.Error(t, <-dispatched)
 	// Lost acknowledgment and a new host/store instance retain the same history.
 	store, err = chat.NewStore(pool)
 	require.NoError(t, err)
 	writer.Store = store
-	ack, err = ingestor.Commit(ctx, connection, branch.ID, event)
+	link, peer = externalTranscriptLink(t, registry, branch.ID, authority)
+	connection = link.Connection
+	dispatchCtx, stopDispatch := context.WithCancel(ctx)
+	dispatched = make(chan error, 1)
+	go func() { dispatched <- ingestor.Dispatch(dispatchCtx, link, branch.ID) }()
+	t.Cleanup(func() { stopDispatch(); <-dispatched })
+	require.NoError(t, wire.Write(peer, transcriptEventFrame(event)))
+	ackFrame, err := wire.Read(peer)
 	require.NoError(t, err)
-	require.Equal(t, machined.AckDuplicate, ack.Outcome)
+	require.Equal(t, wire.Frame{Kind: wire.Events, Payload: wire.Union(3, wire.Field(1, wire.U64(1)), wire.Field(2, []byte{2}))}, ackFrame)
 	event.Seq = 2
 	event.EventID[0] = 4
 	_, err = ingestor.Commit(ctx, connection, branch.ID, event)
@@ -309,6 +324,115 @@ func TestExternalImportCommitReplay(t *testing.T) {
 type checkpointTestAdapter struct {
 	calls    int
 	previous json.RawMessage
+}
+
+// Only the remote daemon is scripted: host authentication, framing, admission,
+// dispatch, receipt transaction and the browser history routes are production.
+func externalTranscriptLink(t *testing.T, registry *machined.Registry, branch string, authority machined.BootAuthority) (*machined.Link, net.Conn) {
+	t.Helper()
+	host, peer := net.Pipe()
+	t.Cleanup(func() { _ = host.Close(); _ = peer.Close() })
+	done := make(chan error, 1)
+	go func() {
+		done <- func() error {
+			nonce := make([]byte, 32)
+			nonce[0] = 71
+			if err := wire.Write(peer, wire.Frame{Kind: wire.Hello, Payload: wire.Union(1, wire.Field(1, wire.U32(0x534d4d44)), wire.Field(2, wire.U16(2)), wire.Field(3, authority.ID[:]), wire.Field(4, nonce))}); err != nil {
+				return err
+			}
+			proof, err := wire.Read(peer)
+			if err != nil {
+				return err
+			}
+			if proof.Kind != wire.Hello || len(proof.Payload) == 0 || proof.Payload[0] != 2 {
+				return wire.HandshakeOrder
+			}
+			fields, err := wire.Fields("proof", proof.Payload[1:])
+			if err != nil {
+				return err
+			}
+			if !wire.VerifyHostMAC(authority.Secret[:], authority.ID[:], nonce, fields[2]) {
+				return wire.AuthFailed
+			}
+			if err = wire.Write(peer, wire.Frame{Kind: wire.Hello, Payload: wire.Union(3, wire.Field(1, wire.Bytes([]byte(authority.Credential))), wire.Field(2, make([]byte, 16)), wire.Field(3, wire.U64(1)), wire.Field(4, wire.U16(0)))}); err != nil {
+				return err
+			}
+			welcome, err := wire.Read(peer)
+			if err != nil {
+				return err
+			}
+			if welcome.Kind != wire.Hello || len(welcome.Payload) == 0 || welcome.Payload[0] != 4 {
+				return wire.HandshakeOrder
+			}
+			return nil
+		}()
+	}()
+	link, err := registry.Connect(t.Context(), branch, host)
+	require.NoError(t, err)
+	require.NoError(t, <-done)
+	t.Cleanup(func() { _ = link.Close() })
+	return link, peer
+}
+
+func transcriptEventFrame(event machined.Event) wire.Frame {
+	return wire.Frame{Kind: wire.Events, Payload: wire.Union(1, wire.Field(1, wire.U64(event.Seq)), wire.Field(2, event.EventID[:]), wire.Field(3, event.Payload))}
+}
+
+func TestExternalImportUnavailable(t *testing.T) {
+	_, _, pool := splitProcessDatabase(t)
+	ctx, q := t.Context(), db.New(pool)
+	user, err := q.CreateUser(ctx, db.CreateUserParams{Username: "import-owner", LowerUsername: "import-owner"})
+	require.NoError(t, err)
+	repo, err := q.CreateRepo(ctx, db.CreateRepoParams{UserID: pgtype.Int8{Int64: user.ID, Valid: true}, Name: "import", LowerName: "import", DefaultBookmark: "main"})
+	require.NoError(t, err)
+	branch, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: user.ID, Name: "import", TargetBookmark: "feature", Kind: "vm", Status: "stopped"})
+	require.NoError(t, err)
+	store, err := chat.NewStore(pool)
+	require.NoError(t, err)
+	registry := new(machined.Registry)
+	authority, err := registry.MintBoot(branch.ID, "vm-import")
+	require.NoError(t, err)
+	payload, err := wire.EncodeTranscript(wire.Transcript{Version: 1, Session: 1, Participant: [16]byte{1}, Source: [16]byte{2}, Profile: "claude-code/2.1.0", Generation: 1, End: 16, Record: `{"type":"user"}`})
+	require.NoError(t, err)
+	for _, missing := range []string{"store", "registry", "adapter", "receipt-store", "writer"} {
+		t.Run(missing, func(t *testing.T) {
+			adapter := &checkpointTestAdapter{}
+			writer := &TranscriptIngest{Store: store, Host: adapter, Resolve: func(context.Context, pgx.Tx, string, uint32) (TranscriptBinding, error) {
+				t.Fatal("unavailable ingress reached registry resolution")
+				return TranscriptBinding{}, machined.ErrNotReady
+			}}
+			switch missing {
+			case "store":
+				writer.Store = nil
+			case "registry":
+				writer.Resolve = nil
+			case "adapter":
+				writer.Host = nil
+			}
+			ingestor := &machined.Ingestor{Pool: pool, Write: writer.Write}
+			if missing == "receipt-store" {
+				ingestor.Pool = nil
+			}
+			if missing == "writer" {
+				ingestor.Write = nil
+			}
+			link, peer := externalTranscriptLink(t, registry, branch.ID, authority)
+			done := make(chan error, 1)
+			go func() { done <- ingestor.Dispatch(t.Context(), link, branch.ID) }()
+			require.NoError(t, peer.SetDeadline(time.Now().Add(3*time.Second)))
+			// An absent ingress itself may close the lease before reading a frame.
+			_ = wire.Write(peer, transcriptEventFrame(machined.Event{Seq: 1, EventID: [16]byte{3}, Payload: payload}))
+			_, err := wire.Read(peer)
+			require.Error(t, err, "unavailable import was acknowledged")
+			require.ErrorIs(t, <-done, machined.ErrNotReady)
+			require.Zero(t, adapter.calls)
+			var receipts, entries int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts`).Scan(&receipts))
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM chat_turns`).Scan(&entries))
+			require.Zero(t, receipts)
+			require.Zero(t, entries)
+		})
+	}
 }
 
 func (a *checkpointTestAdapter) NormalizeExternalTranscript(_ context.Context, input chat.ExternalNormalizeInput) (chat.ExternalNormalized, error) {
