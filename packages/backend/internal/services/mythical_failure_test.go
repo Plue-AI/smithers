@@ -370,9 +370,8 @@ func TestMythicalLaunchClearsTheFailedLaunchsReason(t *testing.T) {
 	assert.Nil(t, view["reason"])
 }
 
-// A pull request GitHub does not answer for is not gated on: an approved
-// automerge TODO keeps the outage and its back-off, never the one-minute
-// CI wait that would erase them.
+// An unread PR keeps its outage and back-off. A historical automerge label
+// grants no person preapproval and cannot replace that outage with a CI wait.
 func TestMythicalUnreadPullRequestIsNotGated(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
@@ -384,7 +383,15 @@ func TestMythicalUnreadPullRequestIsNotGated(t *testing.T) {
 	o.github.ci = map[string]string{o.item(361).PRHead: mythicalCIPending}
 	o.github.mu.Unlock()
 	o.answerReviews(`"approve"`)
-	require.Equal(t, "waiting for CI on the approved head", o.item(361).Reason)
+	// A historical automerge label is not a person's bound preapproval.
+	// Review cannot merge it or introduce the old CI gate on its own.
+	require.Equal(t, "proposed", o.item(361).State)
+	require.Nil(t, mythicalChecksOf(o.item(361)).Preapproval)
+	require.Nil(t, mythicalChecksOf(o.item(361)).CIWait)
+	o.github.mu.Lock()
+	merges := len(o.github.merges)
+	o.github.mu.Unlock()
+	require.Zero(t, merges)
 	_, err := o.pool.Exec(ctx, `UPDATE mythical_items SET next_attempt_at = now() - interval '1 minute' WHERE id = $1`, o.item(361).ID)
 	require.NoError(t, err)
 	o.service.SetOrchestration(pullsDown{o.github}, o.launcher, o.lanes)

@@ -1,7 +1,6 @@
 package services
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,12 +11,12 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/smithersai/smithers/packages/backend/testkit/faultprocess"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -77,114 +76,9 @@ func crashChildFail(err error) {
 	os.Exit(3)
 }
 
-// crashReached announces a kill point and never returns: the parent kills the
-// process here. The stale owner instead waits to be resumed.
-func crashReached(point string, detail ...string) {
-	fmt.Println(crashMarker + strings.Join(append([]string{point}, detail...), " "))
-	if point == "stale-owner" {
-		// SIGSTOP freezes the whole process, heartbeats included; after
-		// SIGCONT the parent writes one line to let the owner continue.
-		if _, err := bufio.NewReader(os.Stdin).ReadString('\n'); err != nil {
-			crashChildFail(err)
-		}
-		return
-	}
-	select {}
-}
-
-type crashChild struct {
-	cmd     *exec.Cmd
-	stdin   io.WriteCloser
-	lines   chan string
-	stderr  *strings.Builder
-	point   string
-	reached bool
-}
-
-func startCrashChild(t *testing.T, subject, point, databaseURL string, args ...string) *crashChild {
-	t.Helper()
-	return startCrashProcess(t, "TestDurableCrashRestartChildProcess", subject, point, databaseURL, args...)
-}
-
-func startCrashProcess(t *testing.T, test, subject, point, databaseURL string, args ...string) *crashChild {
-	t.Helper()
-	cmd := exec.Command(os.Args[0], "-test.run=^"+test+"$", "-test.count=1")
-	cmd.Env = append(os.Environ(), crashChildEnv+"="+subject, crashPointEnv+"="+point, crashDBEnv+"="+databaseURL, crashArgsEnv+"="+strings.Join(args, "|"))
-	stdout, err := cmd.StdoutPipe()
-	require.NoError(t, err)
-	stdin, err := cmd.StdinPipe()
-	require.NoError(t, err)
-	child := &crashChild{cmd: cmd, stdin: stdin, lines: make(chan string, 64), stderr: &strings.Builder{}, point: point}
-	cmd.Stderr = child.stderr
-	require.NoError(t, cmd.Start())
-	go func() {
-		defer close(child.lines)
-		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			child.lines <- scanner.Text()
-		}
-	}()
-	t.Cleanup(func() {
-		_ = cmd.Process.Signal(syscall.SIGCONT)
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-	})
-	return child
-}
-
-// await returns the fields after prefix on the first matching line.
-func (c *crashChild) await(t *testing.T, prefix string) []string {
-	t.Helper()
-	timeout := time.After(2 * time.Minute)
-	for {
-		select {
-		case line, ok := <-c.lines:
-			if !ok {
-				t.Fatalf("crash child exited before %q: %s", prefix, c.stderr.String())
-			}
-			if rest, found := crashLineFields(line, prefix); found {
-				if prefix == crashMarker+c.point {
-					c.reached = true
-				}
-				return rest
-			}
-		case <-timeout:
-			t.Fatalf("crash child never reached %q: %s", prefix, c.stderr.String())
-		}
-	}
-}
-
-// Match a complete marker token, never a point with the requested point as
-// its prefix. Outcome lines use the same whitespace-delimited protocol.
-func crashLineFields(line, prefix string) ([]string, bool) {
-	rest, found := strings.CutPrefix(line, prefix)
-	if !found || (!strings.HasSuffix(prefix, " ") && rest != "" && rest[0] != ' ' && rest[0] != '\t') {
-		return nil, false
-	}
-	return strings.Fields(rest), true
-}
-
-// kill ends the child as a crash would: no deferred cleanup, no release.
-func (c *crashChild) kill(t *testing.T) {
-	t.Helper()
-	require.True(t, c.reached, "refusing crash without exact %s%s marker", crashMarker, c.point)
-	require.NoError(t, c.cmd.Process.Signal(syscall.SIGKILL))
-	err := c.cmd.Wait()
-	var exit *exec.ExitError
-	require.ErrorAs(t, err, &exit)
-	require.Equal(t, syscall.SIGKILL, exit.Sys().(syscall.WaitStatus).Signal())
-}
-
-func (c *crashChild) freeze(t *testing.T) {
-	t.Helper()
-	require.NoError(t, c.cmd.Process.Signal(syscall.SIGSTOP))
-}
-
-func (c *crashChild) resume(t *testing.T) {
-	t.Helper()
-	require.NoError(t, c.cmd.Process.Signal(syscall.SIGCONT))
-	_, err := io.WriteString(c.stdin, "continue\n")
-	require.NoError(t, err)
+func crashReached(point string, detail ...string) { faultprocess.Reached(point, detail...) }
+func startCrashChild(t *testing.T, subject, point, databaseURL string, args ...string) *faultprocess.Child {
+	return faultprocess.Start(t, "TestDurableCrashRestartChildProcess", subject, point, databaseURL, args...)
 }
 
 func crashDatabase(t *testing.T) (*pgxpool.Pool, string) {
@@ -355,8 +249,8 @@ func testJobsCrash(t *testing.T, point string, policy jobs.EffectPolicy) {
 	switch point {
 	case "pre-commit":
 		child := startCrashChild(t, "jobs", point, url, string(policy))
-		child.await(t, crashMarker+point)
-		child.kill(t)
+		child.Await(t, crashMarker+point)
+		child.Kill(t)
 		_, err := store.GetByRequest(ctx, crashJobScope, crashJobOperation, "request-1")
 		require.ErrorIs(t, err, jobs.ErrNotFound, "an uncommitted request leaves nothing behind")
 		receipt, err := store.Admit(ctx, crashJobAdmission(policy))
@@ -365,8 +259,8 @@ func testJobsCrash(t *testing.T, point string, policy jobs.EffectPolicy) {
 		operationID = receipt.OperationID
 	case "post-commit":
 		child := startCrashChild(t, "jobs", point, url, string(policy))
-		fields := child.await(t, crashMarker+point)
-		child.kill(t)
+		fields := child.Await(t, crashMarker+point)
+		child.Kill(t)
 		receipt, err := store.Admit(ctx, crashJobAdmission(policy))
 		require.NoError(t, err)
 		require.True(t, receipt.Joined, "the retried request joins the committed one")
@@ -377,17 +271,17 @@ func testJobsCrash(t *testing.T, point string, policy jobs.EffectPolicy) {
 		require.NoError(t, err)
 		operationID = receipt.OperationID
 		child := startCrashChild(t, "jobs", point, url, string(policy))
-		child.await(t, crashMarker+point)
+		child.Await(t, crashMarker+point)
 		if point == "stale-owner" {
-			child.freeze(t)
+			child.Freeze(t)
 			expireCrashJobLease(t, pool, operationID)
 			operation := runRestartedJobsWorker(t, pool, store, operationID)
 			require.Equal(t, jobs.StateCompleted, operation.State)
-			child.resume(t)
-			require.Equal(t, []string{"true"}, child.await(t, crashOutcome), "the stale owner's completion is refused")
-			child.kill(t)
+			child.Resume(t)
+			require.Equal(t, []string{"true"}, child.Await(t, crashOutcome), "the stale owner's completion is refused")
+			child.Kill(t)
 		} else {
-			child.kill(t)
+			child.Kill(t)
 			expireCrashJobLease(t, pool, operationID)
 		}
 	}
@@ -501,16 +395,16 @@ func testStackCrash(t *testing.T, point string) {
 	switch point {
 	case "pre-commit":
 		child := startCrashChild(t, "stack", point, url, args...)
-		child.await(t, crashMarker+point)
-		child.kill(t)
+		child.Await(t, crashMarker+point)
+		child.Kill(t)
 		_, err := q.GetMythicalStack(ctx, f.repoID)
 		require.ErrorIs(t, err, pgx.ErrNoRows, "an uncommitted request leaves nothing behind")
 		_, err = f.service.RequestBootstrap(ctx, f.repoID, f.userID, 100, false)
 		require.NoError(t, err)
 	case "post-commit":
 		child := startCrashChild(t, "stack", point, url, args...)
-		child.await(t, crashMarker+point)
-		child.kill(t)
+		child.Await(t, crashMarker+point)
+		child.Kill(t)
 		row, err := q.GetMythicalStack(ctx, f.repoID)
 		require.NoError(t, err)
 		require.Equal(t, "bootstrapping", row.State)
@@ -521,7 +415,7 @@ func testStackCrash(t *testing.T, point string) {
 		_, err := f.service.RequestBootstrap(ctx, f.repoID, f.userID, 100, false)
 		require.NoError(t, err)
 		child := startCrashChild(t, "stack", point, url, args...)
-		fields := child.await(t, crashMarker+point)
+		fields := child.Await(t, crashMarker+point)
 		row, err := q.GetMythicalStack(ctx, f.repoID)
 		require.NoError(t, err)
 		require.NotEmpty(t, row.PendingOp, "the write is prepared durably before the push")
@@ -534,15 +428,29 @@ func testStackCrash(t *testing.T, point string) {
 			expire()
 			settled := f.poll()
 			require.Equal(t, "active", settled.State, settled.LastError)
-			child.resume(t)
-			outcome := child.await(t, crashOutcome)
+			child.Resume(t)
+			outcome := child.Await(t, crashOutcome)
 			require.Equal(t, settled.TipCommit, f.hostRef(repohost.MythicalBookmarkRef), "the stale owner's push is refused: %v", outcome)
 			after, err := q.GetMythicalStack(ctx, f.repoID)
 			require.NoError(t, err)
-			require.Equal(t, settled, after, "the stale owner's finish is fenced: it changes nothing")
-			child.kill(t)
+			// A lost owner can wake reconciliation; only the new claim may write.
+			// Scheduling counters are not logical stack contents.
+			require.GreaterOrEqual(t, after.RequestedGeneration, settled.RequestedGeneration)
+			require.Equal(t, after.RequestedGeneration, after.ProcessedGeneration)
+			require.GreaterOrEqual(t, after.Claim, settled.Claim)
+			require.GreaterOrEqual(t, after.ClaimedGeneration, settled.ClaimedGeneration)
+			require.False(t, after.Running)
+			require.False(t, after.LeaseExpiresAt.Valid)
+			require.False(t, after.UpdatedAt.Time.Before(settled.UpdatedAt.Time))
+			require.False(t, after.NextAttemptAt.Time.Before(settled.NextAttemptAt.Time))
+			logical := after
+			logical.RequestedGeneration, logical.ProcessedGeneration = settled.RequestedGeneration, settled.ProcessedGeneration
+			logical.ClaimedGeneration, logical.Claim = settled.ClaimedGeneration, settled.Claim
+			logical.NextAttemptAt, logical.UpdatedAt = settled.NextAttemptAt, settled.UpdatedAt
+			require.Equal(t, settled, logical, "the stale owner's finish cannot change any durable stack content")
+			child.Kill(t)
 		} else {
-			child.kill(t)
+			child.Kill(t)
 			expire()
 		}
 	}

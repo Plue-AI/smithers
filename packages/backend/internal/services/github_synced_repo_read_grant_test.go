@@ -103,6 +103,7 @@ func TestSyncedRepoReadGrant_MetadataStoreServesOnlyUsersGitHubAdmits(t *testing
 		ctx, userB, "acme", "secret", GitHubRepoMetadataIssues, url.Values{})
 	requireAPIStatus(t, err, http.StatusBadGateway)
 	require.True(t, isGitHubPermissionFailure(err))
+	assert.False(t, f.synced.ReadGrant(ctx, userB, "acme", "secret").ok)
 	assert.Nil(t, result.Body)
 	assert.True(t, f.contacted("Bearer gho_b"), "user B's access must be decided by GitHub")
 
@@ -128,6 +129,7 @@ func TestSyncedRepoReadGrant_MetadataStoreServesOnlyUsersGitHubAdmits(t *testing
 		ctx, userB, "acme", "secret", GitHubRepoMetadataIssues, url.Values{})
 	requireAPIStatus(t, err, http.StatusBadGateway)
 	require.True(t, isGitHubPermissionFailure(err))
+	assert.False(t, f.synced.ReadGrant(ctx, userB, "acme", "secret").ok)
 }
 
 func TestSyncedRepoReadGrant_CommentsStoreServesOnlyUsersGitHubAdmits(t *testing.T) {
@@ -143,6 +145,7 @@ func TestSyncedRepoReadGrant_CommentsStoreServesOnlyUsersGitHubAdmits(t *testing
 		ctx, userB, "acme", "secret", 1, url.Values{})
 	requireAPIStatus(t, err, http.StatusBadGateway)
 	require.True(t, isGitHubPermissionFailure(err))
+	assert.False(t, f.synced.ReadGrant(ctx, userB, "acme", "secret").ok)
 	assert.NotContains(t, string(result.Body), "private from the store")
 	assert.True(t, f.contacted("Bearer gho_b"), "user B's access must be decided by GitHub")
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/smithersai/smithers/packages/backend/testkit/faultprocess"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 )
 
@@ -14,6 +15,11 @@ import (
 var servicesSuite = postgresfixture.Suite{MaxConns: 20}
 
 func TestMain(m *testing.M) {
+	// Killed children use the parent's database; their own suite cannot clean up.
+	if os.Getenv(faultprocess.ChildEnv) != "" && os.Getenv(faultprocess.DBEnv) != "" {
+		os.Exit(m.Run())
+	}
+
 	code := servicesSuite.Run(m)
 	if err := closeProductTestTemplate(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

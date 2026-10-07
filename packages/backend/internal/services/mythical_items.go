@@ -2070,6 +2070,15 @@ func (st *mythicalItemStep) commitWithGuard(ctx context.Context, item db.Mythica
 	if err != nil {
 		return db.MythicalItem{}, err
 	}
+	if flowID == flowdispatch.TodoFlow && todoState(saved) == "starting" {
+		data, err := json.Marshal(map[string]any{"n": mythicalItemNumber(saved), "to": "starting", "attempt": saved.Attempt, "digest": saved.FlowDigest.String})
+		if err != nil {
+			return db.MythicalItem{}, err
+		}
+		if _, err := s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.started", "starting", data); err != nil {
+			return db.MythicalItem{}, err
+		}
+	}
 	if also != nil {
 		if err := also(tx, saved); err != nil {
 			return db.MythicalItem{}, err

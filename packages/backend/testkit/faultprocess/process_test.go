@@ -1,4 +1,4 @@
-package services
+package faultprocess
 
 import (
 	"os"
@@ -27,7 +27,7 @@ func TestCrashMarkerTokenBoundary(t *testing.T) {
 		{"", false, nil},
 	} {
 		t.Run(tc.line, func(t *testing.T) {
-			fields, found := crashLineFields(tc.line, crashMarker+"pre-launch")
+			fields, found := LineFields(tc.line, Marker+"pre-launch")
 			require.Equal(t, tc.found, found)
 			require.Equal(t, tc.fields, fields)
 		})
@@ -35,20 +35,19 @@ func TestCrashMarkerTokenBoundary(t *testing.T) {
 }
 
 func TestCrashMarkerChild(t *testing.T) {
-	if os.Getenv("SMITHERS_MARKER_CHILD") != "1" {
+	if os.Getenv(ChildEnv) != "marker" {
 		return
 	}
-	crashReached(os.Getenv(crashPointEnv))
+	Reached(os.Getenv(PointEnv))
 }
 
 func TestCrashMarkerObservedBeforeSIGKILL(t *testing.T) {
-	t.Setenv("SMITHERS_MARKER_CHILD", "1")
 	// Reuse the durable harness process controller; only its test selector differs.
-	child := startCrashProcess(t, "TestCrashMarkerChild", "marker", "pre-launch", "")
+	child := Start(t, "TestCrashMarkerChild", "marker", "pre-launch", "")
 	require.False(t, child.reached)
-	require.Empty(t, child.await(t, crashMarker+"pre-launch"))
+	require.Empty(t, child.Await(t, Marker+"pre-launch"))
 	require.True(t, child.reached)
-	child.kill(t)
+	child.Kill(t)
 }
 
 // A deliberately failed nested test must exit nonzero: refusal cannot become
@@ -58,23 +57,23 @@ func TestCrashMarkerRefusalChild(t *testing.T) {
 	if mode == "" {
 		return
 	}
-	child := &crashChild{point: "pre-launch", lines: make(chan string, 1), stderr: &strings.Builder{}}
+	child := &Child{point: "pre-launch", lines: make(chan string, 1), stderr: &strings.Builder{}}
 	if mode == "unobserved-kill" {
-		child.kill(t)
+		child.Kill(t)
 		return
 	}
 	if mode == "wrong-marker" {
 		child.lines <- "CRASH-POINT pre-launch-extra"
 	}
 	close(child.lines)
-	child.await(t, crashMarker+"pre-launch")
+	child.Await(t, Marker+"pre-launch")
 }
 
 func TestCrashMarkerRefusalsExitNonzero(t *testing.T) {
 	for _, mode := range []string{"missing-marker", "wrong-marker", "unobserved-kill"} {
 		t.Run(mode, func(t *testing.T) {
 			cmd := exec.Command(os.Args[0], "-test.run=^TestCrashMarkerRefusalChild$", "-test.count=1")
-			cmd.Env = append(os.Environ(), "SMITHERS_MARKER_REFUSAL="+mode)
+			cmd.Env = append(childEnvironment(t), "SMITHERS_MARKER_REFUSAL="+mode)
 			output, err := cmd.CombinedOutput()
 			var exit *exec.ExitError
 			require.ErrorAs(t, err, &exit)
@@ -89,7 +88,7 @@ func TestCrashMarkerRefusalsExitNonzero(t *testing.T) {
 }
 
 func TestCrashMarkerOutcomeProtocol(t *testing.T) {
-	fields, found := crashLineFields("CRASH-OUTCOME true", crashOutcome)
+	fields, found := LineFields("CRASH-OUTCOME true", "CRASH-OUTCOME ")
 	require.True(t, found)
 	require.Equal(t, []string{"true"}, fields)
 }

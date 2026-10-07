@@ -1426,6 +1426,8 @@ func TestForeignPushFetchedWaitAndAcknowledgementAreAtomic(t *testing.T) {
 	ctx, q := t.Context(), db.New(pool)
 	repo, err := q.GetRepoByID(ctx, claim.RepositoryID)
 	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, repo.UserID.Int64)
+	require.NoError(t, err)
 	_, err = q.RequestMythicalBootstrap(ctx, repo.ID, repo.UserID.Int64, 1, false)
 	require.NoError(t, err)
 	local, err := repository.OpenLocal(repository.Config{StoragePath: t.TempDir(), AuthToken: "foreign-consumer-test", FFILibraryPath: ffi, InstallMainMirror: true})
