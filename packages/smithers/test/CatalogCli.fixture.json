@@ -252,9 +252,8 @@
         "Ship retries"
       ],
       "method": "POST",
-      "path": "/api/branches/retry-webhooks",
+      "path": "/api/branches/retry-webhooks/add-to-stack",
       "body": {
-        "op": "add-to-stack",
         "text": "Ship retries"
       }
     },
