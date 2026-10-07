@@ -107,3 +107,97 @@ test("loss of the sync provider during persistence remains a visible retryable f
     expect(posts).toBe(0)
   } finally { seam.dispose() }
 })
+
+const resetBinding = { id: "force-19", old: "1".repeat(40), new: "2".repeat(40) }
+for (const phase of ["requested", "running"] as const) {
+  test(`Reset recovers its persisted ${phase} binding and keeps progress through execution`, async () => {
+    let health: Record<string, unknown> = { state: "stale", last_success_at: "2026-10-06T00:00:00Z" }
+    let release!: (response: Response) => void
+    const posts: Array<{ path: string; body: unknown; key: string | null }> = []
+    const seam = createGitHubSyncSeam({ pollMs: 60_000, http: async (path, init) => {
+      if (init?.method !== "POST") return Response.json(health)
+      posts.push({ path, body: JSON.parse(String(init.body)), key: new Headers(init.headers).get("Idempotency-Key") })
+      return new Promise<Response>(resolve => { release = resolve })
+    } })
+    let request: Session["githubSyncRequest"] = { id: "saved-reset", owner: "owner", lastSuccessAt: "2026-10-06T00:00:00Z", phase, mainReset: resetBinding }
+    const receipts: unknown[] = [], finalizers: Array<() => void> = []
+    const ctx = { disposed: false, accountOwner: () => "owner", onDispose: (close: () => void) => finalizers.push(close),
+      store: { session: () => ({ githubSyncRequest: request }), dispatch: (change: { request: Session["githubSyncRequest"] }) => { request = change.request; return { isPersisted: { promise: Promise.resolve() } } } },
+      withToast: async (_key: string, _title: string, _done: string, work: () => Promise<unknown>) => { receipts.push(await work()) }
+    } as unknown as ControllerContext
+    try {
+      const worker = createGitHubSyncRetry(ctx, seam); worker.resume()
+      await waitFor(() => seam.snapshots.get() !== undefined && (phase === "running" || posts.length === 1))
+      expect(await worker.reset({ new: resetBinding.new, old: resetBinding.old, id: resetBinding.id })).toEqual({ value: "Reset requested" })
+      expect(await worker.reset({ ...resetBinding, new: "3".repeat(40) })).toBe("Sync in progress")
+      expect(posts).toEqual(phase === "requested" ? [{ path: "/api/stack/attention/force-19", body: { old: resetBinding.old, new: resetBinding.new }, key: "saved-reset" }] : [])
+      expect(receipts).toEqual([])
+      if (phase === "requested") {
+        release(Response.json({ state: "settled" }))
+      } else {
+        await waitFor(() => request?.phase === "running")
+        expect(receipts).toEqual([])
+        health = { state: "fresh", last_success_at: "2026-10-06T00:01:00Z" }; await seam.read()
+      }
+      await waitFor(() => receipts.length === 1)
+      expect(receipts).toEqual([true]); expect(request).toBeUndefined()
+    } finally { for (const close of finalizers) close(); seam.dispose() }
+  })
+}
+
+test("Reset acknowledges persisted input before an unresolved request, deduplicates and preserves stale failure", async () => {
+  let release!: (response: Response) => void, posts = 0
+  const seam = createGitHubSyncSeam({ http: async (_path, init) => {
+    if (init?.method !== "POST") return Response.json({ state: "stale", last_success_at: null })
+    posts++; return new Promise<Response>(resolve => { release = resolve })
+  } })
+  let request: Session["githubSyncRequest"]
+  const receipts: unknown[] = [], finalizers: Array<() => void> = []
+  const ctx = { disposed: false, accountOwner: () => "owner", onDispose: (close: () => void) => finalizers.push(close),
+    store: { session: () => ({ githubSyncRequest: request }), dispatch: (change: { request: Session["githubSyncRequest"] }) => { request = change.request; return { isPersisted: { promise: Promise.resolve() } } } },
+    withToast: async (_key: string, _title: string, _done: string, work: () => Promise<unknown>) => { receipts.push(await work()) }
+  } as unknown as ControllerContext
+  try {
+    await seam.read(); const worker = createGitHubSyncRetry(ctx, seam)
+    expect(await worker.reset(resetBinding)).toEqual({ value: "Reset requested" })
+    expect(request?.mainReset).toEqual(resetBinding); expect(posts).toBe(1)
+    expect(await worker.reset(resetBinding)).toEqual({ value: "Reset requested" }); expect(posts).toBe(1); expect(receipts).toEqual([])
+    release(Response.json({ class: "conflict", code: "stale_attention" }, { status: 409 }))
+    await waitFor(() => request?.phase === "failed")
+    expect(request?.error).toBe("Main changed"); expect(receipts).toEqual(["Main changed"])
+    expect(await worker.reset(resetBinding)).toEqual({ value: "Reset requested" }); expect(posts).toBe(2)
+    release(new Response(null, { status: 503 })); await waitFor(() => receipts.length === 2)
+    expect(request?.error).toBe("Main reset failed")
+  } finally { for (const close of finalizers) close(); seam.dispose() }
+})
+
+test("an immediate Retry on the failure transition starts new work and fences the old toast", async () => {
+  let posts = 0, release!: (response: Response) => void
+  const seam = createGitHubSyncSeam({ http: async (_path, init) => {
+    if (init?.method !== "POST") return Response.json({ state: "stale", last_success_at: null })
+    posts++; return new Promise<Response>(resolve => { release = resolve })
+  } })
+  let request: Session["githubSyncRequest"], retried: Promise<unknown> | undefined
+  const guards: Array<() => boolean> = [], finalizers: Array<() => void> = []
+  const ctx = { disposed: false, accountOwner: () => "owner", onDispose: (close: () => void) => finalizers.push(close),
+    store: { session: () => ({ githubSyncRequest: request }), dispatch: (change: { request: Session["githubSyncRequest"] }) => {
+      request = change.request
+      if (request?.phase === "failed" && retried === undefined) retried = worker.reset(resetBinding)
+      return { isPersisted: { promise: Promise.resolve() } }
+    } },
+    withToast: async (_key: string, _title: string, _done: string, work: () => Promise<unknown>, _silent: boolean, current: () => boolean) => { guards.push(current); return await work() }
+  } as unknown as ControllerContext
+  const worker = createGitHubSyncRetry(ctx, seam)
+  try {
+    await seam.read(); await worker.reset(resetBinding)
+    const first = request!.id
+    release(Response.json({ code: "stale_attention" }, { status: 409 }))
+    await waitFor(() => posts === 2)
+    expect(await retried).toEqual({ value: "Reset requested" })
+    expect(request!.id).not.toBe(first); expect(request?.phase).toBe("requested")
+    expect(guards[0]!()).toBe(false); expect(guards[1]!()).toBe(true)
+    expect(await worker.reset(resetBinding)).toEqual({ value: "Reset requested" }); expect(posts).toBe(2)
+    release(Response.json({ code: "unavailable" }, { status: 503 }))
+    await waitFor(() => request?.phase === "failed")
+  } finally { for (const close of finalizers) close(); seam.dispose() }
+})
