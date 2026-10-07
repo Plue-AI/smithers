@@ -112,6 +112,17 @@ func TestInstallObsidianSettingsRouteWorkerPostgres(t *testing.T) {
 	w := set(owner.Username, vault)
 	require.Equal(t, 200, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), vault)
+	for _, body := range []string{
+		`{"capacity":null}`, `{"capacity":1.5}`, `{"capacity":"2"}`,
+		`{"chatgpt":null}`, `{"chatgpt":"true"}`, `{"unknown":true}`,
+		`{"wiki_sync.obsidian":{"path":"/tmp","unknown":true}}`,
+	} {
+		refused := request("PUT", owner.Username, body)
+		require.Equal(t, 400, refused.Code, refused.Body.String())
+		active, loadErr := source.LoadAuthorizedWikiFolder(ctx)
+		require.NoError(t, loadErr)
+		require.Equal(t, vault, active.Folder)
+	}
 	mixed, _ := json.Marshal(map[string]any{"wiki_sync.obsidian": map[string]string{"path": next}, "parallel": 3})
 	require.Equal(t, 400, request("PUT", owner.Username, string(mixed)).Code)
 	require.NotContains(t, w.Body.String(), "session")
