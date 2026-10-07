@@ -33,6 +33,13 @@ lease refuse before guest execution. The reference-host terminal chain check
 compares source, bundle and approved helper before booting a VM; component and
 HTTP fixtures do not substitute for that installed acceptance receipt.
 
+The durable event dispatcher owns its authenticated lease. Every exit closes
+that lease, including cancellation, persistence failure and missing writer or
+database composition. Awake operations then refuse until a new connection
+reconciles and replays the outbox. An exiting old dispatcher cannot evict a
+replacement connection. Receipts commit before acknowledgements; projection
+failures leave unacknowledged events retryable.
+
 ## Session seam (T-TRM-07)
 
 ### Current status

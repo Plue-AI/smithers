@@ -178,7 +178,6 @@ func TestMachinedComposedDocumentBoundary(t *testing.T) {
 	require.Equal(t, wire.Frame{Kind: wire.Events, Payload: wire.Union(3, wire.Field(1, wire.U64(1)), wire.Field(2, []byte{1}))}, appliedFrame)
 	t.Cleanup(func() {
 		stopDispatch()
-		require.ErrorIs(t, <-dispatched, context.Canceled)
 	})
 	ack, err := ingestor.Commit(t.Context(), link.Connection, branch, event)
 	require.NoError(t, err)
@@ -333,4 +332,14 @@ func TestMachinedComposedDocumentBoundary(t *testing.T) {
 	readSaved(t, f, 1)
 	require.NoError(t, f.conn.Write(t.Context(), websocket.MessageText, []byte(`{"t":"unsub","id":7}`)))
 	require.NoError(t, <-finished)
+	// The event consumer owns this connection's admission. Chat/live remain
+	// reachable, but a fresh document subscription cannot reuse its ready lease
+	// after durable dispatch has stopped.
+	stopDispatch()
+	require.ErrorIs(t, <-dispatched, context.Canceled)
+	_, err = registry.Current(branch)
+	require.ErrorIs(t, err, machined.ErrNotReady)
+	f.sub(t, "doc:code:11111111-1111-4111-8111-111111111111:retry.ts")
+	_, body = f.read(t)
+	require.Contains(t, string(body), "unsupported")
 }
