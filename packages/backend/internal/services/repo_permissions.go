@@ -331,8 +331,9 @@ type installAuthorizationKey struct{}
 // InstallSubject is resolved from the route and checked against stored authority.
 // A system grant cannot be reused for a different workspace or repository.
 type InstallSubject struct {
-	RepositoryID int64
-	WorkspaceID  string
+	RepositoryID     int64
+	WorkspaceID      string
+	ChildWorkspaceID string
 }
 
 type boundInstallAuthorization struct {
@@ -386,6 +387,9 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 	}
 	if observe, ok := ctx.Value(authorizationObserverKey{}).(func(string)); ok && observe != nil {
 		observe(command)
+	}
+	if command == "workspace.children.list" || command == "workspace.children.spawn" || command == "workspace.children.stop" {
+		return authorizeWorkspaceChildren(ctx, q, command, subject)
 	}
 	if command == "workspace.head" {
 		return authorizeWorkspaceHead(ctx, q, subject)
@@ -666,6 +670,80 @@ func authorizeWorkspaceHead(ctx context.Context, q *db.Queries, subject InstallS
 		return InstallAuthorization{}, err
 	}
 	if workspace.RepositoryID != subject.RepositoryID || !workspace.HeadPushTokenID.Valid || workspace.HeadPushTokenID.Int64 != info.TokenID || workspace.DeletedAt.Valid {
+		return deny()
+	}
+	repository, err := InstallRepositoryID(ctx, q)
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if repository != subject.RepositoryID {
+		return deny()
+	}
+	role, err := InstallRoleOf(ctx, q, info.User.ID)
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if role == "" {
+		return deny()
+	}
+	return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
+}
+
+// Children retain the existing issuer-only children scope and stored ancestry.
+// A person role, generic machine token or caller-supplied parent grants nothing.
+func authorizeWorkspaceChildren(ctx context.Context, q *db.Queries, command string, subject InstallSubject) (InstallAuthorization, error) {
+	deny := func() (InstallAuthorization, error) {
+		return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Workspace children credential required"}
+	}
+	info := middleware.AuthInfoFromContext(ctx)
+	if info == nil || info.User == nil {
+		return InstallAuthorization{}, &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Sign in"}
+	}
+	if q == nil || !info.IsTokenAuth || !info.TokenSystemIssued || info.CredentialKind() != middleware.CredentialMachine || !middleware.ParseTokenWorkspaceChildrenCredential(info.RawScopes) || subject.RepositoryID <= 0 || subject.WorkspaceID == "" || info.RepositoryRestriction() != subject.RepositoryID || !strings.EqualFold(info.WorkspaceRestriction(), subject.WorkspaceID) {
+		return deny()
+	}
+	scope := middleware.ScopeWriteWorkspace
+	if command == "workspace.children.list" {
+		scope = middleware.ScopeReadWorkspace
+	}
+	if !info.Scopes.Has(scope) {
+		return deny()
+	}
+	parent, err := q.GetWorkspace(ctx, subject.WorkspaceID)
+	if stdErrors.Is(err, pgx.ErrNoRows) {
+		return deny()
+	}
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if parent.RepositoryID != subject.RepositoryID || parent.UserID != info.User.ID || parent.DeletedAt.Valid {
+		return deny()
+	}
+	token, err := q.GetAccessTokenByID(ctx, info.TokenID)
+	if stdErrors.Is(err, pgx.ErrNoRows) {
+		return deny()
+	}
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if token.Name != workspaceChildrenTokenName(parent.ID) || !token.SystemIssued || token.UserID != info.User.ID {
+		return deny()
+	}
+	if command == "workspace.children.stop" {
+		if subject.ChildWorkspaceID == "" {
+			return deny()
+		}
+		child, err := q.GetWorkspace(ctx, subject.ChildWorkspaceID)
+		if stdErrors.Is(err, pgx.ErrNoRows) {
+			return deny()
+		}
+		if err != nil {
+			return InstallAuthorization{}, err
+		}
+		if !child.ParentWorkspaceID.Valid || child.ParentWorkspaceID != stringToUUID(parent.ID) || child.RepositoryID != parent.RepositoryID || child.UserID != parent.UserID {
+			return deny()
+		}
+	} else if subject.ChildWorkspaceID != "" {
 		return deny()
 	}
 	repository, err := InstallRepositoryID(ctx, q)

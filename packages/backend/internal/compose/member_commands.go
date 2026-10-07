@@ -45,14 +45,23 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				r.Body = io.NopCloser(bytes.NewReader(raw))
 			}
 
-			if command == "workspace.head" {
+			if command == "workspace.head" || strings.HasPrefix(command, "workspace.children.") {
 				subject := services.InstallSubject{}
 				if repo := middleware.RepoFromContext(r.Context()); repo != nil {
 					subject.RepositoryID = repo.ID
 				}
 				parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-				if len(parts) == 7 {
+				if len(parts) == 7 || len(parts) == 9 {
 					subject.WorkspaceID = parts[5]
+					if len(parts) == 9 {
+						subject.ChildWorkspaceID = parts[7]
+					}
+					if subject.RepositoryID == 0 && queries != nil {
+						repo, err := queries.GetRepoByOwnerAndLowerName(r.Context(), db.GetRepoByOwnerAndLowerNameParams{Owner: strings.ToLower(parts[2]), LowerName: strings.ToLower(parts[3])})
+						if err == nil {
+							subject.RepositoryID = repo.ID
+						}
+					}
 				}
 				decision, err := services.Authorize(r.Context(), queries, command, subject)
 				if err != nil {

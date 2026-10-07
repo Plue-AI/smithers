@@ -93,6 +93,11 @@ type WorkspaceChild struct {
 // sandbox hours left today, and the user's live children plus this batch must
 // fit the plan and MaxWorkspaceChildren.
 func (s *WorkspaceService) SpawnWorkspaceChildren(ctx context.Context, input SpawnWorkspaceChildrenInput) (WorkspaceChildBatch, error) {
+	if s.installQueries != nil {
+		if _, err := Authorize(ctx, s.installQueries, "workspace.children.spawn", InstallSubject{RepositoryID: input.RepositoryID, WorkspaceID: input.ParentWorkspaceID}); err != nil {
+			return WorkspaceChildBatch{}, err
+		}
+	}
 	if s.transactions == nil || s.sandbox == nil || s.runtime != nil {
 		return WorkspaceChildBatch{}, pkgerrors.Conflict("child workspaces need the sandbox provider")
 	}
@@ -223,6 +228,11 @@ func (s *WorkspaceService) SpawnWorkspaceChildren(ctx context.Context, input Spa
 // ListWorkspaceChildren returns the receipts of every child the caller's
 // workspace spawned, oldest batch first.
 func (s *WorkspaceService) ListWorkspaceChildren(ctx context.Context, workspaceID string, repositoryID, userID int64) ([]WorkspaceChild, error) {
+	if s.installQueries != nil {
+		if _, err := Authorize(ctx, s.installQueries, "workspace.children.list", InstallSubject{RepositoryID: repositoryID, WorkspaceID: workspaceID}); err != nil {
+			return nil, err
+		}
+	}
 	if s.transactions == nil {
 		return nil, pkgerrors.Conflict("child workspaces need the sandbox provider")
 	}
@@ -258,6 +268,11 @@ func workspaceChildFromReceipt(r db.ListWorkspaceChildReceiptsRow) WorkspaceChil
 // its machine; the sweep retries a machine that will not delete. Stopping a
 // stopped child answers its receipt again.
 func (s *WorkspaceService) StopWorkspaceChild(ctx context.Context, parentWorkspaceID, childWorkspaceID string, repositoryID, userID int64) (WorkspaceChild, error) {
+	if s.installQueries != nil {
+		if _, err := Authorize(ctx, s.installQueries, "workspace.children.stop", InstallSubject{RepositoryID: repositoryID, WorkspaceID: parentWorkspaceID, ChildWorkspaceID: childWorkspaceID}); err != nil {
+			return WorkspaceChild{}, err
+		}
+	}
 	if s.transactions == nil || s.sandbox == nil {
 		return WorkspaceChild{}, pkgerrors.Conflict("child workspaces need the sandbox provider")
 	}
