@@ -130,7 +130,24 @@ func TestTodoReadsDecodeTheCard(t *testing.T) {
 	client, _ = server(t, http.StatusOK, "application/json", card)
 	one, err := client.GetAPITodosN(context.Background(), 1)
 	require.NoError(t, err)
-	assert.Equal(t, "One", one.Title)
+	var member apiclient.TodoCard
+	require.NoError(t, json.Unmarshal(one, &member))
+	assert.Equal(t, "One", member.Title)
+	assert.JSONEq(t, `{"position":1}`, string(member.AdditionalProperties["queue"]))
+
+	// A coding credential's single-TODO response has its own closed shape.
+	// Keep the union body intact rather than decoding it as a member card.
+	system := `{"n":2,"title":"Bound TODO","state":"active","attempt":3,"generation":4,"workspace":"workspace-2","run":"run-2","base":"abc123"}`
+	client, requests := server(t, http.StatusOK, "application/json", system)
+	two, err := client.GetAPITodosN(context.Background(), 2)
+	require.NoError(t, err)
+	assert.JSONEq(t, system, string(two))
+	var coding apiclient.TodoSystemRead
+	require.NoError(t, json.Unmarshal(two, &coding))
+	assert.Equal(t, int64(2), coding.N)
+	assert.Equal(t, "workspace-2", coding.Workspace)
+	assert.Equal(t, "run-2", coding.Run)
+	assert.Equal(t, "/api/todos/2", (*requests)[0].RawPath)
 }
 
 func TestUntypedBodyIsOptional(t *testing.T) {
