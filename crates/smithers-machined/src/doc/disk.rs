@@ -12,6 +12,11 @@ pub struct Swap {
     /// Actual mode selected for the saved inode, before any outside replacement.
     pub mode: u32,
 }
+/// Outer errors mean no rename occurred. Inner errors follow the irreversible rename.
+pub struct Removal {
+    pub displaced: Option<Displaced>,
+    pub error: Option<super::Error>,
+}
 pub struct Recovery {
     pub token: Displaced,
     pub record: Record,
@@ -37,6 +42,16 @@ pub trait Disk: Send {
         text: &[u8],
         actor: Option<&str>,
     ) -> Result<Swap>;
+    fn remove_file(&mut self, _path: &str, _key: Digest, _actor: Option<&str>) -> Result<Removal> {
+        Err(super::Error::Unsupported)
+    }
+    /// Read-only startup scan. Retained deleted inodes must not depend on reopening a missing path.
+    fn recover_deletions(&mut self) -> Result<Vec<(String, Recovery)>> {
+        Ok(vec![])
+    }
+    fn own_delete(&mut self, _path: &str, _actor: Option<&str>) -> Result<()> {
+        Err(super::Error::Unsupported)
+    }
     /// Leftover temps survive restart and are returned as retained open inodes.
     fn recover_temps(&mut self, path: &str, key: Digest) -> Result<Vec<Recovery>>;
     fn read_displaced(&mut self, token: Displaced) -> Result<Vec<u8>>;

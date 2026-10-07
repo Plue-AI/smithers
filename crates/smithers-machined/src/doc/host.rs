@@ -148,6 +148,15 @@ pub(super) struct PreparedWrite {
     pub current: Digest,
     pub cost: usize,
     closed: Option<(Document, Vec<u8>)>,
+    physical: Option<Option<Vec<u8>>>,
+}
+struct Retired {
+    path: String,
+    token: Displaced,
+    expected: Option<Digest>,
+    observed: Option<Digest>,
+    recorded: Option<Digest>,
+    quiet: Option<(u64, u64)>,
 }
 pub struct Host<D: Disk> {
     pub disk: D,
@@ -157,16 +166,41 @@ pub struct Host<D: Disk> {
     stream_ids: Box<dyn FnMut() -> Result<u32> + Send>,
     notices: Vec<Notice>,
     clients: BTreeMap<(u32, String), u64>,
+    retired: Vec<Retired>,
+    recovery_error: Option<Error>,
 }
 impl<D: Disk> Host<D> {
     pub fn new(
-        disk: D,
+        mut disk: D,
         gates: Gates,
         stream_ids: impl FnMut() -> Result<u32> + Send + 'static,
     ) -> Self {
+        let (retired, recovery_error) = if gates.check().is_ok() {
+            match disk.recover_deletions() {
+                Ok(records) => (
+                    records
+                        .into_iter()
+                        .map(|(path, r)| Retired {
+                            path,
+                            token: r.token,
+                            expected: r.record.previous,
+                            observed: None,
+                            recorded: None,
+                            quiet: None,
+                        })
+                        .collect(),
+                    None,
+                ),
+                Err(e) => (vec![], Some(e)),
+            }
+        } else {
+            (vec![], None)
+        };
         Self {
             disk,
             gates,
+            retired,
+            recovery_error,
             docs: BTreeMap::new(),
             streams: BTreeMap::new(),
             stream_ids: Box::new(stream_ids),
@@ -175,7 +209,11 @@ impl<D: Disk> Host<D> {
         }
     }
     pub fn ready(&self) -> Result<()> {
-        self.gates.check()
+        self.gates.check()?;
+        if let Some(error) = &self.recovery_error {
+            return Err(error.clone());
+        }
+        Ok(())
     }
     pub fn paths(&self) -> Vec<String> {
         self.docs.keys().cloned().collect()
@@ -205,7 +243,7 @@ impl<D: Disk> Host<D> {
     /// One authenticated host peer owns author allocation. It may only extend
     /// the map for the envelope's actor; it cannot reassign existing authors.
     pub fn peer_update(&mut self, stream: u32, actor: &str, bytes: &[u8], now: u64) -> Result<()> {
-        self.gates.check()?;
+        self.ready()?;
         let path = self.streams.get(&stream).ok_or(Error::Invalid)?;
         let doc = self.docs.get_mut(path).ok_or(Error::Invalid)?;
         if doc.readonly {
@@ -329,6 +367,78 @@ impl<D: Disk> Host<D> {
         }
         Ok(Some((doc.last_disk, raced)))
     }
+    /// A successful rename is irreversible. Failures afterward leave the original
+    /// document gone and the retained inode recoverable; timers never re-create it.
+    pub fn delete_saved(&mut self, path: &str, actor: &str, now: u64) -> Result<Option<Digest>> {
+        self.ready()?;
+        let doc = self.docs.get_mut(path).ok_or(Error::Invalid)?;
+        if !doc.displaced.is_empty() {
+            return Err(Error::Provider(crate::hooks::Error {
+                code: 9,
+                detail: Some("outside writes are still settling; retry after rereading".into()),
+                ..crate::hooks::Error::unsupported()
+            }));
+        }
+        let key = digest(path.as_bytes());
+        let record = Record {
+            epoch: doc.epoch,
+            previous: doc.disk_present.then_some(doc.last_disk),
+            previous_text: doc.base.clone(),
+            deleted_path: Some(path.into()),
+            text: doc
+                .doc
+                .get_or_insert_text("content")
+                .get_string(&doc.doc.transact()),
+            state: core::state(&doc.doc),
+            retired_clients: doc.retired_clients.clone(),
+        };
+        self.disk.store_record(key, &record)?;
+        let removed = self.disk.remove_file(path, key, Some(actor))?;
+        doc.gone = Some(Gone::Deleted { by: actor.into() });
+        doc.dirty_since = None;
+        doc.saved_at_ms = None;
+        doc.save_author = SaveAuthor::Clean;
+        doc.activity.clear();
+        doc.base.clear();
+        doc.last_disk = digest(b"");
+        doc.disk_present = false;
+        self.notices.push(Notice::Gone {
+            path: path.into(),
+            state: doc.gone.clone().unwrap(),
+        });
+        let retained = removed.displaced.map(|token| {
+            self.retired.push(Retired {
+                path: path.into(),
+                token,
+                expected: record.previous,
+                observed: None,
+                recorded: None,
+                quiet: Some((now, now.saturating_add(2000))),
+            });
+            self.retired.len() - 1
+        });
+        if let Some(error) = removed.error {
+            return Err(error);
+        }
+        let mut raced = None;
+        if let Some(index) = retained {
+            let bytes = self.disk.read_displaced(self.retired[index].token)?;
+            let actual = digest(&bytes);
+            self.retired[index].observed = Some(actual);
+            if Some(actual) != record.previous {
+                let version = self.disk.record_outside(path, &bytes, "outside")?;
+                self.retired[index].recorded = Some(actual);
+                self.notices.push(Notice::Outside {
+                    path: path.into(),
+                    version,
+                    by: "outside".into(),
+                });
+                raced = Some(actual);
+            }
+        }
+        self.disk.own_delete(path, Some(actor))?;
+        Ok(raced)
+    }
     pub fn notices(&mut self) -> Vec<Notice> {
         std::mem::take(&mut self.notices)
     }
@@ -338,7 +448,7 @@ impl<D: Disk> Host<D> {
         self.open_inner(path, fresh_epoch, now)
     }
     fn open_inner(&mut self, path: &str, fresh_epoch: [u8; 16], now: u64) -> Result<u32> {
-        self.gates.check()?;
+        self.ready()?;
         if !disk::valid_path(path) {
             return Err(Error::Invalid);
         }
@@ -393,7 +503,9 @@ impl<D: Disk> Host<D> {
         let record = if readonly || missing {
             None
         } else {
-            self.disk.load_record(key)?
+            self.disk
+                .load_record(key)?
+                .filter(|r| r.deleted_path.is_none())
         };
         let entry = match record {
             Some(record) => {
@@ -526,22 +638,45 @@ impl<D: Disk> Host<D> {
         base: &crate::hooks::Base,
         now: u64,
     ) -> Result<PreparedWrite> {
-        self.gates.check()?;
+        self.ready()?;
         if !disk::valid_path(path) {
             return Err(Error::Invalid);
         }
         if let Some(current) = self.current_digest(path) {
-            if base != &crate::hooks::Base::Digest(current) {
-                return Err(Self::stale_write(Some(current)));
-            }
+            let physical = if self.docs[path].gone.is_some() {
+                let bytes = self.disk.read(path)?;
+                let observed = bytes.as_deref().map(digest);
+                if !matches!((base, observed), (crate::hooks::Base::Absent, None))
+                    && !matches!((base, observed), (crate::hooks::Base::Digest(expected), Some(actual)) if *expected == actual)
+                {
+                    return Err(Self::stale_write(observed));
+                }
+                if bytes
+                    .as_ref()
+                    .is_some_and(|b| b.len() > MAX_TEXT_BYTES || std::str::from_utf8(b).is_err())
+                {
+                    return Err(Error::ReadOnly);
+                }
+                Some(bytes)
+            } else {
+                if base != &crate::hooks::Base::Digest(current) {
+                    return Err(Self::stale_write(Some(current)));
+                }
+                None
+            };
             if self.docs[path].readonly {
                 return Err(Error::ReadOnly);
             }
+            let cost = physical
+                .as_ref()
+                .and_then(|p| p.as_ref())
+                .map_or(0, Vec::len);
             return Ok(PreparedWrite {
                 path: path.into(),
                 current,
                 closed: None,
-                cost: 0,
+                physical,
+                cost,
             });
         }
         let mut epoch = [0; 16];
@@ -552,6 +687,7 @@ impl<D: Disk> Host<D> {
             path: path.into(),
             current: digest(&bytes),
             closed: Some((entry, bytes)),
+            physical: None,
             cost,
         })
     }
@@ -564,6 +700,13 @@ impl<D: Disk> Host<D> {
             self.activate_document(&prepared.path, entry, &bytes, now)?;
             Ok(false)
         } else {
+            if let Some(bytes) = prepared.physical {
+                let doc = self.docs.get_mut(&prepared.path).ok_or(Error::Invalid)?;
+                doc.disk_present = bytes.is_some();
+                doc.base =
+                    String::from_utf8(bytes.unwrap_or_default()).map_err(|_| Error::ReadOnly)?;
+                doc.last_disk = digest(doc.base.as_bytes());
+            }
             Ok(true)
         }
     }
@@ -629,7 +772,7 @@ impl<D: Disk> Host<D> {
         bytes: &[u8],
         now: u64,
     ) -> Result<()> {
-        self.gates.check()?;
+        self.ready()?;
         if bytes.len() > MAX_TEXT_BYTES {
             return Err(Error::Invalid);
         }
@@ -699,7 +842,7 @@ impl<D: Disk> Host<D> {
         message: yrs::sync::SyncMessage,
         now: u64,
     ) -> Result<Vec<yrs::sync::SyncMessage>> {
-        self.gates.check()?;
+        self.ready()?;
         if epoch != self.entry(stream)?.epoch {
             return Err(Error::Epoch);
         }
@@ -731,7 +874,7 @@ impl<D: Disk> Host<D> {
         colour: &str,
         line: Option<(&str, u32)>,
     ) -> Result<()> {
-        self.gates.check()?;
+        self.ready()?;
         let doc = self.entry(stream)?;
         if doc.retired_clients.contains(&client)
             || authors::entries(&doc.doc)?
@@ -765,7 +908,7 @@ impl<D: Disk> Host<D> {
         colour: &str,
         line: Option<u32>,
     ) -> Result<()> {
-        self.gates.check()?;
+        self.ready()?;
         if epoch != self.entry(stream)?.epoch {
             return Err(Error::Epoch);
         }
@@ -812,7 +955,7 @@ impl<D: Disk> Host<D> {
         actor: &str,
         now: u64,
     ) -> Result<bool> {
-        self.gates.check()?;
+        self.ready()?;
         let Some(doc) = self.docs.get_mut(path) else {
             return Ok(false);
         };
@@ -888,7 +1031,7 @@ impl<D: Disk> Host<D> {
     }
     /// Only completed-write events call this; IN_MODIFY is not an admission.
     pub fn completed_write(&mut self, path: &str, actor: &str, now: u64) -> Result<()> {
-        self.gates.check()?;
+        self.ready()?;
         let Some(doc) = self.docs.get_mut(path) else {
             return Ok(());
         };
@@ -906,7 +1049,7 @@ impl<D: Disk> Host<D> {
         )
     }
     pub fn gone(&mut self, path: &str, state: Gone) -> Result<()> {
-        self.gates.check()?;
+        self.ready()?;
         if let Some(doc) = self.docs.get_mut(path) {
             doc.gone = Some(state.clone());
             self.notices.push(Notice::Gone {
@@ -936,6 +1079,7 @@ impl<D: Disk> Host<D> {
             epoch: doc.epoch,
             previous: doc.disk_present.then_some(doc.last_disk),
             previous_text: doc.base.clone(),
+            deleted_path: None,
             text: text.clone(),
             state: core::state(&doc.doc),
             retired_clients: doc.retired_clients.clone(),
@@ -972,10 +1116,49 @@ impl<D: Disk> Host<D> {
         });
         Ok(())
     }
+    fn settle_deleted(&mut self, now: u64) -> Result<()> {
+        let mut retired = std::mem::take(&mut self.retired);
+        while let Some(mut item) = retired.pop() {
+            let result = (|| {
+                let bytes = self.disk.read_displaced(item.token)?;
+                let actual = digest(&bytes);
+                let (quiet, deadline) = item.quiet.get_or_insert((now, now.saturating_add(2000)));
+                if item.observed != Some(actual) {
+                    item.observed = Some(actual);
+                    *quiet = now;
+                }
+                if now < quiet.saturating_add(200) && now < *deadline {
+                    return Ok(false);
+                }
+                if Some(actual) != item.expected && item.recorded != Some(actual) {
+                    let version = self.disk.record_outside(&item.path, &bytes, "outside")?;
+                    item.recorded = Some(actual);
+                    self.notices.push(Notice::Outside {
+                        path: item.path.clone(),
+                        version,
+                        by: "outside".into(),
+                    });
+                }
+                self.disk.remove_displaced(item.token)?;
+                Ok(true)
+            })();
+            match result {
+                Ok(true) => (),
+                Ok(false) => self.retired.push(item),
+                Err(e) => {
+                    self.retired.push(item);
+                    self.retired.extend(retired);
+                    return Err(e);
+                }
+            }
+        }
+        Ok(())
+    }
     /// Timers poll with monotonic milliseconds. The caller runs save jobs on the
     /// shared FIFO lock; the displaced-inode quiet wait does not hold that lock.
     pub fn tick(&mut self, now: u64, saves_allowed: bool) -> Result<()> {
-        self.gates.check()?;
+        self.ready()?;
+        self.settle_deleted(now)?;
         for (path, doc) in &mut self.docs {
             let mut pending = std::mem::take(&mut doc.displaced);
             while let Some(mut p) = pending.pop() {
@@ -1042,7 +1225,7 @@ impl<D: Disk> Host<D> {
         Ok(())
     }
     pub fn flush_all(&mut self, now: u64) -> Result<u16> {
-        self.gates.check()?;
+        self.ready()?;
         let mut count = 0;
         for (path, doc) in &mut self.docs {
             if !doc.readonly && doc.gone.is_none() {
@@ -1053,12 +1236,15 @@ impl<D: Disk> Host<D> {
         Ok(count)
     }
     pub fn all_flushed(&self) -> bool {
-        self.docs
-            .values()
-            .all(|doc| doc.dirty_since.is_none() && doc.displaced.is_empty())
+        self.retired.is_empty()
+            && self.recovery_error.is_none()
+            && self
+                .docs
+                .values()
+                .all(|doc| doc.dirty_since.is_none() && doc.displaced.is_empty())
     }
     pub fn reconcile_all(&mut self, actor: &str, now: u64) -> Result<()> {
-        self.gates.check()?;
+        self.ready()?;
         let paths: Vec<_> = self.docs.keys().cloned().collect();
         for path in paths {
             self.completed_write(&path, actor, now)?;

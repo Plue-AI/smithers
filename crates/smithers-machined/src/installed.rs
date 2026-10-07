@@ -215,6 +215,14 @@ struct DocumentVersions {
     watcher: Arc<OnceLock<Arc<Watcher>>>,
 }
 impl Versions for DocumentVersions {
+    fn own_delete(&mut self, path: &str, actor: Option<&str>) -> crate::doc::Result<()> {
+        self.watcher
+            .get()
+            .ok_or(crate::doc::Error::Unsupported)?
+            .after_delete(path, &saved_actor(actor))
+            .map_err(crate::doc::Error::Provider)
+    }
+
     fn outside(&mut self, path: &str, text: &[u8], _: &str) -> crate::doc::Result<String> {
         let blob = self.git.blob(text)?;
         let mut files = BTreeMap::new();

@@ -329,9 +329,9 @@ fn local_batch_binds_one_committed_principal_and_rejects_body_actor() {
     assert_eq!(changes.len(), 2);
     assert_eq!(changes[0].path, "a");
     assert_eq!(changes[0].base, smithers_machined::hooks::Base::Absent);
-    assert_eq!(changes[0].content, b"x");
+    assert_eq!(changes[0].content.as_deref(), Some(b"x".as_slice()));
     assert_eq!(changes[1].path, "b");
-    assert_eq!(changes[1].content, b"y");
+    assert_eq!(changes[1].content.as_deref(), Some(b"y".as_slice()));
     assert!(conn::local_batch_write_args(args, [0; 16]).is_err());
     let forged = include_bytes!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -339,6 +339,29 @@ fn local_batch_binds_one_committed_principal_and_rejects_body_actor() {
     ));
     assert_eq!(
         Frame::decode_local(forged),
+        Err(conn::ProtocolError::UnknownField)
+    );
+}
+
+#[test]
+fn local_delete_is_absent_content_and_actor_only_comes_from_admission() {
+    let bytes = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../packages/backend/internal/compose/testdata/cocontracts/local_delete_files.bin"
+    ));
+    let frame = Frame::decode_local(bytes).unwrap();
+    let (_, method, args) = frame.request().unwrap();
+    assert_eq!(method, 17);
+    let (changes, actor) = conn::local_batch_write_args(args, [7; 16]).unwrap();
+    assert_eq!(actor, Actor::Principal(vec![7; 16]));
+    assert_eq!(changes.len(), 1);
+    assert!(changes[0].content.is_none());
+    let host = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../packages/backend/internal/compose/testdata/cocontracts/req_delete_files.bin"
+    ));
+    assert_eq!(
+        Frame::decode_local(host),
         Err(conn::ProtocolError::UnknownField)
     );
 }

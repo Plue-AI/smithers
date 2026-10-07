@@ -42,7 +42,7 @@ impl Documents for Provider {
             "closed" => None,
             "refused" => Some(Err(Error::unsupported())),
             _ => Some(Ok(DocumentWrite {
-                digest: [42; 32],
+                digest: Some([42; 32]),
                 raced: None,
             })),
         }
@@ -143,7 +143,7 @@ fn readiness_is_live_and_document_contract_runs_on_shared_lock() {
             assert_eq!(
                 documents.write_through(cx, "open", &Base::Absent, b"", &Actor::Outside),
                 Some(Ok(DocumentWrite {
-                    digest: [42; 32],
+                    digest: Some([42; 32]),
                     raced: None
                 }))
             );

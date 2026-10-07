@@ -14,7 +14,7 @@ pub mod state;
 pub const MAX_TEXT_BYTES: usize = 1 << 20;
 pub const MAX_STATE_BYTES: usize = 8 << 20;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
     Unsupported,
     Invalid,

@@ -60,6 +60,9 @@ pub trait Watcher: Send + Sync {
     fn after_write(&self, _path: &str, _actor: &Actor, _bytes: &[u8], _mode: u32) -> Result<()> {
         Err(Error::unsupported())
     }
+    fn after_delete(&self, _path: &str, _actor: &Actor) -> Result<()> {
+        Err(Error::unsupported())
+    }
     fn resync(&self, _cx: &mut LockCx) -> Result<()> {
         Err(Error::unsupported())
     }
@@ -69,14 +72,16 @@ pub trait Watcher: Send + Sync {
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocumentWrite {
-    pub digest: Digest,
+    /// None is a durably recorded deletion.
+    pub digest: Option<Digest>,
     pub raced: Option<Digest>,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileWrite {
     pub path: String,
     pub base: Base,
-    pub content: Vec<u8>,
+    /// None deletes; Some(empty) writes an empty file.
+    pub content: Option<Vec<u8>>,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BatchFailure {

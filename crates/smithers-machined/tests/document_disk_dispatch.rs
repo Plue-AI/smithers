@@ -38,8 +38,21 @@ const MEMBER: &[u8] = &[0, 255, 128, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
 struct Receipts(
     Arc<Mutex<Vec<Vec<u8>>>>,
     Arc<Mutex<Vec<(String, [u8; 32], Option<String>)>>>,
+    Arc<Mutex<Vec<(String, Option<String>)>>>,
 );
 impl Versions for Receipts {
+    fn own_delete(
+        &mut self,
+        path: &str,
+        actor: Option<&str>,
+    ) -> smithers_machined::doc::Result<()> {
+        self.2
+            .lock()
+            .unwrap()
+            .push((path.into(), actor.map(str::to_owned)));
+        Ok(())
+    }
+
     fn outside(
         &mut self,
         _: &str,
@@ -771,6 +784,7 @@ fn stale_recovery_comparison_leaves_real_file_and_record_unchanged() {
     let record = Record {
         epoch: [7; 16],
         previous: Some(digest(b"abc")),
+        deleted_path: None,
         previous_text: "abc".into(),
         text: "pending".into(),
         state: core::state(&doc),
@@ -849,18 +863,27 @@ fn accepted_outside_snapshot_is_not_reported_again_as_a_swap_race() {
 }
 
 fn batch(cx: &mut LockCx, changes: &[(&str, Option<&[u8]>, &[u8])]) -> Vec<u8> {
+    mutations(
+        cx,
+        &changes
+            .iter()
+            .map(|(p, b, c)| (*p, *b, Some(*c)))
+            .collect::<Vec<_>>(),
+    )
+}
+fn mutations(cx: &mut LockCx, changes: &[(&str, Option<&[u8]>, Option<&[u8]>)]) -> Vec<u8> {
     let mut values = (changes.len() as u16).to_be_bytes().to_vec();
     for (path, base, content) in changes {
         let base = base
             .map(|b| conn::tagged(1, &[conn::field(1, digest(b))]))
             .unwrap_or_else(|| conn::tagged(2, &[]));
-        let mut bytes = (content.len() as u32).to_be_bytes().to_vec();
-        bytes.extend(*content);
-        values.extend(conn::structure_bytes(&[
-            conn::field(1, string(path)),
-            conn::field(2, base),
-            conn::field(3, bytes),
-        ]));
+        let mut fields = vec![conn::field(1, string(path)), conn::field(2, base)];
+        if let Some(content) = content {
+            let mut bytes = (content.len() as u32).to_be_bytes().to_vec();
+            bytes.extend(*content);
+            fields.push(conn::field(3, bytes));
+        }
+        values.extend(conn::structure_bytes(&fields));
     }
     result(
         &rpc::dispatch(
@@ -933,8 +956,11 @@ fn batch_io_error_preserves_applied_receipts_and_never_calls_it_stale() {
     assert_eq!(response[0], 17);
     let fields = conn::fields("result17", &response[1..]).unwrap();
     assert_eq!(&fields[0].1[..2], [0, 1]);
-    let receipt = conn::fields("result3", &fields[0].1[2..]).unwrap();
-    assert_eq!(receipt[0].1, digest(b"after"));
+    let receipt = conn::fields("mutation_result", &fields[0].1[2..]).unwrap();
+    assert_eq!(
+        conn::fields("digest_base", &receipt[0].1[1..]).unwrap()[0].1,
+        digest(b"after")
+    );
     let failure = conn::fields("batch_failure", fields[1].1).unwrap();
     assert_eq!(failure[0].1, [0, 1]);
     assert_eq!(failure[1].1, [0]);
@@ -1007,7 +1033,7 @@ fn batch_retains_outside_edit_to_later_file_after_all_bases_were_compared() {
         .unwrap()
         .contains(&b"late outside".to_vec()));
     let first_size = 4 + u32::from_be_bytes(fields[0].1[2..6].try_into().unwrap()) as usize;
-    let second = conn::fields("result3", &fields[0].1[2 + first_size..]).unwrap();
+    let second = conn::fields("mutation_result", &fields[0].1[2 + first_size..]).unwrap();
     assert_eq!(
         conn::fields("raced", second[1].1).unwrap()[1].1,
         digest(b"late outside")
@@ -1059,8 +1085,11 @@ fn create_reports_empty_outside_file_as_a_race_including_empty_output() {
         assert_eq!(response[0], 17);
         let fields = conn::fields("result17", &response[1..]).unwrap();
         assert_eq!(fields.len(), 1);
-        let receipt = conn::fields("result3", &fields[0].1[2..]).unwrap();
-        assert_eq!(receipt[0].1, digest(content));
+        let receipt = conn::fields("mutation_result", &fields[0].1[2..]).unwrap();
+        assert_eq!(
+            conn::fields("digest_base", &receipt[0].1[1..]).unwrap()[0].1,
+            digest(content)
+        );
         let raced = conn::fields("raced", receipt[1].1).unwrap();
         assert_eq!(&raced[0].1[2..], b"new.rs");
         assert_eq!(raced[1].1, digest(b""));
@@ -1095,6 +1124,7 @@ fn reopened_creation_record_distinguishes_empty_outside_file_from_interrupted_up
         let record = Record {
             epoch: [7; 16],
             previous,
+            deleted_path: None,
             previous_text: String::new(),
             text: "pending".into(),
             state: core::state(&doc),
@@ -1122,4 +1152,219 @@ fn reopened_creation_record_distinguishes_empty_outside_file_from_interrupted_up
             assert!(f.receipts.0.lock().unwrap().is_empty());
         }
     }
+}
+
+#[test]
+#[ignore = "requires Linux uid19998 and confined real filesystem"]
+fn real_move_has_absent_source_and_digest_destination_and_stale_is_a_noop() {
+    for stale in [None, Some(0), Some(1)] {
+        let f = Fixture::new();
+        let (service, mut cx) = f.service();
+        let changes = [
+            (
+                "a.rs",
+                Some(if stale == Some(0) {
+                    &b"wrong"[..]
+                } else {
+                    &b"abc"[..]
+                }),
+                None,
+            ),
+            (
+                "b.rs",
+                if stale == Some(1) {
+                    Some(&b"wrong"[..])
+                } else {
+                    None
+                },
+                Some(&b"abc"[..]),
+            ),
+        ];
+        let reply = mutations(&mut cx, &changes);
+        assert_eq!(reply[0], 17);
+        let fields = conn::fields("result17", &reply[1..]).unwrap();
+        if let Some(index) = stale {
+            assert_eq!(fields[0].1, 0u16.to_be_bytes());
+            let failure = conn::fields("batch_failure", fields[1].1).unwrap();
+            assert_eq!(failure[0].1, (index as u16).to_be_bytes());
+            assert_eq!(failure[1].1, [1]);
+            assert_eq!(fs::read(f.root.join("workspace/a.rs")).unwrap(), b"abc");
+            assert!(!f.root.join("workspace/b.rs").exists());
+            assert_eq!(fs::read_dir(f.root.join("store")).unwrap().count(), 0);
+        } else {
+            let first = conn::structure_bytes(&[conn::field(1, conn::tagged(2, &[]))]);
+            assert_eq!(&fields[0].1[..2], 2u16.to_be_bytes());
+            assert!(fields[0].1[2..].starts_with(&first));
+            assert!(!f.root.join("workspace/a.rs").exists());
+            assert_eq!(fs::read(f.root.join("workspace/b.rs")).unwrap(), b"abc");
+            assert_eq!(
+                *f.receipts.2.lock().unwrap(),
+                vec![(
+                    "a.rs".into(),
+                    Some(MEMBER.iter().map(|b| format!("{b:02x}")).collect())
+                )]
+            );
+        }
+        for now in [200, 2000, 60_001] {
+            f.clock.0.store(now, Ordering::Relaxed);
+            service.poll(&mut cx).unwrap();
+        }
+        assert_eq!(f.root.join("workspace/a.rs").exists(), stale.is_some());
+    }
+}
+#[test]
+#[ignore = "requires Linux uid19998 and confined real filesystem"]
+fn deleted_open_inode_late_write_is_versioned_after_restart_without_reopening_path() {
+    use std::io::{Seek, SeekFrom, Write};
+    for recreate in [false, true] {
+        let f = Fixture::new();
+        let mut outside = fs::OpenOptions::new()
+            .write(true)
+            .open(f.root.join("workspace/a.rs"))
+            .unwrap();
+        let (service, mut cx) = f.service();
+        let reply = mutations(&mut cx, &[("a.rs", Some(b"abc"), None)]);
+        assert_eq!(conn::fields("result17", &reply[1..]).unwrap().len(), 1);
+        assert!(!f.root.join("workspace/a.rs").exists());
+        drop(cx);
+        drop(service);
+        if recreate {
+            fs::write(f.root.join("workspace/a.rs"), b"recreated").unwrap();
+        }
+        outside.seek(SeekFrom::Start(0)).unwrap();
+        outside.set_len(0).unwrap();
+        outside.write_all(b"late writer").unwrap();
+        outside.sync_all().unwrap();
+        let (service, mut cx) = f.service();
+        service.poll(&mut cx).unwrap();
+        f.clock.0.store(200, Ordering::Relaxed);
+        service.poll(&mut cx).unwrap();
+        assert_eq!(*f.receipts.0.lock().unwrap(), vec![b"late writer".to_vec()]);
+        if recreate {
+            assert_eq!(
+                fs::read(f.root.join("workspace/a.rs")).unwrap(),
+                b"recreated"
+            );
+        } else {
+            assert!(!f.root.join("workspace/a.rs").exists());
+        }
+        assert!(!fs::read_dir(f.root.join("workspace")).unwrap().any(|e| e
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".smithers-doc-")));
+    }
+}
+#[test]
+#[ignore = "requires Linux uid19998 and confined real filesystem"]
+fn restore_after_delete_compares_physical_absence_and_late_inode_cannot_overwrite_restore() {
+    use std::io::Write;
+    let f = Fixture::new();
+    let mut old = fs::OpenOptions::new()
+        .write(true)
+        .open(f.root.join("workspace/a.rs"))
+        .unwrap();
+    let (service, mut cx) = f.service();
+    open(&mut cx, "a.rs");
+    let deleted = mutations(&mut cx, &[("a.rs", Some(b"abc"), None)]);
+    assert_eq!(conn::fields("result17", &deleted[1..]).unwrap().len(), 1);
+    fs::write(f.root.join("workspace/a.rs"), b"new outside").unwrap();
+    let stale = mutations(&mut cx, &[("a.rs", None, Some(b"restored"))]);
+    assert_eq!(
+        conn::fields("result17", &stale[1..]).unwrap()[0].1,
+        0u16.to_be_bytes()
+    );
+    assert_eq!(
+        fs::read(f.root.join("workspace/a.rs")).unwrap(),
+        b"new outside"
+    );
+    fs::remove_file(f.root.join("workspace/a.rs")).unwrap();
+    let restored = mutations(&mut cx, &[("a.rs", None, Some(b"restored"))]);
+    assert_eq!(conn::fields("result17", &restored[1..]).unwrap().len(), 1);
+    old.set_len(0).unwrap();
+    old.write_all(b"late after restore").unwrap();
+    old.sync_all().unwrap();
+    for now in [100, 300, 2000] {
+        f.clock.0.store(now, Ordering::Relaxed);
+        service.poll(&mut cx).unwrap();
+    }
+    assert_eq!(
+        fs::read(f.root.join("workspace/a.rs")).unwrap(),
+        b"restored"
+    );
+    assert!(f
+        .receipts
+        .0
+        .lock()
+        .unwrap()
+        .contains(&b"late after restore".to_vec()));
+}
+
+#[test]
+#[ignore = "requires Linux uid19998 and confined real filesystem"]
+fn failed_delete_intent_never_unlinks_later_file_after_restart() {
+    let f = Fixture::new();
+    let (service, mut cx) = f.service();
+    fs::set_permissions(f.root.join("workspace"), fs::Permissions::from_mode(0o555)).unwrap();
+    let reply = mutations(&mut cx, &[("a.rs", Some(b"abc"), None)]);
+    let fields = conn::fields("result17", &reply[1..]).unwrap();
+    assert_eq!(fields[0].1, 0u16.to_be_bytes());
+    assert_eq!(
+        conn::fields("batch_failure", fields[1].1).unwrap()[1].1,
+        [0]
+    );
+    assert_eq!(fs::read(f.root.join("workspace/a.rs")).unwrap(), b"abc");
+    drop(cx);
+    drop(service);
+    fs::set_permissions(f.root.join("workspace"), fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(f.root.join("workspace/a.rs"), b"later outside").unwrap();
+    let (service, mut cx) = f.service();
+    open(&mut cx, "a.rs");
+    service.flush_all(&mut cx).unwrap();
+    for now in [200, 2000] {
+        f.clock.0.store(now, Ordering::Relaxed);
+        service.poll(&mut cx).unwrap();
+    }
+    assert_eq!(
+        fs::read(f.root.join("workspace/a.rs")).unwrap(),
+        b"later outside"
+    );
+    assert!(f.receipts.2.lock().unwrap().is_empty());
+}
+#[test]
+#[ignore = "requires Linux uid19998 and confined real filesystem"]
+fn corrupted_deletion_metadata_refuses_recovery_without_touching_recreated_file() {
+    let f = Fixture::new();
+    let (service, mut cx) = f.service();
+    let reply = mutations(&mut cx, &[("a.rs", Some(b"abc"), None)]);
+    assert_eq!(conn::fields("result17", &reply[1..]).unwrap().len(), 1);
+    drop(cx);
+    drop(service);
+    let metadata = fs::read_dir(f.root.join("store"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| {
+            p.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("displaced-")
+        })
+        .unwrap();
+    let mut record = Record::decode(&fs::read(&metadata).unwrap()).unwrap();
+    record.deleted_path = Some("other.rs".into());
+    fs::write(metadata, record.encode().unwrap()).unwrap();
+    fs::write(f.root.join("workspace/a.rs"), b"recreated").unwrap();
+    let (service, mut cx) = f.service();
+    assert!(service.ready().is_err());
+    assert!(service.poll(&mut cx).is_err());
+    assert_eq!(
+        fs::read(f.root.join("workspace/a.rs")).unwrap(),
+        b"recreated"
+    );
+    assert!(!f.root.join("workspace/other.rs").exists());
+    assert!(fs::read_dir(f.root.join("workspace")).unwrap().any(|e| e
+        .unwrap()
+        .file_name()
+        .to_string_lossy()
+        .starts_with(".smithers-doc-")));
 }

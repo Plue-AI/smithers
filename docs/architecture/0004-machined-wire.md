@@ -133,9 +133,9 @@ The boot file `/run/smithers/machined/boot` (written by the runtime, T-COL-03; o
 
 Rejected: the host presenting the relay secret as a bearer value (§9.5.3's wording). A process that reached the listening port first, or a stale bridge listener, would learn the secret; the HMAC proof costs one extra half round trip and leaks nothing. Rejected: version negotiation. Host and daemon ship in one bundle and the daemon is planted, digest-checked, on every boot (§16.1.1), so a skew lives only until the machine's next boot; one exact `protocol` value keeps one code path.
 
-`protocol` is `6`: protocol 5's exact live-connection rule (8a, 2026-10-07,
+`protocol` is `7`: protocol 5's exact live-connection rule (8a, 2026-10-07,
 #3626) continues, with the bump required by the compared text-batch addition
-below. There is no negotiation or older live protocol accepted. Host and daemon
+and delete/move mutations below. There is no negotiation or older live protocol accepted. Host and daemon
 ship in the same verified install bundle (spec §17.3); a different handshake
 version ends the connection with `version_mismatch` (error 13) before credentials
 or operations. Any wire change increments the version and regenerates the golden
@@ -338,7 +338,7 @@ The exported Go `Read`, `Decode`, `DecodeLocal`, `Encode`, `EncodeLocal` and
 `RequestFrame` and Rust `Frame::{read,decode,decode_local,encode,encode_local}`
 share the framing above. `msg` exposes method and error discriminants; tagged
 payload builders construct requests without a second framing implementation.
-The 179 literal frames (10 sequences, 7 refusal sequences) include 1 MiB and 1 MiB + 1 content fixtures and preserve
+The 183 literal frames (10 sequences, 7 refusal sequences) include 1 MiB and 1 MiB + 1 content fixtures and preserve
 the browser document fixtures. The JSON companion records kind, stream and the
 canonical payload as hex; it never records JSON sent over the connection.
 `gen.mjs --check` verifies the independent byte tables and manifest hashes.
@@ -473,7 +473,7 @@ and other producer migrations.
 
 ### Wire review rulings (8a, 2026-10-07, #3626; 3f's independent review)
 
-1. **The version is authenticated.** The HostProof MAC covers `protocol` (row 2 above), so a relay cannot rewrite it unseen. The daemon checks `protocol` equality first (`version_mismatch`), then the MAC (`auth_failed`). The corpus carries committed vectors (secret, boot_id, nonce, protocol 6, mac), two at bc7887554b, and a wrong-mac frame expecting `auth_failed`; both codecs must compute each exact mac.
+1. **The version is authenticated.** The HostProof MAC covers `protocol` (row 2 above), so a relay cannot rewrite it unseen. The daemon checks `protocol` equality first (`version_mismatch`), then the MAC (`auth_failed`). The corpus carries committed vectors (secret, boot_id, nonce, protocol 7, mac), the two vectors introduced at bc7887554b regenerated for protocol 7, and a wrong-mac frame expecting `auth_failed`; both codecs must compute each exact mac.
 2. **Durable event variant 5 (transcripts) is defined, not reserved** (superseding this ruling's first version: #3622 ships it, in both codecs). `5 transcript` payload: `1 version: u16` (must be 1), `2 session: u32` (1..=0x7FFFFFFF), `3 participant: id128` (non-zero), `4 source: id128` (non-zero; survives reconnects), `5 profile: str` (non-empty; names the pinned host adapter), `6 generation: u64` (≥ 1; changes only when the identified source is replaced or truncated), `7 start: u64`, `8 end: u64` (end > start, and end − start = length of record + 1, the omitted newline), `9 record: bytes` (length-prefixed bytes, as #3622 encodes it; one transcript record without its newline; its length is the `end − start − 1` bound). Any violated bound is `bad_value`; no path, home, uid or executable crosses this event. The transcript frames stay in the manifest under these bounds; an expectation of `bad_utf8` on valid UTF-8 is a fixture bug.
 3. **One rule for reserved variants:** a reserved union variant is refused with `bad_value` (a forbidden variant) whatever its body, before the body is decoded. Event variant 6 follows it (variant 5 is defined, ruling 2); document `msg` bytes keep their own §documents rule until T-COL-08b defines them.
 4. **Sequences that span connections** name each connection: every sequence step carries `conn` (`a`, `b`, …; default `a`). `seq_newer_boot` is: `a` completes its handshake; `b` (newer boot, same machine) completes its handshake and is accepted; `a` receives `Goodbye{superseded}`; a third connection `c` presenting the older boot's credential receives `auth_failed`.
@@ -536,3 +536,37 @@ provider still require their own implementation and installed qualification.
    - a `signal` or `exit` message on an object stream: `bad_value` (a forbidden variant for that stream kind);
    - an unknown `msg` byte on a session or object stream: `unknown_message`, in both codecs;
    - a session `window` grant of 0 or above 262,144 bytes: `bad_value` (credit is 1..=262,144 per grant, and a side's outstanding credit never exceeds 262,144).
+
+
+### Delete and move batches (connection protocol 7, disk record 4, 2026-10-07)
+
+This supersedes method 17's protocol-6 text-only shape above. Its changes are
+`local_mutation {1 path, 2 base, 3? content}`. Missing content deletes a path;
+present zero-length content creates an empty file. A move submits a source
+deletion and destination write in the same batch. Both bases are compared before
+any mutation, with the same bounded text validation and successful-prefix rules.
+Each receipt is `mutation_result {1 post: Base, 2? raced}`: absent for a deletion,
+digest for a write. Method 3 retains its required content and digest receipt.
+The host validates deletion versus empty-file receipts against the encoded input.
+Only protocol 7 is admitted on live connections; persisted history stays readable.
+
+Deletion renames the original inode to a confined recovery name, persists the
+parent directory and checkpoints the attributed absent result before success.
+The document becomes Gone, and its save timers cannot recreate the path. Existing
+pending text swaps must settle before deletion; busy is an application failure,
+never a stale whole-batch no-op. Outside bytes displaced during deletion are
+versioned before success and reported as raced. Late writes to the retained inode
+are versioned after the existing quiet window, without merging into a recreated
+or restored path. Errors after rename do not roll it back or claim completion.
+
+`SMTHDOC4` extends record 3 with a checksum-covered `u16` UTF-8 path length and
+path after the presence byte. Zero length means an ordinary save; a nonempty,
+validated relative path marks deletion recovery metadata. Startup reads that
+private metadata and reopens retained inodes even when the original path is
+absent. It never repeats a deletion intent. Records 1, 2 and 3 remain readable.
+Restore compares a Gone document's physical path, distinguishing absence from an
+outside recreation, before using the existing document save path.
+
+This is daemon and client component support. The public `WorkspaceCompareWriter`
+remains unmounted pending its remaining receipt/mode contracts and installed
+machine qualification; component tests do not establish full ticket acceptance.

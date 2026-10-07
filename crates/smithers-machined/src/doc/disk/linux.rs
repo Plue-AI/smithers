@@ -4,7 +4,7 @@ use super::super::{
     state::{Digest, Record},
     Error, Result, MAX_TEXT_BYTES,
 };
-use super::{Disk, Displaced, Recovery, Swap};
+use super::{Disk, Displaced, Recovery, Removal, Swap};
 use rustix::fs::{self, AtFlags, Mode, OFlags, RenameFlags};
 use std::{
     collections::BTreeMap,
@@ -17,6 +17,9 @@ use crate::confine::RESOLVE;
 
 /// T-COL-04a's recorded-version adapter supplies this; no local blob substitute.
 pub trait Versions: Send {
+    fn own_delete(&mut self, _path: &str, _actor: Option<&str>) -> Result<()> {
+        Err(Error::Unsupported)
+    }
     fn outside(&mut self, path: &str, bytes: &[u8], actor: &str) -> Result<String>;
     fn before_write(&mut self, path: &str, actor: Option<&str>) -> Result<()>;
     fn own_write(&mut self, path: &str, bytes: &[u8], mode: u32, actor: Option<&str>)
@@ -290,6 +293,9 @@ impl<V: Versions> Disk for LinuxDisk<V> {
             };
             let file = open(&parent, name, OFlags::RDONLY, Mode::empty())?;
             let record = self.load_named(&meta(name))?.ok_or(Error::Invalid)?;
+            if record.deleted_path.is_some() {
+                continue;
+            }
             let token = self.keep(parent.try_clone()?, name.into(), file)?;
             tokens.push(Recovery { token, record });
         }
@@ -329,6 +335,118 @@ impl<V: Versions> Disk for LinuxDisk<V> {
             }
         }
         Ok(tokens)
+    }
+    fn remove_file(&mut self, path: &str, key: Digest, actor: Option<&str>) -> Result<Removal> {
+        self.versions.before_write(path, actor)?;
+        let (parent, name) = self.parent(path)?;
+        // Validate type/permissions before mutation; a later replacement is retained,
+        // never followed and never exchanged back over a new outside writer.
+        match open(&parent, &name, OFlags::RDONLY, Mode::empty()) {
+            Ok(file) => regular(&file)?,
+            Err(_) => {
+                match fs::openat2(
+                    &parent,
+                    &name,
+                    OFlags::RDONLY | OFlags::NONBLOCK | OFlags::CLOEXEC | OFlags::NOFOLLOW,
+                    Mode::empty(),
+                    RESOLVE,
+                ) {
+                    Err(rustix::io::Errno::NOENT) => {
+                        return Ok(Removal {
+                            displaced: None,
+                            error: None,
+                        })
+                    }
+                    Err(e) => return Err(io(e)),
+                    Ok(fd) => regular(&File::from(fd))?,
+                }
+            }
+        }
+        let record = self.load_record(key)?.ok_or(Error::Invalid)?;
+        if record.deleted_path.as_deref() != Some(path)
+            || key != super::super::state::digest(path.as_bytes())
+        {
+            return Err(Error::Invalid);
+        }
+        let temp = format!(".smithers-doc-{}-{}", hex(&key), random()?);
+        self.store_named(&meta(&temp), &record)?;
+        if let Err(e) = fs::renameat_with(&parent, &name, &parent, &temp, RenameFlags::NOREPLACE) {
+            self.remove_meta(&temp)?;
+            if e == rustix::io::Errno::NOENT {
+                return Ok(Removal {
+                    displaced: None,
+                    error: None,
+                });
+            }
+            return Err(io(e));
+        }
+        let retained = (|| {
+            let file = open(&parent, &temp, OFlags::RDONLY, Mode::empty())?;
+            regular(&file)?;
+            self.keep(parent.try_clone()?, temp, file)
+        })();
+        let durable = parent.sync_all().map_err(Error::from);
+        Ok(match retained {
+            Ok(token) => Removal {
+                displaced: Some(token),
+                error: durable.err(),
+            },
+            Err(error) => Removal {
+                displaced: None,
+                error: Some(error),
+            },
+        })
+    }
+    fn recover_deletions(&mut self) -> Result<Vec<(String, Recovery)>> {
+        let mut names = vec![];
+        let mut entries = fs::Dir::read_from(&self.store).map_err(io)?;
+        while let Some(entry) = entries.read() {
+            let entry = entry.map_err(io)?;
+            let name = entry.file_name().to_str().map_err(|_| Error::Invalid)?;
+            if name.starts_with("displaced-") {
+                names.push(name.to_owned());
+            }
+        }
+        let mut recovered = vec![];
+        for name in names {
+            let suffix = name.strip_prefix("displaced-").ok_or(Error::Invalid)?;
+            if suffix.len() != 97
+                || suffix.as_bytes()[64] != b'-'
+                || !suffix[..64]
+                    .bytes()
+                    .chain(suffix[65..].bytes())
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            {
+                return Err(Error::Invalid);
+            }
+            let record = self.load_named(&name)?.ok_or(Error::Invalid)?;
+            let Some(path) = record.deleted_path.clone() else {
+                continue;
+            };
+            if hex(&super::super::state::digest(path.as_bytes())) != suffix[..64] {
+                return Err(Error::Invalid);
+            }
+            let (parent, _) = self.parent(&path)?;
+            let temp = format!(".smithers-doc-{suffix}");
+            match fs::openat2(
+                &parent,
+                &temp,
+                OFlags::RDONLY | OFlags::NONBLOCK | OFlags::CLOEXEC | OFlags::NOFOLLOW,
+                Mode::empty(),
+                RESOLVE,
+            ) {
+                Ok(fd) => {
+                    let token = self.keep(parent, temp, File::from(fd))?;
+                    recovered.push((path, Recovery { token, record }));
+                }
+                Err(rustix::io::Errno::NOENT) => (),
+                Err(e) => return Err(io(e)),
+            }
+        }
+        Ok(recovered)
+    }
+    fn own_delete(&mut self, path: &str, actor: Option<&str>) -> Result<()> {
+        self.versions.own_delete(path, actor)
     }
     fn read_displaced(&mut self, token: u64) -> Result<Vec<u8>> {
         let inode = self.inodes.get_mut(&token).ok_or(Error::Invalid)?;

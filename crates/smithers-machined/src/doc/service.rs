@@ -472,7 +472,7 @@ impl<D: Disk> Documents for Service<D> {
                 &[FileWrite {
                     path: path.into(),
                     base: base.clone(),
-                    content: bytes.into(),
+                    content: Some(bytes.into()),
                 }],
                 by,
             )
@@ -502,10 +502,11 @@ impl<D: Disk> Documents for Service<D> {
             if !super::disk::valid_path(&change.path) || !paths.insert(change.path.as_str()) {
                 return Err(error(Error::Invalid));
             }
+            let content = change.content.as_deref().unwrap_or_default();
             bytes = bytes
-                .checked_add(change.content.len())
+                .checked_add(content.len())
                 .ok_or_else(|| error(Error::Invalid))?;
-            if bytes > super::MAX_TEXT_BYTES || std::str::from_utf8(&change.content).is_err() {
+            if bytes > super::MAX_TEXT_BYTES || std::str::from_utf8(content).is_err() {
                 return Err(error(Error::ReadOnly));
             }
         }
@@ -547,16 +548,25 @@ impl<D: Disk> Documents for Service<D> {
             let current = snapshot.current;
             let written = (|| {
                 let open = s.host.activate_write(snapshot, self.now()).map_err(error)?;
-                let text =
-                    std::str::from_utf8(&change.content).map_err(|_| error(Error::Invalid))?;
-                let (digest, raced) = s
-                    .host
-                    .write_saved(&change.path, current, text, &by, self.now())
-                    .map_err(error)?
-                    .ok_or_else(hooks::Error::unsupported)?;
-                if open {
-                    s.broadcast(&change.path)?;
-                }
+                let (digest, raced) = if let Some(content) = &change.content {
+                    let text = std::str::from_utf8(content).map_err(|_| error(Error::Invalid))?;
+                    let (digest, raced) = s
+                        .host
+                        .write_saved(&change.path, current, text, &by, self.now())
+                        .map_err(error)?
+                        .ok_or_else(hooks::Error::unsupported)?;
+                    if open {
+                        s.broadcast(&change.path)?;
+                    }
+                    (Some(digest), raced)
+                } else {
+                    (
+                        None,
+                        s.host
+                            .delete_saved(&change.path, &by, self.now())
+                            .map_err(error)?,
+                    )
+                };
                 s.collect()?;
                 Ok(DocumentWrite { digest, raced })
             })();

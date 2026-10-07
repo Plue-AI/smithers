@@ -1,6 +1,6 @@
 use smithers_machined::doc::{
     authors, core,
-    disk::{Disk, Displaced, Recovery, Swap},
+    disk::{Disk, Recovery, Removal, Swap},
     gone::Gone,
     host::{Gates, Host, Notice},
     merge, reconcile,
@@ -75,10 +75,52 @@ impl Disk for Model {
             mode: 0o644,
         })
     }
+    fn remove_file(&mut self, path: &str, _: Digest, _: Option<&str>) -> Result<Removal> {
+        self.step("delete")?;
+        if let Some(bytes) = self.swap_race.take() {
+            self.files.insert(path.into(), bytes);
+        }
+        let displaced = self.files.remove(path).map(|old| {
+            self.next += 1;
+            self.displaced.insert(self.next, old);
+            self.bases.insert(
+                self.next,
+                Record::decode(&self.records[&digest(path.as_bytes())]).unwrap(),
+            );
+            self.next
+        });
+        Ok(Removal {
+            displaced,
+            error: self.step("deleted").err(),
+        })
+    }
+    fn recover_deletions(&mut self) -> Result<Vec<(String, Recovery)>> {
+        Ok(self
+            .bases
+            .iter()
+            .filter_map(|(token, record)| {
+                record.deleted_path.clone().map(|path| {
+                    (
+                        path,
+                        Recovery {
+                            token: *token,
+                            record: record.clone(),
+                        },
+                    )
+                })
+            })
+            .collect())
+    }
+    fn own_delete(&mut self, _: &str, actor: Option<&str>) -> Result<()> {
+        self.step("own_delete")?;
+        self.saved_authors.push(actor.map(str::to_owned));
+        Ok(())
+    }
     fn recover_temps(&mut self, _: &str, _: Digest) -> Result<Vec<Recovery>> {
         Ok(self
             .displaced
             .keys()
+            .filter(|token| self.bases[token].deleted_path.is_none())
             .map(|token| Recovery {
                 token: *token,
                 record: self.bases[token].clone(),
@@ -556,7 +598,7 @@ fn record_checksum_bounds_and_state_text_consistency() {
     let (mut h, _) = host("🦀");
     h.flush_all(0).unwrap();
     let bytes = h.disk.records[&digest(b"a.rs")].clone();
-    assert_eq!(&bytes[..8], b"SMTHDOC3");
+    assert_eq!(&bytes[..8], b"SMTHDOC4");
     assert_eq!(Record::decode(&bytes).unwrap().text, "🦀");
     for at in 0..bytes.len() {
         let mut bad = bytes.clone();
@@ -861,6 +903,15 @@ mod dispatcher {
         }
         fn swap_text(&mut self, p: &str, k: Digest, b: &[u8], actor: Option<&str>) -> Result<Swap> {
             self.0.lock().unwrap().swap_text(p, k, b, actor)
+        }
+        fn remove_file(&mut self, p: &str, k: Digest, a: Option<&str>) -> Result<Removal> {
+            self.0.lock().unwrap().remove_file(p, k, a)
+        }
+        fn recover_deletions(&mut self) -> Result<Vec<(String, Recovery)>> {
+            self.0.lock().unwrap().recover_deletions()
+        }
+        fn own_delete(&mut self, p: &str, a: Option<&str>) -> Result<()> {
+            self.0.lock().unwrap().own_delete(p, a)
         }
         fn recover_temps(&mut self, p: &str, k: Digest) -> Result<Vec<Recovery>> {
             self.0.lock().unwrap().recover_temps(p, k)
@@ -1215,7 +1266,7 @@ mod dispatcher {
         legacy.flush_all(0).unwrap();
         // Independent retained-v1 layout: no retired-client trailer existed.
         let raw = legacy.disk.records.get_mut(&digest(b"a.rs")).unwrap();
-        raw.truncate(raw.len() - 37); // empty v3 count + presence + checksum
+        raw.truncate(raw.len() - 39); // empty v4 count + presence + path length + checksum
         raw[..8].copy_from_slice(b"SMTHDOC1");
         raw.extend(digest(raw));
         let disk = Shared(Arc::new(Mutex::new(legacy.disk.clone())));
@@ -1657,7 +1708,7 @@ mod dispatcher {
             )
             .unwrap()
             .unwrap();
-        assert_eq!(applied.digest, digest(b"tool"));
+        assert_eq!(applied.digest, Some(digest(b"tool")));
         assert_eq!(applied.raced, Some(digest(b"outside in swap")));
         assert!(disk
             .0
@@ -1675,7 +1726,7 @@ mod dispatcher {
             )
             .unwrap()
             .unwrap();
-        assert_eq!(created.digest, digest(b"new"));
+        assert_eq!(created.digest, Some(digest(b"new")));
         assert_eq!(created.raced, None);
         assert_eq!(disk.0.lock().unwrap().files["new.rs"], b"new");
         let bad = service
@@ -1835,7 +1886,7 @@ mod dispatcher {
             )
             .unwrap()
             .unwrap();
-        assert_eq!(written.digest, digest(b"tool"));
+        assert_eq!(written.digest, Some(digest(b"tool")));
         assert_eq!(written.raced, None);
         service.take_notices(&mut cx).unwrap();
         let versions = disk.0.lock().unwrap().versions.clone();
@@ -1860,8 +1911,76 @@ mod dispatcher {
             base: base
                 .map(|b| hooks::Base::Digest(digest(b)))
                 .unwrap_or(hooks::Base::Absent),
-            content: content.into(),
+            content: Some(content.into()),
         }
+    }
+    fn deletion(path: &str, base: Option<&[u8]>) -> hooks::FileWrite {
+        let mut request = change(path, base, b"");
+        request.content = None;
+        request
+    }
+    #[test]
+    fn moves_compare_both_paths_before_deleting_or_creating() {
+        for stale in 0..2 {
+            let disk = Shared(Arc::new(Mutex::new(Model::with("source"))));
+            let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
+            let service = Service::new(Host::new(disk.clone(), gates(), ids()), clock.clone());
+            let mut cx = LockCx::new(Default::default());
+            let mut changes = vec![
+                deletion("a.rs", Some(b"source")),
+                change("b.rs", None, b"source"),
+            ];
+            changes[stale].base = hooks::Base::Digest(digest(b"stale"));
+            let result = service
+                .write_batch(&mut cx, &changes, &hooks::Actor::Outside)
+                .unwrap();
+            assert!(result.writes.is_empty());
+            let failure = result.failure.unwrap();
+            assert_eq!(
+                (failure.index, failure.preflight, failure.error.code),
+                (stale, true, 4)
+            );
+            clock.0.store(60_001, Ordering::Relaxed);
+            service.poll(&mut cx).unwrap();
+            let model = disk.0.lock().unwrap();
+            assert_eq!(model.files, Model::with("source").files);
+            assert!(
+                model.records.is_empty() && model.displaced.is_empty() && model.versions.is_empty()
+            );
+        }
+    }
+    #[test]
+    fn move_delete_and_empty_create_have_distinct_durable_receipts() {
+        let disk = Shared(Arc::new(Mutex::new(Model::with("source"))));
+        let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
+        let service = Service::new(Host::new(disk.clone(), gates(), ids()), clock.clone());
+        let mut cx = LockCx::new(Default::default());
+        let result = service
+            .write_batch(
+                &mut cx,
+                &[
+                    deletion("a.rs", Some(b"source")),
+                    change("b.rs", None, b"source"),
+                    change("empty", None, b""),
+                ],
+                &hooks::Actor::Principal(b"alice".to_vec()),
+            )
+            .unwrap();
+        assert!(result.failure.is_none());
+        assert_eq!(
+            result.writes.iter().map(|r| r.digest).collect::<Vec<_>>(),
+            vec![None, Some(digest(b"source")), Some(digest(b""))]
+        );
+        for now in [200, 2000, 60_001] {
+            clock.0.store(now, Ordering::Relaxed);
+            service.poll(&mut cx).unwrap();
+        }
+        let model = disk.0.lock().unwrap();
+        assert!(!model.files.contains_key("a.rs"));
+        assert_eq!(model.files["b.rs"], b"source");
+        assert_eq!(model.files["empty"], b"");
+        assert_eq!(model.saved_authors, vec![Some("616c696365".into()); 3]);
+        assert!(model.displaced.is_empty());
     }
     #[test]
     fn batch_stale_at_every_position_leaves_all_files_records_and_timers_unchanged() {
@@ -1984,14 +2103,14 @@ mod dispatcher {
             .unwrap();
         assert!(result.failure.is_none());
         assert_eq!(result.writes.len(), 256);
-        assert_eq!(result.writes[0].digest, digest(b""));
+        assert_eq!(result.writes[0].digest, Some(digest(b"")));
         clock.0.store(60_001, Ordering::Relaxed);
         service.poll(&mut cx).unwrap();
         assert!(service.projections(&mut cx).unwrap().is_empty());
         let disk = disk.0.lock().unwrap();
         assert_eq!(disk.files.len(), 256);
         for change in changes {
-            assert_eq!(disk.files[&change.path], change.content);
+            assert_eq!(disk.files[&change.path], *change.content.as_ref().unwrap());
         }
     }
     #[test]
@@ -2447,13 +2566,20 @@ fn record_predecessor_presence_is_canonical_and_legacy_empty_stays_present() {
     h.flush_all(0).unwrap();
     let mut record = Record::decode(&h.disk.records[&digest(b"a.rs")]).unwrap();
     assert_eq!(record.previous, Some(digest(b"")));
-    for version in [1, 2] {
+    for version in [1, 2, 3] {
         let mut raw = record.encode().unwrap();
-        raw.truncate(raw.len() - if version == 1 { 37 } else { 33 });
-        raw[..8].copy_from_slice(if version == 1 {
-            b"SMTHDOC1"
-        } else {
-            b"SMTHDOC2"
+        raw.truncate(
+            raw.len()
+                - match version {
+                    1 => 39,
+                    2 => 35,
+                    _ => 34,
+                },
+        );
+        raw[..8].copy_from_slice(match version {
+            1 => b"SMTHDOC1",
+            2 => b"SMTHDOC2",
+            _ => b"SMTHDOC3",
         });
         raw.extend(digest(&raw));
         assert_eq!(Record::decode(&raw).unwrap().previous, Some(digest(b"")));
@@ -2463,7 +2589,8 @@ fn record_predecessor_presence_is_canonical_and_legacy_empty_stays_present() {
     assert_eq!(Record::decode(&raw).unwrap().previous, None);
     for flag in [2, 255] {
         let mut corrupt = raw[..raw.len() - 32].to_vec();
-        *corrupt.last_mut().unwrap() = flag;
+        let at = corrupt.len() - 3;
+        corrupt[at] = flag;
         corrupt.extend(digest(&corrupt));
         assert!(Record::decode(&corrupt).is_err());
     }
@@ -2473,7 +2600,107 @@ fn record_predecessor_presence_is_canonical_and_legacy_empty_stays_present() {
     record.previous = Some(digest(b"not absent"));
     let mut forged = record.encode().unwrap();
     forged.truncate(forged.len() - 32);
-    *forged.last_mut().unwrap() = 0;
+    let at = forged.len() - 3;
+    forged[at] = 0;
     forged.extend(digest(&forged));
     assert!(Record::decode(&forged).is_err());
+}
+
+#[test]
+fn deletion_failures_before_and_after_rename_never_fake_success_or_resurrect() {
+    for step in ["record", "delete", "deleted", "displaced", "own_delete"] {
+        let (mut h, _) = host("before");
+        h.disk.fail = Some(step);
+        assert!(h.delete_saved("a.rs", "alice", 0).is_err(), "{step}");
+        let renamed = !matches!(step, "record" | "delete");
+        assert_eq!(!h.disk.files.contains_key("a.rs"), renamed, "{step}");
+        h.disk.fail = None;
+        for now in [200, 2000, 60_001] {
+            h.tick(now, true).unwrap();
+        }
+        assert_eq!(!h.disk.files.contains_key("a.rs"), renamed, "{step}");
+        let mut recovered = Host::new(h.disk, gates(), ids());
+        recovered.tick(0, true).unwrap();
+        recovered.tick(2000, true).unwrap();
+        assert_eq!(
+            !recovered.disk.files.contains_key("a.rs"),
+            renamed,
+            "{step}"
+        );
+        if !renamed {
+            let id = recovered.open("a.rs", [9; 16], 2001).unwrap();
+            assert_eq!(recovered.text(id).unwrap(), "before");
+        }
+    }
+}
+#[test]
+fn late_deleted_inode_writes_survive_restart_without_recreating_or_overwriting_path() {
+    for restart in [false, true] {
+        for recreate in [false, true] {
+            let (mut h, _) = host("before");
+            assert_eq!(h.delete_saved("a.rs", "alice", 0).unwrap(), None);
+            let token = *h.disk.displaced.keys().next().unwrap();
+            if recreate {
+                h.disk.files.insert("a.rs".into(), b"recreated".to_vec());
+            }
+            if restart {
+                h = Host::new(h.disk, gates(), ids());
+            }
+            h.tick(100, true).unwrap();
+            h.disk.displaced.insert(token, b"late writer".to_vec());
+            h.tick(200, true).unwrap();
+            h.disk.fail = Some("version");
+            assert!(h.tick(400, true).is_err());
+            assert_eq!(h.disk.displaced[&token], b"late writer");
+            h.disk.fail = None;
+            h.tick(401, true).unwrap();
+            assert!(h.disk.versions.contains(&b"late writer".to_vec()));
+            assert!(h.disk.displaced.is_empty());
+            assert_eq!(
+                h.disk.files.get("a.rs"),
+                recreate.then_some(&b"recreated".to_vec())
+            );
+        }
+    }
+}
+#[test]
+fn raced_delete_records_displaced_bytes_and_pending_swap_requires_settling() {
+    let (mut h, _) = host("before");
+    h.disk.swap_race = Some(b"outside".to_vec());
+    assert_eq!(
+        h.delete_saved("a.rs", "alice", 0).unwrap(),
+        Some(digest(b"outside"))
+    );
+    assert_eq!(h.disk.versions, vec![b"outside".to_vec()]);
+    h.tick(200, true).unwrap();
+    assert_eq!(h.disk.versions.len(), 1);
+    assert!(!h.disk.files.contains_key("a.rs"));
+
+    let (mut h, _) = host("before");
+    h.write_saved("a.rs", digest(b"before"), "saved", "alice", 0)
+        .unwrap();
+    assert!(matches!(h.delete_saved("a.rs", "alice", 1), Err(Error::Provider(e)) if e.code == 9));
+    assert_eq!(h.disk.files["a.rs"], b"saved");
+    h.tick(200, true).unwrap();
+    h.delete_saved("a.rs", "alice", 201).unwrap();
+    assert!(!h.disk.files.contains_key("a.rs"));
+}
+#[test]
+fn deletion_record_paths_are_bounded_confined_and_checksummed() {
+    let (mut h, _) = host("before");
+    h.delete_saved("a.rs", "alice", 0).unwrap();
+    let bytes = &h.disk.records[&digest(b"a.rs")];
+    let mut record = Record::decode(bytes).unwrap();
+    assert_eq!(record.deleted_path.as_deref(), Some("a.rs"));
+    for path in ["", "/escape", "../escape", "a/../escape", "a//b", "a\0b"] {
+        record.deleted_path = Some(path.into());
+        assert!(record.encode().is_err(), "{path}");
+    }
+    record.deleted_path = Some("x".repeat(4097));
+    assert!(record.encode().is_err());
+    for at in bytes.len() - 38..bytes.len() {
+        let mut corrupt = bytes.clone();
+        corrupt[at] ^= 1;
+        assert!(Record::decode(&corrupt).is_err());
+    }
 }

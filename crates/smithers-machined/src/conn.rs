@@ -1,7 +1,7 @@
 //! ADR 0004 framing and canonical tagged payload validation.
 use std::io::{Read, Write};
 include!("schema.rs");
-pub const PROTOCOL: u16 = 6;
+pub const PROTOCOL: u16 = 7;
 pub const MAX_FILE_BYTES: usize = 1_048_576;
 pub const INITIAL_CREDIT: usize = 262_144;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -721,18 +721,23 @@ pub fn batch_write_args(
     let mut writes = Vec::with_capacity(count);
     for _ in 0..count {
         let start = list.0;
-        list.value("local_write")?;
+        list.value("local_mutation")?;
         let raw = &start[..start.len() - list.0.len()];
-        let mut values: Vec<_> = fields("local_write", raw)?
+        let parsed = fields("local_mutation", raw)?;
+        let has_content = parsed.iter().any(|(tag, _)| *tag == 3);
+        let mut values: Vec<_> = parsed
             .into_iter()
             .map(|(tag, value)| field(tag, value))
             .collect();
+        if !has_content {
+            values.push(field(3, [0; 4]));
+        }
         values.push(field(4, actor));
         let write = write_args(&structure_bytes(&values))?;
         writes.push(crate::hooks::FileWrite {
             path: write.path,
             base: write.base,
-            content: write.content,
+            content: has_content.then_some(write.content),
         });
     }
     let principal = fields("principal", &actor[1..])?[0].1;

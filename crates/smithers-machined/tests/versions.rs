@@ -866,3 +866,41 @@ fn recovery_resets_monotonic_clock_before_admitting_new_bursts() {
         b"new process clock"
     );
 }
+
+#[test]
+fn own_delete_checkpoint_survives_restart_suppresses_echo_and_retains_recreation() {
+    let mut f = Fixture::new();
+    f.seed("a", b"before");
+    let mut w = f.watcher();
+    let actor = "ben".to_string();
+    w.changes.before_write(&mut f, 10, "a", &actor).unwrap();
+    fs::remove_file(f.root.join("a")).unwrap();
+    w.changes.own_delete(&mut f, 10, "a", &actor).unwrap();
+    let checkpoint = load_checkpoint(&f.state);
+    assert!(checkpoint.bursts.is_open());
+    assert_eq!(
+        f.hints.last().unwrap(),
+        &("a".into(), Some(actor.clone()), None)
+    );
+    w.changes = Changes::new(checkpoint);
+    w.changes.outside(&mut f, 11, "a").unwrap();
+    w.changes.tick(&mut f, 1600).unwrap();
+    assert_eq!(f.events.len(), 1);
+    assert_eq!(f.events[0].actor.as_ref(), Some(&actor));
+    assert_eq!(
+        f.bytes(&f.events[0].files["a"].before.as_ref().unwrap().blob),
+        b"before"
+    );
+    assert!(f.events[0].files["a"].after.is_none());
+    f.write("a", b"recreated");
+    f.cpu[0] = 10;
+    w.changes.outside(&mut f, 1700, "a").unwrap();
+    w.changes.tick(&mut f, 3300).unwrap();
+    assert_eq!(f.events.len(), 2);
+    let recreated = &f.events[1].files["a"];
+    assert!(recreated.before.is_none());
+    assert_eq!(
+        f.bytes(&recreated.after.as_ref().unwrap().blob),
+        b"recreated"
+    );
+}

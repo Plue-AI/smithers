@@ -88,7 +88,7 @@ impl Files {
         let write = documents
             .write_through(cx, &args.path, &args.base, &args.content, &args.actor)
             .ok_or_else(Error::unsupported)??;
-        let mut fields = vec![conn::field(1, write.digest)];
+        let mut fields = vec![conn::field(1, write.digest.ok_or_else(Error::unsupported)?)];
         if let Some(displaced) = write.raced {
             let mut path = (args.path.len() as u16).to_be_bytes().to_vec();
             path.extend(args.path.as_bytes());
@@ -109,7 +109,11 @@ impl Files {
         let result = documents.write_batch(cx, &changes, &actor)?;
         let mut writes = (result.writes.len() as u16).to_be_bytes().to_vec();
         for (change, write) in changes.iter().zip(&result.writes) {
-            let mut fields = vec![conn::field(1, write.digest)];
+            let post = match write.digest {
+                Some(digest) => conn::tagged(1, &[conn::field(1, digest)]),
+                None => conn::tagged(2, &[]),
+            };
+            let mut fields = vec![conn::field(1, post)];
             if let Some(displaced) = write.raced {
                 let mut path = (change.path.len() as u16).to_be_bytes().to_vec();
                 path.extend(change.path.as_bytes());

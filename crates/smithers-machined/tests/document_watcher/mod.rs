@@ -101,6 +101,19 @@ fn actor(key: Option<&str>) -> Actor {
     }
 }
 impl Versions for SaveVersions {
+    fn own_delete(&mut self, path: &str, key: Option<&str>) -> smithers_machined::doc::Result<()> {
+        if self
+            .observed
+            .replace_at_receipt
+            .swap(false, Ordering::Relaxed)
+        {
+            fs::write(self.root.join(path), b"later outside").unwrap();
+        }
+        self.watcher
+            .after_delete(path, &actor(key))
+            .map_err(smithers_machined::doc::Error::Provider)
+    }
+
     fn outside(&mut self, _: &str, _: &[u8], _: &str) -> smithers_machined::doc::Result<String> {
         panic!("these fixtures do not inject displaced-inode races")
     }
@@ -210,6 +223,27 @@ impl Setup {
                         conn::field(2, conn::tagged(1, &[conn::field(1, digest(base))])),
                         conn::field(3, content),
                         conn::field(4, conn::actor_bytes(&Actor::Principal(vec![who; 16]))),
+                    ],
+                ),
+                &mut self.cx,
+            )
+            .unwrap(),
+        )
+    }
+    fn delete(&mut self) -> Vec<u8> {
+        let entry = conn::structure_bytes(&[
+            conn::field(1, string("a.rs")),
+            conn::field(2, conn::tagged(1, &[conn::field(1, digest(b"abc"))])),
+        ]);
+        let mut changes = 1u16.to_be_bytes().to_vec();
+        changes.extend(entry);
+        result(
+            &rpc::dispatch(
+                &request(
+                    17,
+                    &[
+                        conn::field(1, changes),
+                        conn::field(2, conn::actor_bytes(&Actor::Principal(vec![1; 16]))),
                     ],
                 ),
                 &mut self.cx,
@@ -391,4 +425,54 @@ fn watcher_checkpoint_recovery_keeps_saved_version_after_an_outside_overwrite() 
         s.bytes(events[1].files["a.rs"].after.as_ref().unwrap()),
         b"outside after receipt"
     );
+}
+
+#[test]
+#[ignore = "requires Linux uid19998, installed Git and real filesystem"]
+fn delete_receipt_checkpoints_absence_even_if_outside_recreates_before_receipt() {
+    let mut s = Setup::new();
+    s.observed.replace_at_receipt.store(true, Ordering::Relaxed);
+    let reply = s.delete();
+    let fields = conn::fields("result17", &reply[1..]).unwrap();
+    assert_eq!(fields.len(), 1);
+    let checkpoint = s.checkpoint();
+    let pending = checkpoint.bursts.pending();
+    assert!(pending.iter().any(|b|matches!(&b.key,smithers_machined::burst::Key::Smithers(Actor::Principal(p)) if p==&vec![1;16]) && b.files["a.rs"].after.is_none()));
+    s.watcher.close_bursts(&mut s.cx).unwrap();
+    let events = s.observed.events.lock().unwrap();
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0].actor, Some(Actor::Principal(vec![1; 16])));
+    assert_eq!(
+        s.bytes(events[0].files["a.rs"].before.as_ref().unwrap()),
+        b"abc"
+    );
+    assert!(events[0].files["a.rs"].after.is_none());
+    assert_eq!(events[1].actor, None);
+    assert!(events[1].files["a.rs"].before.is_none());
+    assert_eq!(
+        s.bytes(events[1].files["a.rs"].after.as_ref().unwrap()),
+        b"later outside"
+    );
+}
+#[test]
+#[ignore = "requires Linux uid19998, installed Git and real filesystem"]
+fn failed_delete_checkpoint_withholds_receipt_and_refuses_following_mutation() {
+    let mut s = Setup::new();
+    s.observed.checkpoint_fail.store(true, Ordering::Relaxed);
+    let reply = s.delete();
+    let fields = conn::fields("result17", &reply[1..]).unwrap();
+    assert_eq!(fields[0].1, 0u16.to_be_bytes());
+    assert_eq!(
+        conn::fields("batch_failure", fields[1].1).unwrap()[1].1,
+        [0]
+    );
+    assert!(!s.f.root.join("workspace/a.rs").exists());
+    assert_eq!(s.bytes(&s.checkpoint().recorded["a.rs"]), b"abc");
+    s.observed.checkpoint_fail.store(false, Ordering::Relaxed);
+    let reply = mutations(&mut s.cx, &[("a.rs", None, Some(b"must not restore"))]);
+    assert_eq!(
+        conn::fields("result17", &reply[1..]).unwrap()[0].1,
+        0u16.to_be_bytes()
+    );
+    assert!(!s.f.root.join("workspace/a.rs").exists());
 }

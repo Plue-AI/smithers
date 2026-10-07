@@ -191,7 +191,7 @@ func TestMachineReceiptReplayBindsEventPayload(t *testing.T) {
 		})
 	}
 	// Non-capture records bind their bytes without retaining transcript content.
-	event := Event{Seq: 10, EventID: [16]byte{9}, Payload: wire.Union(6)}
+	event := Event{Seq: 10, EventID: [16]byte{9}, Payload: wire.Union(4, wire.Field(1, wire.Union(4)), wire.Field(2, wire.U64(1)), wire.Field(3, make([]byte, 20)))}
 	writer := &Ingestor{Pool: pool, Write: func(context.Context, pgx.Tx, string, Event) (Acknowledgement, error) {
 		return Acknowledgement{Outcome: AckApplied}, nil
 	}}

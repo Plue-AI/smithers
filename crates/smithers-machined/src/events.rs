@@ -123,7 +123,7 @@ pub trait Provider<A>: Objects {
 }
 pub struct Changes<A, B> {
     pub state: Checkpoint<A, B>,
-    own: BTreeMap<String, [u8; 32]>,
+    own: BTreeMap<String, Option<[u8; 32]>>,
     metadata_at: Option<u64>,
     blocked: bool,
     resync_required: bool,
@@ -137,9 +137,7 @@ impl<A: Eq + Clone, B: Eq + Clone> Changes<A, B> {
         for burst in state.bursts.pending() {
             if matches!(burst.key, Key::Smithers(_)) {
                 for (path, file) in &burst.files {
-                    if let Some(version) = &file.after {
-                        own.insert(path.clone(), version.post_digest);
-                    }
+                    own.insert(path.clone(), file.after.as_ref().map(|v| v.post_digest));
                 }
             }
         }
@@ -411,8 +409,20 @@ impl<A: Eq + Clone, B: Eq + Clone> Changes<A, B> {
             path,
             Some(version.clone()),
         )?;
-        self.own.insert(path.into(), version.post_digest);
+        self.own.insert(path.into(), Some(version.post_digest));
         p.hint(path, Some(actor), Some(version.post_digest))
+    }
+    /// Checkpoint the exact absent result without rereading a possibly recreated path.
+    pub fn own_delete<P: Provider<A, Blob = B>>(
+        &mut self,
+        p: &mut P,
+        now: u64,
+        path: &str,
+        actor: &A,
+    ) -> io::Result<()> {
+        self.touch(p, now, Key::Smithers(actor.clone()), path, None)?;
+        self.own.insert(path.into(), None);
+        p.hint(path, Some(actor), None)
     }
     pub fn outside<P: Provider<A, Blob = B>>(
         &mut self,
@@ -423,7 +433,7 @@ impl<A: Eq + Clone, B: Eq + Clone> Changes<A, B> {
         self.healthy()?;
         let bytes = p.read(path)?;
         let digest = bytes.as_ref().map(|(b, _)| Sha256::digest(b).into());
-        if digest.is_some_and(|d| self.own.get(path) == Some(&d)) {
+        if self.own.get(path) == Some(&digest) {
             return Ok(());
         }
         self.own.remove(path);

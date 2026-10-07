@@ -21,7 +21,7 @@ func TestBatchWritePartialFailureRetainsVerifiedReceipts(t *testing.T) {
 		done <- response{result, err}
 	}()
 	digest := sha256.Sum256([]byte("a"))
-	receipt := wire.Struct(wire.Field(1, digest[:]), wire.Field(2, wire.Struct(wire.Field(1, wire.String("first")), wire.Field(2, digest[:]))))
+	receipt := wire.Struct(wire.Field(1, wire.Union(1, wire.Field(1, digest[:]))), wire.Field(2, wire.Struct(wire.Field(1, wire.String("first")), wire.Field(2, digest[:]))))
 	failure := wire.Struct(wire.Field(1, wire.U16(1)), wire.Field(2, []byte{0}), wire.Field(3, wire.Struct(wire.Field(1, []byte{byte(wire.Internal)}))))
 	answer(t, peer, wire.WriteFiles, wire.Field(1, append(wire.U16(1), receipt...)), wire.Field(2, failure))
 	got := <-done
@@ -34,7 +34,7 @@ func TestBatchWritePartialFailureRetainsVerifiedReceipts(t *testing.T) {
 }
 func TestBatchWriteRefusesOldProtocolAndBadLaterInputBeforeSending(t *testing.T) {
 	r, link, _ := rpcFixture(t)
-	link.protocol = 5
+	link.protocol = 6
 	_, err := r.WriteFiles(t.Context(), "a", []byte("actor"), []FileChange{{Path: "first"}})
 	var refusal *SessionError
 	require.ErrorAs(t, err, &refusal)
@@ -60,7 +60,7 @@ func TestBatchWriteRejectsContradictoryOrWrongReceipts(t *testing.T) {
 			if kind == "digest" {
 				digest[0] ^= 255
 			}
-			receiptFields := [][]byte{wire.Field(1, digest[:])}
+			receiptFields := [][]byte{wire.Field(1, wire.Union(1, wire.Field(1, digest[:])))}
 			if kind == "race_path" {
 				receiptFields = append(receiptFields, wire.Field(2, wire.Struct(wire.Field(1, wire.String("foreign")), wire.Field(2, digest[:]))))
 			}
@@ -88,13 +88,13 @@ func TestBatchWriteAllSuccessIncludesEmptyFile(t *testing.T) {
 	}
 	done := make(chan response, 1)
 	go func() {
-		v, e := r.WriteFiles(t.Context(), "a", []byte("actor"), []FileChange{{Path: "empty", Content: nil}, {Path: "text", Content: []byte("text")}})
+		v, e := r.WriteFiles(t.Context(), "a", []byte("actor"), []FileChange{{Path: "empty", Content: []byte{}}, {Path: "text", Content: []byte("text")}})
 		done <- response{v, e}
 	}()
 	receipts := wire.U16(2)
 	for _, content := range [][]byte{nil, []byte("text")} {
 		d := sha256.Sum256(content)
-		receipts = append(receipts, wire.Struct(wire.Field(1, d[:]))...)
+		receipts = append(receipts, wire.Struct(wire.Field(1, wire.Union(1, wire.Field(1, d[:]))))...)
 	}
 	answer(t, peer, wire.WriteFiles, wire.Field(1, receipts))
 	got := <-done
@@ -124,9 +124,58 @@ func TestBatchReceiptUsesEncodedSnapshotWhenCallerReusesBuffers(t *testing.T) {
 	copy(data, []byte("reused"))
 	changes[0].Path = "different"
 	digest := sha256.Sum256([]byte("before"))
-	receipts := append(wire.U16(1), wire.Struct(wire.Field(1, digest[:]))...)
+	receipts := append(wire.U16(1), wire.Struct(wire.Field(1, wire.Union(1, wire.Field(1, digest[:]))))...)
 	require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, wire.Union(byte(wire.WriteFiles), wire.Field(1, receipts))))}))
 	got := <-done
 	require.NoError(t, got.err)
 	require.Equal(t, []AppliedFile{{"first", hex.EncodeToString(digest[:])}}, got.result.Applied)
+}
+
+func TestDeleteAndEmptyWriteEncodeDistinctMutationsAndReceipts(t *testing.T) {
+	for _, mismatch := range []bool{false, true} {
+		t.Run(map[bool]string{false: "valid", true: "contradictory"}[mismatch], func(t *testing.T) {
+			r, _, peer := rpcFixture(t)
+			type response struct {
+				result WriteResult
+				err    error
+			}
+			done := make(chan response, 1)
+			changes := []FileChange{{Path: "deleted", Content: nil}, {Path: "empty", Content: []byte{}}}
+			go func() { v, e := r.WriteFiles(t.Context(), "a", []byte("actor"), changes); done <- response{v, e} }()
+			request, err := wire.Read(peer)
+			require.NoError(t, err)
+			id, method, args, err := request.Request()
+			require.NoError(t, err)
+			require.Equal(t, byte(wire.WriteFiles), method)
+			fields, err := wire.Fields("args17", args)
+			require.NoError(t, err)
+			items, err := wire.List("local_mutation", fields[1])
+			require.NoError(t, err)
+			require.Len(t, items, 2)
+			deleted, err := wire.Fields("local_mutation", items[0])
+			require.NoError(t, err)
+			require.NotContains(t, deleted, byte(3))
+			empty, err := wire.Fields("local_mutation", items[1])
+			require.NoError(t, err)
+			require.Equal(t, wire.Bytes([]byte{}), empty[3])
+			// Reusing the caller's slice cannot change nil-vs-empty receipt validation.
+			changes[0].Content = []byte{}
+			changes[1].Content = nil
+			d := sha256.Sum256(nil)
+			gone, exists := wire.Union(2), wire.Union(1, wire.Field(1, d[:]))
+			if mismatch {
+				gone, exists = exists, gone
+			}
+			receipts := append(wire.U16(2), wire.Struct(wire.Field(1, gone))...)
+			receipts = append(receipts, wire.Struct(wire.Field(1, exists))...)
+			require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, wire.Union(byte(wire.WriteFiles), wire.Field(1, receipts))))}))
+			got := <-done
+			if mismatch {
+				require.ErrorIs(t, got.err, wire.BadValue)
+			} else {
+				require.NoError(t, got.err)
+				require.Equal(t, []AppliedFile{{"deleted", "absent"}, {"empty", hex.EncodeToString(d[:])}}, got.result.Applied)
+			}
+		})
+	}
 }

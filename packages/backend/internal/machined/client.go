@@ -32,7 +32,8 @@ type File struct {
 // BaseDigest nil means absent, not an unconditional write. All bases are
 // compared before any write; a stale result has no applied receipts. I/O errors
 // can occur after earlier writes succeed, whose receipts remain in the result.
-// This text-write capability does not delete files: nil Content writes empty.
+// Nil Content deletes the file; a non-nil empty slice writes an empty file.
+// An applied deletion has PostDigest "absent".
 type FileChange struct {
 	Path       string
 	BaseDigest *string

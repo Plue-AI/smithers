@@ -5,7 +5,7 @@ use sha2::{Digest as _, Sha256};
 use std::collections::BTreeSet;
 use yrs::{Doc, GetString, Transact};
 pub type Digest = [u8; 32];
-pub const MAX_RECORD_BYTES: usize = 2 * MAX_STATE_BYTES + 2 * MAX_TEXT_BYTES + 137;
+pub const MAX_RECORD_BYTES: usize = 2 * MAX_STATE_BYTES + 2 * MAX_TEXT_BYTES + 4235;
 pub fn digest(bytes: &[u8]) -> Digest {
     Sha256::digest(bytes).into()
 }
@@ -15,6 +15,8 @@ pub struct Record {
     /// None means the predecessor was absent, which differs from an empty file.
     pub previous: Option<Digest>,
     pub previous_text: String,
+    /// Deletion intent/retained-inode metadata. Never replay it as another unlink.
+    pub deleted_path: Option<String>,
     pub text: String,
     pub state: Vec<u8>,
     /// Text-author clients recovered from protocol 1 records remain readable,
@@ -31,7 +33,14 @@ impl Record {
         {
             return Err(Error::Invalid);
         }
-        let mut bytes = b"SMTHDOC3".to_vec();
+        if self
+            .deleted_path
+            .as_ref()
+            .is_some_and(|p| !super::disk::valid_path(p))
+        {
+            return Err(Error::Invalid);
+        }
+        let mut bytes = b"SMTHDOC4".to_vec();
         bytes.extend(self.epoch);
         bytes.extend(self.previous.unwrap_or_else(|| digest(b"")));
         bytes.extend(digest(self.text.as_bytes()));
@@ -46,6 +55,9 @@ impl Record {
             bytes.extend(id.to_be_bytes());
         }
         bytes.push(u8::from(self.previous.is_some()));
+        let path = self.deleted_path.as_deref().unwrap_or("");
+        bytes.extend((path.len() as u16).to_be_bytes());
+        bytes.extend(path.as_bytes());
         bytes.extend(digest(&bytes));
         Ok(bytes)
     }
@@ -54,7 +66,8 @@ impl Record {
             || bytes.len() > MAX_RECORD_BYTES
             || (&bytes[..8] != b"SMTHDOC1"
                 && &bytes[..8] != b"SMTHDOC2"
-                && &bytes[..8] != b"SMTHDOC3")
+                && &bytes[..8] != b"SMTHDOC3"
+                && &bytes[..8] != b"SMTHDOC4")
         {
             return Err(Error::Invalid);
         }
@@ -63,7 +76,9 @@ impl Record {
         let base_len = u32::from_be_bytes(bytes[96..100].try_into().unwrap()) as usize;
         let body_end = 100usize + text_len + state_len + base_len;
         let legacy = &bytes[..8] == b"SMTHDOC1";
-        let presence = &bytes[..8] == b"SMTHDOC3";
+        let deletion = &bytes[..8] == b"SMTHDOC4";
+        let presence = &bytes[..8] == b"SMTHDOC3" || deletion;
+        let mut deleted_path = None;
         let mut previous_present = true;
         let mut retired_clients = BTreeSet::new();
         let expected = if legacy {
@@ -94,7 +109,25 @@ impl Record {
                     _ => return Err(Error::Invalid),
                 };
             }
-            trailer + usize::from(presence) + 32
+            let mut end = trailer + usize::from(presence);
+            if deletion {
+                let length = bytes.get(end..end + 2).ok_or(Error::Invalid)?;
+                let length = u16::from_be_bytes(length.try_into().unwrap()) as usize;
+                if length > 4096 {
+                    return Err(Error::Invalid);
+                }
+                end += 2;
+                let path = std::str::from_utf8(bytes.get(end..end + length).ok_or(Error::Invalid)?)
+                    .map_err(|_| Error::Invalid)?;
+                if !path.is_empty() {
+                    if !super::disk::valid_path(path) {
+                        return Err(Error::Invalid);
+                    }
+                    deleted_path = Some(path.to_owned());
+                }
+                end += length;
+            }
+            end + 32
         };
         if text_len > MAX_TEXT_BYTES
             || base_len > MAX_TEXT_BYTES
@@ -106,6 +139,7 @@ impl Record {
         }
         let mut record = Self {
             retired_clients,
+            deleted_path,
             epoch: bytes[8..24].try_into().unwrap(),
             previous: previous_present.then(|| bytes[24..56].try_into().unwrap()),
             text: String::from_utf8(bytes[100..100 + text_len].to_vec())

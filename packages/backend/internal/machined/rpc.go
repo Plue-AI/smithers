@@ -99,7 +99,7 @@ func (r *Registry) WriteFiles(ctx context.Context, branch string, actor []byte, 
 		return result, wire.BadValue
 	}
 	if l.protocol != wire.Protocol {
-		return result, refused("unsupported", fmt.Sprintf("text write batches require protocol %d", wire.Protocol))
+		return result, refused("unsupported", fmt.Sprintf("file mutation batches require protocol %d", wire.Protocol))
 	}
 	// Keep receipt validation bound to what was encoded, even if the caller
 	// reuses its input buffers after the peer receives the request.
@@ -131,7 +131,11 @@ func (r *Registry) WriteFiles(ctx context.Context, branch string, actor []byte, 
 			base = wire.Union(1, wire.Field(1, digest))
 		}
 		expectedDigests[index] = sha256.Sum256(change.Content)
-		payload = append(payload, wire.Struct(wire.Field(1, wire.String(change.Path)), wire.Field(2, base), wire.Field(3, wire.Bytes(change.Content)))...)
+		fields := [][]byte{wire.Field(1, wire.String(change.Path)), wire.Field(2, base)}
+		if change.Content != nil {
+			fields = append(fields, wire.Field(3, wire.Bytes(change.Content)))
+		}
+		payload = append(payload, wire.Struct(fields...)...)
 	}
 	for path := range paths {
 		for at := strings.IndexByte(path, '/'); at >= 0; {
@@ -149,20 +153,28 @@ func (r *Registry) WriteFiles(ctx context.Context, branch string, actor []byte, 
 	if err != nil {
 		return result, err
 	}
-	receipts, err := wire.List("result3", fields[1])
+	receipts, err := wire.List("mutation_result", fields[1])
 	if err != nil || len(receipts) > len(changes) {
 		return result, wire.BadValue
 	}
 	for i, raw := range receipts {
-		receipt, err := wire.Fields("result3", raw)
+		receipt, err := wire.Fields("mutation_result", raw)
 		if err != nil {
 			return result, err
 		}
 		expected := expectedDigests[i]
-		if !bytes.Equal(receipt[1], expected[:]) {
-			return result, wire.BadValue
+		post := "absent"
+		if changes[i].Content == nil {
+			if !bytes.Equal(receipt[1], wire.Union(2)) {
+				return result, wire.BadValue
+			}
+		} else {
+			if !bytes.Equal(receipt[1], wire.Union(1, wire.Field(1, expected[:]))) {
+				return result, wire.BadValue
+			}
+			post = hex.EncodeToString(expected[:])
 		}
-		result.Applied = append(result.Applied, AppliedFile{changes[i].Path, hex.EncodeToString(receipt[1])})
+		result.Applied = append(result.Applied, AppliedFile{changes[i].Path, post})
 		if raw := receipt[2]; raw != nil {
 			raced, err := wire.Fields("raced", raw)
 			if err != nil || string(raced[1][2:]) != changes[i].Path {

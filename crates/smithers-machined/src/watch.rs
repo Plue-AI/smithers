@@ -605,6 +605,14 @@ impl<
             w.changes.own_write(p, now, path, actor, version)
         })
     }
+    fn after_delete(&self, path: &str, actor: &crate::hooks::Actor) -> crate::hooks::Result<()> {
+        self.job_at(self.clock.mono(), |w, p, now| {
+            if !w.watch.tracked(path)? {
+                return Ok(());
+            }
+            w.changes.own_delete(p, now, path, actor)
+        })
+    }
     fn close_bursts(&self, cx: &mut crate::lock::LockCx) -> crate::hooks::Result<()> {
         self.job(cx, |w, p, now| {
             w.drain(p, now)?;

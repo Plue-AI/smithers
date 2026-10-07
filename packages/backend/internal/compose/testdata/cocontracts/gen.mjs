@@ -4,7 +4,7 @@ import {createHash,createHmac} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 const dir=fileURLToPath(new URL('.',import.meta.url));
 const check=process.argv.includes('--check');
-const protocol=6;
+const protocol=7;
 const num=(v,n)=>{let b=Buffer.alloc(n);let x=BigInt(v);for(let i=n-1;i>=0;i--){b[i]=Number(x&255n);x>>=8n}return b};
 const cat=(...b)=>Buffer.concat(b.map(x=>Buffer.from(x)));
 const f=(t,b)=>cat([t],b);
@@ -27,8 +27,8 @@ const err=(code,...fields)=>res(255,f(1,[code]),...fields);
 const MAC_LABEL='smithers-machined host';
 const range=(a,b)=>Buffer.from(Array.from({length:b-a},(_,i)=>a+i));
 const vectors={
-  a:{secret:range(0x00,0x20),boot_id:range(0xa0,0xb0),nonce:range(0x20,0x40),mac:'a8576aa0f194da143e428b0f14e1086803bef3dfe9da31bb3c790e631e5f8aaa'},
-  b:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x60,0x80),mac:'fefaa8ae085f3aba14a0c7af9ef5af51aee815db37a0e75d77fae6cdc6f76fef'},
+  a:{secret:range(0x00,0x20),boot_id:range(0xa0,0xb0),nonce:range(0x20,0x40),mac:'bf835b8b735a29000a5b1db8369ec694b8b8fa8f786ed931ff4dfc06be3566f4'},
+  b:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x60,0x80),mac:'c6fc90e2834fdc3176329238a8033b9a354b0b03d36036b7e12f5e164371e837'},
 };
 const macInput=v=>cat(Buffer.from(MAC_LABEL),num(protocol,2),v.boot_id,v.nonce);
 for(const [name,v] of Object.entries(vectors))if(createHmac('sha256',v.secret).update(macInput(v)).digest('hex')!==v.mac)throw Error('HMAC vector '+name+' disagrees with node:crypto');
@@ -155,14 +155,19 @@ const sha=b=>createHash('sha256').update(b).digest();
 const batchChanges=list(st(f(1,str('a')),f(2,un(2)),f(3,bytes(Buffer.from('x')))),st(f(1,str('b')),f(2,un(1,f(1,sha('before')))),f(3,bytes(Buffer.from('y')))));
 const batchReq=(...fs)=>un(1,f(1,num(9,4)),f(2,un(17,...fs)));
 const batchRes=(...fs)=>un(2,f(1,num(9,4)),f(2,un(17,...fs)));
-const batchReceipt=st(f(1,sha('x')));
+const batchReceipt=st(f(1,un(1,f(1,sha('x')))));
 const batchFailure=(index,preflight,code)=>st(f(1,num(index,2)),f(2,[preflight]),f(3,st(f(1,[code]))));
 emit('req_write_files',1,batchReq(f(1,batchChanges),f(2,batchActor)));
 emit('local_write_files',1,batchReq(f(1,batchChanges)),0,'ok','host-to-daemon',true);
 emit('local_write_files_actor',1,batchReq(f(1,batchChanges),f(2,batchActor)),0,'unknown_field','host-to-daemon',true);
-emit('res_write_files',1,batchRes(f(1,list(batchReceipt,st(f(1,sha('y')))))),0,'ok','daemon-to-host');
+emit('res_write_files',1,batchRes(f(1,list(batchReceipt,st(f(1,un(1,f(1,sha('y')))))))),0,'ok','daemon-to-host');
 emit('res_write_files_stale',1,batchRes(f(1,list()),f(2,batchFailure(1,1,4))),0,'ok','daemon-to-host');
 emit('res_write_files_partial',1,batchRes(f(1,list(batchReceipt)),f(2,batchFailure(1,0,12))),0,'ok','daemon-to-host');
+const deletion=list(st(f(1,str('a')),f(2,un(1,f(1,sha('before'))))));
+emit('req_delete_files',1,batchReq(f(1,deletion),f(2,batchActor)));
+emit('local_delete_files',1,batchReq(f(1,deletion)),0,'ok','host-to-daemon',true);
+emit('res_delete_files',1,batchRes(f(1,list(st(f(1,un(2)))))),0,'ok','daemon-to-host');
+emit('req_move_files',1,batchReq(f(1,list(st(f(1,str('a')),f(2,un(1,f(1,sha('before'))))),st(f(1,str('b')),f(2,un(2)),f(3,bytes(Buffer.from('before')))))),f(2,batchActor)));
 const previous=JSON.parse(readFileSync(dir+'MANIFEST.json','utf8'));
 // Sequence steps name their connection (ADR 0004 ruling 4); `a` unless given.
 const steps=(...names)=>names.map(n=>typeof n==='string'?{conn:'a',frame:n}:n);

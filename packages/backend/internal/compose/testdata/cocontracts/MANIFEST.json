@@ -19,7 +19,7 @@
     "doc-unsupported-detail.bin": "88771414720c2ca72c8f6ebd3e7971bf14f61023fc37be9fab989dac399753ff",
     "doc-renamed.bin": "4d7cb8b7e4c58e5b9d1c40c62913b0fe6d74083e2d04b22ae594597b48964586"
   },
-  "protocol": 6,
+  "protocol": 7,
   "frames": [
     {
       "name": "hello_challenge",
@@ -27,7 +27,7 @@
       "expected": "ok",
       "local": false,
       "vector": "a",
-      "sha256": "619baf6041ef2dcdc08a5797629344a6ef3ec2e6f490b986df84b424f1bd1bb6"
+      "sha256": "2756072d882e8951d61b8e46692c0a7a7228afd07e0d6e9d592a497e361555be"
     },
     {
       "name": "hello_host_proof",
@@ -35,7 +35,7 @@
       "expected": "ok",
       "local": false,
       "vector": "a",
-      "sha256": "d77a78b69337e681c7038de4517aa4b6fc1d5e9520838e9ae9ef723f79df8956"
+      "sha256": "9e5286314b6799c3ee05f629bfd34c6936613acaffc3c8c51175ec0dfde31383"
     },
     {
       "name": "hello_host_proof_bad_mac",
@@ -44,7 +44,7 @@
       "local": false,
       "vector": "a",
       "handshake": "auth_failed",
-      "sha256": "27a80391cf75df9d584edc96464ddf801cecaa10697549c412038911c70f74c2"
+      "sha256": "7e4f97b8927f9d66f2f5972f16c6c64ca16830182202337bc187d69411c1be89"
     },
     {
       "name": "hello_challenge_older",
@@ -53,7 +53,7 @@
       "local": false,
       "vector": "a",
       "handshake": "version_mismatch",
-      "sha256": "6171cbd62660ec28dc51312800a3cb7a49015f0d8d2a7abef2f21f2441fb104e"
+      "sha256": "619baf6041ef2dcdc08a5797629344a6ef3ec2e6f490b986df84b424f1bd1bb6"
     },
     {
       "name": "hello_host_proof_older",
@@ -62,7 +62,7 @@
       "local": false,
       "vector": "a",
       "handshake": "version_mismatch",
-      "sha256": "ef26b5717408845d40e13850081014b1f87e0372d4e33bfa9f3e926b9bc18593"
+      "sha256": "5550d4fd757a9cf78bdbb258167a83adb3c8d82e129bd063262d2f70817670e7"
     },
     {
       "name": "hello_challenge_newer",
@@ -70,7 +70,7 @@
       "expected": "version_mismatch",
       "local": false,
       "vector": "a",
-      "sha256": "2756072d882e8951d61b8e46692c0a7a7228afd07e0d6e9d592a497e361555be"
+      "sha256": "e0f41e50186dea8684f766852a51c2c7659fa354b3732ab3743b8735f917356a"
     },
     {
       "name": "hello_host_proof_newer",
@@ -78,7 +78,7 @@
       "expected": "version_mismatch",
       "local": false,
       "vector": "a",
-      "sha256": "7f86d8f8b24b662d9fcd5ce2a9a2baed8726fc03545ea306fb1bdeaf338305c3"
+      "sha256": "45131d0327eb867ebb7447bcabacec35e79f7a63be5d598ffb97a615e14d6863"
     },
     {
       "name": "hello_challenge_b",
@@ -86,7 +86,7 @@
       "expected": "ok",
       "local": false,
       "vector": "b",
-      "sha256": "d2cc33bca302b1859878662f9f82f0adbc9d37bc9d4ec156eeeecaeda0fc68ba"
+      "sha256": "c3e699d1fcbfe9dca1ba83b6745c70c208723af0a20614f4e7932f89db7e5794"
     },
     {
       "name": "hello_host_proof_b",
@@ -94,7 +94,7 @@
       "expected": "ok",
       "local": false,
       "vector": "b",
-      "sha256": "a7dc464291d5cdd820edab5d00d05fa39a8898d0b194c72aa004fb760bf5ffe0"
+      "sha256": "4e13270575cb86d451c13002b714dec4f7cfee28c548023e738358fcb2ff74a4"
     },
     {
       "name": "hello_machine",
@@ -388,7 +388,7 @@
       "direction": "daemon-to-host",
       "expected": "ok",
       "local": false,
-      "sha256": "8f75e08f39980445d3a8da57cf7c95043de594696b1cb4ef62720f98763be949"
+      "sha256": "9d0d45680aeb1583f86c05f6904e43a7c952ac179912fcf0dab521d1e162a595"
     },
     {
       "name": "res_read_file",
@@ -1270,7 +1270,7 @@
       "direction": "daemon-to-host",
       "expected": "ok",
       "local": false,
-      "sha256": "91ef41a8a16269aafdd3f187330b859ee8c519ce99f638e82bdc787511b43018"
+      "sha256": "006b01c8fcfcc588f589cedcba5e7cb555b937509b4b9d4b46cc617f6b56b27f"
     },
     {
       "name": "res_write_files_stale",
@@ -1284,7 +1284,35 @@
       "direction": "daemon-to-host",
       "expected": "ok",
       "local": false,
-      "sha256": "18d97e767c5ca3e73b804d6b5a5a0c2f39b1d2ea659ea1fd7d5dc29978a1b522"
+      "sha256": "d2d92f219b86b7f57054235293f8b81f9ea058447427d87a6d37996b01b79db2"
+    },
+    {
+      "name": "req_delete_files",
+      "direction": "host-to-daemon",
+      "expected": "ok",
+      "local": false,
+      "sha256": "5c887efad675343678ea9d0983af5abbad757637b32529980b7c6971577807c8"
+    },
+    {
+      "name": "local_delete_files",
+      "direction": "host-to-daemon",
+      "expected": "ok",
+      "local": true,
+      "sha256": "6c675251fb5099bdf922ecdf8bf22c33c659ef9e25c84e11c240e31003c0cb66"
+    },
+    {
+      "name": "res_delete_files",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "3f039b1d0bc18aac77c330a1289e81d393e50e366d7c38a4bb348aa9d67c0fcc"
+    },
+    {
+      "name": "req_move_files",
+      "direction": "host-to-daemon",
+      "expected": "ok",
+      "local": false,
+      "sha256": "272c46c9eaf68e42d55c587417d878c12a9cf8261496b6981647490ad52584b3"
     }
   ],
   "sequences": {
@@ -1534,17 +1562,17 @@
       "secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "boot_id": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
       "nonce": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
-      "protocol": 6,
-      "mac_input": "736d6974686572732d6d616368696e656420686f73740006a0a1a2a3a4a5a6a7a8a9aaabacadaeaf202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
-      "mac": "a8576aa0f194da143e428b0f14e1086803bef3dfe9da31bb3c790e631e5f8aaa"
+      "protocol": 7,
+      "mac_input": "736d6974686572732d6d616368696e656420686f73740007a0a1a2a3a4a5a6a7a8a9aaabacadaeaf202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "mac": "bf835b8b735a29000a5b1db8369ec694b8b8fa8f786ed931ff4dfc06be3566f4"
     },
     "b": {
       "secret": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
       "boot_id": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
       "nonce": "606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
-      "protocol": 6,
-      "mac_input": "736d6974686572732d6d616368696e656420686f73740006b0b1b2b3b4b5b6b7b8b9babbbcbdbebf606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
-      "mac": "fefaa8ae085f3aba14a0c7af9ef5af51aee815db37a0e75d77fae6cdc6f76fef"
+      "protocol": 7,
+      "mac_input": "736d6974686572732d6d616368696e656420686f73740007b0b1b2b3b4b5b6b7b8b9babbbcbdbebf606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
+      "mac": "c6fc90e2834fdc3176329238a8033b9a354b0b03d36036b7e12f5e164371e837"
     }
   },
   "refusal_sequences": {
