@@ -86,3 +86,15 @@ test("Home menu persists with the filter, closes durably, and refuses invalid ro
     expect(() => seam.onView({ menu: -1 })).toThrow("Invalid Home menu")
   } finally { stop(); seam.dispose() }
 })
+
+
+test("Home keeps a stable empty snapshot while React releases a disposed controller", () => {
+  const seam = createHomeViewSeam({ owner: () => undefined, subscribeOwner: () => () => {},
+    http: async () => { throw new Error("No signed-in request") }, report: error => { throw error } })
+  seam.dispose()
+  const snapshot = seam.get()
+  expect(snapshot).toEqual({ maximized: false })
+  expect(seam.get()).toBe(snapshot)
+  seam.onView({ on_screen: false })
+  expect(seam.get()).toBe(snapshot)
+})
