@@ -59,6 +59,7 @@ type mythicalRepoHost interface {
 }
 
 type MythicalService struct {
+	conflictValidator       ConflictValidator
 	rebasePresence          func(context.Context, int64, string) (RebasePresence, error)
 	installParallel         *InstallCapacityService
 	installParallelRequired bool
