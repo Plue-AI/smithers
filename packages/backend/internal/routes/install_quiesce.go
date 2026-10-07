@@ -38,7 +38,7 @@ func (h *InstallQuiesceHandler) HandleInstallingOwner(w http.ResponseWriter, r *
 	}
 	owner, err := h.Owners.GetSelfHostOwner(r.Context())
 	if err != nil {
-		pkgerrors.WriteError(w, pkgerrors.Internal("install owner unavailable").WithCause(err))
+		writeRouteError(w, r, pkgerrors.Internal("install owner unavailable").WithCause(err))
 		return
 	}
 	if h.Service == nil {
