@@ -64,7 +64,7 @@ authenticatedTest("repository secret metadata survives reload and follows actual
       for (const secret of body.secrets) expect(secret).not.toHaveProperty("value")
     }
     const card = page.locator('.smithers-card[data-kind="secrets"]')
-    const row = card.getByTestId(`secret-${secretName}`)
+    const row = card.locator(".secrets-list > li").filter({ has: page.getByText(secretName, { exact: true }) })
     await list()
     await expect(card).toBeVisible()
     await expect(row).toContainText(secretName)
@@ -160,7 +160,7 @@ authenticatedTest("the Secrets card adds, rotates and deletes a secret through t
     await card.getByRole("button", { name: "Add secret" }).click()
     await save(values[0]!, { name: secretName, hosts: host, headers: "authorization" })
     await expect.poll(read).toEqual([expect.objectContaining({ name: secretName, hosts: [host], match_headers: ["authorization"] })])
-    const row = card.getByTestId(`secret-${secretName}`)
+    const row = card.locator(".secrets-list > li").filter({ has: page.getByText(secretName, { exact: true }) })
     await expect(row).toContainText(host)
 
     await row.getByRole("button", { name: `Rotate ${secretName}` }).click()
