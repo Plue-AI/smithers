@@ -243,7 +243,7 @@ func (st *mythicalItemStep) finishNoPRPushConflict(ctx context.Context, item db.
 			return err
 		}
 		data, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "operation": op, "observed": observed, "outcome": "conflict"})
-		if _, err = st.s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.github_operation_conflict", todoState(saved), data); err != nil {
+		if _, err = st.s.recordTodoFlowFact(ctx, tx, saved, uuid.NewString(), "todo.github_operation_conflict", todoState(saved), data); err != nil {
 			return err
 		}
 		var live bool
