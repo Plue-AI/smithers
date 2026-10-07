@@ -36,7 +36,7 @@ The whole HTTP surface as one application layer a host serves.
 ### Mounts
 
 `GatewayServer.layer` mounts seven base routes, and `NodeGateway.layer` binds
-them to a socket. A host that supplies `runtimeBridge` adds two authenticated
+them to a socket. A host that supplies `runtimeBridge` adds three authenticated
 JSON routes.
 
 | Path                       | Protocol           | Serves                                               |
@@ -50,6 +50,7 @@ JSON routes.
 | `GET /health`              | JSON               | `GatewayServer.Health`                               |
 | `POST /runtime/v1/command` | JSON               | Versioned launch and Control mutations (optional)    |
 | `POST /runtime/v1/observe` | JSON               | Bounded journal replay and run projection (optional) |
+| `POST /runtime/v1/monitor` | JSON               | Read-only existing-run monitor and journal (optional) |
 
 ### Scoped tokens
 
@@ -75,6 +76,22 @@ below `Number.MAX_SAFE_INTEGER`. Existing decimal cursors remain accepted.
 `hasMore` indicates another event page; `terminal` independently reports the
 run's current lifecycle. Backend failures retain their stable Control code and
 retryability without exposing backend message text.
+
+### Runtime monitor
+
+`RuntimeBridge.monitor(control, runId, at?)` reads an existing run through
+`Control.list` and its committed journal through `Control.watch` with
+`follow: false`. It never launches, resumes, signals, or evaluates a flow.
+The authenticated `POST /runtime/v1/monitor` door accepts
+`{ protocol: "smithers.flow-runtime/v1", runId, at? }`; `at` is a nonnegative
+journal sequence. Its response is `{ protocol, ok: true, value }`, or the
+bridge's typed error envelope. Unknown runs return `run_not_found`; bounded
+journal and projection overflow return `resource_limit`.
+
+The current adapter refuses journals with model tokens as `unavailable`
+until native usage can establish a priced USD total. The install also refuses
+workspace usage without native run attribution. A zero returned total therefore
+does not silently substitute for known, unpriced model usage.
 
 ### Types and constants
 
@@ -475,6 +492,14 @@ evidence do not acquire invented phases, successful checks, or file changes.
 
 - `traceFromJournal(run, records, options?)` builds a `TraceModel`: nested
   spans, frame summaries, phase bands, milestone pins, and discipline notes.
+- `monitorFromJournal(run, records, at?)` adapts that same fold to the install
+  monitor: recorded step instances, deterministic phases, approval waits,
+  bookkeeping and the raw journal. Rescheduled native nodes retain separate
+  instance keys. A replay folds only records through `at`, derives terminal
+  state from that prefix, and returns `replay: { at, last }`. It does not fetch
+  a registry or execute presentation code. The current adapter does not yet
+  reconstruct declared dependencies, all native wait kinds or priced usage;
+  callers must enforce the metering refusal described above.
 - `inspectLabel(tag)` reads the build-generated Appendix C Inspect rendering.
   Coding call and native execution spans use the same labels. Dynamic
   `<cell-call:flow>` wrappers use the wrapped action's rendering; unknown
