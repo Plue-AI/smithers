@@ -416,3 +416,15 @@ test("exclusive journey specs belong only to their explicitly selected gate", ()
   expect(journeyGate.ok).toBe(true)
   expect(journeyGate.scenarios.map(value => value.id).sort()).toEqual(["journey.j1-activation", "repo.open.success"])
 })
+
+
+test("exclusive specs are not rediscovered as executable helpers", () => {
+  const { real, flows } = fixture()
+  const ordinary = join(real, "ordinary.spec.ts")
+  const exclusive = join(real, "exclusive.spec.ts")
+  writeFileSync(ordinary, valid)
+  writeFileSync(exclusive, valid.replace("repo.open.success", "exclusive.success") + '\npage.route("**/*", handler)')
+  const options = { realDir: real, flowNameFile: flows, deferred }
+  expect(checkRealE2E({ ...options, excludedSpecs: [exclusive] }).ok).toBe(true)
+  expect(checkRealE2E(options).findings.map(finding => finding.code)).toContain("forbidden-double")
+})

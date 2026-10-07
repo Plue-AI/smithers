@@ -454,7 +454,7 @@ const walkSpecs = (dir: string): string[] => readdirSync(dir, { withFileTypes: t
 const walkHelpers = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
   const path = join(dir, entry.name)
   if (entry.isDirectory()) return entry.name === "coverage" || entry.name === "node_modules" ? [] : walkHelpers(path)
-  return SOURCE.test(entry.name) && !/\.test\.[cm]?[jt]sx?$/.test(entry.name) ? [path] : []
+  return SOURCE.test(entry.name) && !SPEC.test(entry.name) && !/\.test\.[cm]?[jt]sx?$/.test(entry.name) ? [path] : []
 })
 
 export interface GateOptions {

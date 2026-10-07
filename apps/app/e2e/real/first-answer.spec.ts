@@ -9,7 +9,7 @@ const expiry = 'export function sendExpiryEmail() { return "expiry" }\n'
 
 test("Source-ready file card answers before Machine ready", scenario("file.first-answer", {
   capabilities: ["install"],
-  coverage: ["action:files.read", "path:success", "door:slash", "dimension:keyboard", "host:local"]
+  coverage: ["action:files.read", "path:success", "evidence:branch-file-http-readback", "door:slash", "dimension:keyboard", "host:local"]
 }), async ({ page, request }, info) => {
   await page.goto("/")
   await awaitBoot(page)

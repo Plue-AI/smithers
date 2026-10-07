@@ -96,7 +96,7 @@ export type FeatureSupport = "core" | "optional" | "absent"
 export type FeatureRow = { readonly support: "core" } | { readonly support: "optional" | "absent"; readonly reason: string }
 
 /** Bump with any row change; every matrix report publishes this version and the table's digest. */
-export const FEATURE_MATRIX_VERSION = 5
+export const FEATURE_MATRIX_VERSION = 6
 
 const core = { support: "core" } as const
 const optional = (reason: string): FeatureRow => ({ support: "optional", reason })

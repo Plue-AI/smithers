@@ -8,7 +8,7 @@ import { awaitBoot, command, expect, realApi } from "./support/test"
 // a real GitHub repository or starts a language server on the test host.
 test("File card keyboard intelligence on the branch machine", scenario("file.intelligence", {
   capabilities: ["install", "cloud.terminal"],
-  coverage: ["action:files.read", "action:code.hover", "action:code.definition", "action:code.diagnostics", "dimension:keyboard", "path:success", "door:slash", "host:local"]
+  coverage: ["action:files.read", "action:code.hover", "action:code.definition", "action:code.diagnostics", "dimension:keyboard", "path:success", "evidence:branch-file-http-readback", "door:slash", "host:local"]
 }), async ({ page, request }, info) => {
   await page.goto("/")
   await awaitBoot(page)

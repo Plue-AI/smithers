@@ -351,7 +351,17 @@ describe("C-1 (every affordance resolves to a /name)", () => {
 })
 
 describe("D-4 (at $0, chat keeps working and non-complimentary work pauses)", () => {
-  const turnOk: ProbeContext["fetch"] = async () => jsonResponse("{\"type\":\"done\"}")
+  const turnOk: ProbeContext["fetch"] = async (url, init) => {
+    if (url.endsWith("/prompt")) {
+      expect(init?.method).toBe("POST")
+      const body = JSON.parse(String(init?.body)) as { idempotencyKey: string; prompt: string }
+      expect(body.prompt).toBe("Say the word ok and nothing else.")
+      expect(body.idempotencyKey).toMatch(/^launch-checklist-d4-/)
+      return jsonResponse({ turnId: "zero-balance-turn" }, 202)
+    }
+    expect(url).toBe("https://example.test/api/conversations/main")
+    return jsonResponse({ entries: [{ id: "zero-balance-turn", state: "completed" }] })
+  }
   const evaluate = (expression: string): unknown => (expression.includes("textarea") ? true : null)
   const env = { CHECKLIST_ZERO_BALANCE_BEARER: "smithers_session=zero" }
 
