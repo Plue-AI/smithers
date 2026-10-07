@@ -1731,7 +1731,11 @@ func buildRouter(
 
 			})
 
-			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)).Get("/user/repos", userHandler.GetAuthenticatedUserRepos)
+			if config.IsSingleOwner(cfg.Auth) {
+				r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)).Get("/user/repos", routes.NewUserReposHandler(queries).ListUserRepos)
+			} else {
+				r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)).Get("/user/repos", userHandler.GetAuthenticatedUserRepos)
+			}
 			if gitHubRepoListHandler != nil {
 				r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)).Get("/user/github/repos", gitHubRepoListHandler.ListGitHubRepos)
 			}
