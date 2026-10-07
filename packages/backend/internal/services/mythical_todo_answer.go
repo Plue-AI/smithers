@@ -58,6 +58,10 @@ func mythicalProjectWaits(next *db.MythicalItem, projection mythicalProjection, 
 				asked = append(asked, question)
 				pending[question.ID] = true
 			}
+			if conflict, ok := todoConflictWait(*next, wait, update, now); ok && !pending[conflict.ID] {
+				asked = append(asked, conflict)
+				pending[conflict.ID] = true
+			}
 		}
 	}
 	checks := mythicalChecksOf(*next)
