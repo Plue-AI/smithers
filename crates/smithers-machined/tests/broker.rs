@@ -6,6 +6,9 @@ use smithers_machined::{
     conn,
 };
 use std::{io, time::Duration};
+#[cfg(target_os = "linux")]
+#[path = "broker/freeze.rs"]
+mod freeze;
 #[derive(Default)]
 struct Kernel {
     calls: Vec<&'static str>,
