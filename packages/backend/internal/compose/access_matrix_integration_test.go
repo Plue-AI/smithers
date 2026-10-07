@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -44,6 +47,10 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 	}
 	_, err = pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,actor_user_id,state) VALUES($1,$2,'active')`, repo.ID, users[0].ID)
 	require.NoError(t, err)
+	issuerConfig := testConfigAllFlagsOn()
+	issuerConfig.Auth.Mode = "selfhost"
+	issuer := services.NewAuthService(q, issuerConfig.Auth, nil, nil)
+	issuer.Members = &services.Members{Pool: pool}
 	sessions, tokens, hashes := make([]string, 3), make([]string, 3), make([]string, 3)
 	for i, u := range users {
 		role := "admin"
@@ -56,11 +63,11 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 		sum := sha256.Sum256([]byte(sessions[i]))
 		_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: u.ID, Username: u.Username, SessionKey: hex.EncodeToString(sum[:]), ExpiresAt: time.Now().Add(time.Hour)})
 		require.NoError(t, err)
-		tokens[i] = fmt.Sprintf("smithers_%040x", u.ID+900)
+		credential, err := issuer.CreateToken(ctx, u.ID, services.CreateTokenRequest{Name: "matrix-codex", Via: "codex", Scopes: []string{"repo", "user"}})
+		require.NoError(t, err)
+		tokens[i] = credential.Token
 		sum = sha256.Sum256([]byte(tokens[i]))
 		hashes[i] = hex.EncodeToString(sum[:])
-		_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: u.ID, Name: "matrix-codex", TokenHash: hashes[i], TokenLastEight: hashes[i][56:], Scopes: "write:repository,read:user,via:codex", SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
-		require.NoError(t, err)
 	}
 	todos := services.NewMythicalService(pool, nil)
 	confirmations := services.NewApprovalsService(q, services.WithConfirmationTodos(pool, todos))
@@ -95,6 +102,72 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 		require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&n))
 		return n
 	}
+	// Catalog names measure coverage only. Every expected result below is a
+	// literal invariant of the real confirmation HTTP door, independent of
+	// descriptor roles, scopes, actors and delegation policy. This sweep is
+	// not evidence that each command's execution consumer is composed.
+	t.Run("all-command confirmation admission ledger", func(t *testing.T) {
+		_, file, _, ok := runtime.Caller(0)
+		require.True(t, ok)
+		catalog, err := os.ReadFile(filepath.Join(filepath.Dir(file), "../../../smithers/src/internal/backend/catalog.mvp.json"))
+		require.NoError(t, err)
+		var inventory struct {
+			Operations []struct {
+				Name string `json:"name"`
+			} `json:"operations"`
+		}
+		require.NoError(t, json.Unmarshal(catalog, &inventory))
+		require.NotEmpty(t, inventory.Operations)
+		type cell struct {
+			Command    string `json:"command"`
+			Role       string `json:"role"`
+			Credential string `json:"credential"`
+			Status     int    `json:"status"`
+			Class      string `json:"class"`
+			Code       string `json:"code"`
+		}
+		var ledger []cell
+		original := append([]string(nil), tokens...)
+		defer copy(tokens, original)
+		for i, u := range users {
+			credential, err := issuer.CreateToken(ctx, u.ID, services.CreateTokenRequest{Name: "expired-matrix", Scopes: []string{"repo", "user"}})
+			require.NoError(t, err)
+			sum := sha256.Sum256([]byte(credential.Token))
+			_, err = pool.Exec(ctx, `UPDATE access_tokens SET expires_at=now()-interval '1 second' WHERE token_hash=$1`, hex.EncodeToString(sum[:]))
+			require.NoError(t, err)
+			tokens[i] = credential.Token
+		}
+		roles := []string{"owner", "maintainer", "member"}
+		for _, operation := range inventory.Operations {
+			for i := range users {
+				for _, state := range []string{"session", "expired-delegated"} {
+					person := state == "session"
+					status, body := call(i, person, "/api/confirmations", "ledger-"+operation.Name+"-"+state, fmt.Sprintf(`{"command":%q,"payload":{}}`, operation.Name))
+					wantStatus, wantCode := 401, "unauthenticated"
+					if person {
+						wantStatus, wantCode = 403, "permission"
+					}
+					require.Equal(t, wantStatus, status, "%s %s %s: %v", operation.Name, roles[i], state, body)
+					require.Equal(t, "permission", body["class"], body)
+					require.Equal(t, wantCode, body["code"], body)
+					require.NotContains(t, body, "confirmation")
+					ledger = append(ledger, cell{operation.Name, roles[i], state, status, body["class"].(string), body["code"].(string)})
+				}
+			}
+		}
+		require.Zero(t, count("approvals"))
+		require.Zero(t, count("mythical_items"))
+		t.Logf("confirmation admission: %d commands, %d passing cells; command execution coverage remains separate", len(inventory.Operations), len(ledger))
+		if output := os.Getenv("SMITHERS_ACCESS_LEDGER_DIR"); output != "" {
+			require.NoError(t, os.MkdirAll(output, 0755))
+			data, err := json.MarshalIndent(struct {
+				Boundary string `json:"boundary"`
+				Cells    []cell `json:"cells"`
+			}{"POST /api/confirmations (admission only)", ledger}, "", "  ")
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(filepath.Join(output, "confirmation-admission-matrix.json"), append(data, '\n'), 0644))
+		}
+	})
 	for i := range users {
 		key := "new-" + users[i].Username
 		payload := `{"title":"Keep greeting","prompt":"Keep greeting","acceptance":[]}`
