@@ -204,8 +204,9 @@ export const useHome = (active = true): HomeAnswer | undefined => {
     : { kind: "failed" as const, code: list.error ?? (listed === NO_TODO_LIST ? "unsupported" : "loading") }
   if (source.kind === "failed" && source.code === "loading") return undefined
   const home = source.kind === "served" ? source.model : source.kind === "failed" ? homeFailureModel(repository, source.code) : seeded.model
-  /* A home topic serves main's row itself; elsewhere the install's GitHub sync does. */
-  const model = withHomeRowControls(withInstallCapacity(answer.kind === "served" ? home : withGitHubSync(home, sync), install))
+  /* A served Home owns every shared fact, including capacity. The separate
+   * install and sync reads only fill the fallback while no Home is served. */
+  const model = withHomeRowControls(answer.kind === "served" ? home : withInstallCapacity(withGitHubSync(home, sync), install))
   return { kind: source.kind, model, role: source.kind === "seed" ? seeded.role : session, synced: sync !== undefined }
 }
 
