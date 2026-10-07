@@ -233,6 +233,46 @@ func TestInstallQuiesceRouteGate(t *testing.T) {
 								delete(service.Barriers, missing)
 							}
 						}
+						for _, lost := range []string{"reopened", "expired", "replaced"} {
+							t.Run("drain returns after "+lost, func(t *testing.T) {
+								calls = nil
+								service.Admission = installMaintenanceHeldDrain{
+									installMaintenancePreflightFixture: steps,
+									drain: func() error {
+										var err error
+										switch lost {
+										case "reopened":
+											_, err = pool.Exec(ctx, `DELETE FROM install_settings WHERE key='quiesce'`)
+										case "expired":
+											_, err = pool.Exec(ctx, `UPDATE install_settings SET value=jsonb_set(value,'{lease_until}','"2026-01-01T00:00:30Z"'::jsonb) WHERE key='quiesce'`)
+										case "replaced":
+											_, err = pool.Exec(ctx, `UPDATE install_settings SET value=jsonb_set(value,'{since}','"2026-01-01T00:00:00Z"'::jsonb) WHERE key='quiesce'`)
+										}
+										return err
+									},
+								}
+								status, body := post(`{"op":"held-drain"}`)
+								require.Equal(t, 503, status)
+								require.Contains(t, string(body), `"message":"quiesce lease lost"`)
+								require.NotContains(t, calls, "capture")
+								require.NotContains(t, calls, "stop")
+								// The fixture's Check and Drain use distinct call names:
+								// only admission's drain may have run before lease loss.
+								drains := 0
+								for _, call := range calls {
+									if call == "drain" {
+										drains++
+									}
+								}
+								require.Equal(t, 1, drains)
+								bytes, err := os.ReadFile(filepath.Join(state, "sentinel"))
+								require.NoError(t, err)
+								require.Equal(t, "live-state", string(bytes))
+								_, err = pool.Exec(ctx, `DELETE FROM install_settings WHERE key='quiesce'`)
+								require.NoError(t, err)
+							})
+						}
+
 					}
 				})
 			}
@@ -316,4 +356,16 @@ func (s installMaintenancePreflightFixture) CaptureAndStop(context.Context) erro
 func (s installMaintenancePreflightFixture) Resume(context.Context) error {
 	*s.calls = append(*s.calls, "resume")
 	return nil
+}
+
+// Dependency fixture pauses at the admission boundary to model lease changes
+// while the real owner request and durable freeze remain active.
+type installMaintenanceHeldDrain struct {
+	installMaintenancePreflightFixture
+	drain func() error
+}
+
+func (s installMaintenanceHeldDrain) Drain(context.Context) error {
+	*s.calls = append(*s.calls, "drain")
+	return s.drain()
 }

@@ -482,3 +482,110 @@ func TestQuiesceTypedNilRecoveryRetainsFreeze(t *testing.T) {
 		t.Fatalf("lost recovery authority: %v, row %v, calls %v", err, store.row, calls)
 	}
 }
+
+// A provider returning success does not prove the original freeze still owns
+// the next phase. Reopening, expiry and replacement must stop stale work.
+type leaseChangingQuiesceStep struct {
+	quiesceSteps
+	change func()
+}
+
+func (s leaseChangingQuiesceStep) Drain(ctx context.Context) error {
+	if err := s.quiesceSteps.Drain(ctx); err != nil {
+		return err
+	}
+	s.change()
+	return nil
+}
+func (s leaseChangingQuiesceStep) CaptureAndStop(ctx context.Context) error {
+	if err := s.quiesceSteps.CaptureAndStop(ctx); err != nil {
+		return err
+	}
+	s.change()
+	return nil
+}
+
+type leaseChangingBarrier struct {
+	quiesceBarrierFixture
+	change func()
+}
+
+func (s leaseChangingBarrier) Drain(ctx context.Context) error {
+	if err := s.quiesceBarrierFixture.Drain(ctx); err != nil {
+		return err
+	}
+	s.change()
+	return nil
+}
+
+func TestQuiesceLeaseLossFencesRemainingPhases(t *testing.T) {
+	for _, phase := range []string{"admission", "T-STK-04", "T-COL-08", "T-COL-09", "T-GH-09", "T-TRM-07", "T-SEC-01", "capture"} {
+		for _, loss := range []string{"reopened", "expired", "replaced", "canceled"} {
+			t.Run(phase+"/"+loss, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				store := &memoryFreeze{}
+				calls := []string{}
+				steps := quiesceSteps{calls: &calls}
+				service := NewInstallQuiesce(&QuiesceGate{Store: store, StateDir: t.TempDir()})
+				service.Machines, service.Admission, service.Host = steps, steps, steps
+				service.Barriers = barrierFixtures(&calls, "")
+				change := func() {
+					if loss == "canceled" {
+						cancel()
+						return
+					}
+					if err := store.Update(ctx, func(row *QuiesceFreeze) (*QuiesceFreeze, error) {
+						switch loss {
+						case "reopened":
+							return nil, nil
+						case "expired":
+							row.LeaseUntil = time.Date(2026, 1, 1, 0, 0, 30, 0, time.UTC)
+						case "replaced":
+							row.Since = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+						}
+						return row, nil
+					}); err != nil {
+						t.Fatal(err)
+					}
+				}
+				switch phase {
+				case "admission":
+					service.Admission = leaseChangingQuiesceStep{steps, change}
+				case "capture":
+					service.Machines = leaseChangingQuiesceStep{steps, change}
+				default:
+					service.Barriers[phase] = leaseChangingBarrier{quiesceBarrierFixture{calls: &calls, ticket: phase}, change}
+				}
+				row, err := service.Freeze(ctx, "original", 7)
+				if err == nil || row != nil {
+					t.Fatalf("stale drain succeeded: %v %v", row, err)
+				}
+				if loss == "canceled" {
+					if !errors.Is(err, context.Canceled) {
+						t.Fatal(err)
+					}
+				} else if err.Error() != "quiesce lease lost" {
+					t.Fatal(err)
+				}
+				for _, call := range calls {
+					if call == "stop" || (call == "capture" && phase != "capture") {
+						t.Fatalf("stale %s: %v", phase, calls)
+					}
+				}
+				if phase != "admission" && phase != "capture" {
+					found := false
+					for _, call := range calls {
+						if call == phase {
+							found = true
+							continue
+						}
+						if found && len(call) > 1 && call[:2] == "T-" {
+							t.Fatalf("stale barrier: %v", calls)
+						}
+					}
+				}
+			})
+		}
+	}
+}

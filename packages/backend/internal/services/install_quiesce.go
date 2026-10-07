@@ -381,21 +381,46 @@ func (s *InstallQuiesce) freeze(ctx context.Context, op string, by int64, renewa
 			}))
 		}
 	}()
+	// A pending drain may return after the owner reopened or its lease expired.
+	// Fence every subsequent phase against the original operation, not only
+	// publication of Ready: stale work must never stop a reopened install.
+	checkLease := func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return s.Gate.Store.Update(ctx, func(row *QuiesceFreeze) (*QuiesceFreeze, error) {
+			if row == nil || row.Op != op || row.By != by || !row.Since.Equal(since) || !time.Now().Before(row.LeaseUntil) {
+				return row, errors.New("quiesce lease lost")
+			}
+			return row, nil
+		})
+	}
 	drain, cancel := context.WithTimeout(ctx, 60*time.Second)
 	err = s.Admission.Drain(drain)
 	defer cancel()
 	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
-		err = s.Admission.Stop(ctx)
+		if err = checkLease(); err == nil {
+			err = s.Admission.Stop(ctx)
+		}
 	}
 	if err != nil {
 		return nil, err
 	}
 	for _, ticket := range quiesceBarrierTickets {
+		if err = checkLease(); err != nil {
+			return nil, err
+		}
 		if err = s.Barriers[ticket].Drain(drain); err != nil {
 			return nil, fmt.Errorf("%s: %w", ticket, err)
 		}
 	}
+	if err = checkLease(); err != nil {
+		return nil, err
+	}
 	if err = machines.CaptureAndStop(ctx); err != nil {
+		return nil, err
+	}
+	if err = checkLease(); err != nil {
 		return nil, err
 	}
 	if err = s.Host.Stop(ctx); err != nil {
