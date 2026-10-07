@@ -110,7 +110,14 @@ func chatCallbackHandler(runtime *chat.Runtime, api ...http.Handler) http.Handle
 	if len(api) == 1 && api[0] != nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if strings.HasPrefix(r.URL.Path, "/api/") {
-				api[0].ServeHTTP(w, r)
+				// This listener is private loopback transport, not a public
+				// origin. Forward as the fixed install control host, preserving
+				// the ordinary API's bearer, membership and policy checks. Never
+				// accept caller-selected proxy authority on this internal hop.
+				forwarded := r.Clone(r.Context())
+				forwarded.Host = "localhost:4000"
+				forwarded.Header.Del("X-Forwarded-Host")
+				api[0].ServeHTTP(w, forwarded)
 				return
 			}
 			router.ServeHTTP(w, r)

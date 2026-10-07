@@ -15,10 +15,42 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/config"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/ports"
 )
 
 type unusedChatHost struct{}
+
+func TestPrivateChatAPIForwardingUsesControlOriginAndRetainsBearer(t *testing.T) {
+	runtime := &chat.Runtime{Handler: &chat.Handler{}}
+	api := middleware.EffectiveOrigin(func() []string { return []string{"https://team.example"} })(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer person" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		require.Equal(t, "localhost:4000", r.Host)
+		origin, ok := middleware.EffectiveOriginFromContext(r.Context())
+		require.True(t, ok)
+		require.Equal(t, "http://localhost:4000", origin)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	server := httptest.NewServer(chatCallbackHandler(runtime, api))
+	defer server.Close()
+	for _, token := range []string{"", "Bearer person"} {
+		request, err := http.NewRequest(http.MethodGet, server.URL+"/api/todos", nil)
+		require.NoError(t, err)
+		request.Header.Set("Authorization", token)
+		request.Header.Set("X-Forwarded-Host", "foreign.example")
+		response, err := server.Client().Do(request)
+		require.NoError(t, err)
+		response.Body.Close()
+		want := http.StatusUnauthorized
+		if token != "" {
+			want = http.StatusNoContent
+		}
+		require.Equal(t, want, response.StatusCode)
+	}
+}
 
 func (unusedChatHost) RunChatTurn(context.Context, ports.ChatTurnGrant) error { return nil }
 
