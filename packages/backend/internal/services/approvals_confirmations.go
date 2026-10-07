@@ -311,6 +311,7 @@ type preparedConfirmation struct {
 	revision, title string
 	card            map[string]any
 	mergeHead       string
+	wiki            *wikiDeleteConfirmation
 }
 
 // prepareConfirmation adapts existing transactional TODO consumers. Its switch
@@ -332,6 +333,8 @@ func (s *MythicalService) prepareConfirmation(ctx context.Context, tx pgx.Tx, re
 	}
 	text, verb := "", ""
 	switch input.Command {
+	case "wiki.delete":
+		return s.prepareWikiDeleteConfirmation(ctx, tx, repository, input, inspect)
 	case "learning.accept", "learning.dismiss":
 		var empty struct{}
 		if subject.Kind != "proposal" || subject.Ref == "" || len(subject.Ref) > 512 || confirmationJSON(input.Payload, &empty) != nil {
@@ -541,6 +544,7 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 		return ConfirmationReceipt{}, invalidConfirmation()
 	}
 	var receipt ConfirmationReceipt
+	var afterCommit func()
 	var refused error
 	err := pgx.BeginFunc(ctx, s.confirmationStore, func(tx pgx.Tx) error {
 		bound, repository, err := lockInstallWriteCredential(ctx, tx, info)
@@ -660,6 +664,8 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 			var number int64
 			var amendedRevision int
 			switch command {
+			case "wiki.delete":
+				afterCommit, err = consumer.deleteConfirmedWiki(bound, tx, prepared.wiki)
 			case "learning.accept", "learning.dismiss":
 				var subject struct {
 					Ref string `json:"ref"`
@@ -783,6 +789,9 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 	}
 	if refused != nil {
 		return ConfirmationReceipt{}, refused
+	}
+	if afterCommit != nil {
+		afterCommit()
 	}
 	return receipt, nil
 }
