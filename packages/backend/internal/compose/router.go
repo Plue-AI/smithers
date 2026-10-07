@@ -1113,10 +1113,10 @@ func buildRouter(
 		}
 		if config.IsSingleOwner(cfg.Auth) {
 			var proposals services.FlowProposalReader
-			var edits routes.FlowEditService
+			var edits routes.RepositoryEditService
 			if extras.Mythical != nil {
 				proposals, _ = extras.Mythical.Service.(services.FlowProposalReader)
-				edits, _ = extras.Mythical.Service.(routes.FlowEditService)
+				edits, _ = extras.Mythical.Service.(routes.RepositoryEditService)
 			}
 			mountFlowReads(r, &routes.FlowsHandler{Queries: queries, Proposals: proposals, Runs: extras.FlowRuns, Edits: edits})
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository)).Post("/runs/{id}", (&routes.HomeBackgroundHandler{Queries: queries, Service: extras.Background}).Control)
@@ -2273,6 +2273,7 @@ func mountFlowReads(r chi.Router, flows *routes.FlowsHandler) {
 	r.Post("/flows/{name}/run", flows.Run)
 	r.Get("/flows/runs/{id}", flows.RunStatus)
 	r.Post("/flows/{name}/edit", flows.Edit)
+	r.Post("/agents/{role}/edit", flows.Edit)
 	r.Get("/flows", flows.List)
 	r.Get("/flows/{name}", flows.Show)
 }

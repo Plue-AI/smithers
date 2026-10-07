@@ -63,3 +63,15 @@ func (s InstallSource) activatedAppInstructions(ctx context.Context, owner strin
 	}
 	return file.Content, revision, nil
 }
+
+// AgentInstructionsPath is the repository-owned source shown by each factory role.
+func AgentInstructionsPath(role string) (string, bool) {
+	switch role {
+	case "planner", "implementer", "reviewer":
+		return "flows/todo/flow.ts", true
+	case "app":
+		return ".smithers/instructions/app.md", true
+	default:
+		return "", false
+	}
+}
