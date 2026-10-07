@@ -12,7 +12,7 @@ import * as CapabilitySet from "@smthrs/capability/CapabilitySet"
 import { Sha256 } from "@smthrs/crypto"
 import type { DurableWriter } from "@smthrs/database/DurableWriter"
 import { FlowEngine } from "@smthrs/engine"
-import { type Action, Flow, FlowRuntime } from "@smthrs/flow"
+import { Action, Flow, FlowRuntime } from "@smthrs/flow"
 import { FileBoundary } from "@smthrs/flow/FileBoundary"
 import { Journal } from "@smthrs/journal"
 import { Jj } from "@smthrs/kernel"
@@ -356,6 +356,16 @@ const makeWithEngineJj = (
           : {}),
         ...(snapshot === undefined ? {} : { snapshot })
       }).pipe(
+        // This is an engine safety refusal, not a failure declared by the
+        // action. Keep it on the defect channel like the numbered-retry
+        // guard in FlowEngine, before the action's error codec can mask it.
+        Effect.catchIf(
+          (cause): cause is Action.IrreversibleRetryRequiresIdempotencyKey =>
+            cause instanceof Action.IrreversibleRetryRequiresIdempotencyKey,
+          // Encode the tagged fields before the generic defect codec reduces
+          // an Error instance to just its name and message.
+          (cause) => Effect.die(Schema.encodeSync(Action.IrreversibleRetryRequiresIdempotencyKey)(cause))
+        ),
         Flow.intoResult,
         Effect.provideService(FlowRuntime.FlowInstance, instance),
         Effect.provideService(
