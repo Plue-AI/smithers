@@ -35,6 +35,7 @@ func serveListener(ctx context.Context, listener net.Listener, authority listene
 	config.AddHostKey(authority.hostKey)
 	var mu sync.Mutex
 	connections := make(map[net.Conn]struct{})
+	limit := make(chan struct{}, 128)
 	var workers sync.WaitGroup
 	finished := make(chan struct{})
 	go func() {
@@ -67,12 +68,19 @@ func serveListener(ctx context.Context, listener net.Listener, authority listene
 			}
 			return err
 		}
+		select {
+		case limit <- struct{}{}:
+		default:
+			connection.Close()
+			continue
+		}
 		mu.Lock()
 		connections[connection] = struct{}{}
 		mu.Unlock()
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
+			defer func() { <-limit }()
 			defer func() { connection.Close(); mu.Lock(); delete(connections, connection); mu.Unlock() }()
 			// Bound unauthenticated peers; clear the deadline only after SSH auth.
 			connection.SetDeadline(time.Now().Add(10 * time.Second))
