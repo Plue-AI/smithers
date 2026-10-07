@@ -49,11 +49,21 @@ impl Versions for Receipts {
         self.0.lock().unwrap().push(bytes.to_vec());
         Ok(format!("fixture:{}", self.0.lock().unwrap().len()))
     }
-    fn own_write(&mut self, path: &str, digest: [u8; 32], actor: Option<&str>) {
+    fn before_write(&mut self, _: &str, _: Option<&str>) -> smithers_machined::doc::Result<()> {
+        Ok(()) // controlled version recorder; production watcher tested separately
+    }
+    fn own_write(
+        &mut self,
+        path: &str,
+        bytes: &[u8],
+        _: u32,
+        actor: Option<&str>,
+    ) -> smithers_machined::doc::Result<()> {
         self.1
             .lock()
             .unwrap()
-            .push((path.into(), digest, actor.map(str::to_owned)));
+            .push((path.into(), digest(bytes), actor.map(str::to_owned)));
+        Ok(())
     }
 }
 struct Clock(AtomicU64, Instant);
@@ -106,10 +116,16 @@ impl Fixture {
         }
     }
     fn service(&self) -> (Arc<Service<LinuxDisk<Receipts>>>, LockCx) {
+        self.with_versions(self.receipts.clone())
+    }
+    fn with_versions<V: Versions + 'static>(
+        &self,
+        versions: V,
+    ) -> (Arc<Service<LinuxDisk<V>>>, LockCx) {
         let disk = LinuxDisk::new(
             File::open(self.root.join("workspace")).unwrap(),
             File::open(self.root.join("store")).unwrap(),
-            self.receipts.clone(),
+            versions,
         )
         .unwrap();
         let gates = Gates {
@@ -695,3 +711,6 @@ fn authenticated_file_write_retains_save_author_across_disk_adapter() {
         assert_eq!(actor, &None);
     }
 }
+
+#[path = "document_watcher/mod.rs"]
+mod watcher;

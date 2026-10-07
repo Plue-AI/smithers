@@ -1,8 +1,8 @@
 use super::*;
-use smithers_machined::broker::sessions::{Controls, Kind, Sessions, User};
+use smithers_machined::broker::sessions::{Admission, Controls, Kind, Sessions, User};
 use smithers_machined::{
     conn::{self, Frame},
-    hooks::{self, Actor, Base, Core, EventSink, Hooks, Sessions as SessionHook, WriteRecord},
+    hooks::{self, Actor, Base, Core, EventSink, Hooks, Sessions as SessionHook},
     lock::{Executor, LockCx},
     rpc,
     watch::InotifyWatcher,
@@ -183,7 +183,7 @@ impl Core for CoreFixture {
             return Err(fail());
         }
         let watcher = cx.hooks.watcher.clone();
-        watcher.before_write(cx, &req.path, &req.actor)?;
+        watcher.before_write(&req.path, &req.actor)?;
         // The unavailable shared core is a fixture, with real confined IO.
         // Writers are sequential here; atomic stale-write races remain the
         // dependency-owned core gate, not watcher component evidence.
@@ -206,9 +206,6 @@ impl Core for CoreFixture {
             e.current_digest = current;
             return Err(e);
         }
-        let before = old
-            .as_ref()
-            .map(|(b, _)| Ports(self.0.clone()).blob(b).unwrap());
         let root = File::open(&self.0.f.lock().unwrap().root).unwrap();
         let flags = if old.is_none() {
             rustix::fs::OFlags::CREATE | rustix::fs::OFlags::EXCL
@@ -237,20 +234,10 @@ impl Core for CoreFixture {
         file.write_all(&req.content).unwrap();
         file.sync_all().unwrap();
         drop(file);
-        let version = versions::record(&mut Ports(self.0.clone()), &req.content, 0o100644).unwrap();
-        watcher.after_write(
-            cx,
-            &WriteRecord {
-                path: req.path,
-                actor: req.actor,
-                before,
-                after: version.blob,
-                post_digest: version.post_digest,
-            },
-        )?;
+        watcher.after_write(&req.path, &req.actor, &req.content, 0o644)?;
         Ok(conn::structure_bytes(&[conn::field(
             1,
-            version.post_digest,
+            <[u8; 32]>::from(sha2::Sha256::digest(&req.content)),
         )]))
     }
 }
@@ -336,6 +323,10 @@ fn setup() -> (Arc<Shared>, Executor) {
                 uid: 19999,
             },
             Kind::Pty,
+            Admission {
+                principal: [1; 16],
+                run: Some("run-1".into()),
+            },
         )
         .unwrap();
     sessions
@@ -346,6 +337,10 @@ fn setup() -> (Arc<Shared>, Executor) {
                 uid: 20000,
             },
             Kind::Pty,
+            Admission {
+                principal: [2; 16],
+                run: None,
+            },
         )
         .unwrap();
     sessions
@@ -356,6 +351,10 @@ fn setup() -> (Arc<Shared>, Executor) {
                 uid: 20001,
             },
             Kind::Pty,
+            Admission {
+                principal: [3; 16],
+                run: None,
+            },
         )
         .unwrap();
     let watch = Inotify::new(

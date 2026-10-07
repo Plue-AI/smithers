@@ -4,7 +4,7 @@ use super::super::{
     state::{Digest, Record},
     Error, Result, MAX_TEXT_BYTES,
 };
-use super::{Disk, Displaced, Recovery};
+use super::{Disk, Displaced, Recovery, Swap};
 use rustix::fs::{self, AtFlags, Mode, OFlags, RenameFlags};
 use std::{
     collections::BTreeMap,
@@ -18,7 +18,9 @@ use crate::confine::RESOLVE;
 /// T-COL-04a's recorded-version adapter supplies this; no local blob substitute.
 pub trait Versions: Send {
     fn outside(&mut self, path: &str, bytes: &[u8], actor: &str) -> Result<String>;
-    fn own_write(&mut self, path: &str, digest: Digest, actor: Option<&str>);
+    fn before_write(&mut self, path: &str, actor: Option<&str>) -> Result<()>;
+    fn own_write(&mut self, path: &str, bytes: &[u8], mode: u32, actor: Option<&str>)
+        -> Result<()>;
 }
 struct Inode {
     parent: File,
@@ -170,10 +172,19 @@ impl<V: Versions> Disk for LinuxDisk<V> {
     fn store_record(&mut self, key: Digest, record: &Record) -> Result<()> {
         self.store_named(&hex(&key), record)
     }
-    fn swap_text(&mut self, path: &str, key: Digest, bytes: &[u8]) -> Result<Option<Displaced>> {
+    fn swap_text(
+        &mut self,
+        path: &str,
+        key: Digest,
+        bytes: &[u8],
+        actor: Option<&str>,
+    ) -> Result<Swap> {
         if bytes.len() > MAX_TEXT_BYTES {
             return Err(Error::Invalid);
         }
+        // Drain outside changes and close another author's pending burst before
+        // replacing bytes. This callback runs on the same daemon mutation lock.
+        self.versions.before_write(path, actor)?;
         let (parent, name) = self.parent(path)?;
         let old = match fs::openat2(
             &parent,
@@ -235,7 +246,10 @@ impl<V: Versions> Disk for LinuxDisk<V> {
         if old.is_none() {
             parent.sync_all()?;
             self.remove_meta(&temp)?;
-            return Ok(None);
+            return Ok(Swap {
+                displaced: None,
+                mode,
+            });
         }
         let displaced = match open(&parent, &temp, OFlags::RDONLY, Mode::empty()).and_then(|f| {
             regular(&f)?;
@@ -254,7 +268,10 @@ impl<V: Versions> Disk for LinuxDisk<V> {
         let retained_parent = parent.try_clone()?;
         let token = self.keep(retained_parent, temp, displaced)?;
         parent.sync_all()?;
-        Ok(Some(token))
+        Ok(Swap {
+            displaced: Some(token),
+            mode,
+        })
     }
     fn recover_temps(&mut self, path: &str, key: Digest) -> Result<Vec<Recovery>> {
         let (parent, _) = self.parent(path)?;
@@ -337,7 +354,7 @@ impl<V: Versions> Disk for LinuxDisk<V> {
     fn record_outside(&mut self, path: &str, text: &[u8], actor: &str) -> Result<String> {
         self.versions.outside(path, text, actor)
     }
-    fn own_write(&mut self, path: &str, post_digest: Digest, actor: Option<&str>) {
-        self.versions.own_write(path, post_digest, actor);
+    fn own_write(&mut self, path: &str, text: &[u8], mode: u32, actor: Option<&str>) -> Result<()> {
+        self.versions.own_write(path, text, mode, actor)
     }
 }

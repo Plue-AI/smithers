@@ -166,3 +166,43 @@ fn metadata_created_after_startup_and_replaced_directories_stay_watched() {
         assert!(events.iter().all(|e| *e == Event::Metadata), "{dir}");
     }
 }
+
+#[test]
+fn daemon_checkpoint_refs_do_not_look_like_branch_moves() {
+    let f = Fixture::new();
+    let mut watcher = f.watcher();
+    fs::create_dir_all(f.0.join(".git/refs/smithers/watcher")).unwrap();
+    fs::write(
+        f.0.join(".git/refs/smithers/watcher/current"),
+        "a".repeat(40),
+    )
+    .unwrap();
+    assert!(!watcher.drain().unwrap().contains(&Event::Metadata));
+    // Re-arming after overflow must not start watching our private subtree.
+    watcher.rearm().unwrap();
+    fs::write(
+        f.0.join(".git/refs/smithers/watcher/current"),
+        "b".repeat(40),
+    )
+    .unwrap();
+    assert!(!watcher.drain().unwrap().contains(&Event::Metadata));
+    fs::write(f.0.join(".git/refs/heads/topic"), "c".repeat(40)).unwrap();
+    assert!(watcher.drain().unwrap().contains(&Event::Metadata));
+}
+
+#[test]
+fn retained_document_save_inodes_are_not_file_activity() {
+    let f = Fixture::new();
+    let mut watcher = f.watcher();
+    let saved = format!(".smithers-doc-{}-{}", "a".repeat(64), "b".repeat(32));
+    let ordinary = format!("{saved}-notes");
+    for name in [&saved, &ordinary] {
+        fs::write(f.0.join(name), b"bytes").unwrap();
+    }
+    let changed = paths(watcher.drain().unwrap());
+    assert!(!changed.contains(&saved));
+    assert!(changed.contains(&ordinary));
+    let scan = watcher.rearm().unwrap();
+    assert!(!scan.contains(&saved));
+    assert!(scan.contains(&ordinary));
+}

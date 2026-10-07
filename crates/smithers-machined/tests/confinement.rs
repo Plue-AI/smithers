@@ -138,7 +138,16 @@ fn document_disk_reuses_boundary_and_preserves_typed_invalid_errors() {
         ) -> smithers_machined::doc::Result<String> {
             panic!("read-only request records no version")
         }
-        fn own_write(&mut self, _: &str, _: [u8; 32], _: Option<&str>) {
+        fn before_write(&mut self, _: &str, _: Option<&str>) -> smithers_machined::doc::Result<()> {
+            panic!("read-only request prepares no write")
+        }
+        fn own_write(
+            &mut self,
+            _: &str,
+            _: &[u8],
+            _: u32,
+            _: Option<&str>,
+        ) -> smithers_machined::doc::Result<()> {
             panic!("read-only request writes nothing")
         }
     }

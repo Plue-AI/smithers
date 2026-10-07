@@ -7,6 +7,11 @@ use super::{
 
 /// A token names an open displaced inode, never an RPC-controlled pathname.
 pub type Displaced = u64;
+pub struct Swap {
+    pub displaced: Option<Displaced>,
+    /// Actual mode selected for the saved inode, before any outside replacement.
+    pub mode: u32,
+}
 pub struct Recovery {
     pub token: Displaced,
     pub record: Record,
@@ -25,7 +30,13 @@ pub trait Disk: Send {
     /// .smithers-doc-<digest>-<random>, preserve mode/group; fsync, exchange
     /// (NOREPLACE if absent), directory fsync. Retain displaced inode open.
     /// Owner is the executing machined uid, never chown to a privileged uid.
-    fn swap_text(&mut self, path: &str, key: Digest, text: &[u8]) -> Result<Option<Displaced>>;
+    fn swap_text(
+        &mut self,
+        path: &str,
+        key: Digest,
+        text: &[u8],
+        actor: Option<&str>,
+    ) -> Result<Swap>;
     /// Leftover temps survive restart and are returned as retained open inodes.
     fn recover_temps(&mut self, path: &str, key: Digest) -> Result<Vec<Recovery>>;
     fn read_displaced(&mut self, token: Displaced) -> Result<Vec<u8>>;
@@ -36,7 +47,9 @@ pub trait Disk: Send {
     /// Exclude watcher events by path and post-write digest, never inotify pid.
     /// Actor is the sole contributor since the preceding successful save, or
     /// None for combined/unknown edits. Historical authors are not contributors.
-    fn own_write(&mut self, path: &str, post_digest: Digest, actor: Option<&str>);
+    /// Persist the exact saved version before a save receipt can be issued.
+    /// Failure retains the dirty document and prevents a successful receipt.
+    fn own_write(&mut self, path: &str, text: &[u8], mode: u32, actor: Option<&str>) -> Result<()>;
 }
 
 /// Lexical validation supplements, never replaces, descriptor confinement.

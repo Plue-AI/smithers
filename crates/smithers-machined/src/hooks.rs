@@ -40,20 +40,13 @@ impl Error {
     }
 }
 pub type Result<T> = std::result::Result<T, Error>;
-pub struct WriteRecord {
-    pub path: String,
-    pub actor: Actor,
-    pub before: Option<Oid>,
-    pub after: Oid,
-    pub post_digest: Digest,
-}
 pub trait Watcher: Send + Sync {
     /// Report readiness only after this provider's real dependencies are ready.
     /// Implementing an operation alone must not activate a partial daemon.
     fn ready(&self) -> Result<()> {
         Err(Error::unsupported())
     }
-    fn before_write(&self, _cx: &mut LockCx, _path: &str, _actor: &Actor) -> Result<()> {
+    fn before_write(&self, _path: &str, _actor: &Actor) -> Result<()> {
         Err(Error::unsupported())
     }
     fn drain(&self, _cx: &mut LockCx) -> Result<()> {
@@ -62,7 +55,9 @@ pub trait Watcher: Send + Sync {
     fn close_bursts(&self, _cx: &mut LockCx) -> Result<()> {
         Err(Error::unsupported())
     }
-    fn after_write(&self, _cx: &mut LockCx, _write: &WriteRecord) -> Result<()> {
+    /// Called on the FIFO mutation lock with the exact saved bytes and mode.
+    /// Persist their version before returning; never reread the working copy.
+    fn after_write(&self, _path: &str, _actor: &Actor, _bytes: &[u8], _mode: u32) -> Result<()> {
         Err(Error::unsupported())
     }
     fn resync(&self, _cx: &mut LockCx) -> Result<()> {

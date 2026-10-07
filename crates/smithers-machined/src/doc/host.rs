@@ -831,8 +831,8 @@ impl<D: Disk> Host<D> {
             retired_clients: doc.retired_clients.clone(),
         };
         disk.store_record(key, &record)?;
-        let token = disk.swap_text(path, key, text.as_bytes())?;
-        if let Some(token) = token {
+        let saved = disk.swap_text(path, key, text.as_bytes(), doc.save_author.actor())?;
+        if let Some(token) = saved.displaced {
             // Always leave an inode open until quiet, even if its first read
             // matches base: an in-place writer may still hold it at the swap.
             let bytes = disk.read_displaced(token)?;
@@ -846,11 +846,11 @@ impl<D: Disk> Host<D> {
                 deadline: now.saturating_add(2000),
             });
         }
+        disk.own_write(path, text.as_bytes(), saved.mode, doc.save_author.actor())?;
         doc.last_disk = digest(text.as_bytes());
         doc.base = text;
         doc.dirty_since = None;
         doc.saved_at_ms = Some(now);
-        disk.own_write(path, doc.last_disk, doc.save_author.actor());
         doc.save_author = SaveAuthor::Clean;
         notices.push(Notice::Saved {
             path: path.into(),

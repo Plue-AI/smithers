@@ -80,6 +80,11 @@ impl<I: Ignore> Inotify<I> {
         recursive: bool,
         files: &mut Vec<String>,
     ) -> io::Result<()> {
+        // Daemon-owned pins do not move HEAD or the jj working copy. Watching
+        // our own checkpoint refs would block the next save as a branch move.
+        if metadata && path.starts_with(".git/refs/smithers") {
+            return Ok(());
+        }
         if !metadata && path != Path::new(".") && self.ignore.ignored(path, true)? {
             return Ok(());
         }
@@ -291,6 +296,9 @@ impl<I: Ignore> Inotify<I> {
                 d.path.join(&name)
             };
             if metadata {
+                if path.starts_with(".git/refs/smithers") {
+                    continue;
+                }
                 let relevant = recursive
                     || match d.path.to_str() {
                         Some(".git") => matches!(name.as_str(), "HEAD" | "packed-refs" | "refs"),
@@ -438,6 +446,7 @@ pub struct InotifyWatcher<I, P> {
         SessionPresence<P>,
     )>,
     origin: std::time::Instant,
+    clock: std::sync::Arc<dyn crate::hooks::Clock>,
 }
 /// Preserve the shared core's typed refusal (notably moved_off) across the
 /// provider's IO boundary without inventing a second error envelope.
@@ -515,6 +524,7 @@ impl<I: Ignore, P: crate::events::Provider<crate::hooks::Actor, Blob = crate::ho
         Ok(Self {
             state: std::sync::Mutex::new((watcher, provider)),
             origin: cx.hooks.clock.mono(),
+            clock: cx.hooks.clock.clone(),
         })
     }
     fn job<T>(
@@ -526,10 +536,18 @@ impl<I: Ignore, P: crate::events::Provider<crate::hooks::Actor, Blob = crate::ho
             u64,
         ) -> io::Result<T>,
     ) -> crate::hooks::Result<T> {
-        let now = cx
-            .hooks
-            .clock
-            .mono()
+        self.job_at(cx.hooks.clock.mono(), f)
+    }
+    fn job_at<T>(
+        &self,
+        at: std::time::Instant,
+        f: impl FnOnce(
+            &mut crate::resync::WatchLoop<I, crate::hooks::Actor, crate::hooks::Oid>,
+            &mut SessionPresence<P>,
+            u64,
+        ) -> io::Result<T>,
+    ) -> crate::hooks::Result<T> {
+        let now = at
             .saturating_duration_since(self.origin)
             .as_millis()
             .try_into()
@@ -557,41 +575,34 @@ impl<
     fn drain(&self, cx: &mut crate::lock::LockCx) -> crate::hooks::Result<()> {
         self.job(cx, |w, p, now| w.drain(p, now))
     }
-    fn before_write(
-        &self,
-        cx: &mut crate::lock::LockCx,
-        path: &str,
-        actor: &crate::hooks::Actor,
-    ) -> crate::hooks::Result<()> {
-        self.job(cx, |w, p, now| {
+    /// Called by the document disk adapter on the existing FIFO mutation lock.
+    /// Settle outside bytes before a document changes the working-copy path.
+    fn before_write(&self, path: &str, actor: &crate::hooks::Actor) -> crate::hooks::Result<()> {
+        self.job_at(self.clock.mono(), |w, p, now| {
             w.drain(p, now)?;
             w.changes.before_write(p, now, path, actor)
         })
     }
+    /// Uses the saved bytes and mode, never a later read of the working copy.
+    /// own_write pins/checkpoints the version before this returns successfully.
     fn after_write(
         &self,
-        cx: &mut crate::lock::LockCx,
-        write: &crate::hooks::WriteRecord,
+        path: &str,
+        actor: &crate::hooks::Actor,
+        bytes: &[u8],
+        mode: u32,
     ) -> crate::hooks::Result<()> {
-        self.job(cx, |w, p, now| {
-            if !w.watch.tracked(&write.path)? {
+        self.job_at(self.clock.mono(), |w, p, now| {
+            if !w.watch.tracked(path)? {
                 return Ok(());
             }
-            let mode = p
-                .read(&write.path)?
-                .map(|(_, mode)| mode)
-                .ok_or(io::ErrorKind::NotFound)?;
-            w.changes.own_write(
-                p,
-                now,
-                &write.path,
-                &write.actor,
-                crate::versions::Version {
-                    blob: write.after,
-                    post_digest: write.post_digest,
-                    mode,
-                },
-            )
+            let mode = if mode & 0o111 == 0 {
+                0o100644
+            } else {
+                0o100755
+            };
+            let version = crate::versions::record(p, bytes, mode)?;
+            w.changes.own_write(p, now, path, actor, version)
         })
     }
     fn close_bursts(&self, cx: &mut crate::lock::LockCx) -> crate::hooks::Result<()> {

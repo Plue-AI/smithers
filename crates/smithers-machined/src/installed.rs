@@ -10,7 +10,7 @@ use crate::{
         service::Service,
     },
     events::{Checkpoint, Closed, Provider},
-    hooks::{self, Actor, EventSink, Hooks, Oid},
+    hooks::{self, Actor, EventSink, Hooks, Oid, Watcher as _},
     lock::LockCx,
     versions::Objects,
 };
@@ -23,9 +23,10 @@ use std::{
         unix::fs::{MetadataExt, PermissionsExt},
     },
     path::Path,
-    sync::{Arc, Mutex},
+    sync::{Arc, OnceLock},
 };
 type Events = crate::event_service::Events<crate::git::Repository, crate::git::Repository>;
+type Watcher = crate::watch::InotifyWatcher<crate::ignore::GitIgnore, Ports>;
 fn private(path: &Path) -> io::Result<File> {
     match fs::create_dir(path) {
         Ok(()) => fs::set_permissions(path, fs::Permissions::from_mode(0o700))?,
@@ -54,7 +55,6 @@ struct Ports {
     broker: Arc<SocketpairBroker>,
     store: crate::watcher_store::Store,
     workspace: File,
-    saved: Arc<Mutex<Vec<(String, Actor, [u8; 32])>>>,
 }
 impl Objects for Ports {
     type Blob = Oid;
@@ -179,9 +179,6 @@ impl Provider<Actor> for Ports {
         hooks::Sessions::where_file(&*self.broker, session, path)
             .map_err(crate::watch::provider_error)
     }
-    fn saved_writes(&mut self) -> Vec<(String, Actor, [u8; 32])> {
-        std::mem::take(&mut *self.saved.lock().unwrap_or_else(|e| e.into_inner()))
-    }
     fn moved_off(&mut self) -> io::Result<()> {
         self.native.current().map(|_| ())
     }
@@ -215,7 +212,7 @@ fn saved_actor(actor: Option<&str>) -> Actor {
 struct DocumentVersions {
     git: crate::git::Repository,
     events: Arc<Events>,
-    saved: Arc<Mutex<Vec<(String, Actor, [u8; 32])>>>,
+    watcher: Arc<OnceLock<Arc<Watcher>>>,
 }
 impl Versions for DocumentVersions {
     fn outside(&mut self, path: &str, text: &[u8], _: &str) -> crate::doc::Result<String> {
@@ -253,14 +250,25 @@ impl Versions for DocumentVersions {
         }
         Ok(commit.iter().map(|b| format!("{b:02x}")).collect())
     }
-    fn own_write(&mut self, path: &str, digest: [u8; 32], actor: Option<&str>) {
-        // Only immutable principal references can identify a saved edit. Mixed,
-        // recovered and legacy display labels retain unknown attribution.
-        self.saved.lock().unwrap_or_else(|e| e.into_inner()).push((
-            path.into(),
-            saved_actor(actor),
-            digest,
-        ));
+    fn before_write(&mut self, path: &str, actor: Option<&str>) -> crate::doc::Result<()> {
+        self.watcher
+            .get()
+            .ok_or(crate::doc::Error::Unsupported)?
+            .before_write(path, &saved_actor(actor))
+            .map_err(crate::doc::Error::Provider)
+    }
+    fn own_write(
+        &mut self,
+        path: &str,
+        bytes: &[u8],
+        mode: u32,
+        actor: Option<&str>,
+    ) -> crate::doc::Result<()> {
+        self.watcher
+            .get()
+            .ok_or(crate::doc::Error::Unsupported)?
+            .after_write(path, &saved_actor(actor), bytes, mode)
+            .map_err(crate::doc::Error::Provider)
     }
 }
 /// Validates the inherited process boundary before reading authority or repo data.
@@ -298,14 +306,14 @@ pub fn run() -> io::Result<()> {
     let workspace = File::open("/workspace")?;
     crate::confine::probe(&workspace)?;
     let documents_dir = private(&state.join("documents"))?;
-    let saved = Arc::new(Mutex::new(Vec::new()));
+    let document_watcher = Arc::new(OnceLock::new());
     let disk = LinuxDisk::new(
         workspace.try_clone()?,
         documents_dir,
         DocumentVersions {
             git: git.clone(),
             events: events.clone(),
-            saved: saved.clone(),
+            watcher: document_watcher.clone(),
         },
     )
     .map_err(|e| io::Error::other(format!("{e:?}")))?;
@@ -352,7 +360,7 @@ pub fn run() -> io::Result<()> {
     if cx.rewrite_pending {
         crate::freeze::restore(&mut cx, &Actor::Outside).map_err(crate::watch::provider_error)?;
     }
-    hooks.watcher = Arc::new(
+    let watcher = Arc::new(
         crate::watch::InotifyWatcher::activate(
             watch,
             Ports {
@@ -362,13 +370,16 @@ pub fn run() -> io::Result<()> {
                 broker,
                 store,
                 workspace,
-                saved,
             },
             checkpoint,
             &mut cx,
         )
         .map_err(crate::watch::provider_error)?,
     );
+    document_watcher
+        .set(watcher.clone())
+        .map_err(|_| io::Error::other("document watcher already bound"))?;
+    hooks.watcher = watcher;
     let local = unsafe { std::os::unix::net::UnixListener::from_raw_fd(5) };
     match boot.topology {
         crate::boot::Topology::Relay => crate::daemon::run_with_local(

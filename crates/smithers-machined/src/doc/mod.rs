@@ -24,6 +24,8 @@ pub enum Error {
     ReadOnly,
     Gone,
     Io(String),
+    /// Preserve the shared daemon refusal through the disk/version adapter.
+    Provider(crate::hooks::Error),
 }
 impl From<std::io::Error> for Error {
     fn from(error: std::io::Error) -> Self {

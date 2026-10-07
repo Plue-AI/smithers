@@ -50,6 +50,7 @@ fn error(e: Error) -> hooks::Error {
             Error::ReadOnly => 7,
             Error::Gone => 5,
             Error::Io(_) => 12,
+            Error::Provider(error) => return error,
         },
         ..hooks::Error::unsupported()
     }

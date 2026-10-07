@@ -1,6 +1,6 @@
 use smithers_machined::doc::{
     authors, core,
-    disk::{Disk, Displaced, Recovery},
+    disk::{Disk, Displaced, Recovery, Swap},
     gone::Gone,
     host::{Gates, Host, Notice},
     merge, reconcile,
@@ -56,21 +56,24 @@ impl Disk for Model {
         self.records.insert(key, record.encode()?);
         Ok(())
     }
-    fn swap_text(&mut self, path: &str, _: Digest, bytes: &[u8]) -> Result<Option<Displaced>> {
+    fn swap_text(&mut self, path: &str, _: Digest, bytes: &[u8], _: Option<&str>) -> Result<Swap> {
         self.step("swap")?;
         if let Some(outside) = self.swap_race.take() {
             self.files.insert(path.into(), outside);
         }
         let old = self.files.insert(path.into(), bytes.to_vec());
-        Ok(old.map(|old| {
-            self.next += 1;
-            self.displaced.insert(self.next, old);
-            self.bases.insert(
-                self.next,
-                Record::decode(&self.records[&digest(path.as_bytes())]).unwrap(),
-            );
-            self.next
-        }))
+        Ok(Swap {
+            displaced: old.map(|old| {
+                self.next += 1;
+                self.displaced.insert(self.next, old);
+                self.bases.insert(
+                    self.next,
+                    Record::decode(&self.records[&digest(path.as_bytes())]).unwrap(),
+                );
+                self.next
+            }),
+            mode: 0o644,
+        })
     }
     fn recover_temps(&mut self, _: &str, _: Digest) -> Result<Vec<Recovery>> {
         Ok(self
@@ -97,9 +100,10 @@ impl Disk for Model {
         self.versions.push(bytes.to_vec());
         Ok(format!("v{}", self.versions.len()))
     }
-    fn own_write(&mut self, _: &str, _: Digest, actor: Option<&str>) {
-        self.log.push("own");
+    fn own_write(&mut self, _: &str, _: &[u8], _: u32, actor: Option<&str>) -> Result<()> {
+        self.step("own")?;
         self.saved_authors.push(actor.map(str::to_owned));
+        Ok(())
     }
 }
 fn gates() -> Gates {
@@ -327,7 +331,7 @@ fn debounce_and_continuous_typing_deadline_are_inclusive() {
 }
 #[test]
 fn saved_notice_follows_record_and_swap_and_failures_never_ack() {
-    for fail in ["record", "swap", "displaced"] {
+    for fail in ["record", "swap", "displaced", "own"] {
         let (mut h, s) = host("a");
         edit(&mut h, s, "b", 0);
         h.disk.fail = Some(fail);
@@ -855,8 +859,8 @@ mod dispatcher {
         fn store_record(&mut self, k: Digest, r: &Record) -> Result<()> {
             self.0.lock().unwrap().store_record(k, r)
         }
-        fn swap_text(&mut self, p: &str, k: Digest, b: &[u8]) -> Result<Option<u64>> {
-            self.0.lock().unwrap().swap_text(p, k, b)
+        fn swap_text(&mut self, p: &str, k: Digest, b: &[u8], actor: Option<&str>) -> Result<Swap> {
+            self.0.lock().unwrap().swap_text(p, k, b, actor)
         }
         fn recover_temps(&mut self, p: &str, k: Digest) -> Result<Vec<Recovery>> {
             self.0.lock().unwrap().recover_temps(p, k)
@@ -870,8 +874,14 @@ mod dispatcher {
         fn record_outside(&mut self, p: &str, b: &[u8], a: &str) -> Result<String> {
             self.0.lock().unwrap().record_outside(p, b, a)
         }
-        fn own_write(&mut self, p: &str, d: Digest, actor: Option<&str>) {
-            self.0.lock().unwrap().own_write(p, d, actor)
+        fn own_write(
+            &mut self,
+            p: &str,
+            bytes: &[u8],
+            mode: u32,
+            actor: Option<&str>,
+        ) -> Result<()> {
+            self.0.lock().unwrap().own_write(p, bytes, mode, actor)
         }
     }
     struct Clock(AtomicU64, std::time::Instant);
@@ -1140,7 +1150,7 @@ mod dispatcher {
     }
     #[test]
     fn dispatch_faults_withhold_receipts_and_restart_recovers_same_epoch() {
-        for fault in ["record", "swap", "displaced"] {
+        for fault in ["record", "swap", "displaced", "own"] {
             let (disk, clock, service, mut cx, id, epoch) = setup();
             let peer = editor(&sync(&mut cx, id), epoch.client_id as u64);
             let before = peer.transact().state_vector();
@@ -1918,7 +1928,7 @@ fn saves_attribute_only_edits_since_the_previous_successful_save() {
 
 #[test]
 fn save_failure_retains_contributors_and_never_announces_success() {
-    for step in ["record", "swap"] {
+    for step in ["record", "swap", "own"] {
         let (mut h, s) = host("abc");
         edit(&mut h, s, "alice", 1);
         h.disk.fail = Some(step);

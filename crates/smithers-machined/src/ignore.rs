@@ -36,6 +36,26 @@ impl GitIgnore {
 pub fn relative(path: &Path) -> bool {
     !path.as_os_str().is_empty() && path.components().all(|p| matches!(p, Component::Normal(_)))
 }
+// The save adapter retains these inodes for late outside writers. They are
+// daemon scratch, not branch changes. Match the complete generated shape so
+// similarly named ordinary files remain visible.
+fn document_temp(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+        return false;
+    };
+    let Some((key, nonce)) = name
+        .strip_prefix(".smithers-doc-")
+        .and_then(|s| s.split_once('-'))
+    else {
+        return false;
+    };
+    key.len() == 64
+        && nonce.len() == 32
+        && key
+            .bytes()
+            .chain(nonce.bytes())
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
 impl Ignore for GitIgnore {
     fn ignored(&mut self, path: &Path, directory: bool) -> io::Result<bool> {
         Ok(self.batch(&[(path.into(), directory)])?[0])
@@ -57,6 +77,7 @@ impl Ignore for GitIgnore {
                 .components()
                 .any(|p| p.as_os_str() == ".git" || p.as_os_str() == ".jj")
                 || self.toolchain.iter().any(|p| path.starts_with(p))
+                || document_temp(path)
             {
                 result[i] = true;
                 continue;
