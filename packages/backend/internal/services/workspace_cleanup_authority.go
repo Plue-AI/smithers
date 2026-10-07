@@ -151,7 +151,7 @@ func (a *transactionalWorkspaceCleanup) lockFacts(ctx context.Context, tx pgx.Tx
 	return row, settled, nil
 }
 
-func (a *transactionalWorkspaceCleanup) WithFinalCapture(ctx context.Context, expected db.Workspace, remove func(WorkspaceDiskReclaimCapture) error) error {
+func (a *transactionalWorkspaceCleanup) WithFinalCapture(ctx context.Context, expected db.Workspace, lockRuntime func() func(), remove func(WorkspaceDiskReclaimCapture) error) error {
 	if a.transactions == nil || a.fence == nil {
 		return nil
 	}
@@ -175,6 +175,8 @@ func (a *transactionalWorkspaceCleanup) WithFinalCapture(ctx context.Context, ex
 	}
 	binding := workspaceapi.CleanupWorkspace{ID: expected.ID, VMID: expected.VmID, Branch: expected.TargetBookmark, Head: expected.HeadCommitID, RepositoryID: expected.RepositoryID, OwnerID: expected.UserID, SettledAt: settled, Now: now, PendingHead: preliminary.CleanupPendingHead, PendingCaptureID: preliminary.CleanupPendingCaptureID}
 	return a.fence.WithFinalCapture(ctx, binding, func(capture WorkspaceDiskReclaimCapture) error {
+		unlock := lockRuntime()
+		defer unlock()
 		tx, err := a.transactions.Begin(ctx)
 		if err != nil {
 			return err

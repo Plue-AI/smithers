@@ -164,7 +164,7 @@ func TestWorkspaceCleanerTransactionalPolicyAndRecovery(t *testing.T) {
 				_, err = pool.Exec(ctx, `UPDATE workspaces SET branch_archived_at=$2 WHERE id=$1`, row.ID, now.Add(-24*time.Hour))
 				require.NoError(t, err)
 			} else if name != "unarchived scratch" {
-				item, _, err = q.InsertMythicalChatItem(ctx, db.MythicalItem{RepositoryID: repo, IssueTitle: name, WorkspaceID: row.ID})
+				item, _, err = q.InsertMythicalChatItem(ctx, db.MythicalItem{RepositoryID: repo, IssueTitle: name, WorkspaceID: row.ID, CandidateHead: row.ID})
 				require.NoError(t, err)
 				_, _, err = q.BindMythicalLane(ctx, db.MythicalLane{WorkspaceID: row.ID, RepositoryID: repo, ItemID: item.ID, Name: name})
 				require.NoError(t, err)
@@ -206,9 +206,21 @@ func TestWorkspaceCleanerTransactionalPolicyAndRecovery(t *testing.T) {
 					require.NoError(t, err)
 				}
 			}
+			var svc *WorkspaceService
 			var transactions RepositoryJobTransactions = pool
 			if name == "pending reopen" || name == "pending writer" || name == "pending admission" || name == "pending capture publication" {
 				transactions = &cleanupInterleavingTransactions{RepositoryJobTransactions: pool, beforeRemoval: func() {
+					// Writer exclusion precedes this lock, which must cover
+					// both the committed archive decision and removal retry.
+					svc.runtimeLocks.mutex.Lock()
+					entry := svc.runtimeLocks.entries[row.ID]
+					svc.runtimeLocks.mutex.Unlock()
+					require.NotNil(t, entry)
+					unlocked := entry.mutex.TryLock()
+					if unlocked {
+						entry.mutex.Unlock()
+					}
+					require.False(t, unlocked, "archive decision and removal share runtime exclusion")
 					var err error
 					switch name {
 					case "pending reopen":
@@ -223,7 +235,7 @@ func TestWorkspaceCleanerTransactionalPolicyAndRecovery(t *testing.T) {
 					require.NoError(t, err)
 				}}
 			}
-			svc := NewWorkspaceService(q, WithWorkspaceRuntime(runtime), WithWorkspaceTransactions(transactions), WithTransactionalWorkspaceCleanup(func() time.Time { return now }))
+			svc = NewWorkspaceService(q, WithWorkspaceRuntime(runtime), WithWorkspaceTransactions(transactions), WithTransactionalWorkspaceCleanup(func() time.Time { return now }))
 			// Restrict this fixture's candidates; still use the real transactional
 			// authority and production cleaner, not a decision-helper call.
 			a := svc.diskReclaimAuthority
