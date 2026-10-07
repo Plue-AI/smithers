@@ -38,7 +38,7 @@ func (s *MythicalService) Todo(ctx context.Context, repositoryID, number int64) 
 		if info.CredentialKind() == middleware.CredentialAgentRun {
 			workspace = middleware.ParseTokenLandingWorkspace(info.RawScopes)
 		}
-		if item.WorkspaceID != workspace || item.RequestRunID == "" {
+		if item.WorkspaceID != workspace || !executionTodoSponsorMatches(info, item) {
 			return nil, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Credential cannot read this TODO"}
 		}
 		// Execution receives a positive projection, never a person card with

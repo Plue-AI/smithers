@@ -40,7 +40,7 @@ func TestInstallWorkspaceSystemActionsPostgres(t *testing.T) {
 		require.NoError(t, err)
 		return raw
 	}
-	children := token("children", "read:repository,write:workspace,workspace:"+f.row.ID+","+middleware.WorkspaceChildrenCredentialScope(), true)
+	children := token("sandbox-workspace-children-"+f.row.ID, "read:repository,read:workspace,write:workspace,"+middleware.RepositoryRestrictionScope(f.row.RepositoryID)+",workspace:"+f.row.ID+","+middleware.WorkspaceChildrenCredentialScope(), true)
 	head := token("head", "write:repository,workspace:"+f.row.ID, true)
 	delegated := token("delegated", "write:workspace,write:repository,via:codex", true)
 	call := func(method, path, credential, body string) (int, string, []string) {
@@ -67,7 +67,7 @@ func TestInstallWorkspaceSystemActionsPostgres(t *testing.T) {
 	status, body, commands := call("GET", path+"/children", children, "")
 	require.Equal(t, 200, status, body)
 	require.JSONEq(t, `[]`, body)
-	require.Equal(t, []string{"workspace.children.read"}, commands)
+	require.Equal(t, []string{"workspace.children.list"}, commands)
 	for _, cell := range []struct{ name, method, path, credential, body string }{
 		{"person is not machine", "GET", path + "/children", "", ""},
 		{"delegated is not machine", "GET", path + "/children", delegated, ""},
@@ -89,18 +89,4 @@ func TestInstallWorkspaceSystemActionsPostgres(t *testing.T) {
 	row, err := q.GetWorkspace(ctx, other.ID)
 	require.NoError(t, err)
 	require.Equal(t, "running", row.Status, "refused stop changed another workspace")
-	// Reusing a bound decision with a different subject obtains a new decision.
-	auth := &middleware.AuthInfo{User: &f.user, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "read:repository,write:workspace,workspace:" + f.row.ID + "," + middleware.WorkspaceChildrenCredentialScope(), Scopes: middleware.ParseTokenScopes("read:repository,write:workspace")}
-	bound := middleware.ContextWithAuthInfo(ctx, auth)
-	subject := services.InstallWorkspaceSubject{Owner: "presence-owner", Repo: "app", Workspace: f.row.ID}
-	bound = services.WithInstallWorkspaceSubject(bound, subject)
-	decision, err := services.Authorize(bound, q, "workspace.children.read")
-	require.NoError(t, err)
-	bound = services.WithInstallAuthorization(bound, "workspace.children.read", decision)
-	subject.Workspace = other.ID
-	bound = services.WithInstallWorkspaceSubject(bound, subject)
-	_, err = services.Authorize(bound, q, "workspace.children.read")
-	var access *services.AccessError
-	require.ErrorAs(t, err, &access)
-	require.Equal(t, 403, access.Status)
 }

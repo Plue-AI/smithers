@@ -905,7 +905,7 @@ func authorizeExecutionTodoRead(ctx context.Context, q *db.Queries, subject Inst
 	if err != nil {
 		return InstallAuthorization{}, err
 	}
-	if item.WorkspaceID != workspace.ID || item.RequestRunID == "" {
+	if item.WorkspaceID != workspace.ID || !executionTodoSponsorMatches(info, item) {
 		return deny()
 	}
 	repository, err := InstallRepositoryID(ctx, q)
@@ -1030,4 +1030,12 @@ func ResolveInstallExecutionSubject(ctx context.Context, q *db.Queries, reposito
 func BoundInstallExecutionRead(ctx context.Context) bool {
 	bound, ok := ctx.Value(installAuthorizationKey{}).(boundInstallAuthorization)
 	return ok && bound.command == "repo.read" && bound.subject.TodoNumber > 0 && InstallExecutionCredential(ctx)
+}
+
+// A machine creator retains no read authority after the TODO sponsor changes.
+func executionTodoSponsorMatches(info *middleware.AuthInfo, item db.MythicalItem) bool {
+	if info == nil || info.User == nil || !item.OwnerID.Valid || item.OwnerID.Int64 != info.User.ID || item.Attempt <= 0 || item.RequestRunID == "" {
+		return false
+	}
+	return info.CredentialKind() != middleware.CredentialAgentRun || middleware.ParseTokenAgentSessionRestriction(info.RawScopes) == item.RequestRunID
 }

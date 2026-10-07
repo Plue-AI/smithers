@@ -165,6 +165,23 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				next.ServeHTTP(w, r)
 				return
 			}
+			if command == "approval.decide" {
+				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 8192))
+				var input struct {
+					Decision string `json:"decision"`
+				}
+				decoder := json.NewDecoder(bytes.NewReader(raw))
+				decoder.DisallowUnknownFields()
+				if err != nil || decoder.Decode(&input) != nil || decoder.Decode(new(any)) != io.EOF || (input.Decision != services.ApprovalStateApproved && input.Decision != services.ApprovalStateRejected) {
+					writeConfirmationDispatchError(w, &services.AccessError{Status: 400, Class: "user", Code: "invalid_approval", Message: "Invalid approval decision"})
+					return
+				}
+				command = "approval.approve"
+				if input.Decision == services.ApprovalStateRejected {
+					command = "approval.deny"
+				}
+				r.Body = io.NopCloser(bytes.NewReader(raw))
+			}
 			if command == "file.restore" {
 				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 8192))
 				if err != nil {

@@ -53,7 +53,7 @@ func TestInstallSystemTodoReadLiteralCellsPostgres(t *testing.T) {
 	}
 	runScopes := "read:repository," + middleware.RepositoryRestrictionScope(f.row.RepositoryID) + "," + middleware.LandingWorkspaceScope(f.row.ID) + "," + middleware.AgentSessionRestrictionScope(item.RequestRunID)
 	run := token(1, runScopes)
-	machine := token(2, "read:repository,workspace:"+f.row.ID)
+	machine := token(2, "read:repository,"+middleware.RepositoryRestrictionScope(f.row.RepositoryID)+",workspace:"+f.row.ID)
 	call := func(path, credential string) (int, string, []string) {
 		req := httptest.NewRequest("GET", f.origin+path, nil)
 		req.Header.Set("Origin", f.origin)
@@ -108,12 +108,18 @@ func TestInstallSystemTodoReadLiteralCellsPostgres(t *testing.T) {
 		require.Equal(t, 403, status, body)
 	}
 	// Bound decisions cannot be reused for a different TODO number.
-	info := &middleware.AuthInfo{User: &f.user, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: runScopes, Scopes: middleware.ParseTokenScopes(runScopes)}
-	bound := services.WithInstallTodoSubject(middleware.ContextWithAuthInfo(ctx, info), 1)
-	decision, err := services.Authorize(bound, q, "todo.read")
+	runHash := sha256.Sum256([]byte(run))
+	var tokenID int64
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT id FROM access_tokens WHERE token_hash=$1`, hex.EncodeToString(runHash[:])).Scan(&tokenID))
+	storedToken, err := q.GetAccessTokenByID(ctx, tokenID)
 	require.NoError(t, err)
-	bound = services.WithInstallAuthorization(bound, "todo.read", decision)
-	_, err = services.Authorize(services.WithInstallTodoSubject(bound, 2), q, "todo.read")
+	subject := services.InstallSubject{RepositoryID: f.row.RepositoryID, TodoNumber: 1}
+	info := &middleware.AuthInfo{User: &f.user, TokenID: storedToken.ID, TokenHash: storedToken.TokenHash, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: runScopes, Scopes: middleware.ParseTokenScopes(runScopes)}
+	bound := middleware.ContextWithAuthInfo(ctx, info)
+	decision, err := services.Authorize(bound, q, "todo.read", subject)
+	require.NoError(t, err)
+	bound = services.WithInstallAuthorization(bound, "todo.read", decision, subject)
+	_, err = services.Authorize(bound, q, "todo.read", services.InstallSubject{RepositoryID: f.row.RepositoryID, TodoNumber: 2})
 	var access *services.AccessError
 	require.ErrorAs(t, err, &access)
 	require.Equal(t, 403, access.Status)
@@ -132,15 +138,15 @@ func TestInstallSystemTodoReadLiteralCellsPostgres(t *testing.T) {
 		}
 		old := *info
 		old.User = &former
-		_, err = services.Authorize(services.WithInstallTodoSubject(middleware.ContextWithAuthInfo(ctx, &old), 1), q, "todo.read")
+		_, err = services.Authorize(middleware.ContextWithAuthInfo(ctx, &old), q, "todo.read", subject)
 		var access *services.AccessError
 		require.ErrorAs(t, err, &access)
 		require.Equal(t, 403, access.Status, "the creator does not inherit the new sponsor's read")
 		var commands []string
-		ctx := services.WithAuthorizationObserver(services.WithInstallTodoSubject(middleware.ContextWithAuthInfo(ctx, info), 1), func(command string) { commands = append(commands, command) })
-		decision, err := services.Authorize(ctx, q, "todo.read")
+		ctx := services.WithAuthorizationObserver(middleware.ContextWithAuthInfo(ctx, info), func(command string) { commands = append(commands, command) })
+		decision, err := services.Authorize(ctx, q, "todo.read", subject)
 		require.NoError(t, err)
-		ctx = services.WithInstallAuthorization(ctx, "todo.read", decision)
+		ctx = services.WithInstallAuthorization(ctx, "todo.read", decision, subject)
 		changed, err := q.GetMythicalItemByNumber(ctx, f.row.RepositoryID, 1)
 		require.NoError(t, err)
 		changed.OwnerID.Int64 = former.ID
@@ -168,11 +174,7 @@ func TestInstallSystemTodoReadOpenAPI(t *testing.T) {
 	for i := 0; i < len(props.Content); i += 2 {
 		names = append(names, props.Content[i].Value)
 	}
-	require.ElementsMatch(t, []string{"n", "title", "state", "prompt_revisions", "steps", "evidence", "flow_version", "run", "branch"}, names)
-	person := mappingValue(mappingValue(schemas, "TodoCard"), "properties")
-	for _, key := range names {
-		require.NotNil(t, mappingValue(person, key), "property reference resolves: %s", key)
-	}
+	require.ElementsMatch(t, []string{"n", "title", "state", "attempt", "generation", "workspace", "run", "base"}, names)
 	response := mappingValue(mappingValue(mappingValue(mappingValue(mappingValue(mappingValue(mappingValue(root, "paths"), "/api/todos/{n}"), "get"), "responses"), "200"), "content"), "application/json")
 	alternatives := mappingValue(mappingValue(response, "schema"), "oneOf")
 	require.Len(t, alternatives.Content, 2)

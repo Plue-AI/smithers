@@ -31,14 +31,14 @@ func TestInstallExecutionTodoReadPostgres(t *testing.T) {
 		row, err := f.q.CreateWorkspace(f.ctx, db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: f.owner.ID, Name: fmt.Sprintf("read-%d", i), TargetBookmark: "main", Kind: "container", Status: "running"})
 		require.NoError(t, err)
 		workspaces[i] = row
-		_, err = f.pool.Exec(f.ctx, `INSERT INTO mythical_items(repository_id,source,state,number,stack_position,title,workspace_id,request_run_id,owner_id,created_by,revisions,checks)
- VALUES($1,'todo','running',$2,$2,'Own execution',$3,$4,$5,$5,'[{"private":"never-return-person-card"}]','{"private":"never-return-confirmation"}')`, f.repoID, i+1, row.ID, fmt.Sprintf("run-%d", i), f.owner.ID)
+		_, err = f.pool.Exec(f.ctx, `INSERT INTO mythical_items(repository_id,source,state,number,stack_position,title,workspace_id,request_run_id,owner_id,created_by,revisions,checks,attempt)
+ VALUES($1,'todo','running',$2,$2,'Own execution',$3,$4,$5,$5,'[{"private":"never-return-person-card"}]','{"private":"never-return-confirmation"}',1)`, f.repoID, i+1, row.ID, fmt.Sprintf("run-%d", i), f.owner.ID)
 		require.NoError(t, err)
 	}
 	credentials := map[string]string{}
 	for _, fixture := range []struct{ name, binding string }{
-		{"RO", middleware.LandingWorkspaceScope(workspaces[0].ID)},
-		{"RX", middleware.LandingWorkspaceScope(workspaces[1].ID)},
+		{"RO", middleware.LandingWorkspaceScope(workspaces[0].ID) + "," + middleware.AgentSessionRestrictionScope("run-0")},
+		{"RX", middleware.LandingWorkspaceScope(workspaces[1].ID) + "," + middleware.AgentSessionRestrictionScope("run-1")},
 		{"MO", middleware.WorkspaceRestrictionScope(workspaces[0].ID)},
 		{"MX", middleware.WorkspaceRestrictionScope(workspaces[1].ID)},
 		{"unbound", ""},
@@ -88,7 +88,7 @@ func TestInstallExecutionTodoReadPostgres(t *testing.T) {
 		hash := sha256.Sum256([]byte(credentials["RO"]))
 		stored, err := f.q.GetAuthInfoByTokenHash(f.ctx, hex.EncodeToString(hash[:]))
 		require.NoError(t, err)
-		scopes := "read:repository," + middleware.RepositoryRestrictionScope(f.repoID) + "," + middleware.LandingWorkspaceScope(workspaces[0].ID)
+		scopes := "read:repository," + middleware.RepositoryRestrictionScope(f.repoID) + "," + middleware.LandingWorkspaceScope(workspaces[0].ID) + "," + middleware.AgentSessionRestrictionScope("run-0")
 		info := &middleware.AuthInfo{User: &f.owner, IsTokenAuth: true, TokenSystemIssued: true, TokenID: stored.TokenID, TokenHash: hex.EncodeToString(hash[:]), RawScopes: scopes, Scopes: middleware.ParseTokenScopes(scopes)}
 		ctx := middleware.ContextWithAuthInfo(f.ctx, info)
 		count := 0

@@ -59,8 +59,8 @@ func TestInstallCandidateAuthorizationPostgres(t *testing.T) {
 	_, err = f.pool.Exec(f.ctx, `INSERT INTO mythical_stacks(repository_id,actor_user_id,state) VALUES($1,$2,'active')`, f.repoID, f.owner.ID)
 	require.NoError(t, err)
 	var itemID string
-	require.NoError(t, f.pool.QueryRow(f.ctx, `INSERT INTO mythical_items(repository_id,source,state,number,stack_position,title,workspace_id,request_run_id,request_outcome,base_commit,generation)
- VALUES($1,'todo','delivering',1,1,'Candidate',$2,'current-run','validated',$3,7) RETURNING id::text`, f.repoID, workspace.ID, base).Scan(&itemID))
+	require.NoError(t, f.pool.QueryRow(f.ctx, `INSERT INTO mythical_items(repository_id,source,state,number,stack_position,title,workspace_id,request_run_id,request_outcome,base_commit,generation,owner_id,attempt)
+ VALUES($1,'todo','delivering',1,1,'Candidate',$2,'current-run','validated',$3,7,$4,1) RETURNING id::text`, f.repoID, workspace.ID, base, f.owner.ID).Scan(&itemID))
 	_, err = f.pool.Exec(f.ctx, `INSERT INTO mythical_lanes(workspace_id,repository_id,item_id,name) VALUES($1,$2,$3,'request')`, workspace.ID, f.repoID, itemID)
 	require.NoError(t, err)
 	service := services.NewMythicalService(f.pool, host, services.WithMythicalInstallAuthorization(true))
@@ -69,7 +69,7 @@ func TestInstallCandidateAuthorizationPostgres(t *testing.T) {
 	cfg.Server.PublicURL = "http://example.com"
 	cfg.Server.AllowedOrigins = []string{"http://example.com"}
 	router := githubAppSetupComposeRouter(cfg, f.pool, nil, routerExtras{Mythical: &routes.MythicalHandler{Service: service}})
-	scopes := "write:repository," + middleware.RepositoryRestrictionScope(f.repoID) + "," + middleware.LandingWorkspaceScope(workspace.ID)
+	scopes := "write:repository," + middleware.RepositoryRestrictionScope(f.repoID) + "," + middleware.LandingWorkspaceScope(workspace.ID) + "," + middleware.AgentSessionRestrictionScope("current-run")
 	run := f.token(f.owner, "candidate-run", scopes, true)
 	delegated := f.token(f.owner, "candidate-agent", "write:repository,via:codex", true)
 	unbound := f.token(f.owner, "candidate-unbound", "write:repository,"+middleware.RepositoryRestrictionScope(f.repoID), true)

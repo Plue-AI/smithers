@@ -432,6 +432,18 @@ var installMemberRoutes = []struct {
 	method, command string
 	path            *regexp.Regexp
 }{
+	{http.MethodGet, "approvals.list", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/approvals$`)},
+	{http.MethodGet, "approvals.list", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/approvals/[^/]+$`)},
+	{http.MethodPost, "approval.decide", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/approvals/[^/]+/decide$`)},
+	{http.MethodPut, "settings", regexp.MustCompile(`^/api/install$`)},
+	{http.MethodPost, "settings", regexp.MustCompile(`^/api/install/quiesce$`)},
+	{http.MethodDelete, "settings", regexp.MustCompile(`^/api/install/quiesce$`)},
+	{http.MethodGet, "install.read", regexp.MustCompile(`^/api/install/metrics$`)},
+	{http.MethodPut, "agent.model", regexp.MustCompile(`^/api/model/default$`)},
+	{http.MethodGet, "github.app", regexp.MustCompile(`^/api/repo-connection$`)},
+	{http.MethodPost, "github.app", regexp.MustCompile(`^/api/repo-connection$`)},
+	{http.MethodDelete, "github.app", regexp.MustCompile(`^/api/repo-connection$`)},
+	{http.MethodPost, "box.terminal", regexp.MustCompile(`^/api/terminals$`)},
 	// Non-command authentication and bootstrap protocols retain their own
 	// proof checks; declaring public here does not bypass the credential loader.
 	{http.MethodGet, "public", regexp.MustCompile(`^/api/(?:health|feature-flags|meta/failure-codes|bootstrap|build-cache/healthz)$`)},

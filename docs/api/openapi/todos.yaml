@@ -527,17 +527,16 @@ components:
       description: Coding fields for the credential's bound TODO.
       type: object
       additionalProperties: false
-      required: [n, title, state, prompt_revisions, steps, evidence]
+      required: [n, title, state, attempt, generation, workspace, run, base]
       properties:
-        n: {$ref: '#/components/schemas/TodoCard/properties/n'}
-        title: {$ref: '#/components/schemas/TodoCard/properties/title'}
-        state: {$ref: '#/components/schemas/TodoCard/properties/state'}
-        prompt_revisions: {$ref: '#/components/schemas/TodoCard/properties/prompt_revisions'}
-        steps: {$ref: '#/components/schemas/TodoCard/properties/steps'}
-        evidence: {$ref: '#/components/schemas/TodoCard/properties/evidence'}
-        flow_version: {$ref: '#/components/schemas/TodoCard/properties/flow_version'}
-        run: {$ref: '#/components/schemas/TodoCard/properties/run'}
-        branch: {$ref: '#/components/schemas/TodoCard/properties/branch'}
+        n: {type: integer}
+        title: {type: string}
+        state: {type: string}
+        attempt: {type: integer}
+        generation: {type: integer}
+        workspace: {type: string}
+        run: {type: string}
+        base: {type: string}
     TodoCard:
       description: One TODO as the TODO card shows it. TodoCardSchema in packages/rpc/src/TodoCard.ts is the full contract; members not listed here are kept.
       type: object
