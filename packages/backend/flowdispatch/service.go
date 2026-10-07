@@ -220,7 +220,7 @@ func launchAdmission(request LaunchRequest) (jobs.Admission, error) {
 		return jobs.Admission{}, ErrTodoOutsideStack
 	}
 	learningLaunch := request.FlowID == "learning" && request.Target.BindingKind == "learning" && request.Pin != nil && request.Pin.Valid() && request.Pin.Flow == "learning"
-	if engineOnlyFlow(request.FlowID) && request.Target.BindingKind != StackBindingKind && !learningLaunch {
+	if IsLearningFlow(request.FlowID) && !learningLaunch || engineOnlyFlow(request.FlowID) && request.Target.BindingKind != StackBindingKind && !learningLaunch {
 		return jobs.Admission{}, ErrEngineFlowOutsideStack
 	}
 	if len(request.Projection) == 0 {
