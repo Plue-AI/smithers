@@ -193,7 +193,7 @@ func (s *SecretService) SetSecret(ctx context.Context, actor *db.User, owner, re
 	if err != nil {
 		return SecretResponse{}, err
 	}
-	if err := s.requireAdminAccess(ctx, repository, actor); err != nil {
+	if err := s.requireAdminAccess(ctx, repository, actor, "secrets.set"); err != nil {
 		return SecretResponse{}, err
 	}
 
@@ -288,7 +288,7 @@ func (s *SecretService) UpdateSecret(ctx context.Context, actor *db.User, owner,
 	if err != nil {
 		return SecretResponse{}, err
 	}
-	if err := s.requireAdminAccess(ctx, repository, actor); err != nil {
+	if err := s.requireAdminAccess(ctx, repository, actor, "secrets.scope"); err != nil {
 		return SecretResponse{}, err
 	}
 	params.RepositoryID = repository.ID
@@ -388,7 +388,7 @@ func (s *SecretService) DeleteSecret(ctx context.Context, actor *db.User, owner,
 	if err != nil {
 		return err
 	}
-	if err := s.requireAdminAccess(ctx, repository, actor); err != nil {
+	if err := s.requireAdminAccess(ctx, repository, actor, "secrets.delete"); err != nil {
 		return err
 	}
 
@@ -654,13 +654,13 @@ func (s *SecretService) guardedSecretWrite(ctx context.Context, repository db.Re
 	})
 }
 
-func (s *SecretService) requireAdminAccess(ctx context.Context, repository db.Repository, actor *db.User) error {
+func (s *SecretService) requireAdminAccess(ctx context.Context, repository db.Repository, actor *db.User, command string) error {
 	if actor == nil {
 		return pkgerrors.Unauthorized("authentication required")
 	}
 	if s.installAuthorization {
 		queries, _ := s.queries.(*db.Queries)
-		decision, err := Authorize(ctx, queries, "secrets.write")
+		decision, err := Authorize(ctx, queries, command)
 		if err != nil {
 			return err
 		}

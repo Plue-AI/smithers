@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
@@ -15,10 +16,7 @@ import (
 func installSecretRepository(q *db.Queries) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			command := "secrets.write"
-			if r.Method == http.MethodGet {
-				command = "secrets.read"
-			}
+			command := middleware.InstallMemberCommand(r.Method, r.URL.EscapedPath())
 			if _, err := services.Authorize(r.Context(), q, command); err != nil {
 				status := 403
 				if access, ok := err.(*services.AccessError); ok {
