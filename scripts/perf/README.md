@@ -1,6 +1,8 @@
 # Installed-product performance evidence (#3592)
 
-`node scripts/perf/run.mjs` currently records **incomplete** runs (exit 2).
+`node scripts/perf/run.mjs` runs configured projection measurements on macOS
+and names unavailable budgets. Exit 0 means all selected budgets passed; exit 1
+means a launched workload failed; exit 2 means the run is incomplete.
 Set `SMITHERS_PERF_ORIGIN` to the configured LAN/HTTPS origin and
 `SMITHERS_PERF_OWNER_COOKIE` to an owner browser-session Cookie header. Host
 metadata comes only from `GET /api/install/metrics`, which reads the existing Go
@@ -10,10 +12,15 @@ read the owner-only metrics adapter.
 Optional `SMITHERS_PERF_INSTALL_VERSION` and `SMITHERS_PERF_BROWSER` record
 operator-supplied metadata, not verified release/browser identities.
 
-Fresh `.artifacts/perf/<UTC timestamp>/summary.json` records six skipped budgets,
-their required tickets and activation preconditions. An absent production driver
-is named explicitly. This runner does not detect whether dependency tickets have
-landed, execute a benchmark, or emit check receipts. It adds no privileged step.
+Fresh `.artifacts/perf/<UTC timestamp>/summary.json` records each selected budget,
+its raw samples or skip reason, required tickets and activation preconditions.
+C-PERF-02 activates when its origin, owner session, member state, TODO and install
+version are configured on the network Mac. The driver refuses missing live
+publishers before submitting its move workload. The runner independently checks
+sample counts, clocks, commit/origin identity and literal p95 limits; a failed
+workload stays failed. Machine budgets remain skipped until their lifecycle
+security qualification is available. It adds no privileged step or check receipt.
+`SMITHERS_PERF_ARTIFACT_ROOT` optionally selects the artifact parent directory.
 Each budget also gets a JSON artifact and an identical summary/evidence copy in
 `.artifacts/checks/C-PERF-01` through `C-PERF-06`, including refusals. Evidence
 directories are fresh and symlink parents are refused.
@@ -41,7 +48,7 @@ are not copied into artifacts. A driver is not reference-host evidence: no
 passing real-stack run has been recorded yet. The operator must ensure this
 runner is the second Mac and the selected install is the reference Mac mini.
 
-Outstanding: five other public-boundary drivers,
+Outstanding: agent-first-token, warm-wake and rebase-hold drivers,
 browser and SSH fixtures, remaining §20.3 latency/wake/burst producers,
 qualified network/machine security evidence,
 real raw-sample artifacts, second-Mac runs, and
@@ -62,7 +69,8 @@ including symlink checks for evidence directories and refusal to overwrite runs.
 W20 targets: `smthrs test //scripts:perfUnit`,
 `//scripts:perfKeystroke` (C-PERF-03), `//scripts:perfDiskWrite`
 (C-PERF-04), and `//scripts:perf` (C-PERF-01–06 availability report).
-The latter remains exit 2 until all production drivers exist.
+The full run remains incomplete until every production driver and activation
+precondition is available.
 
 `node scripts/perf/disk-write.mjs` opens `src/a.ts` in the installed File
 card and appends 200 fixed markers through a persistent, pinned batch SSH
@@ -85,9 +93,8 @@ refused. Raw samples, activity and the authenticated host profile are retained
 under both perf and C-PERF-04 check directories. No real-stack pass is claimed.
 
 `//scripts:perfProjection`, `//scripts:perfWarmWake` and
-`//scripts:perfRebaseHold` select C-PERF-02, 05 and 06 respectively. They are
-availability reports (exit 2), not measurements; their absent production
-measurement drivers remain explicitly listed in the evidence.
+`//scripts:perfRebaseHold` select C-PERF-02, 05 and 06 respectively. C-PERF-02 runs its configured measurement; C-PERF-05 and C-PERF-06
+remain availability reports (exit 2), with missing drivers named in evidence.
 
 `smthrs test //scripts:workingTogetherCodeFaults` runs the five composed
 code-document link/recovery boundaries ten times each. HTTP authentication,
