@@ -5,7 +5,7 @@
     "path": "packages/backend/docs/github-app.md",
     "digest": "88f824c7b728474d7dc892b5bb9062e0893a9f65b9885400a75f6a7dfb1ad092"
   },
-  "closure": "357e9c87581b95239be22de8d5cb068727bef50896b147e6b9c829378c7832c3",
+  "closure": "b598e5845cffdce2bc5c7dbd5a9d99304f06990ee85f56e3ec49c1077e47af45",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
@@ -253,7 +253,7 @@
     },
     {
       "path": "packages/backend/internal/services/mythical_items.go",
-      "digest": "c798f44ab54688792571ebd4d79a3a1546f91cb5d6fca845c449878ec20f97ff"
+      "digest": "c42b7741dc3542791153d0890a69393830a5c6905d447885575d8952b4ce1e50"
     },
     {
       "path": "packages/backend/internal/services/mythical_outbound.go",
