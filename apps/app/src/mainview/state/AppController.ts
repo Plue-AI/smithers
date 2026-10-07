@@ -1238,6 +1238,7 @@ export const createAppController = (
   }, () => ctx.disposed))
   const repositoryUpdate = actors.pair(seamCtx, context => createRepositoryUpdate(context, () => ctx.disposed))
   const secretsSeam = actors.pair(seamCtx, (context) => createSecretsSeam(context, withToast, { install: installHost, live: services.live, onDispose: ctx.onDispose,
+    canWrite: () => { const role = ctx.commands.state().viewerRole; return role === "owner" || role === "maintainer" },
     fallback: !installHost && services.bootstrap !== undefined ? {
       rows: () => designSecrets(design).rows().map(secret => ({ name: secret.name, mainOnly: secret.scope === "main only", hosts: [], matchHeaders: [], updatedAt: null, reconnect: false })),
       set: (name, scope) => designSecrets(design).set(name, scope === "main_only" ? "main only" : "all branches"), remove: name => designSecrets(design).remove(name)
