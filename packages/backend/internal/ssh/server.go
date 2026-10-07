@@ -703,7 +703,11 @@ func (s *Server) sessionHandler(sess ssh.Session) {
 			slog.Warn("workspace ssh session failed", "sandbox_id", workspace.SandboxID, "guest_user", workspace.User, "remote_ip", remoteIP, "error", err)
 			_, _ = fmt.Fprintln(sess.Stderr(), "ERROR: workspace SSH session failed")
 		}
-		_ = sess.Exit(exitCode)
+		if exitCode == daemonExitSignalSent {
+			_ = sess.Close()
+		} else {
+			_ = sess.Exit(exitCode)
+		}
 		return
 	}
 

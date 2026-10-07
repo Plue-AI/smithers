@@ -2,7 +2,11 @@ package microsandbox
 
 import (
 	"context"
+	"fmt"
 	"github.com/stretchr/testify/require"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -46,4 +50,84 @@ func TestMemberLoginAllocation(t *testing.T) {
 	login, err := AllocateMemberLogin("ben", used)
 	require.NoError(t, err)
 	require.Equal(t, "ben3", login)
+}
+
+func TestMemberProvisioningUsesCurrentSnapshot(t *testing.T) {
+	directory := t.TempDir()
+	python, err := exec.LookPath("python3")
+	require.NoError(t, err)
+	binary, log := filepath.Join(directory, "msb"), filepath.Join(directory, "calls")
+	require.NoError(t, os.WriteFile(binary, []byte(fmt.Sprintf(`#!%s
+import sys
+args=sys.argv[1:]
+operands=args[args.index('run')+1:]
+with open(%q,'a') as f:f.write(' '.join(operands)+'\n')
+`, python, log)), 0700))
+	r := &Runtime{cli: &cli{binary: binary, home: directory}}
+	ben, alice := MemberIdentity{"ben", 20001, true}, MemberIdentity{"alice", 20002, true}
+	require.NoError(t, r.provisionMembers(t.Context(), "machine-a", []MemberIdentity{ben, alice}, nil))
+	require.NoError(t, r.provisionMembers(t.Context(), "machine-a", []MemberIdentity{ben, alice}, &alice))
+	before, err := os.ReadFile(log)
+	require.NoError(t, err)
+	require.Equal(t, "setup-member ben 20001 account\nsetup-member alice 20002 account\nsetup-member alice 20002 home\n", string(before))
+	for _, members := range [][]MemberIdentity{{ben}, {ben, ben}, {ben, {"alice", 20001, true}}, {ben, {"root", 20002, true}}, {ben, {"alice", 20002, false}}} {
+		require.ErrorIs(t, r.provisionMembers(t.Context(), "machine-a", members, &alice), ErrUnavailable)
+	}
+	after, err := os.ReadFile(log)
+	require.NoError(t, err)
+	require.Equal(t, before, after, "invalid snapshots must have no guest effects")
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	require.Error(t, r.provisionMembers(ctx, "machine-a", []MemberIdentity{ben}, nil))
+	r.BindMemberRoster(func(context.Context, string, func([]MemberIdentity) error) error {
+		t.Fatal("unapproved helper reached roster")
+		return nil
+	})
+	require.ErrorIs(t, r.prepareMembers(t.Context(), &workspace{}, nil), ErrUnavailable)
+	r.BindMemberRoster(nil)
+	require.ErrorIs(t, r.prepareMembers(t.Context(), &workspace{}, &ben), ErrUnavailable)
+}
+
+func TestEnsureMemberUsesLiveRosterAndRunningMachine(t *testing.T) {
+	bundle, _ := approvedBundleFixture(t)
+	directory := t.TempDir()
+	python, err := exec.LookPath("python3")
+	require.NoError(t, err)
+	binary, log := filepath.Join(directory, "msb"), filepath.Join(directory, "calls")
+	require.NoError(t, os.WriteFile(binary, []byte(fmt.Sprintf(`#!%s
+import sys
+args=sys.argv[1:]
+with open(%q,'a') as f:f.write(' '.join(args[args.index('run')+1:])+'\n')
+`, python, log)), 0700))
+	member := MemberIdentity{"ben", 20001, true}
+	r := &Runtime{config: Config{Bundle: pinned(t, bundle)}, cli: &cli{binary: binary, home: directory},
+		workspaces: map[string]*workspace{"branch-a": {metadata: metadata{ID: "branch-a", Machine: "machine-a", State: "running"}}}}
+	defer r.BindMemberRoster(nil)
+	rosterCalls := 0
+	current := []MemberIdentity{member}
+	r.BindMemberRoster(func(ctx context.Context, id string, visit func([]MemberIdentity) error) error {
+		rosterCalls++
+		require.Equal(t, "branch-a", id)
+		return visit(current)
+	})
+	identity, err := r.EnsureMember(t.Context(), "branch-a", member)
+	require.NoError(t, err)
+	require.Equal(t, 20001, identity.UID)
+	body, err := os.ReadFile(log)
+	require.NoError(t, err)
+	require.Equal(t, "setup-member ben 20001 home\n", string(body))
+	current = nil
+	_, err = r.EnsureMember(t.Context(), "branch-a", member)
+	require.ErrorIs(t, err, ErrUnavailable)
+	current = []MemberIdentity{{"ben", 20002, true}}
+	_, err = r.EnsureMember(t.Context(), "branch-a", member)
+	require.ErrorIs(t, err, ErrUnavailable)
+	require.Equal(t, 3, rosterCalls)
+	r.workspaces["branch-a"].State = "stopped"
+	_, err = r.EnsureMember(t.Context(), "branch-a", member)
+	require.Error(t, err)
+	require.Equal(t, 3, rosterCalls, "stopped machines cannot reach provisioning")
+	after, err := os.ReadFile(log)
+	require.NoError(t, err)
+	require.Equal(t, body, after)
 }

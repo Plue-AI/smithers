@@ -3,17 +3,17 @@
 //! Remove a closed burst only after its caller durably appends the event.
 use std::collections::BTreeMap;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Key<A> {
     Smithers(A),
     Outside,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct File<V> {
     pub before: Option<V>,
     pub after: Option<V>,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Burst<A, V> {
     pub key: Key<A>,
     pub opened_ms: u64,

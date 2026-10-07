@@ -531,6 +531,12 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	if config.IsSingleOwner(cfg.Auth) && options.Machined != nil {
 		roster := &machineRoster{pool: pool, client: options.Machined, branches: options.Machined.ConnectedBranches}
+		if runtime, ok := options.Workspace.(interface {
+			BindMemberRoster(microsandbox.MemberRoster)
+		}); ok {
+			runtime.BindMemberRoster(roster.withProvisioningRoster)
+			defer runtime.BindMemberRoster(nil)
+		}
 		options.Machined.BindRosterSync(roster.syncBranch)
 		stopRoster := roster.start(ctx, revocationBus)
 		defer func() {
@@ -944,12 +950,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithBranchHeads(repoHostClient),
 		services.WithWorkspaceSandboxMetrics(smithersMetrics),
 		services.WithWorkspaceGitBaseURL(workspaceGitBaseURL),
-		services.WithWorkspaceSSHHost(cfg.Sandbox.WorkspaceSSHHost),
-		services.WithWorkspaceSSHDialHost(cfg.Sandbox.WorkspaceSSHDialHost),
-		// Advertise the SSH gateway's host key so the terminal client
-		// can pin it before credentials are sent. Same directory as the
-		// SSH server reads at boot (cfg.SSH.HostKeyDir).
-		services.WithWorkspaceSSHHostKeyDir(cfg.SSH.HostKeyDir),
+		legacyWorkspaceSSHOption(cfg),
 		services.WithWorkspaceSandboxConfig(
 			cfg.Sandbox.WorkspaceIdleTimeout,
 			sandbox.PersistenceMode(cfg.Sandbox.WorkspacePersistence),

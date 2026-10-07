@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -74,15 +75,92 @@ func AllocateMemberLogin(githubLogin string, used map[string]bool) (string, erro
 	}
 }
 
-// EnsureMember refuses before any VM effect. Activation requires the current
-// roster, approved helper/image C-SEC-02 provenance, and the production broker's
-// C-COL-04 receipt. None is inferred from a caller-provided uid or a boolean.
+// EnsureMember provisions a private home under the current authoritative roster
+// lock. Bundle provenance is checked before roster access or any guest effect;
+// session admission separately requires the authenticated machined connection.
 func (r *Runtime) EnsureMember(ctx context.Context, workspaceID string, member MemberIdentity) (SessionIdentity, error) {
 	if err := ctx.Err(); err != nil {
 		return SessionIdentity{}, err
 	}
-	if _, err := member.SessionIdentity(); err != nil {
+	identity, err := member.SessionIdentity()
+	if err != nil {
 		return SessionIdentity{}, err
 	}
-	return SessionIdentity{}, fmt.Errorf("%w: member provisioning requires approved roster, image and broker receipts", ErrUnavailable)
+	if r.config.Bundle == nil || r.cli == nil {
+		return SessionIdentity{}, fmt.Errorf("%w: member provisioning requires an approved installed bundle", ErrUnavailable)
+	}
+	ws, err := r.runningWorkspace(workspaceID)
+	if err != nil {
+		return SessionIdentity{}, err
+	}
+	if err := r.prepareMembers(ctx, ws, &member); err != nil {
+		return SessionIdentity{}, err
+	}
+	return identity, nil
+}
+
+// MemberRoster holds the authoritative roster lock while visiting current
+// allocations. Implementations must scope the roster to the workspace repository.
+// Nothing is persisted in runtime metadata or copied from a previous boot.
+type MemberRoster func(context.Context, string, func([]MemberIdentity) error) error
+
+// BindMemberRoster is called by single-owner composition before serving work.
+func (r *Runtime) BindMemberRoster(roster MemberRoster) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.memberRoster = roster
+}
+
+func (r *Runtime) prepareMembers(ctx context.Context, ws *workspace, requested *MemberIdentity) error {
+	r.mu.Lock()
+	roster := r.memberRoster
+	r.mu.Unlock()
+	if roster == nil {
+		if requested == nil {
+			return nil
+		}
+		return fmt.Errorf("%w: current member roster unavailable", ErrUnavailable)
+	}
+	// Member provisioning must never plant branch-built privileged helper bytes.
+	if r.config.Bundle == nil {
+		return fmt.Errorf("%w: member provisioning requires an approved installed bundle", ErrUnavailable)
+	}
+	return roster(ctx, ws.ID, func(members []MemberIdentity) error {
+		return r.provisionMembers(ctx, ws.Machine, members, requested)
+	})
+}
+
+// provisionMembers validates the entire snapshot before the first VM effect.
+// Boot creates accounts only; the first-session path creates one private home.
+func (r *Runtime) provisionMembers(ctx context.Context, machine string, members []MemberIdentity, requested *MemberIdentity) error {
+	logins, uids := map[string]bool{}, map[int]bool{}
+	found := requested == nil
+	for _, member := range members {
+		if _, err := member.SessionIdentity(); err != nil {
+			return err
+		}
+		if logins[member.Login] || uids[member.UID] {
+			return fmt.Errorf("%w: duplicate member allocation", ErrUnavailable)
+		}
+		logins[member.Login], uids[member.UID] = true, true
+		if requested != nil && member == *requested {
+			found = true
+		}
+	}
+	if !found {
+		return fmt.Errorf("%w: member is no longer active in the current roster", ErrUnavailable)
+	}
+	for _, member := range members {
+		mode := "account"
+		if requested != nil {
+			if member != *requested {
+				continue
+			}
+			mode = "home"
+		}
+		if _, err := r.guest(ctx, machine, nil, "setup-member", member.Login, strconv.Itoa(member.UID), mode); err != nil {
+			return err
+		}
+	}
+	return nil
 }

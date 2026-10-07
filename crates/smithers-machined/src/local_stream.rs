@@ -90,10 +90,12 @@ pub fn serve(
             .map_err(|_| io::Error::other("session input refused"))?;
         // Session providers return their input receipt here, just as on the host
         // connection. Output remains exclusively on the scoped polling path.
-        if response.kind != 5 || response.stream != session {
-            return Err(io::ErrorKind::InvalidData.into());
+        if let Some(response) = response {
+            if response.kind != 5 || response.stream != session {
+                return Err(io::ErrorKind::InvalidData.into());
+            }
+            response.write(&mut *receipt_socket)?;
         }
-        response.write(&mut *receipt_socket)?;
         if close {
             return Ok(());
         }

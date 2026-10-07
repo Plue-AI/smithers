@@ -3,7 +3,7 @@
 use crate::burst::File;
 use sha2::{Digest as _, Sha256};
 use std::{collections::BTreeMap, io};
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Version<B> {
     pub blob: B,
     pub post_digest: [u8; 32],

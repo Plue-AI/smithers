@@ -88,8 +88,8 @@ impl Request {
                         }
                     } else {
                         let size_fields = conn::fields("size", bytes).map_err(|_| invalid())?;
-                        let rows = u16::from_be_bytes(size_fields[0].1.try_into().unwrap());
-                        let cols = u16::from_be_bytes(size_fields[1].1.try_into().unwrap());
+                        let cols = u16::from_be_bytes(size_fields[0].1.try_into().unwrap());
+                        let rows = u16::from_be_bytes(size_fields[1].1.try_into().unwrap());
                         if rows == 0 || cols == 0 {
                             return Err(invalid());
                         }

@@ -61,7 +61,7 @@ fn high(fd: &impl std::os::fd::AsFd) -> io::Result<OwnedFd> {
     Ok(rustix::io::fcntl_dupfd_cloexec(fd, 10)?)
 }
 pub struct Installed {
-    controls: Cgroups,
+    controls: super::supervisor::Supervisor<super::spawn::Processes<super::spawn::Unavailable>>,
     local: UnixListener,
     relay: Option<TcpListener>,
 }
@@ -131,7 +131,10 @@ impl Installed {
             Topology::Bridge(_) => None,
         };
         Ok(Self {
-            controls,
+            controls: super::supervisor::Supervisor::new(super::spawn::Processes::new(
+                controls,
+                super::spawn::Unavailable,
+            )),
             local,
             relay,
         })
@@ -139,8 +142,7 @@ impl Installed {
 }
 impl Process for Installed {
     fn kill_sessions(&mut self) -> io::Result<()> {
-        self.controls
-            .recover(Instant::now() + Duration::from_secs(5))
+        self.controls.before_restart(Instant::now())
     }
     fn run_daemon(&mut self) -> io::Result<(i32, Duration)> {
         let (parent, child_socket) = rustix::net::socketpair(

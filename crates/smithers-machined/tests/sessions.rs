@@ -100,8 +100,8 @@ fn open(login: &str, uid: u32, kind: u8, argv: &[&str], size: Option<(u16, u16)>
         fields.push(conn::field(
             4,
             conn::structure_bytes(&[
-                conn::field(1, rows.to_be_bytes()),
-                conn::field(2, cols.to_be_bytes()),
+                conn::field(1, cols.to_be_bytes()),
+                conn::field(2, rows.to_be_bytes()),
             ]),
         ));
     }
@@ -610,11 +610,10 @@ mod descriptor_stream {
     // broker or an install-activation receipt.
     struct Provider(Mutex<Pipe<Stdin>>);
     impl hooks::Sessions for Provider {
-        fn frame(&self, frame: &Frame) -> hooks::Result<Frame> {
+        fn frame(&self, frame: &Frame) -> hooks::Result<Option<Frame>> {
             let mut pipe = self.0.lock().unwrap();
             pipe.accept(frame)
                 .and_then(|()| pipe.flush())
-                .and_then(|receipt| receipt.ok_or(io::ErrorKind::WouldBlock.into()))
                 .map_err(|_| hooks::Error {
                     code: 1,
                     ..hooks::Error::unsupported()

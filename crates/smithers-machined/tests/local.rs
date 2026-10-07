@@ -173,13 +173,13 @@ fn local_pty_stream_delivers_input_controls_and_output_without_host_poll() {
             assert_eq!(args, &[0, 0, 0, 5, 1, 0, 0, 0, 17]);
             Ok(vec![0, 0])
         }
-        fn frame(&self, f: &Frame) -> smithers_machined::hooks::Result<Frame> {
+        fn frame(&self, f: &Frame) -> smithers_machined::hooks::Result<Option<Frame>> {
             self.0.lock().unwrap().push(f.clone());
-            Ok(Frame {
+            Ok(Some(Frame {
                 kind: 5,
                 stream: 17,
                 payload: vec![6, 0, 0, 0, 3],
-            })
+            }))
         }
         fn poll(&self) -> smithers_machined::hooks::Result<Vec<Frame>> {
             panic!("local socket must never drain host output")
@@ -258,7 +258,7 @@ fn local_pty_foreign_stream_and_revocation_interrupt_idle_reader() {
             assert_eq!(args, &[0, 0, 0, 5, 1, 0, 0, 0, 17]);
             Ok(vec![0, 0])
         }
-        fn frame(&self, _: &Frame) -> smithers_machined::hooks::Result<Frame> {
+        fn frame(&self, _: &Frame) -> smithers_machined::hooks::Result<Option<Frame>> {
             panic!("foreign input reached session provider")
         }
         fn poll_local(&self, _: u32) -> smithers_machined::hooks::Result<Vec<Frame>> {
