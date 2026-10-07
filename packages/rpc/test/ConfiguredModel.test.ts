@@ -130,7 +130,7 @@ const chat = (patch: Partial<ConfiguredModel> = {}): ConfiguredModel => ({
 describe("the configured model record", () => {
   test("is flat, and its kind is derived from the protocol", () => {
     expect(ConfiguredModelSchema.parse(chat())).toEqual(chat())
-    expect(MODEL_PROTOCOLS.map(modelKindOf)).toEqual(["generation", "generation", "generation", "decision"])
+    expect(MODEL_PROTOCOLS.map(modelKindOf)).toEqual(["generation", "generation", "generation", "generation", "decision"])
   })
 
   test("refuses a key it does not declare, so a value can never ride a record", () => {
@@ -474,7 +474,7 @@ describe("seats", () => {
   test("a seat takes only a model of its kind", () => {
     const accepted = MODEL_SEATS.map((seat) => MODEL_PROTOCOLS.filter((protocol) => seatAccepts(seat.id, protocol)))
     expect(accepted).toEqual([
-      ["anthropic-messages", "openai-responses", "openai-chat"],
+      ["anthropic-messages", "openai-responses", "openai-responses-chatgpt", "openai-chat"],
       ["evaluation"]
     ])
   })
@@ -1266,4 +1266,22 @@ describe("a composed call", () => {
     expect(ModelCallCardPayloadSchema.parse(before)).toEqual(before)
     expect(modelCallInputOf(before.request as ModelCallDraft)).toEqual({ ...generation, temperature: 0.2 })
   })
+})
+
+
+test("ChatGPT coding access is pinned to its backend and cannot spend a subscription on an API protocol", () => {
+  const credentials = [{ name: "CHATGPT_SUBSCRIPTION", present: true, origins: ["https://chatgpt.com"] }]
+  const binding = { protocol: "openai-responses-chatgpt", modelId: "gpt-6-sol", credential: "CHATGPT_SUBSCRIPTION" }
+  const planned = planModelBinding(binding, credentials)
+  expect(planned.ok).toBe(true)
+  if (planned.ok) expect(planned.plan.url).toBe("https://chatgpt.com/backend-api/codex/responses")
+  expect(planModelBinding({ ...binding, baseUrl: "https://api.openai.com" }, credentials).ok).toBe(false)
+  expect(planModelBinding({ ...binding, protocol: "openai-responses" }, credentials).ok).toBe(false)
+  expect(planModelBinding(binding, [{ ...credentials[0]!, present: false }]).ok).toBe(false)
+})
+
+
+test("cuts subscription access and account identity from provider echoes", () => {
+  const credential = JSON.stringify({ accessToken: "private-access", accountId: "private-account" })
+  expect(cutModelCredential(`before private-access private-account ${credential} after`, credential)).toBe("before    after")
 })

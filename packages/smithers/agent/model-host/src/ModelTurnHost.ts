@@ -17,7 +17,7 @@ import {
 } from "@smthrs/model/ModelRequest"
 import type { JsonObject, Message as ModelMessage, ModelRequest as Request } from "@smthrs/model/ModelRequest"
 import { composeAgentInstructions } from "@smthrs/rpc/AgentContext"
-import { cutModelCredential } from "@smthrs/rpc/ConfiguredModel"
+import { cutModelCredential, modelCredentialParts } from "@smthrs/rpc/ConfiguredModel"
 import type { AgentChatMessage, AgentTurnFrame, AgentTurnUsage, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { Effect, Stream } from "effect"
 
@@ -29,6 +29,7 @@ import { Effect, Stream } from "effect"
  */
 export interface ModelTurnOptions {
   readonly modelId: string
+  readonly outputTokenLimitSupported?: boolean
   readonly maxTokens?: number
   readonly credential?: string
 }
@@ -101,10 +102,12 @@ export class StreamingCredentialCutter {
     if (this.secret === undefined || this.secret === "") return value
     this.pending = cutModelCredential(this.pending + value, this.secret)
     let held = 0
-    for (let size = Math.min(this.pending.length, this.secret.length - 1); size > 0; size -= 1) {
-      if (this.pending.endsWith(this.secret.slice(0, size))) {
-        held = size
-        break
+    for (const part of modelCredentialParts(this.secret)) {
+      for (let size = Math.min(this.pending.length, part.length - 1); size > held; size -= 1) {
+        if (this.pending.endsWith(part.slice(0, size))) {
+          held = size
+          break
+        }
       }
     }
     const emitted = this.pending.slice(0, this.pending.length - held)

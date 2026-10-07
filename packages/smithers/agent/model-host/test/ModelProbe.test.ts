@@ -191,3 +191,25 @@ describe("stored credentials", () => {
     expect(host.catalog().credentials).toEqual(rows)
   })
 })
+
+test("ChatGPT Test uses subscription auth without inventing an output cap; explicit caps still refuse", async () => {
+  const access = "private-subscription-token"
+  const account = "private-subscription-account"
+  const credential = JSON.stringify({ accessToken: access, accountId: account })
+  const model: ConfiguredModel = { id: "chatgpt", protocol: "openai-responses-chatgpt", modelId: "gpt-6-sol", credential: "CHATGPT_SUBSCRIPTION" }
+  const fetch = vi.fn<Fetch>(fetchOf(async (url, init) => {
+    expect(String(url)).toBe("https://chatgpt.com/backend-api/codex/responses")
+    expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${access}`)
+    expect(new Headers(init?.headers).get("chatgpt-account-id")).toBe(account)
+    const body = JSON.parse(new TextDecoder().decode(init?.body as Uint8Array))
+    expect(body).not.toHaveProperty("max_output_tokens")
+    return new Response(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: `hello ${access} ${account}` })}\n\ndata: ${JSON.stringify({ type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 1, output_tokens: 1 } } })}\n\n`, { headers: { "content-type": "text/event-stream" } })
+  }))
+  const tester = createModelProbe({ env: { CHATGPT_SUBSCRIPTION: credential }, egress: true, fetch })
+  const result = await tester.test(model)
+  expect(result.ok).toBe(true)
+  expect(JSON.stringify(result)).not.toContain(access)
+  expect(JSON.stringify(result)).not.toContain(account)
+  expect(await tester.test(model, { kind: "generation", prompt: "hi", system: "", maxTokens: 8 })).toMatchObject({ ok: false, failure: { code: "invalid", field: "protocol" } })
+  expect(fetch).toHaveBeenCalledTimes(1)
+})
