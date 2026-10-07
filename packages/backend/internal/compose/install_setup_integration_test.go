@@ -266,6 +266,26 @@ func TestInstallMachineLeaseRecoveryHTTPPostgres(t *testing.T) {
 	cfg.Server.AllowedOrigins = []string{origin}
 	handler := &routes.GitHubAppSetupHandler{Setup: setup, Owners: q, Origins: middleware.FixedOrigins(origin)}
 	router := githubAppSetupComposeRouter(cfg, pool, handler)
+	// The owner claim can precede the sign-in job's completion. Its durable
+	// state remains authoritative even though github.signed_in is already true.
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "setup.step.sign_in", Value: []byte(`{"status":"running","operation_id":"held-sign-in"}`)}))
+	statusRequest := httptest.NewRequest("GET", origin+"/api/install", nil)
+	statusRequest.RemoteAddr = "127.0.0.1:1234"
+	statusRequest.AddCookie(&http.Cookie{Name: "smithers_session", Value: "recovery-owner-session"})
+	statusResponse := httptest.NewRecorder()
+	router.ServeHTTP(statusResponse, statusRequest)
+	require.Equal(t, http.StatusOK, statusResponse.Code)
+	var signInStatus struct {
+		Steps  []struct{ ID, State string }
+		GitHub struct {
+			SignedIn bool `json:"signed_in"`
+		}
+	}
+	require.NoError(t, json.Unmarshal(statusResponse.Body.Bytes(), &signInStatus))
+	require.True(t, signInStatus.GitHub.SignedIn)
+	require.Equal(t, "sign_in", signInStatus.Steps[2].ID)
+	require.Equal(t, "running", signInStatus.Steps[2].State)
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "setup.step.sign_in", Value: []byte(`{"status":"done"}`)}))
 	request := func(method, path, key string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, origin+path, strings.NewReader(`{}`))
 		r.RemoteAddr = "127.0.0.1:1234"
