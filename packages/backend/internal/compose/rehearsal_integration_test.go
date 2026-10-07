@@ -56,7 +56,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The journey rehearsals (j1_, j2_, j4_, j5_, j6_, j7_ and
+// The journey rehearsals (j1_, j2_, j3_, j4_, j5_, j6_, j7_ and
 // j11_rehearsal_integration_test.go) walk one composed install through its
 // public routes: the GitHub fake, the install's repository engine, the
 // composed backend with its packaged coding host on the trusted-process

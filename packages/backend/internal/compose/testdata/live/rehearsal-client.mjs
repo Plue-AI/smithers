@@ -4,7 +4,8 @@ import { LiveChannel } from "../../../../../../apps/app/src/mainview/runtime/Liv
 const [origin] = process.argv.slice(2)
 if (!origin?.startsWith("http://127.0.0.1:")) throw new Error("Fixture requires its own loopback server")
 // The browser owns projection and reconnect behavior. This bridge only carries
-// subscriptions in and the production client's committed views out.
+// subscriptions and the Branch card's presence in, and the production client's
+// committed views out.
 const channel = new LiveChannel({
   socket: () => new WebSocket(origin.replace("http:", "ws:") + "/api/live", {
     headers: {
@@ -14,9 +15,22 @@ const channel = new LiveChannel({
     }
   })
 })
+// One mounted reader's lease, as the Branch card holds it: a move sends at
+// once and the channel's heartbeat renews it; a null location releases it.
+let presence
 try {
   for await (const line of createInterface({ input: process.stdin })) {
     const request = JSON.parse(line)
+    if (request.t === "presence") {
+      if (request.where) {
+        if (presence) presence.move(request.where)
+        else presence = channel.trackPresence(request.where)
+      } else {
+        presence?.release()
+        presence = undefined
+      }
+      continue
+    }
     if (request.t !== "sub") throw new Error("Unknown rehearsal command")
     let previous
     channel.subscribe(request.topic, () => {

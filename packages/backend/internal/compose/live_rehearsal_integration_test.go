@@ -31,7 +31,9 @@ type liveFrame struct {
 // liveSocket records the shipped client's views, including its recovery from
 // unknown deltas and gaps. It does not implement a second projection client.
 type liveSocket struct {
-	send    func([]byte) error
+	send func([]byte) error
+	// stop closes the browser tab: the channel disposes and its socket closes.
+	stop    func()
 	mu      sync.Mutex
 	frames  []liveFrame
 	topics  map[uint32]string
@@ -83,7 +85,7 @@ func (r *rehearsal) openLive(jar http.CookieJar) (*liveSocket, error) {
 		defer sending.Unlock()
 		_, err := input.Write(append(frame, '\n'))
 		return err
-	}}
+	}, stop: func() { _ = input.Close() }}
 	done := make(chan struct{})
 	r.t.Cleanup(func() {
 		_ = input.Close()
@@ -140,6 +142,13 @@ func (s *liveSocket) subscribe(topic string) (uint32, error) {
 	s.mu.Unlock()
 	frame, _ := json.Marshal(map[string]any{"t": "sub", "id": id, "topic": topic})
 	return id, s.send(frame)
+}
+
+// presence moves this tab's location as the Branch card does
+// (LiveChannel.trackPresence); a nil where releases its lease.
+func (s *liveSocket) presence(where map[string]any) error {
+	frame, _ := json.Marshal(map[string]any{"t": "presence", "where": where})
+	return s.send(frame)
 }
 
 // received is every frame of topic so far, in arrival order.
