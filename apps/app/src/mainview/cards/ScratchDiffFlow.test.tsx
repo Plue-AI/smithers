@@ -19,6 +19,27 @@ const wait = async (predicate: () => boolean) => {
   expect(predicate()).toBe(true)
 }
 
+test("install burst Diff refuses at each dispatcher door without reading a branch-base diff", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const reads: string[] = []
+  const profile = signupProfileFetch(async input => {
+    reads.push(String(input))
+    return Response.json({ files: [model] })
+  })
+  const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl,
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null } })
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    const payload = { branch: "scratch/ben/try-retry", entry: "6ad2b1a9-1869-4d1a-b087-8ba32a09b102" }
+    expect(await controller.runCommandForResult("diff", JSON.stringify(payload))).toEqual({ status: "failed", error: "Burst diff unavailable" })
+    expect(await controller.submitCommand({ name: "diff", payload, actor: "user" })).toEqual({ status: "failed", error: "Burst diff unavailable" })
+    const result = await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "diff", args: JSON.stringify(payload) }) })
+    expect(result).toBe("failed: this command runs on the conversation host")
+    expect(reads.filter(url => url.includes("/api/branches/"))).toEqual([])
+    expect([...store.collections.cards.values()].filter(card => card.kind === "diff")).toEqual([])
+  } finally { await controller.dispose() }
+})
+
 for (const branch of ["scratch/ben/try-retry", "b12"]) test(`${branch} Diff persists before an unresolved read, deduplicates, settles its toast and mounts the real model`, async () => {
   const id = `diff-branch-${branch}`
   const expected: DiffCard = { ...model, branch, against: { kind: branch === "b12" ? "item_base" : "fork", rev: "2222222222222222222222222222222222222222" } }
