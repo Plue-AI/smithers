@@ -451,6 +451,9 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 		}
 		return decision, nil
 	}
+	if command == "flow.run" && InstallExecutionCredential(ctx) {
+		return authorizeOwnRunFlow(ctx, q, subject)
+	}
 	if command == "branch.fork" && InstallExecutionCredential(ctx) {
 		info := middleware.AuthInfoFromContext(ctx)
 		if info.CredentialKind() != middleware.CredentialAgentRun || !info.Scopes.Has(middleware.ScopeWriteRepository) {
@@ -1125,4 +1128,38 @@ func executionTodoSponsorMatches(info *middleware.AuthInfo, item db.MythicalItem
 		return false
 	}
 	return info.CredentialKind() != middleware.CredentialAgentRun || middleware.ParseTokenAgentSessionRestriction(info.RawScopes) == item.RequestRunID
+}
+
+// A run may execute a child flow only through a consumer that carries its
+// exact current attempt and validated launch payload. The ordinary person
+// invocation/relay has no such contract and continues to fail closed.
+func authorizeOwnRunFlow(ctx context.Context, q *db.Queries, subject InstallSubject) (InstallAuthorization, error) {
+	decision, err := authorizeExecutionTodoRead(ctx, q, subject)
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	info := middleware.AuthInfoFromContext(ctx)
+	if info.CredentialKind() != middleware.CredentialAgentRun || !info.Scopes.Has(middleware.ScopeWriteRepository) || subject.WorkspaceID == "" || subject.RunID == "" || subject.Attempt <= 0 || subject.PayloadDigest == "" || subject.Resource == "" {
+		return InstallAuthorization{}, confirmationPermission()
+	}
+	flowName, valid := invokeFlowID(subject.Resource)
+	payload, digestErr := hex.DecodeString(subject.PayloadDigest)
+	if !valid || !Overridable(flowName) || digestErr != nil || len(payload) != sha256.Size {
+		return InstallAuthorization{}, confirmationPermission()
+	}
+	item, err := q.GetMythicalItemByNumber(ctx, subject.RepositoryID, subject.TodoNumber)
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if item.RequestRunID != subject.RunID || item.Attempt != subject.Attempt || item.Generation != subject.Generation || item.State != "running" || item.PausedAt.Valid {
+		return InstallAuthorization{}, confirmationPermission()
+	}
+	workspace, err := q.GetWorkspace(ctx, subject.WorkspaceID)
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if workspace.Status != "running" {
+		return InstallAuthorization{}, confirmationPermission()
+	}
+	return decision, nil
 }

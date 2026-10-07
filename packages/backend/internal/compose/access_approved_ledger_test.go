@@ -167,6 +167,20 @@ func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 				pending++
 				t.Skip("T-COL-10: real guest co-edit execution remains unqualified")
 			}
+			if cell.Command == "flow.run" && cell.Credential == "RO" && cell.Expected == "allow" {
+				item, err := q.GetMythicalItemByNumber(ctx, repo.ID, 1)
+				require.NoError(t, err)
+				subject := services.InstallSubject{RepositoryID: repo.ID, WorkspaceID: workspaces[0].ID,
+					TodoNumber: 1, Attempt: 1, RunID: "ledger-run-0", Generation: item.Generation,
+					Resource: "flows/check/flow.ts", PayloadDigest: strings.Repeat("a", 64)}
+				_, err = services.Authorize(middleware.ContextWithAuthInfo(ctx, info), q, "flow.run", subject)
+				require.NoError(t, err)
+				entry["subject"], entry["observed_status"], entry["authorization"] = subject, 200, "passed"
+				entry["pending_ticket"] = "T-FLW-01"
+				entry["pending_dependency"] = "services/workflow_invoke_flow.go: InvokedFlowLaunch lacks parent-run/workspace and child-credential binding"
+				pending++
+				t.Skip("T-FLW-01: parent-scoped child flow execution contract is not composed")
+			}
 			if cell.Expected == "allow" && cell.Command != "todo.read" && (cell.Credential[0] == 'R' || cell.Credential[0] == 'M') {
 				entry["pending_ticket"] = "T-ACC-03"
 				command := cell.Command
