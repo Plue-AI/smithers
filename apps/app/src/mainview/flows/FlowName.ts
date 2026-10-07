@@ -42,6 +42,7 @@ export const RENAMED_FLOWS: Readonly<Record<string, string>> = {
   "secrets.move": "settings",
   "secrets.revoke": "settings",
   "github.app": "settings",
+  "docs.read": "docs",
   "env.view": "settings",
   "env.set": "settings",
   "env.remove-token": "settings"
@@ -191,7 +192,6 @@ export const FLOW_NAMES = [
   "debug.verbose",
   "debug-api",
   "docs",
-  "docs.read",
   "egress.allow",
   "egress.session",
   "files.list",

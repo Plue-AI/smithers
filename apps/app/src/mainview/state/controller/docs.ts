@@ -7,7 +7,7 @@ import type { ControllerContext } from "./context"
 /*
  * The in-app docs (M-35). `docs [page]` embeds one page as a read-only
  * Markdown card for either actor, the way `wiki.open` embeds a note;
- * `docs.read <page>` hands the agent the same page as data. A slug no page
+ * `docs {mode:"read", page}` hands the agent the same page as data. A slug no page
  * answers opens the first page with a not-found state.
  */
 export interface DocsController {
@@ -15,7 +15,7 @@ export interface DocsController {
   readonly docsTargetAvailable: (target: string) => boolean
   readonly docsAvailable: () => boolean
   readonly openDocsPage: (page?: string) => string | { readonly value: string }
-  /** `docs.read <page>`: the page's title, summary and Markdown as JSON. */
+  /** `docs {mode:"read", page}`: the page's title, summary and Markdown as JSON. */
   readonly readDocsPage: (page: string) => string | { readonly value: string }
 }
 

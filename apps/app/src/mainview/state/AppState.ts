@@ -539,8 +539,19 @@ const MessageActionBaseSchema = z.object({
 })
 // A retired environment write only opens Settings. Its assignment must not
 // become an argument on that public card door when saved history is decoded.
+const savedDocsRead = (args?: string): string => {
+  let page = args
+  if (args?.trim().startsWith("{")) {
+    try {
+      const input: unknown = JSON.parse(args)
+      if (typeof input === "object" && input !== null && "page" in input && typeof input.page === "string") page = input.page
+    } catch { /* Invalid saved input remains a missing-page refusal. */ }
+  }
+  return JSON.stringify({ mode: "read", ...(page === undefined ? {} : { page }) })
+}
 const currentAction = <T extends { readonly flow: string; readonly args?: string }>(action: T): Omit<T, "flow" | "args"> & { flow: string; args?: string } => ({
-  ...action, flow: currentFlowName(action.flow), ...(action.flow === "env.set" ? { args: undefined } : {})
+  ...action, flow: currentFlowName(action.flow), ...(action.flow === "env.set" ? { args: undefined } : action.flow === "docs.read"
+    ? { args: savedDocsRead(action.args) } : {})
 })
 const MessageActionSchema = MessageActionBaseSchema.transform(currentAction)
 const AnsweredActionSchema = MessageActionBaseSchema.extend({ answer: z.string(), answeredAt: z.number() }).transform(currentAction)

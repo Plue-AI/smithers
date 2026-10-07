@@ -290,7 +290,7 @@ export interface AppController extends IssueFlowsController {
   readonly inspectContext: (branch: string, answer: string) => Promise<import("../flows/entries/Declare").CommandResult>
   readonly docsAvailable: () => boolean
   readonly openDocsPage: (page?: string) => string | { readonly value: string }
-  /** `docs.read <page>`: the page's title, summary and Markdown as JSON, for the agent. */
+  /** `docs {mode:"read", page}`: the page's title, summary and Markdown as JSON, for the agent. */
   readonly readDocsPage: (page: string) => string | { readonly value: string }
   readonly decideApproval: (id: string, decision: "approved" | "denied") => void
   /**

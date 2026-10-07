@@ -642,8 +642,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "wiki.graph": (args) => optional("path", args),
   // M-35: a docs page by slug; bare /docs is the toc's first page.
   "debug-api": args => (args ?? "").trim().startsWith("{") ? jsonObject("debug-api")(args) : optional("operationId", args),
-  "docs": (args) => optional("page", args),
-  "docs.read": (args) => required("page", args, "docs.read needs a page"),
+  "docs": args => (args ?? "").trim().startsWith("{") ? jsonObject("docs")(args) : optional("page", args),
   "wiki.heading": (args) => {
     const [line, cardId] = (args ?? "").trim().split(/\s+/)
     return line ? ok({ line, ...(cardId ? { cardId } : {}) }) : no("wiki.heading needs the heading's source line")

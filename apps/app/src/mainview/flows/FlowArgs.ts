@@ -16,8 +16,7 @@ export interface FlowInput {
  readonly "model.assign": { readonly role: string; readonly model?: string }
   readonly "context.inspect": { readonly branch: string; readonly answer: string }
   readonly "debug-api": import("../state/seams/DebugApiSeam").DebugApiInput
-  readonly "docs": { readonly page?: string }
-  readonly "docs.read": { readonly page: string }
+  readonly "docs": { readonly page?: string; readonly mode?: "read" }
   readonly "box.open": { readonly bookmark?: string; readonly repo: string; readonly kind?: "container" | "vm"; readonly snapshot?: string; readonly recoveryOf?: string }
   readonly "flow.new": { readonly description: string; readonly repo: string }
   readonly "file.compare": { readonly path: string }
@@ -249,9 +248,8 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "tutorial.live.inspect": (payload) => line(token(payload, "cardId"), token(payload, "eventId")),
   "files.open-diff": (payload) => JSON.stringify(payload),
   "debug-api": payload => JSON.stringify(payload),
-  "docs": payload => token(payload, "page") ?? "",
+  "docs": payload => payload.mode === "read" ? JSON.stringify(payload) : token(payload, "page") ?? "",
   "context.inspect": payload => JSON.stringify(payload),
-  "docs.read": payload => token(payload, "page") ?? "",
   "file.compare": payload => JSON.stringify(payload),
   "file.restore-deleted": payload => JSON.stringify(payload),
   "file.follow-rename": payload => JSON.stringify(payload),

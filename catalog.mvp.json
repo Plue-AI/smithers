@@ -3358,41 +3358,25 @@
                   "type": "null"
                 }
               ]
+            },
+            "mode": {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "read"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "docs.read",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "chat",
-      "visibility": "in-card",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "run",
-      "summary": "Read a docs page's title, summary and Markdown",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "page": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "page"
-          ],
           "additionalProperties": true
         },
         "definitions": {}
