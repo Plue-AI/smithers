@@ -159,7 +159,6 @@ const AGENT_ROWS: ReadonlyArray<{ readonly name: string; readonly args?: string;
   { name: "runs.rerun", args: "sourceCard=card-1 run-1", confirm: true },
   /* Agents as data (custom-agents.md): listing and the form render cards; defining what spends money confirms. */
   { name: "agents", confirm: false },
-  { name: "agent.list", confirm: false },
   /* #3730: starting an agent CLI on the host is consequential, so the agent's call asks first. */
   { name: "agent.codex", args: '{"prompt":"Fix the flaky test"}', confirm: true },
   { name: "agent.claude", args: '{"prompt":"Fix the flaky test"}', confirm: true },

@@ -107,7 +107,6 @@ export const FLOW_NAMES = [
   "model.test",
   "model.assign",
   "agent.open",
-  "agent.list",
   "agent.codex",
   "agent.claude",
   "app.hint.dismiss",

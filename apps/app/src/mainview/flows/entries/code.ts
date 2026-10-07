@@ -29,6 +29,8 @@ export const codeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
    * open.
    */
   flow({
+    // T-APP-15 (#3461): guest isolation must pass before discovery opens.
+    visibility: "hidden",
     name: "code.hover",
     form: {
       fields: { repo: { optionsFrom: "cloud-repos", kind: "text" } },
@@ -41,6 +43,8 @@ export const codeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     handler: ({ path, line, column, repo }) => actions.codeHover(path, line, column, repo)
   }),
   flow({
+    // T-APP-15 (#3461): guest isolation must pass before discovery opens.
+    visibility: "hidden",
     name: "code.definition",
     form: {
       fields: { repo: { optionsFrom: "cloud-repos", kind: "text" } },
@@ -53,6 +57,8 @@ export const codeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     handler: ({ path, line, column, repo }) => actions.codeDefinition(path, line, column, repo)
   }),
   flow({
+    // T-APP-15 (#3461): guest isolation must pass before discovery opens.
+    visibility: "hidden",
     name: "code.diagnostics",
     form: { fields: { repo: { optionsFrom: "cloud-repos", kind: "text" } }, args: (payload) => fileArgs(text(payload, "path"), text(payload, "repo")) },
     summary: "The language server's errors and warnings for a file",

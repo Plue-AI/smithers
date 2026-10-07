@@ -33,7 +33,6 @@ const launchFlows = [
 /** The `agent.*` flows: roles, delegation and the list, and starting an agent CLI on the host (#3730). */
 export const agentFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => {
   return [
-  flow({ name: "agent.list", hidden: true, visibility: "advanced", summary: "Show the agents and their runs", agent: "run", actors: ["person", "app_agent", "external_agent"], input: NoPayload, handler: () => actions.listAgents() }),
   flow({ name: "agent", grammar: args => ({ payload: args?.trim() ? { name: args.trim() } : {} }), summary: "Configure an agent", args: "<name>", slash: "/agent", cli: ["agent"],
     group: "Advanced", journey: ["J11"], visibility: "advanced", actors: ["person", "app_agent", "external_agent"],
     minimumRole: "member", agent: "run", http: { method: "GET", path: "/api/agents/{name}" },

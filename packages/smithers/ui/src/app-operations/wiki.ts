@@ -147,6 +147,8 @@ export const wikiOperations = [
   }),
   operation({
     name: "wiki.delete",
+    // Appendix B: the agent asks; only the person answers the existing dialog.
+    visibility: "in-card",
     summary: `Delete a ${WIKI_DISPLAY_NAME} note`,
     hidden: true,
     args: "<documentId>",

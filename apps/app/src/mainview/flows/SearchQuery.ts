@@ -463,6 +463,7 @@ export const actionsFor = (item: Pick<SearchItem, "kind" | "ref" | "title">, ent
   const actions: Array<SearchAction> = []
   const roles = { open: false, primary: false }
   const consider = (entry: FlowEntry, preferred: boolean): void => {
+    if (!preferred && entry.metadata.visibility === "hidden") return
     const name = nameOf(entry)
     const form = formFieldsFor(entry.input, entry.metadata.form)
     if (!form.every((field) => !field.required || fields.has(field.name))) return
