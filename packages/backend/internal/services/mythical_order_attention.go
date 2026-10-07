@@ -21,6 +21,7 @@ type OrderAttentionEntry struct {
 	Text   string `json:"text"`
 }
 type OrderAttention struct {
+	retained  json.RawMessage
 	ID        string                `json:"id"`
 	Kind      string                `json:"kind"`
 	Revision  int64                 `json:"revision"`
@@ -28,7 +29,15 @@ type OrderAttention struct {
 	Entries   []OrderAttentionEntry `json:"entries"`
 	SettledBy int64                 `json:"settled_by,omitempty"`
 	SettledAt *time.Time            `json:"settled_at,omitempty"`
-	Actions   []map[string]string   `json:"actions"`
+	Actions   []map[string]any      `json:"actions"`
+}
+
+func (row OrderAttention) MarshalJSON() ([]byte, error) {
+	if row.retained != nil {
+		return row.retained, nil
+	}
+	type plain OrderAttention
+	return json.Marshal(plain(row))
 }
 
 func readStackAttention(ctx context.Context, q db.DBTX, repository int64) ([]OrderAttention, error) {
@@ -39,9 +48,37 @@ func readStackAttention(ctx context.Context, q db.DBTX, repository int64) ([]Ord
 		}
 		return nil, err
 	}
-	var rows []OrderAttention
-	err := json.Unmarshal(raw, &rows)
-	return rows, err
+	var values []json.RawMessage
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return nil, err
+	}
+	rows := make([]OrderAttention, 0, len(values))
+	for _, value := range values {
+		var row OrderAttention
+		var kind struct {
+			Kind string `json:"kind"`
+		}
+		if err := json.Unmarshal(value, &kind); err != nil {
+			return nil, err
+		}
+		if kind.Kind == "order" {
+			if err := json.Unmarshal(value, &row); err != nil {
+				return nil, err
+			}
+		} else {
+			// Other attention owners retain their complete payload and revision codec.
+			var envelope struct {
+				ID        string     `json:"id"`
+				SettledAt *time.Time `json:"settled_at"`
+			}
+			if err := json.Unmarshal(value, &envelope); err != nil {
+				return nil, err
+			}
+			row.Kind, row.ID, row.SettledAt, row.retained = kind.Kind, envelope.ID, envelope.SettledAt, value
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
 }
 func writeStackAttention(ctx context.Context, tx pgx.Tx, repository int64, rows []OrderAttention) error {
 	raw, err := json.Marshal(rows)
@@ -71,7 +108,7 @@ func appendOrderAttention(ctx context.Context, tx pgx.Tx, repository int64, entr
 		}
 	}
 	if index < 0 {
-		rows = append(rows, OrderAttention{ID: uuid.NewString(), Kind: "order", Actions: []map[string]string{{"tag": "order.ok", "label": "OK"}}})
+		rows = append(rows, OrderAttention{ID: uuid.NewString(), Kind: "order", Actions: []map[string]any{{"tag": "order.ok", "label": "OK"}}})
 		index = len(rows) - 1
 	}
 	row := &rows[index]
@@ -110,12 +147,20 @@ func (s *MythicalService) StackAttention(ctx context.Context, repository, member
 	}
 	open := []OrderAttention{}
 	for _, row := range rows {
-		if row.SettledAt == nil && row.Kind == "order" {
+		if row.SettledAt == nil && (row.Kind == "order" || role == InstallOwner && row.Kind == "force_push") {
 			open = append(open, row)
 		}
 	}
 	return open, nil
 }
+
+type StaleOrderAttention struct {
+	TodoControlError
+	Attention *OrderAttention `json:"attention,omitempty"`
+}
+
+func (e *StaleOrderAttention) Unwrap() error { return &e.TodoControlError }
+
 func (s *MythicalService) OrderOK(ctx context.Context, repository int64, id string, revision int64) error {
 	if _, err := Authorize(ctx, s.queries(), "order.ok"); err != nil {
 		return err
@@ -135,19 +180,19 @@ func (s *MythicalService) OrderOK(ctx context.Context, repository int64, id stri
 		}
 		for i := range rows {
 			row := &rows[i]
-			if row.ID != id {
+			if row.ID != id || row.Kind != "order" {
 				continue
 			}
 			if row.Revision == revision && row.SettledAt != nil && row.SettledBy == decision.UserID {
 				return nil
 			}
 			if row.Revision != revision || row.SettledAt != nil {
-				return &TodoControlError{Status: 409, Class: "conflict", Code: "stale_attention", Message: "Stack attention changed"}
+				return &StaleOrderAttention{TodoControlError: TodoControlError{Status: 409, Class: "conflict", Code: "stale_attention", Message: "Stack attention changed"}, Attention: row}
 			}
 			now := s.now()
 			row.SettledAt = &now
 			row.SettledBy = decision.UserID
-			row.Actions = []map[string]string{}
+			row.Actions = []map[string]any{}
 			if err := writeStackAttention(ctx, tx, repository, rows); err != nil {
 				return err
 			}

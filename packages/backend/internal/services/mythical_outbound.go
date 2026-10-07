@@ -343,7 +343,8 @@ func (st *mythicalItemStep) yieldBody(ctx context.Context, item db.MythicalItem)
 // Queue Drop's close only after the previous slot is settled; a late-opened
 // PR is bound before this runs. No operation is ever overwritten.
 func mythicalDropObligation(item db.MythicalItem) db.MythicalItem {
-	if len(item.PendingOp) == 0 && (item.State == "cancelled" || item.State == "dropped") && mythicalChecksOf(item).Dropped != nil && item.PRNumber.Valid && item.PRState == "open" {
+	checks := mythicalChecksOf(item)
+	if len(item.PendingOp) == 0 && ((item.State == "cancelled" || item.State == "dropped") && checks.Dropped != nil || item.State == "landed" && checks.MergedVia != nil) && item.PRNumber.Valid && item.PRState == "open" {
 		item.PendingOp, _ = json.Marshal(MythicalOutboundOp{Kind: "close", Target: fmt.Sprint(item.PRNumber.Int64), Desired: "closed", Precondition: "open", State: "intended"})
 	}
 	return item
