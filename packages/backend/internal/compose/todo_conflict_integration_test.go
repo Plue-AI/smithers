@@ -114,6 +114,8 @@ func TestConflictDoneComposedInstall(t *testing.T) {
 	// Missing or mismatched attempt providers refuse individually before native
 	// inspection or signal admission, with the person's retained wait unchanged.
 	for name, update := range map[string]string{
+		"run not launched":         `checks=checks-'run_launched'`,
+		"run not attached":         `checks=checks-'run_attached'`,
 		"workspace":                `workspace_id=''`,
 		"digest":                   `flow_digest=NULL`,
 		"malformed digest":         `flow_digest='not-a-pin'`,
