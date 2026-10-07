@@ -6,11 +6,17 @@ import (
 	"fmt"
 	"golang.org/x/crypto/ssh"
 	"io"
+	"strconv"
+	"strings"
 )
 
 // Literal SFTP v3 controls through the real SSH subsystem. Path operations are
 // interpreted only by the fixed guest sftp-server after verified identity drop.
 func sftpFixture(client *ssh.Client) error {
+	return sftpBoundaryFixture(client, false)
+}
+
+func sftpBoundaryFixture(client *ssh.Client, race bool) error {
 	session, err := client.NewSession()
 	if err != nil {
 		return err
@@ -110,6 +116,9 @@ func sftpFixture(client *ssh.Client) error {
 			return fmt.Errorf("SFTP mutation %d did not refuse", fixture.kind)
 		}
 	}
+	if race {
+		return sftpPathRace(client, request, openBody)
+	}
 	return nil
 }
 func sftpStatus(packet []byte, code uint32) bool {
@@ -126,4 +135,98 @@ func readSFTPPacket(reader io.Reader) ([]byte, error) {
 	packet := make([]byte, length)
 	_, err := io.ReadFull(reader, packet)
 	return packet, err
+}
+
+// The installed root campaign runs this member-owned path replacement while
+// SFTP opens/writes the same pathname. Kernel/sentinel observations, rather
+// than a successful protocol exchange, decide whether confinement held.
+func sftpPathRace(client *ssh.Client, request func(byte, uint32, []byte) ([]byte, error), openBody func(string) []byte) (result error) {
+	racer, err := client.NewSession()
+	if err != nil {
+		return err
+	}
+	defer racer.Close()
+	output, err := racer.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	// All paths and script bytes are installed campaign literals. This executes
+	// through the ordinary dropped SSH exec channel, never a root fixture.
+	const command = `rm -f /workspace/trm06-race-stop /workspace/trm06-race-link /workspace/trm06-race-swap
+n=0
+printf ready
+while [ ! -e /workspace/trm06-race-stop ] && [ "$n" -lt 10000 ]; do
+ ln -s /var/tmp/trm06-outside /workspace/trm06-race-swap || exit 1
+ mv -Tf /workspace/trm06-race-swap /workspace/trm06-race-link || exit 1
+ n=$((n+1))
+ rm -f /workspace/trm06-race-link || exit 1
+ printf workspace > /workspace/trm06-race-swap || exit 1
+ mv -Tf /workspace/trm06-race-swap /workspace/trm06-race-link || exit 1
+done
+printf '%s' "$n"`
+	if err = racer.Start(command); err != nil {
+		return err
+	}
+	defer func() {
+		stop, err := client.NewSession()
+		if err == nil {
+			_, err = stop.CombinedOutput("touch /workspace/trm06-race-stop")
+			stop.Close()
+		}
+		if err != nil {
+			if result == nil {
+				result = err
+			}
+			return
+		}
+		count, readErr := io.ReadAll(io.LimitReader(output, 32))
+		waitErr := racer.Wait()
+		cycles, parseErr := strconv.Atoi(strings.TrimSpace(string(count)))
+		if result == nil && (readErr != nil || waitErr != nil || parseErr != nil || cycles < 1) {
+			result = errors.New("SFTP path racer did not complete a replacement cycle")
+		}
+	}()
+	ready := make([]byte, 5)
+	if _, err = io.ReadFull(output, ready); err != nil || string(ready) != "ready" {
+		return errors.New("SFTP path racer did not start")
+	}
+	opened, denied := 0, 0
+	for i := uint32(0); i < 256; i++ {
+		id := 100 + 3*i
+		reply, err := request(3, id, openBody("/workspace/trm06-race-link"))
+		if err != nil {
+			return err
+		}
+		if sftpStatus(reply, 3) {
+			denied++
+			continue
+		}
+		if sftpStatus(reply, 2) {
+			continue
+		} // The pathname is briefly absent.
+		if len(reply) < 9 || reply[0] != 102 {
+			return errors.New("unexpected SFTP raced open result")
+		}
+		var handle struct{ Handle string }
+		if ssh.Unmarshal(reply[5:], &handle) != nil || len(handle.Handle) == 0 || len(handle.Handle) > 1024 {
+			return errors.New("invalid raced SFTP handle")
+		}
+		opened++
+		reply, err = request(6, id+1, ssh.Marshal(struct {
+			Handle string
+			Offset uint64
+			Data   string
+		}{handle.Handle, 0, "race-canary"}))
+		if err != nil || !sftpStatus(reply, 0) {
+			return errors.New("SFTP held workspace handle lost write access")
+		}
+		reply, err = request(4, id+2, ssh.Marshal(handle))
+		if err != nil || !sftpStatus(reply, 0) {
+			return errors.New("SFTP raced handle close failed")
+		}
+	}
+	if opened == 0 || denied == 0 {
+		return errors.New("SFTP race did not observe both permitted and forbidden targets")
+	}
+	return nil
 }

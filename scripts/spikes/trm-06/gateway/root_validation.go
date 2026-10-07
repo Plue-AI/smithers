@@ -411,7 +411,7 @@ func validateSessionBoundary(ctx context.Context, control relayControl, observe 
 			return errors.New("valid exec fixture failed")
 		}
 	}
-	if err = sftpFixture(client); err != nil {
+	if err = sftpBoundaryFixture(client, true); err != nil {
 		return err
 	}
 	if bytes, err := command("cat /workspace/trm06-sftp.txt; stat -c '%a %u %g' /workspace/trm06-sftp.txt"); err != nil || string(bytes) != "sftp-fixture\x00664 20001 20000\n" {

@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"golang.org/x/crypto/ssh"
 	"net"
 	"testing"
@@ -112,6 +113,106 @@ func TestSFTPCampaignRejectsSuccessfulOutsideMutations(t *testing.T) {
 			client.Close()
 			if (err == nil) != (accepted == 0) {
 				t.Fatalf("accepted outside mutation %d: %v", accepted, err)
+			}
+			if err := <-done; err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// This peer tests campaign completion/error cleanup, not a kernel path race.
+func TestSFTPPathRaceRequiresBothTargetsAndAlwaysStopsRacer(t *testing.T) {
+	for _, mode := range []string{"both", "only-workspace", "failed-write"} {
+		t.Run(mode, func(t *testing.T) {
+			_, key, _ := ed25519.GenerateKey(rand.Reader)
+			signer, _ := ssh.NewSignerFromKey(key)
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			stopped := make(chan struct{})
+			done := make(chan error, 1)
+			go func() {
+				conn, err := listener.Accept()
+				if err != nil {
+					done <- err
+					return
+				}
+				defer conn.Close()
+				conn.SetDeadline(time.Now().Add(5 * time.Second))
+				config := &ssh.ServerConfig{NoClientAuth: true}
+				config.AddHostKey(signer)
+				server, channels, requests, err := ssh.NewServerConn(conn, config)
+				if err != nil {
+					done <- err
+					return
+				}
+				defer server.Close()
+				go ssh.DiscardRequests(requests)
+				for incoming := range channels {
+					channel, reqs, err := incoming.Accept()
+					if err != nil {
+						done <- err
+						return
+					}
+					go func() {
+						defer channel.Close()
+						req := <-reqs
+						if req == nil {
+							return
+						}
+						var argv struct{ Command string }
+						if req.Type != "exec" || ssh.Unmarshal(req.Payload, &argv) != nil {
+							req.Reply(false, nil)
+							return
+						}
+						req.Reply(true, nil)
+						if argv.Command == "touch /workspace/trm06-race-stop" {
+							close(stopped)
+						} else {
+							channel.Write([]byte("ready"))
+							<-stopped
+							channel.Write([]byte("12"))
+						}
+						channel.SendRequest("exit-status", false, ssh.Marshal(struct{ Code uint32 }{0}))
+					}()
+				}
+				done <- nil
+			}()
+			client, err := ssh.Dial("tcp", listener.Addr().String(), &ssh.ClientConfig{User: "ben", HostKeyCallback: ssh.FixedHostKey(signer.PublicKey()), Timeout: 5 * time.Second})
+			if err != nil {
+				t.Fatal(err)
+			}
+			opens := 0
+			request := func(kind byte, id uint32, body []byte) ([]byte, error) {
+				if kind == 6 && mode == "failed-write" {
+					return nil, errors.New("fixture write failure")
+				}
+				reply := make([]byte, 5)
+				binary.BigEndian.PutUint32(reply[1:], id)
+				if kind == 3 {
+					opens++
+					if opens%2 == 0 && mode != "only-workspace" {
+						reply[0] = 101
+						return append(reply, ssh.Marshal(struct{ Code uint32 }{3})...), nil
+					}
+					reply[0] = 102
+					return append(reply, ssh.Marshal(struct{ Handle string }{"held"})...), nil
+				}
+				reply[0] = 101
+				return append(reply, ssh.Marshal(struct{ Code uint32 }{0})...), nil
+			}
+			err = sftpPathRace(client, request, func(path string) []byte { return []byte(path) })
+			client.Close()
+			if (err == nil) != (mode == "both") {
+				t.Fatalf("%s: %v", mode, err)
+			}
+			select {
+			case <-stopped:
+			default:
+				t.Fatal("racer was not stopped")
 			}
 			if err := <-done; err != nil {
 				t.Fatal(err)
