@@ -107,7 +107,7 @@ func (image restartImage) ResolveWorkspaceLayer(ctx context.Context, spec worksp
 
 func TestInstallCompiledHostKillRecoveryHTTPPostgres(t *testing.T) {
 	for _, step := range []string{"machine", "source"} {
-		for _, boundary := range []string{"running admission", "external effect published before completion"} {
+		for _, boundary := range []string{"running admission", "external effect before publication", "external effect published before completion", "provider returned before completion"} {
 			t.Run(step+"/"+boundary, func(t *testing.T) {
 				pool, databaseURL := postgresfixture.NewProductDatabase(t)
 				ctx := t.Context()
@@ -150,10 +150,24 @@ func TestInstallCompiledHostKillRecoveryHTTPPostgres(t *testing.T) {
 				var mu sync.Mutex
 				artifacts := map[string]bool{}
 				calls := 0
+				publications := 0
+				var beforePublication sync.Once
 				published := make(chan struct{}, 1)
 				release := make(chan struct{})
 				defer close(release)
 				effect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if boundary == "external effect before publication" {
+						first := false
+						beforePublication.Do(func() { first = true })
+						if first {
+							published <- struct{}{}
+							select {
+							case <-release:
+							case <-r.Context().Done():
+								return
+							}
+						}
+					}
 					mu.Lock()
 					calls++
 					if !artifacts[r.URL.Path] && step == "source" {
@@ -171,6 +185,9 @@ func TestInstallCompiledHostKillRecoveryHTTPPostgres(t *testing.T) {
 							http.Error(w, "image publication failed", 500)
 							return
 						}
+					}
+					if !artifacts[r.URL.Path] {
+						publications++
 					}
 					artifacts[r.URL.Path] = true
 					first := calls == 1
@@ -244,6 +261,32 @@ func TestInstallCompiledHostKillRecoveryHTTPPostgres(t *testing.T) {
 					responses = append(responses, string(body))
 					return body
 				}
+				// Hold the final readiness write after the provider has returned.
+				// A database trigger is a test-only crash barrier, not a host hook.
+				unlock := func() {}
+				if boundary == "provider returned before completion" {
+					conn, err := pool.Acquire(ctx)
+					require.NoError(t, err)
+					_, err = conn.Exec(ctx, `SELECT pg_advisory_lock(9345506)`)
+					require.NoError(t, err)
+					var once sync.Once
+					unlock = func() {
+						once.Do(func() {
+							_, err := conn.Exec(ctx, `SELECT pg_advisory_unlock(9345506)`)
+							require.NoError(t, err)
+							conn.Release()
+						})
+					}
+					defer unlock()
+					_, err = pool.Exec(ctx, `CREATE FUNCTION restart_completion_barrier() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+						IF NEW.key = 'setup.step.`+step+`' AND NEW.value->>'status' = 'done' THEN
+							PERFORM pg_advisory_xact_lock(9345506);
+						END IF;
+						RETURN NEW;
+					END $$;
+					CREATE TRIGGER restart_completion_barrier BEFORE UPDATE ON install_settings FOR EACH ROW EXECUTE FUNCTION restart_completion_barrier()`)
+					require.NoError(t, err)
+				}
 				origin, stop := start(boundary == "running admission")
 				var admitted jobs.RequestReceipt
 				require.NoError(t, json.Unmarshal(request(origin, "POST", "first-image"), &admitted))
@@ -254,10 +297,35 @@ func TestInstallCompiledHostKillRecoveryHTTPPostgres(t *testing.T) {
 				if boundary == "running admission" {
 					old, err = store.ClaimForOperations(ctx, "dead-admission-worker", time.Minute, []string{"install.setup." + step})
 					require.NoError(t, err)
+				} else if boundary == "provider returned before completion" {
+					require.Eventually(t, func() bool {
+						var waiting bool
+						err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND objid=9345506 AND NOT granted)`).Scan(&waiting)
+						return err == nil && waiting
+					}, 15*time.Second, 20*time.Millisecond, "provider did not reach readiness settlement")
+					old.OperationID = admitted.OperationID
+					require.NoError(t, pool.QueryRow(ctx, `SELECT generation,claim_token,worker_id,attempt FROM product_job_dispatches WHERE operation_id=$1`, admitted.OperationID).Scan(&old.Generation, &old.Token, &old.WorkerID, &old.Attempt))
+					if step == "source" {
+						var receipt string
+						require.NoError(t, pool.QueryRow(ctx, `SELECT external_receipt->>'import_id' FROM product_job_dispatches WHERE operation_id=$1`, admitted.OperationID).Scan(&receipt))
+						require.Equal(t, "published-mirror", receipt, "checkpoint survives before completion")
+					}
 				} else {
 					select {
 					case <-published:
-						if step == "machine" {
+						if boundary == "external effect before publication" {
+							mu.Lock()
+							require.Empty(t, artifacts)
+							require.Zero(t, publications)
+							mu.Unlock()
+							path := imagePath
+							if step == "source" {
+								path = mirror
+							}
+							_, err := os.Stat(path)
+							require.True(t, os.IsNotExist(err), "no external artifact before host termination")
+						}
+						if step == "machine" && boundary == "external effect published before completion" {
 							artifact, err := os.ReadFile(imagePath)
 							require.NoError(t, err)
 							require.NotEmpty(t, artifact, "image is published before host termination")
@@ -270,6 +338,7 @@ func TestInstallCompiledHostKillRecoveryHTTPPostgres(t *testing.T) {
 				}
 				// No graceful cancellation or synthetic restoration of a completed row.
 				stop()
+				unlock()
 				var status, operation string
 				require.NoError(t, pool.QueryRow(ctx, `SELECT value->>'status',value->>'operation_id' FROM install_settings WHERE key=$1`, "setup.step."+step).Scan(&status, &operation))
 				require.Equal(t, "running", status)
@@ -318,7 +387,12 @@ func TestInstallCompiledHostKillRecoveryHTTPPostgres(t *testing.T) {
 				}
 				mu.Lock()
 				require.Equal(t, 1, len(artifacts), "one effective publication, even when redelivery requests it again")
-				require.Equal(t, map[bool]int{true: 1, false: 2}[boundary == "running admission"], calls)
+				require.Equal(t, 1, publications, "redelivery must reuse the external artifact")
+				expectedCalls := 1
+				if boundary == "external effect published before completion" || (boundary == "provider returned before completion" && step == "machine") {
+					expectedCalls = 2
+				}
+				require.Equal(t, expectedCalls, calls)
 				mu.Unlock()
 				before, err := q.GetInstallSetting(ctx, "setup.step."+step)
 				require.NoError(t, err)
