@@ -416,7 +416,7 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 	if command == "workspace.head" {
 		return authorizeWorkspaceHead(ctx, q, subject)
 	}
-	if command == "stack.candidate" {
+	if command == "stack.candidate" || command == "stack.propose" {
 		return authorizeStackCandidate(ctx, q, subject)
 	}
 	if command == "branch.fork" && InstallExecutionCredential(ctx) {
@@ -1058,6 +1058,28 @@ func ResolveInstallExecutionSubject(ctx context.Context, q *db.Queries, reposito
 		return InstallSubject{}, err
 	}
 	return InstallSubject{RepositoryID: repository, WorkspaceID: workspace, TodoNumber: item.Number.Int64}, nil
+}
+
+// ResolveReservedStackSubject uses issuer-owned authority, never operation payload fields.
+func ResolveReservedStackSubject(ctx context.Context, q *db.Queries, repository int64, workspace string) (InstallSubject, error) {
+	info := middleware.AuthInfoFromContext(ctx)
+	if !InstallExecutionCredential(ctx) || info == nil || middleware.ParseTokenAgentSessionRestriction(info.RawScopes) == "" {
+		return InstallSubject{}, confirmationPermission()
+	}
+	subject, err := ResolveInstallExecutionSubject(ctx, q, repository)
+	if err != nil {
+		return InstallSubject{}, err
+	}
+	if subject.WorkspaceID != workspace {
+		return InstallSubject{}, confirmationPermission()
+	}
+	item, err := q.GetMythicalItemByNumber(ctx, repository, subject.TodoNumber)
+	if err != nil {
+		return InstallSubject{}, err
+	}
+	subject.RunID = middleware.ParseTokenAgentSessionRestriction(info.RawScopes)
+	subject.Base, subject.Generation, subject.Attempt = item.BaseCommit, item.Generation, item.Attempt
+	return subject, nil
 }
 
 // BoundInstallExecutionRead tells the retained snapshot door to encode only

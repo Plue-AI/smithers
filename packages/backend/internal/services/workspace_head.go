@@ -932,34 +932,15 @@ func (s *WorkspaceService) persistWorkspaceHeadReport(ctx context.Context, works
 				return pkgerrors.Conflict("a merge is in flight")
 			}
 			if liveTree == "" {
-				if s.runtime == nil || s.runtime.Isolation() != workspaceapi.IsolationSandboxed || !codingCommitID.MatchString(input.CommitID) || !codingChangeID.MatchString(input.ChangeID) {
-					return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "live candidate observation unavailable")
-				}
-				// Never reuse a cached execution result for a live observation.
-				observed, err := s.runtimeRepositoryCommandOutput(ctx, workspace, workspace.UserID, "head-report-"+uuid.NewString(), workspaceapi.Command{
-					// Snapshot tracked edits before comparing the report. Ignoring
-					// the working copy would authorize a stale verified tree after
-					// a member edited files without running jj themselves.
-					Args: []string{"jj", "--no-pager", "log", "--no-graph", "-r", "@", "-T", `commit_id ++ " " ++ change_id`},
-				})
+				ids, tree, err := s.observeWorkspaceHeadTree(ctx, workspace)
 				if err != nil {
 					return err
 				}
-				ids := strings.Fields(observed)
-				if len(ids) != 2 || !codingCommitID.MatchString(ids[0]) || !codingChangeID.MatchString(ids[1]) {
-					return pkgerrors.Conflict("live revision could not be verified")
+				if !codingCommitID.MatchString(input.CommitID) || !codingChangeID.MatchString(input.ChangeID) {
+					return pkgerrors.BadRequest("invalid head report")
 				}
-				staleReport = observed != input.CommitID+" "+input.ChangeID
-				liveTree, err = s.runtimeRepositoryCommandOutput(ctx, workspace, workspace.UserID, "head-tree-"+uuid.NewString(), workspaceapi.Command{
-					Args:        []string{"git", "rev-parse", "--verify", ids[0] + "^{tree}"},
-					Environment: map[string]string{"GIT_NO_REPLACE_OBJECTS": "1", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"},
-				})
-				if err != nil {
-					return err
-				}
-				if !codingCommitID.MatchString(liveTree) {
-					return pkgerrors.Conflict("live tree could not be verified")
-				}
+				staleReport = ids != input.CommitID+" "+input.ChangeID
+				liveTree = tree
 			}
 			if !item.CandidateVerified || item.CandidateHead == "" {
 				continue
@@ -967,15 +948,9 @@ func (s *WorkspaceService) persistWorkspaceHeadReport(ctx context.Context, works
 			if !codingCommitID.MatchString(item.CandidateHead) || s.runtime == nil {
 				return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "candidate tree verification unavailable")
 			}
-			tree, err := s.runtimeRepositoryCommandOutput(ctx, workspace, workspace.UserID, "candidate-tree-"+uuid.NewString(), workspaceapi.Command{
-				Args:        []string{"git", "rev-parse", "--verify", item.CandidateHead + "^{tree}"},
-				Environment: map[string]string{"GIT_NO_REPLACE_OBJECTS": "1", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"},
-			})
+			tree, err := s.workspaceCommitTree(ctx, workspace, item.CandidateHead)
 			if err != nil {
 				return err
-			}
-			if !codingCommitID.MatchString(tree) {
-				return pkgerrors.Conflict("candidate tree could not be verified")
 			}
 			if liveTree == tree {
 				continue
@@ -1095,4 +1070,42 @@ func (s *WorkspaceService) retireInstalledHeadCredential(ctx context.Context, ro
 		}
 	}
 	return errors.New("head credential changed during retirement")
+}
+
+// Observe on the machine through the existing isolated repository command path.
+// Both reports and reserved operations use this fresh observation while holding
+// stack -> items -> workspace locks, never a cached command result.
+func (s *WorkspaceService) observeWorkspaceHeadTree(ctx context.Context, workspace db.Workspace) (string, string, error) {
+	if s.runtime == nil || s.runtime.Isolation() != workspaceapi.IsolationSandboxed {
+		return "", "", pkgerrors.New(pkgerrors.CodeServiceUnavailable, "live candidate observation unavailable")
+	}
+	observed, err := s.runtimeRepositoryCommandOutput(ctx, workspace, workspace.UserID, "head-report-"+uuid.NewString(), workspaceapi.Command{
+		Args: []string{"jj", "--no-pager", "log", "--no-graph", "-r", "@", "-T", `commit_id ++ " " ++ change_id`},
+	})
+	if err != nil {
+		return "", "", err
+	}
+	ids := strings.Fields(observed)
+	if len(ids) != 2 || !codingCommitID.MatchString(ids[0]) || !codingChangeID.MatchString(ids[1]) {
+		return "", "", pkgerrors.Conflict("live revision could not be verified")
+	}
+	tree, err := s.workspaceCommitTree(ctx, workspace, ids[0])
+	return observed, tree, err
+}
+
+func (s *WorkspaceService) workspaceCommitTree(ctx context.Context, workspace db.Workspace, head string) (string, error) {
+	if !codingCommitID.MatchString(head) {
+		return "", pkgerrors.Conflict("invalid candidate commit")
+	}
+	tree, err := s.runtimeRepositoryCommandOutput(ctx, workspace, workspace.UserID, "candidate-tree-"+uuid.NewString(), workspaceapi.Command{
+		Args:        []string{"git", "rev-parse", "--verify", head + "^{tree}"},
+		Environment: map[string]string{"GIT_NO_REPLACE_OBJECTS": "1", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"},
+	})
+	if err != nil {
+		return "", err
+	}
+	if !codingCommitID.MatchString(tree) {
+		return "", pkgerrors.Conflict("live tree could not be verified")
+	}
+	return tree, nil
 }

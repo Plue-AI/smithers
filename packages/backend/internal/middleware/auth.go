@@ -573,6 +573,8 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "runs.resume", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:workflows/)?runs/[0-9]+/resume$`)},
 	{http.MethodGet, "workspace.provider-pool", regexp.MustCompile(`^/provider-pool/routes$`)},
 	{http.MethodPost, "workspace.provider-pool", regexp.MustCompile(`^/provider-pool/(?:anthropic/v1/messages|chatgpt/codex/responses)$`)},
+	{http.MethodPost, "stack.candidate", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/stack/candidate$`)},
+	{http.MethodPost, "stack.propose", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/stack/propose$`)},
 	{http.MethodPut, "stack.candidate", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/mythical/lanes$`)},
 	{http.MethodPost, "workspace.head", workspaceHeadReportPath},
 	{http.MethodGet, "workspace.children.list", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/children$`)},

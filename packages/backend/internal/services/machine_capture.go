@@ -15,11 +15,14 @@ import (
 // MachineCapturePending is retained work, not a replacement verified candidate.
 // Onto names the actual host branch head under repository maintenance exclusion.
 type MachineCapturePending struct {
-	Head  string `json:"head"`
-	Tree  string `json:"tree"`
-	Base  string `json:"base"`
-	Onto  string `json:"onto"`
-	Stale bool   `json:"stale"`
+	// Reserved native capture retains the same immutable object in the existing
+	// workspace source namespace. This is transport metadata, not acceptance.
+	SourceRef string `json:"source_ref,omitempty"`
+	Head      string `json:"head"`
+	Tree      string `json:"tree"`
+	Base      string `json:"base"`
+	Onto      string `json:"onto"`
+	Stale     bool   `json:"stale"`
 	// A wake result does not name a snapshot. Only a later capture based on
 	// this target can discharge the stale capture after a clean reconciliation.
 	ReconciledOnto  string `json:"reconciled_onto,omitempty"`

@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
 
 // Captured edits skip planning but never checks or review. A stale capture
@@ -67,8 +68,14 @@ func (st *mythicalItemStep) consumeCapturedEdits(ctx context.Context, item db.My
 	if parsed, err := uuid.Parse(item.WorkspaceID); err != nil || parsed.String() != item.WorkspaceID {
 		return nil, false, errors.New("invalid captured branch")
 	}
+	if capture.SourceRef != "" && capture.SourceRef != repohost.WorkspaceSourceRef(item.WorkspaceID, capture.Head) {
+		return nil, false, errors.New("invalid retained capture ref")
+	}
 	if !st.r.g.has(ctx, capture.Head) {
 		ref := "refs/smithers/branches/" + item.WorkspaceID + "/captures/" + capture.Head
+		if capture.SourceRef != "" {
+			ref = capture.SourceRef
+		}
 		if err := st.r.g.fetch(ctx, st.r.bridge.URL(), 0, 0, ref); err != nil {
 			return nil, false, fmt.Errorf("read retained capture: %w", err)
 		}

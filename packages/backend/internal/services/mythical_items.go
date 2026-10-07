@@ -3104,7 +3104,11 @@ func (st *mythicalItemStep) verifyCandidate(ctx context.Context, item, next db.M
 			}
 			// Native publication can survive a rolled-back SQL projection.
 			// The stack lock excludes capture writers through this commit.
-			head, err := s.refCommit(ctx, r.owner, r.repo, "refs/smithers/branches/"+item.WorkspaceID+"/head")
+			captureRef := "refs/smithers/branches/" + item.WorkspaceID + "/head"
+			if captured.SourceRef != "" {
+				captureRef = captured.SourceRef
+			}
+			head, err := s.refCommit(ctx, r.owner, r.repo, captureRef)
 			if err != nil {
 				return err
 			}

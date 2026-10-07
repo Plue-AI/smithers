@@ -685,6 +685,9 @@ func buildRouter(
 				headReport = append([]func(http.Handler) http.Handler{middleware.RequireAuth, memberCommands(queries)}, vmProvision[1:]...)
 			}
 			r.With(headReport...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/head", workspaceHandler.ReportWorkspaceHead)
+			if config.IsSingleOwner(cfg.Auth) && extras.Mythical != nil {
+				r.With(headReport...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/stack/{operation}", extras.Mythical.ReservedStackOperation)
+			}
 			r.With(vmProvision...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/snapshot", workspaceHandler.CreateWorkspaceSnapshot)
 			r.With(vmProvision...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/coding/operations", workspaceHandler.ApplyCodingOperation)
 			if jjVCSHandler != nil {

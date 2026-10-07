@@ -304,3 +304,38 @@ func (h *MythicalHandler) Wiki(w http.ResponseWriter, r *http.Request) {
 	}
 	pkgerrors.WriteJSON(w, http.StatusAccepted, view)
 }
+
+// ReservedStackOperation is a machine/run-only transport door. It is not a
+// repository flow or a member command; the install authorizer resolves its
+// current lane before decoding any payload.
+func (h *MythicalHandler) ReservedStackOperation(w http.ResponseWriter, r *http.Request) {
+	repo, ok := h.repository(w, r)
+	if !ok {
+		return
+	}
+	service, ok := h.Service.(interface {
+		ReservedStackOperation(context.Context, int64, string, string, services.ReservedStackInput) (services.ReservedStackResult, int, error)
+	})
+	if !ok {
+		pkgerrors.WriteError(w, pkgerrors.Internal("stack operations unavailable"))
+		return
+	}
+	command := "stack." + chi.URLParam(r, "operation")
+	var input services.ReservedStackInput
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 65536))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&input) != nil || decoder.Decode(new(any)) != io.EOF {
+		pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid stack operation"))
+		return
+	}
+	result, status, err := service.ReservedStackOperation(r.Context(), repo.Repository.ID, chi.URLParam(r, "id"), command, input)
+	if err != nil {
+		writeRouteError(w, r, err)
+		return
+	}
+	if status == http.StatusNoContent {
+		w.WriteHeader(status)
+		return
+	}
+	pkgerrors.WriteJSON(w, status, result)
+}

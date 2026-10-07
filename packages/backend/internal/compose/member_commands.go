@@ -90,6 +90,37 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				next.ServeHTTP(w, r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, subject)))
 				return
 			}
+			if (command == "stack.candidate" || command == "stack.propose") && strings.Contains(r.URL.Path, "/stack/") {
+				repository, err := services.InstallRepositoryID(r.Context(), queries)
+				if err != nil {
+					writeConfirmationDispatchError(w, err)
+					return
+				}
+				parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+				subject := services.InstallSubject{RepositoryID: repository}
+				if len(parts) == 8 {
+					row, lookup := queries.GetRepoByOwnerAndLowerName(r.Context(), db.GetRepoByOwnerAndLowerNameParams{Owner: strings.ToLower(parts[2]), LowerName: strings.ToLower(parts[3])})
+					if lookup == nil && row.ID == repository {
+						subject, err = services.ResolveReservedStackSubject(r.Context(), queries, repository, parts[5])
+					} else {
+						err = &services.AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"}
+					}
+				}
+				if err != nil {
+					if _, denied := services.Authorize(r.Context(), queries, command, services.InstallSubject{RepositoryID: repository}); denied != nil {
+						err = denied
+					}
+					writeConfirmationDispatchError(w, err)
+					return
+				}
+				decision, err := services.Authorize(r.Context(), queries, command, subject)
+				if err != nil {
+					writeConfirmationDispatchError(w, err)
+					return
+				}
+				next.ServeHTTP(w, r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, subject)))
+				return
+			}
 			if command == "stack.candidate" {
 				repository, err := services.InstallRepositoryID(r.Context(), queries)
 				if err != nil {

@@ -201,3 +201,61 @@ func TestCapturedContinuationChecksSnapshotBeforeLaunch(t *testing.T) {
 		})
 	}
 }
+
+// The reserved transport retains work in the existing source namespace. Only
+// the production worker's owning claim can pin it, allocate a generation, and
+// launch checks; no candidate head is accepted by the HTTP admission write.
+func TestReservedSourceCaptureContinuesUnderOwningClaim(t *testing.T) {
+	f := newRebaseFixture(t)
+	item := f.candidate("Reserved snapshot", f.main, "AGENT.md", "agent work\n")
+	pool := f.pool.(*pgxpool.Pool)
+	store, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+		t.Error("admission contacted runtime")
+		return nil, errors.New("no runtime")
+	})})
+	require.NoError(t, err)
+	f.service.SetLauncher(dispatcher)
+	head := f.commit("reserved capture", "MEMBER.md", "reserved bytes\n")
+	tree := f.git(f.work, "rev-parse", head+"^{tree}")
+	ref := "refs/smithers/workspaces/" + item.WorkspaceID + "/sources/" + head
+	f.git(f.work, "push", "-q", f.hostDir, head+":"+ref)
+	capture := MachineCapturePending{Head: head, Tree: tree, Base: item.CandidateHead, Onto: head, SourceRef: ref}
+	raw, _ := json.Marshal(capture)
+	_, err = pool.Exec(t.Context(), `INSERT INTO workspaces(id,repository_id,user_id,name,vm_id,status,head_commit_id,capture_pending) VALUES($1,$2,$3,'reserved','reserved-vm','running',$4,$5)`, item.WorkspaceID, f.repoID, f.userID, head, raw)
+	require.NoError(t, err)
+	item.FlowDigest = pgtype.Text{String: todoPinOne, Valid: true}
+	item.RequestRunID = "same-composition"
+	item.CandidateVerified = false
+	checks := mythicalChecksOf(item)
+	checks.FlowSource = f.main
+	checks.Capture = &capture
+	item.Checks = checks.encode()
+	item, err = db.New(pool).SaveMythicalItem(t.Context(), item)
+	require.NoError(t, err)
+	// A crash before the combined generation/launch commit preserves pending bytes.
+	_, err = pool.Exec(t.Context(), `ALTER TABLE product_job_requests ADD CONSTRAINT reject_reserved_verify CHECK (operation <> 'flow.runtime.launch') NOT VALID`)
+	require.NoError(t, err)
+	f.wake()
+	before := f.item(item.Number.Int64)
+	require.Equal(t, item.Generation, before.Generation)
+	require.Equal(t, item.CandidateHead, before.CandidateHead)
+	require.NotNil(t, mythicalChecksOf(before).Capture)
+	_, err = pool.Exec(t.Context(), `ALTER TABLE product_job_requests DROP CONSTRAINT reject_reserved_verify`)
+	require.NoError(t, err)
+	f.wake()
+	next := f.item(item.Number.Int64)
+	require.Equal(t, "verifying", next.State, next.Reason)
+	require.Equal(t, item.Generation+1, next.Generation)
+	require.Equal(t, head, next.CandidateHead)
+	require.False(t, next.CandidateVerified)
+	require.Nil(t, mythicalChecksOf(next).Capture)
+	var count int
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.launch'`).Scan(&count))
+	require.Equal(t, 1, count)
+	require.Equal(t, "reserved bytes", strings.TrimSpace(f.git(f.hostDir, "show", head+":MEMBER.md")))
+	f.wake()
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.launch'`).Scan(&count))
+	require.Equal(t, 1, count)
+}

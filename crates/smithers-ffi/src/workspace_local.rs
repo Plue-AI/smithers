@@ -695,12 +695,69 @@ fn publish_source(repo: &Path, input: &Value) -> Result<Value> {
     )
 }
 
+// Use the existing JJ operation receipt for reserved capture too. A fresh
+// working child seals the captured bytes even when the tree is unchanged;
+// retries read that immutable operation rather than recapturing later edits.
+pub(super) fn snapshot_for_stack(repo: &Path, request_id: &str) -> Result<(Value, String)> {
+    let encoded = serde_json::to_vec(
+        &json!({"operation":"stack.candidate","requestId":request_id,"repositoryPath":repo}),
+    )
+    .map_err(|_| invalid("invalid stack snapshot"))?;
+    let mut sha = gix::hash::hasher(gix::hash::Kind::Sha256);
+    sha.update(&encoded);
+    let digest = sha
+        .try_finalize()
+        .expect("SHA256 is infallible")
+        .to_string();
+    let recorded = match receipt(repo, request_id, &digest)? {
+        Some(recorded) => recorded,
+        None => {
+            let marker = format!("smithers.coding-request=\"{request_id}:{digest}\"");
+            // A tracked edit produces its own snapshot operation. Seal that
+            // directly; creating a child in the same command would tag both
+            // the implicit snapshot and child with one invocation identity.
+            mutate_command(repo, &marker, None, &["status".into()])?;
+            if receipt(repo, request_id, &digest)?.is_none() {
+                // With an unchanged tree there is no snapshot operation, so
+                // retain an empty working child to seal this invocation too.
+                mutate_command(
+                    repo,
+                    &marker,
+                    None,
+                    &["new".into(), "@".into(), "-m".into(), String::new()],
+                )?;
+            }
+            receipt(repo, request_id, &digest)?.ok_or_else(|| {
+                Failure::new(
+                    "outcome_unknown",
+                    "Native snapshot receipt is unavailable; retry the identical operation",
+                )
+            })?
+        }
+    };
+    let at = field(&recorded, "id")?;
+    let head: Value = serde_json::from_str(&jj_at(
+        repo,
+        at,
+        &["log", "-r", "@", "--no-graph", "-T", "json(self)"],
+    )?)
+    .map_err(|_| invalid("invalid snapshot receipt"))?;
+    Ok((revision(repo, &head, at)?, at.to_owned()))
+}
+
 pub fn run(raw: &[u8]) -> Result<Value> {
     let input: Value =
         serde_json::from_slice(raw).map_err(|_| invalid("coding request is not JSON"))?;
     let repo = Path::new(field(&input, "repositoryPath")?);
     if !repo.is_absolute() {
         return Err(invalid("repository path must be absolute"));
+    }
+    if matches!(
+        field(&input, "operation")?,
+        "stack.candidate" | "stack.propose"
+    ) {
+        return source_publish::reserved(repo, &input)
+            .map_err(|error| Failure::new(error.code, error.message));
     }
     // Reject unsupported dispatch before opening the repository or its lock.
     // In particular an older bundle must not touch a workspace when a newer
@@ -726,7 +783,7 @@ mod tests {
     #[test]
     fn unsupported_operations_refuse_before_workspace_lock_or_reads() {
         let directory = tempdir().unwrap();
-        for operation in ["stack.candidate", "stack.propose", "unknown"] {
+        for operation in ["unknown"] {
             let input = serde_json::to_vec(&json!({
                 "operation": operation,
                 "repositoryPath": directory.path(),
@@ -745,7 +802,7 @@ mod tests {
         // than disclosing filesystem state or trying to create a lock directory.
         let absent = directory.path().join("absent");
         let error = run(&serde_json::to_vec(&json!({
-            "operation": "stack.candidate", "repositoryPath": absent
+            "operation": "unknown", "repositoryPath": absent
         }))
         .unwrap())
         .unwrap_err();
@@ -755,6 +812,61 @@ mod tests {
             "unsupported local coding operation"
         );
         assert!(!absent.exists());
+    }
+
+    #[test]
+    fn reserved_snapshot_replays_original_bytes_after_later_edits() {
+        let dir = tempdir().unwrap();
+        let output = Command::new("jj")
+            .args(["git", "init", dir.path().to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        std::fs::write(dir.path().join("one.txt"), "original bytes\n").unwrap();
+        let (source, op) =
+            snapshot_for_stack(dir.path(), "11111111-1111-4111-8111-111111111111").unwrap();
+        let (equal, equal_op) =
+            snapshot_for_stack(dir.path(), "22222222-2222-4222-8222-222222222222").unwrap();
+        assert_eq!(equal["treeId"], source["treeId"]);
+        assert_ne!(equal_op, op);
+        std::fs::write(dir.path().join("one.txt"), "later bytes\n").unwrap();
+        jj(dir.path(), &["status"], true).unwrap();
+        let (replayed, replayed_op) =
+            snapshot_for_stack(dir.path(), "11111111-1111-4111-8111-111111111111").unwrap();
+        assert_eq!(replayed, source);
+        assert_eq!(replayed_op, op);
+        assert_eq!(
+            jj(
+                dir.path(),
+                &[
+                    "file",
+                    "show",
+                    "-r",
+                    source["commitId"].as_str().unwrap(),
+                    "one.txt"
+                ],
+                false
+            )
+            .unwrap(),
+            "original bytes\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("one.txt")).unwrap(),
+            "later bytes\n"
+        );
+        let (next, _) =
+            snapshot_for_stack(dir.path(), "33333333-3333-4333-8333-333333333333").unwrap();
+        assert_ne!(next["treeId"], source["treeId"]);
+    }
+
+    #[test]
+    fn reserved_operations_reject_payload_authority_before_workspace_access() {
+        let dir = tempdir().unwrap();
+        for operation in ["stack.candidate", "stack.propose"] {
+            let input=serde_json::to_vec(&json!({"operation":operation,"repositoryPath":dir.path(),"requestId":"11111111-1111-4111-8111-111111111111","runId":"forged"})).unwrap();
+            assert_eq!(run(&input).unwrap_err().code, "invalid_request");
+            assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+        }
     }
 
     #[test]

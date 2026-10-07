@@ -241,7 +241,16 @@ base and head; Propose names that generation and returns the PR head.
 Both refuse before ordinary native reads or capture when the authority transport
 is absent or the host is local-only. Native request identities derive from the
 engine's durable invocation key, so another capture in the same run has a new
-identity and replay retains the original one. The installed native adapter still
-needs the run/machine credential transport before these actions can dispatch on
-an install. The scripted native-provider test proves packaged action dispatch
-and journal replay, not machine admission or a C-STK-06 microVM receipt.
+identity and replay retains the original one. The installed adapter requests admission with its process-owned publisher
+credential before native capture. The scripted native-provider test proves
+packaged action dispatch and journal replay, not a C-STK-06 microVM receipt.
+
+The reserved native transport reads the installed workspace binding and the
+reporter's existing process-owned credential cache. It requests live admission
+before opening JJ; operation bodies cannot select a repository, machine or run.
+Changed bytes are retained in the workspace source namespace and placed in the
+existing pending capture. The stack worker consumes that capture under its own
+claim, pins before recording a generation, and launches the separate verify
+lane. Candidate acknowledgments reuse the immutable head when its prefix and
+live tree are equal. Proposal acknowledgments name only the generation that the
+same worker has published; changed trees and stale generations refuse.

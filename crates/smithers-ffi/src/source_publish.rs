@@ -187,13 +187,24 @@ fn acknowledge(config: &Config, source: &Source, token: &str) -> Result<Option<A
     );
     let body = serde_json::to_string(&serde_json::json!({ "retain_source": source }))
         .map_err(|_| invalid())?;
+    let (status, value) = request_json(&url, &body, token)?;
+    match status.as_str() {
+        "200" => verify_ack(value, config, source).map(Some),
+        "404" if value.get("code").and_then(|v| v.as_str()) == Some("workspace_source_missing") => {
+            Ok(None)
+        }
+        _ => Err(unavailable()),
+    }
+}
+
+fn request_json(url: &str, body: &str, token: &str) -> Result<(String, serde_json::Value)> {
     // curl is already installed for the reporter. --disable prevents curlrc
     // overrides; the header exists only on stdin, never in argv or a file.
     let input = format!(
         "url = {}\nheader = {}\nheader = \"Content-Type: application/json\"\ndata-binary = {}\n",
-        serde_json::to_string(&url).map_err(|_| invalid())?,
+        serde_json::to_string(url).map_err(|_| invalid())?,
         serde_json::to_string(&format!("Authorization: Bearer {token}")).map_err(|_| invalid())?,
-        serde_json::to_string(&body).map_err(|_| invalid())?
+        serde_json::to_string(body).map_err(|_| invalid())?
     );
     let mut child = Command::new("curl")
         .args([
@@ -235,14 +246,12 @@ fn acknowledge(config: &Config, source: &Source, token: &str) -> Result<Option<A
     }
     let raw = std::str::from_utf8(&output.stdout).map_err(|_| unavailable())?;
     let (body, status) = raw.rsplit_once('\n').ok_or_else(unavailable)?;
-    let value: serde_json::Value = serde_json::from_str(body).map_err(|_| unavailable())?;
-    match status {
-        "200" => verify_ack(value, config, source).map(Some),
-        "404" if value.get("code").and_then(|v| v.as_str()) == Some("workspace_source_missing") => {
-            Ok(None)
-        }
-        _ => Err(unavailable()),
-    }
+    let value: serde_json::Value = if status == "204" && body.is_empty() {
+        serde_json::Value::Null
+    } else {
+        serde_json::from_str(body).map_err(|_| unavailable())?
+    };
+    Ok((status.to_owned(), value))
 }
 
 fn push_source(repo: &ReadonlyRepo, config: &Config, source: &Source, name: &str) -> Result<()> {
@@ -541,6 +550,15 @@ mod tests {
         count: usize,
         reply: impl Fn(usize) -> Option<(u16, serde_json::Value)> + Send + 'static,
     ) -> std::thread::JoinHandle<()> {
+        serve_path(listener, count, "head", reply)
+    }
+
+    fn serve_path(
+        listener: TcpListener,
+        count: usize,
+        path: &'static str,
+        reply: impl Fn(usize) -> Option<(u16, serde_json::Value)> + Send + 'static,
+    ) -> std::thread::JoinHandle<()> {
         std::thread::spawn(move || {
             listener.set_nonblocking(true).unwrap();
             for index in 0..count {
@@ -575,7 +593,7 @@ mod tests {
                     }
                 }
                 let headers = String::from_utf8(raw).unwrap();
-                assert!(headers.starts_with("POST /api/repos/acme/widgets/workspaces/0f8fad5b-d9cb-469f-a165-70867728950e/head HTTP/1.1"));
+                assert!(headers.starts_with(&format!("POST /api/repos/acme/widgets/workspaces/0f8fad5b-d9cb-469f-a165-70867728950e/{path} HTTP/1.1")));
                 assert!(headers.contains("Authorization: Bearer sentinel-private-token"));
                 let length: usize = headers
                     .lines()
@@ -841,4 +859,228 @@ mod tests {
             "invalid_request"
         );
     }
+    #[test]
+    fn reserved_transport_admission_precedes_workspace_reads_and_proposal_checks_generation() {
+        require_curl();
+        for (status, expected_generation) in [(403, 7), (200, 7), (200, 8)] {
+            let directory = tempfile::tempdir().unwrap();
+            let (_, mut config, _) = fixture();
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            config.api_base_url = format!("http://{}/api", listener.local_addr().unwrap());
+            let server = serve_path(listener, 1, "stack/propose", move |_| {
+                Some((
+                    status,
+                    serde_json::json!({"generation":expected_generation,"head":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}),
+                ))
+            });
+            let result = reserved_authenticated(
+                directory.path(),
+                &config,
+                "sentinel-private-token",
+                "11111111-1111-4111-8111-111111111111",
+                "stack.propose",
+                Some(7),
+            );
+            server.join().unwrap();
+            if status == 200 && expected_generation == 7 {
+                assert_eq!(result.unwrap()["generation"], 7);
+            } else {
+                assert_eq!(
+                    result.unwrap_err().code,
+                    if status == 403 {
+                        "source_refused"
+                    } else {
+                        "source_publication_unavailable"
+                    }
+                );
+            }
+            assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let (_, mut config, _) = fixture();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        config.api_base_url = format!("http://{}/api", listener.local_addr().unwrap());
+        let server = serve_path(listener, 1, "stack/candidate", |_| {
+            Some((
+                403,
+                serde_json::json!({"class":"permission","code":"permission","message":"Not available"}),
+            ))
+        });
+        let error = reserved_authenticated(
+            directory.path(),
+            &config,
+            "sentinel-private-token",
+            "11111111-1111-4111-8111-111111111111",
+            "stack.candidate",
+            None,
+        )
+        .unwrap_err();
+        server.join().unwrap();
+        assert_eq!(error.code, "source_refused");
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn reserved_receipts_require_positive_generation_and_immutable_heads() {
+        for value in [
+            serde_json::json!({}),
+            serde_json::json!({"generation":0,"head":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}),
+            serde_json::json!({"generation":7,"head":"@"}),
+            serde_json::json!({"generation":7,"head":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}),
+        ] {
+            assert!(validate_reserved_ack(value, None).is_err());
+        }
+        let value = serde_json::json!({"generation":7,"base":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"});
+        assert!(validate_reserved_ack(value, None).is_ok());
+    }
+}
+
+/// Reserved actions use the provisioned publisher transport, with live admission
+/// before opening JJ. Neither URL, token nor current-run identity is flow input.
+pub(crate) fn reserved(path: &Path, input: &serde_json::Value) -> Result<serde_json::Value> {
+    let object = input.as_object().ok_or_else(invalid)?;
+    if object.keys().any(|key| {
+        !["operation", "repositoryPath", "requestId", "generation"].contains(&key.as_str())
+    }) {
+        return Err(invalid());
+    }
+    let operation = input["operation"].as_str().ok_or_else(invalid)?;
+    let request_id = input["requestId"].as_str().ok_or_else(invalid)?;
+    if request_id.len() != 36
+        || !request_id.bytes().enumerate().all(|(i, b)| {
+            if [8, 13, 18, 23].contains(&i) {
+                b == b'-'
+            } else {
+                b.is_ascii_digit() || (b'a'..=b'f').contains(&b)
+            }
+        })
+        || !["stack.candidate", "stack.propose"].contains(&operation)
+    {
+        return Err(invalid());
+    }
+    let generation = if operation == "stack.propose" {
+        Some(
+            input["generation"]
+                .as_i64()
+                .filter(|n| *n > 0 && *n <= i32::MAX as i64)
+                .ok_or_else(invalid)?,
+        )
+    } else {
+        if input.get("generation").is_some() {
+            return Err(invalid());
+        }
+        None
+    };
+    let config: Config = crate::source_create::read_provisioned_config().map_err(|_| invalid())?;
+    if config.actor_id <= 0 || !config_valid(&config, path) {
+        return Err(invalid());
+    }
+    let token = credential(&config)?;
+    reserved_authenticated(path, &config, &token, request_id, operation, generation)
+}
+
+fn reserved_authenticated(
+    path: &Path,
+    config: &Config,
+    token: &str,
+    request_id: &str,
+    operation: &str,
+    generation: Option<i64>,
+) -> Result<serde_json::Value> {
+    let url = format!(
+        "{}/repos/{}/workspaces/{}/stack/{}",
+        config.api_base_url,
+        config.repository_slug,
+        config.workspace_id,
+        operation.trim_start_matches("stack.")
+    );
+    let mut body = serde_json::json!({"requestId":request_id});
+    if let Some(n) = generation {
+        body["generation"] = n.into();
+    }
+    let (status, mut value) = request_json(&url, &body.to_string(), token)?;
+    if operation == "stack.candidate" && status == "204" {
+        let _lock =
+            crate::workspace_engine::CodingLock::acquire(path).map_err(|_| unavailable())?;
+        // The mutable JJ read snapshots tracked bytes as the agent. Publication
+        // retains that immutable object before the engine can pin or verify it.
+        let (revision, op_id) = crate::workspace_local::snapshot_for_stack(path, request_id)
+            .map_err(|error| Failure {
+                code: error.code,
+                message: "Native snapshot could not be recovered; retry the identical operation",
+            })?;
+        if revision["kind"] != "resolved" {
+            return Err(stale());
+        }
+        let source: Source = serde_json::from_value(serde_json::json!({"change_id":revision["changeId"], "commit_id":revision["commitId"], "tree_id":revision["treeId"], "parent_commit_ids":revision["parentCommitIds"]})).map_err(|_| invalid())?;
+        let request = Request {
+            source,
+            expected_operation_id: op_id,
+            creation: None,
+        };
+        publish_authenticated(path, config, &request, token)?;
+        body["source"] = serde_json::json!({"change_id":request.source.change_id,"commit_id":request.source.commit_id,"tree_id":request.source.tree_id,"parent_commit_ids":request.source.parent_commit_ids});
+        // CodingLock is released before waiting for the engine's verify lane.
+    } else if status != "200" && status != "202" {
+        return Err(reserved_refusal(&status));
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+    loop {
+        if status == "200" && generation.is_some() {
+            return validate_reserved_ack(value, generation);
+        }
+        let (next, received) = request_json(&url, &body.to_string(), token)?;
+        value = received;
+        match next.as_str() {
+            "200" => return validate_reserved_ack(value, generation),
+            "202" if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(500))
+            }
+            "202" => {
+                return Err(Failure {
+                    code: "workspace_busy",
+                    message: "Candidate verification or proposal is still running; retry",
+                })
+            }
+            _ => return Err(reserved_refusal(&next)),
+        }
+    }
+}
+
+fn reserved_refusal(status: &str) -> Failure {
+    if status == "401" || status == "403" || status == "409" || status == "400" {
+        Failure {
+            code: "source_refused",
+            message: "Current TODO run, machine or candidate no longer authorizes this operation",
+        }
+    } else {
+        unavailable()
+    }
+}
+fn validate_reserved_ack(
+    value: serde_json::Value,
+    generation: Option<i64>,
+) -> Result<serde_json::Value> {
+    let n = value["generation"]
+        .as_i64()
+        .filter(|n| *n > 0 && *n <= i32::MAX as i64)
+        .ok_or_else(unavailable)?;
+    if generation.is_some_and(|expected| expected != n) {
+        return Err(unavailable());
+    }
+    for field in if generation.is_some() {
+        &["head"][..]
+    } else {
+        &["base", "head"][..]
+    } {
+        let sha = value[*field].as_str().ok_or_else(unavailable)?;
+        if sha.len() != 40
+            || !sha
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
+            return Err(unavailable());
+        }
+    }
+    Ok(value)
 }
