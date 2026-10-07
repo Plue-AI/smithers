@@ -508,8 +508,8 @@ export const SecurityReview = (options: Options): SecurityTargets => {
   const paths = include.map((entry) => entry.pattern.slice(2))
   const named = checks.length - 1
   const shared = {
-    include,
-    context,
+    include: include.map((entry) => (globMagic.test(entry.pattern) || entry.exclude.length > 0) ? entry : Input.file(entry.pattern)),
+    context: context.map((entry) => (globMagic.test(entry.pattern) || entry.exclude.length > 0) ? entry : Input.file(entry.pattern)),
     deps: options.deps ?? [],
     prompt: securityPrompt,
     rubric,

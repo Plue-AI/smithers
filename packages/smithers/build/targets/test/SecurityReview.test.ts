@@ -82,7 +82,7 @@ describe("SecurityReview declaration", () => {
       Input.Glob.make({ pattern: "//packages/example/cmd/**", exclude: ["//packages/example/cmd/testdata/**"] }),
       Input.Glob.make({ pattern: "//shared/auth/**", exclude: [] })
     ])
-    expect(diff.context).toEqual([Input.Glob.make({ pattern: "//packages/example/README.md", exclude: [] })])
+    expect(diff.context).toEqual([Input.file("//packages/example/README.md")])
     expect(diff.changes.base).toBe("HEAD")
     expect(diff.batchSize).toBe(2)
     expect(attrsOf(targets.securityAudit).batchSize).toBe(16)
@@ -197,12 +197,12 @@ describe("SecurityReview trust boundaries", () => {
     ]
     for (const target of [targets.security, targets.securityAudit]) {
       const attrs = attrsOf(target)
-      expect(attrs.include.map((glob) => glob.pattern)).toHaveLength(expected.length)
-      expect(attrs.include.map((glob) => glob.pattern)).toEqual(
+      expect(attrs.include.map((glob) => (glob._tag === "File" ? glob.path : glob.pattern))).toHaveLength(expected.length)
+      expect(attrs.include.map((glob) => (glob._tag === "File" ? glob.path : glob.pattern))).toEqual(
         expect.arrayContaining(expected.map((path) => `//${path}`))
       )
-      expect(attrs.context.map((glob) => glob.pattern)).toHaveLength(5)
-      expect(attrs.context.map((glob) => glob.pattern)).toEqual(expect.arrayContaining([
+      expect(attrs.context.map((glob) => (glob._tag === "File" ? glob.path : glob.pattern))).toHaveLength(5)
+      expect(attrs.context.map((glob) => (glob._tag === "File" ? glob.path : glob.pattern))).toEqual(expect.arrayContaining([
         "//packages/example/README.md",
         "//packages/example/src/client/**",
         "//shared/auth/**",
