@@ -17,10 +17,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
+	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
@@ -214,6 +216,28 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 	var signals int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.signal'`).Scan(&signals))
 	require.Equal(t, 1, signals, "the mounted Answer admits exactly one durable signal")
+	t.Run("cold machine transitions stay visible without a host", func(t *testing.T) {
+		conn, response, err := websocket.Dial(t.Context(), "ws"+strings.TrimPrefix(server.URL, "http")+"/api/live", &websocket.DialOptions{
+			Subprotocols: []string{live.Protocol}, HTTPHeader: http.Header{"Origin": {server.URL}, "Cookie": {"smithers_session=" + cookie}},
+		})
+		require.NoError(t, err, "live upgrade response: %v", response)
+		defer conn.CloseNow()
+		conn.SetReadLimit(live.SendBudget)
+		sendPresenceFrame(t, conn, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s"}`, id))
+		first := readPresenceFrame(t, conn)
+		require.Equal(t, "snap", first.T)
+		require.Contains(t, string(first.Data), `"state":"asleep"`)
+		for _, transition := range []struct{ status, state string }{{"pending", "waking"}, {"failed", "failed"}, {"starting", "waking"}, {"suspended", "asleep"}} {
+			_, err := pool.Exec(t.Context(), `UPDATE workspaces SET status=$2 WHERE id=$1`, id, transition.status)
+			require.NoError(t, err)
+			frame := readPresenceFrame(t, conn)
+			require.Equal(t, "snap", frame.T)
+			require.Contains(t, string(frame.Data), `"state":"`+transition.state+`"`)
+			require.Contains(t, string(frame.Data), `"id":"`+id+`"`)
+		}
+		require.Zero(t, counted.starts.Load(), "machine projections never launch a workspace")
+		require.Zero(t, counted.reads.Load(), "cold projections never read a guest")
+	})
 	// An awake/released candidate keeps its existing immutable candidate semantics.
 	_, err = pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, id)
 	require.NoError(t, err)
