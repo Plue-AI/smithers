@@ -2,7 +2,7 @@
  * The host consumes typed output in one transaction; this flow has no write door.
  */
 import * as MemoryMine from "@smthrs/agent/MemoryMine"
-import { Action, Fault, Flow } from "@smthrs/flow"
+import { Action, Fault, Flow, FlowRuntime } from "@smthrs/flow"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import { Context, Effect, Layer, Schema } from "effect"
 
@@ -33,7 +33,7 @@ Fault.register("learning/Failed", {
 
 /** Run-credential reads are supplied only inside the isolated machine. No local fallback. */
 export class Binding extends Context.Service<Binding, {
-  readonly read: (todo: number) => Effect.Effect<Snapshot, LearningFailed>
+  readonly read: (todo: number, run: string) => Effect.Effect<Snapshot, LearningFailed>
 }>()("learning/Binding") {}
 
 /** Count distinct merged TODOs, not attempts, from the bounded outcome window. */
@@ -85,8 +85,58 @@ export const layer = Layer.unwrap(Effect.gen(function*() {
   const binding = yield* Binding
   const evaluator = yield* Evaluator.Evaluator
   return Run.toLayer(({ todo }) => Effect.gen(function*() {
-    const snapshot = yield* binding.read(todo)
+    const instance = yield* FlowRuntime.FlowInstance
+    const snapshot = yield* binding.read(todo, instance.executionId)
     if (snapshot.todo !== todo) return yield* Effect.fail(new LearningFailed({ code: "invalid_input", message: "Wrong TODO" }))
     return yield* learn(snapshot).pipe(Effect.provideService(Evaluator.Evaluator, evaluator))
   }))
 }))
+
+/** Packaged guest-only host wiring; operator configuration never comes from payloads. */
+export const machineBinding = (options: {
+  readonly origin?: string | undefined
+  readonly host: string
+  readonly credential?: string | undefined
+}) => Layer.succeed(Binding, {
+  read: (todo, run) => Effect.gen(function*() {
+    const origin = yield* Effect.try({
+      try: () => {
+        const url = new URL(options.origin ?? "")
+        if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.pathname !== "/" || url.search || url.hash || !options.host || !options.credential)
+          throw new Error("Learning host binding unavailable")
+        return url.origin
+      },
+      catch: () => new LearningFailed({ code: "unavailable", message: "Learning host binding unavailable" })
+    })
+    const value = yield* Effect.tryPromise({
+      try: async signal => {
+        const response = await fetch(`${origin}/api/gateways/${encodeURIComponent(options.host)}/learning/${encodeURIComponent(run)}/evidence`, {
+          headers: { Authorization: `Bearer ${options.credential}` }, signal, redirect: "error"
+        })
+        if (!response.ok) { await response.body?.cancel(); throw new Error("Learning evidence refused") }
+        const reader = response.body?.getReader()
+        if (!reader) throw new Error("Learning evidence missing")
+        const decoder = new TextDecoder()
+        let bytes = 0, text = ""
+        try {
+          while (true) {
+            const chunk = await reader.read()
+            if (chunk.done) break
+            bytes += chunk.value.byteLength
+            if (bytes > 2 * 1024 * 1024) throw new Error("Learning evidence exceeds limit")
+            text += decoder.decode(chunk.value, { stream: true })
+          }
+          text += decoder.decode()
+          return JSON.parse(text) as unknown
+        } finally { await reader.cancel(); reader.releaseLock() }
+      },
+      catch: () => new LearningFailed({ code: "unavailable", message: "Learning evidence unavailable" })
+    })
+    const snapshot = yield* Schema.decodeUnknownEffect(Snapshot)(value).pipe(
+      Effect.mapError(() => new LearningFailed({ code: "invalid_input", message: "Invalid Learning evidence" }))
+    )
+    if (snapshot.todo !== todo || snapshot.run !== run)
+      return yield* Effect.fail(new LearningFailed({ code: "invalid_input", message: "Wrong Learning evidence binding" }))
+    return snapshot
+  })
+})

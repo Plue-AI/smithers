@@ -1918,6 +1918,38 @@ type PostAPIGatewaysHostFileWriteGrantsResponse struct {
 	BatchDigest    string `json:"batch_digest"`
 }
 
+// GetAPIGatewaysHostLearningRunEvidenceResponse is generated from docs/api/openapi.yaml.
+type GetAPIGatewaysHostLearningRunEvidenceResponse struct {
+	Repository string                                                      `json:"repository"`
+	Todo       int64                                                       `json:"todo"`
+	Run        string                                                      `json:"run"`
+	State      string                                                      `json:"state"`
+	Change     string                                                      `json:"change"`
+	Commit     string                                                      `json:"commit"`
+	Attempts   []string                                                    `json:"attempts"`
+	Journal    []GetAPIGatewaysHostLearningRunEvidenceResponseJournalItem  `json:"journal"`
+	Outcomes   []GetAPIGatewaysHostLearningRunEvidenceResponseOutcomesItem `json:"outcomes"`
+}
+
+// GetAPIGatewaysHostLearningRunEvidenceResponseJournalItem is generated from docs/api/openapi.yaml.
+type GetAPIGatewaysHostLearningRunEvidenceResponseJournalItem struct {
+	Seq       int64   `json:"seq"`
+	EventType string  `json:"eventType"`
+	Payload   AnyJSON `json:"payload"`
+}
+
+// GetAPIGatewaysHostLearningRunEvidenceResponseOutcomesItem is generated from docs/api/openapi.yaml.
+type GetAPIGatewaysHostLearningRunEvidenceResponseOutcomesItem struct {
+	Todo     int64                                                                   `json:"todo"`
+	Failures []GetAPIGatewaysHostLearningRunEvidenceResponseOutcomesItemFailuresItem `json:"failures"`
+}
+
+// GetAPIGatewaysHostLearningRunEvidenceResponseOutcomesItemFailuresItem is generated from docs/api/openapi.yaml.
+type GetAPIGatewaysHostLearningRunEvidenceResponseOutcomesItemFailuresItem struct {
+	Signature string `json:"signature"`
+	Text      string `json:"text"`
+}
+
 // GetAPIGithubSyncResponse is generated from docs/api/openapi.yaml.
 type GetAPIGithubSyncResponse struct {
 	State         string     `json:"state"`
@@ -3144,6 +3176,13 @@ func (c *Client) PutAPIGatewaysHostRepositoryJobsJobManualRequest(ctx context.Co
 func (c *Client) PutAPIGatewaysHostRepositoryJobsJobTrialsRequest(ctx context.Context, hostID string, job string, requestID string, body any) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "PUT", "/api/gateways/"+url.PathEscape(hostID)+"/repository-jobs/"+url.PathEscape(job)+"/trials/"+url.PathEscape(requestID), nil, body, &out)
+	return out, err
+}
+
+// GetAPIGatewaysHostLearningRunEvidence calls GET /api/gateways/{hostID}/learning/{runID}/evidence.
+func (c *Client) GetAPIGatewaysHostLearningRunEvidence(ctx context.Context, hostID string, runID string) (GetAPIGatewaysHostLearningRunEvidenceResponse, error) {
+	var out GetAPIGatewaysHostLearningRunEvidenceResponse
+	err := c.do(ctx, "GET", "/api/gateways/"+url.PathEscape(hostID)+"/learning/"+url.PathEscape(runID)+"/evidence", nil, nil, &out)
 	return out, err
 }
 

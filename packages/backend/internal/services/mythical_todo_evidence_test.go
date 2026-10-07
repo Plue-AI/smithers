@@ -208,7 +208,10 @@ func TestTodoEvidenceRetainsPreviousRevisionWithinAttempt(t *testing.T) {
 	item = retainTodoAttemptEvidence(item)
 	assertPrevious(item, `[{"kind":"check","name":"unit","state":"failed"}]`)
 	require.Equal(t, item, retainTodoAttemptEvidence(item), "replayed checkpoints preserve both revisions")
-	retained, err := json.Marshal(mythicalChecksOf(item).Attempts[0])
+	stored := mythicalChecksOf(item).Attempts[0]
+	require.Equal(t, []LearningFailure{{Signature: "check:unit@check", Text: "Check unit failed."}}, stored.Failures)
+	stored.Failures = nil // Private mining data is omitted from the card contract.
+	retained, err := json.Marshal(stored)
 	require.NoError(t, err)
 	item.Attempt = 2
 	item = retainTodoAttemptEvidence(item)
