@@ -102,6 +102,7 @@
   {"id":"post_api_model_openrouter_path","method":"POST","path":"/api/model/openrouter/{path}"},
   {"id":"post_api_model_stream","method":"POST","path":"/api/model/stream"},
   {"id":"post_api_model_test","method":"POST","path":"/api/model/test"},
+  {"id":"get_api_model_test_receipt","method":"GET","path":"/api/model/test/receipt"},
   {"id":"post_api_model_vercel_path","method":"POST","path":"/api/model/vercel/{path}"},
   {"id":"get_api_notifications","method":"GET","path":"/api/notifications"},
   {"id":"get_api_notifications_events","method":"GET","path":"/api/notifications/events"},
