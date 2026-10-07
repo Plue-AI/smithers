@@ -41,8 +41,9 @@ func TestBranchConversationsMigrationPreservesPrivateTurns(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT jsonb_agg(to_jsonb(t) ORDER BY id)::text FROM chat_turns t`).Scan(&turnsBefore))
 	require.NoError(t, pool.QueryRow(ctx, `SELECT jsonb_agg(to_jsonb(b) ORDER BY turn_id, batch_number)::text FROM chat_turn_batches b`).Scan(&batchesBefore))
 
-	require.NoError(t, Apply(ctx, pool))
-	require.NoError(t, Apply(ctx, pool))
+	// Compare the cutover itself before later additive migrations change the row shape.
+	require.NoError(t, applyOnce(ctx, pool, migrations[:cut+1]))
+	require.NoError(t, applyOnce(ctx, pool, migrations[:cut+1]))
 	var turnsAfter, batchesAfter string
 	var promoted int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT jsonb_agg(to_jsonb(t)-'conversation_id' ORDER BY id)::text FROM chat_turns t`).Scan(&turnsAfter))
@@ -51,6 +52,9 @@ func TestBranchConversationsMigrationPreservesPrivateTurns(t *testing.T) {
 	require.JSONEq(t, batchesBefore, batchesAfter)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM chat_turns WHERE conversation_id IS NOT NULL`).Scan(&promoted))
 	require.Zero(t, promoted, "legacy private turns must not enter shared conversation history or queues")
+
+	require.NoError(t, Apply(ctx, pool))
+	require.NoError(t, Apply(ctx, pool))
 
 	// New shared turns still enforce one producer per repository/conversation,
 	// without an old private producer blocking admission or queue progress.
