@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test"
 
 /*
- * The proof tier (.specs/product/features.json; EVIDENCE-CONTRACT.md): one spec
+ * The proof tier: one spec
  * per journey in e2e/proof, each on its own install from the real server
  * bundle with the GitHub fake and real models (e2e/proof/fixtures.ts), every
  * person's browser recorded. Never part of a default run:

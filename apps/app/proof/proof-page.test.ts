@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { mkdtempSync, readFileSync, existsSync, rmSync } from "node:fs"
+import { spawnSync } from "node:child_process"
+import { mkdtempSync, readFileSync, existsSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
@@ -229,6 +230,43 @@ describe("property: coverage", () => {
       for (const ref of frames) expect(count(html, `data-mock-step="${ref}"`)).toBe(1)
       expect(count(html, "</script>")).toBe(3)
       expect(model.counts.works).toBe(Object.values(model.features).filter(each => each.verdict.kind === "works").length)
+    }
+  })
+})
+
+
+describe("proof page CLI", () => {
+  const cli = join(import.meta.dir, "page.ts")
+  test("requires a manifest before reading results or writing a page", () => {
+    for (const args of [[], ["--features"], ["--features", "--results", "absent.json"]]) {
+      const result = spawnSync(process.execPath, [cli, ...args], { encoding: "utf8" })
+      expect(result.status).toBe(1)
+      expect(result.stderr).toContain("proofPage: --features <json> is required")
+    }
+  })
+  test("reports a missing explicit manifest", () => {
+    const result = spawnSync(process.execPath, [cli, "--features", join(fixtures, "absent.json")], { encoding: "utf8" })
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain("proofPage: no features at")
+    expect(result.stderr).toContain("absent.json")
+  })
+  test("generates a page from caller claims and refuses disagreements", () => {
+    const out = mkdtempSync(join(tmpdir(), "proof-cli-"))
+    try {
+      const manifest = join(out, "features.json")
+      const args = [cli, "--features", manifest, "--results", join(fixtures, "results.json"), "--mock", join(fixtures, "mock-steps.json"), "--out", out]
+      writeFileSync(manifest, JSON.stringify(fixtureFeatures))
+      const disagree = spawnSync(process.execPath, args, { encoding: "utf8" })
+      expect(disagree.status).toBe(1)
+      expect(disagree.stderr).toContain("fx-disagree is not-implemented")
+      expect(existsSync(join(out, "index.html"))).toBe(true)
+      writeFileSync(manifest, JSON.stringify(fixtureFeatures.map(feature => feature.id === "fx-disagree" ? { ...feature, status: "implemented" } : feature)))
+      const agreed = spawnSync(process.execPath, args, { encoding: "utf8" })
+      expect(agreed.status).toBe(0)
+      expect(agreed.stdout).toContain("2/7 features work")
+      expect(readFileSync(join(out, "index.html"), "utf8")).toContain("data:image/png;base64,")
+    } finally {
+      rmSync(out, { recursive: true, force: true })
     }
   })
 })
