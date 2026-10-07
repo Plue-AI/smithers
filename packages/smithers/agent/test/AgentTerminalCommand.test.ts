@@ -85,6 +85,40 @@ describe("registered terminal command result contract", () => {
     expect(releases).toBe(2)
   })
 
+  it.each([status, { kind: "signal", signal: 15 } as const])("refuses reuse when subscription release yields another frame: %j", async (completion) => {
+    const killing = deferred<void>()
+    const killed = deferred<void>()
+    let calls = 0
+    const commands = new Commands({
+      execute: async function*() {
+        calls++
+        try {
+          yield output("fixture")
+          yield completion
+        } finally {
+          // AsyncGenerator.return() need not finish the subscription. This
+          // fixture retains it by yielding from the generator's finally block.
+          yield output("late output")
+        }
+      },
+      killRun: async () => { killing.resolve(); await killed.promise }
+    })
+    let settled = false
+    const first = commands.run(input, controller().signal).catch((error) => {
+      settled = true
+      return error
+    })
+    const second = commands.run(input, controller().signal).catch((error) => error)
+    await killing.promise
+    expect(settled).toBe(false)
+    expect(calls).toBe(1)
+    killed.resolve()
+    expect(await first).toMatchObject({ code: "command_failed", message: "Agent terminal subscription still open" })
+    expect(await second).toMatchObject({ code: "provider_unavailable" })
+    expect(calls).toBe(1)
+    await commands.end()
+  })
+
   it("ends the run when releasing a completed command fails", async () => {
     let kills = 0
     const commands = new Commands({

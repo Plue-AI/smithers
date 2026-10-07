@@ -188,13 +188,19 @@ export class Commands {
           }
           // A generator can hold its subscription or command lock until its
           // finally block runs. Release it before admitting the next command.
-          await Promise.race([frames.return?.(), aborted])
+          const released = await Promise.race([frames.return?.(), aborted])
+          if (released !== undefined && released.done !== true) {
+            throw new StdError({ code: "command_failed", message: "Agent terminal subscription still open" })
+          }
           return capture.result(frame.code)
         } else if (frame.kind === "signal") {
           if (!Number.isInteger(frame.signal) || frame.signal < 1 || frame.signal > 64) {
             throw new StdError({ code: "command_failed", message: "Invalid command signal" })
           }
-          await Promise.race([frames.return?.(), aborted])
+          const released = await Promise.race([frames.return?.(), aborted])
+          if (released !== undefined && released.done !== true) {
+            throw new StdError({ code: "command_failed", message: "Agent terminal subscription still open" })
+          }
           return capture.result(128 + frame.signal)
         } else throw new StdError({ code: "command_failed", message: "Invalid terminal frame" })
       }
