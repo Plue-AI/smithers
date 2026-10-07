@@ -58,7 +58,7 @@ func workingConversation(t *testing.T) *conversationRehearsal {
 
 // A supplied context provider isolates credential lifecycle proof from native
 // repository IO. The ordinary conversation rehearsals retain the native reader.
-func workingConversationWithContext(t *testing.T, reader chat.ContextRepository) *conversationRehearsal {
+func workingConversationWithContext(t *testing.T, reader chat.ContextRepository, configure ...func(*localChat, *chat.RuntimeOptions)) *conversationRehearsal {
 	t.Helper()
 	f := &conversationRehearsal{slow: make(chan struct{}, 4), release: make(chan struct{})}
 	publicListener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -158,6 +158,9 @@ func workingConversationWithContext(t *testing.T, reader chat.ContextRepository)
 			options.ContextRepository = native.Read
 		} else {
 			options.ContextRepository = reader
+		}
+		for _, change := range configure {
+			change(local, options)
 		}
 		local.api = func(runtime *chat.Runtime) http.Handler {
 			cfg.Server.PublicURL = f.origin
