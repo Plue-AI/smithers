@@ -66,7 +66,7 @@ for (const unavailable of [[], [2], [3], [2, 3]]) test(`registry renders real br
     expect(host.querySelector("[data-flow]")).toBeNull()
     expect(frames.at(-1)).toEqual({ t: "presence", id: 4, where: { branch: "b-retry" } })
     // Authorization failures remain fatal even with unavailable optional streams.
-    await act(async () => socket.onmessage?.({ data: JSON.stringify({ t: "err", id: 1, code: "permission" }) }))
+    await act(async () => socket.onmessage?.({ data: JSON.stringify({ t: "err", id: 1, code: "forbidden" }) }))
     expect(host.textContent).toBe("")
     await act(async () => root.unmount())
     expect(timers.at(-1)?.cancelled).toBe(true)
@@ -95,6 +95,10 @@ test("/branch T2 mounts live facts and its Fork enters the production dispatcher
       return Response.json({ branch: "smithers/retry-webhooks", path: "retry.ts", language: "typescript", digest: "captured-digest",
         content: { kind: "text", text: "retained bytes\n" }, mode: "read_only", diagnostics: [], authors: [], editors: [] })
     }
+    if (path === "/api/branches/b-live/add-to-stack" && init?.method === "POST") {
+      requests.push(["POST", path, JSON.parse(String(init.body))])
+      return Response.json({state:"accepted",n:3,rev:1},{status:202})
+    }
     if (path === "/api/branches" && init?.method === "POST") {
       requests.push(["POST", path, JSON.parse(String(init.body))])
       return Response.json({ name: "scratch/ben/retry", kind: "scratch" }, { status: 201 })
@@ -115,9 +119,9 @@ test("/branch T2 mounts live facts and its Fork enters the production dispatcher
     if (card.kind !== "branch") throw new Error("Expected Branch")
     await act(async () => root.render(<ControllerTestProvider controller={controller}>{CARD_RENDERERS.branch.render(card, actions)}</ControllerTestProvider>))
     socket.readyState = 1; socket.onopen?.()
-    const snap = async (topic: string, data: unknown) => {
+    const snap = async (topic: string, data: unknown, cursor = 1) => {
       const frame = frames.find(frame => (frame as { topic?: string }).topic === topic) as { id: number }
-      await act(async () => socket.onmessage?.({ data: JSON.stringify({ t: "snap", id: frame.id, cursor: 1, data }) }))
+      await act(async () => socket.onmessage?.({ data: JSON.stringify({ t: "snap", id: frame.id, cursor, data }) }))
     }
     await snap("branch:b-live", { id: "b-live", name: "smithers/retry-webhooks", machine: { state: "asleep" }, item: { n: 2, title: "Retry webhooks", state: "working", place: 2 }, presence: [{ actor: { kind: "person", login: "alice", name: "Alice", avatar_url: "https://example.test/alice.png", color_index: 1 }, where: { kind: "file", path: "retry.ts", line: 12 } }], terminals: [], ssh_line: "ssh -p 2222 retry-webhooks@localhost" })
     await snap("branch:b-live:activity", [])
@@ -146,6 +150,13 @@ test("/branch T2 mounts live facts and its Fork enters the production dispatcher
       for (let i = 0; i < 20 && requests.length < 4; i++) await new Promise(resolve => setTimeout(resolve, 5))
     })
     expect(requests).toEqual([["GET", "/api/todos/2", undefined], ["GET", "/api/branches/smithers%2Fretry-webhooks", undefined], ["GET", "/api/branches/smithers%2Fretry-webhooks/files/retry.ts", undefined], ["POST", "/api/branches", { from: "T2" }]])
+    await snap("branch:b-live", { id:"b-live",name:"scratch/ben/try",scratch:{forked_from:{kind:"item",n:2,title:"Retry webhooks"}},machine:{state:"asleep"},presence:[],terminals:[],ssh_line:"" },2)
+    expect(host.querySelector('[data-flow="branch.fork"]')).toBeNull()
+    await act(async () => {
+      (host.querySelector('[data-flow="branch.add-to-stack"]') as HTMLButtonElement).click()
+      for(let i=0;i<30 && requests.length<5;i++) await new Promise(resolve=>setTimeout(resolve,5))
+    })
+    expect(requests.at(-1)).toEqual(["POST","/api/branches/b-live/add-to-stack",{text:"scratch/ben/try"}])
     expect(controller.design.enabled).toBe(false)
   } finally { await act(async () => root.unmount()); await controller.dispose(); live.dispose() }
 })

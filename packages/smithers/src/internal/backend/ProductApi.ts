@@ -633,6 +633,7 @@ export type SavedConversationProblem = {
 }
 
 export type Branch = {
+  todo_id?: string
   name: string
   kind: "scratch" | "item" | "main"
   state: "awake" | "asleep" | "waking" | "provisioning" | "failed" | "closed"
@@ -1599,6 +1600,31 @@ export interface PostApiBranchesInput {
 /** POST /api/branches: Fork a scratch branch */
 export const postApiBranches = (transport: Transport, input: PostApiBranchesInput): Promise<PostApiBranchesResponse> =>
   transport.request("POST", `/api/branches`, input.body) as Promise<PostApiBranchesResponse>
+
+export type PostApiBranchesBAddToStackBody = {
+  text?: string
+  title?: string
+  acceptance?: Array<string>
+  after?: number
+  before?: number
+}
+
+export type PostApiBranchesBAddToStackResponse = {
+  state: "accepted" | "pending"
+  n?: number
+  rev?: number
+  confirmation?: string
+}
+
+export interface PostApiBranchesBAddToStackInput {
+  readonly path: { readonly b: string }
+  readonly headers: { readonly "Idempotency-Key": string }
+  readonly body: PostApiBranchesBAddToStackBody
+}
+
+/** POST /api/branches/{b}/add-to-stack: Add a scratch branch to the stack */
+export const postApiBranchesBAddToStack = (transport: Transport, input: PostApiBranchesBAddToStackInput): Promise<PostApiBranchesBAddToStackResponse> =>
+  transport.request("POST", `/api/branches/${segment(input.path.b)}/add-to-stack`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiBranchesBAddToStackResponse>
 
 export type GetApiBranchesBResponse = Branch
 

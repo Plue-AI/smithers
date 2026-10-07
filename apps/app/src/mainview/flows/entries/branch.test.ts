@@ -143,8 +143,7 @@ test("install live dispatcher refuses absent Branch and Terminal providers befor
       ["terminal.watch", { id: "term-retry-1" }, "Terminal unavailable"],
       ["terminal.send", { id: "term-retry-1", command: "bad" }, "Terminal unavailable"],
       ["branch", { name: "retry-webhooks" }, "Branch unavailable"],
-      ["branch.rebase", { branch: "b-retry" }, "Branch unavailable"],
-      ["branch.fork", { from: "T9" }, "Branch unavailable"]
+      ["branch.rebase", { branch: "b-retry" }, "Branch unavailable"]
     ] as const) {
       expect(await submit(h, name, payload)).toMatchObject({ status: "failed", error })
     }
@@ -173,7 +172,7 @@ test("bootstrap and an unanswered live channel keep seeded Home branch doors ava
   } finally { await controller.dispose() }
 })
 
-test("On an install Fork is POST /api/branches {from, name}: the value is the new scratch branch, a refusal is the server message", async () => {
+test("On an install Fork requests POST /api/branches {from, name} in the background", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const posts: Array<{ body: unknown; key: string | null }> = []
   const profile = signupProfileFetch(async (input, init) => {
@@ -184,15 +183,18 @@ test("On an install Fork is POST /api/branches {from, name}: the value is the ne
       if (body.from === "T9") return Response.json({ code: "no_verified_head", class: "conflict", message: "T9 has no verified head to fork yet" }, { status: 409 })
       return Response.json({ name: `scratch/ben/${body.name ?? `fork-${body.from.toLowerCase()}`}`, kind: "scratch" }, { status: 201 })
     }
+    if (path.startsWith("/api/branches/") && init?.method !== "POST") return Response.json({ state: "asleep" })
     return new Response("{}", { status: 404 })
   })
   const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl,
     bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null } })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
   try {
-    expect(await controller.submitCommand({ name: "branch.fork", payload: { from: "T2", name: "try-retry" }, actor: "user" })).toEqual({ status: "executed", value: "scratch/ben/try-retry" })
-    expect(await controller.runCommandForResult("branch.fork", "T2")).toMatchObject({ status: "executed", value: "scratch/ben/fork-t2" })
-    expect((await controller.submitCommand({ name: "branch.fork", payload: { from: "T9" }, actor: "user" })).status).toBe("failed")
+    expect(await controller.submitCommand({ name: "branch.fork", payload: { from: "T2", name: "try-retry" }, actor: "user" })).toEqual({ status: "executed", value: "Requested" })
+    expect(await controller.runCommandForResult("branch.fork", "T2")).toMatchObject({ status: "executed", value: "Requested" })
+    expect((await controller.submitCommand({ name: "branch.fork", payload: { from: "T9" }, actor: "user" })).status).toBe("executed")
+    for (let i = 0; i < 100 && store.session().branchRequests?.some(row => row.state === "requested" || row.state === "provisioning"); i++) await new Promise(resolve => setTimeout(resolve, 10))
+    expect(store.session().branchRequests?.find(row => row.input.from === "T9")?.error).toBe("T9 has no verified head to fork yet")
     // A name is never a substitute for the required source; no HTTP mutation.
     expect(await controller.submitCommand({ name: "branch.fork", payload: { name: "T2" }, actor: "user" })).toMatchObject({ status: "form", fields: ["from"] })
     expect(posts.map(post => post.body)).toEqual([{ from: "T2", name: "try-retry" }, { from: "T2" }, { from: "T9" }])
@@ -288,4 +290,29 @@ test("an unanswered live SSH provider keeps the off-install seed available", asy
   try {
     expect(await submit(h, "ssh", { branch: "retry-webhooks" })).toEqual({ status: "executed", value: "ssh -p 2222 retry-webhooks@maya-mini.tail1234.ts.net" })
   } finally { h.controller.dispose() }
+})
+test("install Add dispatches its placement and text once through the real HTTP adapter", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const posts: Array<{ path: string; body: unknown; key: string | null }> = []
+  const profile = signupProfileFetch(async (input, init) => {
+    const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url, "https://install.test").pathname
+    if (path.endsWith("/add-to-stack") && init?.method === "POST") {
+      posts.push({ path, body: JSON.parse(String(init.body)), key: new Headers(init.headers).get("Idempotency-Key") })
+      return Response.json({ state: "accepted", n: 12, rev: 1 }, { status: 202 })
+    }
+    return new Response("{}", { status: 404 })
+  })
+  const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl,
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null } })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+  try {
+    for (const placement of [{ after: 2 }, { before: 3 }, {}]) {
+      expect(await controller.submitCommand({ name: "branch.add-to-stack", payload: { branch: "scratch/ben/retry", text: "Keep retry", ...placement }, actor: "user" })).toMatchObject({ status: "executed", value: "Requested" })
+    }
+    expect(posts.map(post => post.body)).toEqual([{ text: "Keep retry", after: 2 }, { text: "Keep retry", before: 3 }, { text: "Keep retry" }])
+    expect(posts.every(post => post.path === "/api/branches/scratch%2Fben%2Fretry/add-to-stack" && !!post.key)).toBe(true)
+    expect(await controller.submitCommand({ name: "branch.add-to-stack", payload: { branch: "scratch/ben/retry", after: 2, before: 3 }, actor: "user" })).toMatchObject({ status: "failed" })
+    expect(posts).toHaveLength(3)
+    expect(controller.design.world().repo.stack).not.toContain("T12")
+  } finally { await controller.dispose() }
 })

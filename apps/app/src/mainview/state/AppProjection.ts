@@ -223,6 +223,8 @@ export const APP_TRANSITION_TYPES = {
   "first-run.dismissed": true,
   "signup.changed": true,
   "librarian.launches.changed": true,
+  "branch.requests.changed": true,
+
   "coding.provider.requests.changed": true,
   "stack.wiki.requests.changed": true,
   "github.sync.request.changed": true,
@@ -2128,6 +2130,11 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
         // Retired with the Librarian history flow (#2165); existing journals can contain it.
         case "librarian.launches.changed":
           break
+        case "branch.requests.changed": {
+          collections.sessions.update(SESSION_ID, draft => { draft.branchRequests = transition.requests })
+          break
+        }
+
         case "coding.provider.requests.changed": {
           collections.sessions.update(SESSION_ID, draft => { draft.codingProviderRequests = transition.requests })
           break

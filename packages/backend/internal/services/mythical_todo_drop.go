@@ -106,19 +106,8 @@ func (s *MythicalService) dropTodo(ctx context.Context, number int64, input Todo
 			if item.FlowDigest.Valid && checks.RunLaunched && item.RequestOutcome == "" {
 				return todoControlUnavailable()
 			}
-			// Fork provenance belongs to the retained workspace. Removal cannot
-			// happen until T-MCH-08's stack writer folds this change into its
-			// first unmerged descendant; cancellation alone is no fold receipt.
-			var forks bool
-			if err := tx.QueryRow(ctx, `SELECT EXISTS (
-			 SELECT 1 FROM mythical_items child JOIN workspaces w ON w.id::text=child.workspace_id
-			 WHERE child.repository_id=$1 AND w.forked_from_item=$2
-			 AND child.id<>$2 AND child.state NOT IN ('landed','cancelled','rejected','declined'))`,
-				item.RepositoryID, item.ID).Scan(&forks); err != nil {
+			if err := s.FoldIntoForks(ctx, tx, stack, item); err != nil {
 				return err
-			}
-			if forks {
-				return todoControlUnavailable()
 			}
 			if err := s.cancelAttempt(ctx, tx, stack, item); err != nil {
 				return err

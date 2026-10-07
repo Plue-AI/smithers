@@ -2370,6 +2370,67 @@ paths:
           description: The TODO has no verified head yet (no_verified_head), is settled (todo_settled), or the branch exists from another revision
         '503':
           description: The stack service, the repository or branch machines unavailable
+  /api/branches/{b}/add-to-stack:
+    post:
+      x-composition: install
+      summary: Add a scratch branch to the stack
+      description: >-
+        The stack service retains the captured tree as one change from the fork
+        base, records its diff in revision 1, and adopts the existing workspace.
+        Placement defaults to after the source TODO, or append for main.
+        Delegated requests return a private confirmation; only the person's
+        browser approval performs adoption. Awake branches require S2 capture.
+      operationId: post_api_branches_b_add_to_stack
+      tags:
+        - Branches
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      parameters:
+        - name: b
+          in: path
+          required: true
+          schema: {type: string}
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              not:
+                required: [after, before]
+              properties:
+                text: {type: string}
+                title: {type: string}
+                acceptance:
+                  type: array
+                  items: {type: string}
+                after: {type: integer, minimum: 1}
+                before: {type: integer, minimum: 1}
+      responses:
+        '202':
+          description: Adopted TODO, or pending private confirmation
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [state]
+                properties:
+                  state: {type: string, enum: [accepted, pending]}
+                  n: {type: integer, minimum: 1}
+                  rev: {type: integer, minimum: 1}
+                  confirmation: {type: string}
+        '400': {description: Invalid text or placement}
+        '401': {description: No authenticated person}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404': {description: Branch not found}
+        '409': {description: Branch changed, placement unavailable, or idempotency mismatch}
+        '503': {description: Required admission, capture, confirmation or stack provider unavailable}
   /api/branches/{b}:
     get:
       x-composition: install
@@ -24815,6 +24876,7 @@ components:
       type: object
       required: [name, kind, state, machine]
       properties:
+        todo_id: {type: string, description: The adopted TODO id, when this branch is its current workspace.}
         name:
           type: string
         kind:
