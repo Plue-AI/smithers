@@ -155,6 +155,16 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 			if frame.T != kind {
 				continue
 			}
+			if frame.T == "delta" {
+				var event struct {
+					Data struct {
+						Home json.RawMessage `json:"home"`
+					} `json:"data"`
+				}
+				require.NoError(t, json.Unmarshal(frame.Data, &event), string(raw))
+				require.NotEmpty(t, event.Data.Home, string(raw))
+				frame.Data = event.Data.Home
+			}
 			var home struct {
 				Items []struct {
 					N     int `json:"n"`
@@ -209,7 +219,7 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 	require.Equal(t, 202, code, body)
 	position(2, 2)
 	position(1, 3)
-	readHome("snap", map[int]int{1: 3, 2: 2, 3: 4, 4: 5, 5: 6})
+	readHome("delta", map[int]int{1: 3, 2: 2, 3: 4, 4: 5, 5: 6})
 	require.False(t, runtime.CancelAdmission("workspace:ben", "Ben", time.Now()))
 	position(2, 1)
 	position(1, 2)
@@ -218,6 +228,14 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 	position(5, 5)
 	readHome("snap", map[int]int{1: 2, 2: 1, 3: 3, 4: 4, 5: 5})
 	require.Equal(t, todoCursor, readTodo(5), "person cancellation must refresh the card without inventing a TODO journal event")
+	// Cover both entry and cancellation while the durable subscriptions remain open.
+	_, err = runtime.Request("person", "workspace:ben-live", "Ben", "machine")
+	require.NoError(t, err)
+	readHome("snap", map[int]int{1: 3, 2: 2, 3: 4, 4: 5, 5: 6})
+	require.Equal(t, todoCursor, readTodo(6), "person entry retains the TODO journal cursor")
+	require.False(t, runtime.CancelAdmission("workspace:ben-live", "Ben", time.Now()))
+	readHome("snap", map[int]int{1: 2, 2: 1, 3: 3, 4: 4, 5: 5})
+	require.Equal(t, todoCursor, readTodo(5))
 	code, body = call("POST", "/api/todos/3", `{"op":"drop"}`, "drop-T3")
 	require.Equal(t, 202, code, body)
 	position(4, 3)
