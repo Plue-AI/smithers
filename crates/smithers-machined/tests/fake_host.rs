@@ -347,3 +347,41 @@ fn document_dispatch_rejects_untrusted_envelopes_before_provider() {
         Frame::decode(&fixture("doc-awareness-input")).unwrap()
     );
 }
+
+#[test]
+fn periodic_maintenance_never_overtakes_already_queued_mutations() {
+    use std::sync::mpsc;
+    struct Ticks(Arc<Mutex<Vec<&'static str>>>, mpsc::Sender<()>);
+    impl smithers_machined::hooks::Documents for Ticks {
+        fn tick(&self, _: &mut smithers_machined::lock::LockCx) -> smithers_machined::hooks::Result<()> {
+            self.0.lock().unwrap().push("timer");
+            let _ = self.1.send(());
+            Ok(())
+        }
+    }
+    let order = Arc::new(Mutex::new(vec![]));
+    let (ticked, ticks) = mpsc::channel();
+    let executor = Executor::start(Hooks {
+        documents: Arc::new(Ticks(order.clone(), ticked)), ..Default::default()
+    }).unwrap();
+    let (entered, entering) = mpsc::channel();
+    let (release, released) = mpsc::channel();
+    let first = executor.lock.enqueue("first", move |_| {
+        entered.send(()).unwrap();
+        released.recv().unwrap();
+    }).unwrap();
+    entering.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+    order.lock().unwrap().clear();
+    let observed = order.clone();
+    let queued = executor.lock.enqueue("already_queued", move |_| {
+        observed.lock().unwrap().push("queued");
+    }).unwrap();
+    // Make the timer due while the first mutation still owns the executor.
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    release.send(()).unwrap();
+    first.wait().unwrap();
+    queued.wait().unwrap();
+    ticks.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+    assert_eq!(&order.lock().unwrap()[..2], &["queued", "timer"]);
+    executor.shutdown().unwrap();
+}

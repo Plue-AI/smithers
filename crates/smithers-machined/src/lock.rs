@@ -3,7 +3,7 @@
 use crate::hooks::Hooks;
 use std::sync::mpsc::{self, Sender};
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
 };
 use std::thread::{self, JoinHandle};
@@ -113,7 +113,7 @@ impl LockCx {
 type Job = Box<dyn FnOnce(&mut LockCx) + Send>;
 #[derive(Clone)]
 pub struct Lock {
-    tx: Sender<(&'static str, Job)>,
+    tx: Arc<Sender<(&'static str, bool, Job)>>,
     epoch: Arc<AtomicU64>,
 }
 pub struct Executor {
@@ -143,19 +143,38 @@ impl Executor {
     }
     fn start_context(mut cx: LockCx) -> std::io::Result<Self> {
         let epoch = cx.epoch.clone();
-        let (tx, rx) = mpsc::channel::<(&'static str, Job)>();
+        let (tx, rx) = mpsc::channel::<(&'static str, bool, Job)>();
+        let tx = Arc::new(tx);
+        // Scheduling must use the same queue as callers. A weak producer lets
+        // shutdown disconnect and drain without a timer retaining its own queue.
+        let background = Arc::downgrade(&tx);
         let worker = thread::Builder::new()
             .name("machined-lock".into())
             .spawn(move || {
                 let mut last_tick = cx.hooks.clock.mono();
+                let tick_pending = Arc::new(AtomicBool::new(false));
                 loop {
                     let now = cx.hooks.clock.mono();
-                    if now.saturating_duration_since(last_tick) >= Duration::from_millis(25) {
-                        let _ =
-                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| cx.tick()));
+                    if now.saturating_duration_since(last_tick) >= Duration::from_millis(25)
+                        && !tick_pending.load(Ordering::Acquire)
+                    {
+                        if let Some(producer) = background.upgrade() {
+                            let pending = tick_pending.clone();
+                            pending.store(true, Ordering::Release);
+                            let _ = producer.send((
+                                "maintenance",
+                                false,
+                                Box::new(move |cx| {
+                                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                                        || cx.tick(),
+                                    ));
+                                    pending.store(false, Ordering::Release);
+                                }),
+                            ));
+                        }
                         last_tick = now;
                     }
-                    let (name, job) = match rx.recv_timeout(Duration::from_millis(25)) {
+                    let (name, counted, job) = match rx.recv_timeout(Duration::from_millis(25)) {
                         Ok(job) => job,
                         Err(mpsc::RecvTimeoutError::Disconnected) => break,
                         Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -164,9 +183,11 @@ impl Executor {
                     };
                     let start = cx.hooks.clock.mono();
                     job(&mut cx);
-                    cx.completed += 1;
-                    cx.last_hold =
-                        Some((name, cx.hooks.clock.mono().saturating_duration_since(start)));
+                    if counted {
+                        cx.completed += 1;
+                        cx.last_hold =
+                            Some((name, cx.hooks.clock.mono().saturating_duration_since(start)));
+                    }
                 }
             })?;
         Ok(Self {
@@ -192,6 +213,7 @@ impl Lock {
         self.tx
             .send((
                 name,
+                true,
                 Box::new(move |cx| {
                     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(cx)))
                         .map_err(|_| LockError::Panicked);
