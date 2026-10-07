@@ -24,3 +24,9 @@ pub mod worker;
 
 #[cfg(target_os = "linux")]
 pub mod accounts;
+
+#[cfg(target_os = "linux")]
+pub mod terminal;
+
+#[cfg(target_os = "linux")]
+pub mod confinement;

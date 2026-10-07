@@ -157,3 +157,16 @@ func TestMalformedPTYAndNonProcessSignals(t *testing.T) {
 		t.Fatal("non-PTY resize")
 	}
 }
+
+func TestFatalExitSignalDoesNotExpandHostSignalAdmission(t *testing.T) {
+	kind, _, err := exitRequest(0, "PIPE", false)
+	if err != nil || kind != "exit-signal" {
+		t.Fatal(kind, err)
+	}
+	var mapper requestMapper
+	mapper.started = true
+	mapper.kind = "exec"
+	if _, _, err := mapper.request("signal", ssh.Marshal(struct{ Name string }{"PIPE"})); err == nil {
+		t.Fatal("allowed PIPE request")
+	}
+}

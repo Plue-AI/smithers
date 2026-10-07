@@ -32,11 +32,20 @@ pub fn tcp(port: u16) -> io::Result<()> {
         result
     });
     let result = io::copy(&mut output, &mut io::stdout().lock());
-    let _ = output.shutdown(Shutdown::Both);
-    // Remote EOF may arrive while stdin is still open. Process exit cancels
-    // that blocked worker; waiting here would break TCP's output half-close.
-    drop(writer);
-    result.map(|_| ())
+    // Preserve TCP half-close: output EOF closes stdout, while input can keep
+    // flowing until SSH stdin EOF. Never shut down the peer's read direction.
+    unsafe {
+        libc::close(1);
+    }
+    if result.is_err() {
+        let _ = output.shutdown(Shutdown::Both);
+    }
+    let written = writer
+        .join()
+        .map_err(|_| io::Error::other("TCP stdin worker panicked"))?;
+    result?;
+    written?;
+    Ok(())
 }
 #[cfg(test)]
 mod tests {

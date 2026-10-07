@@ -50,6 +50,9 @@ type frame struct {
 
 func ptr[T any](v T) *T { return &v }
 func readFrame(r io.Reader) (frame, error) {
+	if transport, ok := r.(interface{ readSessionFrame() (frame, error) }); ok {
+		return transport.readSessionFrame()
+	}
 	var f frame
 	var length uint32
 	if err := binary.Read(r, binary.BigEndian, &length); err != nil {
@@ -155,7 +158,7 @@ func readFrame(r io.Reader) (frame, error) {
 	if f.Type == "exit" && f.Code == nil {
 		return f, errors.New("missing exit code")
 	}
-	if f.Type == "exit_signal" && (f.Core == nil || !validSignal(f.Name)) {
+	if f.Type == "exit_signal" && (f.Core == nil || !validExitSignal(f.Name)) {
 		return f, errors.New("invalid signal")
 	}
 	return f, nil
@@ -167,6 +170,9 @@ type frameWriter struct {
 }
 
 func (w *frameWriter) write(value any) error {
+	if transport, ok := w.w.(interface{ writeSessionFrame(any) error }); ok {
+		return transport.writeSessionFrame(value)
+	}
 	body, err := json.Marshal(value)
 	if err != nil {
 		return err
