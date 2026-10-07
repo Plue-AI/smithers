@@ -52,7 +52,7 @@ impl Repository {
         }
         Self::checked(Path::new("/usr/bin/git"), directory, spool)
     }
-    fn checked(git: &Path, directory: &Path, spool: &Path) -> io::Result<Self> {
+    pub(crate) fn checked(git: &Path, directory: &Path, spool: &Path) -> io::Result<Self> {
         let metadata = fs::symlink_metadata(spool)?;
         if !metadata.is_dir()
             || metadata.uid() != rustix::process::geteuid().as_raw()

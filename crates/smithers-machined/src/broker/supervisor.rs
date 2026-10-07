@@ -357,6 +357,9 @@ impl<K: Kernel> control::Controls for Supervisor<K> {
                 self.kernel.with(Kernel::available)?;
                 Ok(vec![])
             }
+            25 if body.is_empty() => {
+                serde_json::to_vec(&self.entries().collect::<Vec<_>>()).map_err(io::Error::other)
+            }
             24 if body.is_empty() => Ok(self.allocate_stream()?.to_be_bytes().to_vec()),
             _ => Err(invalid()),
         }

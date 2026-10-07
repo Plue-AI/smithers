@@ -2,6 +2,8 @@ fn main() {
     let args: Vec<_> = std::env::args().skip(1).collect();
     let result = match args.first().map(String::as_str) {
         #[cfg(target_os = "linux")]
+        Some("daemon") => smithers_machined::installed::run().map(|()| true),
+        #[cfg(target_os = "linux")]
         Some("broker") => smithers_machined::broker::process::run().map(|()| true),
         #[cfg(target_os = "linux")]
         Some("session-tcp") if args.len() == 2 => args[1]

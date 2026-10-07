@@ -474,6 +474,13 @@ impl<
         P: crate::events::Provider<crate::hooks::Actor, Blob = crate::hooks::Oid> + Send,
     > crate::hooks::Watcher for InotifyWatcher<I, P>
 {
+    fn ready(&self) -> crate::hooks::Result<()> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| hook_error(io::Error::other("watcher state poisoned")))?;
+        state.1.activate().map_err(hook_error)
+    }
     fn drain(&self, cx: &mut crate::lock::LockCx) -> crate::hooks::Result<()> {
         self.job(cx, |w, p, now| w.drain(p, now))
     }

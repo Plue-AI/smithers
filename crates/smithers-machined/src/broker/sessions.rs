@@ -9,7 +9,7 @@ pub const GRACE: Duration = Duration::from_secs(30);
 pub const KILL_DEADLINE: Duration = Duration::from_secs(5);
 pub const MAX_SESSIONS: usize = 512;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct User {
     pub login: String,
     pub uid: u32,
@@ -34,14 +34,14 @@ impl User {
         Ok(())
     }
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Kind {
     Pty,
     Exec,
     Sftp,
     Tcp,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Entry {
     pub id: u32,
     pub user: User,

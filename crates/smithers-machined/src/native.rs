@@ -244,10 +244,10 @@ impl Repository {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
-    fn fixture() -> (tempfile::TempDir, Repository) {
+    pub(crate) fn fixture() -> (tempfile::TempDir, Repository) {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("workspace");
         fs::create_dir(&root).unwrap();

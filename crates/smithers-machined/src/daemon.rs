@@ -267,10 +267,55 @@ pub fn refused(id: u32, error: Error) -> Frame {
 pub fn run(
     boot: crate::boot::Boot,
     hooks: Hooks,
-    mut source: impl crate::link::LinkSource,
+    source: impl crate::link::LinkSource,
     next_seq: impl Fn() -> io::Result<u64>,
 ) -> io::Result<()> {
+    run_with_local(boot, hooks, source, next_seq, None)
+}
+
+#[cfg(target_os = "linux")]
+type LocalDoor = (std::os::unix::net::UnixListener, Arc<crate::files::Files>);
+#[cfg(not(target_os = "linux"))]
+type LocalDoor = ();
+
+pub fn run_with_local(
+    boot: crate::boot::Boot,
+    hooks: Hooks,
+    mut source: impl crate::link::LinkSource,
+    next_seq: impl Fn() -> io::Result<u64>,
+    local: Option<LocalDoor>,
+) -> io::Result<()> {
     let daemon = Arc::new(Daemon::new(hooks)?);
+    #[cfg(target_os = "linux")]
+    if let Some((listener, files)) = local {
+        let daemon = daemon.clone();
+        std::thread::spawn(move || {
+            let active = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            for socket in listener.incoming() {
+                let Ok(socket) = socket else { break };
+                if active.fetch_add(1, Ordering::AcqRel) >= 64 {
+                    active.fetch_sub(1, Ordering::AcqRel);
+                    continue;
+                }
+                let active = active.clone();
+                let daemon = daemon.clone();
+                let files = files.clone();
+                std::thread::spawn(move || {
+                    let check = daemon.clone();
+                    let _ = crate::local::serve(
+                        socket,
+                        Arc::new(move || check.ready()),
+                        &*daemon.hooks.sessions,
+                        &daemon.executor.lock,
+                        files,
+                    );
+                    active.fetch_sub(1, Ordering::AcqRel);
+                });
+            }
+        });
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = local;
     let live = crate::link::Live::default();
     let mut backoff = crate::link::Backoff::default();
     loop {

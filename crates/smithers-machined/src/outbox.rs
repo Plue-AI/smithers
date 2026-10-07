@@ -69,6 +69,12 @@ impl<R: Refs> Outbox<R> {
         crate::events::killpoint("K3");
         Ok((seq, id))
     }
+    pub fn next_sequence(&self) -> io::Result<u64> {
+        self.store.next_sequence()
+    }
+    pub fn depth(&self) -> u32 {
+        self.store.sequences().count() as u32
+    }
     pub fn front(&self) -> io::Result<Option<Durable>> {
         if self.poisoned {
             return Err(invalid());

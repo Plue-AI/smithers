@@ -554,3 +554,27 @@ fn literal_open_size_is_columns_then_rows_on_the_wire() {
         }
     );
 }
+
+#[test]
+fn broker_registry_projection_is_read_only_and_retains_lingering_ownership() {
+    let (mut supervisor, state) = setup();
+    roster(&mut supervisor);
+    let id = open(&mut supervisor, user(), Kind::Pty);
+    supervisor.session(Request::Close(id)).unwrap();
+    let response = control::handle(&packet(25, &[]), &mut supervisor).unwrap();
+    assert_eq!(&response[..5], &[0, 0, 0, 9, 25]);
+    let entries: Vec<smithers_machined::broker::sessions::Entry> =
+        serde_json::from_slice(&response[5..]).unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].id, id);
+    assert_eq!(entries[0].user.login, "ben");
+    assert_eq!(entries[0].user.uid, 20001);
+    assert_eq!(entries[0].kind, Kind::Pty);
+    assert!(entries[0].closed);
+    assert_eq!(entries[0].run, None);
+    let forged = control::handle(&packet(25, br#"{"uid":0}"#), &mut supervisor).unwrap();
+    assert_eq!(forged[4], 255);
+    assert_eq!(supervisor.entries().count(), 1);
+    assert_eq!(state.lock().unwrap().spawns.len(), 1);
+    assert!(state.lock().unwrap().kills.is_empty());
+}

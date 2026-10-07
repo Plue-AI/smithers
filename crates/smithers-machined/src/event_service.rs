@@ -48,6 +48,28 @@ impl<R: Refs, B: Bundles> Events<R, B> {
         })
     }
 
+    pub fn next_sequence(&self) -> io::Result<u64> {
+        self.state
+            .lock()
+            .map_err(|_| io::Error::other("event state poisoned"))?
+            .outbox
+            .next_sequence()
+    }
+    pub fn queued(&self, head: Oid) -> io::Result<bool> {
+        self.state
+            .lock()
+            .map_err(|_| io::Error::other("event state poisoned"))?
+            .outbox
+            .contains_capture(head)
+    }
+    pub fn depth(&self) -> io::Result<u32> {
+        Ok(self
+            .state
+            .lock()
+            .map_err(|_| io::Error::other("event state poisoned"))?
+            .outbox
+            .depth())
+    }
     fn state(&self) -> hooks::Result<std::sync::MutexGuard<'_, State<R, B>>> {
         self.state
             .lock()
@@ -59,6 +81,22 @@ impl<R: Refs + Send, B: Bundles + Send> EventSink for Events<R, B>
 where
     B::Source: Send,
 {
+    fn presence(&self, payload: &[u8]) -> hooks::Result<()> {
+        let frame = Frame {
+            kind: 3,
+            stream: 0,
+            payload: payload.into(),
+        };
+        frame.encode().map_err(|_| hooks::Error::unsupported())?;
+        let mut state = self.state()?;
+        // Only the newest complete snapshot is useful after a slow reader.
+        state.hints.retain(|f| f.kind != 3);
+        if state.hints.len() == 64 {
+            state.hints.pop_front();
+        }
+        state.hints.push_back(frame);
+        Ok(())
+    }
     fn ready(&self) -> hooks::Result<()> {
         self.state()?.outbox.front().map(|_| ()).map_err(error)
     }

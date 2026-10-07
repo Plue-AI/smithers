@@ -120,6 +120,11 @@ pub trait Provider<A>: Objects {
     fn where_file(&mut self, session: u32, path: &str) -> io::Result<()>;
     fn moved_off(&mut self) -> io::Result<()>;
     fn snapshot(&mut self) -> io::Result<()>;
+    /// Saved document bytes have already reached disk on this mutation lock.
+    /// Feed their exact digest before draining the corresponding inotify event.
+    fn saved_writes(&mut self) -> Vec<(String, A, [u8; 32])> {
+        vec![]
+    }
 }
 pub struct Changes<A, B> {
     pub state: Checkpoint<A, B>,

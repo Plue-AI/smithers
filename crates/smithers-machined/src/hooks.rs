@@ -192,6 +192,9 @@ pub trait Broker: Send + Sync {
     }
 }
 pub trait EventSink: Send + Sync {
+    fn presence(&self, _payload: &[u8]) -> Result<()> {
+        Err(Error::unsupported())
+    }
     /// The authenticated link owns reconnect and receipts; append never waits
     /// for a network write on the mutation executor.
     fn reconnect(&self) -> Result<()> {

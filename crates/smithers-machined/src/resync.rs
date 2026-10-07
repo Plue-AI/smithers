@@ -38,6 +38,14 @@ impl<I: Ignore, A: Eq + Clone, B: Eq + Clone> WatchLoop<I, A, B> {
         if self.changes.needs_resync() {
             return self.resync(p, now);
         }
+        for (path, actor, expected) in p.saved_writes() {
+            if let Some((bytes, mode)) = p.read(&path)? {
+                let version = crate::versions::record(p, &bytes, mode)?;
+                if version.post_digest == expected {
+                    self.changes.own_write(p, now, &path, &actor, version)?;
+                }
+            }
+        }
         let events = match self.watch.drain() {
             Ok(events) => events,
             Err(e) => {

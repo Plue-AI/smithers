@@ -41,7 +41,7 @@ fn response(id: &[u8], variant: u8, fields: &[Vec<u8>]) -> Vec<u8> {
     bytes
 }
 pub fn handle(packet: &[u8], controls: &mut impl Controls) -> io::Result<Vec<u8>> {
-    if packet.len() >= 5 && matches!(packet[4], 17..=24) && packet.len() <= 65560 {
+    if packet.len() >= 5 && matches!(packet[4], 17..=25) && packet.len() <= 65560 {
         let mut reply = packet[..5].to_vec();
         match controls.stream(packet[4], &packet[5..]) {
             Ok(body) => reply.extend(body),
@@ -129,7 +129,7 @@ impl SocketpairBroker {
         request.push(variant);
         request.extend_from_slice(body);
         if request.len()
-            > if matches!(variant, 17..=24) {
+            > if matches!(variant, 17..=25) {
                 65560
             } else {
                 65536
@@ -300,6 +300,23 @@ impl crate::hooks::Sessions for SocketpairBroker {
 
 #[cfg(target_os = "linux")]
 impl SocketpairBroker {
+    /// Read-only projection of the sole broker-owned registry. No daemon field
+    /// can update a user, run, cgroup or session ownership through this operation.
+    pub fn registry(&self) -> crate::hooks::Result<Vec<super::sessions::Entry>> {
+        let bytes = self.call_body(25, &[])?;
+        let entries: Vec<super::sessions::Entry> =
+            serde_json::from_slice(&bytes).map_err(|_| error(12))?;
+        if entries.len() > 512 {
+            return Err(error(12));
+        }
+        for entry in &entries {
+            entry.user.validate().map_err(map_io)?;
+            if entry.id == 0 || entry.id > 0x7fff_ffff {
+                return Err(error(12));
+            }
+        }
+        Ok(entries)
+    }
     /// Shared stream allocator for document/object provider composition.
     pub fn allocate_stream(&self) -> crate::hooks::Result<u32> {
         let bytes = self.call_body(24, &[])?;
