@@ -2,10 +2,10 @@
  "attention": [],
  "background_runs": [],
  "counts": {
-  "dropped": 1,
+  "dropped": 0,
   "failed": 1,
   "in_review": 1,
-  "merged": 1,
+  "merged": 0,
   "needs_you": 1,
   "paused": 1,
   "queued": 1,

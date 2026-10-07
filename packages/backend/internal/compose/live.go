@@ -511,6 +511,7 @@ var syncCauses = services.HomeSyncCauses
 
 func homeModel(repository string, todos []map[string]any, sync *services.GitHubSyncHealth) map[string]any {
 	return services.HomeModel(repository, todos, sync)
+
 }
 
 func flowProposalReader(provider any) services.FlowProposalReader {
