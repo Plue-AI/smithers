@@ -233,33 +233,21 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 			lease := latest[id]
 			memberID, err := strconv.ParseInt(strings.TrimPrefix(id, "member:"), 10, 64)
 			if lease.Kind == "agent" {
-				actor := map[string]any{"kind": "agent", "id": id, "agent": lease.AgentKind, "name": lease.DisplayName, "avatar_url": placeholderAvatar, "color_index": 6, "session_id": lease.SessionID}
-				if lease.RunID != "" {
-					actor["run_id"] = lease.RunID
-				}
+				var sponsor *db.User
+				color := 6
 				if lease.ForMember != "" {
 					sponsorID, parseErr := strconv.ParseInt(strings.TrimPrefix(lease.ForMember, "member:"), 10, 64)
 					if parseErr != nil {
 						return nil, parseErr
 					}
-					sponsor, lookupErr := p.queries.GetUserByID(ctx, sponsorID)
+					person, lookupErr := p.queries.GetUserByID(ctx, sponsorID)
 					if lookupErr != nil {
 						return nil, lookupErr
 					}
-					avatar := sponsor.AvatarUrl
-					if avatar == "" {
-						avatar = placeholderAvatar
-					}
-					name := sponsor.DisplayName
-					if name == "" {
-						name = sponsor.Username
-					}
-					actor["for_member"] = map[string]any{"login": sponsor.Username, "name": name, "avatar_url": avatar}
-					actor["color_index"] = colors[sponsor.Username]
+					sponsor = &person
+					color = colors[person.Username]
 				}
-				if lease.AgentKind == "" {
-					actor["agent"] = "external"
-				}
+				actor := branchAgentActor(id, lease, sponsor, color)
 				presence = append(presence, presenceEntry(actor, lease, leases))
 				continue
 			}
@@ -414,6 +402,26 @@ func branchPersonActor(person db.User, color int) map[string]any {
 		name = person.Username
 	}
 	return map[string]any{"kind": "person", "login": person.Username, "name": name, "avatar_url": avatar, "color_index": color}
+}
+
+// branchAgentActor is shared by live presence and persisted change attribution.
+func branchAgentActor(id string, lease leaseParticipant, sponsor *db.User, color int) map[string]any {
+	actor := map[string]any{"kind": "agent", "id": id, "agent": lease.AgentKind, "name": lease.DisplayName, "avatar_url": placeholderAvatar, "color_index": 6}
+	if lease.SessionID != "" {
+		actor["session_id"] = lease.SessionID
+	}
+	if lease.RunID != "" {
+		actor["run_id"] = lease.RunID
+	}
+	if sponsor != nil {
+		person := branchPersonActor(*sponsor, color)
+		actor["for_member"] = map[string]any{"login": person["login"], "name": person["name"], "avatar_url": person["avatar_url"]}
+		actor["color_index"] = color
+	}
+	if lease.AgentKind == "" {
+		actor["agent"] = "external"
+	}
+	return actor
 }
 
 // bindRebasePresence installs the same authenticated lease reader used by live

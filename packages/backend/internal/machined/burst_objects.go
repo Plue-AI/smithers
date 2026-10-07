@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 )
@@ -20,6 +21,12 @@ import (
 // must serialize against repository maintenance, as for GitBundleImporter.
 type GitBurstObjects struct {
 	Resolve func(context.Context, string) (string, error)
+}
+
+// WithBurstObjects is for a repository whose lifetime is already held by the
+// caller. The install uses its transaction-bound repository capability instead.
+func (s GitBurstObjects) WithBurstObjects(ctx context.Context, _ pgx.Tx, _ string, visit func(BurstObjects) error) error {
+	return visit(s)
 }
 
 func (s GitBurstObjects) repository(ctx context.Context, branch string) (string, error) {

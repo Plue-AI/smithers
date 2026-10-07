@@ -150,3 +150,14 @@ func dispatchEvents(ctx context.Context, link *Link, branch string, apply EventH
 		}
 	}
 }
+
+// EventConsumerReady lets the installed launcher refuse before guest effects
+// when no lifecycle-owned consumer can drain reconciliation's durable outbox.
+func (r *Registry) EventConsumerReady() bool {
+	if r == nil {
+		return false
+	}
+	r.eventsMu.Lock()
+	defer r.eventsMu.Unlock()
+	return r.events != nil && !r.eventsClosing && r.events.ctx.Err() == nil
+}

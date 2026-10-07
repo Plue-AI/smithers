@@ -1,10 +1,9 @@
 # Machine host admission
 
-The host registry, authenticated link and RPC dispatcher are implemented as
-library boundaries. Install composition still does not plant the daemon or
-connect its watcher and object receiver; the existing reporter remains mounted.
-The existing reporter cannot supply boot authentication or connection leases;
-the registry is new for those duties.
+The single-owner install composes the host registry, authenticated RPC link,
+object receiver and event consumer. The runtime plants the pinned daemon and
+reconciles it before session admission. The former head reporter is removed.
+The registry owns boot authentication and connection leases.
 
 The runtime registers a host-authoritative branch, machine, boot id and newly
 minted machine credential before planting. A new boot atomically revokes the
@@ -25,17 +24,22 @@ Every admitted connection starts unready. The production adapter may call
 object-stream close, completing `wake_reconcile`, and observing `status.ready`.
 Stale replies and reader cleanup cannot affect a replacement lease.
 `RequireReady` checks the lease and branch; it does not replace request
-authorization or serialize an RPC with boot rotation. The eventual dispatcher
-must use this connection's stream, never look up a replacement after admission.
+authorization or serialize an RPC with boot rotation. The dispatcher uses this
+connection's stream, never a replacement looked up after admission.
 
 Activation still requires T-MCH-04's branch binding, T-INS-02's real microVM,
 T-ACC-03's authenticated branch authority, T-COL-03r's codec, T-COL-03a's daemon,
 T-COL-02's live publication, T-STK-12's durable pending-work delivery,
 T-COL-10's digest-aware routes, T-SEC-01's hardened installer, T-INS-01's
 main-pinned packaged binary and T-MCH-11's trusted guest identities/no-sudo
-image. There is no activation entry point in this increment.
+image. The launcher refuses unavailable providers. Before wake, the host exports
+its authoritative head through the authenticated object stream and waits for
+verified guest import. Missing objects refuse reconciliation rather than admit
+stale state.
 
-No root step is added. No boot file or credential is written to a guest.
+The installed launcher mints boot credentials from host state and plants only
+the main-pinned artifact through the existing trusted guest broker. Reference-host
+root-input and real-VM checks remain required for qualification.
 Working-together I6 installs `machine_event_receipts(workspace_id, event_id,
 outcome, at)` with a primary key on `(workspace_id, event_id)`, and
 `burst_files(event_id, path, change, before_blob, after_blob, post_digest,
@@ -43,8 +47,7 @@ renamed_to)` keyed by `(event_id, path)`. File rows reference the canonical
 `product_job_events.event_id`; receipts survive activity retention and are
 removed only with their workspace. Ingest must claim the receipt and insert
 activity plus file rows in one transaction before acknowledgment. The tables
-alone do not activate ingest or prove producer coverage. W3 and W6 own that
-composition. The install migration command and migration replay constraints
+alone do not prove producer coverage. The install migration command and replay constraints
 are tested against PostgreSQL.
 
 Unit tests cover registry
@@ -74,10 +77,11 @@ received offset; it refuses replacement boots. Close and confirmed user/run
 kills wake readers. Window frames remain visible for gateway mapping.
 
 The installed root launcher composes `broker/supervisor.rs` with the Linux
-process owner in `broker/spawn.rs`. Its environment/credential admission
-provider remains unavailable: trusted account provisioning, daemon composition
-and reference-host qualification must land before customer sessions can start.
-S1 terminal ownership remains until that replacement passes its real checks.
+process owner and `InstalledAdmission` in `broker/spawn.rs`. Member terminals
+use the runtime's sealed credential and provisioned roster through SessionRPC;
+the old per-terminal runtime process owner is removed. Reference-host root,
+credential and real-session qualification remains separate from the Linux
+component fixtures.
 
 The Go `Terminal` consumer returns output credit when `Read` delivers bytes,
 preserves exit status and signals, and sends stdin EOF separately from close.
@@ -188,8 +192,17 @@ PostgreSQL LISTEN broker. They never create activity, file-version rows, receipt
 or acknowledgements. The live adapter rebuilds and reauthorizes the branch before
 attaching a bounded batch of transient invalidations. Missing attribution or an
 unreconciled/replaced boot refuses publication. Hint loss is repaired by the
-next committed burst snapshot. Session-where consumption and real boot activation
-still require the T-TRM-07 host session binding and T-COL-03 installed event pump.
+next committed burst snapshot. The single-owner install binds this consumer and
+session-where publishing to its runtime registry. The installed launcher reads
+its authoritative head from the locked host store and requires the consumer
+before guest effects; it does not start a second event reader. Burst verification
+and ref retention share the event transaction and repository maintenance lock,
+including with a one-connection writer pool.
+
+Person/session and registered-run attribution reuse successful host SessionRPC
+bindings. Unknown, ended or replayed sessions without an admitted binding refuse
+publication. Opaque host-principal attribution remains unavailable until the
+write/document doors supply its admission registry; bytes cannot name a member.
 The T-COL-05 moved-off event remains unavailable without its transactional writer.
 
 `POST /api/branches/{b}/files/{path}` accepts the File seam's
@@ -199,8 +212,10 @@ Only that branch's retained version can supply the before bytes. Its blob hash
 is checked before the shared guarded write, using the recorded post-digest (or
 `absent` for deletion). A stale file returns 409 without a retry or overwrite.
 
-The host connection pump and object receiver are still uncomposed. Component
-PostgreSQL, HTTP and live-socket evidence does not qualify the real watcher,
-object transfer, formatter or reference-host timing checks.
+The install composes the authenticated object receiver, burst/capture consumer,
+and live notifications. PostgreSQL, native Git, HTTP and live-socket fixtures
+exercise these bindings, but do not qualify the real watcher, VM faults, root
+broker, formatter or reference-host timing checks. Restore still requires the
+runtime's qualified WorkspaceCompareWriter; it has no blind-write fallback.
 
-The existing Git backing-store provider writes literal per-file blobs and parentless version commits without filters or hooks. The private watcher checkpoint pins its current and previous version sets before atomic replacement, and recovery validates burst identities, paths, modes and rename relationships. Corrupt or unsafe recovery files refuse startup instead of resetting history. Installed watcher composition remains required.
+The existing Git backing-store provider writes literal per-file blobs and parentless version commits without filters or hooks. The private watcher checkpoint pins its current and previous version sets before atomic replacement, and recovery validates burst identities, paths, modes and rename relationships. Corrupt or unsafe recovery files refuse startup instead of resetting history. Installed watcher/VM qualification remains required.

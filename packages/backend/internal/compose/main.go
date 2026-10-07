@@ -1784,6 +1784,17 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			presence.dispatcher = flow.dispatcher
 			presence.hosts = flow.bindings
 		}
+		stopEvents, err := bindMachineEvents(ctx, options.Machined, pool, repoHostClient, presence)
+		if err != nil {
+			return fmt.Errorf("bind machine events: %w", err)
+		}
+		defer stopEvents()
+		if runtime, ok := options.Workspace.(interface {
+			BindMachinedHost(func(context.Context, string) (string, error))
+		}); ok {
+			runtime.BindMachinedHost(machineBranchHead(pool, repoHostClient))
+			defer runtime.BindMachinedHost(nil)
+		}
 		stopPresence := presence.consumeDaemons(ctx, options.Machined)
 		defer stopPresence()
 		topics := &liveTopics{changePool: pool, jobs: commandJobs, secrets: secretService, capacity: installCapacity, presence: presence, queries: queries, todos: mythicalService, sync: gitHubSyncRoute, external: sessions, install: installSetup, members: authService.Members}

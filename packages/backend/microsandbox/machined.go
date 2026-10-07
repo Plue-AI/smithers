@@ -10,12 +10,12 @@ import (
 
 const machinedBundlePath = "bin/linux-arm64/smithers-machined"
 
-// BindMachinedHost supplies the composed host's authoritative branch head and
-// durable event dispatcher. Neither is sourced from guest metadata or argv.
-func (r *Runtime) BindMachinedHost(head func(context.Context, string) (string, error), dispatch func(context.Context, *machined.Link, string) error) {
+// BindMachinedHost supplies the composed host's authoritative branch head.
+// The registry owns event consumption; neither comes from guest metadata.
+func (r *Runtime) BindMachinedHost(head func(context.Context, string) (string, error)) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.machinedHead, r.machinedDispatch = head, dispatch
+	r.machinedHead = head
 }
 
 // EnsureMachined plants only the pinned install artifact, then authenticates
@@ -32,9 +32,9 @@ func (r *Runtime) EnsureMachined(ctx context.Context, id string) error {
 		return nil
 	}
 	r.mu.Lock()
-	headReader, dispatch := r.machinedHead, r.machinedDispatch
+	headReader := r.machinedHead
 	r.mu.Unlock()
-	if r.config.Bundle == nil || headReader == nil || dispatch == nil {
+	if r.config.Bundle == nil || headReader == nil || !r.machined.EventConsumerReady() {
 		return fmt.Errorf("%w: installed machine host providers unavailable", ErrUnavailable)
 	}
 	data, digest, err := linuxArm64From(r.config.Bundle, machinedBundlePath, "packaged machine broker")
@@ -101,9 +101,8 @@ func (r *Runtime) EnsureMachined(ctx context.Context, id string) error {
 		case <-timer.C:
 		}
 	}
-	// The dispatcher drains replay while reconciliation may await durable acks.
-	// This link is shared by all people; closing a terminal cannot cancel it.
-	go func() { defer link.Close(); _ = dispatch(context.Background(), link, id) }()
+	// Connect starts the registry-owned consumer before reconciliation waits
+	// for durable acknowledgements. A terminal never owns its lifetime.
 	if err = r.machined.AdmitReady(ctx, id, head, nil); err != nil {
 		_ = link.Close()
 		return err

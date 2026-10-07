@@ -27,11 +27,17 @@ type BurstObjects interface {
 	PublishBurst(context.Context, string, string, string) error
 }
 
+// BurstStore holds repository maintenance exclusion while the event uses its
+// existing database transaction. Providers must not borrow a second connection.
+type BurstStore interface {
+	WithBurstObjects(context.Context, pgx.Tx, string, func(BurstObjects) error) error
+}
+
 // BurstIngest is the sole transactional projection of an authenticated event.
 // Scope and attribution are host-resolved; no guest principal names a member.
 type BurstIngest struct {
 	Pool    *pgxpool.Pool
-	Objects BurstObjects
+	Objects BurstStore
 	// ResolveActor is a read-only attribution lookup. It may consult the
 	// authenticated session registry; it runs without the registry lock.
 	ResolveActor func(context.Context, string, wire.Actor) (json.RawMessage, error)
@@ -136,7 +142,20 @@ func (s *BurstIngest) Apply(ctx context.Context, connection *Connection, scope j
 			seen[f.Path] = true
 		}
 	}
-	missing, err := s.Objects.VerifyBurst(ctx, branch, b)
+	err = s.Objects.WithBurstObjects(ctx, tx, branch, func(objects BurstObjects) error {
+		if objects == nil {
+			return ErrNotReady
+		}
+		var applyErr error
+		ack, applyErr = commitBurst(ctx, tx, objects, branch, scope, event, b, actor, multipart)
+		return applyErr
+	})
+	return ack, err
+}
+
+func commitBurst(ctx context.Context, tx pgx.Tx, objects BurstObjects, branch string, scope jobs.Scope, event Event, b wire.Burst, actor json.RawMessage, multipart bool) (Acknowledgement, error) {
+	ack := Acknowledgement{Seq: event.Seq}
+	missing, err := objects.VerifyBurst(ctx, branch, b)
 	if err != nil {
 		return ack, err
 	}
@@ -196,7 +215,7 @@ func (s *BurstIngest) Apply(ctx context.Context, connection *Connection, scope j
 	// readers. A ref failure rolls back every row and receipt. If SQL commit
 	// fails after retention, the immutable ref safely survives and replay
 	// retries the transaction against the same pinned bytes.
-	if err = s.Objects.PublishBurst(ctx, branch, burstID, b.Versions); err != nil {
+	if err = objects.PublishBurst(ctx, branch, burstID, b.Versions); err != nil {
 		return ack, err
 	}
 	if err = tx.Commit(ctx); err != nil {

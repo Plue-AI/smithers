@@ -249,6 +249,7 @@ func TestEventConsumerRefusesWrongAcknowledgement(t *testing.T) {
 
 func TestEventConsumerRequiresLiveBinding(t *testing.T) {
 	var missing *Registry
+	require.False(t, missing.EventConsumerReady())
 	_, err := missing.ConsumeEvents(t.Context(), nil)
 	require.ErrorIs(t, err, ErrNotReady)
 	registry := new(Registry)

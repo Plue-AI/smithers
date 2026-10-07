@@ -9,19 +9,28 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
 
-// W3's object receiver is not landed. This test-only port exercises the real
-// codec, authenticated boot lease and PostgreSQL writer without claiming VM or
-// host-store verification evidence.
+// This test-only object port isolates transactional failure cases. Native host
+// store verification and authenticated event consumption have separate composed
+// fixtures; neither fixture claims real VM qualification.
 type burstObjectFixture struct {
 	missing      []string
 	publishError error
 	publications int
+	empty        bool
+}
+
+func (f *burstObjectFixture) WithBurstObjects(_ context.Context, _ pgx.Tx, _ string, visit func(BurstObjects) error) error {
+	if f.empty {
+		return visit(nil)
+	}
+	return visit(f)
 }
 
 func (f *burstObjectFixture) VerifyBurst(context.Context, string, wire.Burst) ([]string, error) {
@@ -291,6 +300,7 @@ func TestChangeIntegrationLandsDark(t *testing.T) {
 		"database":       func(i *Ingestor) { i.Pool = nil },
 		"burst_provider": func(i *Ingestor) { i.Bursts = nil },
 		"objects":        func(i *Ingestor) { i.Bursts.Objects = nil },
+		"object_lease":   func(i *Ingestor) { i.Bursts.Objects = &burstObjectFixture{empty: true} },
 		"attribution":    func(i *Ingestor) { i.Bursts.ResolveActor = nil },
 	} {
 		t.Run(name, func(t *testing.T) {

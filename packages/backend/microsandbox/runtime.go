@@ -159,16 +159,15 @@ type workspace struct {
 
 // Runtime owns every microVM it creates and the metadata that names them.
 type Runtime struct {
-	machinedHead     func(context.Context, string) (string, error)
-	machinedDispatch func(context.Context, *machined.Link, string) error
-	memberRoster     MemberRoster
-	machined         machined.Registry
-	cli              *cli
-	config           Config
-	root             string
-	owner            string
-	holder           string
-	semaphore        chan struct{}
+	machinedHead func(context.Context, string) (string, error)
+	memberRoster MemberRoster
+	machined     machined.Registry
+	cli          *cli
+	config       Config
+	root         string
+	owner        string
+	holder       string
+	semaphore    chan struct{}
 
 	environments *environments
 	codingHelper codingHelperCache

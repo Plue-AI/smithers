@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/sse"
 )
@@ -95,7 +96,7 @@ func (t *liveTopics) branchActivityPage(ctx context.Context, repository int64, b
 		selector = " AND sequence>$3"
 		args = append(args, cursor)
 	}
-	rows, err := t.changePool.Query(ctx, `SELECT sequence,jsonb_build_object('id',data->>'id','at',recorded_at,'kind',data->>'kind','actor',data->'actor','files',COALESCE((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object('path',f.path,'change',f.change,'before_blob',f.before_blob,'after_blob',f.after_blob)) ORDER BY f.path) FROM burst_files f WHERE f.event_id=e.event_id),'[]'::jsonb),'versions',data->>'versions') FROM product_job_events e WHERE tenant_id=$1 AND principal_id=$2 AND event_type='branch.burst'`+selector+` ORDER BY sequence `+order, args...)
+	rows, err := t.changePool.Query(ctx, `SELECT sequence,recorded_at,jsonb_build_object('id',data->>'id','kind',data->>'kind','actor',data->'actor','files',COALESCE((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object('path',f.path,'change',f.change,'before_blob',f.before_blob,'after_blob',f.after_blob)) ORDER BY f.path) FROM burst_files f WHERE f.event_id=e.event_id),'[]'::jsonb),'versions',data->>'versions') FROM product_job_events e WHERE tenant_id=$1 AND principal_id=$2 AND event_type='branch.burst'`+selector+` ORDER BY sequence `+order, args...)
 	if err != nil {
 		return live.LogPage{}, err
 	}
@@ -104,8 +105,9 @@ func (t *liveTopics) branchActivityPage(ctx context.Context, repository int64, b
 	actor := t.changeActorResolver(ctx)
 	for rows.Next() {
 		var seq int64
+		var recorded time.Time
 		var data json.RawMessage
-		if err := rows.Scan(&seq, &data); err != nil {
+		if err := rows.Scan(&seq, &recorded, &data); err != nil {
 			return live.LogPage{}, err
 		}
 		if seq > cursor {
@@ -113,6 +115,10 @@ func (t *liveTopics) branchActivityPage(ctx context.Context, repository int64, b
 		}
 		var entry map[string]json.RawMessage
 		if err := json.Unmarshal(data, &entry); err != nil {
+			return live.LogPage{}, err
+		}
+		entry["at"], err = json.Marshal(recorded.UTC())
+		if err != nil {
 			return live.LogPage{}, err
 		}
 		entry["actor"], err = actor(entry["actor"])
@@ -151,20 +157,60 @@ func (t *liveTopics) changeActorResolver(ctx context.Context) func(json.RawMessa
 			return cached, nil
 		}
 		var participant struct {
-			Kind   string `json:"kind"`
-			ID     string `json:"id"`
-			Member string `json:"member_id"`
-			Via    string `json:"via"`
-			Login  string `json:"login"`
+			Kind      string          `json:"kind"`
+			ID        string          `json:"id"`
+			Member    string          `json:"member_id"`
+			Via       string          `json:"via"`
+			Login     string          `json:"login"`
+			AgentKind string          `json:"agent_kind"`
+			RunID     string          `json:"run_id"`
+			Name      string          `json:"name"`
+			ForMember json.RawMessage `json:"for_member"`
 		}
 		if err := json.Unmarshal(raw, &participant); err != nil {
 			return nil, err
 		}
-		if participant.Kind != "person" || participant.Login != "" {
+		if (participant.Kind != "person" && (participant.Kind != "agent" || participant.AgentKind == "")) || participant.Login != "" {
 			return raw, nil
 		}
 		if t.presence == nil || t.presence.queries == nil {
 			return nil, errors.New("branch actors unavailable")
+		}
+		if !loaded && t.presence.members != nil {
+			roster, err := t.presence.members.SharedRoster(ctx)
+			if err != nil {
+				return nil, err
+			}
+			for _, row := range roster.Members {
+				colors[row.Login] = row.ColorIndex
+			}
+			loaded = true
+		}
+		if participant.Kind == "agent" {
+			var sponsor *db.User
+			color := 6
+			if len(participant.ForMember) > 0 {
+				var member string
+				if err := json.Unmarshal(participant.ForMember, &member); err != nil {
+					return nil, err
+				}
+				id, err := strconv.ParseInt(strings.TrimPrefix(member, "member:"), 10, 64)
+				if err != nil || id <= 0 {
+					return nil, errors.New("invalid change sponsor")
+				}
+				person, err := t.presence.queries.GetUserByID(ctx, id)
+				if err != nil {
+					return nil, err
+				}
+				sponsor = &person
+				color = colors[person.Username]
+			}
+			actor := branchAgentActor(participant.ID, leaseParticipant{AgentKind: participant.AgentKind, RunID: participant.RunID, DisplayName: participant.Name}, sponsor, color)
+			rendered, err := json.Marshal(actor)
+			if err == nil {
+				cache[string(raw)] = rendered
+			}
+			return rendered, err
 		}
 		id := participant.Member
 		if id == "" {
@@ -177,16 +223,6 @@ func (t *liveTopics) changeActorResolver(ctx context.Context) func(json.RawMessa
 		person, err := t.presence.queries.GetUserByID(ctx, member)
 		if err != nil {
 			return nil, err
-		}
-		if !loaded && t.presence.members != nil {
-			roster, err := t.presence.members.SharedRoster(ctx)
-			if err != nil {
-				return nil, err
-			}
-			for _, row := range roster.Members {
-				colors[row.Login] = row.ColorIndex
-			}
-			loaded = true
 		}
 		actor := branchPersonActor(person, colors[person.Username])
 		actor["id"], actor["member_id"] = participant.ID, participant.Member

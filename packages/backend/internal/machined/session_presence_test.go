@@ -51,3 +51,34 @@ func TestSessionPresenceTransportRefusesUnavailableOrInvalidAdapters(t *testing.
 	require.ErrorAs(t, err, &refusal)
 	require.Equal(t, "unauthorized", refusal.Code)
 }
+
+func TestRunPresenceRequiresRegisteredLiveAgent(t *testing.T) {
+	registry, link, guest := rpcFixture(t)
+	s := NewSessions(link.Connection, "a", registry.Sessions("a")).WithPresenceVia("cli")
+	_, err := link.RunPresence("a", "run-1")
+	require.ErrorIs(t, err, ErrUnauthorized)
+	done := make(chan error, 1)
+	go func() {
+		_, err := s.OpenSession(t.Context(), SessionUser{"agent", 19999}, SessionExec, []string{"/bin/true"}, nil)
+		done <- err
+	}()
+	answer(t, guest, wire.OpenSession, wire.Field(1, wire.U32(7)))
+	require.NoError(t, <-done)
+	go func() { done <- s.RegisterRun(t.Context(), "run-1", 7) }()
+	answer(t, guest, wire.RegisterRun)
+	require.NoError(t, <-done)
+	via, err := link.RunPresence("a", "run-1")
+	require.NoError(t, err)
+	require.Equal(t, "cli", via)
+	for _, run := range []string{"", "foreign"} {
+		_, err = link.RunPresence("a", run)
+		require.ErrorIs(t, err, ErrUnauthorized)
+	}
+	_, err = link.RunPresence("other", "run-1")
+	require.ErrorIs(t, err, ErrUnauthorized)
+	go func() { done <- s.CloseSession(t.Context(), 7) }()
+	answer(t, guest, wire.CloseSession)
+	require.NoError(t, <-done)
+	_, err = link.RunPresence("a", "run-1")
+	require.ErrorIs(t, err, ErrUnauthorized)
+}
