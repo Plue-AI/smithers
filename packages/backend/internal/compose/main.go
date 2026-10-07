@@ -839,6 +839,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	secretService := services.NewSecretService(queries, webhookSecretCodec, services.WithSecretInstallAuthorization(config.IsSingleOwner(cfg.Auth), pool), services.WithSecretOwnershipGuard(repoOwnershipFence), services.WithSecretSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections))
 	variableService := services.NewVariableService(queries, services.WithVariableOwnershipGuard(repoOwnershipFence), services.WithVariableSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections))
+	if config.IsSingleOwner(cfg.Auth) {
+		services.WithVariableInstallAuthorization(pool)(variableService)
+	}
 
 	blobConfig := cfg.Blob
 	blobConfig.TransferBaseURL = publicBaseURL

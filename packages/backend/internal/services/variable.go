@@ -41,8 +41,11 @@ type VariableQuerier interface {
 }
 
 type VariableService struct {
-	queries        VariableQuerier
-	ownershipGuard RepoOwnershipGuard
+	install           *installVariableStore
+	installAdmitted   bool
+	installRepository *db.Repository
+	queries           VariableQuerier
+	ownershipGuard    RepoOwnershipGuard
 	// subscriptionTokens mirrors feature_flags.subscription_connections.
 	subscriptionTokens bool
 }
@@ -95,22 +98,19 @@ func orgVariableToResponse(v db.OrganizationVariable) VariableResponse {
 }
 
 func (s *VariableService) SetVariable(ctx context.Context, actor *db.User, owner, repo, name, value string) (VariableResponse, error) {
+	if s.install != nil && !s.installAdmitted {
+		input := SetVariableInput{Name: name, Value: value}
+		return withInstallVariable(s, ctx, actor, owner, repo, "variables.set", name, input, func(scoped *VariableService, bound context.Context) (VariableResponse, error) {
+			return scoped.SetVariable(bound, actor, owner, repo, name, value)
+		})
+	}
 	if actor == nil {
 		return VariableResponse{}, pkgerrors.Unauthorized("authentication required")
 	}
 
-	trimmedName := strings.TrimSpace(name)
-	if trimmedName == "" {
-		return VariableResponse{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "Variable", Field: "name", Code: "missing_field"})
-	}
-	if len(trimmedName) > 255 {
-		return VariableResponse{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "Variable", Field: "name", Code: "invalid"})
-	}
-	if !IsInjectedSecretName(trimmedName) {
-		return VariableResponse{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "Variable", Field: "name", Code: "invalid"})
-	}
-	if len(value) > maxVariableValueBytes {
-		return VariableResponse{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "Variable", Field: "value", Code: "too_long"})
+	trimmedName, err := validateVariableWrite(name, value)
+	if err != nil {
+		return VariableResponse{}, err
 	}
 	if err := refuseSubscriptionToken(s.subscriptionTokens, trimmedName, value); err != nil {
 		return VariableResponse{}, err
@@ -152,6 +152,11 @@ func (s *VariableService) SetVariable(ctx context.Context, actor *db.User, owner
 }
 
 func (s *VariableService) GetVariable(ctx context.Context, actor *db.User, owner, repo, name string) (VariableResponse, error) {
+	if s.install != nil && !s.installAdmitted {
+		return withInstallVariable(s, ctx, actor, owner, repo, "variables.read", name, struct{}{}, func(scoped *VariableService, bound context.Context) (VariableResponse, error) {
+			return scoped.GetVariable(bound, actor, owner, repo, name)
+		})
+	}
 	trimmedName := strings.TrimSpace(name)
 	if trimmedName == "" {
 		return VariableResponse{}, pkgerrors.BadRequest("variable name is required")
@@ -180,6 +185,11 @@ func (s *VariableService) GetVariable(ctx context.Context, actor *db.User, owner
 }
 
 func (s *VariableService) ListVariables(ctx context.Context, actor *db.User, owner, repo string) ([]VariableResponse, error) {
+	if s.install != nil && !s.installAdmitted {
+		return withInstallVariable(s, ctx, actor, owner, repo, "variables.read", "", struct{}{}, func(scoped *VariableService, bound context.Context) ([]VariableResponse, error) {
+			return scoped.ListVariables(bound, actor, owner, repo)
+		})
+	}
 	repository, err := s.resolveRepoByOwnerAndName(ctx, owner, repo)
 	if err != nil {
 		return nil, err
@@ -201,6 +211,12 @@ func (s *VariableService) ListVariables(ctx context.Context, actor *db.User, own
 }
 
 func (s *VariableService) DeleteVariable(ctx context.Context, actor *db.User, owner, repo, name string) error {
+	if s.install != nil && !s.installAdmitted {
+		_, err := withInstallVariable(s, ctx, actor, owner, repo, "variables.delete", name, struct{}{}, func(scoped *VariableService, bound context.Context) (struct{}, error) {
+			return struct{}{}, scoped.DeleteVariable(bound, actor, owner, repo, name)
+		})
+		return err
+	}
 	if actor == nil {
 		return pkgerrors.Unauthorized("authentication required")
 	}
@@ -343,6 +359,9 @@ func (s *VariableService) enforceOrgVariableQuota(ctx context.Context, organizat
 // --- permission helpers ---
 
 func (s *VariableService) resolveRepoByOwnerAndName(ctx context.Context, owner, repo string) (db.Repository, error) {
+	if s.installAdmitted && s.installRepository != nil {
+		return *s.installRepository, nil
+	}
 	lowerOwner := strings.ToLower(strings.TrimSpace(owner))
 	lowerRepo := strings.ToLower(strings.TrimSpace(repo))
 	if lowerOwner == "" {
@@ -387,6 +406,9 @@ func (s *VariableService) requireOrgOwner(ctx context.Context, actor *db.User, o
 }
 
 func (s *VariableService) requireReadAccess(ctx context.Context, repository db.Repository, viewer *db.User) error {
+	if s.installAdmitted {
+		return nil
+	}
 	if repository.IsPublic {
 		return nil
 	}
@@ -404,6 +426,9 @@ func (s *VariableService) requireReadAccess(ctx context.Context, repository db.R
 }
 
 func (s *VariableService) requireWriteAccess(ctx context.Context, repository db.Repository, actor *db.User) error {
+	if s.installAdmitted {
+		return nil
+	}
 	if actor == nil {
 		return pkgerrors.Unauthorized("authentication required")
 	}
@@ -423,4 +448,24 @@ func (s *VariableService) canReadRepo(ctx context.Context, repository db.Reposit
 
 func (s *VariableService) canWriteRepo(ctx context.Context, repository db.Repository, userID int64) (bool, error) {
 	return canWriteRepo(ctx, s.queries, repository, userID)
+}
+
+func validateVariableWrite(name, value string) (string, error) {
+	trimmedName := strings.TrimSpace(name)
+	if trimmedName == "" {
+		return "", pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "Variable", Field: "name", Code: "missing_field"})
+	}
+	if len(trimmedName) > 255 {
+		return "", pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "Variable", Field: "name", Code: "invalid"})
+	}
+	if !IsInjectedSecretName(trimmedName) {
+		return "", pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "Variable", Field: "name", Code: "invalid"})
+	}
+	if len(value) > maxVariableValueBytes {
+		return "", pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "Variable", Field: "value", Code: "too_long"})
+	}
+	if err := validateSafeText("Variable", "value", value); err != nil {
+		return "", err
+	}
+	return trimmedName, nil
 }

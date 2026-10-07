@@ -3,6 +3,7 @@ package routes
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -209,4 +210,26 @@ func (h *VariableHandler) DeleteOrgVariable(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ValidateVariableCommandInput reuses the HTTP validators before catalog
+// admission. The service retains its additional storage and quota checks.
+func ValidateVariableCommandInput(command, name, value string) error {
+	switch command {
+	case "variables.set":
+		if err := validateSecretVariableName(name, "Variable"); err != nil {
+			return err
+		}
+		if err := validateSecretVariableValue(value, "Variable"); err != nil {
+			return err
+		}
+	case "variables.delete":
+		if err := validateSecretVariableName(strings.TrimSpace(name), "Variable"); err != nil {
+			return err
+		}
+	case "variables.read":
+	default:
+		return errors.BadRequest("invalid variable command")
+	}
+	return nil
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
@@ -57,7 +58,7 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 	}
 	subject.RepositoryID = repository.ID
 	var id int64
-	var pattern string
+	var selector string
 	if len(parts) == 6 && strings.HasPrefix(command, "labels.") {
 		id, err = strconv.ParseInt(parts[5], 10, 64)
 		if err != nil {
@@ -66,14 +67,27 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 		}
 	}
 	if len(parts) == 6 && strings.HasPrefix(command, "protected-bookmarks.") {
-		pattern, err = url.PathUnescape(parts[5])
+		selector, err = url.PathUnescape(parts[5])
 		if err != nil {
 			refuse(pkgerrors.BadRequest("invalid bookmark pattern"))
 			return
 		}
 	}
+	if len(parts) == 6 && strings.HasPrefix(command, "variables.") {
+		// Match chi's retained variable selector: RawPath is already selected
+		// when nonempty; otherwise the route receives the decoded Path.
+		selector = parts[5]
+		if r.URL.RawPath == "" {
+			selector, err = url.PathUnescape(selector)
+		}
+		if err != nil {
+			refuse(pkgerrors.BadRequest("invalid variable name"))
+			return
+		}
+		selector = strings.TrimSpace(selector)
+	}
 	var input any = struct{}{}
-	if command == "labels.create" || command == "labels.update" || command == "protected-bookmarks.upsert" {
+	if command == "labels.create" || command == "labels.update" || command == "protected-bookmarks.upsert" || command == "variables.set" {
 		raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, middleware.MaxRequestBodySize))
 		if err != nil {
 			refuse(pkgerrors.BadRequest("invalid configuration body"))
@@ -94,7 +108,11 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 		case "protected-bookmarks.upsert":
 			var value services.UpsertProtectedBookmarkInput
 			err = decoder.Decode(&value)
-			input, pattern = value, value.Pattern
+			input, selector = value, value.Pattern
+		case "variables.set":
+			var value services.SetVariableInput
+			err = decoder.Decode(&value)
+			input, selector = value, value.Name
 		default:
 			err = pkgerrors.BadRequest("invalid configuration command")
 		}
@@ -103,10 +121,19 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 			return
 		}
 	}
+	if strings.HasPrefix(command, "variables.") {
+		value, _ := input.(services.SetVariableInput)
+		if err := routes.ValidateVariableCommandInput(command, selector, value.Value); err != nil {
+			refuse(err)
+			return
+		}
+	}
 	if strings.HasPrefix(command, "labels.") {
 		subject, err = services.InstallLabelMutationSubject(repository.ID, command, id, input)
+	} else if strings.HasPrefix(command, "variables.") {
+		subject, err = services.InstallVariableSubject(repository.ID, command, selector, input)
 	} else {
-		subject, err = services.InstallProtectedBookmarkSubject(repository.ID, command, pattern, input)
+		subject, err = services.InstallProtectedBookmarkSubject(repository.ID, command, selector, input)
 	}
 	if err != nil {
 		refuse(err)

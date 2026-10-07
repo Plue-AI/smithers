@@ -53,6 +53,18 @@ type RepoOwnershipFence struct {
 	pool *pgxpool.Pool
 }
 
+type repoOwnershipTransactionKey struct{}
+type repoOwnershipTransaction struct {
+	pool *pgxpool.Pool
+	tx   pgx.Tx
+}
+
+// Only an install service holding this pool's transaction can reuse it. The
+// guard still checks the same ownership snapshot and takes the same lock.
+func withRepoOwnershipTransaction(ctx context.Context, pool *pgxpool.Pool, tx pgx.Tx) context.Context {
+	return context.WithValue(ctx, repoOwnershipTransactionKey{}, repoOwnershipTransaction{pool: pool, tx: tx})
+}
+
 // NewRepoOwnershipFence returns a fence backed by pool, or nil when pool is nil.
 func NewRepoOwnershipFence(pool *pgxpool.Pool) *RepoOwnershipFence {
 	if pool == nil {
@@ -65,14 +77,18 @@ func (f *RepoOwnershipFence) WithRepoOwnershipShared(ctx context.Context, snapsh
 	if f == nil || f.pool == nil {
 		return write()
 	}
-	tx, err := f.pool.Begin(ctx)
-	if err != nil {
-		slog.Error("failed to begin repository ownership guard transaction", "repo_id", snapshot.ID, "error", err)
-		return pkgerrors.Internal("failed to serialize repository write").WithCause(err)
+	var tx pgx.Tx
+	if shared, ok := ctx.Value(repoOwnershipTransactionKey{}).(repoOwnershipTransaction); ok && shared.pool == f.pool && shared.tx != nil {
+		tx = shared.tx
+	} else {
+		var err error
+		tx, err = f.pool.Begin(ctx)
+		if err != nil {
+			slog.Error("failed to begin repository ownership guard transaction", "repo_id", snapshot.ID, "error", err)
+			return pkgerrors.Internal("failed to serialize repository write").WithCause(err)
+		}
+		defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	}
-	// The transaction only holds the shared lock; rolling it back releases the
-	// lock after the write completes and never discards data.
-	defer func() { _ = tx.Rollback(ctx) }()
 
 	if _, err := tx.Exec(ctx, repoOwnershipSharedLockSQL, snapshot.ID); err != nil {
 		slog.Error("failed to acquire repository ownership shared lock", "repo_id", snapshot.ID, "error", err)

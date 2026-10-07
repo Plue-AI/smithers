@@ -69,7 +69,7 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				r.Body = io.NopCloser(bytes.NewReader(raw))
 			}
 
-			if strings.HasPrefix(command, "labels.") || strings.HasPrefix(command, "protected-bookmarks.") {
+			if strings.HasPrefix(command, "labels.") || strings.HasPrefix(command, "protected-bookmarks.") || strings.HasPrefix(command, "variables.") {
 				admitInstallRepositoryAdmin(w, r, queries, command, next)
 				return
 			}

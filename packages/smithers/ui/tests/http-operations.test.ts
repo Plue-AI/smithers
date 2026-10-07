@@ -140,3 +140,18 @@ test("bookmark protection configuration remains owner-only with no agent door", 
     })
   }
 })
+
+
+test("variable values require an owner person and write scope even when reading", () => {
+  const rows = generateCatalog()
+  for (const [name, method, path] of [
+    ["variables.read", "GET", "/api/repos/{owner}/{repo}/variables"],
+    ["variables.set", "POST", "/api/repos/{owner}/{repo}/variables"],
+    ["variables.delete", "DELETE", "/api/repos/{owner}/{repo}/variables/{name}"],
+  ]) {
+    expect(rows.find(row => row.name === name)).toMatchObject({
+      minimumRole: "owner", agent: "never", actors: ["person"], credentialScope: "write:repository",
+      visibility: "hidden", cli: null, slash: null, http: { method, path }
+    })
+  }
+})

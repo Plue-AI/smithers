@@ -25,11 +25,15 @@ const machine = (op: "sleep" | "wake") => operation({
 })
 
 // Retained repository administration keeps its existing owner-only person doors.
-const repositoryAdmin = (name: string, method: "GET" | "POST" | "PATCH" | "DELETE", path: string, input: OperationPayload) =>
+const repositoryAdmin = (name: string, method: "GET" | "POST" | "PATCH" | "DELETE", path: string, input: OperationPayload, credentialScope: "read:repository" | "write:repository" = method === "GET" ? "read:repository" : "write:repository") =>
   operation({ name, input, summary: name, hidden: true, visibility: "hidden", slash: null, cli: null,
-    http: { method, path }, minimumRole: "owner", agent: "never", credentialScope: method === "GET" ? "read:repository" : "write:repository", actors: ["person"] })
+    http: { method, path }, minimumRole: "owner", agent: "never", credentialScope, actors: ["person"] })
 
 export const httpProjections = [
+  // Values retain the existing write-scope requirement even on reads.
+  repositoryAdmin("variables.read", "GET", "/api/repos/{owner}/{repo}/variables", NoInput, "write:repository"),
+  repositoryAdmin("variables.set", "POST", "/api/repos/{owner}/{repo}/variables", Schema.Struct({ name: Schema.String, value: Schema.String })),
+  repositoryAdmin("variables.delete", "DELETE", "/api/repos/{owner}/{repo}/variables/{name}", NoInput),
   repositoryAdmin("protected-bookmarks.read", "GET", "/api/repos/{owner}/{repo}/protected-bookmarks", NoInput),
   repositoryAdmin("protected-bookmarks.upsert", "POST", "/api/repos/{owner}/{repo}/protected-bookmarks", Schema.Struct({
     pattern: Schema.String, require_review: Schema.optional(Schema.Boolean), require_human_approvals: Schema.optional(Schema.Number),
