@@ -17,6 +17,7 @@ struct State<R: Refs, B: Bundles> {
 
 pub struct Events<R: Refs, B: Bundles> {
     state: Mutex<State<R, B>>,
+    incoming: Option<crate::incoming::Incoming>,
     allocate: Box<dyn Fn() -> hooks::Result<u32> + Send + Sync>,
 }
 
@@ -45,7 +46,13 @@ impl<R: Refs, B: Bundles> Events<R, B> {
                 hints: VecDeque::new(),
             }),
             allocate: Box::new(allocate),
+            incoming: None,
         })
+    }
+
+    pub fn with_incoming(mut self, store: std::sync::Arc<dyn crate::incoming::Store>) -> Self {
+        self.incoming = Some(crate::incoming::Incoming::new(store));
+        self
     }
 
     pub(crate) fn append_keyed(&self, id: [u8; 16], event: &[u8], pin: Oid) -> io::Result<()> {
@@ -137,7 +144,15 @@ where
         Ok(())
     }
 
+    fn disconnected(&self) -> hooks::Result<()> {
+        if let Some(incoming) = &self.incoming {
+            incoming.disconnect().map_err(error)?;
+        }
+        Ok(())
+    }
+
     fn reconnect(&self) -> hooks::Result<()> {
+        self.disconnected()?;
         let mut state = self.state()?;
         let State {
             outbox,
@@ -163,7 +178,12 @@ where
             } = &mut *state;
             *active = delivery.begin(outbox, stream).map_err(error)?;
         }
-        let mut frames = Vec::with_capacity(2);
+        let mut frames = Vec::with_capacity(3);
+        if let Some(incoming) = &self.incoming {
+            if let Some(frame) = incoming.poll().map_err(error)? {
+                frames.push(frame);
+            }
+        }
         if let Some(frame) = state.delivery.next_frame().map_err(error)? {
             frames.push(frame);
         }
@@ -174,6 +194,14 @@ where
     }
 
     fn frame(&self, frame: &Frame) -> hooks::Result<Option<Frame>> {
+        if frame.kind == 6 && frame.stream >= 0x8000_0000 {
+            return self
+                .incoming
+                .as_ref()
+                .ok_or_else(hooks::Error::unsupported)?
+                .frame(frame)
+                .map_err(error);
+        }
         if !(frame.kind == 6 || (frame.kind == 2 && frame.payload.first() == Some(&3))) {
             return Err(hooks::Error::unsupported());
         }

@@ -1,3 +1,5 @@
+#[path = "link/incoming.rs"]
+mod incoming;
 #[path = "link/recovery.rs"]
 mod recovery;
 use smithers_machined::{
@@ -857,6 +859,18 @@ fn capture_delivery_case(mode: &str) {
     let outbox =
         Outbox::open(Store::open(dir.path(), owner).unwrap(), owner, refs.clone()).unwrap();
     let streams = AtomicU32::new(1);
+    if let Some(mode) = mode.strip_prefix("incoming-") {
+        incoming::run(mode, move |store| {
+            Arc::new(
+                Events::new(outbox, Bundle(13), move || {
+                    Ok(streams.fetch_add(1, Ordering::SeqCst))
+                })
+                .unwrap()
+                .with_incoming(store),
+            )
+        });
+        return;
+    }
     let events = Arc::new(
         Events::new(
             outbox,

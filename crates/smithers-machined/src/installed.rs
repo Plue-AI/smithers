@@ -258,9 +258,10 @@ pub fn run() -> io::Result<()> {
         git.clone(),
     )?;
     let allocator = broker.clone();
-    let events = Arc::new(Events::new(outbox, git.clone(), move || {
-        allocator.allocate_stream()
-    })?);
+    let events = Arc::new(
+        Events::new(outbox, git.clone(), move || allocator.allocate_stream())?
+            .with_incoming(Arc::new(git.clone())),
+    );
     let core = Arc::new(crate::native_core::NativeCore {
         native: native.clone(),
         git: git.clone(),

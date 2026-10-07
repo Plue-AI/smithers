@@ -331,6 +331,12 @@ impl Repository {
             .edit(workspace.workspace_name().to_owned(), &target)
             .block_on()
             .map_err(invalid)?;
+        // edit may abandon an empty working-copy commit. Finish its descendant
+        // bookkeeping before publishing, including heads imported from a host.
+        tx.repo_mut()
+            .rebase_descendants()
+            .block_on()
+            .map_err(invalid)?;
         let updated = tx
             .commit("machined reconcile working copy")
             .block_on()

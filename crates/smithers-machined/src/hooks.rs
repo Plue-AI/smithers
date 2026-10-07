@@ -200,6 +200,10 @@ pub trait Broker: Send + Sync {
     }
 }
 pub trait EventSink: Send + Sync {
+    /// Discard incomplete transport input; never discard durable events.
+    fn disconnected(&self) -> Result<()> {
+        Ok(())
+    }
     /// Certify that every durable entry has a host receipt. Read the real
     /// outbox, including recovered entries; an unavailable store is not empty.
     /// Called on the mutation executor without waiting for network IO.

@@ -35,6 +35,7 @@ pub mod capture;
 pub mod confine;
 pub mod event_service;
 pub mod git;
+pub mod incoming;
 pub mod link;
 pub mod objects;
 pub mod oplog;

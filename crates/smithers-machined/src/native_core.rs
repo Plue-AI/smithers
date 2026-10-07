@@ -242,7 +242,7 @@ impl Core for NativeCore {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::{
         conn::{tagged, Frame},
@@ -277,7 +277,7 @@ mod tests {
             Ok(())
         }
     }
-    fn call(core: Arc<NativeCore>, method: u8, fields: &[Vec<u8>]) -> Frame {
+    pub(crate) fn call(core: Arc<NativeCore>, method: u8, fields: &[Vec<u8>]) -> Frame {
         call_with_documents(core, method, fields, Arc::new(Flushed))
     }
     fn call_with_documents(
@@ -313,7 +313,7 @@ mod tests {
         )
         .unwrap()
     }
-    fn fixture() -> (tempfile::TempDir, Arc<NativeCore>) {
+    pub(crate) fn fixture() -> (tempfile::TempDir, Arc<NativeCore>) {
         let (dir, native) = crate::native::tests::fixture();
         let state = dir.path().join("state");
         for name in ["spool", "outbox"] {
@@ -337,7 +337,11 @@ mod tests {
             repository.clone(),
         )
         .unwrap();
-        let events = Arc::new(Events::new(outbox, repository.clone(), || Ok(1)).unwrap());
+        let events = Arc::new(
+            Events::new(outbox, repository.clone(), || Ok(1))
+                .unwrap()
+                .with_incoming(Arc::new(repository.clone())),
+        );
         let native = Arc::new(native);
         let core = Arc::new(NativeCore {
             native: native.clone(),

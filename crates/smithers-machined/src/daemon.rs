@@ -272,7 +272,9 @@ impl Daemon {
                 // A replaced socket must not detach sessions already attached on
                 // its successor. Recheck under the same lock as attach_session.
                 if current.load(Ordering::Acquire) == generation {
-                    cx.hooks.sessions.disconnected()
+                    let sessions = cx.hooks.sessions.disconnected();
+                    cx.hooks.events.disconnected()?;
+                    sessions
                 } else {
                     Ok(())
                 }

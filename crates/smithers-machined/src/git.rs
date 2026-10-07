@@ -285,8 +285,38 @@ impl Repository {
         if !self.contains(expected)? {
             return Err(invalid());
         }
-        self.command(&["update-ref", "refs/smithers/incoming/head", &hex(&expected)])?;
+        self.command(&[
+            "rev-list",
+            "--objects",
+            "--missing=error",
+            "--quiet",
+            &hex(&expected),
+        ])?;
+        // Retain by object identity, never a peer-selected ref or a mutable
+        // head. A disconnected importer can finish without moving the branch.
+        let reference = format!("refs/smithers/incoming/{}", hex(&expected));
+        if self
+            .command(&["update-ref", &reference, &hex(&expected), &hex(&[0; 20])])
+            .is_err()
+        {
+            let existing = self.command(&["show-ref", "--verify", "--hash", &reference])?;
+            if existing != format!("{}\n", hex(&expected)).as_bytes() {
+                return Err(invalid());
+            }
+        }
         self.sync()
+    }
+    fn import_stream(&self, bundle: &Spool, stream: u32) -> io::Result<()> {
+        if stream < 0x8000_0000 {
+            return Err(invalid());
+        }
+        let path = bundle.path.to_str().ok_or_else(invalid)?;
+        let heads = self.command(&["bundle", "list-heads", path])?;
+        let suffix = format!(" refs/smithers/xfer/{stream}\n");
+        if heads.len() != 40 + suffix.len() || &heads[40..] != suffix.as_bytes() {
+            return Err(invalid());
+        }
+        self.import(bundle, id(&heads[..40])?)
     }
     /// The caller grants at most one credit window at a time. This disk spool
     /// bounds the complete incoming bundle; no bundle is held in memory.
@@ -408,6 +438,48 @@ impl Bundles for Repository {
         Ok(spool)
     }
 }
+struct IncomingBundle {
+    repository: Repository,
+    spool: Spool,
+    remaining: u64,
+}
+impl Write for IncomingBundle {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if bytes.len() as u64 > self.remaining {
+            return Err(io::ErrorKind::StorageFull.into());
+        }
+        let n = self.spool.file.write(bytes)?;
+        self.remaining -= n as u64;
+        Ok(n)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.spool.file.flush()
+    }
+}
+impl crate::incoming::Bundle for IncomingBundle {
+    fn finish(self: Box<Self>, stream: u32) -> io::Result<()> {
+        self.spool.file.sync_all()?;
+        self.repository.import_stream(&self.spool, stream)
+    }
+}
+impl crate::incoming::Store for Repository {
+    fn begin(&self) -> io::Result<Box<dyn crate::incoming::Bundle>> {
+        let disk = rustix::fs::statvfs(&self.spool)?;
+        let available = (disk.f_bavail as u64)
+            .checked_mul(disk.f_frsize as u64)
+            .ok_or_else(invalid)?;
+        let remaining = crate::incoming::LIMIT.min(available.saturating_sub(1024 * 1024 * 1024));
+        if remaining == 0 {
+            return Err(io::ErrorKind::StorageFull.into());
+        }
+        Ok(Box::new(IncomingBundle {
+            repository: self.clone(),
+            spool: self.temporary()?,
+            remaining,
+        }))
+    }
+}
+
 pub struct Spool {
     file: File,
     path: PathBuf,
@@ -994,5 +1066,379 @@ mod tests {
             assert_eq!(&signature, b"# v2 git bundle\n");
             assert_eq!(repository.acknowledged().unwrap(), None);
         }
+    }
+    #[test]
+    fn incoming_frames_import_real_bundle_without_publishing_advertised_refs() {
+        use crate::hooks::EventSink;
+        let source = Fixture::new();
+        let destination = Fixture::new();
+        let head = source.commit();
+        let events = crate::event_service::Events::new(
+            destination.outbox(),
+            destination.repository.clone(),
+            || Ok(1),
+        )
+        .unwrap()
+        .with_incoming(std::sync::Arc::new(destination.repository.clone()));
+        for stream in [0x8000_0000u32, 0x8000_0001] {
+            let reference = format!("refs/smithers/xfer/{stream}");
+            source
+                .repository
+                .command(&["update-ref", &reference, &hex(&head)])
+                .unwrap();
+            let bytes = source
+                .repository
+                .command(&["bundle", "create", "-", &reference])
+                .unwrap();
+            assert!(bytes.len() > crate::credit::INITIAL_CREDIT);
+            for chunk in bytes.chunks(crate::credit::MAX_DATA) {
+                let frame = Frame {
+                    kind: 6,
+                    stream,
+                    payload: [vec![1, 0], chunk.to_vec()].concat(),
+                };
+                let window = events.frame(&frame).unwrap().unwrap();
+                assert_eq!((window.kind, window.stream), (6, stream));
+                assert_eq!(
+                    window.payload,
+                    [vec![6], (chunk.len() as u32).to_be_bytes().to_vec()].concat()
+                );
+            }
+            assert!(events
+                .frame(&Frame {
+                    kind: 6,
+                    stream,
+                    payload: vec![2, 0]
+                })
+                .unwrap()
+                .is_none());
+            let deadline = Instant::now() + Duration::from_secs(10);
+            loop {
+                let frames = events.poll().unwrap();
+                if let Some(frame) = frames.first() {
+                    assert_eq!((frame.stream, &frame.payload), (stream, &vec![7]));
+                    break;
+                }
+                assert!(Instant::now() < deadline);
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            assert!(destination.repository.contains(head).unwrap());
+            assert_eq!(
+                destination
+                    .repository
+                    .command(&["for-each-ref", "--format=%(refname) %(objectname)"])
+                    .unwrap(),
+                format!("refs/smithers/incoming/{} {}\n", hex(&head), hex(&head)).as_bytes()
+            );
+            assert_eq!(destination.repository.acknowledged().unwrap(), None);
+            assert_eq!(
+                fs::read_dir(destination.root.join("spool"))
+                    .unwrap()
+                    .count(),
+                0
+            );
+        }
+    }
+
+    #[test]
+    fn incoming_bundle_identity_and_corruption_refuse_close_and_pins() {
+        use crate::hooks::EventSink;
+        let source = Fixture::new();
+        let head = source.commit();
+        for mode in [
+            "wrong-stream",
+            "advertised-main",
+            "multiple",
+            "truncated",
+            "corrupt",
+        ] {
+            let destination = Fixture::new();
+            let stream = 0x8000_0000u32;
+            let reference = match mode {
+                "wrong-stream" => format!("refs/smithers/xfer/{}", stream + 1),
+                "advertised-main" => "refs/heads/main".into(),
+                _ => format!("refs/smithers/xfer/{stream}"),
+            };
+            source
+                .repository
+                .command(&["update-ref", &reference, &hex(&head)])
+                .unwrap();
+            let mut bytes = if mode == "multiple" {
+                source
+                    .repository
+                    .command(&["update-ref", "refs/heads/extra", &hex(&head)])
+                    .unwrap();
+                source
+                    .repository
+                    .command(&["bundle", "create", "-", &reference, "refs/heads/extra"])
+                    .unwrap()
+            } else {
+                source
+                    .repository
+                    .command(&["bundle", "create", "-", &reference])
+                    .unwrap()
+            };
+            if mode == "truncated" {
+                bytes.truncate(bytes.len() / 2);
+            }
+            if mode == "corrupt" {
+                let last = bytes.len() - 1;
+                bytes[last] ^= 1;
+            }
+            let events = crate::event_service::Events::new(
+                destination.outbox(),
+                destination.repository.clone(),
+                || Ok(1),
+            )
+            .unwrap()
+            .with_incoming(std::sync::Arc::new(destination.repository.clone()));
+            for chunk in bytes.chunks(crate::credit::MAX_DATA) {
+                events
+                    .frame(&Frame {
+                        kind: 6,
+                        stream,
+                        payload: [vec![1, 0], chunk.to_vec()].concat(),
+                    })
+                    .unwrap();
+            }
+            events
+                .frame(&Frame {
+                    kind: 6,
+                    stream,
+                    payload: vec![2, 0],
+                })
+                .unwrap();
+            let deadline = Instant::now() + Duration::from_secs(10);
+            loop {
+                let frames = events.poll().unwrap();
+                if let Some(frame) = frames.first() {
+                    assert_eq!(frame.payload[0], 255, "{mode}");
+                    break;
+                }
+                assert!(Instant::now() < deadline);
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            assert!(
+                destination
+                    .repository
+                    .command(&["for-each-ref"])
+                    .unwrap()
+                    .is_empty(),
+                "{mode}"
+            );
+            assert_eq!(
+                fs::read_dir(destination.root.join("spool"))
+                    .unwrap()
+                    .count(),
+                0,
+                "{mode}"
+            );
+        }
+    }
+    #[test]
+    fn incoming_objects_and_outbox_receipts_progress_in_both_directions() {
+        use crate::hooks::EventSink;
+        let source = Fixture::new();
+        let destination = Fixture::new();
+        let incoming_head = source.commit();
+        let captured_head = destination.commit();
+        let mut outbox = destination.outbox();
+        outbox
+            .append(
+                &outbox::captured(captured_head, [2; 20], [3; 20]),
+                Some(captured_head),
+            )
+            .unwrap();
+        let events =
+            crate::event_service::Events::new(outbox, destination.repository.clone(), || Ok(1))
+                .unwrap()
+                .with_incoming(std::sync::Arc::new(destination.repository.clone()));
+        let stream = 0x8000_0000;
+        source
+            .repository
+            .command(&[
+                "update-ref",
+                "refs/smithers/xfer/2147483648",
+                &hex(&incoming_head),
+            ])
+            .unwrap();
+        let bytes = source
+            .repository
+            .command(&["bundle", "create", "-", "refs/smithers/xfer/2147483648"])
+            .unwrap();
+        let mut chunks = bytes.chunks(crate::credit::MAX_DATA);
+        let mut sent_eof = false;
+        let mut imported = false;
+        let mut returned = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !imported || !events.drained().unwrap() {
+            if let Some(chunk) = chunks.next() {
+                let window = events
+                    .frame(&Frame {
+                        kind: 6,
+                        stream,
+                        payload: [vec![1, 0], chunk.to_vec()].concat(),
+                    })
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(window.stream, stream);
+                assert_eq!(window.payload[0], 6);
+            } else if !sent_eof {
+                assert!(events
+                    .frame(&Frame {
+                        kind: 6,
+                        stream,
+                        payload: vec![2, 0]
+                    })
+                    .unwrap()
+                    .is_none());
+                sent_eof = true;
+            }
+            for frame in events.poll().unwrap() {
+                assert_eq!(frame.kind, 6);
+                if frame.stream == stream {
+                    assert_eq!(frame.payload, vec![7]);
+                    assert!(!imported);
+                    imported = true;
+                } else {
+                    assert_eq!(frame.stream, 1);
+                    match frame.payload[0] {
+                        1 => {
+                            returned.extend_from_slice(&frame.payload[2..]);
+                            assert!(events
+                                .frame(&Frame {
+                                    kind: 6,
+                                    stream: 1,
+                                    payload: [
+                                        vec![6],
+                                        ((frame.payload.len() - 2) as u32).to_be_bytes().to_vec()
+                                    ]
+                                    .concat()
+                                })
+                                .unwrap()
+                                .is_none());
+                        }
+                        2 => {
+                            let frame = events
+                                .frame(&Frame {
+                                    kind: 6,
+                                    stream: 1,
+                                    payload: vec![7],
+                                })
+                                .unwrap()
+                                .unwrap();
+                            let event = conn::Durable::decode(&frame.payload).unwrap();
+                            assert_eq!(event.captured_head(), Some(captured_head));
+                            events
+                                .frame(&Frame {
+                                    kind: 2,
+                                    stream: 0,
+                                    payload: conn::tagged(
+                                        3,
+                                        &[
+                                            conn::field(1, event.seq.to_be_bytes()),
+                                            conn::field(2, [1]),
+                                        ],
+                                    ),
+                                })
+                                .unwrap();
+                        }
+                        _ => panic!("unexpected outgoing bundle frame"),
+                    }
+                }
+            }
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(returned.len() > crate::credit::INITIAL_CREDIT);
+        assert!(destination.repository.contains(incoming_head).unwrap());
+        assert_eq!(
+            destination.repository.acknowledged().unwrap(),
+            Some(captured_head)
+        );
+        assert!(destination.repository.clone().pending().unwrap().is_empty());
+        assert_eq!(
+            fs::read_dir(destination.root.join("spool"))
+                .unwrap()
+                .count(),
+            0
+        );
+    }
+    #[test]
+    fn imported_host_commit_can_drive_native_wake_without_publishing_a_bookmark() {
+        use crate::hooks::EventSink;
+        let (source_dir, source) = crate::native_core::tests::fixture();
+        let (destination_dir, destination) = crate::native_core::tests::fixture();
+        fs::write(
+            source_dir.path().join("workspace/upstream.txt"),
+            b"received from host\n",
+        )
+        .unwrap();
+        let head = source.native.snapshot().unwrap().0;
+        let old = destination.native.current().unwrap().0;
+        destination.git.clone().acknowledge_and_sync(old).unwrap();
+        assert!(!destination.native.contains(head).unwrap());
+        source
+            .git
+            .command(&["update-ref", "refs/smithers/xfer/2147483648", &hex(&head)])
+            .unwrap();
+        let bytes = source
+            .git
+            .command(&["bundle", "create", "-", "refs/smithers/xfer/2147483648"])
+            .unwrap();
+        for chunk in bytes.chunks(crate::credit::MAX_DATA) {
+            destination
+                .events
+                .frame(&Frame {
+                    kind: 6,
+                    stream: 0x8000_0000,
+                    payload: [vec![1, 0], chunk.to_vec()].concat(),
+                })
+                .unwrap();
+        }
+        destination
+            .events
+            .frame(&Frame {
+                kind: 6,
+                stream: 0x8000_0000,
+                payload: vec![2, 0],
+            })
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let frames = destination.events.poll().unwrap();
+            if let Some(frame) = frames.first() {
+                assert_eq!(frame.payload, vec![7]);
+                break;
+            }
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(destination.native.contains(head).unwrap());
+        assert_eq!(
+            destination.native.current().unwrap().0,
+            old,
+            "import moved working copy"
+        );
+        assert!(!destination_dir
+            .path()
+            .join("workspace/upstream.txt")
+            .exists());
+        let wake = crate::native_core::tests::call(destination.clone(), 5, &[conn::field(1, head)]);
+        let result = conn::fields("response", &wake.payload[1..]).unwrap()[1].1;
+        assert_eq!(result[0], 5, "{result:?}");
+        let outcome = conn::fields("result5", &result[1..]).unwrap()[0].1;
+        assert_eq!(outcome[0], 2);
+        assert_eq!(destination.native.current().unwrap().0, head);
+        assert_eq!(
+            fs::read(destination_dir.path().join("workspace/upstream.txt")).unwrap(),
+            b"received from host\n"
+        );
+        assert_eq!(destination.git.acknowledged().unwrap(), Some(head));
+        assert!(destination
+            .git
+            .command(&["for-each-ref", "refs/heads", "refs/tags", "refs/remotes"])
+            .unwrap()
+            .is_empty());
     }
 }
