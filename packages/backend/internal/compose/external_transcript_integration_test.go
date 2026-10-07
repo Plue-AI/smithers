@@ -126,7 +126,17 @@ func TestExternalImportCommitReplay(t *testing.T) {
 	sessionBinding := TranscriptBinding{Scope: scope, Session: 1, Participant: participant, Source: source, Profile: "claude-code/2.1.0", Live: true}
 	draft := chat.ExternalDraft{ID: "literal-source-offset-0", SourceID: "claude-message-1", Origin: "external", ReadOnly: true, Agent: "claude-code", Profile: "claude-code/2.1.0", Session: "1", Participant: "01000000-0000-0000-0000-000000000000", Owner: fmt.Sprint(ben.ID), Author: "01000000-0000-0000-0000-000000000000", Kind: "assistant", Body: json.RawMessage(`"The answer is 42"`)}
 	fail := true
-	writer := &TranscriptIngest{Store: store, Resolve: func(context.Context, pgx.Tx, string, uint32) (TranscriptBinding, error) { return sessionBinding, nil }, Normalize: func(context.Context, pgx.Tx, string, TranscriptBinding, wire.Transcript) ([]chat.ExternalDraft, error) {
+	bindings := map[[16]byte]TranscriptBinding{}
+	writer := &TranscriptIngest{Store: store, Resolve: func(_ context.Context, _ pgx.Tx, _ string, session uint32, participant, source [16]byte) (TranscriptBinding, error) {
+		if len(bindings) == 0 {
+			return sessionBinding, nil
+		}
+		binding, ok := bindings[source]
+		if !ok || binding.Session != session || binding.Participant != participant {
+			return TranscriptBinding{}, machined.ErrUnauthorized
+		}
+		return binding, nil
+	}, Normalize: func(context.Context, pgx.Tx, string, TranscriptBinding, wire.Transcript) ([]chat.ExternalDraft, error) {
 		return []chat.ExternalDraft{draft}, nil
 	}}
 	ingestor := &machined.Ingestor{Pool: pool, Write: func(ctx context.Context, tx pgx.Tx, b string, e machined.Event) (machined.Acknowledgement, error) {
@@ -399,13 +409,20 @@ func TestExternalImportCommitReplay(t *testing.T) {
 	// as production. Only discovery/registration remains a test provider until
 	// the privileged registry contract and reference-host qualification exist.
 	writer.Host = packagedTranscriptHost(t)
-	for index, fixture := range []struct {
+	fixtures := []struct {
 		directory, file, profile string
 		count                    int
 	}{
 		{"codex-0.160", "rollout.jsonl", "codex-rollout/0.160", 32},
 		{"claude-code-2.1", "session.jsonl", "claude-code/2.1", 36},
-	} {
+	}
+	type liveFixture struct {
+		binding TranscriptBinding
+		lines   []string
+		offset  uint64
+	}
+	live := make([]liveFixture, len(fixtures))
+	for index, fixture := range fixtures {
 		_, sourceFile, _, ok := goruntime.Caller(0)
 		require.True(t, ok)
 		root := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "../../../.."))
@@ -414,10 +431,22 @@ func TestExternalImportCommitReplay(t *testing.T) {
 		sessionBinding.Source = [16]byte{byte(8 + index)}
 		sessionBinding.Participant = [16]byte{byte(3 + index)}
 		sessionBinding.Profile = fixture.profile
-		var offset uint64
-		for _, line := range strings.Split(strings.TrimSuffix(string(data), "\n"), "\n") {
-			end := offset + uint64(len(line)) + 1
-			record := wire.Transcript{Version: 1, Session: 1, Participant: sessionBinding.Participant, Source: sessionBinding.Source, Profile: fixture.profile, Generation: 1, Start: offset, End: end, Record: line}
+		bindings[sessionBinding.Source] = sessionBinding
+		live[index] = liveFixture{binding: sessionBinding, lines: strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")}
+	}
+	// Both agent processes share terminal session 1. Interleave records and
+	// replay every range while retaining independent parser/tool-call state.
+	for lineIndex := 0; ; lineIndex++ {
+		progressed := false
+		for index := range live {
+			fixture := &live[index]
+			if lineIndex >= len(fixture.lines) {
+				continue
+			}
+			progressed = true
+			line := fixture.lines[lineIndex]
+			end := fixture.offset + uint64(len(line)) + 1
+			record := wire.Transcript{Version: 1, Session: 1, Participant: fixture.binding.Participant, Source: fixture.binding.Source, Profile: fixture.binding.Profile, Generation: 1, Start: fixture.offset, End: end, Record: line}
 			payload, err := wire.EncodeTranscript(record)
 			require.NoError(t, err)
 			event.Seq++
@@ -425,13 +454,16 @@ func TestExternalImportCommitReplay(t *testing.T) {
 			event.Payload = payload
 			_, err = ingestor.Commit(ctx, connection, branch.ID, event)
 			require.NoError(t, err)
-			// A new envelope for the same source range uses the committed adapter
-			// checkpoint and produces no duplicate entries.
 			event.EventID[15] = 1
 			_, err = ingestor.Commit(ctx, connection, branch.ID, event)
 			require.NoError(t, err)
-			offset = end
+			fixture.offset = end
 		}
+		if !progressed {
+			break
+		}
+	}
+	for _, fixture := range fixtures {
 		var imported int
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM chat_turns WHERE request_payload->'external'->>'source_format_version'=$1`, fixture.profile).Scan(&imported))
 		require.Equal(t, fixture.count, imported)
@@ -573,7 +605,7 @@ func TestExternalImportUnavailable(t *testing.T) {
 	for _, missing := range []string{"store", "registry", "adapter", "receipt-store", "writer"} {
 		t.Run(missing, func(t *testing.T) {
 			adapter := &checkpointTestAdapter{}
-			writer := &TranscriptIngest{Store: store, Host: adapter, Resolve: func(context.Context, pgx.Tx, string, uint32) (TranscriptBinding, error) {
+			writer := &TranscriptIngest{Store: store, Host: adapter, Resolve: func(context.Context, pgx.Tx, string, uint32, [16]byte, [16]byte) (TranscriptBinding, error) {
 				t.Fatal("unavailable ingress reached registry resolution")
 				return TranscriptBinding{}, machined.ErrNotReady
 			}}

@@ -27,8 +27,10 @@ type TranscriptBinding struct {
 type TranscriptNormalize func(context.Context, pgx.Tx, string, TranscriptBinding, wire.Transcript) ([]chat.ExternalDraft, error)
 
 type TranscriptIngest struct {
-	Store     *chat.Store
-	Resolve   func(context.Context, pgx.Tx, string, uint32) (TranscriptBinding, error)
+	Store *chat.Store
+	// Resolve keys a registered process source within a terminal session.
+	// One terminal can contain several agents; session alone is not an identity.
+	Resolve   func(context.Context, pgx.Tx, string, uint32, [16]byte, [16]byte) (TranscriptBinding, error)
 	Normalize TranscriptNormalize
 	Host      transcriptAdapter
 }
@@ -44,7 +46,7 @@ func (s *TranscriptIngest) Write(ctx context.Context, tx pgx.Tx, branch string, 
 	if err != nil {
 		return ack, err
 	}
-	binding, err := s.Resolve(ctx, tx, branch, record.Session)
+	binding, err := s.Resolve(ctx, tx, branch, record.Session, record.Participant, record.Source)
 	if err != nil {
 		return ack, err
 	}
