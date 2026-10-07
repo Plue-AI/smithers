@@ -112,7 +112,6 @@ const controller = createAppController(store, silentAgent, {
   fetchImpl,
   applicationIdentity: applicationIdentityFromFetch(fetchImpl, location.origin),
   cloudSocketUrl: () => undefined,
-  cloudLspSocketUrl: () => undefined
 })
 const root = createRoot(document.getElementById("fixture")!)
 const commands: Array<{ name: string; args?: string }> = []

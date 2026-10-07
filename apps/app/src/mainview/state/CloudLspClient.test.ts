@@ -1,19 +1,9 @@
-/*
- * The cloud language-server transport against a REAL loopback WebSocket
- * server speaking the wire plue #505 recorded (docs/code-intel/PLAN.md
- * "Live"): `initialize` → `initialized` → `didOpen` with the card's text at
- * its checkout-relative path → hover / definition / publishDiagnostics, one
- * JSON-RPC message per text frame or `{ seq, last, data }` fragments. The
- * session POST is a double of plue's route in its own shape. The close-code
- * policy is driven the way it reaches a renderer: the server closes with the
- * code (a Bun server cannot put 1001 or 1006 on the wire, so the reconnect
- * path is driven by `terminate()`, the abnormal 1006 the tunnel turns a
- * going-away into).
- */
+/* LSP against a real loopback WebSocket, with a test-only admitted session
+ * host. This exercises JSON-RPC and lifecycle handling, not daemon confinement. */
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test"
-import { CLOUD_LSP_ROOT_URI, withRetryAfter } from "@smthrs/rpc/CloudTunnel"
+import { withRetryAfter } from "@smthrs/rpc/CloudTunnel"
 import { LSP_LANGUAGE_SERVER_MISSING } from "@smthrs/rpc/LocalLsp"
-import { cloudDocumentUri, createCloudLspClient, documentLanguageId, pageCloudLspSocketUrl, STARTING_NOTE } from "./CloudLspClient"
+import { cloudDocumentUri, createCloudLspClient, documentLanguageId, DAEMON_LSP_ROOT_URI, STARTING_NOTE } from "./CloudLspClient"
 import type { CloudLspClient, CloudLspDocument, CloudLspEvent } from "./CloudLspClient"
 
 setDefaultTimeout(60_000)
@@ -111,7 +101,7 @@ const serve = (options: ServeOptions = {}): Harness => {
                   severity: 1,
                   code: 2551,
                   source: "typescript",
-                  message: "Property 'lenght' does not exist on type 'string'. Did you mean 'length'? See /home/developer/workspace/src/index.ts"
+                  message: "Property 'lenght' does not exist on type 'string'. Did you mean 'length'? See /workspace/src/index.ts"
                 }]
               }
             }))
@@ -149,7 +139,7 @@ const serve = (options: ServeOptions = {}): Harness => {
           }
           case "textDocument/definition": {
             reply([
-              { uri: `${CLOUD_LSP_ROOT_URI}/src/greet.ts`, range: { start: { line: 5, character: 13 }, end: { line: 5, character: 18 } } },
+              { uri: `${DAEMON_LSP_ROOT_URI}/src/greet.ts`, range: { start: { line: 5, character: 13 }, end: { line: 5, character: 18 } } },
               { uri: "file:///nix/store/abc-typescript/lib/lib.es5.d.ts", range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } }
             ])
             return
@@ -191,7 +181,12 @@ afterEach(() => {
   for (const harness of harnesses.splice(0)) harness.stop()
 })
 
-/** plue's session POST as a double: the 201 row, or the refusals a test names, in order. */
+// A test-only host adapter: no public session route is invented by the client.
+const sessionProvider = (http: (input: string, init?: RequestInit) => Promise<Response>) =>
+  (scope: { branch: string; kind: "exec"; language: string }, signal: AbortSignal) =>
+    http("daemon:open_session", { method: "POST", signal, body: JSON.stringify(scope) })
+
+/** The admitted daemon session host as a double, with literal replies. */
 const sessionRoute = (answers: ReadonlyArray<Response> = []) => {
   const posts: Array<{ readonly url: string; readonly body: unknown }> = []
   const queue = [...answers]
@@ -199,7 +194,7 @@ const sessionRoute = (answers: ReadonlyArray<Response> = []) => {
     posts.push({ url: input, body: typeof init?.body === "string" ? JSON.parse(init.body) : null })
     const next = queue.shift()
     if (next !== undefined) return next
-    return new Response(JSON.stringify({ id: "lsps-1", workspace_id: "ws-1", status: "running", kind: "lsp", language: "typescript", idle_timeout_secs: 600 }), {
+    return new Response(JSON.stringify({ id: "lsps-1", workspace_id: "ws-1", status: "running", kind: "exec", language: "typescript", idle_timeout_secs: 600 }), {
       status: 201,
       headers: { "content-type": "application/json" }
     })
@@ -214,8 +209,7 @@ const client = (
   const route = sessionRoute()
   const dials: Array<string> = []
   const lsp = createCloudLspClient({
-    http: extra.http ?? route.http,
-    baseUrl: "http://local.invalid",
+    openSession: sessionProvider(extra.http ?? route.http),
     socketUrl: (repo, sessionId, language) => {
       dials.push(`${repo} ${sessionId} ${language}`)
       return server.url
@@ -239,7 +233,7 @@ const DOC: CloudLspDocument = {
   content: "import { greet } from \"./greet\"\n\nconst message = greet(\"world\")\nconsole.log(message.lenght)\n"
 }
 
-test("the recorded transcript: session POST, initialize with the guest root, initialized, didOpen with the card's text, then the hover", async () => {
+test("the recorded transcript: exec session, initialize with the guest root, initialized, didOpen with the card's text, then the hover", async () => {
   const server = serve()
   const { lsp, posts, dials } = client(server)
   const answer = await lsp.hover(DOC, { line: 3, character: 7 })
@@ -254,8 +248,8 @@ test("the recorded transcript: session POST, initialize with the guest root, ini
   })
   // The session: one POST with plue's body, its id in the socket URL, the local capability as the subprotocol.
   expect(posts).toEqual([{
-    url: "http://local.invalid/api/repos/will/flows/workspace/sessions",
-    body: { workspace_id: "ws-1", kind: "lsp", language: "typescript" }
+    url: "daemon:open_session",
+    body: { branch: "ws-1", kind: "exec", language: "typescript" }
   }])
   expect(dials).toEqual(["will/flows lsps-1 typescript"])
   expect(server.protocols).toEqual(["smithers.local.test"])
@@ -264,8 +258,8 @@ test("the recorded transcript: session POST, initialize with the guest root, ini
   expect(server.received[0]!.params).toEqual({
     processId: null,
     clientInfo: { name: "smithers" },
-    rootUri: "file:///home/developer/workspace",
-    workspaceFolders: [{ uri: "file:///home/developer/workspace", name: "workspace" }],
+    rootUri: "file:///workspace",
+    workspaceFolders: [{ uri: "file:///workspace", name: "workspace" }],
     capabilities: {
       textDocument: {
         synchronization: { dynamicRegistration: false, didSave: false },
@@ -276,9 +270,9 @@ test("the recorded transcript: session POST, initialize with the guest root, ini
     }
   })
   expect(server.received[2]!.params).toEqual({
-    textDocument: { uri: "file:///home/developer/workspace/src/index.ts", languageId: "typescript", version: 1, text: DOC.content }
+    textDocument: { uri: "file:///workspace/src/index.ts", languageId: "typescript", version: 1, text: DOC.content }
   })
-  expect(server.received[3]!.params).toEqual({ textDocument: { uri: "file:///home/developer/workspace/src/index.ts" }, position: { line: 2, character: 6 } })
+  expect(server.received[3]!.params).toEqual({ textDocument: { uri: "file:///workspace/src/index.ts" }, position: { line: 2, character: 6 } })
   // A second hover reuses the socket and the open document: no second session, dial, initialize or didOpen.
   await lsp.hover(DOC, { line: 3, character: 7 })
   expect(posts).toHaveLength(1)
@@ -289,7 +283,7 @@ test("the recorded transcript: session POST, initialize with the guest root, ini
   await lsp.hover({ ...DOC, content: `${DOC.content}// more\n` }, { line: 3, character: 7 })
   const change = server.received.find((message) => message.method === "textDocument/didChange")
   expect(change?.params).toEqual({
-    textDocument: { uri: "file:///home/developer/workspace/src/index.ts", version: 2 },
+    textDocument: { uri: "file:///workspace/src/index.ts", version: 2 },
     contentChanges: [{ text: `${DOC.content}// more\n` }]
   })
 })
@@ -297,12 +291,11 @@ test("the recorded transcript: session POST, initialize with the guest root, ini
 test("a thrown session request or socket answers a product sentence, never the thrown text", async () => {
   const server = serve()
   const dropped = client(server, { http: async () => { throw new TypeError("ECONNRESET secret-socket-detail") } })
-  expect(await dropped.lsp.hover(DOC, { line: 3, character: 7 })).toEqual({ refusal: { code: "unreachable", sentence: "Could not reach Smithers Cloud." } })
+  expect(await dropped.lsp.hover(DOC, { line: 3, character: 7 })).toEqual({ refusal: { code: "unreachable", sentence: "Could not reach the language server." } })
   const route = sessionRoute()
   for (const failure of ["authorize", "open"] as const) {
     const lsp = createCloudLspClient({
-      http: route.http,
-      baseUrl: "http://local.invalid",
+      openSession: sessionProvider(route.http),
       socketUrl: () => server.url,
       ...(failure === "authorize"
         ? { authorizeSocket: async () => { throw new Error("secret-authorize-detail") } }
@@ -690,9 +683,8 @@ test("a request that times out after reissue is absent from the next reconnect",
   expect(await pending).toEqual({ ok: { hover: null } })
 })
 
-test("the page URL, the document URI and the languageId follow plue's route and typescript-language-server's vocabulary", () => {
-  expect(pageCloudLspSocketUrl("will/flows", "lsps-1", "typescript")).toBeUndefined()
-  expect(cloudDocumentUri("src/a b/index.ts")).toBe("file:///home/developer/workspace/src/a%20b/index.ts")
+test("the document URI uses the daemon root and the languageId uses the server vocabulary", () => {
+  expect(cloudDocumentUri("src/a b/index.ts")).toBe("file:///workspace/src/a%20b/index.ts")
   expect(documentLanguageId("typescript", "src/App.tsx")).toBe("typescriptreact")
   expect(documentLanguageId("typescript", "lib/x.mjs")).toBe("javascript")
   expect(documentLanguageId("typescript", "noext")).toBe("typescript")
@@ -704,8 +696,7 @@ test("a silent socket upgrade times out both callers, ignores a late open, and t
   const late = { open: undefined as (() => void) | undefined }
   let dials = 0
   const lsp = createCloudLspClient({
-    http: route.http,
-    baseUrl: "http://local.invalid",
+    openSession: sessionProvider(route.http),
     socketUrl: () => server.url,
     socketProtocol: () => "smithers.local.test",
     requestTimeoutMs: 50,
@@ -746,8 +737,7 @@ test("dispose before a silent upgrade deadline settles shared callers as dispose
   const route = sessionRoute()
   let closeCount = 0
   const lsp = createCloudLspClient({
-    http: route.http,
-    baseUrl: "http://local.invalid",
+    openSession: sessionProvider(route.http),
     socketUrl: () => server.url,
     socketProtocol: () => "smithers.local.test",
     requestTimeoutMs: 50,

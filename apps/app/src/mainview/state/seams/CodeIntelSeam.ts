@@ -36,7 +36,7 @@ import { CardSchema } from "../AppState"
 import { repositoryBoxOf, selectedBoxBinding } from "../RepoContext"
 import type { Actor, Card, CloudWorkspaceRow } from "../AppState"
 import type { CloudLspClient, CloudLspDocument, CloudLspEvent, LspAnswer, LspRefusal } from "../CloudLspClient"
-import { resolveFileTarget } from "./FilesSeam"
+import { resolveFileTarget, unsafePath } from "./FilesSeam"
 import type { FileAnchor, FilesSeam } from "./FilesSeam"
 import { captureCloudOwner, type SeamContext } from "./SeamContext"
 
@@ -51,6 +51,7 @@ export interface CodeIntelSeam {
 export interface CodeIntelSeamOptions {
   /** Host-owned T-INS-02 isolation and T-SEC-01 guest validation receipt. Absent fails closed. */
   readonly validatedGuestExecution?: () => boolean
+  readonly branchScope?: (branch?: string) => { branch: string; member: string; revision: number; sleeping: boolean } | null
   /**
    * Creates one workspace language-server client per account owner. The seam
    * closes it when that owner retires. Absent where this host
@@ -80,7 +81,6 @@ const CLOUD_TUNNEL_ABSENT = "Hover and definitions on a cloud repository need th
 type FilePayload = Extract<Card, { kind: "file" }>["payload"]
 type Intel = NonNullable<FilePayload["intel"]>
 
-const cardIdOf = (repo: string, path: string): string => `file-${repo}-${path}`
 
 /** `line:col severity message (source code)` — one diagnostic as the model reads it. */
 const diagnosticRow = (item: LspDiagnostic): string => {
@@ -121,6 +121,7 @@ interface Prepared {
 
 export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOptions): CodeIntelSeam => {
   const startingAfterMs = options.startingAfterMs ?? 300
+  const cardIdOf = (repo: string, path: string): string => options.branchScope ? `file-branch-${repo}-${path}` : `file-${repo}-${path}`
 
   const fileCard = (id: string): Extract<Card, { kind: "file" }> | undefined => {
     const card = ctx.store.collections.cards.get(id)
@@ -202,7 +203,7 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
     requireGuestExecution()
     if (cloudWatch.current?.() === false) retire()
     if (cloudWatch.client !== undefined) return cloudWatch.client
-    const owner = captureCloudOwner(ctx)
+    const owner = captureCloudOwner(ctx, options.branchScope === undefined)
     const client = options.createCloudLsp!()
     const current = () => !cloudWatch.disposed && cloudWatch.client === client && owner()
     cloudWatch.client = client
@@ -234,7 +235,7 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
   /** The file card the answer lands on, rendered through files.read when absent; the read's refusal is the answer then. */
   const ensureCard = async (repo: string, path: string, anchor?: FileAnchor): Promise<string | undefined> => {
     if (fileCard(cardIdOf(repo, path)) !== undefined) return undefined
-    const read = await options.readFile(path, repo, anchor)
+    const read = options.branchScope ? await options.readFile(path, undefined, anchor, repo) : await options.readFile(path, repo, anchor)
     return typeof read === "string" ? read : undefined
   }
 
@@ -264,7 +265,13 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
    * running box of it. Without a running one, the refusal names the act that
    * gets one.
    */
-  const workspaceFor = (repo: string): { readonly workspace: CloudWorkspaceRow } | { readonly refusal: string } => {
+  const workspaceFor = (repo: string): { readonly workspace: Pick<CloudWorkspaceRow, "id" | "name" | "status" | "lspLanguages"> } | { readonly refusal: string } => {
+    if (options.branchScope) {
+      const scope = options.branchScope(repo)
+      if (!scope) return { refusal: "Branch access is unavailable." }
+      if (scope.sleeping) return { refusal: "The branch is asleep." }
+      return { workspace: { id: scope.branch, name: scope.branch, status: "running", lspLanguages: null } }
+    }
     const selected = selectedBoxBinding(ctx.store, repo)
     if (selected !== undefined) {
       if ("error" in selected) return { refusal: selected.error }
@@ -295,7 +302,7 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
       if (canPublish()) patch(id, { intel: { state: "unavailable", note: CLOUD_TUNNEL_ABSENT } })
       return CLOUD_TUNNEL_ABSENT
     }
-    if (ctx.store.collections.cloudSessions.get("cloud")?.state !== "signed-in") return refuseCloudSignIn(ctx)
+    if (!options.branchScope && ctx.store.collections.cloudSessions.get("cloud")?.state !== "signed-in") return refuseCloudSignIn(ctx)
     const found = workspaceFor(repo)
     if ("refusal" in found) {
       cloudWatch.documents.delete(id)
@@ -320,8 +327,13 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
     const documentOwner = previous?.connection === connection ? previous : { connection }
     cloudWatch.documents.set(id, documentOwner)
     const canPresent = () => canPublish() && cloudWatch.documents.get(id) === documentOwner
-    const owner = captureCloudOwner(ctx)
-    const current = () => !cloudWatch.disposed && owner()
+    const owner = captureCloudOwner(ctx, options.branchScope === undefined)
+    const branchOwner = options.branchScope?.(repo)
+    const current = () => {
+      const next = options.branchScope?.(repo)
+      return !cloudWatch.disposed && owner() && (!options.branchScope || next?.member === branchOwner?.member
+        && next?.revision === branchOwner?.revision && next?.branch === branchOwner?.branch && next?.sleeping === false)
+    }
     const unread = await ensureCard(repo, path, anchor)
     if (!current()) return SIGN_OUT_REFUSAL
     if (unread !== undefined) return unread
@@ -348,6 +360,12 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
 
   /** The target, its card, and the subscription, or the honest refusal — shared by the three acts. */
   const targetFor = (pathArg: string, repoArg: string | undefined) => {
+    if (options.branchScope) {
+      if (!pathArg || unsafePath(pathArg) || pathArg.startsWith("/") || pathArg.endsWith("/")) return "File paths must stay inside the repository."
+      const scope = options.branchScope(repoArg)
+      if (!scope) return "Branch access is unavailable."
+      return { kind: "cloud" as const, repo: scope.branch, path: pathArg }
+    }
     const target = resolveFileTarget(ctx.store, pathArg, repoArg)
     if ("error" in target) return target.error
     if (target.path === "") return "code intelligence needs a file path"
