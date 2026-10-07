@@ -196,13 +196,19 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 		if topic != "install" || t.install == nil {
 			return live.Source{}, live.Unsupported
 		}
-		return live.Source{Key: "install", Hints: []string{"install"}, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
+		source := live.Source{Key: "install", Hints: []string{"install"}, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
 			status, err := t.install.Status(ctx)
 			if err != nil {
 				return nil, err
 			}
 			return json.Marshal(status)
-		}}, ""
+		}}
+		if t.jobs != nil {
+			source = liveJobSource(source, t.jobs, jobs.Scope{TenantID: "install", PrincipalID: "owner"})
+			source.RefreshSnapshot = func(data json.RawMessage) json.RawMessage { return data }
+			source.RefreshEvery = liveRefreshEvery
+		}
+		return source, ""
 	case "doc":
 		if strings.HasPrefix(topic, "doc:wiki:") {
 			return t.wikiDocuments.Resolve(ctx, topic, repository, member)
