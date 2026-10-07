@@ -139,7 +139,7 @@ and delete/move mutations below. There is no negotiation or older live protocol 
 ship in the same verified install bundle (spec §17.3); a different handshake
 version ends the connection with `version_mismatch` (error 13) before credentials
 or operations. Any wire change increments the version and regenerates the golden
-frames for both codecs. A bump changes one value in four places in the same commit: this section, Go `wire.Protocol`, Rust `conn::PROTOCOL` and `MANIFEST.json` `protocol`; the version-refusal fixtures are always protocol − 1 and protocol + 1, and the cross-language test fails if any of the four differ. Existing persisted history remains readable as required
+frames for both codecs. A bump changes one value in four places in the same commit: this section, Go `wire.Protocol`, Rust `conn::PROTOCOL` and `MANIFEST.json` `protocol`; the version-refusal fixtures are always protocol − 1 and protocol + 1, and the cross-language test fails if any of the four differ. After acceptance, each bump lands with smithers-3f's delta review of the new or changed frames recorded on the change's issue; it does not reopen acceptance (8a, 2026-10-07). Existing persisted history remains readable as required
 by the repository's permanent interaction rules; historical decoding never
 admits an older live connection. The amendment sections record earlier formats.
 
