@@ -652,17 +652,22 @@ func TestFailedBootRetainsCapacityUntilConfirmedStop(t *testing.T) {
 				if family.GetName() != "smithers_machine_wake_total" {
 					continue
 				}
-				require.Len(t, family.Metric, 1)
-				labels := map[string]string{}
-				for _, label := range family.Metric[0].Label {
-					labels[label.GetName()] = label.GetValue()
+				require.Len(t, family.Metric, 4)
+				counts := map[string]float64{}
+				for _, sample := range family.Metric {
+					labels := map[string]string{}
+					for _, label := range sample.Label {
+						labels[label.GetName()] = label.GetValue()
+					}
+					counts[labels["kind"]+":"+labels["outcome"]] = sample.GetCounter().GetValue()
 				}
 				kind := "warm"
 				if mode == "create" {
 					kind = "cold"
 				}
-				require.Equal(t, map[string]string{"kind": kind, "outcome": "failure"}, labels)
-				require.Equal(t, float64(1), family.Metric[0].GetCounter().GetValue())
+				expected := map[string]float64{"cold:success": 0, "cold:failure": 0, "warm:success": 0, "warm:failure": 0}
+				expected[kind+":failure"] = 1
+				require.Equal(t, expected, counts)
 				found = true
 			}
 			require.True(t, found)
@@ -1104,20 +1109,29 @@ func TestAdmissionMachineMetricsFollowRuntimeQueueAndBoots(t *testing.T) {
 		if f.GetName() != "smithers_machine_wake_total" && f.GetName() != "smithers_machine_wake_duration_seconds" {
 			continue
 		}
+		if f.GetName() == "smithers_machine_wake_total" {
+			require.Len(t, f.Metric, 4)
+			counts := map[string]float64{}
+			for _, sample := range f.Metric {
+				labels := map[string]string{}
+				for _, label := range sample.Label {
+					labels[label.GetName()] = label.GetValue()
+				}
+				counts[labels["kind"]+":"+labels["outcome"]] = sample.GetCounter().GetValue()
+			}
+			require.Equal(t, map[string]float64{"cold:success": 0, "cold:failure": 0, "warm:success": 0, "warm:failure": 1}, counts)
+			seenCounter = true
+			continue
+		}
 		require.Len(t, f.Metric, 1)
 		labels := map[string]string{}
 		for _, label := range f.Metric[0].Label {
 			labels[label.GetName()] = label.GetValue()
 		}
 		require.Equal(t, map[string]string{"kind": "warm", "outcome": "failure"}, labels)
-		if f.GetName() == "smithers_machine_wake_total" {
-			require.Equal(t, float64(1), f.Metric[0].GetCounter().GetValue())
-			seenCounter = true
-		} else {
-			require.Equal(t, uint64(1), f.Metric[0].GetHistogram().GetSampleCount())
-			require.Greater(t, f.Metric[0].GetHistogram().GetSampleSum(), float64(0))
-			seenDuration = true
-		}
+		require.Equal(t, uint64(1), f.Metric[0].GetHistogram().GetSampleCount())
+		require.Greater(t, f.Metric[0].GetHistogram().GetSampleSum(), float64(0))
+		seenDuration = true
 	}
 	require.True(t, seenCounter)
 	require.True(t, seenDuration)
@@ -1133,8 +1147,12 @@ func TestAdmissionMachineMetricsFollowRuntimeQueueAndBoots(t *testing.T) {
 	require.NoError(t, err)
 	for _, f := range families {
 		if f.GetName() == "smithers_machine_wake_total" {
-			require.Len(t, f.Metric, 1)
-			require.Equal(t, float64(1), f.Metric[0].GetCounter().GetValue())
+			require.Len(t, f.Metric, 4)
+			var attempts float64
+			for _, sample := range f.Metric {
+				attempts += sample.GetCounter().GetValue()
+			}
+			require.Equal(t, float64(1), attempts)
 		}
 	}
 }

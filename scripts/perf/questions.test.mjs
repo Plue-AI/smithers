@@ -27,7 +27,7 @@ test('agent workload repeats each fixed question five times in reproducible shuf
  assert.throws(() => workload(Array(20).fill('same')))
 })
 test('Inspect clock receipts are mandatory and never replaced by a duration or network timestamp', () => {
- const start = { type: 'context.preflight', runId: 'run', phase: 'started', at: 100, clock: 'host monotonic' }
+ const start = { type: 'context.preflight', runId: 'run', phase: 'started', at: 100, clock: 'host monotonic:boot-1' }
  const end = { ...start, phase: 'completed', at: 150, result: { context: [], model: 'fast', durationMs: 50 } }
  assert.equal(preflightTiming([start, end], 'run').durationMs, 50)
  for (const events of [undefined, [], [end], [start], [{ ...start, at: undefined }, end], [start, { ...end, at: 99 }], [start, { ...end, clock: 'browser monotonic' }], [start, { ...end, result: {} }]]) assert.throws(() => preflightTiming(events, 'run'))
@@ -47,9 +47,9 @@ test('browser fixtures prove server identity and conversation access before muta
  const calls = []
  const context = { request: { async get(url, options) {
    calls.push({ url, options })
-   return { status: () => 200, json: async () => url.endsWith('/api/user') ? { id: 3, username: 'Alice', token: 'do-not-copy' } : { id: 'main', entries: [] } }
+   return { status: () => 200, json: async () => url.endsWith('/api/user') ? { id: 3, username: 'Alice', token: 'do-not-copy' } : { id: 'canonical-main', entries: [] } }
  } } }
- assert.deepEqual(await authenticatedMember(context, 'https://factory.example'), { id: 3, username: 'Alice' })
+ assert.deepEqual(await authenticatedMember(context, 'https://factory.example'), { id: 3, username: 'Alice', conversation: 'canonical-main' })
  assert.deepEqual(calls.map(c => c.url), ['https://factory.example/api/user', 'https://factory.example/api/conversations/main'])
  assert.ok(calls.every(c => c.options.maxRedirects === 0 && c.options.timeout === 10000))
  distinctMembers([{ id: 1 }, { id: 2 }])
@@ -104,4 +104,25 @@ test('rebase acknowledgement fixture restores ordinary delivery after cancellati
  })
  await assert.rejects(rebaseHold(boundary), /cancelled push/)
  assert.deepEqual(windows, [0, 0])
+})
+
+
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { spawnSync } from 'node:child_process'
+test('first-token CLI refusal retains commit and explicit unknown metadata without launching a model', async () => {
+ const root = await mkdtemp(join(tmpdir(), 'perf-agent-refusal-'))
+ try {
+  const output = spawnSync(process.execPath, ['scripts/perf/agent-first-token.mjs'], { encoding: 'utf8', env: { ...process.env, SMITHERS_PERF_ORIGIN: '', SMITHERS_PERF_ARTIFACT_ROOT: root, SMITHERS_PERF_INSTALL_VERSION: 'fixture' } })
+  assert.equal(output.status, 1, output.stderr)
+  const receipt = JSON.parse(output.stdout)
+  assert.equal(receipt.status, 'failed')
+  const saved = JSON.parse(await readFile(join(receipt.directory, 'summary.json'), 'utf8'))
+  assert.match(saved.commit, /^[a-f0-9]{40}$/)
+  assert.equal(saved.installVersion, 'fixture')
+  for (const key of ['origin', 'host', 'browser', 'models']) assert.equal(saved[key], null)
+  assert.deepEqual(saved.samples, [])
+  assert.match(saved.error, /T-INS-04/)
+ } finally { await rm(root, { recursive: true, force: true }) }
 })
