@@ -1632,6 +1632,10 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if modelStreamHost != nil {
 		modelStreamHandler = routes.NewModelStreamHandler(modelStreamHost)
 	}
+	var conversationSummaries *services.ConversationSummaries
+	if config.IsSingleOwner(cfg.Auth) && chatService != nil {
+		conversationSummaries = composeConversationSummaries(pool, commandJobs, chatService.runtime.Handler.Store, modelStreamHost)
+	}
 	var installSetup *services.InstallSetupService
 	var installAddress *services.InstallAddress
 	if config.IsSingleOwner(cfg.Auth) {
@@ -2046,6 +2050,13 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		launchWorker(func() {
 			if err := modelTests.RunModelTests(workerCtx); err != nil && workerCtx.Err() == nil {
 				slog.Error("model test worker stopped", "error", err)
+			}
+		})
+	}
+	if conversationSummaries != nil {
+		launchWorker(func() {
+			if err := commandJobs.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "conversation-summary-" + uuid.NewString(), Capacity: 1, Lease: time.Minute, PollInterval: 250 * time.Millisecond, Operations: []string{services.ConversationSummaryOperation}}, conversationSummaries.Handle); err != nil && workerCtx.Err() == nil {
+				slog.Error("conversation summary worker stopped", "error", err)
 			}
 		})
 	}

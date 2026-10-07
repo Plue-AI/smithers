@@ -422,3 +422,12 @@ test("unseen completed entries pin below and clear after the durable cursor catc
   expect(railEdges([visible, ...sharedRailLines(conversation, { role: "member" }, 14)], ["visible", "visible"]).below).toEqual([])
   expect(sharedRailLines(conversation, { role: "member" }, 13).map(row => row.fresh)).toEqual([false, true])
 })
+
+
+test("a stored model summary leaves the deterministic title and tone intact", () => {
+ const rows=sharedRailLines({ id:"main",entries:[{id:"turn",author:2,authorLogin:"alice",runId:"run",prompt:"Run tests",title:"Run tests",tone:"live",state:"running",summary:"Checked retry bounds",summary_rev:3,frames:[]}]},{role:"member"})
+ expect(rows[1]!.title).toBe("Run tests")
+ expect(rows[1]!.tone).toBe("live")
+ const host=mount(<Timeline lines={rows} on_screen={["turn:prompt","turn:answer"]} onAction={()=>{}} onView={()=>{}} />)
+ expect(host.querySelector('[data-summary][aria-label="Summary"]')?.textContent).toBe("Checked retry bounds")
+})

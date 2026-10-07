@@ -88,7 +88,7 @@ export const sharedRailLines = (conversation: SharedConversation | undefined, vi
   const tone = turn.tone ?? (turn.state === "accepted" || turn.state === "running" ? "live" : turn.state === "failed" ? "failed" : turn.state === "completed" ? "done" : "quiet")
   const rows: TimelineLine[] = [
     { entry_id: `${turn.id}:prompt`, kind: "prompt", fresh: turn.sequence !== undefined && turn.sequence * 2 - 1 > lastSeen, title: turn.title ?? firstLine(turn.prompt), tone: "quiet", glyph: { actor: { kind: "person", ...person, color_index } } },
-    { entry_id: `${turn.id}:answer`, kind: "answer", fresh: turn.sequence !== undefined && turn.sequence * 2 > lastSeen, title: firstLine(text) || turn.title || firstLine(turn.prompt), tone,
+    { entry_id: `${turn.id}:answer`, kind: "answer", ...(turn.summary === undefined ? {} : { summary: turn.summary }), fresh: turn.sequence !== undefined && turn.sequence * 2 > lastSeen, title: firstLine(text) || turn.title || firstLine(turn.prompt), tone,
       glyph: { actor: { kind: "agent", id: turn.runId, agent: "smithers", for_member: person, avatar_url: PlaceholderAvatarUrl, color_index } } }
   ]
   for (const frame of frames) {

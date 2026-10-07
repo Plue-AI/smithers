@@ -22,7 +22,9 @@ type SharedContextPreflight struct {
 }
 
 type SharedTurn struct {
-	Sequence int64 `json:"sequence"`
+	Summary         *string `json:"summary,omitempty"`
+	SummaryRevision int64   `json:"summary_rev,omitempty"`
+	Sequence        int64   `json:"sequence"`
 	*ExternalDraft
 	ID          string                  `json:"id"`
 	Title       string                  `json:"title"`
@@ -108,7 +110,7 @@ func (s *Store) SharedEntries(ctx context.Context, scope Scope, branch string) (
 			}
 			entry.ExternalDraft = &request.External
 		}
-		if err := tx.QueryRow(ctx, `SELECT entry_seq FROM chat_turns WHERE id=$1`, turn.ID).Scan(&entry.Sequence); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT entry_seq,summary,summary_rev FROM chat_turns WHERE id=$1`, turn.ID).Scan(&entry.Sequence, &entry.Summary, &entry.SummaryRevision); err != nil {
 			return result, err
 		}
 		if err := tx.QueryRow(ctx, `SELECT username FROM users WHERE id=$1`, turn.UserID).Scan(&entry.AuthorLogin); err != nil {

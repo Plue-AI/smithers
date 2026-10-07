@@ -173,6 +173,7 @@ var migrationRegistry = []migrationSpec{
 	{135, "migrations/0135_todo_repository_order.sql"},
 	{136, "migrations/0136_github_main_reset_intent.sql"},
 	{137, "migrations/0137_conversation_entry_sequence.sql"},
+	{138, "migrations/0138_conversation_summaries.sql"},
 }
 
 type migration struct {

@@ -20,7 +20,7 @@ function Line({ line, inView, onView, onAction }: { line: TimelineLine; inView: 
         : glyph.event === "attention" ? <CircleAlert size={13} className="toast-attention" aria-hidden="true" />
         : <X size={13} className="tl-failed" aria-hidden="true" />}
     </span>
-      <span className="tl-text"><b>{line.title}</b>{line.summary === undefined ? null : <span>{line.summary}</span>}</span>
+      <span className="tl-text"><b>{line.title}</b>{line.summary === undefined ? null : <span data-summary aria-label="Summary">{line.summary}</span>}</span>
     </button>
     {action ? <span className="tl-actions"><Button size="sm" variant="outline" data-flow={action.tag} disabled={Boolean(action.disabled)} onClick={event => { event.stopPropagation(); onAction(action.tag, action.args ?? {}) }}>{action.label}</Button>
       {action.disabled ? <span>{action.disabled.reason}</span> : null}</span> : null}
