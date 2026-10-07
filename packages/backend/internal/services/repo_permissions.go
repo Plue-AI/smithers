@@ -515,6 +515,9 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 		}
 		return authorizeExecutionTodoRead(ctx, q, subject)
 	}
+	if command == "monitor" && InstallExecutionCredential(ctx) {
+		return authorizeExecutionMonitor(ctx, q, subject)
+	}
 	if command == "todo.read" && InstallExecutionCredential(ctx) {
 		return authorizeExecutionTodoRead(ctx, q, subject)
 	}

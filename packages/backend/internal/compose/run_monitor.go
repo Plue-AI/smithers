@@ -72,32 +72,36 @@ func (m *runMonitors) read(ctx context.Context, repo int64, id string, at *int64
 	if len(cps) != 1 {
 		return nil, pgx.ErrNoRows
 	}
+	return m.readCheckpoint(ctx, repo, id, at, cps[0])
+}
+
+func (m *runMonitors) readCheckpoint(ctx context.Context, repo int64, id string, at *int64, cp flowdispatch.RuntimeCheckpoint) (json.RawMessage, error) {
 	// Legacy flow-host usage rows name only a workspace. They cannot prove
 	// which native run or step incurred the spend, even if its journal carries
 	// no model event (foreign coding harnesses can call the proxy directly).
 	// Refuse an unknown total until native attribution is available.
 	var unboundUsage bool
-	if err := m.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM model_usage WHERE repository_id=$1 AND workspace_id=$2 AND source='flow_host')`, repo, cps[0].Target.WorkspaceID).Scan(&unboundUsage); err != nil {
+	if err := m.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM model_usage WHERE repository_id=$1 AND workspace_id=$2 AND source='flow_host')`, repo, cp.Target.WorkspaceID).Scan(&unboundUsage); err != nil {
 		return nil, err
 	}
 	if unboundUsage {
 		return nil, errors.New("native run metering unavailable")
 	}
-	raw, err := m.reader.Monitor(ctx, cps[0].Target, cps[0].RunID, at)
+	raw, err := m.reader.Monitor(ctx, cp.Target, cp.RunID, at)
 	if err != nil {
 		return nil, err
 	}
 	var value map[string]any
-	if json.Unmarshal(raw, &value) != nil || value["id"] != cps[0].RunID {
+	if json.Unmarshal(raw, &value) != nil || value["id"] != cp.RunID {
 		return nil, errors.New("invalid monitor")
 	}
 	// Only the admitted version is authoritative; the journal does not name a
 	// mutable registry's current version.
-	value["version"] = cps[0].ExecutionDigest
+	value["version"] = cp.ExecutionDigest
 	value["id"] = id
 	if attempts, ok := value["attempts"].([]any); ok {
 		for _, a := range attempts {
-			if row, ok := a.(map[string]any); ok && row["run_id"] == cps[0].RunID {
+			if row, ok := a.(map[string]any); ok && row["run_id"] == cp.RunID {
 				row["run_id"] = id
 			}
 		}
@@ -106,7 +110,7 @@ func (m *runMonitors) read(ctx context.Context, repo int64, id string, at *int64
 	var title, itemState string
 	var checks []byte
 	err = m.pool.QueryRow(ctx, `SELECT number,attempt,title,state,checks FROM mythical_items
- WHERE repository_id=$1 AND $2 IN (request_run_id,vibe_run_id,verify_run_id) AND source='todo'`, repo, cps[0].RunID).Scan(&number, &attempt, &title, &itemState, &checks)
+ WHERE repository_id=$1 AND $2 IN (request_run_id,vibe_run_id,verify_run_id) AND source='todo'`, repo, cp.RunID).Scan(&number, &attempt, &title, &itemState, &checks)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
@@ -122,8 +126,11 @@ func (m *runMonitors) read(ctx context.Context, repo int64, id string, at *int64
 				} `json:"failures"`
 			} `json:"thrash"`
 		}
-		if err := json.Unmarshal(checks, &facts); err != nil {
-			return nil, err
+		// Retained items may have no checks receipt yet. NULL is not corrupt history.
+		if len(checks) != 0 {
+			if err := json.Unmarshal(checks, &facts); err != nil {
+				return nil, err
+			}
 		}
 		// TODO waits retain their opening and settlement receipts. Replay uses
 		// the selected journal's timestamp, never today's settled state.
@@ -148,7 +155,7 @@ func (m *runMonitors) read(ctx context.Context, repo int64, id string, at *int64
 		}
 		waits, _ := value["waits"].([]any)
 		for _, wait := range facts.Waits {
-			if wait.Signal == nil || wait.Signal.Run != cps[0].RunID ||
+			if wait.Signal == nil || wait.Signal.Run != cp.RunID ||
 				(at != nil && (cursor == nil || wait.Since.After(*cursor))) {
 				continue
 			}
@@ -192,9 +199,9 @@ func (m *runMonitors) read(ctx context.Context, repo int64, id string, at *int64
 			if !ok || sequence < 0 || sequence > float64(*at) || sequence != float64(int64(sequence)) || !textOK || !kindOK || !json.Valid([]byte(text)) {
 				return nil, errors.New("invalid replay journal")
 			}
-			events = append(events, flowruntime.Event{RunID: cps[0].RunID, Sequence: int64(sequence), Kind: kind, Payload: json.RawMessage(text)})
+			events = append(events, flowruntime.Event{RunID: cp.RunID, Sequence: int64(sequence), Kind: kind, Payload: json.RawMessage(text)})
 		}
-		for _, check := range services.RunThrashChecks(cps[0].RunID, events) {
+		for _, check := range services.RunThrashChecks(cp.RunID, events) {
 			markMonitorThrash(value, check)
 		}
 	}
@@ -220,6 +227,10 @@ func markMonitorThrash(value map[string]any, check string) {
 func mountRunMonitors(router chi.Router, cfg *config.Config, q *db.Queries, m *runMonitors) {
 	access := []func(http.Handler) http.Handler{authLoader(q, cfg.Auth), middleware.RequireAuth}
 	handler := func(w http.ResponseWriter, r *http.Request) {
+		if services.InstallExecutionCredential(r.Context()) {
+			m.serveExecutionTrace(w, r, q)
+			return
+		}
 		if _, err := services.Authorize(r.Context(), q, "monitor"); err != nil {
 			writeConfirmationDispatchError(w, err)
 			return

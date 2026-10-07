@@ -20734,6 +20734,7 @@ paths:
     get:
       x-composition: install
       summary: List admitted runs
+      description: Run and machine credentials cannot list all runs.
       operationId: get_api_runs
       tags:
         - Runs
@@ -20753,6 +20754,7 @@ paths:
     get:
       x-composition: install
       summary: Read an admitted run
+      description: Bound run and machine credentials receive only their current TODO execution state and lifecycle events. Private monitor fields are omitted.
       operationId: get_api_runs_id
       tags:
         - Runs
@@ -20812,6 +20814,7 @@ paths:
     get:
       x-composition: install
       summary: Read an admitted run trace
+      description: Bound run and machine credentials receive only their current TODO execution state and lifecycle events. Private monitor fields are omitted.
       operationId: get_api_runs_id_trace
       tags:
         - Runs
