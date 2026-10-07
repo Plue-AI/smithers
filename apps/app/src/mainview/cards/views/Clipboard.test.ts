@@ -47,13 +47,13 @@ for (const throws of [false, true]) test(`fallback failure cleans up (${throws})
   clipboard(undefined); legacy(() => { if (throws) throw new Error("denied"); return false })
   const result = await copyText("text")
   expect(result.ok).toBe(false)
-  if (!result.ok) expect(result.code).toBe("clipboard-write-failed")
+  if (!result.ok) expect(result.code).toBe("clipboard-unavailable")
   expect(document.querySelector("textarea")).toBeNull()
 })
 test("rejected Clipboard API normalizes failure", async () => {
   const cause = new Error("denied")
   clipboard({ writeText: async () => { throw cause } })
-  expect(await copyText("text")).toEqual({ ok: false, code: "clipboard-write-failed", cause })
+  expect(await copyText("text")).toEqual({ ok: false, code: "clipboard-unavailable", cause })
 })
 test("refused Clipboard API copies once through the fallback", async () => {
   const writeText = mock(async () => { throw new Error("denied") })
@@ -86,5 +86,20 @@ test("native rejection survives an unsuccessful fallback", async () => {
   const cause = new Error("permission denied")
   clipboard({ writeText: async () => { throw cause } })
   legacy(() => false)
-  expect(await copyText("text")).toEqual({ ok: false, code: "clipboard-write-failed", cause })
+  expect(await copyText("text")).toEqual({ ok: false, code: "clipboard-unavailable", cause })
+})
+
+for (const fallback of ["absent", "refused", "throws"] as const) test(`refused host callback reports unavailable after fallback ${fallback}`, async () => {
+  const hostCause = new Error("host denied")
+  const fallbackCause = new Error("fallback denied")
+  const host = mock(async (_text: string) => { throw hostCause })
+  const exec = mock(() => { if (fallback === "throws") throw fallbackCause; return false })
+  legacy(fallback === "absent" ? undefined : exec)
+  expect(await copyText("host text", host)).toEqual({
+    ok: false, code: "clipboard-unavailable", cause: fallback === "throws" ? fallbackCause : hostCause
+  })
+  expect(host).toHaveBeenCalledTimes(1)
+  expect(host).toHaveBeenCalledWith("host text")
+  expect(exec).toHaveBeenCalledTimes(fallback === "absent" ? 0 : 1)
+  expect(document.querySelector("textarea")).toBeNull()
 })

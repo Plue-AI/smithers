@@ -12,8 +12,8 @@ the file is named beside each one so a reader can check.
 ## Failure codes
 
 Every code is a stable string a caller may branch on. None of them carries host
-error text: a rejected clipboard write reports `clipboard-write-failed` and
-hands back the original rejection as `cause`, rather than pasting a browser's
+error text: an unsuccessful copy reports `clipboard-unavailable` and
+hands back the rejection as `cause`, rather than pasting a browser's
 message into the UI.
 
 ### Copy affordances
@@ -27,8 +27,8 @@ when the native API is absent or refuses the write, and returns `{ ok: true }` o
 
 | Code                     | Emitted when                                                                                                                       | After                                                                     |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `clipboard-unavailable`  | No `onCopy` was supplied and neither Clipboard API nor DOM fallback is available. `cause` is `undefined`, because nothing threw.        | Nothing was copied. The control does not enter its copied state.          |
-| `clipboard-write-failed` | The supplied `onCopy` or both native and fallback writes failed. `cause` is the original rejection.                                                       | Same.                                                                     |
+| `clipboard-unavailable`  | The host or native write and the DOM fallback are unavailable or refused. `cause` retains the fallback exception, or the original write rejection when the fallback did not throw. | Nothing was copied. The control does not enter its copied state. |
+| `clipboard-write-failed` | Retained in the public type for previously recorded results. New copies report `clipboard-unavailable`. | Same. |
 
 The copied state is set only after the write fulfills, so a control that says
 "Copied" copied something.
