@@ -63,3 +63,21 @@ is non-overlapping and applies; an overlapping save against the pre-flush or
 held-inode base keeps the live edit and reports the outside version. This is
 Linux boundary evidence, not the installed broker/cgroup, microVM, browser,
 reference-host latency or complete C-COL-04/C-DUR-04 acceptance.
+
+
+`node scripts/working-together/faults.mjs --host-only` executes K4 and K4b's
+production authenticated host dispatcher with real PostgreSQL and a bare Git
+object store. The untracked `.artifacts/working-together-host.json` needs only
+`databaseUrl` for a disposable test PostgreSQL server in this mode. K4 exits
+the host after commit and before ACK; K4b cuts the connection for 30 seconds
+while fifty distinct fixture bursts queue, then reconnects to the same host
+service without restarting it. Both run ten times and replay twice, checking
+exact rows, hashes and versions retained through Git GC. This mode takes about
+six minutes; `go test -short` skips K4b. The runner requires every named test and
+all twenty subtest lifecycles, refusing failures, skips, missing runs and duplicate
+receipts. It preserves JSON logs and environment metadata under C-DUR-04.
+
+These are host boundary proofs with a fixture wire peer. They do not exercise
+an installed guest watcher, its durable outbox, a VM kill, working-copy recovery,
+capture convergence or the complete per-run C-DUR-04 artifact inventory. The
+summary remains `incomplete`; the Mac/approved-image campaign is still required.

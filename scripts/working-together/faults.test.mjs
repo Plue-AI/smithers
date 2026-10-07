@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { verdict, wikiVerdict, boundaryVerdict, boundaryEnvironment, codeTests, suites, points } from './faults.mjs'
+import { verdict, wikiVerdict, boundaryVerdict, boundaryEnvironment, codeTests, hostTests, hostLifecycles, hostVerdict, suites, points } from './faults.mjs'
 test('every named component must execute assertions; no empty or failed cargo receipt qualifies', () => {
   const logs = suites.map(suite => `Running tests/${suite}.rs (target)\ntest result: ok. 2 passed; 0 failed`).join('\n')
   assert.equal(verdict(0, logs), 'component-passed')
@@ -65,7 +65,7 @@ test('missing host fixture records a failure before starting either boundary sui
   const { run } = await import('./faults.mjs')
   const root = await mkdtemp(join(tmpdir(), 'wiki-fault-refusal-'))
   try {
-    for (const mode of ['wikiOnly', 'codeOnly']) {
+    for (const mode of ['wikiOnly', 'codeOnly', 'hostOnly']) {
       assert.equal(await run({ root, [mode]: true }), 1)
       const parent = join(root, '.artifacts/checks/C-DUR-04')
       const directories = await readdir(parent)
@@ -73,8 +73,8 @@ test('missing host fixture records a failure before starting either boundary sui
       const summary = JSON.parse(await readFile(join(parent, directory, 'summary.json'), 'utf8'))
       assert.equal(summary.status, 'failed')
       assert.equal(summary.reason, 'host fixture unavailable')
-      assert.deepEqual(summary.tests, mode === 'wikiOnly' ? ['TestWikiHostCommittedReceiptsAndRestart'] : codeTests)
-      assert.deepEqual(summary.points.map(item => item.point), mode === 'wikiOnly' ? ['K8'] : ['K7a', 'K7b', 'K7c', 'K7d', 'K7e'])
+      assert.deepEqual(summary.tests, mode === 'hostOnly' ? hostTests : mode === 'wikiOnly' ? ['TestWikiHostCommittedReceiptsAndRestart'] : codeTests)
+      assert.deepEqual(summary.points.map(item => item.point), mode === 'hostOnly' ? ['K4', 'K4b'] : mode === 'wikiOnly' ? ['K8'] : ['K7a', 'K7b', 'K7c', 'K7d', 'K7e'])
       assert.ok(summary.points.every(item => item.status === 'blocked'))
       assert.deepEqual((await readdir(join(parent, directory))).sort(), ['env.json', 'summary.json'])
     }
@@ -95,5 +95,23 @@ test('filtered target environment keeps the shared cache and explicit lane fixtu
   assert.equal(ambient.LANE, 'caller')
   for (const invalid of [null, {}, { databaseUrl: 1, libraryPath: '/native' }, { databaseUrl: 'postgres://test', libraryPath: null }]) {
     assert.throws(() => boundaryEnvironment(invalid, {}), /invalid fixture/)
+  }
+})
+
+
+test('host fault receipt requires both campaigns and all twenty run lifecycles', () => {
+  const hostPkg = 'github.com/smithersai/smithers/packages/backend/internal/machined'
+  const line = (action, name) => event(action, name, hostPkg)
+  const logs = [line('start'), ...hostTests.flatMap(name => [line('run', name),
+    ...Array.from({ length: 10 }, (_, i) => [line('run', `${name}/${i+1}`), line('pass', `${name}/${i+1}`)]).flat(),
+    line('pass', name)]), line('pass')].join('\n')
+  assert.equal(hostVerdict(0, logs), 'boundary-passed')
+  assert.equal(hostVerdict(1, logs), 'failed')
+  assert.equal(hostVerdict(0, logs.replaceAll(hostPkg, pkg)), 'failed')
+  for (const name of hostLifecycles) {
+    assert.equal(hostVerdict(0, logs.replace(line('pass', name), '')), 'failed')
+    assert.equal(hostVerdict(0, logs.replace(line('pass', name), line('skip', name))), 'failed')
+    assert.equal(hostVerdict(0, logs.replace(line('pass', name), line('fail', name))), 'failed')
+    assert.equal(hostVerdict(0, logs + '\n' + line('pass', name)), 'failed')
   }
 })
