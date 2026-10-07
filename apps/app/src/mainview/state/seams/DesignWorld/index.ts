@@ -839,9 +839,6 @@ export const createDesignWorld = (options: DesignWorldOptions = {}) => {
   const keepMoved = (branchId: string, by: ActorId): DesignResult => {
     const branch = row("branches", branchId)
     if (branch?.movedOff === undefined) return refuse("Nothing to keep")
-    setBranch(branchId, { movedOff: undefined })
-    const item = row("todos", branch.movedOff.item)
-    if (item !== undefined) setTodo(item.id, { needs: undefined })
     activity(branchId, { who: STACK, kind: "step", text: "Kept the move", tone: "ok", asked: by })
     return ok("Kept the move")
   }

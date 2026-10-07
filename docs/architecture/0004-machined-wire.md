@@ -213,7 +213,7 @@ Event := union
   1 burst      { 1 burst_id: id128, 2 actor: Actor, 3 files: list<BurstFile>, 4 versions_commit: oid, 5 part: u16?, 6 parts: u16? }
   2 captured   { 1 head: oid, 2 tree: oid, 3 base: oid }
   3 reconciled { 1 from: oid, 2 onto: oid, 3 outcome: u8 (1 moved, 2 conflict), 4 paths: list<str>? }
-  4 moved_off     reserved for T-COL-05
+  4 moved_off  { 1 actor: Actor, 2 item: u64, 3 pre_move_commit: oid }
   5 transcript    reserved for §9.6.6
   6 doc_edit      reserved for T-COL-08a
 BurstFile := struct { 1 path: str, 2 change: u8 (1 added, 2 modified, 3 deleted, 4 renamed),

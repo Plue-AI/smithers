@@ -486,7 +486,7 @@
     {
       "name": "ev_reserved_moved_off",
       "direction": "daemon-to-host",
-      "expected": "ok",
+      "expected": "missing_field",
       "local": false,
       "sha256": "45fb0cab2cfc2b943e95f63c65775355d898f2aaec90fdb85ad4c7c6d409c042"
     },
@@ -1007,6 +1007,13 @@
       "expected": "missing_field",
       "local": false,
       "sha256": "8f14ed4e8ca29d479af4b6485fe3aab6e208286afc612c7394b28b517de0acf9"
+    },
+    {
+      "name": "ev_moved_off",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "99a97e7dca911099812a9b5a1f8d9ac99e7fde1b5192a08cbaf505c79dc3cb70"
     }
   ],
   "sequences": {

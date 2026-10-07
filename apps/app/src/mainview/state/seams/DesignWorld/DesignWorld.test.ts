@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { BEN, createDesignWorld, DESIGN_SCRIPT, GITHUB_CHECKS_MS, LEARNING_MS, MAYA, mergeReadiness, ALICE, type DesignTimers } from "./index"
+import { BEN, createDesignWorld, DESIGN_SCRIPT, GITHUB_CHECKS_MS, LEARNING_MS, MAYA, mergeReadiness, ALICE, seedDesignWorld, type DesignTimers } from "./index"
 
 /** A fake clock: timers fire only when the test advances time. */
 const fakeClock = () => {
@@ -210,4 +210,23 @@ describe("DesignWorld write surface", () => {
     expect(calls).toBeGreaterThan(seen)
     expect(design.world().secrets.some(each => each.name === "DIRECT")).toBe(true)
   })
+})
+
+ test("Keep for now retains the moved branch and Needs you until Return", () => {
+  const seed = seedDesignWorld()
+  const target = seed.todos[1]!
+  const design = createDesignWorld({ viewer: MAYA, timers: fakeClock().timers, seed: () => ({
+    ...seed,
+    todos: seed.todos.map(item => item.id === target.id ? { ...item, state: "needs-you", needs: "moved_off" } : item),
+    branches: seed.branches.map(branch => branch.id === target.branch ? { ...branch, movedOff: { by: MAYA, item: target.id } } : branch)
+  }) })
+  expect(design.keepMoved(target.branch, BEN)).toEqual({ ok: true, ack: "Kept the move" })
+  expect(design.row("branches", target.branch)?.movedOff).toEqual({ by: MAYA, item: target.id })
+  expect(design.row("todos", target.id)?.state).toBe("needs-you")
+  expect(design.row("todos", target.id)?.needs).toBe("moved_off")
+  expect(design.pendingTimers()).toEqual([])
+  expect(design.returnToItem(target.branch, BEN).ok).toBe(true)
+  expect(design.row("branches", target.branch)?.movedOff).toBeUndefined()
+  expect(design.row("todos", target.id)?.needs).toBeUndefined()
+  design.dispose()
 })
