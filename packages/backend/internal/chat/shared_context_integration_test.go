@@ -124,3 +124,63 @@ func TestSharedConversationAssemblesPreflightAcrossReplayPages(t *testing.T) {
 		require.Contains(t, string(raw), `"candidates":[]`)
 	}
 }
+
+func TestSharedConversationIndependentToastPreferences(t *testing.T) {
+	f := newContextFixture(t)
+	// The same authenticated HTTP door writes both preferences, independently.
+	server := httptest.NewServer(authenticatedRoutes(f.handler, f.scope.UserID, f.scope.Owner))
+	defer server.Close()
+	write := func(body string) map[string]any {
+		req, err := http.NewRequest(http.MethodPut, server.URL+"/api/conversations/main/view-state", strings.NewReader(body))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		response, err := server.Client().Do(req)
+		require.NoError(t, err)
+		defer response.Body.Close()
+		require.Equal(t, http.StatusOK, response.StatusCode)
+		var view map[string]any
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&view))
+		return view
+	}
+	view := write(`{"toasts_hidden":true,"global_toasts_hidden":false}`)
+	require.Equal(t, true, view["toasts_hidden"])
+	require.Equal(t, false, view["global_toasts_hidden"])
+	view = write(`{"toasts_hidden":false,"global_toasts_hidden":true}`)
+	require.Equal(t, false, view["toasts_hidden"])
+	require.Equal(t, true, view["global_toasts_hidden"])
+	raw, err := f.handler.Store.ReadMemberViewState(t.Context(), f.scope.UserID, "another-branch")
+	require.NoError(t, err)
+	require.JSONEq(t, `{"global_toasts_hidden":true}`, string(raw))
+}
+
+func TestSharedConversationCardCursorRetainsFirstJournalPosition(t *testing.T) {
+	f := newContextFixture(t)
+	grant := f.admit(t, "card-cursor", "Read files", true, true, false)
+	card := json.RawMessage(`{"runId":"card-cursor","type":"card","card":{"id":"new-card","kind":"file","title":"retry.ts","status":"active","payload":{"repo":"smithersai/smithers","path":"retry.ts","content":"retry","truncated":false},"createdAt":0,"ordinal":0}}`)
+	hidden := json.RawMessage(`{"runId":"card-cursor","type":"card","card":{"id":"private-confirm","kind":"confirmation","title":"Private"}}`)
+	ack, err := f.handler.Store.Commit(t.Context(), CommitInput{TurnID: grant.TurnID, Generation: grant.Generation, Token: grant.Token, Expected: grant.Cursor, Frames: []json.RawMessage{frame(grant.RunID, "Answer"), card, hidden}})
+	require.NoError(t, err)
+	read := func() SharedConversation {
+		response, e := f.server.Client().Get(f.server.URL + "/api/conversations/main")
+		require.NoError(t, e)
+		defer response.Body.Close()
+		require.Equal(t, 200, response.StatusCode)
+		var shared SharedConversation
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&shared))
+		return shared
+	}
+	first := read()
+	require.Len(t, first.Entries, 1)
+	require.Equal(t, int64(1_000_004), first.Entries[0].EntrySequences["new-card"])
+	require.NotContains(t, first.Entries[0].EntrySequences, "private-confirm")
+	// An update of the same card is not a new entry. Recovery rereads the
+	// first sealed position, independent of the latest row's source revision.
+	_, err = f.handler.Store.Commit(t.Context(), CommitInput{TurnID: grant.TurnID, Generation: grant.Generation, Token: grant.Token, Expected: ack.Cursor, Frames: []json.RawMessage{card, done(grant.RunID, "stop")}})
+	require.NoError(t, err)
+	cold, err := NewStore(f.handler.Store.pool)
+	require.NoError(t, err)
+	f.handler.Store = cold
+	restored := read()
+	require.Equal(t, int64(1_000_004), restored.Entries[0].EntrySequences["new-card"])
+	require.Equal(t, int64(1_000_001), restored.Entries[0].EntrySequences[grant.TurnID+":answer"])
+}
