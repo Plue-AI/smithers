@@ -93,15 +93,17 @@ describe("the generated product API client", () => {
     // (fc5676df0, #3565) and the mythical config setter (44b074f80, #3572) were removed. The flow catalog
     // read, GET /api/flows (#3499), was added. The install issue reads, GET /api/issues and
     // GET /api/issues/{n} (#3457), were added.
-    // Includes branch operations, live updates, TODO edits and named flow reads.
+    // Includes branch operations, live updates, TODO edits and named flow reads,
+    // including the mounted Add-to-stack operation (#3525).
     // Exact parity above and the literal resource inventory below remain independent.
     // Includes the revision-bound order acknowledgment and run-bound Learning evidence.
-    expect(expected).toHaveLength(538)
+    expect(expected).toHaveLength(539)
     expect(spec.paths["/api/agents/{name}"]).toHaveProperty("get.operationId", "get_api_agents_name")
     expect(spec.paths["/api/model/test/receipt"]).toHaveProperty("get.operationId", "get_api_model_test_receipt")
     expect(spec.paths["/api/stack/attention/{id}"]).toHaveProperty("post.operationId", "post_api_stack_attention_id")
     expect(spec.paths["/api/stack/attention/{id}"]).toHaveProperty("post.requestBody.content.application/json.schema.required", ["revision"])
     expect(spec.paths["/api/stack/attention/{id}"]).toHaveProperty("post.responses.204")
+    expect(spec.paths["/api/branches/{b}/add-to-stack"]).toHaveProperty("post.operationId", "post_api_branches_b_add_to_stack")
     expect(spec.paths["/api/flows/{name}"]).toHaveProperty("get.operationId", "get_api_flows_name")
     for (const path of ["/api/agent/turn/cancel", "/api/agent/turn/retire", "/api/chat/turn", "/api/chat/cancel"]) {
       expect(spec.paths).not.toHaveProperty(path)
