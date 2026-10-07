@@ -11,6 +11,7 @@ test("C-UI-07: native shared preflight survives tab closure and opens four sourc
   const revision = process.env.SMITHERS_CONTEXT_REVISION!
   const writes: string[] = []
   const prompts: Array<{ prompt: string; idempotencyKey: string }> = []
+  let admission: { runId: string } | undefined
   const configure = async (target: Page) => {
     await installCloudFixture(target, { repos: [{ owner: "chatowner", name: "chatrepo", full_name: "chatowner/chatrepo", default_bookmark: "main", owner_type: "User" }] })
     await target.route("**/api/user", route => route.fulfill({ json: { id: Number(process.env.SMITHERS_CONTEXT_MEMBER), username: "ben", is_admin: false } }))
@@ -23,6 +24,7 @@ test("C-UI-07: native shared preflight survives tab closure and opens four sourc
         if (url.pathname.endsWith("/prompt")) prompts.push(request.postDataJSON())
         try {
           const response = await route.fetch({ url: origin + url.pathname + url.search, headers: { ...request.headers(), cookie: "context_session=composed-context-session" } })
+          if (url.pathname.endsWith("/prompt") && response.status() === 202) admission = await response.json()
           await route.fulfill({ response })
         } catch (error) {
           if (!target.isClosed()) throw error
@@ -38,7 +40,8 @@ test("C-UI-07: native shared preflight survives tab closure and opens four sourc
   await composer.fill("Where do we retry webhooks?")
   const accepted = page.waitForResponse(response => response.url().endsWith("/api/conversations/main/prompt") && response.status() === 202)
   await composer.press("Enter")
-  const admission = await (await accepted).json() as { runId: string }
+  await accepted
+  expect(admission?.runId).toBeTruthy()
   await page.close()
   const reader = await context.newPage()
   await configure(reader)
@@ -68,7 +71,7 @@ test("C-UI-07: native shared preflight survives tab closure and opens four sourc
   await expect(monitor).toContainText("fast")
   await reader.reload()
   await expect(monitor).toContainText("Retry implementation")
-  await reader.getByTestId(`card-run:${admission.runId}`).locator('[data-flow="card.minimize"]').click()
+  await reader.getByTestId(`card-run:${admission!.runId}`).locator('[data-flow="card.minimize"]').click()
   await disclosure.click()
   await expect(disclosure).toHaveAttribute("aria-expanded", "true")
   await expect(file).toBeVisible()
