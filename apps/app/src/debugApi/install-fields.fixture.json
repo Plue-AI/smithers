@@ -417,6 +417,7 @@
   {"id":"delete_api_secrets_name","fields":[{"name":"path:name","label":"name","required":true,"kind":"text"}]},
   {"id":"post_api_telemetry_errors","fields":[]},
   {"id":"post_api_terminals","fields":[{"name":"body","label":"JSON","kind":"text","multiline":true,"required":true}]},
+  {"id":"post_api_stack_attention_id","fields":[{"name":"path:id","label":"id","required":true,"kind":"text"},{"name":"body","label":"JSON","kind":"text","multiline":true,"required":true}]},
   {"id":"get_api_stack","fields":[]},
   {"id":"get_api_todos","fields":[]},
   {"id":"post_api_todos","fields":[{"name":"body","label":"JSON","kind":"text","multiline":true,"required":true}]},

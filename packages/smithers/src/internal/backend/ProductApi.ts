@@ -5730,6 +5730,24 @@ export interface PostApiTerminalsInput {
 export const postApiTerminals = (transport: Transport, input: PostApiTerminalsInput): Promise<void> =>
   transport.request("POST", `/api/terminals`, input.body).then(() => undefined)
 
+export type PostApiStackAttentionIdBody = {
+  old: string
+  new: string
+}
+
+export type PostApiStackAttentionIdResponse = {
+  state: "settled"
+}
+
+export interface PostApiStackAttentionIdInput {
+  readonly path: { readonly id: string }
+  readonly body: PostApiStackAttentionIdBody
+}
+
+/** POST /api/stack/attention/{id}: Reset Main to the confirmed GitHub revision */
+export const postApiStackAttentionId = (transport: Transport, input: PostApiStackAttentionIdInput): Promise<PostApiStackAttentionIdResponse> =>
+  transport.request("POST", `/api/stack/attention/${segment(input.path.id)}`, input.body) as Promise<PostApiStackAttentionIdResponse>
+
 export type GetApiStackResponse = HomeCard
 
 /** GET /api/stack: Read the install Home snapshot */

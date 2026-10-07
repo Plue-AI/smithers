@@ -20243,6 +20243,50 @@ paths:
                   message:
                     type: string
                     enum: [Terminal is unavailable]
+  /api/stack/attention/{id}:
+    post:
+      x-composition: install
+      summary: Reset Main to the confirmed GitHub revision
+      operationId: post_api_stack_attention_id
+      tags:
+        - Todos
+      security:
+        - sessionCookie: []
+        - tokenAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [old, new]
+              properties:
+                old: {type: string, minLength: 1}
+                new: {type: string, minLength: 1}
+      responses:
+        '200':
+          description: The confirmed attention was settled
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [state]
+                properties:
+                  state: {type: string, enum: [settled]}
+        '400':
+          description: Invalid request body
+        '401':
+          description: A live credential is required
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '409':
+          description: Main or its attention changed
+        '503':
+          description: GitHub sync unavailable
   /api/stack:
     get:
       x-composition: install

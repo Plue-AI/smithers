@@ -417,6 +417,7 @@
   {"id":"delete_api_secrets_name","method":"DELETE","path":"/api/secrets/{name}"},
   {"id":"post_api_telemetry_errors","method":"POST","path":"/api/telemetry/errors"},
   {"id":"post_api_terminals","method":"POST","path":"/api/terminals"},
+  {"id":"post_api_stack_attention_id","method":"POST","path":"/api/stack/attention/{id}"},
   {"id":"get_api_stack","method":"GET","path":"/api/stack"},
   {"id":"get_api_todos","method":"GET","path":"/api/todos"},
   {"id":"post_api_todos","method":"POST","path":"/api/todos"},
