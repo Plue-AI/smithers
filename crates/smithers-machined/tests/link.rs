@@ -568,3 +568,111 @@ fn authenticated_session_frame_write_failure_interrupts_idle_reader() {
     let mut byte = [0];
     assert_eq!(stream.read(&mut byte).unwrap(), 0);
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn authenticated_daemon_emits_production_broker_presence_after_roster_and_on_reconnect() {
+    use rustix::net::{socketpair, AddressFamily, SocketFlags, SocketType};
+    use smithers_machined::{
+        broker::control::{self, Controls, SocketpairBroker},
+        hooks::{Hooks, Sessions},
+    };
+    use std::{io, sync::Mutex};
+    struct BrokerHost(Arc<Mutex<Vec<u32>>>);
+    impl Controls for BrokerHost {
+        fn stream(&mut self, op: u8, _: &[u8]) -> io::Result<Vec<u8>> {
+            match op {
+                18 | 22 | 23 => Ok(vec![]),
+                21 => Ok(self
+                    .0
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .flat_map(|id| id.to_be_bytes())
+                    .collect()),
+                _ => Err(io::ErrorKind::Unsupported.into()),
+            }
+        }
+        fn freeze(&mut self, _: Duration) -> io::Result<Option<u32>> {
+            Err(io::ErrorKind::Unsupported.into())
+        }
+        fn thaw(&mut self) -> io::Result<()> {
+            Err(io::ErrorKind::Unsupported.into())
+        }
+        fn kill(&mut self) -> io::Result<u16> {
+            Err(io::ErrorKind::Unsupported.into())
+        }
+    }
+    let (parent, child) = socketpair(
+        AddressFamily::UNIX,
+        SocketType::SEQPACKET,
+        SocketFlags::CLOEXEC,
+        None,
+    )
+    .unwrap();
+    let ids = Arc::new(Mutex::new(vec![1]));
+    let broker_ids = ids.clone();
+    let broker_worker =
+        thread::spawn(move || control::serve(&parent, &mut BrokerHost(broker_ids)).unwrap());
+    let sessions = Arc::new(SocketpairBroker::new(child).unwrap());
+    sessions.where_file(1, "a").unwrap();
+    let daemon = smithers_machined::daemon::Daemon::new(Hooks {
+        core: Arc::new(Reconciler),
+        broker: Arc::new(Roster(std::sync::atomic::AtomicBool::new(false))),
+        watcher: Arc::new(Ready),
+        documents: Arc::new(Ready),
+        sessions: sessions.clone(),
+        events: Arc::new(Ready),
+        ..Hooks::default()
+    })
+    .unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let worker = thread::spawn(move || {
+        for _ in 0..2 {
+            let (socket, _) = listener.accept().unwrap();
+            let identity =
+                Identity::new([4; 16], [9; 32], b"fixture-machine-token".to_vec()).unwrap();
+            let auth = link::authenticate(socket, &identity, 7, &[]).unwrap();
+            let _ = daemon.serve(auth);
+        }
+    });
+    let mut stream = TcpStream::connect(address).unwrap();
+    host(&mut stream, &[9; 32], true);
+    // Presence must not appear before reconciliation and roster admission.
+    stream
+        .set_read_timeout(Some(Duration::from_millis(75)))
+        .unwrap();
+    assert!(stream.read(&mut [0]).is_err());
+    stream
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .unwrap();
+    call(&mut stream, 1, 5, &[conn::field(1, [1; 20])]);
+    call(&mut stream, 2, 16, &[conn::field(1, 0u16.to_be_bytes())]);
+    let presence = Frame::read(&mut stream).unwrap();
+    assert_eq!((presence.kind, presence.stream), (3, 0));
+    assert_eq!(
+        presence.payload,
+        [1, 0, 0, 0, 16, 1, 0, 1, 0, 0, 0, 9, 1, 0, 0, 0, 1, 2, 0, 1, b'a']
+    );
+    let closed_at = Instant::now();
+    ids.lock().unwrap().clear();
+    let empty = Frame::read(&mut stream).unwrap();
+    assert_eq!(empty.payload, [1, 0, 0, 0, 3, 1, 0, 0]);
+    assert!(closed_at.elapsed() < Duration::from_secs(1));
+    stream.shutdown(std::net::Shutdown::Both).unwrap();
+    let mut replacement = TcpStream::connect(address).unwrap();
+    host(&mut replacement, &[9; 32], true);
+    // A reconnect retains core reconciliation but must resynchronize its roster.
+    call(
+        &mut replacement,
+        3,
+        16,
+        &[conn::field(1, 0u16.to_be_bytes())],
+    );
+    assert_eq!(Frame::read(&mut replacement).unwrap(), empty);
+    replacement.shutdown(std::net::Shutdown::Both).unwrap();
+    worker.join().unwrap();
+    drop(sessions);
+    broker_worker.join().unwrap();
+}

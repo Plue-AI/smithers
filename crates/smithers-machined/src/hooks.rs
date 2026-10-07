@@ -132,6 +132,10 @@ pub trait Documents: Send + Sync {
     }
 }
 pub trait Sessions: Send + Sync {
+    /// A newly authenticated host needs a snapshot even without session moves.
+    fn reset_presence(&self) -> Result<()> {
+        Ok(())
+    }
     fn disconnected(&self) -> Result<()> {
         Ok(())
     }
@@ -166,6 +170,10 @@ pub trait Sessions: Send + Sync {
     }
     fn live(&self) -> Vec<u32> {
         vec![]
+    }
+    /// Attributed writes call this with the authenticated broker session only.
+    fn where_file(&self, _session: u32, _path: &str) -> Result<()> {
+        Err(Error::unsupported())
     }
     fn last_path(&self, _session: u32) -> Option<String> {
         None
