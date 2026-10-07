@@ -881,7 +881,7 @@ export const SessionSchema = z.object({
     state: z.enum(["requested", "completed", "failed"]), error: z.string().max(1024).optional()
   }).strict()).optional(),
   /* Wiki refreshes asked of a repository's stack (StackSeam.refreshWiki): each notice reconnects after a reload until the Wiki settles. */
-  githubSyncRequest: z.object({ id: z.string(), owner: z.string(), lastSuccessAt: z.string().nullable(), phase: z.enum(["requested", "running", "failed"]), error: z.string().optional() }).optional(),
+  githubSyncRequest: z.object({ id: z.string(), owner: z.string(), lastSuccessAt: z.string().nullable(), phase: z.enum(["requested", "running", "failed"]), error: z.string().optional(), mainReset: z.object({ id: z.string().min(1), old: z.string().regex(/^[0-9a-f]{40}$/), new: z.string().regex(/^[0-9a-f]{40}$/) }).optional() }).optional(),
   wikiRequests: z.array(z.object({ repo: z.string(), owner: z.string(), requestedAt: z.number() })).optional(),
 
   /** Optional so previously saved sessions still parse. */
