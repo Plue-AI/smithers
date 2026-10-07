@@ -95,6 +95,13 @@ func TestInstallApprovalCatalogDecisionsPostgres(t *testing.T) {
 	require.ErrorAs(t, err, &access)
 	require.Equal(t, "permission", access.Code)
 
+	_, err = service.ListForRepo(ctx, f.repoID, "", 1, 30)
+	require.ErrorAs(t, err, &access)
+	require.Equal(t, 403, access.Status)
+	_, err = service.GetForRepo(ctx, uuid.NewString(), f.repoID)
+	require.ErrorAs(t, err, &access)
+	require.Equal(t, 403, access.Status)
+
 	t.Run("private confirmations never enter retained approval doors", func(t *testing.T) {
 		id := uuid.NewString()
 		_, err := f.pool.Exec(f.ctx, `INSERT INTO approvals(id,repository_id,member_id,credential_id,command,subject,revision,kind,state,title,payload,expires_at) VALUES($1,$2,$3,'private-credential','todo.new','{}','private-revision','one_click','pending','Private confirmation','{"private":"confirmation-private-canary"}',now()+interval '1 hour')`, id, f.repoID, f.owner.ID)
