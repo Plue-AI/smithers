@@ -30,8 +30,10 @@ type branchPresence struct {
 	visits          *presenceVisits
 	publicOrigin    func() string
 	// Composed registry, attribution and revocation providers must all report
-	// ready. A missing callback keeps safe-idle and rebases unknown.
+	// ready. A missing callback keeps safe-idle and rebases unknown. Production
+	// binds sourceCensus once the live socket is mounted.
 	sourcesReady func(context.Context, db.Workspace) bool
+	daemons      daemonSnapshots
 	startedAt    time.Time
 	now          func() time.Time
 	terminals    func(context.Context, db.Workspace, map[string]int) ([]any, error)

@@ -105,14 +105,22 @@ func (p *branchPresence) consumeDaemon(ctx context.Context, link *machined.Link,
 		return
 	}
 	defer p.leaveDaemon(context.WithoutCancel(ctx), branch, "daemon:"+scope+":")
+	defer p.daemons.clear(branch, link)
 	for {
 		frame, err := link.ReceivePresence(ctx, branch)
 		if err != nil {
 			return
 		}
-		if err = p.daemonSnapshot(ctx, link.Connection, branch, frame, p.sessionResolver(link)); err != nil && !errors.Is(err, context.Canceled) {
-			slog.Warn("daemon presence refused", "branch", branch, "error", err)
+		// Only a fully applied snapshot lets the census count this link; a refused
+		// one leaves its sessions unknown until the next complete snapshot.
+		if err = p.daemonSnapshot(ctx, link.Connection, branch, frame, p.sessionResolver(link)); err != nil {
+			p.daemons.clear(branch, link)
+			if !errors.Is(err, context.Canceled) {
+				slog.Warn("daemon presence refused", "branch", branch, "error", err)
+			}
+			continue
 		}
+		p.daemons.mark(branch, link, p.clock())
 	}
 }
 
