@@ -10638,7 +10638,9 @@
     {
       "name": "ssh",
       "slash": "/ssh",
-      "cli": null,
+      "cli": [
+        "ssh"
+      ],
       "journey": [
         "J3"
       ],
@@ -10651,7 +10653,13 @@
       "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Copy the SSH line for a branch",
-      "http": null,
+      "http": {
+        "method": "GET",
+        "path": "/api/ssh",
+        "query": {
+          "branch": "branch"
+        }
+      },
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {

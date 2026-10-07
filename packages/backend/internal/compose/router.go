@@ -1060,6 +1060,7 @@ func buildRouter(
 				branches.Answers, _ = extras.Mythical.Service.(routes.BranchAnswerService)
 			}
 			routes.RegisterBranchRoutes(r, branches)
+			r.Get("/ssh", branches.SSHLine(queries, config.PublicOrigin(cfg)))
 			files := &routes.BranchFileHandler{Branches: branches.Reads}
 			if repoHandler != nil {
 				if repos, ok := repoHandler.Service.(*services.RepoService); ok {

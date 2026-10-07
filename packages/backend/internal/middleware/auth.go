@@ -481,6 +481,7 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "flow.run", regexp.MustCompile(`^/api/flows(/[^/]+/run)?$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/files/.+$`)},
 	{http.MethodGet, "branches.read", regexp.MustCompile(`^/api/branches$`)},
+	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/ssh$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/diff$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/files$`)},
