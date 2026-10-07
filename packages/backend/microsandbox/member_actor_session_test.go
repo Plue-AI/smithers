@@ -36,13 +36,21 @@ sys.stdin.buffer.read()
 	member := MemberIdentity{"ben", 20001, true}
 	r := &Runtime{config: Config{Bundle: pinned(t, bundle)}, cli: &cli{binary: binary, home: dir}, workspaces: map[string]*workspace{"branch-a": {metadata: metadata{ID: "branch-a", Machine: "machine-a", State: "running"}}}}
 	registry := &r.machined
+	r.BindSecretEnvironment(func(context.Context, string) (map[string]string, error) { return map[string]string{}, nil })
+	r.BindMachinedHost(func(context.Context, string) (string, error) { return "1111111111111111111111111111111111111111", nil })
+	stop, consumeErr := registry.ConsumeEvents(t.Context(), func(context.Context, *machined.Link, string, machined.Event) (machined.Acknowledgement, error) {
+		return machined.Acknowledgement{}, machined.ErrNotReady
+	})
+	require.NoError(t, consumeErr)
+	t.Cleanup(stop)
+
 	current := []MemberIdentity{member}
 	holding := false
-	r.BindMemberRoster(func(ctx context.Context, id string, visit func([]MemberIdentity) error) error {
+	r.BindMemberRoster(func(ctx context.Context, id string, visit func(context.Context, []MemberIdentity) error) error {
 		require.False(t, holding)
 		holding = true
 		defer func() { holding = false }()
-		return visit(current)
+		return visit(ctx, current)
 	})
 	credential, err := r.SessionCredentialsForMember(t.Context(), "branch-a", member)
 	require.NoError(t, err)
@@ -74,15 +82,16 @@ sys.stdin.buffer.read()
 	require.ErrorIs(t, link.Connection.RequireMachine("branch-a", "other-machine"), machined.ErrUnauthorized)
 	reference := []byte("actor-reference1")
 	commits := 0
-	r.BindMemberActor(func(ctx context.Context, branch, machine string, got MemberIdentity) ([]byte, error) {
+	r.BindMemberActor(func(ctx context.Context, branch, machine string, got MemberIdentity, via string) ([]byte, error) {
 		require.False(t, holding, "commit must not wait for a connection inside the roster transaction")
 		require.Equal(t, "branch-a", branch)
 		require.Equal(t, "machine-a", machine)
 		require.Equal(t, member, got)
+		require.Equal(t, "terminal", via)
 		commits++
 		return reference, nil
 	})
-	command := workspaceapi.Command{Args: []string{"/bin/sh"}, Environment: map[string]string{"SMITHERS_TOKEN_FILE": workspaceapi.SessionTokenRoot + "/session-a/token", "SMITHERS_URL": "http://127.0.0.1:4000"}}
+	command := workspaceapi.Command{Args: []string{"/bin/sh"}, Environment: map[string]string{"SMITHERS_TOKEN_FILE": "/run/smithers/20001/token/sessions/session-a/token", "SMITHERS_URL": "http://127.0.0.1:4000"}}
 	digest := workspaceapi.SessionCredentialIdentity([]byte("smithers_member"))
 	type opened struct {
 		terminal workspaceapi.Terminal
@@ -112,14 +121,14 @@ sys.stdin.buffer.read()
 	require.NoError(t, err)
 	require.Contains(t, string(before), "put-session-binding")
 	denied := errors.New("attribution commit failed")
-	r.BindMemberActor(func(context.Context, string, string, MemberIdentity) ([]byte, error) { return nil, denied })
+	r.BindMemberActor(func(context.Context, string, string, MemberIdentity, string) ([]byte, error) { return nil, denied })
 	_, err = credential.OpenTerminal(t.Context(), "branch-a", "session-a", digest, command)
 	require.ErrorIs(t, err, denied)
 	after, err := os.ReadFile(log)
 	require.NoError(t, err)
 	require.Equal(t, 1, strings.Count(string(after), "put-session-binding"), "failed commit must not prepare another session")
 	// Removal after COMMIT but before the held roster read also refuses launch.
-	r.BindMemberActor(func(context.Context, string, string, MemberIdentity) ([]byte, error) {
+	r.BindMemberActor(func(context.Context, string, string, MemberIdentity, string) ([]byte, error) {
 		current = nil
 		return reference, nil
 	})
@@ -132,4 +141,12 @@ sys.stdin.buffer.read()
 	require.NoError(t, link.Close())
 	_ = first.terminal.Close()
 	r.BindMemberActor(nil)
+	current = []MemberIdentity{member}
+	before, err = os.ReadFile(log)
+	require.NoError(t, err)
+	_, err = credential.OpenTerminal(t.Context(), "branch-a", "session-a", digest, command)
+	require.ErrorIs(t, err, ErrUnavailable)
+	after, err = os.ReadFile(log)
+	require.NoError(t, err)
+	require.Equal(t, string(before), string(after), "missing actor provider must refuse before guest effects")
 }

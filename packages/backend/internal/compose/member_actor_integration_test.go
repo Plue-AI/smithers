@@ -27,7 +27,7 @@ func TestMemberActorAdmissionCommitsBeforeLaunchAndRechecksAuthority(t *testing.
 	defer pool.Close()
 	roster := machineRoster{pool: pool}
 	member := microsandbox.MemberIdentity{Login: "maya", UID: 20001, Active: true}
-	reference, err := roster.commitMemberActor(ctx, f.row.ID, "machine", member)
+	reference, err := roster.commitMemberActor(ctx, f.row.ID, "machine", member, "terminal")
 	require.NoError(t, err)
 	require.Len(t, reference, 16)
 	// This second transaction can see the reference before the caller has made
@@ -41,31 +41,40 @@ func TestMemberActorAdmissionCommitsBeforeLaunchAndRechecksAuthority(t *testing.
 		require.NoError(t, tx.Rollback(ctx))
 	}
 	read()
-	require.NoError(t, roster.withProvisioningRoster(ctx, f.row.ID, func(members []microsandbox.MemberIdentity) error {
+	sshReference, err := roster.commitMemberActor(ctx, f.row.ID, "machine", member, "ssh")
+	require.NoError(t, err)
+	require.NotEqual(t, reference, sshReference)
+	tx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	sshActor, err := machined.ResolveActorInTx(ctx, tx, f.row.ID, "machine", sshReference)
+	require.NoError(t, err)
+	require.Equal(t, machined.ActorIdentity{Kind: "person", MemberID: f.user.ID, Via: "ssh"}, sshActor)
+	require.NoError(t, tx.Rollback(ctx))
+	require.NoError(t, roster.withProvisioningRoster(ctx, f.row.ID, func(_ context.Context, members []microsandbox.MemberIdentity) error {
 		require.Contains(t, members, member)
 		return nil
 	}))
 	for _, bad := range []microsandbox.MemberIdentity{
 		{Login: "maya", UID: 20002, Active: true}, {Login: "other", UID: 20001, Active: true}, {Login: "maya", UID: 20001, Active: false},
 	} {
-		ref, err := roster.commitMemberActor(ctx, f.row.ID, "machine", bad)
+		ref, err := roster.commitMemberActor(ctx, f.row.ID, "machine", bad, "terminal")
 		require.Error(t, err)
 		require.Empty(t, ref)
 	}
-	ref, err := roster.commitMemberActor(ctx, f.row.ID, "replacement-machine", member)
+	ref, err := roster.commitMemberActor(ctx, f.row.ID, "replacement-machine", member, "terminal")
 	require.Error(t, err)
 	require.Empty(t, ref)
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE repository_id=$1 AND user_id=$2`, f.row.RepositoryID, f.user.ID)
 	require.NoError(t, err)
-	ref, err = roster.commitMemberActor(ctx, f.row.ID, "machine", member)
+	ref, err = roster.commitMemberActor(ctx, f.row.ID, "machine", member, "terminal")
 	require.Error(t, err)
 	require.Empty(t, ref)
-	require.NoError(t, roster.withProvisioningRoster(ctx, f.row.ID, func(members []microsandbox.MemberIdentity) error {
-		require.NotContains(t, members, member)
+	require.NoError(t, roster.withProvisioningRoster(ctx, f.row.ID, func(_ context.Context, members []microsandbox.MemberIdentity) error {
+		require.NotContains(t, members, member, "terminal")
 		return nil
 	}))
 	read() // revocation fences launches without rewriting earlier identity
 	var count int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_actor_references WHERE workspace_id=$1`, f.row.ID).Scan(&count))
-	require.Equal(t, 1, count)
+	require.Equal(t, 2, count)
 }

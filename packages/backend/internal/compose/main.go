@@ -588,8 +588,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		defer stopObjects()
 		if runtime, ok := options.Workspace.(interface {
 			BindMachineAgentAdmission(func(context.Context, string, string, func(context.Context) error) error)
+			BindMachineAgentActor(func(context.Context, string, string, string) ([]byte, error))
 		}); ok {
 			runtime.BindMachineAgentAdmission(host.admitAgent)
+			runtime.BindMachineAgentActor(host.commitAgentActor)
+			defer runtime.BindMachineAgentActor(nil)
 			defer runtime.BindMachineAgentAdmission(nil)
 		}
 

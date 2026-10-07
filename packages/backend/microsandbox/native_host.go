@@ -29,9 +29,9 @@ func (r *Runtime) startNativeHost(ctx context.Context, ws *workspace, binding st
 		return workspaceapi.Service{}, err
 	}
 	r.mu.Lock()
-	admit := r.machinedAgentAdmission
+	admit, commitActor := r.machinedAgentAdmission, r.machinedAgentActor
 	r.mu.Unlock()
-	if admit == nil {
+	if admit == nil || commitActor == nil {
 		return workspaceapi.Service{}, ErrUnavailable
 	}
 	ws.sessionMu.Lock()
@@ -53,6 +53,10 @@ func (r *Runtime) startNativeHost(ctx context.Context, ws *workspace, binding st
 		return workspaceapi.Service{}, err
 	}
 	if err = link.RequireReady(ws.ID); err != nil {
+		return workspaceapi.Service{}, err
+	}
+	actor, err := commitActor(ctx, ws.ID, ws.Machine, binding)
+	if err != nil {
 		return workspaceapi.Service{}, err
 	}
 	digest := workspaceapi.SessionCredentialIdentity(token)
@@ -91,7 +95,7 @@ func (r *Runtime) startNativeHost(ctx context.Context, ws *workspace, binding st
 		cleanupToken()
 		return workspaceapi.Service{}, err
 	}
-	sessions := machined.NewSessions(link.Connection, ws.ID, r.machined.Sessions(ws.ID)).WithPresenceVia("agent:" + binding)
+	sessions := machined.NewSessions(link.Connection, ws.ID, r.machined.Sessions(ws.ID)).WithActor(actor, binding).WithPresenceVia("agent:" + binding)
 	var id uint32
 	closeSession := func() {
 		if id == 0 {
@@ -249,6 +253,12 @@ func nativeOutputCredit(n int) []byte {
 // Admission is available only through the composed install's authenticated
 // native broker. An unbundled process fixture cannot enable shared host access.
 func (r *Runtime) ProtectedManagedHostReady(ctx context.Context, id string) error {
+	r.mu.Lock()
+	providers := r.machinedAgentAdmission != nil && r.machinedAgentActor != nil
+	r.mu.Unlock()
+	if !providers {
+		return ErrUnavailable
+	}
 	if r.config.Bundle == nil || !r.SecretEnvironmentAvailable() {
 		return ErrUnavailable
 	}

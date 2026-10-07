@@ -27,6 +27,13 @@ func (r *Runtime) BindMachineAgentAdmission(admit func(context.Context, string, 
 	r.machinedAgentAdmission = admit
 }
 
+// BindMachineAgentActor commits host-selected immutable run attribution before spawn admission.
+func (r *Runtime) BindMachineAgentActor(commit func(context.Context, string, string, string) ([]byte, error)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.machinedAgentActor = commit
+}
+
 // EnsureMachined plants only the pinned install artifact, then authenticates
 // and reconciles through the same private byte transport as other guest ports.
 // It is lazy: the source checkout must exist before the native daemon opens it.

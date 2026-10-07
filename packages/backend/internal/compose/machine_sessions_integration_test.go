@@ -65,6 +65,18 @@ func TestNativeAgentAdmissionHoldsOwnerThroughSpawnSupplemental(t *testing.T) {
 	var binding string
 	require.NoError(t, f.pool.QueryRow(ctx, `UPDATE flow_runtime_host_bindings SET state='starting',user_id=$2 WHERE workspace_id=$1 AND catalog_key='coding' RETURNING id`, f.row.ID, f.user.ID).Scan(&binding))
 	host := newMachineHost(f.pool, repository.NewRemoteClient(nil, "test"))
+
+	_, err = f.pool.Exec(ctx, `UPDATE workspaces SET vm_id='machine' WHERE id=$1`, f.row.ID)
+	require.NoError(t, err)
+	reference, err := host.commitAgentActor(ctx, f.row.ID, "machine", binding)
+	require.NoError(t, err)
+	require.Len(t, reference, 16)
+	actorTx, err := f.pool.Begin(ctx)
+	require.NoError(t, err)
+	committedActor, err := machined.ResolveActorInTx(ctx, actorTx, f.row.ID, "machine", reference)
+	require.NoError(t, err)
+	require.Equal(t, machined.ActorIdentity{Kind: "agent", MemberID: f.user.ID, Run: binding, AgentKind: "coding", Via: "agent"}, committedActor)
+	require.NoError(t, actorTx.Rollback(ctx))
 	boot := [16]byte{9}
 	revoked := make(chan error, 1)
 	require.NoError(t, host.admitAgent(ctx, f.row.ID, binding, func(spawnCtx context.Context) error {

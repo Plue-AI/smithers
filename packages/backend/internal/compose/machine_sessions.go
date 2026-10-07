@@ -135,3 +135,18 @@ func (h *machineHost) admitAgent(ctx context.Context, branch, host string, spawn
 		return spawn(machined.WithSessionAdmissionTransaction(ctx, branch, tx))
 	})
 }
+
+// Commit run attribution before acquiring the live spawn locks. The subsequent
+// admission still rechecks the current host and member; the reference grants no access.
+func (h *machineHost) commitAgentActor(ctx context.Context, branch, machine, host string) ([]byte, error) {
+	if h == nil || h.pool == nil {
+		return nil, machined.ErrNotReady
+	}
+	return machined.CommitActor(ctx, h.pool, branch, machine, func(ctx context.Context, tx pgx.Tx) (machined.ActorIdentity, error) {
+		var member int64
+		if err := tx.QueryRow(ctx, `SELECT h.user_id FROM flow_runtime_host_bindings h JOIN workspaces w ON w.id=h.workspace_id JOIN users u ON u.id=h.user_id JOIN collaborators c ON c.repository_id=w.repository_id AND c.user_id=u.id WHERE h.id=$1 AND w.id=$2 AND w.vm_id=$3 AND w.kind='vm' AND w.deleted_at IS NULL AND w.status='running' AND h.catalog_key='coding' AND h.state IN ('pending','starting','running') AND c.suspended_at IS NULL AND c.permission IN ('write','admin') AND c.unix_uid>=20000 AND u.is_active AND NOT u.prohibit_login AND u.deleted_at IS NULL FOR SHARE OF h,w,c,u`, host, branch, machine).Scan(&member); err != nil {
+			return machined.ActorIdentity{}, machined.ErrUnauthorized
+		}
+		return machined.ActorIdentity{Kind: "agent", MemberID: member, Run: host, AgentKind: "coding", Via: "agent"}, nil
+	})
+}

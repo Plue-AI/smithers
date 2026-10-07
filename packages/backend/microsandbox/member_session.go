@@ -142,6 +142,12 @@ func (c *MemberCredentials) withAdmission(ctx context.Context, id, session, dige
 	if !r.SecretEnvironmentAvailable() {
 		return ErrUnavailable
 	}
+	r.mu.Lock()
+	roster, commitActor := r.memberRoster, r.memberActor
+	r.mu.Unlock()
+	if roster == nil || commitActor == nil {
+		return ErrUnavailable
+	}
 	ws, err := r.runningWorkspace(id)
 	if err != nil {
 		return err
@@ -155,12 +161,6 @@ func (c *MemberCredentials) withAdmission(ctx context.Context, id, session, dige
 	ws.sessionMu.Lock()
 	defer ws.sessionMu.Unlock()
 	if r.config.Bundle == nil || r.cli == nil {
-		return ErrUnavailable
-	}
-	r.mu.Lock()
-	roster, commitActor := r.memberRoster, r.memberActor
-	r.mu.Unlock()
-	if roster == nil || commitActor == nil {
 		return ErrUnavailable
 	}
 	actor, err := commitActor(ctx, id, ws.Machine, c.member, via)

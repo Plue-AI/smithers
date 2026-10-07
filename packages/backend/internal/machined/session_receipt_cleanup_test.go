@@ -29,7 +29,7 @@ func TestSessionReceiptFailureConfirmsKillBeforeLinkClose(t *testing.T) {
 	require.NoError(t, l.Reconciled())
 	done := make(chan error, 1)
 	go func() {
-		_, err := r.Sessions("a").CallSession(t.Context(), SessionCall{Method: "open_session", User: &SessionUser{"alice", 20001}, Kind: SessionExec, Argv: []string{"sleep", "100"}})
+		_, err := r.Sessions("a").CallSession(t.Context(), SessionCall{Method: "open_session", Actor: []byte("actor-reference1"), User: &SessionUser{"alice", 20001}, Kind: SessionExec, Argv: []string{"sleep", "100"}})
 		done <- err
 	}()
 	answer(t, peer, wire.OpenSession, wire.Field(1, wire.U32(17)))
