@@ -102,12 +102,14 @@ func lowerHex(value string, length int) bool {
 }
 
 type Receipt struct {
-	Tag       string `json:"_tag"`
-	ReceiptID string `json:"receiptId,omitempty"`
-	RunID     string `json:"runId,omitempty"`
-	PlanID    string `json:"planId,omitempty"`
-	Status    string `json:"status,omitempty"`
-	Message   string `json:"message,omitempty"`
+	InputConsumed bool    `json:"inputConsumed,omitempty"`
+	InputBody     *string `json:"inputBody,omitempty"`
+	Tag           string  `json:"_tag"`
+	ReceiptID     string  `json:"receiptId,omitempty"`
+	RunID         string  `json:"runId,omitempty"`
+	PlanID        string  `json:"planId,omitempty"`
+	Status        string  `json:"status,omitempty"`
+	Message       string  `json:"message,omitempty"`
 }
 
 type LaunchResult struct {
@@ -138,6 +140,8 @@ type Signal struct {
 }
 
 type Steer struct {
+	// Positive versions replace only an unconsumed notification with this MessageID.
+	InputVersion         int64
 	ApplicationRequestID string
 	OwnerGeneration      int64
 	RunID                string

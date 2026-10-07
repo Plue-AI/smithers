@@ -127,6 +127,7 @@ type SignalRequest struct {
 // MessageID and CreatedAt are fixed at product admission and survive retries.
 // The caller authorizes the input; dispatch resolves the fenced runtime owner.
 type SteerRequest struct {
+	InputVersion         int64
 	Scope                jobs.Scope
 	RequestID            string
 	Target               flowruntime.FlowRuntimeTarget
@@ -271,6 +272,7 @@ type runMutationPayload struct {
 }
 
 type steerPayload struct {
+	InputVersion int64 `json:"inputVersion,omitempty"`
 	runMutationPayload
 	MessageID   string            `json:"messageId"`
 	CreatedAt   float64           `json:"createdAt"`

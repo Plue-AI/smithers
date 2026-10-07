@@ -387,7 +387,8 @@ func (service *Service) handleSteer(ctx context.Context, lease *jobs.Lease) erro
 	request := SteerRequest{
 		Scope: claim.Scope, RequestID: claim.RequestID, Target: payload.Target,
 		FlowID: payload.FlowID, RunID: payload.RunID, MessageID: payload.MessageID,
-		CreatedAt: payload.CreatedAt, Body: payload.Body,
+		InputVersion: payload.InputVersion,
+		CreatedAt:    payload.CreatedAt, Body: payload.Body,
 		Attribution:          payload.Attribution,
 		AuthorizationContext: claim.AuthorizationContext, Projection: payload.Projection,
 	}
@@ -420,7 +421,8 @@ func (service *Service) handleSteer(ctx context.Context, lease *jobs.Lease) erro
 			return runtime.Steer(ctx, flowruntime.Steer{
 				ApplicationRequestID: claim.OperationID, OwnerGeneration: generation,
 				RunID: payload.RunID, MessageID: payload.MessageID, CreatedAt: payload.CreatedAt,
-				Kind: "Message", Body: payload.Body,
+				InputVersion: payload.InputVersion,
+				Kind:         "Message", Body: payload.Body,
 				Attribution: payload.Attribution,
 			})
 		})

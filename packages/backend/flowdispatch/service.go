@@ -174,7 +174,7 @@ func validSteerInput(messageID string, createdAt float64, body string) bool {
 
 func steerAdmission(request SteerRequest) (jobs.Admission, error) {
 	if strings.TrimSpace(request.RequestID) == "" || strings.TrimSpace(request.FlowID) == "" ||
-		strings.TrimSpace(request.RunID) == "" || !validSteerInput(request.MessageID, request.CreatedAt, request.Body) {
+		strings.TrimSpace(request.RunID) == "" || request.InputVersion < 0 || request.InputVersion > 9007199254740991 || !validSteerInput(request.MessageID, request.CreatedAt, request.Body) {
 		return jobs.Admission{}, errors.New("flow dispatch: steer requires request, flow, run, message, body, and a finite nonnegative timestamp")
 	}
 	request.Target = scopedTarget(request.Scope, request.Target)
@@ -186,6 +186,7 @@ func steerAdmission(request SteerRequest) (jobs.Admission, error) {
 	}
 	payload, err := json.Marshal(steerPayload{
 		runMutationPayload: runMutationPayload{Target: request.Target, FlowID: request.FlowID, RunID: request.RunID, Projection: request.Projection},
+		InputVersion:       request.InputVersion,
 		MessageID:          request.MessageID, CreatedAt: request.CreatedAt, Body: request.Body,
 		Attribution: request.Attribution,
 	})
