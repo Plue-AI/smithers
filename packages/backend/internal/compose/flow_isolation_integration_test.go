@@ -144,7 +144,11 @@ func TestCSEC02BundledInstallIsolation(t *testing.T) {
 	if err != nil || !strings.HasPrefix(strings.TrimSpace(string(version)), "18") {
 		t.Fatal("prerequisite: environment: PG18: server version 18 required")
 	}
-	t.Fatal("prerequisite: dependency: bundled-install lifecycle fixture: served fake-GitHub claim, TODO/canary execution and owned guest interruption are not wired; steps 1-5 and 7 unexecuted")
+	// Served claim is qualified separately through the shipped CLI/launchd by
+	// TestCSEC02LaunchdServedClaim. The owned abrupt-stop control in
+	// TestTodoMachineKillThroughInstall uses the composed setup harness, so it
+	// does not establish this bundled launcher's complete lifecycle.
+	t.Fatal("prerequisite: dependency: bundled-install lifecycle fixture: TODO/canary execution and owned guest interruption are not wired; steps 1-5 and 7 unexecuted")
 }
 
 // The production bundled launcher must refuse damaged runtime inputs before
