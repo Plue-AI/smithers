@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
 type ownerQueries struct {
@@ -20,6 +21,36 @@ type ownerQueries struct {
 func (q *ownerQueries) GetSelfHostOwner(context.Context) (db.User, error) {
 	q.calls++
 	return q.owner, q.err
+}
+
+// GetInstallSetting answers a verified owner: the repository binding and the
+// owner's access check name the same repository.
+func (q *ownerQueries) GetInstallSetting(_ context.Context, key string) (db.InstallSetting, error) {
+	settings := map[string]string{
+		"github.repository": `{"owner_login":"maya","repository_name":"demo","repository_id":3}`,
+		"owner.access":      `{"owner_login":"maya","repository_name":"demo","repository_id":3,"last_access_check_at":"2026-10-06T10:00:00Z"}`,
+	}
+	value, ok := settings[key]
+	if !ok {
+		return db.InstallSetting{}, pgx.ErrNoRows
+	}
+	return db.InstallSetting{Value: []byte(value)}, nil
+}
+
+// ownerOnlyQueries resolves the owner but cannot read install settings.
+type ownerOnlyQueries struct{ owner db.User }
+
+func (q ownerOnlyQueries) GetSelfHostOwner(context.Context) (db.User, error) { return q.owner, nil }
+
+// An owner whose verification settings the querier cannot read is refused
+// owner_unverified, never admitted unverified (§5.1.0). Setup routes keep
+// their exemption, since they run before the owner's access check.
+func TestMemberBoundaryRefusesOwnerWithoutSettingsReader(t *testing.T) {
+	boundary := &MemberBoundary{queries: ownerOnlyQueries{owner: db.User{ID: 7}}}
+	err := boundary.AuthorizeMember(context.Background(), 7)
+	require.NotNil(t, err)
+	assert.Equal(t, pkgerrors.CodeOwnerUnverified, err.Code)
+	require.Nil(t, boundary.AuthorizeMember(WithSetupScope(context.Background()), 7))
 }
 
 func TestMemberBoundaryCachesOwnerAndRejectsForeignPrincipal(t *testing.T) {

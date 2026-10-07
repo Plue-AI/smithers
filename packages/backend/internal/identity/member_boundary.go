@@ -15,7 +15,6 @@ import (
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
-// OwnerQuerier resolves the immutable owner of a single-owner installation.
 type setupScopeKey struct{}
 
 // WithSetupScope is set only by the HTTP boundary for install setup routes.
@@ -31,8 +30,18 @@ func WithMemberRoute(ctx context.Context) context.Context {
 	return context.WithValue(ctx, memberRouteKey{}, true)
 }
 
-type OwnerQuerier interface {
+// ownerLookup resolves the immutable owner of a single-owner installation.
+type ownerLookup interface {
 	GetSelfHostOwner(context.Context) (db.User, error)
+}
+
+// OwnerQuerier resolves the installation owner and reads the install
+// settings that verify the owner's GitHub access (spec §5.1.0). Requiring
+// both at construction means no adapter can skip owner verification by
+// lacking the settings read.
+type OwnerQuerier interface {
+	ownerLookup
+	GetInstallSetting(context.Context, string) (db.InstallSetting, error)
 }
 
 // MemberAuthorizer is the common identity check used by every authenticated
@@ -47,7 +56,7 @@ type MemberAuthorizer interface {
 // A successful lookup is cached: the singleton row cannot be reassigned, while
 // an uninitialized installation remains observable until bootstrap succeeds.
 type MemberBoundary struct {
-	queries OwnerQuerier
+	queries ownerLookup
 	ownerID atomic.Int64
 }
 
@@ -93,28 +102,30 @@ func (b *MemberBoundary) AuthorizeMember(ctx context.Context, userID int64) *pkg
 		}
 		return nil
 	}
-	if q, ok := b.queries.(interface {
-		GetInstallSetting(context.Context, string) (db.InstallSetting, error)
-	}); ok {
-		if allowed, _ := ctx.Value(setupScopeKey{}).(bool); !allowed {
-			setting, err := q.GetInstallSetting(ctx, "owner.access")
-			var access struct {
-				LastAccessCheckAt string `json:"last_access_check_at"`
-				OwnerLogin        string `json:"owner_login"`
-				RepositoryName    string `json:"repository_name"`
-				RepositoryID      int64  `json:"repository_id"`
-			}
-			if err != nil || json.Unmarshal(setting.Value, &access) != nil || access.LastAccessCheckAt == "" {
-				return pkgerrors.New(pkgerrors.CodeOwnerUnverified, "owner_unverified")
-			}
-			if _, err := time.Parse(time.RFC3339Nano, access.LastAccessCheckAt); err != nil {
-				return pkgerrors.New(pkgerrors.CodeOwnerUnverified, "owner_unverified")
-			}
-			repo, err := db.ReadInstallRepositoryBinding(ctx, q)
-			if err != nil || repo.Owner != access.OwnerLogin || repo.Name != access.RepositoryName || repo.ID != access.RepositoryID {
-				return pkgerrors.New(pkgerrors.CodeOwnerUnverified, "owner_unverified")
-			}
-
+	// Setup routes run before the owner's access is verified. Every other
+	// owner request needs the verified settings; a querier that cannot read
+	// them fails closed, never open (§5.1.0).
+	if allowed, _ := ctx.Value(setupScopeKey{}).(bool); !allowed {
+		q, ok := b.queries.(OwnerQuerier)
+		if !ok {
+			return pkgerrors.New(pkgerrors.CodeOwnerUnverified, "owner_unverified")
+		}
+		setting, err := q.GetInstallSetting(ctx, "owner.access")
+		var access struct {
+			LastAccessCheckAt string `json:"last_access_check_at"`
+			OwnerLogin        string `json:"owner_login"`
+			RepositoryName    string `json:"repository_name"`
+			RepositoryID      int64  `json:"repository_id"`
+		}
+		if err != nil || json.Unmarshal(setting.Value, &access) != nil || access.LastAccessCheckAt == "" {
+			return pkgerrors.New(pkgerrors.CodeOwnerUnverified, "owner_unverified")
+		}
+		if _, err := time.Parse(time.RFC3339Nano, access.LastAccessCheckAt); err != nil {
+			return pkgerrors.New(pkgerrors.CodeOwnerUnverified, "owner_unverified")
+		}
+		repo, err := db.ReadInstallRepositoryBinding(ctx, q)
+		if err != nil || repo.Owner != access.OwnerLogin || repo.Name != access.RepositoryName || repo.ID != access.RepositoryID {
+			return pkgerrors.New(pkgerrors.CodeOwnerUnverified, "owner_unverified")
 		}
 	}
 	return nil

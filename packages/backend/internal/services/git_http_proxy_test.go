@@ -39,6 +39,19 @@ func (m *mockGitHTTPProxyQuerier) GetSelfHostOwner(ctx context.Context) (db.User
 	return db.User{}, pgx.ErrNoRows
 }
 
+// GetInstallSetting answers a verified owner (spec §5.1.0), so the member
+// boundary admits the owner as a verified install does.
+func (m *mockGitHTTPProxyQuerier) GetInstallSetting(_ context.Context, key string) (db.InstallSetting, error) {
+	value, ok := map[string]string{
+		"github.repository": `{"owner_login":"alice","repository_name":"demo","repository_id":314}`,
+		"owner.access":      `{"owner_login":"alice","repository_name":"demo","repository_id":314,"last_access_check_at":"2026-10-06T10:00:00Z"}`,
+	}[key]
+	if !ok {
+		return db.InstallSetting{}, pgx.ErrNoRows
+	}
+	return db.InstallSetting{Value: []byte(value)}, nil
+}
+
 func (m *mockGitHTTPProxyQuerier) GetWorkflowRunByRunID(ctx context.Context, runID int64) (db.WorkflowRun, error) {
 	if m.getWorkflowRunByRunIDFn != nil {
 		return m.getWorkflowRunByRunIDFn(ctx, runID)

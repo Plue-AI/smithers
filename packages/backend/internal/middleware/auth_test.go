@@ -147,6 +147,19 @@ func (m *mockSingleOwnerAuthLoaderQuerier) GetSelfHostOwner(context.Context) (db
 	return m.owner, m.err
 }
 
+// GetInstallSetting answers a verified owner (spec §5.1.0): the repository
+// binding and the owner's access check name the same repository.
+func (m *mockSingleOwnerAuthLoaderQuerier) GetInstallSetting(_ context.Context, key string) (db.InstallSetting, error) {
+	value, ok := map[string]string{
+		"github.repository": `{"owner_login":"owner","repository_name":"demo","repository_id":3}`,
+		"owner.access":      `{"owner_login":"owner","repository_name":"demo","repository_id":3,"last_access_check_at":"2026-10-06T10:00:00Z"}`,
+	}[key]
+	if !ok {
+		return db.InstallSetting{}, pgx.ErrNoRows
+	}
+	return db.InstallSetting{Value: []byte(value)}, nil
+}
+
 func (m *mockAuthLoaderQuerier) GetAuthSessionBySessionKey(ctx context.Context, sessionKey string) (db.AuthSession, error) {
 	m.getAuthSessionBySessionKeyHit++
 	if m.getAuthSessionBySessionKeyFn != nil {
@@ -258,6 +271,42 @@ func TestAuthLoader_SelfhostOwnerBoundaryAppliesOutsideAPIRoutes(t *testing.T) {
 			}
 		})
 	}
+}
+
+// ownerOnlyAuthLoaderQuerier resolves the owner but cannot read the install
+// settings that verify the owner's access.
+type ownerOnlyAuthLoaderQuerier struct {
+	*mockAuthLoaderQuerier
+	owner db.User
+}
+
+func (m *ownerOnlyAuthLoaderQuerier) GetSelfHostOwner(context.Context) (db.User, error) {
+	return m.owner, nil
+}
+
+// A querier that cannot read the owner's verification settings never admits
+// the owner unverified (spec §5.1.0): the request stops at the boundary.
+func TestAuthLoader_SelfhostOwnerWithoutSettingsReaderFailsClosed(t *testing.T) {
+	t.Parallel()
+	const token = "smithers_0123456789abcdef0123456789abcdef01234567"
+	q := &ownerOnlyAuthLoaderQuerier{
+		mockAuthLoaderQuerier: &mockAuthLoaderQuerier{getAuthInfoByTokenHashFn: func(context.Context, string) (db.GetAuthInfoByTokenHashRow, error) {
+			return db.GetAuthInfoByTokenHashRow{ID: 7, Username: "owner", TokenID: 9, TokenScopes: "read:user"}, nil
+		}},
+		owner: db.User{ID: 7, Username: "owner"},
+	}
+	nextCalled := false
+	handler := AuthLoader(q, config.AuthConfig{Mode: config.AuthModeSelfHosted})(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/events/stream", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	assert.False(t, nextCalled)
+	assert.NotEqual(t, http.StatusNoContent, rec.Code)
+	assert.Zero(t, q.updateAccessTokenLastUsedHit)
 }
 
 func TestAuthLoader_SelfhostOwnerBoundaryRejectsForeignSessionOnLFS(t *testing.T) {
