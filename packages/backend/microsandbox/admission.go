@@ -15,6 +15,7 @@ import (
 type AdmissionRequest struct {
 	Holder, Actor, Reason, Class, State string
 	Position                            int
+	Aliases                             []string
 	sequence                            uint64
 }
 
@@ -24,6 +25,10 @@ type admissionHolder struct {
 	machine       string
 	releasing     time.Time
 	idlePreparing bool
+	todoScope     string
+	todoLimit     int
+	todoEligible  bool
+	todoOrigins   []string
 }
 
 // AdmissionProviders keeps missing authority fail-closed. Ready must verify the
@@ -55,6 +60,10 @@ func admissionPriority(class string) int {
 func (r *Runtime) Request(class, holder, actor, reason string) (AdmissionRequest, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.requestLocked(class, holder, actor, reason)
+}
+
+func (r *Runtime) requestLocked(class, holder, actor, reason string) (AdmissionRequest, error) {
 	if r.closed {
 		return AdmissionRequest{}, errors.New("microsandbox runtime is closed")
 	}
@@ -151,6 +160,7 @@ func (r *Runtime) AdmissionHeld(holder string) bool {
 func (r *Runtime) AdmissionOwnership(holder string) (held, known bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	holder = r.todoAdmissionHolderLocked(holder)
 	if h := r.admission[holder]; h != nil && h.held {
 		return true, true
 	}
@@ -174,6 +184,10 @@ func (r *Runtime) AdmissionOwnership(holder string) (held, known bool) {
 func (r *Runtime) ReorderTodoAdmission(holders []string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.reorderTodoAdmissionLocked(holders)
+}
+
+func (r *Runtime) reorderTodoAdmissionLocked(holders []string) {
 	wanted := []string{}
 	eligible := map[string]bool{}
 	for _, head := range r.rankAdmissionLocked() {
@@ -224,7 +238,9 @@ func (r *Runtime) AdmissionSnapshot() []AdmissionRequest {
 	rows := []AdmissionRequest{}
 	for _, h := range r.admission {
 		for _, row := range h.rows {
-			rows = append(rows, *row)
+			copy := *row
+			copy.Aliases = append([]string(nil), h.todoOrigins...)
+			rows = append(rows, copy)
 		}
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].sequence < rows[j].sequence })
@@ -239,7 +255,29 @@ func (r *Runtime) GrantNext(ctx context.Context, p AdmissionProviders) (Admissio
 		return AdmissionRequest{}, errors.New("admission providers unavailable")
 	}
 	r.mu.Lock()
-	heads := r.rankAdmissionLocked()
+	parallelReader := r.todoParallelReader
+	r.mu.Unlock()
+	parallel := -1
+	if parallelReader != nil {
+		value, err := parallelReader(ctx)
+		if err != nil {
+			return AdmissionRequest{}, err
+		}
+		parallel = max(0, value)
+	}
+	r.mu.Lock()
+	if parallel >= 0 {
+		scopes := map[string]bool{}
+		for _, h := range r.admission {
+			if h.todoScope != "" {
+				scopes[h.todoScope] = true
+			}
+		}
+		for scope := range scopes {
+			r.refreshTodoEligibilityLocked(scope, parallel)
+		}
+	}
+	heads := r.grantableAdmissionLocked()
 	if len(heads) == 0 {
 		r.mu.Unlock()
 		return AdmissionRequest{}, nil
@@ -266,7 +304,18 @@ func (r *Runtime) GrantNext(ctx context.Context, p AdmissionProviders) (Admissio
 	if err := ctx.Err(); err != nil {
 		return AdmissionRequest{}, err
 	}
-	heads = r.rankAdmissionLocked()
+	if parallel >= 0 {
+		scopes := map[string]bool{}
+		for _, h := range r.admission {
+			if h.todoScope != "" {
+				scopes[h.todoScope] = true
+			}
+		}
+		for scope := range scopes {
+			r.refreshTodoEligibilityLocked(scope, parallel)
+		}
+	}
+	heads = r.grantableAdmissionLocked()
 	// Demand can be cancelled/promoted while providers do I/O. Retry on the next event.
 	if len(heads) == 0 || heads[0].sequence != candidate.sequence || heads[0].Class != candidate.Class {
 		return AdmissionRequest{}, nil
@@ -276,6 +325,7 @@ func (r *Runtime) GrantNext(ctx context.Context, p AdmissionProviders) (Admissio
 		return AdmissionRequest{}, nil
 	}
 	h.held = true
+	r.notifyAdmissionOwnershipLocked()
 	for _, row := range h.rows {
 		if row.State == "waiting" {
 			row.State = "granted"
@@ -345,6 +395,9 @@ func (r *Runtime) ConfirmAdmissionStop(holder string, transfer bool) {
 	h.machine = ""
 	if transfer && h.releasing.IsZero() {
 		return
+	}
+	if h.held {
+		r.notifyAdmissionOwnershipLocked()
 	}
 	h.held = false
 	h.releasing = time.Time{}
@@ -567,6 +620,9 @@ func (r *Runtime) detachAdmissionMachineLocked(machine string, release bool) {
 		}
 		h.machine = ""
 		if release {
+			if h.held {
+				r.notifyAdmissionOwnershipLocked()
+			}
 			h.held = false
 			h.releasing = time.Time{}
 			for _, row := range h.rows {
@@ -686,6 +742,9 @@ func (r *Runtime) abandonAdmission(holder, actor string) {
 			return
 		}
 	}
+	if h.held {
+		r.notifyAdmissionOwnershipLocked()
+	}
 	h.held = false
 	h.releasing = time.Time{}
 	r.rankAdmissionLocked()
@@ -710,4 +769,21 @@ func (r *Runtime) notifyAdmissionLocked() {
 		close(r.admissionChanged)
 	}
 	r.admissionChanged = make(chan struct{})
+}
+
+// AdmissionOwnershipChanges wakes the stack engine on real reservations and
+// confirmed releases. Projection refreshes and repeated demand cannot wake it.
+func (r *Runtime) AdmissionOwnershipChanges() <-chan struct{} {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.admissionOwnershipChanged == nil {
+		r.admissionOwnershipChanged = make(chan struct{})
+	}
+	return r.admissionOwnershipChanged
+}
+func (r *Runtime) notifyAdmissionOwnershipLocked() {
+	if r.admissionOwnershipChanged != nil {
+		close(r.admissionOwnershipChanged)
+	}
+	r.admissionOwnershipChanged = make(chan struct{})
 }
