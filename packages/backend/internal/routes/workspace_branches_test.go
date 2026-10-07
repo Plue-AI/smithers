@@ -144,3 +144,42 @@ func TestBranchForkAnswersTheNewBranch(t *testing.T) {
 	branchRouter(&BranchHandler{Authorize: branchSignedOut, Reads: fixture, Forks: fixture}).ServeHTTP(w, httptest.NewRequest("POST", "/api/branches", strings.NewReader(`{"from":"T2"}`)))
 	require.Equal(t, 401, w.Code)
 }
+
+type rebaseRouteFixture struct {
+	input  services.BranchRebaseInput
+	branch string
+	calls  int
+}
+
+func (f *rebaseRouteFixture) RebaseBranch(_ context.Context, repository, actor int64, branch string, input services.BranchRebaseInput) (services.TodoControlReceipt, error) {
+	f.input, f.branch = input, branch
+	f.calls++
+	return services.TodoControlReceipt{}, &services.BranchError{Status: 503, Code: "rebase_execution_unavailable", Class: "infra", Message: "Rebase execution unavailable"}
+}
+func TestBranchRebaseTypedRequests(t *testing.T) {
+	f := &rebaseRouteFixture{}
+	command := ""
+	router := branchRouter(&BranchHandler{Rebases: f, Authorize: func(r *http.Request, c string) (int64, int64, error) { command = c; return branchSignedIn(r, c) }})
+	for _, tc := range []struct{ body, command string }{
+		{`{"rebase":true}`, "branch.rebase-now"},
+		{`{"op":"rebase"}`, "branch.rebase-now"},
+		{`{"conflict_change":"change-1","onto_revision":"rev-2"}`, "branch.rebase"},
+	} {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest("POST", "/api/branches/scratch%2Fben%2Fwork", strings.NewReader(tc.body))
+		r.Header.Set("Idempotency-Key", "one-press")
+		router.ServeHTTP(w, r)
+		require.Equal(t, 503, w.Code, w.Body.String())
+		require.Equal(t, tc.command, command)
+		require.Equal(t, "scratch/ben/work", f.branch)
+		require.Equal(t, "one-press", f.input.Request)
+	}
+	require.Equal(t, "change-1", f.input.ConflictChange)
+	require.Equal(t, "rev-2", f.input.OntoRevision)
+	for _, body := range []string{`{"rebase":true,"conflict_change":"change","onto_revision":"rev"}`, `{"conflict_change":"change"}`, `{"onto_revision":"rev"}`, `{"rebase":true,"revision":"rev"}`, `{"op":"bring-in","rebase":true}`, `{"rebase":true,"actor":9}`, `{"rebase":true} {}`, `{"rebase":true,"id":"wait"}`} {
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest("POST", "/api/branches/b", strings.NewReader(body)))
+		require.Equal(t, 400, w.Code, body)
+	}
+	require.Equal(t, 3, f.calls)
+}
