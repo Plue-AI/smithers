@@ -11,6 +11,7 @@ drift=0
 [ "${1:-}" = drift ] && drift=1
 drift_gates="lint //...:fmt
 lint //:targetIndex
+lint //:backendAccessTests
 lint //:openapiBundle
 lint //:openapiClients
 lint //scripts:docsDrift
