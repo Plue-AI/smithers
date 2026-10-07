@@ -1,0 +1,200 @@
+package compose
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/smithersai/smithers/packages/backend/installbundle"
+	"github.com/smithersai/smithers/packages/backend/installbundle/bundletest"
+	"github.com/stretchr/testify/require"
+)
+
+type isolationOutput struct {
+	sync.Mutex
+	bytes.Buffer
+}
+
+func (b *isolationOutput) Write(p []byte) (int, error) {
+	b.Lock()
+	defer b.Unlock()
+	return b.Buffer.Write(p)
+}
+func (b *isolationOutput) snapshot() string { b.Lock(); defer b.Unlock(); return b.Buffer.String() }
+
+// Qualifies the real launcher stdout, not the backend pipe or the service
+// handoff. No owner is synthesized: served OAuth claim and post-claim silence
+// remain separate reference-host requirements.
+func TestCSEC02BundledLauncherSetupRotation(t *testing.T) {
+	bundle := os.Getenv("SMITHERS_CHECK_BUNDLE")
+	if bundle == "" {
+		if os.Getenv("SMITHERS_REQUIRE_MICROVM_TESTS") == "1" {
+			t.Fatal("SMITHERS_CHECK_BUNDLE required for launcher setup rotation")
+		}
+		t.Skip("requires real darwin-arm64 install bundle")
+	}
+	require.Equal(t, "darwin", runtime.GOOS)
+	require.Equal(t, "arm64", runtime.GOARCH)
+	require.NotZero(t, os.Getuid(), "qualification requires an unprivileged login")
+	approved, err := installbundle.Open(bundle)
+	require.NoError(t, err)
+	_, err = approved.Expect("bundled launcher", approved.Path("bin/smithers-server"), "bin/smithers-server", true)
+	require.NoError(t, err)
+	root := bundletest.ProtectedTempDir(t)
+	home := filepath.Join(root, "home")
+	require.NoError(t, os.Mkdir(home, 0700))
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	address := listener.Addr().String()
+	require.NoError(t, listener.Close())
+	state := filepath.Join(home, "Library", "Application Support", "Smithers")
+	tokens := []string{}
+	client := &http.Client{Timeout: time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	for attempt := 0; attempt < 2; attempt++ {
+		func() {
+			ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, approved.Path("bin/smithers-server"), "--bind", address)
+			cmd.Env = []string{"HOME=" + home, "PATH=/opt/homebrew/bin:" + filepath.Join(home, "bin") + ":/usr/bin:/bin", "SMITHERS_BACKEND_MODE=plue", "SMITHERS_WORKSPACE_ISOLATION=process", "SMITHERS_MICROSANDBOX_BIN=/bin/false"}
+			var stdout, stderr isolationOutput
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+			require.NoError(t, cmd.Start())
+			done := make(chan error, 1)
+			go func() { done <- cmd.Wait() }()
+			stopped := false
+			stop := func() {
+				if stopped {
+					return
+				}
+				stopped = true
+				_ = cmd.Process.Signal(syscall.SIGTERM)
+				select {
+				case err := <-done:
+					require.NoError(t, err, "launcher must stop cleanly")
+				case <-time.After(30 * time.Second):
+					_ = cmd.Process.Kill()
+					<-done
+					t.Error("launcher shutdown exceeded 30 seconds")
+				}
+			}
+			defer stop()
+			require.Eventually(t, func() bool {
+				response, err := client.Get("http://" + address + "/readyz")
+				if err != nil {
+					return false
+				}
+				defer response.Body.Close()
+				return response.StatusCode == 200
+			}, 60*time.Second, 100*time.Millisecond, "real bundled launcher must reach readiness")
+			output := stdout.snapshot()
+			var setupLine, token string
+			count := 0
+			for _, line := range strings.SplitAfter(output, "\n") {
+				if !strings.HasPrefix(line, `{"setup_urls":`) {
+					continue
+				}
+				count++
+				require.True(t, strings.HasSuffix(line, "\n"), "setup emission must be newline terminated")
+				var document map[string]json.RawMessage
+				require.NoError(t, json.Unmarshal([]byte(line), &document))
+				require.Len(t, document, 1)
+				var urls []string
+				require.NoError(t, json.Unmarshal(document["setup_urls"], &urls))
+				origins := []string{"http://localhost:4000"}
+				if attempt == 1 {
+					origins = append(origins, "http://lan-a:4000", "https://box.example")
+				}
+				require.Len(t, urls, len(origins))
+				for index, raw := range urls {
+					parsed, err := url.Parse(raw)
+					require.NoError(t, err)
+					require.Equal(t, origins[index], parsed.Scheme+"://"+parsed.Host)
+					require.Equal(t, "/setup", parsed.Path)
+					current := parsed.Query().Get("token")
+					require.Len(t, current, 64)
+					if token == "" {
+						token = current
+					}
+					require.True(t, current == token, "all setup origins share one token")
+				}
+				setupLine = line
+			}
+			require.Equal(t, 1, count, "exactly one setup line per pre-claim launch")
+			tokens = append(tokens, token)
+			pidBytes, err := os.ReadFile(filepath.Join(state, "postgres", "data", "postmaster.pid"))
+			require.NoError(t, err)
+			fields := strings.Split(string(pidBytes), "\n")
+			require.GreaterOrEqual(t, len(fields), 4)
+			password, err := os.ReadFile(filepath.Join(state, "postgres", "password"))
+			require.NoError(t, err)
+			connection := url.URL{Scheme: "postgres", User: url.UserPassword("smithers", string(password)), Host: net.JoinHostPort("127.0.0.1", fields[3]), Path: "/postgres", RawQuery: "sslmode=disable"}
+			database, err := pgx.Connect(ctx, connection.String())
+			require.NoError(t, err)
+			defer database.Close(context.Background())
+			var digest string
+			require.NoError(t, database.QueryRow(ctx, `SELECT value #>> '{}' FROM install_settings WHERE key='setup.token'`).Scan(&digest))
+			require.Equal(t, fmt.Sprintf("%x", sha256.Sum256([]byte(token))), digest, "printed token independently matches stored digest")
+			if attempt == 0 {
+				_, err = database.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES ('public_origins','["http://lan-a:4000","https://box.example"]'::jsonb) ON CONFLICT(key) DO UPDATE SET value=excluded.value`)
+				require.NoError(t, err)
+			} else {
+				require.True(t, tokens[0] != token, "pre-claim restart must rotate")
+				request, err := http.NewRequest(http.MethodGet, "http://"+address+"/setup?token="+url.QueryEscape(tokens[0]), nil)
+				require.NoError(t, err)
+				request.Host = "localhost:4000"
+				response, err := client.Do(request)
+				require.NoError(t, err)
+				_, err = io.Copy(io.Discard, response.Body)
+				require.NoError(t, err)
+				require.NoError(t, response.Body.Close())
+				require.Equal(t, http.StatusUnauthorized, response.StatusCode, "old token refused by served exchange")
+			}
+			stop()
+			require.Equal(t, 1, strings.Count(stdout.snapshot(), `{"setup_urls":`), "no additional emission during shutdown")
+			outside := strings.Replace(stdout.snapshot(), setupLine, "", 1)
+			for _, secret := range tokens {
+				require.False(t, strings.Contains(outside, secret), "setup token outside printed line")
+				require.False(t, strings.Contains(stderr.snapshot(), secret), "setup token in launcher stderr")
+			}
+			require.NoError(t, filepath.WalkDir(state, func(path string, entry os.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".log") {
+					return nil
+				}
+				data, err := os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+				for _, secret := range tokens {
+					require.False(t, bytes.Contains(data, []byte(secret)), "setup token in ordinary logs")
+				}
+				return nil
+			}))
+		}()
+	}
+	if evidence := os.Getenv("SMITHERS_FLOW_ISOLATION_EVIDENCE_DIR"); evidence != "" {
+		require.NoError(t, os.MkdirAll(evidence, 0700))
+		receipt, err := json.Marshal(map[string]any{"revision": approved.Revision(), "manifestSHA256": approved.ManifestSHA256(), "launcherEmissions": 2, "digestMatched": true, "rotated": true, "oldTokenRefused": true, "tokensAbsentOutsidePrintedLine": true, "pending": []string{"served OAuth claim", "post-claim silence", "child PATH and dylib resolution", "TODO and canary lifecycle"}})
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(evidence, "launcher-setup-rotation.json"), append(receipt, '\n'), 0600))
+	}
+}
