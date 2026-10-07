@@ -50,8 +50,6 @@ type mergeFaultFixture struct {
 }
 
 func newMergeFaultFixture(t *testing.T) *mergeFaultFixture {
-	// Separate concurrently running test binaries without hiding child leaks.
-	t.Setenv("SMITHERS_TEST_DATABASE_NAMESPACE", fmt.Sprintf("fr4rel04%d", os.Getpid()))
 	t.Setenv("TMPDIR", t.TempDir())
 	t.Setenv("GIT_AUTHOR_DATE", "1700000000 +0000")
 	t.Setenv("GIT_COMMITTER_DATE", "1700000000 +0000")
