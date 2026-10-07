@@ -860,6 +860,7 @@ export const SessionSchema = z.object({
   })).optional(),
   queuedPrompts: z.array(QueuedPromptSchema).optional(),
   promptQueuePaused: z.boolean().optional(),
+  branchRequests: z.array(z.object({ id: z.string(), owner: z.string(), operation: z.enum(["fork", "add"]), input: z.record(z.string(), z.unknown()), state: z.enum(["requested", "provisioning", "completed", "failed"]), branch: z.string().optional(), n: z.number().int().positive().optional(), error: z.string().optional() })).optional(),
   issueTodoRequests: z.array(z.object({ id: z.string(), owner: z.string(), repo: z.string(), number: z.number().int().positive(), state: z.enum(["requested", "completed", "failed"]), error: z.string().optional() })).optional(),
   codingProviderRequests: z.array(z.object({
     id: z.string(), owner: z.string(), action: z.enum(["connect", "revoke", "codex", "order"]).optional(), connectionId: z.string().optional(),
@@ -1347,6 +1348,7 @@ export type AppTransition =
   | { type: "signup.changed"; actor: Actor; patch: Partial<Signup> }
   /* Retired with the Librarian history flow (#2165): replayed journals still decode it; it changes nothing. */
   | { type: "librarian.launches.changed"; actor: Actor; launches: ReadonlyArray<unknown> }
+  | { type: "branch.requests.changed"; actor: Actor; requests: NonNullable<Session["branchRequests"]> }
   | { type: "issue.todo.requests.changed"; actor: Actor; requests: NonNullable<Session["issueTodoRequests"]> }
   | { type: "coding.provider.requests.changed"; actor: Actor; requests: NonNullable<Session["codingProviderRequests"]> }
   | { type: "github.sync.request.changed"; actor: Actor; request?: Session["githubSyncRequest"] }
