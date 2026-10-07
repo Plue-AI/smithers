@@ -18,7 +18,7 @@ func TestRelayRefusesMissingInstalledAuthentication(t *testing.T) {
 	}
 }
 func TestControlExchangeRequiresOwnedSessionOrConfirmedDrain(t *testing.T) {
-	for _, body := range []string{`{"session":"s-0000000000000001"}`, `{"ok":true}`, `{"session":"s-0000000000000001","received":3}`} {
+	for _, body := range []string{`{"session":"s-0000000000000001"}`, `{"ok":true}`, `{"session":"s-0000000000000001","received":3,"written":2,"input_eof":false}`} {
 		host, guest := net.Pipe()
 		go func() {
 			defer guest.Close()
