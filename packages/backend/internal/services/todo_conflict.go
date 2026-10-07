@@ -2,13 +2,59 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
+
+// A run may expose only the conflict the stack retained for this attempt.
+// Paths come from the retained native result, never from a model's request.
+// Disappearing from a runtime checkpoint does not resolve a conflict; only
+// Done's bound native validation settles it.
+func todoConflictWait(item db.MythicalItem, wait flowruntime.PendingWait, update flowdispatch.ProjectionUpdate, now time.Time) (TodoWait, bool) {
+	var request struct {
+		Kind   string `json:"kind"`
+		Change string `json:"conflict_change"`
+		Onto   string `json:"onto_revision"`
+	}
+	raw := wait.Request
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		raw = json.RawMessage(text)
+	}
+	if json.Unmarshal(raw, &request) != nil || request.Kind != "conflict" || wait.Token == "" || wait.Name == "" || wait.RunID == "" {
+		return TodoWait{}, false
+	}
+	checks := mythicalChecksOf(item)
+	reservation := checks.ConflictReservation
+	if reservation == nil || reservation.Run != item.RequestRunID || reservation.Change != request.Change || reservation.Onto != request.Onto || checks.Rebase == nil || checks.Rebase.Onto != request.Onto {
+		return TodoWait{}, false
+	}
+	var retained struct {
+		Conflict struct {
+			Head, Onto string
+			Paths      []string
+		} `json:"conflict"`
+	}
+	if json.Unmarshal(item.Integration, &retained) != nil || retained.Conflict.Head != request.Change || retained.Conflict.Onto != request.Onto || len(retained.Conflict.Paths) == 0 {
+		return TodoWait{}, false
+	}
+	pin, pinned := mythicalPinOf(item)
+	signal := &TodoWaitSignal{Scope: update.Scope, Target: update.Checkpoint.Target, Flow: update.Checkpoint.FlowID, Run: update.Checkpoint.RunID, Name: wait.Name}
+	if !pinned || !checks.RunLaunched || !checks.RunAttached || signal.Run != item.RequestRunID || signal.Flow != pin.Flow || !conflictSignalBound(item, signal) {
+		return TodoWait{}, false
+	}
+	sum := sha256.Sum256([]byte(wait.RunID + "\x00" + wait.Token))
+	return TodoWait{ID: "c-" + hex.EncodeToString(sum[:8]), Kind: "conflict", Paths: append([]string(nil), retained.Conflict.Paths...), ConflictChange: request.Change, OntoRevision: request.Onto, Since: now, Signal: signal}, true
+}
 
 // A reservation is durable intent, not evidence that a model executed. The
 // eventual guest continuation must use this identity for replay admission.
