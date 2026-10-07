@@ -53,3 +53,21 @@ test("Return and Keep share the numbered TODO door and retain person/agent polic
     expect(() => decode({ n: 2, id: "" })).toThrow()
   }
 })
+
+
+test("source co-edit declares its batch and excludes general app-agent authority", async () => {
+  const { Schema } = await import("effect")
+  const row = httpProjections.find(row => row.name === "flow.source-coedit")!
+  expect(row).toMatchObject({ actors: ["person", "external_agent"], agent: "run", minimumRole: "member", credentialScope: "write:repository", visibility: "hidden", cli: null, slash: null,
+    http: { method: "PUT", path: "/api/repos/{owner}/{repo}/workspaces/{id}/files/content" } })
+  const decode = Schema.decodeUnknownSync(row.input)
+  const input = { changes: [
+    { path: "src/a.ts", base_digest: "absent", content: "hello" },
+    { path: "src/delete.ts", base_digest: "a".repeat(64), content: null },
+    { path: "asset.bin", base_digest: "absent", content: "AA==", encoding: "base64" }
+  ] }
+  expect(decode(input)).toEqual(input)
+  expect(() => decode({ changes: [{ path: "src/a.ts", content: "hello" }] })).toThrow()
+  expect(() => decode({ changes: [{ path: "src/a.ts", base_digest: "absent" }] })).toThrow()
+  expect(() => decode({ changes: [{ path: "asset.bin", base_digest: "absent", content: "AA==", encoding: "unknown" }] })).toThrow()
+})

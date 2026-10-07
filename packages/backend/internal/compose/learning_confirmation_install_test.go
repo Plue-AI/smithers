@@ -82,8 +82,14 @@ func TestConfirmLearningConsumerInstall(t *testing.T) {
 			}
 			request.AddCookie(&http.Cookie{Name: "smithers_session", Value: sessionCookie})
 		}
+		var commands []string
+		request = request.WithContext(services.WithAuthorizationObserver(request.Context(), func(command string) { commands = append(commands, command) }))
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
+		if strings.HasPrefix(path, "/api/confirmations/") && !delegated && response.Code == 200 {
+			require.Len(t, commands, 1, "one accepted learning decision, including replay")
+		}
+
 		return response
 	}
 

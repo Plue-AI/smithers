@@ -5,11 +5,15 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
@@ -30,18 +34,34 @@ func (s *WorkspaceService) RestoreBranchFile(ctx context.Context, branch string,
 	if s.burstPool == nil || s.burstVersions == nil {
 		return nil, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "file versions unavailable")
 	}
-	if !workspaceFileBaseDigestPattern.MatchString(base) && base != "absent" {
-		return nil, pkgerrors.BadRequest("invalid base digest")
-	}
-	if len(version) != 40 || strings.Trim(version, "0123456789abcdef") != "" {
-		return nil, pkgerrors.BadRequest("invalid file version")
-	}
-	if err := ValidateRepositoryPath(filePath); err != nil {
+	if err := validateFileRestoreInput(filePath, version, base); err != nil {
 		return nil, err
 	}
+
+	var subject InstallSubject
+	if s.installQueries != nil {
+		var command string
+		var err error
+		subject, command, err = InstallFileRestoreSubject(ctx, s.installQueries, repositoryID, branch, filePath, version, base, deleted)
+		if err != nil {
+			return nil, err
+		}
+		decision, err := Authorize(ctx, s.installQueries, command, subject)
+		if err != nil {
+			return nil, err
+		}
+		if decision.UserID != userID {
+			return nil, confirmationPermission()
+		}
+		ctx = WithInstallAuthorization(ctx, command, decision, subject)
+	}
+
 	row, err := s.PresenceBranch(ctx, branch, repositoryID, userID)
 	if err != nil {
 		return nil, err
+	}
+	if s.installQueries != nil && row.ID != subject.WorkspaceID {
+		return nil, confirmationPermission()
 	}
 	if row.Status != "running" {
 		return nil, pkgerrors.Conflict("branch is asleep")
@@ -64,7 +84,7 @@ func (s *WorkspaceService) RestoreBranchFile(ctx context.Context, branch string,
 	if err != nil {
 		return nil, err
 	}
-	return s.WriteWorkspaceFiles(ctx, row.ID, repositoryID, userID, []workspaceapi.FileMutation{{Path: filePath, BaseDigest: post, Content: content}})
+	return s.writeWorkspaceFiles(ctx, row.ID, repositoryID, userID, []workspaceapi.FileMutation{{Path: filePath, BaseDigest: post, Content: content}}, false)
 }
 
 // readBurstBefore verifies the retained blob before exposing or restoring bytes.
@@ -139,4 +159,52 @@ func (s *WorkspaceService) CompareBranchFile(ctx context.Context, branch string,
 		return WorkspaceFileContent{}, err
 	}
 	return workspaceFileContent(filePath, content), nil
+}
+
+// InstallFileRestoreSubject binds the retained version and validated request to
+// the stored branch before disclosure or mutation. It grants no membership.
+func InstallFileRestoreSubject(ctx context.Context, q *db.Queries, repository int64, branch, path, version, base string, deleted bool) (InstallSubject, string, error) {
+	command := "file.restore"
+	if deleted {
+		command = "file.restore-deleted"
+	}
+	if err := validateFileRestoreInput(path, version, base); err != nil {
+		return InstallSubject{}, command, err
+	}
+
+	if branch == "" || branch == "main" {
+		return InstallSubject{}, command, confirmationPermission()
+	}
+	var row db.Workspace
+	var err error
+	if _, parse := uuid.Parse(branch); parse == nil {
+		row, err = q.GetWorkspace(ctx, branch)
+	} else {
+		row, err = q.GetBranchWorkspace(ctx, db.GetBranchWorkspaceParams{RepositoryID: repository, TargetBookmark: branch})
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return InstallSubject{}, command, confirmationPermission()
+	}
+	if err != nil {
+		return InstallSubject{}, command, err
+	}
+	if row.RepositoryID != repository || row.DeletedAt.Valid {
+		return InstallSubject{}, command, confirmationPermission()
+	}
+	raw, _ := json.Marshal([]any{branch, path, version, base, deleted})
+	digest := sha256.Sum256(raw)
+	return InstallSubject{RepositoryID: repository, WorkspaceID: row.ID, Source: version, Base: base, Resource: path, PayloadDigest: fmt.Sprintf("%x", digest)}, command, nil
+}
+
+func validateFileRestoreInput(path, version, base string) error {
+	if !workspaceFileBaseDigestPattern.MatchString(base) && base != "absent" {
+		return pkgerrors.BadRequest("invalid base digest")
+	}
+	if len(version) != 40 || strings.Trim(version, "0123456789abcdef") != "" {
+		return pkgerrors.BadRequest("invalid file version")
+	}
+	if err := ValidateRepositoryPath(path); err != nil {
+		return err
+	}
+	return nil
 }

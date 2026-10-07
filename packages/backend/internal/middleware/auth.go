@@ -566,10 +566,8 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/files$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/files(/content)?$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+$`)},
-	// File edits enter the same branch mutation admission as joining. The
-	// workspace service holds current roster and write-grant locks through
-	// the write; this route marker grants no workspace authority by itself.
-	{http.MethodPut, "branch.join", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/files/content$`)},
+	// File co-edit has its own actor policy; the service binds the validated batch.
+	{http.MethodPut, "flow.source-coedit", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/files/content$`)},
 	{http.MethodPost, "branch.fork", regexp.MustCompile(`^/api/branches$`)},
 	{http.MethodPost, "branch.add-to-stack", regexp.MustCompile(`^/api/branches/[^/]+/add-to-stack$`)},
 	{http.MethodPost, "branch.join", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces$`)},

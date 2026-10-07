@@ -118,6 +118,37 @@ func InstallBranchAuthorizer(queries *db.Queries) func(*http.Request, string) (i
 			return 0, 0, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branches unavailable")
 		}
 		subject := services.InstallSubject{}
+		if command == "file.restore" || command == "file.restore-deleted" {
+			raw, err := io.ReadAll(io.LimitReader(r.Body, 8193))
+			if err != nil || len(raw) > 8192 {
+				return 0, 0, pkgerrors.BadRequest("invalid restore request")
+			}
+			input, resolved, err := DecodeFileRestore(bytes.NewReader(raw))
+			r.Body = io.NopCloser(bytes.NewReader(raw))
+			if err != nil {
+				return 0, 0, err
+			}
+			if resolved != command {
+				return 0, 0, &services.AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"}
+			}
+			branch, err := url.PathUnescape(chi.URLParam(r, "b"))
+			if err != nil {
+				return 0, 0, pkgerrors.BadRequest("invalid branch")
+			}
+			path, err := url.PathUnescape(chi.URLParam(r, "*"))
+			if err != nil {
+				return 0, 0, pkgerrors.BadRequest("invalid file path")
+			}
+			repository, err := services.InstallRepositoryID(r.Context(), queries)
+			if err != nil {
+				return 0, 0, err
+			}
+			subject, _, err = services.InstallFileRestoreSubject(r.Context(), queries, repository, branch, path, input.Version, input.Base, input.Action == "restore-deleted")
+			if err != nil {
+				return 0, 0, err
+			}
+		}
+
 		if command == "branch.fork" && services.InstallExecutionCredential(r.Context()) {
 			raw, err := io.ReadAll(io.LimitReader(r.Body, (64<<10)+1))
 			if err != nil || len(raw) > 64<<10 {
@@ -149,6 +180,9 @@ func InstallBranchAuthorizer(queries *db.Queries) func(*http.Request, string) (i
 		repository, err := services.InstallRepositoryID(r.Context(), queries)
 		if err != nil {
 			return 0, 0, err
+		}
+		if command == "file.restore" || command == "file.restore-deleted" {
+			*r = *r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, subject))
 		}
 		return repository, decision.UserID, nil
 	}

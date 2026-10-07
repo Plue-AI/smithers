@@ -2,6 +2,7 @@
  * They expose no additional slash, CLI or model door. Concrete control bodies
  * must resolve their operation before authorization; there is no control grant.
  */
+import { Schema } from "effect"
 import { NoInput, operation } from "./index"
 
 const read = (name: string, path: string, agent: "run" | "never" = "run", minimumRole: "member" | "owner" = "member") =>
@@ -10,6 +11,27 @@ const read = (name: string, path: string, agent: "run" | "never" = "run", minimu
     actors: agent === "never" ? ["person"] : ["person", "app_agent", "external_agent"] })
 
 export const httpProjections = [
+  operation({
+    name: "flow.source-coedit",
+    summary: "Edit source",
+    hidden: true,
+    visibility: "hidden",
+    slash: null,
+    cli: null,
+    input: Schema.Struct({
+      changes: Schema.Array(Schema.Struct({
+        path: Schema.String,
+        base_digest: Schema.String,
+        content: Schema.Union([Schema.String, Schema.Null]),
+        encoding: Schema.optional(Schema.Literals(["utf-8", "base64"]))
+      }))
+    }),
+    http: { method: "PUT", path: "/api/repos/{owner}/{repo}/workspaces/{id}/files/content" },
+    minimumRole: "member",
+    agent: "run",
+    credentialScope: "write:repository",
+    actors: ["person", "external_agent"]
+  }),
   read("install.read", "/api/install", "never", "owner"),
   read("install.scorecard", "/api/install/scorecard", "never", "owner"),
   read("external.read", "/api/external/sessions", "never", "owner"),

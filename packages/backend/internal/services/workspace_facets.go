@@ -287,6 +287,10 @@ func (s *WorkspaceService) WriteWorkspaceFile(ctx context.Context, workspaceID s
 // WriteWorkspaceFiles authorizes once and submits the complete patch to a
 // qualified provider. No per-file dispatch or unconditional fallback is safe.
 func (s *WorkspaceService) WriteWorkspaceFiles(ctx context.Context, workspaceID string, repositoryID, userID int64, changes []workspaceapi.FileMutation) (*WorkspaceFileWriteResult, error) {
+	return s.writeWorkspaceFiles(ctx, workspaceID, repositoryID, userID, changes, true)
+}
+
+func (s *WorkspaceService) writeWorkspaceFiles(ctx context.Context, workspaceID string, repositoryID, userID int64, changes []workspaceapi.FileMutation, coedit bool) (*WorkspaceFileWriteResult, error) {
 	if len(changes) == 0 || len(changes) > MaxWorkspaceFileChanges {
 		return nil, pkgerrors.BadRequest("changes must contain 1 to 256 files")
 	}
@@ -332,48 +336,50 @@ func (s *WorkspaceService) WriteWorkspaceFiles(ctx context.Context, workspaceID 
 		return nil, pkgerrors.Internal("cannot encode workspace file changes")
 	}
 	var receipt *WorkspaceFileWriteResult
-	err = s.withWorkspaceMutation(ctx, workspaceID, repositoryID, userID, func(ctx context.Context, _ db.Workspace) error {
-		return s.withCodingFileMutationAuthority(ctx, workspaceID, repositoryID, userID, func(ctx context.Context) error {
-			writer, ok := s.runtime.(workspaceapi.WorkspaceCompareWriter)
-			if !ok {
-				return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "workspace compare-and-write unavailable")
-			}
-			row, runtimeCtx, targetErr := s.workspaceRuntimeFacetTarget(ctx, workspaceID, repositoryID, userID, WorkspaceAccessWrite, "workspace-files:"+sha256Hex(string(encoded)))
-			if targetErr != nil {
-				return targetErr
-			}
-			var writeErr error
-			receipt, writeErr = writer.CompareWriteFiles(runtimeCtx, row.ID, batch)
-			if writeErr != nil {
-				var stale *workspaceapi.StaleFileError
-				if errors.As(writeErr, &stale) {
-					if !paths[stale.Path] || (stale.CurrentDigest != "absent" && !workspaceFileBaseDigestPattern.MatchString(stale.CurrentDigest)) {
-						return pkgerrors.Internal("invalid workspace stale file response")
-					}
-					return stale
+	err = s.withInstallFileCoedit(ctx, workspaceID, repositoryID, userID, sha256Hex(string(encoded)), coedit, func(ctx context.Context) error {
+		return s.withWorkspaceMutation(ctx, workspaceID, repositoryID, userID, func(ctx context.Context, _ db.Workspace) error {
+			return s.withCodingFileMutationAuthority(ctx, workspaceID, repositoryID, userID, func(ctx context.Context) error {
+				writer, ok := s.runtime.(workspaceapi.WorkspaceCompareWriter)
+				if !ok {
+					return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "workspace compare-and-write unavailable")
 				}
-				return mapRuntimeFileError(writeErr, "file")
-			}
-			if receipt == nil || len(receipt.Paths) != len(results) {
-				return pkgerrors.Internal("invalid workspace write receipt")
-			}
-			for i, result := range results {
-				if receipt.Paths[i] != result {
+				row, runtimeCtx, targetErr := s.workspaceRuntimeFacetTarget(ctx, workspaceID, repositoryID, userID, WorkspaceAccessWrite, "workspace-files:"+sha256Hex(string(encoded)))
+				if targetErr != nil {
+					return targetErr
+				}
+				var writeErr error
+				receipt, writeErr = writer.CompareWriteFiles(runtimeCtx, row.ID, batch)
+				if writeErr != nil {
+					var stale *workspaceapi.StaleFileError
+					if errors.As(writeErr, &stale) {
+						if !paths[stale.Path] || (stale.CurrentDigest != "absent" && !workspaceFileBaseDigestPattern.MatchString(stale.CurrentDigest)) {
+							return pkgerrors.Internal("invalid workspace stale file response")
+						}
+						return stale
+					}
+					return mapRuntimeFileError(writeErr, "file")
+				}
+				if receipt == nil || len(receipt.Paths) != len(results) {
 					return pkgerrors.Internal("invalid workspace write receipt")
 				}
-			}
-			seen := make(map[string]bool, len(receipt.Raced))
-			for _, raced := range receipt.Raced {
-				if !paths[raced.Path] || raced.Version == "" || seen[raced.Path] {
-					return pkgerrors.Internal("invalid workspace race receipt")
+				for i, result := range results {
+					if receipt.Paths[i] != result {
+						return pkgerrors.Internal("invalid workspace write receipt")
+					}
 				}
-				seen[raced.Path] = true
-			}
-			if receipt.Raced == nil {
-				receipt.Raced = []WorkspaceFileRace{}
-			}
-			s.touchWorkspaceEntryRecency(ctx, row.ID, "file-content-write")
-			return nil
+				seen := make(map[string]bool, len(receipt.Raced))
+				for _, raced := range receipt.Raced {
+					if !paths[raced.Path] || raced.Version == "" || seen[raced.Path] {
+						return pkgerrors.Internal("invalid workspace race receipt")
+					}
+					seen[raced.Path] = true
+				}
+				if receipt.Raced == nil {
+					receipt.Raced = []WorkspaceFileRace{}
+				}
+				s.touchWorkspaceEntryRecency(ctx, row.ID, "file-content-write")
+				return nil
+			})
 		})
 	})
 	if err != nil {

@@ -93,6 +93,8 @@ func TestBoundInstallAuthorization(t *testing.T) {
 	info := &middleware.AuthInfo{User: &db.User{ID: 7}, SessionHash: "session"}
 	ctx := middleware.ContextWithAuthInfo(context.Background(), info)
 	decision := InstallAuthorization{UserID: 7, Role: InstallMember}
+	decisions := 0
+	ctx = WithAuthorizationObserver(ctx, func(string) { decisions++ })
 	ctx = WithInstallAuthorization(ctx, "todo.read", decision)
 	got, err := Authorize(ctx, nil, "todo.read")
 	assert.NoError(t, err)
@@ -100,7 +102,7 @@ func TestBoundInstallAuthorization(t *testing.T) {
 	// A dispatcher must not reuse read authority for another command.
 	_, err = Authorize(ctx, nil, "secrets.write")
 	assert.Error(t, err)
-	// A replacement credential for the same person gets a fresh decision.
+	// A replacement credential cannot replace an admitted request.
 	replacement := &middleware.AuthInfo{User: &db.User{ID: 7}, SessionHash: "replacement"}
 	_, err = Authorize(middleware.ContextWithAuthInfo(ctx, replacement), nil, "todo.read")
 	assert.Error(t, err)
@@ -111,6 +113,7 @@ func TestBoundInstallAuthorization(t *testing.T) {
 	var refusal *AccessError
 	assert.ErrorAs(t, err, &refusal)
 	assert.Equal(t, http.StatusForbidden, refusal.Status)
+	assert.Zero(t, decisions, "bound dispatch never evaluates a replacement command or credential")
 }
 
 func TestSystemCredentialsCannotInheritTerminalCommandAuthority(t *testing.T) {

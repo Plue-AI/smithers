@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -52,7 +53,13 @@ func DecodeFileRestore(body io.Reader) (FileRestoreInput, string, error) {
 }
 
 func (h *FileRestoreHandler) Restore(w http.ResponseWriter, r *http.Request) {
-	input, command, err := DecodeFileRestore(http.MaxBytesReader(w, r.Body, 8192))
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 8192))
+	if err != nil {
+		writeRouteError(w, r, pkgerrors.BadRequest("invalid restore request"))
+		return
+	}
+	input, command, err := DecodeFileRestore(bytes.NewReader(raw))
+	r.Body = io.NopCloser(bytes.NewReader(raw))
 	if err != nil {
 		writeRouteError(w, r, err)
 		return

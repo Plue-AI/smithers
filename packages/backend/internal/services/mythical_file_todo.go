@@ -85,6 +85,13 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 	if input.Issue != nil {
 		command = "todo.from-issue"
 	}
+	return s.fileTodoCommand(ctx, repositoryID, userID, input, command)
+}
+
+// fileTodoCommand is also the append implementation of an admitted learning
+// acceptance. That consumer retains its concrete decision instead of acquiring
+// a second todo.new decision for the same effect.
+func (s *MythicalService) fileTodoCommand(ctx context.Context, repositoryID, userID int64, input MythicalTodoInput, command string) (MythicalItemView, error) {
 	decision, err := Authorize(ctx, s.queries(), command)
 	if err != nil {
 		return MythicalItemView{}, err

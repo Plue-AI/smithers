@@ -26,9 +26,9 @@ import (
 // The reviewed SG oracle is literal and independent of catalog descriptors.
 // This supplements live execution tests: ordinary cells qualify the PostgreSQL
 // authorizer, SG-08 qualifies real confirmation HTTP and SG-09 route absence.
-// The two unlanded T-ACC-03 run grants are explicitly pending, never
-// converted to passing permission refusals. Full C-ACC-01 requires their real
-// subjects and execution consumers as well as this independent decision oracle.
+// Run execution rows stay pending until their real consumers pass. Co-edit
+// admission is checked here, but its unqualified guest writer cannot produce
+// passing execution evidence. Full C-ACC-01 requires both layers.
 func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 	var fixture struct {
 		Cells []struct{ Group, Command, Credential, Expected string }
@@ -133,7 +133,7 @@ func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 	}
 	todos := services.NewMythicalService(pool, nil)
 	router := githubAppSetupComposeRouter(cfg, pool, nil, routerExtras{Mythical: &routes.MythicalHandler{Service: todos}})
-	aliases := map[string]string{"install.setup-step": "settings.setup", "secrets.names": "secrets.read", "ssh.copy": "ssh", "confirmation.list": "confirmations.read", "flow.source-coedit": "flow.source"}
+	aliases := map[string]string{"install.setup-step": "settings.setup", "secrets.names": "secrets.read", "ssh.copy": "ssh", "confirmation.list": "confirmations.read"}
 	var ledger []map[string]any
 	resolved, retired, pending := 0, 0, 0
 	for index, cell := range fixture.Cells {
@@ -155,6 +155,17 @@ func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 				entry["receipt"] = "TestInstallRunForkAuthorizationPostgres"
 				resolved++
 				return
+			}
+			if cell.Command == "flow.source-coedit" && cell.Credential == "RO" && cell.Expected == "allow" {
+				subject := services.InstallSubject{RepositoryID: repo.ID, WorkspaceID: workspaces[0].ID,
+					TodoNumber: 1, Attempt: 1, RunID: "ledger-run-0", Resource: "files", PayloadDigest: strings.Repeat("a", 64)}
+				_, err := services.Authorize(middleware.ContextWithAuthInfo(ctx, info), q, "flow.source-coedit", subject)
+				require.NoError(t, err)
+				entry["subject"], entry["observed_status"], entry["authorization"] = subject, 200, "passed"
+				entry["pending_ticket"] = "T-COL-10"
+				entry["pending_dependency"] = "microsandbox/files_compare_write.go: private transport lacks guest security qualification"
+				pending++
+				t.Skip("T-COL-10: real guest co-edit execution remains unqualified")
 			}
 			if cell.Expected == "allow" && cell.Command != "todo.read" && (cell.Credential[0] == 'R' || cell.Credential[0] == 'M') {
 				entry["pending_ticket"] = "T-ACC-03"

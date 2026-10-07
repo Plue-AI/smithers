@@ -118,6 +118,8 @@ func TestTodoPullLabelApprovalComposedPostgres(t *testing.T) {
 }
 
 func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, browserJourney, labelApproval bool, delegatedBrowser ...bool) {
+	// Independent installs must never share the stack worker's scratch checkout.
+	t.Setenv("TMPDIR", t.TempDir())
 	installBrowser := browserJourney || len(delegatedBrowser) > 0 && delegatedBrowser[0]
 	installation := int64(98300) + confirmationMergeInstallations.Add(1)
 	var pool *pgxpool.Pool

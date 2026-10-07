@@ -403,6 +403,8 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 			}
 			return bound.decision, nil
 		}
+		// A dispatcher cannot replace its admitted command or credential.
+		return InstallAuthorization{}, confirmationPermission()
 	}
 	if observe, ok := ctx.Value(authorizationObserverKey{}).(func(string)); ok && observe != nil {
 		observe(command)
@@ -418,6 +420,27 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 	}
 	if command == "stack.candidate" || command == "stack.propose" {
 		return authorizeStackCandidate(ctx, q, subject)
+	}
+	if command == "flow.source-coedit" && middleware.IsCodingFileCredential(middleware.AuthInfoFromContext(ctx)) {
+		return authorizeCodingFileCoedit(ctx, q, subject)
+	}
+	if command == "flow.source-coedit" && InstallExecutionCredential(ctx) {
+		decision, err := authorizeExecutionTodoRead(ctx, q, subject)
+		if err != nil {
+			return InstallAuthorization{}, err
+		}
+		info := middleware.AuthInfoFromContext(ctx)
+		if info.CredentialKind() != middleware.CredentialAgentRun || !info.Scopes.Has(middleware.ScopeWriteRepository) || subject.WorkspaceID == "" || subject.PayloadDigest == "" {
+			return InstallAuthorization{}, confirmationPermission()
+		}
+		workspace, err := q.GetWorkspace(ctx, subject.WorkspaceID)
+		if err != nil {
+			return InstallAuthorization{}, err
+		}
+		if workspace.Status != "running" {
+			return InstallAuthorization{}, confirmationPermission()
+		}
+		return decision, nil
 	}
 	if command == "branch.fork" && InstallExecutionCredential(ctx) {
 		info := middleware.AuthInfoFromContext(ctx)
@@ -863,6 +886,13 @@ func InstallExecutionCredential(ctx context.Context) bool {
 }
 
 func authenticateInstallExecutionCredential(ctx context.Context, q *db.Queries) (db.AccessToken, InstallAuthorization, error) {
+	if !InstallExecutionCredential(ctx) {
+		return db.AccessToken{}, InstallAuthorization{}, confirmationPermission()
+	}
+	return authenticateInstallStoredToken(ctx, q)
+}
+
+func authenticateInstallStoredToken(ctx context.Context, q *db.Queries) (db.AccessToken, InstallAuthorization, error) {
 	deny := func() (db.AccessToken, InstallAuthorization, error) {
 		return db.AccessToken{}, InstallAuthorization{}, confirmationPermission()
 	}
@@ -870,7 +900,7 @@ func authenticateInstallExecutionCredential(ctx context.Context, q *db.Queries) 
 		return db.AccessToken{}, InstallAuthorization{}, &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Sign in again"}
 	}
 	info := middleware.AuthInfoFromContext(ctx)
-	if q == nil || info == nil || info.User == nil || !info.TokenSystemIssued || !InstallExecutionCredential(ctx) {
+	if q == nil || info == nil || info.User == nil || !info.TokenSystemIssued || !info.IsTokenAuth {
 		return deny()
 	}
 	token, err := q.GetAccessTokenByID(ctx, info.TokenID)

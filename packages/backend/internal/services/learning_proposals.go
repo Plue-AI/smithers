@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
@@ -114,6 +113,7 @@ func (s *MythicalService) ResolveLearningProposal(ctx context.Context, repositor
 	if decision.UserID != user {
 		return LearningProposalCard{}, proposalError(403, "permission", "Not your request")
 	}
+	ctx = WithInstallAuthorization(ctx, command, decision)
 	repo, owner, err := s.repository(ctx, repository)
 	if err != nil {
 		return LearningProposalCard{}, err
@@ -121,21 +121,10 @@ func (s *MythicalService) ResolveLearningProposal(ctx context.Context, repositor
 	expected := owner + "/" + repo.Name
 	var card LearningProposalCard
 	err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
-		bound, current, err := lockInstallWriteCredential(ctx, tx, middleware.AuthInfoFromContext(ctx))
-		if err != nil {
+		if err := guardInstallMemberCredential(ctx, tx, repository, user, true); err != nil {
 			return err
 		}
-		if current != repository {
-			return confirmationPermission()
-		}
-		fresh, err := Authorize(bound, db.New(tx), command)
-		if err != nil {
-			return err
-		}
-		if fresh.UserID != user {
-			return confirmationPermission()
-		}
-		ctx = bound
+
 		var status, raw string
 		var accepted *string
 		err = tx.QueryRow(ctx, `SELECT status,provenance_json,accepted_todo FROM memory_notes WHERE id=$1 AND namespace_kind='flow' AND namespace_id=$2 FOR UPDATE`, id, learningNamespace(repository)).Scan(&status, &raw, &accepted)
@@ -164,7 +153,7 @@ func (s *MythicalService) ResolveLearningProposal(ctx context.Context, repositor
 			clone := *s
 			clone.store = tx
 			contextBytes, _ := json.Marshal(note)
-			item, err := clone.FileTodo(ctx, repository, user, MythicalTodoInput{Title: note.Title, Prompt: note.Prompt + "\n\nLearning evidence (quoted context):\n" + string(contextBytes), Request: "learning:" + id, Place: MythicalTodoPlace{Mode: "append"}})
+			item, err := clone.fileTodoCommand(ctx, repository, user, MythicalTodoInput{Title: note.Title, Prompt: note.Prompt + "\n\nLearning evidence (quoted context):\n" + string(contextBytes), Request: "learning:" + id, Place: MythicalTodoPlace{Mode: "append"}}, command)
 			if err != nil {
 				return err
 			}

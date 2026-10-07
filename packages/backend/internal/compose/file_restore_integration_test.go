@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
@@ -100,7 +101,7 @@ func TestFileRestoreCommandBoundary(t *testing.T) {
 	defer runtime.Close()
 	provider := &restoreRuntimeFixture{writeReplyRuntime: &writeReplyRuntime{Runtime: runtime, repo: f.row.RepositoryID, clone: "http://fixture/presence-owner/app.git"}, branch: f.row.ID, bookmark: f.row.TargetBookmark, files: map[string][]byte{"src/a.ts": []byte("after\n"), "src/b.ts": []byte("untouched\n")}}
 	versions := &restoreVersionFixture{}
-	s := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(provider), services.WithWorkspaceTransactions(f.pool), services.WithWorkspaceGitBaseURL("http://fixture"), services.WithBranchMachineProviders(services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), nil)), services.WithWorkspaceBurstVersions(f.pool, versions))
+	s := services.NewWorkspaceService(q, services.WithWorkspaceInstallAuthorization(q), services.WithWorkspaceRuntime(provider), services.WithWorkspaceTransactions(f.pool), services.WithWorkspaceGitBaseURL("http://fixture"), services.WithBranchMachineProviders(services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), nil)), services.WithWorkspaceBurstVersions(f.pool, versions))
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = "selfhost"
 	cfg.Auth.SessionCookieName = "session"
@@ -301,4 +302,41 @@ func TestFileRestoreCommandBoundary(t *testing.T) {
 	require.Equal(t, beforeCalls, versions.calls)
 	require.Equal(t, 3, provider.writes)
 	require.Empty(t, runtime.WorkspaceIDs(), "test-only provider did not start a host workspace")
+	t.Run("restore decision binds the complete request", func(t *testing.T) {
+		for _, field := range []string{"path", "version", "base", "deleted", "branch", "actor"} {
+			t.Run(field, func(t *testing.T) {
+				decisions := 0
+				ctx := services.WithAuthorizationObserver(middleware.ContextWithAuthInfo(t.Context(), &middleware.AuthInfo{User: &f.user, SessionHash: fmt.Sprintf("%x", sha256.Sum256([]byte(f.cookie)))}), func(command string) { decisions++ })
+				subject, command, err := services.InstallFileRestoreSubject(ctx, q, f.row.RepositoryID, f.row.ID, "src/a.ts", strings.Repeat("a", 40), "absent", true)
+				require.NoError(t, err)
+				decision, err := services.Authorize(ctx, q, command, subject)
+				require.NoError(t, err)
+				bound := services.WithInstallAuthorization(ctx, command, decision, subject)
+				branch, path, version, base, deleted, actor := f.row.ID, "src/a.ts", strings.Repeat("a", 40), "absent", true, f.user.ID
+				switch field {
+				case "path":
+					path = "src/b.ts"
+				case "version":
+					version = strings.Repeat("b", 40)
+				case "base":
+					base = strings.Repeat("b", 64)
+				case "deleted":
+					deleted = false
+				case "branch":
+					branch = "main"
+				case "actor":
+					actor = member.ID
+				}
+				beforeReads, beforeWrites := versions.calls, provider.writes
+				_, err = s.RestoreBranchFile(bound, branch, f.row.RepositoryID, actor, path, version, base, deleted)
+				var denied *services.AccessError
+				require.ErrorAs(t, err, &denied)
+				require.Equal(t, 403, denied.Status)
+				require.Equal(t, 1, decisions)
+				require.Equal(t, beforeReads, versions.calls)
+				require.Equal(t, beforeWrites, provider.writes)
+			})
+		}
+	})
+
 }

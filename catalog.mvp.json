@@ -5017,6 +5017,83 @@
       }
     },
     {
+      "name": "flow.source-coedit",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person",
+        "external_agent"
+      ],
+      "minimumRole": "member",
+      "credentialScope": "write:repository",
+      "agent": "run",
+      "summary": "Edit source",
+      "http": {
+        "method": "PUT",
+        "path": "/api/repos/{owner}/{repo}/workspaces/{id}/files/content"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "changes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "base_digest": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "encoding": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "utf-8",
+                          "base64"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "path",
+                  "base_digest",
+                  "content"
+                ],
+                "additionalProperties": true
+              }
+            }
+          },
+          "required": [
+            "changes"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "flows",
       "slash": "/flows",
       "cli": [

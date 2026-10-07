@@ -1151,7 +1151,7 @@ func buildRouter(
 			if workspaceHandler != nil {
 				restore.Service, _ = workspaceHandler.Service.(routes.BranchFileRestorer)
 			}
-			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository)).Post("/branches/{b}/files/*", restore.Restore)
+			r.With(middleware.RequireAuth).Post("/branches/{b}/files/*", restore.Restore)
 		}
 		if quiesceEnabled {
 			h := &routes.InstallQuiesceHandler{Owners: queries, Service: quiesceService}
@@ -1714,7 +1714,12 @@ func buildRouter(
 					r.With(readWorkspace...).Get("/workspaces/{id}/files", workspaceHandler.ListWorkspaceFiles)
 					r.With(readWorkspace...).Get("/workspaces/{id}/coding/revisions", workspaceHandler.ReadCodingRevisions)
 					r.With(readWorkspace...).Get("/workspaces/{id}/files/content", workspaceHandler.ReadWorkspaceFile)
-					r.With(writeWorkspace...).Put("/workspaces/{id}/files/content", workspaceHandler.WriteWorkspaceFile)
+					fileWrite := writeWorkspace
+					if config.IsSingleOwner(cfg.Auth) {
+						// The service consumes the concrete file command after validating the batch.
+						fileWrite = []func(http.Handler) http.Handler{middleware.RequireAuth, repoAPIQuota, gateWorkspaces}
+					}
+					r.With(fileWrite...).Put("/workspaces/{id}/files/content", workspaceHandler.WriteWorkspaceFile)
 					r.With(readWorkspace...).Get("/workspaces/{id}/services", workspaceHandler.ListWorkspaceServices)
 					r.With(writeWorkspace...).Post("/workspaces/{id}/services/{name}/{action}", workspaceHandler.ManageWorkspaceService)
 					r.With(writeWorkspace...).Delete("/workspaces/{id}", workspaceHandler.DeleteWorkspace)

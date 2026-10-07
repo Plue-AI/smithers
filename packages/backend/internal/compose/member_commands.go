@@ -19,7 +19,7 @@ import (
 
 // memberCommands binds one install command decision before the handler runs.
 // Owners use the same authorizer as every other member. A handler resolving
-// the same command reuses the decision; a different command is checked anew.
+// the same command reuses the decision; substituting a command is refused.
 func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -295,11 +295,9 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				next.ServeHTTP(w, r)
 				return
 			}
-			// AuthLoader has already confined this issuer-owned credential to its
-			// exact file PUT body. The workspace service rechecks membership,
-			// write authority and the live token/host fence through the mutation.
-			// It does not authorize the generic branch-join command.
-			if binding, ok := middleware.CodingFileCredential(info); ok && command == "branch.join" && middleware.CodingFileBatchVerified(info, binding.BatchDigest) {
+			// The file service validates and owns the entire batch before its one
+			// command decision, including direct service entries.
+			if command == "flow.source-coedit" {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -321,24 +319,12 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				r.Body = io.NopCloser(bytes.NewReader(raw))
 			}
 			if command == "file.restore" {
-				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 8192))
-				if err != nil {
-					pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid restore request"))
-					return
-				}
-				_, resolved, err := routes.DecodeFileRestore(bytes.NewReader(raw))
-				if err != nil {
-					var apiError *pkgerrors.APIError
-					if stdErrors.As(err, &apiError) {
-						pkgerrors.WriteError(w, apiError)
-					} else {
-						pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid restore request"))
-					}
-					return
-				}
-				command = resolved
-				r.Body = io.NopCloser(bytes.NewReader(raw))
+				// The restore handler validates the complete payload and resolves the stored
+				// workspace before its authorizer binds the single concrete decision.
+				next.ServeHTTP(w, r)
+				return
 			}
+
 			if command == "todo.new" {
 				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
 				if err != nil {
