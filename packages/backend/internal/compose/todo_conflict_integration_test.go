@@ -182,7 +182,7 @@ func TestConflictDoneComposedInstall(t *testing.T) {
 		require.NoError(t, err)
 		tokens[kind] = raw
 	}
-	for _, body := range []string{`{"rebase":true}`, `{"conflict_change":"change","onto_revision":"onto"}`} {
+	for _, body := range []string{`{"rebase":true}`, `{"op":"rebase"}`, `{"conflict_change":"change","onto_revision":"onto"}`, `{"op":"rebase","conflict_change":"change","onto_revision":"onto"}`} {
 		for _, principal := range []string{"person", "anonymous", "run", "machine"} {
 			request, err := http.NewRequest("POST", origin+"/api/branches/scratch%2Fben%2Fwork", strings.NewReader(body))
 			require.NoError(t, err)
