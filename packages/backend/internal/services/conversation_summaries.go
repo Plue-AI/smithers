@@ -87,20 +87,20 @@ func (s *ConversationSummaries) Handle(ctx context.Context, lease *jobs.Lease) e
 		return settle()
 	}
 	var owner, attempt, revision int64
-	var run string
+	var run, state string
 	var request json.RawMessage
-	err := s.Pool.QueryRow(ctx, `SELECT o.user_id,t.run_id,t.producer_generation,t.head_position+1,t.request_payload
+	err := s.Pool.QueryRow(ctx, `SELECT o.user_id,t.run_id,t.producer_generation,t.head_position+1,t.state,t.request_payload
  FROM chat_turns t JOIN self_host_owners o ON o.singleton
  JOIN collaborators c ON c.user_id=o.user_id AND c.repository_id=t.repository_id AND c.suspended_at IS NULL
  JOIN users u ON u.id=o.user_id AND NOT u.prohibit_login
- WHERE t.id=$1 AND t.repository_id=$2 AND t.request_payload->>'sharedConversation'='true'`, input.TurnID, input.RepositoryID).Scan(&owner, &run, &attempt, &revision, &request)
+ WHERE t.id=$1 AND t.repository_id=$2 AND t.request_payload->>'sharedConversation'='true'`, input.TurnID, input.RepositoryID).Scan(&owner, &run, &attempt, &revision, &state, &request)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return settle()
 	}
 	if err != nil {
 		return err
 	}
-	if run != input.RunID || attempt != input.Attempt || revision != input.Revision {
+	if run != input.RunID || attempt != input.Attempt || revision != input.Revision || state != input.State {
 		return settle()
 	}
 	model, err := db.New(s.Pool).EffectiveInstallAgentModel(ctx, "fast")
@@ -174,7 +174,7 @@ func (s *ConversationSummaries) Handle(ctx context.Context, lease *jobs.Lease) e
 		return settle()
 	}
 	_, err = s.Pool.Exec(ctx, `UPDATE chat_turns SET summary=$5,summary_rev=$4,summary_pending_since=NULL
- WHERE id=$1 AND run_id=$2 AND producer_generation=$3 AND head_position+1=$4 AND summary_rev<$4`, input.TurnID, input.RunID, input.Attempt, input.Revision, summary)
+ WHERE id=$1 AND run_id=$2 AND producer_generation=$3 AND head_position+1=$4 AND summary_rev<$4 AND state=$6`, input.TurnID, input.RunID, input.Attempt, input.Revision, summary, input.State)
 	if err != nil {
 		return err
 	}
