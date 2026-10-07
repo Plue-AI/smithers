@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
@@ -103,7 +104,17 @@ func newCheckoutHarness(t *testing.T, public, autoInit bool) *checkoutHarness {
 	require.NoError(t, err)
 	commandCodec, err := webhook.NewSecretCodec("checkout-command-secret")
 	require.NoError(t, err)
+	// This checkout suite deliberately uses the trusted process test runtime.
+	// Supply its test-only machine qualification explicitly; it is not VM evidence.
+	providers := services.BranchMachineProviders{
+		Membership:      func(context.Context, pgx.Tx, int64, int64) error { return nil },
+		Authorize:       func(context.Context, pgx.Tx, string, int64, string, int64) error { return nil },
+		LaneBinding:     func(context.Context, pgx.Tx, int64, string, string) error { return nil },
+		MicroVM:         func(context.Context) error { return nil },
+		SessionIdentity: func(context.Context) error { return nil },
+	}
 	workspaceService := services.NewWorkspaceService(queries,
+		services.WithWorkspaceTransactions(pool), services.WithBranchMachineProviders(providers),
 		services.WithWorkspaceRuntime(runtime), services.WithWorkspaceGitBaseURL(server.URL), services.WithWorkspaceCommandJobs(commandJobs, commandCodec))
 	workspaceHandler.Service = workspaceService
 	cookie := processWorkspaceCreateSessionCookie(t, queries, user)
