@@ -422,6 +422,9 @@ var installMemberRoutes = []struct {
 	method, command string
 	path            *regexp.Regexp
 }{
+	// The relay resolves its body command before workspace lookup or dispatch.
+	{http.MethodPost, "flow.relay", regexp.MustCompile(`^/api/workflow/rpc$`)},
+	{http.MethodPost, "box.resume", regexp.MustCompile(`^/api/workflow/provision$`)},
 	{http.MethodGet, "self", regexp.MustCompile(`^/api/user$`)},
 	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/user/keys(?:/[0-9]+)?$`)},
 	{http.MethodGet, "self", regexp.MustCompile(`^/api/confirmations$`)},
