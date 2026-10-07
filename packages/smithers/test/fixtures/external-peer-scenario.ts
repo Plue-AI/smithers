@@ -4,7 +4,7 @@ import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
 import * as RunStore from "@smthrs/run-store/RunStore"
 import { Effect, Layer, Stream } from "effect"
 import assert from "node:assert/strict"
-import { spawn } from "node:child_process"
+import { execFileSync, spawn } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { access, copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -20,6 +20,36 @@ const poll = async (predicate: () => boolean | Promise<boolean>, label: string) 
   while (!await predicate()) {
     if (Date.now() > deadline) throw new Error(`Timed out: ${label}`)
     await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+}
+
+// SIGSTOP must not strand the owner's SQLite writer lock. Hold an empty
+// transaction until the kernel confirms the stop; no lease or run row changes.
+const stopWithoutDatabaseLock = async (root: string, owner: ReturnType<typeof spawn>) => {
+  const barrier = new DatabaseSync(join(root, ".flows", "engine.db"))
+  let locked = false
+  try {
+    await poll(() => {
+      try {
+        barrier.exec("BEGIN EXCLUSIVE")
+        locked = true
+        return true
+      } catch (error) {
+        if (error !== null && typeof error === "object" && "errcode" in error &&
+          typeof error.errcode === "number" && (error.errcode & 0xff) === 5) return false
+        throw error
+      }
+    }, "database idle before owner stop")
+    assert.equal(owner.kill("SIGSTOP"), true)
+    await poll(() => execFileSync("/bin/ps", ["-o", "state=", "-p", String(owner.pid)], {
+      encoding: "utf8"
+    }).trim().startsWith("T"), "owner stopped without a database lock")
+  } finally {
+    try {
+      if (locked) barrier.exec("ROLLBACK")
+    } finally {
+      barrier.close()
+    }
   }
 }
 const workers = async (root: string): Promise<Array<{ pid: number; owner: number }>> =>
@@ -228,7 +258,7 @@ if (
         }
         if (mode === "stall" || mode === "detached-stall") {
           enter("original stopped for 25 seconds")
-          original.kill("SIGSTOP")
+          yield* Effect.promise(() => stopWithoutDatabaseLock(root, original))
           resumeTimer = setTimeout(() => {
             original.kill("SIGCONT")
             enter("original resumed; parked observation")
@@ -236,7 +266,7 @@ if (
         }
         if (mode === "stolen") {
           enter("original stopped until its persisted worker lease is stale")
-          original.kill("SIGSTOP")
+          yield* Effect.promise(() => stopWithoutDatabaseLock(root, original))
           yield* Effect.sleep("31 seconds")
           // This is a different host identity with an unreachable-stale probe.
           // Use the production CAS: RunStore atomically steals and activates

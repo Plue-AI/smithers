@@ -283,7 +283,7 @@ test("stops cleanly on SIGTERM", async () => {
 
 test("refuses a private host whose launcher has already gone", async () => {
   for (const parent of ["invalid", "0", "1", String(process.pid + 1000000)]) {
-    const result = await run(["serve", "--port", "0"], hostEnv({ SMITHERS_CHAT_PARENT_PID: parent })).exited
+    const result = await run(["serve", "--port", "0"], hostEnv({ SMITHERS_CHAT_HOST_PARENT_PID: parent })).exited
     assert.equal(result.code, 1)
     assert.equal(result.stdout, "")
   }
