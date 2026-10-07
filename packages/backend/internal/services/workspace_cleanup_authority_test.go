@@ -139,7 +139,7 @@ func TestWorkspaceCleanerTransactionalPolicyAndRecovery(t *testing.T) {
 	owner, err := q.GetBranchMachineOwner(ctx)
 	require.NoError(t, err)
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
-	for _, name := range []string{"merged", "paused settled item", "item rebound elsewhere", "failed capture", "post capture write", "terminal", "ssh", "service stop failure", "dropped before retention", "in review", "archived scratch", "unfinished removal", "reopened", "missing settlement time", "unarchived scratch", "pending reopen", "pending writer", "pending admission", "pending capture publication", "pending capture reconciliation", "service final writes", "running service final writes"} {
+	for _, name := range []string{"merged", "paused settled item", "item rebound elsewhere", "failed capture", "incomplete capture", "unverified binding", "stale inventory", "unavailable inventory", "post capture write", "terminal", "ssh", "service stop failure", "dropped before retention", "in review", "archived scratch", "unfinished removal", "reopened", "missing settlement time", "unarchived scratch", "pending reopen", "pending writer", "pending admission", "pending capture publication", "pending capture reconciliation", "service final writes", "running service final writes"} {
 		t.Run(name, func(t *testing.T) {
 			branch := "smithers/" + name
 			if name == "archived scratch" || name == "unarchived scratch" {
@@ -191,6 +191,14 @@ func TestWorkspaceCleanerTransactionalPolicyAndRecovery(t *testing.T) {
 			switch name {
 			case "failed capture":
 				runtime.capture.CaptureID = ""
+			case "incomplete capture":
+				runtime.capture.CaptureComplete = false
+			case "unverified binding":
+				runtime.capture.BindingVerified = false
+			case "stale inventory":
+				runtime.capture.InventoryCurrent = false
+			case "unavailable inventory":
+				runtime.captureFailure = errors.New("current broker inventory unavailable")
 			case "post capture write":
 				runtime.capture.RetainedHead = "new"
 			case "service stop failure":
