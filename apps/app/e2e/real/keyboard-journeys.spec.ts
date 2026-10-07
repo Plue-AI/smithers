@@ -71,12 +71,55 @@ referenceTest("C-UI-01 prepared install branch, stack, flow and monitor keyboard
     await journeyActivate(page.getByRole("button", { name: "Commit", exact: true }).last())
     await expect(todoCard(page, 2)).toContainText("+1")
     await runSlash(page, "/branch smithers/retry-webhooks")
+    // Fork is an immediate background request, not an invented Name form.
+    const forkResponse = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/branches")
     await journeyActivate(branch.getByRole("button", { name: "Fork", exact: true }))
-    await journeyEnter(page.getByLabel("Name", { exact: true }).last(), "ben/retry-try-2")
-    await journeyActivate(page.getByRole("button", { name: "Fork", exact: true }).last())
-    await journeyActivate(page.getByRole("button", { name: "Add to stack", exact: true }).last())
-    await journeyActivate(page.getByRole("button", { name: "Commit", exact: true }).last())
-    await expect(page.locator('.smithers-card[data-kind="todo"]').last()).toContainText("Queued")
+    const forked = await forkResponse
+    expect(forked.status()).toBe(201)
+    const scratch = (await forked.json()).name
+    expect(typeof scratch).toBe("string")
+    expect(scratch).toMatch(/^scratch\//)
+    await runSlash(page, `/branch ${scratch}`)
+    const scratchCard = page.locator('.smithers-card[data-kind="branch"]').last()
+    await expect(scratchCard).toContainText(/Awake|Wake/, { timeout: 120_000 })
+    const wakeScratch = scratchCard.getByRole("button", { name: "Wake", exact: true })
+    if (await wakeScratch.isVisible()) await journeyActivate(wakeScratch)
+    await expect(scratchCard).toContainText("Awake", { timeout: 120_000 })
+    await journeyActivate(scratchCard.getByRole("button", { name: /retry\.ts/ }).last())
+    const scratchFile = page.getByRole("textbox", { name: "src/webhooks/retry.ts", exact: true }).last()
+    await expect(scratchFile).toContainText("// keyboard journey edit")
+    await journeyReach(scratchFile)
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End")
+    await page.keyboard.type("\n// scratch keyboard approach")
+    const fileCard = page.locator('.code-file-view').filter({ has: scratchFile }).last()
+    await expect(fileCard.getByText("Saved to the machine", { exact: true })).toBeVisible()
+    const path = "src/webhooks/retry.ts"
+    await expect.poll(async () => (await f.read("Ben", `/api/branches/${encodeURIComponent(scratch)}/files/${path}`)).content.text)
+      .toContain("// scratch keyboard approach")
+    await runSlash(page, `/branch ${scratch}`)
+    // Add to stack commits through its own typed door, without a Draft/Commit.
+    const addedResponse = page.waitForResponse(response => response.request().method() === "POST" &&
+      new URL(response.url()).pathname === `/api/branches/${encodeURIComponent(scratch)}/add-to-stack`)
+    await journeyActivate(scratchCard.getByRole("button", { name: "Add to stack", exact: true }))
+    const added = await addedResponse
+    expect(added.status()).toBe(202)
+    const n = (await added.json()).n
+    expect(Number.isSafeInteger(n) && n > 2).toBe(true)
+    const adopted = await f.read("Ben", `/api/todos/${n}`)
+    expect(adopted.branch.name).toMatch(/^smithers\//)
+    await runSlash(page, `/todo ${n}`)
+    await expect(todoCard(page, n)).toBeVisible()
+    const retained = async () => (await f.read("Ben", `/api/branches/${encodeURIComponent(adopted.branch.name)}/files/${path}`)).content.text
+    expect(await retained()).toContain("// keyboard journey edit")
+    expect(await retained()).toContain("// scratch keyboard approach")
+    await runSlash(page, "/todo.drop T2")
+    await journeyActivate(page.getByRole("button", { name: "Confirm: drop this TODO", exact: true }).last())
+    await expect.poll(async () => (await f.read("Ben", "/api/todos/2")).state).toBe("dropped")
+    // Both known edits survive the source item's removal, not just a +1 badge.
+    await expect.poll(retained, { timeout: 120_000 }).toContain("// keyboard journey edit")
+    expect(await retained()).toContain("// scratch keyboard approach")
+    await info.attach("scratch-adoption", { body: JSON.stringify({ source: 2, scratch, todo: n, branch: adopted.branch.name,
+      retained: ["// keyboard journey edit", "// scratch keyboard approach"] }), contentType: "application/json" })
     // J5/J11: inspect the real repository-owned flow and edit its source on the scratch branch.
     await runSlash(page, "/flow todo")
     const flow = page.locator('.smithers-card[data-kind="flow"]').last()

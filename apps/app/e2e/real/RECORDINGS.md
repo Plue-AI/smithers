@@ -209,3 +209,10 @@ survive failed passes. Theme selection precedes per-card capture. Public origins
 accept both HTTP and HTTPS, as M-28 requires. GitHub sign-in stays the explicit
 external-origin exclusion. This source does not prove second-laptop access,
 actual reference recordings, or complete J1/C-UI-01.
+
+The prepared J7 continuation follows the served Fork (201) and Add to stack
+(202) doors directly; neither opens the old assumed Name/Draft form. It edits
+the returned scratch branch, waits for the File card's machine-save acknowledgment,
+then checks both literal edit markers in the adopted branch before and after
+human-confirmed T2 removal. This is source preparation, not a real-install pass;
+insertion, rebase-conflict and complete shared-branch evidence remain required.
