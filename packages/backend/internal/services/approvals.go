@@ -444,6 +444,9 @@ func (s *ApprovalsService) ListForRepo(ctx context.Context, repositoryID int64, 
 	if repositoryID <= 0 {
 		return nil, pkgerrors.BadRequest("repository context required")
 	}
+	if err := s.authorizeInstallApprovalRead(ctx, repositoryID); err != nil {
+		return nil, err
+	}
 	if perPage <= 0 {
 		perPage = 30
 	}
@@ -541,6 +544,9 @@ func approvalPayloadSHA256(payload []byte) string {
 // mutating it. Served by GET on a single approval in
 // internal/routes/approvals.go.
 func (s *ApprovalsService) GetForRepo(ctx context.Context, approvalID string, repoID int64) (ApprovalResponse, error) {
+	if err := s.authorizeInstallApprovalRead(ctx, repoID); err != nil {
+		return ApprovalResponse{}, err
+	}
 	row, err := s.q.GetApproval(ctx, approvalID)
 	if err != nil {
 		if stdErrors.Is(err, pgx.ErrNoRows) {
@@ -653,4 +659,23 @@ type deferredApprovalAudit struct{ events []AuditEvent }
 
 func (a *deferredApprovalAudit) Log(_ context.Context, event AuditEvent) {
 	a.events = append(a.events, event)
+}
+
+// Retained inbox reads consume the router's bound decision, or evaluate the
+// same command at a direct install service entry before any result disclosure.
+func (s *ApprovalsService) authorizeInstallApprovalRead(ctx context.Context, repositoryID int64) error {
+	if s.installQueries == nil {
+		return nil
+	}
+	if _, err := Authorize(ctx, s.installQueries, "approvals.list"); err != nil {
+		return err
+	}
+	installed, err := InstallRepositoryID(ctx, s.installQueries)
+	if err != nil {
+		return err
+	}
+	if installed != repositoryID {
+		return &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"}
+	}
+	return nil
 }
