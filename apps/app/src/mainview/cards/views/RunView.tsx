@@ -185,6 +185,7 @@ export function RunView({ model, actions, onAction, view, onView }: RunViewProps
   const header = <header className="smithers-card-header">
     <h2 className="smithers-card-title">{model.todo === undefined ? null : <span className="mvp-run-ref">T{model.todo}</span>}{model.title}</h2>
     {status}
+    {model.version === "draft version" && <span className="mvp-run-state">draft version</span>}
   </header>
   /* What needs a look: the flags of the step the run is in, and every wait nobody has settled. */
   const step = latest?.phases.at(-1)?.step
