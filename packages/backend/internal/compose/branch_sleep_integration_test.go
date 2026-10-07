@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -33,6 +34,8 @@ import (
 // capture and the branch-route matrix remain dependent on the daemon lane.
 type sleepCountRuntime struct {
 	workspace.WorkspaceRuntime
+	workspace.WorkspaceManagedHosts
+	workspace.WorkspaceSourceRevisionResolver
 	starts atomic.Int32
 	reads  atomic.Int32
 }
@@ -138,12 +141,20 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 	runtime, err := process.New(process.Config{Root: t.TempDir()})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
-	counted := &sleepCountRuntime{WorkspaceRuntime: runtime}
+	counted := &sleepCountRuntime{WorkspaceRuntime: runtime, WorkspaceManagedHosts: runtime, WorkspaceSourceRevisionResolver: runtime}
 	providers := services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), nil)
 	server := httptest.NewUnstartedServer(nil)
 	origin := "http://" + server.Listener.Addr().String()
 	t.Setenv("SMITHERS_PUBLIC_URL", origin)
-	server.Config.Handler = startSplitProcess(t, Options{FlowHostProductAPIURL: origin, Repository: client, Workspace: counted, BranchMachines: &providers, ChatHost: unusedChatHost{}})
+	root, err := filepath.Abs("../../../..")
+	require.NoError(t, err)
+	node, err := exec.LookPath("node")
+	require.NoError(t, err)
+	registry := buildRehearsalCodingHost(t, node, root)
+	exporter := rehearsalJJExport(root, os.Getenv("SMITHERS_FFI_LIBRARY_PATH"))
+	require.NotEmpty(t, exporter)
+	t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", exporter)
+	server.Config.Handler = startSplitProcess(t, Options{FlowHostProductAPIURL: origin, Repository: client, Workspace: counted, BranchMachines: &providers, ChatHost: unusedChatHost{}, FlowHostRegistry: &registry, FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}})
 	server.Start()
 	defer server.Close()
 	credential := ""
@@ -173,6 +184,19 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 		}}, diff)
 	}
 	assertDiff()
+	// A Branch answer must bind the question from the TODO read, even when
+	// its activity stream contains no question and no TODO was opened.
+	waits := fmt.Sprintf(`[{"id":"branch-question-1","kind":"question","prompt":"Include cancelled retries?","since":"2026-10-07T00:00:00Z","signal":{"scope":{"TenantID":"repository:%d","PrincipalID":"user:%d"},"target":{"TenantID":"repository:%d","PrincipalID":"user:%d","WorkspaceID":"%s","BindingKind":"mythical-item","BindingID":"%s"},"flow":"todo","run":"branch-question-run","name":"answer:branch-question-1"}}]`, repo.ID, owner.ID, repo.ID, owner.ID, id, fmt.Sprintf("%x-%x-%x-%x-%x", item.ID.Bytes[0:4], item.ID.Bytes[4:6], item.ID.Bytes[6:8], item.ID.Bytes[8:10], item.ID.Bytes[10:16]))
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='blocked',checks=jsonb_set(COALESCE(NULLIF(checks,'null'::jsonb),'{}'::jsonb),'{waits}',$2::jsonb) WHERE id=$1`, item.ID, waits)
+	require.NoError(t, err)
+	var questionProjection struct {
+		State string
+		Waits []struct{ ID string }
+	}
+	require.NoError(t, json.Unmarshal(readPath("/api/todos/1", 200), &questionProjection))
+	require.Equal(t, "needs_you", questionProjection.State)
+	require.Len(t, questionProjection.Waits, 1)
+	require.Equal(t, "branch-question-1", questionProjection.Waits[0].ID)
 	t.Run("app dispatcher and mounted Branch against PostgreSQL", func(t *testing.T) {
 		require.Equal(t, int64(1), item.Number.Int64)
 		script, err := filepath.Abs("../../../../apps/app/e2e/real/branch-card-install.fixture.tsx")
@@ -183,6 +207,13 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 		require.NoError(t, err, string(output))
 		t.Log(string(output))
 	})
+	var answeredBy, answer string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT checks->'waits'->0->>'answered_by',checks->'waits'->0->>'answer' FROM mythical_items WHERE id=$1`, item.ID).Scan(&answeredBy, &answer))
+	require.Equal(t, "sleepowner", answeredBy)
+	require.Equal(t, "Include them", answer)
+	var signals int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.signal'`).Scan(&signals))
+	require.Equal(t, 1, signals, "the mounted Answer admits exactly one durable signal")
 	// An awake/released candidate keeps its existing immutable candidate semantics.
 	_, err = pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, id)
 	require.NoError(t, err)
@@ -242,7 +273,10 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 	read("/files/content?path=src/missing.ts", 404)
 	read("/files/content?path=large.bin", 413)
 	readPath("/api/branches/"+id+"/files", 200)
-	readPath("/api/branches/"+id+"/files/outside-link", 404)
+	readPath("/api/branches/"+id+"/files/src/missing.ts", 404)
+	// The shared retained reader distinguishes non-regular objects from absent
+	// files: a symlink is unavailable, never an absence eligible for caching.
+	readPath("/api/branches/"+id+"/files/outside-link", 503)
 	require.Zero(t, counted.starts.Load())
 	require.Zero(t, counted.reads.Load())
 	minted := 0

@@ -1,10 +1,6 @@
 // Invoked by the PostgreSQL composed-install test with its own isolated server.
 import assert from "node:assert/strict"
-import { act } from "react"
-import { createAppController } from "../../src/mainview/state/AppController"
-import { createAppStore } from "../../src/mainview/state/AppStore"
-import { memoryStorage, unavailableAgent, applicationIdentityFromFetch } from "../../src/mainview/state/TestFixtures"
-import { LiveChannel, type LiveSocket } from "../../src/mainview/runtime/LiveChannel"
+import type { LiveSocket } from "../../src/mainview/runtime/LiveChannel"
 
 const origin = process.env.SMITHERS_BRANCH_CARD_ORIGIN!
 const branch = process.env.SMITHERS_BRANCH_CARD_ID!
@@ -15,6 +11,11 @@ const { GlobalRegistrator } = await import("@happy-dom/global-registrator")
 GlobalRegistrator.register({ url: origin })
 Object.assign(globalThis, nativeHttp)
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+const { act } = await import("react")
+const { createAppController } = await import("../../src/mainview/state/AppController")
+const { createAppStore } = await import("../../src/mainview/state/AppStore")
+const { memoryStorage, unavailableAgent, applicationIdentityFromFetch } = await import("../../src/mainview/state/TestFixtures")
+const { LiveChannel } = await import("../../src/mainview/runtime/LiveChannel")
 const { createRoot } = await import("react-dom/client")
 const { ControllerTestProvider } = await import("../../src/mainview/ControllerContext")
 const { CARD_RENDERERS } = await import("../../src/mainview/cards/CardRenderers")
@@ -76,6 +77,19 @@ try {
   assert.ok(requests.slice(sshReads).some(request => request.path === "/api/branches/smithers%2Fsleep-item" && request.status === 200))
   const missingSsh = await controller.runCommandForResult("ssh", "T999")
   assert.equal(missingSsh.status, "failed", "unknown TODO never copies a seed SSH line")
+  await waitFor(() => host.querySelector('form[data-flow="todo.answer"]') !== null)
+  const answer = host.querySelector('form[data-flow="todo.answer"]') as HTMLFormElement
+  const field = answer.querySelector("input")!
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field, "Include them")
+    field.dispatchEvent(new Event("input", { bubbles: true }))
+    field.dispatchEvent(new Event("change", { bubbles: true }))
+  })
+  await act(async () => answer.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
+  await waitFor(() => requests.some(request => request.path === "/api/todos/1/answer"))
+  const answered = requests.find(request => request.path === "/api/todos/1/answer")!
+  assert.deepEqual(answered.body, { answer: "Include them", wait: "branch-question-1" })
+  assert.equal(answered.status, 202, JSON.stringify(answered))
   assert.ok(host.querySelector('[data-flow="todo"]'), "real item binding")
   assert.ok(host.querySelector('[data-flow="todo.steer"]'), "real steer binding")
   assert.equal(host.querySelector('[data-flow="box.resume"]'), null, "uncomposed wake stays dark")
@@ -93,6 +107,6 @@ try {
   assert.equal(fork.status, 409, JSON.stringify(fork))
   assert.ok(requests.some(request => request.path === "/api/todos/1" && request.status === 200))
   assert.ok(requests.some(request => request.path.endsWith("/files/src/retry.ts") && request.status === 200))
-  assert.ok(requests.filter(request => request.method === "POST").every(request => request.path === "/api/branches"), "reads never wake the sleeping branch")
-  console.log("PASS composed Branch slash, mount, SSH TODO/bookmark, item, file and Fork refusal; no wake")
+  assert.ok(requests.filter(request => request.method === "POST").every(request => request.path === "/api/branches" || request.path === "/api/todos/1/answer"), "reads never wake the sleeping branch")
+  console.log("PASS composed Branch slash, mount, bound Answer, SSH TODO/bookmark, item, file and Fork refusal; no wake")
 } finally { await act(async () => root.unmount()); await controller.dispose(); live.dispose() }

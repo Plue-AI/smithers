@@ -835,7 +835,8 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       return newTodo(input, path)
     }, draftImagePackage, draftFromIssue, draftIssueNumber, amendTodo, setTodoFormField, dismissTodoDraft, resumeTodos, applyTodoProjection: applyProjection,
     answerTodo: (n: number, answer: string, wait?: string) => {
-      const waits = entry(n)?.payload.model?.waits.filter(row => row.actions.some(action => action.tag === "todo.answer")) ?? []
+      const model = entry(n)?.payload.model ?? shared.list.snapshot.todos?.find(todo => todo.n === n)
+      const waits = model?.waits.filter(row => row.actions.some(action => action.tag === "todo.answer")) ?? []
       const id = wait ?? (waits.length === 1 ? waits[0]!.id : undefined)
       if (!id || !waits.some(row => row.id === id)) return Promise.resolve("Choose an open wait.")
       return request(n, "answer", { answer, wait: id })

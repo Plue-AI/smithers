@@ -348,3 +348,12 @@ test("recorded commit cards decode without reviving their retired renderers", as
     expect(CardSchema.options.some(option => option.shape.kind.value === kind)).toBe(false)
   }
 })
+
+test("a listed open question binds Branch Answer without an activity question and keeps the original wait", () => {
+  const model = { ...definitionsOf(make(), "b-retry").model, activity: [] }
+  const { calls, dispatch } = recorder()
+  const bindings = cardActions(dispatch, liveBranchActionDefinitions(model, new Set(["todo.answer", "todo.steer"]), "branch-question-1"))
+  expect(bindings.actions.map(action => [action.tag, action.primary])).toEqual([["todo.answer", true], ["todo.steer", undefined]])
+  bindings.onAction("todo.answer", { answer: "Include them", wait: "different-question" })
+  expect(calls).toEqual([["todo.answer", { n: 9, answer: "Include them", wait: "branch-question-1" }]])
+})

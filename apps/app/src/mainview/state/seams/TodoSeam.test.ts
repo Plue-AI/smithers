@@ -8,6 +8,7 @@ import { createAppStore } from "../AppStore"
 import { memoryStorage, settle, waitFor } from "../TestFixtures"
 import type { SeamContext } from "./SeamContext"
 import { createTodoSeam, type DraftEntry, type TodoEntry, type TodoReceipt, type TodoTopics, type TodoSeamOptions } from "./TodoSeam"
+import type { TodoCard } from "@smthrs/rpc/TodoCard"
 import { fixtures } from "../../../../../../packages/rpc/test/fixtures/Todo"
 import { fixtures as confirms } from "@smthrs/rpc/fixtures/Confirm"
 import type { MemberConfirmation } from "@smthrs/rpc/ConfirmCard"
@@ -22,7 +23,7 @@ const deferred = <T,>() => {
   const promise = new Promise<T>(done => { resolve = done })
   return { promise, resolve }
 }
-const harness = async (http: SeamContext["http"], storage = memoryStorage(), actors?: TodoSeamOptions["actors"], live = true, openSource?: TodoSeamOptions["openSource"], draftIssue?: TodoSeamOptions["draftIssue"]) => {
+const harness = async (http: SeamContext["http"], storage = memoryStorage(), actors?: TodoSeamOptions["actors"], live = true, openSource?: TodoSeamOptions["openSource"], draftIssue?: TodoSeamOptions["draftIssue"], listed?: readonly TodoCard[]) => {
   const store = await createAppStore({ kind: "localStorage", storage })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
   const observed = new Map<string, (model: unknown, receipts?: readonly TodoReceipt[]) => void>()
@@ -33,7 +34,7 @@ const harness = async (http: SeamContext["http"], storage = memoryStorage(), act
   const reports: { scope: string; error: unknown }[] = []
   const context: SeamContext = {
     http: (url, init) => url.endsWith("/api/todos") && !init?.method
-      ? Promise.resolve(json([fixtures.in_review.model, fixtures.merged.model, fixtures.dropped.model], 200)) : http(url, init), store, dispatch: store.dispatch, baseUrl: "https://install.test", actor: () => "user", nextOrdinal: store.nextOrdinal,
+      ? Promise.resolve(json(listed ?? [fixtures.in_review.model, fixtures.merged.model, fixtures.dropped.model], 200)) : http(url, init), store, dispatch: store.dispatch, baseUrl: "https://install.test", actor: () => "user", nextOrdinal: store.nextOrdinal,
     report: (scope, error) => { reports.push({ scope, error }) },
     isDisposed: () => disposed,
     resolveToast: (key, outcome) => { outcomes.push({ key, ...outcome }); store.dispatch({ type: "toast.resolved", actor: "system", key, status: outcome.status, detail: outcome.detail }) }
@@ -1419,4 +1420,20 @@ test("failed issue model preparation is visible and retry uses the admitted snap
     await waitFor(() => h.draft().payload.issuePreparation?.state === "ready")
     expect(calls).toBe(2)
   } finally { h.close() }
+})
+
+test("a Branch answer binds the listed question before its TODO card is opened", async () => {
+  const calls: { url: string; body: unknown }[] = []
+  const question = fixtures.needs_you.model.waits[0]!
+  const h = await harness(async (url, init) => { calls.push({ url, body: JSON.parse(String(init?.body)) }); return json({ state: "accepted" }) }, memoryStorage(), undefined, false, undefined, undefined, [fixtures.needs_you.model])
+  const stop = h.seam.list.subscribe(() => {})
+  try {
+    await waitFor(() => h.seam.list.get().todos !== undefined)
+    expect(h.store.collections.cards.has("todo:12")).toBe(false)
+    expect(await h.seam.answerTodo(12, "Include them", "stale-question")).toBe("Choose an open wait.")
+    expect(calls).toEqual([])
+    expect(await h.seam.answerTodo(12, "Include them", question.id)).toEqual({ value: "Requested" })
+    await waitFor(() => calls.some(call => call.url.endsWith("/answer")))
+    expect(calls[0]).toEqual({ url: "https://install.test/api/todos/12/answer", body: { answer: "Include them", wait: question.id } })
+  } finally { stop(); h.close() }
 })

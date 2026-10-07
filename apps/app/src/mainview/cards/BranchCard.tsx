@@ -45,7 +45,7 @@ export const branchActionDefinitions = (world: DesignWorldRows, branch: DesignBr
 }
 
 /** Only composed providers bind live presses; topic payloads carry no command authority. */
-export const liveBranchActionDefinitions = (model: BranchModel, providers: ReadonlySet<CatalogTag>): Definition[] => {
+export const liveBranchActionDefinitions = (model: BranchModel, providers: ReadonlySet<CatalogTag>, questionWait?: string): Definition[] => {
   const definitions: Definition[] = []
   if (model.terminals.length) definitions.push({ tag: "terminal.watch", label: "Watch", gesture: "terminal",
     command_input: { id: "" }, resolve_input: input => ({ id: input.id ?? "" }) })
@@ -72,10 +72,11 @@ export const liveBranchActionDefinitions = (model: BranchModel, providers: Reado
   }
   if (model.machine.state !== "closed" && n !== undefined) {
     const question = [...model.activity].reverse().find(entry => entry.kind === "question" || entry.kind === "answer")
-    if (model.item?.state === "needs_you" && question?.kind === "question") definitions.push({
+    if (model.item?.state === "needs_you" && (questionWait !== undefined || question?.kind === "question")) definitions.push({
       tag: "todo.answer", label: "Answer", primary: true,
       input: [{ name: "answer", label: "Answer the coding agent", kind: "text", required: true, multiline: true }],
-      command_input: { n, answer: "" }, resolve_input: input => ({ n, answer: input.answer ?? "" })
+      command_input: { n, answer: "", ...(questionWait === undefined ? {} : { wait: questionWait }) },
+      resolve_input: input => ({ n, answer: input.answer ?? "", ...(questionWait === undefined ? {} : { wait: questionWait }) })
     })
     definitions.push({ tag: "todo.steer", label: "Steer",
       input: [{ name: "text", label: "Steer the coding agent", kind: "text", required: true, multiline: true }],
@@ -137,6 +138,10 @@ export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branc
   const refused = (snapshot: typeof activity) => snapshot?.error !== undefined && snapshot.error !== "unsupported"
   const model = branch?.error || refused(activity) || refused(files) ? undefined
     : branchModel(branch?.data, optionalData(activity), optionalData(files), card.payload.id, { roster: roster?.model?.members.map(member => ({ ...member, id: member.login })) })
+  const todos = useSyncExternalStore(controller.todoList?.subscribe ?? (() => () => {}),
+    controller.todoList?.get ?? (() => undefined), controller.todoList?.get ?? (() => undefined))
+  const questionWait = todos?.todos?.find(todo => todo.n === model?.item?.n)?.waits
+    .find(wait => wait.kind === "question" && wait.actions.some(action => action.tag === "todo.answer"))?.id
   useBranchPresence(card.payload.id, controller.live)
   // Outside an install, an unanswered or absent provider keeps the existing seed visible.
   if (branchSeedAvailable(controller) && branch?.data === undefined
@@ -153,12 +158,12 @@ export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branc
   if (controls?.available("rebase")) { providers.add("branch.rebase-now"); providers.add("branch.rebase") }
   if (controls?.available("return-to-item")) providers.add("todo.return-to-item")
   if (controls?.available("keep-moved")) providers.add("todo.keep-moved")
-  if (typeof controller.answerTodo === "function") providers.add("todo.answer")
+  if (typeof controller.answerTodo === "function" && questionWait !== undefined) providers.add("todo.answer")
   if (typeof controller.steerTodo === "function") providers.add("todo.steer")
   const dispatch: CardCommandDispatch = (tag, input) => controller.commands.submit({
     name: tag, payload: { branch: model?.name ?? card.payload.id, ...(input ?? {}) }, actor: "user", originCardId: card.id
   })
-  const bindings = cardActions<Gesture>(dispatch, model ? liveBranchActionDefinitions(model, providers) : [])
+  const bindings = cardActions<Gesture>(dispatch, model ? liveBranchActionDefinitions(model, providers, questionWait) : [])
   if (!model) return branchSeedAvailable(controller) ? <DesignBranchBody card={card} actions={actions} /> : null
   return <BranchView model={model} actions={bindings.actions} gestures={bindings.gestures}
     onAction={bindings.onAction} view={{ maximized: actions.presentation === "maximized", tab: card.payload.tab }}

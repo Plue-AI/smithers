@@ -186,7 +186,10 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 			return nil, err
 		}
 		var leases []leaseParticipant
-		if p.dispatcher != nil {
+		// An asleep machine has no live host roster. Its stored facts remain
+		// readable even when the install's dispatcher is fully composed.
+		asleep := current.Status == "suspended" || current.Status == "stopped"
+		if p.dispatcher != nil && !asleep {
 			raw, err := p.call(ctx, current, slug, "Branch.Roster", map[string]any{})
 			if err != nil {
 				return nil, err
@@ -194,7 +197,7 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 			if err = json.Unmarshal(raw, &leases); err != nil {
 				return nil, err
 			}
-		} else if current.Status != "suspended" && current.Status != "stopped" {
+		} else if !asleep {
 			return nil, errors.New("awake branch roster unavailable")
 		}
 		// Multiple sessions retain leases but render one participant, at the newest
