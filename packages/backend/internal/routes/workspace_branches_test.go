@@ -177,7 +177,7 @@ func TestBranchRebaseTypedRequests(t *testing.T) {
 	}
 	require.Equal(t, "change-1", f.input.ConflictChange)
 	require.Equal(t, "rev-2", f.input.OntoRevision)
-	for _, body := range []string{`{"rebase":true,"conflict_change":"change","onto_revision":"rev"}`, `{"conflict_change":"change"}`, `{"onto_revision":"rev"}`, `{"rebase":true,"revision":"rev"}`, `{"op":"bring-in","rebase":true}`, `{"rebase":true,"actor":9}`, `{"rebase":true} {}`, `{"rebase":true,"id":"wait"}`} {
+	for _, body := range []string{`{"op":"rebase","conflict_change":"","onto_revision":""}`, `{"op":"rebase","conflict_change":null,"onto_revision":null}`, `{"op":"rebase","conflict_change":null}`, `{"op":"rebase","conflict_change":123,"onto_revision":"rev"}`, `{"rebase":true,"conflict_change":"change","onto_revision":"rev"}`, `{"conflict_change":"change"}`, `{"onto_revision":"rev"}`, `{"rebase":true,"revision":"rev"}`, `{"op":"bring-in","rebase":true}`, `{"rebase":true,"actor":9}`, `{"rebase":true} {}`, `{"rebase":true,"id":"wait"}`} {
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, httptest.NewRequest("POST", "/api/branches/b", strings.NewReader(body)))
 		require.Equal(t, 400, w.Code, body)

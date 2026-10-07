@@ -146,8 +146,22 @@ func DecodeBranchCommand(reader io.Reader) (BranchCommandInput, string, error) {
 	invalid := func() (BranchCommandInput, string, error) {
 		return body, "", pkgerrors.BadRequest("Invalid branch answer")
 	}
-	if decodeSingleJSONDocument(decoder, &body) != nil {
+	// Preserve field presence: empty/null Done bindings must never select a
+	// new rebase merely because decoding them produced empty Go strings.
+	encoded := struct {
+		*BranchCommandInput
+		ConflictChange json.RawMessage `json:"conflict_change"`
+		OntoRevision   json.RawMessage `json:"onto_revision"`
+	}{BranchCommandInput: &body}
+	if decodeSingleJSONDocument(decoder, &encoded) != nil {
 		return invalid()
+	}
+	if encoded.ConflictChange != nil || encoded.OntoRevision != nil {
+		if json.Unmarshal(encoded.ConflictChange, &body.ConflictChange) != nil ||
+			json.Unmarshal(encoded.OntoRevision, &body.OntoRevision) != nil ||
+			body.ConflictChange == "" || body.OntoRevision == "" {
+			return invalid()
+		}
 	}
 	if body.Rebase || body.ConflictChange != "" || body.OntoRevision != "" || body.Op == "rebase" {
 		input := services.BranchRebaseInput{Rebase: body.rebaseNow(), ConflictChange: body.ConflictChange, OntoRevision: body.OntoRevision}
@@ -288,6 +302,11 @@ func (h *BranchHandler) Fork(w http.ResponseWriter, r *http.Request) {
 
 // writeBranchError keeps the resource's errors on the §6.2.3 wire contract
 // while the legacy workspace endpoints retain their existing error decoder.
+// WriteBranchCommandError shares the handler's envelope with command admission.
+func WriteBranchCommandError(w http.ResponseWriter, r *http.Request, err error) {
+	writeBranchError(w, r, err)
+}
+
 func writeBranchError(w http.ResponseWriter, r *http.Request, err error) {
 	var refused *services.BranchError
 	if errors.As(err, &refused) {
