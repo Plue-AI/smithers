@@ -4962,7 +4962,7 @@ type mythicalChecks struct {
 	GitHubClosedAt        *time.Time                         `json:"githubClosedAt,omitempty"`
 	GitHubDropRead        *mythicalDropRead                  `json:"githubDropRead,omitempty"`
 	Attempts              []todoAttemptEvidence              `json:"attempts,omitempty"`
-	Thrash *runThrash `json:"thrash,omitempty"`
+	Thrash                *runThrash                         `json:"thrash,omitempty"`
 	// Steers are the TODO's steers in order, each held for an attempt
 	// (todoFeedback); Retries are the Retry presses by Idempotency-Key, so a
 	// press sent again starts nothing more (retryTodo).
