@@ -58,6 +58,11 @@ func TestBranchConversationUnavailableProviders(t *testing.T) {
 					timeout = time.Minute
 				}
 				f.terminal(t, turn, "failed", timeout)
+				if missing == "context-reader" {
+					var generation int64
+					require.NoError(t, f.local.pool.QueryRow(f.local.ctx, `SELECT producer_generation FROM chat_turns WHERE id=$1`, turn).Scan(&generation))
+					require.Equal(t, int64(5), generation, "missing context must exhaust the bounded retry policy without a model call")
+				}
 				if missing == "delegated-issuer" {
 					body := string(f.call(t, "ben", "GET", "/api/conversations/main", "", 200))
 					require.Contains(t, body, "credential_issuer_unavailable")
