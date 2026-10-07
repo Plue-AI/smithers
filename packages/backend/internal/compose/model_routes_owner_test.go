@@ -125,6 +125,25 @@ func TestInstallAgentModelsOwnerBoundaryPostgres(t *testing.T) {
 		require.Empty(t, agent.Runs, "no factory role inferred from a chat receipt")
 	}
 	require.NotContains(t, recent.Body.String(), "receipt-run-false")
+	// Factory receipts retain the model actually used, after assignments change.
+	var definition, factoryRun, factoryStep int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workflow_definitions(repository_id,name,path,config) VALUES($1,'todo','flows/todo/flow.ts','{}') RETURNING id`, repo.ID).Scan(&definition))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workflow_runs(repository_id,workflow_definition_id,status,trigger_event) VALUES($1,$2,'running','agent') RETURNING id`, repo.ID, definition).Scan(&factoryRun))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workflow_steps(workflow_run_id,name,position,status) VALUES($1,'coding/review',0,'running') RETURNING id`, factoryRun).Scan(&factoryStep))
+	_, err = pool.Exec(ctx, `INSERT INTO model_usage(request_key,paid_by,owner_type,owner_id,source,repository_id,workflow_run_id,workflow_step_id,provider,model,outcome,settled_at)
+ VALUES('factory-receipt','owner','user',$1,'agent_run',$2,$3,$4,'openai','review-model-old','succeeded',now())`, owner.ID, repo.ID, factoryRun, factoryStep)
+	require.NoError(t, err)
+	recent = call("alice", "GET", "/api/agents", "")
+	require.Equal(t, 200, recent.Code, recent.Body.String())
+	require.NoError(t, json.Unmarshal(recent.Body.Bytes(), &recentPayload))
+	require.Equal(t, []db.AgentModelRun{{ID: fmt.Sprint(factoryRun), Model: "review-model-old"}}, recentPayload.Agents[2].Runs)
+	require.Empty(t, recentPayload.Agents[0].Runs)
+	require.Empty(t, recentPayload.Agents[1].Runs)
+	_, err = pool.Exec(ctx, `UPDATE workflow_steps SET name='unrelated' WHERE id=$1`, factoryStep)
+	require.NoError(t, err)
+	recent = call("alice", "GET", "/api/agents", "")
+	require.NoError(t, json.Unmarshal(recent.Body.Bytes(), &recentPayload))
+	require.Empty(t, recentPayload.Agents[2].Runs)
 	const fast = `{"protocol":"openai-chat","modelId":"model-f","credential":"CEREBRAS_API_KEY","baseUrl":"https://api.cerebras.ai"}`
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "agent:fast", Value: []byte(fast)}))
 	_, err = pool.Exec(ctx, `INSERT INTO owner_model_credentials(user_id,name,origin,value_encrypted) VALUES($1,'CEREBRAS_API_KEY','https://api.cerebras.ai','sealed-fixture')`, owner.ID)
