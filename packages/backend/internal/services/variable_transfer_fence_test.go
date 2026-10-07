@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"net/http/httptest"
 	"os"
 	"sync"
@@ -74,7 +76,25 @@ func (f variableTransferFixture) changeOwner(ctx context.Context) error {
 	if _, err = tx.Exec(ctx, repoOwnershipLockSQL, f.repo.ID); err != nil {
 		return err
 	}
+	// Production ownership changes require the durable storage journal. Keep
+	// the database fence enabled while exercising the authorization race.
+	var nonce [32]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return err
+	}
+	token := hex.EncodeToString(nonce[:])
+	if _, err := tx.Exec(ctx, `INSERT INTO repository_storage_operations
+		(repository_id, operation_type, token, storage_route_key, source_owner, source_repo, source_user_id, target_owner, target_repo, target_user_id)
+		VALUES ($1,'move',$2,'static',$3,$4,$5,$6,$4,$7)`, f.repo.ID, token, f.owner.Username, f.repo.Name, f.owner.ID, f.recipient.Username, f.recipient.ID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `SELECT set_config('smithers.repository_storage_operation_token',$1,TRUE)`, token); err != nil {
+		return err
+	}
 	if _, err = tx.Exec(ctx, `UPDATE repositories SET user_id=$2 WHERE id=$1`, f.repo.ID, f.recipient.ID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM repository_storage_operations WHERE repository_id=$1 AND token=$2`, f.repo.ID, token); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

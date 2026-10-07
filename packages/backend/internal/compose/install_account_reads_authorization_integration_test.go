@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -23,7 +24,7 @@ func TestInstallMemberAccountReadsPostgres(t *testing.T) {
 	cfg.Server.PublicURL = "http://example.com"
 	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
 	service := services.NewUserService(f.q)
-	router := buildRouterCompat(cfg, f.q, f.pool, &routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{ProfileService: service, EmailService: services.NewEmailService(f.q, nil, services.EmailServiceConfig{}), SignupProfiles: services.NewSignupProfileService(f.q)}, &routes.SSHKeyHandler{}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, &routes.RepositoryJobHandler{RepositoryJobs: services.NewRepositoryJobService(f.q, nil, f.pool)})
+	router := buildRouterCompat(cfg, f.q, f.pool, &routes.RepoHandler{RepoConnectionService: services.NewRepoConnectionService(f.pool)}, &routes.AuthHandler{}, &routes.UserHandler{ProfileService: service, EmailService: services.NewEmailService(f.q, nil, services.EmailServiceConfig{}), SignupProfiles: services.NewSignupProfileService(f.q)}, &routes.SSHKeyHandler{}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, &routes.RepositoryJobHandler{RepositoryJobs: services.NewRepositoryJobService(f.q, nil, f.pool)})
 
 	_, sourceErr := f.pool.Exec(f.ctx, `INSERT INTO github_synced_repos(owner_login,owner_login_lower,repo_name,repo_name_lower,mirror_owner,mirror_repo,sync_state) VALUES('source-owner','source-owner','source-repo','source-repo','gate-owner','app','ready')`)
 	require.NoError(t, sourceErr)
@@ -54,7 +55,7 @@ func TestInstallMemberAccountReadsPostgres(t *testing.T) {
 		name, bearer, cookie string
 		status               int
 	}{{"person", "", cookie, 200}, {"external", external, "", 200}, {"app", app, "", 200}, {"run", run, "", 403}, {"machine", machine, "", 403}, {"scope", f.token(f.other, "list-scope", "write:workspace,via:codex", true), "", 403}, {"anonymous", "", "", 401}} {
-		for _, path := range []string{"/api/user/emails", "/api/user/connections", "/api/user/settings/notifications", "/api/user/settings/signup", "/api/integrations/mcp", "/api/integrations/skills", "/api/repos/gate-owner/app/repository-source"} {
+		for _, path := range []string{"/api/user/emails", "/api/user/connections", "/api/user/settings/notifications", "/api/user/settings/signup", "/api/integrations/mcp", "/api/integrations/skills", "/api/repos/gate-owner/app/repository-source", "/api/repos/gate-owner/app/github-app-status"} {
 			t.Run(actor.name+path, func(t *testing.T) {
 				req := httptest.NewRequest("GET", cfg.Server.PublicURL+path, nil)
 				if actor.bearer != "" {
@@ -76,7 +77,7 @@ func TestInstallMemberAccountReadsPostgres(t *testing.T) {
 					require.Empty(t, commands)
 				} else {
 					command := "self.read"
-					if path == "/api/repos/gate-owner/app/repository-source" {
+					if strings.HasPrefix(path, "/api/repos/") {
 						command = "repo.read"
 					}
 					require.Equal(t, []string{command}, commands)
@@ -87,6 +88,10 @@ func TestInstallMemberAccountReadsPostgres(t *testing.T) {
 				if actor.status == 200 {
 					if path == "/api/repos/gate-owner/app/repository-source" {
 						require.JSONEq(t, `{"source":"github","full_name":"source-owner/source-repo"}`, out.Body.String())
+					} else if path == "/api/repos/gate-owner/app/github-app-status" {
+						require.Contains(t, out.Body.String(), `"github_app_configured":false`)
+						require.Contains(t, out.Body.String(), `"github_app_installed":false`)
+						require.NotContains(t, out.Body.String(), "installation_id")
 					} else if path == "/api/integrations/mcp" || path == "/api/integrations/skills" {
 						require.JSONEq(t, `[]`, out.Body.String(), "no provider or skills catalog is configured in this composition")
 					} else if path == "/api/user/settings/notifications" {

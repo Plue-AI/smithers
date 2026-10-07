@@ -149,6 +149,7 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodGet, "/api/user/github-access/acme/app", "github.account-read"},
 		{http.MethodGet, "/api/user/github-app/installations", "github.account-read"},
 		{http.MethodGet, "/api/user/github-app/installations/349203", "github.account-read"},
+		{http.MethodGet, "/api/repos/alice/app/github-app-status", "repo.read"},
 		{http.MethodGet, "/api/repos/alice/app/variables", "variables.read"},
 		{http.MethodGet, "/api/repos/alice/app/variables/DEPLOY_ENV", "variables.read"},
 		{http.MethodPost, "/api/repos/alice/app/variables", "variables.set"},
