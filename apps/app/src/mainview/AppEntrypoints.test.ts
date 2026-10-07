@@ -12,9 +12,11 @@ const cases = [
   ['browser main render', '../../e2e/fixtures/unit-entrypoints/Main.child.test.tsx']
 ] as const
 
+// The child loads an empty bunfig so it cannot overwrite the parent's JUnit report.
+const childConfig = fileURLToPath(new URL('../../e2e/fixtures/unit-entrypoints/child.bunfig.toml', import.meta.url))
 test.each(cases)('%s runs in an isolated Bun process', (_name, relative) => {
   const child = fileURLToPath(new URL(relative, import.meta.url))
-  const result = spawnSync(process.execPath, ['test', child], {
+  const result = spawnSync(process.execPath, ['test', '--config', childConfig, child], {
     cwd: fileURLToPath(new URL('../..', import.meta.url)),
     env: process.env,
     encoding: 'utf8',

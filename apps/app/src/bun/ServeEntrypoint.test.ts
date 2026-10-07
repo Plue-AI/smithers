@@ -6,9 +6,11 @@ import type {} from '../../e2e/fixtures/unit-entrypoints/Serve.child.test'
 
 const cases = [['signal'], ['backend-failure'], ['stop-error'], ['hostile-origin']] as const
 const child = fileURLToPath(new URL('../../e2e/fixtures/unit-entrypoints/Serve.child.test.ts', import.meta.url))
+// The child loads an empty bunfig so it cannot overwrite the parent's JUnit report.
+const childConfig = fileURLToPath(new URL('../../e2e/fixtures/unit-entrypoints/child.bunfig.toml', import.meta.url))
 
 test.each(cases)('serve entrypoint %s lifecycle runs in an isolated process', (scenario) => {
-  const result = spawnSync(process.execPath, ['test', child], {
+  const result = spawnSync(process.execPath, ['test', '--config', childConfig, child], {
     cwd: fileURLToPath(new URL('../..', import.meta.url)),
     env: {
       ...process.env,

@@ -1,0 +1,3 @@
+# Child `bun test` runs started by the app's unit tests load this empty config
+# instead of apps/app/bunfig.toml, so they never write the parent's JUnit
+# report (test-results/unit-tests.xml) over the real one.
