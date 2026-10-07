@@ -102,6 +102,7 @@
   {"id":"post_api_model_openrouter_path","fields":[{"name":"path:path","label":"path","required":true,"kind":"text"},{"name":"body","label":"JSON","kind":"text","multiline":true,"required":false}]},
   {"id":"post_api_model_stream","fields":[{"name":"body","label":"JSON","kind":"text","multiline":true,"required":false}]},
   {"id":"post_api_model_test","fields":[{"name":"body","label":"JSON","kind":"text","multiline":true,"required":false}]},
+  {"id":"get_api_model_test_receipt","fields":[{"name":"query:requestId","label":"requestId","required":true,"kind":"text"}]},
   {"id":"post_api_model_vercel_path","fields":[{"name":"path:path","label":"path","required":true,"kind":"text"},{"name":"body","label":"JSON","kind":"text","multiline":true,"required":false}]},
   {"id":"get_api_notifications","fields":[]},
   {"id":"get_api_notifications_events","fields":[{"name":"query:after","label":"after","required":false,"kind":"text"},{"name":"query:limit","label":"limit","required":false,"kind":"text"}]},
