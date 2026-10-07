@@ -158,6 +158,8 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 			want := http.StatusOK
 			switch {
 			case who == "owner":
+			case who == "suspended" && key != "GET /api/user/tokens" && key != "POST /api/agent/turn/erase":
+				want = http.StatusUnauthorized
 			case who == "member token" && (key == "GET /api/user/orgs" || key == "GET /api/user/workspaces" || key == "POST /api/telemetry/errors" || key == "GET /api/agent/conversations" || key == "POST /api/agent/conversations/replay" || key == "POST /api/agent/turn" || key == "POST /api/conversations/1/prompt" || key == "POST /api/agent/turn/replay"):
 				want = http.StatusOK
 			case ownerOnly[key], who == "off roster", who == "suspended", who == "member token":
@@ -173,6 +175,9 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 				status, envelope = call(route.method, route.path, cookies[who], "")
 			}
 			require.Equal(t, want, status, "%s %s %v", who, key, envelope)
+			if who == "suspended" && want == http.StatusUnauthorized {
+				require.Equal(t, "unauthenticated", envelope["code"], key)
+			}
 			if want == http.StatusForbidden && who == "member" && maintainerOnly[key] {
 				require.Equal(t, map[string]any{"class": "permission", "code": "permission", "message": "Only a maintainer can do this"}, envelope, key)
 			}
@@ -283,9 +288,10 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 	require.Equal(t, "permission", envelope["code"])
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET permission='admin' WHERE user_id=$1`, ben.ID)
 	require.NoError(t, err)
-	// Suspending Ben refuses his very next request.
+	// Suspending Ben invalidates his session on the very next request.
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, ben.ID)
 	require.NoError(t, err)
-	status, _ = call("GET", "/api/install", cookies["maintainer"], "")
-	require.Equal(t, http.StatusForbidden, status)
+	status, envelope = call("GET", "/api/install", cookies["maintainer"], "")
+	require.Equal(t, http.StatusUnauthorized, status)
+	require.Equal(t, "unauthenticated", envelope["code"])
 }
