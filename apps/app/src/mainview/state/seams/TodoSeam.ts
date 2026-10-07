@@ -248,6 +248,8 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         if (["failed", "dropped", "merged"].includes(model.state)) return [{ key: request.key,
           outcome: { status: "failed" as const, detail: model.failure?.message ?? (model.state === "merged" ? "Merged" : model.state === "failed" ? "Failed" : "Dropped") } }]
         if (request.attempt === undefined || model.run?.attempt !== request.attempt) return []
+        if (model.control_failure?.op === request.operation) return [{ key: request.key,
+          outcome: { status: "failed" as const, detail: model.control_failure.message } }]
         const completed = request.operation === "stop" ? model.pause?.reason === "person"
           : model.pause === undefined && model.state !== "paused"
         return completed ? [{ key: request.key, outcome: { status: "ok" as const,

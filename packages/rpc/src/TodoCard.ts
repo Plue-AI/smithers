@@ -74,6 +74,7 @@ export const TodoCardSchema = z.object({
     since: z.string(),
     resume_at: z.string().optional()
   }).optional(),
+  control_failure: z.object({ op: z.enum(["stop", "resume"]), message: z.string() }).optional(),
   rebase_pending: RebasePendingSchema.optional(),
   step: z.string().optional(),
   prompt_revisions: z.array(

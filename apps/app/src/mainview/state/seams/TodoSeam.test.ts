@@ -1546,3 +1546,17 @@ test("a Branch answer binds the listed question before its TODO card is opened",
     expect(calls[0]).toEqual({ url: "https://install.test/api/todos/12/answer", body: { answer: "Include them", wait: question.id } })
   } finally { stop(); h.close() }
 })
+
+for (const operation of ["stop", "resume"] as const) test(`${operation} surfaces a durable dispatcher failure and remains retryable`, async () => {
+  const h = await harness(async () => json({ state: "accepted", n: 12 }))
+  try {
+    const model = structuredClone(operation === "stop" ? fixtures.working.model : fixtures.paused.model)
+    await h.seam.applyTodoProjection(12, model)
+    await h.seam.controlTodo(12, operation)
+    await waitFor(() => h.todo().payload.requests[0]?.state === "accepted")
+    await h.seam.applyTodoProjection(12, { ...model, control_failure: { op: operation, message: "Control delivery failed" } })
+    expect(h.outcomes.at(-1)).toMatchObject({ status: "failed", detail: "Control delivery failed" })
+    expect(h.todo().payload.model?.state).toBe(model.state)
+    expect(await h.seam.controlTodo(12, operation)).toEqual({ value: "Requested" })
+  } finally { h.close() }
+})

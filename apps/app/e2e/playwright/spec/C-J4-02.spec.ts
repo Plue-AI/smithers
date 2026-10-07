@@ -127,7 +127,7 @@ test("C-J4-02: Bring in binds the displayed push and stays pending until its wai
   await expect(page.getByRole("article", { name: "TODO T1" }).last().locator("header .state")).toContainText("Working")
 })
 
-// Test-only T-STK-08 contract: no runtime pause or machine-release evidence is claimed.
+// App seam contract; runtime pause and machine-release receipts remain separate.
 test("C-J4-02: Stop and Resume wait for durable projections while a branch wait stays open", async ({ page }) => {
   const { issueTodoInstall } = await import("./issue-todo-fixture")
   await issueTodoInstall(page)
@@ -145,14 +145,14 @@ test("C-J4-02: Stop and Resume wait for durable projections while a branch wait 
   await page.goto("/")
   await say(page, "/todo T1")
   const notice = page.locator('.notice[data-tone="live"]').filter({ hasText: model.title })
-  await say(page, "/todo.stop T1")
+  await page.getByRole("article", { name: "TODO T1" }).last().getByRole("button", { name: "Stop", exact: true }).press("Enter")
   await expect.poll(() => writes.length).toBe(1)
   await expect(notice).toBeVisible()
   await say(page, "/todo T1")
   await expect(page.getByTestId("composer-input")).toBeEditable()
   model.pause = { reason: "person", since: "2026-10-06T00:00:00Z" }
   await expect(notice).toHaveCount(0)
-  await say(page, "/todo.resume T1")
+  await page.getByRole("article", { name: "TODO T1" }).last().getByRole("button", { name: "Resume", exact: true }).press("Enter")
   await expect.poll(() => writes.length).toBe(2)
   await expect(notice).toBeVisible()
   model.pause = undefined

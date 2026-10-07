@@ -73,7 +73,7 @@ export const todoActionDefinitions = (model: TodoCard, role: TodoContainerProps[
   definitions.push({ tag: "todo.steer", label: lateAnswer ? "Send as steer" : "Steer", command_input: { n, text: lateAnswer ?? "" } })
   if (model.state === "paused" || model.pause) definitions.push({ tag: "todo.resume", label: "Resume", command_input: { n } })
   if (!model.pause && model.state !== "paused" && model.waits.every(wait => !["question", "approval"].includes(wait.kind))
-    && (["starting", "working"].includes(model.state) || model.state === "needs_you" && model.waits.length > 0)) definitions.push({ tag: "todo.stop", label: "Stop", command_input: { n } })
+    && (model.state === "working" || model.state === "needs_you" && model.waits.length > 0)) definitions.push({ tag: "todo.stop", label: "Stop", command_input: { n } })
   if (model.state === "failed" && model.failure?.retryable) definitions.push({ tag: "todo.retry", label: "Retry", command_input: { n },
     input: [{ name: "text", label: "Steer", kind: "text", required: false, multiline: true }],
     resolve_input: input => ({ n, text: input.text }) })
@@ -193,8 +193,8 @@ const TodoBody = ({ card, maximized }: { readonly card: CardOf<"todo">; readonly
 }
 // POST/PATCH /api/todos/{n}, question answer and merge are composed on the install.
 // Branch navigation is supplied when its install provider is composed.
-// Stop/Resume, Bring in and conflict repair/terminal providers remain gated until their composition lands.
-const servedTodoActions: readonly CatalogTag[] = ["run.inspect", "todo.answer", "todo.steer", "todo.amend", "todo.drop", "todo.retry", "todo.retry-current-flow", "todo.takeover", "image.add", "merge", "branch.discard-foreign", "todo.preapprove", "todo.unapprove"]
+// Bring in and conflict repair/terminal providers remain gated until their composition lands.
+const servedTodoActions: readonly CatalogTag[] = ["run.inspect", "todo.stop", "todo.resume", "todo.answer", "todo.steer", "todo.amend", "todo.drop", "todo.retry", "todo.retry-current-flow", "todo.takeover", "image.add", "merge", "branch.discard-foreign", "todo.preapprove", "todo.unapprove"]
 
 export const todoCardFamily: CardFamily<"todo"> = {
   todo: { render: (card, { presentation }) => <TodoBody card={card} maximized={presentation === "maximized"} />, pill: () => "" }

@@ -322,7 +322,7 @@ test("only a verified missing-tool failure offers the shared machine-image Draft
 })
 
 
-test("served TODO cards retain composed takeover and image controls, and withhold unavailable run controls", async () => {
+test("served TODO cards retain composed takeover and image controls, and Stop/Resume through the installed provider", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
   const snapshot = { model: { github: { signed_in: true, owner: "ben" } } }
@@ -331,8 +331,8 @@ test("served TODO cards retain composed takeover and image controls, and withhol
     { id: `todo:${model.n}`, kind: "todo", title: model.title, status: "active", createdAt: 1, ordinal: 1, payload: { n: model.n, model, requests: [] } }, { presentation: "embedded" } as never)}</ControllerTestProvider>)
   expect(render({ ...fixtures.queued.model, owner_removed: true })).toContain('data-flow="todo.takeover"')
   expect(render({ ...fixtures.failed.model, failure: { ...fixtures.failed.model.failure!, missing_tool: { name: "figlet", file: ".smithers/machine.json" } } })).toContain('data-flow="image.add"')
-  expect(render(fixtures.working.model)).not.toContain('data-flow="todo.stop"')
-  expect(render(fixtures.paused.model)).not.toContain('data-flow="todo.resume"')
+  expect(render(fixtures.working.model)).toContain('data-flow="todo.stop"')
+  expect(render(fixtures.paused.model)).toContain('data-flow="todo.resume"')
   expect(render(fixtures.failed.model)).toContain('data-flow="todo.retry-current-flow"')
   expect(render(fixtures.working.model)).not.toContain('data-flow="branch"')
   Object.assign(controller, { openBranch: async () => undefined })
