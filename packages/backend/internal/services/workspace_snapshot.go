@@ -251,12 +251,6 @@ func (l *workspaceMythicalLanes) AdmitScratch(ctx context.Context, tx pgx.Tx, re
 	return l.workspaces.authorizeBranchMachine(ctx, tx, repository, actor, row.TargetBookmark, row.ID)
 }
 
-// WithBranchCapture binds the installed daemon. It returns only after the
-// authenticated event consumer commits the capture; callers never stop a VM.
-func WithBranchCapture(capture func(context.Context, string) (string, error)) WorkspaceServiceOption {
-	return func(s *WorkspaceService) { s.branchCapture = capture }
-}
-
 type branchCaptureContextKey struct{}
 type branchCaptureContext map[string]string
 
@@ -308,10 +302,11 @@ func (l *workspaceMythicalLanes) PrepareCapturedHead(ctx context.Context, id str
 	if err != nil {
 		return err
 	}
-	head, err := s.branchCapture(ctx, id)
+	capture, err := s.branchCapture.Capture(ctx, id)
 	if err != nil {
 		return branchForkUnavailable("Capture unavailable")
 	}
+	head := capture.Head
 	current, err := s.q.GetWorkspace(ctx, id)
 	if err != nil {
 		return err

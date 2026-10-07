@@ -37,6 +37,11 @@ func branchCapturePeer(t *testing.T, registry *machined.Registry, branch, old, h
 				return
 			}
 			result := wire.Union(method)
+			if method == byte(wire.Status) {
+				// Capture replies only after its durable ACK above. Status exposes
+				// the same acknowledged head to the shared authenticated drain.
+				result = wire.Union(method, wire.Field(1, []byte{3}), wire.Field(2, wire.U16(2)), wire.Field(3, wire.String("fixture")), wire.Field(4, wire.U32(0)), wire.Field(5, bytesOf(old)), wire.Field(6, wire.U16(0)))
+			}
 			if method == byte(wire.Capture) {
 				calls.Add(1)
 				if mode == "s2-fail" {

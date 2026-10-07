@@ -574,10 +574,9 @@ type WorkspaceService struct {
 	refDeleter            WorkspaceRefDeleter
 	userRefs              UserRefHost
 	// branchHeads reads a scratch branch's head (WithBranchHeads).
-	branchHeads   BranchHeadReader
-	branchCapture func(context.Context, string) (string, error)
-	diskReclaim   WorkspaceDiskReclaimAuthority
-	q             WorkspaceQuerier
+	branchHeads BranchHeadReader
+	diskReclaim WorkspaceDiskReclaimAuthority
+	q           WorkspaceQuerier
 	// transactions holds each workspace's provisioning lock (a transaction-
 	// scoped advisory lock).
 	transactions                 RepositoryJobTransactions
