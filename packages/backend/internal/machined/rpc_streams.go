@@ -292,6 +292,15 @@ func (s registrySessions) CallSession(ctx context.Context, call SessionCall) (Se
 			peer.via = call.Via
 			peer.mu.Unlock()
 		}
+		if call.User != nil && l.identities != nil {
+			if err := l.identities.Record(ctx, s.branch, l.boot.id, id, *call.User); err != nil {
+				cleanup, stop := context.WithTimeout(context.Background(), time.Second)
+				_, _ = l.call(cleanup, s.branch, wire.CloseSession, wire.Field(1, wire.U32(id)))
+				stop()
+				_ = l.Close()
+				return SessionResult{}, err
+			}
+		}
 		return SessionResult{Session: id}, nil
 	case wire.KillSessions:
 		if call.Session != 0 && binary.BigEndian.Uint16(result[1]) > 1 {

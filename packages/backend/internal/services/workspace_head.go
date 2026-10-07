@@ -465,6 +465,25 @@ type workspaceHeadSwapStore interface {
 // revoked, expiring or superseded publisher. Failures degrade head visibility
 // and repository access; they never block the workspace from running.
 func (s *WorkspaceService) ensureRuntimeWorkspaceHeadReporter(ctx context.Context, row db.Workspace, requesterID int64, observed workspaceapi.Workspace) db.Workspace {
+	if daemon, installed := s.runtime.(interface {
+		EnsureMachined(context.Context, string) error
+	}); installed {
+		// Remove the replaced publisher and its credential before admitting the
+		// native daemon. A failed daemon admission never restarts the reporter.
+		if err := s.runtime.StopService(ctx, row.ID, workspaceHeadReporterService); err != nil {
+			slog.Warn("retire workspace head publisher", "workspace_id", row.ID, "error", err)
+			return row
+		}
+		if err := s.retireInstalledHeadCredential(ctx, row); err != nil {
+			slog.Warn("retire workspace head credential", "workspace_id", row.ID, "error", err)
+			return row
+		}
+		row.HeadPushTokenID = pgtype.Int8{}
+		if err := daemon.EnsureMachined(ctx, row.ID); err != nil {
+			slog.Warn("admit workspace daemon", "workspace_id", row.ID, "error", err)
+		}
+		return row
+	}
 	store, ok := s.q.(workspaceHeadSwapStore)
 	if !ok || !s.runtime.Capabilities().ManagedServices || strings.TrimSpace(observed.Home) == "" || strings.TrimSpace(observed.Root) == "" {
 		return row
@@ -491,6 +510,12 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceHeadReporter(ctx context.Contex
 }
 
 func (s *WorkspaceService) installRuntimeWorkspaceHeadReporter(ctx context.Context, store workspaceHeadSwapStore, row db.Workspace, requesterID int64, observed workspaceapi.Workspace) (db.Workspace, error) {
+	if _, installed := s.runtime.(interface {
+		EnsureMachined(context.Context, string) error
+	}); installed {
+		return row, errors.New("installed branches use the machine daemon")
+	}
+
 	socket := path.Join(observed.Home, ".cache", "smithers", "git-credential", "socket")
 	operationCtx, err := s.workspaceRuntimeContext(ctx, row, requesterID, workspaceLifecycleOperation(row, "head-reporter"))
 	if err != nil {
@@ -1044,4 +1069,30 @@ func sandboxKindForWorkspace(kind string) string {
 	default:
 		return "container"
 	}
+}
+
+// The installed publisher cutover requires the CAS's atomic token revocation,
+// rather than best-effort cleanup, before granting a daemon's head authority.
+func (s *WorkspaceService) retireInstalledHeadCredential(ctx context.Context, row db.Workspace) error {
+	store, ok := s.q.(workspaceHeadSwapStore)
+	if !ok {
+		return errors.New("head credential retirement unavailable")
+	}
+	for attempt := 0; attempt < 3; attempt++ {
+		current, err := s.q.GetWorkspace(ctx, row.ID)
+		if err != nil {
+			return err
+		}
+		if !current.HeadPushTokenID.Valid {
+			return nil
+		}
+		won, err := store.SwapWorkspaceHeadPushTokenID(ctx, current.ID, current.UserID, current.HeadPushTokenID, pgtype.Int8{})
+		if err != nil {
+			return err
+		}
+		if won {
+			return nil
+		}
+	}
+	return errors.New("head credential changed during retirement")
 }

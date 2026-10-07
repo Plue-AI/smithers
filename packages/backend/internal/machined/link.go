@@ -145,6 +145,7 @@ func (r *Registry) Connect(ctx context.Context, branch string, stream net.Conn) 
 		return nil, ErrNotReady
 	}
 	r.eventsMu.Unlock()
+	l.identities = r.identities
 	r.mu.Unlock()
 	admitted = true
 	if l.objectImporter != nil {
@@ -159,6 +160,7 @@ func (r *Registry) Connect(ctx context.Context, branch string, stream net.Conn) 
 // independently of Capture's reply, which may wait for outbox acknowledgement.
 // A stalled consumer closes the link and lets the durable guest outbox replay.
 type Link struct {
+	identities    SessionIdentities
 	sessionCallMu sync.Mutex
 	sessions      map[uint32]*SessionStream
 	*Connection

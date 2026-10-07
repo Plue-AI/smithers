@@ -21,6 +21,7 @@ var (
 // cannot authenticate a boot or fence an old connection's reconciliation.
 // The zero value is usable; host restart requires fresh boot registration.
 type Registry struct {
+	identities     SessionIdentities
 	mu             sync.Mutex
 	closed         bool
 	branches       map[string]*boot

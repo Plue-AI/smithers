@@ -580,9 +580,20 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		repoHostClient = repohost.NewClient(storageSetResolver, cfg.RepoHost.AuthToken, smithersMetrics)
 	}
 
-	if config.IsSingleOwner(cfg.Auth) {
+	if config.IsSingleOwner(cfg.Auth) && options.Machined != nil {
+		host := newMachineHost(pool, repoHostClient)
 		stopObjects := bindMachineObjects(ctx, options.Machined, pool, repoHostClient)
 		defer stopObjects()
+		options.Machined.BindSessionIdentities(host)
+		defer options.Machined.BindSessionIdentities(nil)
+		if runtime, ok := options.Workspace.(interface {
+			BindMachinedHost(func(context.Context, string) (string, error), func(context.Context, *machined.Link, string) error)
+		}); ok {
+			runtime.BindMachinedHost(host.head, func(_ context.Context, link *machined.Link, branch string) error {
+				return host.dispatch(ctx, link, branch)
+			})
+			defer runtime.BindMachinedHost(nil, nil)
+		}
 	}
 
 	webhookDispatcher := webhooks.NewDispatcher(queries)
