@@ -476,6 +476,8 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "self", regexp.MustCompile(`^/api/confirmations(?:/[^/]+/(?:approve|deny))?$`)},
 	{http.MethodPost, "self", regexp.MustCompile(`^/api/auth/logout$`)},
 	{http.MethodPost, "self", regexp.MustCompile(`^/api/user/tokens$`)},
+	{http.MethodPost, "self", regexp.MustCompile(`^/api/user/keys$`)},
+	{http.MethodDelete, "self", regexp.MustCompile(`^/api/user/keys/[0-9]+$`)},
 	{http.MethodGet, "self", regexp.MustCompile(`^/api/user/(tokens|sessions)$`)},
 	{http.MethodDelete, "self", regexp.MustCompile(`^/api/user/(tokens|sessions)/[^/]+$`)},
 	{http.MethodPost, "self.read", regexp.MustCompile(`^/api/(auth/sse-ticket|v1/sse/ticket)$`)},

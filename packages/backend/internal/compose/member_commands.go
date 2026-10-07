@@ -326,7 +326,10 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 			// Credential inventory and revocation are self-authentication protocols,
 			// not repository commands. Only the signed-in person manages them;
 			// member sessions use the same own-user service filters as the owner.
-			if command == "self" && (r.Method == http.MethodGet || r.Method == http.MethodDelete) && (strings.HasPrefix(r.URL.Path, "/api/user/tokens") || strings.HasPrefix(r.URL.Path, "/api/user/sessions")) && info != nil && info.User != nil && info.CredentialKind() != middleware.CredentialPerson {
+			credentialInventory := (r.Method == http.MethodGet || r.Method == http.MethodDelete) &&
+				(strings.HasPrefix(r.URL.Path, "/api/user/tokens") || strings.HasPrefix(r.URL.Path, "/api/user/sessions"))
+			sshKeyManagement := (r.Method == http.MethodPost || r.Method == http.MethodDelete) && strings.HasPrefix(r.URL.Path, "/api/user/keys")
+			if command == "self" && (credentialInventory || sshKeyManagement) && info != nil && info.User != nil && info.CredentialKind() != middleware.CredentialPerson {
 				writeConfirmationDispatchError(w, &services.AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"})
 				return
 			}
