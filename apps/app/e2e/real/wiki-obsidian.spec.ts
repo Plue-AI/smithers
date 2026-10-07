@@ -1,7 +1,8 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { cp, mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { scenario } from "./coverage/types"
-import { command, expect, openApp, realApi, test } from "./support"
+import { command, expect, openApp, realApi } from "./support"
+import { authenticatedTest as test } from "./auth-permissions/profile"
 
 // Run on the install Mac itself: filesystem access and the browser must reach
 // the same unprivileged install. No mocked routes or shortened worker interval.
@@ -57,10 +58,16 @@ test("Settings syncs a Mac folder in both directions without restart", scenario(
   await setFolder(vault)
   await expect.poll(async () => (await read(join(vault, filename))).toString(), { timeout: 70_000 }).toBe(initial)
   await info.attach("folder-before", { body: await read(join(vault, filename)), contentType: "text/markdown" })
+  await cp(vault, join(directory, "folder-before"), { recursive: true })
   await writeFile(join(vault, filename), diskEdit)
   await expect.poll(async () => (await get(`${api}/${slug}`)).body, { timeout: 70_000 }).toBe(diskEdit)
   const imported = await get(`${api}/${slug}`)
   expect(imported.author.id).toBe(user.id)
+  const importedRevisions = await get(`${api}/${slug}/revisions`)
+  expect(importedRevisions).toEqual(expect.arrayContaining([expect.objectContaining({
+    body: diskEdit, author: expect.objectContaining({ id: user.id, login: user.username })
+  })]))
+  await writeFile(join(directory, "imported-revisions.json"), JSON.stringify(importedRevisions, null, 2))
   await command(page, `/wiki.cloud.open ${slug} ${binding.owner}/${binding.name}`)
   const note = page.locator('[data-testid^="card-wiki-open-"]').last()
   await expect(note).toContainText("Disk decision.")
@@ -82,6 +89,7 @@ test("Settings syncs a Mac folder in both directions without restart", scenario(
   const revisions = await get(`${api}/${slug}/revisions`)
   await info.attach("page-revisions", { body: JSON.stringify(revisions, null, 2), contentType: "application/json" })
   await info.attach("folder-after", { body: await read(join(next, filename)), contentType: "text/markdown" })
+  await cp(next, join(directory, "folder-after"), { recursive: true })
   await info.attach("attachment-after", { body: await read(join(next, "diagram.png")), contentType: "image/png" })
   const screenshot = await card.screenshot()
   await info.attach("Settings", { body: screenshot, contentType: "image/png" })
