@@ -12,7 +12,7 @@ Existing engine/library crash tests are not C-DUR acceptance evidence.
 | --- | --- | --- |
 | C-DUR-01 | `host/case40-host-kill-todo-run.test.ts`; backend services `todo_pause_fault_test.go`; compose `postgres_kill_fault_test.go` | Linux CI and reference Mac |
 | C-DUR-02 | backend `flowhost/machine_kill_fault_test.go` | Approved reference Mac, microVM |
-| C-DUR-03 | backend compose `github_outbound_kill_test.go`; services `todo_merge_fault_test.go`; `github-step-kill.test.ts` | CI, PostgreSQL 18, fake GitHub |
+| C-DUR-03 | backend compose `github_outbound_kill_test.go`; services `todo_merge_fault_test.go`; `engine/case39-kill-crossing.test.ts` | CI, PostgreSQL 18, fake GitHub |
 | C-DUR-04 | backend machined `fault_test.go`, `rebase_fault_test.go` | Linux CI (daemon), approved reference Mac (VM) |
 
 These are required paths, not claims of implemented coverage. The approved
@@ -117,3 +117,37 @@ builds `pgcrypto` with OpenSSL for product migrations and exports
 service remains the database for other integration cases. No system install,
 sudo, or shared-server stop is required. Source provisioning is separate from
 reference-host artifact approval and does not enable privileged cases.
+
+### T-FLW-09 host and machine controls
+
+`host/case40-host-kill-todo-run.test.ts` invokes
+`TestTodoHostKillThroughInstall` in the shared composed install rehearsal.
+It requires real PostgreSQL, the native FFI library, and a source-export helper
+with `trusted-process-binding/v1`. The packaged host is killed with SIGKILL
+at an intended keyless action. It must expose an interrupted TODO without
+repeating the completed action, then retain D1 and its evidence when the same
+Retry press is delivered twice after D2 activation. This trusted-process
+control does **not** qualify microVM isolation or an installed Mac host kill.
+Missing prerequisites fail the fault tier; ordinary Go suites leave the
+explicit qualification disabled.
+
+```sh
+cd packages/smithers
+pnpm exec vitest run --config vitest.faults.config.ts test/faults/host/case40-host-kill-todo-run.test.ts
+```
+
+`flowhost/machine_kill_fault_test.go` supplies the reference-machine transport
+and retained-disk control. Set `SMITHERS_FAULT_HOST=reference` and
+`SMITHERS_FAULT_INSTALL_BUNDLE` to an approved installed bundle. It uses the
+production microVM adapter, stops only its own VM with zero shutdown grace
+during an unprivileged command, observes unsuccessful command settlement,
+refuses recovery through the durable dispatcher while the machine is stopped,
+and checks retained bytes after restarting the same machine. It is
+**supplemental**: the composed TODO machine-kill/Retry and completed engine-step
+replay acceptance still need reference-host qualification. Never count this
+transport control alone as a passing C-DUR-02 receipt.
+
+The existing `engine/case39-kill-crossing.test.ts` is the keyed/sealed/keyless
+engine control, not the five-kind composed GitHub acceptance. The matrix
+continues to require `compose/github_outbound_kill_test.go`; the service fault
+fixture cannot replace its production propose/merge/drop admission coverage.
