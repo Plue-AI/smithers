@@ -100,18 +100,3 @@ func DecodeBurst(payload []byte) (Burst, error) {
 	}
 	return b, nil
 }
-
-// decodeActor projects a union only after its enclosing message validates.
-func decodeActor(raw []byte) Actor {
-	actor := Actor{Kind: raw[0]}
-	switch actor.Kind {
-	case 1:
-		value := fields(raw[1:], "principal")[1]
-		actor.Principal = append([]byte(nil), value[4:]...)
-	case 2:
-		actor.Session = binary.BigEndian.Uint32(fields(raw[1:], "session_actor")[1])
-	case 3:
-		actor.Run = textValue(fields(raw[1:], "run_actor")[1])
-	}
-	return actor
-}

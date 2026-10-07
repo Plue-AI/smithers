@@ -309,9 +309,9 @@ func TestChangeIntegrationLandsDark(t *testing.T) {
 	_, err = pump.Commit(t.Context(), link.Connection, foreign, event)
 	require.ErrorIs(t, err, ErrUnauthorized)
 	// Moved-off belongs to T-COL-05's transactional provider. Never silently
-	// acknowledge its reserved event while that provider is unavailable.
+	// acknowledge its event while that provider is unavailable.
 	moved := event
-	moved.Payload = wire.Union(4)
+	moved.Payload = wire.Union(4, wire.Field(1, wire.Union(4)), wire.Field(2, wire.U64(42)), wire.Field(3, []byte(strings.Repeat("a", 20))))
 	_, err = pump.Commit(t.Context(), link.Connection, branch, moved)
 	require.ErrorIs(t, err, ErrNotReady)
 	hint := Event{Payload: wire.Union(1, wire.Field(1, wire.String("a.ts")), wire.Field(2, wire.Union(4)))}
