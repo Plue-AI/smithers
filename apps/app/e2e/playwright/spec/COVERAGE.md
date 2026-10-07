@@ -168,7 +168,7 @@ Machine-kill recovery and retry version pinning remain fixme.
 | C-J9-01 | [C-J9-01.spec.ts](C-J9-01.spec.ts) | browser-pass (Make TODO, literal answer save; live citations/SQL journey pending) | T-APP-02 |
 | C-MCH-01 | [C-MCH-01.spec.ts](C-MCH-01.spec.ts) | fixme-before-implementation | T-MCH-04 |
 | C-MCH-02 | [C-MCH-02.spec.ts](C-MCH-02.spec.ts) | fixme-before-implementation | T-MCH-06 |
-| C-MCH-03 | [C-MCH-03.spec.ts](C-MCH-03.spec.ts) | fixme-before-implementation | T-MCH-07 |
+| C-MCH-03 | [C-MCH-03.spec.ts](C-MCH-03.spec.ts) | passing install seam projection: pinned captured file/diff reads and terminal wake; composed router/storage proof in Go; reference-host timing pending | T-MCH-07 |
 | C-MCH-04 | [C-MCH-04.spec.ts](C-MCH-04.spec.ts) | Browser HTTP projection fixture; composed authenticated router + live Home covered by Go integration; combined built-bundle journey pending | T-MCH-01 |
 | C-MCH-05 | [C-MCH-05.spec.ts](C-MCH-05.spec.ts) | fixme-before-implementation | T-MCH-09 |
 | C-MCH-06 | [C-MCH-06.spec.ts](C-MCH-06.spec.ts) | fixme-before-implementation | T-MCH-11 |
@@ -177,7 +177,7 @@ Machine-kill recovery and retry version pinning remain fixme.
 T-APP-13 wave 3: the production controller, dispatcher and `CardRenderers` mount independently omit View, decoder, live, shared authority, catalog, scoped write and separate family bindings, plus a shared `provider-accounts` family. Eight app-boundary cases pass: refusal, no writes or polling, pinned-row preservation, usable Chat and restoration. The C-MCH-07 browser card phase passes with transport doubles; it does not qualify machine delivery.
 
 C-MCH-03 also has a passing mounted projection: reading Files and Activity
-keeps the sleeping branch Asleep across reload. Runtime capture and wake counts remain fixme.
+keeps the sleeping branch Asleep across reload. Composed HTTP tests cover capture ordering and runtime wake counts with a simulated guest; the 100 ms capture and C-DUR-04 kill matrix require the Mac mini.
 
 | C-MCH-08 | [C-MCH-08.spec.ts](C-MCH-08.spec.ts) | fixme-before-implementation | T-MCH-08 |
 | C-MCH-09 | [C-MCH-09.spec.ts](C-MCH-09.spec.ts) | fixme-before-implementation | T-MCH-11 |
