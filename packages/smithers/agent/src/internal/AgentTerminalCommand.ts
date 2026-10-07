@@ -183,11 +183,15 @@ export class Commands {
           if (!Number.isInteger(frame.code) || frame.code < 0 || frame.code > 255) {
             throw new StdError({ code: "command_failed", message: "Invalid command status" })
           }
+          // A generator can hold its subscription or command lock until its
+          // finally block runs. Release it before admitting the next command.
+          await Promise.race([frames.return?.(), aborted])
           return capture.result(frame.code)
         } else if (frame.kind === "signal") {
           if (!Number.isInteger(frame.signal) || frame.signal < 1 || frame.signal > 64) {
             throw new StdError({ code: "command_failed", message: "Invalid command signal" })
           }
+          await Promise.race([frames.return?.(), aborted])
           return capture.result(128 + frame.signal)
         } else throw new StdError({ code: "command_failed", message: "Invalid terminal frame" })
       }
