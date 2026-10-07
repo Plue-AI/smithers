@@ -3,7 +3,7 @@
 use crate::live::Live;
 use crate::protocol::Frame;
 use crate::registry::{Kind, Owner, Registry, Selector};
-use crate::runtime::{Kernel, validate_open};
+use crate::runtime::{Kernel, Launch, validate_open};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::io::{self, Read, Write};
@@ -15,6 +15,10 @@ use std::time::{Duration, Instant};
 pub enum Request {
     OpenSession {
         kind: String,
+        #[serde(default)]
+        term: String,
+        #[serde(default)]
+        modes: Vec<u8>,
         #[serde(default)]
         argv: Vec<String>,
         #[serde(default)]
@@ -43,6 +47,8 @@ enum Response {
     Attach {
         session: String,
         received: u64,
+        written: u64,
+        input_eof: bool,
     },
     Ok {
         ok: bool,
@@ -66,28 +72,17 @@ impl Supervisor {
             live: BTreeMap::new(),
         })
     }
-    fn open(
-        &mut self,
-        kind: String,
-        argv: Vec<String>,
-        cols: u16,
-        rows: u16,
-        port: u16,
-    ) -> io::Result<(String, Arc<Live>)> {
-        let kind = match kind.as_str() {
-            "pty" => Kind::Pty,
-            "exec" => Kind::Exec,
-            "sftp" => Kind::Sftp,
-            "tcp" => Kind::Tcp,
-            _ => return Err(refused()),
-        };
-        validate_open(kind, &argv, (cols, rows), port)?;
+    fn open(&mut self, launch: Launch) -> io::Result<(String, Arc<Live>)> {
+        let Launch {
+            kind,
+            ref argv,
+            size,
+            port,
+            ..
+        } = launch;
+        validate_open(kind, argv, size, port)?;
         let id = self.registry.reserve(Owner::Ben, kind, None)?;
-        match self
-            .registry
-            .resources()
-            .spawn(&id, Owner::Ben, kind, &argv, (cols, rows), port)
-        {
+        match self.registry.resources().spawn(&id, launch) {
             Ok(live) => {
                 self.live.insert(id.clone(), live.clone());
                 Ok((id, live))
@@ -127,12 +122,29 @@ pub fn serve(mut stream: TcpStream, supervisor: Arc<Mutex<Supervisor>>) -> io::R
         match request {
             Request::OpenSession {
                 kind,
+                term,
+                modes,
                 argv,
                 cols,
                 rows,
                 port,
             } => {
-                let (id, live) = supervisor.open(kind, argv, cols, rows, port)?;
+                let kind = match kind.as_str() {
+                    "pty" => Kind::Pty,
+                    "exec" => Kind::Exec,
+                    "sftp" => Kind::Sftp,
+                    "tcp" => Kind::Tcp,
+                    _ => return Err(refused()),
+                };
+                let (id, live) = supervisor.open(Launch {
+                    owner: Owner::Ben,
+                    kind,
+                    argv,
+                    size: (cols, rows),
+                    port,
+                    term,
+                    modes,
+                })?;
                 response(
                     &mut stream,
                     Response::Open {
@@ -147,12 +159,14 @@ pub fn serve(mut stream: TcpStream, supervisor: Arc<Mutex<Supervisor>>) -> io::R
                 // Validate replay before consuming either grace state.
                 live.replay(received)?;
                 supervisor.registry.attach(Owner::Ben, &id, now)?;
-                let input_received = live.attach(received, now)?;
+                let (input_received, input_written, input_eof) = live.attach(received, now)?;
                 response(
                     &mut stream,
                     Response::Attach {
                         session: id.clone(),
                         received: input_received,
+                        written: input_written,
+                        input_eof,
                     },
                 )?;
                 Ok(Some((id, live, received)))

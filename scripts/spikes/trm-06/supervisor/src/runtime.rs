@@ -13,6 +13,15 @@ use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 
+pub struct Launch {
+    pub owner: Owner,
+    pub kind: Kind,
+    pub argv: Vec<String>,
+    pub size: (u16, u16),
+    pub port: u16,
+    pub term: String,
+    pub modes: Vec<u8>,
+}
 pub struct Process {
     pub child: Child,
     pub input: Arc<Mutex<Option<File>>>,
@@ -40,16 +49,26 @@ impl Kernel {
     /// argv is bounded before fork. No caller-selected environment, executable
     /// search path, uid, home, cwd, SFTP server or TCP destination is accepted.
     /// Payload-dependent cwd/exec/network operations occur after verified drop.
-    pub fn spawn(
-        &mut self,
-        id: &str,
-        owner: Owner,
-        kind: Kind,
-        argv: &[String],
-        size: (u16, u16),
-        port: u16,
-    ) -> io::Result<Arc<Live>> {
+    pub fn spawn(&mut self, id: &str, launch: Launch) -> io::Result<Arc<Live>> {
+        let Launch {
+            owner: _,
+            kind,
+            ref argv,
+            size,
+            port,
+            ref term,
+            ref modes,
+        } = launch;
         validate_open(kind, argv, size, port)?;
+        if !crate::terminal::valid_term(term) {
+            return Err(refused());
+        }
+        if kind != Kind::Pty && (!term.is_empty() || !modes.is_empty()) {
+            return Err(refused());
+        }
+        if kind == Kind::Pty {
+            crate::terminal::decode(modes)?;
+        }
         let group = Arc::new(self.groups.create(id)?);
         self.owned.insert(
             id.to_owned(),
@@ -59,7 +78,7 @@ impl Kernel {
             },
         );
         let result = self
-            .spawn_in(group, owner, kind, argv, size, port)
+            .spawn_in(group, &launch)
             .and_then(|process| Live::start(process, kind).map(Arc::new));
         match result {
             Ok(process) => {
@@ -75,15 +94,22 @@ impl Kernel {
             }
         }
     }
-    fn spawn_in(
-        &self,
-        group: Arc<Group>,
-        owner: Owner,
-        kind: Kind,
-        argv: &[String],
-        size: (u16, u16),
-        port: u16,
-    ) -> io::Result<Process> {
+    fn spawn_in(&self, group: Arc<Group>, launch: &Launch) -> io::Result<Process> {
+        let Launch {
+            owner,
+            kind,
+            argv,
+            size,
+            port,
+            term,
+            modes,
+        } = launch;
+        let (owner, kind, size, port) = (*owner, *kind, *size, *port);
+        let terminal_modes = if kind == Kind::Pty {
+            crate::terminal::decode(modes)?
+        } else {
+            Vec::new()
+        };
         let mut command = match kind {
             Kind::Exec | Kind::Pty => {
                 let mut c = Command::new(&argv[0]);
@@ -108,7 +134,14 @@ impl Kernel {
             .env("USER", login)
             .env("LOGNAME", login)
             .env("SHELL", "/bin/sh")
-            .env("TERM", "xterm-256color");
+            .env(
+                "TERM",
+                if term.is_empty() {
+                    "xterm-256color"
+                } else {
+                    term
+                },
+            );
         let (mut master, mut control) = (None, None);
         if kind == Kind::Pty {
             let mut m = -1;
@@ -150,6 +183,7 @@ impl Kernel {
                 .stderr(Stdio::piped());
         }
         let cwd = CString::new("/workspace").unwrap();
+        let home_scope = CString::new(home).unwrap();
         let enrollment = group.enrollment_fd()?;
         // pre_exec only uses fixed data and async-signal-safe syscalls. The
         // held group is joined before any untrusted executable can run.
@@ -162,8 +196,12 @@ impl Kernel {
                     return Err(io::Error::last_os_error());
                 }
                 identity::drop_child(user)?;
+                crate::confinement::restrict(&home_scope)?;
                 if kind == Kind::Pty && libc::ioctl(0, libc::TIOCSCTTY, 0) < 0 {
                     return Err(io::Error::last_os_error());
+                }
+                if kind == Kind::Pty {
+                    crate::terminal::apply(&terminal_modes)?;
                 }
                 if libc::chdir(cwd.as_ptr()) != 0 {
                     return Err(io::Error::last_os_error());

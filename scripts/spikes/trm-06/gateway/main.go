@@ -126,6 +126,16 @@ func validSignal(name string) bool {
 	}
 	return false
 }
+func validExitSignal(name string) bool {
+	if validSignal(name) {
+		return true
+	}
+	switch name {
+	case "ILL", "TRAP", "ABRT", "BUS", "FPE", "SEGV", "PIPE", "ALRM", "STKFLT", "XCPU", "XFSZ", "VTALRM", "PROF", "IO", "PWR", "SYS":
+		return true
+	}
+	return false
+}
 func validModes(modes []byte) bool {
 	// RFC 4254: one opcode followed by uint32; opcode 0 terminates. Do not
 	// interpret unknown modes or silently accept truncated root-facing data.
@@ -161,7 +171,7 @@ func exitRequest(code uint8, signal string, core bool) (string, []byte, error) {
 	if signal == "" {
 		return "exit-status", ssh.Marshal(struct{ Status uint32 }{uint32(code)}), nil
 	}
-	if !validSignal(signal) {
+	if !validExitSignal(signal) {
 		return "", nil, errors.New("invalid exit signal")
 	}
 	return "exit-signal", ssh.Marshal(struct {
