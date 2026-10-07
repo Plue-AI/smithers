@@ -425,6 +425,41 @@ func branchSleepInstall(t *testing.T, scenario string) {
 		_, err = pool.Exec(ctx, `UPDATE workspaces SET vm_id='retained-vm' WHERE id=$1`, id)
 		require.NoError(t, err)
 		resume(200)
+		otherOwner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "reboundowner", LowerUsername: "reboundowner"})
+		require.NoError(t, err)
+		otherRepo, err := q.CreateRepo(ctx, db.CreateRepoParams{UserID: pgtype.Int8{Int64: owner.ID, Valid: true}, Name: "other", LowerName: "other", DefaultBookmark: "main"})
+		require.NoError(t, err)
+		for _, binding := range []struct {
+			name, change    string
+			value, original any
+		}{
+			{"repository", `UPDATE workspaces SET repository_id=$2 WHERE id=$1`, otherRepo.ID, repo.ID},
+			{"owner", `UPDATE workspaces SET user_id=$2 WHERE id=$1`, otherOwner.ID, machineOwner},
+			{"branch", `UPDATE workspaces SET target_bookmark=$2 WHERE id=$1`, "smithers/rebound-item", "smithers/sleep-item"},
+		} {
+			t.Run("rebound_"+binding.name, func(t *testing.T) {
+				_, err := pool.Exec(ctx, `UPDATE workspaces SET status='pending',disk_reclaimed_at=NOW(),branch_archived_at=NOW() WHERE id=$1`, id)
+				require.NoError(t, err)
+				changed := false
+				counted.read = func(path string) {
+					if path == ".git/smithers-workspace-initialization.json" {
+						_, err := pool.Exec(ctx, binding.change, id, binding.value)
+						require.NoError(t, err)
+						changed = true
+					}
+				}
+				resume(409)
+				counted.read = nil
+				require.True(t, changed)
+				refused, err := q.GetWorkspace(ctx, id)
+				require.NoError(t, err)
+				require.True(t, refused.DiskReclaimedAt.Valid)
+				require.True(t, refused.BranchArchivedAt.Valid)
+				_, err = pool.Exec(ctx, binding.change, id, binding.original)
+				require.NoError(t, err)
+				resume(200)
+			})
+		}
 		require.NoFileExists(t, marker, "reconstruction never executes captured branch scripts")
 		return
 	}
