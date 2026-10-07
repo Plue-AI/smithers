@@ -22,7 +22,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J1-02 | [C-J1-02.spec.ts](C-J1-02.spec.ts) | passing: mounted install seam, live readiness, reload, squash/image fixes; reference Mac/LAN/OAuth evidence pending | T-APP-03 |
 | C-J1-03 | [C-J1-03.spec.ts](C-J1-03.spec.ts) | partial: mirrored read-only File card during held machine build and reload; question journey pending | T-APP-15 |
 | C-J1-04 | [C-J1-04.spec.ts](C-J1-04.spec.ts) | browser-pass 2026-10-06: private Draft admission/completion, served TODO reviewed-head Merge and reload; fresh macOS install/real execution/GitHub/timing pending | T-APP-02 |
-| C-J1-05 | [C-J1-05.spec.ts](C-J1-05.spec.ts) | passing: install seam, keyboard, invalid login sends nothing, typed unknown-user refusal, live refresh, confirmation, reconnect; reference-host GitHub/LAN evidence pending | T-APP-06 |
+| C-J1-05 | [C-J1-05.spec.ts](C-J1-05.spec.ts) | browser-pass 2026-10-07: install seam, keyboard, invalid login sends nothing, typed unknown-user refusal, live refresh, confirmation, reconnect; reference-host GitHub/LAN evidence pending | T-APP-06 |
 | C-J1-06 | [C-J1-06.spec.ts](C-J1-06.spec.ts) | mounted install seam: Node/Go readiness, failure, live completion, reload and check evidence; reference-host qualification separate | T-MCH-10 |
 | C-J2-01 | [C-J2-01.spec.ts](C-J2-01.spec.ts) | implemented — Chromium passed 2026-10-05 (mounted install seam; composed router proof separate) | T-STK-09 |
 | C-J2-02 | [C-J2-02.spec.ts](C-J2-02.spec.ts) | implemented — Chromium passed 2026-10-05 (mounted install seam; composed router proof separate) | T-STK-09 |

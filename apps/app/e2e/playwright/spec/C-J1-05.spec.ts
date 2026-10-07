@@ -34,7 +34,7 @@ test("C-J1-05: keyboard membership, committed rows, live refresh, confirmation a
     if (method === "POST") {
       adds++
       const { login } = request.postDataJSON()
-      if (login === "canary-unknown") return route.fulfill({ status: 404, json: { class: "user", code: "unknown_github_user", message: "GitHub user not found" } })
+      if (login === "canary-unknown") return route.fulfill({ status: 404, json: { class: "user", code: "unknown_github_user", message: "Unknown GitHub user" } })
       if (login === "canary-no-access") return route.fulfill({ status: 403, json: { class: "user", code: "needs_github_access", message: "Needs access on GitHub", fix: access } })
       rows = [...rows, row(login, login === "canary-maintainer" ? "maintainer" : "member")]
     } else {
@@ -74,7 +74,7 @@ test("C-J1-05: keyboard membership, committed rows, live refresh, confirmation a
   }
   await username.fill("canary-unknown")
   await card.getByRole("button", { name: "Add", exact: true }).press("Enter")
-  await expect(card).toContainText("GitHub user not found")
+  await expect(card).toContainText("Unknown GitHub user")
   await expect(card.locator('[data-login="canary-unknown"]')).toHaveCount(0)
   expect(adds).toBe(1)
   for (const login of ["canary-maintainer", "canary-member"]) {
