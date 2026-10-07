@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
-import { CardSchema, LEGACY_CARD_KINDS } from "../src/Cards"
+import { CardSchema, LEGACY_CARD_KINDS } from "../src/Cards.js"
 
 // T-CUT-01's shared ledger replaces a second cut list in follow-up tickets.
 const manifest = JSON.parse(readFileSync(new URL("../src/catalog/cuts.json", import.meta.url), "utf8")) as {
