@@ -134,7 +134,8 @@ const activeModel: HomeCard = {
       kind: "order",
       text: "T3 merged before T2",
       todo: 3,
-      actions: [{ tag: "order.ok", label: "OK", args: { n: "3" }, primary: true }]
+      id: "order-three", revision: 1,
+      actions: [{ tag: "order.ok", label: "OK", args: { id: "order-three" }, primary: true }]
     },
     {
       kind: "force_push",

@@ -550,6 +550,69 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 			}
 		}
 	}
+	t.Run("order attention composed OK and merge fence", func(t *testing.T) {
+		_, err := pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES ($1,$2,'write') ON CONFLICT DO NOTHING`, repo.ID, member.ID)
+		require.NoError(t, err)
+		defer func() {
+			_, err := pool.Exec(ctx, `DELETE FROM collaborators WHERE repository_id=$1 AND user_id=$2`, repo.ID, member.ID)
+			require.NoError(t, err)
+		}()
+		attention := `[{"id":"order-one","kind":"order","revision":2,"text":"T3 merged before T2; T2's change is in T3's commit","entries":[{"pr":3,"commit":"abc","text":"first"},{"pr":4,"commit":"def","text":"second"}],"actions":[{"tag":"order.ok","label":"OK"}]}]`
+		_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET attention=$2 WHERE repository_id=$1`, repo.ID, []byte(attention))
+		require.NoError(t, err)
+		for _, tc := range []struct {
+			cookie   string
+			via      bool
+			revision int
+			status   int
+			code     string
+		}{
+			{"member-browser-session", false, 2, 403, "permission"},
+			{"owner-browser-session", true, 2, 403, "never"},
+			{"owner-browser-session", false, 1, 409, "stale_attention"},
+		} {
+			request, err := http.NewRequest("POST", origin+"/api/stack/attention/order-one", strings.NewReader(fmt.Sprintf(`{"revision":%d}`, tc.revision)))
+			require.NoError(t, err)
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Origin", origin)
+			browser(tc.cookie, true, "")(request)
+			if tc.via {
+				request.Header.Set("Authorization", "Bearer "+pat)
+			}
+			response, err := http.DefaultClient.Do(request)
+			require.NoError(t, err)
+			raw, err := io.ReadAll(response.Body)
+			response.Body.Close()
+			require.NoError(t, err)
+			require.Equal(t, tc.status, response.StatusCode, string(raw))
+			var envelope map[string]any
+			require.NoError(t, json.Unmarshal(raw, &envelope))
+			require.Equal(t, tc.code, envelope["code"])
+		}
+		status, envelope := post(numbered(strconv.FormatInt(filed.Number, 10)), browser("owner-browser-session", true, "attention-blocked"))
+		require.Equal(t, 409, status)
+		require.Equal(t, "attention", envelope["code"])
+		request, err := http.NewRequest("POST", origin+"/api/stack/attention/order-one", strings.NewReader(`{"revision":2}`))
+		require.NoError(t, err)
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Origin", origin)
+		browser("owner-browser-session", true, "")(request)
+		response, err := http.DefaultClient.Do(request)
+		require.NoError(t, err)
+		raw, _ := io.ReadAll(response.Body)
+		response.Body.Close()
+		require.Equal(t, 204, response.StatusCode, string(raw))
+		var record []services.OrderAttention
+		var stored []byte
+		require.NoError(t, pool.QueryRow(ctx, `SELECT attention FROM mythical_stacks WHERE repository_id=$1`, repo.ID).Scan(&stored))
+		require.NoError(t, json.Unmarshal(stored, &record))
+		require.Equal(t, owner.ID, record[0].SettledBy)
+		require.NotNil(t, record[0].SettledAt)
+		require.Len(t, record[0].Entries, 2)
+		_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET attention='[]'::jsonb WHERE repository_id=$1`, repo.ID)
+		require.NoError(t, err)
+	})
+
 	unchanged := func(t *testing.T) {
 		t.Helper()
 		refused := item()

@@ -64,6 +64,8 @@ export const HomeCardSchema = z.object({
       kind: z.enum(["order", "force_push"]),
       text: z.string(),
       todo: z.number().int().positive().optional(),
+      id: z.string().optional(),
+      revision: z.number().int().positive().optional(),
       actions: z.array(ActionSchema)
     })
   ),
