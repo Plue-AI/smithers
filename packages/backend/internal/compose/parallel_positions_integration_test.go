@@ -224,28 +224,36 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 		t.Helper()
 		readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		_, raw, err := todoConn.Read(readCtx)
-		require.NoError(t, err)
-		var frame live.Frame
-		require.NoError(t, json.Unmarshal(raw, &frame))
-		require.Equal(t, kind, frame.T, string(raw))
-		var card struct {
-			Queue struct {
-				Reason   string `json:"reason"`
-				Position int    `json:"position"`
-			} `json:"queue"`
+		for {
+			_, raw, err := todoConn.Read(readCtx)
+			require.NoError(t, err)
+			var frame live.Frame
+			require.NoError(t, json.Unmarshal(raw, &frame))
+			var card struct {
+				Queue struct {
+					Reason   string `json:"reason"`
+					Position int    `json:"position"`
+				} `json:"queue"`
+			}
+			data := frame.Data
+			if frame.T == "delta" {
+				var fact struct{ Data map[string]json.RawMessage }
+				require.NoError(t, json.Unmarshal(data, &fact))
+				data = fact.Data["card"]
+			}
+			require.NoError(t, json.Unmarshal(data, &card), string(raw))
+			require.Equal(t, "machine", card.Queue.Reason)
+			require.Equal(t, expected, card.Queue.Position, string(raw))
+			// The one-second card refresh may publish the new position before
+			// the committed fact arrives. It must already be correct; the
+			// committed delta is still required.
+			if kind == "delta" && frame.T == "snap" {
+				continue
+			}
+			require.Equal(t, kind, frame.T, string(raw))
+			require.NotNil(t, frame.Cursor)
+			return *frame.Cursor
 		}
-		data := frame.Data
-		if kind == "delta" {
-			var fact struct{ Data map[string]json.RawMessage }
-			require.NoError(t, json.Unmarshal(data, &fact))
-			data = fact.Data["card"]
-		}
-		require.NoError(t, json.Unmarshal(data, &card))
-		require.Equal(t, "machine", card.Queue.Reason)
-		require.Equal(t, expected, card.Queue.Position)
-		require.NotNil(t, frame.Cursor)
-		return *frame.Cursor
 	}
 	todoCursor := readTodo("snap", 6)
 
