@@ -391,4 +391,47 @@ func TestWikiHostCommittedReceiptsAndRestart(t *testing.T) {
 	require.NoError(t, recovered.Process.Kill())
 	require.Error(t, recovered.Wait())
 
+	// Admission and update policy are exercised over the composed socket, with
+	// native Yrs validating each candidate before the shared document changes.
+	origin = server.URL
+	host = composeWikiHost(ctx, library, q, wiki)
+	topics.wikiDocuments = host
+	for _, attack := range []string{"foreign", "authors", "root", "oversized"} {
+		t.Run("refuse "+attack, func(t *testing.T) {
+			browser := connect(0, "wiki-member")
+			defer browser.conn.CloseNow()
+			browser.receive(t, func(raw []byte) bool { return strings.Contains(string(raw), `"t":"saved"`) })
+			var before []byte
+			var revision int64
+			require.NoError(t, pool.QueryRow(ctx, `SELECT crdt_state,revision FROM wiki_pages WHERE id=$1`, page.ID).Scan(&before, &revision))
+			script := fmt.Sprintf(`import * as Y from %q;const [state,id,attack]=Bun.argv.slice(1);const d=new Y.Doc();Y.applyUpdate(d,Buffer.from(state,'base64'));d.clientID=Number(id);const sv=Y.encodeStateVector(d);if(attack==='foreign')d.clientID=Number(id)===12345?12346:12345;if(attack==='authors')d.getMap('authors').set(String(id),'forged');else if(attack==='root')d.getText('injected').insert(0,'bad');else d.getText('markdown').insert(0,attack==='oversized'?'x'.repeat(1048577):'bad');console.log(Buffer.from(Y.encodeStateAsUpdate(d,sv)).toString('base64'));d.destroy();`, module)
+			raw, err := exec.Command("bun", "-e", script, browser.state, fmt.Sprint(browser.client), attack).CombinedOutput()
+			require.NoError(t, err, string(raw))
+			update, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(raw)))
+			require.NoError(t, err)
+			send(browser, update)
+			refused := browser.receive(t, func(raw []byte) bool {
+				require.NotContains(t, string(raw), `"t":"saved"`)
+				return strings.Contains(string(raw), `"t":"err"`)
+			})
+			require.Contains(t, string(refused), `"id":1`)
+			var after []byte
+			var afterRevision int64
+			require.NoError(t, pool.QueryRow(ctx, `SELECT crdt_state,revision FROM wiki_pages WHERE id=$1`, page.ID).Scan(&after, &afterRevision))
+			require.Equal(t, before, after)
+			require.Equal(t, revision, afterRevision)
+		})
+	}
+	// Remove repository membership while a valid subscription is idle. No next
+	// keystroke or other traffic is needed to terminate it within five seconds.
+	revoked := connect(0, "wiki-member")
+	revoked.receive(t, func(raw []byte) bool { return strings.Contains(string(raw), `"t":"saved"`) })
+	started = time.Now()
+	_, err = pool.Exec(ctx, `DELETE FROM collaborators WHERE repository_id=$1 AND user_id=$2`, repository.ID, member.ID)
+	require.NoError(t, err)
+	refused := revoked.receive(t, func(raw []byte) bool { return strings.Contains(string(raw), `"t":"err"`) })
+	require.Contains(t, string(refused), `"code":"forbidden"`)
+	require.Less(t, time.Since(started), 5*time.Second)
+	revoked.conn.CloseNow()
+
 }
