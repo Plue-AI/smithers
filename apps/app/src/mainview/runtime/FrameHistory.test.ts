@@ -60,6 +60,20 @@ const root: FrameLocation = { workspaceId: "workspace-default", branchId: "branc
 const card: FrameLocation = { workspaceId: "workspace-default", branchId: "branch-main", frameId: "frame-card:branch-main:card-1" }
 
 describe("browser frame history", () => {
+  test.each(["codex", "claude"])("%s session links survive frame replacement, navigation and reload", agent => {
+    const { host, entries } = browser(`/?${agent}=0199aaaa&tutorial`)
+    const history = createBrowserFrameHistory(host)
+    history.replace(root)
+    history.push(card)
+    expect(entries()).toEqual([`${framePath(root)}?${agent}=0199aaaa`, `${framePath(card)}?${agent}=0199aaaa`])
+    const restored = createBrowserFrameHistory(host)
+    expect(restored.current()).toEqual(card)
+    restored.replace(card)
+    expect(host.location.search).toBe(`?${agent}=0199aaaa`)
+    restored.back()
+    expect(restored.current()).toEqual(root)
+  })
+
   test("legacy tutorial query does not change repository frame navigation", () => {
     const { host, entries } = browser("/smithersai/smithers/?tutorial")
     const history = createBrowserFrameHistory(host)

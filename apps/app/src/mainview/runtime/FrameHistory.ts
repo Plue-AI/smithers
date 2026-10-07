@@ -85,7 +85,15 @@ export const createBrowserFrameHistory = (
   const pinned = pathRepo(host.location.pathname) !== null || options.keepUrl === true ? host.location.pathname : undefined
   const current = (): FrameLocation | undefined =>
     pinned === undefined ? parseFramePath(host.location.pathname) : stateLocation(host.history.state)
-  const url = (location: FrameLocation): string => pinned === undefined ? framePath(location) : pinned
+  // External-session links must survive the initial frame replacement and reload.
+  const search = new URLSearchParams(host.location.search)
+  const external = new URLSearchParams()
+  for (const agent of ["codex", "claude"]) {
+    const session = search.get(agent)
+    if (session) external.set(agent, session)
+  }
+  const suffix = external.size === 0 ? "" : `?${external}`
+  const url = (location: FrameLocation): string => (pinned === undefined ? framePath(location) : pinned) + suffix
   return {
     current,
     push: (location) => host.history.pushState({ smithersFrame: true, location }, "", url(location)),
