@@ -95,17 +95,19 @@ func TestMythicalPRNativeAcceptedItemDiff(t *testing.T) {
 	second := f.todo("Second", "second", first.CandidateHead, "SECOND.txt", "second\n")
 	f.wake()
 	second = f.item(second.Number.Int64)
-	local, err := repository.OpenLocal(repository.Config{StoragePath: t.TempDir(), AuthToken: "native-pr-proof", FFILibraryPath: library})
+	storage := t.TempDir()
+	local, err := repository.OpenLocal(repository.Config{StoragePath: storage, AuthToken: "native-pr-proof", FFILibraryPath: library})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, local.Shutdown(context.Background())) })
 	client := local.Client()
 	require.NoError(t, client.InitRepo(h.ctx, "smithers-canary", "smithers", "main", true))
 	var nativeStore string
-	require.NoError(t, client.WithLocalGitStore(h.ctx, "smithers-canary", "smithers", func(path string) error {
+	require.NoError(t, func() error {
+		path := filepath.Join(storage, "smithers-canary", "smithers", ".jj", "repo", "store", "git")
 		nativeStore = path
 		_, err := (mythicalGit{dir: f.hostDir}).command(h.ctx, nil, "push", "--mirror", path)
 		return err
-	}))
+	}())
 	require.NoError(t, client.ImportRefs(h.ctx, "smithers-canary", "smithers"))
 	marker := filepath.Join(t.TempDir(), "executed")
 	program := filepath.Join(t.TempDir(), "program")

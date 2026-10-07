@@ -1228,7 +1228,7 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		return
 	}
 	if s.installGitHubPolling {
-		pulls, err := q.ListMythicalOpenPullItems(ctx, r.row.RepositoryID)
+		pulls, err := q.ListMythicalOpenPullItems(ctx, r.row.RepositoryID, s.now())
 		if err != nil {
 			s.logger.Warn("mythical.pulls_failed", "repository_id", r.row.RepositoryID, "error", err)
 			return
@@ -1252,7 +1252,7 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 	// Reopen polling is uncapped too: dropped PRs can sit behind a large
 	// active backlog, yet still owe the same seven-day follow window.
 	if s.installGitHubPolling {
-		followed, err := q.ListMythicalOpenPullItems(ctx, r.row.RepositoryID)
+		followed, err := q.ListMythicalOpenPullItems(ctx, r.row.RepositoryID, s.now())
 		if err != nil {
 			s.logger.Warn("mythical.pulls_failed", "error", err)
 			return
@@ -4716,6 +4716,9 @@ func mythicalLanded(item db.MythicalItem, commit string, now time.Time) db.Mythi
 	item.NextAttemptAt = pgtype.Timestamptz{}
 	item.PausedAt = pgtype.Timestamptz{}
 	checks := mythicalChecksOf(item)
+	if checks.MergedVia != nil {
+		item.Reason = checks.MergedVia.Note
+	}
 	for i := range checks.Waits {
 		if checks.Waits[i].SettledAt == nil {
 			at := now
@@ -4770,6 +4773,39 @@ func mythicalNoticeCommentKey(key string) string {
 // carries the commit, and the close only once the comment is on the issue.
 // Each step that fails is tried again on a later pass.
 func (s *MythicalService) complete(ctx context.Context, r *mythicalRun, item db.MythicalItem, now time.Time) db.MythicalItem {
+	checks := mythicalChecksOf(item)
+	if via := checks.MergedVia; via != nil && !via.Commented && item.PRNumber.Valid && s.github != nil {
+		if err := s.outboundReady(ctx, item, "close"); err != nil {
+			return item
+		}
+		gh, err := s.stackGitHub(ctx, item.RepositoryID)
+		if err == nil {
+			err = s.github.Comment(ctx, gh, item.PRNumber.Int64, "merged-via:"+uuidString(item.ID)+":"+item.PRMergeCommit,
+				fmt.Sprintf("Merged via #%d (T%d)", via.Pull, via.Number))
+		}
+		if err != nil {
+			return item
+		}
+		via.Commented = true
+		next := item
+		next.Checks = checks.encode()
+		if saved, err := s.queries().SaveMythicalItem(ctx, next); err == nil {
+			return saved
+		}
+		return item
+	}
+	// An unknown outbound write retains its lookup slot across a containment
+	// fold. Once settled, the folded PR still owes its keyed close.
+	if checks := mythicalChecksOf(item); checks.MergedVia != nil && len(item.PendingOp) == 0 && item.PRNumber.Valid && item.PRState != "closed" {
+		next := item
+		next.PendingOp, _ = json.Marshal(MythicalOutboundOp{Kind: "close", Target: fmt.Sprint(item.PRNumber.Int64), Desired: "closed", Precondition: "open", State: "intended"})
+		next.NextAttemptAt = pgtype.Timestamptz{}
+		if saved, err := s.queries().SaveMythicalItem(ctx, next); err == nil {
+			return saved
+		}
+		return item
+	}
+
 	// fixes_issue is an accepted TODO fact, never inferred from an issue link.
 	// Retain the completion obligation until its provider is installed.
 	if s.prFacts == nil {
@@ -4779,7 +4815,7 @@ func (s *MythicalService) complete(ctx context.Context, r *mythicalRun, item db.
 	if err != nil {
 		return item
 	}
-	checks := mythicalChecksOf(item)
+	checks = mythicalChecksOf(item)
 	// Only an item the stack itself saw land owes its issue the evidence
 	// (mythicalLanded); one that landed before is left as it is.
 	if s.github == nil || !item.IssueNumber.Valid || item.PRMergeCommit == "" || !r.row.ActorUserID.Valid ||
@@ -4814,6 +4850,9 @@ func (s *MythicalService) complete(ctx context.Context, r *mythicalRun, item db.
 		return later("GitHub could not be resolved", err)
 	}
 	key := mythicalCompletionKeyPrefix + item.PRMergeCommit
+	if checks.MergedVia != nil {
+		key += ":" + uuidString(item.ID)
+	}
 	if !slices.Contains(checks.Noticed, key) {
 		bookmark := strings.TrimSpace(repository.DefaultBookmark)
 		if bookmark == "" {
@@ -5118,12 +5157,13 @@ func mythicalRebuilding(item db.MythicalItem) bool {
 // (mythicalCompletionClosed) or the commit never reached main
 // (mythicalCompletionOffMain).
 type mythicalMergedVia struct {
-	Number int64     `json:"n"`
-	Pull   int64     `json:"pr"`
-	URL    string    `json:"url"`
-	Commit string    `json:"commit"`
-	Note   string    `json:"note"`
-	At     time.Time `json:"at"`
+	Commented bool      `json:"commented,omitempty"`
+	Number    int64     `json:"n"`
+	Pull      int64     `json:"pr"`
+	URL       string    `json:"url"`
+	Commit    string    `json:"commit"`
+	Note      string    `json:"note"`
+	At        time.Time `json:"at"`
 }
 
 type mythicalCompletion struct {

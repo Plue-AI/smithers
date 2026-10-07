@@ -2227,6 +2227,11 @@ type PostAPITerminalsBody struct {
 	Branch string `json:"branch"`
 }
 
+// PostAPIStackAttentionIDBody is generated from docs/api/openapi.yaml.
+type PostAPIStackAttentionIDBody struct {
+	Revision int64 `json:"revision"`
+}
+
 // PostAPITodosBody is generated from docs/api/openapi.yaml.
 type PostAPITodosBody struct {
 	Title       string                 `json:"title"`
@@ -5684,6 +5689,11 @@ func (c *Client) GetAPIStack(ctx context.Context) (HomeCard, error) {
 	var out HomeCard
 	err := c.do(ctx, "GET", "/api/stack", nil, nil, &out)
 	return out, err
+}
+
+// PostAPIStackAttentionID calls POST /api/stack/attention/{id}.
+func (c *Client) PostAPIStackAttentionID(ctx context.Context, id string, body PostAPIStackAttentionIDBody) error {
+	return c.do(ctx, "POST", "/api/stack/attention/"+url.PathEscape(id), nil, body, nil)
 }
 
 // GetAPITodos calls GET /api/todos.

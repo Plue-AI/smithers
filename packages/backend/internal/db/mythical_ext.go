@@ -394,7 +394,7 @@ func (q *Queries) ListMythicalItemsInStates(ctx context.Context, repositoryID in
 
 // ListMythicalOpenPullItems includes all unsettled items with a pull request,
 // including those beyond the display limit. The existing follow loop owns them.
-func (q *Queries) ListMythicalOpenPullItems(ctx context.Context, repositoryID int64) ([]MythicalItem, error) {
+func (q *Queries) ListMythicalOpenPullItems(ctx context.Context, repositoryID int64, now time.Time) ([]MythicalItem, error) {
 	rows, err := q.db.Query(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items
  WHERE repository_id = $1 AND pr_number > 0
  AND (state NOT IN ('skipped', 'declined', 'cancelled', 'landed', 'rejected', 'blocked')
@@ -402,7 +402,7 @@ func (q *Queries) ListMythicalOpenPullItems(ctx context.Context, repositoryID in
       OR (state='cancelled' AND checks->'dropped' IS NOT NULL AND (pr_state='closed' OR (pr_state='open' AND pending_op IS NULL))))
      AND COALESCE((checks->>'githubClosedAt')::timestamptz,
        CASE WHEN state='cancelled' THEN (checks->'dropped'->>'at')::timestamptz END,
-       updated_at) >= clock_timestamp() - interval '7 days'))`, repositoryID)
+       updated_at) BETWEEN $2::timestamptz - interval '168 hours' AND $2::timestamptz))`, repositoryID, now)
 	return scanMythicalItems(rows, err)
 }
 

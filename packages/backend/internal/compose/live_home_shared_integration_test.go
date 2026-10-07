@@ -65,7 +65,7 @@ func TestLiveHomeCapacityDoesNotDependOnSubscriber(t *testing.T) {
 				person := people[index]
 				source, refusal := topics.resolve(ctx, "home", repository, "homeowner/app", person.ID)
 				require.Empty(t, refusal)
-				require.Equal(t, "home", source.Key)
+				require.Contains(t, source.Key, fmt.Sprintf("home:%d:member:%d:role:", repository, person.ID))
 				got, err := source.Build(ctx)
 				if tc.invalid {
 					require.ErrorContains(t, err, "saved parallel must be an integer", person.Username)

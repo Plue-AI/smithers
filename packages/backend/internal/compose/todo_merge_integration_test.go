@@ -44,6 +44,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/jobs"
+	nativeRepository "github.com/smithersai/smithers/packages/backend/repository"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 )
 
@@ -560,6 +561,22 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		attention := `[{"id":"order-one","kind":"order","revision":2,"text":"T3 merged before T2; T2's change is in T3's commit","entries":[{"pr":3,"commit":"abc","text":"first"},{"pr":4,"commit":"def","text":"second"}],"actions":[{"tag":"order.ok","label":"OK"}]}]`
 		_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET attention=$2 WHERE repository_id=$1`, repo.ID, []byte(attention))
 		require.NoError(t, err)
+		projection := &liveTopics{queries: q, todos: mythical}
+		ownerSource, refusal := projection.resolve(ctx, "home", repo.ID, "rehearsal-owner/app", owner.ID)
+		require.Empty(t, refusal)
+		memberSource, refusal := projection.resolve(ctx, "home", repo.ID, "rehearsal-owner/app", member.ID)
+		require.Empty(t, refusal)
+		require.NotEqual(t, ownerSource.Key, memberSource.Key, "role-filtered Home snapshots cannot share a cache")
+		ownerHome, err := ownerSource.Build(ctx)
+		require.NoError(t, err)
+		memberHome, err := memberSource.Build(ctx)
+		require.NoError(t, err)
+		require.Contains(t, string(ownerHome), "order-one")
+		var memberProjection struct {
+			Attention []json.RawMessage `json:"attention"`
+		}
+		require.NoError(t, json.Unmarshal(memberHome, &memberProjection))
+		require.Empty(t, memberProjection.Attention)
 		for _, tc := range []struct {
 			cookie   string
 			via      bool
@@ -1242,6 +1259,80 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		uncertainAfter, err := q.GetMythicalItem(ctx, uncertain.ID)
 		require.NoError(t, err)
 		require.Equal(t, uncertainBefore, uncertainAfter, "machine mutations preserve the exact uncertain operation and item version")
+	})
+
+	t.Run("native item-only diff through composed install", func(t *testing.T) {
+		library := os.Getenv("SMITHERS_FFI_LIBRARY_PATH")
+		if library == "" {
+			t.Skip("SMITHERS_FFI_LIBRARY_PATH required for native composed diff")
+		}
+		storage := t.TempDir()
+		local, err := nativeRepository.OpenLocal(nativeRepository.Config{StoragePath: storage, AuthToken: "composed-item-diff", FFILibraryPath: library})
+		require.NoError(t, err)
+		defer local.Shutdown(ctx)
+		native := local.Client()
+		require.NoError(t, native.InitRepo(ctx, owner.Username, repo.Name, "main", true))
+		work := t.TempDir()
+		git := func(args ...string) string {
+			cmd := exec.CommandContext(ctx, "git", args...)
+			cmd.Dir = work
+			out, err := cmd.CombinedOutput()
+			require.NoError(t, err, string(out))
+			return strings.TrimSpace(string(out))
+		}
+		git("init", "-q", "--initial-branch=main")
+		git("config", "user.name", "Fixture")
+		git("config", "user.email", "fixture@example.test")
+		require.NoError(t, func() error {
+			path := filepath.Join(storage, owner.Username, repo.Name, ".jj", "repo", "store", "git")
+
+			git("fetch", "-q", path, "refs/heads/main")
+			git("checkout", "-q", "-B", "main", "FETCH_HEAD")
+			return nil
+		}())
+		require.NoError(t, os.WriteFile(filepath.Join(work, "FIRST.txt"), []byte("first\n"), 0600))
+		git("add", "FIRST.txt")
+		git("commit", "-qm", "first")
+		firstHead := git("rev-parse", "HEAD")
+		require.NoError(t, os.WriteFile(filepath.Join(work, "SECOND.txt"), []byte("second\n"), 0600))
+		git("add", "SECOND.txt")
+		git("commit", "-qm", "second")
+		head := git("rev-parse", "HEAD")
+		var store string
+		require.NoError(t, func() error {
+			path := filepath.Join(storage, owner.Username, repo.Name, ".jj", "repo", "store", "git")
+			store = path
+			git("push", "-q", path, "HEAD:refs/heads/main")
+			return nil
+		}())
+		require.NoError(t, native.ImportRefs(ctx, owner.Username, repo.Name))
+		service := services.NewMythicalService(pool, native)
+		item, err := service.FileTodo(middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: ownerSession}), repo.ID, owner.ID, services.MythicalTodoInput{Title: "Native diff", Prompt: "second", Request: "native-diff"})
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='proposed',candidate_verified=true,candidate_base=$3,candidate_head=$4,checks=jsonb_build_object('branch','smithers/native-diff') WHERE repository_id=$1 AND number=$2`, repo.ID, item.Number, firstHead, head)
+		require.NoError(t, err)
+		marker := filepath.Join(t.TempDir(), "executed")
+		program := filepath.Join(t.TempDir(), "program")
+		require.NoError(t, os.WriteFile(program, []byte("#!/bin/sh\ntouch '"+marker+"'\nexit 1\n"), 0700))
+		for key, value := range map[string]string{"core.hooksPath": filepath.Dir(program), "diff.external": program, "diff.hostile.textconv": program, "merge.hostile.driver": program, "credential.helper": "!" + program, "core.fsmonitor": program} {
+			git("--git-dir", store, "config", key, value)
+		}
+		require.NoError(t, os.WriteFile(filepath.Join(store, "info", "attributes"), []byte("*.txt diff=hostile merge=hostile\n"), 0600))
+		router := todoMergeComposeRouter(cfg, q, pool, &routes.MythicalHandler{Service: service})
+		request := httptest.NewRequest("GET", origin+"/api/branches/smithers%2Fnative-diff/diff", nil)
+		request.RemoteAddr = "127.0.0.1:12345"
+		request.AddCookie(&http.Cookie{Name: "smithers_session", Value: "owner-browser-session"})
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		require.Equal(t, 200, response.Code, response.Body.String())
+		var diff services.BranchDiff
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &diff))
+		require.Len(t, diff.Files, 1)
+		require.Equal(t, "SECOND.txt", diff.Files[0].Path)
+		require.Equal(t, firstHead, diff.Files[0].Against.Rev)
+		require.Equal(t, "item_base", diff.Files[0].Against.Kind)
+		require.Equal(t, "second", diff.Files[0].Hunks[0].Lines[0].Text)
+		require.NoFileExists(t, marker)
 	})
 
 }
