@@ -66,7 +66,7 @@ class ObserverReceipt(unittest.TestCase):
                 if mode == "cgroup-parent-replaced":
                     self.assertEqual((base / "trm06-sessions-original").stat().st_ino, inode)
                     self.assertNotEqual(sessions.stat().st_ino, inode)
-                    self.assertEqual(sessions.stat().st_mode & 0o777, 0o777)
+                    self.assertEqual(sessions.stat().st_mode & 0o777, 0o755)
                 else:
                     self.assertEqual(sessions.stat().st_ino, inode)
                     self.assertEqual((sessions / "s-0000000000000001").stat().st_mode & 0o777, 0o777)

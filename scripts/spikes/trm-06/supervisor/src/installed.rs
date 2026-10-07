@@ -180,13 +180,18 @@ pub fn serve() -> io::Result<()> {
 pub fn init() -> io::Result<()> {
     Boot::installed()?;
     crate::accounts::provision_fresh()?;
+    // Keep the initial cgroup parent across every child restart. A replacement
+    // cannot hide old groups from a newly started supervisor.
+    let sessions = crate::cgroup::Sessions::open()?;
     loop {
+        sessions.recheck()?;
         // Each replacement re-verifies the installed inode and runs its own
         // cgroup barrier. No executable or env comes from the repository.
         let boot = Boot::installed()?;
         let executable = protected(EXECUTABLE, true)?;
         verify_digest(executable.try_clone()?, &boot.supervisor_sha256)?;
         let status = run_held(&executable, &["--serve"])?;
+        sessions.recheck()?;
         eprintln!("trm06 supervisor ended: {status}");
         std::thread::sleep(Duration::from_millis(100));
     }

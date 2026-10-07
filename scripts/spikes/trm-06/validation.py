@@ -305,7 +305,8 @@ def main():
                 os.mkdir("sessions", 0o755, dir_fd=parent)
                 replacement = os.open("sessions", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
                 try:
-                    os.fchmod(replacement, 0o777)
+                    # Valid ownership/mode must not conceal inode replacement.
+                    os.fchmod(replacement, 0o755)
                 finally:
                     os.close(replacement)
             finally:
