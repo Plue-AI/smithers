@@ -11,7 +11,7 @@
     },
     {
       "group": "SG-04",
-      "command": "box.terminal",
+      "command": "terminal",
       "credential": "RO",
       "expected": "permission"
     },

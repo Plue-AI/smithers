@@ -374,7 +374,7 @@ export const PRIMARY_FLOWS: Readonly<Record<SearchItemKind, ReadonlyArray<string
   run: ["runs.resume"],
   change: ["review"],
   issue: ["implement"],
-  box: ["box.terminal"],
+  box: [],
   "secret-name": [],
   person: []
 }

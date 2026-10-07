@@ -172,7 +172,7 @@ const APP_BUG =
   "Smithers hit a bug of its own, so that didn't finish. Not your fault, and nothing about what you did would have avoided it. Reload the page to see where it got to, then make the change again."
 const SESSION_REFUSAL =
   "/cloud.sign-in is not in the web app — on the web your GitHub sign-in is your Smithers Cloud sign-in."
-const ORIGIN_REFUSAL = "/box.terminal is not available on this origin yet."
+const ORIGIN_REFUSAL = "/browser.open is not available on this origin yet."
 
 /*
  * A thrown host error publishes nothing OF ITS OWN — not its message, not the
@@ -246,8 +246,8 @@ describe("explainAbsent — an exact miss classified against the unfiltered cata
 
   test("a door this origin could grow is 'not available on this origin yet', never the native app and never 'no such flow'", async () => {
     const { controller } = await freshController(WEB)
-    // The W4 relay is off: cloud.terminal is absent, and the native app is not the answer.
-    expect(controller.commands.explainAbsent("box.terminal")).toEqual({ door: "origin", reason: ORIGIN_REFUSAL })
+    // The page reader is off: browser.read is absent, and the native app is not the answer.
+    expect(controller.commands.explainAbsent("browser.open")).toEqual({ door: "origin", reason: ORIGIN_REFUSAL })
     // A Worker without the Smithers Cloud upstream lacks every Smithers Cloud flow the same way.
     const offline = await freshController({
       ...WEB,

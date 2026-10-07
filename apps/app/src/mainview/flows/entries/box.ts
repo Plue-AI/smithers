@@ -67,16 +67,6 @@ export const workspaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
     handler: ({ workspaceId }) => actions.live || actions.bootstrap?.capabilities.includes("install") ? "Branch unavailable" : actions.viewWorkspace(workspaceId)
   }),
   flow({
-    name: "box.terminal",
-    summary: "Open a terminal on a box",
-    /* The terminal rides this origin's `/api/cloud-ws/` tunnel: an origin without one registers no terminal. */
-    runtime: ["cloud", "cloud.terminal"],
-    args: "[workspaceId]",
-    requires: ["signed-in"],
-    input: Schema.Struct({ workspaceId: Schema.optional(Schema.String) }),
-    handler: () => "Terminal unavailable"
-  }),
-  flow({
     name: "box.suspend", agent: "run", minimumRole: "member", actors: ["person","app_agent"], visibility: "in-card",
     summary: "Sleep this branch",
     args: "[workspaceId]",
@@ -91,15 +81,6 @@ export const workspaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
     requires: ["signed-in"],
     input: Schema.Struct({ workspaceId: Schema.optional(Schema.String), branch: Schema.optional(Schema.String) }),
     handler: ({ workspaceId, branch }) => actions.branchControls && branch ? actions.branchControls.request("wake", branch) : actions.live || actions.bootstrap?.capabilities.includes("install") ? "Branch unavailable" : actions.resumeWorkspace(workspaceId)
-  }),
-  flow({
-    name: "box.sessions",
-    summary: "List a box's sessions",
-    runtime: ["cloud"],
-    args: "[workspaceId]",
-    requires: ["signed-in"],
-    input: Schema.Struct({ workspaceId: Schema.optional(Schema.String) }),
-    handler: () => "Terminal unavailable"
   }),
   flow({
     name: "box.session.destroy",

@@ -47,7 +47,7 @@ const approvalsRead = (page: Page, runId: string) => page.waitForResponse(respon
 workflowTest("Continue answers a real guard park through its own request and refuses any other", scenario("runs.continue-guard-park", {
   capabilities: ["identity", "cloud"],
   coverage: [
-    "action:runs.continue", "action:flow.run", "action:flow.run.stop", "action:box.view", "action:box.terminal",
+    "action:runs.continue", "action:flow.run", "action:flow.run.stop", "action:box.view",
     "action:box.suspend", "action:box.resume", "action:repo.select",
     "host:production", "path:success", "path:error", "door:button", "door:slash",
     "dimension:real-provider", "dimension:repository-owned-prompt-flow", "dimension:guard-incident",

@@ -354,7 +354,8 @@ test("the workspace launch grammar preserves container and VM but rejects deskto
     expect(names).not.toContain(removed)
   }
   expect(names).toContain("box.open")
-  expect(names).toContain("box.terminal")
+  for (const folded of ["box.terminal", "box.sessions"]) expect(names).not.toContain(folded)
+  expect(names).toContain("terminal")
 })
 
 describe("box.open recovery grammar", () => {

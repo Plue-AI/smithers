@@ -239,26 +239,6 @@ describe("host parity — the web and native catalogs against the servers' own c
     expect(names).toContain("files.read")
   })
 
-  test("(c) box.terminal is present exactly when cloud.terminal is", async () => {
-    const withRelay = await controllerFor(
-      cloudBootstrap(cloudCapabilities({ identity: true, cloud: true, agent: true, checkout: false, terminal: true }))
-    )
-    const withoutRelay = await controllerFor(
-      cloudBootstrap(cloudCapabilities({ identity: true, cloud: true, agent: true, checkout: false, terminal: false }))
-    )
-    const nativeOnline = await controllerFor(NATIVE)
-    const nativeOffline = await controllerFor(
-      localBootstrap(localCapabilities({ agent: true, identity: false, cloud: false }))
-    )
-    const has = (controller: AppController): boolean => controller.commands.find("box.terminal") !== undefined
-    expect(has(withRelay)).toBe(true)
-    expect(has(withoutRelay)).toBe(false)
-    expect(has(nativeOnline)).toBe(true)
-    expect(has(nativeOffline)).toBe(false)
-    expect(withRelay.bootstrap?.capabilities).toContain("cloud.terminal")
-    expect(withoutRelay.bootstrap?.capabilities).not.toContain("cloud.terminal")
-  })
-
   test("drift: every capability a flow declares is one the bootstrap schema knows", () => {
     const source = registrySources()
     // "practice" is the bundled practice repository (registry.ts FlowCapability): a client-only door no bootstrap names.

@@ -44,7 +44,7 @@ test("C-J3-02 terminal dispatcher, registered ownership, raw watcher rejection a
     const opened = owner.waitForResponse(response => new URL(response.url()).pathname === "/api/terminals" && response.request().method() === "POST")
     await command(owner, `/terminal ${branch}`)
     const response = await opened
-    expect(response.status()).toBe(201)
+    expect(response.status()).toBe(202)
     const session = await response.json() as { id: string }
     expect(session.id).toEqual(expect.any(String))
     const card = owner.locator(".terminal-view").last()
@@ -129,7 +129,7 @@ test("C-J3-02 terminal dispatcher, registered ownership, raw watcher rejection a
     const personal = transcript(watcher)
     const aliceOpened = watcher.waitForResponse(result => new URL(result.url()).pathname === "/api/terminals" && result.request().method() === "POST")
     await command(watcher, `/terminal ${branch}`)
-    expect((await aliceOpened).status()).toBe(201)
+    expect((await aliceOpened).status()).toBe(202)
     const aliceCard = watcher.locator(".terminal-view").last()
     await expect(aliceCard.locator('[title="Alice\'s terminal"]')).toBeVisible()
     const aliceField = aliceCard.locator(".xterm-helper-textarea")

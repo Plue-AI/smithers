@@ -823,10 +823,8 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     })
   },
   "box.view": (args) => required("workspaceId", args, "box.view needs a workspace id"),
-  "box.terminal": (args) => optional("workspaceId", args),
   "box.suspend": (args) => optional("workspaceId", args),
   "box.resume": (args) => optional("workspaceId", args),
-  "box.sessions": (args) => optional("workspaceId", args),
   "box.session.destroy": (args) => {
     const [sessionId, workspaceId, ...rest] = tokensOf(args)
     if (sessionId === undefined) return no("box.session.destroy needs a session id")

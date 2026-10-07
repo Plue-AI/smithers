@@ -14,19 +14,14 @@ import { flowAction, flowProps } from "../flows/FlowAction"
  * them renders only when the payload carries it: an absent field renders
  * NOTHING, never a placeholder and never a zero that was not on the wire.
  *
- * The body is five facets: the terminal and its sessions, the working copy's
- * files (the same listing component the repository file card uses, imported,
- * with the rows bound to the workspace's own routes), the declared services,
- * snapshots with their acts, and the egress audit — what this computer called
- * and which secret NAMES the proxy swapped in, never a value.
+ * The body is the working copy's files (the same listing component the
+ * repository file card uses, imported, with the rows bound to the workspace's
+ * own routes), the declared services, snapshots with their acts, and the
+ * egress audit — what this computer called and which secret NAMES the proxy
+ * swapped in, never a value. A terminal is its own card (`/terminal`).
  *
  * Every act binds a registered command through onRunCommand and carries
- * data-flow (parity.test.ts gates this). The one act whose door is the
- * host's — the terminal rides the origin's `/api/cloud-ws/` tunnel, which
- * the Worker does not open until the W4 relay lands — is rendered only when
- * the live registry holds `box.terminal` (parity-hosts.test.ts (a‴)):
- * the pointer path drops an unregistered name silently, so a button bound to
- * it would be a dead control.
+ * data-flow (parity.test.ts gates this).
  */
 import { eq } from "@tanstack/db"
 import { useLiveQuery } from "@tanstack/react-db"
@@ -256,7 +251,6 @@ export const WorkspaceCardBody = ({
 }: { readonly card: WorkspaceCard } & WorkspaceCardActions) => {
   const { payload } = card
   const facet = payload.facet === "files" || payload.facet === "services" || payload.facet === "egress" ? payload.facet : "files"
-  /* The registry is the truth about the terminal door: the Worker registers box.terminal only once its relay is on. */
   const controller = useController()
   const { data: recoveryRows } = useLiveQuery(q => q.from({ workspace: controller.store.collections.cloudWorkspaces })
     .where(({ workspace }) => eq(workspace.id, payload.workspaceId))

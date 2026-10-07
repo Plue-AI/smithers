@@ -440,7 +440,7 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "settings", regexp.MustCompile(`^/api/repo-connection$`)},
 	{http.MethodPost, "settings", regexp.MustCompile(`^/api/repo-connection$`)},
 	{http.MethodDelete, "settings", regexp.MustCompile(`^/api/repo-connection$`)},
-	{http.MethodPost, "box.terminal", regexp.MustCompile(`^/api/terminals$`)},
+	{http.MethodPost, "terminal", regexp.MustCompile(`^/api/terminals$`)},
 	// Non-command authentication and bootstrap protocols retain their own
 	// proof checks; declaring public here does not bypass the credential loader.
 	{http.MethodGet, "public", regexp.MustCompile(`^/api/(?:health|feature-flags|meta/failure-codes|bootstrap|build-cache/healthz)$`)},

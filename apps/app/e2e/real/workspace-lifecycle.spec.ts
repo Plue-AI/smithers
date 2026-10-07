@@ -37,10 +37,10 @@ configuredGatewayTest(
   "a real workspace card reads every provider facet and preserves repository scope",
   scenario("workspaces.cloud-facets-provider-readback", {
     capabilities: ["identity", "cloud"],
-    description: "Open the configured canary workspace through the rendered UI, read files, services, sessions, snapshots, and egress from the provider, and verify every response remains bound to the exact repository and workspace id.",
+    description: "Open the configured canary workspace through the rendered UI, read files, services, snapshots, and egress from the provider, and verify every response remains bound to the exact repository and workspace id.",
     coverage: [
       "action:box.view", "action:box.facet", "action:box.files", "action:box.file",
-      "action:box.services", "action:box.sessions", "action:box.egress",
+      "action:box.services", "action:box.egress",
       "host:production", "path:success", "door:slash", "door:button", "dimension:provider-readback",
       "dimension:workspace-scope", "dimension:facet-readback", "evidence:ui-cards-and-independent-provider-responses"
     ]
@@ -68,7 +68,6 @@ configuredGatewayTest(
     for (const [flow, suffix, bodyText] of [
       ["box.files", `/workspaces/${workspaceId}/files?path=`, "Files"],
       ["box.services", `/workspaces/${workspaceId}/services`, "Services"],
-      ["box.sessions", "/workspace/sessions", "Sessions"],
       ["box.egress", `/workspaces/${workspaceId}/egress?limit=30`, "Egress"]
     ] as const) {
       const path = cloudRepoPath(workflowRepo.repo, suffix)
@@ -183,57 +182,6 @@ workflowTest(
       repo: workflowRepo.repo, workspaceId, name, before, suspended, resumed,
       deleteStatus: (await deletion).status(), finalStatus: 404
     })
-  }
-)
-
-configuredGatewayTest(
-  "a cloud terminal accepts keyboard input and returns real shell output",
-  scenario("workspaces.cloud-terminal-keyboard-output", {
-    capabilities: ["identity", "cloud"],
-    description: "Open a new terminal session on the configured canary workspace through the UI, type a split marker, verify the shell's combined output, and destroy exactly the created session.",
-    coverage: ["action:box.view", "action:box.terminal", "host:production", "path:success", "path:keyboard", "door:slash", "dimension:keyboard", "dimension:real-pty", "dimension:websocket", "evidence:rendered-shell-output-and-session-cleanup"]
-  }),
-  async ({ page, request, workflowRepo }, testInfo) => {
-    const id = workflowRepo.workspaceId
-    await bootProductionRepository(page, workflowRepo.repo)
-    await command(page, `/box.view ${id}`)
-    await expect(page.getByTestId(`card-workspace-${id}`)).toBeVisible()
-    await closeComposer(page)
-    const path = cloudRepoPath(workflowRepo.repo, "/workspace/sessions")
-    const created = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === path && response.ok(), { timeout: 90_000 })
-    let sessionId: string | undefined
-    try {
-      await command(page, `/box.terminal ${id}`)
-      expect((await created).status()).toBe(201)
-      await closeComposer(page)
-      const terminal = page.getByTestId(`card-workspace-${id}`).locator('[data-testid^="terminal-"]')
-      await expect(terminal).toBeVisible({ timeout: 60_000 })
-      sessionId = (await terminal.getAttribute("data-testid"))!.slice("terminal-".length)
-      expect(sessionId).not.toBe("")
-      const readback = await realApi(page, request, "GET", `${path}/${encodeURIComponent(sessionId)}`)
-      expect(readback.status()).toBe(200)
-      expect(await readback.json()).toMatchObject({ id: sessionId, workspace_id: id, status: "running" })
-      await expect(page.getByRole("log", { name: "Conversation", exact: true })).toBeVisible()
-      await expect(terminal).not.toContainText('{"type":"replay-complete"}')
-      await terminal.locator(".xterm-helper-textarea").focus()
-      const suffix = String(Date.now())
-      await page.keyboard.type(`printf '%s%s\\n' 'CLOUD_TERMINAL_' '${suffix}'`)
-      await page.keyboard.press("Enter")
-      const marker = `CLOUD_TERMINAL_${suffix}`
-      await expect(terminal.locator(".xterm-rows")).toContainText(marker, { timeout: 30_000 })
-      await attachProductionJson(testInfo, "cloud-terminal-output", { repo: workflowRepo.repo, workspaceId: id, sessionId, marker })
-    } finally {
-      if (sessionId !== undefined) {
-        const cleanupStarted = Date.now()
-        const deleted = await realApi(page, request, "POST", `${path}/${encodeURIComponent(sessionId)}/destroy`)
-        const cleanupMs = Date.now() - cleanupStarted
-        expect(deleted.status()).toBe(204)
-        const stopped = await realApi(page, request, "GET", `${path}/${encodeURIComponent(sessionId)}`)
-        expect(stopped.status()).toBe(200)
-        expect(await stopped.json()).toMatchObject({ id: sessionId, workspace_id: id, status: "stopped" })
-        await attachProductionJson(testInfo, "cloud-terminal-cleanup", { sessionId, status: deleted.status(), cleanupMs, durableStatus: "stopped" })
-      }
-    }
   }
 )
 

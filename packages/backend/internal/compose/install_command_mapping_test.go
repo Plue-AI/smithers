@@ -76,5 +76,5 @@ func TestInstallCredentialAdministrationCatalogRefusalsPostgres(t *testing.T) {
 	router.ServeHTTP(out, req)
 	require.Equal(t, 403, out.Code, out.Body.String())
 	require.Contains(t, out.Body.String(), `"code":"permission"`)
-	require.Equal(t, []string{"box.terminal"}, decisions)
+	require.Equal(t, []string{"terminal"}, decisions)
 }

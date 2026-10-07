@@ -283,13 +283,8 @@ Lane `citc` (ADR 0002) adds the persistent cloud computers:
   made, whether it was allowed or blocked, and which secret NAMES the proxy
   swapped in, never a value). The footer acts: Suspend or
   Resume, Fork, Snapshot, and Delete behind a typed confirm.
-  `/box.terminal` opens the workspace's terminal in the card's Terminal
-  facet (the socket tunnels through the origin's `/api/cloud-ws/` bridge with
-  the host-held bearer attached upstream, and the token never reaches the
-  renderer); leaving the facet detaches, and killing the session is the
-  explicit `/box.session.destroy`. That act is rendered only where the
-  live registry holds `box.terminal`, and the Terminal facet otherwise
-  says terminals are not on the web yet. Every workspace act refuses a
+  A terminal is not a workspace facet: `/terminal <branch>` opens the
+  member's own Terminal card on a branch. Every workspace act refuses a
   `degraded` cloud session with the "sign in again to enable" wording (ADR
   0001's legacy scope set).
 

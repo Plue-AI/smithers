@@ -258,7 +258,7 @@ describe("the workspace card", () => {
       const { host, commands } = render(workspaceCard({ facet: "terminal", sessions: [{ id: "sess-1", status: "running", createdAt: null }], terminalSessionId: "sess-1",
         terminalRefusal: { status: 409, message: "workspace is not running", code: null, retryAfterSeconds: null } }), { controller })
       expect(host.querySelector(".workspace-terminal-embed")).toBeNull()
-      expect(host.querySelector('[data-flow="box.terminal"]')).toBeNull()
+      expect(host.querySelector('[data-flow="terminal"]')).toBeNull()
       expect(host.querySelector('[data-flow="box.session.destroy"]')).toBeNull()
       expect(host.textContent).not.toContain("No terminal attached")
       expect(commands).toEqual([])

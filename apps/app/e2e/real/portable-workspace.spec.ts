@@ -1,6 +1,6 @@
 import { scenario } from "./coverage/types"
 import { authenticatedTest } from "./auth-permissions/profile"
-import { awaitBoot, closeComposer, expect, productUrl, realApi } from "./support/test"
+import { awaitBoot, expect, productUrl, realApi } from "./support/test"
 import { attachJson, runSlash } from "./issues/local"
 import { finishFirstVisit } from "./support/first-visit"
 import { runningWorkspace, withOwnedRepository } from "./portable/owned-repository"
@@ -163,37 +163,33 @@ authenticatedTest("a failed UI workspace creation check still cleans up its box"
   })
 })
 
-authenticatedTest("a product terminal accepts keyboard input on its workspace", scenario("workspaces.product-terminal-keyboard-output", {
+authenticatedTest("a product terminal accepts keyboard input on its branch", scenario("workspaces.product-terminal-keyboard-output", {
   capabilities: ["identity", "cloud", "cloud.terminal"],
-  coverage: ["action:box.view", "action:box.terminal", "host:local", "host:production", "path:success", "path:keyboard", "door:slash", "dimension:keyboard", "dimension:real-pty", "evidence:terminal-output-and-cleanup"]
+  coverage: ["action:terminal", "host:local", "host:production", "path:success", "path:keyboard", "door:slash", "dimension:keyboard", "dimension:real-pty", "evidence:terminal-output-and-cleanup"]
 }), async ({ page, request }) => {
   await withOwnedRepository(page, request, (repo) => runningWorkspace(page, request, repo, async (id) => {
     const startedAt = performance.now()
     await page.goto(productUrl(page, `/${repo.fullName}`), { waitUntil: "domcontentloaded" })
     await awaitBoot(page, "navigate", startedAt)
     await finishFirstVisit(page)
-    await runSlash(page, `/box.view ${id}`)
-    const card = page.getByTestId(`card-workspace-${id}`)
-    await expect(card).toBeVisible()
-    const sessionPath = `${repo.path}/workspace/sessions`
-    const created = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === sessionPath)
-    await runSlash(page, `/box.terminal ${id}`)
-    expect((await created).status()).toBe(201)
-    await closeComposer(page)
-    const terminal = card.locator('[data-testid^="terminal-"]')
-    await expect(terminal).toBeVisible()
-    const sessionId = (await terminal.getAttribute("data-testid"))!.slice("terminal-".length)
-    try {
-      const proof = terminalExecutionProof(String(Date.now()))
-      await terminal.locator(".xterm-helper-textarea").focus()
-      await page.keyboard.type(proof.setValue)
-      await page.keyboard.press("Enter")
-      await page.keyboard.type(proof.readValue)
-      await page.keyboard.press("Enter")
-      await expect.poll(async () => terminalExecutionProved(await terminal.locator(".xterm-rows").innerText(), proof.marker),
-        { timeout: 30_000 }).toBe(true)
-    } finally {
-      expect((await realApi(page, request, "POST", `${sessionPath}/${encodeURIComponent(sessionId)}/destroy`)).status()).toBe(204)
-    }
+    // `/terminal` replaced box.terminal (#3557): the first POST answers the durable pending receipt.
+    const requested = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/terminals")
+    await runSlash(page, `/terminal ${id}`)
+    const response = await requested
+    expect(response.status()).toBe(202)
+    const receipt = await response.json() as { readonly id?: unknown; readonly workspace_id?: unknown }
+    expect(receipt.workspace_id).toBe(id)
+    expect(receipt.id).toEqual(expect.any(String))
+    // The branch's deletion in runningWorkspace closes the session with its machine.
+    const terminal = page.getByTestId(`terminal-${String(receipt.id)}`)
+    await expect(terminal).toBeVisible({ timeout: 90_000 })
+    const proof = terminalExecutionProof(String(Date.now()))
+    await terminal.locator(".xterm-helper-textarea").focus()
+    await page.keyboard.type(proof.setValue)
+    await page.keyboard.press("Enter")
+    await page.keyboard.type(proof.readValue)
+    await page.keyboard.press("Enter")
+    await expect.poll(async () => terminalExecutionProved(await terminal.locator(".xterm-rows").innerText(), proof.marker),
+      { timeout: 30_000 }).toBe(true)
   }))
 })
