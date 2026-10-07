@@ -186,6 +186,15 @@ func dispatchConfirmation(w http.ResponseWriter, r *http.Request, command string
 		}
 		input.Subject, _ = json.Marshal(map[string]string{"kind": "todo", "ref": "T" + strconv.FormatInt(n, 10)})
 	}
+	if command == "branch.add-to-stack" {
+		part := strings.TrimSuffix(strings.TrimPrefix(r.URL.EscapedPath(), "/api/branches/"), "/add-to-stack")
+		branch, err := url.PathUnescape(part)
+		if err != nil || branch == "" {
+			writeConfirmationDispatchError(w, &services.AccessError{Status: 400, Class: "user", Code: "invalid_confirmation", Message: "Invalid branch"})
+			return true
+		}
+		input.Subject, _ = json.Marshal(map[string]string{"kind": "branch", "ref": branch})
+	}
 	if command == "branch.discard-foreign" || command == "branch.bring-in" {
 		input.Subject, _ = json.Marshal(map[string]string{"kind": "branch", "ref": strings.TrimPrefix(r.URL.Path, "/api/branches/")})
 		var body map[string]json.RawMessage
