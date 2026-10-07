@@ -329,7 +329,7 @@ test("C-UI-12: Branch states and recovery controls render in both themes and wid
     ["branch-rebasing-activity", "Rebasing… onto T8", null],
     ["branch-scratch_conflict-activity", "packages/rpc/src/HomeCard.ts", "Resolve"],
     ["branch-scratch_ready-activity", "Rebase conflict onto main", "Done"],
-    ["branch-moved_off-activity", "Ben moved this branch off T15", "Return to T15"],
+    ["branch-moved_off-activity", "Ben moved this branch off T12", "Return to T12"],
     ["branch-scratch_item-activity", "Forked from T12 Card model contracts", "Add to stack"],
     ["branch-active-files", "flows/todo/prompt.md → flows/todo/instructions/implementer.md", null],
     ["branch-active-terminals", "pnpm check", null],
