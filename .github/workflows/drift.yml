@@ -38,6 +38,9 @@ jobs:
       - name: "Target index drift"
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
         run: "pnpm exec smthrs lint '//:targetIndex' --known-red '.github/ci-known-red.json' --verbose"
+      - name: "Backend access test list drift"
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: "pnpm exec smthrs lint '//:backendAccessTests' --known-red '.github/ci-known-red.json' --verbose"
       - name: "OpenAPI bundle drift"
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
         run: "pnpm exec smthrs lint '//:openapiBundle' --known-red '.github/ci-known-red.json' --verbose"

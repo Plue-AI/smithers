@@ -1,0 +1,764 @@
+[
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "access_members_browser_test.go",
+    "tests": [
+      "TestAccessMembersBrowserPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "admin_person_credential_integration_test.go",
+    "tests": [
+      "TestAdminRoutesRequirePersonCredentialComposedMultitenantPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "branch_machine_members_integration_test.go",
+    "tests": [
+      "TestBranchMachineMemberAccessAndRevocationInstall",
+      "TestBranchMachineMemberErasureInstall",
+      "TestBranchMachineConcurrentJoinHTTP",
+      "TestBranchMachineConcurrentJoinRealMicroVM",
+      "TestBranchMachineSharedWorkingCopy",
+      "TestBranchMachineRootInputsValidated"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "dead_credential_integration_test.go",
+    "tests": [
+      "TestDeadCredentialRepoRoutesComposedInstallPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "delegated_credential_integration_test.go",
+    "tests": [
+      "TestDelegatedCredentialComposedInstallPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "external_read_person_only_integration_test.go",
+    "tests": [
+      "TestExternalReadIsPersonOnlyComposedInstallPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "flow_admission_integration_test.go",
+    "tests": [
+      "TestFlowWorkerRechecksMeteredAdmissionBeforeHostLaunch"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_agent_read_authorization_integration_test.go",
+    "tests": [
+      "TestInstallRetainedAgentReadsPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_branch_answer_authorization_integration_test.go",
+    "tests": [
+      "TestInstallBranchAnswerAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_candidate_authorization_integration_test.go",
+    "tests": [
+      "TestInstallCandidateAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_model_authorization_integration_test.go",
+    "tests": [
+      "TestInstallModelAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_provider_management_authorization_integration_test.go",
+    "tests": [
+      "TestInstallProviderManagementCommandsPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_provider_pool_authorization_integration_test.go",
+    "tests": [
+      "TestInstallProviderPoolAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_read_alias_authorization_integration_test.go",
+    "tests": [
+      "TestInstallReadAliasesPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_retained_read_authorization_integration_test.go",
+    "tests": [
+      "TestInstallRetainedReadCommandsPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_run_fork_authorization_integration_test.go",
+    "tests": [
+      "TestInstallRunForkAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_vcs_read_authorization_integration_test.go",
+    "tests": [
+      "TestInstallRetainedVCSReadsPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_wiki_authorization_integration_test.go",
+    "tests": [
+      "TestInstallWikiWriteAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_workspace_authorization_integration_test.go",
+    "tests": [
+      "TestInstallWorkspaceSystemActionsPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_workspace_children_authorization_integration_test.go",
+    "tests": [
+      "TestInstallWorkspaceChildrenCommandsPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_workspace_head_authorization_integration_test.go",
+    "tests": [
+      "TestInstallWorkspaceHeadCommandPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "member_commands_integration_test.go",
+    "tests": [
+      "TestMemberRoutesAuthorizeByRolePostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "members_integration_test.go",
+    "tests": [
+      "TestMembersComposedInstallPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "rehearsal_admission_test.go",
+    "tests": [
+      "TestRehearsalAdmissionOrderingAndHandoff"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "router_run_credential_test.go",
+    "tests": [
+      "TestServerRouter_RunControlRequiresPerson",
+      "TestServerRouter_RepositoryJobPauseRequiresPerson",
+      "TestServerRouter_RunCredentialCannotCancelWorkflowRunPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "run_credential_landing_gates_integration_test.go",
+    "tests": [
+      "TestRunCredentialCannotClearHumanLandingGatesPostgres",
+      "TestInstallProtectedBookmarkMutationMatrixPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "run_credential_outsider_conversation_integration_test.go",
+    "tests": [
+      "TestOutsiderRunCredentialReadsNoConversationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "run_credential_repository_admin_integration_test.go",
+    "tests": [
+      "TestRunCredentialCannotAdministerRepositoryPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "run_credential_review_integration_test.go",
+    "tests": [
+      "TestRunCredentialReviewIsNeverAHumanApprovalPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "sandbox_plan_admission_test.go",
+    "tests": [
+      "TestSandboxPlanAdmissionRaisesTheCapOnlyForLargerFinitePlans"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "secrets_write_integration_test.go",
+    "tests": [
+      "TestSecretsWriteComposedInstallPostgres",
+      "TestSecretsInstallAPIAndLivePostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "todo_admission_test.go",
+    "tests": [
+      "TestInstallCompositionAdmitsOwnerTodos",
+      "TestHostedCompositionLeavesOwnerTodosOff"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "turn_credential_host_integration_test.go",
+    "tests": [
+      "TestTurnCredentialPackagedHostLifecyclePostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "workflow_run_credential_trigger_integration_test.go",
+    "tests": [
+      "TestRunCredentialCannotStartCacheSavingWorkflowRunsPostgres",
+      "TestDeferredTriggerManagementHTTPPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "agent_dispatch_provider_credential_test.go",
+    "tests": [
+      "TestRequireProviderCredential_RefusesWhenNoneIsUsable",
+      "TestRequireProviderCredential_AcceptsAPlatformCredential",
+      "TestRequireProviderCredential_AcceptsARepositorySecret",
+      "TestRequireProviderCredential_UsesCodingHostSeatForFlowDispatch"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "billing_agent_admission_test.go",
+    "tests": [
+      "TestBillingService_AgentRunAdmissionRejectsMissingTransaction",
+      "TestBillingService_AgentRunAdmissionCountAndPlanBranches",
+      "TestBillingService_AgentRunAdmissionTransactionFailures",
+      "TestBillingService_ConcurrentAgentRunDispatchStopsAtExactCap",
+      "TestBillingService_AgentRunAdmissionCountsQueuedRunningAndStartedTasks",
+      "TestBillingService_AgentRunAdmissionRollbackAndRetry",
+      "TestBillingService_AgentRunAdmissionUsesInsertMonthDespiteServiceClock",
+      "TestBillingService_AgentRunAdmissionCancelledWhileWaitingForOwnerLock",
+      "TestAgentDispatch_CreateWorkflowRunUsesBillingTransaction",
+      "TestAgentDispatch_LinkedTasklessRunIsRecoveredByNeverStartedReaper",
+      "TestAgentDispatch_AmbiguousCommitCleanupReleasesAdmission",
+      "TestAgentDispatch_LosingNilConnectionClaimFailsOnlyItsRun"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "billing_authorize_storage_committed_test.go",
+    "tests": [
+      "TestBillingService_StorageIncreaseFiniteLimitIsOverflowSafe",
+      "TestBillingService_AuthorizeStorageIncreaseCommitted_ZeroOrNegativeBytesSkipsCheck",
+      "TestBillingService_AuthorizeStorageIncreaseCommitted_DegradesWithoutTxQuerier",
+      "TestBillingService_AuthorizeStorageIncreaseCommitted_TxQuerierBeginTxError"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "billing_workflow_admission_test.go",
+    "tests": [
+      "TestBillingService_WorkflowDispatchAdmissionBranches",
+      "TestBillingService_WorkflowDispatchAdmissionRequiresTransaction",
+      "TestBillingService_WorkflowDispatchAdmissionTransactionFailures",
+      "TestUnlimitedBillingPolicy_WorkflowDispatchCommittedUsesCallerTransaction",
+      "TestBillingService_WorkflowAdmissionMinutesReserveInFlightRuns",
+      "TestBillingService_ConcurrentWorkflowDispatchStopsAtExactCap",
+      "TestBillingService_WorkflowDispatchAdmissionRollsBackFailedInsert",
+      "TestWorkflowRunService_ConcurrentDispatchAtCIMinuteCapCreatesOneRun",
+      "TestInvokeWorkflowAdmitsInsideCIMinuteAdmission"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "build_cache_run_credential_test.go",
+    "tests": [
+      "TestBuildCacheRunCredentialsNeverPublishPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "changeset_run_credential_test.go",
+    "tests": [
+      "TestLandChangesetRefusesRunCredentials",
+      "TestLandChangesetBlocksOnChangesRequested"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "coding_file_credential_pool_test.go",
+    "tests": [
+      "TestCodingFileGrantFitsOneTransactionConnection",
+      "TestCodingFileGrantDoesNotEscapeFailedAuthorityCommit",
+      "TestHeldWorkspaceMutationTransactionIsSubjectBound",
+      "TestWorkspaceAuthorityTransactionKeepsShareLockUntilSettlement"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "coding_file_credential_test.go",
+    "tests": [
+      "TestCodingFileGrantPostgresLifecycle",
+      "TestCodingFileGrantRevocationWaitsForWholeMutation",
+      "TestCodingFileGrantRefusesInvalidAndInactiveSubjects"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "git_http_proxy_ref_admission_test.go",
+    "tests": [
+      "TestGitHTTPProxyService_ReceivePack_RefusesPseudorefsForEveryCredential"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "git_http_proxy_run_credential_test.go",
+    "tests": [
+      "TestGitHTTPProxyService_ReceivePack_AgentRunCredentialNeverWritesDefaultOrMythical",
+      "TestGitHTTPProxyService_ReceivePack_InstallMainCoversDefaultBookmarkAliasesAndMultiRef",
+      "TestGitHTTPProxyService_ReceivePack_HostedKeepsPersonMainAndAgentDefaultRule",
+      "TestGitHTTPProxyService_InstallMainWithoutRepositoryLookupFailsClosed"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "git_mirror_credentials_test.go",
+    "tests": [
+      "TestGitMirrorCredentialsAreCallerScopedAndRevoked",
+      "TestGitMirrorCredentialsRevokeWhenRunCannotBeCreated",
+      "TestGitMirrorCredentialsRevokeAfterWorkerFailure",
+      "TestGitMirrorCredentialsDenyBeforeMintingOrStarting",
+      "TestGitMirrorCredentialsRequireUnambiguousDestination",
+      "TestGitMirrorCredentialsExplicitDestinationAndRetryCleanup",
+      "TestGitMirrorCredentialsRejectUnsafeDestination",
+      "TestMirrorCommandKeepsCredentialsOutOfArguments",
+      "TestMirrorCredentialErrorsRedactEncodedAndBareSecrets",
+      "TestGitMirrorCredentialsNativeTargetRequiresVerifiedConnection",
+      "TestMirrorCredentialUsesURLScopedHeader",
+      "TestGitMirrorInternalRefsDoNotFailAnOtherwiseSyncedRepository",
+      "TestGitMirrorPreservesNotesAndCustomRefScope"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "github_app_credentials_integration_test.go",
+    "tests": [
+      "TestGitHubAppCredentialsConversionSealedDumpRestartAndReplayPostgres",
+      "TestCredentialReloadProcessHelper",
+      "TestGitHubAppManifestRefusesForeignExpiredAndUsedStateWithoutExchangePostgres",
+      "TestGitHubAppCredentialSingletonConcurrentWritersPostgres",
+      "TestGitHubAppManifestConversionWorksWithOneDatabaseConnectionPostgres",
+      "TestGitHubAppManifestFailedAttemptCannotBindSuccessfulAppPostgres",
+      "TestGitHubAppCredentialOperatorKeyRotationPostgres",
+      "TestGitHubAppManifestConcurrentConversionsExchangeOnlyOncePostgres",
+      "TestGitHubAppManifestHTTPFailuresNeverLeakCredentialsOrFollowRedirects",
+      "TestGitHubAppManifestHTTPBodyLimitAndInterruptedResponse",
+      "TestGitHubAppManifestCanceledExchangeConsumesStateAndReleasesLockPostgres",
+      "TestGitHubAppManifestUnknownOwnerTypeIsRefusedPostgres",
+      "TestGitHubAppManifestHooklessConversionSealsGeneratedWebhookSecretPostgres",
+      "TestGitHubAppManifestMalformedAPIURLDoesNotLeakConversionCode",
+      "TestGitHubAppManifestSetupBoundaryFailuresPostgres",
+      "TestGitHubAppManifestCallbackOriginBindingPostgres",
+      "TestGitHubAppManifestConversionEnforcesOwnerAndAcceptsUserAppPostgres",
+      "TestGitHubAppManifestConversionDatabaseFailuresPostgres",
+      "TestGitHubAppManifestCallbackSnapshotIsCreationTimeAndAtomicPostgres",
+      "TestGitHubAppManifestCorruptCallbackSnapshotNeverExchangesPostgres",
+      "TestGitHubAppManifestConnectionLostAfterExchangePostgres",
+      "TestGitHubAppManifestInstallationHTTPFailuresPostgres",
+      "TestGitHubAppManifestSetupSessionSecurityPostgres",
+      "TestGitHubAppManifestOneStateConcurrentCallbacksPostgres",
+      "TestGitHubAppManifestDurableBeginCASAndAtomicCompletionPostgres",
+      "TestGitHubAppManifestInvalidatedSessionWhileWaitingPostgres",
+      "TestGitHubAppManifestExpiryDuringConversionPostgres",
+      "TestGitHubAppManifestReinstallationPostgres",
+      "TestGitHubAppManifestCompletionFencesActiveAttemptPostgres",
+      "TestGitHubAppManifestLapsedStepNeverConsumesOrConvertsPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "github_app_credentials_test.go",
+    "tests": [
+      "TestGitHubAppCredentialStoreSealsAndLoadsFresh",
+      "TestGitHubAppCredentialStoreSignsJWT",
+      "TestGitHubAppCredentialStoreReadFailures",
+      "TestGitHubAppCredentialStoreSaveFailures",
+      "TestGitHubAppCredentialStoreUnsealFailures",
+      "TestGitHubAppCredentialStoreReadersPropagateFailures",
+      "TestGitHubAppCredentialStoreInstallation",
+      "TestGitHubAppCredentialStoreFailsClosedWithoutDependencies",
+      "TestGitHubAppCredentialSecretsParticipateInInstallKeyRotation",
+      "TestGitHubAppEnvAdapterIsExplicitAndHasNoDefaultSlug",
+      "TestGitHubAppEnvIdentityValidationIsLazyFailClosedAndCachesOnlySuccess",
+      "TestGitHubAppSetupSessionUnavailableFailsClosed"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "github_webhook_credentials_test.go",
+    "tests": [
+      "TestWebhookReloadsStoredSecretAndFailsClosed"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "member_permission_integration_test.go",
+    "tests": [
+      "TestMemberPermissionFailuresPreserveCommittedAccessPostgres",
+      "TestMemberPermissionIdentityBindingPostgres",
+      "TestMemberPermissionInstallationRefusalIsRosterAtomicPostgres",
+      "TestMemberPermissionRoundTwoIsolationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "member_permission_test.go",
+    "tests": [
+      "TestMemberPermissionParsedResponses",
+      "TestMemberPermissionRejectsUnresolvedRepositoryResponse",
+      "TestMemberPermissionStreamUsesHourlyTarget",
+      "TestMemberPermissionInstallationRepositoryProof",
+      "TestMemberPermissionRejectsDifferentAccountID",
+      "TestMemberPermissionTokenRefusals"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "member_poll_test.go",
+    "tests": [
+      "TestPermissionPollCadenceRetryAndConditionalRevocationPostgres",
+      "TestPermissionPollFailuresPreserveAccessPostgres",
+      "TestPermissionPollSharedPauseRetainsRetryPostgres",
+      "TestPermissionPollRejectsChangedRosterDuringReadPostgres",
+      "TestPermissionPollRollbackAndRestartPostgres",
+      "TestPermissionPollWithoutMetadataQualificationPostgres",
+      "TestPermissionPollLowBudgetCadencePostgres",
+      "TestPermissionPollConditionalReadRejectsRebindingPostgres",
+      "TestPermissionPollMintPausePrecedesMinterPostgres",
+      "TestGitHubSyncObservationAggregatesMemberFailures",
+      "TestPermissionPollKeyFailureCannotUndoSuspensionPostgres",
+      "TestPermissionPollRestartProjectsPersistedHealthPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "member_recheck_race_test.go",
+    "tests": [
+      "TestMemberRecheckConcurrentRosterPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "member_revocation_deleted_test.go",
+    "tests": [
+      "TestMembersRemoveDeletedWorkspaceSharesPostgres",
+      "TestMemberPermissionRecheckDeletedWorkspaceSharesPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "member_token_test.go",
+    "tests": [
+      "TestRosterRejectsEmptyOrMismatchedMintedToken",
+      "TestRosterTokenComesFromTheOneMinterAtMetadataRead",
+      "TestRosterWithoutMinterFailsBeforeGitHub",
+      "TestRosterReadsShareTheInstallationBudget",
+      "TestOwnerCheckTokenComesFromTheOneMinterAtMetadataReadPostgres",
+      "TestMemberScopeFitsTheManifestGrant",
+      "TestOnlyTheMinterCreatesInstallationTokens"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "mythical_attempt_admission_test.go",
+    "tests": [
+      "TestTodoAttemptAdmissionTransaction"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "mythical_todo_admission_test.go",
+    "tests": [
+      "TestTodoOwnerAdmissionLaunchesThePinnedComposition",
+      "TestTodoQueuedBeforeActivationPinsVersionAtStarting",
+      "TestTodoItemPinMustBeExact",
+      "TestTodoDarkAdmissionOwnerProviders",
+      "TestTodoPinnedEngineLaunches",
+      "TestTodoRunOfAnotherFlowIsNeverTheAttempts",
+      "TestTodoLaunchRefusedBeforeItsRunLeavesStarting",
+      "TestTodoAdmissionLaunchesTheCodingRequest",
+      "TestTodoAdmissionStartsAnIssueTodoFromItsDraft",
+      "TestTodoLabelAdmissionSharesPinnedFlowAndAllowance"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "oauth2_authorize_test.go",
+    "tests": [
+      "TestOAuth2Service_IsValidRegisteredRedirectURI_ExactMatch",
+      "TestOAuth2Service_IsValidRegisteredRedirectURI_LoopbackPortAgnostic",
+      "TestOAuth2Service_RevokeToken_BindsToClient",
+      "TestOAuth2Service_GetApplicationByClientID_Public"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "org_remove_member_team_test.go",
+    "tests": [
+      "TestOrgService_RemoveOrgMember_StripsTeamMemberships"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "provider_credentials_test.go",
+    "tests": [
+      "TestIsUsableProviderCredential"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "ssh_authorization_cover_test.go",
+    "tests": [
+      "TestSSHAuthorization_Cov_PublicReadArchivedAndPermissionErrors",
+      "TestSSHAuthorization_Cov_PermissionAllowsInvalidMode"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "ssh_authorization_test.go",
+    "tests": [
+      "TestSSHAuthorizationService_Authorize_CollaboratorReadAllowsRead",
+      "TestSSHAuthorizationService_Authorize_CollaboratorWriteAllowsWrite",
+      "TestSSHAuthorizationService_Authorize_CollaboratorReadDeniesWrite",
+      "TestAccessModeFromGitCommand",
+      "TestSSHAuthorizationService_Authorize"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "ssh_authorization_z_test.go",
+    "tests": [
+      "TestSSHAuthorization_Z_ErrorBranches"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "todo_admission_dark_test.go",
+    "tests": [
+      "TestIssueTodoUnavailableBeforeEffects",
+      "TestIssueWebhookRemainsRetryableWithoutAdmission",
+      "TestFileTodoNeverCreatesAnIssueWithoutAdmission",
+      "TestIssueAdmissionUnavailableNeverExhaustsWebhookDelivery"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "todo_from_issue_members_integration_test.go",
+    "tests": [
+      "TestMembersMakeTodosFromIssuesThroughTheApp"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "upload_pack_admission_error_test.go",
+    "tests": [
+      "TestGitProxyFailureUploadPackAdmission",
+      "TestGitProxyFailureDoesNotTranslateUnrelatedAdmissionErrors",
+      "TestGitProxyFailureDoesNotTranslateAdmissionForOtherOperations"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "upload_pack_admission_http_test.go",
+    "tests": [
+      "TestUploadPackAdmissionHTTPBoundary"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "workflow_cache_pending_admission_test.go",
+    "tests": [
+      "TestWorkflowCacheBeginSave_StagesDeclaredSizeAndRotatesSameRunCapability",
+      "TestWorkflowCacheBeginSave_ConcurrentPendingReservationsRespectRepoQuota",
+      "TestWorkflowCacheBeginSave_AdmissionDenialPreservesReplacement",
+      "TestWorkflowCacheFinalize_PromotesStagingAndPurgesIt",
+      "TestWorkflowCacheFinalize_DeleteWinsAfterPromotionCleansUnclaimedBlob",
+      "TestWorkflowCacheFinalize_ReconciliationLookupErrorPreservesPromotedBlob",
+      "TestWorkflowCacheFinalize_TransientWriteErrorWithPendingReconciliationPreservesPromotedBlob",
+      "TestWorkflowCacheDeletionClaim_RemovesPendingAndFinalObjects",
+      "TestWorkflowCacheCleanup_ExpiredPendingReleasesUsageBeforeEviction",
+      "TestWorkflowCacheBeginSave_RejectsInvalidDeclaredSizes"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "workflow_nix_ci_job_credentials_test.go",
+    "tests": [
+      "TestNixCITaskCommand_RestoresBeforeStepsAndSavesAfterThem",
+      "TestNixCIRun_JobTokenReachesOnlyItsGuestAndDiesWithTheJob",
+      "TestNixCIRun_JobTokenFailureStillRunsTheJob",
+      "TestNixCIRun_HostedCredentialChannelStartsPlainJob",
+      "TestNixCIRun_UnbindableInternalHostWithholdsTheJobToken",
+      "TestNixCIRun_GuestWithoutEgressProxyRefusesBoundCredentials",
+      "TestNixCIRun_TokenForAnUnrunnableTaskIsNotBound",
+      "TestNixCIRun_ExportsPlaceholdersForRepositoryBoundSecrets",
+      "TestNixCIJobEnvFile_RoundTripsThroughBash",
+      "TestNixCIGuestHelper_ArchiveSafety"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "workspace_authorization_test.go",
+    "tests": [
+      "TestWorkspaceService_GetWorkspace_Owner_Allowed",
+      "TestWorkspaceService_GetWorkspace_NonOwner_NoShare_Returns403",
+      "TestWorkspaceService_GetWorkspace_NonOwner_WriteShare_Allowed",
+      "TestWorkspaceService_GetWorkspace_NonOwner_ReadShare_Allowed",
+      "TestWorkspaceService_SuspendWorkspace_NonOwner_NoShare_Returns403",
+      "TestWorkspaceService_SuspendWorkspace_NonOwner_WriteShare_Returns403_SandboxUnavailable",
+      "TestWorkspaceService_DeleteWorkspace_NonOwner_NoShare_Returns403",
+      "TestWorkspaceService_GetSession_NonOwner_NoShare_Returns403",
+      "TestWorkspaceService_GetSession_Owner_Allowed",
+      "TestWorkspaceService_GetSession_WorkspaceOwner_CollaboratorSession_Allowed",
+      "TestWorkspaceService_GetSession_RevokedCreator_Returns403",
+      "TestWorkspaceService_GetSession_ReadShare_ViewAllowed_SSHDenied",
+      "TestWorkspaceService_GetWorkspaceSnapshot_NonOwner_NoShare_Returns403",
+      "TestWorkspaceService_GetWorkspaceSnapshot_Owner_Allowed",
+      "TestWorkspaceService_DestroySession_NonOwner_NoShare_Returns403",
+      "TestRequireWorkspaceAccess_Owner_AlwaysAllowed",
+      "TestRequireWorkspaceAccess_NonOwner_NoShare_Returns403",
+      "TestRequireWorkspaceAccess_NonOwner_ReadShare_ReadLevel_Allowed",
+      "TestRequireWorkspaceAccess_NonOwner_ReadShare_WriteLevel_Returns403",
+      "TestRequireWorkspaceAccess_NonOwner_WriteShare_WriteLevel_Allowed",
+      "TestRequireWorkspaceAccess_NonOwner_WriteShare_ReadLevel_Allowed"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "workspace_preview_authorize_test.go",
+    "tests": [
+      "TestAuthorizeWorkspacePreviewRechecksEveryGrant",
+      "TestAuthorizeWorkspacePreviewPreservesStorageCauses"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "workspace_runtime_admission_test.go",
+    "tests": [
+      "TestWorkspaceRuntimeResumeRequiresAdmission",
+      "TestWorkspaceRuntimeFailedOwnerWakeCancelsPersonOnly"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "workspace_terminal_credential_test.go",
+    "tests": [
+      "TestTerminalCredentialLifecycle",
+      "TestTerminalCredentialRevokesWhenItsFileCannotBeWritten",
+      "TestTerminalCredentialReplacementRetiresPreviousBeforeWriting",
+      "TestTerminalCredentialConcurrentReplacement",
+      "TestTerminalCredentialReplacementWriteFailureLeavesNoIdentity",
+      "TestTerminalCredentialForeignReplacementSurvivesStaleHost"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/identity",
+    "file": "member_boundary_test.go",
+    "tests": [
+      "TestMemberBoundaryRefusesOwnerWithoutSettingsReader",
+      "TestMemberBoundaryCachesOwnerAndRejectsForeignPrincipal",
+      "TestMemberBoundaryDoesNotCacheUninitializedState",
+      "TestMemberBoundaryAdmitsRosterMembersOnMemberRoutes"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/middleware",
+    "file": "auth_dead_credential_test.go",
+    "tests": [
+      "TestAuthLoader_DeadSessionCookie",
+      "TestUnauthenticatedMessage_SplitsDeadFromNone",
+      "TestLegacyRawSessionKey"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/middleware",
+    "file": "coding_file_credential_test.go",
+    "tests": [
+      "TestCodingFileCredentialScopes",
+      "TestCodingFileCredentialNestedRunIdentity",
+      "TestCodingFileCredentialAdmitsOnlyExactBoundedBody",
+      "TestCodingFileCredentialKeepsDurableActionIdentity"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/middleware",
+    "file": "credential_test.go",
+    "tests": [
+      "TestCredentialOfNamesWhatTheStoreFilesItUnder",
+      "TestReadsRepositoriesAsPersonFollowsTheCredentialsNarrowestBinding",
+      "TestReloadCredentialResolvesAKeptCredentialNow",
+      "TestReadsRepositoriesForTurnRetainsEveryDelegationRestriction",
+      "TestDelegatedRepositoryReaderForTurn"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/middleware",
+    "file": "install_member_routes_test.go",
+    "tests": [
+      "TestInstallMemberCommandRoutes"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/middleware",
+    "file": "install_owner_scope_test.go",
+    "tests": [
+      "TestInstallationOwnerSettingsAdapterHTTPRequiresVerifiedBinding",
+      "TestInstallationOwnerSetupScopeCoversGitHubReturns"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/middleware",
+    "file": "run_credential_test.go",
+    "tests": [
+      "TestRefuseRunCredentials",
+      "TestAgentAccountCredentialIsAnAgentRun",
+      "TestRequirePersonRefusesAgentAccounts",
+      "TestMachineCredentialClassification",
+      "TestMachineAndSyncDoNotInheritTerminalDelegation",
+      "TestInstallPATClassificationHasNoBackfill",
+      "TestRequirePersonCredential"
+    ]
+  }
+]

@@ -1,5 +1,51 @@
 [
   {
+    "label": "//:backendAccessTests",
+    "package": "",
+    "name": "backendAccessTests",
+    "rule": "Shell.Diff",
+    "kinds": [
+      "run",
+      "lint"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "scripts/backend-access-tests.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/backend-access-tests.json"
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/*_test.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/services/*_test.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/identity/*_test.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/middleware/*_test.go",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "PACKAGE.ts"
+    }
+  },
+  {
     "label": "//:backendGo",
     "package": "",
     "name": "backendGo",
@@ -84,6 +130,64 @@
       "//packages/smithers/agent/integrations:lib",
       "//packages/smithers/agent/model-host:lib",
       "//packages/smithers/flows:lib"
+    ],
+    "source": {
+      "file": "PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//:backendGoAccess",
+    "package": "",
+    "name": "backendGoAccess",
+    "rule": "Shell.Test",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "scripts/backend-access-tests.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/backend-access-tests.json"
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/*_test.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/services/*_test.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/identity/*_test.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/middleware/*_test.go",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "go.mod"
+      },
+      {
+        "kind": "file",
+        "path": "go.sum"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [
+      "//:backendGoModules",
+      "//:backendSQLC",
+      "//:nativeFfiLib",
+      "//packages/backend:buildInputs"
     ],
     "source": {
       "file": "PACKAGE.ts"
@@ -36565,6 +36669,10 @@
     ],
     "cacheable": false,
     "inputs": [
+      {
+        "kind": "file",
+        "path": "scripts/backend-access-tests.test.mjs"
+      },
       {
         "kind": "file",
         "path": "scripts/lane-gates.test.mjs"

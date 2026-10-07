@@ -419,6 +419,53 @@ const backendGo = Smithers.Shell.Test({
   timeout: "70m"
 })
 
+// The access-control tests (member, admission, authorization, credential and
+// person-only files of compose, services, identity and middleware), on their own
+// budget so a hang elsewhere in backendGo cannot hide them (#3071). The list is
+// file-derived and committed in scripts/backend-access-tests.json; each file runs
+// as its own `go test` process, so a hang panics one file, not the package.
+// backendGo still runs these tests too.
+const backendAccessTestSources = [
+  Smithers.file("//scripts/backend-access-tests.mjs"),
+  Smithers.file("//scripts/backend-access-tests.json"),
+  Smithers.glob("//packages/backend/internal/compose/*_test.go"),
+  Smithers.glob("//packages/backend/internal/services/*_test.go"),
+  Smithers.glob("//packages/backend/internal/identity/*_test.go"),
+  Smithers.glob("//packages/backend/internal/middleware/*_test.go")
+]
+
+// Fails when a matching test file or Test func is missing from the committed list.
+const backendAccessTests = Smithers.Shell.Diff({
+  shell: "node scripts/backend-access-tests.mjs --check",
+  data: backendAccessTestSources,
+  changes: [],
+  timeout: "2m"
+})
+
+const backendGoAccess = Smithers.Shell.Test({
+  shell: "export PATH=\"$PWD/.backend-sqlc:$PATH\"; export SMITHERS_FFI_LIBRARY_PATH=\"$PWD/.native-ffi/target/debug/libsmithers_ffi.so\"; export SMITHERS_WIKI_TEST_FFI=\"$SMITHERS_FFI_LIBRARY_PATH\"; export GOMODCACHE=\"$PWD/.backend-go-modcache\"; runs=$(mktemp) || exit $?; log=$(mktemp) || exit $?; node scripts/backend-access-tests.mjs --runs >\"$runs\" || exit $?; status=0; while read -r pkg pattern; do go test -count=1 -timeout 30m -run \"$pattern\" \"./$pkg/\" >>\"$log\" 2>&1 || status=1; done <\"$runs\"; cat \"$log\"; if [ $status -ne 0 ]; then printf 'go test failures:\\n' >&2; grep -E -A30 '^[[:space:]]*--- FAIL|^panic:|^FAIL' \"$log\" | head -n 400 >&2; printf 'go test summary:\\n' >&2; grep -E '^(ok|FAIL)[[:space:]]|^[[:space:]]*--- FAIL|^panic: test timed out' \"$log\" >&2; fi; rm -f \"$runs\" \"$log\"; exit $status",
+  env: {
+    GOFLAGS: "-buildvcs=false -mod=readonly",
+    GOMAXPROCS: "2",
+    SMITHERS_REQUIRE_DATABASE_TESTS: "1",
+    GOPROXY: "off",
+    SMITHERS_TEST_DATABASE_URL: "postgres://smithers:smithers-backend-test@127.0.0.1:55435/postgres?sslmode=disable"
+  },
+  data: [
+    backendGoModules,
+    backendSQLC,
+    nativeFfiLib,
+    ...backendAccessTestSources,
+    Smithers.file("//go.mod"),
+    Smithers.file("//go.sum"),
+    backendPackage.buildInputs
+  ],
+  services: [backendPostgres],
+  sandbox: { network: "loopback" },
+  // 78 files run one by one; a single 30m per-file hang still leaves room.
+  timeout: "75m"
+})
+
 // The product API spec is bundled from one source per tag, so changes under
 // different tags never edit the same file. `run` re-bundles; `lint` fails when
 // the committed docs/api/openapi.yaml is stale.
@@ -466,6 +513,7 @@ const driftCi = Smithers.GithubCiGen({
     steps: [
       { name: "Formatting", verb: Smithers.Verb.Lint, pattern: "//...:fmt" },
       { name: "Target index drift", verb: Smithers.Verb.Lint, pattern: "//:targetIndex" },
+      { name: "Backend access test list drift", verb: Smithers.Verb.Lint, pattern: "//:backendAccessTests" },
       { name: "OpenAPI bundle drift", verb: Smithers.Verb.Lint, pattern: "//:openapiBundle" },
       { name: "OpenAPI client drift", verb: Smithers.Verb.Lint, pattern: "//:openapiClients" },
       { name: "Documentation drift", verb: Smithers.Verb.Lint, pattern: "//scripts:docsDrift" },
@@ -497,6 +545,7 @@ const ci = Smithers.GithubCiGen({
     { name: "example typecheck", verb: Smithers.Verb.Build, pattern: "//examples/...", job: "test" },
     { name: "example suite", verb: Smithers.Verb.Test, pattern: "//examples/...", job: "test" },
     { name: "shared Go backend", verb: Smithers.Verb.Test, pattern: "//:backendGo", job: "go-backend" },
+    { name: "backend access-control tests", verb: Smithers.Verb.Test, pattern: "//:backendGoAccess", job: "go-backend-access" },
     { name: "native FFI compiler and tests", verb: Smithers.Verb.Build, pattern: "//:nativeFfi", job: "rust-ffi" },
     { name: "web bundle compatibility", verb: Smithers.Verb.Test, pattern: "//scripts:webBundleContract" }
   ],
@@ -512,6 +561,7 @@ const ci = Smithers.GithubCiGen({
     "e2e-faults",
     "packages",
     "go-backend",
+    "go-backend-access",
     "rust-ffi"
   ],
   jobs: [
@@ -927,6 +977,24 @@ const ci = Smithers.GithubCiGen({
         docker: dockerImageStore
       }),
       steps: [{ name: "Build and test shared backend", verb: Smithers.Verb.Test, pattern: "//:backendGo" }]
+    },
+    {
+      id: "go-backend-access",
+      name: "backend access-control tests (PostgreSQL)",
+      runsOn: ubuntu,
+      timeoutMinutes: 90,
+      toolchain: Smithers.CiToolchain.Needs({
+        // A box's coding host binds its checkout through smithers-jj-export (#2194).
+        cargoBinaries: nativeFilesystem,
+        runtimes: [node, bun],
+        jj,
+        ripgrep,
+        apt: bubblewrap,
+        go,
+        postgres,
+        docker: dockerImageStore
+      }),
+      steps: [{ name: "Backend access-control tests", verb: Smithers.Verb.Test, pattern: "//:backendGoAccess" }]
     }
   ]
 })
@@ -1263,6 +1331,8 @@ export const Package = Smithers.Package({
     backendGoModules,
     backendSQLC,
     backendGo,
+    backendAccessTests,
+    backendGoAccess,
     nativeFfiLib,
     nativeFfi,
     commit,
