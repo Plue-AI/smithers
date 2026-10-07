@@ -20,7 +20,6 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
-	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/stretchr/testify/require"
 )
 
@@ -283,10 +282,8 @@ func TestDocRelayDataOnly(t *testing.T) {
 func TestDocRelayRevocation(t *testing.T) {
 	for _, when := range []string{"startup", "admitted"} {
 		t.Run(when, func(t *testing.T) {
-			bus := revocation.NewBus(nil, nil)
-			routes.SetRevocationSource(bus)
-			t.Cleanup(func() { routes.SetRevocationSource(nil) })
 			f := newDocFixture(t)
+			bus := f.bus
 			if when == "startup" {
 				f.relay.Authorize = func(ctx context.Context, _ live.DocumentTopic, repo, member int64) ([]byte, string) {
 					bus.Deliver(revocation.Event{Kind: revocation.KindCollaboratorRemoved, RepositoryID: repo, UserID: member})

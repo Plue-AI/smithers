@@ -1,7 +1,9 @@
 package machined
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"time"
@@ -46,6 +48,13 @@ func (i *Ingestor) Commit(ctx context.Context, connection *Connection, branch st
 		return ack, err
 	}
 	id := event.EventID
+	digest := sha256.Sum256(event.Payload)
+	var capture []byte
+	if event.Payload[0] == 2 {
+		// These fixed-size identities, unlike transcript content, are needed
+		// for recovery after a stale-base ACK releases the guest's outbox pin.
+		capture = event.Payload
+	}
 	// Fence replacement through commit, including a newer boot arriving while
 	// objects are verified. Network acknowledgement runs after releasing the lock.
 	r := connection.registry
@@ -65,14 +74,23 @@ func (i *Ingestor) Commit(ctx context.Context, connection *Connection, branch st
 	}()
 	eventID := fmt.Sprintf("%x-%x-%x-%x-%x", id[:4], id[4:6], id[6:8], id[8:10], id[10:])
 	// The unique insert serializes concurrent replay across connections/processes.
-	inserted, err := tx.Exec(ctx, `INSERT INTO machine_event_receipts(workspace_id,event_id,outcome) VALUES($1,$2,'pending') ON CONFLICT(workspace_id,event_id) DO NOTHING`, branch, eventID)
+	inserted, err := tx.Exec(ctx, `INSERT INTO machine_event_receipts(workspace_id,event_id,outcome,payload_digest,capture_payload) VALUES($1,$2,'pending',$3,$4) ON CONFLICT(workspace_id,event_id) DO NOTHING`, branch, eventID, digest[:], capture)
 	if err != nil {
 		return ack, err
 	}
 	if inserted.RowsAffected() == 0 {
 		var outcome string
-		if err = tx.QueryRow(ctx, `SELECT outcome FROM machine_event_receipts WHERE workspace_id=$1 AND event_id=$2`, branch, eventID).Scan(&outcome); err != nil {
+		var previous []byte
+		if err = tx.QueryRow(ctx, `SELECT outcome,payload_digest FROM machine_event_receipts WHERE workspace_id=$1 AND event_id=$2`, branch, eventID).Scan(&outcome, &previous); err != nil {
 			return ack, err
+		}
+		if len(previous) == 0 {
+			// An old receipt has no proof of its payload. Keep it intact and
+			// refuse replay instead of applying again or trusting new bytes.
+			return ack, ErrNotReady
+		}
+		if !bytes.Equal(previous, digest[:]) {
+			return ack, wire.BadValue
 		}
 		switch outcome {
 		case "applied":

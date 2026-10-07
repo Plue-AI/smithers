@@ -211,6 +211,21 @@ func TestMachinedComposedDocumentBoundary(t *testing.T) {
 	git("-C", store, "gc", "--prune=now")
 	require.Equal(t, base, git("-C", store, "rev-parse", headRef))
 	require.Equal(t, "captured bytes", git("-C", store, "show", "refs/smithers/branches/"+branch+"/captures/"+head+":retry.ts"))
+	// Pruning activity cannot erase the stale capture's recovery identities.
+	_, err = pool.Exec(t.Context(), `DELETE FROM product_job_events WHERE event_type='branch.captured'`)
+	require.NoError(t, err)
+	var retained []byte
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT capture_payload FROM machine_event_receipts WHERE workspace_id=$1 AND outcome='stale_base'`, branch).Scan(&retained))
+	recovered, err := wire.DecodeCaptured(retained)
+	require.NoError(t, err)
+	require.Equal(t, capture, recovered)
+	missing, err := captures.VerifyCapture(t.Context(), branch, recovered)
+	require.NoError(t, err)
+	require.Empty(t, missing)
+	ack, err = ingestor.Commit(t.Context(), link.Connection, branch, event)
+	require.NoError(t, err)
+	require.Equal(t, machined.AckStaleBase, ack.Outcome)
+	require.Equal(t, 2, projections, "replay must not project after activity pruning")
 	// Dependency readiness is separate from the transport. A fresh authenticated
 	// link is refused by the public subscription before reconciliation completes.
 	f.relay.Connection = func(_ context.Context, branch string) (*machined.Connection, live.DocumentRPC) {

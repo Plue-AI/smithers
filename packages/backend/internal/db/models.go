@@ -1446,6 +1446,8 @@ type MachineEventReceipt struct {
 	Outcome              string    `json:"outcome"`
 	At                   time.Time `json:"at"`
 	TranscriptCheckpoint []byte    `json:"transcript_checkpoint"`
+	PayloadDigest        []byte    `json:"payload_digest"`
+	CapturePayload       []byte    `json:"capture_payload"`
 }
 
 type MemoryNote struct {

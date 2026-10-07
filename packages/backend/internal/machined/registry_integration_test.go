@@ -155,3 +155,56 @@ func TestMachinedCaptureDispatchDurability(t *testing.T) {
 	cancel()
 	require.ErrorIs(t, <-done, context.Canceled)
 }
+
+func TestMachineReceiptReplayBindsEventPayload(t *testing.T) {
+	pool, branch, _ := machineReceiptDatabase(t)
+	r := new(Registry)
+	authority, err := r.MintBoot(branch, "vm")
+	require.NoError(t, err)
+	link, _ := connectTest(t, r, branch, authority)
+	for _, outcome := range []AckOutcome{AckApplied, AckStaleBase, AckRejected} {
+		t.Run(fmt.Sprint(outcome), func(t *testing.T) {
+			writes := 0
+			ingestor := &Ingestor{Pool: pool, Write: func(context.Context, pgx.Tx, string, Event) (Acknowledgement, error) {
+				writes++
+				return Acknowledgement{Outcome: outcome}, nil
+			}}
+			event := capturedEvent(1, [16]byte{byte(outcome)})
+			_, err := ingestor.Commit(t.Context(), link.Connection, branch, event)
+			require.NoError(t, err)
+			for part := range 3 {
+				fields := [][]byte{make([]byte, 20), make([]byte, 20), make([]byte, 20)}
+				fields[part][0] = 1
+				changed := event
+				changed.Payload = wire.Union(2, wire.Field(1, fields[0]), wire.Field(2, fields[1]), wire.Field(3, fields[2]))
+				_, err = ingestor.Commit(t.Context(), link.Connection, branch, changed)
+				require.ErrorIs(t, err, wire.BadValue, "same ID cannot acknowledge a different head, tree or base")
+			}
+			event.Seq = 42 // sequence belongs to the connection, not durable identity
+			ack, err := ingestor.Commit(t.Context(), link.Connection, branch, event)
+			require.NoError(t, err)
+			require.Equal(t, uint64(42), ack.Seq)
+			require.Equal(t, 1, writes)
+			var captured []byte
+			require.NoError(t, pool.QueryRow(t.Context(), `SELECT capture_payload FROM machine_event_receipts WHERE workspace_id=$1 AND event_id=$2`, branch, fmt.Sprintf("%x-%x-%x-%x-%x", event.EventID[:4], event.EventID[4:6], event.EventID[6:8], event.EventID[8:10], event.EventID[10:])).Scan(&captured))
+			require.Equal(t, event.Payload, captured)
+		})
+	}
+	// Non-capture records bind their bytes without retaining transcript content.
+	event := Event{Seq: 10, EventID: [16]byte{9}, Payload: wire.Union(6)}
+	writer := &Ingestor{Pool: pool, Write: func(context.Context, pgx.Tx, string, Event) (Acknowledgement, error) {
+		return Acknowledgement{Outcome: AckApplied}, nil
+	}}
+	_, err = writer.Commit(t.Context(), link.Connection, branch, event)
+	require.NoError(t, err)
+	var payload []byte
+	var size int
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT capture_payload,octet_length(payload_digest) FROM machine_event_receipts WHERE workspace_id=$1 AND event_id='09000000-0000-0000-0000-000000000000'`, branch).Scan(&payload, &size))
+	require.Nil(t, payload)
+	require.Equal(t, 32, size)
+	// Legacy receipts remain intact but cannot certify an unbound replay.
+	_, err = pool.Exec(t.Context(), `UPDATE machine_event_receipts SET payload_digest=NULL WHERE workspace_id=$1 AND event_id='09000000-0000-0000-0000-000000000000'`, branch)
+	require.NoError(t, err)
+	_, err = writer.Commit(t.Context(), link.Connection, branch, event)
+	require.ErrorIs(t, err, ErrNotReady)
+}
