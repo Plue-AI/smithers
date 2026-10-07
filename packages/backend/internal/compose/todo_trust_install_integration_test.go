@@ -242,6 +242,13 @@ func TestTodoTrustInstallLabelMatrix(t *testing.T) {
 					return response.StatusCode, raw
 				}
 				status, raw := call("GET", fmt.Sprintf("/api/issues/%d", number), "")
+				refusedStatus := http.StatusForbidden
+				if actor.login == "erin" || (!actor.team && door == "cli") {
+					// Suspension invalidates both credentials; delegated tokens
+					// also require a live member sponsor. A live non-member's
+					// browser session still gets permission refusal.
+					refusedStatus = http.StatusUnauthorized
+				}
 				digest := strings.Repeat("f", 64)
 				if actor.team {
 					require.Equal(t, 200, status, name+string(raw))
@@ -252,7 +259,7 @@ func TestTodoTrustInstallLabelMatrix(t *testing.T) {
 					require.Len(t, read.Digest, 64)
 					digest = read.Digest
 				} else {
-					require.Equal(t, 403, status, name+string(raw))
+					require.Equal(t, refusedStatus, status, name+string(raw))
 				}
 				allowed := actor.team
 				if text != "team" {
@@ -263,7 +270,7 @@ func TestTodoTrustInstallLabelMatrix(t *testing.T) {
 				body := fmt.Sprintf(`{"title":%q,"prompt":"Reviewed issue prompt","issue":%d,"issue_digest":%q}`, name, number, digest)
 				status, raw = call("POST", "/api/todos", body)
 				if !allowed {
-					require.Equal(t, 403, status, name+string(raw))
+					require.Equal(t, refusedStatus, status, name+string(raw))
 					var refusal struct {
 						Class string `json:"class"`
 					}
