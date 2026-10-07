@@ -53,7 +53,7 @@ test("Context HTTP contract: shared prompt opens four pinned sources and Inspect
   await expect(disclosure).toBeVisible()
   await composer.press("Escape"); await disclosure.press("Enter")
   const file = page.locator('.mvp-context-chip[data-flow="file"]')
-  await expect(file).toHaveAttribute("title", `src/webhooks/retry.ts · ${revision} · Retry implementation`)
+  await expect(file).toHaveAttribute("title", `src/webhooks/retry.ts · ${revision}`)
   await file.press("Enter")
   await expect(page.locator('.smithers-card').last()).toContainText("export const retry = 3")
   const wiki = page.locator('.mvp-context-chip[data-flow="wiki.page"]')
