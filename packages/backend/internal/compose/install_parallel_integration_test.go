@@ -93,9 +93,10 @@ func testParallelInstallBoundary(t *testing.T, card bool) {
 	cfg.Install.StateDir = t.TempDir()
 	cfg.Server.PublicURL = "http://localhost:4000"
 	cfg.Server.AllowedOrigins = []string{"http://localhost:4000"}
-	capacity := &services.InstallCapacityService{AuthorizeParallel: func(ctx context.Context) error { _, err := services.Authorize(ctx, q, "settings"); return err }, Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 64 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: 400 << 30, MacOSVersion: "15.6", Hypervisor: true}}
+	capacity := &services.InstallCapacityService{AuthorizeParallel: func(ctx context.Context) error { _, err := services.Authorize(ctx, q, "settings.parallel"); return err }, Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 64 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: 400 << 30, MacOSVersion: "15.6", Hypervisor: true}}
 	setupSessions := &services.InstallSetupSessions{Pool: pool}
 	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{Sessions: setupSessions, Owners: q, Origins: middleware.FixedOrigins("http://localhost:4000"), Setup: &services.InstallSetupService{Pool: pool, Capacity: capacity}}, &routes.UserHandler{ProfileService: services.NewUserService(q)}, &routes.WorkspaceHandler{Service: services.NewWorkspaceService(q)})
+	var authorizedCommands []string
 	request := func(method, path, token, body string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, "http://localhost:4000"+path, strings.NewReader(body))
 		r.RemoteAddr = "127.0.0.1:1234"
@@ -110,6 +111,8 @@ func testParallelInstallBoundary(t *testing.T, card bool) {
 		r.Header.Set("Origin", "http://localhost:4000")
 		r.Header.Set("X-CSRF-Token", "csrf")
 		r.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
+		authorizedCommands = nil
+		r = r.WithContext(services.WithAuthorizationObserver(r.Context(), func(command string) { authorizedCommands = append(authorizedCommands, command) }))
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, r)
 		return w
@@ -178,6 +181,7 @@ func testParallelInstallBoundary(t *testing.T, card bool) {
 		providers.Ready = func(context.Context, microsandbox.AdmissionRequest) error {
 			response := request("PUT", "/api/install", "quiesceowner-session", `{"parallel":1}`)
 			require.Equal(t, 200, response.Code, response.Body.String())
+			require.Equal(t, []string{"settings.parallel"}, authorizedCommands)
 			return nil
 		}
 		second, err := runtime.GrantNext(ctx, providers)
