@@ -12,6 +12,7 @@ import type { Runtime } from "../../cli/ControlBridge.ts"
 import * as Presentation from "../../cli/Presentation.ts"
 import { Refused, UsageError } from "../../CliError.ts"
 import * as Failure from "../Failure.ts"
+import { draftFromIssue } from "./IssueDraft.ts"
 import { Client, list, object } from "./Client.ts"
 import { targetsInstall } from "./Destination.ts"
 import { definitions } from "./Definitions.ts"
@@ -72,6 +73,7 @@ export const dispatchCatalog = async (
       message: "Only a person can do this in the app"
     })
   }
+  if (row.name === "todo.from-issue") return draftFromIssue(client, supplied)
   if (row.http === null) {
     throw new Refused({ fault: "infra", code: "not_available", message: "Not available yet" })
   }

@@ -28,15 +28,8 @@ export interface TodoReceipt {
   readonly outcome?: { readonly status: "ok" | "failed"; readonly detail: string }
 }
 /** What Make TODO drafts from: one GitHub issue and its discussion, as its issue card read them. */
-export interface IssueDraftSource {
-  readonly author?: string | null | undefined
-  readonly digest?: string | undefined
-  readonly number: number
-  readonly title: string
-  readonly body: string
-  readonly url: string
-  readonly comments: ReadonlyArray<{ readonly author: string | null; readonly body: string }>
-}
+export type { IssueDraftSource } from "../../../../../../packages/smithers/src/IssueTodoDraft.ts"
+import type { IssueDraftSource } from "../../../../../../packages/smithers/src/IssueTodoDraft.ts"
 /** The Draft's prompt: the issue's body, then each comment quoted under its author. */
 const issuePrompt = (source: IssueDraftSource): string => [source.body.trim(), ...source.comments.flatMap(comment => comment.body.trim()
   ? [`@${comment.author ?? "someone"}:\n${comment.body.trim().split("\n").map(line => `> ${line}`).join("\n")}`] : [])]
