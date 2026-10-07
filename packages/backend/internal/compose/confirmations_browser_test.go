@@ -18,18 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/smithersai/smithers/packages/backend/internal/blob"
-	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/smithersai/smithers/packages/backend/internal/live"
-	"github.com/smithersai/smithers/packages/backend/internal/revocation"
-	"github.com/smithersai/smithers/packages/backend/internal/routes"
-	"github.com/smithersai/smithers/packages/backend/internal/services"
-	"github.com/smithersai/smithers/packages/backend/ports"
-	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
 
@@ -42,12 +32,8 @@ func TestConfirmationsBrowserPostgres(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Minute)
 	defer cancel()
-	pool, _ := postgresfixture.NewProductDatabase(t)
+	_, _, pool := splitProcessDatabase(t)
 	q := db.New(pool)
-	bus := revocation.NewBus(pool, q)
-	require.NoError(t, bus.Start(ctx))
-	routes.SetRevocationSource(bus)
-	defer routes.SetRevocationSource(nil)
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "maya", LowerUsername: "maya", DisplayName: "Maya"})
 	require.NoError(t, err)
 	other, err := q.CreateUser(ctx, db.CreateUserParams{Username: "ben", LowerUsername: "ben", DisplayName: "Ben"})
@@ -82,26 +68,10 @@ func TestConfirmationsBrowserPostgres(t *testing.T) {
 	require.NoError(t, err)
 	server := httptest.NewUnstartedServer(nil)
 	origin := "http://" + server.Listener.Addr().String()
-	cfg := testConfigAllFlagsOn()
-	cfg.Auth.Mode, cfg.Auth.SessionCookieName = "selfhost", "session"
-	cfg.Server.PublicURL, cfg.Server.AllowedOrigins = origin, []string{origin}
-	todos := services.NewMythicalService(pool, nil)
-	content, err := blob.NewFilesystemStore(blob.FilesystemConfig{Root: t.TempDir(), PublicBaseURL: origin})
-	require.NoError(t, err)
-	wiki := services.NewWikiService(q, nil, services.WithWikiContent(content), services.WithWikiCollaboration(q, nil))
-	todos.SetLearningWiki(wiki)
-	topics := &liveTopics{queries: q, todos: todos}
-	liveHandler := &routes.LiveHandler{Hub: live.NewHub(ctx, nil), Queries: q, Origins: func() []string { return []string{origin} }, Topics: topics.resolver}
-	router := githubAppSetupComposeRouter(cfg, pool, nil,
-		&routes.UserHandler{ProfileService: services.NewUserService(q)}, wiki,
-		&routes.ApprovalsHandler{Service: services.NewApprovalsService(q, services.WithConfirmationTodos(pool, todos))},
-		routerExtras{Mythical: &routes.MythicalHandler{Service: todos}, Live: liveHandler})
-	conversation, err := chat.NewRuntime(pool, revokedAuthorHost{started: make(chan ports.ChatTurnGrant, 8), stopped: make(chan string, 8)}, origin, chat.RuntimeOptions{})
-	require.NoError(t, err)
-	conversation.Handler.ResolveBranch = conversationBranchResolver(services.NewWorkspaceService(q))
-	chatRouter := chi.NewRouter()
-	mountChatPublic(chatRouter, conversation, q, cfg)
-	api := withAppBootstrap(router, newAppBootstrap(bootstrapFeatures{install: true, identity: true, redirectAuth: true}), cors.Options{})
+	t.Setenv("SMITHERS_AUTH_SESSION_COOKIE_NAME", "session")
+	t.Setenv("SMITHERS_PUBLIC_URL", origin)
+	t.Setenv("SMITHERS_SERVER_ALLOWED_ORIGINS", origin)
+	api := startSplitProcess(t, Options{ChatHost: unusedChatHost{}})
 	app, err := filepath.Abs("../../../../apps/app")
 	require.NoError(t, err)
 	command := exec.CommandContext(ctx, "bun", "e2e/real/confirm-merge.browser.ts")
@@ -128,9 +98,7 @@ func TestConfirmationsBrowserPostgres(t *testing.T) {
 	require.NotNil(t, vite, "browser fixture did not start")
 	proxy := httputil.NewSingleHostReverseProxy(vite)
 	server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/conversations/") {
-			chatRouter.ServeHTTP(w, r)
-		} else if strings.HasPrefix(r.URL.Path, "/api/") {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
 			api.ServeHTTP(w, r)
 		} else {
 			proxy.ServeHTTP(w, r)
