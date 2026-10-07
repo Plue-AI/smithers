@@ -51,14 +51,15 @@ func TestOwnerModelProxyRecordsAuthenticatedStepPostgres(t *testing.T) {
 	handler := &modelproxy.Handler{OwnerPaid: true, Owner: modelproxy.OwnerMeter{DB: pool, DailyTokens: func(context.Context, int64) (int64, error) { return 1000000, nil }}, Keys: modelproxy.StaticKeys{modelproxy.ProviderAnthropic: "fixture"}, Callers: services.NewModelProxyCallers(q, pool, webhook.NoopSecretCodec{}), Upstreams: map[string]string{modelproxy.ProviderAnthropic: upstream.URL}}
 	router := chi.NewRouter()
 	mountModelProxy(router, q, testConfigAllFlagsOn(), handler)
-	call := func(header string) int {
-		req := httptest.NewRequest("POST", modelproxy.Path+"/anthropic/v1/messages", strings.NewReader(`{"model":"model-a","max_tokens":10,"messages":[]}`))
+	callModel := func(header, model string) int {
+		req := httptest.NewRequest("POST", modelproxy.Path+"/anthropic/v1/messages", strings.NewReader(fmt.Sprintf(`{"model":%q,"max_tokens":10,"messages":[]}`, model)))
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set(modelproxy.StepHeader, header)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 		return rec.Code
 	}
+	call := func(header string) int { return callModel(header, "claude-haiku-4-5") }
 	for _, header := range []string{fmt.Sprint(step), ""} {
 		require.Equal(t, 200, call(header))
 		var recordedStep, recordedRun int64
@@ -66,13 +67,13 @@ func TestOwnerModelProxyRecordsAuthenticatedStepPostgres(t *testing.T) {
 		require.NoError(t, pool.QueryRow(ctx, `SELECT workflow_step_id,workflow_run_id,model FROM model_usage ORDER BY id DESC LIMIT 1`).Scan(&recordedStep, &recordedRun, &model))
 		require.Equal(t, step, recordedStep)
 		require.Equal(t, run, recordedRun)
-		require.Equal(t, "model-a", model)
+		require.Equal(t, "claude-haiku-4-5", model)
 	}
 	for _, header := range []string{fmt.Sprint(otherStep), "garbage", "0"} {
 		require.Equal(t, 403, call(header))
 	}
 	require.Equal(t, 2, hits)
-	makeStep(run, 1)
+	secondStep := makeStep(run, 1)
 	require.Equal(t, 200, call(""))
 	var attribution *int64
 	require.NoError(t, pool.QueryRow(ctx, `SELECT workflow_step_id FROM model_usage ORDER BY id DESC LIMIT 1`).Scan(&attribution))
@@ -81,6 +82,20 @@ func TestOwnerModelProxyRecordsAuthenticatedStepPostgres(t *testing.T) {
 	var count int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM model_usage`).Scan(&count))
 	require.Equal(t, 3, count)
+	// A second step retains its own literal price total. The two earlier
+	// calls belong to the first; the parallel fallback remains unassigned.
+	require.Equal(t, 200, call(fmt.Sprint(secondStep)))
+	for _, expected := range []struct{ step, tokens, nanos int64 }{
+		{step, 14, 46000}, {secondStep, 7, 23000},
+	} {
+		var tokens, nanos int64
+		require.NoError(t, pool.QueryRow(ctx, `SELECT SUM(input_tokens+output_tokens)::bigint, SUM(cost_nanos)::bigint FROM model_usage WHERE workflow_run_id=$1 AND workflow_step_id=$2`, run, expected.step).Scan(&tokens, &nanos))
+		require.Equal(t, expected.tokens, tokens)
+		require.Equal(t, expected.nanos, nanos)
+	}
+	var total int64
+	require.NoError(t, pool.QueryRow(ctx, `SELECT SUM(cost_nanos)::bigint FROM model_usage WHERE workflow_run_id=$1`, run).Scan(&total))
+	require.EqualValues(t, 92000, total)
 	// Defense in depth: accounting refuses a mismatched binding even if a
 	// caller resolver regresses. No provider invocation or receipt survives.
 	for _, binding := range []modelproxy.Caller{
@@ -94,6 +109,14 @@ func TestOwnerModelProxyRecordsAuthenticatedStepPostgres(t *testing.T) {
 		require.ErrorContains(t, err, "workflow step does not belong")
 	}
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM model_usage`).Scan(&count))
-	require.Equal(t, 3, count)
+	require.Equal(t, 4, count)
+	// A private model remains usable with the owner's key, but its spend
+	// remains unknown. No table entry means no fabricated monetary zero.
+	require.Equal(t, 200, callModel(fmt.Sprint(secondStep), "private-model"))
+	var customCost *int64
+	var customTokens int64
+	require.NoError(t, pool.QueryRow(ctx, `SELECT cost_nanos,input_tokens+output_tokens FROM model_usage WHERE model='private-model'`).Scan(&customCost, &customTokens))
+	require.Nil(t, customCost)
+	require.EqualValues(t, 7, customTokens)
 
 }

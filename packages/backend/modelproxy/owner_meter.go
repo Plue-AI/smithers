@@ -15,6 +15,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/credits"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/modelprice"
 )
 
 // ErrDailyTokenBudget refuses an owner-paid call whose token bound does not
@@ -109,7 +110,17 @@ func (m OwnerMeter) Execute(ctx context.Context, caller Caller, call Call, spend
 	}
 	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
-	if err := finishUsage(finishCtx, m.DB, key, result.Outcome, result, nil); err != nil {
+	// Owner-paid calls still have a monetary cost. Reuse the provider's price
+	// table; an unknown/custom model stays unpriced rather than claiming zero.
+	var cost *int64
+	if result.Outcome == credits.ModelSucceeded {
+		if _, price, offered := Price(call.Provider, call.Model); offered {
+			if nanos, err := modelprice.CostNanos(price, result.Usage); err == nil {
+				cost = &nanos
+			}
+		}
+	}
+	if err := finishUsage(finishCtx, m.DB, key, result.Outcome, result, cost); err != nil {
 		slog.Error("owner model usage record not finished", "request_key", key, "error", err)
 	}
 	return spendErr
