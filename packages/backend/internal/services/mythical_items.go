@@ -29,6 +29,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
@@ -310,10 +311,72 @@ type MythicalLaneReceipt struct {
 // tip that lane was given. A workspace that is not a lane may hand a chat
 // result to the stack only as the stack's own account. Replays are idempotent.
 func (s *MythicalService) SubmitLane(ctx context.Context, repositoryID, userID int64, input MythicalLaneSubmission) (MythicalLaneReceipt, error) {
-	if !mythicalSHA.MatchString(input.Base) || !mythicalSHA.MatchString(input.Source) || !mythicalWorkspaceID.MatchString(input.WorkspaceID) ||
-		strings.TrimSpace(input.Summary) == "" || len(input.Summary) > 16<<10 || strings.TrimSpace(input.RequestRunID) == "" || len(input.Plan) > 1<<20 {
-		return MythicalLaneReceipt{}, pkgerrors.BadRequest("a lane submission needs exact commits, the workspace, the run and a summary")
+	if err := validateMythicalLaneSubmission(input); err != nil {
+		return MythicalLaneReceipt{}, err
 	}
+	binding, bound := ctx.Value(installAuthorizationKey{}).(boundInstallAuthorization)
+	bound = bound && binding.command == "stack.candidate"
+	if !s.installAuthorization && !bound {
+		return s.submitLane(ctx, repositoryID, userID, input)
+	}
+	subject, err := ResolveInstallCandidateSubject(ctx, s.queries(), repositoryID, input)
+	if err != nil {
+		return MythicalLaneReceipt{}, err
+	}
+	decision, err := Authorize(ctx, s.queries(), "stack.candidate", subject)
+	if err != nil {
+		return MythicalLaneReceipt{}, err
+	}
+	if decision.UserID != userID {
+		return MythicalLaneReceipt{}, confirmationPermission()
+	}
+	tx, err := s.store.Begin(ctx)
+	if err != nil {
+		return MythicalLaneReceipt{}, err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	live, repository, err := lockInstallWriteCredential(ctx, tx, middleware.AuthInfoFromContext(ctx))
+	if err != nil {
+		return MythicalLaneReceipt{}, err
+	}
+	if repository != repositoryID {
+		return MythicalLaneReceipt{}, confirmationPermission()
+	}
+	if _, err := tx.Exec(live, `SELECT workspace_id FROM mythical_lanes WHERE workspace_id=$1 FOR SHARE`, subject.WorkspaceID); err != nil {
+		return MythicalLaneReceipt{}, err
+	}
+	if _, err := tx.Exec(live, `SELECT id FROM mythical_items WHERE repository_id=$1 AND number=$2 FOR UPDATE`, repositoryID, subject.TodoNumber); err != nil {
+		return MythicalLaneReceipt{}, err
+	}
+	if _, err := tx.Exec(live, `SELECT id FROM workspaces WHERE id=$1 FOR UPDATE`, subject.WorkspaceID); err != nil {
+		return MythicalLaneReceipt{}, err
+	}
+	if refusal := identity.NewMemberBoundary(db.New(tx)).AuthorizeMember(identity.WithMemberRoute(live), middleware.UserFromContext(live).ID); refusal != nil {
+		return MythicalLaneReceipt{}, refusal
+	}
+	if _, err := authorizeStackCandidate(live, db.New(tx), subject); err != nil {
+		return MythicalLaneReceipt{}, err
+	}
+	scoped := *s
+	scoped.store = tx
+	receipt, err := scoped.submitLane(live, repositoryID, userID, input)
+	if err != nil {
+		return MythicalLaneReceipt{}, err
+	}
+	if err := tx.Commit(live); err != nil {
+		return MythicalLaneReceipt{}, err
+	}
+	return receipt, nil
+}
+
+func validateMythicalLaneSubmission(input MythicalLaneSubmission) error {
+	if !mythicalSHA.MatchString(input.Base) || !mythicalSHA.MatchString(input.Source) || !mythicalWorkspaceID.MatchString(input.WorkspaceID) || strings.TrimSpace(input.Summary) == "" || len(input.Summary) > 16<<10 || strings.TrimSpace(input.RequestRunID) == "" || len(input.Plan) > 1<<20 {
+		return pkgerrors.BadRequest("a lane submission needs exact commits, the workspace, the run and a summary")
+	}
+	return nil
+}
+
+func (s *MythicalService) submitLane(ctx context.Context, repositoryID, userID int64, input MythicalLaneSubmission) (MythicalLaneReceipt, error) {
 	q := s.queries()
 	stack, err := q.GetMythicalStack(ctx, repositoryID)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && stack.State != "active") {
@@ -380,6 +443,9 @@ func (s *MythicalService) SubmitLane(ctx context.Context, repositoryID, userID i
 		if err != nil {
 			return MythicalLaneReceipt{}, err
 		}
+		if item.RequestRunID == "" || input.RequestRunID != item.RequestRunID || input.Base != item.BaseCommit {
+			return MythicalLaneReceipt{}, pkgerrors.Conflict("the result does not come from this lane's current request on its tip")
+		}
 		if item.CandidateHead == input.Source && item.CandidateHead != "" {
 			return MythicalLaneReceipt{ItemID: uuidString(item.ID), State: item.State, Source: input.Source}, nil
 		}
@@ -392,9 +458,6 @@ func (s *MythicalService) SubmitLane(ctx context.Context, repositoryID, userID i
 		composed := pinned && item.State == "running" && mythicalChecksOf(item).RunAttached
 		if !composed && (item.State != "delivering" || item.RequestOutcome != "validated") {
 			return MythicalLaneReceipt{}, pkgerrors.Conflict("the lane's item is " + item.State + ", not waiting for a validated result")
-		}
-		if item.RequestRunID == "" || input.RequestRunID != item.RequestRunID || input.Base != item.BaseCommit {
-			return MythicalLaneReceipt{}, pkgerrors.Conflict("the result does not come from this lane's current request on its tip")
 		}
 		if composed && len(input.Plan) == 0 {
 			// A retained plan is history, not validation of this candidate.

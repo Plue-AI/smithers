@@ -2,6 +2,9 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	stdErrors "errors"
 	"log/slog"
 	"net/http"
@@ -338,6 +341,11 @@ type InstallSubject struct {
 	WorkspaceID      string
 	ChildWorkspaceID string
 	TodoNumber       int64
+	RunID            string
+	Generation       int64
+	Base             string
+	Source           string
+	PayloadDigest    string
 }
 
 type boundInstallAuthorization struct {
@@ -401,6 +409,9 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 	if command == "workspace.head" {
 		return authorizeWorkspaceHead(ctx, q, subject)
 	}
+	if command == "stack.candidate" {
+		return authorizeStackCandidate(ctx, q, subject)
+	}
 	if command == "todo.read" && InstallExecutionCredential(ctx) {
 		return authorizeExecutionTodoRead(ctx, q, subject)
 	}
@@ -412,27 +423,12 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 	if info == nil || info.User == nil {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusUnauthorized, Class: "permission", Code: "unauthenticated", Message: middleware.UnauthenticatedMessage(ctx)}
 	}
-	// The provisioned delivery credential reads the stack before preparing its
-	// candidate. Its whole-repository path binding is not browser authority.
-	// Keep unbound system tokens and narrower path tokens out of this read.
-	paths := middleware.ParseTokenPathRestrictions(info.RawScopes)
-	if command == "repo.read" && info.IsTokenAuth && info.TokenSystemIssued &&
-		info.CredentialKind() == middleware.CredentialAgentRun &&
-		info.Scopes.Has(middleware.ScopeWriteRepository) &&
-		middleware.ParseTokenLandingWorkspace(info.RawScopes) != "" &&
-		len(paths) == 1 && paths[0] == "**" && info.RepositoryRestriction() > 0 {
-		repository, err := InstallRepositoryID(ctx, q)
-		if err != nil {
-			return InstallAuthorization{}, err
-		}
-		role, err := InstallRoleOf(ctx, q, info.User.ID)
-		if err != nil {
-			return InstallAuthorization{}, err
-		}
-		if repository == info.RepositoryRestriction() && role == InstallOwner {
-			return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
-		}
+	// Delivery reads only the state of its own stored lane. Other repo.read
+	// doors have no subject binding and cannot expose the stack or other items.
+	if command == "repo.read" && InstallExecutionCredential(ctx) {
+		return authorizeExecutionTodoRead(ctx, q, subject)
 	}
+
 	_, terminalProfile := info.TerminalDelegation()
 	if terminalProfile && !terminalCommands[command] {
 		return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "A terminal's credential cannot do this"}
@@ -927,4 +923,111 @@ func authorizeExecutionTodoRead(ctx context.Context, q *db.Queries, subject Inst
 		return deny()
 	}
 	return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
+}
+
+func authorizeStackCandidate(ctx context.Context, q *db.Queries, subject InstallSubject) (InstallAuthorization, error) {
+	deny := func() (InstallAuthorization, error) { return InstallAuthorization{}, confirmationPermission() }
+	info := middleware.AuthInfoFromContext(ctx)
+	if !InstallExecutionCredential(ctx) || info == nil || !info.Scopes.Has(middleware.ScopeWriteRepository) || subject.RunID == "" || subject.WorkspaceID == "" {
+		return deny()
+	}
+	decision, err := authorizeExecutionTodoRead(ctx, q, subject)
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	item, err := q.GetMythicalItemByNumber(ctx, subject.RepositoryID, subject.TodoNumber)
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if item.WorkspaceID != subject.WorkspaceID || item.RequestRunID != subject.RunID || item.Generation != subject.Generation || item.BaseCommit != subject.Base {
+		return deny()
+	}
+	lane, err := q.GetMythicalLane(ctx, subject.WorkspaceID)
+	if stdErrors.Is(err, pgx.ErrNoRows) {
+		return deny()
+	}
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if lane.RetiredAt.Valid || lane.RepositoryID != subject.RepositoryID || lane.ItemID != item.ID {
+		return deny()
+	}
+	stack, err := q.GetMythicalStack(ctx, subject.RepositoryID)
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if !stack.ActorUserID.Valid || stack.ActorUserID.Int64 != decision.UserID {
+		return deny()
+	}
+	return decision, nil
+}
+
+// ResolveInstallCandidateSubject binds validated submission inputs to the
+// current stored lane. A service reuses its router decision's generation;
+// the serialized write guard refuses if that generation has since changed.
+func ResolveInstallCandidateSubject(ctx context.Context, q *db.Queries, repositoryID int64, input MythicalLaneSubmission) (InstallSubject, error) {
+	if err := validateMythicalLaneSubmission(input); err != nil {
+		return InstallSubject{}, err
+	}
+	encoded, err := json.Marshal(input)
+	if err != nil {
+		return InstallSubject{}, err
+	}
+	digest := sha256.Sum256(encoded)
+	payloadDigest := hex.EncodeToString(digest[:])
+	if bound, ok := ctx.Value(installAuthorizationKey{}).(boundInstallAuthorization); ok && bound.command == "stack.candidate" {
+		subject := bound.subject
+		if subject.RepositoryID != repositoryID || subject.WorkspaceID != input.WorkspaceID || subject.RunID != input.RequestRunID || subject.Base != input.Base || subject.Source != input.Source || subject.PayloadDigest != payloadDigest {
+			return InstallSubject{}, confirmationPermission()
+		}
+		return subject, nil
+	}
+	lane, err := q.GetMythicalLane(ctx, input.WorkspaceID)
+	if stdErrors.Is(err, pgx.ErrNoRows) {
+		return InstallSubject{}, confirmationPermission()
+	}
+	if err != nil {
+		return InstallSubject{}, err
+	}
+	item, err := q.GetMythicalItem(ctx, lane.ItemID)
+	if err != nil {
+		return InstallSubject{}, err
+	}
+	return InstallSubject{RepositoryID: repositoryID, WorkspaceID: input.WorkspaceID, TodoNumber: item.Number.Int64, Generation: item.Generation, RunID: input.RequestRunID, Base: input.Base, Source: input.Source, PayloadDigest: payloadDigest}, nil
+}
+
+func ResolveInstallExecutionSubject(ctx context.Context, q *db.Queries, repository int64) (InstallSubject, error) {
+	info := middleware.AuthInfoFromContext(ctx)
+	if !InstallExecutionCredential(ctx) {
+		return InstallSubject{}, confirmationPermission()
+	}
+	workspace := info.WorkspaceRestriction()
+	if info.CredentialKind() == middleware.CredentialAgentRun {
+		workspace = middleware.ParseTokenLandingWorkspace(info.RawScopes)
+	}
+	if workspace == "" {
+		return InstallSubject{}, confirmationPermission()
+	}
+	lane, err := q.GetMythicalLane(ctx, workspace)
+	if stdErrors.Is(err, pgx.ErrNoRows) {
+		return InstallSubject{}, confirmationPermission()
+	}
+	if err != nil {
+		return InstallSubject{}, err
+	}
+	if lane.RepositoryID != repository || lane.RetiredAt.Valid {
+		return InstallSubject{}, confirmationPermission()
+	}
+	item, err := q.GetMythicalItem(ctx, lane.ItemID)
+	if err != nil {
+		return InstallSubject{}, err
+	}
+	return InstallSubject{RepositoryID: repository, WorkspaceID: workspace, TodoNumber: item.Number.Int64}, nil
+}
+
+// BoundInstallExecutionRead tells the retained snapshot door to encode only
+// execution state after the router has authorized its stored lane subject.
+func BoundInstallExecutionRead(ctx context.Context) bool {
+	bound, ok := ctx.Value(installAuthorizationKey{}).(boundInstallAuthorization)
+	return ok && bound.command == "repo.read" && bound.subject.TodoNumber > 0 && InstallExecutionCredential(ctx)
 }

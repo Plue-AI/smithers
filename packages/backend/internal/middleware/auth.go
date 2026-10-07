@@ -89,6 +89,9 @@ func allowWorkspaceRestrictedToken(w http.ResponseWriter, r *http.Request, info 
 	if len(install) > 0 && install[0] && r.Method == http.MethodGet && numberedTodoReadPath.MatchString(r.URL.Path) {
 		return true
 	}
+	if len(install) > 0 && install[0] && InstallMemberCommand(r.Method, r.URL.EscapedPath()) == "stack.candidate" {
+		return true
+	}
 	if ParseTokenWorkspaceChildrenCredential(info.RawScopes) {
 		if ((r.Method == http.MethodGet || r.Method == http.MethodPost) && own(workspaceChildrenPath)) ||
 			(r.Method == http.MethodPost && own(workspaceChildStopPath)) {
@@ -518,6 +521,7 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "runs.resume", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:workflows/)?runs/[0-9]+/resume$`)},
 	{http.MethodGet, "workspace.provider-pool", regexp.MustCompile(`^/provider-pool/routes$`)},
 	{http.MethodPost, "workspace.provider-pool", regexp.MustCompile(`^/provider-pool/(?:anthropic/v1/messages|chatgpt/codex/responses)$`)},
+	{http.MethodPut, "stack.candidate", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/mythical/lanes$`)},
 	{http.MethodPost, "workspace.head", workspaceHeadReportPath},
 	{http.MethodGet, "workspace.children.list", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/children$`)},
 	{http.MethodPost, "workspace.children.spawn", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/children$`)},

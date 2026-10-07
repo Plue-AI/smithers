@@ -270,6 +270,20 @@ func (s *MythicalService) Snapshot(ctx context.Context, repositoryID int64, slug
 	view := MythicalStackView{Repository: slug, State: "absent", Changes: []MythicalChangeView{}, Items: []MythicalItemView{},
 		Lanes: []MythicalLaneView{}, Limits: MythicalLimitsView{MaxParallel: 2}}
 	q := s.queries()
+	if (s.installAuthorization || BoundInstallExecutionRead(ctx)) && InstallExecutionCredential(ctx) {
+		subject, err := ResolveInstallExecutionSubject(ctx, q, repositoryID)
+		if err != nil {
+			return MythicalStackView{}, err
+		}
+		if _, err := Authorize(ctx, q, "repo.read", subject); err != nil {
+			return MythicalStackView{}, err
+		}
+		stack, err := q.GetMythicalStack(ctx, repositoryID)
+		if err != nil {
+			return MythicalStackView{}, err
+		}
+		return MythicalStackView{State: stack.State}, nil
+	}
 	stack, err := q.GetMythicalStack(ctx, repositoryID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return view, nil

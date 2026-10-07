@@ -1141,7 +1141,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	gitHubWebhookEventWorker.SetMainPull(gitHubMainPullService)
 	// The mythical stack folds every main the pull brings in, admits every
 	// issue, works it on lane workspaces and proposes it to GitHub.
-	mythicalService := services.NewMythicalService(pool, repoHostClient)
+	mythicalService := services.NewMythicalService(pool, repoHostClient, services.WithMythicalInstallAuthorization(config.IsSingleOwner(cfg.Auth)))
 	mythicalService.SetTodoLogStore(blobStore)
 	if config.IsSingleOwner(cfg.Auth) {
 		mythicalService.SetInstallParallel(installCapacity)

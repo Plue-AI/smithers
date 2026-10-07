@@ -59,6 +59,7 @@ type mythicalRepoHost interface {
 }
 
 type MythicalService struct {
+	installAuthorization    bool
 	rebasePresence          func(context.Context, int64, string) (RebasePresence, error)
 	installParallel         *InstallCapacityService
 	installParallelRequired bool
@@ -126,6 +127,12 @@ func (s *MythicalService) SetMainFollower(follow func(ctx context.Context, repos
 
 // MythicalServiceOption configures dependencies of the existing stack worker.
 type MythicalServiceOption func(*MythicalService)
+
+// WithMythicalInstallAuthorization keeps install system submissions under the
+// shared authorizer while preserving the hosted repository policy.
+func WithMythicalInstallAuthorization(enabled bool) MythicalServiceOption {
+	return func(s *MythicalService) { s.installAuthorization = enabled }
+}
 
 // WithMythicalNow shares a deterministic clock with composed polling providers.
 func WithMythicalNow(now func() time.Time) MythicalServiceOption {

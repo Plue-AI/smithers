@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -17,8 +16,6 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
-
-var laneSubmissionPath = regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/mythical/lanes$`)
 
 // memberCommands binds one install command decision before the handler runs.
 // Owners use the same authorizer as every other member. A handler resolving
@@ -45,6 +42,60 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				r.Body = io.NopCloser(bytes.NewReader(raw))
 			}
 
+			if command == "repo.read" && services.InstallExecutionCredential(r.Context()) {
+				parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+				if len(parts) == 5 && parts[1] == "repos" && parts[4] == "mythical" {
+					repository, err := queries.GetRepoByOwnerAndLowerName(r.Context(), db.GetRepoByOwnerAndLowerNameParams{Owner: strings.ToLower(parts[2]), LowerName: strings.ToLower(parts[3])})
+					if err != nil {
+						writeConfirmationDispatchError(w, &services.AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"})
+						return
+					}
+					subject, err := services.ResolveInstallExecutionSubject(r.Context(), queries, repository.ID)
+					if err != nil {
+						writeConfirmationDispatchError(w, err)
+						return
+					}
+					decision, err := services.Authorize(r.Context(), queries, command, subject)
+					if err != nil {
+						writeConfirmationDispatchError(w, err)
+						return
+					}
+					next.ServeHTTP(w, r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, subject)))
+					return
+				}
+			}
+			if command == "stack.candidate" {
+				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 2<<20))
+				var input services.MythicalLaneSubmission
+				if err != nil || json.Unmarshal(raw, &input) != nil {
+					writeConfirmationDispatchError(w, &services.AccessError{Status: 400, Class: "user", Code: "invalid_candidate", Message: "Invalid candidate"})
+					return
+				}
+				repository, err := services.InstallRepositoryID(r.Context(), queries)
+				if err != nil {
+					writeConfirmationDispatchError(w, err)
+					return
+				}
+				parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+				row, err := queries.GetRepoByOwnerAndLowerName(r.Context(), db.GetRepoByOwnerAndLowerNameParams{Owner: strings.ToLower(parts[2]), LowerName: strings.ToLower(parts[3])})
+				if err != nil || row.ID != repository {
+					writeConfirmationDispatchError(w, &services.AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"})
+					return
+				}
+				subject, err := services.ResolveInstallCandidateSubject(r.Context(), queries, repository, input)
+				if err != nil {
+					writeConfirmationDispatchError(w, err)
+					return
+				}
+				decision, err := services.Authorize(r.Context(), queries, command, subject)
+				if err != nil {
+					writeConfirmationDispatchError(w, err)
+					return
+				}
+				r.Body = io.NopCloser(bytes.NewReader(raw))
+				next.ServeHTTP(w, r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, subject)))
+				return
+			}
 			if command == "todo.read" && services.InstallExecutionCredential(r.Context()) {
 				parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 				subject := services.InstallSubject{}
@@ -96,19 +147,7 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				// workspace/child or verified coding batch before dispatch.
 				_, coding := middleware.CodingFileCredential(info)
 				scopedSystem := info.TokenSystemIssued && (info.CredentialKind() == middleware.CredentialMachine && info.WorkspaceRestriction() != "" || middleware.ParseTokenWorkspaceChildrenCredential(info.RawScopes) || coding)
-				// The coding host submits a retained result, never a person command.
-				// Reuse its qualified delivery read authority, then bind the write
-				// to this exact endpoint and the credential's own workspace.
-				if !scopedSystem && info.TokenSystemIssued && info.CredentialKind() == middleware.CredentialAgentRun && r.Method == http.MethodPut && laneSubmissionPath.MatchString(r.URL.EscapedPath()) {
-					if _, err := services.Authorize(r.Context(), queries, "repo.read"); err == nil {
-						raw, readErr := io.ReadAll(http.MaxBytesReader(w, r.Body, 2<<20))
-						r.Body = io.NopCloser(bytes.NewReader(raw))
-						var submission struct {
-							WorkspaceID string `json:"workspaceId"`
-						}
-						scopedSystem = readErr == nil && json.Unmarshal(raw, &submission) == nil && submission.WorkspaceID != "" && submission.WorkspaceID == middleware.ParseTokenLandingWorkspace(info.RawScopes)
-					}
-				}
+
 				if !scopedSystem {
 					writeConfirmationDispatchError(w, &services.AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"})
 					return

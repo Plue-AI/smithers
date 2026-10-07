@@ -84,6 +84,11 @@ func (h *MythicalHandler) GetStack(w http.ResponseWriter, r *http.Request) {
 		writeRouteError(w, r, err)
 		return
 	}
+	if services.BoundInstallExecutionRead(r.Context()) {
+		w.Header().Set("Cache-Control", "no-store")
+		pkgerrors.WriteJSON(w, http.StatusOK, map[string]string{"state": view.State})
+		return
+	}
 	// A box that ran outsider-started work reads the stack's state for its
 	// delivery, never other items' issue text.
 	if middleware.ConversationWithheldFromContext(r.Context()) {
