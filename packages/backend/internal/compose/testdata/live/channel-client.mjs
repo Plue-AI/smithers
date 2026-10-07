@@ -6,6 +6,7 @@ let socket
 let connections = 0
 let ready = false
 let dropped = false
+let lastCursor
 const applied = []
 const deadline = setTimeout(() => { console.error("LiveChannel fixture timed out"); process.exit(2) }, 75000)
 const channel = new LiveChannel({
@@ -24,10 +25,15 @@ channel.subscribe("home", () => {
   if (snapshot?.error) throw new Error(snapshot.error)
   if (snapshot?.cursor === undefined) return
   if (!ready) {
+    lastCursor = snapshot.cursor
     ready = true
     console.log(JSON.stringify({ ready: snapshot.cursor }))
     return
   }
+  // Continuity notifications retain the last projection; they are not deltas.
+  if (snapshot.cursor === lastCursor) return
+  if (snapshot.cursor < lastCursor) throw new Error("Live cursor moved backwards")
+  lastCursor = snapshot.cursor
   applied.push(snapshot.cursor)
   if (!dropped && applied.length === 500) {
     dropped = true
