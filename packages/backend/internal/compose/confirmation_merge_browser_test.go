@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -50,7 +51,8 @@ func runMergeConfirmationBrowser(t *testing.T, cfg *config.Config, pool *pgxpool
 	require.NoError(t, command.Start())
 	t.Cleanup(func() { cancel(); _ = command.Process.Kill() })
 	scanner := bufio.NewScanner(stdout)
-	stale, admitted := false, false
+	stale, admitted, settled := false, false, false
+	var staleArmed atomic.Bool
 	for scanner.Scan() {
 		line := scanner.Text()
 		t.Log(line)
@@ -61,14 +63,21 @@ func runMergeConfirmationBrowser(t *testing.T, cfg *config.Config, pool *pgxpool
 			proxy := httputil.NewSingleHostReverseProxy(vite)
 			server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if strings.HasPrefix(r.URL.Path, "/api/") {
+					// Delay the revision change until the stale press reaches the
+					// actual API, so live reprojection cannot consume the race first.
+					if r.URL.Path == "/api/confirmations/"+confirmation+"/approve" && staleArmed.CompareAndSwap(true, false) {
+						if _, err := pool.Exec(r.Context(), `UPDATE mythical_items SET generation=generation+1 WHERE id=$1`, item); err != nil {
+							http.Error(w, err.Error(), http.StatusInternalServerError)
+							return
+						}
+					}
 					api.ServeHTTP(w, r)
 				} else {
 					proxy.ServeHTTP(w, r)
 				}
 			})
 		case line == "MERGE_BROWSER_STALE":
-			_, err := pool.Exec(ctx, `UPDATE mythical_items SET generation=generation+1 WHERE id=$1`, item)
-			require.NoError(t, err)
+			staleArmed.Store(true)
 			stale = true
 		case line == "MERGE_BROWSER_ADMITTED":
 			row, err := q.GetMythicalItem(ctx, item)
@@ -79,12 +88,17 @@ func runMergeConfirmationBrowser(t *testing.T, cfg *config.Config, pool *pgxpool
 			require.Equal(t, "intended", operation.State)
 			require.Equal(t, head, operation.Desired)
 			admitted = true
+		case line == "MERGE_BROWSER_SETTLED":
+			row, err := q.GetMythicalItem(ctx, item)
+			require.NoError(t, err)
+			require.Equal(t, "landed", row.State)
+			settled = true
 		default:
 			continue
 		}
 		_, err = fmt.Fprintln(stdin, "ready")
 		require.NoError(t, err)
-		if admitted {
+		if admitted && os.Getenv("SMITHERS_CONFIRMATION_SETTLEMENT") != "1" || settled {
 			_ = stdin.Close()
 		}
 	}
@@ -95,6 +109,11 @@ func runMergeConfirmationBrowser(t *testing.T, cfg *config.Config, pool *pgxpool
 	require.True(t, admitted)
 	var pending, expired int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE state='pending'), count(*) FILTER (WHERE state='expired') FROM approvals WHERE member_id=$1`, owner.ID).Scan(&pending, &expired))
-	require.Equal(t, 1, pending)
+	if os.Getenv("SMITHERS_CONFIRMATION_SETTLEMENT") == "1" {
+		require.True(t, settled)
+		require.Zero(t, pending)
+	} else {
+		require.Equal(t, 1, pending)
+	}
 	require.Equal(t, 1, expired)
 }

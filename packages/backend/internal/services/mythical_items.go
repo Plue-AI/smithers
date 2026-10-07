@@ -1426,7 +1426,8 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 	if err := s.syncTodoMachines(ctx, r.row.RepositoryID, items); err != nil && s.installParallelRequired {
 		step.maxParallel = 0
 		s.logger.Warn("mythical.todo_demand_failed", "error", err)
-		return
+		// Demand failure fences new launches; accepted outbound obligations
+		// must still settle without allocating or executing a machine.
 	}
 	defer s.sweepLanes(ctx, r)
 	// An item that waits for a lane may get one when another item moves.

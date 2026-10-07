@@ -106,6 +106,7 @@ type rehearsal struct {
 	mainCommit string
 	gitRoot    string
 	origin     string
+	server     *httptest.Server
 	jar        http.CookieJar
 	client     *http.Client
 	logs       *lockedBuffer
@@ -250,6 +251,7 @@ path = "lib.rs"
 	require.NoError(t, err)
 	t.Cleanup(r.fake.Close)
 	server := httptest.NewUnstartedServer(nil)
+	r.server = server
 	r.origin = "http://" + server.Listener.Addr().String()
 	// The real repository engine is reused; no fixture mounts a product route.
 	library := os.Getenv("SMITHERS_FFI_LIBRARY_PATH")
