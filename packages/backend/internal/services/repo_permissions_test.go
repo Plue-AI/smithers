@@ -144,7 +144,7 @@ func TestInstallCommandCatalogPolicies(t *testing.T) {
 		{"todo.takeover", "maintainer", "never", []string{"person"}},
 		{"members.write", "maintainer", "never", []string{"person"}},
 		{"secrets.write", "maintainer", "never", []string{"person"}},
-		{"settings.parallel", "owner", "never", []string{"person"}},
+		{"settings", "owner", "never", []string{"person"}},
 	} {
 		t.Run(tt.command, func(t *testing.T) {
 			policy, ok := installCommandPolicy(tt.command)
@@ -159,7 +159,7 @@ func TestInstallCommandCatalogPolicies(t *testing.T) {
 }
 
 func TestTerminalProfileCannotUsePersonOnlyCommands(t *testing.T) {
-	for _, command := range []string{"members.list", "members.write", "secrets.read", "secrets.write", "install.read", "settings.parallel", "confirmations.read"} {
+	for _, command := range []string{"members.list", "members.write", "secrets.read", "secrets.write", "install.read", "settings", "confirmations.read"} {
 		info := &middleware.AuthInfo{User: &db.User{ID: 7}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "read:repository,via:terminal,branch:own,profile:terminal_s1"}
 		_, err := Authorize(middleware.ContextWithAuthInfo(context.Background(), info), nil, command)
 		var refusal *AccessError

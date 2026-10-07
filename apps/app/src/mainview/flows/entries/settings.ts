@@ -1,6 +1,7 @@
+import { publicSettingsInput } from "../SettingsPayload"
 import { Schema } from "effect"
 import { SETUP_STEP_IDS } from "@smthrs/rpc/SetupCard"
-import { flow, NoPayload } from "./Declare"
+import { flow } from "./Declare"
 import type { CommandActions } from "./Declare"
 import type { FlowEntry } from "../registry"
 import type { Grammar } from "../SlashPayload"
@@ -14,58 +15,64 @@ const object: Grammar = args => {
   } catch { /* The form supplies missing inputs; malformed JSON remains a refusal. */ }
   return { error: "Enter settings as a JSON object" }
 }
-const count = (field: string): Grammar => args => args?.trim().startsWith("{") ? object(args)
-  : !args?.trim() ? { payload: {} } : Number.isFinite(Number(args.trim()))
-    ? { payload: { [field]: Number(args.trim()) } } : { error: "Enter a number" }
-const key: Grammar = args => {
-  const parsed = object(args)
-  if ("payload" in parsed) { const { role, provider, model, action } = parsed.payload; return { payload: {
-    ...(role === undefined ? {} : { role }), ...(provider === undefined ? {} : { provider }), ...(model === undefined ? {} : { model }), ...(action === undefined ? {} : { action })
-  } } }
-  return parsed
-}
 /* The inputs each setup step needs (InstallSeam.setupStep's bodies); THE FORM LAW asks for the missing ones. */
 const SETUP_REQUIRES: Readonly<Record<string, ReadonlyArray<string>>> = { address: ["bind", "origins"], app_manifest: ["owner"], repository: ["repository"] }
+const address = Schema.Struct({ listen: Schema.Literals(["mac", "network"]), bind: Schema.String, origins: Schema.Array(Schema.String) })
+const capacity = Schema.Struct({ capacity: Schema.Number })
+const parallel = Schema.Struct({ parallel: Schema.Number })
+const preapprove = Schema.Struct({ todo_preapprove_default: Schema.Boolean })
+const admissions = Schema.Struct({ todo_daily_admissions: Schema.Number })
+const obsidian = Schema.Struct({ path: Schema.String })
+const modelKey = Schema.Struct({ role: Schema.Literals(["fast", "coding", "jev"]), provider: Schema.String,
+  model: Schema.optional(Schema.String), action: Schema.optional(Schema.Literal("remove")) })
+const setup = Schema.Struct({ step: Schema.Literals(SETUP_STEP_IDS), owner: Schema.optional(Schema.String),
+  repository: Schema.optional(Schema.String), bind: Schema.optional(Schema.String), origins: Schema.optional(Schema.Array(Schema.String)) })
+const REQUIRED: Readonly<Record<string, readonly string[]>> = {
+  address: ["listen", "bind", "origins"], capacity: ["capacity"], parallel: ["parallel"],
+  "preapprove-default": ["todo_preapprove_default"], "daily-admissions": ["todo_daily_admissions"],
+  obsidian: ["path"], "model-key": ["role", "provider"], setup: ["step"]
+}
+
 export const settingsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
  flow({ name: "settings.fast-model", slash:"/settings.fast-model", agent: "never", minimumRole: "owner", actors:["person"], visibility:"in-card", summary:"Smithers fast-model sign-in", agentReason:"Browser sign-in and sign-out require the owner's person session",
- grammar: object, input: Schema.Struct({action:Schema.Literals(["sign-in","sign-out"])}),
+ grammar: object, form: { args: payload => JSON.stringify(payload) }, input: Schema.Struct({action:Schema.Literals(["sign-in","sign-out"])}),
  handler: ({action}) => actions.fastModelAccess(action) }),
-  flow({ name: "settings",   slash: "/settings", cli: null, journey: ["J1"], group: "Account and settings", visibility: "core", actors: ["person"], minimumRole: "owner", http: null, summary: "Model access, machines, GitHub (owner)", agentReason: "Install status requires the owner’s person session", agent: "never", input: NoPayload,
-    /* MOCK SEAM (DesignWorld/settings.ts designInstall): the card shows the seeded install now; the live read replaces it once /api/install serves a model. */
-    handler: async () => { await actions.presentCard("settings", "Settings"); return actions.showSettings() } }),
-  flow({ name: "settings.address", agent: "never", minimumRole: "owner", actors: ["person"], visibility: "in-card",  summary: "Change Address", hidden: true, agentReason: "Install controls require the owner’s person session",
-    grammar: object, args: "<address>", input: Schema.Struct({ listen: Schema.Literals(["mac", "network"]), bind: Schema.String, origins: Schema.Array(Schema.String) }),
-    form: { args: payload => JSON.stringify(payload) },
-    handler: input => actions.setInstallAddress(input) }),
-  flow({ name: "settings.capacity", agent: "never", minimumRole: "owner", actors: ["person"], visibility: "in-card",  summary: "Change Machines", hidden: true, agentReason: "Install controls require the owner’s person session",
-    grammar: count("capacity"), args: "<capacity>", input: Schema.Struct({ capacity: Schema.Number }),
-    handler: ({ capacity }) => actions.setInstallCapacity(capacity) }),
-  flow({ name: "settings.preapprove-default", agent: "never", minimumRole: "owner", actors: ["person"], visibility: "in-card", summary: "New TODOs start pre-approved", hidden: true, agentReason: "Install controls require the owner’s person session",
-    grammar: object, input: Schema.Struct({ todo_preapprove_default: Schema.Boolean }),
-    form: { args: payload => JSON.stringify(payload) },
-    handler: ({ todo_preapprove_default }) => actions.setInstallPreapproveDefault(todo_preapprove_default) }),
-  flow({ name: "settings.daily-admissions", agent: "never", minimumRole: "owner", actors: ["person"], visibility: "in-card", summary: "Change TODOs per day", hidden: true, agentReason: "Install controls require the owner’s person session",
-    grammar: count("todo_daily_admissions"), args: "<todo_daily_admissions>", input: Schema.Struct({ todo_daily_admissions: Schema.Number }),
-    handler: ({ todo_daily_admissions }) => actions.setInstallDailyAdmissions(todo_daily_admissions) }),
-  flow({ name: "settings.parallel", agent: "never", minimumRole: "owner", actors: ["person"], visibility: "in-card",  summary: "Change At once", hidden: true, agentReason: "Install controls require the owner’s person session",
-    grammar: count("parallel"), args: "<parallel>", input: Schema.Struct({ parallel: Schema.Number }),
-    handler: ({ parallel }) => actions.setInstallParallel(parallel) }),
-  flow({ name: "settings.obsidian", agent: "never", minimumRole: "owner", actors: ["person"], visibility: "in-card",  summary: "Change Obsidian folder", hidden: true, agentReason: "Install controls require the owner’s person session",
-    grammar: object, args: "<path>", input: Schema.Struct({ path: Schema.String }),
-    form: { args: payload => JSON.stringify(payload) },
-    handler: ({ path }) => actions.setInstallObsidian(path) }),
-  flow({ name: "settings.model-key", agent: "never", minimumRole: "owner", actors: ["person"], visibility: "in-card",  summary: "Change model key", hidden: true, agentReason: "Install controls require the owner’s person session",
-    grammar: key, args: "<role> <provider>",
-    input: Schema.Struct({ role: Schema.Literals(["fast", "coding", "jev"]), provider: Schema.String, model: Schema.optional(Schema.String), action: Schema.optional(Schema.Literal("remove")), value: Schema.optional(Schema.String) }),
-    form: { submitLabel: "Save", args: input => JSON.stringify({ role: input.role, provider: input.provider, ...(input.action ? { action: input.action } : {}) }), requires: input => input.action === "remove" ? [] : ["value"], fields: {
-      role: { label: "Role", kind: "select" }, provider: { label: "Provider", kind: "text" },
-      value: { label: "Key", kind: "write-only", required: false }
-    } },
-    handler: ({ role, provider, model, action }, _signal, _call, gesture) => actions.saveInstallModelKey({ role, provider, ...(model ? { model } : {}), ...(action ? { action } : {}) }, gesture) }),
-  flow({ name: "settings.setup", agent: "never", minimumRole: "owner", actors: ["person"], visibility: "in-card",  summary: "Continue setup", hidden: true, agentReason: "Install controls require the owner’s person session",
-    grammar: object, args: "<step>", input: Schema.Struct({ step: Schema.Literals(SETUP_STEP_IDS),
-      owner: Schema.optional(Schema.String), repository: Schema.optional(Schema.String), bind: Schema.optional(Schema.String), origins: Schema.optional(Schema.Array(Schema.String)) }),
-    form: { submitLabel: "Continue", args: input => JSON.stringify(input),
-      requires: payload => SETUP_REQUIRES[String(payload.step)] ?? [] },
-    handler: input => actions.setupStep(input) })
+  flow({ name: "settings", slash: "/settings", cli: null, journey: ["J1"], group: "Account and settings", visibility: "core",
+    actors: ["person"], minimumRole: "owner", http: null, summary: "Model access, machines, GitHub (owner)",
+    agentReason: "Install status requires the owner’s person session", agent: "never",
+    grammar: args => {
+      if (!args?.trim().startsWith("{")) return { payload: {} }
+      const parsed = object(args)
+      if ("payload" in parsed) return { payload: publicSettingsInput(parsed.payload) }
+      return parsed
+    },
+    input: Schema.Struct({
+      operation: Schema.optional(Schema.Literals(["address", "capacity", "parallel", "preapprove-default", "daily-admissions", "obsidian", "model-key", "setup"])),
+      listen: Schema.optional(Schema.Literals(["mac", "network"])), bind: Schema.optional(Schema.String), origins: Schema.optional(Schema.Array(Schema.String)),
+      capacity: Schema.optional(Schema.Number), parallel: Schema.optional(Schema.Number), todo_preapprove_default: Schema.optional(Schema.Boolean),
+      todo_daily_admissions: Schema.optional(Schema.Number), path: Schema.optional(Schema.String), role: Schema.optional(Schema.Literals(["fast", "coding", "jev"])),
+      provider: Schema.optional(Schema.String), model: Schema.optional(Schema.String), action: Schema.optional(Schema.Literal("remove")), value: Schema.optional(Schema.String),
+      step: Schema.optional(Schema.Literals(SETUP_STEP_IDS)), owner: Schema.optional(Schema.String), repository: Schema.optional(Schema.String)
+    }),
+    form: { submitLabel: "Save", args: input => JSON.stringify(publicSettingsInput(input)),
+      requires: input => [...(REQUIRED[String(input.operation)] ?? []),
+        ...(input.operation === "setup" ? SETUP_REQUIRES[String(input.step)] ?? [] : []),
+        ...(input.operation === "model-key" && input.action !== "remove" ? ["value"] : [])],
+      fields: { operation: { hidden: true }, value: { label: "Key", kind: "write-only", required: false },
+        role: { label: "Role", kind: "select" }, provider: { label: "Provider", kind: "text" } }
+    },
+    handler: async (input, _signal, _call, gesture) => {
+      switch (input.operation) {
+        case "address": return actions.setInstallAddress(Schema.decodeUnknownSync(address)(input))
+        case "capacity": return actions.setInstallCapacity(Schema.decodeUnknownSync(capacity)(input).capacity)
+        case "parallel": return actions.setInstallParallel(Schema.decodeUnknownSync(parallel)(input).parallel)
+        case "preapprove-default": return actions.setInstallPreapproveDefault(Schema.decodeUnknownSync(preapprove)(input).todo_preapprove_default)
+        case "daily-admissions": return actions.setInstallDailyAdmissions(Schema.decodeUnknownSync(admissions)(input).todo_daily_admissions)
+        case "obsidian": return actions.setInstallObsidian(Schema.decodeUnknownSync(obsidian)(input).path)
+        case "model-key": return actions.saveInstallModelKey(Schema.decodeUnknownSync(modelKey)(input), gesture)
+        case "setup": return actions.setupStep(Schema.decodeUnknownSync(setup)(input))
+        default: await actions.presentCard("settings", "Settings"); return actions.showSettings()
+      }
+    }
+  })
 ]

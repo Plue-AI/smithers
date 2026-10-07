@@ -22,7 +22,7 @@ import (
 // PUT /api/install carries several owner settings. memberCommands binds the
 // command the body names, and the handler's own authorization of that command
 // reuses the decision. The Obsidian folder (C-J8-03) was bound as plain
-// "settings", so InstallObsidianSettings.Set's "settings.obsidian" was refused
+// "settings", so the former Obsidian-specific command was refused
 // as a substituted command: 403 "Not your confirmation" on every install.
 func TestInstallSettingsBodyBindsItsCommandPostgres(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
@@ -46,8 +46,8 @@ func TestInstallSettingsBodyBindsItsCommandPostgres(t *testing.T) {
 	cfg.Auth.Mode = "selfhost"
 	cfg.Auth.SessionCookieName = "session"
 	for _, row := range []struct{ body, command string }{
-		{`{"wiki_sync.obsidian":{"path":"/Users/maya/Vault"}}`, "settings.obsidian"},
-		{`{"parallel":3}`, "settings.parallel"},
+		{`{"wiki_sync.obsidian":{"path":"/Users/maya/Vault"}}`, "settings"},
+		{`{"parallel":3}`, "settings"},
 		{`{"capacity":4}`, "settings"},
 	} {
 		t.Run(row.command, func(t *testing.T) {

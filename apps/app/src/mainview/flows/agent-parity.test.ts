@@ -35,12 +35,11 @@ import { WIKI_ATTACH_USER_ONLY_REASON, WIKI_HEADING_USER_ONLY_REASON } from "@sm
  * no longer user-only fails it too.
  */
 const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
+  "settings.fast-model": "Browser sign-in and sign-out require the owner's person session",
   "auth.email": "sign-in is the human's browser gesture; the agent renders the step with auth.prompt",
   "account.show": "Install status requires the owner’s person session",
   "repo.choose": "Install setup requires the owner’s person session",
   "repo.create": "Install setup requires the owner’s person session",
-  "settings.preapprove-default": "Install controls require the owner’s person session",
-  "settings.daily-admissions": "Install controls require the owner’s person session",
   "model.new": "Only the owner’s browser session configures models",
   "model.edit": "Only the owner’s browser session configures models",
   "model.save": "Only the owner’s browser session configures models",
@@ -73,12 +72,6 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "wiki.delete.cancel": "a confirm-dialog answer is the human's",
   "wiki.heading": WIKI_HEADING_USER_ONLY_REASON,
   "settings": "Install status requires the owner’s person session",
-  "settings.address": "Install controls require the owner’s person session",
-  "settings.capacity": "Install controls require the owner’s person session",
-  "settings.parallel": "Install controls require the owner’s person session",
-  "settings.obsidian": "Install controls require the owner’s person session",
-  "settings.model-key": "Install controls require the owner’s person session",
-  "settings.setup": "Install controls require the owner’s person session",
   "wiki.attach": WIKI_ATTACH_USER_ONLY_REASON,
   // The hidden world.* aliases (entries/world.ts) carry their wiki.* twins' reason.
   "sign-in": "sign-in is the human's browser gesture; the agent renders the step with auth.prompt",

@@ -34,8 +34,8 @@ func TestInstallModelAuthorizationPostgres(t *testing.T) {
 	run := f.token(f.owner, "model-run", "write:repository,write:user", true)
 	for _, route := range []struct{ method, path, command, body string }{
 		{"GET", "/api/install/metrics", "install.read", ""},
-		{"POST", "/api/model/credential", "settings.model-key", `{}`},
-		{"GET", "/api/model/credential/receipt?id=private", "settings.model-key", ""},
+		{"POST", "/api/model/credential", "settings", `{}`},
+		{"GET", "/api/model/credential/receipt?id=private", "settings", ""},
 		{"PUT", "/api/model/default", "model.assign", `{"model":null}`},
 		{"POST", "/api/model/test", "model.test", `{}`},
 		{"PUT", "/api/agents/reviewer/model", "model.assign", `{}`},

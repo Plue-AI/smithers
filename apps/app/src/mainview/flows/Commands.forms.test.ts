@@ -344,7 +344,7 @@ describe("THE FORM LAW — every flow's form round-trips through its own grammar
       if (missingFields(publicFields, draft).length > 0) failures.push(`${name}: the sample left ${missingFields(publicFields, draft).join(", ")} missing`)
       // Carried controls and the owner checkbox accept named JSON, while
       // ordinary slash forms retain their declared display grammar.
-      const namedJson = ["branch.bring-in", "branch.discard-foreign", "run.view", "order.ok", "settings.preapprove-default"].includes(name)
+      const namedJson = ["branch.bring-in", "branch.discard-foreign", "runs.trace.view", "order.ok", "settings"].includes(name)
       const args = namedJson ? JSON.stringify(submissionOf(entry, sample)) : assembleArgs(fields, entry.metadata.form, { ...draft })
       const parsed = payloadFor(name, args === "" ? undefined : args, entry.metadata.grammar)
       if ("error" in parsed) failures.push(`${name}: "${args}" → ${parsed.error}`)

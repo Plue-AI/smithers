@@ -33,7 +33,7 @@ import { wiki } from "./deferrals/wiki"
 
 /** Journeys the release depends on. Only a real scenario can account for them. */
 export const RELEASE_CRITICAL_ACTIONS: readonly string[] = [
-  "approval.approve", "approval.deny", "change.land", "settings.model-key", "secrets"
+  "approval.approve", "approval.deny", "change.land", "settings", "secrets"
 ]
 
 export type Deferral = "browser" | "diagnostics" | "owed" | "deferred: mvp.md §8/§16"
@@ -105,9 +105,7 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "monitor",
     "order.ok",
     "proposal",
-    "settings.daily-admissions",
     "settings.model.set",
-    "settings.preapprove-default",
     "todo.preapprove",
     "todo.takeover",
     "todo.unapprove",
@@ -146,10 +144,6 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "run.inspect",
     "runs",
     "settings",
-    "settings.address",
-    "settings.capacity",
-    "settings.obsidian",
-    "settings.parallel",
     "ssh",
     "stack",
     "stack.move",

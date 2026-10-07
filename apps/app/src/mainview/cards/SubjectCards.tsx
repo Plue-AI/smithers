@@ -9,7 +9,7 @@
  */
 import { Fragment, Suspense, lazy, useState, type ReactNode } from "react"
 import { Button, Markdown } from "@smthrs/ui"
-import type { CatalogTag } from "@smthrs/rpc/CardAction"
+import { registeredAction, type CatalogTag } from "@smthrs/rpc/CardAction"
 import type { DiffCard } from "@smthrs/rpc/DiffCard"
 import type { CodeEditorViewProps, FileCard } from "@smthrs/rpc/FileCard"
 import { BookOpen, CircleAlert, CircleDot, ExternalLink, GitCommitHorizontal, Info, Link2, Signpost } from "lucide-react"
@@ -30,7 +30,7 @@ const DiffCardSurface = lazy(() => import("./DiffSurface").then(module => ({ def
 const usePress = (cardId: string) => {
   const controller = useController()
   return <Tag extends CatalogTag>(tag: Tag, payload: Record<string, unknown> = {}): FlowActionProps =>
-    flowAction(() => { void controller.commands.submit({ name: tag, payload, actor: "user", originCardId: cardId }) }, tag,
+    flowAction(() => { void controller.commands.submit({ name: tag, payload, actor: "user", originCardId: cardId }) }, registeredAction({ tag, label: "" }).tag,
       hasFlowArgs(tag) ? flowArgs(tag, payload as never) : undefined)
 }
 

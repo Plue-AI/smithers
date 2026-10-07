@@ -31,8 +31,8 @@ test.each([0, 1, 2, 3])("Machines buttons enforce the served formula at %i", asy
   expect(more.disabled).toBe(capacity === 3)
   await act(async () => { fewer.click(); more.click() })
   expect(commands).toEqual([
-    ...(capacity <= 1 ? [] : [{ tag: "settings.capacity", input: { capacity: capacity - 1 } }]),
-    ...(capacity === 3 ? [] : [{ tag: "settings.capacity", input: { capacity: capacity + 1 } }])
+    ...(capacity <= 1 ? [] : [{ tag: "settings", input: { operation: "capacity", capacity: capacity - 1 } }]),
+    ...(capacity === 3 ? [] : [{ tag: "settings", input: { operation: "capacity", capacity: capacity + 1 } }])
   ])
 })
 
@@ -72,7 +72,7 @@ test("Address keeps all origins and the bind input; LAN HTTP is marked per origi
   const origins = host.querySelector<HTMLTextAreaElement>('textarea[id$="-origins"]')!
   expect(origins.value).toBe(expectedOrigins.join("\n"))
   const form = origins.closest("form")!
-  expect(form.dataset.flow).toBe("settings.address")
+  expect(form.dataset.flow).toBe("settings")
   expect(form.querySelector<HTMLInputElement>('input[id$="-bind"]')!.value).toBe("0.0.0.0:4000")
   for (const origin of expectedOrigins) {
     const rendered = [...host.querySelectorAll("code")].find(code => code.textContent === origin)!
@@ -81,7 +81,7 @@ test("Address keeps all origins and the bind input; LAN HTTP is marked per origi
   }
   expect(commands).toEqual([])
   await act(async () => form.querySelector<HTMLButtonElement>('button[type="submit"]')!.click())
-  expect(commands).toEqual([{ tag: "settings.address", input: {
+  expect(commands).toEqual([{ tag: "settings", input: { operation: "address",
     listen: "network", bind: "0.0.0.0:4000", origins: expectedOrigins
   } }])
 })
@@ -92,7 +92,7 @@ test("Live Settings restores model access and preserves Machines controls", asyn
   const commands: unknown[] = []
   const host = await mount(model, (tag, input) => { commands.push({ tag, input }) })
   expect(host.querySelectorAll(".settings-model-row")).toHaveLength(3)
-  expect(host.querySelectorAll('[data-flow="settings.model-key"]').length).toBeGreaterThan(0)
+  expect(host.querySelectorAll('[data-flow="settings"][data-operation="model-key"]').length).toBeGreaterThan(0)
   expect(host.textContent).toContain("Machines")
   expect(host.textContent).toContain("Key is invalid")
   expect(commands).toEqual([])
@@ -114,7 +114,7 @@ test("Zero formula disables both Machines buttons; At once keeps its 1-8 request
     expect(button.disabled).toBe(false)
     await act(async () => button.click())
   }
-  expect(commands).toEqual([{ tag: "settings.parallel", input: { parallel: 1 } }, { tag: "settings.parallel", input: { parallel: 3 } }])
+  expect(commands).toEqual([{ tag: "settings", input: { operation: "parallel", parallel: 1 } }, { tag: "settings", input: { operation: "parallel", parallel: 3 } }])
 })
 
 test("Live Settings passes the app-local model slot once and preserves Machines actions", async () => {
@@ -123,12 +123,12 @@ test("Live Settings passes the app-local model slot once and preserves Machines 
     <><dt>Fast model</dt><dd><button type="button" onClick={() => slotCalls.push("change")}>Change model</button></dd></>)
   const buttons = [...host.querySelectorAll<HTMLButtonElement>("button")].filter(button => button.textContent === "Change model")
   expect(buttons).toHaveLength(1)
-  expect(host.querySelectorAll('[data-flow="settings.model-key"],[data-flow="settings.model.set"]')).toHaveLength(0)
+  expect(host.querySelectorAll('[data-flow="settings"][data-operation="model-key"],[data-flow="settings.model.set"]')).toHaveLength(0)
   await act(async () => buttons[0]!.click())
   expect(slotCalls).toEqual(["change"])
   expect(commands).toEqual([])
   await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Fewer Machines"]')!.click())
-  expect(commands).toEqual([{ tag: "settings.capacity", input: { capacity: 1 } }])
+  expect(commands).toEqual([{ tag: "settings", input: { operation: "capacity", capacity: 1 } }])
 })
 
 

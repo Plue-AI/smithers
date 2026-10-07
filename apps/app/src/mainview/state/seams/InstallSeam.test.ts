@@ -298,7 +298,7 @@ describe("T-APP-03 install seam", () => {
     const refusal: InstallError = { code: "owner_required", class: "permission", message: "Owner access required" }
     const h = await harness(path => path === "/api/model/credential" ? Response.json(refusal, { status: 403 }) : Response.json(installFixture()))
     await h.seam.readInstall()
-    h.seam.saveInstallModelKey({ role: "jev", provider: "AI Gateway" }, writeOnlyGesture("settings.model-key", { value: "private-key" })); await h.idle()
+    h.seam.saveInstallModelKey({ role: "jev", provider: "AI Gateway" }, writeOnlyGesture("settings", { value: "private-key" })); await h.idle()
     expect(h.seam.snapshots.get().model?.models[2]).toEqual({ role: "jev", provider: "AI Gateway", key: "failed", error: "Owner access required" })
     expect(h.seam.snapshots.get().model?.models[0]).toEqual({ role: "fast", provider: "Cerebras", key: "saved" })
     expect(h.toasts[0]?.outcome).toBe("Owner access required")
@@ -311,7 +311,7 @@ describe("T-APP-03 install seam", () => {
   test("keys are consumed once, never stored; provider detail stays out of the authored refusal", async () => {
     const secret = "test-private-key"
     const h = await harness(path => path === "/api/model/credential" ? Response.json({ ...failure(), message: "Provider refused key" }, { status: 422 }) : Response.json(installFixture()))
-    await h.seam.readInstall(); const gesture = writeOnlyGesture("settings.model-key", { value: secret })
+    await h.seam.readInstall(); const gesture = writeOnlyGesture("settings", { value: secret })
     h.seam.saveInstallModelKey({ role: "coding", provider: "OpenAI" }, gesture)
     expect(gesture.takeWriteOnly?.("value")).toBeUndefined(); await h.idle()
     expect(h.requests[1]?.init?.body).toContain(secret)
@@ -324,7 +324,7 @@ describe("T-APP-03 install seam", () => {
     const gate = deferred<Response>()
     const h = await harness(path => path === "/api/model/credential" ? gate.promise : Response.json(installFixture()))
     await h.seam.readInstall()
-    h.seam.saveInstallModelKey({ role: "jev", provider: "AI Gateway" }, writeOnlyGesture("settings.model-key", { value: "private-key" }))
+    h.seam.saveInstallModelKey({ role: "jev", provider: "AI Gateway" }, writeOnlyGesture("settings", { value: "private-key" }))
     await tick(); await tick()
     expect(h.seam.snapshots.get().model?.models[2]).toEqual({ role: "jev", provider: "AI Gateway", key: "validating" })
     expect(h.seam.snapshots.get().model?.models[0]).toEqual({ role: "fast", provider: "Cerebras", key: "saved" })
@@ -338,7 +338,7 @@ describe("T-APP-03 install seam", () => {
       const h = await harness(path => path === "/api/model/credential" ? Response.json(credentialReceipt("OPENAI_API_KEY"))
         : path === "/api/model/default" ? Response.json({ ok }, { status: ok ? 200 : 503 }) : Response.json(installFixture()))
       await h.seam.readInstall()
-      h.seam.saveInstallModelKey({ role: "coding", provider: "OpenAI", model: "gpt-5" }, writeOnlyGesture("settings.model-key", { value: "private-key" }))
+      h.seam.saveInstallModelKey({ role: "coding", provider: "OpenAI", model: "gpt-5" }, writeOnlyGesture("settings", { value: "private-key" }))
       await h.idle()
       const request = h.requests.find(request => request.path === "/api/model/default")!
       expect(request.init?.method).toBe("PUT")
@@ -356,7 +356,7 @@ describe("T-APP-03 install seam", () => {
       const h = await harness(path => path === "/api/model/credential" ? Response.json(credentialReceipt(credential))
         : path === "/api/model/default" ? Response.json({ ok: true }) : Response.json(installFixture()))
       await h.seam.readInstall()
-      h.seam.saveInstallModelKey({ role: "coding", provider, model: "openai/gpt-5" }, writeOnlyGesture("settings.model-key", { value: "private-key" }))
+      h.seam.saveInstallModelKey({ role: "coding", provider, model: "openai/gpt-5" }, writeOnlyGesture("settings", { value: "private-key" }))
       await h.idle()
       const request = h.requests.find(request => request.path === "/api/model/default")!
       expect(JSON.parse(String(request.init?.body))).toEqual({ model })
@@ -371,7 +371,7 @@ describe("T-APP-03 install seam", () => {
       const h = await harness(path => path === "/api/model/credential" ? Response.json(credentialReceipt("AI_GATEWAY_API_KEY"))
         : path === "/api/model/default" ? Response.json({ ok: true }) : Response.json(model))
       await h.seam.readInstall()
-      h.seam.saveInstallModelKey({ role: "coding", provider: "AI Gateway", model: "anthropic/claude-sonnet-4.5" }, writeOnlyGesture("settings.model-key", { value: "private-key" }))
+      h.seam.saveInstallModelKey({ role: "coding", provider: "AI Gateway", model: "anthropic/claude-sonnet-4.5" }, writeOnlyGesture("settings", { value: "private-key" }))
       await h.idle()
       const sent = JSON.parse(String(h.requests.find(request => request.path === "/api/model/credential")!.init?.body))
       expect(sent).toMatchObject({ ...credential, value: "private-key" })
@@ -384,7 +384,7 @@ describe("T-APP-03 install seam", () => {
     const gate = deferred<Response>()
     const h = await harness(path => path === "/api/model/credential" ? gate.promise : Response.json(installFixture()))
     await h.seam.readInstall()
-    for (let i = 0; i < 2; i++) h.seam.saveInstallModelKey({ role: "fast", provider: "Cerebras" }, writeOnlyGesture("settings.model-key", { value: "private-key" }))
+    for (let i = 0; i < 2; i++) h.seam.saveInstallModelKey({ role: "fast", provider: "Cerebras" }, writeOnlyGesture("settings", { value: "private-key" }))
     await tick()
     expect(h.requests.filter(request => request.path === "/api/model/credential")).toHaveLength(1)
     expect(h.toasts[0]?.outcome).toBeUndefined()
@@ -397,7 +397,7 @@ describe("T-APP-03 install seam", () => {
   test("an HTTP-200 negative credential receipt never claims a saved key", async () => {
     const h = await harness(path => path === "/api/model/credential" ? Response.json({ ok: false, failure: { code: "invalid", field: "value" }, fault: "user" }) : Response.json(installFixture()))
     await h.seam.readInstall()
-    h.seam.saveInstallModelKey({ role: "coding", provider: "OpenAI" }, writeOnlyGesture("settings.model-key", { value: "private-key" }))
+    h.seam.saveInstallModelKey({ role: "coding", provider: "OpenAI" }, writeOnlyGesture("settings", { value: "private-key" }))
     await h.idle()
     expect(h.toasts[0]?.outcome).toBe("The operation failed.")
     expect(h.seam.snapshots.get().model?.models[1]?.key).toBe("failed")

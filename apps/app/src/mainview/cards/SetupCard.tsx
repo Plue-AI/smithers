@@ -1,3 +1,4 @@
+import { settingsControl } from "../flows/settingsControl"
 import { useSyncExternalStore, type ComponentType } from "react"
 import type { CardProps } from "@smthrs/rpc/CardAction"
 import type { SetupCard as SetupModel } from "@smthrs/rpc/SetupCard"
@@ -30,8 +31,8 @@ const CODING_PROVIDERS = ["OpenAI", "Anthropic", "OpenRouter", "AI Gateway"] as 
 export const fastModelAction = (model: InstallModel, args: Readonly<Record<string,string>> = {}): CardActionDefinition<"settings.fast-model">[] => model.fast_model === undefined ? [] : [{
  tag:"settings.fast-model", label:model.fast_model.signed_in ? "Sign out" : "Sign in to Smithers", args:{...args,role:"fast"}, command_input:{action:model.fast_model.signed_in ? "sign-out" : "sign-in"}
 }]
-export const roleKeyActions = (definition: CardActionDefinition<"settings.model-key">, model: InstallModel,
-  args: Readonly<Record<string, string>>, chooseModel = true): CardActionDefinition<"settings.model-key">[] => model.models.map(role => ({
+export const roleKeyActions = (definition: CardActionDefinition<"settings">, model: InstallModel,
+  args: Readonly<Record<string, string>>, chooseModel = true): CardActionDefinition<"settings">[] => model.models.map(role => settingsControl("model-key", {
   ...definition, label: "Save", args: { ...args, role: role.role }, command_input: { role: role.role, provider: role.provider },
   input: [
     ...(role.role === "coding" ? [{ name: "provider", label: "Provider", kind: "choice" as const, required: true, value: role.provider,
@@ -50,21 +51,21 @@ const LOOPBACK_ORIGIN = /^https?:\/\/(localhost|127\.\d+\.\d+\.\d+|\[::1\])(:\d+
  * Setup step 0 (mvp.md J1 2.1, M-28): "This Mac only" binds loopback; "Network" binds the address the owner chose and
  * saves the origins teammates open, so the GitHub App's callback URLs follow them.
  */
-export const setupAddressActions = (address: InstallAddress, running: boolean): CardActionDefinition<"settings.setup">[] => {
+export const setupAddressActions = (address: InstallAddress, running: boolean): CardActionDefinition<"settings">[] => {
   const port = addressPort(address.bind)
   const disabled = running ? { reason: "Running" } : undefined
   const bind = address.listen === "network" ? address.bind : `0.0.0.0:${port}`
   const origins = address.origins.filter(origin => !LOOPBACK_ORIGIN.test(origin))
   return [
-    { tag: "settings.setup", label: "This Mac only", disabled, args: { step: "address", listen: "mac" },
-      command_input: { step: "address", bind: `127.0.0.1:${port}`, origins: [`http://localhost:${port}`] } },
-    { tag: "settings.setup", label: "Network", disabled, args: { step: "address", listen: "network" },
+    settingsControl("setup", { tag: "settings", label: "This Mac only", disabled, args: { step: "address", listen: "mac" },
+      command_input: { step: "address", bind: `127.0.0.1:${port}`, origins: [`http://localhost:${port}`] } }),
+    settingsControl("setup", { tag: "settings", label: "Network", disabled, args: { step: "address", listen: "network" },
       command_input: { step: "address", bind, origins },
       input: [
         { name: "bind", label: "Bind", kind: "text", required: true, value: bind },
         { name: "origins", label: "Origins", kind: "text", multiline: true, required: true, value: origins.join("\n") }
       ],
-      resolve_input: input => ({ step: "address", bind: input.bind?.trim() || bind, origins: input.origins === undefined ? origins : parseOrigins(input.origins) }) }
+      resolve_input: input => ({ step: "address", bind: input.bind?.trim() || bind, origins: input.origins === undefined ? origins : parseOrigins(input.origins) }) })
   ]
 }
 
@@ -77,7 +78,7 @@ export const SetupCard = ({ View, install, dispatch, allowed, view, onView }: Se
   if (allowed && model && step) {
     if (step.id === "sign_in") definitions.push({ tag: "sign-in", label: "Sign in", args: { step: step.id }, command_input: undefined })
     else if (step.id === "address") definitions.push(...setupAddressActions(model.address, step.state === "running"))
-    else if (step.id !== "repository" || model.repositories?.length) definitions.push({ tag: "settings.setup", label: step.state === "failed" || step.state === "blocked" ? "Retry" : labels[step.id],
+    else if (step.id !== "repository" || model.repositories?.length) definitions.push(settingsControl("setup", { tag: "settings", label: step.state === "failed" || step.state === "blocked" ? "Retry" : labels[step.id],
       // The running App step keeps its control: a press continues to GitHub or starts again (InstallSeam.setupStep).
       disabled: step.state === "running" && step.id !== "app_manifest" ? { reason: "Running" } : undefined,
       args: { step: step.id },
@@ -85,7 +86,7 @@ export const SetupCard = ({ View, install, dispatch, allowed, view, onView }: Se
         : step.id === "repository" ? [{ name: "repository", label: "Repository", kind: "choice", required: true, choices: model.repositories ?? [] }] : undefined,
       command_input: { step: step.id },
       resolve_input: input => ({ step: step.id, ...(input.owner ? { owner: input.owner } : {}),
-        ...(input.repository ? { repository: input.repository } : {}) }) })
+        ...(input.repository ? { repository: input.repository } : {}) }) }))
     if (step.id === "models" && model.github.signed_in && key) definitions.push(...fastModelAction(model,{step:"models"}), ...roleKeyActions(key.definition, model, { step: "models" }, !snapshot.seed))
     // Address can change until setup finishes (the install runs the step again); Settings changes it afterwards.
     if (step.id !== "address" && model.steps.find(step => step.id === "address")?.state === "done") definitions.push(...setupAddressActions(model.address, false))

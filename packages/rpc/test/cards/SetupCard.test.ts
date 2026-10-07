@@ -158,10 +158,10 @@ describe("Setup fix and person-only key retry", () => {
   })
   test("the person retries with an unfilled secret; agents receive no form", () => {
     expect(fixtures.models_failed.actions).toEqual([{
-      tag: "settings.model-key",
+      tag: "settings",
       label: "Retry",
       primary: true,
-      args: { role: "jev", provider: "AI Gateway" },
+      args: { operation: "model-key", role: "jev", provider: "AI Gateway" },
       input: [{ name: "key", label: "AI Gateway key", kind: "secret", required: true }]
     }])
     expect(personOnlyFixtures.models_failed_agent.actions).toEqual([])

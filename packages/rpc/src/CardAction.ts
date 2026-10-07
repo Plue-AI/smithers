@@ -7,7 +7,7 @@ import { z } from "zod"
 import type { TodoNewInputSchema as TodoCommandNewInputSchema } from "./TodoCommands.ts"
 import { ModelIdSchema } from "./AgentRoles.ts"
 import { type ModelRoleId, ModelRoleIdSchema } from "./CardPrimitives.ts"
-import { type CatalogTag, CatalogTagSchema } from "./CatalogTags.ts"
+import { type CatalogTag as RegisteredCatalogTag, CatalogTagSchema } from "./CatalogTags.ts"
 import { ConfirmRevisionSchema } from "./ConfirmCard.ts"
 import { DraftIdSchema } from "./DraftCard.ts"
 import type { SetupStepId } from "./SetupCard.ts"
@@ -17,7 +17,7 @@ import type { ModelProtocol } from "./ConfiguredModel.ts"
  * @since 1.0.0
  * @category models
  */
-export type { CatalogTag } from "./CatalogTags.ts"
+export type CatalogTag = RegisteredCatalogTag | typeof historicalSettings[number]
 
 /**
  * An action form field.
@@ -47,14 +47,23 @@ export type FormField = z.infer<typeof FormFieldSchema>
  * @since 1.0.0
  * @category schemas
  */
+const historicalSettings = ["settings.address", "settings.capacity", "settings.parallel", "settings.preapprove-default", "settings.daily-admissions", "settings.obsidian", "settings.model-key", "settings.setup"] as const
 export const ActionSchema = z.object({
-  tag: CatalogTagSchema,
+  tag: z.union([CatalogTagSchema, z.enum(historicalSettings)]),
   label: z.string(),
   args: z.record(z.string(), z.string()).optional(),
   primary: z.boolean().optional(),
   disabled: z.object({ reason: z.string() }).optional(),
   input: z.array(FormFieldSchema).optional()
-})
+}).overwrite(action => historicalSettings.some(tag => tag === action.tag)
+  ? { ...action, tag: "settings" as const, args: { ...action.args, operation: action.tag.slice("settings.".length) } }
+  : { ...action, tag: CatalogTagSchema.parse(action.tag) })
+
+/** Normalize recorded data before binding an action to a current executable door. */
+export const registeredAction = (input: z.infer<typeof ActionSchema>) => {
+  const action = ActionSchema.parse(input)
+  return { ...action, tag: CatalogTagSchema.parse(action.tag) }
+}
 
 /**
  * The value decoded by {@link ActionSchema}.
@@ -139,18 +148,13 @@ export const BranchForeignAnswerInputSchema = z.strictObject({
  * @since 1.0.0
  * @category models
  */
-export interface CardCommandInput {
+/** Historical tags are decodable data; no new typed command can use them. */
+export type CardCommandInput = CurrentCardCommandInput & { readonly [Tag in typeof historicalSettings[number]]: never }
+
+interface CurrentCardCommandInput {
   readonly "approval.approve": { readonly cardId: string }
   readonly "approval.deny": { readonly cardId: string }
-  readonly "settings.address": { readonly listen: "mac" | "network"; readonly bind: string; readonly origins: readonly string[] }
-  readonly "settings.preapprove-default": { readonly todo_preapprove_default: boolean }
-  readonly "settings.daily-admissions": { readonly todo_daily_admissions: number }
-  readonly "settings.capacity": { readonly capacity: number }
-  readonly "settings.obsidian": { readonly path: string }
-  readonly "settings.parallel": { readonly parallel: number }
   readonly "settings.fast-model": { readonly action: "sign-in" | "sign-out" }
-  readonly "settings.model-key": { readonly role: ModelRoleId; readonly provider: string; readonly model?: string; readonly action?: "remove" }
-  readonly "settings.setup": { readonly step: SetupStepId; readonly owner?: string; readonly repository?: string; readonly bind?: string; readonly origins?: readonly string[] }
 
   readonly "form.set": { readonly cardId: string; readonly field: string; readonly value: string }
   readonly "card.dismiss": { readonly cardId: string }
@@ -210,7 +214,13 @@ export interface CardCommandInput {
   readonly "flow.plan": { readonly name: string }
   readonly "agents": undefined
   readonly "agent": { readonly name: string }
-  readonly "settings": undefined
+  readonly "settings": undefined | {
+    readonly operation?: "address" | "capacity" | "parallel" | "preapprove-default" | "daily-admissions" | "obsidian" | "model-key" | "setup"
+    readonly listen?: "mac" | "network"; readonly bind?: string; readonly origins?: readonly string[]
+    readonly capacity?: number; readonly parallel?: number; readonly todo_preapprove_default?: boolean; readonly todo_daily_admissions?: number
+    readonly path?: string; readonly role?: ModelRoleId; readonly provider?: string; readonly model?: string; readonly action?: "remove"
+    readonly step?: SetupStepId; readonly owner?: string; readonly repository?: string
+  }
   readonly "secrets": undefined
   readonly "members": undefined
   readonly "ssh": { readonly branch: string }

@@ -154,8 +154,8 @@ export const fixtures = {
     },
     {
       actions: [step("models", "Retry", {
-        tag: "settings.model-key",
-        args: { role: "jev", provider: "AI Gateway" },
+        tag: "settings",
+        args: { operation: "model-key", role: "jev", provider: "AI Gateway" },
         input: [{ name: "key", label: "AI Gateway key", kind: "secret", required: true }]
       })],
       expect: ["Key rejected", "401 from the gateway", "AI Gateway key", "Retry"]

@@ -39,7 +39,7 @@ test.skipIf(!address)("TestParallelSettingsCardBoundary", async () => {
     dispatch={(name, payload, gesture) => controller.commands.submit({ name, payload: (payload ?? {}) as Record<string, unknown>, actor: "user", gesture })} />))
   const button = host.querySelector<HTMLButtonElement>('[aria-label="More TODOs at once"]')!
   expect(button).not.toBeNull()
-  expect(button.dataset.flow).toBe("settings.parallel")
+  expect(button.dataset.flow).toBe("settings")
   for (const parallel of [3, 4, 5, 6, 7, 8]) {
     await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="More TODOs at once"]')!.click())
     await act(async () => { await waitFor(() => controller.installSnapshots.get().model?.parallel === parallel) })

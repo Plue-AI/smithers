@@ -500,15 +500,15 @@ var installMemberRoutes = []struct {
 	// workspaces, the repository and its stack, the GitHub sync, the live
 	// channel and the app's error reports.
 	{http.MethodGet, "install.read", regexp.MustCompile(`^/api/install$`)},
-	{http.MethodPost, "settings.setup", regexp.MustCompile(`^/api/install/setup/(address|app|sign_in|repository|models|source|machine)$`)},
+	{http.MethodPost, "settings", regexp.MustCompile(`^/api/install/setup/(address|app|sign_in|repository|models|source|machine)$`)},
 	{http.MethodGet, "install.scorecard", regexp.MustCompile(`^/api/install/scorecard$`)},
 	{http.MethodGet, "agents.read", regexp.MustCompile(`^/api/agents(?:/[^/]+)?$`)},
 	{http.MethodGet, "agents.read", regexp.MustCompile(`^/api/model/(catalog|default)$`)},
-	{http.MethodPost, "settings.model-key", regexp.MustCompile(`^/api/model/credential$`)},
+	{http.MethodPost, "settings", regexp.MustCompile(`^/api/model/credential$`)},
+	{http.MethodGet, "settings", regexp.MustCompile(`^/api/model/credential/receipt$`)},
 	{http.MethodPost, "settings.fast-model", regexp.MustCompile(`^/api/model/fast/sign-in$`)},
 	{http.MethodGet, "settings.fast-model", regexp.MustCompile(`^/api/model/fast/return$`)},
 	{http.MethodDelete, "settings.fast-model", regexp.MustCompile(`^/api/model/fast$`)},
-	{http.MethodGet, "settings.model-key", regexp.MustCompile(`^/api/model/credential/receipt$`)},
 	{http.MethodPost, "model.test", regexp.MustCompile(`^/api/model/test$`)},
 	{http.MethodGet, "model.test", regexp.MustCompile(`^/api/model/test/receipt$`)},
 	{http.MethodPut, "model.assign", regexp.MustCompile(`^/api/agents/[^/]+/model$`)},

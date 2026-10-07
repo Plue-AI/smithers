@@ -14,7 +14,7 @@ export const ROLE_LABELS = { fast: "Fast model", coding: "Coding model", jev: "D
 const KEY_STATE = { none: "", validating: "Validating", saved: "Saved", failed: "Failed" } as const
 /** A key action bound to one role's row (SetupCard roleKeyActions). */
 export const roleKeyAction = (actions: ReadonlyArray<Action>, role: string) =>
-  actions.find(action => action.tag === "settings.model-key" && action.args?.role === role)
+  actions.find(action => action.tag === "settings" && action.args?.operation === "model-key" && action.args?.role === role)
 
 /** One model role: its provider, its own key control (or the masked key) and its key state, with the provider's reason when it failed. */
 export function ModelRole({ role, chatgpt, action, onAction, omitLabel = false }: {

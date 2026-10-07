@@ -185,7 +185,7 @@ func TestConfirmationsInstallBoundaryPostgres(t *testing.T) {
 		{`{"command":"stack.move"}`, 403, "permission"},
 		{`{"command":"members.write"}`, 403, "never"},
 		{`{"command":"secrets.write"}`, 403, "never"},
-		{`{"command":"settings.parallel"}`, 403, "never"},
+		{`{"command":"settings"}`, 403, "never"},
 		{`{"command":"merge"}`, 503, "confirmation_unavailable"},
 	} {
 		w = call("POST", "/api/confirmations", "", token, "refused-create", tc.body)

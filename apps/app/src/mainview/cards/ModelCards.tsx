@@ -9,7 +9,7 @@ export function ModelRoles({ model, actions, onAction }: Pick<SettingsViewProps,
   for (const role of model.models) rows.push(<Fragment key={role.role}>
     <dt>{ROLE_LABELS[role.role]}</dt>
     <dd className="settings-model-row">{role.role === "fast" && <FastModelAccess status={model.fast_model} actions={actions} onAction={onAction} />}<ModelRole role={role} chatgpt={model.chatgpt} action={roleKeyAction(actions, role.role)} onAction={onAction} omitLabel />
-      {(role.key === "saved" || role.key === "failed") && roleKeyAction(actions, role.role) && <button type="button" data-testid={`settings-key-remove-${role.role}`} data-flow="settings.model-key" onClick={() => onAction("settings.model-key", { ...roleKeyAction(actions, role.role)?.args, role: role.role, provider: role.provider, action: "remove" })}>Remove</button>}
+      {(role.key === "saved" || role.key === "failed") && roleKeyAction(actions, role.role) && <button type="button" data-testid={`settings-key-remove-${role.role}`} data-flow="settings" data-operation="model-key" onClick={() => onAction("settings", { ...roleKeyAction(actions, role.role)?.args, role: role.role, provider: role.provider, action: "remove" })}>Remove</button>}
       {role.model && <span data-testid={`settings-model-${role.role}`}>{role.model}</span>}
       <SetupActions inline actions={actions.filter(action => action.tag === "settings.model.set" && action.args?.role === role.role)} onAction={onAction} />
     </dd>

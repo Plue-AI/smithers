@@ -1,3 +1,4 @@
+import { CatalogTagSchema } from "@smthrs/rpc/CatalogTags"
 /*
  * MOCK SEAM, chat lane (delete with ./index.ts). The app agent's plain-word
  * answers and its A✓ confirmations (mvp.md §6.5, Appendix B) read and write
@@ -222,7 +223,7 @@ export const designActCard = (world: DesignWorldRows, act: DesignAct): DesignCon
   const todo = act.todo === undefined ? undefined : todoOf(world, act.todo)
   const model: ConfirmCard = {
     kind: "one_click",
-    action: { tag: act.tag as CatalogTag, verb: act.verb },
+    action: { tag: CatalogTagSchema.parse(act.tag), verb: act.verb },
     summary: `${act.verb} ${act.target}`,
     subject: todo === undefined ? { kind: "branch", ref: act.target } : { kind: "todo", ref: todo.ref },
     ...(act.text === undefined ? {} : { text: act.text }),

@@ -12,7 +12,7 @@ describe("generated catalog tags", () => {
     "todo.return-to-item",
     "todo.preapprove",
     "todo.unapprove",
-    "settings.preapprove-default",
+    "settings",
     "merge.confirm",
     "background.retry",
     "notifications.allow",
@@ -30,4 +30,11 @@ describe("generated catalog tags", () => {
   test.each(["", "/todo", "todo.merge", "arbitrary.command"])("rejects unpublished %s", (tag) => {
     expect(CatalogTagSchema.safeParse(tag).success).toBe(false)
   })
+})
+
+
+test("retired Settings tags stay out of the executable catalog", () => {
+  for (const tag of ["settings.address", "settings.capacity", "settings.parallel", "settings.preapprove-default", "settings.daily-admissions", "settings.obsidian", "settings.model-key", "settings.setup"]) {
+    expect(CatalogTagSchema.safeParse(tag).success).toBe(false)
+  }
 })

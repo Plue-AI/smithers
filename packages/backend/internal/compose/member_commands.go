@@ -45,17 +45,6 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 					writeConfirmationDispatchError(w, pkgerrors.BadRequest("invalid setup body"))
 					return
 				}
-				var settings map[string]json.RawMessage
-				if json.Unmarshal(raw, &settings) == nil {
-					if _, parallel := settings["parallel"]; parallel {
-						command = "settings.parallel"
-					}
-					// The Obsidian folder's handler authorizes its own command;
-					// binding plain settings here refused it as a substitution.
-					if _, obsidian := settings["wiki_sync.obsidian"]; obsidian {
-						command = "settings.obsidian"
-					}
-				}
 				r.Body = io.NopCloser(bytes.NewReader(raw))
 			}
 			if command == "order.ok" {

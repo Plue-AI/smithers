@@ -534,7 +534,7 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 	}{
 		{"members.write", [3]int{403, 403, 403}, [3]string{"never", "never", "permission"}},
 		{"secrets.write", [3]int{403, 403, 403}, [3]string{"never", "never", "permission"}},
-		{"settings.parallel", [3]int{403, 403, 403}, [3]string{"never", "permission", "permission"}},
+		{"settings", [3]int{403, 403, 403}, [3]string{"never", "permission", "permission"}},
 		{"merge", [3]int{503, 503, 403}, [3]string{"confirmation_unavailable", "confirmation_unavailable", "permission"}},
 		{"branch.bring-in", [3]int{403, 403, 403}, [3]string{"permission", "permission", "permission"}},
 	} {

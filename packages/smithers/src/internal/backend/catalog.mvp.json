@@ -10306,141 +10306,248 @@
         "dialect": "draft-2020-12",
         "schema": {
           "type": "object",
-          "additionalProperties": false
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "settings.address",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person"
-      ],
-      "minimumRole": "owner",
-      "credentialScope": "write:repository",
-      "agent": "never",
-      "summary": "Change Address",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
           "properties": {
+            "operation": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "address",
+                    "capacity",
+                    "parallel",
+                    "preapprove-default",
+                    "daily-admissions",
+                    "obsidian",
+                    "model-key",
+                    "setup"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "listen": {
-              "type": "string",
-              "enum": [
-                "mac",
-                "network"
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "mac",
+                    "network"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
               ]
             },
             "bind": {
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "origins": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          },
-          "required": [
-            "listen",
-            "bind",
-            "origins"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "settings.capacity",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person"
-      ],
-      "minimumRole": "owner",
-      "credentialScope": "write:repository",
-      "agent": "never",
-      "summary": "Change Machines",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "capacity": {
               "anyOf": [
                 {
-                  "type": "number"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
                 },
                 {
-                  "type": "string",
-                  "enum": [
-                    "Infinity",
-                    "-Infinity",
-                    "NaN"
-                  ]
+                  "type": "null"
                 }
               ]
-            }
-          },
-          "required": [
-            "capacity"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "settings.daily-admissions",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person"
-      ],
-      "minimumRole": "owner",
-      "credentialScope": "write:repository",
-      "agent": "never",
-      "summary": "Change TODOs per day",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
+            },
+            "parallel": {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "todo_preapprove_default": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "todo_daily_admissions": {
               "anyOf": [
                 {
-                  "type": "number"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
                 },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "path": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "role": {
+              "anyOf": [
                 {
                   "type": "string",
                   "enum": [
-                    "Infinity",
-                    "-Infinity",
-                    "NaN"
+                    "fast",
+                    "coding",
+                    "jev"
                   ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "provider": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "model": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "action": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "remove"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "step": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "address",
+                    "app_manifest",
+                    "sign_in",
+                    "repository",
+                    "models",
+                    "source",
+                    "machine"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "owner": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "repository": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
                 }
               ]
             }
           },
-          "required": [
-            "todo_daily_admissions"
-          ],
           "additionalProperties": true
         },
         "definitions": {}
@@ -10483,80 +10590,6 @@
       }
     },
     {
-      "name": "settings.model-key",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person"
-      ],
-      "minimumRole": "owner",
-      "credentialScope": "write:repository",
-      "agent": "never",
-      "summary": "Change model key",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "role": {
-              "type": "string",
-              "enum": [
-                "fast",
-                "coding",
-                "jev"
-              ]
-            },
-            "provider": {
-              "type": "string"
-            },
-            "model": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "action": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "enum": [
-                    "remove"
-                  ]
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "value": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "required": [
-            "role",
-            "provider"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
       "name": "settings.model.set",
       "slash": null,
       "cli": null,
@@ -10592,198 +10625,6 @@
           "required": [
             "role",
             "model"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "settings.obsidian",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person"
-      ],
-      "minimumRole": "owner",
-      "credentialScope": "write:repository",
-      "agent": "never",
-      "summary": "Change Obsidian folder",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "path": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "path"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "settings.parallel",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person"
-      ],
-      "minimumRole": "owner",
-      "credentialScope": "write:repository",
-      "agent": "never",
-      "summary": "Change At once",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "parallel": {
-              "anyOf": [
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "string",
-                  "enum": [
-                    "Infinity",
-                    "-Infinity",
-                    "NaN"
-                  ]
-                }
-              ]
-            }
-          },
-          "required": [
-            "parallel"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "settings.preapprove-default",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person"
-      ],
-      "minimumRole": "owner",
-      "credentialScope": "write:repository",
-      "agent": "never",
-      "summary": "New TODOs start pre-approved",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "todo_preapprove_default": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "todo_preapprove_default"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "settings.setup",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person"
-      ],
-      "minimumRole": "owner",
-      "credentialScope": "write:repository",
-      "agent": "never",
-      "summary": "Continue setup",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "step": {
-              "type": "string",
-              "enum": [
-                "address",
-                "app_manifest",
-                "sign_in",
-                "repository",
-                "models",
-                "source",
-                "machine"
-              ]
-            },
-            "owner": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "repository": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "bind": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "origins": {
-              "anyOf": [
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "required": [
-            "step"
           ],
           "additionalProperties": true
         },

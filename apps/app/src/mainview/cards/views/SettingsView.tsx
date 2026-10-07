@@ -12,8 +12,8 @@ import { SetupActions } from "./SetupActions"
 export type SettingsViewProps = SettingsCardProps & { readonly modelSlot?: ReactNode }
 
 export function SettingsView({ model, actions: suppliedActions, onAction, view, onView, modelSlot }: SettingsViewProps) {
-  const preapprove = suppliedActions.find(action => action.tag === "settings.preapprove-default")
-  const actions = suppliedActions.filter(action => action.tag !== "settings.preapprove-default" && action.tag !== "settings.model.set" && action.tag !== "settings.model-key" && action.tag !== "settings.fast-model")
+  const preapprove = suppliedActions.find(action => (action.tag === "settings" && action.args?.operation === "preapprove-default"))
+  const actions = suppliedActions.filter(action => action.tag !== "settings.fast-model" && !(action.tag === "settings" && action.args?.operation === "preapprove-default") && action.tag !== "settings.model.set" && !(action.tag === "settings" && action.args?.operation === "model-key"))
   const repositoryBlocker = model.steps.find(step => step.id === "repository")?.blocked
   const addressStep = model.steps.find(step => step.id === "address")
   const { message: addressDiagnostic } = addressStep?.error ?? {}
@@ -21,8 +21,7 @@ export function SettingsView({ model, actions: suppliedActions, onAction, view, 
   const addressActions = actions.filter(action => action.args?.step === "address")
   const rowFor = (action: Action) => action.tag === "github" ? "health"
     : action.tag === "docs" && action.args?.page === "quickstart#put-https-in-front" ? "notifications"
-    : action.tag === "settings" ? action.args?.step === "address" ? "address" : action.args?.field
-    : action.tag === "settings.daily-admissions" || action.tag === "settings.address" || action.tag === "settings.capacity" || action.tag === "settings.parallel" || action.tag === "settings.obsidian" ? action.args?.field : undefined
+    : action.tag === "settings" ? action.args?.step === "address" ? "address" : action.args?.field : undefined
   const rowActions = (row: string, value?: number | string) => actions.filter(action => rowFor(action) === row).map(action => ({
     ...action, label: row === "obsidian" ? "Change" : action.label,
     input: action.input?.map(field => value === undefined ? field : { ...field, value: String(value) })
@@ -31,7 +30,7 @@ export function SettingsView({ model, actions: suppliedActions, onAction, view, 
     ...(model.parallel !== undefined ? ["parallel"] : []), ...(model.todo_daily_admissions !== undefined ? ["todo_daily_admissions"] : []),
     ...(model.notifications_need_https ? ["notifications"] : [])].includes(rowFor(action) ?? "")
   /* mvp.md J1 2.1 / §6.15: This Mac only, or Network with the bind and the addresses teammates use. The choice is member view state. */
-  const reach = actions.filter(action => action.tag === "settings.address" && (action.args?.listen === "mac" || action.args?.listen === "network"))
+  const reach = actions.filter(action => (action.tag === "settings" && action.args?.operation === "address") && (action.args?.listen === "mac" || action.args?.listen === "network"))
   const choice = view.tab === "mac" || view.tab === "network" ? view.tab : model.address.listen
   const reachForm = reach.filter(action => action.args?.listen === choice && !(choice === "mac" && model.address.listen === "mac"))
   return <section className="setup-view" data-kind="settings" data-keyboard-pane="Settings" aria-label="Settings">

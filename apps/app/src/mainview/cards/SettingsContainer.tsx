@@ -1,3 +1,4 @@
+import { settingsControl } from "../flows/settingsControl"
 import { ModelRoles } from "./ModelCards"
 import { useMemo, useSyncExternalStore, type ComponentType } from "react"
 import { useController } from "../ControllerContext"
@@ -29,26 +30,26 @@ export interface SettingsContainerProps {
  * mvp.md J1 2.1 / §6.15 Address: "This Mac only" binds loopback at this Mac's own address; "Network" shows Bind (prefilled
  * with every interface when the install is loopback-bound now) and Origins, the addresses teammates use.
  */
-export const addressActions = (address: InstallModel["address"]): CardActionDefinition<"settings.address">[] => {
-  const retry: CardActionDefinition<"settings.address">[] = []
+export const addressActions = (address: InstallModel["address"]): CardActionDefinition<"settings">[] => {
+  const retry: CardActionDefinition<"settings">[] = []
   if (address.change_failed) {
     const failed = address.change_failed
     const bind = failed.bind ?? address.bind
-    retry.push({ tag: "settings.address", label: "Retry", args: { step: "address", field: "address" },
-      command_input: { listen: /^(127\.|localhost:|\[::1\]:)/.test(bind) ? "mac" : "network", bind, origins: failed.origins ?? [failed.to] } })
+    retry.push(settingsControl("address", { tag: "settings", label: "Retry", args: { step: "address", field: "address" },
+      command_input: { listen: /^(127\.|localhost:|\[::1\]:)/.test(bind) ? "mac" : "network", bind, origins: failed.origins ?? [failed.to] } }))
   }
   const mac = { listen: "mac" as const, bind: `127.0.0.1:${port(address.bind)}`, origins: [`http://localhost:${port(address.bind)}`] }
   const network = { listen: "network" as const, bind: address.listen === "network" ? address.bind : `0.0.0.0:${port(address.bind)}`, origins: address.origins }
   return [
     ...retry,
-    { tag: "settings.address", label: "Save", args: { field: "address", listen: "mac" }, command_input: mac },
-    { tag: "settings.address", label: "Save", args: { field: "address", listen: "network" }, command_input: network,
+    settingsControl("address", { tag: "settings", label: "Save", args: { field: "address", listen: "mac" }, command_input: mac }),
+    settingsControl("address", { tag: "settings", label: "Save", args: { field: "address", listen: "network" }, command_input: network,
       input: [
         { name: "bind", label: "Bind", kind: "text", required: true, value: network.bind },
         { name: "origins", label: "Origins", kind: "text", multiline: true, required: true, value: network.origins.join("\n") }
       ],
       resolve_input: input => ({ listen: "network", bind: input.bind?.trim() || network.bind,
-        origins: input.origins === undefined ? network.origins : origins(input.origins) }) }
+        origins: input.origins === undefined ? network.origins : origins(input.origins) }) })
   ]
 }
 
@@ -70,23 +71,23 @@ export const SettingsContainer = ({ View, install, dispatch, owner, origin, view
       resolve_input: input => ({ name: input.name ?? "" }) },
     ...(needsHttps && docsAvailable() ? [{ tag: "docs" as const, label: "Notifications need HTTPS ↗",
       args: { page: "quickstart#put-https-in-front" }, command_input: { page: "quickstart#put-https-in-front" } }] : []),
-    { tag: "settings.capacity", label: "Machines", args: { field: "capacity", min: "1", max: String(model.this_mac.capacity) }, command_input: { capacity: model.capacity },
+    settingsControl("capacity", { tag: "settings", label: "Machines", args: { field: "capacity", min: "1", max: String(model.this_mac.capacity) }, command_input: { capacity: model.capacity },
       input: [{ name: "value", label: "Machines", kind: "text", required: true, value: String(model.capacity) }],
-      resolve_input: input => ({ capacity: Number(input.value ?? input.capacity ?? model.capacity) }) },
-    ...(model.todo_preapprove_default === undefined ? [] : [{ tag: "settings.preapprove-default" as const, label: "New TODOs start pre-approved", command_input: { todo_preapprove_default: model.todo_preapprove_default },
-      resolve_input: (input: Record<string, string>) => ({ todo_preapprove_default: input.enabled === "true" }) }]),
-    ...(model.todo_daily_admissions === undefined ? [] : [{ tag: "settings.daily-admissions" as const, label: "TODOs per day", args: { field: "todo_daily_admissions", min: "1" }, command_input: { todo_daily_admissions: model.todo_daily_admissions },
+      resolve_input: input => ({ capacity: Number(input.value ?? input.capacity ?? model.capacity) }) }),
+    ...(model.todo_preapprove_default === undefined ? [] : [settingsControl("preapprove-default", { tag: "settings" as const, label: "New TODOs start pre-approved", command_input: { todo_preapprove_default: model.todo_preapprove_default },
+      resolve_input: (input: Record<string, string>) => ({ todo_preapprove_default: input.enabled === "true" }) })]),
+    ...(model.todo_daily_admissions === undefined ? [] : [settingsControl("daily-admissions", { tag: "settings" as const, label: "TODOs per day", args: { field: "todo_daily_admissions", min: "1" }, command_input: { todo_daily_admissions: model.todo_daily_admissions },
       input: [{ name: "value", label: "TODOs per day", kind: "text" as const, required: true, value: String(model.todo_daily_admissions) }],
-      resolve_input: (input: Record<string, string>) => ({ todo_daily_admissions: Number(input.value ?? model.todo_daily_admissions) }) }]),
-    ...(model.parallel === undefined ? [] : [{ tag: "settings.parallel" as const, label: "At once", args: { field: "parallel", min: "1", max: "8" }, command_input: { parallel: model.parallel },
+      resolve_input: (input: Record<string, string>) => ({ todo_daily_admissions: Number(input.value ?? model.todo_daily_admissions) }) })]),
+    ...(model.parallel === undefined ? [] : [settingsControl("parallel", { tag: "settings" as const, label: "At once", args: { field: "parallel", min: "1", max: "8" }, command_input: { parallel: model.parallel },
       input: [{ name: "value", label: "TODOs at once", kind: "text" as const, required: true, value: String(model.parallel) }],
-      resolve_input: (input: Record<string, string>) => ({ parallel: Number(input.value ?? input.parallel ?? model.parallel) }) }]),
-    ...(model.wiki_sync === undefined ? [] : [{ tag: "settings.obsidian" as const, label: "Change", args: { field: "obsidian" },
+      resolve_input: (input: Record<string, string>) => ({ parallel: Number(input.value ?? input.parallel ?? model.parallel) }) })]),
+    ...(model.wiki_sync === undefined ? [] : [settingsControl("obsidian", { tag: "settings" as const, label: "Change", args: { field: "obsidian" },
       command_input: { path: model.wiki_sync.obsidian?.path ?? "" },
       input: [{ name: "path", label: "Obsidian folder", kind: "text" as const, required: true, value: model.wiki_sync.obsidian?.path ?? "" }],
-      resolve_input: (input: Record<string, string>) => ({ path: input.path ?? model.wiki_sync?.obsidian?.path ?? "" }) }]),
+      resolve_input: (input: Record<string, string>) => ({ path: input.path ?? model.wiki_sync?.obsidian?.path ?? "" }) })]),
     ...fastModelAction(model),
- ...roleKeyActions(key!.definition, model, { field: "key" }, !snapshot.seed),
+    ...roleKeyActions(key!.definition, model, { field: "key" }, !snapshot.seed),
     ...(!snapshot.seed ? model.models.map(role => ({ tag: "settings.model.set" as const, label: "Save", args: { role: role.role }, command_input: { role: role.role, model: role.model ?? "" },
       input: [{ name: "model", label: "Model", kind: "text" as const, required: true }],
       resolve_input: (input: Record<string, string>) => ({ role: role.role, model: input.model ?? "" }) })) : [])

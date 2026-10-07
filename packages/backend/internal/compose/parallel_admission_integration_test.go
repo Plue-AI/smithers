@@ -183,7 +183,7 @@ func TestParallelAdmissionInstallBoundary(t *testing.T) {
 	// The install composition (compose/main.go): the owner setting, capacity
 	// and the runtime's admission readers.
 	capacity := &services.InstallCapacityService{Queries: q, Profile: profile, FreeDisk: readDisk, InUse: runtime.InUse,
-		AuthorizeParallel: func(ctx context.Context) error { _, err := services.Authorize(ctx, q, "settings.parallel"); return err }}
+		AuthorizeParallel: func(ctx context.Context) error { _, err := services.Authorize(ctx, q, "settings"); return err }}
 	require.NoError(t, capacity.ValidateStart(ctx))
 	runtime.SetCapacityReader(capacity.Capacity)
 	runtime.SetTodoParallelReader(func(ctx context.Context) (int, error) {

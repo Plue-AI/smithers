@@ -54,9 +54,10 @@ describe("T-APP-03 settings command doors", () => {
     const h = await harness()
     try {
       for (const name of ["settings.address", "settings.daily-admissions", "settings.capacity", "settings.parallel", "settings.obsidian", "settings.model-key", "settings.setup"]) {
-        const entry = h.controller.commands.find(name)!
-        expect(nameOf(entry)).toBe(name); expect(entry.metadata.hidden).toBe(true); expect(modelInvocable(entry)).toBe(false)
+        expect(h.controller.commands.find(name)).toBeUndefined()
       }
+      expect(nameOf(h.controller.commands.find("settings")!)).toBe("settings")
+      expect(modelInvocable(h.controller.commands.find("settings")!)).toBe(false)
       expect(h.controller.slashItems("settings").some(row => row.flow.name.startsWith("settings."))).toBe(false)
     } finally { await h.controller.dispose() }
   })
@@ -69,7 +70,7 @@ describe("T-APP-03 settings command doors", () => {
       expect([...h.store.collections.cards.keys()]).toEqual(["settings"])
       expect(h.cards).toEqual([])
       expect(h.controller.installSnapshots.get()).toEqual({ error: { code: "unavailable", class: "infra", message: "Install unavailable" } })
-      expect((await h.controller.commands.run("settings.capacity", "2")).status).toBe("executed"); await tick()
+      expect((await h.controller.commands.run("settings", JSON.stringify({ operation: "capacity", capacity: Number("2") }))).status).toBe("executed"); await tick()
       expect(h.requests.filter(request => request.method === "PUT")).toEqual([])
       expect(h.controller.design.world().repo.capacity).toBe(2)
     } finally { await h.controller.dispose() }
@@ -94,20 +95,20 @@ describe("T-APP-03 settings command doors", () => {
     const h = await harness()
     try {
       await h.controller.commands.run("settings"); await tick()
-      const result = door === "slash" ? await h.controller.commands.run("settings.capacity", "3")
-        : await h.controller.commands.submit({ name: "settings.capacity", payload: { capacity: 3 }, actor: "user" })
+      const result = door === "slash" ? await h.controller.commands.run("settings", JSON.stringify({ operation: "capacity", capacity: Number("3") }))
+        : await h.controller.commands.submit({ name: "settings", payload: { operation: "capacity", capacity: 3 }, actor: "user" })
       expect(result.status).toBe("executed")
       await tick()
       expect(h.requests.filter(request => request.path === "/api/install" && request.method === "PUT").map(request => JSON.parse(request.body!))).toEqual([{ capacity: 3 }])
     } finally { await h.controller.dispose() }
   })
-  test.each([["settings.capacity", "1", "capacity"], ["settings.parallel", "1", "parallel"]] as const)("%s writes the live install, not the seed, once the card shows it", async (name, args, field) => {
+  test.each([["settings.capacity", "1", "capacity"], ["settings.parallel", "1", "parallel"]] as const)("%s writes the live install, not the seed, once the card shows it", async (_name, args, field) => {
     const h = await harness({ apiVersion: 1, host: "local", version: "1.0.0", buildSha: "abcdef1234567890", capabilities: ["agent", "install"], authFlow: "none", sandbox: { platform: "darwin", mode: "enforced" } })
     try {
       await tick()
       expect(h.controller.installSnapshots.get().model).toBeDefined()
       const seeded = h.controller.design.world().repo[field]
-      expect((await h.controller.commands.run(name, args)).status).toBe("executed"); await tick()
+      expect((await h.controller.commands.run("settings", JSON.stringify({ operation: field, [field]: Number(args) }))).status).toBe("executed"); await tick()
       const writes = h.requests.filter(request => request.path === "/api/install" && request.method === "PUT")
       expect(writes.map(request => JSON.parse(request.body!))).toEqual([{ [field]: 1 }])
       expect(h.controller.design.world().repo[field]).toBe(seeded)
@@ -127,10 +128,10 @@ describe("T-APP-03 settings command doors", () => {
         install: h.controller.installSnapshots, owner, origin: "http://localhost", view: { maximized: false }, onView: () => {},
         dispatch: (name, payload, gesture) => h.controller.commands.submit({ name, payload: payload ?? {}, actor: "user", gesture })
       }))
-      expect(render()).toContain('data-flow="settings.parallel"')
+      expect(render()).toContain('data-operation="parallel"')
       const onAction = props.onAction
-      onAction("settings.parallel", { value: "8" })
-      onAction("settings.parallel", { value: "8" }); await tick()
+      onAction("settings", { ...props.actions.find(action => action.tag === "settings" && action.args?.operation === "parallel")?.args, field: "parallel", operation: "parallel", value: "8" })
+      onAction("settings", { ...props.actions.find(action => action.tag === "settings" && action.args?.operation === "parallel")?.args, field: "parallel", operation: "parallel", value: "8" }); await tick()
       expect(h.requests.filter(request => request.method === "PUT")).toEqual([{ path: "/api/install", method: "PUT", body: '{"parallel":8}' }])
       expect(h.controller.installSnapshots.get().model?.parallel).toBe(2)
       // An unresolved setting write leaves unrelated chat commands usable.
@@ -138,10 +139,10 @@ describe("T-APP-03 settings command doors", () => {
       resolve(Response.json({ ...installFixture(), parallel: 8 })); await tick()
       render()
       expect(h.controller.installSnapshots.get().model?.parallel).toBe(8)
-      expect(props.actions.find(action => action.tag === "settings.parallel")?.input?.[0]?.value).toBe("8")
+      expect(props.actions.find(action => action.tag === "settings" && action.args?.operation === "parallel")?.input?.[0]?.value).toBe("8")
       expect(h.controller.design.world().repo.parallel).toBe(seeded)
       expect(render(false)).toBe("")
-      await h.controller.commands.submit({ name: "settings.parallel", payload: { parallel: 1 }, actor: "agent" }); await tick()
+      await h.controller.commands.submit({ name: "settings", payload: { operation: "parallel", parallel: 1 }, actor: "agent" }); await tick()
       expect(h.requests.filter(request => request.method === "PUT")).toHaveLength(1)
     } finally { resolve(Response.json(installFixture())); await h.controller.dispose() }
   })
@@ -150,8 +151,8 @@ describe("T-APP-03 settings command doors", () => {
     try {
       await h.controller.commands.run("settings"); await tick()
       expect(h.controller.installSnapshots.get().model).toBeUndefined()
-      const outcome = await h.controller.commands.submit({ name: "settings.address", actor: "user",
-        payload: { listen: "network", bind: "0.0.0.0:4000", origins: ["https://maya-mini.tail1234.ts.net"] } })
+      const outcome = await h.controller.commands.submit({ name: "settings", actor: "user",
+        payload: { operation: "address", listen: "network", bind: "0.0.0.0:4000", origins: ["https://maya-mini.tail1234.ts.net"] } })
       expect(outcome.status).toBe("executed"); await tick()
       expect(h.requests.filter(request => request.method === "PUT")).toEqual([])
       expect(h.controller.design.world().repo.setup.addresses).toEqual(["https://maya-mini.tail1234.ts.net"])
@@ -165,7 +166,7 @@ describe("T-APP-03 settings command doors", () => {
       expect(h.controller.installSnapshots.get().model).toBeDefined()
       const seeded = h.controller.design.world().repo.setup.addresses
       const address = { listen: "network", bind: "0.0.0.0:4000", origins: ["https://maya-mini.tail1234.ts.net"] }
-      expect((await h.controller.commands.submit({ name: "settings.address", actor: "user", payload: address })).status).toBe("executed"); await tick()
+      expect((await h.controller.commands.submit({ name: "settings", actor: "user", payload: { ...address, operation: "address" } })).status).toBe("executed"); await tick()
       expect(h.requests.filter(request => request.path === "/api/install" && request.method === "PUT").map(request => JSON.parse(request.body!))).toEqual([{ bind: address.bind, origins: address.origins }])
       expect(h.controller.design.world().repo.setup.addresses).toEqual(seeded)
     } finally { await h.controller.dispose() }
@@ -191,8 +192,8 @@ describe("T-APP-03 settings command doors", () => {
   ] as const)("THE FORM LAW: /settings.setup %s renders the step's missing inputs instead of a refusal", async (args, missing) => {
     const h = await harness()
     try {
-      const outcome = await h.controller.commands.run("settings.setup", args)
-      expect(outcome).toMatchObject({ status: "form", flow: "settings.setup", fields: missing })
+      const outcome = await h.controller.commands.run("settings", JSON.stringify({ ...JSON.parse(args), operation: "setup" }))
+      expect(outcome).toMatchObject({ status: "form", flow: "settings", fields: missing })
       const form = [...h.store.collections.cards.values()].find(card => card.kind === "flow-form")
       expect(form?.kind === "flow-form" ? form.payload.fields.map(field => field.name) : []).toEqual([...missing])
       expect(h.requests.some(request => request.path.startsWith("/api/install/setup"))).toBe(false)
@@ -201,7 +202,7 @@ describe("T-APP-03 settings command doors", () => {
   test("a setup step that needs no input runs without a form", async () => {
     const h = await harness()
     try {
-      const outcome = await h.controller.commands.run("settings.setup", '{"step":"models"}')
+      const outcome = await h.controller.commands.run("settings", JSON.stringify({ ...JSON.parse('{"step":"models"}'), operation: "setup" }))
       expect(outcome.status).not.toBe("form")
       expect([...h.store.collections.cards.values()].some(card => card.kind === "flow-form")).toBe(false)
     } finally { await h.controller.dispose() }
@@ -210,7 +211,7 @@ describe("T-APP-03 settings command doors", () => {
     const h = await harness()
     try {
       await h.controller.commands.run("settings"); await tick()
-      await h.controller.commands.run("settings.model-key", '{"role":"jev","provider":"AI Gateway","value":"private-key"}')
+      await h.controller.commands.run("settings", JSON.stringify({ ...JSON.parse('{"role":"jev","provider":"AI Gateway","value":"private-key","key":"old-private-key","token":"older-private-key"}'), operation: "model-key" }))
       const form = [...h.store.collections.cards.values()].find(card => card.kind === "flow-form")
       expect(form?.kind).toBe("flow-form")
       expect(JSON.stringify(form)).not.toContain("private-key")
@@ -226,7 +227,7 @@ describe("T-APP-03 settings command doors", () => {
         h.controller.commands.submit({ name: tag, payload: input ?? {}, actor: "user", gesture })
       const key = installKeyAction(dispatch, installFixture())
       const bindings = cardActions(key.dispatch, [key.definition])
-      bindings.onAction("settings.model-key", { role: "jev", provider: "AI Gateway", value: "private-key" })
+      bindings.onAction("settings", { operation: "model-key", role: "jev", provider: "AI Gateway", value: "private-key" })
       await tick()
       const writes = h.requests.filter(request => request.path === "/api/model/credential")
       expect(writes).toHaveLength(1)
@@ -251,11 +252,11 @@ describe("T-FLW-12 Obsidian control", () => {
         install: h.controller.installSnapshots, owner: true, origin: "http://localhost", view: { maximized: false }, onView: () => {},
         dispatch: (name, payload, gesture) => h.controller.commands.submit({ name, payload: payload ?? {}, actor: "user", gesture })
       }))
-      expect(html).toContain('data-flow="settings.obsidian"')
-      onAction("settings.obsidian", { path: "/Users/owner/Notes" }); await tick()
+      expect(html).toContain('data-operation="obsidian"')
+      onAction("settings", { field: "obsidian", operation: "obsidian", path: "/Users/owner/Notes" }); await tick()
       expect(h.requests.filter(request => request.method === "PUT")).toEqual([{ path: "/api/install", method: "PUT", body: '{"wiki_sync.obsidian":{"path":"/Users/owner/Notes"}}' }])
       expect(h.controller.installSnapshots.get().model?.wiki_sync).toEqual({ obsidian: { path: "/Users/owner/Vault", last_sync_at: "2026-10-04T12:00:00Z", error: "Folder unavailable" } })
-      await h.controller.commands.submit({ name: "settings.obsidian", payload: { path: "/Users/owner/Agent" }, actor: "agent" }); await tick()
+      await h.controller.commands.submit({ name: "settings", payload: { operation: "obsidian", path: "/Users/owner/Agent" }, actor: "agent" }); await tick()
       expect(h.requests.filter(request => request.method === "PUT")).toHaveLength(1)
     } finally { await h.controller.dispose() }
   })
@@ -264,7 +265,7 @@ describe("T-FLW-12 Obsidian control", () => {
     const h = await harness(undefined, () => Response.json(fixture))
     try {
       await h.controller.commands.run("settings"); await tick()
-      await h.controller.commands.submit({ name: "settings.obsidian", payload: { path: kind === "relative" ? "Vault" : kind === "nul" ? "/Vault\0bad" : "/Vault" }, actor: "user" }); await tick()
+      await h.controller.commands.submit({ name: "settings", payload: { operation: "obsidian", path: kind === "relative" ? "Vault" : kind === "nul" ? "/Vault\0bad" : "/Vault" }, actor: "user" }); await tick()
       expect(h.requests.filter(request => request.method === "PUT")).toEqual([])
     } finally { await h.controller.dispose() }
   })
@@ -274,7 +275,7 @@ describe("T-FLW-12 Obsidian control", () => {
       : Response.json({ code: "folder_refused", class: "user", message: "Obsidian folder refused" }, { status: 400 }))
     try {
       await h.controller.commands.run("settings"); await tick()
-      await h.controller.commands.submit({ name: "settings.obsidian", payload: { path: "/state" }, actor: "user" }); await tick()
+      await h.controller.commands.submit({ name: "settings", payload: { operation: "obsidian", path: "/state" }, actor: "user" }); await tick()
       expect(h.controller.installSnapshots.get().model?.wiki_sync?.obsidian).toEqual({ path: "/Vault", error: "Obsidian folder refused" })
       expect(h.controller.installSnapshots.get().error?.message).toBe("Obsidian folder refused")
       expect(h.controller.installSnapshots.get().model?.wiki_sync?.obsidian?.error).toBe("Obsidian folder refused")
@@ -287,10 +288,10 @@ describe("T-FLW-12 Obsidian control", () => {
     try {
       await h.controller.commands.run("settings"); await tick()
       for (const value of [0, -1, 1.5]) {
-        const result = await h.controller.commands.run("settings.daily-admissions", String(value))
+        const result = await h.controller.commands.run("settings", JSON.stringify({ operation: "daily-admissions", todo_daily_admissions: Number(String(value)) }))
         expect(result.status).not.toBe("executed")
       }
-      expect((await h.controller.commands.submit({ name: "settings.daily-admissions", payload: { todo_daily_admissions: 18 }, actor: "user" })).status).toBe("executed")
+      expect((await h.controller.commands.submit({ name: "settings", payload: { operation: "daily-admissions", todo_daily_admissions: 18 }, actor: "user" })).status).toBe("executed")
       await tick()
       expect(h.requests.filter(request => request.method === "PUT").map(request => JSON.parse(request.body!))).toEqual([{ todo_daily_admissions: 18 }])
     } finally { await h.controller.dispose() }
@@ -366,4 +367,23 @@ test("recorded GitHub and repository-choice doors use the install cards", async 
     }
     expect(h.requests.every(request => !request.path.includes("github-app") && !request.path.includes("user/repos"))).toBe(true)
   } finally { await h.controller.dispose() }
+})
+
+
+test("recorded Settings writes keep their operation and discard a persisted model key", () => {
+  for (const [operation, input] of [
+    ["address", { listen: "network", bind: "0.0.0.0:4000", origins: ["https://team.test"] }],
+    ["capacity", { capacity: 2 }], ["parallel", { parallel: 3 }],
+    ["preapprove-default", { todo_preapprove_default: true }], ["daily-admissions", { todo_daily_admissions: 12 }],
+    ["obsidian", { path: "/Vault" }], ["setup", { step: "repository", repository: "owner/repo" }]
+  ] as const) {
+    const old = { flow: `settings.${operation}`, label: "Save", args: JSON.stringify(input) }
+    const action = MessageSchema.shape.action.parse(old)!
+    expect(action.flow).toBe("settings")
+    expect(JSON.parse(action.args!)).toEqual({ ...input, operation })
+    expect(ToastSchema.shape.action.parse(old)).toEqual(action)
+  }
+  const key = MessageSchema.shape.action.parse({ flow: "settings.model-key", label: "Save", args: JSON.stringify({ role: "fast", provider: "Cerebras", value: "retired-private-value", key: "retired-private-key", token: "retired-private-token" }) })!
+  expect(JSON.parse(key.args!)).toEqual({ operation: "model-key", role: "fast", provider: "Cerebras" })
+  expect(JSON.stringify(key)).not.toContain("retired-private-value")
 })

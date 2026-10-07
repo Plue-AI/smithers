@@ -893,10 +893,10 @@ test("Settings without a model slot renders no model controls or dispatch", () =
   const actions: Action[] = [
     ...settings.ready.actions.filter(action => action.tag === "settings.model.set"),
     { tag: "settings.model.set", label: "Change", args: { role: "unknown" } },
-    { tag: "settings.model-key", label: "Save", args: { role: "fast" }, input: [{ name: "value", label: "Cerebras key", kind: "secret", required: true }] },
-    { tag: "settings.model-key", label: "Retry" },
+    { tag: "settings", label: "Save", args: { operation: "model-key", role: "fast" }, input: [{ name: "value", label: "Cerebras key", kind: "secret", required: true }] },
+    { tag: "settings", args: { operation: "model-key" }, label: "Retry" },
     { tag: "settings.model.set", label: "Misplaced model action", args: { field: "capacity" } },
-    { tag: "settings.model-key", label: "Misplaced key action", args: { step: "address" } }
+    { tag: "settings", label: "Misplaced key action", args: { operation: "model-key", step: "address" } }
   ]
   const host = render(<SettingsView {...settings.ready} actions={actions} onAction={(...args) => calls.push(args)} onView={() => {}} />)
   expect(host.querySelector('button[data-flow],form,input,select')).toBeNull()
@@ -911,7 +911,7 @@ test("Settings renders the supplied model slot once without duplicate actions", 
     "This Mac", "Fast model", "GitHub", "Machines", "TODOs per day", "Laptop agent", "Health", "Obsidian folder"
   ])
   expect(host.querySelectorAll('button')).not.toHaveLength(0)
-  expect(host.querySelectorAll('button[data-flow="settings.model.set"],button[data-flow="settings.model-key"]')).toHaveLength(0)
+  expect(host.querySelectorAll('button[data-flow="settings.model.set"],button[data-flow="settings"][data-operation="model-key"]')).toHaveLength(0)
   const slot = [...host.querySelectorAll<HTMLButtonElement>("button")].filter(button => button.textContent === "Change model")
   expect(slot).toHaveLength(1)
   act(() => slot[0]!.click())
@@ -955,8 +955,8 @@ test("Rejected key retry submits a write-only secret; agent projection has no re
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "replacement-key")
     input.dispatchEvent(new Event("input", { bubbles: true }))
   })
-  act(() => host.querySelector<HTMLFormElement>('form[data-flow="settings.model-key"]')!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
-  expect(calls).toEqual([["settings.model-key", { role: "jev", provider: "AI Gateway", key: "replacement-key" }]])
+  act(() => host.querySelector<HTMLFormElement>('form[data-flow="settings"][data-operation="model-key"]')!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
+  expect(calls).toEqual([["settings", { operation: "model-key", role: "jev", provider: "AI Gateway", key: "replacement-key" }]])
   expect(host.textContent).not.toContain("replacement-key")
   act(() => root!.render(<SetupView {...personOnlyFixtures.models_failed_agent} onAction={() => {}} onView={() => {}} />))
   expect(host.querySelector('input[id$="-key"]')).toBeNull()
@@ -971,8 +971,8 @@ test("No-capacity fix dispatches its supplied tag and arguments", () => {
 })
 
 const reachActions: Action[] = [
-  { tag: "settings.address", label: "Save", args: { field: "address", listen: "mac" } },
-  { tag: "settings.address", label: "Save", args: { field: "address", listen: "network" }, input: [
+  { tag: "settings", label: "Save", args: { operation: "address", field: "address", listen: "mac" } },
+  { tag: "settings", label: "Save", args: { operation: "address", field: "address", listen: "network" }, input: [
     { name: "bind", label: "Bind", kind: "text", required: true, value: "0.0.0.0:8080" },
     { name: "origins", label: "Origins", kind: "text", required: true, value: "http://mac-mini.local:8080" }
   ] }
@@ -992,22 +992,22 @@ test("Settings Address: This Mac only shows no Bind; choosing Network reveals pr
   expect([...row.querySelectorAll("label")].map(label => label.textContent)).toEqual(["Bind", "Origins"])
   expect(row.querySelector<HTMLInputElement>('input[id$="-bind"]')!.value).toBe("0.0.0.0:8080")
   expect(row.querySelector<HTMLInputElement>('input[id$="-origins"]')!.value).toBe("http://mac-mini.local:8080")
-  act(() => row.querySelector<HTMLButtonElement>('button[data-flow="settings.address"]')!.click())
-  expect(calls).toEqual([["settings.address", { field: "address", listen: "network", bind: "0.0.0.0:8080", origins: "http://mac-mini.local:8080" }]])
+  act(() => row.querySelector<HTMLButtonElement>('button[data-flow="settings"][data-operation="address"]')!.click())
+  expect(calls).toEqual([["settings", { operation: "address", field: "address", listen: "network", bind: "0.0.0.0:8080", origins: "http://mac-mini.local:8080" }]])
 })
 test("Settings Address: a network install choosing This Mac only saves with one press", () => {
   const calls: unknown[] = []
   const host = render(<SettingsView {...settings.ready} actions={reachActions} view={{ maximized: false, tab: "mac" }} onAction={(...args) => calls.push(args)} onView={() => {}} />)
   expect(host.querySelector('input[id$="-bind"]')).toBeNull()
-  act(() => host.querySelector<HTMLButtonElement>('button[data-flow="settings.address"]')!.click())
-  expect(calls).toEqual([["settings.address", { field: "address", listen: "mac" }]])
+  act(() => host.querySelector<HTMLButtonElement>('button[data-flow="settings"][data-operation="address"]')!.click())
+  expect(calls).toEqual([["settings", { operation: "address", field: "address", listen: "mac" }]])
 })
 const roleKeys: Action[] = [
-  { tag: "settings.model-key", label: "Save", args: { step: "models", role: "fast" }, input: [{ name: "value", label: "Cerebras key", kind: "secret", required: true }] },
-  { tag: "settings.model-key", label: "Save", args: { step: "models", role: "coding" }, input: [
+  { tag: "settings", label: "Save", args: { operation: "model-key", step: "models", role: "fast" }, input: [{ name: "value", label: "Cerebras key", kind: "secret", required: true }] },
+  { tag: "settings", label: "Save", args: { operation: "model-key", step: "models", role: "coding" }, input: [
     { name: "provider", label: "Provider", kind: "choice", required: true, value: "OpenAI", choices: ["OpenAI", "Anthropic", "OpenRouter"] },
     { name: "value", label: "API key", kind: "secret", required: true }] },
-  { tag: "settings.model-key", label: "Save", args: { step: "models", role: "jev" }, input: [{ name: "value", label: "AI Gateway key", kind: "secret", required: true }] }
+  { tag: "settings", label: "Save", args: { operation: "model-key", step: "models", role: "jev" }, input: [{ name: "value", label: "AI Gateway key", kind: "secret", required: true }] }
 ]
 test("Setup Model access: three named roles, each with its own key control and key state", () => {
   const calls: unknown[] = []
@@ -1030,8 +1030,8 @@ test("Setup Model access: three named roles, each with its own key control and k
   expect(host.querySelector('select option[value="jev"]')).toBeNull()
   const input = rows[2]!.querySelector<HTMLInputElement>('input[type="password"]')!
   act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "gateway-key"); input.dispatchEvent(new Event("input", { bubbles: true })) })
-  act(() => rows[2]!.querySelector<HTMLButtonElement>('button[data-flow="settings.model-key"]')!.click())
-  expect(calls).toEqual([["settings.model-key", { step: "models", role: "jev", value: "gateway-key" }]])
+  act(() => rows[2]!.querySelector<HTMLButtonElement>('button[data-flow="settings"][data-operation="model-key"]')!.click())
+  expect(calls).toEqual([["settings", { operation: "model-key", step: "models", role: "jev", value: "gateway-key" }]])
   expect(host.textContent).not.toContain("gateway-key")
   expect(host.querySelectorAll('[data-step="models"] form').length).toBe(3)
 })
@@ -3070,7 +3070,7 @@ test("SetupAction origin markers follow its optional prop", () => {
     ["http://mini.local:8080", [], "Origins"],
     ["https://smithers.example.test", ["https://smithers.example.test"], "Origins · unencrypted"]
   ] as const) {
-    const host = render(<SetupAction action={{ tag: "settings.address", label: "Save", input: [{ name: "origins", label: "Origins", kind: "text", required: true, value: origin }] }} unencrypted={unencrypted ? [...unencrypted] : undefined} onAction={() => {}} />)
+    const host = render(<SetupAction action={{ tag: "settings", args: { operation: "address" }, label: "Save", input: [{ name: "origins", label: "Origins", kind: "text", required: true, value: origin }] }} unencrypted={unencrypted ? [...unencrypted] : undefined} onAction={() => {}} />)
     expect(host.querySelector(".setup-field")!.textContent).toBe(expected)
   }
 })

@@ -24,7 +24,7 @@ test("C-MCH-04: Owner capacity persists below the detected maximum", async ({ pa
   await page.goto("/")
   await say(page, "/settings")
   const settings = page.getByRole("region", { name: "Settings", exact: true }).last()
-  const machines = settings.locator('[data-flow="settings.capacity"] output')
+  const machines = settings.locator('[data-flow="settings"][data-operation="capacity"] output')
   await expect(settings).toContainText("32 GB · 400 GB free")
   await expect(machines).toHaveText("3")
   await expect(settings.getByRole("button", { name: "More Machines", exact: true })).toBeDisabled()

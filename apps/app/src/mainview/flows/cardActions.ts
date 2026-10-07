@@ -1,3 +1,4 @@
+import { registeredAction } from "@smthrs/rpc/CardAction"
 import type { Action, CardCommandInput, CatalogTag } from "@smthrs/rpc/CardAction"
 import { flowArgs, hasFlowArgs } from "./FlowArgs"
 import { flowAction, type FlowActionProps } from "./FlowAction"
@@ -37,7 +38,7 @@ export interface CardActionBindings<Gesture extends string = string> {
 }
 
 /** Commands whose input may contain secret values; speculative loading uses their tag only. */
-const SECRET_INPUT_TAGS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["secrets.set", "debug-api"])
+const SECRET_INPUT_TAGS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["secrets.set", "settings", "debug-api"])
 
 /**
  * The speculative-load line: the command's canonical `flowArgs` encoding, which `payloadFor` decodes back.
@@ -101,7 +102,7 @@ export const cardActions = <Gesture extends string = never>(
             kind: definition ? "disabled" : "unavailable",
             reason: definition?.disabled?.reason ?? `Card action is unavailable: ${tag}`
           })
-        }, tag)
+        }, registeredAction({ tag, label: "" }).tag)
       }
       const form = formInput(definition, input)
       if (form !== undefined && definition.resolve_input === undefined) {
@@ -109,7 +110,7 @@ export const cardActions = <Gesture extends string = never>(
       }
       const commandInput = form === undefined ? definition.command_input : definition.resolve_input!(input!)
       // The union remains correlated when definitions enter this helper; lookup erases its tag parameter.
-      return flowAction(() => dispatch(tag, commandInput), tag, preloadArgs(definition, tag, commandInput))
+      return flowAction(() => dispatch(tag, commandInput), registeredAction(definition).tag, preloadArgs(definition, tag, commandInput))
     }
     const viewAction = (
       { command_input: _commandInput, resolve_input: _resolveInput, scope: _scope, gesture: _gesture, ...action }:

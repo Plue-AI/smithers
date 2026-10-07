@@ -133,7 +133,7 @@ func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 	}
 	todos := services.NewMythicalService(pool, nil)
 	router := githubAppSetupComposeRouter(cfg, pool, nil, routerExtras{Mythical: &routes.MythicalHandler{Service: todos}})
-	aliases := map[string]string{"install.setup-step": "settings.setup", "secrets.names": "secrets.read", "ssh.copy": "ssh", "confirmation.list": "confirmations.read"}
+	aliases := map[string]string{"install.setup-step": "settings", "secrets.names": "secrets.read", "ssh.copy": "ssh", "confirmation.list": "confirmations.read"}
 	var ledger []map[string]any
 	resolved, retired, pending := 0, 0, 0
 	for index, cell := range fixture.Cells {
