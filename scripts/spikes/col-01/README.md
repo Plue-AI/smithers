@@ -228,3 +228,27 @@ kill events, then reaps that child and removes the group. It accepts no working
 copy path. Existing groups and absent cgroup v2 refuse the run. No privileged
 probe has been executed by the Linux lane; `kernel.py` deliberately retains its
 blocked result until approved provisioning and receipt plumbing are available.
+
+### Daily retention campaign
+
+On the admitted reference host, `SPIKE_DAILY_CYCLES=1` with `run.sh snapshot`
+adds three daily cycles to the existing guest growth driver. Each cycle has
+5,760 captures at five-second intervals over eight hours, with start times at
+least 24 hours apart. Allow at least 56 hours; the command timeout is 60 hours.
+Missed capture slots fail instead of producing a catch-up burst. The same
+non-root guest, clone and fixture continue across cycles. The harness retains
+`retention-samples.csv`, `retention-cycles.json`, and each cycle's operation
+inventory, abandon log and GC log, including available partial failure evidence.
+
+Cleanup keeps every operation younger than 24 hours and at least the newest
+100. It refuses an unordered operation inventory rather than guessing about
+concurrent history. The bound is the largest measured pre-cleanup size plus
+14 times the largest positive difference between successive post-cleanup sizes.
+Pre-existing reclaimed garbage earns no credit. The strict budget is 2 GiB.
+A normal 1,000-capture run remains useful diagnostic evidence, but `result.mjs`
+refuses retention acceptance without all three cycles and 17,280 paced samples.
+If the measured bound misses, retain it and obtain owner approval of a revised
+cadence or kept-operation count; this harness does not invent a policy from an
+unmeasured projection. Linux lane tests validate argv selection and arithmetic;
+the jj timestamp template and actual abandon/GC execution still need the guest
+run. No three-cycle measurement is claimed by this source change.
