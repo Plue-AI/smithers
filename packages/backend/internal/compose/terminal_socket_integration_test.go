@@ -100,7 +100,19 @@ func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
 		require.NoError(t, err)
 		return response.StatusCode, raw
 	}
-	status, body := post(fmt.Sprintf(`{"branch":%q,"owner":%d,"uid":0}`, f.row.ID, alice.ID))
+	// Exercise the real owner service through the composed door before replacing
+	// the unavailable guest broker. A missing admitted link must mint nothing.
+	provider := handler.OwnerTerminals
+	handler.OwnerTerminals = &installOwnerTerminals{queries: q, branches: f.p.branches}
+	status, body := post(fmt.Sprintf(`{"branch":%q}`, f.row.ID))
+	require.Equal(t, 503, status, string(body))
+	var minted int
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM access_tokens`).Scan(&minted))
+	require.Zero(t, minted)
+	require.Empty(t, manager.BranchTerminals(f.row.RepositoryID, f.row.ID))
+	require.False(t, manager.HasBranchTerminal(f.row.RepositoryID, f.row.ID))
+	handler.OwnerTerminals = provider
+	status, body = post(fmt.Sprintf(`{"branch":%q,"owner":%d,"uid":0}`, f.row.ID, alice.ID))
 	require.Equal(t, 400, status, string(body))
 	status, body = post(fmt.Sprintf(`{"branch":%q}`, f.row.ID))
 	require.Equal(t, 201, status, string(body))
