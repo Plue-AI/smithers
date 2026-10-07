@@ -859,6 +859,7 @@ const SHARED_VIEW_VIOLATIONS: Record<string, string[]> = {
 describe("View and Container catalog seam (C-UI-08)", () => {
   test("Branch View imports only projection types, primitives and presentation helpers", () => {
     const source = read("../cards/views/BranchView.tsx")
+    expect(viewSeamViolations(source, new URL("../cards/views/BranchView.tsx", import.meta.url))).toEqual([])
     const tree = ts.createSourceFile("BranchView.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
     const allowed = ["react", "@smthrs/ui/copy", "lucide-react", "./ActorChip", "./StateWord", "./FlowActionView", "./SetupAction", "../../FailureDetails"]
     for (const node of tree.statements) {
