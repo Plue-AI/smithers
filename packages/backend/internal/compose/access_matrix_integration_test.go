@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -83,8 +82,13 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Origin", "http://example.com")
 		req.Header.Set("Idempotency-Key", key)
+		// A valid session and forged actor assertions never elevate a bearer.
+		// In particular, an expired bearer must not fall back to this cookie.
+		req.AddCookie(&http.Cookie{Name: "session", Value: sessions[i]})
+		req.Header.Set("Smithers-Via", "smithers")
+		req.Header.Set("Smithers-Actor", "person")
+		req.Header.Set("Smithers-Profile", "app_agent")
 		if person {
-			req.AddCookie(&http.Cookie{Name: "session", Value: sessions[i]})
 			req.AddCookie(&http.Cookie{Name: "__csrf", Value: "matrix-csrf"})
 			req.Header.Set("X-CSRF-Token", "matrix-csrf")
 		} else {
@@ -107,9 +111,7 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 	// descriptor roles, scopes, actors and delegation policy. This sweep is
 	// not evidence that each command's execution consumer is composed.
 	t.Run("all-command confirmation admission ledger", func(t *testing.T) {
-		_, file, _, ok := runtime.Caller(0)
-		require.True(t, ok)
-		catalog, err := os.ReadFile(filepath.Join(filepath.Dir(file), "../../../smithers/src/internal/backend/catalog.mvp.json"))
+		catalog, err := os.ReadFile("../../../smithers/src/internal/backend/catalog.mvp.json")
 		require.NoError(t, err)
 		var inventory struct {
 			Operations []struct {
@@ -119,39 +121,61 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 		require.NoError(t, json.Unmarshal(catalog, &inventory))
 		require.NotEmpty(t, inventory.Operations)
 		type cell struct {
-			Command    string `json:"command"`
-			Role       string `json:"role"`
-			Credential string `json:"credential"`
-			Status     int    `json:"status"`
-			Class      string `json:"class"`
-			Code       string `json:"code"`
+			Command        string `json:"command"`
+			Role           string `json:"role"`
+			Credential     string `json:"credential"`
+			CredentialHash string `json:"credential_hash"`
+			ExpectedStatus int    `json:"expected_status"`
+			ExpectedCode   string `json:"expected_code"`
+			Status         int    `json:"status"`
+			Class          string `json:"class"`
+			Code           string `json:"code"`
 		}
 		var ledger []cell
 		original := append([]string(nil), tokens...)
 		defer copy(tokens, original)
+		credentials := map[string][]string{}
+		for _, state := range []string{"expired-delegated", "revoked-delegated", "read-only-delegated"} {
+			credentials[state] = make([]string, len(users))
+		}
 		for i, u := range users {
 			credential, err := issuer.CreateToken(ctx, u.ID, services.CreateTokenRequest{Name: "expired-matrix", Scopes: []string{"repo", "user"}})
 			require.NoError(t, err)
 			sum := sha256.Sum256([]byte(credential.Token))
 			_, err = pool.Exec(ctx, `UPDATE access_tokens SET expires_at=now()-interval '1 second' WHERE token_hash=$1`, hex.EncodeToString(sum[:]))
 			require.NoError(t, err)
-			tokens[i] = credential.Token
+			credentials["expired-delegated"][i] = credential.Token
+			revoked, err := issuer.CreateToken(ctx, u.ID, services.CreateTokenRequest{Name: "revoked-matrix", Scopes: []string{"repo", "user"}})
+			require.NoError(t, err)
+			require.NoError(t, issuer.DeleteToken(ctx, u.ID, revoked.ID))
+			credentials["revoked-delegated"][i] = revoked.Token
+			limited, err := issuer.CreateToken(ctx, u.ID, services.CreateTokenRequest{Name: "read-only-matrix", Scopes: []string{"read:user"}})
+			require.NoError(t, err)
+			credentials["read-only-delegated"][i] = limited.Token
 		}
 		roles := []string{"owner", "maintainer", "member"}
 		for _, operation := range inventory.Operations {
 			for i := range users {
-				for _, state := range []string{"session", "expired-delegated"} {
+				for _, state := range []string{"session", "expired-delegated", "revoked-delegated", "read-only-delegated"} {
+					if state != "session" {
+						tokens[i] = credentials[state][i]
+					}
 					person := state == "session"
 					status, body := call(i, person, "/api/confirmations", "ledger-"+operation.Name+"-"+state, fmt.Sprintf(`{"command":%q,"payload":{}}`, operation.Name))
 					wantStatus, wantCode := 401, "unauthenticated"
-					if person {
+					if person || state == "read-only-delegated" {
 						wantStatus, wantCode = 403, "permission"
 					}
 					require.Equal(t, wantStatus, status, "%s %s %s: %v", operation.Name, roles[i], state, body)
 					require.Equal(t, "permission", body["class"], body)
 					require.Equal(t, wantCode, body["code"], body)
 					require.NotContains(t, body, "confirmation")
-					ledger = append(ledger, cell{operation.Name, roles[i], state, status, body["class"].(string), body["code"].(string)})
+					identity := tokens[i]
+					if person {
+						identity = sessions[i]
+					}
+					digest := sha256.Sum256([]byte(identity))
+					ledger = append(ledger, cell{operation.Name, roles[i], state, hex.EncodeToString(digest[:]), wantStatus, wantCode, status, body["class"].(string), body["code"].(string)})
 				}
 			}
 		}
