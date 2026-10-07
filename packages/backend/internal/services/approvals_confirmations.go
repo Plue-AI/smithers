@@ -231,7 +231,7 @@ func (s *ApprovalsService) RequestConfirmation(ctx context.Context, input Confir
 			return err
 		}
 		id := uuid.NewSHA1(confirmationNamespace, []byte(strconv.FormatInt(repository, 10)+"\x00"+credential+"\x00"+input.Key)).String()
-		prepared, err := s.confirmationTodos.prepareConfirmation(bound, tx, repository, input, false)
+		prepared, err := s.confirmationTodos.prepareConfirmation(bound, tx, repository, input, false, required.Decision.Role)
 		if err != nil {
 			return err
 		}
@@ -250,7 +250,7 @@ func (s *ApprovalsService) RequestConfirmation(ctx context.Context, input Confir
 			}
 			stale := !expires.After(time.Now())
 			if state == "pending" && !stale {
-				current, inspectErr := s.confirmationTodos.prepareConfirmation(bound, tx, repository, input, true)
+				current, inspectErr := s.confirmationTodos.prepareConfirmation(bound, tx, repository, input, true, required.Decision.Role)
 				if inspectErr != nil && !confirmationSubjectChanged(inspectErr) {
 					return inspectErr
 				}
@@ -268,7 +268,7 @@ func (s *ApprovalsService) RequestConfirmation(ctx context.Context, input Confir
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		prepared, err = s.confirmationTodos.prepareConfirmation(bound, tx, repository, input, true)
+		prepared, err = s.confirmationTodos.prepareConfirmation(bound, tx, repository, input, true, required.Decision.Role)
 		if err != nil {
 			return err
 		}
@@ -314,7 +314,7 @@ type preparedConfirmation struct {
 
 // prepareConfirmation adapts existing transactional TODO consumers. Its switch
 // describes availability and subject snapshots, never actor/role/agent policy.
-func (s *MythicalService) prepareConfirmation(ctx context.Context, tx pgx.Tx, repository int64, input ConfirmationInput, inspect bool) (preparedConfirmation, error) {
+func (s *MythicalService) prepareConfirmation(ctx context.Context, tx pgx.Tx, repository int64, input ConfirmationInput, inspect bool, role InstallRole) (preparedConfirmation, error) {
 	if input.Command == "merge" {
 		return s.prepareMergeConfirmation(ctx, tx, repository, input, inspect, *middleware.AuthInfoFromContext(ctx).User)
 	}
@@ -358,7 +358,7 @@ func (s *MythicalService) prepareConfirmation(ctx context.Context, tx pgx.Tx, re
 		if input.Command == "learning.dismiss" {
 			verb = "Dismiss"
 		}
-	case "todo.new":
+	case "todo.new", "todo.from-issue":
 		var request MythicalTodoInput
 		if err := confirmationJSON(input.Payload, &request); err != nil {
 			return p, err
@@ -373,8 +373,8 @@ func (s *MythicalService) prepareConfirmation(ctx context.Context, tx pgx.Tx, re
 		if err != nil {
 			return p, err
 		}
-		if request.Issue != nil {
-			return p, confirmationUnavailable()
+		if (input.Command == "todo.from-issue") != (request.Issue != nil) {
+			return p, invalidConfirmation()
 		}
 		if (subject.Kind != "" || subject.Ref != "") && (subject.Kind != "todo" || subject.Ref != "new") {
 			return p, invalidConfirmation()
@@ -384,6 +384,16 @@ func (s *MythicalService) prepareConfirmation(ctx context.Context, tx pgx.Tx, re
 		sum := sha256.Sum256(p.input)
 		p.revision = hex.EncodeToString(sum[:])
 		p.title, text, verb = request.Title, request.Prompt, "Commit"
+		if request.Issue != nil {
+			if s.github == nil {
+				return p, confirmationUnavailable()
+			}
+			consumer := *s
+			consumer.store = tx
+			if _, err := consumer.readTodoIssue(ctx, repository, role, *request.Issue, request.IssueDigest); err != nil {
+				return p, err
+			}
+		}
 		if !inspect {
 			p.subject, _ = json.Marshal(subject)
 			return p, nil
@@ -392,6 +402,7 @@ func (s *MythicalService) prepareConfirmation(ctx context.Context, tx pgx.Tx, re
 		if err := tx.QueryRow(ctx, `SELECT state='active' FROM mythical_stacks WHERE repository_id=$1`, repository).Scan(&ready); err != nil || !ready {
 			return p, confirmationUnavailable()
 		}
+
 	case "branch.bring-in", "branch.discard-foreign":
 		var answer struct {
 			ID       string `json:"id"`
@@ -610,7 +621,7 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 		input := ConfirmationInput{Command: command, Subject: subject, Payload: stored.Input, Key: "confirmation:" + id}
 		var prepared preparedConfirmation
 		if s.confirmationTodos != nil && readable {
-			prepared, err = s.confirmationTodos.prepareConfirmation(bound, tx, repository, input, true)
+			prepared, err = s.confirmationTodos.prepareConfirmation(bound, tx, repository, input, true, authorized.Role)
 			if confirmationSubjectChanged(err) {
 				return expire()
 			}
@@ -660,7 +671,7 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 				if card.Todo != nil {
 					number = card.Todo.N
 				}
-			case "todo.new":
+			case "todo.new", "todo.from-issue":
 				var request MythicalTodoInput
 				if err = json.Unmarshal(prepared.input, &request); err != nil {
 					return err
