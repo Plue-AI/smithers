@@ -5,7 +5,7 @@ import type { EntryRowCard } from "@smthrs/rpc/EntryRowCard"
 import { ActorChip, actorName } from "./cards/views/ActorChip"
 import { StateWord } from "./cards/views/StateWord"
 import { ContextLine, type ContextLineProps } from "./ContextLine"
-export type EntryRowProps = EntryRowCard & { card?: ReactNode; contextActions?: Pick<ContextLineProps, "openActions" | "onAction">; source?: { origin?: string; session?: string; correlation?: string; participant?: string }; onAction: CardProps<unknown>["onAction"] }
+export type EntryRowProps = EntryRowCard & { card?: ReactNode; contextActions?: Pick<ContextLineProps, "items" | "actions" | "onAction">; source?: { origin?: string; session?: string; correlation?: string; participant?: string }; onAction: CardProps<unknown>["onAction"] }
 
 export function OnlyYouChip() { return <span className="locked">
     <Lock size={12} aria-hidden="true" />Only you</span> }
