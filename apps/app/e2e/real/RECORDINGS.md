@@ -168,3 +168,9 @@ position. Unchanged cards are deduplicated; changed input values are captured
 without placing those values in the inventory. The raw images still need the
 credential review required above. Supplemental HTTP-served Chromium tests
 exercise both themes and transient-card capture; they cannot qualify C-UI-01.
+
+The prepared J11 owner now opens the TODO flow and reaches the reviewer through
+its step button before assigning the cheaper model. The pass requires that
+rendered agent row; a slash directly to the reviewer no longer substitutes for
+flow-step navigation. Scratch Run and execution of this continuation remain
+pending and this addition does not qualify C-J11-01 or C-UI-01.

@@ -95,7 +95,12 @@ referenceTest("C-UI-01 prepared install branch, stack, flow and monitor keyboard
     // J11 model assignment is an owner act and targets the actual review role.
     const ownerPage = f.members.Will.page
     const cheaper = required("SMITHERS_AGENT_MODEL_B")
-    await runSlash(ownerPage, "/agent reviewer")
+    await runSlash(ownerPage, "/flow todo")
+    const ownerFlow = ownerPage.locator('.flow-view').last()
+    await expect(ownerFlow).toContainText("Active")
+    const reviewerStep = ownerFlow.locator(".flow-steps").getByRole("button", { name: "reviewer", exact: true })
+    await journeyActivate(reviewerStep)
+    await expect(ownerPage.locator('.smithers-card[data-kind="agents"]').last().locator('[data-agent="reviewer"]')).toBeVisible()
     await journeyActivate(ownerPage.getByTestId("agent-model-reviewer"))
     await journeyEnter(ownerPage.getByLabel("Model", { exact: true }).last(), cheaper)
     const assigned = ownerPage.waitForResponse(response => response.request().method() === "PUT" &&
