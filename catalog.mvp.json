@@ -6253,6 +6253,141 @@
       }
     },
     {
+      "name": "labels.create",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "credentialScope": "write:repository",
+      "agent": "never",
+      "summary": "labels.create",
+      "http": {
+        "method": "POST",
+        "path": "/api/repos/{owner}/{repo}/labels"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "color": {
+              "type": "string"
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "color"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "labels.delete",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "credentialScope": "write:repository",
+      "agent": "never",
+      "summary": "labels.delete",
+      "http": {
+        "method": "DELETE",
+        "path": "/api/repos/{owner}/{repo}/labels/{id}"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "labels.update",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "credentialScope": "write:repository",
+      "agent": "never",
+      "summary": "labels.update",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/repos/{owner}/{repo}/labels/{id}"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "color": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "learning.accept",
       "slash": null,
       "cli": null,

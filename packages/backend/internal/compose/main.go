@@ -740,6 +740,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	sshKeyService := services.NewSSHKeyService(queries)
 	deployKeyService := services.NewDeployKeyService(queries)
 	labelService := services.NewLabelService(queries)
+	if config.IsSingleOwner(cfg.Auth) {
+		services.WithLabelInstallAuthorization(queries, pool)(labelService)
+	}
 
 	searchService := services.NewSearchService(queries)
 	notificationService := services.NewNotificationServiceWithPool(queries, pool)

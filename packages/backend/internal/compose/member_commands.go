@@ -80,6 +80,10 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				r.Body = io.NopCloser(bytes.NewReader(raw))
 			}
 
+			if strings.HasPrefix(command, "labels.") {
+				admitInstallLabelMutation(w, r, queries, command, next)
+				return
+			}
 			if command == "branch.archive" {
 				delegation, delegated := info.Delegation()
 				if len(confirmations) > 0 && confirmations[0] != nil && delegated && delegation.Profile == "" && delegation.Branch == "" && info.CredentialKind() == middleware.CredentialDelegated {

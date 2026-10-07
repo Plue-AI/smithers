@@ -105,3 +105,17 @@ test("system descriptors have no person or delegated doors",()=>{
  expect(rows.find(row=>row.name===name)).toMatchObject({name,credentialScope:scope,visibility:"hidden",agent:"never",actors:[],slash:null,cli:null})
  }
 })
+
+test("retained label writes keep their owner-only person HTTP doors", () => {
+  const rows = generateCatalog()
+  for (const [name, method, path] of [
+    ["labels.create", "POST", "/api/repos/{owner}/{repo}/labels"],
+    ["labels.update", "PATCH", "/api/repos/{owner}/{repo}/labels/{id}"],
+    ["labels.delete", "DELETE", "/api/repos/{owner}/{repo}/labels/{id}"],
+  ]) {
+    expect(rows.find(row => row.name === name)).toMatchObject({
+      minimumRole: "owner", agent: "never", actors: ["person"], credentialScope: "write:repository",
+      visibility: "hidden", cli: null, slash: null, http: { method, path }
+    })
+  }
+})

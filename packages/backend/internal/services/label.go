@@ -50,8 +50,11 @@ type LabelQuerier interface {
 }
 
 type LabelService struct {
-	queries        LabelQuerier
-	workflowRunSvc WorkflowRunService
+	install           *installLabelMutationStore
+	installAdmitted   bool
+	installRepository *db.Repository
+	queries           LabelQuerier
+	workflowRunSvc    WorkflowRunService
 }
 
 type LabelServiceOption func(*LabelService)
@@ -73,6 +76,11 @@ func NewLabelService(q LabelQuerier, opts ...LabelServiceOption) *LabelService {
 }
 
 func (s *LabelService) CreateLabel(ctx context.Context, actor *db.User, owner, repo string, req CreateLabelInput) (db.Label, error) {
+	if s.install != nil && !s.installAdmitted {
+		return withInstallLabelMutation(s, ctx, actor, owner, repo, "labels.create", 0, req, func(scoped *LabelService, bound context.Context) (db.Label, error) {
+			return scoped.CreateLabel(bound, actor, owner, repo, req)
+		})
+	}
 	if actor == nil {
 		return db.Label{}, pkgerrors.Unauthorized("authentication required")
 	}
@@ -163,6 +171,11 @@ func (s *LabelService) GetLabel(ctx context.Context, viewer *db.User, owner, rep
 }
 
 func (s *LabelService) UpdateLabel(ctx context.Context, actor *db.User, owner, repo string, id int64, req UpdateLabelInput) (db.Label, error) {
+	if s.install != nil && !s.installAdmitted {
+		return withInstallLabelMutation(s, ctx, actor, owner, repo, "labels.update", id, req, func(scoped *LabelService, bound context.Context) (db.Label, error) {
+			return scoped.UpdateLabel(bound, actor, owner, repo, id, req)
+		})
+	}
 	if actor == nil {
 		return db.Label{}, pkgerrors.Unauthorized("authentication required")
 	}
@@ -227,6 +240,12 @@ func (s *LabelService) UpdateLabel(ctx context.Context, actor *db.User, owner, r
 }
 
 func (s *LabelService) DeleteLabel(ctx context.Context, actor *db.User, owner, repo string, id int64) error {
+	if s.install != nil && !s.installAdmitted {
+		_, err := withInstallLabelMutation(s, ctx, actor, owner, repo, "labels.delete", id, struct{}{}, func(scoped *LabelService, bound context.Context) (struct{}, error) {
+			return struct{}{}, scoped.DeleteLabel(bound, actor, owner, repo, id)
+		})
+		return err
+	}
 	if actor == nil {
 		return pkgerrors.Unauthorized("authentication required")
 	}
@@ -441,6 +460,9 @@ func (s *LabelService) dispatchIssueWorkflowEvent(ctx context.Context, owner str
 }
 
 func (s *LabelService) resolveRepoByOwnerAndName(ctx context.Context, owner, repo string) (db.Repository, error) {
+	if s.installAdmitted && s.installRepository != nil {
+		return *s.installRepository, nil
+	}
 	lowerOwner := strings.ToLower(strings.TrimSpace(owner))
 	lowerRepo := strings.ToLower(strings.TrimSpace(repo))
 	if lowerOwner == "" {
@@ -481,6 +503,9 @@ func (s *LabelService) requireReadAccess(ctx context.Context, repository db.Repo
 }
 
 func (s *LabelService) requireWriteAccess(ctx context.Context, repository db.Repository, actor *db.User) error {
+	if s.installAdmitted {
+		return nil
+	}
 	if actor == nil {
 		return pkgerrors.Unauthorized("authentication required")
 	}
