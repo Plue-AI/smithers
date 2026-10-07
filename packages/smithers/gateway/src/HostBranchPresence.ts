@@ -12,7 +12,12 @@ import { Effect, Layer, Redacted, Stream } from "effect"
 import { RpcServer } from "effect/unstable/rpc"
 import type { Config } from "./RuntimeBridge.ts"
 
-/** Mount only on authenticated native runtime hosts, never anonymous gateways. */
+/**
+ * Mount only on authenticated native runtime hosts, never anonymous gateways.
+ *
+ * @category layers
+ * @since 1.0.0-rc.1
+ */
 export const layer = (config: Config) =>
   Layer.unwrap(Effect.gen(function*() {
     const share = yield* BranchShare.makeHmac({

@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
+import { catalogRequest, CatalogRequestError } from "../src/CatalogRequest.ts"
 import { makeCli } from "../src/Cli.ts"
 
 import fixtureCases from "./CatalogCli.fixture.json" with { type: "json" }
@@ -346,16 +347,99 @@ describe("person card CLI doors", () => {
   )
 })
 
+describe("catalog answer transport", () => {
+  it("resolves a single question then posts once with an idempotency key", async () => {
+    const f = await fixture(200, (method: string) =>
+      method === "GET"
+        ? { waits: [{ kind: "confirmation", id: "ignore" }, { kind: "question", id: "question-1" }] }
+        : { state: "accepted" })
+    try {
+      const result = await f.invoke(["todo", "answer", "T3", "Use retries"])
+      expect(result.exitCode, result.stdout).toBe(0)
+      expect(f.seen).toEqual([
+        { method: "GET", path: "/api/todos/3", body: undefined, via: "codex" },
+        {
+          method: "POST",
+          path: "/api/todos/3/answer",
+          body: { answer: "Use retries", wait: "question-1" },
+          via: "codex"
+        }
+      ])
+      expect(f.idempotencyKeys[0]).toBeUndefined()
+      expect(f.idempotencyKeys[1]).toMatch(/^[0-9a-f-]{36}$/)
+      expect(JSON.parse(result.stdout)).toMatchObject({ todo: 3, wait: "question-1", state: "accepted" })
+    } finally {
+      await f.close()
+    }
+  })
+  it("uses an explicit question without a preliminary read", async () => {
+    const f = await fixture()
+    try {
+      const result = await f.invoke(["todo", "answer", "T3", "Use retries", "--wait", "question-2"])
+      expect(result.exitCode, result.stdout).toBe(0)
+      expect(f.seen).toEqual([
+        {
+          method: "POST",
+          path: "/api/todos/3/answer",
+          body: { answer: "Use retries", wait: "question-2" },
+          via: "codex"
+        }
+      ])
+      expect(f.idempotencyKeys[0]).toMatch(/^[0-9a-f-]{36}$/)
+    } finally {
+      await f.close()
+    }
+  })
+  it.each([
+    { waits: [], code: "no_question" },
+    { waits: [{ kind: "question", id: "q1" }, { kind: "question", id: "q2" }], code: "several_questions" }
+  ])("refuses $code without posting an answer", async ({ waits, code }) => {
+    const f = await fixture(200, { waits })
+    try {
+      const result = await f.invoke(["todo", "answer", "T3", "Use retries"])
+      expect(result.exitCode).toBe(1)
+      expect(JSON.parse(result.stdout)).toMatchObject({ code })
+      expect(f.seen).toEqual([{ method: "GET", path: "/api/todos/3", body: undefined, via: "codex" }])
+    } finally {
+      await f.close()
+    }
+  })
+  it("does not post when reading the question fails", async () => {
+    const f = await fixture(503, { class: "infra", code: "unavailable", message: "Unavailable" })
+    try {
+      const result = await f.invoke(["todo", "answer", "T3", "Use retries"])
+      expect(result.exitCode).toBe(1)
+      expect(JSON.parse(result.stdout)).toMatchObject({ code: "unavailable" })
+      expect(f.seen).toEqual([{ method: "GET", path: "/api/todos/3", body: undefined, via: "codex" }])
+    } finally {
+      await f.close()
+    }
+  })
+})
+
 describe("shared catalog HTTP encoding", () => {
   it("maps optional nested bodies without mutating descriptor defaults across requests", async () => {
     const { catalogRequest } = await import("../src/CatalogRequest.ts")
-    const descriptor = { http: { method: "POST" as const, path: "/api/todos", body: { prompt: "text" },
-      defaults: { place: { mode: "append" } }, objects: { place: { when: "before", body: { n: "before" }, defaults: { mode: "before" } } } } }
+    const descriptor = {
+      http: {
+        method: "POST" as const,
+        path: "/api/todos",
+        body: { prompt: "text" },
+        defaults: { place: { mode: "append" } },
+        objects: { place: { when: "before", body: { n: "before" }, defaults: { mode: "before" } } }
+      }
+    }
     const first = catalogRequest(descriptor, { text: "A" })
     expect(first.body).toEqual({ prompt: "A", place: { mode: "append" } })
     ;(first.body!.place as Record<string, unknown>).mode = "changed"
-    expect(catalogRequest(descriptor, { text: "B", before: null }).body).toEqual({ prompt: "B", place: { mode: "append" } })
-    expect(catalogRequest(descriptor, { text: "C", before: 2 }).body).toEqual({ prompt: "C", place: { mode: "before", n: 2 } })
+    expect(catalogRequest(descriptor, { text: "B", before: null }).body).toEqual({
+      prompt: "B",
+      place: { mode: "append" }
+    })
+    expect(catalogRequest(descriptor, { text: "C", before: 2 }).body).toEqual({
+      prompt: "C",
+      place: { mode: "before", n: 2 }
+    })
     expect(catalogRequest(descriptor, { before: 0 }).body).toEqual({ place: { mode: "before", n: 0 } })
     expect(descriptor.http.defaults).toEqual({ place: { mode: "append" } })
   })
@@ -439,72 +523,18 @@ describe("shared catalog HTTP encoding", () => {
   })
 })
 
-describe("catalog answer transport", () => {
-  it("resolves a single question then posts once with an idempotency key", async () => {
-    const f = await fixture(200, (method: string) =>
-      method === "GET"
-        ? { waits: [{ kind: "confirmation", id: "ignore" }, { kind: "question", id: "question-1" }] }
-        : { state: "accepted" })
-    try {
-      const result = await f.invoke(["todo", "answer", "T3", "Use retries"])
-      expect(result.exitCode, result.stdout).toBe(0)
-      expect(f.seen).toEqual([
-        { method: "GET", path: "/api/todos/3", body: undefined, via: "codex" },
-        {
-          method: "POST",
-          path: "/api/todos/3/answer",
-          body: { answer: "Use retries", wait: "question-1" },
-          via: "codex"
-        }
-      ])
-      expect(f.idempotencyKeys[0]).toBeUndefined()
-      expect(f.idempotencyKeys[1]).toMatch(/^[0-9a-f-]{36}$/)
-      expect(JSON.parse(result.stdout)).toMatchObject({ todo: 3, wait: "question-1", state: "accepted" })
-    } finally {
-      await f.close()
-    }
-  })
-  it("uses an explicit question without a preliminary read", async () => {
-    const f = await fixture()
-    try {
-      const result = await f.invoke(["todo", "answer", "T3", "Use retries", "--wait", "question-2"])
-      expect(result.exitCode, result.stdout).toBe(0)
-      expect(f.seen).toEqual([
-        {
-          method: "POST",
-          path: "/api/todos/3/answer",
-          body: { answer: "Use retries", wait: "question-2" },
-          via: "codex"
-        }
-      ])
-      expect(f.idempotencyKeys[0]).toMatch(/^[0-9a-f-]{36}$/)
-    } finally {
-      await f.close()
-    }
-  })
-  it.each([
-    { waits: [], code: "no_question" },
-    { waits: [{ kind: "question", id: "q1" }, { kind: "question", id: "q2" }], code: "several_questions" }
-  ])("refuses $code without posting an answer", async ({ waits, code }) => {
-    const f = await fixture(200, { waits })
-    try {
-      const result = await f.invoke(["todo", "answer", "T3", "Use retries"])
-      expect(result.exitCode).toBe(1)
-      expect(JSON.parse(result.stdout)).toMatchObject({ code })
-      expect(f.seen).toEqual([{ method: "GET", path: "/api/todos/3", body: undefined, via: "codex" }])
-    } finally {
-      await f.close()
-    }
-  })
-  it("does not post when reading the question fails", async () => {
-    const f = await fixture(503, { class: "infra", code: "unavailable", message: "Unavailable" })
-    try {
-      const result = await f.invoke(["todo", "answer", "T3", "Use retries"])
-      expect(result.exitCode).toBe(1)
-      expect(JSON.parse(result.stdout)).toMatchObject({ code: "unavailable" })
-      expect(f.seen).toEqual([{ method: "GET", path: "/api/todos/3", body: undefined, via: "codex" }])
-    } finally {
-      await f.close()
-    }
-  })
+it.each(
+  [
+    [{ http: null }, {}, "binding_unavailable"],
+    [{ http: { method: "GET", path: "/outside" } }, {}, "binding_invalid"],
+    [{ http: { method: "GET", path: "/api/{id}" } }, {}, "field_invalid"]
+  ] as const
+)("exposes typed catalog refusal %#", (descriptor, payload, code) => {
+  try {
+    catalogRequest(descriptor, payload)
+    expect.fail("request should be refused")
+  } catch (error) {
+    expect(error).toBeInstanceOf(CatalogRequestError)
+    expect(error).toMatchObject({ _tag: "CatalogRequestError", code })
+  }
 })

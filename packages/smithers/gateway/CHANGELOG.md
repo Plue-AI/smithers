@@ -47,6 +47,13 @@
 
 ### Removed
 
+- Removed `"forks"` from `RunTrace.TraceFilter` and `TRACE_FILTER_IDS`.
+  Migration: replace stored or supplied `"forks"` filters with `"all"` and
+  remove exhaustive branches for the old value. This RC change follows
+  [RELEASE_SUPPORT.md](https://github.com/smithersai/smithers/blob/main/RELEASE_SUPPORT.md),
+  whose opening RC policy states that the candidate is not a stable 1.0
+  compatibility or long-term support commitment.
+
 - Removed `SuperviseRuntime` and `test/TestSuperviseRuntime`. No host
   implemented the port, so it shipped as a stub that scanned nothing and
   resumed nothing. Recovery remains the heartbeat reclaim.

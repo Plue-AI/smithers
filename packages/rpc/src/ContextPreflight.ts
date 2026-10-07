@@ -131,6 +131,21 @@ export type ContextPreflightFrame = z.infer<typeof ContextPreflightFrameSchema>
 export type ContextPreflightProgress = z.infer<typeof ContextPreflightProgressSchema>
 
 /**
+ * An out-of-order or inconsistent preflight page refused during replay.
+ * @since 1.0.0
+ * @category errors
+ */
+export class ContextPreflightRejected extends Error {
+  readonly _tag = "ContextPreflightRejected"
+  readonly code: "invalid_page_sequence"
+  constructor(code: "invalid_page_sequence", message: string) {
+    super(message)
+    this.code = code
+    this.name = "ContextPreflightRejected"
+  }
+}
+
+/**
  * Fold complete phases only; interrupted pages never expose a completed selection.
  *
  * @since 1.0.0
@@ -151,7 +166,7 @@ export const projectContextPreflight = (
       pending === undefined || prior.preflight === undefined || pending.next !== index || pending.total !== total ||
       pending.phase !== phase ||
       prior.preflight.model !== result.model || prior.preflight.durationMs !== result.durationMs
-    ) throw new Error("Invalid preflight page sequence")
+    ) throw new ContextPreflightRejected("invalid_page_sequence", "Invalid preflight page sequence")
     result = {
       ...result,
       context: [...prior.preflight.context, ...result.context],

@@ -88,7 +88,8 @@ describe("package conventions", () => {
   it("ships every file a shipped markdown page links to", () => {
     const root = join(import.meta.dirname, "..")
     const { files } = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { files: ReadonlyArray<string> }
-    const shipped = (file: string) => files.some((pattern) => matchesGlob(file, pattern))
+    const shipped = (file: string) =>
+      files.some((pattern) => matchesGlob(file, pattern) || pattern.endsWith("/") && file.startsWith(pattern))
     const markdown = (dir: string): ReadonlyArray<string> =>
       readdirSync(join(root, dir), { withFileTypes: true }).flatMap((entry) =>
         entry.isDirectory()

@@ -318,8 +318,9 @@ const makeResolved = (
       sweep(nowMs)
       const branch = expire(branchId, nowMs)
       if (branch === undefined) return []
+      // Map entries have distinct seat keys, so compared seats cannot be equal.
       return Array.from(branch.values(), (seat) => detach(seat.participant)).sort((left, right) =>
-        seatKey(left) < seatKey(right) ? -1 : seatKey(left) === seatKey(right) ? 0 : 1
+        seatKey(left) < seatKey(right) ? -1 : 1
       )
     }
 
@@ -452,11 +453,17 @@ const makeResolved = (
       const claims = yield* share.verify(request.capability, { branchId: request.branchId, access: "write" })
       const branch = expire(request.branchId, yield* Clock.currentTimeMillis)
       if (branch !== undefined) {
-        const held = branch.get(seatKey(request))
-        if (held !== undefined && held.capabilityId !== claims.capabilityId) {
-          return yield* Effect.fail(heldByAnother(request.participantId))
+        const keys = request.sessionId === undefined
+          ? [...branch].filter(([, seat]) => seat.participant.participantId === request.participantId)
+            .map(([key]) => key)
+          : [seatKey(request)]
+        for (const key of keys) {
+          const held = branch.get(key)
+          if (held !== undefined && held.capabilityId !== claims.capabilityId) {
+            return yield* Effect.fail(heldByAnother(request.participantId))
+          }
         }
-        branch.delete(seatKey(request))
+        for (const key of keys) branch.delete(key)
         if (branch.size === 0) roster.delete(request.branchId)
       }
       yield* PubSub.publish(changes, request.branchId)

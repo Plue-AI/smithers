@@ -35,6 +35,13 @@ test.each([1, 7, 1048576])("preserves UTF-8 and ordered context across %i-byte c
   })
 })
 
+test("protocol refusals have a stable typed tag", async () => {
+  await expect(readContextStream(response(encode([header])))).rejects.toMatchObject({
+    _tag: "ResolveFailed",
+    message: "incomplete context stream"
+  })
+})
+
 test("accepts a complete catalog above the old aggregate bound without truncation", async () => {
   const records = Array.from(
     { length: 8 },

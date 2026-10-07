@@ -83,7 +83,7 @@ describe("URL contracts", () => {
       .toBe(true)
   })
 
-  test("issue, commit and connector card links refuse script-capable schemes", () => {
+  test("issue links refuse script-capable schemes and retired commits expose no links", () => {
     const issue = {
       repo: "smithersai/smithers",
       number: 1,
@@ -136,8 +136,9 @@ describe("URL contracts", () => {
         .success
     )
       .toBe(true)
-    expect(CardSchema.safeParse({ ...base, kind: "commit", payload: commit("javascript:alert(1)") }).success).toBe(
-      false
-    )
+    expect(CardSchema.parse({ ...base, kind: "commit", payload: commit("javascript:alert(1)") })).toMatchObject({
+      kind: "retired",
+      payload: { was: "commit" }
+    })
   })
 })

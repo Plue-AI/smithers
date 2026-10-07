@@ -116,26 +116,61 @@ export type FileCardCallbacks = CardCallbacks<
   | "code.definition"
 >
 
-/** The immediate disk-write hint on branch:<id>:files. */
+/**
+ * The immediate disk-write hint on branch:<id>:files.
+ * @since 1.0.0
+ * @category schemas
+ */
 export const FileWrittenSchema = z.object({
-  kind: z.literal("file_written"), path: z.string(), post_digest: z.string(), actor: ActorSchema
+  kind: z.literal("file_written"),
+  path: z.string(),
+  post_digest: z.string(),
+  actor: ActorSchema
 })
 
-/** The Branch card and File cards consume the same topic, including its changed-file rows. */
+/**
+ * The Branch card and File cards consume the same topic, including its changed-file rows.
+ * @since 1.0.0
+ * @category projections
+ */
 export const branchFileRows = (value: unknown): unknown =>
   value !== null && typeof value === "object" && "rows" in value ? value.rows : value
 
-/** Keep the latest hint beside the row projection, without appending an event log. */
+/**
+ * A malformed changed-file row refused before projection.
+ * @since 1.0.0
+ * @category errors
+ */
+export class FileDeltaRejected extends Error {
+  readonly _tag = "FileDeltaRejected"
+  readonly code: "invalid_delta" | "invalid_rows"
+  constructor(code: "invalid_delta" | "invalid_rows", message: string) {
+    super(message)
+    this.code = code
+    this.name = "FileDeltaRejected"
+  }
+}
+
+/**
+ * Keep the latest hint beside the row projection, without appending an event log.
+ * @since 1.0.0
+ * @category projections
+ */
 export const projectBranchFiles = (previous: unknown, delta: unknown): unknown => {
   if (Array.isArray(delta)) return { rows: delta }
   if (delta !== null && typeof delta === "object" && "kind" in delta) {
     return { rows: branchFileRows(previous), written: FileWrittenSchema.parse(delta) }
   }
-  if (!delta || typeof delta !== "object" || !("path" in delta) || typeof delta.path !== "string") throw new Error("Invalid file delta")
+  if (!delta || typeof delta !== "object" || !("path" in delta) || typeof delta.path !== "string") {
+    throw new FileDeltaRejected("invalid_delta", "Invalid file delta")
+  }
   const data = branchFileRows(previous)
-  const rows = Array.isArray(data) ? data : []
-  const index = rows.findIndex(row => row?.path === delta.path)
-  const { outside: _outside, outside_change: _outsideChange, ...fields } = index < 0 ? {} : rows[index]
+  const decoded = z.array(z.object({ path: z.string() }).catchall(z.unknown())).safeParse(data ?? [])
+  if (!decoded.success) throw new FileDeltaRejected("invalid_rows", "Invalid file rows")
+  const rows = decoded.data
+  const index = rows.findIndex((row) => row.path === delta.path)
+  const existing: Record<string, unknown> = rows[index] ?? {}
+  const { outside: _outside, outside_change: _outsideChange, ...fields } = existing
   const next = { ...fields, ...delta }
   return { rows: index < 0 ? [...rows, next] : rows.map((row, i) => i === index ? next : row) }
 }

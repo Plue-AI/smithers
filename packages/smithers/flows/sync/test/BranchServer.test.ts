@@ -293,6 +293,18 @@ describe("BranchRpcs over the wire", () => {
       expect(error).toMatchObject({ code: "unauthorized" })
     }))
 
+  it.effect("reports unknown presence over RPC until host sources are ready", () =>
+    program(Effect.gen(function*() {
+      const client = yield* connect(yield* TestSocket.makePair())
+      const { capability, branchId } = yield* client["Branch.CreateBranch"]({ ttlMs: 600_000 })
+      expect(yield* client["Branch.PresenceOn"]({ capability, branchId })).toBe("unknown")
+      const wrongBranch = yield* client["Branch.CreateBranch"]({ ttlMs: 600_000 })
+      expect(
+        yield* client["Branch.PresenceOn"]({ capability: wrongBranch.capability, branchId })
+          .pipe(Effect.flip)
+      ).toMatchObject({ code: "unauthorized" })
+    })))
+
   it.effect("tracks join, cursor movement, and leave over the roster watch", () =>
     Effect.gen(function*() {
       const emissions = yield* program(

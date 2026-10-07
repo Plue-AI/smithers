@@ -5,6 +5,7 @@ import { ContextLineCardSchema } from "../src/ContextLineCard.ts"
 import {
   ContextCandidateSchema,
   ContextPreflightInputSchema,
+  ContextPreflightRejected,
   SelectedContextItemSchema
 } from "../src/ContextPreflight.ts"
 const context: AgentRuntimeContext = {
@@ -29,7 +30,12 @@ test("explicit empty selection excludes every browser-provided document", () => 
 })
 test("historical lines without reasons remain decodable", () => {
   expect(
-    ContextLineCardSchema.parse({ count: 1, expanded: false, items: [{ kind: "file", label: "old", ref: "old.ts" }] })
+    ContextLineCardSchema.parse({
+      count: 1,
+      expanded: false,
+      actions: [],
+      items: [{ kind: "file", label: "old", ref: "old.ts" }]
+    })
       .items[0]?.reason
   ).toBeUndefined()
   expect(SelectedContextItemSchema.safeParse({ kind: "file", label: "old", ref: "old.ts" }).success).toBe(false)
@@ -86,7 +92,10 @@ test("paged preflight survives serialization and publishes only complete phases"
       result: { ...second.result, model: "other" }
     }, { ...second, result: { ...second.result, durationMs: 13 } }]
   ) {
-    expect(() => projectContextPreflight(restored, invalid)).toThrow()
+    expect(() => projectContextPreflight(restored, invalid)).toThrow(ContextPreflightRejected)
+    expect(() => projectContextPreflight(restored, invalid)).toThrow(
+      expect.objectContaining({ code: "invalid_page_sequence" })
+    )
   }
   expect(projectContextPreflight(restored, { ...first, phase: "started" }).preflightPage?.next).toBe(1)
   const { page: _page, phase: _phase, ...legacy } = first

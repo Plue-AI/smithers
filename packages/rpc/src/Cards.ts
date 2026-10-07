@@ -1,5 +1,11 @@
-import { GraphDrawerSchema, LegacyRunTracePayloadSchema, PlanCardGraphSchema, PlanCardNodeSchema, RunViewStateSchema } from "./RunCard.ts"
 import { ProposalCardSchema } from "./ProposalCard.ts"
+import {
+  GraphDrawerSchema,
+  LegacyRunTracePayloadSchema,
+  PlanCardGraphSchema,
+  PlanCardNodeSchema,
+  RunViewStateSchema
+} from "./RunCard.ts"
 import { LegacySecretMetadataSchema, SecretsCardSchema } from "./SecretsCard.ts"
 /**
  * Cards rendered from agent, code-intelligence, and repository events.
@@ -28,9 +34,9 @@ import {
   LandingBlockSchema,
   RevisionPinSchema
 } from "./Changes.ts"
+import { DiffCardSchema } from "./DiffCard.ts"
 import { type DraftCard, DraftCardSchema } from "./DraftCard.ts"
 import { FactoryRuleSchema } from "./FactoryProjection.ts"
-import { DiffCardSchema } from "./DiffCard.ts"
 import { FileCardSchema } from "./FileCard.ts"
 import { GatewayWorkspaceIdSchema } from "./GatewayWorkspace.ts"
 import { StatusRollupSchema } from "./Health.ts"
@@ -600,7 +606,24 @@ const IssueLastCommentSchema = z.object({
 const TodoRequestSchema = z.object({
   key: z.string(),
   owner: z.string(),
-  operation: z.enum(["create", "amend", "answer", "steer", "stop", "resume", "retry", "retry-current-flow", "drop", "merge", "move", "takeover", "discard-foreign", "bring-in", "preapprove", "unapprove"]),
+  operation: z.enum([
+    "create",
+    "amend",
+    "answer",
+    "steer",
+    "stop",
+    "resume",
+    "retry",
+    "retry-current-flow",
+    "drop",
+    "merge",
+    "move",
+    "takeover",
+    "discard-foreign",
+    "bring-in",
+    "preapprove",
+    "unapprove"
+  ]),
   body: z.record(z.string(), z.unknown()),
   n: z.number().int().positive().optional(),
   state: z.enum(["requested", "accepted", "failed"]),
@@ -619,51 +642,71 @@ const DraftPayloadSchema: z.ZodType<
   DraftCard & {
     idempotencyKey: string
     request?: TodoRequest | undefined
-    imagePreparation?: { name: string; repo: string; state: "requested" | "ready" | "failed"; error?: string | undefined } | undefined
+    imagePreparation?: {
+      name: string
+      repo: string
+      state: "requested" | "ready" | "failed"
+      error?: string | undefined
+    } | undefined
     optionsFailure?: string | undefined
     issueDigest?: string | undefined
   }
 > = DraftCardSchema.extend({
   idempotencyKey: z.string(),
   request: TodoRequestSchema.optional(),
-  imagePreparation: z.object({ name: z.string(), repo: z.string(), state: z.enum(["requested", "ready", "failed"]), error: z.string().optional() }).optional(),
+  imagePreparation: z.object({
+    name: z.string(),
+    repo: z.string(),
+    state: z.enum(["requested", "ready", "failed"]),
+    error: z.string().optional()
+  }).optional(),
   optionsFailure: z.string().optional(),
   /* Make TODO: the digest of the issue text the Draft was made from, sent as `issue_digest` on Commit. */
   issueDigest: z.string().regex(/^[0-9a-f]{64}$/).optional()
 })
 
+/**
+ * Decodes persisted repository import requests and their progress.
+ * @since 1.0.0
+ * @category schemas
+ */
 export const RepositoryImportRequestSchema = z.object({
-    ...cardBaseShape,
-    payload: z.object({
-      repo: z.string(),
-      jobId: z.string().nullable(),
-      phase: z.enum(["starting", "running", "done", "failed"]),
-      detail: z.string().nullable(),
-      /** The job's raw stage word (`provisioning_workspace`); optional — older answers carry none. */
-      stage: z.string().nullable().optional(),
-      /** Progress counts (`refs 214 of 214 · objects … · issues …`); absent until plue#471's wire fields. */
-      counts: z.object({
-        refs: z.object({ done: z.number().int().nonnegative(), total: z.number().int().nonnegative() }),
-        objects: z.object({ done: z.number().int().nonnegative(), total: z.number().int().nonnegative() }),
-        issues: z.object({ done: z.number().int().nonnegative(), total: z.number().int().nonnegative() })
-      }).optional(),
-      /** The job's error verbatim; the failed phase renders it with Retry. */
-      error: z.string().nullable().optional(),
-      /** The imported repository, when the job's answer names it (the done state links it). */
-      repository: z.object({ owner: z.string(), name: z.string() }).nullable().optional(),
-      /** The workspace the import created, when it created one (the done state links its card). */
-      workspaceId: z.string().nullable().optional(),
-      /** A refused GitHub call's rate-limit line (lane sync; GitHubRateLimitSchema above). */
-      rateLimit: GitHubRateLimitSchema.optional(),
-      /** Persisted launch identity: fences stale answers and reconnects the exact operation after reload. */
-      requestId: z.string().optional(),
-      requestKind: z.enum(["start", "retry"]).optional(),
-      retryMode: z.enum(["reconnect", "restart"]).optional(),
-      accountOwner: z.string().nullable().optional(),
-      /** A registration's import: its step shows on the registration card, so this card is not shown. */
-      registration: z.boolean().optional()
-    })
+  ...cardBaseShape,
+  payload: z.object({
+    repo: z.string(),
+    jobId: z.string().nullable(),
+    phase: z.enum(["starting", "running", "done", "failed"]),
+    detail: z.string().nullable(),
+    /** The job's raw stage word (`provisioning_workspace`); optional — older answers carry none. */
+    stage: z.string().nullable().optional(),
+    /** Progress counts (`refs 214 of 214 · objects … · issues …`); absent until plue#471's wire fields. */
+    counts: z.object({
+      refs: z.object({ done: z.number().int().nonnegative(), total: z.number().int().nonnegative() }),
+      objects: z.object({ done: z.number().int().nonnegative(), total: z.number().int().nonnegative() }),
+      issues: z.object({ done: z.number().int().nonnegative(), total: z.number().int().nonnegative() })
+    }).optional(),
+    /** The job's error verbatim; the failed phase renders it with Retry. */
+    error: z.string().nullable().optional(),
+    /** The imported repository, when the job's answer names it (the done state links it). */
+    repository: z.object({ owner: z.string(), name: z.string() }).nullable().optional(),
+    /** The workspace the import created, when it created one (the done state links its card). */
+    workspaceId: z.string().nullable().optional(),
+    /** A refused GitHub call's rate-limit line (lane sync; GitHubRateLimitSchema above). */
+    rateLimit: GitHubRateLimitSchema.optional(),
+    /** Persisted launch identity: fences stale answers and reconnects the exact operation after reload. */
+    requestId: z.string().optional(),
+    requestKind: z.enum(["start", "retry"]).optional(),
+    retryMode: z.enum(["reconnect", "restart"]).optional(),
+    accountOwner: z.string().nullable().optional(),
+    /** A registration's import: its step shows on the registration card, so this card is not shown. */
+    registration: z.boolean().optional()
   })
+})
+/**
+ * A persisted repository import request and its progress.
+ * @since 1.0.0
+ * @category models
+ */
 export type RepositoryImportRequest = z.infer<typeof RepositoryImportRequestSchema>
 
 const CurrentCardSchema = z.discriminatedUnion("kind", [
@@ -720,7 +763,11 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       view: z.enum(["issues", "metrics"]).optional()
     })
   }),
-  z.object({ ...cardBaseShape, kind: z.literal("branch"), payload: z.object({ id: z.string(), tab: z.enum(["activity", "files", "terminals"]).optional() }) }),
+  z.object({
+    ...cardBaseShape,
+    kind: z.literal("branch"),
+    payload: z.object({ id: z.string(), tab: z.enum(["activity", "files", "terminals"]).optional() })
+  }),
   z.object({ ...cardBaseShape, kind: z.literal("terminal"), payload: z.object({ id: z.string() }) }),
   /* An agent CLI started from this conversation (M-38): the session the conversation shows read-only. */
   z.object({
@@ -755,14 +802,41 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
     payload: z.object({ id: z.string() })
   }),
   /* L5 subject references: the Run card (T-FLW-07) names its run; the Flow card (T-APP-05) its flow and chosen version. */
-  z.object({ ...cardBaseShape, kind: z.literal("proposal"), payload: z.object({
-    id: z.string(), model: ProposalCardSchema.optional(),
-    load: z.object({ owner: z.string(), state: z.enum(["pending","failed"]), error: z.string().optional() }).optional(),
-    request: z.object({ action: z.enum(["accept", "dismiss"]), owner: z.string(),
-      state: z.enum(["pending", "failed"]), error: z.string().optional() }).optional()
-  }) }),
-  z.object({ ...cardBaseShape, kind: z.literal("run"), payload: z.object({ id: z.string(), view: RunViewStateSchema.optional(), memberViews: z.record(z.string(), RunViewStateSchema).optional() }) }),
-  z.object({ ...cardBaseShape, kind: z.literal("flow"), payload: z.object({ name: z.string(), version: z.string().optional(), memberVersions: z.record(z.string(), z.string()).optional(), proposal: z.object({ request: z.string(), diff: z.string() }).optional() }) }),
+  z.object({
+    ...cardBaseShape,
+    kind: z.literal("proposal"),
+    payload: z.object({
+      id: z.string(),
+      model: ProposalCardSchema.optional(),
+      load: z.object({ owner: z.string(), state: z.enum(["pending", "failed"]), error: z.string().optional() })
+        .optional(),
+      request: z.object({
+        action: z.enum(["accept", "dismiss"]),
+        owner: z.string(),
+        state: z.enum(["pending", "failed"]),
+        error: z.string().optional()
+      }).optional()
+    })
+  }),
+  z.object({
+    ...cardBaseShape,
+    kind: z.literal("run"),
+    payload: z.object({
+      id: z.string(),
+      view: RunViewStateSchema.optional(),
+      memberViews: z.record(z.string(), RunViewStateSchema).optional()
+    })
+  }),
+  z.object({
+    ...cardBaseShape,
+    kind: z.literal("flow"),
+    payload: z.object({
+      name: z.string(),
+      version: z.string().optional(),
+      memberVersions: z.record(z.string(), z.string()).optional(),
+      proposal: z.object({ request: z.string(), diff: z.string() }).optional()
+    })
+  }),
   /* card-kinds.md L5: subject-only kinds; the card file reads its data (T-APP-03, T-APP-06, T-UI-14). */
   z.object({ ...cardBaseShape, kind: z.literal("setup"), payload: z.object({}) }),
   z.object({ ...cardBaseShape, kind: z.literal("settings"), payload: z.object({}) }),
@@ -2034,7 +2108,12 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
         selectedAgent: z.string().optional(),
         selectedModel: z.string().optional(),
         testing: z.array(z.string()).optional(),
-        assignment: z.object({ id: z.string(), role: z.string(), model: z.string(), state: z.enum(["requested", "failed"]) }).optional(),
+        assignment: z.object({
+          id: z.string(),
+          role: z.string(),
+          model: z.string(),
+          state: z.enum(["requested", "failed"])
+        }).optional(),
         agents: z.array(
           z.object({
             /** A built-in role id, or the flow id of a repository agent flow (`flows/<id>/flow.mdx` with a model). */
@@ -2047,7 +2126,13 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
             harnessName: z.string().optional(),
             model: AgentRoleModelSchema,
             source: z.enum(["owner", "repository", "builtin"]).optional(),
-            binding: z.object({ protocol: z.string(), modelId: z.string(), credential: z.string(), baseUrl: z.string().optional(), path: z.string().optional() }).nullable().optional(),
+            binding: z.object({
+              protocol: z.string(),
+              modelId: z.string(),
+              credential: z.string(),
+              baseUrl: z.string().optional(),
+              path: z.string().optional()
+            }).nullable().optional(),
             instructions: z.string().optional(),
             runs: z.array(z.object({ id: z.string(), model: z.string() })).optional(),
             builtin: z.boolean(),
@@ -2245,10 +2330,13 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
  * @category constants
  */
 export const LEGACY_CARD_KINDS = [
-  "commit", "commit-list",
+  "commit",
+  "commit-list",
   "branches",
   "workflow-repo",
-  "provider-accounts", "repo-import", "connector-setup",
+  "provider-accounts",
+  "repo-import",
+  "connector-setup",
   "env",
   "account",
   "explain",
@@ -2284,7 +2372,8 @@ export const LEGACY_CARD_KINDS = [
 const retiredKinds = new Set<string>(LEGACY_CARD_KINDS)
 
 const retiredFlows = new Set<string>([
-  "commits.list", "commits.read",
+  "commits.list",
+  "commits.read",
   "flow.repo.choose",
   "chat.clear",
   "tab.card",
@@ -2442,15 +2531,28 @@ export const CardSchema: z.ZodType<z.infer<typeof CurrentCardSchema>, unknown> &
     const row = value as Record<string, unknown>
     const payload = row.payload as Record<string, unknown> | undefined
     // Shared live Secrets models and old pinned metadata decode through one card kind.
-    if (row.kind === "secrets" && payload && Array.isArray(payload.secrets) &&
-      (payload.scope !== "repository" || payload.secrets.some(secret => typeof secret === "object" && secret !== null && "scope" in secret))) {
+    if (
+      row.kind === "secrets" && payload && Array.isArray(payload.secrets) &&
+      (payload.scope !== "repository" ||
+        payload.secrets.some((secret) => typeof secret === "object" && secret !== null && "scope" in secret))
+    ) {
       const live = SecretsCardSchema.safeParse(payload)
-      if (live.success) return { ...row, payload: {
-        repo: typeof payload.repo === "string" ? payload.repo : "",
-        scope: "repository",
-        secrets: live.data.secrets.map(secret => ({ name: secret.name, mainOnly: secret.scope === "main_only",
-          hosts: secret.hosts ?? [], matchHeaders: [], updatedAt: null }))
-      } }
+      if (live.success) {
+        return {
+          ...row,
+          payload: {
+            repo: typeof payload.repo === "string" ? payload.repo : "",
+            scope: "repository",
+            secrets: live.data.secrets.map((secret) => ({
+              name: secret.name,
+              mainOnly: secret.scope === "main_only",
+              hosts: secret.hosts ?? [],
+              matchHeaders: [],
+              updatedAt: null
+            }))
+          }
+        }
+      }
     }
     if (
       typeof row.kind === "string" && (retiredKinds.has(row.kind) ||

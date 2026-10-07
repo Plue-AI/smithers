@@ -7,7 +7,17 @@ import { GatewayWorkspaceIdSchema } from "./GatewayWorkspace.ts"
 import { StatusRollupSchema } from "./Health.ts"
 import { PLUE_FAULTS } from "./PlueFailureCodes.ts"
 
+/**
+ * Current monitor schemas shared with recorded run readers.
+ * @since 1.0.0
+ * @category schemas
+ */
 export { MonitorCardSchema, RunViewStateSchema } from "./MonitorCard.ts"
+/**
+ * Current monitor data and view props shared with recorded run readers.
+ * @since 1.0.0
+ * @category models
+ */
 export type { MonitorCard, RunViewProps } from "./MonitorCard.ts"
 
 /**
@@ -19,6 +29,8 @@ export type { MonitorCard, RunViewProps } from "./MonitorCard.ts"
  * payload is written to disk by the persistence backend, so the card holds the
  * node's address, its key, its edges, its tier and the action it dispatches,
  * and nothing else.
+ * @since 1.0.0
+ * @category schemas
  */
 export const PlanCardNodeSchema = z.object({
   id: z.string(),
@@ -45,6 +57,8 @@ export const PlanCardNodeSchema = z.object({
  *
  * The plan door's card and the snapshot a launch writes onto the run it
  * started carry the same shape, because it is the same answer.
+ * @since 1.0.0
+ * @category schemas
  */
 export const PlanCardGraphSchema = z.object({
   edges: z.array(
@@ -86,6 +100,8 @@ const GraphDrawerTabSchema = z.enum(["in", "declaration", "code", "output", "eve
  *
  * Reader state lives on the card like every other view state, so a reload
  * restores the drawer a person left open and no component owns it.
+ * @since 1.0.0
+ * @category schemas
  */
 export const GraphDrawerSchema = z.object({
   node: z.string().optional(),
@@ -217,7 +233,7 @@ export const LegacyRunTracePayloadSchema = z.object({
   cursorSeq: z.number().int().nonnegative().optional(),
   /** The tree's active filter (factory spec 06 §2, §3); `all` when absent. */
   filter: z.preprocess(
-    value => value === "forks" ? "all" : value,
+    (value) => value === "forks" ? "all" : value,
     z.enum(["all", "running", "failed", "model", "flow", "messages"])
   ).optional(),
   /** Whether the trace follows the newest frame (factory spec 06 §2); true when absent. A select turns it off. */

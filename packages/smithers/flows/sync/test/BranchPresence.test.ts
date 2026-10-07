@@ -64,6 +64,46 @@ describe("BranchPresence", () => {
       })
     ))
 
+  it.effect("session-less leave removes every actor seat immediately and preserves other actors", () =>
+    run(
+      Effect.gen(function*() {
+        const presence = yield* BranchPresence.BranchPresence
+        const capability = yield* capabilityFor(branchId, "write")
+        for (const sessionId of [undefined, "tab-one", "tab-two"]) {
+          yield* presence.announce({
+            capability,
+            branchId,
+            participantId: participant("alice"),
+            displayName: "Alice",
+            cursor: null,
+            ...(sessionId === undefined ? {} : { sessionId })
+          })
+        }
+        yield* presence.announce({
+          capability,
+          branchId,
+          participantId: participant("bob"),
+          displayName: "Bob",
+          cursor: null
+        })
+        const share = yield* BranchShare.BranchShare
+        const foreign = yield* share.mint({ branchId, capabilityId: "foreign-cap", access: "write", ttlMs: 600_000 })
+        expect(
+          (yield* presence.leave({ capability: foreign, branchId, participantId: participant("alice") })
+            .pipe(Effect.flip)).code
+        ).toBe("unauthorized")
+        yield* presence.leave({ capability, branchId, participantId: participant("alice"), sessionId: "missing" })
+        expect(yield* presence.list({ capability, branchId })).toHaveLength(4)
+        yield* presence.leave({ capability, branchId, participantId: participant("alice") })
+        expect((yield* presence.list({ capability, branchId })).map((row) => row.participantId)).toEqual([
+          participant("bob")
+        ])
+        yield* presence.leave({ capability, branchId, participantId: participant("alice") })
+        yield* presence.leave({ capability, branchId, participantId: participant("bob") })
+        expect(yield* presence.list({ capability, branchId })).toEqual([])
+      })
+    ))
+
   it.effect("keeps two sessions and their detached locations independent", () =>
     run(
       Effect.gen(function*() {
@@ -100,6 +140,24 @@ describe("BranchPresence", () => {
         yield* TestClock.adjust(29_900)
         expect(yield* presence.list({ capability, branchId })).toHaveLength(1)
         yield* TestClock.adjust(100)
+        expect(yield* presence.list({ capability, branchId })).toEqual([])
+      })
+    ))
+
+  it.effect("refuses an empty session without changing the roster", () =>
+    run(
+      Effect.gen(function*() {
+        const presence = yield* BranchPresence.BranchPresence
+        const capability = yield* capabilityFor(branchId, "write")
+        const failure = yield* presence.announce({
+          capability,
+          branchId,
+          participantId: participant("alice"),
+          displayName: "Alice",
+          cursor: null,
+          sessionId: ""
+        }).pipe(Effect.flip)
+        expect(failure).toMatchObject({ code: "invalid_request", message: "Invalid presence session" })
         expect(yield* presence.list({ capability, branchId })).toEqual([])
       })
     ))

@@ -4,7 +4,6 @@
  * @since 1.0.0
  */
 
-
 /** Read committed turn output without starting inference or spending another turn.
  * @since 1.0.0
  * @category constants
@@ -274,27 +273,6 @@ export const ADMIN_HEALTH_PATH = "/api/admin/system/health"
  */
 export const ADMIN_ERRORS_PATH = "/api/admin/errors"
 
-/*
- * The command recommender: the browser posts the tail of the current chat and
- * every command the user can invoke, and the Worker answers an ordered list of
- * up to five command names from a small model. The outcome route records the
- * command the user ran next, keyed by the recommendation id, so the
- * recommendations can be scored (apps/server/src/recommend.ts).
- */
-/**
- * The recommend route shared by server and client.
- *
- * @since 1.0.0
- * @category constants
- */
-export const RECOMMEND_PATH = "/api/recommend"
-/**
- * The recommend outcome route shared by server and client.
- *
- * @since 1.0.0
- * @category constants
- */
-export const RECOMMEND_OUTCOME_PATH = "/api/recommend/outcome"
 /**
  * The decision model's command selection for one chat message: the commands
  * whose full descriptors the turn's prompt discloses. Same admission as a
@@ -401,8 +379,6 @@ export const SHARED_BACKEND_CLIENT_ROUTES = [
   { method: "POST", path: "/api/billing/checkout", capability: "billing.checkout" },
   { method: "POST", path: "/api/billing/portal", capability: "billing.portal" },
   { method: "GET", path: PUBLIC_REPOS_PATH },
-  { method: "POST", path: RECOMMEND_PATH, capability: "recommend" },
-  { method: "POST", path: RECOMMEND_OUTCOME_PATH, capability: "recommend" },
   { method: "POST", path: COMMANDS_SELECT_PATH, capability: "commands.select" },
   { method: "POST", path: MODEL_STREAM_PATH, capability: "model.turn" },
   { method: "GET", path: EXTERNAL_SESSIONS_PATH }

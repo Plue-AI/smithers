@@ -7,6 +7,7 @@
 import { ContextCandidateSchema, ContextPreflightInputSchema } from "@smthrs/rpc/ContextPreflight"
 import type { ContextPreflightInput } from "@smthrs/rpc/ContextPreflight"
 import { z } from "zod"
+import { ResolveFailed } from "../ModelHostError.ts"
 
 const MAX_RECORD_BYTES = 2 * 1024 * 1024
 const HeaderSchema = ContextPreflightInputSchema.omit({ recent: true, candidates: true })
@@ -31,7 +32,7 @@ const RecordSchema = z.discriminatedUnion("type", [
 export const readContextStream = async (response: Response): Promise<ContextPreflightInput> => {
   if (response.headers.get("content-type") !== "application/x-ndjson" || response.body === null) {
     await response.body?.cancel()
-    throw new Error("context stream unavailable")
+    throw new ResolveFailed({ message: "context stream unavailable" })
   }
   const reader = response.body.getReader()
   let header: z.infer<typeof HeaderSchema> | undefined
@@ -52,7 +53,7 @@ export const readContextStream = async (response: Response): Promise<ContextPref
         const stop = newline < 0 ? value.length : newline + 1
         const fragment = value.subarray(start, stop)
         size += fragment.length
-        if (size > MAX_RECORD_BYTES) throw new Error("context record too large")
+        if (size > MAX_RECORD_BYTES) throw new ResolveFailed({ message: "context record too large" })
         fragments.push(fragment)
         start = stop
         if (newline < 0) continue
@@ -63,14 +64,16 @@ export const readContextStream = async (response: Response): Promise<ContextPref
           offset += part.length
         }
         const record = RecordSchema.parse(JSON.parse(decode.decode(bytes)))
-        if (ended || (header === undefined && record.type !== "input")) throw new Error("context record out of order")
+        if (ended || (header === undefined && record.type !== "input")) {
+          throw new ResolveFailed({ message: "context record out of order" })
+        }
         switch (record.type) {
           case "input":
-            if (header !== undefined) throw new Error("duplicate context header")
+            if (header !== undefined) throw new ResolveFailed({ message: "duplicate context header" })
             header = record.value
             break
           case "recent":
-            if (candidates.length !== 0) throw new Error("late context history")
+            if (candidates.length !== 0) throw new ResolveFailed({ message: "late context history" })
             recent.push(record.value)
             break
           case "candidate":
@@ -78,7 +81,7 @@ export const readContextStream = async (response: Response): Promise<ContextPref
             break
           case "end":
             if (record.recent !== recent.length || record.candidates !== candidates.length) {
-              throw new Error("context count mismatch")
+              throw new ResolveFailed({ message: "context count mismatch" })
             }
             ended = true
         }
@@ -86,7 +89,7 @@ export const readContextStream = async (response: Response): Promise<ContextPref
         fragments = []
       }
     }
-    if (!ended || size !== 0) throw new Error("incomplete context stream")
+    if (!ended || size !== 0) throw new ResolveFailed({ message: "incomplete context stream" })
     const input = ContextPreflightInputSchema.parse({ ...header, recent, candidates })
     complete = true
     return input

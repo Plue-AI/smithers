@@ -2,6 +2,7 @@ import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer"
 import { describe, expect, it } from "@effect/vitest"
 import * as ControlError from "@smthrs/control/ControlError"
 import { Effect, Layer } from "effect"
+import { TestClock } from "effect/testing"
 import { HttpRouter, HttpServer } from "effect/unstable/http"
 import { RpcSerialization } from "effect/unstable/rpc"
 import { createServer } from "node:http"
@@ -47,6 +48,35 @@ describe("host branch protocol HTTP", () => {
           const raw = await response.text()
           return JSON.parse(raw.trim().split("\n")[0]!).exit
         })
+      for (
+        const [tag, payload] of [
+          ["Branch.CreateBranch", { ttlMs: 60_000 }],
+          ["Branch.MintShare", { capability: scope.capability, access: "read", ttlMs: 60_000 }],
+          ["Branch.Submit", {
+            capability: scope.capability,
+            submission: {
+              branchId: scope.branchId,
+              commandId: "c1",
+              participantId: "member:2",
+              name: "branch.say",
+              args: "hello",
+              target: ""
+            }
+          }],
+          ["Branch.WatchRoster", scope]
+        ] as const
+      ) {
+        const failure = yield* call(tag, payload)
+        expect(failure._tag).toBe("Failure")
+        expect(failure.cause).toContainEqual(
+          expect.objectContaining({ error: expect.objectContaining({ code: "unsupported" }) })
+        )
+      }
+      expect((yield* call("Branch.PresenceOn", scope)).value).toBe("unknown")
+      expect((yield* call("Branch.PresenceOn", { ...scope, sourcesReady: true })).value).toBe("unknown")
+      yield* TestClock.adjust(30_000)
+      expect((yield* call("Branch.PresenceOn", scope)).value).toBe("unknown")
+      expect((yield* call("Branch.PresenceOn", { ...scope, sourcesReady: true })).value).toBe("empty")
       const announce = {
         ...scope,
         participantId: "member:2",
@@ -63,6 +93,7 @@ describe("host branch protocol HTTP", () => {
         sessionId: "tab2",
         where: { kind: "file", path: "retry.ts", line: 40 }
       })
+      expect((yield* call("Branch.PresenceOn", { ...scope, sourcesReady: true })).value).toBe("present")
       const rows = (yield* call("Branch.Roster", scope)).value
       expect(rows).toHaveLength(2)
       expect(rows.map((row: any) => row.where.line).sort()).toEqual([12, 40])
@@ -70,5 +101,5 @@ describe("host branch protocol HTTP", () => {
       expect((yield* call("Branch.Roster", scope)).value.map((row: any) => row.sessionId)).toEqual(["tab2"])
       yield* call("Branch.Leave", { ...scope, participantId: "member:2", sessionId: "tab2" })
       expect((yield* call("Branch.Roster", scope)).value).toEqual([])
-    }).pipe(Effect.provide(server), Effect.scoped))
+    }).pipe(Effect.provide(server), Effect.provide(TestClock.layer()), Effect.scoped))
 })

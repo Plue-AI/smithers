@@ -40,6 +40,8 @@ export interface DurableChatGrant {
   readonly cursor: AgentTurnCursor
   readonly expiresAt: string
   readonly request: StartAgentTurnRequest
+  /** Trusted install origin for API forwarding when the callback uses a private listener. */
+  readonly installOrigin?: string
   readonly producerBaseUrl: string
   /** The mirrored repository the turn's author may read; absent until Source is ready for them. */
   readonly source?: { readonly repository: string }

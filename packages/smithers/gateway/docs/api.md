@@ -528,3 +528,10 @@ contracts that wrote them. `engineTraceFromJournal(records)` produces spans;
 result projections. `engineRunEvidence(records, rootId, cursorSeq?)` limits
 facts to recorded ancestry and the inspection cursor. `engineProjectionPending`
 reports unfinished observation independently of the run's terminal verdict.
+
+## Host branch presence
+
+`HostBranchPresence.layer(config)` composes the authenticated native host's
+`/branch` presence RPCs and lease roster. It requires `RuntimeBridge.Config`
+authentication on every RPC and refuses non-presence operations as `unsupported`.
+This is a host adapter used by `GatewayServer`, rather than a package export path.

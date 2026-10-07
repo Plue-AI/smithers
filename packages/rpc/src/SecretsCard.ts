@@ -46,11 +46,16 @@ export type SecretsViewProps = CardProps<SecretsCard>
  */
 export type SecretsCardCallbacks = CardCallbacks<"secrets" | "secrets.set" | "secrets.delete" | "secrets.scope">
 
-/** Read-only decoder for pinned repository rows recorded before the Secrets View. */
-export const LegacySecretMetadataSchema = SecretsCardSchema.shape.secrets.element.omit({ scope: true, actions: true }).extend({
-  hosts: z.array(z.string()),
-  matchHeaders: z.array(z.string()),
-  updatedAt: z.string().nullable(),
-  mainOnly: z.boolean(),
-  reconnect: z.boolean().optional()
-})
+/**
+ * Read-only decoder for pinned repository rows recorded before the Secrets View.
+ * @since 1.0.0
+ * @category schemas
+ */
+export const LegacySecretMetadataSchema = SecretsCardSchema.shape.secrets.element.omit({ scope: true, actions: true })
+  .extend({
+    hosts: z.array(z.string()),
+    matchHeaders: z.array(z.string()),
+    updatedAt: z.string().nullable(),
+    mainOnly: z.boolean(),
+    reconnect: z.boolean().optional()
+  })

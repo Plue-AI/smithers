@@ -35,11 +35,11 @@ recorded cards; view models do not replace that history decoder.
 | FlowCard           | FlowCardSchema, FlowCard                     | Source, versions, step agents and merge-wait signals                      |
 | MonitorCard        | MonitorCardSchema, MonitorCard               | Attempts, step instances, phases, cells, waits, journal and replay        |
 | AgentCard          | AgentCardSchema, AgentCard                   | Instructions, model role and choices, and runs it took part in            |
-| BranchCard         | BranchCard (TypeScript metadata)                 | Machine, item or scratch, rebase, presence, terminals and activity        |
-| TerminalCard       | TerminalCard (TypeScript metadata)             | Owner, agents, watchers, command and frozen state                         |
+| BranchCard         | BranchCard (TypeScript metadata)             | Machine, item or scratch, rebase, presence, terminals and activity        |
+| TerminalCard       | TerminalCard (TypeScript metadata)           | Owner, agents, watchers, command and frozen state                         |
 | SecretsCard        | SecretsCardSchema, SecretsCard               | Secret names, scopes, bound hosts and row actions; no values              |
-| DocsCard           | DocsCard (TypeScript)                     | Bundled table of contents, page, anchor and not-found state               |
-| DebugApiCard       | DebugApiCard (TypeScript props)             | API operations, the selection, a pending mutation and the exchange        |
+| DocsCard           | DocsCard (TypeScript)                        | Bundled table of contents, page, anchor and not-found state               |
+| DebugApiCard       | DebugApiCard (TypeScript props)              | API operations, the selection, a pending mutation and the exchange        |
 | ProposalCard       | ProposalCardSchema, ProposalCard             | Evidence, references, state and the TODO it became                        |
 
 Each module also exports its View's props type, such as `TodoViewProps` or
@@ -118,3 +118,7 @@ pnpm --filter @smthrs/rpc test
 bun test apps/app/src/mainview/Architecture.test.ts
 bun test apps/app/src/mainview/flows/cardActions.test.ts apps/app/src/mainview/flows/parity.test.ts
 ```
+
+## File projection failures
+
+`FileWrittenSchema` decodes immediate disk-write hints. `branchFileRows` reads the row projection; `projectBranchFiles` replaces snapshots or applies a changed row while clearing superseded outside-change markers. Malformed row updates throw `FileDeltaRejected` with `invalid_delta` or `invalid_rows`.

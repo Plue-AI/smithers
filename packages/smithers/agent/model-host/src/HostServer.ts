@@ -96,6 +96,8 @@ export type ModelTurnResolver = (grant: DurableChatGrant) => Effect.Effect<Model
  */
 export interface ModelTurnHandlerOptions {
   readonly authorization: string
+  /** Public install origin; configure when the callback is a private listener. */
+  readonly installOrigin?: string
   readonly callbackBaseUrl: string
   readonly resolve: ModelTurnResolver
   readonly fetchImpl?: FetchLike
@@ -322,7 +324,14 @@ export const createModelTurnHandler = (options: ModelTurnHandlerOptions): (reque
     const exit = await Effect.runPromiseExit(
       options.resolve(grant).pipe(
         Effect.flatMap(({ model, options: modelOptions, preflight }) =>
-          runDurableChatTurn(model, grant, modelOptions, callbackBaseUrl, options.fetchImpl, preflight)
+          runDurableChatTurn(
+            model,
+            { ...grant, ...(options.installOrigin === undefined ? {} : { installOrigin: options.installOrigin }) },
+            modelOptions,
+            callbackBaseUrl,
+            options.fetchImpl,
+            preflight
+          )
         )
       ),
       { signal: request.signal }

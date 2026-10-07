@@ -58,6 +58,10 @@ describe("learning note lifecycle through the public SQL store", () => {
     expect(result.replay).toEqual(result.accepted)
     expect(result.different.code).toBe("idempotency_conflict")
     expect(result.dismiss.code).toBe("idempotency_conflict")
+    expect(result.dismiss.message).toBe(
+      "learning note is already accepted for a TODO; its acceptance cannot be changed"
+    )
+    expect(result.different.message).toBe(result.dismiss.message)
   })
 
   it("rejects malformed lifecycle writes without changing the note", async () => {

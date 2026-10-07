@@ -14,8 +14,6 @@
  * @since 1.0.0-rc.0
  */
 
-import { type CatalogDescriptor, catalogDescriptors } from "@smthrs/cli/Catalog"
-import { type CatalogHttpRequest, catalogRequest } from "@smthrs/cli/CatalogRequest"
 import type * as Model from "@smthrs/model/Model"
 import type { ModelError } from "@smthrs/model/ModelError"
 import {
@@ -41,6 +39,8 @@ import {
 } from "@smthrs/rpc/AgentInstructions"
 import { boundToolResult, MAX_TOOL_LEGS } from "@smthrs/rpc/AgentToolResult"
 import type { Card } from "@smthrs/rpc/Cards"
+import { type CatalogDescriptor, catalogDescriptors } from "@smthrs/cli/Catalog"
+import { type CatalogHttpRequest, catalogRequest } from "@smthrs/cli/CatalogRequest"
 import { fileListCard, FILES_LIST_COMMAND, parseFileListArgs } from "@smthrs/rpc/FileList"
 import { fileReadCard, FILES_READ_COMMAND, parseFileReadArgs } from "@smthrs/rpc/FileRead"
 import { FlowCardSchema } from "@smthrs/rpc/FlowCard"
@@ -48,7 +48,7 @@ import { flowEditTodoInput, flowTitle } from "@smthrs/rpc/FlowEdit"
 import { HomeCardSchema } from "@smthrs/rpc/HomeCard"
 import type { AgentChatMessage, AgentTurnUsage, FetchLike, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { TodoCardSchema } from "@smthrs/rpc/TodoCard"
-import { draftCard, parseTodoArgs, TodoNewInputSchema, todoCard } from "@smthrs/rpc/TodoCommands"
+import { draftCard, parseTodoArgs, todoCard, TodoNewInputSchema } from "@smthrs/rpc/TodoCommands"
 import { Effect } from "effect"
 import { z } from "zod"
 import type { DurableChatGrant } from "./DurableChatProducer.ts"
@@ -266,7 +266,7 @@ export const apiCaller =
           headers: {
             authorization: `Bearer ${token}`,
             "Smithers-Via": "smithers",
-            "X-Forwarded-Host": "127.0.0.1:4000",
+            "X-Forwarded-Host": new URL(grant.installOrigin ?? callbackBaseUrl).host,
             ...(method === "GET"
               ? {}
               : { "Content-Type": "application/json", "Idempotency-Key": request!.idempotencyKey! })
@@ -330,7 +330,11 @@ const refusalText = (path: string, code: string): string => {
 }
 
 /** What one command answered: the cards it shows and the model's copy, or the refusal both are told. */
-type Outcome = { readonly cards: ReadonlyArray<Card>; readonly value: string; readonly ui?: { readonly command: "theme"; readonly mode: "light" | "dark" } } | { readonly refusal: string }
+type Outcome = {
+  readonly cards: ReadonlyArray<Card>
+  readonly value: string
+  readonly ui?: { readonly command: "theme"; readonly mode: "light" | "dark" }
+} | { readonly refusal: string }
 
 /** One command bound to this turn: it runs with the call's argument text and ordinal. */
 type BoundRun = (args: string | undefined, ordinal: number) => Effect.Effect<Outcome>
@@ -473,13 +477,21 @@ const commandPayload = (row: CatalogDescriptor, args: string | undefined): Recor
 }
 
 /** UI instructions share the committed journal, but only the author's private view projects them. */
-const themeCommand = (row: CatalogDescriptor): Bind => grant => grant.api === undefined ? undefined : args => Effect.sync(() => {
-  try {
-    const payload = commandPayload(row, args)
-    if (payload.mode !== "light" && payload.mode !== "dark") throw new Error("Explicit mode required")
-    return { cards: [], value: `Requested /theme ${payload.mode} on the author's screen.`, ui: { command: "theme" as const, mode: payload.mode } }
-  } catch { return { refusal: "Invalid arguments for theme; use light or dark." } }
-})
+const themeCommand = (row: CatalogDescriptor): Bind => (grant) =>
+  grant.api === undefined ? undefined : (args) =>
+    Effect.sync(() => {
+      try {
+        const payload = commandPayload(row, args)
+        if (payload.mode !== "light" && payload.mode !== "dark") throw new Error("Explicit mode required")
+        return {
+          cards: [],
+          value: `Requested /theme ${payload.mode} on the author's screen.`,
+          ui: { command: "theme" as const, mode: payload.mode }
+        }
+      } catch {
+        return { refusal: "Invalid arguments for theme; use light or dark." }
+      }
+    })
 
 const TodoNewInput = z.strictObject(TodoNewInputSchema.shape)
 
@@ -530,52 +542,97 @@ const todoNew: Bind = (grant) => {
 const flowCommand = (row: CatalogDescriptor): Bind => (grant, { api }) => {
   const author = grant.api?.author
   if (author === undefined) return undefined
-  return (args, ordinal) => Effect.gen(function*() {
-    let input: { name?: string | undefined; request?: string | undefined; diff?: string | undefined }
-    try {
-      const raw = args?.trimStart() ?? ""
-      const boundary = raw.search(/\s/)
-      const parsed = raw.startsWith("{") ? JSON.parse(raw) : {
-        ...(raw === "" ? {} : { name: boundary < 0 ? raw : raw.slice(0, boundary) }),
-        ...(boundary < 0 ? {} : { request: raw.slice(boundary).trimStart() })
+  return (args, ordinal) =>
+    Effect.gen(function*() {
+      let input: { name?: string | undefined; request?: string | undefined; diff?: string | undefined }
+      try {
+        const raw = args?.trimStart() ?? ""
+        const boundary = raw.search(/\s/)
+        const parsed = raw.startsWith("{") ? JSON.parse(raw) : {
+          ...(raw === "" ? {} : { name: boundary < 0 ? raw : raw.slice(0, boundary) }),
+          ...(boundary < 0 ? {} : { request: raw.slice(boundary).trimStart() })
+        }
+        input = z.strictObject({
+          name: z.string().min(1).optional(),
+          request: z.string().min(1).optional(),
+          diff: z.string().optional()
+        }).parse(parsed)
+      } catch {
+        return { refusal: `Invalid arguments for ${row.name}; use its declared payload.` }
       }
-      input = z.strictObject({ name: z.string().min(1).optional(), request: z.string().min(1).optional(), diff: z.string().optional() }).parse(parsed)
-    } catch { return { refusal: `Invalid arguments for ${row.name}; use its declared payload.` } }
-    const missing = ["name", ...(row.name === "flow.edit" ? ["request"] : [])].filter(key => input[key as "name" | "request"] === undefined)
-    if (missing.length > 0) {
-      const form: Card = { id: `form:${globalThis.crypto.randomUUID()}`, kind: "flow-form", title: row.summary,
-        status: "active", ordinal, createdAt: Date.now(), payload: {
-          flow: row.name, via: "agent", given: input, draft: {},
-          fields: missing.map(name => ({ name, label: name === "name" ? "Flow" : "Request", kind: "text", required: true }))
-        } }
-      return { cards: [form], value: `Rendered a form for ${missing.join(", ")}.` }
-    }
-    // The required name was checked above; no user code is loaded to resolve it.
-    const name = input.name!
-    const answer = yield* api("/api/flows", { method: "GET" })
-    if ("code" in answer) return { refusal: answer.code }
-    const parsed = z.array(FlowCardSchema).safeParse(answer.body)
-    if (answer.status !== 200 || !parsed.success) return { refusal: "Flows unavailable" }
-    let model = parsed.data.find(flow => flow.name === name)
-    if (model === undefined) {
-      const named = yield* api(`/api/flows/${encodeURIComponent(name)}`, { method: "GET" })
-      if (!("code" in named) && named.status === 200) {
-        const selected = FlowCardSchema.safeParse(named.body)
-        if (selected.success && selected.data.name === name) model = selected.data
+      const missing = ["name", ...(row.name === "flow.edit" ? ["request"] : [])].filter((key) =>
+        input[key as "name" | "request"] === undefined
+      )
+      if (missing.length > 0) {
+        const form: Card = {
+          id: `form:${globalThis.crypto.randomUUID()}`,
+          kind: "flow-form",
+          title: row.summary,
+          status: "active",
+          ordinal,
+          createdAt: Date.now(),
+          payload: {
+            flow: row.name,
+            via: "agent",
+            given: input,
+            draft: {},
+            fields: missing.map((name) => ({
+              name,
+              label: name === "name" ? "Flow" : "Request",
+              kind: "text",
+              required: true
+            }))
+          }
+        }
+        return { cards: [form], value: `Rendered a form for ${missing.join(", ")}.` }
       }
-    }
-    if (model === undefined) return { refusal: `No flow ${name}` }
-    if (row.name === "flow.edit" && model.system) return { refusal: `${flowTitle(name)} is built in` }
-    const now = Date.now()
-    if (row.name === "flow.edit") {
-      const draft = flowEditTodoInput(name, input.request!, input.diff)
-      return { cards: [draftCard({ id: `draft:${globalThis.crypto.randomUUID()}`, author,
-        ...draft, options: [], idempotencyKey: globalThis.crypto.randomUUID() }, ordinal, now)], value: DRAFTED }
-    }
-    const card: Card = { id: `flow:${name}`, kind: "flow", title: flowTitle(name), status: "active",
-      ordinal, createdAt: now, payload: { name } }
-    return { cards: [card], value: JSON.stringify(model) }
-  })
+      // The required name was checked above; no user code is loaded to resolve it.
+      const name = input.name!
+      const answer = yield* api("/api/flows", { method: "GET" })
+      if ("code" in answer) return { refusal: answer.code }
+      const parsed = z.array(FlowCardSchema).safeParse(answer.body)
+      if (answer.status !== 200 || !parsed.success) return { refusal: "Flows unavailable" }
+      let model = parsed.data.find((flow) => flow.name === name)
+      if (model === undefined) {
+        const named = yield* api(`/api/flows/${encodeURIComponent(name)}`, { method: "GET" })
+        if (!("code" in named) && named.status === 200) {
+          const selected = FlowCardSchema.safeParse(named.body)
+          if (selected.success && selected.data.name === name) model = selected.data
+        }
+      }
+      if (model === undefined) return { refusal: `No flow ${name}` }
+      if (row.name === "flow.edit" && model.system) return { refusal: `${flowTitle(name)} is built in` }
+      const now = Date.now()
+      if (row.name === "flow.edit") {
+        const draft = flowEditTodoInput(name, input.request!, input.diff)
+        return {
+          cards: [
+            draftCard(
+              {
+                id: `draft:${globalThis.crypto.randomUUID()}`,
+                author,
+                ...draft,
+                options: [],
+                idempotencyKey: globalThis.crypto.randomUUID()
+              },
+              ordinal,
+              now
+            )
+          ],
+          value: DRAFTED
+        }
+      }
+      const card: Card = {
+        id: `flow:${name}`,
+        kind: "flow",
+        title: flowTitle(name),
+        status: "active",
+        ordinal,
+        createdAt: now,
+        payload: { name }
+      }
+      return { cards: [card], value: JSON.stringify(model) }
+    })
 }
 
 /** The one descriptor-to-HTTP dispatch path; policy/confirmations stay on the server. */
@@ -657,11 +714,16 @@ const offeredCommands = (grant: DurableChatGrant, transport: HostTransport): Rea
       (row.name === "merge" && grant.request.sharedConversation !== true) ||
       (row.agent !== "run" && row.agent !== "confirm")
     ) return []
-    const bind = row.name === "files.list" ? filesList
-      : row.name === "files.read" ? filesRead
-      : row.name === "todo.new" && grant.request.sharedConversation !== true ? todoNew
-      : row.name === "flow" || row.name === "flow.edit" ? flowCommand(row)
-      : row.name === "theme" ? themeCommand(row)
+    const bind = row.name === "files.list" ?
+      filesList
+      : row.name === "files.read" ?
+      filesRead
+      : row.name === "todo.new" && grant.request.sharedConversation !== true ?
+      todoNew
+      : row.name === "flow" || row.name === "flow.edit" ?
+      flowCommand(row)
+      : row.name === "theme" ?
+      themeCommand(row)
       : catalogCommand(row)
     const run = bind(grant, transport)
     const command: Offered["command"] = {
@@ -703,9 +765,12 @@ const hostInstructions = (offered: ReadonlyArray<Offered>): string => {
     ...offered.map(({ command: { args, ...command } }) =>
       agentCommandLine({
         ...command,
-        ...(command.name === "todo" ? { args: "<Tn>" }
-          : command.name === "todo.new" ? { args: "[text]" }
-          : command.name.startsWith("files.") && args !== undefined ? { args }
+        ...(command.name === "todo" ?
+          { args: "<Tn>" }
+          : command.name === "todo.new" ?
+          { args: "[text]" }
+          : command.name.startsWith("files.") && args !== undefined ?
+          { args }
           : {})
       })
     ),
@@ -772,7 +837,15 @@ const runCommand = <E>(
       return `failed: ${outcome.refusal}`
     }
     for (const card of outcome.cards) yield* write({ runId, type: "card", card })
-    yield* write({ runId, type: "call.settled", link, ordinal, name, verdict: "run", ...(outcome.ui ? { ui: outcome.ui } : {}) })
+    yield* write({
+      runId,
+      type: "call.settled",
+      link,
+      ordinal,
+      name,
+      verdict: "run",
+      ...(outcome.ui ? { ui: outcome.ui } : {})
+    })
     return boundToolResult(outcome.value).modelOutput
   })
 

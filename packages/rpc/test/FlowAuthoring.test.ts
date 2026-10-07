@@ -31,11 +31,11 @@ describe("flow authoring pack (unit)", () => {
   test.each([
     [
       "smithersai/smithers",
-      "smithersai/smithers's workspace does not have the flow-authoring flow installed, so there is nothing to build your flow with yet. Update the workspace from Settings and run /flow.create again, or use /flow.list to see what it can run today."
+      "smithersai/smithers's workspace does not have the flow-authoring flow installed, so there is nothing to build your flow with yet. Update the workspace from Settings and run /flow.new again, or use /flow.list to see what it can run today."
     ],
     [
       "WillCory/my.repo",
-      "WillCory/my.repo's workspace does not have the flow-authoring flow installed, so there is nothing to build your flow with yet. Update the workspace from Settings and run /flow.create again, or use /flow.list to see what it can run today."
+      "WillCory/my.repo's workspace does not have the flow-authoring flow installed, so there is nothing to build your flow with yet. Update the workspace from Settings and run /flow.new again, or use /flow.list to see what it can run today."
     ]
   ])("names repository %s and both recovery commands when the pack is absent", (repo, expected) => {
     expect(flowAuthoringUnavailable(repo)).toBe(expected)

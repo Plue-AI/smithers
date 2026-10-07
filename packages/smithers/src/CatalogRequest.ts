@@ -1,4 +1,18 @@
 /**
+ * Catalog encoding failures.
+ * @since 1.0.0
+ */
+export class CatalogRequestError extends Error {
+  readonly _tag = "CatalogRequestError"
+  readonly code: "binding_unavailable" | "binding_invalid" | "field_invalid"
+
+  constructor(code: CatalogRequestError["code"], message: string) {
+    super(message)
+    this.code = code
+  }
+}
+
+/**
  * The product command catalog's shared HTTP encoding for CLI and host callers.
  * Payload validation and actor authorization belong to the invoking boundary.
  *
@@ -49,11 +63,11 @@ export const catalogRequest = (
   payload: Readonly<Record<string, unknown>>
 ): CatalogHttpRequest => {
   const binding = descriptor.http
-  if (binding === null) throw new Error("Command HTTP binding is unavailable")
+  if (binding === null) throw new CatalogRequestError("binding_unavailable", "Command HTTP binding is unavailable")
   if (
     !/^(GET|POST|PATCH|PUT|DELETE)$/.test(binding.method) ||
     !binding.path.startsWith("/api/") || /[?#\\]/.test(binding.path)
-  ) throw new Error("Invalid command HTTP binding")
+  ) throw new CatalogRequestError("binding_invalid", "Invalid command HTTP binding")
   const body: Record<string, unknown> = binding.body
     ? Object.fromEntries(
       Object.entries(binding.body).filter(([, source]) => payload[source] !== undefined)
@@ -74,15 +88,15 @@ export const catalogRequest = (
   let path = binding.path.replace(/\{([^}]+)\}/g, (_, field: string) => {
     const value = payload[field]
     if (value === undefined || value === null || typeof value === "object") {
-      throw new Error(`Missing or invalid ${field}`)
+      throw new CatalogRequestError("field_invalid", `Missing or invalid ${field}`)
     }
     const segment = String(value)
-    if (segment === "" || segment === "." || segment === "..") throw new Error(`Invalid ${field}`)
+    if (segment === "" || segment === "." || segment === "..") throw new CatalogRequestError("field_invalid", `Invalid ${field}`)
     used.add(field)
     return encodeURIComponent(segment)
   })
   if (/[{}]/.test(path) || path.split("/").some((segment) => segment === "." || segment === "..")) {
-    throw new Error("Invalid command HTTP binding")
+    throw new CatalogRequestError("binding_invalid", "Invalid command HTTP binding")
   }
   for (const key of used) delete body[key]
   if (binding.method === "GET") {

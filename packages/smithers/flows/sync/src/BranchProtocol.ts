@@ -205,15 +205,11 @@ export class Cursor extends Schema.Class<Cursor>("@smthrs/sync/BranchProtocol/Cu
 }) {}
 
 /**
- * Schema for one live participant on a branch.
- *
- * `leaseExpiresAtMs` is the whole lifetime contract: presence is a lease, so a
- * client that disconnects without saying so disappears on its own.
+ * BranchCard-compatible display coordinates; paths are metadata only.
  *
  * @category schemas
- * @since 0.1.0
+ * @since 1.0.0-rc.1
  */
-/** BranchCard-compatible display coordinates; paths are metadata only. */
 export const PresenceWhere = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("file"),
@@ -239,6 +235,15 @@ const presenceFields = {
   runId: Schema.optionalKey(Schema.NonEmptyString)
 }
 
+/**
+ * Schema for one live participant on a branch.
+ *
+ * `leaseExpiresAtMs` is the whole lifetime contract: presence is a lease, so a
+ * client that disconnects without saying so disappears on its own.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export class Participant extends Schema.Class<Participant>("@smthrs/sync/BranchProtocol/Participant")({
   branchId: BranchId,
   participantId: ParticipantId,

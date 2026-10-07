@@ -13,10 +13,6 @@ describe("shared backend client route contract", () => {
         router.includes(`${route.method === "GET" ? "Get" : "Post"}(\"/${path}\"`)
       expect(mounted, `${route.method} ${route.path} is not mounted in packages/backend/internal/compose/router.go`)
         .toBe(true)
-      if ("capability" in route && route.capability === "recommend") {
-        expect(router).toContain("if extras.Recommender != nil")
-        expect(bootstrap).toContain("\"recommend\"")
-      }
       if ("capability" in route && route.capability === "commands.select") {
         // The selection handler is the recommender's: one decision model, one condition.
         expect(router).toContain("if extras.Recommender != nil")

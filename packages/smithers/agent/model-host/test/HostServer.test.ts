@@ -59,6 +59,7 @@ describe("model host HTTP binding", () => {
       stopReason: "stop"
     }]
     const handler = createModelTurnHandler({
+      installOrigin: "http://127.0.0.1:4567",
       authorization: "host-token",
       callbackBaseUrl: "http://callback.test",
       resolve: () =>

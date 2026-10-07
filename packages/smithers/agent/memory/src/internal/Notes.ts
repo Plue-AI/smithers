@@ -237,7 +237,12 @@ export const make = (database: DatabaseService): {
           row.accepted_todo !== null &&
           (input.status !== "accepted" || input.acceptedTodo !== undefined && input.acceptedTodo !== row.accepted_todo)
         ) {
-          return yield* Effect.fail(error("idempotency_conflict", "learning note already belongs to another TODO"))
+          return yield* Effect.fail(
+            error(
+              "idempotency_conflict",
+              "learning note is already accepted for a TODO; its acceptance cannot be changed"
+            )
+          )
         }
         if (
           row.status === input.status && (input.acceptedTodo === undefined || input.acceptedTodo === row.accepted_todo)
