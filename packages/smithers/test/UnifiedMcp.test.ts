@@ -267,7 +267,7 @@ it(
       }
       expect(host.seen).toEqual([])
       for (
-        const [name, args] of [["flows", {}], ["flow_show", { name: "team/todo" }], ["todo_show", { n: "T2" }]] as const
+        const [name, args] of [["flows", {}], ["flow_show", { flow: "team/todo" }], ["todo_show", { n: "T2" }]] as const
       ) {
         const result = await server.call("call_read_tool", { name, arguments: args })
         expect(result?.isError, JSON.stringify(result)).not.toBe(true)
@@ -315,7 +315,7 @@ it(
         expect(result?.content?.[0]?.text).toContain("fixture")
         expect(result?.content?.[0]?.text).not.toContain("host-synthetic-credential")
       }
-      const result = await server.call("call_read_tool", { name: "flow_show", arguments: { name: attacker.origin } })
+      const result = await server.call("call_read_tool", { name: "flow_show", arguments: { flow: attacker.origin } })
       expect(result?.isError, JSON.stringify(result)).not.toBe(true)
       expect(result?.content?.[0]?.text).toContain("fixture")
       expect(result?.content?.[0]?.text).not.toContain("host-synthetic-credential")

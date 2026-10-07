@@ -2214,10 +2214,10 @@ describe("the smthrs init scaffold, launched as written", processBudget, () => {
 
       const flow = readFileSync(join(cwd, "flows", "hello", "flow.mdx"), "utf8")
       expect(flow).toContain("\nmodel: openai:gpt-6-sol\n")
-      // The scaffold says which key chose the seat and where to see the rest,
+      // The scaffold says which key chose the seat and where credentials live,
       // as a YAML comment: the markdown body is the agent's instructions.
       expect(flow).toContain("OPENAI_API_KEY")
-      expect(flow).toContain("smthrs doctor")
+      expect(flow).toContain("Provider credentials are read from the environment.")
     } finally {
       rmSync(cwd, { recursive: true, force: true })
     }

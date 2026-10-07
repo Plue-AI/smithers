@@ -252,8 +252,9 @@
         "Ship retries"
       ],
       "method": "POST",
-      "path": "/api/branches/retry-webhooks/add-to-stack",
+      "path": "/api/branches/retry-webhooks",
       "body": {
+        "op": "add-to-stack",
         "text": "Ship retries"
       }
     },
@@ -281,8 +282,8 @@
         "retry-webhooks"
       ],
       "method": "POST",
-      "path": "/api/branches/retry-webhooks/rebase",
-      "body": {}
+      "path": "/api/branches/retry-webhooks",
+      "body": { "op": "rebase" }
     },
     {
       "argv": [
