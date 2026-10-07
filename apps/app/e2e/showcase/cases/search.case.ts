@@ -6,7 +6,7 @@ export default showcase({
   order: 25,
   title: "Search",
   summary: "? lists the search prefixes; a search answers with a card whose rows run.",
-  flows: ["search.flows", "search", "agent.list"],
+  flows: ["search.flows", "search", "agents"],
   run: async ({ page, app, backend }) => {
     await backend.cloud()
     await app.open("/")
@@ -22,7 +22,7 @@ export default showcase({
     await app.show(results.last())
     await app.beat(1200)
     await app.slash("/search agents")
-    await expect(results.last()).toContainText("agent.list")
+    await expect(results.last()).toContainText("agents")
     await app.closeComposer()
     await app.show(results.last())
     await app.click(results.last().getByRole("button", { name: "Show the agents and their runs" }))

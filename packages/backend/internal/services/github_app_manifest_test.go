@@ -36,7 +36,7 @@ func TestGitHubAppManifestExactPermissionsAndLocalhostCallbacks(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(actual["hook_attributes"], &hook))
 	require.Equal(t, "https://smithers.example/webhooks/github", hook.URL, "the hook uses the configured public https origin")
-	require.True(t, hook.Active)
+	require.False(t, hook.Active)
 	var events []string
 	require.NoError(t, json.Unmarshal(actual["default_events"], &events))
 	require.ElementsMatch(t, []string{"issues", "issue_comment", "pull_request", "pull_request_review", "pull_request_review_comment", "push", "check_run", "check_suite", "status"}, events)
@@ -90,7 +90,7 @@ func TestGitHubAppManifestHookUsesFirstPublicHTTPSOrigin(t *testing.T) {
 		manifest, _, err := BuildGitHubAppManifest("acme", "user", tc.origins, "state")
 		require.NoError(t, err)
 		require.NotNil(t, manifest.HookAttributes, tc.origins)
-		require.Equal(t, GitHubAppHookAttributes{URL: tc.hook, Active: true}, *manifest.HookAttributes)
+		require.Equal(t, GitHubAppHookAttributes{URL: tc.hook, Active: false}, *manifest.HookAttributes)
 		require.NotEmpty(t, manifest.DefaultEvents)
 	}
 }

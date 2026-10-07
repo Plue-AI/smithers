@@ -89,7 +89,7 @@ test("agent door refuses raw API; a running fetch never blocks Chat or duplicate
   expect(controller.debugApi.get().model.exchange?.failure).toEqual({ class: "permission", code: "signed_out", message: "The API answered HTTP 401 (permission).", status: 401 })
 })
 
-test("the production help projection keeps unavailable docs and Debug API dark", async () => {
+test("the production help projection keeps unavailable Debug API dark", async () => {
   const { controller, gates } = await setup()
   const render = () => renderToStaticMarkup(<ControllerTestProvider controller={controller}>{commandsCardFamily.commands.render(
     { id: "help", kind: "commands", title: "Commands", status: "active", createdAt: 0, ordinal: 0, payload: {} },
@@ -97,7 +97,6 @@ test("the production help projection keeps unavailable docs and Debug API dark",
   )}</ControllerTestProvider>)
   gates.catalog = false
   const dark = render()
-  expect(dark).not.toContain("/docs")
   expect(dark).not.toContain("/debug-api")
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const closed = createController(store, silentAgent, { fetchImpl: async () => new Response("{}") })
@@ -106,7 +105,6 @@ test("the production help projection keeps unavailable docs and Debug API dark",
     { presentation: "embedded" } as CardActions
   )}</ControllerTestProvider>)
   expect(hidden).not.toContain("/debug-api")
-  expect(hidden).not.toContain("/docs")
 })
 
 test("a debug-api failure journals only generic status copy; response text stays in the seam", async () => {
@@ -240,6 +238,25 @@ test("Debug API requests never enter the network ring: neither /debug.net door s
   expect(transcript).toContain("Network tap")
   expect(transcript).not.toContain(PRIVATE)
   const agent = await controller.commands.runForAgent("debug.net")
-  expect(agent.status).toBe("executed")
-  expect(agent.status === "executed" ? agent.value : "").not.toContain(PRIVATE)
+  // Raw diagnostics are hidden from the app agent by the shared catalog.
+  expect(agent.status).toBe("failed")
+  expect(JSON.stringify(agent)).not.toContain(PRIVATE)
+})
+
+test("the shipped install bootstrap activates slash, Advanced and Send without test gates", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const calls: string[] = []
+  const controller = createController(store, silentAgent, {
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["identity", "debug.api"], authFlow: "redirect", sandbox: null },
+    openApi: async () => apiFixture, debugApiOrigin: "http://mini.local",
+    fetchImpl: async url => { calls.push(String(url)); return Response.json({ items: [] }) }
+  })
+  expect(controller.debugApi.available()).toBe(true)
+  await controller.runCommandForResult("debug-api", "getStack")
+  await settle(() => store.collections.cards.has("debug-api"))
+  const before = calls.length
+  expect((await controller.runCommandForResult("debug.api", '{"operationId":"getStack","intent":"send"}')).status).toBe("executed")
+  await settle(() => !controller.debugApi.get().busy)
+  expect(calls.slice(before)).toEqual(["http://mini.local/api/stack"])
+  expect(controller.debugApi.get().model.exchange?.response?.status).toBe(200)
 })

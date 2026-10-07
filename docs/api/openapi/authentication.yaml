@@ -115,11 +115,25 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/auth/github/cli:
     get:
+      description: Install login issues a delegated credential with issuer-bound via and a 30-day expiry. It never grants approval authority. smithers and terminal are reserved host labels.
       summary: GET /api/auth/github/cli
       operationId: get_api_auth_github_cli
       tags:
         - Authentication
       parameters:
+        - name: agent
+          in: query
+          required: false
+          description: External agent label; omitted means cli. smithers and terminal are rejected.
+          schema:
+            type: string
+            pattern: ^[a-z0-9-]{1,32}$
+        - name: Smithers-Via
+          in: header
+          required: false
+          description: Attribution hint only. Stored external-agent via takes precedence; cli and terminal may name claude-code or codex. This header grants no authority.
+          schema:
+            type: string
         - name: callback_port
           in: query
           required: true
@@ -143,7 +157,7 @@ paths:
           description: Comma-separated ordinary personal access token scopes. Defaults to organization, repository, and user write scopes. Administrative scopes are always rejected through this parameter, including with admin=1.
           schema:
             type: string
-          example: read:user,read:organization,read:repository,write:repository,read:workspace,write:workspace,write:agent,write:approval
+          example: read:user,read:organization,read:repository,write:repository,read:workspace,write:workspace,write:agent
         - name: admin
           in: query
           required: false
@@ -264,8 +278,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -325,8 +338,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -354,8 +366,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':

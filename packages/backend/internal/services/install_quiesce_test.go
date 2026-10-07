@@ -11,12 +11,14 @@ import (
 )
 
 type memoryFreeze struct {
-	row *QuiesceFreeze
-	mu  sync.Mutex
+	row     *QuiesceFreeze
+	mu      sync.Mutex
+	updates int
 }
 
 func (m *memoryFreeze) Update(_ context.Context, f func(*QuiesceFreeze) (*QuiesceFreeze, error)) error {
 	m.mu.Lock()
+	m.updates++
 	defer m.mu.Unlock()
 	row, err := f(m.row)
 	if err == nil {
@@ -133,5 +135,71 @@ func TestQuiesceDefaultFreezeReopens(t *testing.T) {
 	var dependency *QuiesceDependencyError
 	if !errors.As(err, &dependency) || dependency.Ticket != "T-MCH-07" || store.row != nil {
 		t.Fatalf("%v %v", err, store.row)
+	}
+}
+
+func TestHostMaintenanceUnavailableProvidersFailClosed(t *testing.T) {
+	for _, missing := range []string{"machines", "machine-pointer", "admission", "host"} {
+		t.Run(missing, func(t *testing.T) {
+			store := &memoryFreeze{}
+			calls := []string{}
+			steps := quiesceSteps{calls: &calls}
+			service := &InstallQuiesce{Gate: &QuiesceGate{Store: store, StateDir: t.TempDir()}, Machines: steps, Admission: steps, Host: steps}
+			want := "T-MCH-07"
+			switch missing {
+			case "machines":
+				service.Machines = nil
+			case "machine-pointer":
+				service.Machines = &UnavailableMachineQuiescer{}
+			case "admission":
+				service.Admission = nil
+				want = "T-MCH-06"
+			case "host":
+				service.Host = nil
+				want = "T-INS-08"
+			}
+			_, err := service.Freeze(t.Context(), "backup", 7)
+			var dependency *QuiesceDependencyError
+			if !errors.As(err, &dependency) || dependency.Ticket != want || store.updates != 0 || len(calls) != 0 {
+				t.Fatalf("want %s before any freeze or execution: err=%v writes=%d calls=%v", want, err, store.updates, calls)
+			}
+		})
+	}
+}
+
+func TestQuiesceMarkerNeverFollowsLinks(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Symlink(filepath.Join(root, "missing"), filepath.Join(root, ".upgrade-incomplete")); err != nil {
+		t.Fatal(err)
+	}
+	store := &memoryFreeze{row: &QuiesceFreeze{Op: "upgrade", LeaseUntil: time.Now().Add(-time.Minute)}}
+	service := &InstallQuiesce{Gate: &QuiesceGate{Store: store, StateDir: root}}
+	var frozen *InstallQuiescedError
+	if err := service.Gate.Admit(t.Context(), "POST"); !errors.As(err, &frozen) {
+		t.Fatalf("marker failed to retain freeze: %v", err)
+	}
+	if err := service.Reopen(t.Context(), ""); !errors.As(err, &frozen) || store.row == nil {
+		t.Fatalf("reopen ignored marker: %v", err)
+	}
+}
+
+func TestQuiesceMissingAuthorityAndCancellationNeverFreeze(t *testing.T) {
+	for _, service := range []*InstallQuiesce{nil, {}, {Gate: &QuiesceGate{}}} {
+		_, err := service.Freeze(t.Context(), "backup", 7)
+		if err == nil || err.Error() != "quiesce authority unavailable" {
+			t.Fatalf("freeze: %v", err)
+		}
+		if err := service.Reopen(t.Context(), ""); err == nil || err.Error() != "quiesce authority unavailable" {
+			t.Fatalf("reopen: %v", err)
+		}
+	}
+	store := &memoryFreeze{}
+	calls := []string{}
+	steps := quiesceSteps{calls: &calls}
+	service := &InstallQuiesce{Gate: &QuiesceGate{Store: store, StateDir: t.TempDir()}, Machines: steps, Admission: steps, Host: steps}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := service.Freeze(ctx, "backup", 7); !errors.Is(err, context.Canceled) || store.updates != 0 || len(calls) != 0 {
+		t.Fatalf("cancelled freeze: %v writes=%d calls=%v", err, store.updates, calls)
 	}
 }

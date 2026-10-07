@@ -30,6 +30,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -85,15 +86,21 @@ func (h offlineGatewayHost) RunModelTest(ctx context.Context, owner int64, reque
 }
 
 // rehearsal is one composed install a journey rehearsal walks.
+var rehearsalInstallations atomic.Int64
+
 type rehearsal struct {
-	t        *testing.T
-	ctx      context.Context
-	root     string
-	evidence string
-	pool     *pgxpool.Pool
-	fake     *githubfake.Server
-	compute  *sandboxfake.Provider
-	coder    rehearsalCodingModel
+	// stepBudget overrides readiness polling for non-latency checks under contention.
+	stepBudget     time.Duration
+	installationID int64
+	t              *testing.T
+	ctx            context.Context
+	root           string
+	evidence       string
+	pool           *pgxpool.Pool
+	repoClient     *repository.Client
+	fake           *githubfake.Server
+	compute        *sandboxfake.Provider
+	coder          rehearsalCodingModel
 	// mainCommit is the repository's main as the fake's Git holds it, under
 	// gitRoot (<owner>/<repo>.git).
 	mainCommit string
@@ -128,7 +135,7 @@ var rehearsalTokenField = regexp.MustCompile(`"token":"[^"]*"`)
 
 // newRehearsal composes the install for check (C-J1-04, C-J2) and serves it;
 // it is enabled only by the environment variable enable set to 1.
-func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
+func newRehearsal(t *testing.T, enable, check, keyPrefix string, poolCapacity ...int32) *rehearsal {
 	if os.Getenv(enable) != "1" {
 		t.Skip("enable explicitly with " + enable + "=1")
 	}
@@ -154,7 +161,7 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
 	// /private/var) and confinement compares it with the workspace root.
 	processRoot, err := filepath.EvalSymlinks(t.TempDir())
 	require.NoError(t, err)
-	pool, databaseURL := postgresfixture.NewProductDatabase(t)
+	pool, databaseURL := postgresfixture.NewProductDatabase(t, poolCapacity...)
 	r.pool = pool
 	gitRoot := t.TempDir()
 	r.gitRoot = gitRoot
@@ -177,8 +184,47 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
 	if os.Getenv("REHEARSAL_TEST_ONLY_REPOSITORY") == "1" {
 		makefile = "test:\n\tgrep -q . JOURNEY.md\n"
 	}
-	require.NoError(t, os.WriteFile(filepath.Join(seed, "Makefile"), []byte(makefile), 0600))
-	git("-C", seed, "add", "JOURNEY.md", "Makefile")
+	// The declaration-free fixtures have only their own checks. The
+	// generic journey's Makefile would add a build and shadow Go's test ID.
+	if os.Getenv("REHEARSAL_CONFIG_FIXTURE") == "" {
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "Makefile"), []byte(makefile), 0600))
+	}
+	switch os.Getenv("REHEARSAL_CONFIG_FIXTURE") {
+
+	case "node", "node-packages":
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "package.json"), []byte(`{"packageManager":"pnpm@9.15.4","scripts":{"test":"vitest run","lint":"eslint ."}}`), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "pnpm-lock.yaml"), []byte("lockfileVersion: '9.0'\n"), 0600))
+	case "node-all":
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "package.json"), []byte(`{"packageManager":"pnpm@9.15.4","scripts":{"test":"vitest run","lint":"eslint .","typecheck":"tsc --noEmit","build":"tsc -b"}}`), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "pnpm-lock.yaml"), []byte("lockfileVersion: '9.0'\n"), 0600))
+	case "go":
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "go.mod"), []byte("module example.test/app\n\ngo 1.23\n"), 0600))
+	case "rust":
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "Cargo.toml"), []byte(`[package]
+name = "app"
+version = "0.1.0"
+edition = "2021"
+[lib]
+path = "lib.rs"
+`), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "lib.rs"), []byte("#[test] fn smoke() { assert_eq!(1 + 1, 2); }\n"), 0600))
+	case "python":
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "pytest.ini"), []byte("[pytest]\ntestpaths = .\n"), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "requirements.txt"), []byte("pytest==8.3.5\n"), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "test_smoke.py"), []byte("def test_smoke():\n    assert 1 + 1 == 2\n"), 0600))
+	case "no-checks":
+		// JOURNEY.md alone has neither a detected check nor a build command.
+	}
+	if os.Getenv("REHEARSAL_CONFIG_FIXTURE") == "node-packages" {
+		// Reverse insertion order proves the inventory is ordered by package
+		// name, rather than the filesystem or source listing order.
+		for i := 13; i >= 0; i-- {
+			dir := filepath.Join(seed, fmt.Sprintf("pkg%02d", i))
+			require.NoError(t, os.MkdirAll(dir, 0700))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "index.ts"), []byte("export {}\n"), 0600))
+		}
+	}
+	git("-C", seed, "add", ".")
 	git("-C", seed, "-c", "user.name=Rehearsal", "-c", "user.email=owner@example.test", "commit", "-m", "Canary")
 	seedHead, err := exec.Command("/usr/bin/git", "-C", seed, "rev-parse", "HEAD").Output()
 	require.NoError(t, err)
@@ -188,7 +234,17 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 	// trunk-app's default branch is not main: the repository step refuses it.
-	r.fake, err = githubfake.New(githubfake.Config{OAuthCode: "owner-code", GitRoot: gitRoot, AppID: 42, Slug: "j1-rehearsal", OwnerLogin: "rehearsal-owner", OwnerKind: "user", ClientID: "client", ClientSecret: "secret", WebhookSecret: "webhook", PrivateKeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), ConversionCode: "manifest-code", Installations: []githubfake.Installation{{ID: 91, Repositories: []githubfake.Repository{{ID: 100, FullName: "rehearsal-owner/app", Private: true}, {ID: 101, FullName: "rehearsal-owner/trunk-app", Private: true, DefaultBranch: "trunk"}}}}})
+	installationID := 91000 + rehearsalInstallations.Add(1)
+	if os.Getenv("REHEARSAL_CONFIG_FIXTURE") == "go" {
+		installationID = 92000 + rehearsalInstallations.Add(1)
+	}
+	if configured := os.Getenv("REHEARSAL_INSTALLATION_ID"); configured != "" {
+		installationID, err = strconv.ParseInt(configured, 10, 64)
+		require.NoError(t, err)
+		require.Positive(t, installationID)
+	}
+	r.installationID = installationID
+	r.fake, err = githubfake.New(githubfake.Config{OAuthCode: "owner-code", GitRoot: gitRoot, AppID: 42, Slug: "j1-rehearsal", OwnerLogin: "rehearsal-owner", OwnerKind: "user", ClientID: "client", ClientSecret: "secret", WebhookSecret: "webhook", PrivateKeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), ConversionCode: "manifest-code", Installations: []githubfake.Installation{{ID: installationID, Repositories: []githubfake.Repository{{ID: 100, FullName: "rehearsal-owner/app", Private: true}, {ID: 101, FullName: "rehearsal-owner/trunk-app", Private: true, DefaultBranch: "trunk"}}}}})
 	require.NoError(t, err)
 	t.Cleanup(r.fake.Close)
 	server := httptest.NewUnstartedServer(nil)
@@ -211,6 +267,7 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
 	engine, err := repository.OpenLocal(repository.Config{StoragePath: t.TempDir(), AuthToken: "rehearsal-repo", FFILibraryPath: library, InstallMainMirror: true})
 	require.NoError(t, err, "build the repository's smithers-ffi library first")
 	t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
+	r.repoClient = engine.Client()
 	require.True(t, engine.Client().InstallMainMirror(), "the install engine's client must carry the install fact")
 	repositoryServer := httptest.NewServer(engine.Handler())
 	t.Cleanup(repositoryServer.Close)
@@ -258,7 +315,10 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
 	var registry *flowmanifest.Registry
 	var platformKeys modelproxy.Keys
 	var upstreams map[string]string
-	if helper := rehearsalJJExport(r.root, library); helper == "" {
+	if enable == "SMITHERS_BRANCH_FILES_INTEGRATION" {
+		// No TODO runs in the held-build file journey. The app agent below
+		// still uses its real model host and registered files.read dispatch.
+	} else if helper := rehearsalJJExport(r.root, library); helper == "" {
 		fmt.Println("rehearsal: no smithers-jj-export (SMITHERS_WORKSPACE_JJ_EXPORT_BINARY, beside the FFI library, or target/release); the TODO's coding run is not composed")
 	} else {
 		t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", helper)
@@ -292,9 +352,12 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = live.Close() })
 	go func() {
-		done <- StartWithOptions(ctx, nil, r.stdout, io.MultiWriter(r.logs, live), Options{Repository: engine.Client(), Workspace: workspace, MachineImages: trustedProcessImages{sources: repositorySourceFiles{client: engine.Client()}}, ComputeProvider: r.compute, ChatHost: offlineGatewayHost{host}, FlowHostProductAPIURL: r.origin,
+		done <- StartWithOptions(ctx, nil, r.stdout, io.MultiWriter(r.logs, live), Options{Repository: engine.Client(), Workspace: workspace, MachineImages: trustedProcessImages{sources: repositorySourceFiles{client: engine.Client()}, holdUntilCancelled: enable == "SMITHERS_BRANCH_FILES_INTEGRATION"}, ComputeProvider: r.compute, ChatHost: offlineGatewayHost{host}, FlowHostProductAPIURL: r.origin,
 			FlowHostRegistry: registry, FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true},
 			PlatformModelKeys: platformKeys, ModelProxyUpstreams: upstreams, BranchMachines: rehearsalBranchMachines(pool),
+			// Explicit synthetic measurements model capacity 3 and default parallel 2.
+			// This process fixture does not qualify a production microVM host.
+			HostProfile: &microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: 400 << 30, MacOSVersion: "15.6", Hypervisor: true},
 			// A label on GitHub is read within seconds, not the product's 120 s.
 			GitHubIssueEventsEvery: 2 * time.Second}, func(h http.Handler) { ready <- h })
 	}()
@@ -326,7 +389,7 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
 	})
 	r.jar, err = cookiejar.New(nil)
 	require.NoError(t, err)
-	r.client = &http.Client{Jar: r.jar, Timeout: 8 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	r.client = &http.Client{Jar: r.jar, Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	t.Cleanup(func() {
 		r.mu.Lock()
 		defer r.mu.Unlock()
@@ -376,7 +439,7 @@ func (r *rehearsal) keyedAs(jar http.CookieJar, method, path, body, key string) 
 			req.Header.Set("X-CSRF-Token", cookie.Value)
 		}
 	}
-	client := &http.Client{Jar: jar, Timeout: r.client.Timeout, CheckRedirect: r.client.CheckRedirect}
+	client := &http.Client{Jar: jar, Timeout: r.client.Timeout, CheckRedirect: r.client.CheckRedirect, Transport: r.client.Transport}
 	resp, err := client.Do(req)
 	if err != nil {
 		r.actual = err.Error()
@@ -428,7 +491,11 @@ func (r *rehearsal) expectAs(jar http.CookieJar, method, path, body string, stat
 // waitStep waits for one setup step to finish in its background worker;
 // Source waits out the durable importer's clone of main.
 func (r *rehearsal) waitStep(id string) error {
-	deadline := time.Now().Add(30 * time.Second)
+	budget := r.stepBudget
+	if budget == 0 {
+		budget = 30 * time.Second
+	}
+	deadline := time.Now().Add(budget)
 	for time.Now().Before(deadline) {
 		data, err := r.expect("GET", "/api/install", "", 200)
 		if err != nil {
@@ -822,9 +889,15 @@ type rehearsalTodo struct {
 		Fixes  bool   `json:"fixes"`
 	} `json:"issue"`
 	// Evidence is each attempt's: its checks, its review and its flow.
+	FlowVersion *struct {
+		Digest       string `json:"digest"`
+		SourceCommit string `json:"source_commit"`
+	} `json:"flow_version"`
 	Evidence []struct {
-		Attempt int32            `json:"attempt"`
-		Items   []map[string]any `json:"items"`
+		FlowDigest   string           `json:"flow_digest"`
+		SourceCommit string           `json:"source_commit"`
+		Attempt      int32            `json:"attempt"`
+		Items        []map[string]any `json:"items"`
 	} `json:"evidence"`
 }
 
@@ -885,7 +958,7 @@ func (r *rehearsal) readFakePull(number int64) (githubfake.Pull, error) {
 	}
 	credentials := services.NewGitHubAppCredentialStore(r.pool, codec)
 	tokens := services.NewRepoConnectionService(r.pool, credentials)
-	access, err := tokens.CreateGitHubInstallationToken(r.ctx, 91, services.GitHubTokenScope{AllRepositories: true, Permissions: map[string]string{"pull_requests": "read"}})
+	access, err := tokens.CreateGitHubInstallationToken(r.ctx, r.installationID, services.GitHubTokenScope{AllRepositories: true, Permissions: map[string]string{"pull_requests": "read"}})
 	if err != nil {
 		return githubfake.Pull{}, err
 	}
@@ -1047,6 +1120,10 @@ func (r *rehearsal) waitMerged(number, pull int64, head string) error {
 					return err
 				}
 				if health.State != "fresh" || health.LastSuccessAt == nil {
+					if !time.Now().After(deadline) && health.State == "stale" {
+						time.Sleep(200 * time.Millisecond)
+						continue
+					}
 					return fmt.Errorf("GitHub sync %q after the follow", health.State)
 				}
 				r.actual = fmt.Sprintf("200 merged; install main %s = GitHub's squash commit; sync fresh", squash)
@@ -1526,7 +1603,7 @@ func rehearsalBranchMachines(pool *pgxpool.Pool) *services.BranchMachineProvider
 // workspace starts names it in SMITHERS_WORKSPACE_CODING_CONFIG. Only a
 // smithers-jj-export built with trusted-process-binding reads that file; the
 // credential is the head publisher's Git cache, as in a guest.
-// A host that exits before it is ready leaves its stderr in the evidence.
+// A host that exits before it is ready leaves both output streams in the evidence.
 type bindingProcessRuntime struct {
 	*process.Runtime
 	evidence string
@@ -1590,12 +1667,11 @@ func (r bindingProcessRuntime) StartManagedHost(ctx context.Context, workspaceID
 	})
 	connection, err := r.Runtime.StartManagedHost(ctx, workspaceID, spec)
 	if err != nil {
-		if service, inspectErr := r.InspectService(context.WithoutCancel(ctx), workspaceID, spec.Name); inspectErr == nil && service.Stderr != "" {
-			stderr, _ := os.OpenFile(filepath.Join(r.evidence, "coding-host.stderr.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-			if stderr != nil {
-				fmt.Fprintf(stderr, "--- %s %s: %v\n%s\n", time.Now().UTC().Format(time.RFC3339), spec.Name, err, service.Stderr)
-				_ = stderr.Close()
-			}
+		service, inspectErr := r.InspectService(context.WithoutCancel(ctx), workspaceID, spec.Name)
+		output, _ := os.OpenFile(filepath.Join(r.evidence, "coding-host.output.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+		if output != nil {
+			fmt.Fprintf(output, "--- %s workspace=%s %s: %v\ninspect=%v exit=%d truncated=%t\nstdout:\n%s\nstderr:\n%s\n", time.Now().UTC().Format(time.RFC3339), workspaceID, spec.Name, err, inspectErr, service.ExitCode, service.OutputTruncated, service.Stdout, service.Stderr)
+			_ = output.Close()
 		}
 	}
 	return connection, err
@@ -1608,9 +1684,17 @@ func (r bindingProcessRuntime) StartManagedHost(ctx context.Context, workspaceID
 // detected toolchain). "6 machine ready" therefore proves setup admission,
 // persistence and fencing, not an image build. The install bundle binds its
 // microVM runtime's builder instead (installMachineImages).
-type trustedProcessImages struct{ sources workspaceapi.SourceFiles }
+type trustedProcessImages struct {
+	sources workspaceapi.SourceFiles
+	// C-J1-03 holds the external image build, not the source mirror or routes.
+	holdUntilCancelled bool
+}
 
 func (images trustedProcessImages) ResolveWorkspaceLayer(ctx context.Context, spec workspaceapi.WorkspaceSpec) (microsandbox.Layer, error) {
+	if images.holdUntilCancelled {
+		<-ctx.Done()
+		return microsandbox.Layer{}, ctx.Err()
+	}
 	if spec.Source == nil || spec.Source.Repository == "" || len(spec.Source.Revision) != 40 {
 		return microsandbox.Layer{}, fmt.Errorf("a machine image needs main's resolved revision")
 	}

@@ -1,32 +1,32 @@
 import { expect, test } from "../browserTest"
-import { owner, say } from "./j1-fixtures"
+import { say } from "./j1-fixtures"
+import { editorText, fileCoeditFixture } from "./file-coedit-fixture"
 
-// UI projection of .specs/engineering/checks/C-PERF-03.md; not a qualification receipt.
-// Needs two authenticated network members, a 400-line file and disk convergence; host timing remains in the perf harness.
-// Written before implementation: mvp.md §6.8, §9; lands with T-COL-08, T-COL-08a, T-COL-08b, T-REL-01
-test("C-PERF-03: Co-edited markers reach the other member in order", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md §6.8, §9; lands with T-COL-08, T-COL-08a, T-COL-08b, T-REL-01")
-  await owner(page)
-  await page.goto("/")
-  const viewer = await page.context().newPage()
+// 200-marker browser contract. This fake-host run is not LAN or disk qualification.
+test("C-PERF-03: 200 markers converge through mounted File cards", async ({ page }) => {
+  test.setTimeout(180_000)
+  const host = fileCoeditFixture()
+  const context = await page.context().browser()!.newContext()
+  const viewer = await context.newPage()
   try {
-    await viewer.goto("/")
-    await say(page, "/branch retry-webhooks")
-    await say(viewer, "/branch retry-webhooks")
-    await say(page, "/file src/target.ts")
-    await say(viewer, "/file src/target.ts")
-    const editor = page.getByRole("group", { name: "src/target.ts", exact: true }).last()
-    const remote = viewer.getByRole("group", { name: "src/target.ts", exact: true }).last()
+    await host.install(page, "Alice"); await host.install(viewer, "Bob")
+    for (const tab of [page, viewer]) {
+      await tab.goto("/")
+      await say(tab, '/file {"path":"retry.ts","branch":"T12"}')
+      await expect(tab.locator('[data-kind="file"][data-mode="live"]').last()).toBeVisible()
+    }
+    const editor = page.locator('[data-kind="file"] .cm-content').last()
+    const remote = viewer.locator('[data-kind="file"] .cm-content').last()
+    await page.bringToFront(); await editor.click()
+    let expected = ""
     for (let i = 0; i < 200; i++) {
       const marker = `m${String(i).padStart(5, "0")}`
-      await editor.click()
-      await page.keyboard.type(marker)
-      await expect(remote).toContainText(marker)
-      await page.keyboard.press("ArrowDown")
+      expected += marker
+      await page.keyboard.insertText(marker)
+      await expect.poll(() => editorText(remote)).toBe(expected)
     }
     await expect(page.getByText("Saved to the machine", { exact: true }).last()).toBeVisible()
-    await expect(remote).toHaveText(await editor.innerText())
-  } finally {
-    await viewer.close()
-  }
+    await expect.poll(() => editorText(editor)).toBe(expected)
+    expect(host.text()).toBe(expected)
+  } finally { await context.close(); host.dispose() }
 })

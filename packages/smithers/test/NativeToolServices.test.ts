@@ -10,6 +10,7 @@ import type * as Cell from "@smthrs/harness/Cell"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
 import * as Journal from "@smthrs/journal/Journal"
 import * as KernelChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
+import * as GrantStore from "@smthrs/kernel/GrantStore"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import { NotificationQueue } from "@smthrs/notifications"
 import * as Read from "@smthrs/std/Read"
@@ -25,6 +26,7 @@ const registration = Layer.mergeAll(
   FileSystem.layerNoop({}),
   NodePath.layer,
   KernelChildProcessSpawner.layerNoop(),
+  GrantStore.layerNoop,
   Evaluator.layerUnavailable(),
   Layer.succeed(Journal.Journal)(registrationJournal),
   Layer.succeed(FlowRuntime.FlowRuntime)({} as never),
@@ -59,6 +61,7 @@ describe("native tool services", () => {
       expect(Option.isNone(Context.getOption(any, Journal.Journal))).toBe(true)
       expect(Option.isNone(Context.getOption(any, FlowRuntime.FlowRuntime))).toBe(true)
       expect(Option.isNone(Context.getOption(any, NotificationQueue.NotificationQueue))).toBe(true)
+      expect(Option.isNone(Context.getOption(any, GrantStore.GrantStore))).toBe(true)
       expect(Option.isNone(Context.getOption(any, Scope.Scope))).toBe(true)
     }
   })

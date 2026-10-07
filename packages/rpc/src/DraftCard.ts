@@ -40,7 +40,8 @@ export const DraftCardSchema = z.object({
   ]),
   issue: z.object({ number: z.number().int().positive(), title: z.string(), url: HttpUrlSchema, fixes: z.boolean() })
     .optional(),
-  seed: z.object({ files: z.array(z.string()) }).optional(),
+  seed: z.object({ files: z.array(z.string()), diff: z.string().optional() }).optional(),
+  source: z.object({ path: z.string().min(1), owner: z.string().min(1), opened: z.boolean() }).optional(),
   committed: z.object({ n: z.number().int().positive(), rev: z.number().int().positive() }).optional(),
   private: z.boolean()
 })

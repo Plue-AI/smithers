@@ -77,7 +77,7 @@ const submit = (controller: Awaited<ReturnType<typeof boot>>["controller"], valu
 
 test("Add secret: the form's write-only value is acknowledged before the held POST and never stored or read back", async () => {
   const { store, controller, world, persisted } = await boot()
-  expect(await controller.commands.run("secrets.list")).toMatchObject({ status: "executed" })
+  expect(await controller.commands.run("secrets")).toMatchObject({ status: "executed" })
   const put = hold<Response>()
   world.answer(call => call.method === "POST" ? put.promise : undefined)
   expect(await controller.commands.run("secrets.set", JSON.stringify({ repo: "alice/app" }))).toMatchObject({ status: "form" })
@@ -92,7 +92,7 @@ test("Add secret: the form's write-only value is acknowledged before the held PO
   await waitFor(() => world.calls.some(call => call.method === "POST"))
   expect(requests(store)).toMatchObject([{ owner: "alice", repo: "alice/app", name: "API_TOKEN", action: "set", state: "requested" }])
   // Chat stays usable while the PUT is held.
-  expect(await controller.commands.run("secrets.list")).toMatchObject({ status: "executed" })
+  expect(await controller.commands.run("secrets")).toMatchObject({ status: "executed" })
   // A second save of the same name while the first is running is refused, not queued.
   const again = await controller.commands.run("secrets.set", JSON.stringify({ name: "API_TOKEN", repo: "alice/app" }))
   expect(again).toMatchObject({ status: "form" })
@@ -157,7 +157,7 @@ test("a refused save fails visibly with the platform's words and a retry succeed
 
 test("Delete answers before the held DELETE, joins nothing twice, and refreshes the card", async () => {
   const { store, controller, world } = await boot()
-  expect(await controller.commands.run("secrets.list")).toMatchObject({ status: "executed" })
+  expect(await controller.commands.run("secrets")).toMatchObject({ status: "executed" })
   expect(rows(store)).toEqual(["NPM_TOKEN:registry.npmjs.org"])
   const gone = hold<Response>()
   world.answer(call => call.method === "DELETE" ? gone.promise : undefined)
@@ -169,9 +169,9 @@ test("Delete answers before the held DELETE, joins nothing twice, and refreshes 
   gone.resolve(new Response(null, { status: 204 }))
   await waitFor(() => requests(store)[0]?.state === "completed")
   await waitFor(() => rows(store)?.length === 0)
-  // The agent may only ask; a human confirms.
+  // Repository secrets have no agent path, including confirmation.
   const before = world.calls.length
-  expect(await controller.commands.runForAgent("secrets.delete", "OTHER")).toMatchObject({ status: "executed" })
+  expect(await controller.commands.runForAgent("secrets.delete", "OTHER")).toMatchObject({ status: "failed" })
   expect(world.calls.length).toBe(before)
 })
 
@@ -210,7 +210,7 @@ test("a slower, earlier card refresh never overwrites a newer one", async () => 
     { name: "OTHER", main_only: false, hosts: [], match_headers: [], updated_at: "2026-09-01T00:00:00Z" }
   ])
   const { store, controller } = await boot(new Map(), world)
-  expect(await controller.commands.run("secrets.list")).toMatchObject({ status: "executed" })
+  expect(await controller.commands.run("secrets")).toMatchObject({ status: "executed" })
   const stale = hold<Response>()
   let reads = 0
   world.answer(call => {
@@ -229,7 +229,7 @@ test("a slower, earlier card refresh never overwrites a newer one", async () => 
 
 test("a held background refresh never overwrites a newer explicit list", async () => {
   const { store, controller, world } = await boot()
-  expect(await controller.commands.run("secrets.list")).toMatchObject({ status: "executed" })
+  expect(await controller.commands.run("secrets")).toMatchObject({ status: "executed" })
   const stale = hold<Response>()
   let reads = 0
   world.answer(call => {
@@ -239,7 +239,7 @@ test("a held background refresh never overwrites a newer explicit list", async (
   })
   expect(await controller.commands.run("secrets.delete", "NPM_TOKEN alice/app")).toMatchObject({ value: "Requested" })
   await waitFor(() => reads === 1)
-  expect(await controller.commands.run("secrets.list")).toMatchObject({ status: "executed" })
+  expect(await controller.commands.run("secrets")).toMatchObject({ status: "executed" })
   await waitFor(() => rows(store)?.length === 0)
   stale.resolve(Response.json([{ name: "NPM_TOKEN", main_only: false, hosts: ["registry.npmjs.org"], match_headers: ["authorization"], updated_at: "2026-09-01T00:00:00Z" }]))
   await new Promise(resolve => setTimeout(resolve, 20))
@@ -266,7 +266,7 @@ test("a name held in both stores lists, scopes, binds, rotates and deletes the C
     return inner(url, init)
   }
   const { store, controller } = await boot(new Map(), world)
-  expect(await controller.commands.run("secrets.list")).toMatchObject({ status: "executed" })
+  expect(await controller.commands.run("secrets")).toMatchObject({ status: "executed" })
   expect(rows(store)).toEqual(["NPM_TOKEN:ci.example.com"])
   expect(await controller.commands.run("secrets.scope", "NPM_TOKEN main-only alice/app")).toMatchObject({ status: "executed", value: "NPM_TOKEN: main only" })
   expect(await controller.commands.run("secrets.bind", JSON.stringify({ name: "NPM_TOKEN", hosts: "registry.npmjs.org", headers: "authorization", repo: "alice/app" })))

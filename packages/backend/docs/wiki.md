@@ -13,7 +13,7 @@ A refresh fails visibly when its run has not started within 15 minutes or has no
 
 ## Scope and permissions
 
-Prefix `/api/repos/{owner}/{repo}/wiki`. All wiki routes accept `?visibility=public|private`, default `public`. Carry the query on every request, including pagination, document, update stream, history and content. Invalid visibility returns 400. Responses use `Cache-Control: private, no-store`.
+Prefix `/api/repos/{owner}/{repo}/wiki`. All wiki routes accept `?visibility=public|private`, default `public`. Carry the query on every request, including pagination, document snapshots, history and content. Invalid visibility returns 400. Responses use `Cache-Control: private, no-store`.
 
 `public` means repository-readable: a private repository stays private. `private` requires explicit repository access (owner, authorized organization/team member or collaborator); incidental public-repository read permission is insufficient. Writes require existing repository write access. Visibility is immutable; publication requires an explicit copy. Private edits do not dispatch repository wiki webhooks or publish to the public repository history sidecar.
 
@@ -21,7 +21,7 @@ A viewer who can read a repository but not its private space gets 403 with code 
 
 ## Pages and navigation
 
-Existing list/search (`GET /wiki?q=...`), create (`POST /wiki`), read/PATCH/DELETE (`/wiki/{slug}`), revisions, document, updates and SSE routes remain. Page DTO:
+List/search (`GET /wiki?q=...`), create (`POST /wiki`), read/PATCH/DELETE (`/wiki/{slug}`), revisions and document snapshots remain. The page-level `/updates` and `/stream` routes return 404 and are absent from OpenAPI. Live editing uses `doc:wiki:<page-id>` on the shared `/api/live` channel. The composed install owns one native Yrs handle per page, persists at 2 seconds idle or 10 seconds continuous editing, and emits `saved{sv,seq}` only after the revision-checked database commit. A PostgreSQL advisory lease refuses a second page owner. The browser retains admitted updates in `worldDocuments` until both the vector and sequence are covered; reconnect reuses the assigned client id within the page epoch. Wiki visibility, repository write gates, authors-map validation and revocation remain enforced. There is no HTTP synchronization fallback. Page DTO:
 
 ```json
 {
@@ -75,7 +75,7 @@ Markdown and attachments use the existing backend blob adapter, namespaced by re
 }
 ```
 
-Attachment events also include attachment metadata. No body: read the event's revision/content endpoint. Persist the projection and final sequence atomically; request after that sequence until a short page. Replay from zero for a new projection. A delete removes the page from the fold, retaining its history. Sequence never mixes public/private scopes; persist repository identity and visibility with the cursor. Duplicate deliveries are harmless; gaps and unknown versions fail the fold. The SQL projection has an explicit transaction-fenced rebuild helper, not a second write API. Existing page-level SSE continues to use page revisions and rechecks authorization. Revocation watching begins before the first authorization read and covers subscription and replay. A retained token revocation, narrowed token scope, or suspended account refuses admission with 403; revocation after admission terminates the stream with `revoked` before further private revision metadata is emitted. An account enabled again can open a fresh stream; a revoked token remains invalid. Watchers are released when the request ends, including failed admission.
+Attachment events also include attachment metadata. No body: read the event's revision/content endpoint. Persist the projection and final sequence atomically; request after that sequence until a short page. Replay from zero for a new projection. A delete removes the page from the fold, retaining its history. Sequence never mixes public/private scopes; persist repository identity and visibility with the cursor. Duplicate deliveries are harmless; gaps and unknown versions fail the fold. The SQL projection has an explicit transaction-fenced rebuild helper, not a second write API. The page-level SSE broker is retired. Historical revision rows and their content remain unchanged.
 
 ## Sync and UI acceptance
 

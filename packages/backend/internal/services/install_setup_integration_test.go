@@ -107,7 +107,7 @@ func TestInstallSetupModelFlagsBeforeConfirmationPostgres(t *testing.T) {
 	status, err := service.Status(ctx)
 	require.NoError(t, err)
 	models := status["models"].([]map[string]string)
-	require.Equal(t, []map[string]string{{"role": "fast", "provider": "Cerebras", "key": "none"}, {"role": "coding", "provider": "OpenAI", "key": "saved"}, {"role": "jev", "provider": "AI Gateway", "key": "saved"}}, models)
+	require.Equal(t, []map[string]string{{"role": "fast", "provider": "Cerebras", "key": "none"}, {"role": "coding", "provider": "OpenAI", "key": "saved", "model": "gpt-5"}, {"role": "jev", "provider": "AI Gateway", "key": "saved"}}, models)
 	raw, err := json.Marshal(status)
 	require.NoError(t, err)
 	require.NotContains(t, string(raw), "sealed-key-fixture")

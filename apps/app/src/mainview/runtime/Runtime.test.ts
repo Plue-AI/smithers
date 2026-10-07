@@ -25,7 +25,7 @@ describe("runtime composition", () => {
         return new Response(null, { status: 204 })
       }
     })
-    expect(runtime.backend.agent?.available).toBe(true)
+    expect(runtime.backend.agent?.available).toBe(false)
     // Only ports a consumer holds: identity and cloud are capabilities the
     // reading site tests through hasCapability, not descriptors mirrored here.
     expect(Object.keys(runtime.backend)).toEqual(["agent"])
@@ -33,7 +33,7 @@ describe("runtime composition", () => {
     expect(runtime.shell.kind).toBe("browser")
     if (runtime.backend.agent === undefined) throw new Error("Agent capability did not compose its port")
     await runtime.backend.agent.cancelTurn("run")
-    expect(requests).toContain("/api/agent/turn/cancel")
+    expect(requests).toEqual([])
   })
 
   test("local offline exposes only actual local ports", () => {
@@ -71,7 +71,7 @@ describe("runtime composition", () => {
     }))
     const runtime = createRuntime({ bootstrap, http: async () => new Response(null, { status: 204 }) })
     expect(bootstrap.capabilities).toEqual(cloud.capabilities)
-    expect(runtime.backend.agent?.available).toBe(true)
+    expect(runtime.backend.agent?.available).toBe(false)
     expect(runtime.shell.kind).toBe("browser")
   })
 
@@ -131,7 +131,7 @@ test("bootstrap warming shares the in-flight promise and retries after rejection
 })
 
 for (const [capabilities, available] of [
-  [[], undefined], [["agent"], true], [["model.turn"], false], [["agent", "model.turn"], true]
+  [[], undefined], [["install"], false], [["agent"], false], [["model.turn"], undefined], [["agent", "model.turn"], false]
 ] as const) test(`runtime agent port for capabilities ${capabilities.join(",") || "none"}`, () => {
   const bootstrap: AppBootstrap = { ...cloud, capabilities: [...capabilities] }
   const http = async () => { throw new Error("Composition must not call HTTP") }
@@ -141,7 +141,7 @@ for (const [capabilities, available] of [
   expect(runtime.backend.agent?.available).toBe(available)
   expect(Object.keys(runtime.backend)).toEqual(available === undefined ? [] : ["agent"])
   // Only the shared backend keeps turn journals; a model-only host's turns stream frames.
-  expect(runtime.backend.agent?.journal !== undefined).toBe(available === true)
+  expect(runtime.backend.agent?.journal).toBeUndefined()
 })
 
 test("the unavailable adapter remains callable without emitting or retaining listeners", async () => {

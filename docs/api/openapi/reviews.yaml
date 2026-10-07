@@ -1,0 +1,54 @@
+paths:
+  /api/reviews:
+    post:
+      x-composition: install
+      summary: Request review of a GitHub pull request
+      operationId: post_api_reviews
+      tags:
+        - Reviews
+      security:
+        - sessionCookie: []
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema:
+            type: string
+      responses:
+        '202':
+          description: Review request admitted
+        '400':
+          description: Invalid review request
+        '401':
+          description: No active credential
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '503':
+          description: Review runtime unavailable; no launch
+  /api/reviews/{id}:
+    get:
+      x-composition: install
+      summary: Read a review request and its result
+      operationId: get_api_reviews_id
+      tags:
+        - Reviews
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Review status and delivery
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AnyJSON'}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: Review delivery unavailable

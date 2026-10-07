@@ -17,7 +17,8 @@ import { nameOf } from "./registry"
 
 /** Every controller call answers with nothing: registration never invokes a handler. */
 const inertActions = new Proxy({}, {
-  get: (_, key) => key === "snapshot" ? () => ({}) : () => undefined
+  get: (_, key) => key === "debugApi" ? { available: () => false }
+    : key === "snapshot" ? () => ({}) : () => undefined
 }) as CommandActions
 
 /** baseFlows at the split, in registration order. */
@@ -29,8 +30,7 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "stop",
   "chat.send",
   "browser.open",
-  "flow.create",
-  "flow.repo.choose",
+  "flow.new",
   "flow.run.stop",
   "flow.run.retry",
   "flow.list",
@@ -42,7 +42,6 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "runs.continue",
   "runs.rerun",
   "runs.signal",
-  "runs.steer",
   "runs.logs",
   "runs.steps",
   "runs.trace.filter",
@@ -78,11 +77,10 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "prs.list",
   "prs.view",
   "prs.tab",
-  "prs.land",
-  "prs.review",
+  "prs.triage",
   "env.view",
   "env.set",
-  "branches.list",
+  "branches",
   "files.list",
   "files.read",
   "github.app",
@@ -110,7 +108,6 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "egress.session",
   "change.view",
   "change.diff",
-  "change.land",
   "change.resolve",
   "change.facet",
   "change.pins",
@@ -124,7 +121,7 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "findings.please-fix",
   "findings.not-useful",
   "chat.reload",
-  "agent.list",
+  "agents",
   "form.set",
   "form.submit",
   "repo.select",
@@ -145,6 +142,12 @@ const PRE_SPLIT_ADMIN: ReadonlyArray<string> = [
 ]
 
 describe("Flows.ts aggregator order", () => {
+  test("TODO steering replaces the generic run steering door", () => {
+    const names = baseFlows(inertActions).map(nameOf)
+    expect(names).toContain("todo.steer")
+    expect(names).not.toContain("runs.steer")
+  })
+
   test("baseFlows registers every pre-split flow in the pre-split order", () => {
     const names = baseFlows(inertActions).map(nameOf)
     expect(names.filter((name) => PRE_SPLIT_BASE.includes(name))).toEqual([...PRE_SPLIT_BASE])

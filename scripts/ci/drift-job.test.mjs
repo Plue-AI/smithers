@@ -27,6 +27,7 @@ const gateCommands = [
   "pnpm exec smthrs lint '//scripts:conflictMarkers' --known-red '.github/ci-known-red.json' --verbose",
   "pnpm exec smthrs lint '//scripts:trackedHygiene' --known-red '.github/ci-known-red.json' --verbose",
   "pnpm exec smthrs lint '//:driftCi' --known-red '.github/ci-known-red.json' --verbose",
+  "pnpm exec smthrs lint '//:ci' --known-red '.github/ci-known-red.json' --verbose",
 ]
 
 test('drift job concurrency group includes github.sha and runs only drift gates', async () => {
@@ -57,18 +58,29 @@ test('drift job concurrency group includes github.sha and runs only drift gates'
   assert.ok(steps.some((step) => step.uses?.startsWith('oven-sh/setup-bun@')))
   assert.ok(steps.some((step) => step.uses?.startsWith('pnpm/action-setup@')))
   const setup = steps.find((step) => step.id === 'setup')
-  assert.match(setup.run, /sudo apt-get install -y -qq --no-install-recommends 'bubblewrap'/)
-  assert.equal((setup.run.match(/apt-get install/g) ?? []).length, 1)
-  assert.ok(steps.every((step) => !/cargo|rustup|foundry|docker|postgres|smthrs (ci|test|docs)\b/i.test(`${step.name ?? ''} ${step.run ?? ''} ${step.uses ?? ''}`)), 'drift avoids heavy setup and broad gates')
+  assert.equal(setup.run, 'pnpm install --frozen-lockfile --ignore-scripts')
+  assert.ok(steps.every((step) => !/sudo|apt-get|sysctl/.test(step.run ?? '')), 'privileged branch setup remains disabled')
+  assert.ok(steps.every((step) => !/cargo|rustup|foundry|docker|postgres|smthrs (test|docs)\b/i.test(`${step.name ?? ''} ${step.run ?? ''} ${step.uses ?? ''}`)), 'drift avoids heavy setup and broad gates')
   const setupCommands = [
     "pnpm install --frozen-lockfile --ignore-scripts",
     "npm install --global 'npm@11.16.0' --ignore-scripts --no-audit --no-fund\ntest \"$(npm --version)\" = '11.16.0'\n",
-    "if command -v apt-get >/dev/null 2>&1; then\n  sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends 'bubblewrap'\n  if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then\n    sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0\n  fi\nfi\n",
   ]
   assert.deepEqual(steps.filter((step) => step.run && !gateCommands.includes(step.run)).map((step) => step.run), [
-    setupCommands[1], setupCommands[0], setupCommands[2],
+    setupCommands[1], setupCommands[0],
   ], 'every shell command is an allowed setup command or drift gate')
   assert.equal(gateSteps[0].run.includes('//...:fmt'), true)
+})
+
+test('CI declares the retained document components using the moved native ABI adapter', async () => {
+  const workflow = YAML.parse(await readFile(ciPath, 'utf8'))
+  const step = workflow.jobs.rust.steps.find((step) => step.name === 'Daemon document component tests')
+  assert.ok(step)
+  assert.match(step.run, /smthrs test '\/\/crates\/smithers-machined:documentComponents'/)
+  const source = await readFile(new URL('../../crates/smithers-machined/PACKAGE.ts', import.meta.url), 'utf8')
+  assert.ok(source.includes('cargo test --locked -p smithers-machined --test documents'))
+  assert.ok(source.includes('cargo build --locked -p smithers-ffi --example live_document_interop'))
+  assert.ok(source.includes('node crates/smithers-ffi/tests/yjs-interop.ts'))
+  assert.ok(!step.run.includes('examples/document_interop'))
 })
 
 test('API baseline and docs drift targets are check-only and independent of release packing', async () => {
@@ -87,9 +99,10 @@ test('API baseline and docs drift targets are check-only and independent of rele
   assert.match(docs, /changes:\s*\[\]/)
   assert.match(docs, /pnpm run docs:check/)
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
-  for (const generator of ['gen-sites.mjs', 'sync-content.mjs']) {
-    assert.match(manifest.scripts['docs:check'], new RegExp(`${generator.replace('.', '\\.')}.{0,100}--check`))
-  }
+  assert.match(manifest.scripts['docs:check'], /modelprice\/cmd\/generate -check/)
+  assert.match(manifest.scripts['docs:check'], /node scripts\/package-docs\.test\.mjs/)
+  const packageCheck = await readFile(new URL('../package-docs.test.mjs', import.meta.url), 'utf8')
+  assert.match(packageCheck, /"pack", "--dry-run"/)
   for (const generator of ['ingest-reference.mjs', 'generate-llms.mjs']) {
     assert.match(docs, new RegExp(`${generator.replace('.', '\\.')}[\\s\\S]{0,100}--check`), `${generator} must run in check mode`)
   }

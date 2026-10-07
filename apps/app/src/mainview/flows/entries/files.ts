@@ -17,6 +17,16 @@ export const namespace: Namespace = { id: "files", label: "Files", summary: "Rea
 
 /** `files.list` and `files.read`. */
 export const filesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
+  ...(["file.reapply"] as const).map(name => flow({
+    name, visibility: "in-card", agent: "never", actors: ["person"], minimumRole: "member", summary: "Reapply unsaved edits",
+    grammar: args => {
+      const value = args?.trim() ?? ""
+      if (!value) return { payload: {} }
+      if (value.startsWith("{")) { try { return { payload: JSON.parse(value) } } catch { return { error: "Enter a path" } } }
+      return { payload: { path: value } }
+    },
+    args: "<path>", input: Schema.Struct({ path: Schema.String, branch: Schema.optional(Schema.String) }), handler: async ({ path, branch }) => (await actions.recoverFile(name, path, branch)) ?? "File recovery is unavailable."
+  })),
   flow({ name: "files.open-diff", summary: "Read a file at the diff revision in its frame", args: "<cardId> <path>",
     input: Schema.Struct({ cardId: Schema.String, path: Schema.String }), handler: ({ cardId, path }) => actions.openDiffFile(cardId, path) }),
   flow({
@@ -29,7 +39,7 @@ export const filesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
     form: { args: (payload) => fileArgs(text(payload, "path") ?? "/", text(payload, "repo")) },
     /* The model host binds its listing of the mirrored main to the same catalog entry and grammar (@smthrs/rpc/FileList). */
     summary: FILES_LIST_COMMAND.summary,
-    runtimeAny: ["cloud"],
+    runtimeAny: ["install", "cloud"],
     args: FILES_LIST_COMMAND.args,
     requires: ["first-run-target", "repo-source"],
     input: Schema.Struct({ path: Schema.String, repo: Schema.optional(Schema.String) }),
@@ -55,7 +65,7 @@ export const filesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
     },
     /* The model host binds its read of the mirrored main to the same catalog entry and grammar (@smthrs/rpc/FileRead). */
     summary: FILES_READ_COMMAND.summary,
-    runtimeAny: ["cloud"],
+    runtimeAny: ["install", "cloud"],
     /* `:line[:col]` (docs/code-intel/PLAN.md §1): the card scrolls to and marks the line; the parser strips it off the path token. */
     args: FILES_READ_COMMAND.args,
     requires: ["first-run-target", "repo-source"],
@@ -71,4 +81,3 @@ export const filesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
       actions.readFile(path, repo, line === undefined ? undefined : { line, ...(column === undefined ? {} : { column }) }, ref)
   })
 ]
-

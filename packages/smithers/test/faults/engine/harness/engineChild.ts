@@ -58,7 +58,8 @@ export const spawnEngineChild = (
       options.counterFile,
       String(options.secondSleepMs),
       nonce,
-      options.hostId
+      options.hostId,
+      options.crossing ?? "default"
     ],
     { stdio: ["ignore", "pipe", "pipe"] }
   )

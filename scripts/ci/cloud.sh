@@ -554,7 +554,7 @@ run_gate() {
       pnpm exec smthrs ci '//apps/site/...' --known-red '.github/ci-known-red.json' --verbose
       ;;
     docs)
-      pnpm exec smthrs ci '//apps/docs/...' --known-red '.github/ci-known-red.json' --verbose
+      pnpm exec smthrs test '//scripts:packageDocs' --known-red '.github/ci-known-red.json' --verbose
       ;;
     review-eval)
       pnpm exec smthrs test '//evals/review-seeded-bugs/...' --known-red '.github/ci-known-red.json' --verbose

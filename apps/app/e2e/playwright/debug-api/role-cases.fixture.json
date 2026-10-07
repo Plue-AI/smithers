@@ -5,11 +5,16 @@
     "body": []
   },
   "write": {
-    "operationId": "post_api_repos_owner_repo_secrets",
+    "operationId": "put_api_secrets",
     "body": {
       "name": "C_UI_10_ROLE_SECRET",
       "value": "c-ui-10-literal-value",
       "main_only": false
+    },
+    "denied": {
+      "class": "permission",
+      "code": "permission",
+      "message": "Only a maintainer can do this"
     }
   },
   "signout": {

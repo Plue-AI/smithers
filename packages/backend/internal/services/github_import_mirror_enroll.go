@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"log/slog"
+	"strings"
 
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
@@ -71,11 +72,23 @@ func (s *GitHubImportService) EnrollImportedGitHubRepo(ctx context.Context, user
 	if s == nil || s.syncedRepos == nil {
 		return
 	}
-	row, err := s.syncedRepos.EnrollGitHubRepo(ctx, EnrollGitHubRepoInput{
-		Owner:       githubOwner,
-		Repo:        githubRepo,
-		EnrolledVia: GitHubSyncedRepoEnrolledViaImport,
-	})
+	input := EnrollGitHubRepoInput{Owner: githubOwner, Repo: githubRepo, EnrolledVia: GitHubSyncedRepoEnrolledViaImport}
+	if s.syncedRepos.install != nil {
+		// Setup has already listed this repository using the App. Import used
+		// to enroll only its slug, leaving both immutable source identities
+		// empty: every installed fetch then refused before reading GitHub.
+		if s.db == nil {
+			return
+		}
+		err := s.db.QueryRow(ctx, `SELECT installation_id, github_repository_id
+ FROM github_app_installation_repositories
+ WHERE owner_login_lower=$1 AND repo_name_lower=$2`, strings.ToLower(githubOwner), strings.ToLower(githubRepo)).Scan(&input.InstallationID, &input.GitHubRepositoryID)
+		if err != nil || input.InstallationID <= 0 || input.GitHubRepositoryID <= 0 {
+			slog.Warn("github synced repo import App binding unavailable", "github_owner", githubOwner, "github_repo", githubRepo, "error", err)
+			return
+		}
+	}
+	row, err := s.syncedRepos.EnrollGitHubRepo(ctx, input)
 	if err != nil {
 		slog.Warn("github synced repo import enrollment failed",
 			"github_owner", githubOwner, "github_repo", githubRepo, "error", err)

@@ -5,13 +5,12 @@ export type OwnerSessionScope = {
   readonly appOrigin: string
   readonly apiOrigin: string
   readonly username: string
-  readonly password: string
-  readonly bootstrapToken: string
+  readonly sessionCookie: string
 }
 
 const scopeKey = (scope: OwnerSessionScope): string => createHash("sha256").update(JSON.stringify([
   new URL(scope.appOrigin).origin, new URL(scope.apiOrigin).origin,
-  scope.username, scope.password, scope.bootstrapToken
+  scope.username, scope.sessionCookie
 ])).digest("hex")
 
 /** Worker-local, server-issued cookies only. No browser storage or credentials go to disk.

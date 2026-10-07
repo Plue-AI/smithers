@@ -10,7 +10,6 @@ import { dirname, resolve } from "node:path"
 const site = resolve(import.meta.dirname, "..")
 const check = process.argv.includes("--check")
 const pages = [
-  ["reference/support-matrix.md", "docs/reference/support-matrix.mdx"],
   ["installation.mdx", "docs/installation.mdx"],
   ["reference/api/index.mdx", "docs/reference/api/index.mdx"],
   ["changelogs/1.0.0-rc.0.mdx", "changelogs/1.0.0-rc.0.mdx"]

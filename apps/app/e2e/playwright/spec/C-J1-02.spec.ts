@@ -1,47 +1,92 @@
 import { expect, test } from "../browserTest"
-import { owner, setup, sourceReady } from "./j1-fixtures"
+import { installFixture } from "../../../src/mainview/state/seams/InstallFixtures.test-support"
+import { owner } from "./j1-fixtures"
 
-// UI projection of .specs/engineering/checks/C-J1-02.md.
-// Real host, GitHub, installation and timing receipts remain in the reference-host check.
-// Seed requirements: canary Node/Go repositories, owner, held image build,
-// mirrored src/mail/expiry.ts, and the access outcomes named below.
-// Written before implementation: mvp.md J1; lands with T-APP-03
-test("C-J1-02: Setup persists progress and separates source from machine readiness", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md J1; lands with T-APP-03")
+// Hermetic browser proof through the real dispatcher, InstallSeam and
+// CardRenderers. GitHub/LAN/bundle receipts remain reference-host checks.
+async function installHost(page: import("@playwright/test").Page) {
   await owner(page)
-  await page.goto("/setup")
-  const card = setup(page)
-  await expect(card).toBeVisible()
-  await page.getByLabel("Bind", { exact: true }).fill("0.0.0.0:4000")
-  await page.getByLabel("Origins", { exact: true }).fill("http://canary-mini.local:4000")
-  await card.getByRole("button", { name: "Network", exact: true }).press("Enter")
-  await card.getByRole("button", { name: "Create GitHub App", exact: true }).press("Enter")
-  // The seeded setup world must model GitHub's manifest return and owner claim.
-  await page.getByRole("button", { name: /sign in.*GitHub/i }).first().press("Enter")
-  await page.getByLabel("Repository", { exact: true }).selectOption("smithers-mvp-canary/node")
-  await page.getByRole("button", { name: "Submit", exact: true }).press("Enter")
-  await expect(page.getByRole("link", { name: /Enable squash merging on GitHub/ })).toHaveAttribute("href", /github.com.*settings/)
-  // Seeded world holds squash disabled until the person returns from its fix link.
-  await page.getByRole("link", { name: /Enable squash merging on GitHub/ }).press("Enter")
-  for (const [role, provider] of [["Coding model", "Anthropic"], ["Fast model", "Cerebras"], ["Decisions", "Vercel"]]) {
-    await card.getByRole("button", { name: "Save key", exact: true }).first().press("Enter")
-    await page.getByLabel("Role", { exact: true }).selectOption({ label: role })
-    await page.getByLabel("Provider", { exact: true }).fill(provider)
-    const key = page.getByLabel("Key", { exact: true })
-    await expect(key).toHaveAttribute("type", "password")
-    if (role === "Coding model") {
-      await key.fill("invalid-canary-key")
-      await page.getByRole("button", { name: "Save", exact: true }).last().press("Enter")
-      await expect(page.getByRole("alert")).toBeVisible()
+  await page.route("**/api/bootstrap", route => route.fulfill({ json: {
+    apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["identity", "install"], authFlow: "redirect", sandbox: null
+  } }))
+}
+
+test("C-J1-02: Setup reload retains source and machine progress as separate steps", async ({ page }) => {
+  await installHost(page)
+  const model = installFixture()
+  model.steps[5] = { id: "source", state: "running", pct: 37 }
+  model.steps[6] = { id: "machine", state: "pending" }
+  const writes: string[] = []
+  let publish = () => {}
+  let cursor = 0
+  await page.routeWebSocket("**/api/live", socket => socket.onMessage(raw => {
+    const frame = JSON.parse(String(raw))
+    if (frame.t === "sub" && frame.topic === "install") {
+      publish = () => socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: ++cursor, data: model }))
+      publish()
     }
-    await key.fill("valid-canary-key")
-    await page.getByRole("button", { name: "Save", exact: true }).last().press("Enter")
-    await expect(card).not.toContainText("valid-canary-key")
-  }
-  await expect(card.getByLabel("AI Gateway key")).toHaveAttribute("type", "password")
-  await sourceReady(page)
+  }))
+  await page.route("**/api/install", route => route.fulfill({ json: model }))
+  await page.route("**/api/install/setup/*", route => {
+    writes.push(route.request().url())
+    return route.fulfill({ status: 500, json: { class: "infra", code: "unexpected", message: "Unexpected launch" } })
+  })
+  await page.goto("/")
+  const card = page.getByRole("region", { name: "Set up Smithers", exact: true })
+  await expect(card).toBeVisible({ timeout: 15_000 })
+  await expect(card.locator("[data-step]")).toHaveCount(7)
+  expect(await card.locator("[data-step]").evaluateAll(rows => rows.map(row => row.getAttribute("data-step")))).toEqual([
+    "address", "app_manifest", "sign_in", "repository", "models", "source", "machine"
+  ])
+  await expect(card.locator('[data-step="source"]')).toHaveAttribute("data-state", "running")
+  await expect(card.locator('[data-step="source"] progress')).toHaveAttribute("value", "37")
+  await expect(card.locator('[data-step="machine"]')).toHaveAttribute("data-state", "pending")
+  await expect(card.locator('[data-step="machine"] button')).toHaveCount(0)
   await page.reload()
-  await sourceReady(page)
-  await expect(page.getByText("Machine ready", { exact: true })).toBeVisible()
-  await expect(page.getByText("Source ready", { exact: true })).toBeVisible()
+  await expect(card.locator('[data-step="source"] progress')).toHaveAttribute("value", "37")
+  model.steps[5] = { id: "source", state: "done" }
+  model.steps[6] = { id: "machine", state: "running", pct: 61 }
+  await page.reload()
+  await expect(card.getByText("Source ready", { exact: true })).toBeVisible()
+  await expect(card.getByText("Machine ready", { exact: true })).toHaveCount(0)
+  await expect(card.locator('[data-step="machine"] progress')).toHaveAttribute("value", "61")
+  await page.reload()
+  await expect(card.locator('[data-step="machine"] progress')).toHaveAttribute("value", "61")
+  model.steps[6] = { id: "machine", state: "done" }
+  publish()
+  await expect(card.getByText("Source ready", { exact: true })).toBeVisible()
+  await expect(card.getByText("Machine ready", { exact: true })).toBeVisible()
+  await page.reload()
+  await expect(card.getByText("Source ready", { exact: true })).toBeVisible()
+  await expect(card.getByText("Machine ready", { exact: true })).toBeVisible()
+  expect(writes).toEqual([])
+  await page.getByRole("button", { name: "Chat", exact: true }).click()
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+})
+
+test("C-J1-02: blocked squash and failed image keep their literal fixes", async ({ page }) => {
+  await installHost(page)
+  const model = installFixture()
+  model.steps[3] = { id: "repository", state: "blocked", blocked: { line: "Enable squash merging on GitHub ↗", fix_url: "https://github.com/smithersai/smithers/settings" } }
+  for (const step of model.steps.slice(4)) step.state = "pending"
+  await page.route("**/api/install", route => route.fulfill({ json: model }))
+  await page.goto("/")
+  const card = page.getByRole("region", { name: "Set up Smithers", exact: true })
+  await expect(card.getByRole("link", { name: "Enable squash merging on GitHub ↗" })).toHaveAttribute("href", "https://github.com/smithersai/smithers/settings")
+  await expect(card.locator('[data-step="repository"]').getByRole("button", { name: "Retry", exact: true })).toBeVisible()
+  await expect(card.locator('[data-step="source"] button')).toHaveCount(0)
+  for (const step of model.steps.slice(3, 6)) step.state = "done"
+  model.steps[6] = { id: "machine", state: "failed", error: { class: "user", code: "image_failed", message: "figlet missing; update .smithers/machine.json" } }
+  await page.reload()
+  await expect(card.locator('[data-step="machine"]').getByRole("alert")).toHaveText("figlet missing; update .smithers/machine.json")
+  await expect(card.locator('[data-step="machine"]').getByRole("button", { name: "Retry", exact: true })).toBeEnabled()
+})
+
+test("C-J1-02: the explicit setup address shows completed readiness", async ({ page }) => {
+  await installHost(page)
+  await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
+  await page.goto("/setup")
+  const card = page.getByRole("region", { name: "Set up Smithers", exact: true })
+  await expect(card.getByText("Source ready", { exact: true })).toBeVisible({ timeout: 15_000 })
+  await expect(card.getByText("Machine ready", { exact: true })).toBeVisible()
 })

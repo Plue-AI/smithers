@@ -225,7 +225,7 @@ test("all persisted gateway cards accept exactly the Worker's canonical non-nil 
 test("completed imports resolve button arguments before repository inventory refresh", async () => {
  const store = await freshStore()
  for (const phase of ["running", "failed", "done"] as const) {
-  await dispatch(store, {type:"card.upsert", actor:"system", card:{id:"import-new",kind:"repo-import",title:"Import",status:phase === "done" ? "acted" : "active",createdAt:1,ordinal:1,payload:{repo:"acme/new",jobId:"job-new",phase,detail:null,repository:{owner:"acme",name:"new"}}}})
+  await dispatch(store, {type:"repository.imports.changed", actor:"system", requests:[{id:"import-new",title:"Import",status:phase === "done" ? "acted" : "active",createdAt:1,ordinal:1,payload:{repo:"acme/new",jobId:"job-new",phase,detail:null,repository:{owner:"acme",name:"new"}}}]})
   const known = knownRepositories(store)
   expect(known.has("acme/new")).toBe(phase === "done")
   if (phase === "done") {

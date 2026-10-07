@@ -1,3 +1,4 @@
+import { reserveCopyText } from "@smthrs/ui"
 import { Context } from "effect"
 
 /** Local text is prepared synchronously; publication still waits for command admission. */
@@ -8,6 +9,7 @@ export interface PreparedWikiEdit {
 
 /** Local input preparation or a browser reservation from the original human gesture. */
 export interface CommandGesture {
+  readonly notificationPermission?: Promise<NotificationPermission>
   readonly name: string
   readonly openExternal?: (url: string) => Promise<boolean>
   readonly copyText?: (text: string) => Promise<void>
@@ -45,22 +47,9 @@ export const reserveBrowserCommandGesture = (name: string): CommandGesture | und
       release: () => { if (!consumed) popup?.close() }
     }
   }
-  if (name !== "chat.copy-message" || typeof navigator === "undefined" || typeof ClipboardItem === "undefined" || !navigator.clipboard?.write) return undefined
-  let resolve!: (blob: Blob) => void
-  let reject!: (cause: Error) => void
-  let consumed = false
-  const data = new Promise<Blob>((done, failed) => { resolve = done; reject = failed })
-  void data.catch(() => {})
-  // Capture activation now; no clipboard bytes exist until the gated handler supplies them.
-  let writing: Promise<void>
-  try { writing = navigator.clipboard.write([new ClipboardItem({ "text/plain": data })]) }
-  catch (cause) { writing = Promise.reject(cause) }
-  void writing.catch(() => {})
-  return {
-    name,
-    copyText: text => { consumed = true; resolve(new Blob([text], { type: "text/plain" })); return writing },
-    release: () => { if (!consumed) reject(new Error("The command was not accepted")) }
-  }
+  if (name !== "chat.copy-message") return undefined
+  const reserved = reserveCopyText()
+  return reserved ? { name, ...reserved } : undefined
 }
 
 /** A file the human chose lives only in this one-shot closure, never in a serializable command. */

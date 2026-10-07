@@ -19,7 +19,7 @@ import * as Registry from "@smthrs/registry/Registry"
 import { Effect, Layer, Option, Schema } from "effect"
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { access, copyFile, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { access, copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test, type TestContext } from "node:test"
@@ -411,4 +411,48 @@ test("a repository copy of the TODO composition loads on the packaged host with 
   const own = await todoDescriptor(fileURLToPath(new URL("../", import.meta.url)))
   assert.deepEqual(closure(own), [])
   assert.equal(own.body.contentDigest, copy.body.contentDigest)
+})
+
+test("an admitted pin loads the packaged default TODO without a repository override", async (t) => {
+  const { repositoryPath, stateRoot } = await workspace(t)
+  const { todo: digest } = JSON.parse(
+    await readFile(new URL("../../packages/backend/internal/services/builtin_flows.json", import.meta.url), "utf8")
+  )
+  await Effect.gen(function*() {
+    const builtins = yield* provisionBuiltins(stateRoot, policy)
+    const project = yield* Registry.make({
+      sources: [{
+        root: join(repositoryPath, "flows"),
+        source: "project",
+        naming: "path",
+        lockfileRoot: repositoryPath
+      }]
+    }).pipe(Effect.provide(Discovery.layer))
+    const pinned = bindRepositoryRegistry(project, builtins.registry, policy, systemFlows, digest)
+    const descriptor = yield* pinned.get("todo")
+    assert.equal(Descriptor.executionDigest(descriptor), digest)
+    assert.equal((yield* pinned.loadBody("todo", digest))._tag, "Module")
+    const built = yield* repositoryCatalog({ delegates: [RunSetup, RunJob, RunTrigger] }, builtins.load).pipe(
+      Effect.provideService(Registry.Registry, pinned)
+    )
+    assert.equal(built.executables.find((entry) => entry.descriptor.name === "todo")?.declaredTag, "todo")
+    const generic = bindRepositoryRegistry(project, builtins.registry, policy, systemFlows)
+    assert.equal((yield* generic.loadBody("todo", digest).pipe(Effect.result))._tag, "Failure")
+    const stale = bindRepositoryRegistry(project, builtins.registry, policy, systemFlows, "0".repeat(64))
+    assert.equal((yield* stale.loadBody("todo").pipe(Effect.result))._tag, "Failure")
+  }).pipe(Effect.provide(platform), Effect.runPromise)
+})
+
+test("legacy coding doors and engine verification/review are absent from model commands", async (t) => {
+  const names = ["coding/request", "coding/vibe", "coding/verify", "review/change"]
+  const { catalog } = await boundary(t, names, names)
+  const { registry } = await catalog()
+  const visible = await Effect.runPromise(registry.visible())
+  assert.deepEqual(visible.filter((entry) => names.includes(entry.name)), [])
+  // Retained engine execution still resolves the packaged implementation.
+  for (const name of names) {
+    const entry = await Effect.runPromise(registry.get(name))
+    assert.equal(entry.name, name)
+    assert.equal(entry.modelInvocable, false)
+  }
 })

@@ -1,8 +1,10 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -24,7 +26,8 @@ const (
 	// aligned with the API's normal request-body limit so a workspace file cannot
 	// be used to make either the API or the guest exec transport buffer without
 	// bound.
-	MaxWorkspaceFileBytes = 1 << 20
+	MaxWorkspaceFileBytes   = 1 << 20
+	MaxWorkspaceFileChanges = 256
 
 	workspaceFacetExecTimeoutMS = int64(30_000)
 	workspaceServiceUnitDir     = "/etc/systemd/system"
@@ -40,6 +43,8 @@ const (
 	workspaceExecServiceFailure int32 = 50
 )
 
+var workspaceFileBaseDigestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
 var workspaceServiceNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.@:-]+$`)
 
 // WorkspaceFileEntry is one immediate child in a workspace directory.
@@ -47,7 +52,7 @@ type WorkspaceFileEntry struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
 	Type string `json:"type"`
-	Size int64  `json:"size"`
+	Size int64  `json:"size,omitempty"`
 }
 
 // WorkspaceFileContent is file data read from or written to a workspace.
@@ -60,6 +65,7 @@ type WorkspaceFileContent struct {
 	Encoding string `json:"encoding"`
 	Content  string `json:"content"`
 	Size     int64  `json:"size"`
+	Digest   string `json:"digest"`
 }
 
 // WorkspaceManagedService is an init-declared guest service and its current
@@ -77,10 +83,6 @@ type workspaceFacetExecClient interface {
 	Execute(ctx context.Context, vmID string, req sandbox.ExecRequest) (sandbox.ExecResult, error)
 }
 
-type workspaceFacetWriteClient interface {
-	WriteFile(ctx context.Context, vmID, path string, req sandbox.WriteFileRequest) error
-}
-
 type workspaceFacetIngressClient interface {
 	PublishIngress(ctx context.Context, domain string, req sandbox.PublishIngressRequest) (sandbox.IngressRoute, error)
 }
@@ -91,6 +93,11 @@ func (s *WorkspaceService) ListWorkspaceFiles(ctx context.Context, workspaceID s
 	relativePath, absolutePath, err := workspaceFilePath(filePath, true)
 	if err != nil {
 		return nil, err
+	}
+	if row, owner, repo, head, asleep, err := s.workspaceSnapshotTarget(ctx, workspaceID, repositoryID, userID); err != nil {
+		return nil, err
+	} else if asleep {
+		return s.listWorkspaceSnapshot(ctx, row, owner, repo, head, relativePath)
 	}
 	if s.runtime != nil {
 		row, runtimeCtx, targetErr := s.workspaceRuntimeFacetTarget(ctx, workspaceID, repositoryID, userID, WorkspaceAccessRead, "")
@@ -189,6 +196,11 @@ func (s *WorkspaceService) ReadWorkspaceFile(ctx context.Context, workspaceID st
 	if err != nil {
 		return WorkspaceFileContent{}, err
 	}
+	if _, owner, repo, head, asleep, err := s.workspaceSnapshotTarget(ctx, workspaceID, repositoryID, userID); err != nil {
+		return WorkspaceFileContent{}, err
+	} else if asleep {
+		return s.readWorkspaceSnapshot(ctx, owner, repo, head, relativePath)
+	}
 	if s.runtime != nil {
 		row, runtimeCtx, targetErr := s.workspaceRuntimeFacetTarget(ctx, workspaceID, repositoryID, userID, WorkspaceAccessRead, "")
 		if targetErr != nil {
@@ -240,66 +252,116 @@ base64 -w0 -- "$resolved"`, workspaceExecNotFound, MaxWorkspaceFileBytes, worksp
 	return result, nil
 }
 
-// WriteWorkspaceFile writes one bounded file inside the working copy.
-func (s *WorkspaceService) WriteWorkspaceFile(ctx context.Context, workspaceID string, repositoryID, userID int64, filePath, content string) (WorkspaceFileContent, error) {
-	if len(content) > MaxWorkspaceFileBytes {
-		return WorkspaceFileContent{}, pkgerrors.RequestEntityTooLarge("workspace file exceeds 1 MiB limit")
-	}
-	relativePath, absolutePath, err := workspaceFilePath(filePath, false)
+// Workspace file receipts use the provider's authoritative write result.
+type WorkspaceFileMutationResult = workspaceapi.FileMutationResult
+type WorkspaceFileWriteResult = workspaceapi.FileWriteResult
+type WorkspaceFileRace = workspaceapi.FileRace
+
+// WriteWorkspaceFile uses the same transaction as a multi-file patch.
+func (s *WorkspaceService) WriteWorkspaceFile(ctx context.Context, workspaceID string, repositoryID, userID int64, filePath, content, baseDigest string) (WorkspaceFileContent, error) {
+	_, err := s.WriteWorkspaceFiles(ctx, workspaceID, repositoryID, userID, []workspaceapi.FileMutation{{Path: filePath, BaseDigest: baseDigest, Content: []byte(content)}})
 	if err != nil {
 		return WorkspaceFileContent{}, err
 	}
-	var written WorkspaceFileContent
-	err = s.withWorkspaceMutation(ctx, workspaceID, repositoryID, userID, func(ctx context.Context, _ db.Workspace) error {
-		var err error
-		written, err = s.writeWorkspaceFile(ctx, workspaceID, repositoryID, userID, relativePath, absolutePath, content)
-		return err
-	})
-	return written, err
+	return workspaceFileContent(filePath, []byte(content)), nil
 }
 
-func (s *WorkspaceService) writeWorkspaceFile(ctx context.Context, workspaceID string, repositoryID, userID int64, relativePath, absolutePath, content string) (WorkspaceFileContent, error) {
-	if s.runtime != nil {
-		digest := sha256Hex(content)
-		row, runtimeCtx, targetErr := s.workspaceRuntimeFacetTarget(ctx, workspaceID, repositoryID, userID, WorkspaceAccessWrite, "workspace-file:"+relativePath+":"+digest)
-		if targetErr != nil {
-			return WorkspaceFileContent{}, targetErr
+// WriteWorkspaceFiles authorizes once and submits the complete patch to a
+// qualified provider. No per-file dispatch or unconditional fallback is safe.
+func (s *WorkspaceService) WriteWorkspaceFiles(ctx context.Context, workspaceID string, repositoryID, userID int64, changes []workspaceapi.FileMutation) (*WorkspaceFileWriteResult, error) {
+	if len(changes) == 0 || len(changes) > MaxWorkspaceFileChanges {
+		return nil, pkgerrors.BadRequest("changes must contain 1 to 256 files")
+	}
+	// Own the validated input across authorization and asynchronous runtime work.
+	batch := make([]workspaceapi.FileMutation, len(changes))
+	paths := make(map[string]bool, len(changes))
+	total := 0
+	results := make([]WorkspaceFileMutationResult, len(changes))
+	for i, change := range changes {
+		if change.BaseDigest != "absent" && !workspaceFileBaseDigestPattern.MatchString(change.BaseDigest) {
+			return nil, pkgerrors.BadRequest("base_digest must be a SHA-256 digest or absent")
 		}
-		if writeErr := s.runtime.WriteFile(runtimeCtx, row.ID, relativePath, []byte(content), 0o644); writeErr != nil {
-			return WorkspaceFileContent{}, mapRuntimeFileError(writeErr, "file")
+		relativePath, _, err := workspaceFilePath(change.Path, false)
+		if err != nil {
+			return nil, err
 		}
-		s.touchWorkspaceEntryRecency(ctx, row.ID, "file-content-write")
-		return workspaceFileContent(relativePath, []byte(content)), nil
+		if paths[relativePath] {
+			return nil, pkgerrors.BadRequest("changes contain duplicate paths")
+		}
+		paths[relativePath] = true
+		total += len(change.Content)
+		if total > MaxWorkspaceFileBytes {
+			return nil, pkgerrors.RequestEntityTooLarge("workspace file changes exceed 1 MiB limit")
+		}
+		batch[i] = workspaceapi.FileMutation{Path: relativePath, BaseDigest: change.BaseDigest, Content: bytes.Clone(change.Content)}
+		digest := "absent"
+		if change.Content != nil {
+			digest = sha256Hex(string(change.Content))
+		}
+		results[i] = WorkspaceFileMutationResult{Path: relativePath, Digest: digest}
 	}
-	workspace, client, err := s.workspaceFacetTarget(ctx, workspaceID, repositoryID, userID, WorkspaceAccessWrite)
+	for name := range paths {
+		for parent := path.Dir(name); parent != "."; parent = path.Dir(parent) {
+			if paths[parent] {
+				return nil, pkgerrors.BadRequest("changes contain overlapping paths")
+			}
+		}
+	}
+	// Structured encoding separates paths, bases, deletions and empty files;
+	// delimiters alone could alias different auto-resume operation identities.
+	encoded, err := json.Marshal(batch)
 	if err != nil {
-		return WorkspaceFileContent{}, err
+		return nil, pkgerrors.Internal("cannot encode workspace file changes")
 	}
-
-	// WriteFile is the provider-neutral mutation path. Check the canonical
-	// target first so an in-workspace symlink cannot redirect the write outside
-	// the working copy.
-	guard := fmt.Sprintf(`root=%s
-target=%s
-resolved=$(realpath -m -- "$target") || exit %d
-case "$resolved" in "$root"|"$root"/*) ;; *) exit %d ;; esac`, shellQuote(defaultWorkspaceClonePath), shellQuote(absolutePath), workspaceExecNotFound, workspaceExecOutsideRoot)
-	guardResponse, err := client.Execute(ctx, workspace.VmID, sandbox.ExecRequest{Command: guard, TimeoutMS: workspaceFacetTimeoutPtr()})
+	var receipt *WorkspaceFileWriteResult
+	err = s.withWorkspaceMutation(ctx, workspaceID, repositoryID, userID, func(ctx context.Context, _ db.Workspace) error {
+		return s.withCodingFileMutationAuthority(ctx, workspaceID, repositoryID, userID, func(ctx context.Context) error {
+			writer, ok := s.runtime.(workspaceapi.WorkspaceCompareWriter)
+			if !ok {
+				return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "workspace compare-and-write unavailable")
+			}
+			row, runtimeCtx, targetErr := s.workspaceRuntimeFacetTarget(ctx, workspaceID, repositoryID, userID, WorkspaceAccessWrite, "workspace-files:"+sha256Hex(string(encoded)))
+			if targetErr != nil {
+				return targetErr
+			}
+			var writeErr error
+			receipt, writeErr = writer.CompareWriteFiles(runtimeCtx, row.ID, batch)
+			if writeErr != nil {
+				var stale *workspaceapi.StaleFileError
+				if errors.As(writeErr, &stale) {
+					if !paths[stale.Path] || (stale.CurrentDigest != "absent" && !workspaceFileBaseDigestPattern.MatchString(stale.CurrentDigest)) {
+						return pkgerrors.Internal("invalid workspace stale file response")
+					}
+					return stale
+				}
+				return mapRuntimeFileError(writeErr, "file")
+			}
+			if receipt == nil || len(receipt.Paths) != len(results) {
+				return pkgerrors.Internal("invalid workspace write receipt")
+			}
+			for i, result := range results {
+				if receipt.Paths[i] != result {
+					return pkgerrors.Internal("invalid workspace write receipt")
+				}
+			}
+			seen := make(map[string]bool, len(receipt.Raced))
+			for _, raced := range receipt.Raced {
+				if !paths[raced.Path] || raced.Version == "" || seen[raced.Path] {
+					return pkgerrors.Internal("invalid workspace race receipt")
+				}
+				seen[raced.Path] = true
+			}
+			if receipt.Raced == nil {
+				receipt.Raced = []WorkspaceFileRace{}
+			}
+			s.touchWorkspaceEntryRecency(ctx, row.ID, "file-content-write")
+			return nil
+		})
+	})
 	if err != nil {
-		return WorkspaceFileContent{}, pkgerrors.Internal("validate workspace file path").WithCause(err)
+		return nil, err
 	}
-	if err := mapWorkspaceFileExecError(guardResponse, "file"); err != nil {
-		return WorkspaceFileContent{}, err
-	}
-	writeClient, ok := s.sandbox.(workspaceFacetWriteClient)
-	if !ok {
-		return WorkspaceFileContent{}, pkgerrors.Internal("workspace file writes unavailable")
-	}
-	if err := writeClient.WriteFile(ctx, workspace.VmID, absolutePath, sandbox.WriteFileRequest{Content: content}); err != nil {
-		return WorkspaceFileContent{}, pkgerrors.Internal("write workspace file").WithCause(err)
-	}
-
-	s.touchWorkspaceEntryRecency(ctx, workspace.ID, "file-content-write")
-	return workspaceFileContent(relativePath, []byte(content)), nil
+	return receipt, nil
 }
 
 // ListWorkspaceServices returns services declared as persistent units by the
@@ -566,6 +628,7 @@ func workspaceFileContent(relativePath string, content []byte) WorkspaceFileCont
 		Encoding: "utf-8",
 		Content:  string(content),
 		Size:     int64(len(content)),
+		Digest:   sha256Hex(string(content)),
 	}
 	if !utf8.Valid(content) {
 		result.Encoding = "base64"

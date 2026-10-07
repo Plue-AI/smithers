@@ -2,11 +2,18 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"net/url"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 // Todo returns the shared TodoCard contract from the canonical item. The
@@ -70,6 +77,14 @@ func (s *MythicalService) todoQueuePosition(ctx context.Context, item db.Mythica
 // todoCard is the TodoCard projection of item. items is the repository's
 // ListMythicalItems page when the caller already holds it, else nil.
 func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, items []db.MythicalItem) (map[string]any, error) {
+	if items == nil {
+		var err error
+		items, err = s.queries().ListMythicalItems(ctx, item.RepositoryID, 500)
+		if err != nil {
+			return nil, err
+		}
+	}
+	s.orderTodoMachines(items)
 	var owner db.User
 	var err error
 	if item.OwnerID.Valid {
@@ -85,6 +100,7 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 		revisions = []byte(`[]`)
 	}
 	waits := []map[string]any{}
+	checks := mythicalChecksOf(item)
 	for _, wait := range todoOpenWaits(item) {
 		actions := []any{}
 		if wait.Kind == "question" && wait.Signal != nil {
@@ -92,7 +108,20 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 			actions = append(actions, map[string]any{"tag": "todo.answer", "label": "Answer",
 				"input": []any{map[string]any{"name": "answer", "label": "Answer", "kind": "text", "required": true}}})
 		}
-		waits = append(waits, map[string]any{"id": wait.ID, "kind": wait.Kind, "prompt": wait.Prompt, "since": wait.Since, "actions": actions})
+		// Only offer the composed person-decision door for the retained head.
+		// Bring in still requires the machine checkpoint provider.
+		if wait.Kind == "foreign_push" && wait.ID != "" && mythicalSHA.MatchString(wait.SHA) && strings.Trim(wait.SHA, "0") != "" &&
+			checks.ForeignHead == wait.SHA && mythicalTodoBranchValid(checks.Branch) {
+			actions = append(actions, map[string]any{"tag": "branch.discard-foreign", "label": "Discard"})
+		}
+		projected := map[string]any{"id": wait.ID, "kind": wait.Kind, "prompt": wait.Prompt, "since": wait.Since, "actions": actions}
+		if wait.SHA != "" {
+			projected["sha"] = wait.SHA
+		}
+		if len(wait.By) > 0 && string(wait.By) != "null" {
+			projected["by"] = wait.By
+		}
+		waits = append(waits, projected)
 	}
 	// There is no branch or machine before admission. Never invent an ID or
 	// machine state for a queued item; TodoCard permits that absence.
@@ -100,6 +129,39 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 		"owner":            map[string]any{"login": owner.Username, "name": owner.DisplayName, "avatar_url": todoAvatar(owner)},
 		"prompt_revisions": revisions, "steps": todoSteps(item), "waits": waits, "steers": todoSteers(item), "evidence": []any{},
 		"present": []any{}}
+	if item.OwnerID.Valid {
+		role, roleErr := InstallRoleOf(ctx, s.queries(), item.OwnerID.Int64)
+		if roleErr != nil {
+			return nil, roleErr
+		}
+		if role == "" {
+			card["owner_removed"] = true
+		}
+	}
+	approval := mythicalChecksOf(item).Preapproval
+	if item.State == "landed" {
+		approval = mythicalChecksOf(item).PreapprovalSent
+	}
+	if approval != nil && (mythicalChecksOf(item).Automerge || item.State == "landed") {
+		card["preapproval"] = map[string]any{"by": approval.By, "at": approval.At.UTC().Format(time.RFC3339Nano)}
+	}
+	if todoState(item) == "merged" {
+		var count *int
+		var raw []byte
+		if err := s.store.QueryRow(ctx, `SELECT lessons,learning_receipt FROM mythical_items WHERE id=$1`, item.ID).Scan(&count, &raw); err != nil {
+			return nil, err
+		}
+		if count != nil {
+			card["lessons"] = *count
+		}
+		if len(raw) > 0 {
+			var receipt LearningReceipt
+			if err := json.Unmarshal(raw, &receipt); err != nil {
+				return nil, err
+			}
+			card["lessons_receipt"] = receipt
+		}
+	}
 	if answer := todoFirstAnswer(item); answer != nil {
 		card["first_answer"] = answer
 	}
@@ -137,6 +199,9 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 		}
 		card["branch"] = map[string]any{"id": workspace.ID, "name": name, "machine": machine}
 	}
+	if pin, pinned := mythicalPinOf(item); pinned {
+		card["flow_version"] = map[string]any{"flow_name": pin.Flow, "source_commit": pin.SourceCommit, "digest": pin.ExecutionDigest}
+	}
 	if item.Attempt > 0 && item.RequestRunID != "" {
 		card["run"] = map[string]any{"id": item.RequestRunID, "attempt": item.Attempt, "indicators": []any{}}
 	}
@@ -157,12 +222,15 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 	}
 	// A queued TODO waits for a lane machine; the card says so and where it is
 	// in line (mvp.md §4.1), never the stack's internal outage text.
-	if card["state"] == "queued" {
+	if card["state"] == "queued" && card["queue"] == nil {
 		position, err := s.todoQueuePosition(ctx, item, items)
 		if err != nil {
 			return nil, err
 		}
 		card["queue"] = map[string]any{"reason": "machine", "position": position}
+		if item.Reason == todoDailyLimitReason {
+			card["queue"] = map[string]any{"reason": "daily_limit", "position": position}
+		}
 	}
 	if item.IssueNumber.Valid && item.IssueURL != "" {
 		card["issue"] = map[string]any{"number": item.IssueNumber.Int64, "url": item.IssueURL, "fixes": item.FixesIssue}
@@ -191,8 +259,31 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 			if n := len(evidence); n > 0 && evidence[n-1].Attempt == item.Attempt {
 				evidence[n-1].Items = append(append([]map[string]any{}, evidence[n-1].Items...), entry)
 			} else {
-				evidence = append(evidence, todoAttemptEvidence{Attempt: item.Attempt, Revision: item.CandidateHead, Items: []map[string]any{entry}})
+				evidence = append(evidence, todoAttemptEvidence{Attempt: item.Attempt, RunID: item.RequestRunID, Revision: item.CandidateHead, Items: []map[string]any{entry}})
 			}
+		}
+	}
+	// Resolve only the repository route; page identity stays the captured ID.
+	for i := range evidence {
+		for j, entry := range evidence[i].Items {
+			if entry["kind"] != "wiki" {
+				continue
+			}
+			repository, readErr := s.queries().GetRepoByID(ctx, item.RepositoryID)
+			if readErr != nil {
+				return nil, readErr
+			}
+			repoOwner, readErr := mythicalRepositoryOwner(ctx, s.queries(), repository)
+			if readErr != nil {
+				return nil, readErr
+			}
+			captured := map[string]any{}
+			for key, value := range entry {
+				captured[key] = value
+			}
+			captured["url"] = fmt.Sprintf("/api/repos/%s/%s/wiki/history/%s/%v/content?visibility=public",
+				url.PathEscape(repoOwner), url.PathEscape(repository.Name), entry["pageID"], entry["revision"])
+			evidence[i].Items[j] = captured
 		}
 	}
 	card["evidence"] = evidence
@@ -257,13 +348,18 @@ func modelAccessLabel(access []db.ModelAccess) string {
 }
 
 // Attempts retain the card evidence in the canonical checks column. Runtime
-// ingestion owns these snapshots; older attempts are never recomputed from the
-// current candidate. This replaces the previous current-attempt-only projection.
+// ingestion refreshes live snapshots; settlement freezes the domain outcome and
+// binding. Older attempts are never recomputed from the current candidate.
 type todoAttemptEvidence struct {
-	Attempt  int32                 `json:"attempt"`
-	Revision string                `json:"revision"`
-	Items    []map[string]any      `json:"items"`
-	Previous *todoRevisionEvidence `json:"previous,omitempty"`
+	RunID        string                `json:"run_id,omitempty"`
+	FlowDigest   string                `json:"flow_digest,omitempty"`
+	SourceCommit string                `json:"source_commit,omitempty"`
+	Generation   int64                 `json:"generation,omitempty"`
+	Outcome      string                `json:"outcome,omitempty"`
+	Attempt      int32                 `json:"attempt"`
+	Revision     string                `json:"revision"`
+	Items        []map[string]any      `json:"items"`
+	Previous     *todoRevisionEvidence `json:"previous,omitempty"`
 }
 
 type todoRevisionEvidence struct {
@@ -271,6 +367,11 @@ type todoRevisionEvidence struct {
 	Items    []map[string]any `json:"items"`
 }
 
+var wikiCitationPageID = regexp.MustCompile(`^[1-9][0-9]*$`)
+var wikiCitationDigest = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// A new candidate cannot inherit the old candidate's checks. Retain those
+// checks under the existing Previous contract, including their attempt logs.
 func todoEvidenceWithPrevious(current, stored todoAttemptEvidence) todoAttemptEvidence {
 	current.Previous = stored.Previous
 	if stored.Revision != "" && current.Revision != stored.Revision && len(stored.Items) > 0 {
@@ -280,18 +381,56 @@ func todoEvidenceWithPrevious(current, stored todoAttemptEvidence) todoAttemptEv
 }
 
 func currentTodoEvidence(item db.MythicalItem) todoAttemptEvidence {
-	evidence := todoAttemptEvidence{Attempt: item.Attempt, Revision: item.CandidateHead, Items: []map[string]any{}}
+	checks := mythicalChecksOf(item)
+	for _, stored := range checks.Attempts {
+		if stored.Attempt == item.Attempt && stored.Outcome != "" {
+			return stored
+		}
+	}
+	evidence := todoAttemptEvidence{Attempt: item.Attempt, Revision: item.CandidateHead, Items: []map[string]any{},
+		RunID: item.RequestRunID, SourceCommit: checks.FlowSource, Generation: item.Generation}
+	if item.FlowDigest.Valid {
+		evidence.FlowDigest = item.FlowDigest.String
+	}
+	// Legacy reopen snapshots may lack an outcome but still identify the ended run.
+	if evidence.RunID == "" {
+		for _, retained := range checks.Attempts {
+			if retained.Attempt == item.Attempt {
+				evidence.RunID = retained.RunID
+				break
+			}
+		}
+	}
 	for _, receipt := range mythicalReceiptsView(item) {
 		if receipt.Commit != item.CandidateHead {
 			continue
 		}
 		check := map[string]any{"kind": "check", "name": receipt.Check, "state": receipt.Status}
+		if receipt.LogDigest != "" {
+			check["log_digest"] = receipt.LogDigest
+			check["log_url"] = fmt.Sprintf("/api/todos/%d/attempts/%d/logs/%s", item.Number.Int64, item.Attempt, receipt.LogDigest)
+		}
 		if receipt.DurationMs != nil {
 			check["took_s"] = float64(*receipt.DurationMs) / 1000
 		}
 		evidence.Items = append(evidence.Items, check)
 	}
-	checks := mythicalChecksOf(item)
+	var plan struct {
+		WikiCitations []planWikiCitation `json:"wikiCitations"`
+	}
+	// A pinned composition records its plan with its candidate. Admission
+	// retains the previous plan for history, but a new run has not used its
+	// citations until it submits a new candidate and plan together. Legacy
+	// request runs can record their plan before separate delivery begins.
+	if (!item.FlowDigest.Valid || item.CandidateHead != "") && json.Unmarshal(item.Plan, &plan) == nil {
+		for _, citation := range plan.WikiCitations {
+			if citation.Slug == "" || citation.Revision < 1 || !wikiCitationPageID.MatchString(citation.PageID) || !wikiCitationDigest.MatchString(citation.Digest) {
+				continue
+			}
+			evidence.Items = append(evidence.Items, map[string]any{"kind": "wiki", "slug": citation.Slug,
+				"pageID": citation.PageID, "revision": citation.Revision, "digest": citation.Digest})
+		}
+	}
 	// The review is of the pull request head that published this candidate
 	// (Candidate); a review recorded before Candidate existed names it as Head.
 	if review := checks.Review; review != nil && item.CandidateHead != "" && review.Verdict != "" &&
@@ -299,7 +438,7 @@ func currentTodoEvidence(item db.MythicalItem) todoAttemptEvidence {
 		evidence.Items = append(evidence.Items, map[string]any{"kind": "review", "summary": checks.Review.Verdict})
 	}
 	if item.FlowDigest.Valid && item.FlowDigest.String != "" {
-		evidence.Items = append(evidence.Items, map[string]any{"kind": "flow", "name": "todo", "version": item.FlowDigest.String})
+		evidence.Items = append(evidence.Items, map[string]any{"kind": "flow", "name": "todo", "version": item.FlowDigest.String, "source_commit": checks.FlowSource})
 	}
 	return evidence
 }
@@ -336,6 +475,25 @@ func todoEvidence(item db.MythicalItem) []todoAttemptEvidence {
 		evidence = append(evidence, current)
 	}
 	return evidence
+}
+
+// Settlement and its cancellation/wait changes use the same item transaction.
+// Runtime transport status cannot replace this first domain outcome. A reopened
+// TODO keeps the closed snapshot until launch allocates a different attempt.
+func settleTodoAttemptEvidence(item db.MythicalItem, outcome string) db.MythicalItem {
+	if !mythicalTodo(item) || item.Attempt <= 0 {
+		return item
+	}
+	item = retainTodoAttemptEvidence(item)
+	checks := mythicalChecksOf(item)
+	for i := range checks.Attempts {
+		if checks.Attempts[i].Attempt == item.Attempt && checks.Attempts[i].Outcome == "" {
+			checks.Attempts[i].Outcome = outcome
+			item.Checks = checks.encode()
+			break
+		}
+	}
+	return item
 }
 
 // Steps name only phases with a persisted run binding. A proposed candidate or
@@ -378,4 +536,24 @@ func todoSteps(item db.MythicalItem) []map[string]any {
 		add("review", "Review", review.RunID, review.Verdict, "approve")
 	}
 	return steps
+}
+
+// TodoEvents replays the canonical shared item stream, never an author's private stream.
+func (s *MythicalService) TodoEvents(ctx context.Context, repositoryID, number, cursor int64) (jobs.ReplayPage, error) {
+	item, err := s.queries().GetMythicalItemByNumber(ctx, repositoryID, number)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return jobs.ReplayPage{}, &TodoControlError{404, "todo_not_found", "user", "TODO not found"}
+	}
+	if err != nil {
+		return jobs.ReplayPage{}, err
+	}
+	pool, ok := s.store.(*pgxpool.Pool)
+	if !ok {
+		return jobs.ReplayPage{}, errors.New("TODO replay requires the product database pool")
+	}
+	store, err := jobs.NewStore(pool)
+	if err != nil {
+		return jobs.ReplayPage{}, err
+	}
+	return store.Replay(ctx, todoOperationScope(item), cursor, 1000)
 }

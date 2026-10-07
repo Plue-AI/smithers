@@ -13,7 +13,6 @@
  * @since 1.0.0
  */
 
-import { randomUUID } from "node:crypto"
 import { clean } from "../../cli/Presentation.ts"
 import { Refused, UsageError } from "../../CliError.ts"
 import { APIError, chunksOf, type Client, esc, list, object, str, type Values } from "./Client.ts"
@@ -23,7 +22,6 @@ import type { Handler } from "./Resources.ts"
 const SETTLED = new Set(["skipped", "declined", "cancelled", "landed", "rejected", "blocked"])
 const NEEDS_YOU = new Set(["blocked", "rejected", "proposed"])
 /** The request ids the backend accepts. */
-const REQUEST = /^[A-Za-z0-9-]{1,64}$/
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const DAY_MS = 86_400_000
 /**
@@ -357,7 +355,6 @@ const hints = (c: Client, path: string) => {
  * @since 1.0.0
  */
 export const history: Record<string, Handler> = {
-  "history show": (c, _a, o) => read(c, o),
   "history watch": async (c, a, o) => {
     const ref = target(a.issue)
     const stream = hints(c, stackPath(c, o, "/events"))
@@ -384,14 +381,6 @@ export const history: Record<string, Handler> = {
       stream.close()
     }
   },
-  "history todo": (c, a, o) => {
-    const title = str(a.title).trim()
-    if (!title) throw new UsageError({ message: "A TODO needs a title" })
-    // One id names the filing: sending it again (`--request`) after an unknown answer returns the TODO already filed.
-    const request = str(o.request) || randomUUID()
-    if (!REQUEST.test(request)) throw new UsageError({ message: "A request id is 1 to 64 letters, digits or hyphens" })
-    return c.request("POST", stackPath(c, o, "/todos"), { title, body: str(o.body), request })
-  },
   "history bootstrap": (c, _a, o) => c.request("POST", stackPath(c, o, "/bootstrap"), {}),
   "history parallel": (c, a, o) => {
     const lanes = Number(a.lanes)
@@ -406,9 +395,7 @@ export const history: Record<string, Handler> = {
  * @since 1.0.0
  */
 export const humans: Record<string, (value: unknown) => string> = {
-  "history show": (value) => render(value),
   "history watch": (value) => itemLine(object(value)),
-  "history todo": (value) => itemLine(object(value)),
   "history bootstrap": (value) => render(value),
   "history parallel": (value) => render(value)
 }

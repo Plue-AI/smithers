@@ -289,7 +289,7 @@ func (s *WorkspaceService) destroyWorkspace(ctx context.Context, workspace db.Wo
 		return err
 	}
 	if keep {
-		return errTodoWorkspaceRetained
+		return fmt.Errorf("%w: %w", errTodoWorkspaceRetained, pkgerrors.Conflict("branch is retained"))
 	}
 	workspace = current
 	if s.runtime != nil {
@@ -358,6 +358,11 @@ func (s *WorkspaceService) CleanupIdleWorkspaces(ctx context.Context) error {
 		return nil
 	}
 
+	// The factory's branch machines require known presence/session/run safety
+	// and capture. The old age-only sweep cannot establish those facts.
+	if s.machineAdmission != nil {
+		return nil
+	}
 	idleWorkspaces, err := s.q.ListIdleWorkspaces(ctx)
 	if err != nil {
 		return err
@@ -624,6 +629,9 @@ func (s *WorkspaceService) ensureExistingWorkspaceRunningAuthorized(ctx context.
 }
 
 func (s *WorkspaceService) ensureWorkspaceRunning(ctx context.Context, workspace db.Workspace, input CreateWorkspaceSessionInput) (db.Workspace, error) {
+	if input.UserID == 0 {
+		input.UserID = workspace.UserID
+	}
 	provision := func(ctx context.Context) (db.Workspace, error) {
 		return s.withWorkspaceProvisionLock(ctx, workspace, func(current db.Workspace) (db.Workspace, error) {
 			return s.ensureWorkspaceRunningOwned(ctx, current, input)
@@ -636,12 +644,29 @@ func (s *WorkspaceService) ensureWorkspaceRunning(ctx context.Context, workspace
 	if !owned {
 		return provision(ctx)
 	}
+	if s.machineAdmission != nil && s.runtime != nil {
+		// Waiting for capacity must not retain a membership/share transaction
+		// or the provisioning lock. Revalidate authority below after the grant.
+		if err := s.withBranchMachineMutation(ctx, workspace, input.UserID, func(context.Context) error { return nil }); err != nil {
+			return workspace, err
+		}
+		ctx, err = s.workspaceStartContext(ctx, workspace, input.UserID, workspaceLifecycleOperation(workspace, "admit"))
+		if err != nil {
+			return workspace, err
+		}
+	}
 	result := workspace
 	err = s.withBranchMachineMutation(ctx, workspace, input.UserID, func(ctx context.Context) error {
 		var provisionErr error
 		result, provisionErr = provision(ctx)
 		return provisionErr
 	})
+	if err != nil && s.machineAdmission != nil {
+		if runtime, ok := s.runtime.(interface{ CancelFailedAdmission(string, string) }); ok {
+			_, actor := machineDemand(ctx, workspace, input.UserID)
+			runtime.CancelFailedAdmission(machineQueueHolder(workspace.ID), actor)
+		}
+	}
 	return result, err
 }
 
@@ -755,10 +780,19 @@ func isWorkspaceGuestNotReady(err error) bool {
 	return errors.As(err, &apiErr) && apiErr.Code == pkgerrors.CodeGuestNotReady
 }
 
-// Retained-machine wake stays dark until S2 admission and root-boundary
-// validation are available. Billing quota alone is not branch admission.
+// The install's retained wake uses the same admission and guest-boundary
+// providers as fresh creation. The actual slot is acquired by the start context.
 func (s *WorkspaceService) authorizeWorkspaceResume(ctx context.Context, row db.Workspace) error {
-	return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch wake requires admission and validated privileged entry")
+	if s.machineAdmission == nil {
+		return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch wake requires admission and validated privileged entry")
+	}
+	if err := s.requireBranchMachineProviders(); err != nil {
+		return err
+	}
+	if err := s.branchMachineProviders.MicroVM(ctx); err != nil {
+		return err
+	}
+	return s.branchMachineProviders.SessionIdentity(ctx)
 }
 
 func (s *WorkspaceService) resumeWorkspaceVM(ctx context.Context, workspace db.Workspace) (out db.Workspace, retErr error) {

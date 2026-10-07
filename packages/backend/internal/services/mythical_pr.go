@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
 // GitHubRefusal preserves definitive merge refusals for the install envelope.
@@ -41,8 +43,8 @@ func (g *mythicalGitHubAPI) UpdatePullBody(ctx context.Context, gh mythicalGitHu
 	return nil
 }
 
-// These adapter writes are intentionally not mounted: T-GH-09 must journal
-// their intent and reconcile ambiguous success before any production caller.
+// Draft changes use the keyed outbound draft operation; lookup reconciles
+// ambiguous success before a production caller repeats the mutation.
 func (g *mythicalGitHubAPI) MarkReadyForReview(ctx context.Context, gh mythicalGitHubRepo, nodeID string) error {
 	return g.pullDraftMutation(ctx, gh, nodeID, "markPullRequestReadyForReview")
 }
@@ -94,6 +96,7 @@ type mythicalPRShape struct {
 	DraftsAvailable                                                           bool
 	FirstNumber                                                               int64
 	Included                                                                  []mythicalPRIncluded
+	Manifest                                                                  *mythicalMergedManifest
 }
 type mythicalPRIncluded struct {
 	Number int64
@@ -144,6 +147,7 @@ func (p mythicalPRShape) render() (string, string, error) {
 // containment receipts, attention and keyed intents in one transaction.
 type mythicalGitHubFact struct {
 	Kind, Head, MergeCommit string
+	Review                  *gitHubReviewFact
 	OnMain                  bool
 	Number                  int64
 	PRNumber                int64
@@ -152,16 +156,28 @@ type mythicalGitHubFact struct {
 }
 type mythicalGitHubFactItem struct {
 	State, Head string
-	ClosedAt    time.Time
+	// NoPR is confirmed absence, not an unavailable PR read. Starting comes
+	// from the persisted launched/attached facts, independent of other waits.
+	NoPR, Starting bool
+	ClosedAt       time.Time
+	// PendingHead comes from the item's branch-bound outbound push intent,
+	// never from the fetched PR's author or a webhook attribution.
+	PendingHead string
 }
 type mythicalGitHubFactDecision struct {
 	Event, Noop, Attention string
-	Contained              []mythicalManifestItem
-	Notes                  []string
-	AttentionText          string
+	// Review describes the activity/PR projection and ordered input effects.
+	// The consumer must commit them with its receipt in one transaction.
+	Review        *gitHubReviewEffect
+	Contained     []mythicalManifestItem
+	Notes         []string
+	AttentionText string
 }
 
 func decideGitHubFact(f mythicalGitHubFact, item mythicalGitHubFactItem, now time.Time) mythicalGitHubFactDecision {
+	if f.Kind == "review" || f.Kind == "review_comment" || f.Kind == "conversation_comment" {
+		return decideGitHubReview(f, item)
+	}
 	switch {
 	case f.Kind == "merged":
 		if item.State == "merged" || item.State == "landed" {
@@ -174,21 +190,30 @@ func decideGitHubFact(f mythicalGitHubFact, item mythicalGitHubFactItem, now tim
 	case item.State == "merged" || item.State == "landed":
 		return mythicalGitHubFactDecision{Noop: "terminal"}
 	case f.Kind == "closed":
-		if item.State == "dropped" || item.State == "rejected" {
+		if item.State == "dropped" || item.State == "rejected" || item.State == "cancelled" {
 			return mythicalGitHubFactDecision{Noop: "already_closed"}
 		}
 		return mythicalGitHubFactDecision{Event: "dropped"}
 	case f.Kind == "reopened":
-		if item.State != "dropped" && item.State != "rejected" {
+		if item.State != "dropped" && item.State != "rejected" && item.State != "cancelled" {
 			return mythicalGitHubFactDecision{Noop: "not_dropped"}
 		}
 		if item.ClosedAt.IsZero() || now.Before(item.ClosedAt) || now.Sub(item.ClosedAt) > 7*24*time.Hour {
 			return mythicalGitHubFactDecision{Noop: "reopen_window_expired"}
 		}
 		return mythicalGitHubFactDecision{Event: "in_review"}
-	case f.Kind == "push" && f.Head != "" && f.Head != item.Head:
-		if item.State == "dropped" || item.State == "rejected" {
+	case f.Kind == "push":
+		if item.State == "dropped" || item.State == "rejected" || item.State == "cancelled" || item.State == "declined" {
 			return mythicalGitHubFactDecision{Noop: "terminal"}
+		}
+		if f.Head == "" || f.Head == item.Head {
+			return mythicalGitHubFactDecision{Noop: "unchanged"}
+		}
+		if f.Head == item.PendingHead {
+			return mythicalGitHubFactDecision{Noop: "own_push"}
+		}
+		if item.NoPR && (item.State == "queued" || item.State == "skipped" || item.Starting && item.State != "blocked" && item.State != "proposed") {
+			return mythicalGitHubFactDecision{Event: "push_recorded"}
 		}
 		return mythicalGitHubFactDecision{Attention: "foreign_push"}
 	default:
@@ -397,14 +422,14 @@ func (*mythicalPRUnavailable) MarshalJSON() ([]byte, error) {
 // candidate owner. Stack position and head equality without this record prove
 // nothing. The caller must fetch the actual merged head before supplying it.
 type mythicalManifestItem struct {
-	ID     string
-	Number int64
-	Head   string
-	Change string
+	ID     string `json:"id"`
+	Number int64  `json:"number"`
+	Head   string `json:"head"`
+	Change string `json:"change"`
 }
 type mythicalMergedManifest struct {
-	Head     string
-	Included []mythicalManifestItem
+	Head     string                 `json:"head"`
+	Included []mythicalManifestItem `json:"included"`
 }
 
 func mythicalContainedDecision(f mythicalGitHubFact) mythicalGitHubFactDecision {
@@ -435,4 +460,39 @@ func mythicalContainedDecision(f mythicalGitHubFact) mythicalGitHubFactDecision 
 	}
 	d.AttentionText = strings.Join(sentences, "\n")
 	return d
+}
+
+// Candidate identity names the accepted change by its exact base/head pair.
+// Neither today's position nor an equal published head establishes inclusion.
+func mythicalCandidateIdentity(item db.MythicalItem) mythicalManifestItem {
+	identity := mythicalManifestItem{ID: uuidString(item.ID), Number: mythicalItemNumber(item)}
+	if item.CandidateVerified && item.CandidateBase != "" && item.CandidateHead != "" {
+		identity.Head, identity.Change = item.CandidateHead, item.CandidateBase+".."+item.CandidateHead
+	}
+	return identity
+}
+
+func (c *mythicalChecks) retainManifest(manifest mythicalMergedManifest) {
+	for _, retained := range c.PRManifests {
+		if retained.Head == manifest.Head {
+			return
+		}
+	}
+	manifest.Included = append([]mythicalManifestItem{}, manifest.Included...)
+	c.PRManifests = append(c.PRManifests, manifest)
+}
+
+// retainedManifest resolves the actual fetched merged head only. Unknown or
+// foreign heads cannot borrow the current generation's prefix proof.
+func (c mythicalChecks) retainedManifest(head string) *mythicalMergedManifest {
+	if head == "" {
+		return nil
+	}
+	for _, manifest := range c.PRManifests {
+		if manifest.Head == head {
+			manifest.Included = append([]mythicalManifestItem{}, manifest.Included...)
+			return &manifest
+		}
+	}
+	return nil
 }

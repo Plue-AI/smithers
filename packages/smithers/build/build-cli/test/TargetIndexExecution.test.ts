@@ -167,6 +167,107 @@ describe("TargetIndex through the CLI", () => {
     expect(await Fs.readFile(NodePath.join(first, ".smithers/target-index.json"), "utf8")).toBe(bytes)
   })
 
+  it("validates an owning Filegroup across a package boundary and rejects its removed sources", async () => {
+    const root = await fixture()
+    await write(root, "crates/owned/src/lib.rs", "pub fn value() {}\n")
+    await write(root, "crates/owned/PACKAGE.ts", `import { Smithers as S } from "@smthrs/targets"
+export const Package = S.Package({ targets: {
+  sources: S.Filegroup({ cwd: "crates/owned", srcs: [S.glob("src/**/*.rs")] })
+} })
+`)
+    await write(root, "PACKAGE.ts", packageModule().replace(
+      'const good =',
+      'import { Package as owned } from "./crates/owned/PACKAGE.ts"\nconst native = S.Shell.Build({ shell: "true", data: [owned.sources], outDirs: ["out"] })\nconst good ='
+    ).replace('all, good, notes, targetIndex', 'native, all, good, notes, targetIndex'))
+    expect((await serve(root, ["target", "//:targetIndex", "--write"])).exitCode).toBe(0)
+    const valid = await serve(root, ["lint", "//:targetIndex"])
+    expect(valid.exitCode, valid.logs + valid.output).toBe(0)
+    await Fs.rename(NodePath.join(root, "crates/owned/src/lib.rs"), NodePath.join(root, "crates/owned/src/lib.moved"))
+    // Main’s declared-input contract allows an empty existing glob prefix.
+    expect((await serve(root, ["lint", "//:targetIndex"])).exitCode).toBe(0)
+    await Fs.rename(NodePath.join(root, "crates/owned/src"), NodePath.join(root, "crates/owned/src.moved"))
+    const missing = await serve(root, ["lint", "//:targetIndex"])
+    expect(missing.exitCode).toBe(1)
+    expect(missing.logs + missing.output).toContain('crates/owned/src/**/*.rs')
+    expect(missing.logs + missing.output).toContain('//crates/owned:sources')
+    expect(missing.logs + missing.output).toContain('crates/owned/PACKAGE.ts')
+  })
+
+  it("validates Markdown supplied by an owning Filegroup dependency of a Vitest target", async () => {
+    const root = await fixture()
+    await write(root, "infra/docs/README.md", "# Infrastructure\n")
+    await write(root, "infra/PACKAGE.ts", `import { Smithers as S } from "@smthrs/targets"
+export const Package = S.Package({ targets: {
+  docsFiles: S.Filegroup({ cwd: "infra", srcs: [S.glob("docs/**/*.md")] })
+} })
+`)
+    await write(root, "test/docs.test.ts", "export {}\n")
+    await write(root, "PACKAGE.ts", packageModule().replace(
+      "const good =",
+      'import { Package as infra } from "./infra/PACKAGE.ts"\nconst docsTest = S.Vitest({ tests: [S.glob("test/**/*.test.ts")], sources: [], deps: [infra.docsFiles], config: null, environment: "node", passWithNoTests: false })\nconst good ='
+    ).replace("all, good, notes, targetIndex", "docsTest, all, good, notes, targetIndex"))
+    expect((await serve(root, ["target", "//:targetIndex", "--write"])).exitCode).toBe(0)
+    const valid = await serve(root, ["lint", "//:targetIndex"])
+    expect(valid.exitCode, valid.logs + valid.output).toBe(0)
+    expect((await indexOf(root)).find((row) => row.label === "//:docsTest")?.dependencies).toContain("//infra:docsFiles")
+    await Fs.rename(NodePath.join(root, "infra/docs/README.md"), NodePath.join(root, "infra/docs/README.moved"))
+    // Main’s declared-input contract allows an empty existing glob prefix.
+    expect((await serve(root, ["lint", "//:targetIndex"])).exitCode).toBe(0)
+    await Fs.rename(NodePath.join(root, "infra/docs"), NodePath.join(root, "infra/docs.moved"))
+    const missing = await serve(root, ["lint", "//:targetIndex"])
+    expect(missing.exitCode).toBe(1)
+    expect(missing.logs + missing.output).toContain("infra/docs/**/*.md")
+    expect(missing.logs + missing.output).toContain("//infra:docsFiles")
+    expect(missing.logs + missing.output).toContain("infra/PACKAGE.ts")
+  })
+
+  it("indexes README-only package documentation and refuses a removed README", async () => {
+    const root = await fixture()
+    await write(root, "agent/README.md", "# Agent\n")
+    await write(root, "agent/package.json", '{ "name": "agent", "private": true }\n')
+    await write(root, "agent/PACKAGE.ts", `import { Smithers as S } from "@smthrs/targets"
+const docsFiles = S.Filegroup({ srcs: [S.file("README.md"), S.file("package.json")], cwd: "agent" })
+export const Package = S.Package({ targets: { docsFiles } })
+`)
+    expect((await serve(root, ["target", "//:targetIndex", "--write"])).exitCode).toBe(0)
+    const valid = await serve(root, ["lint", "//:targetIndex"])
+    expect(valid.exitCode, valid.logs + valid.output).toBe(0)
+    await Fs.rename(NodePath.join(root, "agent/README.md"), NodePath.join(root, "agent/README.moved"))
+    const missing = await serve(root, ["lint", "//:targetIndex"])
+    expect(missing.exitCode).toBe(1)
+    expect(missing.logs + missing.output).toContain("agent/README.md")
+    expect(missing.logs + missing.output).toContain("//agent:docsFiles")
+    expect(missing.logs + missing.output).toContain("agent/PACKAGE.ts")
+  })
+
+  it("validates repository-wide NodeTest inputs through package-scoped groups", async () => {
+    const root = await fixture()
+    await write(root, ".smithers/WORKSPACE.ts", workspaceModule.replace('version: "26"', 'version: ">=26.4.0"').replace("  cache:", "  sandboxes: S.Sandboxes({ default: S.Sandbox.None() }),\n  cache:"))
+    await write(root, "shared/PACKAGE.ts", `import { Smithers as S } from "@smthrs/targets"
+export const Package = S.Package({ targets: {} })
+`)
+    await write(root, "shared/src/source.ts", "export const value = 1\n")
+    await write(root, "PACKAGE.ts", packageModule().replace(
+      'const good =',
+      'const sharedInputs = S.Filegroup({ cwd: "shared", srcs: [S.glob("src/*.ts")] })\nconst checkoutInputs = S.Filegroup({ cwd: "./", srcs: [S.glob("**/*"), sharedInputs] })\nconst consumer = S.NodeTest({ runner: S.entrypoint(S.file("//scripts/notes.mjs")), srcs: [], deps: [checkoutInputs] })\nconst good ='
+    ).replace("all, good, notes, targetIndex", "sharedInputs, checkoutInputs, consumer, all, good, notes, targetIndex"))
+    expect((await serve(root, ["target", "//:targetIndex", "--write"])).exitCode).toBe(0)
+    const valid = await serve(root, ["lint", "//:targetIndex"])
+    expect(valid.exitCode, valid.logs + valid.output).toBe(0)
+    expect((await indexOf(root)).find((row) => row.label === "//:consumer")?.dependencies).toEqual(["//:checkoutInputs"])
+    const executed = await serve(root, ["test", "//:consumer"])
+    expect(executed.exitCode, executed.logs + executed.output).toBe(0)
+    await Fs.rename(NodePath.join(root, "shared/src/source.ts"), NodePath.join(root, "shared/src/source.moved"))
+    // Main’s declared-input contract allows an empty existing glob prefix.
+    expect((await serve(root, ["lint", "//:targetIndex"])).exitCode).toBe(0)
+    await Fs.rename(NodePath.join(root, "shared/src"), NodePath.join(root, "shared/src.moved"))
+    const missing = await serve(root, ["lint", "//:targetIndex"])
+    expect(missing.exitCode).toBe(1)
+    expect(missing.logs + missing.output).toContain("shared/src/*.ts")
+    expect(missing.logs + missing.output).toContain("//:sharedInputs")
+    expect(missing.logs + missing.output).toContain("PACKAGE.ts")
+  })
+
   it("prints the same rows through the index verb", async () => {
     const root = await fixture()
     const listed = await serve(root, ["index", "//..."])

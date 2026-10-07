@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/process"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
@@ -132,7 +133,6 @@ func serveFixture(t *testing.T) (string, string) {
 		"SMITHERS_FLOW_HOST_MANIFEST":            manifestPath,
 		"SMITHERS_MODEL_HOST_BUNDLE":             bundle,
 		"SMITHERS_NODE_BINARY":                   executable("node"),
-		"SMITHERS_AUTH_BOOTSTRAP_TOKEN":          "operator-chosen-setup-token",
 		"SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY": "shutdown-test-encryption-key",
 	} {
 		t.Setenv(name, value)
@@ -162,7 +162,7 @@ func stopDuringMigration(t *testing.T, beforeSignal func()) error {
 	ctx, stop := context.WithCancel(context.Background())
 	defer stop()
 	done := make(chan error, 1)
-	go func() { done <- run(ctx, nil) }()
+	go func() { done <- run(ctx, nil, flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}) }()
 	select {
 	case conn := <-connected:
 		defer conn.Close()

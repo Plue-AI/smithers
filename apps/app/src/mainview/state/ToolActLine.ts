@@ -40,8 +40,8 @@ export const toolActLine = (call: PendingToolCall, result: string): string => {
    */
   const launched = runLaunchCommandOf(call.name, call.args)
   if (launched !== undefined && toolResultLaunchedRun(result)) {
-    /* The authoring door's acknowledgment names no workflow: `flow.create` is always the one flow. */
-    const workflow = /\bworkflow=(\S+)/.exec(result)?.[1] ?? (launched === "flow.create" ? FLOW_AUTHORING_ENTRY : inner)
+    /* The authoring door's acknowledgment names no workflow: `flow.new` is always the one flow. */
+    const workflow = /\bworkflow=(\S+)/.exec(result)?.[1] ?? (launched === "flow.new" ? FLOW_AUTHORING_ENTRY : inner)
     const repo = /\brepo=(\S+)/.exec(result)?.[1]
     const verb = /-requested\b/.test(result) ? "requested" : "started"
     return `Smithers ${verb} a ${workflow} run${repo === undefined ? "" : ` on ${repo}`}`

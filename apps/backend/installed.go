@@ -162,6 +162,7 @@ func installedInputs(executable string, getenv func(string) string) (hostInputs,
 		}
 		env["SMITHERS_NATIVE_STATE_DIR"] = inputs.stateRoot
 	}
+	env["SMITHERS_INSTALL_STATE_DIR"] = inputs.stateRoot
 	// Every other host-state directory defaults below the data root; one
 	// handed elsewhere is held to the same rule. The repository host's pack
 	// cache may be "off".

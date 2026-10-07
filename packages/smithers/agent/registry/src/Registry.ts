@@ -585,7 +585,13 @@ export const layerProject = (
       const path = yield* Path.Path
       return layer({
         snapshots: options.snapshots,
-        sources: [{ source: "project", root: path.join(options.root, "flows"), naming: "path", optionalRoot: true }],
+        sources: [{
+          source: "project",
+          root: path.join(options.root, "flows"),
+          naming: "path",
+          optionalRoot: true,
+          lockfileRoot: options.root
+        }],
         ...(options.packs === undefined ? {} : { packs: options.packs })
       }).pipe(Layer.provide(discoveryLayer))
     })

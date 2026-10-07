@@ -35,6 +35,24 @@ import { WIKI_ATTACH_USER_ONLY_REASON, WIKI_HEADING_USER_ONLY_REASON } from "@sm
  * no longer user-only fails it too.
  */
 const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
+  "auth.email": "sign-in is the human's browser gesture; the agent renders the step with auth.prompt",
+  "account.show": "Install status requires the owner’s person session",
+  "env.remove-token": "Install controls require the owner’s person session",
+  "env.set": "Install controls require the owner’s person session",
+  "env.view": "Install controls require the owner’s person session",
+  "github.app": "Install controls require the owner’s person session",
+  "repo.choose": "Install setup requires the owner’s person session",
+  "repo.create": "Install setup requires the owner’s person session",
+  "settings.preapprove-default": "Install controls require the owner’s person session",
+  "settings.daily-admissions": "Install controls require the owner’s person session",
+  "agent.model": "Only the owner’s browser session changes models",
+  "model.new": "Only the owner’s browser session configures models",
+  "model.edit": "Only the owner’s browser session configures models",
+  "model.save": "Only the owner’s browser session configures models",
+  "model.remove": "Only the owner’s browser session configures models",
+  "model.test": "Only the owner’s browser session configures models",
+  "model.assign": "Only the owner’s browser session configures models",
+
   "notifications.allow": "browser permission requires the person’s in-card gesture",
   "debug.api": "raw API bypasses flow typing and approvals; agents use flows",
   "debug-api": "raw API bypasses flow typing and approvals; agents use flows",
@@ -48,12 +66,10 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "chat.queue.edit": "the prompt queue is the human's composer",
   "chat.queue.remove": "the prompt queue is the human's composer",
   "chat.queue.restore": "the prompt queue is the human's composer",
-  "chat.queue.resume": "the prompt queue is the human's composer",
   "chat.send": "the composer is the human's; the model is already the turn, and sending would nest one",
   "stop": "stopping the model's own turn is the human's Escape key",
   "chat.copy-message": "the clipboard write is the human's browser gesture",
   "wiki.pane": "a surface switch; the model reads the wiki with wiki and wiki.cloud, which answer as embedded cards",
-  "flow.repo.choose": "the answer to the which-repository card is the human's choice; a model must not provision on its guess",
   "card.maximize": "maximizing a card is the human's explicit act (THE EMBED LAW)",
   "card.minimize": "minimizing a card is the human's explicit act",
   "frame.back": "frame navigation is the human's browser gesture",
@@ -91,11 +107,32 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "approval.approve": "approvals belong to the human",
   "triggers.approve": "approvals belong to the human",
   "approval.deny": "approvals belong to the human",
-  "runs.continue": "approvals belong to the human"
+  "runs.continue": "approvals belong to the human",
+  "file.reapply": "Only a person can do this",
+  "main.reset-to-github": "Only a person can do this",
+  "merge.confirm": "Only a person can do this",
+  "order.ok": "Only a person can do this",
+  "secrets": "Only a person can do this",
+  "secrets.bind": "Only a person can do this",
+  "secrets.connect": "Install controls require the owner’s person session",
+  "secrets.connect.codex": "Install controls require the owner’s person session",
+  "secrets.connections": "Install controls require the owner’s person session",
+  "secrets.delete": "Only a person can do this",
+  "secrets.move": "Install controls require the owner’s person session",
+  "secrets.revoke": "Install controls require the owner’s person session",
+  "secrets.scope": "Only a person can do this",
+  "secrets.set": "Only a person can do this",
+  "settings.model.set": "Only a person can do this",
+  "ssh": "Only a person can do this",
+  "terminal.watch": "Only a person can do this",
+  "todo.keep-moved": "Only a person can do this",
+  "todo.preapprove": "Only a person can do this",
+  "todo.takeover": "Only a person can do this",
+  "todo.unapprove": "Only a person can do this",
 }
 
 /** The policy table's agent rows (.specs/engineering/spec.md §6.1): the args exercised and whether the act confirms. */
-const AGENT_ROWS: ReadonlyArray<{ readonly name: string; readonly args?: string; readonly confirm: boolean }> = [
+const AGENT_ROWS: ReadonlyArray<{ readonly name: string; readonly args?: string; readonly confirm: boolean; readonly confirmedArgs?: string }> = [
   { name: "todo", args: "T12", confirm: false },
   { name: "todo.new", args: "A TODO", confirm: false },
   { name: "todo.answer", args: "T12 Yes", confirm: false },
@@ -104,7 +141,7 @@ const AGENT_ROWS: ReadonlyArray<{ readonly name: string; readonly args?: string;
   { name: "todo.stop", args: "T12", confirm: false },
   { name: "todo.resume", args: "T12", confirm: false },
   { name: "todo.retry", args: "T12", confirm: false },
-  { name: "todo.drop", args: "T12", confirm: true },
+  { name: "todo.drop", args: "T12", confirm: true, confirmedArgs: '{"n":12}' },
   /* A bare Merge only opens the person's Review & merge; a head-bound one asks the person first (mvp.md Appendix B A✓). */
   { name: "merge", args: "T8", confirm: false },
   { name: "runs.trace.filter", args: "run-1 failed", confirm: false },
@@ -120,8 +157,8 @@ const AGENT_ROWS: ReadonlyArray<{ readonly name: string; readonly args?: string;
   { name: "change.facet", args: "c1 diff", confirm: false },
   { name: "flow.run.retry", args: "card-1", confirm: true },
   { name: "runs.rerun", args: "sourceCard=card-1 run-1", confirm: true },
-  { name: "cloud.prompt", confirm: false },
   /* Agents as data (custom-agents.md): listing and the form render cards; defining what spends money confirms. */
+  { name: "agents", confirm: false },
   { name: "agent.list", confirm: false },
   /* #3730: starting an agent CLI on the host is consequential, so the agent's call asks first. */
   { name: "agent.codex", args: '{"prompt":"Fix the flaky test"}', confirm: true },
@@ -187,7 +224,7 @@ const json = (status: number, body: unknown): Response =>
 const boot = async (bootstrap: AppBootstrap = EVERYTHING) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   let picks = 0
-  
+
   const controller = createAppController(store, unavailableAgent, {
     features: {},
     bootstrap,
@@ -248,9 +285,9 @@ describe("the three-door law", () => {
     const native = await boot()
     const web = await boot(WEB)
     const userOnly = [...native.controller.commands.entries(), ...web.controller.commands.entries()]
-      .filter((entry) => !modelInvocable(entry))
+      .filter((entry) => entry.metadata.agent === "never")
     const found = Object.fromEntries(
-      userOnly.map((entry) => [nameOf(entry), entry.metadata.userOnlyReason]).sort(([left], [right]) => String(left).localeCompare(String(right)))
+      userOnly.map((entry) => [nameOf(entry), entry.metadata.agentReason]).sort(([left], [right]) => String(left).localeCompare(String(right)))
     )
     const expected = Object.fromEntries(Object.entries(USER_ONLY_ALLOWLIST).sort(([left], [right]) => left.localeCompare(right)))
     expect(found).toEqual(expected)
@@ -261,7 +298,7 @@ describe("the three-door law", () => {
   test("an automatic (system) call of any user-only flow refuses before its handler runs (#3717)", async () => {
     for (const bootstrap of [EVERYTHING, WEB]) {
       const { controller } = await boot(bootstrap)
-      const userOnly = controller.commands.entries().filter((entry) => !modelInvocable(entry)).map((entry) => nameOf(entry))
+      const userOnly = controller.commands.entries().filter((entry) => entry.metadata.agent === "never").map((entry) => nameOf(entry))
       expect(userOnly.length).toBeGreaterThan(20)
       for (const name of userOnly) {
         const outcome = await controller.commands.run(name, undefined, "automatic")
@@ -270,6 +307,14 @@ describe("the three-door law", () => {
       controller.dispose()
     }
   })
+  test("the two automatic callers' flows stay invocable automatically", async () => {
+    const { controller } = await boot()
+    for (const name of ["flow.plan", "triggers.list"]) {
+      const entry = controller.commands.entries().find((candidate) => nameOf(candidate) === name)
+      expect(entry?.metadata.agent).toBe("run")
+    }
+  })
+
   test("automatic calls of every confirmation-gated flow refuse before any act (#3736)", async () => {
     for (const bootstrap of [EVERYTHING, WEB]) {
       const { store, controller } = await boot(bootstrap)
@@ -302,17 +347,22 @@ describe("the three-door law", () => {
     } finally { controller.dispose() }
   })
 
-  test("every agent row of the policy table is invocable through the tool; a confirm row yields the confirm card, never a refusal", async () => {
+  test("backend agent rows refuse browser execution; UI rows keep their confirmation policy", async () => {
     const { store, controller } = await boot()
     for (const row of AGENT_ROWS) {
       const result = await execute(controller, row.name, row.args)
       expect(`${row.name}: ${result}`).not.toContain("is user-only")
       expect(`${row.name}: ${result}`).not.toStartWith(`${row.name}: unknown-command`)
+      if (controller.commands.find(row.name)?.metadata.http !== null) {
+        expect(result).toBe("failed: this command runs on the conversation host")
+        expect(confirmationFor(store, row.name)).toBeUndefined()
+        continue
+      }
       if (!row.confirm) continue
       expect(`${row.name}: ${result}`).toContain("asked the user to confirm")
       const confirmation = confirmationFor(store, row.name)
       expect(`${row.name} confirmation`).toBe(`${row.name} ${confirmation === undefined ? "missing" : "confirmation"}`)
-      expect(confirmation?.action?.args).toBe(row.args)
+      expect(confirmation?.action?.args).toBe(row.confirmedArgs ?? row.args)
     }
   })
 
@@ -320,13 +370,13 @@ describe("the three-door law", () => {
     const { store, controller } = await boot()
     cloudSession(store, "signed-out", null)
     await settle(2)
-    expect(await execute(controller, "cloud.prompt")).toBe("executed /cloud.prompt")
+    expect((await controller.commands.run("cloud.prompt")).status).toBe("executed")
     const step = confirmationFor(store, "cloud.sign-in")
     expect(step?.action).toEqual({ flow: "cloud.sign-in", label: "Sign in to Smithers Cloud" })
     expect(step?.role).toBe("smithers")
     cloudSession(store, "signed-in", "will")
     await settle(2)
-    expect(await execute(controller, "cloud.prompt")).toBe("executed /cloud.prompt")
+    expect((await controller.commands.run("cloud.prompt")).status).toBe("executed")
     expect(messages(store).at(-1)?.text).toBe("Smithers Cloud is already signed in as will.")
   })
 
@@ -391,44 +441,56 @@ describe("the three-door law", () => {
   test("flow authoring and card acts remain callable through the agent", async () => {
     const { controller } = await boot()
     const callable = new Set(controller.commands.callable().map(nameOf))
-    for (const name of ["flow.create", "agent.list", "form.set", "form.submit", "card.dismiss"]) {
+    for (const name of ["flow.new", "agents", "form.set", "form.submit", "card.dismiss"]) {
       expect(callable.has(name)).toBe(true)
     }
-    // And listed: the slash menu and the prompt's catalog show them.
+    // Flow authoring is listed; the owner model roster remains a hidden door.
     const disclosed = new Set(controller.commands.disclosed().map((descriptor) => descriptor.name))
-    for (const name of ["flow.create", "agent.list"]) {
+    for (const name of ["flow.new", "agents"]) {
       expect(disclosed.has(name)).toBe(true)
     }
     expect(disclosed.has("cloud.prompt")).toBe(false)
-    expect(disclosed.has("flow.run.retry")).toBe(false)
+    expect(disclosed.has("flow.run.retry")).toBe(true)
     // The form card's acts (THE FORM LAW) are hidden from the catalog and callable, like every id-scoped card act.
-    for (const name of ["form.set", "form.submit", "card.dismiss"]) expect(disclosed.has(name)).toBe(false)
+    for (const name of ["form.set", "form.submit", "card.dismiss"]) expect(disclosed.has(name)).toBe(true)
   })
 })
 
 
 
-test("versioned flow doors register on the design seam; a person's flow.edit drafts at once, an agent's asks first", async () => {
+test("versioned flow doors draft for a person and refuse backend execution in the browser", async () => {
   const { flowVersionFlows } = await import("./entries/flow")
   const entries = flowVersionFlows(new Proxy({}, { get: () => () => undefined }) as never)
   expect(entries.map(nameOf)).toEqual(["flow", "flow.edit", "flow.source", "flows"])
   expect(entries.every(modelInvocable)).toBe(true)
   const edit = entries[1]!
-  expect(edit.metadata.confirm).toBe("change this flow")
+  const confirm = edit.metadata.confirm
+  if (typeof confirm !== "function") throw new Error("Expected proposal-aware confirmation")
+  expect(confirm({ name: "todo", request: "Add review" })).toBe("change this flow")
+  expect(confirm({ name: "todo", request: "Add review", diff: "+review" })).toBeUndefined()
   expect(edit.metadata.grammar?.("todo")).toEqual({ payload: { name: "todo" } })
   expect(edit.metadata.grammar?.("todo Add review")).toEqual({ payload: { name: "todo", request: "Add review" } })
+  expect(edit.metadata.grammar?.("todo Keep  spaces\nand lines ")).toEqual({ payload: { name: "todo", request: "Keep  spaces\nand lines " } })
   expect(edit.metadata.form?.args?.({ name: "todo", request: "Add review" })).toBe("todo Add review")
   // Install hosts use repository flows; this case exercises the retained design seed.
   const { store, controller } = await boot({ ...EVERYTHING, capabilities: EVERYTHING.capabilities.filter(capability => capability !== "install") })
   for (const name of ["flow", "flow.source", "flow.edit", "flows"]) expect(controller.commands.find(name)).toBeDefined()
   expect((await controller.commands.run("flow", "todo")).status).toBe("executed")
   expect([...store.collections.cards.values()].some(card => card.kind === "flow" && card.payload.name === "todo")).toBe(true)
+  const form = await controller.commands.submit({ name: "flow.edit", payload: { name: "todo" }, actor: "user" })
+  expect(form.status).toBe("form")
+  if (form.status !== "form") throw new Error("Expected edit request form")
+  expect(store.collections.cards.get(form.cardId)).toMatchObject({ payload: { given: { name: "todo" }, fields: [{ name: "request" }] } })
+  await controller.setFormField(form.cardId, "request", "Keep the typed name")
+  await controller.submitForm(form.cardId)
+  expect([...store.collections.cards.values()].some(card => card.kind === "draft" && card.title === "Change the TODO flow: Keep the typed name")).toBe(true)
   // Spec §11.5.1 and the three-door law: a person's edit is a Draft now; an agent's invocation confirms first.
   expect((await controller.commands.run("flow.edit", "todo Add review")).status).toBe("executed")
   expect(confirmationFor(store, "flow.edit")).toBeUndefined()
   expect([...store.collections.cards.values()].some(card => card.kind === "draft")).toBe(true)
-  await execute(controller, "flow.edit", "todo Add lint")
-  expect(confirmationFor(store, "flow.edit")).toBeDefined()
+  expect(await execute(controller, "flow.edit", "todo Add lint")).toBe("failed: this command runs on the conversation host")
+  expect(confirmationFor(store, "flow.edit")).toBeUndefined()
+
 })
 
 test("Members doors are a person's: the slash and card commands exist, and the agent has none", async () => {

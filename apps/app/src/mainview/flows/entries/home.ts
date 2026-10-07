@@ -50,13 +50,13 @@ const idGrammar: Grammar = args => {
 }
 
 export const homeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
-  flow({ name: "stack", summary: STACK_COMMAND.summary, input: NoPayload,
+  flow({ name: "stack",   slash: "/stack", cli: ["stack"], journey: ["J4"], group: "TODOs and the stack", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/stack"}, summary: STACK_COMMAND.summary, agent: "run", input: NoPayload,
     handler: () => result(openDesignHome(actions.design, actions.design.viewer())) }),
-  flow({ name: "stack.move", summary: "Reorder an item", args: "<Tn> <up|down>", hidden: true, grammar: todoGrammar("direction"),
-    input: Schema.Struct({ n: N, direction: Schema.Literals(["up", "down"]) }),
+  flow({ name: "stack.move",   slash: "/stack.move", cli: ["stack","move"], journey: ["J4"], group: "TODOs and the stack", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/todos/{n}",defaults:{op:"move"}}, summary: "Reorder an item", args: "<Tn> <up|down>", hidden: true, grammar: todoGrammar("direction"),
+    agent: "run", input: Schema.Struct({ n: N, direction: Schema.Literals(["up", "down"]) }),
     handler: ({ n, direction }) => actions.moveTodo(n, direction) }),
-  flow({ name: "merge", summary: "Merge the next item", args: "<Tn>", hidden: true, grammar: todoGrammar(),
-    input: Schema.Struct({ n: N, reviewed_head_sha: Schema.optional(Schema.String) }),
+  flow({ name: "merge",   slash: "/merge", cli: ["merge"], journey: ["J1","J2","J4"], group: "TODOs and the stack", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "maintainer", http: {"method":"POST","path":"/api/todos/{n}/merge","body":{"reviewed_head_sha":"reviewed_head_sha"}}, summary: "Review and merge the next item", args: "<Tn>", grammar: todoGrammar(),
+    agent: "confirm", input: Schema.Struct({ n: N, reviewed_head_sha: Schema.optional(Schema.String), idempotencyKey: Schema.optional(Schema.String) }),
     /* The agent's door: a bare Merge runs (it only opens Review & merge); a head-bound one asks the person, whose press opens it. */
     confirm: payload => payload.reviewed_head_sha === undefined ? undefined : MERGE_CONFIRM_LABEL,
     confirmArgs: payload => `T${String(payload.n)}`,
@@ -78,15 +78,15 @@ export const homeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
         return { value: await actions.presentSubject(mergeCard(todo, viewer)) }
       }, () => actions.reviewTodoMerge(n))
     } }),
-  flow({ name: "background.retry", summary: "Retry a background run", args: "<id>", hidden: true, grammar: idGrammar,
+  flow({ name: "background.retry", agent: "run", minimumRole: "member", actors: ["person","app_agent"], visibility: "in-card",  summary: "Retry a background run", args: "<id>", hidden: true, grammar: idGrammar,
     input: Schema.Struct({ id: Id }),
     handler: ({ id }) => result(actions.design.retryRun(id)) }),
-  flow({ name: "background.dismiss", summary: "Dismiss a background run", args: "<id>", hidden: true, grammar: idGrammar,
+  flow({ name: "background.dismiss", agent: "run", minimumRole: "member", actors: ["person","app_agent"], visibility: "in-card",  summary: "Dismiss a background run", args: "<id>", hidden: true, grammar: idGrammar,
     input: Schema.Struct({ id: Id }),
     handler: ({ id }) => result(actions.design.dismissRun(id)) }),
-  flow({ name: "github", summary: "Show sync status", input: NoPayload,
+  flow({ name: "github",   slash: "/github", cli: ["github"], journey: ["J10"], group: "GitHub", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/github/sync"}, summary: "Show sync status and retry", agent: "run", input: NoPayload,
     handler: () => result(openDesignHome(actions.design, actions.design.viewer())) }),
-  flow({ name: "github.retry", summary: "Retry GitHub sync", hidden: true, input: NoPayload,
+  flow({ name: "github.retry", agent: "run", minimumRole: "member", actors: ["person", "app_agent", "external_agent"], visibility: "in-card", http: { method: "POST", path: "/api/github/sync" }, summary: "Retry GitHub sync", hidden: true, input: NoPayload,
     /*
      * The install's sync (POST /api/github/sync) where this host serves it, else the Cloud's door (GitHubSeam
      * `github.reconcile`); MOCK SEAM: the seed's sync otherwise.

@@ -17,7 +17,7 @@ export const TodoNewInput = Schema.Struct({
   before: Schema.optional(N), cardId: Schema.optional(Schema.String), idempotencyKey: Schema.optional(Text)
 })
 export const TodoAmendInput = Schema.Struct({
-  n: N, text: Text, cardId: Schema.optional(Schema.String), idempotencyKey: Schema.optional(Text)
+  n: N, text: Text, acceptance: Schema.optional(Schema.Array(Schema.String)), cardId: Schema.optional(Schema.String), idempotencyKey: Schema.optional(Text)
 })
 
 const form = (submitLabel: string) => ({ submitLabel,
@@ -25,35 +25,35 @@ const form = (submitLabel: string) => ({ submitLabel,
   args: (payload: Record<string, unknown>) => JSON.stringify(payload) })
 
 export const todoFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
-  flow({ name: "draft.discard", summary: "Discard a private Draft", hidden: true,
+  flow({ name: "draft.discard", agent: "run", minimumRole: "member", actors: ["person","app_agent"], visibility: "in-card",  summary: "Discard a private Draft", hidden: true,
     input: Schema.Struct({ draft: Text }), args: "<draft>", grammar: args => ({ payload: args?.trim() ? { draft: args.trim() } : {} }),
     handler: ({ draft }) => actions.dismissTodoDraft(draft) }),
-  flow({ name: "todo.new", summary: TODO_NEW_COMMAND.summary, args: TODO_NEW_COMMAND.args, input: TodoNewInput,
+  flow({ name: "todo.new",   slash: "/todo.new", cli: ["todo","new"], journey: ["J1","J2"], group: "TODOs and the stack", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/todos",body:{prompt:"text",title:"title",acceptance:"acceptance"},defaults:{place:{mode:"append"}},objects:{place:{when:"before",body:{n:"before"},defaults:{mode:"before"}}}}, summary: TODO_NEW_COMMAND.summary, args: TODO_NEW_COMMAND.args, agent: "confirm", input: TodoNewInput,
     grammar: parseTodoArgs("text", false), form: form("Commit"),
     confirm: (payload) => payload.cardId ? "commit this TODO" : undefined,
     handler: (input) => actions.newTodo(input) }),
-  flow({ name: "todo", summary: TODO_COMMAND.summary, args: TODO_COMMAND.args, input: Target,
+  flow({ name: "todo",   slash: "/todo", cli: ["todo","show"], journey: ["J2","J4"], group: "TODOs and the stack", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/todos/{n}"}, summary: TODO_COMMAND.summary, args: TODO_COMMAND.args, agent: "run", input: Target,
     grammar: parseTodoArgs(), form: form("Open"), handler: ({ n }) => actions.showTodo(n) }),
-  flow({ name: "todo.answer", summary: "Answer the agent's question", args: "<Tn> <answer>",
-    input: Schema.Struct({ n: N, answer: Text, wait: Schema.optional(Text) }), grammar: parseTodoArgs("answer"), form: form("Answer"),
+  flow({ name: "todo.answer",   slash: "/todo.answer", cli: ["todo","answer"], journey: ["J2","J3","J4"], group: "TODOs and the stack", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/todos/{n}/answer"}, summary: "Answer the agent's question", args: "<Tn> <answer>",
+    agent: "run", input: Schema.Struct({ n: N, answer: Text, wait: Schema.optional(Text) }), grammar: parseTodoArgs("answer"), form: form("Answer"),
     handler: ({ n, answer, wait }) => actions.answerTodo(n, answer, wait) }),
-  flow({ name: "todo.steer", summary: "Send the agent a correction", args: "<Tn> <text>",
-    input: Schema.Struct({ n: N, text: Text }), grammar: parseTodoArgs("text"), form: form("Steer"),
+  flow({ name: "todo.steer",   slash: "/todo.steer", cli: ["todo","steer"], journey: ["J3","J4"], group: "TODOs and the stack", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/todos/{n}",body:{steer:"text"}}, summary: "Send the agent a correction", args: "<Tn> <text>",
+    agent: "run", input: Schema.Struct({ n: N, text: Text, idempotencyKey: Schema.optional(Text) }), grammar: parseTodoArgs("text"), form: form("Steer"),
     handler: ({ n, text }) => actions.steerTodo(n, text) }),
-  flow({ name: "todo.amend", summary: "Change an unmerged TODO's prompt", args: "<Tn> <text>",
-    input: TodoAmendInput, grammar: parseTodoArgs("text"), form: form("Amend"), confirm: "amend this TODO",
+  flow({ name: "todo.amend",   slash: "/todo.amend", cli: ["todo","amend"], journey: ["J7"], group: "TODOs and the stack", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"PATCH","path":"/api/todos/{n}",body:{prompt:"text",acceptance:"acceptance"}}, summary: "Change an unmerged TODO's prompt", args: "<Tn> <text>",
+    agent: "confirm", input: TodoAmendInput, grammar: parseTodoArgs("text"), form: form("Amend"), confirm: "amend this TODO",
     handler: (input) => actions.amendTodo(input) }),
-  flow({ name: "todo.stop", summary: "Pause a working TODO", args: "<Tn>", input: Target,
+  flow({ name: "todo.stop",   slash: "/todo.stop", cli: ["todo","stop"], journey: ["J4"], group: "TODOs and the stack", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/todos/{n}",defaults:{op:"stop"}}, summary: "Pause a working TODO", args: "<Tn>", agent: "run", input: Target,
     grammar: parseTodoArgs(), form: form("Stop"), handler: ({ n }) => actions.controlTodo(n, "stop") }),
-  flow({ name: "todo.resume", summary: "Resume a paused TODO", args: "<Tn>", input: Target,
+  flow({ name: "todo.resume",   slash: "/todo.resume", cli: ["todo","resume"], journey: ["J4"], group: "TODOs and the stack", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/todos/{n}",defaults:{op:"resume"}}, summary: "Resume a paused TODO", args: "<Tn>", agent: "run", input: Target,
     grammar: parseTodoArgs(), form: form("Resume"), handler: ({ n }) => actions.controlTodo(n, "resume") }),
-  flow({ name: "todo.retry", summary: "Retry a failed TODO", args: "<Tn>",
-    input: Schema.Struct({ n: N, text: Schema.optional(Schema.String) }), grammar: parseTodoArgs("text"), form: form("Retry"),
+  flow({ name: "todo.retry",   slash: "/todo.retry", cli: ["todo","retry"], journey: ["J4"], group: "TODOs and the stack", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/todos/{n}",defaults:{op:"retry"}}, summary: "Retry a failed TODO", args: "<Tn>",
+    agent: "run", input: Schema.Struct({ n: N, text: Schema.optional(Schema.String) }), grammar: parseTodoArgs("text"), form: form("Retry"),
     handler: ({ n, text }) => actions.controlTodo(n, "retry", text) }),
-  flow({ name: "todo.retry-current-flow", summary: "Retry with the current flow", hidden: true, discloseToAgent: true,
+  flow({ name: "todo.retry-current-flow", agent: "run", minimumRole: "member", actors: ["person","app_agent"], visibility: "in-card",  summary: "Retry with the current flow", hidden: true, discloseToAgent: true,
     input: Schema.Struct({ n: N, text: Schema.optional(Schema.String) }), grammar: parseTodoArgs("text"), form: form("Retry"),
     handler: ({ n, text }) => actions.controlTodo(n, "retry-current-flow", text) }),
-  flow({ name: "todo.drop", summary: "Abandon an unmerged TODO", args: "<Tn>", input: Target,
-    grammar: parseTodoArgs(), form: form("Drop"), confirm: "drop this TODO",
+  flow({ name: "todo.drop",   slash: "/todo.drop", cli: ["todo","drop"], journey: ["J4","J7"], group: "TODOs and the stack", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/todos/{n}",defaults:{op:"drop"}}, summary: "Abandon an unmerged TODO", args: "<Tn>", agent: "confirm", input: Target,
+    grammar: parseTodoArgs(), form: form("Drop"), confirm: "drop this TODO", confirmPerson: true, confirmArgs: ({ n }) => JSON.stringify({ n }),
     handler: ({ n }) => actions.controlTodo(n, "drop") })
 ]

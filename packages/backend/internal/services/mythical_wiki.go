@@ -150,15 +150,30 @@ func (s *MythicalService) wikiEnabled(ctx context.Context, r *mythicalRun) (bool
 			return false, fmt.Errorf("fetch main: %s", sanitizeMirrorError(err, r.bridge.URL()))
 		}
 	}
-	if _, err := r.g.git(ctx, "cat-file", "-e", r.row.LandedMain+":"+mythicalWikiProject); err != nil {
-		if r.g.has(ctx, r.row.LandedMain) {
-			return false, nil
-		}
+	var stored []byte
+	err := s.store.QueryRow(ctx, `SELECT value FROM install_settings WHERE key=$1`, InstallCodingProjectKey).Scan(&stored)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return false, err
 	}
-	text, err := r.g.git(ctx, "show", r.row.LandedMain+":"+mythicalWikiProject)
-	if err != nil {
-		return false, err
+	var text string
+	var repositoryConfig []byte
+	if _, existsErr := r.g.git(ctx, "cat-file", "-e", r.row.LandedMain+":"+mythicalWikiProject); existsErr == nil {
+		text, err = r.g.git(ctx, "show", r.row.LandedMain+":"+mythicalWikiProject)
+		if err != nil {
+			return false, err
+		}
+		repositoryConfig = []byte(text)
+	} else if !r.g.has(ctx, r.row.LandedMain) {
+		return false, existsErr
+	}
+	if len(stored) > 0 {
+		merged, mergeErr := MergeCodingProject(stored, repositoryConfig)
+		if mergeErr != nil {
+			return false, mergeErr
+		}
+		text = string(merged)
+	} else if text == "" {
+		return false, nil
 	}
 	var project struct {
 		Wiki  bool              `json:"wiki"`

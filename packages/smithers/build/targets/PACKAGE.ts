@@ -84,7 +84,6 @@ const docsSources = Smithers.Filegroup({
 /**
  * The package's documentation as a file group (`docs/**`, the README, and
  * package.json), matching the filegroup BuildAndCheckTypeScriptPackage emits. The docs-site
- * content sync in `apps/docs/targets/PACKAGE.ts` depends on it by label, the
  * one way an input reaches across a package boundary.
  */
 const docsFiles = Smithers.Filegroup({

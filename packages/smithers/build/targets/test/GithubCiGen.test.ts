@@ -14,6 +14,7 @@ import { tmpdir } from "node:os"
 import * as NodePath from "node:path"
 import { describe, expect, it } from "vitest"
 import * as Yaml from "yaml"
+import * as Input from "../src/Input.ts"
 import * as CiToolchain from "../src/CiToolchain.ts"
 import {
   actionlintImages,

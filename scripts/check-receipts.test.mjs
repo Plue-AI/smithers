@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { expectedCommand, reverifyCi, unpackResults, validMapping, verifyCiRun, zeroTests } from './check-evidence.mjs'
-import { fixture } from './fixtures/check-receipts.mjs'
+import { fixture, zipFixture } from './fixtures/check-receipts.mjs'
 import { run as claimRun } from './issue-claim.mjs'
 
 const digest = (data) => `sha256:${createHash('sha256').update(data).digest('hex')}`
@@ -46,7 +46,7 @@ test('invalid evidence refuses every variant before any remote write', () => {
       refused(paths, 'commit', flags, null); refused(paths, 'commit', flags, 'abc'); refused(paths, 'commit', [...flags, '--note', f.sha], null)
     }
     f.put('second', 'x'); f.git('add','second'); f.git('commit','-m','not landed'); refused(paths,'commit',[],f.git('rev-parse','HEAD'))
-    for (const [field, value, reason] of [['version',2,'failed'],['exit',1,'failed'],['exit','0','failed'],['commit','0'.repeat(40),'commit'],['started','yesterday','failed'],['ended','2020-01-01T00:00:00.000Z','failed'],['layer',null,'failed'],['command',[],'coverage'],['log_digest','sha256:no','digest']]) {
+    for (const [field, value, reason] of [['version',2,'failed'],['exit',1,'failed'],['exit','0','failed'],['commit','0'.repeat(40),'commit'],['started','yesterday','failed'],['ended','2020-01-01T00:00:00.000Z','failed'],['layer',null,'failed'],['layer','unit','failed'],['command',[],'coverage'],['log_digest','sha256:no','digest']]) {
       f.put(paths[0], JSON.stringify({ ...JSON.parse(original), [field]: value })); refused(paths,reason); assert.equal(f.close(paths).out.checks[0].receipt, paths[0])
     }
     f.put(paths[0], original); f.put(join(paths[0],'..','log.txt'),'altered'); refused(paths,'digest')
@@ -222,8 +222,9 @@ test('invalid reasons and notes refuse before writes; explicit completed require
 test('inventory covers every check exactly once and executable mappings require approval, target and host', () => {
   const root=new URL('../',import.meta.url)
   const mappings=JSON.parse(readFileSync(new URL('scripts/check-commands.json',root)))
-  const files = `C-ACC-01 C-ACC-02 C-ACC-03 C-ACC-04 C-AGT-01 C-AGT-02 C-APP-01 C-APP-02 C-APP-03 C-APP-04 C-APP-05 C-CAT-01 C-CAT-02 C-CAT-03 C-COL-01 C-COL-02 C-COL-03 C-COL-04 C-COL-05 C-CUT-01 C-CUT-02 C-DUR-01 C-DUR-02 C-DUR-03 C-DUR-04 C-GH-01 C-GH-07 C-GH-08 C-GH-09 C-GH-13 C-INS-01 C-INS-03 C-INS-05 C-INS-06 C-J1-01 C-J1-02 C-J1-03 C-J1-04 C-J1-05 C-J1-06 C-J10-01 C-J10-02 C-J10-03 C-J10-04 C-J10-05 C-J10-06 C-J10-07 C-J10-08 C-J10-09 C-J11-01 C-J11-02 C-J11-03 C-J11-04 C-J2-01 C-J2-02 C-J2-03 C-J2-04 C-J2-05 C-J3-01 C-J3-02 C-J3-03 C-J3-04 C-J3-05 C-J3-06 C-J3-08 C-J3-09 C-J3-10 C-J4-01 C-J4-02 C-J4-03 C-J5-01 C-J5-02 C-J5-03 C-J6-01 C-J6-02 C-J7-01 C-J7-02 C-J7-03 C-J8-01 C-J8-02 C-J8-03 C-J8-04 C-J8-05 C-J8-06 C-J9-01 C-MCH-01 C-MCH-02 C-MCH-03 C-MCH-04 C-MCH-05 C-MCH-06 C-MCH-07 C-MCH-08 C-MCH-09 C-MCH-10 C-MCH-11 C-MNT-01 C-MNT-02 C-MNT-03 C-MNT-04 C-MNT-05 C-MNT-06 C-PERF-01 C-PERF-02 C-PERF-03 C-PERF-04 C-PERF-05 C-PERF-06 C-PRC-01 C-PRC-02 C-PRC-03 C-REL-01 C-REL-02 C-REL-03 C-REL-04 C-REL-05 C-REL-06 C-SEC-01 C-SEC-02 C-SEC-03 C-SEC-04 C-SEC-05 C-SPK-02 C-SPK-03 C-SPK-05 C-SPK-06 C-SPK-07 C-SPK-08 C-STK-01 C-STK-02 C-STK-03 C-STK-04 C-STK-05 C-STK-06 C-STK-07 C-STK-08 C-STK-13 C-UI-01 C-UI-02 C-UI-03 C-UI-04 C-UI-05 C-UI-06 C-UI-07 C-UI-08 C-UI-09 C-UI-10 C-UI-11 C-UI-12 C-UI-13`.split(' ')
+  const files = `C-ACC-01 C-ACC-02 C-ACC-03 C-ACC-04 C-AGT-01 C-AGT-02 C-APP-01 C-APP-02 C-APP-03 C-APP-04 C-APP-05 C-CAT-01 C-CAT-02 C-CAT-03 C-COL-01 C-COL-02 C-COL-03 C-COL-04 C-COL-05 C-CUT-01 C-CUT-02 C-DUR-01 C-DUR-02 C-DUR-03 C-DUR-04 C-GH-01 C-GH-07 C-GH-08 C-GH-09 C-GH-13 C-INS-01 C-INS-03 C-INS-05 C-INS-06 C-J1-01 C-J1-02 C-J1-03 C-J1-04 C-J1-05 C-J1-06 C-J10-01 C-J10-02 C-J10-03 C-J10-04 C-J10-05 C-J10-06 C-J10-07 C-J10-08 C-J10-09 C-J11-01 C-J11-02 C-J11-03 C-J11-04 C-J2-01 C-J2-02 C-J2-03 C-J2-04 C-J2-05 C-J3-01 C-J3-02 C-J3-03 C-J3-04 C-J3-05 C-J3-06 C-J3-08 C-J3-09 C-J3-10 C-J4-01 C-J4-02 C-J4-03 C-J5-01 C-J5-02 C-J5-03 C-J6-01 C-J6-02 C-J7-01 C-J7-02 C-J7-03 C-J8-01 C-J8-02 C-J8-03 C-J8-04 C-J8-05 C-J8-06 C-J9-01 C-MCH-01 C-MCH-02 C-MCH-03 C-MCH-04 C-MCH-05 C-MCH-06 C-MCH-07 C-MCH-08 C-MCH-09 C-MCH-10 C-MCH-11 C-MNT-01 C-MNT-02 C-MNT-03 C-MNT-04 C-MNT-05 C-MNT-06 C-PERF-01 C-PERF-02 C-PERF-03 C-PERF-04 C-PERF-05 C-PERF-06 C-PRC-01 C-PRC-02 C-PRC-03 C-REL-01 C-REL-02 C-REL-03 C-REL-04 C-REL-05 C-REL-06 C-RMT-01 C-RMT-02 C-RMT-03 C-RMT-04 C-RMT-05 C-RMT-06 C-SEC-01 C-SEC-02 C-SEC-03 C-SEC-04 C-SEC-05 C-SPK-02 C-SPK-03 C-SPK-05 C-SPK-06 C-SPK-07 C-SPK-08 C-STK-01 C-STK-02 C-STK-03 C-STK-04 C-STK-05 C-STK-06 C-STK-07 C-STK-08 C-STK-13 C-UI-01 C-UI-02 C-UI-03 C-UI-04 C-UI-05 C-UI-06 C-UI-07 C-UI-08 C-UI-09 C-UI-10 C-UI-11 C-UI-12 C-UI-13`.split(' ')
   assert.deepEqual(Object.keys(mappings.checks).sort(),files)
+  assert.deepEqual(readdirSync(new URL(".specs/engineering/checks/", root)).filter(name => /^C-.*\.md$/.test(name)).map(name => name.slice(0, -3)).sort(), files)
 
   for(const m of Object.values(mappings.checks)) assert.ok(validMapping(m))
   for(const m of [{command:['node'],host:'CI'},{approvedBy:'smithers-22',host:'CI'},{approvedBy:'smithers-22',command:['node']}]) assert.equal(validMapping(m),false)
@@ -377,15 +378,15 @@ test('runner requires --landed and refuses argv mappings even with CI=true', () 
 test('artifact unpacking is confined: symlinks, nested paths and oversize zips refuse with fixed reasons (3f, #3663)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'unpack-'))
   try {
-    const zip = (name, setup, flags = []) => {
+    const zip = (name, setup) => {
       const work = join(dir, name); mkdirSync(work, { recursive: true }); setup(work)
-      spawnSync('/usr/bin/zip', ['-q', '-r', ...flags, join(dir, `${name}.zip`), '.'], { cwd: work })
+      zipFixture(work, join(dir, `${name}.zip`))
       return readFileSync(join(dir, `${name}.zip`))
     }
     const good = unpackResults(zip('good', (w) => writeFileSync(join(w, 'step.json'), '{"version":1,"results":[]}')))
     assert.deepEqual(good, { files: [{ name: 'step.json', text: '{"version":1,"results":[]}' }] })
     const secret = join(dir, 'secret.txt'); writeFileSync(secret, '-----BEGIN PRIVATE KEY-----')
-    const link = unpackResults(zip('link', (w) => symlinkSync(secret, join(w, 'x.json')), ['-y']))
+    const link = unpackResults(zip('link', (w) => symlinkSync(secret, join(w, 'x.json'))))
     assert.deepEqual(link, { reason: 'artifact_entry' })
     assert.deepEqual(unpackResults(zip('nested', (w) => { mkdirSync(join(w, 'sub')); writeFileSync(join(w, 'sub', 'x.json'), '{}') })), { reason: 'artifact_entry' })
     assert.deepEqual(unpackResults(zip('other', (w) => writeFileSync(join(w, 'x.txt'), '{}'))), { reason: 'artifact_entry' })
@@ -581,6 +582,62 @@ test('scripts/checks retains only the host sampler and no duplicate runner', () 
   for (const name of readdirSync(dir)) assert.doesNotMatch(readFileSync(new URL(name, dir), 'utf8'), /check-run|check-evidence|check-commands|host-profile|ops-health-line/)
 })
 
+
+test('completed closure requires the landed declaration to match the approved mapping', () => {
+  for (const doc of [
+    'Layer: integration\nAutomation: `smthrs test //fixture:other` · Runs in: CI\n',
+    'Layer: integration\nAutomation: `smthrs test //fixture:canary` · Runs in: reference host\n',
+    'Layer: integration\nAutomation: `smthrs test //fixture:canary` (to write) · Runs in: CI\n',
+    'Layer: integration\nAutomation: unavailable · Runs in: CI\n',
+    'Automation: `smthrs test //fixture:canary` · Runs in: CI\n'
+  ]) {
+    const f = fixture()
+    try {
+      f.put('.specs/engineering/checks/C-FIX-01.md', doc); f.commit()
+      const paths = ['C-FIX-01', 'C-FIX-02'].map(f.evidence)
+      for (const flags of [[], ['--release'], ['--force'], ['--release', '--force']]) {
+        const out = f.close(paths, flags)
+        assert.equal(out.code, 2)
+        assert.equal(out.out.action, 'evidence-refused')
+        assert.deepEqual(out.out.checks, [{ check: 'C-FIX-01', reason: 'missing' }])
+        assert.equal(f.writes.length, 0)
+      }
+    } finally { f.cleanup() }
+  }
+})
+
+// The transport can return duplicate artifact names; neither list order is trusted.
+test('duplicate CI artifact identities refuse at recorder and completed-close boundaries', () => {
+  const f = fixture()
+  try {
+    const paths = ['C-FIX-01', 'C-FIX-02'].map(id => {
+      const out = f.recorded(id)
+      assert.equal(out.status, 0, out.stdout + out.stderr)
+      return JSON.parse(out.stdout).receipt
+    })
+    const statePath = join(f.root, 'transport.json')
+    const state = JSON.parse(readFileSync(statePath))
+    const artifacts = state.responses['repos/o/r/actions/runs/7/artifacts?per_page=100'].artifacts
+    artifacts.push({ ...artifacts[0], id: 11 })
+    f.put('transport.json', JSON.stringify(state))
+    const out = spawnSync(process.execPath, ['scripts/check-run.mjs', 'C-FIX-01', '--landed', f.sha], {
+      cwd: f.root, encoding: 'utf8', env: { ...process.env,
+        NODE_OPTIONS: `--import=${join(f.root, 'transport.mjs')}`,
+        PRC03_TRANSPORT: statePath, SMITHERS_GITHUB_PROXY: 'http://fixture.test' }
+    })
+    assert.equal(out.status, 1, out.stdout + out.stderr)
+    const receipt = JSON.parse(readFileSync(join(f.root, JSON.parse(out.stdout).receipt)))
+    assert.equal(receipt.exit, 1)
+    const log = JSON.parse(readFileSync(join(f.root, JSON.parse(out.stdout).receipt, '..', 'log.txt')))
+    assert.equal(log.reason, 'artifact_ambiguous')
+    const close = f.cliClose(paths)
+    assert.equal(close.status, 2, close.stdout + close.stderr)
+    assert.equal(JSON.parse(close.stdout).action, 'evidence-refused')
+    assert.deepEqual(JSON.parse(close.stdout).checks.map(row => [row.check, row.reason]),
+      [['C-FIX-01', 'failed'], ['C-FIX-02', 'failed']])
+    assert.deepEqual(JSON.parse(readFileSync(statePath)).writes, [])
+  } finally { f.cleanup() }
+})
 
 test('reference-host mappings accept only reviewed targets and keep all other rules', () => {
   const mapping = {host: 'reference-host', approvedBy: 'smithers-22', target: '//fixture:canary'}

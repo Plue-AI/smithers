@@ -47,6 +47,9 @@ var apiCSRFBypassPaths = []string{
 // design. The route coverage contract accepts them; they are not a runtime
 // bypass, because ExcludePaths matches literal paths only.
 var apiCSRFExemptRoutes = []string{
+	// Coding file grant callbacks require host or self-revocation bearers.
+	"/api/gateways/{hostID}/file-write-grants",
+	"/api/gateways/{hostID}/file-write-grants/{tokenID}",
 	// A box coding host's repository-job callbacks authenticate with its
 	// flowhost binding ID and control credential. They read no session
 	// cookie. Name them for the route coverage contract.
@@ -287,12 +290,6 @@ func sandboxPlanAdmission(policy services.BillingPolicy) middleware.SandboxPlanA
 	}
 }
 
-// appTimelineMaxRequestBodySize bounds app-timeline write bodies. Rewrites
-// carry the whole dump (service-capped at 4 MiB of payload); JSON escaping
-// can inflate past the global 1 MB default, so the timeline mount uses this
-// larger cap.
-const appTimelineMaxRequestBodySize int64 = 6 << 20
-
 // joinedBackgroundWorker gives shutdown a concrete completion boundary for a
 // worker that must finish cancellation cleanup before shared dependencies (in
 // particular the database pool) are closed.
@@ -415,7 +412,7 @@ func buildRateLimitRejectObserver(metrics *routes.SmithersMetrics) middleware.Ra
 	}
 }
 
-func buildAuthProviders(cfg config.AuthConfig, credentials auth.GitHubOAuthCredentialSource) (services.KeyAuthVerifier, services.GitHubAuthClient, error) {
+func buildAuthProviders(cfg config.AuthConfig, credentials auth.GitHubOAuthCredentialSource, budget *services.BudgetTracker) (services.KeyAuthVerifier, services.GitHubAuthClient, error) {
 	keyAuthVerifier := auth.NewKeyAuthVerifier()
 	var githubClient services.GitHubAuthClient
 	if credentials != nil {
@@ -424,6 +421,7 @@ func buildAuthProviders(cfg config.AuthConfig, credentials auth.GitHubOAuthCrede
 			cfg.GitHubRedirectURL,
 			cfg.GitHubOAuthBaseURL,
 			cfg.GitHubAPIBaseURL,
+			auth.WithGitHubBudget(budget),
 		)
 	}
 

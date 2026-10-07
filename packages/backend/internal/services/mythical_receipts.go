@@ -23,6 +23,8 @@ type mythicalReceipts struct {
 // (flows/coding/schema.ts Receipt), without its evidence. DurationMs is how
 // long the check's process ran, when the receipt recorded its start and finish.
 type mythicalReceipt struct {
+	LogDigest  string `json:"log_digest,omitempty"`
+	Evidence   string `json:"evidence,omitempty"`
 	Check      string `json:"check"`
 	Tier       string `json:"tier"`
 	Status     string `json:"status"`
@@ -32,6 +34,7 @@ type mythicalReceipt struct {
 }
 
 type mythicalFlowReceipt struct {
+	Evidence   string `json:"evidence"`
 	CheckID    string `json:"checkId"`
 	Tier       string `json:"tier"`
 	Status     string `json:"status"`
@@ -63,7 +66,7 @@ var (
 // or verify run returned; nil when it returned none. A superseded receipt measured a
 // commit the run later replaced, so it is not kept, nor is one that is not a
 // receipt the coding flows write.
-func mythicalRunReceipts(phase, runID string, update flowdispatch.ProjectionUpdate) *mythicalReceipts {
+func mythicalRunReceipts(phase, runID string, update flowdispatch.ProjectionUpdate, retainLogs ...bool) *mythicalReceipts {
 	if runID == "" || update.Checkpoint.Run == nil || update.Checkpoint.Run.FinalOutput == nil {
 		return nil
 	}
@@ -112,8 +115,12 @@ func mythicalRunReceipts(phase, runID string, update flowdispatch.ProjectionUpda
 			!mythicalReceiptStatuses[receipt.Status] || !mythicalReceiptFaults[receipt.Fault] {
 			continue
 		}
+		evidence := ""
+		if len(retainLogs) > 0 && retainLogs[0] {
+			evidence = receipt.Evidence
+		}
 		kept = append(kept, mythicalReceipt{Check: receipt.CheckID, Tier: receipt.Tier, Status: receipt.Status,
-			Fault: receipt.Fault, Commit: receipt.CommitID, DurationMs: receipt.duration()})
+			Fault: receipt.Fault, Commit: receipt.CommitID, DurationMs: receipt.duration(), Evidence: evidence})
 	}
 	if len(kept) == 0 {
 		return nil

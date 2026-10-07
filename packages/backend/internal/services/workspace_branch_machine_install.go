@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
@@ -18,18 +19,15 @@ type GuestIdentityRuntime interface {
 	GuestIdentity() (login string, uid int)
 }
 
-// branchMachineCommands are the commands the install's one member may run on
+// branchMachineCommands are the commands install members may run on
 // a branch: join it, or read the branch list.
-var branchMachineCommands = map[string]bool{"branch.join": true, "branches.read": true}
+var branchMachineCommands = map[string]bool{"branch.join": true, "branches.read": true, "branch.read": true}
 
 // InstallBranchMachineProviders are a self-hosted install's branch machine
 // providers (T-MCH-04, #3565), composed only on its microVM runtime:
-//   - Membership is the install's roster: its owner (M-17 adds members), an
-//     active account that may sign in, held FOR SHARE until the transaction
-//     ends so a suspension waits for the admitted write.
-//   - Authorize is the one member authorizer every transport uses
-//     (identity.MemberBoundary): the verified owner, for branch.join and
-//     branches.read only.
+//   - Membership holds the roster and active member rows until commit, so
+//     removal and suspension wait for admitted writes.
+//   - Authorize uses the shared member boundary for branch commands.
 //   - LaneBinding: see installLaneBinding.
 //   - MicroVM admits only an isolated runtime; there is no host fallback.
 //   - SessionIdentity admits only a runtime that runs repository code as one
@@ -45,11 +43,38 @@ func InstallBranchMachineProviders(members identity.MemberAuthorizer, runtime wo
 	}
 }
 
-func installBranchMembership(ctx context.Context, tx pgx.Tx, _, actorID int64) error {
+func installBranchMembership(ctx context.Context, tx pgx.Tx, repositoryID, actorID int64) error {
+	// Roster mutations acquire this row FOR UPDATE before touching users or
+	// shares. Taking it first gives joins and mutations the same lock order.
+	var owner int64
+	if err := tx.QueryRow(ctx, `SELECT user_id FROM self_host_owners WHERE singleton FOR SHARE`).Scan(&owner); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return pkgerrors.Forbidden("not a member of this install")
+		}
+		return err
+	}
 	var id int64
-	err := tx.QueryRow(ctx, `SELECT u.id FROM self_host_owners o JOIN users u ON u.id = o.user_id
-        WHERE o.singleton AND u.id = $1 AND u.is_active AND u.deleted_at IS NULL AND NOT u.prohibit_login
-        FOR SHARE OF u`, actorID).Scan(&id)
+	err := tx.QueryRow(ctx, `SELECT id FROM users WHERE id=$1 AND is_active
+        AND deleted_at IS NULL AND NOT prohibit_login FOR SHARE`, actorID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return pkgerrors.Forbidden("not a member of this install")
+	}
+	if err != nil || actorID == owner {
+		return err
+	}
+	installedID, err := InstallRepositoryID(ctx, db.New(tx))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return pkgerrors.Forbidden("not a member of this install")
+	}
+	if err != nil {
+		return err
+	}
+	if installedID != repositoryID {
+		return pkgerrors.Forbidden("not a member of this install")
+	}
+	err = tx.QueryRow(ctx, `SELECT c.id FROM collaborators c
+        WHERE c.repository_id=$1 AND c.user_id=$2 AND c.suspended_at IS NULL
+        AND c.permission IN ('write','admin') FOR SHARE OF c`, repositoryID, actorID).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return pkgerrors.Forbidden("not a member of this install")
 	}
@@ -57,14 +82,20 @@ func installBranchMembership(ctx context.Context, tx pgx.Tx, _, actorID int64) e
 }
 
 func installBranchAuthorizer(members identity.MemberAuthorizer) func(context.Context, pgx.Tx, string, int64, string, int64) error {
-	return func(ctx context.Context, _ pgx.Tx, command string, _ int64, _ string, actorID int64) error {
+	return func(ctx context.Context, tx pgx.Tx, command string, _ int64, _ string, actorID int64) error {
 		if !branchMachineCommands[command] {
 			return pkgerrors.Forbidden("branch command " + command + " is not allowed")
 		}
 		if members == nil {
 			return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch authorizer unavailable")
 		}
-		if err := members.AuthorizeMember(ctx, actorID); err != nil {
+		boundary := members
+		if _, databaseBoundary := members.(*identity.MemberBoundary); tx != nil && databaseBoundary {
+			// Reuse the admission transaction: acquiring another connection
+			// while every join holds one can exhaust the pool.
+			boundary = identity.NewMemberBoundary(db.New(tx))
+		}
+		if err := boundary.AuthorizeMember(identity.WithMemberRoute(ctx), actorID); err != nil {
 			return err
 		}
 		return nil

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -61,6 +62,8 @@ func TestTodoAnswerHTTP(t *testing.T) {
 	require.NoError(t, err)
 	q := db.New(pool)
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(`{"owner_login":"answer-owner","repository_name":"answer-repo"}`)}))
+	_, err = pool.Exec(ctx, `INSERT INTO install_settings(key,value) SELECT 'owner.access', value || jsonb_build_object('last_access_check_at',to_char(now(),'YYYY-MM-DD"T"HH24:MI:SS"Z"')) FROM install_settings WHERE key='github.repository'`)
+	require.NoError(t, err)
 	checks := `{"todo":true,"run_launched":true,"run_attached":true,"waits":[{"id":"q-0123456789abcdef","kind":"question","prompt":"Backoff or a fixed delay?","since":"2026-10-05T08:00:00Z",
 		"signal":{"scope":{"TenantID":"repository:1","PrincipalID":"user:1"},"target":{"TenantID":"repository:1","PrincipalID":"user:1","WorkspaceID":"w-1","BindingKind":"mythical-item","BindingID":"i-1"},"flow":"todo","run":"run-1","name":"coding-clarification"}}]}`
 	item, _, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo, State: "running", Checks: []byte(checks)})
@@ -75,7 +78,9 @@ func TestTodoAnswerHTTP(t *testing.T) {
 	handler := &TodoHandler{Queries: q, Service: service}
 	router.Post("/api/todos/{n}/answer", handler.Answer)
 	router.Get("/api/todos/{n}", handler.Get)
-	ownerSession := &middleware.AuthInfo{User: &db.User{ID: owner}, SessionHash: "owner-session"}
+	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: owner, Username: "answer-owner", SessionKey: "owner-session", ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
+	ownerSession := &middleware.AuthInfo{User: &db.User{ID: owner, Username: "answer-owner"}, SessionHash: "owner-session"}
 	call := func(method, path, body string, info *middleware.AuthInfo) (int, map[string]any) {
 		t.Helper()
 		req := httptest.NewRequest(method, path, strings.NewReader(body))

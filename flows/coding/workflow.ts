@@ -1,6 +1,7 @@
 /** The leaves a linear implementation names, and the policy that validates them. */
 import { Action } from "@smthrs/flow"
 import { Effect, Layer, Schema } from "effect"
+import { atomError } from "./atoms.ts"
 import {
   Change,
   Check,
@@ -32,7 +33,7 @@ export const Implement = Action.make("coding/implement-change", {
     memory: Schema.optionalKey(ProjectMemory)
   },
   success: Implementation,
-  error: CodingError,
+  error: atomError,
   nondeterministic: true
 })
 export const RunCheck = Action.make("coding/check", {
@@ -41,7 +42,7 @@ export const RunCheck = Action.make("coding/check", {
   idempotencyKey: undefined,
   payload: { implementation: Implementation, check: Check },
   success: Receipt,
-  error: CodingError
+  error: atomError
 })
 export const FastGate = Action.make("coding/fast-gate", {
   payload: {

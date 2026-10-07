@@ -26,6 +26,9 @@ import (
 // the canonical TypeScript ModelBinding; TypeScript remains the sole authority
 // for provider routing, credential origin, and model policy.
 type Binding struct {
+	// Preflight is the install owner's fast role, resolved separately from
+	// an explicit app-agent model. Its credential stays in launch memory too.
+	Preflight        *Binding
 	Model            json.RawMessage
 	CredentialName   string
 	CredentialOrigin string

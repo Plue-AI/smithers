@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
-import { afterEach, describe, expect, test } from "bun:test";
+import { copyText } from "../src/index";
+import { afterEach, describe, expect, test, jest } from "bun:test";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { SecretField } from "../src/artifacts/SecretField";
@@ -112,7 +113,7 @@ for (const affordance of affordances) {
 
       expect(button.textContent).toBe("Copy");
       expect(container!.querySelector(affordance.rootSelector)!.getAttribute("data-copy-failed")).toBe("true");
-      expect(errors).toEqual([{ code: "clipboard-write-failed", cause }]);
+      expect(errors).toEqual([{ code: "clipboard-unavailable", cause }]);
       expect(container!.textContent).not.toContain(cause.message);
     });
 
@@ -136,7 +137,7 @@ for (const affordance of affordances) {
 
       expect(button.textContent).toBe("Copy");
       expect(container!.querySelector(affordance.rootSelector)!.getAttribute("data-copy-failed")).toBe("true");
-      expect(errors).toEqual([{ code: "clipboard-write-failed", cause }]);
+      expect(errors).toEqual([{ code: "clipboard-unavailable", cause }]);
     });
 
     test("claims success only after an async callback resolves", async () => {
@@ -245,15 +246,39 @@ for (const affordance of affordances) {
 }
 
 test("CodeBlock resets Copied after copiedDurationMs", async () => {
+ jest.useFakeTimers();
+ try {
   await render(<CodeBlock code="x" onCopyCode={() => {}} copiedDurationMs={20} />);
   const button = container!.querySelector<HTMLButtonElement>('[data-slot="code-block-copy"]')!;
-  await act(async () => {
-    button.click();
-    await Promise.resolve();
-  });
+  await act(async () => { button.click(); await Promise.resolve(); });
   expect(button.textContent).toBe("Copied");
-  await act(async () => {
-    await new Promise((done) => setTimeout(done, 60));
-  });
+  await act(async () => { jest.advanceTimersByTime(20); });
   expect(button.textContent).toBe("Copy");
+ } finally { jest.useRealTimers(); }
+});
+
+test("public copyText falls back after a refused host write and preserves focus", async () => {
+ const original = Object.getOwnPropertyDescriptor(document, "execCommand");
+ const focus = document.createElement("input"); document.body.append(focus); focus.focus();
+ let copies = 0;
+ Object.defineProperty(document, "execCommand", {configurable:true, value:(command:string)=>{
+  expect(command).toBe("copy");
+  expect((document.activeElement as HTMLTextAreaElement).value).toBe("plain HTTP copy");
+  copies++; return true;
+ }});
+ try {
+  const pending = deferred();
+  let finished = false;
+  const result = copyText("plain HTTP copy", async () => { await pending.promise; throw new Error("native refused"); }).then(value => {finished=true; return value;});
+  await Promise.resolve(); expect(finished).toBe(false); expect(copies).toBe(0);
+  pending.resolve(); expect(await result).toEqual({ok:true}); expect(copies).toBe(1); expect(document.activeElement).toBe(focus);
+  Object.defineProperty(navigator, "clipboard", {configurable:true, value:undefined});
+  expect(await copyText("plain HTTP copy")).toEqual({ok:true}); expect(copies).toBe(2);
+  Object.defineProperty(document, "execCommand", {configurable:true, value:()=>false});
+  expect(await copyText("plain HTTP copy")).toMatchObject({ok:false, code:"clipboard-unavailable"});
+ } finally {
+  focus.remove();
+  if(original) Object.defineProperty(document, "execCommand", original);
+  else delete (document as unknown as {execCommand?:unknown}).execCommand;
+ }
 });

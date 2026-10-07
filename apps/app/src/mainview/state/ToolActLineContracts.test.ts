@@ -47,7 +47,7 @@ test("missing or wrongly typed nested values do not invent command or URL labels
 test("launch acknowledgments use machine workflow and repo fields rather than input wording", () => {
   expect(toolActLine(command("flow.run", "invented other/repo"), "run-requested workflow=review request=saved repo=owner/repo")).toBe("Smithers requested a review run on owner/repo")
   expect(toolActLine(command("flow.run", "invented other/repo"), "run-started workflow=build run=live")).toBe("Smithers started a build run")
-  expect(toolActLine(command("flow.create", "invented workflow"), "flow-requested request=saved")).toBe("Smithers requested a create-flow run")
+  expect(toolActLine(command("flow.new", "invented workflow"), "flow-requested request=saved")).toBe("Smithers requested a create-flow run")
   expect(toolActLine({ callId: "direct", name: "flow.run", args: "{}" }, "run-started run=live")).toBe("Smithers started a flow.run run")
 })
 

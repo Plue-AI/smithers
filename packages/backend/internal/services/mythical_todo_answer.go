@@ -17,7 +17,6 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
@@ -72,8 +71,19 @@ func mythicalProjectWaits(next *db.MythicalItem, projection mythicalProjection, 
 		withdrawn := now
 		wait.SettledAt, changed = &withdrawn, true
 	}
+	// Only a working run opens a new run wait (§4.1). A reported existing
+	// question stays open while another wait masks it; a late checkpoint of
+	// a paused or proposed run cannot invent a new question. Withdrawal and
+	// terminal settlement above still apply independently.
+	canAsk := false
+	if !next.PausedAt.Valid {
+		switch next.State {
+		case "running", "delivering", "integrating", "verifying", "proposing", "waiting", "retrying":
+			canAsk = true
+		}
+	}
 	for _, question := range asked {
-		if !known[question.ID] {
+		if canAsk && !known[question.ID] {
 			checks.Waits, changed = append(checks.Waits, question), true
 		}
 	}
@@ -225,11 +235,6 @@ type mythicalSignaler interface {
 // credential answers for its member only on its own branch's TODO, and the
 // answer is by that terminal or the agent working in it (todoActor).
 func (s *MythicalService) AnswerTodo(ctx context.Context, repositoryID, userID, number int64, input TodoAnswerInput) error {
-	if _, terminal := middleware.AuthInfoFromContext(ctx).TerminalDelegation(); !terminal {
-		if err := middleware.RequirePerson(ctx, "answer a TODO"); err != nil {
-			return err
-		}
-	}
 	if number <= 0 {
 		return &TodoControlError{http.StatusBadRequest, "invalid_todo", "user", "Invalid TODO number"}
 	}
@@ -244,6 +249,14 @@ func (s *MythicalService) AnswerTodo(ctx context.Context, repositoryID, userID, 
 	if s == nil || s.store == nil || signaler == nil {
 		return &TodoControlError{http.StatusServiceUnavailable, "todo_unavailable", "infra", "Answers are unavailable"}
 	}
+	decision, err := Authorize(ctx, s.queries(), "todo.answer")
+	if err != nil {
+		return err
+	}
+	if decision.UserID != userID {
+		return &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Invalid TODO authority"}
+	}
+	ctx = WithInstallAuthorization(ctx, "todo.answer", decision)
 	person, err := s.queries().GetUserByID(ctx, userID)
 	if err != nil {
 		return err
@@ -251,6 +264,9 @@ func (s *MythicalService) AnswerTodo(ctx context.Context, repositoryID, userID, 
 	by := todoActor(ctx, person)
 	return pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id = $1 FOR UPDATE`, repositoryID); err != nil {
+			return err
+		}
+		if err := guardInstallTodoWrite(ctx, tx, repositoryID, userID); err != nil {
 			return err
 		}
 		q := db.New(tx)

@@ -41,6 +41,7 @@ func TestHTTPChatHostUnitTypesProviderRefusals(t *testing.T) {
 }
 
 func TestProviderRefusalTextNamesTheProviderAndReason(t *testing.T) {
+	require.Equal(t, "App instructions exceed the read limit.", (&ProviderRefusal{Code: "instructions_invalid"}).Text())
 	require.Equal(t, "OpenAI is out of quota or credits.", (&ProviderRefusal{Code: "provider_quota", Provider: "OpenAI"}).Text())
 	require.Equal(t, "Cerebras rejected the key.", (&ProviderRefusal{Code: "provider_auth", Provider: "Cerebras"}).Text())
 	require.Equal(t, "The model provider is out of quota or credits.", (&ProviderRefusal{Code: "provider_quota"}).Text())

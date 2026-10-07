@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -92,18 +93,34 @@ func (s *WorkspaceService) ListBranches(ctx context.Context, repositoryID, userI
 	if err := s.branchMachineProviders.Authorize(ctx, tx, "branches.read", repositoryID, "", userID); err != nil {
 		return nil, 0, err
 	}
-	rows, total, err := s.ListWorkspaces(ctx, repositoryID, userID, page, perPage)
+	// Branch machines belong to the service identity, never to the person
+	// reading the roster. List that canonical inventory, including branches
+	// the member has not joined yet; reading creates no grant.
+	q := db.New(tx)
+	owner, err := q.GetBranchMachineOwner(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
-	q := db.New(tx)
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 || perPage > 100 {
+		perPage = 30
+	}
+	rows, err := q.ListWorkspacesByRepo(ctx, db.ListWorkspacesByRepoParams{
+		RepositoryID: repositoryID, UserID: owner,
+		PageOffset: ClampInt32((page - 1) * perPage), PageSize: int32(perPage),
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	total, err := q.CountWorkspacesByRepo(ctx, db.CountWorkspacesByRepoParams{RepositoryID: repositoryID, UserID: owner})
+	if err != nil {
+		return nil, 0, err
+	}
 	result := make([]BranchMachineResponse, 0, len(rows))
 	for _, row := range rows {
-		full, err := s.q.GetWorkspace(ctx, row.ID)
-		if err != nil {
-			return nil, 0, err
-		}
-		branch, err := s.projectBranch(ctx, q, full, row)
+		branch, err := s.projectBranch(ctx, q, row, s.toWorkspaceResponse(row))
 		if err != nil {
 			return nil, 0, err
 		}
@@ -113,7 +130,7 @@ func (s *WorkspaceService) ListBranches(ctx context.Context, repositoryID, userI
 }
 
 func (s *WorkspaceService) GetBranch(ctx context.Context, branch string, repositoryID, userID int64) (BranchMachineResponse, error) {
-	if err := s.preflightBranchMachine(ctx, repositoryID, userID, branch, ""); err != nil {
+	if err := s.requireBranchMachineProviders(); err != nil {
 		return BranchMachineResponse{}, err
 	}
 	tx, err := s.transactions.Begin(ctx)
@@ -122,11 +139,25 @@ func (s *WorkspaceService) GetBranch(ctx context.Context, branch string, reposit
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	q := db.New(tx)
-	row, err := q.GetBranchWorkspace(ctx, db.GetBranchWorkspaceParams{RepositoryID: repositoryID, TargetBookmark: branch})
+	var row db.Workspace
+	if _, parseErr := uuid.Parse(branch); parseErr == nil {
+		row, err = q.GetWorkspaceByRepo(ctx, db.GetWorkspaceByRepoParams{ID: branch, RepositoryID: repositoryID})
+	} else {
+		row, err = q.GetBranchWorkspace(ctx, db.GetBranchWorkspaceParams{RepositoryID: repositoryID, TargetBookmark: branch})
+	}
+
 	if errors.Is(err, pgx.ErrNoRows) {
 		return BranchMachineResponse{}, pkgerrors.NotFound("branch not found")
 	}
 	if err != nil {
+		return BranchMachineResponse{}, err
+	}
+	if err := s.authorizeBranchFileRead(ctx, row, userID); err != nil {
+		return BranchMachineResponse{}, err
+	}
+	// Machine state and queue position are metadata reads. They must
+	// remain visible when retained file objects are unavailable.
+	if err := authorizeWorkspaceReadBinding(ctx, row); err != nil {
 		return BranchMachineResponse{}, err
 	}
 	projected, err := s.GetWorkspace(ctx, row.ID, repositoryID, userID)
@@ -153,7 +184,7 @@ func (s *WorkspaceService) projectBranch(ctx context.Context, q *db.Queries, row
 		}
 		branch.ForkedFrom = from
 	}
-	if branch.Kind == "scratch" {
+	if branch.Kind == "scratch" && row.Status != "suspended" && row.Status != "stopped" {
 		head, err := s.branchRefHead(ctx, row)
 		if err != nil {
 			return BranchMachineResponse{}, err

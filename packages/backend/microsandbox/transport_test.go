@@ -122,6 +122,9 @@ func guestArtifactMSB(t *testing.T, bundle string) (*Runtime, string, string) {
 	dir := t.TempDir()
 	guestRootDir, err := filepath.EvalSymlinks(t.TempDir())
 	require.NoError(t, err)
+	// Go's TempDir leaf inherits the developer's umask; the guest's protected
+	// root must be private even when that umask permits group writes.
+	require.NoError(t, os.Chmod(guestRootDir, 0o700))
 	argv := filepath.Join(dir, "argv")
 	binary := filepath.Join(dir, "fake-msb")
 	etc, bin := filepath.Join(guestRootDir, "etc"), filepath.Join(guestRootDir, "usr", "local", "bin")

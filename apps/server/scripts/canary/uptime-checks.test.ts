@@ -577,7 +577,7 @@ describe("endpointPlan", () => {
     const gate = endpointPlan("run-1").find((endpoint) => endpoint.label === "turn-gate")!
     expect(gate.expectedStatus).toBe(401)
     expect(gate.method).toBe("POST")
-    expect(JSON.parse(gate.body!)).toMatchObject({ runId: "run-1" })
+    expect(JSON.parse(gate.body!)).toMatchObject({ prompt: "Say the word ok and nothing else.", idempotencyKey: "run-1" })
   })
 })
 
@@ -629,7 +629,7 @@ const SCOPED_SESSION = "{\"username\":\"smithers-visitor\",\"is_admin\":false}"
 const bootstrap = { apiVersion: 1, host: "cloud", version: "1", buildSha: "a".repeat(40), capabilities: ["agent", "identity"], authFlow: "redirect", sandbox: null }
 const healthy = (url: string): Response => {
   if (url.endsWith("/api/bootstrap")) return Response.json(bootstrap)
-  if (url.endsWith("/api/agent/turn")) return new Response("Unauthorized", { status: 401 })
+  if (url.endsWith("/api/conversations/main/prompt")) return new Response("Unauthorized", { status: 401 })
   if (url.endsWith("/api/user")) return new Response(SCOPED_SESSION, { status: 200 })
   return new Response("ok", { status: 200 })
 }
@@ -637,7 +637,7 @@ const healthy = (url: string): Response => {
 /** Turn-seam calls only: the identity read-back carries a cookie too. */
 const meteredCalls = (calls: ReadonlyArray<{ url: string; init: RequestInit }>): number =>
   calls.filter((call) =>
-    call.url.endsWith("/api/agent/turn") && (call.init.headers as Record<string, string>).cookie !== undefined
+    call.url.endsWith("/api/conversations/main/prompt") && (call.init.headers as Record<string, string>).cookie !== undefined
   ).length
 
 const ndjson = (frames: ReadonlyArray<string>): ReadableStream<Uint8Array> =>
@@ -714,7 +714,7 @@ describe("runUptimeProbe", () => {
   test("a turn seam that stops refusing anonymous callers is an error, not a pass", async () => {
     const { deps } = makeDeps(
       20,
-      (url) => url.endsWith("/api/agent/turn") ? new Response("streaming", { status: 200 }) : healthy(url)
+      (url) => url.endsWith("/api/conversations/main/prompt") ? new Response("streaming", { status: 200 }) : healthy(url)
     )
     const report = await runUptimeProbe(deps, options())
 
@@ -724,10 +724,10 @@ describe("runUptimeProbe", () => {
 
   test("with a session cookie the probe takes exactly one metered turn and times its first frame", async () => {
     const { deps, calls } = makeDeps(3_000, (url, init) => {
-      if (url.endsWith("/api/agent/turn") && (init.headers as Record<string, string>).cookie !== undefined) {
+      if (url.endsWith("/api/conversations/main/prompt") && (init.headers as Record<string, string>).cookie !== undefined) {
         return new Response(
-          ndjson(["{\"runId\":\"run-1-metered\",\"type\":\"delta\",\"kind\":\"text\",\"text\":\"ok\"}"]),
-          { status: 200 }
+          JSON.stringify({ turnId: "metered" }),
+          { status: 202 }
         )
       }
       return healthy(url)
@@ -742,9 +742,9 @@ describe("runUptimeProbe", () => {
     expect(check.detail).toContain(`budget ${LATENCY_BUDGETS_MS.turnFirstFrame}ms`)
   })
 
-  test("the metered sample decodes one complete split NDJSON frame", async () => {
-    const frame = "{\"runId\":\"run-1-metered\",\"type\":\"delta\",\"kind\":\"text\",\"text\":\"ok\"}\n"
-    const { deps } = makeDeps(1, () => new Response(chunked([frame.slice(0, 12), frame.slice(12)]), { status: 200 }))
+  test("the metered sample validates a complete split prompt admission", async () => {
+    const frame = JSON.stringify({ turnId: "metered" })
+    const { deps } = makeDeps(1, () => new Response(chunked([frame.slice(0, 12), frame.slice(12)]), { status: 202 }))
     const result = await meteredTurnSample(deps, options(), "s=1")
     expect(result.transportError).toBeUndefined()
   })
@@ -765,10 +765,10 @@ describe("runUptimeProbe", () => {
 
   test("a metered turn slower than the first-frame budget fails", async () => {
     const { deps } = makeDeps(LATENCY_BUDGETS_MS.turnFirstFrame + 1_000, (url, init) => {
-      if (url.endsWith("/api/agent/turn") && (init.headers as Record<string, string>).cookie !== undefined) {
+      if (url.endsWith("/api/conversations/main/prompt") && (init.headers as Record<string, string>).cookie !== undefined) {
         return new Response(
-          ndjson(["{\"runId\":\"run-1-metered\",\"type\":\"delta\",\"kind\":\"text\",\"text\":\"ok\"}"]),
-          { status: 200 }
+          JSON.stringify({ turnId: "metered" }),
+          { status: 202 }
         )
       }
       return healthy(url)
@@ -781,7 +781,7 @@ describe("runUptimeProbe", () => {
 
   test("a 200 that streams no frame is a failed turn, never a very fast one", async () => {
     const { deps } = makeDeps(10, (url, init) => {
-      if (url.endsWith("/api/agent/turn") && (init.headers as Record<string, string>).cookie !== undefined) {
+      if (url.endsWith("/api/conversations/main/prompt") && (init.headers as Record<string, string>).cookie !== undefined) {
         return new Response(ndjson([]), { status: 200 })
       }
       return healthy(url)
@@ -789,7 +789,7 @@ describe("runUptimeProbe", () => {
     const report = await runUptimeProbe(deps, options({ samplesPerEndpoint: 5, sessionCookie: "s=1" }))
 
     const turn = report.samples.find((s) => s.label === "turn-first-frame")!
-    expect(turn.transportError).toBe("the turn seam answered 200 but streamed no frame")
+    expect(turn.transportError).toBe("The host did not accept a prompt")
     expect(byId(report.checks, "latency:turn-first-frame").status).toBe("fail")
     expect(byId(report.checks, "uptime").detail).toContain("turn-first-frame 0/1")
     expect(report.failed).toBe(true)
@@ -799,7 +799,7 @@ describe("runUptimeProbe", () => {
     const { deps } = makeDeps(
       10,
       (url, init) =>
-        url.endsWith("/api/agent/turn") && (init.headers as Record<string, string>).cookie !== undefined
+        url.endsWith("/api/conversations/main/prompt") && (init.headers as Record<string, string>).cookie !== undefined
           ? new Response("Unauthorized", { status: 401 })
           : healthy(url)
     )
@@ -807,7 +807,7 @@ describe("runUptimeProbe", () => {
 
     const turn = report.samples.find((s) => s.label === "turn-first-frame")!
     expect(turn.status).toBe(401)
-    expect(turn.expectedStatus).toBe(200)
+    expect(turn.expectedStatus).toBe(202)
     expect(report.failed).toBe(true)
   })
 
@@ -833,10 +833,10 @@ describe("runUptimeProbe", () => {
    */
   test("the turn-seam verdict declares that it is a single sample, in the line a human reads", async () => {
     const { deps, calls } = makeDeps(3_000, (url, init) => {
-      if (url.endsWith("/api/agent/turn") && (init.headers as Record<string, string>).cookie !== undefined) {
+      if (url.endsWith("/api/conversations/main/prompt") && (init.headers as Record<string, string>).cookie !== undefined) {
         return new Response(
-          ndjson(["{\"runId\":\"run-1-metered\",\"type\":\"delta\",\"kind\":\"text\",\"text\":\"ok\"}"]),
-          { status: 200 }
+          JSON.stringify({ turnId: "metered" }),
+          { status: 202 }
         )
       }
       return healthy(url)

@@ -47,10 +47,12 @@ const (
 )
 
 type AuthInfo struct {
-	TokenSystemIssued bool
-	User              *db.User
-	TokenID           int64
-	TokenHash         string
+	// Set only after the credential gate hashes the actual bounded HTTP body.
+	verifiedCodingFileBatch string
+	TokenSystemIssued       bool
+	User                    *db.User
+	TokenID                 int64
+	TokenHash               string
 	// SessionHash is the SHA-256 of the browser session key for cookie auth.
 	SessionHash string
 	OAuth2AppID int64
@@ -317,6 +319,11 @@ func repositoryRestrictionForbids(authInfo *AuthInfo, r *http.Request) bool {
 	// repository that its profile names (allowTerminalProfileToken): its
 	// person's identity and the install's TODOs.
 	delegation, ok := authInfo.Delegation()
+	// Branch read handlers resolve the install repository and enforce both the
+	// repository binding and delegated branch before accessing immutable objects.
+	if ok && delegation.Branch != "" && authInfo.CredentialKind() == CredentialDelegated && InstallMemberCommand(r.Method, r.URL.EscapedPath()) == "branch.read" {
+		return false
+	}
 	return !ok || delegation.Profile != TerminalProfileS1
 }
 
@@ -524,4 +531,10 @@ func PublicReadAsAnonymousWithoutTokenScope(required TokenScope) func(http.Handl
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// IsOwnerBrowserSession is the install model-setting authority, projected on
+// read cards and enforced again at every write boundary.
+func IsOwnerBrowserSession(info *AuthInfo, ownerID int64) bool {
+	return ownerID > 0 && info != nil && info.User != nil && info.User.ID == ownerID && !info.IsTokenAuth && !info.IsAgent() && info.SessionHash != ""
 }

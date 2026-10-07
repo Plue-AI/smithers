@@ -12,6 +12,10 @@ The co-editing visuals exist on `CodeEditorView`, which T-APP-14a restores from 
 
 Design (smithers-06) owns visuals and copy approval. smithers-b8 owns the app binding seam; smithers-38 approves any public TypeScript API diff under spec §21.1. smithers-8a accepts spec or props changes; Will decides product scope. Engineering wires it in T-APP-14 and reviews nothing visual. Design reviews engineering's wiring when idle. The Ready checklist records owner pre-review questions; under Will's 2026-10-03 directive, recorded owner answers stand and owners review post hoc.
 
+## 2026-10-06 amendment
+
+Will’s working-together design §3 and I2 supersede this ticket’s exclusions of remote carets and selections. Awareness carries host-stamped actor and colour plus line and optional Yjs relative anchor/head. W16 enables the existing editor selection plugin and updates the earlier absence assertions.
+
 ## Scope
 
 In:

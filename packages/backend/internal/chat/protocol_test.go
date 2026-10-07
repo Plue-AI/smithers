@@ -3,6 +3,7 @@ package chat
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -83,7 +84,24 @@ func TestEmbeddedSchemaIsProductMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(embedded) != string(first)+"\n"+string(second)+"\n"+string(third) {
+	files, err := filepath.Glob("../../db/product/migrations/*.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var conversationSchema string
+	for _, file := range files {
+		body, readErr := os.ReadFile(file)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if strings.Contains(string(body), "ALTER TABLE chat_turns ADD COLUMN conversation_id") {
+			conversationSchema = strings.Split(string(body), "ALTER TABLE collaborators")[0]
+		}
+	}
+	if conversationSchema == "" {
+		t.Fatal("branch conversation migration missing")
+	}
+	if string(embedded) != string(first)+"\n"+string(second)+"\n"+string(third)+"\n"+conversationSchema {
 		t.Fatal("chat integration schema drifted from product migrations")
 	}
 }

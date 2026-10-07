@@ -25,7 +25,7 @@
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, join, posix, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { sites } from "../../docs/shared/manifest.mjs"
+import { sites } from "../../../scripts/package-docs.mjs"
 
 /** Package roots whose relative documentation links can be resolved. */
 const slugByPackageDir = new Map(sites.map((site) => [site.dir, site.slug]))
@@ -51,11 +51,6 @@ const areas = {
     title: "API",
     description: "One page per published @smthrs package: what it exports, with the types and defaults from source.",
     order: 20
-  },
-  targets: {
-    title: "Targets",
-    description: "One page per @smthrs/targets rule: attributes, verbs, cache behavior, and channels from Target.make.",
-    order: 30
   }
 }
 
@@ -105,7 +100,7 @@ const readPage = async (pkg, file) => {
   const text = await readFile(join(root, sourcePath), "utf8")
   const { fields, body } = parseFrontmatter(text, sourcePath)
   const area = required(fields, "area", sourcePath)
-  if (!(area in areas)) throw new Error(`${sourcePath}: unknown area ${area}; one of ${Object.keys(areas).join(", ")}`)
+  if (!(area in areas) && area !== "targets") throw new Error(`${sourcePath}: unknown area ${area}; one of ${Object.keys(areas).join(", ")}`)
   const slug = fields.slug ?? file.replace(/\.md$/, "")
   if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) throw new Error(`${sourcePath}: slug must be lowercase kebab-case: ${slug}`)
   const order = Number(fields.order ?? 100)
@@ -139,7 +134,7 @@ const toMdx = (body) => {
  * Rewrites the cross-package link forms a colocated page is written in.
  *
  * A colocated page uses `/api/<slug>` because that is the contract the
- * per-package sites are authored against (apps/docs/shared/AUTHORING.md).
+ * per-package sites are authored against (CONTRIBUTING.md).
  * smithers.sh has no `/api/` route, so copying one here verbatim publishes a
  * dead link: `check-docs.mjs` calls it "link to nowhere". The aggregate
  * reference lives under `/docs/reference/api/<slug>/`, so that is where the
@@ -246,7 +241,10 @@ const main = async () => {
     const directory = join(root, source.package, "docs", "reference")
     if (!(await exists(directory))) continue
     const files = (await readdir(directory)).filter((file) => file.endsWith(".md")).sort()
-    for (const file of files) pages.push(await readPage(source.package, file))
+    for (const file of files) {
+      const page = await readPage(source.package, file)
+      if (page.area === "api") pages.push(page)
+    }
   }
 
   const byArea = new Map(Object.keys(areas).map((area) => [area, []]))

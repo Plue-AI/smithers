@@ -1,4 +1,47 @@
 paths:
+  /api/install/metrics:
+    x-composition: install
+    get:
+      x-composition: install
+      summary: Read in-process install metrics
+      operationId: get_api_install_metrics
+      tags:
+        - Install
+      description: Owner browser session only. Cumulative Prometheus metric families are cross-checks, never client benchmark pass values. Missing producers are absent.
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Cumulative in-process collector snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [collected_at, clock, metrics]
+                properties:
+                  collected_at:
+                    type: string
+                    format: date-time
+                  clock:
+                    type: string
+                  metrics:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  live_connections:
+                    type: integer
+                    minimum: 0
+                  host:
+                    type: object
+                    nullable: true
+                    description: Existing Go host profile and derived limits; null when host profile detection is unavailable.
+                    additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/install/scorecard:
     get:
       summary: Read the alpha scorecard
@@ -62,7 +105,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/InstallSetupError"
         "403":
-          description: Install owner required
+          description: Install owner required; cookie mutations require matching Origin and CSRF (permission/origin or permission/csrf).
           content:
             application/json:
               schema:
@@ -87,11 +130,42 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              minProperties: 1
+              oneOf:
+                - anyOf:
+                    - required: [parallel]
+                    - required: [capacity]
+                    - required: [chatgpt]
+                - anyOf:
+                    - required: [bind]
+                    - required: [origins]
+                - required: [wiki_sync.obsidian]
               properties:
+                wiki_sync.obsidian:
+                  type: object
+                  additionalProperties: false
+                  required: [path]
+                  properties:
+                    path:
+                      type: string
+                      description: Existing absolute folder on the install Mac, owned by the install user and outside STATE.
                 chatgpt:
                   type: boolean
                   description: Enable the owner ChatGPT subscription pool; off by default.
+                bind:
+                  type: string
+                  description: Network IP address, optionally with port 4000; loopback always remains available.
+                origins:
+                  type: array
+                  minItems: 1
+                  maxItems: 10
+                  items:
+                    type: string
+                    format: uri
+                  description: HTTP or HTTPS origins with distinct hosts and ports.
+                parallel:
+                  type: integer
+                  minimum: 1
+                  maximum: 8
                 capacity:
                   type: integer
                   minimum: 1
@@ -109,7 +183,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/InstallSetupError"
         "403":
-          description: Install owner required
+          description: Install owner required; cookie mutations require matching Origin and CSRF (permission/origin or permission/csrf).
           content:
             application/json:
               schema:
@@ -157,7 +231,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/InstallSetupError"
         "403":
-          description: Install owner required
+          description: Install owner required; cookie mutations require matching Origin and CSRF (permission/origin or permission/csrf).
           content:
             application/json:
               schema:
@@ -181,14 +255,23 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/GitHubAppSetupRequest"
+              oneOf:
+                - $ref: "#/components/schemas/GitHubAppSetupRequest"
+                - $ref: "#/components/schemas/GitHubAppManualRequest"
       responses:
         "200":
-          description: Browser manifest
+          description: Browser manifest or validated manual App installation URL
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GitHubAppManifestStart"
+                oneOf:
+                  - $ref: "#/components/schemas/GitHubAppManifestStart"
+                  - type: object
+                    required: [install_url]
+                    properties:
+                      install_url:
+                        type: string
+                        format: uri
         "400":
           description: Invalid setup body
           content:
@@ -202,7 +285,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/InstallSetupError"
         "403":
-          description: Install owner required
+          description: Install owner required; cookie mutations require matching Origin and CSRF (permission/origin or permission/csrf).
           content:
             application/json:
               schema:
@@ -250,7 +333,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/InstallSetupError"
         "403":
-          description: Install owner required
+          description: Install owner required; cookie mutations require matching Origin and CSRF (permission/origin or permission/csrf).
           content:
             application/json:
               schema:
@@ -298,7 +381,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/InstallSetupError"
         "403":
-          description: Install owner required
+          description: Install owner required; cookie mutations require matching Origin and CSRF (permission/origin or permission/csrf).
           content:
             application/json:
               schema:
@@ -346,7 +429,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/InstallSetupError"
         "403":
-          description: Install owner required
+          description: Install owner required; cookie mutations require matching Origin and CSRF (permission/origin or permission/csrf).
           content:
             application/json:
               schema:
@@ -394,7 +477,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/InstallSetupError"
         "403":
-          description: Install owner required
+          description: Install owner required; cookie mutations require matching Origin and CSRF (permission/origin or permission/csrf).
           content:
             application/json:
               schema:
@@ -442,7 +525,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/InstallSetupError"
         "403":
-          description: Install owner required
+          description: Install owner required; cookie mutations require matching Origin and CSRF (permission/origin or permission/csrf).
           content:
             application/json:
               schema:
@@ -499,7 +582,7 @@ components:
   schemas:
     InstallParallelSetting:
       type: object
-      description: Dark install-settings contract; no write route is served until settings, shared authority and catalog policy are composed. Settings retains the request; Home reports min(parallel, capacity), including zero.
+      description: Owner browser session setting, unavailable to agents. Settings retains the request; Home reports min(parallel, capacity), including zero.
       required: [parallel]
       properties:
         parallel:
@@ -639,7 +722,7 @@ components:
               format: uri
             active:
               type: boolean
-              const: true
+              const: false
         default_permissions:
           type: object
           additionalProperties:
@@ -652,6 +735,39 @@ components:
           type: array
           items:
             type: string
+    GitHubAppManualRequest:
+      type: object
+      additionalProperties: false
+      required: [app_id, slug, pem, client_id, client_secret, webhook_secret, callbacks_confirmed]
+      properties:
+        app_id:
+          type: integer
+          minimum: 1
+        slug:
+          type: string
+          minLength: 1
+        pem:
+          type: string
+          writeOnly: true
+          minLength: 1
+        client_id:
+          type: string
+          minLength: 1
+        client_secret:
+          type: string
+          writeOnly: true
+          minLength: 1
+        webhook_secret:
+          type: string
+          writeOnly: true
+          minLength: 1
+        callbacks_confirmed:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            format: uri
     GitHubAppSetupRequest:
       type: object
       additionalProperties: false
@@ -682,6 +798,9 @@ components:
             - never
         message: *a1
         fix: *a1
+        retry_at:
+          type: string
+          format: date-time
     InstallSetupAddress:
       type: object
       additionalProperties: false
@@ -721,6 +840,22 @@ components:
         - chatgpt
         - capacity
       properties:
+        ssh_host:
+          type: string
+        ssh_line:
+          type: string
+          description: SSH command template using the first public origin hostname.
+        callback_fixes:
+          type: array
+          items:
+            type: object
+            properties:
+              add_url:
+                type: string
+                format: uri
+              settings_url:
+                type: string
+                format: uri
         address:
           type: object
           required:
@@ -842,6 +977,8 @@ components:
         repositories:
           type: array
           items: *a1
+        can_assign_models:
+          type: boolean
         models:
           type: array
           minItems: 3
@@ -860,6 +997,7 @@ components:
                   - coding
                   - jev
               provider: *a1
+              model: *a1
               key:
                 type: string
                 enum:
@@ -868,6 +1006,20 @@ components:
                   - saved
                   - failed
               error: *a1
+        wiki_sync:
+          type: object
+          properties:
+            obsidian:
+              type: object
+              required: [path]
+              properties:
+                path:
+                  type: string
+                last_sync_at:
+                  type: string
+                  format: date-time
+                error:
+                  type: string
         chatgpt:
           type: boolean
         capacity:

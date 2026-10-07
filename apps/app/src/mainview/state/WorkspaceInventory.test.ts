@@ -191,7 +191,7 @@ describe("box inventory admission", () => {
     const first = await controller.commands.run("approvals.list", REPO)
     expect(first).toMatchObject({ status: "failed", error: "Boxes are loading. Try again." })
     await controller.commands.run("runs.list", REPO)
-    await controller.commands.run("flow.create", `Review the repo ${REPO}`)
+    await controller.commands.run("flow.new", `Review the repo ${REPO}`)
     expect(openForms(store)).toEqual([])
     expect(store.collections.cards.get("form-box.select")).toBeUndefined()
     expect(store.session().approvalsInboxRequests ?? []).toEqual([])

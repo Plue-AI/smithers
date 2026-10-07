@@ -9,11 +9,11 @@ export const stateWords: Record<TodoState, string> = {
 const icons = { in_review: GitPullRequest, merged: GitMerge, failed: X, dropped: CircleDashed, paused: Pause }
 export function StateGlyph({ state }: Pick<StateWordProps, "state">) {
   const Icon = state in icons ? icons[state as keyof typeof icons] : undefined
-  return Icon ? <Icon className="mvp-glyph" size={13} aria-hidden="true" /> : <span className="mvp-dot" data-state={state} aria-hidden="true" />
+  return Icon ? <Icon className="glyph" size={13} aria-hidden="true" /> : <span className="dot" data-state={state} aria-hidden="true" />
 }
 export function StateWord({ state, step }: StateWordProps) {
   const label = step ? `${stateWords[state]} · ${step}` : stateWords[state]
-  return <span className="mvp-state" data-state={state}>
+  return <span className="state" data-state={state}>
     <StateGlyph state={state} />
     {label}
   </span>

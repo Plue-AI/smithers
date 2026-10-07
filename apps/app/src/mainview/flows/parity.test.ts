@@ -238,6 +238,7 @@ const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/
   // `copyText` from @smthrs/ui is the one clipboard effect a View handler may call (ui-components.md Rules 3).
   const clipboard = new Set<string>()
   const viewChildren = new Set<ts.Identifier>()
+  const codeEditors = new Set<ts.Identifier>()
   const collect = (node: ts.Node): void => {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
       declarations.set(node.name.text, node.initializer)
@@ -256,6 +257,12 @@ const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/
         for (const element of bindings.elements) {
           if (!element.isTypeOnly && (element.propertyName?.text ?? element.name.text) === "copyText") {
             clipboard.add(element.name.text)
+          }
+          // The shipped editor owns gesture dispatch; its File View only forwards the supplied seams.
+          if (!element.isTypeOnly && node.moduleSpecifier.text === "@smthrs/ui/adapters/code-editor" &&
+            (element.propertyName?.text ?? element.name.text) === "CodeEditorView") {
+            viewChildren.add(element.name)
+            codeEditors.add(element.name)
           }
         }
       }
@@ -440,6 +447,16 @@ const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/
             !/^(?:preventDefault|stopPropagation)$/.test(call.expression.name.text)) break
           statements.shift()
         }
+        // Write-only forms must clear their draft even when the supplied action throws.
+        if (statements.length === 1 && ts.isTryStatement(statements[0]!)) {
+          const attempt = statements[0] as ts.TryStatement
+          if (attempt.catchClause || !attempt.finallyBlock) return undefined
+          const cleanup = ts.factory.createArrowFunction(undefined, undefined, [], undefined,
+            ts.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken), attempt.finallyBlock)
+          if (!presentationHandler(cleanup)) return undefined
+          return calledTag(ts.factory.createArrowFunction(undefined, undefined, [], undefined,
+            ts.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken), attempt.tryBlock), seen)
+        }
         // A submitted action may also clear transient form state.
         if (statements.length > 1) {
           const cleanup = ts.factory.createArrowFunction(undefined, undefined, [], undefined,
@@ -547,6 +564,10 @@ const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/
           // Copy: its arguments are inspected below like any other call's.
         } else if (ts.isIdentifier(callee) && presentationHandler(callee, new Set(seen))) {
           // A local helper must itself contain only presentation effects.
+        } else if (ts.isPropertyAccessExpression(callee) && callee.name.text === "reset" &&
+          /^(?:event|e)\.currentTarget(?:\.form)?$/.test(callee.expression.getText(tree)) &&
+          node.arguments.length === 0) {
+          // Native form reset clears uncontrolled write-only inputs without projecting their values.
         } else if (
           ts.isPropertyAccessExpression(callee) && /^(?:focus|preventDefault|stopPropagation)$/.test(callee.name.text)
         ) {
@@ -614,6 +635,15 @@ const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/
         const expression = attribute.initializer && ts.isJsxExpression(attribute.initializer)
           ? attribute.initializer.expression
           : undefined
+        // A comparison snapshot has no binding or gestures and intentionally discards cursor updates.
+        if (["onAction", "onView"].includes(name) && expression && ts.isArrowFunction(expression) &&
+          expression.parameters.length === 0 && !expression.modifiers?.length &&
+          ts.isBlock(expression.body) && expression.body.statements.length === 0 && ts.isIdentifier(node.tagName)) {
+          const child = resolveName(node.tagName, node.tagName.text)
+          if (child && codeEditors.has(child) && !attributes.some(attribute =>
+            ts.isJsxSpreadAttribute(attribute) || (ts.isJsxAttribute(attribute) &&
+              ["binding", "gestures"].includes(attribute.name.getText(tree))))) continue
+        }
         if (["onAction", "onView", "gestures"].includes(name) && expression && ts.isIdentifier(expression) &&
           expression.text === name && ts.isIdentifier(node.tagName)) {
           const callback = resolveName(expression, name)?.parent
@@ -908,6 +938,23 @@ describe("View and Container catalog seam (C-UI-08)", () => {
     expect(viewSeamViolations('import { ActorChip } from "./ActorChip"; function View({ onAction }) { return items.map(onAction => <ActorChip onAction={onAction} />) }').length).toBeGreaterThan(0)
   })
 
+  test("the shipped code editor accepts only unshadowed forwarding of the supplied seams", () => {
+    const imported = 'import { CodeEditorView as Editor } from "@smthrs/ui/adapters/code-editor"; '
+    expect(viewSeamViolations(imported + 'function View({ onAction, onView, gestures }) { return <Editor onAction={onAction} onView={onView} gestures={gestures} /> }')).toEqual([])
+    expect(viewSeamViolations(imported + 'function View() { return <Editor onAction={() => {}} onView={() => {}} /> }')).toEqual([])
+    for (const source of [
+      imported + 'function View() { return <Editor binding={binding} onAction={() => {}} onView={() => {}} /> }',
+      imported + 'function View() { return <Editor gestures={gestures} onAction={() => {}} onView={() => {}} /> }',
+      imported + 'function View() { return <Editor {...props} onAction={() => {}} onView={() => {}} /> }',
+      imported + 'function View() { return <Editor onAction={() => localStorage.clear()} onView={() => {}} /> }',
+      imported + 'function View({ onAction }) { const Editor = () => <button />; return <Editor onAction={onAction} /> }',
+      imported + 'function View() { const onAction = () => localStorage.clear(); return <Editor onAction={onAction} /> }',
+      imported + 'function View({ onAction }) { return <Editor onAction={() => onAction("run")} /> }',
+      'import { OtherView as Editor } from "@smthrs/ui/adapters/code-editor"; function View({ onAction }) { return <Editor onAction={onAction} /> }',
+      'import type { CodeEditorView as Editor } from "@smthrs/ui/adapters/code-editor"; function View({ onAction }) { return <Editor onAction={onAction} /> }',
+    ]) expect(viewSeamViolations(source).length).toBeGreaterThan(0)
+  })
+
   test("onAction forwards the action's opaque tag and optional form input", () => {
     for (
       const handler of [
@@ -1059,6 +1106,15 @@ describe("View and Container catalog seam (C-UI-08)", () => {
         "const [open, setOpen] = useState(false); const view = <button onClick={() => setOpen(previous => { onRetry(); return previous })} />"
       ]
     ) expect(viewSeamViolations(source).length).toBeGreaterThan(0)
+  })
+
+  test("Secrets handlers preserve the action seam and guaranteed write-only cleanup", () => {
+    expect(viewSeamViolations(read("../cards/views/SecretsView.tsx"))).toEqual([])
+    const prefix = 'const [input, setInput] = useState({}); '
+    expect(viewSeamViolations(prefix + '<form data-flow={action.tag} onSubmit={event => { event.preventDefault(); try { onAction(action.tag, values) } finally { setInput({}) } }} />')).toEqual([])
+    for (const cleanup of ['mutate()', 'setInput(() => mutate())', 'onAction(other.tag)', 'model.value = "changed"', 'other.reset()', 'event.currentTarget.reset(mutate())']) {
+      expect(viewSeamViolations(prefix + `<form data-flow={action.tag} onSubmit={() => { try { onAction(action.tag) } finally { ${cleanup} } }} />`).length).toBeGreaterThan(0)
+    }
   })
 
   test("an action may clear transient input without hiding extra commands", () => {
@@ -1271,20 +1327,14 @@ describe("launch-law parity: every affordance is a command", () => {
       "../cards/IssueCards.tsx": 12, // + the detail's comment box submit (issues.comment), the thread rows, the kind chips, the saved view toggles and Make TODO (todo.from-issue)
       "../cards/IssueThread.tsx": 3, // The chat body: composer submit and send, reaction toggles, Retry, Resolve an unknown delivery, the parent link, the state acts.
       "../cards/LandingCards.tsx": 5, // Includes the durable PR tab flow.
-      "../cards/FileCards.tsx": 3,
+      "../cards/FileCards.tsx": 2,
+      "../cards/ModelCards.tsx": 6, // Restored model-assignment controls in Settings.
       /* A row's Test, Edit, Remove and select; New; and the attention row's Assign, Test or Edit. */
       /* Mark-all-read. */
-      "../cards/EnvCard.tsx": 3,
-      /* The account card's Sign out door (sign-out through onRunCommand). */
-      "../cards/AccountCard.tsx": 1, // The permissions read's Retry (account.show) is a FailureNotice action.
-      /* 2 = Try again + the done state's Open the workspace (lane sync). */
-      "../cards/RepoImportCard.tsx": 2,
-      // The tutorial's ranked chooser: one row button plus Skip.
-      "../cards/RepositoryChoiceCard.tsx": 2,
       // The login screen (Will, 2026-10-03): the GitHub door and the email form's submit.
       "../cards/LoginScreen.tsx": 2,
 
-      "../cards/SyncCards.tsx": 5,
+      "../cards/SyncCards.tsx": 2,
       /* The /theme picker: nine swatches, one shared handler through onRunCommand. */
       /*
        * Lane citc: the workspace card's five facet tabs, the terminal facet's
@@ -1313,7 +1363,6 @@ describe("launch-law parity: every affordance is a command", () => {
        */
       "../cards/RunsCards.tsx": 15, // Retained run references and question-answer controls.
       "../cards/SearchResultsCard.tsx": 2,
-      "../cards/SecretsCard.tsx": 10,
       /* Local Open tab, cloud session Stop, and inventory Open/Stop. */
       "../cards/AgentCards.tsx": 1, // + each profile row's Runs door (runs.list flow=<profile>).
       "../cards/AnonymousCeilingCard.tsx": 1,
@@ -1369,10 +1418,8 @@ describe("launch-law parity: every affordance is a command", () => {
        * available flows (flow.list), the predicted Change rows
        * (runs.coding.select) — all through onRunCommand with data-flow set.
        */
-      "../cards/CodingPlanCard.tsx": 4,
+      "../cards/CodingPlanCard.tsx": 2,
       "../cards/CodingPocCard.tsx": 2, // Native execution inspection and existing steering form.
-      /* The commits cards: a row's and a parent's commits.read, and the sha chip's chat.copy-message — all through onRunCommand. */
-      "../cards/CommitCards.tsx": 3,
       "../cards/BranchesCard.tsx": 1, // a row opens that branch's commits (commits.list)
       /*
        * Connection, world and browser card interactions, plus the embedded

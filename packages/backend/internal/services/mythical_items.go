@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -101,7 +103,7 @@ type mythicalLauncher interface {
 type mythicalLanes interface {
 	// Create records the workspace on the placement's machine, calls bind
 	// with its ID, and provisions it only after bind succeeds; a failed bind
-	// deletes the record.
+	// retains the branch record for retry.
 	Create(ctx context.Context, repository db.Repository, owner string, actorUserID int64, name string, placement MythicalPlacement, bind func(workspaceID string) error) (string, error)
 	// Offer is the machine a lane boots on (mythical_placement.go).
 	Offer(ctx context.Context, repositoryID int64) (mythicalMachineOffer, error)
@@ -118,6 +120,9 @@ type mythicalLanes interface {
 // lane workspaces. Without it the stack still bootstraps and folds.
 func (s *MythicalService) SetOrchestration(github mythicalGitHub, launcher mythicalLauncher, lanes mythicalLanes) {
 	s.github, s.launcher, s.lanes = github, launcher, lanes
+	if adapter, ok := lanes.(*workspaceMythicalLanes); ok && adapter.workspaces != nil {
+		adapter.workspaces.revisionFork = s.forkWorkspaceRevision
+	}
 }
 
 // SetLauncher completes the construction cycle with the Flow dispatcher.
@@ -130,14 +135,9 @@ func (s *MythicalService) SetLauncher(launcher mythicalLauncher) { s.launcher = 
 // it; hosted composition does not, so no fresh attempt starts there.
 func (s *MythicalService) EnableTodoAdmission() { s.todoAdmission = true }
 
-// SetTodoFlow supplies the Active todo flow's execution digest at a main
-// source commit, which a fresh TODO attempt pins with that commit (T-FLW-11,
-// spec §11.4.1), and so opens owner TODO admission. Production composition
-// leaves it unset, so admission stays dark (TestProductionCompositionLeaves
-// TodoAdmissionDark), until one joint change binds it with every provider the
-// composition needs: isolated guest dispatch (T-FLW-01), retained wake
-// (T-MCH-14), candidate authorization (T-STK-12), outbound recovery (T-GH-09),
-// validated root startup (T-SEC-01) and pinned-source loading (T-FLW-03/04).
+// SetTodoFlow supplies the Active todo execution digest for a fresh attempt.
+// Install composition binds the existing version store; dispatch still requires
+// the source pin and the isolated guest host, with no host execution fallback.
 func (s *MythicalService) SetTodoFlow(active func(ctx context.Context, repositoryID int64, sourceCommit string) (string, error)) {
 	s.todoFlow = active
 }
@@ -172,19 +172,22 @@ func mythicalIssueDigest(issue mythicalIssue) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// ObserveIssue is the label door (spec §10.2.1): a maintainer's live `todo`
+// ObserveIssue is the label door (spec §10.2.1): an authorized member's `todo`
 // label event on an issue whose text it approves appends one TODO. Revision 1
 // is the issue's title and body as read, with reason from-issue and its
 // issue_digest, and the TODO fixes the issue. The item, revision 1 and its
 // todo.created fact commit in one transaction. An issue with an unmerged TODO
 // is a no-op: later edits, redeliveries and new label events never touch it.
-// No production door calls it yet; ObserveGitHubEvent stays unavailable until
-// the issue-events cursor (T-GH-02) and install membership (T-ACC-02) feed it.
+// The install issue-events worker supplies current roster and text authority.
 func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, issue mythicalIssue, applied gitHubLabelApplication) error {
+	return s.observeIssueInTx(ctx, nil, repositoryID, issue, applied)
+}
+
+func (s *MythicalService) observeIssueInTx(ctx context.Context, admission pgx.Tx, repositoryID int64, issue mythicalIssue, applied gitHubLabelApplication) error {
 	if s == nil || s.store == nil {
 		return issueTodoUnavailable()
 	}
-	if applied.Removed || applied.EventID == 0 || !appliedByMaintainer(applied, todoLabel) ||
+	if applied.Removed || applied.EventID == 0 || (!applied.ByMember && !appliedByMaintainer(applied, todoLabel)) ||
 		!approvesIssueText(issueText{ByMaintainer: issue.TextByMaintainer}, nil, issue.Labels, applied, todoLabel) {
 		return nil
 	}
@@ -192,6 +195,13 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 		return nil
 	}
 	digest := mythicalIssueDigest(issue)
+	if len(issue.Context) > 0 {
+		var thread InstallIssueThread
+		if err := json.Unmarshal(issue.Context, &thread); err != nil {
+			return err
+		}
+		digest = todoIssueSnapshotDigest(thread)
+	}
 	body := issue.Body
 	if len(body) > mythicalPromptBytes {
 		body = body[:mythicalPromptBytes]
@@ -199,12 +209,18 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 	revision, _ := json.Marshal([]map[string]any{{"text": issue.Title + "\n\n" + body, "acceptance": []string{},
 		"by": map[string]any{"kind": "person", "login": applied.By}, "at": s.now().UTC().Format(time.RFC3339Nano),
 		"reason": "from-issue", "issue_digest": digest}})
-	var created db.MythicalItem
-	var generation int64
-	err := pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+	return s.withTodoLabelTransaction(ctx, admission, func(tx pgx.Tx) error {
 		q := db.New(tx)
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, repositoryID); err != nil {
 			return err
+		}
+		eventKey := fmt.Sprintf("todo-label:%d:%d:%d", repositoryID, issue.Number, applied.EventID)
+		var consumed bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM install_settings WHERE key=$1)`, eventKey).Scan(&consumed); err != nil {
+			return err
+		}
+		if consumed {
+			return nil
 		}
 		stack, err := q.GetMythicalStack(ctx, repositoryID)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -213,13 +229,22 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 		if err != nil {
 			return err
 		}
-		checks := mythicalChecks{Todo: true, TodoEvent: applied.EventID}
+		checks := mythicalChecks{Todo: true, TodoEvent: applied.EventID, IssueContext: issue.Context}
 		item, inserted, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repositoryID,
 			IssueNumber: pgtype.Int8{Int64: issue.Number, Valid: true}, IssueTitle: issue.Title, IssueURL: issue.URL,
 			IssueDigest: digest, IssueBody: body, ApprovedDigest: digest, State: "queued", Outsider: !issue.TextByMaintainer,
 			Checks: checks.encode(), Revisions: revision, FixesIssue: true})
-		if err != nil || !inserted {
+		if err != nil {
 			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES($1,'true')`, eventKey); err != nil {
+			return err
+		}
+		if err := advanceTodoLabelCursor(ctx, tx, repositoryID, applied.EventID); err != nil {
+			return err
+		}
+		if !inserted {
+			return nil
 		}
 		fact, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "attempt": item.Attempt,
 			"from": "issue", "to": "queued", "issue": issue.Number, "label_event": applied.EventID, "by": applied.By})
@@ -229,14 +254,9 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 		if _, err = q.RequestMythicalStack(ctx, repositoryID); err != nil {
 			return err
 		}
-		created, generation = item, stack.Generation
-		return nil
+		notification, _ := json.Marshal(map[string]any{"generation": stack.Generation, "kind": "item", "itemId": uuidString(item.ID), "event_id": strconv.FormatInt(stack.Generation, 10)})
+		return q.NotifyMythical(ctx, repositoryID, string(notification))
 	})
-	if err != nil || !created.ID.Valid {
-		return err
-	}
-	s.notify(ctx, s.queries(), repositoryID, generation, "item", uuidString(created.ID))
-	return nil
 }
 
 // The worker distinguishes an unavailable admission provider from a failing
@@ -269,11 +289,12 @@ func (s *MythicalService) repository(ctx context.Context, repositoryID int64) (d
 
 // MythicalLaneSubmission is a coding host's validated, cleaned result.
 type MythicalLaneSubmission struct {
-	WorkspaceID  string `json:"workspaceId"`
-	Base         string `json:"base"`
-	Source       string `json:"source"`
-	RequestRunID string `json:"requestRunId"`
-	Summary      string `json:"summary"`
+	WorkspaceID  string          `json:"workspaceId"`
+	Base         string          `json:"base"`
+	Source       string          `json:"source"`
+	RequestRunID string          `json:"requestRunId"`
+	Summary      string          `json:"summary"`
+	Plan         json.RawMessage `json:"plan,omitempty"`
 }
 
 // MythicalLaneReceipt names the item that carries a submitted result.
@@ -290,7 +311,7 @@ type MythicalLaneReceipt struct {
 // result to the stack only as the stack's own account. Replays are idempotent.
 func (s *MythicalService) SubmitLane(ctx context.Context, repositoryID, userID int64, input MythicalLaneSubmission) (MythicalLaneReceipt, error) {
 	if !mythicalSHA.MatchString(input.Base) || !mythicalSHA.MatchString(input.Source) || !mythicalWorkspaceID.MatchString(input.WorkspaceID) ||
-		strings.TrimSpace(input.Summary) == "" || len(input.Summary) > 16<<10 || strings.TrimSpace(input.RequestRunID) == "" {
+		strings.TrimSpace(input.Summary) == "" || len(input.Summary) > 16<<10 || strings.TrimSpace(input.RequestRunID) == "" || len(input.Plan) > 1<<20 {
 		return MythicalLaneReceipt{}, pkgerrors.BadRequest("a lane submission needs exact commits, the workspace, the run and a summary")
 	}
 	q := s.queries()
@@ -375,7 +396,26 @@ func (s *MythicalService) SubmitLane(ctx context.Context, repositoryID, userID i
 		if item.RequestRunID == "" || input.RequestRunID != item.RequestRunID || input.Base != item.BaseCommit {
 			return MythicalLaneReceipt{}, pkgerrors.Conflict("the result does not come from this lane's current request on its tip")
 		}
+		if composed && len(input.Plan) == 0 {
+			// A retained plan is history, not validation of this candidate.
+			// Every new composed submission supplies its own request receipt.
+			return MythicalLaneReceipt{}, pkgerrors.BadRequest("a TODO result must retain its validated check plan")
+		}
 		next := item
+		if len(input.Plan) > 0 {
+			// Persist the validated request's plan with its candidate: a TODO
+			// composition submits before its root ends, and rebase can begin
+			// immediately. Waiting for the root's terminal projection loses
+			// these checks (and would deadlock a flow waiting for merge).
+			encoded, err := json.Marshal(map[string]json.RawMessage{"plan": input.Plan})
+			if err != nil {
+				return MythicalLaneReceipt{}, pkgerrors.BadRequest("the submitted plan is invalid")
+			}
+			next.Plan = mythicalPlanSummaryJSON(encoded)
+			if len(next.Plan) == 0 {
+				return MythicalLaneReceipt{}, pkgerrors.BadRequest("the submitted plan has no changes")
+			}
+		}
 		next.CandidateBase, next.CandidateHead, next.CandidateVerified = input.Base, input.Source, true
 		next.Summary, next.VibeOutcome, next.State, next.Reason = strings.TrimSpace(input.Summary), "submitted", "integrating", ""
 		saved, err := q.SaveMythicalItem(ctx, next)
@@ -433,7 +473,8 @@ type mythicalProjection struct {
 }
 
 // ProjectFlowRuntime records a lane run's id and terminal outcome on its item
-// and wakes the worker. A projection of an older generation changes nothing.
+// and wakes the worker. Generation-scoped phase runs reject old generations;
+// the attempt-bound composition can continue across candidate generations.
 func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdispatch.ProjectionUpdate) error {
 	var projection mythicalProjection
 	if json.Unmarshal(update.Checkpoint.Projection, &projection) != nil {
@@ -463,8 +504,43 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			if err != nil {
 				return err
 			}
-			if item.Generation != projection.Generation || (projection.Attempt != 0 && item.Attempt != projection.Attempt) || (item.Source == "todo" && (item.Attempt <= 0 || projection.Attempt <= 0)) {
+			// A reopened generation cannot revive or be changed by its closed run.
+			if todoReopenedAttempt(item) {
 				return nil
+			}
+			// Late running checkpoints cannot reopen waits after settlement.
+			// Final receipts still belong to the bound attempt and may arrive
+			// after GitHub reports its merge.
+			if (item.State == "landed" || item.State == "cancelled" || item.State == "rejected" || item.State == "declined") && !update.State.Terminal() {
+				return nil
+			}
+			// The failed composition is ended, including after a person queues
+			// Retry but before its successor is admitted. A delayed live
+			// checkpoint cannot attach it again or reopen a run question.
+			// Final evidence still belongs to this attempt; fresh admission
+			// replaces the ended attempt before its host reports attachment.
+			if (item.State == "blocked" || todoRetryPending(item)) && (projection.Phase == "todo" || projection.Phase == "request") && !update.State.Terminal() {
+				return nil
+			}
+			// Candidate capture/rebase advances generation without replacing the
+			// attempt's composition. Its already-bound run can attach again
+			// without replaying a first step. Never use this exception to bind
+			// an unknown run or a prior attempt; engine phase runs stay scoped
+			// to the generation whose candidate they checked.
+			boundAttempt := mythicalTodo(item) && item.Attempt > 0 && projection.Attempt == item.Attempt &&
+				(projection.Phase == "todo" || projection.Phase == "request") && item.RequestRunID != "" &&
+				update.Checkpoint.RunID == item.RequestRunID
+			if (item.Generation != projection.Generation && !boundAttempt) || (projection.Attempt != 0 && item.Attempt != projection.Attempt) || (item.Source == "todo" && (item.Attempt <= 0 || projection.Attempt <= 0)) {
+				return nil
+			}
+			// Review retries share the candidate generation. The dispatcher's
+			// existing workspace binding fences a late checkpoint from a retired
+			// review lane before it can attach a run or record a verdict.
+			if projection.Phase == "review" && update.Checkpoint.Target.WorkspaceID != "" {
+				review := mythicalChecksOf(item).Review
+				if review == nil || review.Lane != update.Checkpoint.Target.WorkspaceID {
+					return nil
+				}
 			}
 			// A pinned attempt counts only launches of exactly its pin, and only
 			// runs whose host named an execution identity.
@@ -492,7 +568,8 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			if projection.Phase == "todo" {
 				flowID = flowdispatch.TodoFlow
 			}
-			if pinned && runID != "" && !pin.Admits(flowID, update.Checkpoint.ExecutionDigest) {
+			pinMismatch := pinned && runID != "" && (update.Checkpoint.PinRefused || update.Checkpoint.FailureCode == mythicalPinMismatch || !pin.Admits(flowID, update.Checkpoint.ExecutionDigest))
+			if pinMismatch {
 				// Another flow, or one that names no identity, ran under this
 				// pin: the dispatcher cancels it, and it is never the attempt's
 				// run. Once it ended, its phase settles as an outage and runs
@@ -503,10 +580,21 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			} else if !mythicalProjectRun(&next, item, projection, update, runID, pinned) {
 				return nil
 			}
+			// An unknown outside effect stops this attempt until a person retries.
+			if mythicalRunOutcome(projection.Phase, update) == mythicalInterrupted && mythicalTodo(item) && (todoState(item) == "starting" || todoState(item) == "working") {
+				next = *mythicalStop(next, mythicalFault{Class: "interrupted", Tag: "interrupted", Kind: mythicalFailRuntime}, "interrupted")
+			}
 			// Only the attempt's bound run opens or withdraws its questions.
-			mythicalProjectWaits(&next, projection, update, runID, s.now().UTC())
+			if !pinMismatch {
+				projectTodoPlan(&next, projection, update)
+				mythicalProjectWaits(&next, projection, update, runID, s.now().UTC())
+				projectTodoWatchdog(&next, update, s.now().UTC())
+			}
+			if err := s.persistTodoLogs(ctx, &next); err != nil {
+				return err
+			}
 			next = retainTodoAttemptEvidence(next)
-			if next.RequestRunID == item.RequestRunID && next.VibeRunID == item.VibeRunID && next.VerifyRunID == item.VerifyRunID &&
+			if next.State == item.State && next.RequestRunID == item.RequestRunID && next.VibeRunID == item.VibeRunID && next.VerifyRunID == item.VerifyRunID &&
 				next.RequestOutcome == item.RequestOutcome && next.VibeOutcome == item.VibeOutcome && next.VerifyOutcome == item.VerifyOutcome &&
 				sameMythicalChecks(next, item) {
 				return nil
@@ -530,7 +618,25 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 				}
 			}
 			if stack, err := q.GetMythicalStack(ctx, saved.RepositoryID); err == nil {
+				// A message can commit after the launch payload but before its
+				// run ID is known. Attach its durable intent with that binding,
+				// in this transaction; replay uses the same message ID.
+				if s.todoSteering && projection.Phase == "todo" && pinned &&
+					!mythicalChecksOf(item).RunAttached && mythicalChecksOf(saved).RunAttached {
+					for _, feedback := range mythicalChecksOf(saved).Steers {
+						if feedback.ReleasePending && feedback.Attempt == saved.Attempt {
+							if err := s.admitTodoSteerIntent(ctx, tx, stack, saved, feedback); err != nil {
+								return err
+							}
+						}
+					}
+				}
 				s.itemChanged(ctx, q, stack, saved.ID)
+			} else if s.todoSteering && projection.Phase == "todo" && pinned &&
+				!mythicalChecksOf(item).RunAttached && mythicalChecksOf(saved).RunAttached {
+				// Do not commit attachment without the authority needed to
+				// hand off its pending inputs; retry the whole projection.
+				return err
 			}
 			return nil
 		}
@@ -601,7 +707,9 @@ func mythicalProjectRun(next *db.MythicalItem, item db.MythicalItem, projection 
 		}
 		if outcome != "" && item.RequestOutcome == "" {
 			next.RequestOutcome = outcome
-			checks.Route = mythicalRoute(update)
+			if route := mythicalRoute(update); route != "" {
+				checks.Route = route
+			}
 		}
 		next.Checks = checks.encode()
 	case "request":
@@ -619,9 +727,12 @@ func mythicalProjectRun(next *db.MythicalItem, item db.MythicalItem, projection 
 			if plan := mythicalPlanSummary(update); plan != nil {
 				next.Plan = plan
 			}
-			// A request that failed before Jev routed it carries none.
-			checks.Route = mythicalRoute(update)
-			checks.Receipts = mythicalKeepReceipts(item.CandidateHead, checks.Receipts, mythicalRunReceipts(projection.Phase, next.RequestRunID, update))
+			// Typed native/agent failures have no route field. Keep the router's
+			// native receipt, if one was already observed for this attempt.
+			if route := mythicalRoute(update); route != "" {
+				checks.Route = route
+			}
+			checks.Receipts = mythicalKeepReceipts(item.CandidateHead, checks.Receipts, mythicalRunReceipts(projection.Phase, next.RequestRunID, update, mythicalTodo(item)))
 			next.Checks = checks.encode()
 		}
 	case "vibe":
@@ -636,7 +747,7 @@ func mythicalProjectRun(next *db.MythicalItem, item db.MythicalItem, projection 
 		// rechecks are still the evidence for the cleaned candidate.
 		if outcome != "" {
 			checks := mythicalChecksOf(item)
-			checks.Receipts = mythicalKeepReceipts(item.CandidateHead, checks.Receipts, mythicalRunReceipts(projection.Phase, next.VibeRunID, update))
+			checks.Receipts = mythicalKeepReceipts(item.CandidateHead, checks.Receipts, mythicalRunReceipts(projection.Phase, next.VibeRunID, update, mythicalTodo(item)))
 			next.Checks = checks.encode()
 		}
 	case "verify":
@@ -646,7 +757,7 @@ func mythicalProjectRun(next *db.MythicalItem, item db.MythicalItem, projection 
 		if outcome != "" && item.VerifyOutcome == "" {
 			next.VerifyOutcome = outcome
 			checks := mythicalChecksOf(item)
-			checks.Receipts = mythicalKeepReceipts(item.CandidateHead, checks.Receipts, mythicalRunReceipts(projection.Phase, next.VerifyRunID, update))
+			checks.Receipts = mythicalKeepReceipts(item.CandidateHead, checks.Receipts, mythicalRunReceipts(projection.Phase, next.VerifyRunID, update, mythicalTodo(item)))
 			next.Checks = checks.encode()
 		}
 	case "review":
@@ -678,6 +789,8 @@ func mythicalRunOutcome(phase string, update flowdispatch.ProjectionUpdate) stri
 	case jobs.StateCompleted:
 	case jobs.StateCancelled:
 		return mythicalCancelled
+	case jobs.StateUncertain:
+		return mythicalInterrupted
 	case jobs.StateFailed:
 		return mythicalFailedOutcome(update)
 	default:
@@ -745,8 +858,9 @@ func mythicalReviewVerdict(output string) string {
 	if json.Unmarshal([]byte(output), &text) != nil {
 		text = output
 	}
-	first, _, _ := strings.Cut(strings.TrimLeft(text, " \t\r\n"), "\n")
-	switch verdict := strings.TrimSpace(first); verdict {
+	first, _, _ := strings.Cut(text, "\n")
+	// CRLF is a line ending; other whitespace is part of the verdict.
+	switch verdict := strings.TrimSuffix(first, "\r"); verdict {
 	case "approve", "request-changes":
 		return verdict
 	}
@@ -769,6 +883,8 @@ const mythicalCancelled = "cancelled"
 // person's (user), a cap's (policy) or a defect (bug).
 const mythicalStopped = "stopped: "
 
+const mythicalInterrupted = "stopped: interrupted: interrupted"
+
 // mythicalFailedOutcome reads a failed run by the fault its typed error was
 // registered with (flowruntime.Run.FailureFault) and never by its prose: a
 // decline is the planner's close; a factory fault is the plan's failure and
@@ -776,6 +892,16 @@ const mythicalStopped = "stopped: "
 // refused, and a failure no registered error names are outages that spend
 // none; user, policy and bug faults stop the item for a person.
 func mythicalFailedOutcome(update flowdispatch.ProjectionUpdate) string {
+	if run := update.Checkpoint.Run; run != nil && (run.Status == "interrupted" || run.Status == "uncertain" || run.FailureTag == "@smthrs/flow/IrreversibleRetryRequiresIdempotencyKey") {
+		return mythicalInterrupted
+	}
+	// Tree-writing checks require a person's Retry, even when a retained
+	// runtime classified the check as a factory fault or sent only its code.
+	// Replanning must not hide the check's preserved output (S13).
+	if update.Checkpoint.FailureCode == "check_modified_tree" ||
+		(update.Checkpoint.Run != nil && update.Checkpoint.Run.FailureTag == "coding/Error/check_modified_tree") {
+		return mythicalStopped + "user: coding/Error/check_modified_tree"
+	}
 	if code := strings.TrimSpace(update.Checkpoint.FailureCode); code == placementToolsMissing {
 		// The lane's box lacks a tool the repository declares: no machine
 		// here matches it until the owner fixes the environment.
@@ -822,10 +948,16 @@ func mythicalRoute(update flowdispatch.ProjectionUpdate) string {
 	if update.Checkpoint.Run == nil || update.Checkpoint.Run.FinalOutput == nil {
 		return ""
 	}
+	return mythicalRouteJSON([]byte(*update.Checkpoint.Run.FinalOutput))
+}
+
+func mythicalRouteJSON(encoded []byte) string {
 	var result struct {
 		Route string `json:"route"`
 	}
-	_ = json.Unmarshal([]byte(*update.Checkpoint.Run.FinalOutput), &result)
+	if json.Unmarshal(encoded, &result) != nil {
+		return ""
+	}
 	switch result.Route {
 	case "implement", "bug", "feature", "close":
 		return result.Route
@@ -835,13 +967,25 @@ func mythicalRoute(update flowdispatch.ProjectionUpdate) string {
 
 // mythicalPlanSummary projects the request's plan placement for the UI and
 // keeps its checks for coding/verify.
+type planWikiCitation struct {
+	Slug     string `json:"slug"`
+	PageID   string `json:"pageID"`
+	Revision int64  `json:"revision"`
+	Digest   string `json:"digest"`
+}
+
 func mythicalPlanSummary(update flowdispatch.ProjectionUpdate) json.RawMessage {
 	if update.Checkpoint.Run == nil || update.Checkpoint.Run.FinalOutput == nil {
 		return nil
 	}
+	return mythicalPlanSummaryJSON([]byte(*update.Checkpoint.Run.FinalOutput))
+}
+
+func mythicalPlanSummaryJSON(output []byte) json.RawMessage {
 	var result struct {
 		Plan struct {
-			Changes []struct {
+			WikiCitations []planWikiCitation `json:"wikiCitations,omitempty"`
+			Changes       []struct {
 				Title string `json:"title"`
 				Atoms []struct {
 					ChangeID *string `json:"changeId"`
@@ -851,7 +995,7 @@ func mythicalPlanSummary(update flowdispatch.ProjectionUpdate) json.RawMessage {
 			} `json:"changes"`
 		} `json:"plan"`
 	}
-	if json.Unmarshal([]byte(*update.Checkpoint.Run.FinalOutput), &result) != nil || len(result.Plan.Changes) == 0 {
+	if json.Unmarshal(output, &result) != nil || len(result.Plan.Changes) == 0 {
 		return nil
 	}
 	type insert struct {
@@ -859,15 +1003,16 @@ func mythicalPlanSummary(update flowdispatch.ProjectionUpdate) json.RawMessage {
 		Title string `json:"title"`
 	}
 	summary := struct {
-		Title   string            `json:"title"`
-		Amends  []string          `json:"amends"`
-		Inserts []insert          `json:"inserts"`
-		Appends int               `json:"appends"`
-		Checks  []json.RawMessage `json:"checks"`
+		WikiCitations []planWikiCitation `json:"wikiCitations,omitempty"`
+		Title         string             `json:"title"`
+		Amends        []string           `json:"amends"`
+		Inserts       []insert           `json:"inserts"`
+		Appends       int                `json:"appends"`
+		Checks        []json.RawMessage  `json:"checks"`
 		// Steps are the plan's atoms in order, so a continuation can pick up
 		// the plan it continues.
 		Steps []string `json:"steps"`
-	}{Title: result.Plan.Changes[0].Title, Amends: []string{}, Inserts: []insert{}, Steps: []string{}}
+	}{WikiCitations: result.Plan.WikiCitations, Title: result.Plan.Changes[0].Title, Amends: []string{}, Inserts: []insert{}, Steps: []string{}}
 	seen := map[string]bool{}
 	var atoms []struct {
 		ChangeID *string
@@ -930,6 +1075,7 @@ type mythicalItemStep struct {
 	// maxParallel: every launch that takes a new lane asks slot first.
 	busy        int
 	maxParallel int
+	machineHeld map[[16]byte]bool
 	// inFlight names the items with a run in flight, each holding
 	// mythicalRunTokenReserve of the daily budget: those found running when
 	// the pass began and those it launched.
@@ -1031,12 +1177,21 @@ func mythicalRunInFlight(item db.MythicalItem) bool {
 // freeLane supplies identity only; people use runtime admission, not a lane reserve.
 func (st *mythicalItemStep) slot(item db.MythicalItem) bool {
 	busy := st.busy
-	if mythicalHoldsLane(item) || item.State == "proposed" && item.WorkspaceID != "" {
+	if st.holdsMachine(item) {
 		// The item gives up the workspace it holds (its coding workspace,
 		// counted while it was proposed) for the new one.
 		busy--
 	}
 	return busy < st.maxParallel && st.launches < mythicalLaunchesPerRun
+}
+
+// holdsMachine uses runtime ownership on the install. Legacy drains retain
+// their historical accounting when no install provider is required.
+func (st *mythicalItemStep) holdsMachine(item db.MythicalItem) bool {
+	if st.machineHeld != nil {
+		return st.machineHeld[item.ID.Bytes]
+	}
+	return mythicalHoldsLane(item) || item.State == "proposed" && item.WorkspaceID != ""
 }
 
 // freeLane answers the lowest lane index no other unsettled item holds, so
@@ -1060,6 +1215,18 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		s.logger.Warn("mythical.items_failed", "repository_id", r.row.RepositoryID, "error", err)
 		return
 	}
+	if s.installGitHubPolling {
+		pulls, err := q.ListMythicalOpenPullItems(ctx, r.row.RepositoryID)
+		if err != nil {
+			s.logger.Warn("mythical.pulls_failed", "repository_id", r.row.RepositoryID, "error", err)
+			return
+		}
+		for _, pull := range pulls {
+			if !slices.ContainsFunc(items, func(item db.MythicalItem) bool { return item.ID == pull.ID }) {
+				items = append(items, pull)
+			}
+		}
+	}
 	pending, err := q.ListMythicalPendingOperations(ctx, r.row.RepositoryID)
 	if err != nil {
 		s.logger.Warn("mythical.outbound_list_failed", "repository_id", r.row.RepositoryID, "error", err)
@@ -1070,6 +1237,20 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 			items = append(items, obligation)
 		}
 	}
+	// Reopen polling is uncapped too: dropped PRs can sit behind a large
+	// active backlog, yet still owe the same seven-day follow window.
+	if s.installGitHubPolling {
+		followed, err := q.ListMythicalOpenPullItems(ctx, r.row.RepositoryID)
+		if err != nil {
+			s.logger.Warn("mythical.pulls_failed", "error", err)
+			return
+		}
+		for _, item := range followed {
+			if !slices.ContainsFunc(items, func(other db.MythicalItem) bool { return other.ID == item.ID }) {
+				items = append(items, item)
+			}
+		}
+	}
 	// Runs in flight are read apart from the capped listing, so a long
 	// backlog never hides one from the daily budget's reservations.
 	active, err := q.ListMythicalItemsInStates(ctx, r.row.RepositoryID, []string{"running", "delivering", "verifying", "proposed"})
@@ -1077,7 +1258,23 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		s.logger.Warn("mythical.items_failed", "repository_id", r.row.RepositoryID, "error", err)
 		return
 	}
-	step := &mythicalItemStep{s: s, r: r, q: q, now: s.now(), held: map[int32]pgtype.UUID{}, maxParallel: int(r.row.MaxParallel),
+	// Capacity qualifies new machine launches. GitHub polling, accepted
+	// publication and retained obligations still advance with zero slots.
+	parallel := int(r.row.MaxParallel)
+	if s.installParallelRequired && s.installParallel == nil {
+		s.logger.Warn("mythical.parallel_unavailable")
+		parallel = 0
+	}
+	if s.installParallel != nil {
+		setting, err := s.installParallel.Parallel(ctx)
+		if err != nil {
+			s.logger.Warn("mythical.parallel_failed", "error", err)
+			parallel = 0
+		} else {
+			parallel = setting.Effective
+		}
+	}
+	step := &mythicalItemStep{s: s, r: r, q: q, now: s.now(), held: map[int32]pgtype.UUID{}, maxParallel: parallel,
 		inFlight: map[[16]byte]bool{}}
 	for _, item := range active {
 		if mythicalRunInFlight(item) {
@@ -1095,10 +1292,34 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 			step.issues = append(step.issues, fmt.Sprintf("#%d %s", item.IssueNumber.Int64, item.IssueTitle))
 		}
 	}
+	if s.installParallelRequired {
+		ownership, ok := s.lanes.(interface {
+			MachineHeld(context.Context, string) (bool, error)
+		})
+		step.machineHeld = map[[16]byte]bool{}
+		if !ok {
+			step.maxParallel = 0
+			s.logger.Warn("mythical.machine_ownership_unavailable")
+		}
+		for _, item := range items {
+			if item.WorkspaceID == "" {
+				continue
+			}
+			held := true
+			var err error
+			if ok {
+				held, err = ownership.MachineHeld(ctx, item.WorkspaceID)
+			}
+			if err != nil {
+				held = true
+				step.maxParallel = 0
+				s.logger.Warn("mythical.machine_ownership_failed", "error", err)
+			}
+			step.machineHeld[item.ID.Bytes] = held
+		}
+	}
 	for _, item := range items {
-		// Every workspace a phase occupies counts, so reviews, retained
-		// coding workspaces and new requests together stay within the cap.
-		if mythicalHoldsLane(item) {
+		if step.holdsMachine(item) {
 			step.busy++
 		}
 	}
@@ -1107,6 +1328,7 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		return items[i].StackPosition.Int64 < items[j].StackPosition.Int64
 	})
 	step.items = items
+	s.orderTodoMachines(items)
 	defer s.sweepLanes(ctx, r)
 	// An item that waits for a lane may get one when another item moves.
 	waitsForLane, moved := false, false
@@ -1118,6 +1340,11 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 	for _, item := range items {
 		if ctx.Err() != nil {
 			return
+		}
+		if todoWatchdogEligible(item) {
+			if w := mythicalChecksOf(item).Watchdog; w != nil && w.ActiveSince > 0 {
+				r.dueAt(time.UnixMilli(w.ActiveSince + (4 * time.Hour).Milliseconds() - w.ActiveMillis))
+			}
 		}
 		if len(item.PendingOp) > 0 {
 			recovered, err := step.recoverOutbound(ctx, item)
@@ -1138,11 +1365,17 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 			if item.WorkspaceID != "" && (mythicalSettledStates[item.State] || item.State == "proposed" && !mythicalChecksOf(item).reviewing(item)) {
 				item = s.releaseLane(ctx, r, item)
 			}
-			if mythicalSettledStates[item.State] {
+			if mythicalSettledStates[item.State] && !mythicalReopenFollowed(item, step.now) {
 				continue
 			}
 		}
 		if item.NextAttemptAt.Valid && item.NextAttemptAt.Time.After(step.now) {
+			if retryAt, err := s.fetchInstallPullHint(ctx, item); !retryAt.IsZero() {
+				r.dueAt(retryAt)
+				if err != nil {
+					s.logger.Warn("mythical.pull_hint_failed", "item", uuidString(item.ID), "error", err)
+				}
+			}
 			r.dueAt(item.NextAttemptAt.Time)
 			continue
 		}
@@ -1159,8 +1392,11 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		if next == nil {
 			continue
 		}
-		if !mythicalHoldsLane(item) && mythicalHoldsLane(*next) {
+		if !step.holdsMachine(item) && mythicalHoldsLane(*next) {
 			step.busy++
+			if step.machineHeld != nil {
+				step.machineHeld[item.ID.Bytes] = true
+			}
 		}
 		result := *next
 		if !saved {
@@ -1204,10 +1440,47 @@ func mythicalNextDue(before, after db.MythicalItem, now time.Time) time.Time {
 // next (a new state, or a GitHub operation sent or settled). A settled item
 // steps on only to settle a GitHub operation it still owes (Drop's close)
 // and then to release its lane.
+func mythicalGitHubClosedAt(item db.MythicalItem) time.Time {
+	checks := mythicalChecksOf(item)
+	if checks.GitHubClosedAt != nil {
+		return *checks.GitHubClosedAt
+	}
+	// Older local drops already persist their original timestamp. Updating the
+	// row while settling a close must not extend the reopen window.
+	if checks.Dropped != nil && item.State == "cancelled" {
+		return checks.Dropped.At
+	}
+	return item.UpdatedAt.Time
+}
+
+func mythicalDroppedPull(item db.MythicalItem) bool {
+	return item.State == "rejected" || item.State == "cancelled" && mythicalChecksOf(item).Dropped != nil
+}
+
+// Dropped PRs remain followed through the inclusive seven-day reopen window.
+// A settled local close may already report open after a person's reopen.
+// Polls must not move the original drop/close timestamp forward.
+func mythicalReopenFollowed(item db.MythicalItem, now time.Time) bool {
+	if !mythicalDroppedPull(item) || !item.PRNumber.Valid || (item.PRState != "closed" && (item.PRState != "open" || item.State != "cancelled" || len(item.PendingOp) != 0)) {
+		return false
+	}
+	at := mythicalGitHubClosedAt(item)
+	return !at.IsZero() && !now.Before(at) && now.Sub(at) <= 7*24*time.Hour
+}
+
 func mythicalDue(item db.MythicalItem, moved bool, now time.Time) time.Time {
 	switch {
 	case mythicalSettledStates[item.State] && moved && (len(item.PendingOp) > 0 || item.WorkspaceID != ""):
 		return now
+	case moved && item.State == "cancelled" && len(item.PendingOp) == 0 && mythicalReopenFollowed(item, now) && mythicalChecksOf(item).GitHubDropRead == nil:
+		// Close settlement must establish a fresh read before queued snapshots
+		// can reopen the Drop. A retired lane has no release to wake this pass.
+		return now
+	case mythicalReopenFollowed(item, now):
+		if item.NextAttemptAt.Valid && item.NextAttemptAt.Time.After(now) {
+			return item.NextAttemptAt.Time
+		}
+		return now.Add(mythicalPullPollEvery)
 	case mythicalSettledStates[item.State]:
 		return time.Time{}
 	case item.NextAttemptAt.Valid && item.NextAttemptAt.Time.After(now):
@@ -1222,11 +1495,20 @@ func mythicalDue(item db.MythicalItem, moved bool, now time.Time) time.Time {
 // step failed partway: what it saved stands, the rest was not done. A save
 // that lost its race (the stack's claim ended, or another writer moved the
 // item) is due at once: the next pass reads the item again and goes on
-// from there. Any other failure waits the minute a transient one does
+// from there. An uncertain write wakes shortly for lookup; a GitHub retry
+// deadline takes precedence. Other failures wait the transient minute
 // (mythicalLater). The stale sweep stays the safety net.
 func mythicalStepFailedDue(err error, now time.Time) time.Time {
 	if errors.Is(err, db.ErrMythicalLeaseLost) || errors.Is(err, db.ErrMythicalItemMoved) {
 		return now
+	}
+	var failure *pkgerrors.APIError
+	if errors.As(err, &failure) && failure.Class == pkgerrors.ClassGitHub && failure.RetryAt != nil && failure.RetryAt.After(now) {
+		return *failure.RetryAt
+	}
+	var uncertain *mythicalOutboundUncertainError
+	if errors.As(err, &uncertain) {
+		return now.Add(5 * time.Second)
 	}
 	return now.Add(mythicalLaterAfter)
 }
@@ -1235,6 +1517,23 @@ func mythicalStepFailedDue(err error, now time.Time) time.Time {
 // pinned, so nothing depends on it. A failed release is retried next claim.
 // It answers the item as saved, so a step that follows works on it.
 func (s *MythicalService) releaseLane(ctx context.Context, r *mythicalRun, item db.MythicalItem) db.MythicalItem {
+	// Keep interrupted work for its person. Finished review lanes use the
+	// qualified retirement path until #3572 composes safe-idle release; retaining
+	// them without that observer exhausts capacity and blocks the next TODO.
+	if s.installParallelRequired {
+		state := todoState(item)
+		if state == "paused" || state == "needs_you" {
+			return item
+		}
+		if item.State == "proposed" {
+			review := mythicalChecksOf(item).Review
+			// review() owns the coding-to-review machine handoff. Releasing
+			// before it claims the replacement lets a queued TODO take its slot.
+			if review == nil || review.Head != item.PRHead || review.Verdict == "" {
+				return item
+			}
+		}
+	}
 	if s.lanes == nil || item.WorkspaceID == "" || !r.row.ActorUserID.Valid {
 		return item
 	}
@@ -1421,6 +1720,17 @@ func mythicalInfraOutage(item db.MythicalItem, tag, reason string, now time.Time
 // advance decides one item's next step, or nil when it waits. saved reports
 // that the step already saved the item (with a launch, in one transaction).
 func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
+	if next, saved, err := st.enforceTodoWatchdog(ctx, item); next != nil || err != nil {
+		return next, saved, err
+	}
+	if item.State == "proposed" && todoReopenedAttempt(item) && !mythicalMergeFenced(item) && !item.PausedAt.Valid {
+		for _, feedback := range mythicalChecksOf(item).Steers {
+			if feedback.ReleasePending && feedback.Attempt == item.Attempt+1 {
+				next := queueReopenedTodo(item)
+				return &next, false, nil
+			}
+		}
+	}
 	switch item.State {
 	case "queued", "retrying":
 		return st.start(ctx, item)
@@ -1457,6 +1767,7 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 			}
 			next := item
 			next.CandidateVerified, next.State, next.Reason = true, "proposing", ""
+			acceptTodoWatchdog(&next, st.now)
 			return &next, false, nil
 		default:
 			return mythicalFailure(item, "checks on the rebased result ended", mythicalFailChecks, outcome, st.now), false, nil
@@ -1467,12 +1778,25 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 			return next, false, err
 		}
 		return st.gate(ctx, *next)
+	case "rejected", "cancelled":
+		if mythicalReopenFollowed(item, st.now) {
+			next, err := st.follow(ctx, item)
+			return next, false, err
+		}
 	case "proposed":
 		next, err := st.follow(ctx, item)
 		if err == nil && next != nil && mythicalChecksOf(*next).GitHubOutages > mythicalChecksOf(item).GitHubOutages {
 			// The pull request was not read: its outage and back-off stand,
 			// and nothing gates on what GitHub did not say.
 			return next, false, nil
+		}
+		// Unchanged GitHub facts need no row update, but a newly granted
+		// standing approval still has to evaluate this ready TODO.
+		if err == nil && next == nil && mythicalChecksOf(item).Preapproval != nil {
+			next = &item
+		}
+		if err == nil && next != nil && next.State == "proposed" && mythicalChecksOf(*next).Preapproval != nil {
+			return st.merge(ctx, *next), false, nil
 		}
 		if err != nil || next == nil || next.State != "proposed" {
 			return next, false, err
@@ -1490,7 +1814,7 @@ func mythicalComposedOutcome(item db.MythicalItem, now time.Time) *db.MythicalIt
 	case "":
 		return nil
 	case "completed":
-		return mythicalFailure(item, "the TODO flow ended", mythicalFailPlan, "failed: no_proposal", now)
+		return mythicalStop(item, mythicalFault{Class: "factory", Tag: "no_proposal", Kind: mythicalFailPlan}, "the TODO flow ended without an accepted proposal")
 	default:
 		return mythicalFailure(item, "the TODO flow ended", mythicalFailPlan, outcome, now)
 	}
@@ -1507,6 +1831,18 @@ func (st *mythicalItemStep) commit(ctx context.Context, item db.MythicalItem, ph
 // after the item is saved: an activity entry the launch records.
 func (st *mythicalItemStep) commitWith(ctx context.Context, item db.MythicalItem, phase, flowID string, payload json.RawMessage, also func(pgx.Tx, db.MythicalItem) error) (db.MythicalItem, error) {
 	s, r := st.s, st.r
+	// Every fresh machine must import the attempt's immutable flow source,
+	// including review and rebase verification machines. Retaining only the
+	// work base or candidate strands their host before it can accept a run.
+	// Keep this idempotent transport before the admission transaction: a
+	// failed retention must never leave an admitted launch or updated item.
+	if pin, pinned := mythicalPinOf(item); pinned {
+		if _, err := s.retainMainFor(ctx, r, item.WorkspaceID, pin.SourceCommit); err != nil {
+			return db.MythicalItem{}, fmt.Errorf("retain the pinned flow source: %w", err)
+		}
+	} else if item.FlowDigest.Valid || flowdispatch.IsTodoFlow(flowID) {
+		return db.MythicalItem{}, errors.New("the TODO attempt's pin is incomplete")
+	}
 	tx, err := s.store.Begin(ctx)
 	if err != nil {
 		return db.MythicalItem{}, err
@@ -1515,12 +1851,63 @@ func (st *mythicalItemStep) commitWith(ctx context.Context, item db.MythicalItem
 	// Every admitted run counts toward the item's launch bound; the failure
 	// it retries after is behind it.
 	launched := mythicalChecksOf(item)
+	if flowID == flowdispatch.TodoFlow && item.Attempt == 1 && launched.AdmissionDay == "" {
+		// Serialize the install allowance and its retained first-admission fact
+		// with dispatch; failed admission rolls both back.
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('todo_daily_admissions', 0))`); err != nil {
+			return db.MythicalItem{}, err
+		}
+		if err := todoDailyAllowance(ctx, tx, st.now); err != nil {
+			return db.MythicalItem{}, err
+		}
+		launched.AdmissionDay = st.now.UTC().Format("2006-01-02")
+	}
+	if flowID == flowdispatch.TodoFlow {
+		retained := make([]todoSteer, 0, len(launched.Steers))
+		for _, feedback := range launched.Steers {
+			if feedback.GitHubAuthor > 0 && feedback.ReleasePending && feedback.Attempt <= item.Attempt {
+				active, err := currentGitHubFeedbackAuthor(ctx, tx, item.RepositoryID, feedback)
+				if err != nil {
+					return db.MythicalItem{}, err
+				}
+				if !active {
+					continue
+				}
+				feedback.ReleasePending = false
+			}
+			// Inputs included in this launch payload must not be sent again
+			// when the host attaches. Later arrivals remain release-pending.
+			if feedback.Attempt <= item.Attempt {
+				feedback.ReleasePending = false
+			}
+			retained = append(retained, feedback)
+		}
+		launched.Steers = retained
+		item.Checks = launched.encode()
+		var request map[string]json.RawMessage
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return db.MythicalItem{}, err
+		}
+		delete(request, "feedback")
+		if feedback := todoLaunchFeedback(item, item.Attempt); feedback != "" {
+			request["feedback"], _ = json.Marshal(feedback)
+		}
+		payload, err = json.Marshal(request)
+		if err != nil {
+			return db.MythicalItem{}, err
+		}
+	}
 	launched.Launches++
 	if launched.Fault != nil {
 		// The reason was the failure's diagnostic; the launch is past it.
 		launched.Fault, item.Reason = nil, ""
 	}
 	item.Checks = launched.encode()
+	if flowID == flowdispatch.TodoFlow {
+		// The attempt exists as soon as its launch commits, even if the host
+		// never responds. Runtime projection fills in the real run id later.
+		item = retainTodoAttemptEvidence(item)
+	}
 	saved, err := db.New(tx).SaveMythicalItem(ctx, item)
 	if err != nil {
 		return db.MythicalItem{}, err
@@ -1548,9 +1935,15 @@ func (st *mythicalItemStep) commitWith(ctx context.Context, item db.MythicalItem
 	}
 	projection, _ := json.Marshal(projected)
 	authorization, _ := json.Marshal(binding)
+	requestID := mythicalLaunchRequestID(id, saved.Attempt, phase, saved.Generation)
+	if phase == "review" {
+		// A new isolated review lane distinguishes a retry without allocating
+		// another candidate generation. Replaying admission retains the lane.
+		requestID += ":lane:" + saved.WorkspaceID
+	}
 	if _, err := s.launcher.AdmitInTx(ctx, tx, flowdispatch.LaunchRequest{
 		Scope:     jobs.Scope{TenantID: tenant, PrincipalID: principal},
-		RequestID: mythicalLaunchRequestID(id, saved.Attempt, phase, saved.Generation),
+		RequestID: requestID,
 		Target: flowruntime.FlowRuntimeTarget{TenantID: tenant, PrincipalID: principal, WorkspaceID: saved.WorkspaceID,
 			BindingKind: mythicalBindingKind, BindingID: id},
 		FlowID: flowID, Payload: payload, AuthorizationContext: authorization, Projection: projection,
@@ -1740,6 +2133,10 @@ func (st *mythicalItemStep) invalidatePrefix(item db.MythicalItem) *db.MythicalI
 		copied := item
 		next = &copied
 	}
+	if todoReopenedAttempt(item) {
+		queued := queueReopenedTodo(*next)
+		return &queued
+	}
 	next.CandidateVerified = false
 	next.State, next.NextAttemptAt = "integrating", pgtype.Timestamptz{}
 	if checks := mythicalChecksOf(*next); checks.Land != nil {
@@ -1849,7 +2246,7 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 		next.State, next.Reason = "blocked", "a chat result that no longer applies to the tip must be requested again"
 		return &next, false, nil
 	}
-	if item.Source == "todo" && s != nil && (s.todoFlow != nil || item.FlowDigest.Valid) {
+	if item.Source == "todo" && s != nil && (item.FlowDigest.Valid || (s.todoFlow != nil && item.Attempt == 0)) {
 		return st.startPinned(ctx, item)
 	}
 	if s == nil || r == nil || s.launcher == nil || s.lanes == nil || !r.row.ActorUserID.Valid || !s.todoAdmission {
@@ -1884,6 +2281,8 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 	}
 	next := item
 	next.Attempt, next.Generation = item.Attempt+1, item.Generation+1
+	// Keep the latest retained plan across legacy recovery launches; the
+	// very-hard continuation needs it even if intervening runs return no plan.
 	next.RequestOutcome, next.VibeOutcome, next.VerifyOutcome = "", "", ""
 	next.RequestRunID, next.VibeRunID, next.VerifyRunID = "", "", ""
 	next.CandidateBase, next.CandidateHead, next.CandidateVerified = "", "", false
@@ -1994,6 +2393,37 @@ func (s *MythicalService) keepsLane(ctx context.Context, r *mythicalRun, item db
 	return s.lanes.Placed(ctx, item.WorkspaceID, placement)
 }
 
+// activeTodoPin resolves one whole Active version through the existing version
+// registry. Active may remain on an older successful load after main advances;
+// the source commit is part of its immutable identity, alongside the digest.
+func (s *MythicalService) activeTodoPin(ctx context.Context, q *db.Queries, repository int64, source string) (flowruntime.Pin, error) {
+	if s.todoFlow == nil {
+		return flowruntime.Pin{}, todoControlUnavailable()
+	}
+	digest, err := s.todoFlow(ctx, repository, source)
+	if err != nil {
+		return flowruntime.Pin{}, err
+	}
+	versions, err := q.ListFlowVersions(ctx, repository)
+	if err != nil {
+		return flowruntime.Pin{}, err
+	}
+	for _, version := range versions {
+		if version.Name == "todo" && version.Digest.Valid && version.Digest.String == digest {
+			if !version.SourceCommit.Valid {
+				return flowruntime.Pin{}, todoControlUnavailable()
+			}
+			source = version.SourceCommit.String
+			break
+		}
+	}
+	pin := flowruntime.Pin{Flow: flowdispatch.TodoFlow, SourceCommit: source, ExecutionDigest: digest}
+	if !pin.Valid() {
+		return pin, errors.New("the pinned todo flow is invalid")
+	}
+	return pin, nil
+}
+
 // startPinned opens a lane for a fresh attempt of an owner's TODO and launches the
 // todo composition on it, pinned to one Active todo flow digest: the TODO is
 // starting until its host accepts the run (ProjectFlowRuntime). The first
@@ -2005,21 +2435,61 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	if item.Source != "todo" || s == nil || r == nil || s.todoFlow == nil || s.launcher == nil || s.lanes == nil || !r.row.ActorUserID.Valid {
 		return todoAdmissionUnavailable(item, "", st.now), false, nil
 	}
+	// Outage recovery and the very-hard continuation decrement Attempt before
+	// admission restores it. Every pinned admission already retained its
+	// attempt record, so that record distinguishes recovery from a new attempt.
+	recovering := slices.ContainsFunc(mythicalChecksOf(item).Attempts, func(prior todoAttemptEvidence) bool {
+		return prior.Attempt == item.Attempt+1
+	})
+	if w := mythicalChecksOf(item).Watchdog; w != nil && !w.Accepted &&
+		(w.elapsed(st.now) >= (4*time.Hour).Milliseconds() || len(w.Steps) >= 1024) {
+		if item.WorkspaceID != "" {
+			if err := s.retireLane(ctx, r, item.WorkspaceID); err != nil {
+				return mythicalInfraOutage(item, "launch", "the exhausted TODO machine could not be retired", st.now), false, nil
+			}
+		}
+		if recovering {
+			// The allowance belongs to the logical attempt, not its machine.
+			// Restore the attempt number for the existing failure policy without
+			// admitting another guest or charging another launch.
+			next := item
+			next.Attempt++
+			next.RequestOutcome = "failed: no_proposal"
+			return mythicalStop(next, mythicalFault{Class: "factory", Tag: "no_proposal", Kind: mythicalFailPlan}, "the TODO allowance ended"), false, nil
+		}
+	}
+	if item.Attempt == 0 && mythicalChecksOf(item).AdmissionDay == "" {
+		drained, err := todoLegacyDrained(ctx, s.store, item.RepositoryID)
+		if err != nil || !drained {
+			return todoAdmissionUnavailable(item, "legacy TODO work is still draining", st.now), false, nil
+		}
+		if err := todoDailyAllowance(ctx, s.store, st.now); errors.Is(err, errTodoDailyLimit) {
+			return todoDailyQueued(item), false, nil
+		} else if err != nil {
+			return todoAdmissionUnavailable(item, "the daily admission allowance could not be read", st.now), false, nil
+		}
+	}
 	// The first attempt pins the Active todo flow at main's mirrored commit,
 	// the one this stack folded; Retry and Resume keep that pin unchanged.
 	pin, pinned := mythicalPinOf(item)
+	// An explicit current-flow Retry recorded its next attempt's pin at
+	// acceptance. The preceding attempt's fields stay unchanged until launch.
+	for _, retry := range mythicalChecksOf(item).Retries {
+		if retry.Attempt == item.Attempt+1 && retry.Pin != nil {
+			if !retry.Pin.Valid() {
+				return todoAdmissionUnavailable(item, "the retry flow pin is invalid", st.now), false, nil
+			}
+			pin, pinned = *retry.Pin, true
+		}
+	}
 	if item.FlowDigest.Valid && !pinned {
 		return todoAdmissionUnavailable(item, "the pinned todo flow is invalid", st.now), false, nil
 	}
 	if !pinned {
-		source := r.row.LandedMain
-		active, err := s.todoFlow(ctx, r.row.RepositoryID, source)
+		var err error
+		pin, err = s.activeTodoPin(ctx, s.queries(), r.row.RepositoryID, r.row.LandedMain)
 		if err != nil {
 			return todoAdmissionUnavailable(item, err.Error(), st.now), false, nil
-		}
-		pin = flowruntime.Pin{Flow: flowdispatch.TodoFlow, SourceCommit: source, ExecutionDigest: active}
-		if !pin.Valid() {
-			return todoAdmissionUnavailable(item, "the pinned todo flow is invalid", st.now), false, nil
 		}
 	}
 	if hold := st.launchable(ctx, item); hold != nil {
@@ -2038,6 +2508,9 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	}
 	next := item
 	next.Attempt, next.Generation = item.Attempt+1, item.Generation+1
+	// Keep the latest plan through recovery and runs that produce none, as
+	// the legacy retry path does. SubmitLane requires a new plan before a
+	// new candidate can replace it; retaining history grants no validation.
 	next.RequestOutcome, next.VibeOutcome, next.VerifyOutcome = "", "", ""
 	next.RequestRunID, next.VibeRunID, next.VerifyRunID = "", "", ""
 	next.CandidateBase, next.CandidateHead, next.CandidateVerified = "", "", false
@@ -2047,6 +2520,9 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	}
 	checks := mythicalChecksOf(next)
 	checks.Placement = &placement
+	if !recovering {
+		checks.Watchdog = nil
+	}
 	checks.RunLaunched, checks.RunAttached, checks.Rebase = true, false, nil
 	checks.FlowSource = pin.SourceCommit
 	next.Checks = checks.encode()
@@ -2061,10 +2537,7 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	}
 	request := map[string]any{"prompt": todoPrompt(item), "maxRounds": 3,
 		"base": map[string]string{"commitId": base, "ref": ref}}
-	// The steers held for this attempt are its first input (spec §10.7.3).
-	if feedback := todoFeedback(item, next.Attempt); feedback != "" {
-		request["feedback"] = feedback
-	}
+	// commit rebuilds held input and recovery guidance after author checks.
 	// Every question a person answered rides next to the steers.
 	if answers := todoAnswers(item); len(answers) > 0 {
 		request["answers"] = answers
@@ -2077,6 +2550,9 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	next.FlowDigest = pgtype.Text{String: pin.ExecutionDigest, Valid: true}
 	next.State, next.Reason, next.NextAttemptAt = "running", "", pgtype.Timestamptz{}
 	saved, err := st.commit(ctx, next, "todo", flowdispatch.TodoFlow, payload)
+	if errors.Is(err, errTodoDailyLimit) {
+		return todoDailyQueued(item), false, nil
+	}
 	if err != nil {
 		// The lane stays bound; the sweep retires it once the item provably
 		// does not reference it, so a lost COMMIT acknowledgment never
@@ -2212,8 +2688,8 @@ func (st *mythicalItemStep) deliver(ctx context.Context, item db.MythicalItem) (
 }
 
 // protectedChanges lists the protected paths an outsider-started candidate
-// changes, against main's own list. Every candidate passes integrate before
-// it is verified, pushed or proposed.
+// changes, against current trusted main. Integration and every fresh
+// publication both check it; retained verification never substitutes for policy.
 func (st *mythicalItemStep) protectedChanges(ctx context.Context, item db.MythicalItem) ([]string, error) {
 	outsider := item.Outsider
 	if !outsider && item.WorkspaceID != "" {
@@ -2246,6 +2722,12 @@ func (st *mythicalItemStep) protectedChanges(ctx context.Context, item db.Mythic
 // item's next verified head.
 func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
 	s, r := st.s, st.r
+	// Conflict dispatch needs the retained guest change and a continuation of
+	// this attempt's pinned TODO run. Until those providers are composed, keep
+	// the conflict pending; polling must never spend another coding attempt.
+	if item.Reason == "rebase_conflict_pending" {
+		return nil, false, nil
+	}
 	if item.CandidateHead == "" {
 		return nil, false, nil
 	}
@@ -2254,6 +2736,9 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 		if earlier := st.rebaseWaits(item); earlier != nil {
 			return st.awaitRebase(item, onto, fmt.Sprintf("T%d", mythicalItemNumber(*earlier))), false, nil
 		}
+	}
+	if item.CandidateBase != onto && !s.mayRebaseAtBoundary(ctx, r.row.RepositoryID, item.WorkspaceID) {
+		return st.awaitRebase(item, onto, st.ontoName(onto)), false, nil
 	}
 	if err := st.fetchCandidate(ctx, item); err != nil {
 		return mythicalInfraOutage(item, "launch", err.Error(), st.now), false, nil
@@ -2274,6 +2759,7 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 		}
 		integration, _ := json.Marshal(map[string]any{"kind": "fast-forward"})
 		next.Integration, next.State, next.Reason = integration, "proposing", ""
+		acceptTodoWatchdog(&next, st.now)
 		return &next, false, nil
 	}
 	if err := st.fetchOnto(ctx, onto); err != nil {
@@ -2286,10 +2772,22 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 	case errors.Is(err, errMythicalRewrite):
 		return mythicalRetry(item, "the stack moved while this attempt amended or inserted changes; re-planning on the new tip", nil, st.now), false, nil
 	case errors.As(err, &conflict):
-		integration, _ := json.Marshal(map[string]any{"conflict": map[string]any{"paths": conflict.Paths, "onto": onto}})
-		retried := mythicalRetry(item, "rebasing onto the new tip conflicted in "+strings.Join(conflict.Paths, ", "), nil, st.now)
-		retried.Integration = integration
-		return retried, false, nil
+		if err := s.pin(ctx, r, conflict.Head); err != nil {
+			return mythicalInfraOutage(item, "launch", "the conflict could not be retained: "+err.Error(), st.now), false, nil
+		}
+		integration, _ := json.Marshal(map[string]any{"conflict": map[string]any{"paths": conflict.Paths, "onto": onto,
+			"head": conflict.Head, "tree": conflict.Tree, "base": item.CandidateBase, "pre_rebase_head": item.CandidateHead}})
+		next.Integration, next.Reason = integration, "rebase_conflict_pending"
+		checks := mythicalChecksOf(next)
+		if checks.Rebase == nil {
+			checks.Rebase = &mythicalRebase{Onto: onto, Name: st.ontoName(onto), Since: st.now}
+		}
+		checks.Land, checks.Fault = nil, nil
+		if item.PRHead != "" {
+			checks.ApprovalCleared = item.PRHead
+		}
+		next.Checks = checks.encode()
+		return &next, false, nil
 	case err != nil:
 		return mythicalInfraOutage(item, "launch", "the candidate could not be rebased: "+err.Error(), st.now), false, nil
 	}
@@ -2454,7 +2952,7 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 	if err := st.publicationAuthority(item); err != nil {
 		next := item
 		next.Reason = err.Error()
-		next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(mythicalPullPollEvery), Valid: true}
+		next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(st.s.pullPollEvery()), Valid: true}
 		return &next, nil
 	}
 	s, r := st.s, st.r
@@ -2512,6 +3010,14 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 			return nil, err
 		}
 	}
+	// Verification does not freeze outsider policy: trusted main may have
+	// changed since the check ran. Refuse before minting or pinning a PR head.
+	if refused, err := st.protectedChanges(ctx, item); err != nil {
+		return mythicalInfraOutage(item, "github", err.Error(), st.now), nil
+	} else if len(refused) > 0 {
+		return mythicalStop(item, mythicalFault{Class: "policy", Tag: "protected_paths", Kind: mythicalFailStopped},
+			"a maintainer changes protected paths: "+strings.Join(refused, ", ")), nil
+	}
 	stamp := "0 +0000"
 	if item.CreatedAt.Valid {
 		stamp = strconv.FormatInt(item.CreatedAt.Time.Unix(), 10) + " +0000"
@@ -2530,7 +3036,6 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 	if err := s.pin(ctx, r, commit); err != nil {
 		return mythicalInfraOutage(item, "github", err.Error(), st.now), nil
 	}
-	op := mythicalProposalOp{Branch: branch, Expected: item.PRHead, Head: commit}
 	pending, _ := json.Marshal(MythicalOutboundOp{Kind: "push", Target: branch, Desired: commit, Precondition: item.PRHead, State: "intended"})
 	next.PendingOp = pending
 	// The first intent records the slug branch: the TODO's GitHub identity
@@ -2542,27 +3047,39 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 	if err != nil {
 		return nil, err
 	}
-	next = saved
-	pending, _ = json.Marshal(MythicalOutboundOp{Kind: "push", Target: branch, Desired: commit, Precondition: item.PRHead, State: "unknown"})
-	next.PendingOp = pending
-	next, err = st.q.SaveMythicalItemUnderLease(ctx, next, r.row.Claim)
-	if err != nil {
-		return nil, err
+	// Fresh dispatch follows the same lookup/send/settle path as restart.
+	// A successful transport response alone never clears the durable slot.
+	sent, err := st.recoverOutbound(ctx, saved)
+	if err == nil && sent != nil && len(sent.PendingOp) > 0 {
+		sent, err = st.recoverOutbound(ctx, *sent)
 	}
-	if err := st.pushProposal(ctx, next, gh, op); err != nil {
+	if err != nil {
+		// A lost lease or item CAS is due immediately under a fresh pass.
+		// Keep the uncertain outbound slot; turning this into a GitHub outage
+		// would impose backoff even when the remote push already succeeded.
+		if errors.Is(err, db.ErrMythicalLeaseLost) || errors.Is(err, db.ErrMythicalItemMoved) {
+			return nil, err
+		}
+		// Recovery may have committed the potentially-sent version before
+		// the error. Never project a retry using the earlier intended version.
+		latest, loadErr := st.q.GetMythicalItem(ctx, saved.ID)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		if latest.State == "cancelled" || latest.State == "dropped" {
+			return &latest, nil
+		}
 		var foreign *mythicalForeignHead
 		if errors.As(err, &foreign) {
-			return st.holdForeignHead(next, foreign), nil
+			return st.holdForeignHead(latest, foreign), nil
 		}
-		// The slot stays unknown: a response lost after GitHub applied the
-		// push is settled by lookup on the next pass, never by a second push.
-		return mythicalInfraOutage(next, "github", "the proposal push did not finish; retrying", st.now), nil
+		s.logger.Warn("mythical.proposal_push_failed", "item", uuidString(item.ID), "error", err)
+		return mythicalInfraOutage(latest, "github", "the proposal push did not finish; retrying", st.now), nil
 	}
-	next.PRHead, next.PendingOp = commit, nil
-	next, err = st.q.SaveMythicalItemUnderLease(ctx, next, r.row.Claim)
-	if err != nil {
-		return nil, err
+	if sent == nil || len(sent.PendingOp) > 0 {
+		return sent, nil
 	}
+	next = *sent
 	return st.openPull(ctx, next, gh, branch)
 }
 
@@ -2593,8 +3110,381 @@ type mythicalForeignHead struct {
 	Branch, Head string
 }
 
+// consumeGitHubRefTodos is the TODO portion of the existing refs delivery.
+// Install polling registers it on the shared fetched delivery boundary. Its
+// caller commits these effects with the fetched acknowledgement; unavailable
+// providers leave the observation pending for recovery.
+// Main observations continue to belong to the main-sync integration.
+func (s *MythicalService) consumeGitHubRefTodos(ctx context.Context, tx pgx.Tx, fact gitHubFetchedObject) (json.RawMessage, error) {
+	if s == nil || !s.installGitHubPolling || s.installGitHubSync == nil || s.host == nil || fact.Resource != gitHubRefs {
+		return nil, gitHubFetchUnavailable()
+	}
+	reader, ok := s.github.(mythicalPushReader)
+	if !ok {
+		return nil, gitHubFetchUnavailable()
+	}
+	source, err := lockFetchedRepo(ctx, tx, fact.Repo)
+	if err != nil {
+		return nil, err
+	}
+	if source.GithubRepositoryID.Int64 != fact.GitHubRepository || source.InstallationID.Int64 != fact.Installation {
+		return nil, gitHubFetchUnavailable()
+	}
+	if err := s.installGitHubSync.authorizeFetched(ctx, source); err != nil {
+		return nil, err
+	}
+	if err := checkFetchedRefs(ctx, tx, source, fact); err != nil {
+		return nil, err
+	}
+	var snapshot gitHubRefSnapshot
+	if err := json.Unmarshal(fact.Object, &snapshot); err != nil {
+		return nil, err
+	}
+	var generation int64
+	err = tx.QueryRow(ctx, `SELECT generation FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, fact.RefRepositoryID).Scan(&generation)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return json.RawMessage(`{"todos":0}`), nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	q := db.New(tx)
+	items, err := q.ListMythicalGitHubBranchItems(ctx, fact.RefRepositoryID)
+	if err != nil {
+		return nil, err
+	}
+	changed := 0
+	for _, item := range items {
+		var checks mythicalChecks
+		if err := json.Unmarshal(item.Checks, &checks); err != nil {
+			return nil, err
+		}
+		if !checks.Todo {
+			continue
+		}
+		head := snapshot.Refs["refs/heads/"+checks.Branch]
+		if head == "" {
+			continue
+		}
+		if !mythicalTodoBranchValid(checks.Branch) {
+			return nil, gitHubFetchUnavailable()
+		}
+		input := mythicalGitHubFactItem{State: item.State, Head: item.PRHead, NoPR: !item.PRNumber.Valid && item.PRState == "", Starting: checks.RunLaunched && !checks.RunAttached}
+		push := mythicalGitHubFact{Kind: "push", Head: head}
+		decision := decideGitHubFact(push, input, s.now())
+		if decision.Attention != "foreign_push" && decision.Event != "push_recorded" {
+			continue
+		}
+		input.PendingHead, err = pendingGitHubPushHead(item, checks.Branch)
+		if err != nil {
+			return nil, err
+		}
+		if input.NoPR && len(item.PendingOp) > 0 {
+			pending, err := decodeMythicalOutbound(item.PendingOp)
+			if err != nil {
+				return nil, err
+			}
+			// An outstanding PR-open request can already have succeeded. Only
+			// a push intent proves that recovery cannot discover a new PR.
+			input.NoPR = pending.Kind == "push"
+		}
+		decision = decideGitHubFact(push, input, s.now())
+		if decision.Attention != "foreign_push" && decision.Event != "push_recorded" {
+			continue
+		}
+		waitIndex := -1
+		for i, wait := range checks.Waits {
+			if wait.Kind == "foreign_push" && wait.SettledAt == nil {
+				if waitIndex >= 0 {
+					return nil, errors.New("multiple open foreign-push waits")
+				}
+				waitIndex = i
+			}
+		}
+		if waitIndex >= 0 && checks.ForeignHead == head && checks.Waits[waitIndex].SHA == head && len(checks.Waits[waitIndex].By) > 0 {
+			continue
+		}
+		// Before a PR exists, queued/starting observations establish the lease
+		// for the next proposal. They never answer an existing foreign wait or
+		// replace a potentially-sent outbound intent.
+		noPR := decision.Event == "push_recorded"
+		if noPR {
+			if waitIndex >= 0 {
+				return nil, gitHubFetchUnavailable()
+			}
+		} else if !item.PRNumber.Valid || item.PRNumber.Int64 <= 0 || item.PRState != "open" {
+			return nil, gitHubFetchUnavailable()
+		}
+		gh, err := reader.ReadPushSource(ctx, source)
+		if err != nil {
+			return nil, err
+		}
+		if gh.Owner != source.OwnerLogin || gh.Name != source.RepoName {
+			return nil, gitHubFetchUnavailable()
+		}
+		repo, err := q.GetRepoByID(ctx, item.RepositoryID)
+		if err != nil {
+			return nil, err
+		}
+		owner, err := mythicalRepositoryOwner(ctx, q, repo)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.retainFetchedPush(ctx, q, repo, owner, gh, head); err != nil {
+			return nil, err
+		}
+		if noPR {
+			hasPull, err := reader.PushBranchHasPull(ctx, source, checks.Branch)
+			if err != nil {
+				return nil, err
+			}
+			if hasPull {
+				return nil, gitHubFetchUnavailable()
+			}
+		}
+		actor, err := reader.PushActor(ctx, gh, checks.Branch, head)
+		if err != nil {
+			return nil, err
+		}
+		if actor.ID <= 0 || strings.TrimSpace(actor.Login) == "" {
+			return nil, gitHubFetchUnavailable()
+		}
+		if err := s.installGitHubSync.authorizeFetched(ctx, source); err != nil {
+			return nil, err
+		}
+		by, _ := json.Marshal(map[string]any{"kind": "github", "login": actor.Login, "color_index": 7})
+		next := item
+		waitID := ""
+		if noPR {
+			// PRHead is the recorded remote head and next proposal precondition.
+			// The old intent retains its own precondition until reconciliation.
+			next.PRHead, checks.ForeignHead = head, ""
+		} else {
+			if waitIndex < 0 {
+				waitIndex = len(checks.Waits)
+				checks.Waits = append(checks.Waits, TodoWait{ID: uuid.NewString(), Kind: "foreign_push", Since: s.now().UTC()})
+			}
+			wait := &checks.Waits[waitIndex]
+			wait.SHA, wait.By = head, by
+			wait.Prompt = actor.Login + " pushed to `" + checks.Branch + "` on GitHub"
+			checks.ForeignHead, waitID = head, wait.ID
+		}
+		next.Checks = checks.encode()
+		saved, err := q.SaveMythicalItem(ctx, next)
+		if err != nil {
+			return nil, err
+		}
+		activity, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "wait": waitID, "lease": noPR,
+			"sha": head, "by": by, "url": "https://github.com/" + source.OwnerLogin + "/" + source.RepoName + "/commit/" + head,
+			"from": todoState(item), "to": todoState(saved), "ref_claim": fact.RefClaim})
+		if _, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.foreign_push", todoState(saved), activity); err != nil {
+			return nil, err
+		}
+		if _, err := q.RequestMythicalStack(ctx, item.RepositoryID); err != nil {
+			return nil, err
+		}
+		notification, _ := json.Marshal(map[string]any{"generation": generation, "kind": "item", "itemId": uuidString(item.ID), "event_id": strconv.FormatInt(generation, 10)})
+		if err := q.NotifyMythical(ctx, item.RepositoryID, string(notification)); err != nil {
+			return nil, err
+		}
+		changed++
+	}
+	return json.Marshal(map[string]int{"todos": changed})
+}
+
+func (s *MythicalService) retainFetchedPush(ctx context.Context, q *db.Queries, repo db.Repository, owner string, gh mythicalGitHubRepo, head string) error {
+	bridge, err := startMythicalBridge(ctx, s.host, owner, repo.Name, RepositoryStillAt(q, repo.ID, owner, repo.Name))
+	if err != nil {
+		return err
+	}
+	defer bridge.Close()
+	dir, err := os.MkdirTemp("", "smithers-kept-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	return (mythicalGit{dir: filepath.Join(dir, "objects.git")}).retainGitHubPush(ctx, bridge, repo.ID, gh.GitURL, head)
+}
+
+// retainGitHubPush copies an observed commit as data into the host repository's
+// immutable kept ref. The caller supplies a repository-bound bridge and trusted
+// scratch directory. An existing pin is read from the host, so retry can finish
+// even after the source branch has moved or the original commit disappeared.
+// A database rollback cannot remove this retention ref; repeating is harmless.
+func (g mythicalGit) retainGitHubPush(ctx context.Context, bridge *mythicalBridge, repositoryID int64, source, head string) error {
+	if bridge == nil || bridge.verify == nil || repositoryID <= 0 || !mythicalSHA.MatchString(head) || strings.Trim(head, "0") == "" {
+		return errors.New("GitHub commit retention is unavailable")
+	}
+	if err := bridge.verify(ctx); err != nil {
+		return err
+	}
+	ref := repohost.KeptCommitRefPrefix + head
+	remote := bridge.URL()
+	clean := func(err error) error { return errors.New(sanitizeMirrorError(err, source, remote)) }
+	refs, err := g.lsRemote(ctx, remote)
+	if err != nil {
+		return clean(err)
+	}
+	if refs[ref] != "" && refs[ref] != head {
+		return errors.New("kept GitHub commit ref has a different head")
+	}
+	if err := g.init(ctx); err != nil {
+		return err
+	}
+	fetchSource, fetchRef := source, head
+	if refs[ref] == head {
+		fetchSource, fetchRef = remote, ref
+	}
+	if fetchSource == "" {
+		return errors.New("GitHub commit retention source is unavailable")
+	}
+	if _, err := g.git(ctx, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--no-auto-maintenance", "--", fetchSource, fetchRef); err != nil {
+		return clean(err)
+	}
+	if _, err := g.readCommit(ctx, head); err != nil {
+		return clean(err)
+	}
+	if refs[ref] == head {
+		return bridge.verify(ctx)
+	}
+	bridge.permit([]mythicalRefUpdate{{Ref: ref, Old: strings.Repeat("0", 40), New: head}},
+		repohost.ReceivePackMetadata{RepositoryID: repositoryID, ControlPlane: true, PusherLogin: "smithers"})
+	if _, err := g.git(ctx, "push", "--porcelain", "--no-verify", "--force-with-lease="+ref+":"+strings.Repeat("0", 40), remote, head+":"+ref); err != nil {
+		return clean(err)
+	}
+	refs, err = g.lsRemote(ctx, remote)
+	if err != nil {
+		return clean(err)
+	}
+	if refs[ref] != head {
+		return errors.New("GitHub commit retention was not confirmed")
+	}
+	return bridge.verify(ctx)
+}
+
 func (e *mythicalForeignHead) Error() string {
 	return "the pull request branch " + e.Branch + " moved outside Smithers"
+}
+
+// AnswerBranch binds a person's decision to the foreign wait displayed on the
+// card. Detection already retained that exact commit at its immutable kept ref.
+// Discard changes only the publication lease, never the candidate or other waits.
+func (s *MythicalService) AnswerBranch(ctx context.Context, branch string, input TodoControlInput) (TodoControlReceipt, error) {
+	if input.Op != "bring-in" && input.Op != "discard-foreign" || !mythicalTodoBranchValid(branch) || input.Wait == "" || len(input.Wait) > 128 || !mythicalSHA.MatchString(input.Revision) || strings.Trim(input.Revision, "0") == "" {
+		return TodoControlReceipt{}, &TodoControlError{400, "invalid_branch_answer", "user", "Invalid branch answer"}
+	}
+	if s == nil || s.store == nil {
+		return TodoControlReceipt{}, todoControlUnavailable()
+	}
+	var receipt TodoControlReceipt
+	err := pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+		q := db.New(tx)
+		person, credential, err := lockTodoRequest(ctx, tx, q, "branch."+input.Op, input)
+		if err != nil {
+			return err
+		}
+		items, err := q.ListMythicalGitHubBranchItems(ctx, input.Repository)
+		if err != nil {
+			return err
+		}
+		var item db.MythicalItem
+		for _, candidate := range items {
+			if mythicalChecksOf(candidate).Todo && mythicalChecksOf(candidate).Branch == branch {
+				if item.ID.Valid {
+					return todoControlConflict("Branch has more than one TODO")
+				}
+				item = candidate
+			}
+		}
+		if !item.ID.Valid {
+			return &TodoControlError{404, "todo_not_found", "user", "TODO not found"}
+		}
+		operation := "todo.foreign_" + input.Op
+		if prior, found, err := todoControlReplay(ctx, tx, q, item, input, credential, operation); found || err != nil {
+			receipt = prior
+			return err
+		}
+		index, err := foreignPushAnswerWait(item, input.Wait, input.Revision)
+		if err != nil {
+			return err
+		}
+		checks := mythicalChecksOf(item)
+		wait := &checks.Waits[index]
+		if input.Op == "bring-in" {
+			// No host integrate/rebaseCandidate fallback. The checkpoint provider
+			// must deliver the pinned commit to the current machine-bound run.
+			return &TodoControlError{503, "checkpoint_rebase_unavailable", "infra", "Checkpoint rebase unavailable"}
+		}
+		if len(item.PendingOp) > 0 {
+			pending, err := decodeMythicalOutbound(item.PendingOp)
+			if err != nil {
+				return err
+			}
+			if pending.State != "done" && pending.State != "conflict" {
+				return todoControlConflict("Publication is recovering; try again")
+			}
+		}
+		now := s.now().UTC()
+		wait.SettledAt, wait.AnsweredBy, wait.Answer = &now, person.Username, input.Op
+		checks.ForeignHead = ""
+		next := item
+		next.PRHead, next.PendingOp, next.Checks = input.Revision, nil, checks.encode()
+		saved, err := q.SaveMythicalItem(ctx, next)
+		if err != nil {
+			return err
+		}
+		receipt = TodoControlReceipt{State: "accepted", Number: saved.Number.Int64}
+		fact := map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "wait": input.Wait,
+			"sha": input.Revision, "by": wait.By, "kept": repohost.KeptCommitRefPrefix + input.Revision,
+			"actor": map[string]any{"kind": "person", "id": person.ID, "login": person.Username}, "from": todoState(item), "to": todoState(saved)}
+		if err := recordTodoControl(ctx, tx, saved, input, credential, operation, receipt, fact); err != nil {
+			return err
+		}
+		if _, err := q.RequestMythicalStack(ctx, input.Repository); err != nil {
+			return err
+		}
+		notification, _ := json.Marshal(map[string]any{"kind": "item", "itemId": uuidString(item.ID)})
+		return q.NotifyMythical(ctx, input.Repository, string(notification))
+	})
+	return receipt, err
+}
+
+// foreignPushAnswerWait is shared by person answers and both confirmation
+// boundaries, so a request never authorizes a different observed push.
+func foreignPushAnswerWait(item db.MythicalItem, id, revision string) (int, error) {
+	if item.State == "landed" || item.State == "cancelled" || item.State == "rejected" || item.State == "declined" || mythicalMergeFenced(item) {
+		return -1, todoControlConflict("TODO is settled or merging")
+	}
+	checks := mythicalChecksOf(item)
+	for i, wait := range checks.Waits {
+		if wait.ID == id && wait.Kind == "foreign_push" && wait.SettledAt == nil && wait.SHA == revision && checks.ForeignHead == revision {
+			return i, nil
+		}
+	}
+	return -1, todoControlConflict("Outside push changed; refresh the TODO")
+}
+
+// pendingGitHubPushHead supplies the shared fact decision with the head of
+// this branch's recoverable push. A malformed intent is unavailable evidence,
+// not proof that a fetched head belongs to someone else.
+func pendingGitHubPushHead(item db.MythicalItem, branch string) (string, error) {
+	if len(item.PendingOp) == 0 {
+		return "", nil
+	}
+	op, err := decodeMythicalOutbound(item.PendingOp)
+	if err != nil {
+		return "", fmt.Errorf("read pending GitHub push: %w", err)
+	}
+	if op.Kind != "push" || op.State == "conflict" {
+		return "", nil
+	}
+	if !mythicalTodoBranchValid(branch) || mythicalChecksOf(item).Branch != branch {
+		return "", errors.New("read pending GitHub push: branch binding is unavailable")
+	}
+	if op.Target != branch {
+		return "", nil
+	}
+	return op.Desired, nil
 }
 
 // pushProposal publishes the recorded head through the controlled bare-object
@@ -2604,8 +3494,8 @@ func (e *mythicalForeignHead) Error() string {
 // with a lease on exactly that value, the proposal itself is already there,
 // and anything else is a person's push that is never overwritten.
 func (st *mythicalItemStep) pushProposal(ctx context.Context, item db.MythicalItem, gh mythicalGitHubRepo, op mythicalProposalOp) error {
-	if st.s == nil || st.s.publication == nil {
-		return errors.New(mythicalPublicationUnavailable)
+	if err := st.publicationAuthority(item); err != nil {
+		return err
 	}
 	if recorded := mythicalChecksOf(item).Branch; !mythicalTodoBranchValid(op.Branch) || op.Branch != recorded {
 		return fmt.Errorf("refusing to push %q: this TODO publishes only to its recorded branch %q", op.Branch, recorded)
@@ -2617,6 +3507,30 @@ func (st *mythicalItemStep) pushProposal(ctx context.Context, item db.MythicalIt
 			return fmt.Errorf("fetch the pinned proposal: %s", sanitizeMirrorError(err, r.bridge.URL()))
 		}
 	}
+	// A recovered intent must still carry exactly the verified tree. Never
+	// trust the intended head alone, even when it was pinned before a crash.
+	if !item.CandidateVerified || item.CandidateHead == "" {
+		return errors.New("the TODO has no verified candidate to publish")
+	}
+	if err := st.fetchCandidate(ctx, item); err != nil {
+		return err
+	}
+	candidate, err := r.g.readCommit(ctx, item.CandidateHead)
+	if err != nil {
+		return err
+	}
+	proposal, err := r.g.readCommit(ctx, op.Head)
+	if err != nil {
+		return err
+	}
+	if proposal.Tree != candidate.Tree {
+		return errors.New("the proposal tree differs from the verified candidate")
+	}
+	if refused, err := st.protectedChanges(ctx, item); err != nil {
+		return err
+	} else if len(refused) > 0 {
+		return fmt.Errorf("a maintainer changes protected paths: %s", strings.Join(refused, ", "))
+	}
 	remote, err := r.g.lsRemote(ctx, gh.GitURL)
 	if err != nil {
 		return fmt.Errorf("read the pull request branch: %s", sanitizeMirrorError(err, gh.GitURL))
@@ -2627,6 +3541,12 @@ func (st *mythicalItemStep) pushProposal(ctx context.Context, item db.MythicalIt
 	case op.Expected:
 	default:
 		return &mythicalForeignHead{Branch: op.Branch, Head: current}
+	}
+	// A recorded intent is not permission to publish on an obsolete prefix.
+	// Settle an already-pushed head above without repeating the effect; an
+	// intent interrupted before push must wait for rebase and fresh checks.
+	if item.CandidateBase != st.prefix(item) {
+		return errors.New("rebase_pending: the candidate prefix changed before publication")
 	}
 	lease := "--force-with-lease=refs/heads/" + op.Branch + ":" + op.Expected
 	if _, err := r.g.git(ctx, "push", "--porcelain", "--no-verify", lease, gh.GitURL, op.Head+":refs/heads/"+op.Branch); err != nil {
@@ -2652,7 +3572,7 @@ func (st *mythicalItemStep) holdForeignHead(item db.MythicalItem, foreign *mythi
 	checks.ForeignHead = foreign.Head
 	checks.notice("foreign_push:"+foreign.Head, "Smithers is holding this TODO: "+next.Reason+".")
 	next.Checks = checks.encode()
-	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(mythicalPullPollEvery), Valid: true}
+	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(st.s.pullPollEvery()), Valid: true}
 	return &next
 }
 
@@ -2685,19 +3605,27 @@ func (st *mythicalItemStep) openPull(ctx context.Context, item db.MythicalItem, 
 		if err != nil {
 			return nil, err
 		}
-		op.State = "unknown"
-		next.PendingOp, _ = json.Marshal(op)
-		next, err = st.q.SaveMythicalItemUnderLease(ctx, next, r.row.Claim)
+		// The first dispatch and a restarted dispatch use the same slot worker.
+		sent, err := st.recoverOutbound(ctx, next)
+		if err == nil && sent != nil && len(sent.PendingOp) > 0 {
+			sent, err = st.recoverOutbound(ctx, *sent)
+		}
 		if err != nil {
-			return nil, err
+			// Reconcile lost claims/versions immediately, as for the push;
+			// neither is evidence that GitHub itself is unavailable.
+			if errors.Is(err, db.ErrMythicalLeaseLost) || errors.Is(err, db.ErrMythicalItemMoved) {
+				return nil, err
+			}
+			latest, loadErr := st.q.GetMythicalItem(ctx, next.ID)
+			if loadErr != nil {
+				return nil, loadErr
+			}
+			if latest.State == "cancelled" || latest.State == "dropped" {
+				return &latest, nil
+			}
+			return mythicalInfraOutage(latest, "github", "the pull request could not be opened: "+err.Error(), st.now), nil
 		}
-
-		if err := st.createPull(ctx, next, gh, branch); err != nil {
-			return mythicalInfraOutage(next, "github", "the pull request could not be opened: "+err.Error(), st.now), nil
-		}
-		// Even a successful response reconciles the durable slot. Projection
-		// must retain any Drop that committed while CreatePull was in flight.
-		return st.recoverOutbound(ctx, next)
+		return sent, nil
 	}
 	bound, err := st.bindPull(ctx, next, gh, branch, *pull)
 	if err != nil {
@@ -2724,7 +3652,46 @@ func (st *mythicalItemStep) bindPull(ctx context.Context, item db.MythicalItem, 
 			return nil, err
 		}
 	}
-	return st.proposedFrom(item, pull, shape), nil
+	next := st.proposedFrom(item, pull, shape)
+	checks := mythicalChecksOf(*next)
+	// A changed accepted body is published through the same keyed operation as
+	// review evidence, before draft promotion. Human body edits still win lookup.
+	_, body, err := shape.render()
+	if err != nil {
+		return nil, err
+	}
+	if checks.PRBody != "" && mythicalBodyDigest(body) != checks.PRBody && mythicalBodyDigest(body) != checks.PRBodyDeclined {
+		if err := st.s.outboundReady(ctx, item, "body"); err != nil {
+			return nil, err
+		}
+		op := MythicalOutboundOp{Kind: "body", Target: strconv.FormatInt(pull.Number, 10), Desired: mythicalBodyDigest(body), Precondition: checks.PRBody, State: "intended"}
+		next.PendingOp, _ = json.Marshal(op)
+		// Return to proposal after settlement so placement promotion runs next.
+		next.State = "proposing"
+		// The rebuilt PR is not fully published until its metadata settles.
+		// Retain the rebase receipt so the card stays In review and merge waits.
+		checks.Rebase = mythicalChecksOf(item).Rebase
+		next.Checks = checks.encode()
+		return next, nil
+	}
+	if shape.DraftsAvailable && checks.PRFirst != nil && *checks.PRFirst != shape.First {
+		desired := !shape.First
+		if pull.Draft != desired {
+			if err := st.s.outboundReady(ctx, item, "draft"); err != nil {
+				return nil, err
+			}
+			op := MythicalOutboundOp{Kind: "draft", Target: strconv.FormatInt(pull.Number, 10), Desired: strconv.FormatBool(desired), Precondition: strconv.FormatBool(pull.Draft), State: "intended"}
+			next.PendingOp, _ = json.Marshal(op)
+			next.State = "proposing"
+			checks.Rebase = mythicalChecksOf(item).Rebase
+			next.Checks = checks.encode()
+			return next, nil
+		}
+		first := shape.First
+		checks.PRFirst = &first
+		next.Checks = checks.encode()
+	}
+	return next, nil
 }
 
 // acceptedShape is the pass's accepted shape of the item published on branch.
@@ -2786,6 +3753,15 @@ func (st *mythicalItemStep) proposedFrom(item db.MythicalItem, pull mythicalPull
 	next.PRURL, next.PRState = pull.URL, pull.State
 	proposed := mythicalChecksOf(next)
 	proposed.PRDraft = pull.Draft
+	if shape.Manifest != nil && pull.HeadSHA != "" && pull.HeadSHA == item.PRHead {
+		manifest := *shape.Manifest
+		manifest.Head = pull.HeadSHA
+		proposed.retainManifest(manifest)
+	}
+	if proposed.PRFirst == nil {
+		first := shape.First
+		proposed.PRFirst = &first
+	}
 	if proposed.PRBody == "" || !item.PRNumber.Valid || item.PRNumber.Int64 != pull.Number {
 		// The body this pull request opened with: createPull renders the
 		// same accepted shape. Later binds of the same pull request keep it.
@@ -2805,7 +3781,7 @@ func (st *mythicalItemStep) proposedFrom(item db.MythicalItem, pull mythicalPull
 		proposed.Outages, proposed.GitHubOutages, proposed.Fault, proposed.Rebase = 0, 0, nil, nil
 	}
 	next.Checks = proposed.encode()
-	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(mythicalPullPollEvery), Valid: true}
+	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(st.s.pullPollEvery()), Valid: true}
 	return &next
 }
 
@@ -2825,6 +3801,9 @@ func mythicalNoClosingKeywords(text string) string {
 // open PR whose prefix moved (main, or an earlier item's verified head) is
 // rebuilt on the new prefix (integrate).
 func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, error) {
+	if st.s != nil && st.s.installGitHubPolling {
+		return st.followInstallPull(ctx, item)
+	}
 	s, r := st.s, st.r
 	if s.github == nil || !item.PRNumber.Valid || !r.row.ActorUserID.Valid {
 		return nil, nil
@@ -2840,8 +3819,14 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 		return mythicalInfraOutage(item, "github", "GitHub did not answer; following the pull request later", st.now), nil
 	}
 	next := item
-	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(mythicalPullPollEvery), Valid: true}
+	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(st.s.pullPollEvery()), Valid: true}
 	answered := mythicalChecksOf(next)
+	if mythicalDroppedPull(item) && answered.GitHubClosedAt == nil {
+		at := mythicalGitHubClosedAt(item)
+		if !at.IsZero() {
+			answered.GitHubClosedAt = &at
+		}
+	}
 	// A person may mark a later PR ready or draft on GitHub: the card shows
 	// GitHub's flag as read, with no corrective write (§12.5.1).
 	answered.PRDraft = pull.Draft
@@ -2860,6 +3845,8 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 	case pull.State == "closed":
 
 		fact.Kind = "closed"
+	case mythicalDroppedPull(item) && pull.State == "open":
+		fact.Kind = "reopened"
 	default:
 		fact.Kind = "push"
 	}
@@ -2869,7 +3856,15 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 			return mythicalInfraOutage(item, "github", "GitHub did not answer for the merge commit on main", st.now), nil
 		}
 	}
-	decision := decideGitHubFact(fact, mythicalGitHubFactItem{State: item.State, Head: item.PRHead}, st.now)
+	itemFact := mythicalGitHubFactItem{State: item.State, Head: item.PRHead, ClosedAt: mythicalGitHubClosedAt(item)}
+	decision := decideGitHubFact(fact, itemFact, st.now)
+	if decision.Attention == "foreign_push" {
+		itemFact.PendingHead, err = pendingGitHubPushHead(item, pull.HeadRef)
+		if err != nil {
+			return nil, err
+		}
+		decision = decideGitHubFact(fact, itemFact, st.now)
+	}
 	switch {
 	case decision.Event == "merged":
 		next = mythicalLanded(next, pull.MergeCommit, st.now)
@@ -2879,7 +3874,21 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 		return &next, nil
 	case decision.Event == "dropped":
 		next.PRState, next.State, next.Reason = "closed", "rejected", "closed on GitHub"
-	case pull.HeadSHA != "" && pull.HeadSHA != item.PRHead:
+		answered.GitHubClosedAt = &st.now
+		next.Checks = answered.encode()
+		next = settleTodoAttemptEvidence(next, "dropped")
+	case decision.Event == "in_review":
+		answered.GitHubReopenedAttempt = item.Attempt
+		answered.RunLaunched, answered.RunAttached = false, false
+		next.PRState, next.State, next.Reason = "open", "proposed", ""
+		answered.GitHubClosedAt = nil
+		next.Checks = answered.encode()
+	case decision.Noop == "terminal" || decision.Noop == "own_push" || decision.Noop == "reopen_window_expired" || mythicalSettledStates[item.State]:
+		// Only outbound reconciliation records an acknowledged own push.
+		// A matching read cannot settle an existing foreign-push hold, and a
+		// settled item cannot rebuild after Drop removes its old position.
+		next.PRState = pull.State
+	case decision.Attention == "foreign_push":
 		// Someone pushed to the pull request: its new head is theirs, so the
 		// stack neither reviews nor merges it.
 		next.PRState = pull.State
@@ -2888,6 +3897,10 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 		checks.ForeignHead = pull.HeadSHA
 		checks.notice("foreign_push:"+pull.HeadSHA, "Smithers is holding this TODO: "+next.Reason+".")
 		next.Checks = checks.encode()
+	case item.State == "rejected" && fact.Kind == "closed":
+		// A closed PR has no branch work to rebuild. Only an admitted reopen
+		// or a person's Retry may return its retained candidate to the stack.
+		next.PRState = pull.State
 	case mythicalChecksOf(item).ForeignHead == "" && item.CandidateBase != st.prefix(item):
 		// main or an earlier item published a new revision under this one
 		// (§10.5.1): its pull request rebuilds on the new prefix, whatever
@@ -2963,7 +3976,7 @@ func (st *mythicalItemStep) gate(ctx context.Context, item db.MythicalItem) (*db
 		// The verdict goes on the pull request body first; an approved
 		// automerge TODO merges on the next pass.
 		return st.reviewBody(ctx, item)
-	case review.Verdict == "approve" && checks.Automerge && checks.Todo && st.gh != nil:
+	case review.Verdict == "approve" && checks.Automerge && checks.Todo && st.gh != nil && !st.s.installGitHubPolling:
 		return st.merge(ctx, item), false, nil
 	}
 	return &item, false, nil
@@ -3143,9 +4156,9 @@ func (st *mythicalItemStep) review(ctx context.Context, item db.MythicalItem) (*
 		}
 		next.WorkspaceID, next.Lane, next.LaneStartedAt = "", pgtype.Int4{}, pgtype.Timestamptz{}
 	}
-	name := fmt.Sprintf("mythical #%d review g%d", item.IssueNumber.Int64, item.Generation+1)
+	name := fmt.Sprintf("mythical #%d review g%d", item.IssueNumber.Int64, item.Generation)
 	if mythicalTodo(item) {
-		name = fmt.Sprintf("TODO %d review g%d", item.Number.Int64, item.Generation+1)
+		name = fmt.Sprintf("TODO %d review g%d", item.Number.Int64, item.Generation)
 	}
 	workspaceID, err := st.lane(ctx, next, name, placement)
 	if err != nil {
@@ -3154,7 +4167,6 @@ func (st *mythicalItemStep) review(ctx context.Context, item db.MythicalItem) (*
 	next.WorkspaceID = workspaceID
 	next.Lane = pgtype.Int4{Int32: st.freeLane(item.ID), Valid: true}
 	next.LaneStartedAt = pgtype.Timestamptz{Time: st.now, Valid: true}
-	next.Generation++
 	checks.Review.Lane = workspaceID
 	next.Checks = checks.encode()
 	args := fmt.Sprintf("Pull request #%d.\n\n<untrusted-title>\n%s\n</untrusted-title>\n\n<untrusted-diff>\n%s\n</untrusted-diff>\n",
@@ -3182,33 +4194,50 @@ func (st *mythicalItemStep) proposalDiff(ctx context.Context, item db.MythicalIt
 	return r.g.git(ctx, "diff", "--no-color", "--no-ext-diff", "--no-textconv", item.CandidateBase, item.PRHead)
 }
 
-// merge merges an automerge TODO's pull request at exactly the approved
-// head, once GitHub CI on that head is green: the Change's affected checks
-// are fast feedback, not proof, and GitHub itself may require nothing. It
-// waits while CI runs and never merges on red. A refusal (the branch moved)
-// is retried later; the pull request stays open for a person meanwhile.
+// merge prepares a standing person's approval through the same fenced outbound path.
 func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db.MythicalItem {
-	// Review & merge dispatches through the outbound merge (MergeDecision).
-	// Pre-approval does not reach this shared decision through gate() yet
-	// (§10.6.2d), so only reads may settle an already-applied merge here.
-	// Old labels cannot authorize one.
-	if st.s.github == nil || st.gh == nil {
+	// A person may already have merged on GitHub. Preserve the existing read
+	// recovery, which settles only when main contains the commit and sends no PUT.
+	if st.s.github == nil {
 		return mythicalLater(item, "merge recovery is unavailable", st.now)
+	}
+	// Install follow uses the fetched-fact service and deliberately leaves
+	// the outbound binding unresolved. Reuse publication's canonical binding.
+	if st.gh == nil {
+		if _, err := st.publicationGitHub(ctx); err != nil {
+			return mythicalLater(item, "merge recovery is unavailable", st.now)
+		}
 	}
 	pull, err := st.s.github.Pull(ctx, *st.gh, item.PRNumber.Int64)
 	if err != nil {
 		return mythicalLater(item, "GitHub did not answer for merge recovery", st.now)
 	}
 	if pull.Merged {
-		// Reuse follow’s GitHub fact and OnMain containment decision. A PR
-		// merge receipt alone must never project Merged.
 		next, err := st.follow(ctx, item)
 		if err != nil {
 			return mythicalLater(item, "GitHub did not answer for merge containment", st.now)
 		}
 		return next
 	}
-	return mythicalLater(item, "Waiting for merge readiness integration", st.now)
+	checks := mythicalChecksOf(item)
+	if !checks.Automerge || checks.Preapproval == nil || len(item.PendingOp) != 0 || checks.PreapprovalFailure != nil && checks.PreapprovalFailure.Head == item.PRHead && checks.PreapprovalFailure.Generation == item.Generation {
+		return &item
+	}
+	before, err := mythicalMergeAfter(ctx, st.s.store, item)
+	if err != nil || mythicalMergeReady(item, before, item.PRHead, false) != nil {
+		return &item
+	}
+	op := MythicalOutboundOp{Kind: "merge", Target: strconv.FormatInt(item.PRNumber.Int64, 10), Desired: item.PRHead, Precondition: "preapproved", State: "intended"}
+	candidate := item
+	candidate.PendingOp, _ = json.Marshal(op)
+	if err := st.s.mergeDispatchReady(ctx, candidate); err != nil {
+		return &item
+	}
+	if _, err := st.s.MergeDecision(ctx, candidate, op); err != nil {
+		return &item
+	}
+	candidate.NextAttemptAt = pgtype.Timestamptz{}
+	return &candidate
 }
 
 // pin keeps a commit reachable from the control plane's own namespace.
@@ -3286,12 +4315,20 @@ func (resolver *MythicalFlowHostTargetResolver) ResolveFlowHostTarget(ctx contex
 	}
 	// The lane is provisioned in the background after its launch is admitted:
 	// a host bound before its checkout exists would pin a source revision the
-	// finished checkout no longer has.
-	if lane, err := q.GetWorkspace(ctx, item.WorkspaceID); err != nil || lane.Status != "running" {
+	// finished checkout no longer has. Retained stopped lanes already have
+	// that checkout; host start wakes them under the lifecycle lock.
+	if lane, err := q.GetWorkspace(ctx, item.WorkspaceID); err != nil || (lane.Status != "running" && lane.Status != "suspended" && lane.Status != "stopped") {
 		return flowhost.Authority{}, mythicalLaneNotRunning(lane, err)
 	}
-	return flowhost.Authority{Target: target, RepositoryID: repositoryID, UserID: userID, WorkspaceID: item.WorkspaceID,
-		CatalogKey: flowhost.CatalogCoding}, nil
+	authority := flowhost.Authority{Target: target, RepositoryID: repositoryID, UserID: userID, WorkspaceID: item.WorkspaceID,
+		CatalogKey: flowhost.CatalogCoding}
+	if pin, pinned := mythicalPinOf(item); pinned {
+		authority.SourceRevision = pin.SourceCommit
+		authority.ExecutionPin = &pin
+	} else if item.FlowDigest.Valid {
+		return flowhost.Authority{}, mythicalFlowFailure{code: "runtime_pin_invalid"}
+	}
+	return authority, nil
 }
 
 // mythicalLaneNotRunning is why a lane cannot host a launch: a lane whose
@@ -3337,11 +4374,8 @@ func (l *workspaceMythicalLanes) Create(ctx context.Context, repository db.Repos
 		return "", err
 	}
 	if err := bind(workspace.ID); err != nil {
-		// A claimant that bound this same lane first keeps it. An unbound
-		// machine was never provisioned: the machine service deletes it.
-		if !l.bound(context.WithoutCancel(ctx), workspace.ID) {
-			_ = l.workspaces.DeleteWorkspace(context.WithoutCancel(ctx), workspace.ID, repository.ID, workspace.UserID)
-		}
+		// Cleanup requires settled work and verified capture (MVP §6.7).
+		// A failed binding never starts this machine; its record remains for retry.
 		return "", err
 	}
 	l.workspaces.provisionWorkspaceAsync(ctx, workspace, CreateWorkspaceSessionInput{RepositoryID: repository.ID, UserID: actorUserID,
@@ -3382,19 +4416,6 @@ func (l *workspaceMythicalLanes) Owned(ctx context.Context, repositoryID, userID
 		return false, nil
 	}
 	return store.WorkspaceSoleWriter(ctx, db.WorkspaceSoleWriterParams{WorkspaceID: workspace.ID, UserID: userID})
-}
-
-// bound reports whether the stack bound workspaceID as a lane that is not
-// retired.
-func (l *workspaceMythicalLanes) bound(ctx context.Context, workspaceID string) bool {
-	store, ok := l.workspaces.q.(interface {
-		GetMythicalLane(context.Context, string) (db.MythicalLane, error)
-	})
-	if !ok {
-		return false
-	}
-	lane, err := store.GetMythicalLane(ctx, workspaceID)
-	return err == nil && !lane.RetiredAt.Valid
 }
 
 // Delete retires a lane's machine (T-MCH-06, T-MCH-07): every retirement
@@ -3439,7 +4460,7 @@ func (s *MythicalService) retryItem(ctx context.Context, repositoryID int64, ite
 		}
 		next := item
 		if item.Source == "issue" && mythicalReviewHeld(item) {
-			if err := middleware.RequirePerson(ctx, "retry the review of a TODO"); err != nil {
+			if err := requireTodoRetryAuthority(ctx, "retry the review of a TODO"); err != nil {
 				return MythicalItemView{}, err
 			}
 			next = mythicalRetryReview(item)
@@ -3470,13 +4491,23 @@ func (s *MythicalService) retryItem(ctx context.Context, repositoryID int64, ite
 // decides it. The attempt number keeps counting, so the next launch is a new
 // attempt and every earlier attempt's evidence stays its own (spec §4.1);
 // the attempt bound counts from here (AttemptBase).
+// Install retries consume the already resolved command decision. The legacy
+// repository path retains its person-only typed-stop rule.
+func requireTodoRetryAuthority(ctx context.Context, action string) error {
+	if bound, ok := ctx.Value(installAuthorizationKey{}).(boundInstallAuthorization); ok && (bound.command == "todo.retry" || bound.command == "todo.steer") {
+		_, err := Authorize(ctx, nil, bound.command)
+		return err
+	}
+	return middleware.RequirePerson(ctx, action)
+}
+
 func mythicalRetried(ctx context.Context, item db.MythicalItem) (db.MythicalItem, error) {
 	if item.State != "blocked" && item.State != "rejected" && item.State != "declined" {
 		return db.MythicalItem{}, pkgerrors.Conflict("only a blocked, rejected or declined item, or a TODO held on its review, is retried")
 	}
 	person := item.State != "blocked" || mythicalChecksOf(item).Fault != nil
 	if person {
-		if err := middleware.RequirePerson(ctx, "retry a "+item.State+" item"); err != nil {
+		if err := requireTodoRetryAuthority(ctx, "retry a "+item.State+" item"); err != nil {
 			return db.MythicalItem{}, err
 		}
 	}
@@ -3552,7 +4583,18 @@ func (s *MythicalService) ObserveGitHubEvent(ctx context.Context, eventType stri
 	case "issues", "issue_comment":
 		return issueTodoUnavailable()
 	case "pull_request_review", "pull_request_review_comment":
-		return gitHubReviewUnavailable()
+		if s.installGitHubSync == nil || s.installGitHubSync.install == nil {
+			return gitHubReviewUnavailable()
+		}
+		var hint struct {
+			Repository struct {
+				ID int64 `json:"id"`
+			} `json:"repository"`
+		}
+		if json.Unmarshal(payload, &hint) != nil || hint.Repository.ID <= 0 {
+			return gitHubReviewUnavailable()
+		}
+		return s.installGitHubSync.requestInstallFetch(ctx, hint.Repository.ID, GitHubRepoMetadataPulls)
 	default:
 		return nil
 	}
@@ -3651,10 +4693,17 @@ func (s *MythicalService) deliverNotice(ctx context.Context, r *mythicalRun, ite
 func mythicalLanded(item db.MythicalItem, commit string, now time.Time) db.MythicalItem {
 	item.PRState, item.PRMergeCommit, item.State, item.Reason = "merged", commit, "landed", ""
 	item.NextAttemptAt = pgtype.Timestamptz{}
+	item.PausedAt = pgtype.Timestamptz{}
 	checks := mythicalChecksOf(item)
+	for i := range checks.Waits {
+		if checks.Waits[i].SettledAt == nil {
+			at := now
+			checks.Waits[i].SettledAt = &at
+		}
+	}
 	checks.Completion = &mythicalCompletion{Commit: commit, Since: now}
 	item.Checks = checks.encode()
-	return item
+	return settleTodoAttemptEvidence(item, "merged")
 }
 
 // completePending writes the evidence every landed item still owes its
@@ -3878,8 +4927,18 @@ func appliedByMaintainer(applied gitHubLabelApplication, label string) bool {
 // made its issue a TODO and asked for automerge, and the review of its pull
 // request's head.
 type mythicalChecks struct {
-	IssueContext json.RawMessage       `json:"issue_context,omitempty"`
-	Attempts     []todoAttemptEvidence `json:"attempts,omitempty"`
+	PlanReceipt           *todoRequestReceipt   `json:"planReceipt,omitempty"`
+	RouteReceipt          *todoRequestReceipt   `json:"routeReceipt,omitempty"`
+	Watchdog              *todoWatchdog         `json:"watchdog,omitempty"`
+	AdmissionDay          string                `json:"admissionDay,omitempty"`
+	IssueContext          json.RawMessage       `json:"issue_context,omitempty"`
+	GitHubInputs          []todoGitHubInput     `json:"githubInputs,omitempty"`
+	PRBodyDeclined        string                `json:"prBodyDeclined,omitempty"`
+	GitHubReopenedAttempt int32                 `json:"githubReopenedAttempt,omitempty"`
+	GitHubClosedPosition  int64                 `json:"githubClosedPosition,omitempty"`
+	GitHubClosedAt        *time.Time            `json:"githubClosedAt,omitempty"`
+	GitHubDropRead        *mythicalDropRead     `json:"githubDropRead,omitempty"`
+	Attempts              []todoAttemptEvidence `json:"attempts,omitempty"`
 	// Steers are the TODO's steers in order, each held for an attempt
 	// (todoFeedback); Retries are the Retry presses by Idempotency-Key, so a
 	// press sent again starts nothing more (retryTodo).
@@ -3897,9 +4956,13 @@ type mythicalChecks struct {
 	// AutoTodo is why the factory made the issue a TODO without the label;
 	// OptedOut records a maintainer taking todo off such an issue, after
 	// which the factory never makes it one again on its own.
-	AutoTodo  string `json:"autoTodo,omitempty"`
-	OptedOut  bool   `json:"optedOut,omitempty"`
-	Automerge bool   `json:"automerge,omitempty"`
+	AutoTodo           string                     `json:"autoTodo,omitempty"`
+	OptedOut           bool                       `json:"optedOut,omitempty"`
+	Automerge          bool                       `json:"automerge,omitempty"`
+	PreapprovalSent    *mythicalLand              `json:"preapproval_sent,omitempty"`
+	PreapprovalFailure *mythicalLand              `json:"preapproval_failure,omitempty"`
+	Preapproval        *mythicalLand              `json:"preapproval,omitempty"`
+	PreapprovalEvents  []mythicalPreapprovalEvent `json:"preapproval_events,omitempty"`
 	// Land is the current Review & merge approval (§10.6.2c);
 	// MergeRequests are the identities of every press that recorded one,
 	// so a repeated request answers its receipt (§6.2.1).
@@ -3919,10 +4982,14 @@ type mythicalChecks struct {
 	// its first publication intent and never derived again (§8.1.1).
 	Branch string `json:"branch,omitempty"`
 	// PRDraft is GitHub's draft flag on the item's pull request, as last read.
-	PRDraft bool `json:"prDraft,omitempty"`
+	PRDraft bool  `json:"prDraft,omitempty"`
+	PRFirst *bool `json:"prFirst,omitempty"`
 	// PRIncludes are the earlier items the pull request body includes until
 	// they merge, as it was opened.
 	PRIncludes []int64 `json:"prIncludes,omitempty"`
+	// Retained manifests are immutable per published head, including superseded
+	// generations GitHub may report merged after a newer publication.
+	PRManifests []mythicalMergedManifest `json:"prManifests,omitempty"`
 	// PRBody is the digest of the pull request body Smithers last wrote: the
 	// one it opened the pull request with, then each update (reviewBody). A
 	// body GitHub holds that differs is a person's edit, never overwritten.

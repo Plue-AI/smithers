@@ -3,10 +3,12 @@ import { Action, Flow, Interpreter } from "@smthrs/flow"
 import * as Executable from "@smthrs/registry/Executable"
 import { Clock, Effect, Layer, Path, Schema, Semaphore } from "effect"
 import {
+  changedSourceFiles,
   contained,
   type ImmutableSourceOptions,
   outputTailBytes,
   runSourceProcess,
+  sourceFileIdentities,
   withImmutableSource
 } from "./immutable-source.ts"
 import { Check, checkInputDigest, CodingError, type Finding, Implementation, Receipt } from "./schema.ts"
@@ -100,8 +102,29 @@ export const checkLayers = (options: CheckHostOptions) => {
           try: () => JSON.parse(invocation.prompt.trimStart().split(/\r?\n/, 1)[0] ?? "") as unknown,
           catch: () => invalid("The registered check body must be a JSON command declaration")
         }).pipe(
-          Effect.flatMap(Schema.decodeUnknownEffect(Command)),
-          Effect.mapError(() => invalid("The registered check body needs argv, relative cwd and a bounded timeoutMs"))
+          Effect.flatMap((value) => {
+            if (
+              typeof value === "object" && value !== null && "argv" in value && Array.isArray(value.argv) &&
+              value.argv.length === 0
+            ) {
+              return Effect.fail(
+                new CodingError({
+                  code: "check_configuration",
+                  message: "no checks detected: configure an executable build command"
+                })
+              )
+            }
+            return Schema.decodeUnknownEffect(Command)(value).pipe(
+              Effect.mapError(() =>
+                invalid("The registered check body needs argv, relative cwd and a bounded timeoutMs")
+              )
+            )
+          }),
+          Effect.mapError((error) =>
+            error instanceof CodingError
+              ? error
+              : invalid("The registered check body needs argv, relative cwd and a bounded timeoutMs")
+          )
         )
         const fs = options.fs, path = yield* Path.Path
         if (!path.isAbsolute(command.argv[0]) && options.environment?.PATH === undefined) {
@@ -124,8 +147,38 @@ export const checkLayers = (options: CheckHostOptions) => {
               return yield* invalid("A written path contains a line break; the check cannot name it")
             }
             const environment = { ...options.environment, SMITHERS_CHECK_FILES: implementation.writes.join("\n") }
+            const originalFiles = yield* sourceFileIdentities(fs, root)
             const startedAt = yield* Clock.currentTimeMillis
-            const result = yield* runSourceProcess({ ...options, environment }, command.argv, cwd, command.timeoutMs)
+            const execution = yield* runSourceProcess({ ...options, environment }, command.argv, cwd, command.timeoutMs)
+              .pipe(Effect.result)
+            const changedPaths = yield* changedSourceFiles(fs, root, originalFiles)
+            if (changedPaths.length > 0) {
+              // Move the failed export out of the scoped temporary directory.
+              // Never restore tracked bytes or hand this failure to repair/replan.
+              const retained = yield* fs.makeTempDirectory({
+                prefix: "modified-",
+                directory: options.sourceDirectory ?? path.join(options.repositoryPath, ".jj", "smithers-checks")
+              })
+              const evidence = path.join(retained, "source")
+              const exists = yield* fs.exists(root)
+              if (exists) yield* fs.rename(root, evidence)
+              else yield* fs.makeDirectory(evidence)
+              yield* fs.writeFileString(
+                path.join(retained, "failure.json"),
+                JSON.stringify({
+                  code: "check_modified_tree",
+                  checkId: check.id,
+                  changedPaths,
+                  sourceRemoved: !exists
+                })
+              )
+              return yield* new CodingError({
+                code: "check_modified_tree",
+                message: `Check ${check.id} modified tracked files; output retained at ${evidence}`
+              })
+            }
+            if (execution._tag === "Failure") return yield* Effect.fail(execution.failure)
+            const result = execution.success
             const finishedAt = yield* Clock.currentTimeMillis
             const passed = result.exitCode === 0
             const fault = command.infraExitCodes?.includes(result.exitCode) ? "infra" as const : "factory" as const

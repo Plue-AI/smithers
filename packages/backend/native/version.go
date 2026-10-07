@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/smithersai/smithers/packages/backend/internal/hostbackup"
 )
 
 // Version is the existing version.env contract, shared by the bundle and state.
@@ -166,81 +168,11 @@ func matchVersion(state, release Version) error {
 // numerically, then a prerelease (1.0.0-rc.1) before its release, prerelease
 // identifiers numerically when both are numbers and in ASCII order otherwise.
 func compareRelease(a, b string) (int, error) {
-	coreA, preA, err := releaseParts(a)
+	order, err := hostbackup.CompareRelease(a, b)
 	if err != nil {
-		return 0, err
+		return 0, &GuardError{Reason: "release versions must be X.Y.Z, X.Y.Z-prerelease or dev", Cause: err}
 	}
-	coreB, preB, err := releaseParts(b)
-	if err != nil {
-		return 0, err
-	}
-	for i := range coreA {
-		if coreA[i] != coreB[i] {
-			return cmpUint(coreA[i], coreB[i]), nil
-		}
-	}
-	// A release follows its own prereleases.
-	if len(preA) == 0 || len(preB) == 0 {
-		return cmpUint(uint64(len(preB)), uint64(len(preA))), nil
-	}
-	for i := 0; i < len(preA) && i < len(preB); i++ {
-		numA, errA := strconv.ParseUint(preA[i], 10, 64)
-		numB, errB := strconv.ParseUint(preB[i], 10, 64)
-		switch {
-		case errA == nil && errB == nil && numA != numB:
-			return cmpUint(numA, numB), nil
-		case (errA == nil) != (errB == nil):
-			// A numeric identifier precedes an alphanumeric one.
-			if errA == nil {
-				return -1, nil
-			}
-			return 1, nil
-		case errA != nil && preA[i] != preB[i]:
-			return strings.Compare(preA[i], preB[i]), nil
-		}
-	}
-	return cmpUint(uint64(len(preA)), uint64(len(preB))), nil
-}
-
-func cmpUint(a, b uint64) int {
-	switch {
-	case a < b:
-		return -1
-	case a > b:
-		return 1
-	}
-	return 0
-}
-
-var prereleaseIdentifier = regexp.MustCompile(`^[0-9A-Za-z-]+$`)
-
-func releaseParts(version string) ([3]uint64, []string, error) {
-	var numbers [3]uint64
-	invalid := func(cause error) ([3]uint64, []string, error) {
-		return numbers, nil, &GuardError{Reason: "release versions must be X.Y.Z, X.Y.Z-prerelease or dev", Cause: cause}
-	}
-	core, prerelease, hasPrerelease := strings.Cut(version, "-")
-	parts := strings.Split(core, ".")
-	if len(parts) != len(numbers) {
-		return invalid(nil)
-	}
-	for i, part := range parts {
-		n, err := strconv.ParseUint(part, 10, 64)
-		if err != nil {
-			return invalid(err)
-		}
-		numbers[i] = n
-	}
-	if !hasPrerelease {
-		return numbers, nil, nil
-	}
-	identifiers := strings.Split(prerelease, ".")
-	for _, identifier := range identifiers {
-		if !prereleaseIdentifier.MatchString(identifier) {
-			return invalid(nil)
-		}
-	}
-	return numbers, identifiers, nil
+	return order, nil
 }
 
 func VerifyVersion(root string, release Version) error {
@@ -272,9 +204,20 @@ func EnsureVersion(root string, release Version) error {
 	return nil
 }
 
-// VerifyBackup ports the legacy MANIFEST checks. It does not mount a restore API
-// or treat this legacy archive as the new quiescent MANIFEST.json contract.
+// VerifyBackup uses the canonical Mac manifest verifier. The legacy archive
+// decoder remains solely for previously persisted backups.
 func VerifyBackup(root string) (Version, error) {
+	if _, err := os.Lstat(filepath.Join(root, "MANIFEST.json")); err == nil {
+		// The JSON contract is verified by hostbackup only. Use the recorded
+		// version as the minimum here; callers separately check their bundle.
+		m, err := hostbackup.VerifySnapshot(root)
+		if err != nil {
+			return Version{}, err
+		}
+		return Version{m.Version, strconv.Itoa(m.SchemaVersion), strconv.Itoa(m.PostgresMajor)}, nil
+	} else if !os.IsNotExist(err) {
+		return Version{}, err
+	}
 	f, err := fields(filepath.Join(root, "MANIFEST"))
 	if err != nil {
 		return Version{}, &GuardError{Reason: "backup is incomplete", Backup: root, Cause: err}
@@ -324,7 +267,8 @@ func VerifyBackup(root string) (Version, error) {
 	return v, nil
 }
 
-// CheckRestore retains the shell's exact-version and empty-target guards.
+// CheckRestore retains the shell's stopped-install and empty-target guards,
+// accepting a forward-compatible installed bundle for the Mac JSON contract.
 // Actual restore stays dark until the quiesce and bundle contracts are available.
 func CheckRestore(backup string, release Version, target string, running bool) error {
 	if running {
@@ -334,8 +278,12 @@ func CheckRestore(backup string, release Version, target string, running bool) e
 	if err != nil {
 		return err
 	}
-	if v != release {
+	_, jsonErr := os.Lstat(filepath.Join(backup, "MANIFEST.json"))
+	if os.IsNotExist(jsonErr) && v != release {
 		return &GuardError{Reason: "backup is incompatible with the bundle", Backup: backup}
+	}
+	if err := matchVersion(v, release); err != nil {
+		return &GuardError{Reason: "backup is incompatible with the bundle", Backup: backup, Cause: err}
 	}
 	entries, err := os.ReadDir(target)
 	if err != nil && !os.IsNotExist(err) {
@@ -390,6 +338,15 @@ func Upgrade(ctx context.Context, root, backup string, release Version, steps *U
 	}
 	if state.Version == release.Version {
 		return &GuardError{Reason: "state already matches bundle version " + release.Version, Backup: backup}
+	}
+	if state.Version != "dev" && release.Version != "dev" {
+		order, err := compareRelease(state.Version, release.Version)
+		if err != nil {
+			return err
+		}
+		if order > 0 {
+			return &GuardError{Reason: fmt.Sprintf("release downgrade from %s to %s is refused", state.Version, release.Version), Backup: backup}
+		}
 	}
 	if steps == nil || steps.Migrate == nil {
 		return errors.New("upgrade dependencies are unavailable")

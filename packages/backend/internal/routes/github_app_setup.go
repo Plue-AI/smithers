@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -8,7 +9,9 @@ import (
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,11 +46,12 @@ type InstallSetupSessionAuthority interface {
 }
 
 type GitHubAppSetupHandler struct {
-	Setup    *services.InstallSetupService
-	Sessions InstallSetupSessionAuthority
-	Service  GitHubAppSetupService
-	Store    GitHubAppSetupCredentials
-	Owners   GitHubAppSetupOwners
+	SetTodoPreapprovalDefault func(context.Context, int64, bool) error
+	Setup                     *services.InstallSetupService
+	Sessions                  InstallSetupSessionAuthority
+	Service                   GitHubAppSetupService
+	Store                     GitHubAppSetupCredentials
+	Owners                    GitHubAppSetupOwners
 	// Installations lists the App's installations and repositories when
 	// GitHub returns the owner after an install or a repository change: an
 	// install whose address is not public https gets no installation webhook.
@@ -202,6 +206,21 @@ func (h *GitHubAppSetupHandler) Status(w http.ResponseWriter, r *http.Request) {
 			WriteInstallSetupError(w, r, err)
 			return
 		}
+		if h.Store != nil {
+			fixes, fixErr := h.Store.CallbackFixes(r.Context(), h.knownOrigins())
+			if fixErr != nil && !errors.Is(fixErr, services.ErrGitHubAppNotConfigured) {
+				WriteInstallSetupError(w, r, fixErr)
+				return
+			}
+			if fixErr == nil {
+				status["callback_fixes"] = fixes
+			}
+		}
+		status["can_assign_models"] = false
+		if h.Owners != nil {
+			owner, ownerErr := h.Owners.GetSelfHostOwner(r.Context())
+			status["can_assign_models"] = ownerErr == nil && middleware.IsOwnerBrowserSession(middleware.AuthInfoFromContext(r.Context()), owner.ID)
+		}
 		pkgerrors.WriteJSON(w, http.StatusOK, status)
 		return
 	}
@@ -254,9 +273,32 @@ func (h *GitHubAppSetupHandler) Begin(w http.ResponseWriter, r *http.Request) {
 		writeInstallAPIError(w, pkgerrors.BadRequest("invalid setup body"))
 		return
 	}
-	input, err := services.ValidateInstallSetupBody("app_manifest", raw)
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		writeInstallAPIError(w, pkgerrors.BadRequest("invalid setup body"))
+		return
+	}
+	manual := false
+	for _, field := range []string{"app_id", "slug", "pem", "client_id", "client_secret", "webhook_secret", "callbacks_confirmed"} {
+		if _, ok := fields[field]; ok {
+			manual = true
+		}
+	}
+	var manualInput services.GitHubAppManualRequest
+	var input services.InstallSetupInput
+	if manual {
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.DisallowUnknownFields()
+		err = decoder.Decode(&manualInput)
+	} else {
+		input, err = services.ValidateInstallSetupBody("app_manifest", raw)
+	}
 	if err != nil {
-		WriteInstallSetupError(w, r, err)
+		if manual {
+			writeInstallAPIError(w, pkgerrors.BadRequest("invalid setup body"))
+		} else {
+			WriteInstallSetupError(w, r, err)
+		}
 		return
 	}
 	if h.Setup != nil {
@@ -283,9 +325,26 @@ func (h *GitHubAppSetupHandler) Begin(w http.ResponseWriter, r *http.Request) {
 		session = info.SessionHash
 	}
 	ctx := services.WithGitHubAppSetupSession(r.Context(), session, origin)
-	start, err := h.Service.Begin(ctx, req)
+	var start services.GitHubAppManifestStart
+	if manual {
+		service, ok := h.Service.(interface {
+			ConfigureManual(context.Context, services.GitHubAppManualRequest) (services.GitHubAppManifestStart, error)
+		})
+		if !ok {
+			writeInstallAPIError(w, pkgerrors.Internal("manual App setup unavailable"))
+			return
+		}
+		start, err = service.ConfigureManual(ctx, manualInput)
+	} else {
+		start, err = h.Service.Begin(ctx, req)
+	}
 	if err != nil {
 		WriteInstallSetupError(w, r, err)
+		return
+	}
+	if manual {
+		w.Header().Set("Cache-Control", "no-store")
+		pkgerrors.WriteJSON(w, http.StatusOK, map[string]string{"install_url": start.InstallURL})
 		return
 	}
 	if start.State != "" {
@@ -443,8 +502,16 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var input struct {
-		Capacity *int
-		ChatGPT  *bool
+		Obsidian *struct {
+			Path string `json:"path"`
+		} `json:"wiki_sync.obsidian"`
+		ChatGPT               *bool           `json:"chatgpt"`
+		Capacity              *int            `json:"capacity"`
+		Parallel              *int            `json:"parallel"`
+		TodoDailyAdmissions   *int64          `json:"todo_daily_admissions"`
+		Bind                  json.RawMessage `json:"bind"`
+		Origins               json.RawMessage `json:"origins"`
+		TodoPreapproveDefault *bool           `json:"todo_preapprove_default"`
 	}
 	if len(rawInput.Capacity) > 0 {
 		if json.Unmarshal(rawInput.Capacity, &input.Capacity) != nil || input.Capacity == nil {
@@ -462,9 +529,104 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		writeInstallAPIError(w, pkgerrors.BadRequest("install setting required"))
 		return
 	}
-	if h.Setup == nil || (input.Capacity != nil && h.Setup.Capacity == nil) {
+	if input.TodoPreapproveDefault != nil {
+		if err := services.MergeCredential(r.Context(), r.Header.Get("Smithers-Via")); err != nil {
+			todoRouteError(w, err)
+			return
+		}
+		if input.Obsidian != nil || input.Parallel != nil || input.TodoDailyAdmissions != nil || input.Capacity != nil || input.ChatGPT != nil || len(input.Bind) != 0 || len(input.Origins) != 0 {
+			writeInstallAPIError(w, pkgerrors.BadRequest("Change one setting at a time"))
+			return
+		}
+		if h.SetTodoPreapprovalDefault == nil {
+			writeInstallAPIError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "TODO pre-approval unavailable"))
+			return
+		}
+		if err := h.SetTodoPreapprovalDefault(r.Context(), info.User.ID, *input.TodoPreapproveDefault); err != nil {
+			todoRouteError(w, err)
+			return
+		}
+		h.Status(w, r)
+		return
+	}
+	if input.Obsidian != nil {
+		if len(input.Bind) != 0 || len(input.Origins) != 0 || input.Capacity != nil || input.ChatGPT != nil || input.Parallel != nil || input.TodoDailyAdmissions != nil {
+			writeInstallAPIError(w, pkgerrors.BadRequest("Obsidian must be set separately"))
+			return
+		}
+		if h.Setup == nil || h.Setup.Obsidian == nil {
+			writeInstallAPIError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "install Obsidian unavailable"))
+			return
+		}
+		if err = h.Setup.Obsidian.Set(r.Context(), input.Obsidian.Path); err != nil {
+			WriteInstallSetupError(w, r, err)
+			return
+		}
+		h.Status(w, r)
+		return
+	}
+	if len(input.Bind) != 0 || len(input.Origins) != 0 {
+		if input.Capacity != nil || input.Parallel != nil || input.ChatGPT != nil || input.TodoDailyAdmissions != nil {
+			writeInstallAPIError(w, pkgerrors.BadRequest("other settings and address must be set separately"))
+			return
+		}
+		if h.Setup == nil || h.Setup.Address == nil {
+			WriteInstallSetupError(w, r, &services.InstallReadinessError{Code: "address_unavailable", Class: "transient", Message: "Install listener unavailable"})
+			return
+		}
+		current := h.Setup.Address.Settings()
+		if len(input.Bind) != 0 {
+			if strings.TrimSpace(string(input.Bind)) == "null" || json.Unmarshal(input.Bind, &current.Bind) != nil {
+				writeInstallAPIError(w, pkgerrors.BadRequest("invalid bind address"))
+				return
+			}
+		}
+		if len(input.Origins) != 0 {
+			if json.Unmarshal(input.Origins, &current.Origins) != nil {
+				writeInstallAPIError(w, pkgerrors.BadRequest("invalid public origins"))
+				return
+			}
+		}
+		bind := current.Bind
+		if net.ParseIP(bind) != nil || strings.EqualFold(bind, "localhost") {
+			bind = net.JoinHostPort(bind, "4000")
+		}
+		raw, _ := json.Marshal(map[string]any{"bind": bind, "origins": current.Origins})
+		address, validateErr := services.ValidateInstallSetupBody("address", raw)
+		if validateErr != nil {
+			WriteInstallSetupError(w, r, validateErr)
+			return
+		}
+		if err = h.Setup.SetAddress(r.Context(), info.User.ID, address); err != nil {
+			WriteInstallSetupError(w, r, err)
+			return
+		}
+		h.Status(w, r)
+		return
+	}
+	if input.Capacity == nil && input.Parallel == nil && input.ChatGPT == nil && input.TodoDailyAdmissions == nil {
+		writeInstallAPIError(w, pkgerrors.BadRequest("install setting required"))
+		return
+	}
+	if h.Setup == nil || ((input.Capacity != nil || input.Parallel != nil) && h.Setup.Capacity == nil) {
 		writeInstallAPIError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "install capacity unavailable"))
 		return
+	}
+	if input.TodoDailyAdmissions != nil {
+		if *input.TodoDailyAdmissions <= 0 {
+			writeInstallAPIError(w, pkgerrors.BadRequest("daily admissions must be positive"))
+			return
+		}
+		if err = h.Setup.SetTodoDailyAdmissions(r.Context(), info.User.ID, *input.TodoDailyAdmissions); err != nil {
+			WriteInstallSetupError(w, r, err)
+			return
+		}
+	}
+	if input.Parallel != nil {
+		if err = h.Setup.Capacity.SetParallel(r.Context(), *input.Parallel); err != nil {
+			WriteInstallSetupError(w, r, err)
+			return
+		}
 	}
 	if input.Capacity != nil {
 		if err = h.Setup.Capacity.Set(r.Context(), info.User.ID, *input.Capacity); err != nil {
@@ -491,6 +653,11 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 // WriteInstallSetupError is the install boundary's §6.2.3 envelope. Existing
 // hosted API fault envelopes remain unchanged.
 func WriteInstallSetupError(w http.ResponseWriter, r *http.Request, err error) {
+	var access *services.AccessError
+	if errors.As(err, &access) {
+		pkgerrors.WriteJSON(w, access.Status, access)
+		return
+	}
 	var api *pkgerrors.APIError
 	if errors.As(err, &api) {
 		writeInstallAPIError(w, api)
@@ -501,6 +668,8 @@ func WriteInstallSetupError(w http.ResponseWriter, r *http.Request, err error) {
 		status := http.StatusServiceUnavailable
 		if readiness.Class == "user" {
 			status = http.StatusBadRequest
+		} else if readiness.Class == "permission" {
+			status = http.StatusForbidden
 		}
 		pkgerrors.WriteJSON(w, status, readiness)
 		return
@@ -508,6 +677,9 @@ func WriteInstallSetupError(w http.ResponseWriter, r *http.Request, err error) {
 	writeInstallAPIError(w, pkgerrors.Internal("install setup unavailable"))
 }
 func writeInstallAPIError(w http.ResponseWriter, err *pkgerrors.APIError) {
+	if err.RetryAfter > 0 && w.Header().Get("Retry-After") == "" {
+		w.Header().Set("Retry-After", strconv.Itoa(err.RetryAfter))
+	}
 	pkgerrors.WriteJSON(w, err.Status, installSetupFailure(err))
 }
 
@@ -521,6 +693,9 @@ func installSetupFailure(err error) *services.InstallReadinessError {
 	var api *pkgerrors.APIError
 	if !errors.As(err, &api) {
 		api = pkgerrors.Internal("install setup unavailable")
+	}
+	if api.Class == pkgerrors.ClassGitHub {
+		return &services.InstallReadinessError{Code: string(api.Code), Class: "github", Message: api.Message, RetryAt: api.RetryAt}
 	}
 	code, class, message := string(api.Code), "user", api.Message
 	switch api.Status {

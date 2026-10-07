@@ -292,16 +292,13 @@ test("coming-soon sign-in must start OAuth and return to that repository page", 
   }
 })
 
-test("registration prose opens the app or starts sign-in instead of the marketing page", () => {
-  for (const path of ["docs/pricing.mdx"]) {
-    const source = readFileSync(new URL(`../src/content/docs/${path}`, import.meta.url), "utf8")
-    const registration = source.split("\n").find(line => /sign in (?:with GitHub on|to) \[/i.test(line))
-    assert.ok(registration, path)
-    const href = registration.match(/sign in (?:with GitHub on|to) \[[^\]]+\]\(([^)]+)\)/i)?.[1]
-    const url = new URL(href, "https://smithers.sh")
-    assert.equal(url.origin, "https://smithers.sh")
-    assert.ok(["/api/auth/github", "/smithersai/smithers"].includes(url.pathname), `${path}: ${href}`)
-  }
+test("retired docs URLs reach Install while live page anchors remain checked", (t) => {
+  const root = fixture(t, {
+    "docs/installation/index.html": '<h2 id="install">Install</h2>',
+    "_redirects": "/docs/guides/old/ /docs/installation/ 301\n"
+  })
+  assert.deepEqual(checkBuiltSite(root, ["/docs/guides/old/#retired-heading"]).failures, [])
+  assert.equal(checkBuiltSite(root, ["/docs/installation/#missing"]).failures.length, 1)
 })
 
 test("origin robots allows crawlers and advertises the sitemap", () => {

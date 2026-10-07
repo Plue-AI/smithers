@@ -621,3 +621,25 @@ func TestDefaultConfigRunsCommandsInDifferentWorkspacesConcurrently(t *testing.T
 	assert.Less(t, time.Since(began), time.Second, "a command in one workspace waited behind another workspace's command")
 	require.NoError(t, <-slowDone)
 }
+
+func TestRuntimeAdmissionOwnershipTracksConfirmedLifecycle(t *testing.T) {
+	r := newTestRuntime(t, t.TempDir())
+	assertOwnership := func(holder string, wantHeld, wantKnown bool) {
+		t.Helper()
+		held, known := r.AdmissionOwnership(holder)
+		require.Equal(t, wantHeld, held)
+		require.Equal(t, wantKnown, known)
+	}
+	assertOwnership("workspace:missing", false, false)
+	assertOwnership("other:one", false, false)
+	_, err := r.CreateWorkspace(t.Context(), workspaceapi.WorkspaceSpec{ID: "one"})
+	require.NoError(t, err)
+	assertOwnership("workspace:one", false, true)
+	_, err = r.StartWorkspace(t.Context(), "one")
+	require.NoError(t, err)
+	assertOwnership("workspace:one", true, true)
+	require.NoError(t, r.StopWorkspace(t.Context(), "one"))
+	assertOwnership("workspace:one", false, true)
+	require.NoError(t, r.DeleteWorkspace(t.Context(), "one"))
+	assertOwnership("workspace:one", false, false)
+}

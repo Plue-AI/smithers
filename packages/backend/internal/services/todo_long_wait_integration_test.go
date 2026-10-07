@@ -54,7 +54,8 @@ func TestTodoLongWaitRetainsDiskAndBinding(t *testing.T) {
 				require.Empty(t, runtime.reclaimed)
 				require.Equal(t, row.ID, q.lane.WorkspaceID)
 				if tc.err == nil {
-					require.ErrorIs(t, svc.FailAgentWorkspace(context.Background(), row.ID), errTodoWorkspaceRetained)
+					require.NoError(t, svc.FailAgentWorkspace(context.Background(), row.ID))
+					require.Empty(t, runtime.reclaimed, "failed runs keep their retained machine")
 				}
 			}
 		})

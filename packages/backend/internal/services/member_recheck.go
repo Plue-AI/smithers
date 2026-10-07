@@ -100,6 +100,9 @@ func (m *Members) Recheck(ctx context.Context) (result error) {
 			slog.InfoContext(ctx, "members.recheck", "login", member.login, "suspended", member.role == "")
 		}
 	}
+	if len(failed) == 0 {
+		m.syncActivePermissionKeys(ctx, repo.ID)
+	}
 	return errors.Join(failed...)
 }
 

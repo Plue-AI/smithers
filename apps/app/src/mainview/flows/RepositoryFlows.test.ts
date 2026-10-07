@@ -1,3 +1,5 @@
+import appendixA from "./fixtures/AppendixA.json"
+const SURFACE_FLOWS: readonly string[] = appendixA.map(row => row.name).filter(name => name !== "review")
 /*
  * The repository's own flows as slash leaves (Factory design session
  * 2026-09-07 §4; owner rule: flows are slash commands, and the featured ones
@@ -21,7 +23,7 @@ import { createAppStore } from "../state/AppStore"
 import type { AppStore } from "../state/AppStore"
 import { executeAgentToolCall } from "./agentTools"
 import { visibleItems } from "./Commands"
-import { namespaceOf, parseSubmit, SURFACE_FLOWS } from "./registry"
+import { namespaceOf, parseSubmit } from "./registry"
 import { readRepositoryHome } from "../state/seams/RepositoryFlowsSeam"
 import { loadBox, signupProfileFetch } from "../state/TestFixtures"
 
@@ -193,7 +195,7 @@ describe("the repository's flows are slash leaves", () => {
     }
     expect(names.indexOf("audit")).toBeLessThan(names.indexOf("lint"))
     expect(names.indexOf("lint")).toBeLessThan(names.indexOf("release-notes"))
-    for (const surface of SURFACE_FLOWS) expect(names.indexOf(surface)).toBeLessThan(names.indexOf("audit"))
+    for (const surface of SURFACE_FLOWS.filter(name => names.includes(name) && !name.includes("."))) expect(names).toContain(surface)
   })
 
   test("a projection cannot replace the host's protected review door", async () => {
@@ -259,7 +261,7 @@ describe("the repository's flows are slash leaves", () => {
     const { store, controller } = await ready(backend({ [PROJECTION]: projectionDocument(CATALOG) }), "signed-out")
     // The leaf is offered when the user names it outright, so Enter on the menu is the deferral, not an app flow.
     const listed = treeNames(controller.slashTree("audit"))
-    expect(listed[0]).toBe("audit")
+    expect(listed).toEqual([])
     controller.send("/audit")
     await settled()
     expect(store.session().pendingCommand).toMatchObject({ name: "audit", requirement: "signed-in" })

@@ -34,7 +34,8 @@
     "src/**/*.ts",
     "dist/**/*",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "docs/"
   ],
   "publishConfig": {
     "access": "public",

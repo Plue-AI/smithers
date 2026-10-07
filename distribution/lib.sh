@@ -34,7 +34,7 @@ percent_decode() {
 # starts the query at the next '?', percent-decodes query keys and values, and
 # lets a password= query parameter override the userinfo password.
 split_database_password() {
-  # shellcheck disable=SC2034 # read by entrypoint.sh, backup.sh and restore.sh
+  # shellcheck disable=SC2034 # read by backup.sh and restore.sh
   smithers_pg_url=$SMITHERS_DATABASE_URL
   case "$SMITHERS_DATABASE_URL" in postgres://*|postgresql://*) ;; *) return 0 ;; esac
   pg_scheme=${SMITHERS_DATABASE_URL%%://*}; pg_rest=${SMITHERS_DATABASE_URL#*://}; pg_authority=${pg_rest%%/*}; pg_prefix=
@@ -59,7 +59,7 @@ split_database_password() {
       done
       pg_kept=${pg_kept#&}; pg_rest="$pg_rest${pg_kept:+?$pg_kept}" ;;
   esac
-  # shellcheck disable=SC2034 # read by entrypoint.sh, backup.sh and restore.sh
+  # shellcheck disable=SC2034 # read by backup.sh and restore.sh
   smithers_pg_url="${pg_scheme}://${pg_prefix}${pg_rest}"
 }
 field() {

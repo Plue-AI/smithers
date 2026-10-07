@@ -191,3 +191,15 @@ func (plans memoryRelayPlans) RelayPlanFlow(_ context.Context, target flowruntim
 	flowID, ok := plans[plans.key(target, planID)]
 	return flowID, ok, nil
 }
+
+func TestPresenceRPCNeverStartsOrRebindsHost(t *testing.T) {
+	runtime := &readRPCRuntime{}
+	resolver := &readRPCResolver{runtime: runtime}
+	service := &Service{resolver: resolver}
+	for _, procedure := range []string{"Branch.Announce", "Branch.Leave", "Branch.Roster"} {
+		_, err := service.CallRPC(context.Background(), flowruntime.Target{}, procedure, json.RawMessage(`{}`))
+		require.NoError(t, err)
+	}
+	require.Equal(t, 3, resolver.reads)
+	require.Zero(t, resolver.starts)
+}

@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/smithersai/smithers/packages/backend/internal/live"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -260,6 +262,7 @@ func NewSmithersMetrics() *SmithersMetrics {
 		Help: "Unix timestamp of the last accepted production canary webhook receipt.",
 	})
 	reg.MustRegister(
+		prometheus.NewGaugeFunc(prometheus.GaugeOpts{Name: "smithers_live_connections", Help: "Open live-channel WebSocket connections."}, func() float64 { return float64(live.Connections()) }),
 		rateLimitRejections,
 		terminalActiveGauge,
 		mirrorAttempts,

@@ -1,16 +1,11 @@
 import * as Digest from "@smthrs/core/Digest"
 import { Option, Schema } from "effect"
-import { RequestInput, RequestResult } from "../../../../../flows/coding/schema.ts"
 import { PublicationInput, VibeAdmission, VibeCleanup, VibeInput } from "../../../../../flows/coding/vibe-schema.ts"
 import { SourcePublication } from "../../../../../flows/coding/native-schema.ts"
 import type { Card } from "../state/AppState"
-import { codingEvidenceOf } from "./CodingPlan"
 import { engineRunEvidence, type EngineExecutionEvidence } from "./EngineTrace"
 
-export type WorkflowCatalog = Extract<Card, { kind: "workflow-list" }>
 type RunCard = Extract<Card, { kind: "run-trace" }>
-const requestInput = Schema.decodeUnknownOption(RequestInput)
-const requestResult = Schema.decodeUnknownOption(RequestResult)
 const vibeInput = Schema.decodeUnknownOption(VibeInput)
 const vibeAdmission = Schema.decodeUnknownOption(VibeAdmission)
 const vibeCleanup = Schema.decodeUnknownOption(VibeCleanup)
@@ -42,36 +37,6 @@ const nativeOwner = (execution: EngineExecutionEvidence, executions: ReadonlyArr
   }
   return false
 }
-
-/** Render-only invitation, never an authority to finalize or a claim of landing. */
-export const codingVibeRequestOf = (card: RunCard): { readonly requestExecutionId: string; readonly spanId: string } | undefined => {
-  if (card.payload.workflow !== "coding/request" || card.payload.phase !== "completed") return undefined
-  const evidence = engineRunEvidence(card.payload.events ?? [], card.payload.runId, card.payload.cursorSeq)
-  const requests = evidence.executions.filter(execution => execution.flowName === "coding/Request")
-  if (requests.length !== 1) return undefined
-  const request = requests[0]!
-  const input = requestInput(request.input)
-  const result = requestResult(request.result?.value)
-  const projected = codingEvidenceOf(card)
-  if (request.status !== "completed" || Option.isNone(input) || Option.isNone(result) ||
-    result.value.outcome.status !== "validated" || result.value.outcome.blocked !== null ||
-    result.value.outcome.result?.status !== "validated" || result.value.outcome.result.findings.length !== 0 ||
-    projected.plan === undefined || projected.outcome?.status !== "validated" ||
-    Digest.canonical(projected.plan) !== Digest.canonical(result.value.plan) ||
-    !nativeOwner(request, evidence.executions, card.payload.runId, "coding/request", input.value, requestInput, true)) return undefined
-  return { requestExecutionId: request.executionId, spanId: request.spanId }
-}
-
-/** Only a catalog actually read from this retained gateway supplies availability. */
-export const codingVibeAvailable = (card: RunCard, catalogs: ReadonlyArray<WorkflowCatalog>): boolean => {
-  const matching = catalogs.filter(catalog => catalog.payload.gatewayBindingVersion === 1 &&
-    catalog.payload.repo === card.payload.repo && catalog.payload.workspaceId === card.payload.workspaceId)
-    .sort((left, right) => right.ordinal - left.ordinal)
-  const latest = matching[0]
-  return latest !== undefined && matching[1]?.ordinal !== latest.ordinal &&
-    latest.payload.workflows.some(flow => flow.key === "coding/vibe")
-}
-
 
 /** Source-qualified completed child receipts; a green parent cannot supply one. */
 export interface CodingVibeProgress {

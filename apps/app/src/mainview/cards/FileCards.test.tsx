@@ -130,19 +130,19 @@ test("unavailable Compare and Reapply refuse in the production dispatcher withou
   const controller = createAppController(store, {
     available: false, startTurn: async () => ({ status: "error", message: "unavailable" }),
     cancelTurn: async () => {}, subscribe: () => () => {}
-  }, { fetchImpl: async input => { requests.push(String(input)); return new Response("{}", { status: 404 }) } })
+  }, { bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "none", sandbox: null }, fetchImpl: async input => { requests.push(String(input)); return new Response("{}", { status: 404 }) } })
   try {
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maya", admin: false, scopesPlain: null }).isPersisted.promise
     const cards = [...store.collections.cards.values()]
     const world = JSON.stringify(controller.design.world())
     requests.length = 0
     for (const name of ["file.compare", "file.reapply", "file.restore-deleted", "file.follow-rename"]) {
-      expect((await controller.runCommandForResult(name, JSON.stringify({ path: "retry.ts", version: "retained-17" }))).status).toBe("unknown-command")
+      expect((await controller.runCommandForResult(name, JSON.stringify({ path: "retry.ts", version: "retained-17" }))).status).toBe("failed")
     }
     expect([...store.collections.cards.values()]).toEqual(cards)
     expect(JSON.stringify(controller.design.world())).toBe(world)
     expect(requests).toEqual([])
-  } finally { controller.dispose() }
+  } finally { await controller.dispose() }
 })
 
 describe("file listing bindings", () => {
@@ -219,7 +219,9 @@ test("the served live seam mounts in the File card while an absent seam retains 
   }, { contract: true, actor: true, file: true, recovery: true, catalog: true, machine: true })
   receive!({ kind: "assigned", epoch: "00000000000000000000000000000001", clientId: 7 })
   receive!({ kind: "sync", payload: Uint8Array.from([1, 2, 0, 0]) })
+  provider.doc.getMap("authors").set("7", { kind: "person", login: "alice", name: "Alice", avatar_url: "https://example.com/alice", color_index: 2 })
   provider.doc.getText("content").insert(0, "served document")
+  provider.awareness.getStates().set(8, { actor: { kind: "agent", id: "coding-8", agent: "coding", avatar_url: "https://example.com/agent", color_index: 6 }, line: 1 })
   const binding = liveBinding(provider.doc)
   const host = document.createElement("div"); document.body.append(host)
   const root = createRoot(host)
@@ -229,13 +231,182 @@ test("the served live seam mounts in the File card while an absent seam retains 
   await loaded(host)
   expect(host.querySelector('[data-mode="live"]')).not.toBeNull()
   expect(host.querySelector(".cm-content")?.textContent).toBe("served document")
+  expect(host.querySelector(".code-author")?.textContent).toBe("served document")
+  expect(host.querySelector<HTMLElement>(".code-author")?.style.getPropertyValue("--who")).toBe("var(--lane-2)")
+  expect(host.querySelector(".code-name-flag")?.textContent).toBe("Coding agent")
+  expect(host.querySelector(".code-name-flag")?.getAttribute("data-kind")).toBe("agent")
+  expect(host.querySelector(".code-saved")?.textContent).toBe("Saving…")
   const editor = EditorView.findFromDOM(host.querySelector(".cm-editor")!)!
   flushSync(() => editor.dispatch({ changes: { from: 15, insert: "!" } }))
   expect(provider.doc.getText("content").toString()).toBe("served document!")
+  const { encodeStateVector } = await import("yjs")
+  receive!({ kind: "saved", seq: 3, vector: encodeStateVector(provider.doc) })
+  await loaded(host)
+  // Re-render the same real seam after the disk acknowledgment.
+  flushSync(() => root.render(<FileCardBody card={card} live={{ provider, binding }} onRunCommand={() => {}} />))
+  expect(host.querySelector(".code-saved")?.textContent).toBe("Saved to the machine")
   const count = sent.length
   flushSync(() => root.render(<FileCardBody card={card} onRunCommand={() => {}} />))
   expect(host.querySelector('[data-mode="read_only"]')).not.toBeNull()
   expect(host.querySelector(".cm-content")?.textContent).toBe("seed fallback")
   expect(sent.length).toBe(count)
   expect(provider.doc.getText("content").toString()).toBe("served document!")
+})
+
+test.each(["contract", "actor", "file", "recovery", "catalog", "machine"] as const)("missing %s prerequisite keeps the mounted File read-only", async missing => {
+  const { LiveDocProvider } = await import("../runtime/LiveDocProvider")
+  const { liveBinding } = await import("./liveDoc")
+  const provider = new LiveDocProvider("doc:code:T12:retry.ts", {
+    subscribeDocument() { throw new Error("An unavailable document must not subscribe") }
+  }, { contract: true, actor: true, file: true, recovery: true, catalog: true, machine: true, [missing]: false })
+  const binding = liveBinding(provider.doc)
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host)
+  mounted.push({ root, host, dispose: async () => { binding.dispose(); provider.dispose() } })
+  flushSync(() => root.render(<FileCardBody card={fileCard("retry.ts", "retained read-only text")} live={{ provider, binding }} onRunCommand={() => {}} />))
+  await loaded(host)
+  expect(host.querySelector('[data-mode="read_only"]')).not.toBeNull()
+  expect(host.querySelector(".cm-content")?.textContent).toBe("retained read-only text")
+  expect(host.querySelector(".code-author, .code-name-flag, .code-saved, .code-avatar-stack, button[data-flow]")).toBeNull()
+  expect(host.querySelector(".cm-content")?.getAttribute("aria-readonly")).toBe("true")
+})
+
+test("a closed authorized socket disables the registered File editor and retains pending text", async () => {
+  const { LiveChannel } = await import("../runtime/LiveChannel")
+  const { LiveDocProvider } = await import("../runtime/LiveDocProvider")
+  const { LiveFileContext, fileDocument } = await import("./liveDoc")
+  const { EditorView } = await import("@codemirror/view")
+  const Y = await import("yjs")
+  const sync = await import("y-protocols/sync")
+  const encoding = await import("lib0/encoding")
+  const { encodeLiveDocBinary } = await import("@smthrs/rpc/LiveDoc")
+  const sockets: import("../runtime/LiveChannel").LiveSocket[] = []
+  const timers: Array<() => void> = []
+  const sent: Array<string | Uint8Array> = []
+  const channel = new LiveChannel({ documentFrames: true, socket: () => {
+    const socket: import("../runtime/LiveChannel").LiveSocket = {
+      readyState: 0, onopen: null, onclose: null, onmessage: null,
+      send: frame => { sent.push(frame) }, close() {}
+    }
+    sockets.push(socket); return socket
+  }, schedule: run => { timers.push(run); return run }, cancel() {} })
+  const provider = new LiveDocProvider("doc:code:T12:retry.ts", channel,
+    { contract: true, actor: true, file: true, recovery: true, catalog: true, machine: true })
+  const documentBinding = fileDocument(provider)
+  const server = new Y.Doc()
+  server.getText("content").insert(0, "const retry = 1")
+  const socket = sockets[0]!
+  socket.readyState = 1; socket.onopen!()
+  const assignment = { t: "snap", id: 1, cursor: 1, data: { epoch: "00000000000000000000000000000001", client_id: 7 } }
+  socket.onmessage!({ data: JSON.stringify(assignment) })
+  const encoder = encoding.createEncoder(); sync.writeSyncStep2(encoder, server)
+  socket.onmessage!({ data: encodeLiveDocBinary({ kind: 1, id: 1, payload: encoding.toUint8Array(encoder) }) })
+  const card = fileCard("retry.ts", "const retry = 1", { ref: "T12" })
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host)
+  mounted.push({ root, host, dispose: async () => { documentBinding.dispose(); channel.dispose(); server.destroy() } })
+  const actions: CardActions = {
+    onDecideApproval: () => {}, onConnectGitHub: () => {}, onRunWorkflow: () => {},
+    onStopRun: () => {}, onRetryRun: () => {}, onChooseWorkflowRepo: () => {},
+    worldDocuments: [], onChangeWorldDocument: () => {}, onRunCommand: () => {}
+  }
+  const paint = () => flushSync(() => root.render(<LiveFileContext value={{ resolve: () => documentBinding }}>{renderCardBody(card, actions)}</LiveFileContext>))
+  paint(); await loaded(host)
+  expect(host.querySelector('[data-mode="live"]')).not.toBeNull()
+  const editor = EditorView.findFromDOM(host.querySelector(".cm-editor")!)!
+  flushSync(() => editor.dispatch({ changes: { from: 15, insert: "!" } }))
+  expect(provider.doc.getText("content").toString()).toBe("const retry = 1!")
+  socket.readyState = 3; socket.onclose!()
+  paint()
+  expect(host.querySelector('[data-mode="read_only"]')).not.toBeNull()
+  expect(host.querySelector('.cm-content[contenteditable="true"]')).toBeNull()
+  expect(provider.unsaved).toEqual({ count: 1, text: "const retry = 1!" })
+  expect(host.textContent).toContain("const retry = 1!")
+  expect(host.textContent).not.toContain("Saved to the machine")
+  const writes = sent.length
+  flushSync(() => editor.dispatch({ changes: { from: 0, insert: "forged" } }))
+  expect(provider.doc.getText("content").toString()).toBe("const retry = 1!")
+  expect(sent.length).toBe(writes)
+  timers[0]!()
+  const reconnected = sockets[1]!
+  reconnected.readyState = 1; reconnected.onopen!()
+  // A frame from the old socket cannot restore authority.
+  socket.onmessage!({ data: JSON.stringify(assignment) })
+  expect(provider.editable).toBe(false)
+  reconnected.onmessage!({ data: JSON.stringify(assignment) })
+  reconnected.onmessage!({ data: encodeLiveDocBinary({ kind: 1, id: 1, payload: encoding.toUint8Array(encoder) }) })
+  expect(provider.unsaved?.text).toBe("const retry = 1!")
+  reconnected.onmessage!({ data: JSON.stringify({ t: "saved", id: 1, seq: 1, sv: btoa(String.fromCharCode(...Y.encodeStateVector(provider.doc))) }) })
+  paint()
+  expect(provider.unsaved).toBeUndefined()
+  expect(host.querySelector('[data-mode="live"]')).not.toBeNull()
+  expect(host.querySelector(".cm-content")?.textContent).toBe("const retry = 1!")
+  expect(host.querySelector(".code-saved")?.textContent).toBe("Saved to the machine")
+})
+
+test("outside_change metadata projects and clears without replacing live text", async () => {
+  const { LiveDocProvider } = await import("../runtime/LiveDocProvider")
+  const { liveFileModel } = await import("./liveDoc")
+  let receive!: (event: import("../runtime/LiveDocProvider").DocumentEvent) => void
+  const provider = new LiveDocProvider("doc:code:T12:retry.ts", { subscribeDocument(_topic, callback) {
+    receive = callback; return { send() {}, release() {} }
+  } }, { contract: true, actor: true, file: true, recovery: true, catalog: true, machine: true })
+  try {
+    receive({ kind: "assigned", epoch: "00000000000000000000000000000001", clientId: 42 })
+    receive({ kind: "sync", payload: Uint8Array.from([1, 2, 0, 0]) })
+    provider.doc.getText("content").insert(0, "Alice's live edit")
+    const model = { ...fileModel(fileCard("retry.ts", "old disk text").payload), branch: "T12" }
+    provider.setFile({ ...model, outside: { version: "outside-17", at: "2026-10-05T12:00:00Z" } })
+    expect(liveFileModel(model, provider)).toMatchObject({ content: { kind: "text", text: "Alice's live edit" }, outside: { version: "outside-17", at: "2026-10-05T12:00:00Z" } })
+    provider.setFile(model)
+    expect(liveFileModel(model, provider).outside).toBeUndefined()
+    expect(provider.doc.getText("content").toString()).toBe("Alice's live edit")
+  } finally { provider.dispose() }
+})
+
+test("production file command and mounted document share one branch-files projection", async () => {
+  const { LiveChannel } = await import("../runtime/LiveChannel")
+  const { ControllerContext } = await import("../ControllerContext")
+  const sent: string[] = []
+  const socket: import("../runtime/LiveChannel").LiveSocket = {
+    readyState: 0, onopen: null, onclose: null, onmessage: null,
+    send: data => { if (typeof data === "string") sent.push(data) }, close() {}
+  }
+  const channel = new LiveChannel({ documentFrames: true, socket: () => socket })
+  const model: import("@smthrs/rpc/FileCard").FileCard = {
+    branch: "T12", path: "retry.ts", language: "typescript", digest: "literal-digest",
+    content: { kind: "text", text: "const retry = 1" }, mode: "read_only", diagnostics: [], authors: [], editors: []
+  }
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const controller = createAppController(store, {
+    available: false, startTurn: async () => ({ status: "error", message: "unavailable" }), cancelTurn: async () => {}, subscribe: () => () => {}
+  }, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "none", sandbox: null },
+    live: channel, documentOptions: { channel, prerequisites: { contract: true, actor: true, file: true, recovery: true, catalog: true, machine: true } },
+    branchOptions: { ready: () => true, scope: () => ({ branch: "T12", member: "ben", revision: 1, sleeping: false }) },
+    fetchImpl: async () => new Response(JSON.stringify(model))
+  })
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host)
+  mounted.push({ root, host, dispose: async () => { await controller.dispose(); channel.dispose() } })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+  expect((await controller.commands.submit({ name: "file", payload: { path: "retry.ts", branch: "T12" }, actor: "user" })).status).toBe("executed")
+  const card = [...store.collections.cards.values()].find(card => card.kind === "file" && card.payload.path === "retry.ts")!
+  const actions: CardActions = {
+    onDecideApproval: () => {}, onConnectGitHub: () => {}, onRunWorkflow: () => {}, onStopRun: () => {}, onRetryRun: () => {}, onChooseWorkflowRepo: () => {},
+    worldDocuments: [], onChangeWorldDocument: () => {}, onRunCommand: () => {}
+  }
+  flushSync(() => root.render(<ControllerContext value={controller}>{renderCardBody(card, actions)}</ControllerContext>))
+  await loaded(host)
+  expect(host.querySelector('[data-mode="read_only"]')).not.toBeNull()
+  const provider = controller.fileDocuments!.resolve("T12", "retry.ts", model)!.provider
+  socket.readyState = 1; socket.onopen!()
+  const subscription = sent.map(frame => JSON.parse(frame)).find(frame => frame.topic === "branch:T12:files")
+  expect(subscription).toBeDefined()
+  socket.onmessage!({ data: JSON.stringify({ t: "snap", id: subscription.id, cursor: 1, data: [model] }) })
+  socket.onmessage!({ data: JSON.stringify({ t: "delta", id: subscription.id, cursor: 2, data: { path: "retry.ts", outside_change: { version: "outside-1", at: "2026-10-06T00:00:00Z" } } }) })
+  expect(provider.file?.outside).toEqual({ version: "outside-1", at: "2026-10-06T00:00:00Z" })
+  socket.onmessage!({ data: JSON.stringify({ t: "delta", id: subscription.id, cursor: 3, data: { path: "retry.ts" } }) })
+  expect(provider.file?.outside).toBeUndefined()
+  expect(host.textContent).not.toContain("Saved to the machine")
 })

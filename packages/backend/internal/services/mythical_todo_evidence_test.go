@@ -134,30 +134,34 @@ func TestTodoEvidenceSaysNoChecksFoundForAPlanWithNone(t *testing.T) {
 
 func TestTodoEvidenceKeepsOnlyMatchingCandidateAndAttempt(t *testing.T) {
 	duration := int64(0)
-	item := db.MythicalItem{Source: "todo", Attempt: 1, CandidateHead: "candidate", FlowDigest: pgtype.Text{String: "pin", Valid: true}, Checks: mythicalChecks{
+	item := db.MythicalItem{Source: "todo", Attempt: 1, RequestRunID: "attempt-one-run", CandidateHead: "candidate", FlowDigest: pgtype.Text{String: "pin", Valid: true}, Checks: mythicalChecks{
 		Receipts: &mythicalReceipts{Run: "bound", Checks: []mythicalReceipt{
 			{Check: "parent", Commit: "parent", Status: "failed"}, {Check: "unit", Commit: "candidate", Status: "passed", DurationMs: &duration},
 		}}, Review: &mythicalReview{Head: "old", Verdict: "approve"},
 	}.encode()}
 	evidence := currentTodoEvidence(item)
-	require.Equal(t, []map[string]any{{"kind": "check", "name": "unit", "state": "passed", "took_s": float64(0)}, {"kind": "flow", "name": "todo", "version": "pin"}}, evidence.Items)
+	require.Equal(t, "attempt-one-run", evidence.RunID)
+	require.Equal(t, []map[string]any{{"kind": "check", "name": "unit", "state": "passed", "took_s": float64(0)}, {"kind": "flow", "name": "todo", "version": "pin", "source_commit": ""}}, evidence.Items)
 	archived := retainTodoAttemptEvidence(item)
 	first, _ := json.Marshal(mythicalChecksOf(archived).Attempts[0])
 	require.Equal(t, archived, retainTodoAttemptEvidence(archived), "replayed snapshot is identical")
 	// Candidate movement hides stale receipts and review rather than reattributing them.
 	moved := archived
 	moved.CandidateHead = "different"
-	require.Equal(t, []map[string]any{{"kind": "flow", "name": "todo", "version": "pin"}}, currentTodoEvidence(moved).Items)
+	require.Equal(t, []map[string]any{{"kind": "flow", "name": "todo", "version": "pin", "source_commit": ""}}, currentTodoEvidence(moved).Items)
 	checks := mythicalChecksOf(moved)
 	checks.Review = &mythicalReview{Head: "different", Verdict: "request-changes"}
 	moved.Checks = checks.encode()
 	require.Equal(t, map[string]any{"kind": "review", "summary": "request-changes"}, currentTodoEvidence(moved).Items[0])
 	// A later attempt changes only its own evidence. Old bytes remain frozen.
 	moved.Attempt = 2
+	moved.RequestRunID = "attempt-two-run"
 	moved = retainTodoAttemptEvidence(moved)
 	second, _ := json.Marshal(mythicalChecksOf(moved).Attempts[0])
 	require.Equal(t, string(first), string(second))
 	require.Len(t, todoEvidence(moved), 2)
+	require.Equal(t, "attempt-one-run", todoEvidence(moved)[0].RunID)
+	require.Equal(t, "attempt-two-run", todoEvidence(moved)[1].RunID)
 	require.Equal(t, moved, retainTodoAttemptEvidence(moved))
 	for _, attempt := range []int32{0, -1} {
 		empty := db.MythicalItem{Source: "todo", Attempt: attempt}
@@ -168,9 +172,21 @@ func TestTodoEvidenceKeepsOnlyMatchingCandidateAndAttempt(t *testing.T) {
 	require.Equal(t, legacy, retainTodoAttemptEvidence(legacy), "legacy decoding does not acquire new TODO facts")
 }
 
+func TestTodoReopenedAttemptEvidenceKeepsEndedRun(t *testing.T) {
+	item := db.MythicalItem{Source: "todo", Attempt: 1, RequestRunID: "ended-run", CandidateHead: "accepted-head"}
+	item = retainTodoAttemptEvidence(item)
+	item.RequestRunID = ""
+	item = retainTodoAttemptEvidence(item)
+	require.Equal(t, "ended-run", currentTodoEvidence(item).RunID)
+	require.Equal(t, "ended-run", mythicalChecksOf(item).Attempts[0].RunID)
+	// A later attempt must not inherit the ended attempt's identity.
+	item.Attempt = 2
+	require.Empty(t, currentTodoEvidence(item).RunID)
+}
+
 func TestTodoEvidenceRetainsPreviousRevisionWithinAttempt(t *testing.T) {
 	item := db.MythicalItem{Source: "todo", Attempt: 1, CandidateHead: "old", Checks: mythicalChecks{
-		Receipts: &mythicalReceipts{Checks: []mythicalReceipt{{Check: "unit", Commit: "old", Status: "passed"}}},
+		Receipts: &mythicalReceipts{Checks: []mythicalReceipt{{Check: "unit", Commit: "old", Status: "passed", LogDigest: "old-log"}}},
 	}.encode()}
 	item.Number = pgtype.Int8{Int64: 7, Valid: true}
 	item = retainTodoAttemptEvidence(item)
@@ -181,7 +197,7 @@ func TestTodoEvidenceRetainsPreviousRevisionWithinAttempt(t *testing.T) {
 		t.Helper()
 		raw, err := json.Marshal(todoEvidence(item))
 		require.NoError(t, err)
-		require.JSONEq(t, `[{"attempt":1,"revision":"new","items":`+currentItems+`,"previous":{"revision":"old","items":[{"kind":"check","name":"unit","state":"passed"}]}}]`, string(raw))
+		require.JSONEq(t, `[{"attempt":1,"revision":"new","items":`+currentItems+`,"previous":{"revision":"old","items":[{"kind":"check","name":"unit","state":"passed","log_digest":"old-log","log_url":"/api/todos/7/attempts/1/logs/old-log"}]}}]`, string(raw))
 	}
 	assertPrevious(item, `[]`)
 	item = retainTodoAttemptEvidence(item)

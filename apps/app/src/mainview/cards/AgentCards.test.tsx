@@ -1,3 +1,6 @@
+import { installFixture } from "../state/seams/InstallFixtures.test-support"
+import { settingsCardModel } from "../state/seams/InstallModel"
+import { ModelRoles } from "./ModelCards"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { afterAll, describe, expect, test } from "bun:test"
 import { flushSync } from "react-dom"
@@ -103,3 +106,42 @@ describe("the Agents card", () => {
   })
 })
 
+
+test("the install projection shows instructions and source; only the owner gets assignment controls", () => {
+ const agent = { ...orchestrator, id: "reviewer", label: "Reviewer agent", source: "owner" as const, instructions: "flows/todo/flow.ts", binding: { protocol: "openai-responses", modelId: "model-a", credential: "OPENAI_API_KEY" } }
+ const recorded = recorder()
+ const owner = mount(<AgentsCardBody card={agentsCard({ native: false, canAssign: true, agents: [agent] })} onRunCommand={recorded.onRunCommand} />)
+ expect(owner.querySelector('[data-testid="agent-source-reviewer"]')?.textContent).toBe("owner")
+ click(owner, '[data-testid="agent-model-reviewer"]')
+ expect(recorded.calls[0]).toEqual(["agent.model", '{"role":"reviewer"}'])
+ click(owner, '[data-flow="files.read"]')
+ expect(recorded.calls[1]?.[0]).toBe("files.read")
+ expect(recorded.calls[1]?.[1]).toContain("flows/todo/flow.ts")
+ const member = mount(<AgentsCardBody card={agentsCard({ native: false, canAssign: false, agents: [agent] })} onRunCommand={recorded.onRunCommand} />)
+ expect(member.querySelector('[data-flow="agent.model"]')).toBeNull()
+ expect(member.querySelector('[data-flow="files.read"]')).not.toBeNull()
+})
+
+test("opening one agent filters the shared card to that role", () => {
+ const reviewer = { ...orchestrator, id: "reviewer", label: "Reviewer agent" }
+ const host = mount(<AgentsCardBody card={agentsCard({ native: false, selectedAgent: "reviewer", agents: [orchestrator, reviewer] })} onRunCommand={() => {}} />)
+ expect(host.querySelectorAll("[data-agent]")).toHaveLength(1)
+ expect(host.querySelector("[data-agent]")?.getAttribute("data-agent")).toBe("reviewer")
+})
+
+test("Settings displays the assigned model in the shared Models section", () => {
+ const served = installFixture()
+ served.models[1]!.model = "model-b"
+ const host = mount(<ModelRoles model={settingsCardModel(served, "http://localhost:4000")} actions={[]} onAction={() => {}} />)
+ expect(host.querySelector('[data-testid="settings-model-coding"]')?.textContent).toBe("model-b")
+})
+
+
+test("the Agent card shows actual models from recent runs after the assigned model changes", () => {
+ const agent = { ...orchestrator, id: "app", label: "App agent", model: { provider: "openai", id: "new-model", label: "new-model" }, runs: [{ id: "turn-before-switch", model: "old-model" }, { id: "turn-after-switch", model: "new-model" }] }
+ const host = mount(<AgentsCardBody card={agentsCard({ native: false, install: true, canAssign: false, agents: [agent] })} onRunCommand={() => {}} />)
+ const runs = host.querySelector('[data-testid="agent-recent-runs-app"]')
+ expect(runs?.textContent).toContain("turn-before-switch · old-model")
+ expect(runs?.textContent).toContain("turn-after-switch · new-model")
+ expect(host.querySelector('[data-flow="agent.model"]')).toBeNull()
+})

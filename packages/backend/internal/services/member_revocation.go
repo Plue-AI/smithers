@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -54,10 +55,60 @@ func (m *Members) lockRoster(ctx context.Context) (pgx.Tx, error) {
 
 // revokeMemberCredentials ends every credential user holds in tx: sessions,
 // tokens, OAuth grants and workspace sessions are deleted, sign-in is barred,
-// and one durable revocation event is written with the commit; live sockets
+// and durable member/share revocation events are written with the commit; live sockets
 // and terminals close on its fanout (bus catch-up within 1 s).
 func revokeMemberCredentials(ctx context.Context, tx pgx.Tx, repo, user, actor int64) error {
+	q := db.New(tx)
+	// Read grants before deleting them; their durable events commit with the
+	// roster removal. DELETE waits for in-flight mutation grant locks.
+	rows, err := tx.Query(ctx, `SELECT workspace_id::text, grantee_user_id FROM workspace_shares WHERE grantee_user_id=$1 OR owner_user_id=$1 ORDER BY workspace_id`, user)
+	if err != nil {
+		return err
+	}
+	type grant struct {
+		workspace string
+		member    int64
+	}
+	var workspaces []grant
+	for rows.Next() {
+		var item grant
+		if err := rows.Scan(&item.workspace, &item.member); err != nil {
+			rows.Close()
+			return err
+		}
+		workspaces = append(workspaces, item)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	owner, err := q.GetBranchMachineOwner(ctx)
+	if err != nil && err != pgx.ErrNoRows {
+		return err
+	}
+	for _, item := range workspaces {
+		row, err := q.GetWorkspace(ctx, item.workspace)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Soft deletion leaves grants behind. Revoke them without a live VM.
+			if err := revokeWorkspaceShare(ctx, q, db.Workspace{ID: item.workspace}, item.member); err != nil {
+				return err
+			}
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if row.UserID == owner {
+			err = RevokeBranchMachineShare(ctx, tx, row.ID, item.member)
+		} else {
+			err = revokeWorkspaceShare(ctx, q, row, item.member)
+		}
+		if err != nil {
+			return err
+		}
+	}
 	for _, statement := range []string{
+		`DELETE FROM workspace_shares WHERE grantee_user_id=$1 OR owner_user_id=$1`,
 		`UPDATE users SET prohibit_login=true WHERE id=$1`,
 		`DELETE FROM auth_sessions WHERE user_id=$1`,
 		`DELETE FROM access_tokens WHERE user_id=$1`,
@@ -65,13 +116,11 @@ func revokeMemberCredentials(ctx context.Context, tx pgx.Tx, repo, user, actor i
 		`DELETE FROM oauth2_refresh_tokens WHERE user_id=$1`,
 		`DELETE FROM oauth2_access_tokens WHERE user_id=$1`,
 		`DELETE FROM workspace_sessions WHERE user_id=$1`,
-		`DELETE FROM workspace_shares WHERE grantee_user_id=$1 OR owner_user_id=$1`,
 	} {
 		if _, err := tx.Exec(ctx, statement, user); err != nil {
 			return err
 		}
 	}
-	q := db.New(tx)
 	return revocation.NewTransactionalDBPublisher(q).Publish(ctx, revocation.Event{Kind: revocation.KindCollaboratorRemoved, UserID: user, RepositoryID: repo, ActorID: actor, SandboxIDs: workspaceVMIDs(ctx, q, repo, user), Reason: "member access revoked"})
 }
 

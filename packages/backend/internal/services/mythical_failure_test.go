@@ -271,21 +271,38 @@ func (unresolvedGitHub) Resolve(context.Context, db.Repository, string, int64) (
 // error's text.
 func TestMythicalUnreachedGitHubIsALandingFailure(t *testing.T) {
 	o := newMythicalOrchestration(t)
+	o.composePublication()
 	ctx := context.Background()
 	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 341, Title: "Land", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
-	stack := o.wake()
+	o.wake()
 	item := o.item(341)
 	require.Equal(t, "running", item.State, item.Reason)
 	o.project(o.launcher.last("coding/request"), jobs.StateCompleted, "run-341", validatedRequest)
 	o.wake()
-	candidate := o.laneResult(item.WorkspaceID, stack.TipCommit, map[string]string{"land.md": "x\n"}, "📝 docs: add land.md")
-	_, err := o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: stack.TipCommit,
+	candidate := o.laneResult(item.WorkspaceID, item.BaseCommit, map[string]string{"land.md": "x\n"}, "📝 docs: add land.md")
+	_, err := o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: item.BaseCommit,
 		Source: candidate, RequestRunID: "run-341", Summary: "📝 docs: add land.md"})
 	require.NoError(t, err)
-	o.wake() // integrating -> proposing
+	// PollOnce drains multiple due claims. Observe each persisted transition
+	// with one real worker claim so the initial wait cannot be skipped.
+	pollOne := func() {
+		t.Helper()
+		pollCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		_, err := o.pool.Exec(pollCtx, `UPDATE mythical_items SET next_attempt_at = NOW() WHERE repository_id = $1`, o.repoID)
+		require.NoError(t, err)
+		o.service.MainMoved(pollCtx, o.repoID)
+		claims, err := db.New(o.pool).ClaimMythicalStacks(pollCtx, 1, mythicalLease.Seconds())
+		require.NoError(t, err)
+		require.Len(t, claims, 1)
+		o.service.runClaimed(pollCtx, claims[0])
+		require.NoError(t, pollCtx.Err())
+	}
 	o.service.SetOrchestration(unresolvedGitHub{o.github}, o.launcher, o.lanes)
-	o.wake()
+	pollOne() // integrating -> proposing
+	require.Equal(t, "proposing", o.item(341).State)
+	pollOne() // first failed resolution is a wait
 	item = o.item(341)
 	require.Equal(t, "waiting", item.State)
 	assert.Equal(t, mythicalGitHubUnreached, item.Reason)
@@ -294,7 +311,7 @@ func TestMythicalUnreachedGitHubIsALandingFailure(t *testing.T) {
 	assert.Nil(t, view["failure"], "one miss is a wait, not a failure")
 	assert.NotContains(t, raw, "ghs_secret")
 
-	o.wake()
+	pollOne()
 	item = o.item(341)
 	assert.Equal(t, &mythicalFault{Class: "infra", Tag: "github", Kind: "landing"}, mythicalChecksOf(item).Fault)
 	view, raw = mythicalSnapshotItem(t, o, 341)

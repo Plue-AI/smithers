@@ -86,8 +86,8 @@ func TestGitHubBudget_ResponseHeadersAndStreamAdmission(t *testing.T) {
 	now := time.Unix(1000, 0).UTC()
 	tracker := NewGitHubResponseBudgetTracker()
 	tracker.now = func() time.Time { return now }
-	tracker.registerToken("scoped-one", 91)
-	tracker.registerToken("scoped-two", 91)
+	tracker.registerToken("scoped-one", 91, now.Add(time.Hour))
+	tracker.registerToken("scoped-two", 91, now.Add(time.Hour))
 	var calls []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls = append(calls, r.Method+" "+r.URL.RequestURI())
@@ -128,6 +128,9 @@ func TestGitHubBudget_ResponseHeadersAndStreamAdmission(t *testing.T) {
 	send("GET", "/repos/acme/app/issues", "scoped-two", `"unchanged"`, 304)
 	require.Equal(t, 19, tracker.Status(91).Remaining, "304 has no charged debit across scoped tokens")
 	send("GET", "/repos/acme/app/pulls", "scoped-one", "", 403)
+	require.Equal(t, time.Unix(1030, 0).UTC(), tracker.StreamRetryAt(91, "pulls"))
+	require.True(t, tracker.StreamRetryAt(91, "issues").IsZero())
+	require.True(t, tracker.StreamRetryAt(92, "pulls").IsZero())
 	send("GET", "/repos/acme/app/pulls?page=2", "scoped-two", "", 429)
 	require.Len(t, calls, 3, "Retry-After pauses all pages of this stream")
 	send("GET", "/repos/acme/app/issues/events", "scoped-one", "", 200)
@@ -150,7 +153,7 @@ func TestGitHubBudget_MintAndReadsShareAdmissionWithoutHourlyCap(t *testing.T) {
 	now := time.Unix(1000, 0).UTC()
 	tracker := NewGitHubResponseBudgetTracker()
 	tracker.now = func() time.Time { return now }
-	tracker.registerToken("read-token", 91)
+	tracker.registerToken("read-token", 91, now.Add(time.Hour))
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
@@ -173,6 +176,7 @@ func TestGitHubBudget_MintAndReadsShareAdmissionWithoutHourlyCap(t *testing.T) {
 		return resp.StatusCode
 	}
 	require.Equal(t, 200, send("/app/installations/91/access_tokens", "app-jwt"))
+	require.Equal(t, time.Unix(1100, 0).UTC(), tracker.StreamRetryAt(91, "issues"))
 	require.Equal(t, 429, send("/repos/acme/app/issues", "read-token"))
 	require.Equal(t, 429, send("/app/installations/91/access_tokens", "rotated-jwt"))
 	require.Equal(t, 1, calls)
@@ -180,6 +184,7 @@ func TestGitHubBudget_MintAndReadsShareAdmissionWithoutHourlyCap(t *testing.T) {
 	require.Equal(t, 429, send("/repos/acme/app/issues", "read-token"), "no local linear refill")
 	require.Equal(t, 200, send("/app/installations/92/access_tokens", "app-jwt"), "installations remain isolated")
 	now = time.Unix(1100, 0).UTC()
+	require.True(t, tracker.StreamRetryAt(91, "issues").IsZero())
 	require.Equal(t, 200, send("/app/installations/91/access_tokens", "app-jwt"))
 	require.Equal(t, 3, calls)
 	// Missing header receipts are unknown, rather than a fabricated hourly cap.

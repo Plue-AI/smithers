@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"net/http"
 	"os"
 	"os/exec"
@@ -14,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/stretchr/testify/require"
 )
 
@@ -65,6 +65,9 @@ func TestTODOPrLifecycleDecision(t *testing.T) {
 		{"missing commit", mythicalGitHubFact{Kind: "merged", OnMain: true}, mythicalGitHubFactItem{State: "working"}, mythicalGitHubFactDecision{Noop: "merge_not_on_main"}},
 		{"close", mythicalGitHubFact{Kind: "closed"}, mythicalGitHubFactItem{State: "failed"}, mythicalGitHubFactDecision{Event: "dropped"}},
 		{"duplicate close", mythicalGitHubFact{Kind: "closed"}, mythicalGitHubFactItem{State: "dropped"}, mythicalGitHubFactDecision{Noop: "already_closed"}},
+		{"cancelled absorbs close", mythicalGitHubFact{Kind: "closed"}, mythicalGitHubFactItem{State: "cancelled"}, mythicalGitHubFactDecision{Noop: "already_closed"}},
+		{"Smithers Drop day six", mythicalGitHubFact{Kind: "reopened"}, mythicalGitHubFactItem{State: "cancelled", ClosedAt: now.Add(-6 * 24 * time.Hour)}, mythicalGitHubFactDecision{Event: "in_review"}},
+		{"Smithers Drop day eight", mythicalGitHubFact{Kind: "reopened"}, mythicalGitHubFactItem{State: "cancelled", ClosedAt: now.Add(-8 * 24 * time.Hour)}, mythicalGitHubFactDecision{Noop: "reopen_window_expired"}},
 		{"day six", mythicalGitHubFact{Kind: "reopened"}, mythicalGitHubFactItem{State: "dropped", ClosedAt: now.Add(-6 * 24 * time.Hour)}, mythicalGitHubFactDecision{Event: "in_review"}},
 		{"day seven inclusive", mythicalGitHubFact{Kind: "reopened"}, mythicalGitHubFactItem{State: "dropped", ClosedAt: now.Add(-7 * 24 * time.Hour)}, mythicalGitHubFactDecision{Event: "in_review"}},
 		{"one nanosecond late", mythicalGitHubFact{Kind: "reopened"}, mythicalGitHubFactItem{State: "dropped", ClosedAt: now.Add(-7*24*time.Hour - time.Nanosecond)}, mythicalGitHubFactDecision{Noop: "reopen_window_expired"}},
@@ -76,6 +79,12 @@ func TestTODOPrLifecycleDecision(t *testing.T) {
 		{"foreign push", mythicalGitHubFact{Kind: "push", Head: "new"}, mythicalGitHubFactItem{State: "paused", Head: "old"}, mythicalGitHubFactDecision{Attention: "foreign_push"}},
 		{"terminal push", mythicalGitHubFact{Kind: "push", Head: "new"}, mythicalGitHubFactItem{State: "dropped", Head: "old"}, mythicalGitHubFactDecision{Noop: "terminal"}},
 		{"same head", mythicalGitHubFact{Kind: "push", Head: "old"}, mythicalGitHubFactItem{State: "working", Head: "old"}, mythicalGitHubFactDecision{Noop: "unchanged"}},
+		{"unacknowledged own push", mythicalGitHubFact{Kind: "push", Head: "new"}, mythicalGitHubFactItem{State: "working", Head: "old", PendingHead: "new"}, mythicalGitHubFactDecision{Noop: "own_push"}},
+		{"different pending head", mythicalGitHubFact{Kind: "push", Head: "foreign"}, mythicalGitHubFactItem{State: "working", Head: "old", PendingHead: "new"}, mythicalGitHubFactDecision{Attention: "foreign_push"}},
+		{"cancelled absorbs push", mythicalGitHubFact{Kind: "push", Head: "new"}, mythicalGitHubFactItem{State: "cancelled", Head: "old"}, mythicalGitHubFactDecision{Noop: "terminal"}},
+		{"declined absorbs push", mythicalGitHubFact{Kind: "push", Head: "new"}, mythicalGitHubFactItem{State: "declined", Head: "old"}, mythicalGitHubFactDecision{Noop: "terminal"}},
+		{"terminal same head", mythicalGitHubFact{Kind: "push", Head: "old"}, mythicalGitHubFactItem{State: "dropped", Head: "old"}, mythicalGitHubFactDecision{Noop: "terminal"}},
+		{"terminal absent head", mythicalGitHubFact{Kind: "push"}, mythicalGitHubFactItem{State: "cancelled", Head: "old"}, mythicalGitHubFactDecision{Noop: "terminal"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) { require.Equal(t, tc.want, decideGitHubFact(tc.fact, tc.item, now)) })
 	}
@@ -296,4 +305,69 @@ func TestTODOPrBodyNeutralizesAllClosingReferences(t *testing.T) {
 	require.Contains(t, body, "Refs #13")
 	require.Contains(t, body, "Refs #14")
 	require.NotRegexp(t, mythicalClosingKeyword, body)
+}
+
+func TestGitHubPushDecisionBeforePR(t *testing.T) {
+	for _, tc := range []struct {
+		name, state, head, pending string
+		noPR, starting             bool
+		event, attention, noop     string
+	}{
+		{name: "queued", state: "queued", noPR: true, event: "push_recorded"},
+		{name: "starting", state: "running", noPR: true, starting: true, event: "push_recorded"},
+		{name: "skipped projects queued", state: "skipped", noPR: true, event: "push_recorded"},
+		{name: "open PR queued", state: "queued", attention: "foreign_push"},
+		{name: "open PR starting", state: "running", starting: true, attention: "foreign_push"},
+		{name: "unqualified working without PR", state: "running", noPR: true, attention: "foreign_push"},
+		{name: "failed with stale launch facts", state: "blocked", noPR: true, starting: true, attention: "foreign_push"},
+		{name: "in review with stale launch facts", state: "proposed", noPR: true, starting: true, attention: "foreign_push"},
+		{name: "recorded head", state: "queued", head: "outside", noPR: true, noop: "unchanged"},
+		{name: "own pending head", state: "queued", pending: "outside", noPR: true, noop: "own_push"},
+		{name: "dropped", state: "cancelled", noPR: true, starting: true, noop: "terminal"},
+		{name: "merged", state: "landed", noPR: true, starting: true, noop: "terminal"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := decideGitHubFact(mythicalGitHubFact{Kind: "push", Head: "outside"}, mythicalGitHubFactItem{State: tc.state, Head: tc.head, PendingHead: tc.pending, NoPR: tc.noPR, Starting: tc.starting}, time.Unix(100, 0))
+			require.Equal(t, tc.event, got.Event)
+			require.Equal(t, tc.attention, got.Attention)
+			require.Equal(t, tc.noop, got.Noop)
+		})
+	}
+}
+
+func TestTODOPrRetainedManifestCannotBeRewritten(t *testing.T) {
+	original := mythicalMergedManifest{Head: "published-old", Included: []mythicalManifestItem{{ID: "two", Number: 2, Head: "candidate-two", Change: "base..candidate-two"}}}
+	checks := mythicalChecks{}
+	checks.retainManifest(original)
+	original.Included[0].Head = "mutated"
+	checks.retainManifest(mythicalMergedManifest{Head: "published-old"})
+	checks.retainManifest(mythicalMergedManifest{Head: "published-new"})
+	require.Len(t, checks.PRManifests, 2)
+	require.Equal(t, "candidate-two", checks.PRManifests[0].Included[0].Head)
+	require.Empty(t, checks.PRManifests[1].Included)
+	decoded := mythicalChecksOf(db.MythicalItem{Checks: checks.encode()})
+	require.Equal(t, checks.PRManifests, decoded.PRManifests)
+	require.Nil(t, decoded.retainedManifest(""))
+	require.Nil(t, decoded.retainedManifest("foreign"))
+	retained := decoded.retainedManifest("published-old")
+	require.NotNil(t, retained)
+	require.Equal(t, "candidate-two", retained.Included[0].Head)
+	retained.Included[0].Head = "changed"
+	require.Equal(t, "candidate-two", decoded.retainedManifest("published-old").Included[0].Head)
+
+}
+
+func TestTODOPrCandidateIdentityRefusesUnverifiedChanges(t *testing.T) {
+	for _, item := range []db.MythicalItem{
+		{CandidateBase: "base", CandidateHead: "head"},
+		{CandidateVerified: true, CandidateHead: "head"},
+		{CandidateVerified: true, CandidateBase: "base"},
+	} {
+		identity := mythicalCandidateIdentity(item)
+		require.Empty(t, identity.Head)
+		require.Empty(t, identity.Change)
+	}
+	identity := mythicalCandidateIdentity(db.MythicalItem{CandidateVerified: true, CandidateBase: "base", CandidateHead: "head"})
+	require.Equal(t, "head", identity.Head)
+	require.Equal(t, "base..head", identity.Change)
 }

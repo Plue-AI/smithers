@@ -11,6 +11,7 @@
  * data) whose bytes are evidence of what a wave measured.
  */
 import { Smithers } from "@smthrs/targets"
+import { Package as harborPackage } from "../harbor/PACKAGE.ts"
 
 const cwd = "evals/swebench"
 
@@ -68,7 +69,7 @@ const fixtureInputs = [
   Smithers.glob("//evals/swebench/fixtures/**"),
   Smithers.glob("//evals/swebench/baseline/**"),
   // lib/plue.py drives Smithers Cloud through the Harbor adapter's seam.
-  Smithers.glob("//evals/harbor/*.py"),
+  harborPackage.pythonInputs,
   Smithers.ImportClosure({
     entries: [
       Smithers.glob("*.ts"),

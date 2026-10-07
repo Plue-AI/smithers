@@ -197,7 +197,7 @@ func (h *MythicalHandler) Lanes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body services.MythicalLaneSubmission
-	if !decodeMythicalBody(w, r, 32<<10, &body) {
+	if !decodeMythicalBody(w, r, 2<<20, &body) {
 		return
 	}
 	receipt, err := h.Service.SubmitLane(r.Context(), repoCtx.Repository.ID, user.ID, body)

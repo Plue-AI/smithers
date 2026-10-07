@@ -11,7 +11,7 @@ export default showcase({
   flows: ["card.maximize", "frame.back", "frame.forward"],
   run: async ({ page, app }) => {
     await app.open("/")
-    await app.slash("/agent.list")
+    await app.slash("/agents")
     await app.closeComposer()
     const card = page.getByTestId("transcript").locator('.smithers-card[data-kind="agents"]')
     await app.show(card)

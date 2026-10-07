@@ -16,13 +16,11 @@
  * fails only the error rate. An endpoint that is up and reliable but slow fails
  * only latency. Collapsing them would lose which of the three is true.
  */
-import { TURN_PATH } from "@smthrs/rpc/AgentApiRoutes"
+const CONVERSATION_PROMPT_PATH = "/api/conversations/main/prompt"
 import { AUTHENTICATED_USER_PATH, ApplicationUserSchema, CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from "@smthrs/rpc/ApplicationAuth"
 import { APP_BOOTSTRAP_PATH, AppBootstrapSchema } from "@smthrs/rpc/AppBootstrap"
-import { AgentTurnFrameSchema } from "@smthrs/rpc/NativeAgent"
 import { resolveOrigin } from "./BuildStamp.ts"
 
-const FIRST_FRAME_MAX_BYTES = 64 * 1024
 
 /**
  * The end-to-end product bar this repo already states: row A-2's
@@ -89,7 +87,7 @@ export const TURN_FIRST_FRAME_SAMPLES = 1
  * to state the sampling the number above actually does.
  */
 export const TURN_FIRST_FRAME_NOTE =
-  "single sample: the turn seam spends model credit, so this endpoint is measured once per metered run and its budget absorbs a cold start instead of a median"
+  "single sample: host prompt admission is measured once; completion is verified by the canonical seam probe"
 
 /**
  * CN-20's threshold. Read the honest scope note on `errorRateVerdict` before
@@ -652,12 +650,7 @@ export interface Endpoint {
 
 /** The body shape apps/app/scripts/canary-seam-probe.ts sends to the turn seam. */
 export const turnRequestBody = (runId: string): string =>
-  JSON.stringify({
-    runId,
-    journal: { version: 1, legId: `${runId}-leg`, token: crypto.randomUUID().replaceAll("-", "") },
-    messages: [{ role: "user", content: "Say the word ok and nothing else." }],
-    instructions: "Answer briefly."
-  })
+  JSON.stringify({ prompt: "Say the word ok and nothing else.", idempotencyKey: runId })
 
 export const endpointPlan = (runId: string): ReadonlyArray<Endpoint> => [
   { label: "spa", method: "GET", path: "/", expectedStatus: 200, budgetMs: LATENCY_BUDGETS_MS.spa, body: undefined },
@@ -677,7 +670,7 @@ export const endpointPlan = (runId: string): ReadonlyArray<Endpoint> => [
     // is spent.
     label: "turn-gate",
     method: "POST",
-    path: TURN_PATH,
+    path: CONVERSATION_PROMPT_PATH,
     expectedStatus: 401,
     budgetMs: LATENCY_BUDGETS_MS.turnGate,
     body: turnRequestBody(runId)
@@ -841,79 +834,21 @@ export const csrfHeaders = (cookie: string): Record<string, string> => {
 export const meteredTurnSample = async (deps: ProbeDeps, options: ProbeOptions, cookie: string): Promise<Sample> => {
   const started = deps.now()
   try {
-    const response = await deps.fetch(`${options.origin}${TURN_PATH}`, {
+    const response = await deps.fetch(`${options.origin}${CONVERSATION_PROMPT_PATH}`, {
       method: "POST",
       headers: { "content-type": "application/json", cookie, ...csrfHeaders(cookie) },
       body: turnRequestBody(`${options.runId}-metered`),
       signal: AbortSignal.timeout(options.requestTimeoutMs)
     })
-    if (response.status !== 200 || response.body === null) {
-      await response.body?.cancel()
-      return {
-        label: "turn-first-frame",
-        status: response.status,
-        expectedStatus: 200,
-        elapsedMs: deps.now() - started,
-        transportError: undefined
-      }
-    }
-    const reader = response.body.getReader()
-    const chunks: Array<Uint8Array> = []
-    let received = 0
-    let newline = -1
-    while (received < FIRST_FRAME_MAX_BYTES && newline === -1) {
-      const next = await reader.read()
-      if (next.done) break
-      const remaining = FIRST_FRAME_MAX_BYTES - received
-      const value = next.value.subarray(0, remaining)
-      chunks.push(value)
-      const localNewline = value.indexOf(0x0a)
-      if (localNewline !== -1) newline = received + localNewline
-      received += value.byteLength
-    }
-    const elapsedMs = deps.now() - started
-    await reader.cancel()
-    let frameError: string | undefined
-    if (newline === -1) {
-      frameError = received === 0
-        ? "the turn seam answered 200 but streamed no frame"
-        : `the turn seam did not stream a complete frame within ${FIRST_FRAME_MAX_BYTES} bytes`
-    } else {
-      const bytes = new Uint8Array(newline)
-      let offset = 0
-      for (const chunk of chunks) {
-        const slice = chunk.subarray(0, Math.min(chunk.byteLength, newline - offset))
-        bytes.set(slice, offset)
-        offset += slice.byteLength
-        if (offset >= newline) break
-      }
-      try {
-        const decoded = AgentTurnFrameSchema.safeParse(JSON.parse(new TextDecoder().decode(bytes)))
-        const expectedRunId = `${options.runId}-metered`
-        if (!decoded.success) frameError = "the turn seam streamed a malformed AgentTurnFrame"
-        else if (decoded.data.runId !== expectedRunId) frameError = "the turn seam streamed a frame for another run"
-        else if (decoded.data.type !== "delta") {
-          frameError = "the turn seam streamed a terminal or non-delta first frame"
-        }
-      } catch {
-        frameError = "the turn seam streamed malformed NDJSON"
-      }
-    }
-    return {
-      label: "turn-first-frame",
-      status: response.status,
-      expectedStatus: 200,
-      elapsedMs,
-      // A 200 that closes without a single frame is a failed turn, not a
-      // fast one, and the elapsed time above would otherwise read as a
-      // very good latency.
-      transportError: frameError
-    }
+    const body: unknown = await response.json().catch(() => undefined)
+    const accepted = response.status === 202 && typeof body === "object" && body !== null && "turnId" in body && typeof body.turnId === "string"
+    return { label: "turn-first-frame", status: response.status, expectedStatus: 202,
+      elapsedMs: deps.now() - started, transportError: accepted ? undefined : "The host did not accept a prompt" }
   } catch (error) {
     return {
       label: "turn-first-frame",
       status: undefined,
-      expectedStatus: 200,
+      expectedStatus: 202,
       elapsedMs: deps.now() - started,
       transportError: errorText(error)
     }

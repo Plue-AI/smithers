@@ -1,3 +1,4 @@
+import { RepositoryImportRequestSchema } from "@smthrs/rpc/Cards"
 import { ConversationHistorySchema } from "./ConversationHistory"
 import { Data } from "effect"
 import { AgentTurnBatchSchema,AgentTurnCursorSchema,AgentTurnJournalRequestSchema } from "@smthrs/rpc/AgentTurnJournal"
@@ -11,7 +12,7 @@ import { RepositoryHomeSchema } from "@smthrs/rpc/RepositoryHome"
 import { z } from "zod"
 import type { AppProjectionSnapshot } from "./AppProjection"
 import {
-ActorSchema,BranchSchema,CardHistorySchema,CardPatchSchema,CardSchema,ChangeRowSchema,
+SharedPromptSchema,ActorSchema,BranchSchema,BranchNavigationSchema,CardHistorySchema,CardPatchSchema,CardSchema,ChangeRowSchema,
 CloudRepositorySchema,CloudWorkspaceRowSchema,FrameSchema,GitHubAppStatusRowSchema,
 MessageSchema,HISTORICAL_PALETTES,
 RecommendationSourceSchema,RepositoryEntrySchema,RepositoryCommandEntrySchema,RepositoryFlowSchema,RepositoryJobObservationSchema,
@@ -71,9 +72,12 @@ export const APP_TRANSITION_SCHEMAS = {
   "librarian.launches.changed": z.object({ type: z.literal("librarian.launches.changed"), actor: ActorSchema, launches: z.array(z.unknown()) }).strict(),
   "coding.provider.requests.changed": z.object({ type: z.literal("coding.provider.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.codingProviderRequests.unwrap() }).strict(),
   "install.requests.changed": z.object({ type: z.literal("install.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.installRequests.unwrap() }).strict(),
+  "repository.imports.changed": z.object({ type: z.literal("repository.imports.changed"), actor: ActorSchema, requests: SessionSchema.shape.repositoryImports.unwrap() }).strict(),
   "secret.requests.changed": z.object({ type: z.literal("secret.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.secretRequests.unwrap() }).strict(),
   "egress.requests.changed": z.object({ type: z.literal("egress.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.egressRequests.unwrap() }).strict(),
+  "github.sync.request.changed": z.object({ type: z.literal("github.sync.request.changed"), actor: ActorSchema, request: SessionSchema.shape.githubSyncRequest }).strict(),
   "stack.wiki.requests.changed": z.object({ type: z.literal("stack.wiki.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.wikiRequests.unwrap() }).strict(),
+  "wiki.saves.changed": z.object({ type: z.literal("wiki.saves.changed"), actor: ActorSchema, requests: SessionSchema.shape.wikiSaves.unwrap() }).strict(),
   "first-run.dismissed": z.object({ type: z.literal("first-run.dismissed"), actor: ActorSchema }).strict(),
   "signup.changed": z.object({ type: z.literal("signup.changed"), actor: ActorSchema, patch: SignupSchema.partial() }).strict(),
   "card.navigated": z.object({ "type": z.literal("card.navigated"), "actor": ActorSchema, "card": CardSchema }).strict(),
@@ -93,11 +97,15 @@ export const APP_TRANSITION_SCHEMAS = {
   "message.retried": z.object({ "type": z.literal("message.retried"), "actor": z.literal("user"), "turnId": z.string() }).strict(),
   "message.response.cancelled": z.object({ "type": z.literal("message.response.cancelled"), "actor": z.enum(["user", "system"]), "turnId": z.string(), "detail": z.string().optional() }).strict(),
   "session.turn.orphaned": z.object({ "type": z.literal("session.turn.orphaned"), "actor": z.literal("system") }).strict(),
+  "conversation.archives.loaded": z.object({ type: z.literal("conversation.archives.loaded"), actor: z.literal("system"), owner: z.string().min(1), branches: z.array(BranchSchema) }).strict(),
   "conversation.restored": z.object({ type: z.literal("conversation.restored"), actor: z.literal("system"), owner: z.string().min(1), afterRevision: z.number().int().nonnegative(), conversations: z.array(ConversationHistorySchema) }).strict(),
   "conversation.reset": z.object({ "type": z.literal("conversation.reset"), "actor": z.literal("user") }).strict(),
   "conversation.reset.asked": z.object({ "type": z.literal("conversation.reset.asked"), "actor": z.literal("user"), "open": z.boolean() }).strict(),
   "conversation.cleared": z.object({ "type": z.literal("conversation.cleared"), "actor": z.literal("user"), "branchId": z.string(), "notes": z.array(z.object({ "title": z.string(), "body": z.string(), "confidence": z.number().finite() }).strict()), "interruptedTurnId": z.string().optional() }).strict(),
   "app.reset": z.object({ "type": z.literal("app.reset"), "actor": ActorSchema }).strict(),
+  "conversation.ui.applied": z.object({ type: z.literal("conversation.ui.applied"), actor: z.literal("system"), owner: z.string(), id: z.string() }).strict(),
+  "conversation.prompt.changed": z.object({ type: z.literal("conversation.prompt.changed"), actor: ActorSchema, request: SharedPromptSchema, clearDraft: z.boolean().optional() }).strict(),
+  "branch.navigation.changed": z.object({ type: z.literal("branch.navigation.changed"), actor: ActorSchema, navigation: BranchNavigationSchema }).strict(),
   "theme.changed": z.object({ "type": z.literal("theme.changed"), "actor": z.enum(["user", "system"]), "theme": SessionSchema.shape["theme"] }).strict(),
   "palette.changed": z.object({ "type": z.literal("palette.changed"), "actor": z.enum(["user", "system"]), "palette": z.enum(HISTORICAL_PALETTES) }).strict(),
   "card.maximized": z.object({ "type": z.literal("card.maximized"), "actor": z.literal("user"), "id": z.string() }).strict(),
@@ -147,12 +155,12 @@ export const APP_TRANSITION_SCHEMAS = {
   "card.approval.decision.failed": z.object({ "type": z.literal("card.approval.decision.failed"), "actor": z.literal("system"), "id": z.string(), "message": z.string() }).strict(),
   "card.approval.decided": z.object({ "type": z.literal("card.approval.decided"), "actor": z.literal("user"), "id": z.string(), "decision": z.enum(["approved", "denied"]), "decidedAt": z.number().finite() }).strict(),
   "card.approval.observed": z.object({ "type": z.literal("card.approval.observed"), "actor": z.literal("system"), "id": z.string(), "runId": z.string(), "requestId": z.string(), "digest": z.string(), "decision": z.enum(["approved", "denied"]) }).strict(),
-  "identity.session.loaded": z.object({ "type": z.literal("identity.session.loaded"), provider: z.enum(["github", "local"]).optional(), "actor": z.literal("system"), "state": z.enum(["signed-out", "signed-in", "unavailable"]), "login": z.union([z.string(), z.null()]), displayName: z.string().min(1).optional(), "admin": z.boolean(), "scopesPlain": z.union([z.string(), z.null()]) }).strict(),
+  "identity.session.loaded": z.object({ "type": z.literal("identity.session.loaded"), memberId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(), provider: z.enum(["github", "local"]).optional(), "actor": z.literal("system"), "state": z.enum(["signed-out", "signed-in", "unavailable"]), "login": z.union([z.string(), z.null()]), displayName: z.string().min(1).optional(), "admin": z.boolean(), "scopesPlain": z.union([z.string(), z.null()]) }).strict(),
   "identity.session.cleared": z.object({ "type": z.literal("identity.session.cleared"), "actor": z.literal("user") }).strict(),
   "billing.refreshed": z.object({ "type": z.literal("billing.refreshed"), "actor": z.literal("system"), "state": z.enum(["ok", "low", "empty"]), "totalUsd": z.string(), "allowedToStartWork": z.boolean(), "lifetimeChargedUsd": z.string(), "chargeCount": z.number().finite() }).strict(),
   "billing.plans.loaded": z.object({ type: z.literal("billing.plans.loaded"), actor: ActorSchema, planKey: z.string(), sandbox: SandboxEntitlementSchema.nullable(), plans: z.array(BillingPlanSchema), creditBalanceCents: z.number().int().nullable().optional(), creditResetsAt: z.string().nullable().optional() }).strict(),
   "billing.unavailable": z.object({ "type": z.literal("billing.unavailable"), "actor": z.literal("system") }).strict(),
-  "toast.shown": z.object({ "type": z.literal("toast.shown"), sourceCard: z.string().optional(), "actor": z.literal("system"), "key": z.string(), "title": z.string(), "action": ToastSchema.shape["action"].optional() }).strict(),
+  "toast.shown": z.object({ "type": z.literal("toast.shown"), audience: ToastSchema.shape.audience, sourceCard: z.string().optional(), "actor": z.literal("system"), "key": z.string(), "title": z.string(), "action": ToastSchema.shape["action"].optional() }).strict(),
   "toast.progressed": z.object({ "type": z.literal("toast.progressed"), "actor": z.literal("system"), "key": z.string(), "detail": z.string(), "title": z.string().optional() }).strict(),
   "toast.resolved": z.object({ "type": z.literal("toast.resolved"), "actor": z.literal("system"), "key": z.string(), "status": z.enum(["ok", "failed", "cancelled"]), "title": z.string().optional(), "detail": z.string(), "action": ToastSchema.shape["action"].optional() }).strict(),
   "toast.dismissed": z.object({ "type": z.literal("toast.dismissed"), "actor": z.enum(["user", "system"]), "id": z.string() }).strict(),
@@ -210,6 +218,14 @@ export class InvalidAppTransitionError extends Data.TaggedError("InvalidAppTrans
 export const validateAppTransition = (snapshot: AppProjectionSnapshot, value: unknown): AppTransition => {
   if (typeof value !== "object" || value === null || !("type" in value) || typeof value.type !== "string" ||
     !Object.hasOwn(APP_TRANSITION_SCHEMAS, value.type)) throw new InvalidAppTransitionError()
+  if (value.type === "card.upsert" && "card" in value && typeof value.card === "object" && value.card !== null &&
+    "kind" in value.card && value.card.kind === "repo-import") {
+    const request = RepositoryImportRequestSchema.safeParse(value.card)
+    const actor = ActorSchema.safeParse("actor" in value ? value.actor : undefined)
+    if (!request.success || !actor.success) throw new InvalidAppTransitionError()
+    const prior = snapshot.sessions.find(row => row.id === "main")?.repositoryImports ?? []
+    return { type: "repository.imports.changed", actor: actor.data, requests: [...prior.filter(row => row.id !== request.data.id), request.data] }
+  }
   const schema: z.ZodType<AppTransition> = APP_TRANSITION_SCHEMAS[value.type as AppTransition["type"]]
   const decoded = schema.safeParse(value)
   if (!decoded.success) throw new InvalidAppTransitionError()

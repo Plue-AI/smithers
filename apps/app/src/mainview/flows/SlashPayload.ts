@@ -367,7 +367,8 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
    * repo-shaped word as the description. Splitting here would change which
    * inputs name a target.
    */
-  "flow.create": (args) => structuredFields("flow.create", args, ["description", "repo"]) ?? ok({ description: trimmed(args) }),
+  "flow": args => structuredFields("flow", args, ["name"]) ?? required("name", args, "Flow name required"),
+  "flow.new": (args) => structuredFields("flow.new", args, ["description", "repo"]) ?? ok({ description: trimmed(args) }),
   "flow.repo.choose": (args) => required("repo", args, "flow.repo.choose needs a repository name"),
   "flow.run.stop": (args) => {
     const [cardId, ...rest] = tokensOf(args)
@@ -425,13 +426,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     // The payload keeps its original spacing — JSON is whitespace-sensitive to a reader.
     const payload = trimmed(args).slice(runId.length).trim().slice(name.length).trim()
     return ok(payload === "" ? { runId, name } : { runId, name, payload })
-  },
-  "runs.steer": (args) => {
-    const [runId, ...rest] = tokensOf(args)
-    if (runId === undefined) return no("runs.steer needs a run id")
-    const body = rest.join(" ").trim()
-    if (body === "") return no("runs.steer needs the message to deliver")
-    return ok({ runId, body })
   },
   "runs.logs": (args) => {
     const tokens = tokensOf(args)
@@ -707,7 +701,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     return cardId && tab && rest.length === 0 && ["conversation", "commits", "checks", "files"].includes(tab)
       ? ok({ cardId, tab }) : no("Choose a pull request card and tab")
   },
-  "prs.land": (args, known) => numbered(args, "prs.land needs a pull request number", known),
   "prs.review": (args, known) => {
     const structured = structuredFields("prs.review", args, ["number", "verdict", "text", "repo"])
     if (structured !== undefined) {
@@ -757,7 +750,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     }
     return ok(repo === undefined ? { name, scope } : { name, scope, repo })
   },
-  "secrets.list": (args) => repoOnly("secrets.list", args),
+  "secrets": (args) => repoOnly("secrets", args),
   "secrets.bind": (args, known) => structuredFields("secrets.bind", args, ["name", "hosts", "headers", "repo"]) ?? secretName("secrets.bind", args, known, false),
   /* The value is never on a line: it arrives only through the form's write-only field. */
   "secrets.set": (args, known) => structuredFields("secrets.set", args, ["name", "hosts", "headers", "repo"]) ?? secretName("secrets.set", args, known, false),
@@ -798,20 +791,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
    */
   "wiki.create": (args) => trimmed(args) === "" ? no("Choose a repository.") : repoOnly("wiki.create", args),
   "history.bootstrap": (args) => trimmed(args) === "" ? no("Choose a repository.") : repoOnly("history.bootstrap", args),
-  "branches.list": (args) => repoOnly("branches.list", args),
-  /* A lone token with a slash is the repository; name both to list a branch whose name has one. */
-  "commits.list": (args) => {
-    const { rest, repo } = splitTrailingRepo(args)
-    const tokens = rest === "" ? [] : rest.split(/\s+/)
-    if (tokens.length > 1) return no("commits.list takes a branch and optionally an owner/repo")
-    return ok({ ...(tokens[0] === undefined ? {} : { branch: tokens[0] }), ...(repo === undefined ? {} : { repo }) })
-  },
-  "commits.read": (args) => {
-    const { rest, repo } = splitTrailingRepo(args)
-    if (rest === "") return no("commits.read needs a change id or commit id")
-    if (/\s/.test(rest)) return no("commits.read takes one change id and optionally an owner/repo")
-    return ok(repo === undefined ? { ref: rest } : { ref: rest, repo })
-  },
+  "branches": (args) => repoOnly("branches", args),
   /*
    * Lane citc: the workspace flows. An id is always one token; fork's and
    * snapshot's optional name is the rest of the line; template's name is one
@@ -946,7 +926,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
       ...(path === "" ? {} : { path })
     })
   },
-  "change.land": (args) => required("changeId", args, "change.land needs a change id"),
   "change.resolve": (args) => {
     const [changeId] = tokensOf(args)
     /* The conflicted file's path is the rest of the line, so a path with a space resolves too. */
@@ -1031,7 +1010,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     return ok({ path, ...(repo === undefined ? {} : { repo }) })
   },
   "repos.app": (args) => repoOnly("repos.app", args),
-  
+
   "github.app": (args) => repoOnly("github.app", args),
   "github.app.choose": (args) => required("installationId", args, "Choose a GitHub App installation."),
   "github.app.open": (args) => repoOnly("github.app.open", args),
@@ -1111,7 +1090,7 @@ export const payloadFor = (
   grammar?: Grammar,
   known?: KnownRepositories
 ): Parsed => {
-  const parse = GRAMMAR[name] ?? grammar
+  const parse = grammar ?? GRAMMAR[name]
   if (parse === undefined) return NONE
   const source = takesRunSource(name) ? splitRunSource(args) : { args }
   const parsed = parse(source.args, known)

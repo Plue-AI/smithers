@@ -96,3 +96,28 @@ func TestMythicalLaneNotRunning(t *testing.T) {
 	code, retryable = runtimeFailureOf(t, mythicalLaneNotRunning(db.Workspace{}, pgx.ErrNoRows))
 	require.Equal(t, []any{"runtime_workspace_pending", false}, []any{code, retryable})
 }
+
+func TestTodoTargetAllowsRetainedLaneWithoutWakingIt(t *testing.T) {
+	o, session := newTodoAdmission(t)
+	ctx := context.Background()
+	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
+	item := o.fileTodo(session, "retained-lane")
+	o.wake()
+	launches := o.launcher.byFlow("todo")
+	require.Len(t, launches, 1)
+	lane := o.byID(uuidString(item.ID)).WorkspaceID
+	_, err := o.pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,status) VALUES($1,$2,$3,'suspended')`, lane, o.repoID, o.userID)
+	require.NoError(t, err)
+	resolver := NewMythicalFlowHostTargetResolver(o.service)
+	for _, state := range []string{"suspended", "stopped", "running"} {
+		_, err = o.pool.Exec(ctx, `UPDATE workspaces SET status=$2 WHERE id=$1`, lane, state)
+		require.NoError(t, err)
+		authority, err := resolver.ResolveFlowHostTarget(ctx, launches[0].Target)
+		require.NoError(t, err)
+		require.Equal(t, lane, authority.WorkspaceID)
+		require.Equal(t, mythicalChecksOf(o.byID(uuidString(item.ID))).FlowSource, authority.SourceRevision, "retained hosts keep the attempt source, independently of the branch")
+		current, err := db.New(o.pool).GetWorkspace(ctx, lane)
+		require.NoError(t, err)
+		require.Equal(t, state, current.Status, "target resolution never wakes")
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -41,6 +42,8 @@ func TestMembersMakeTodosFromIssuesThroughTheApp(t *testing.T) {
 			githubID = 9
 		}
 		_, err = f.pool.Exec(ctx, `UPDATE collaborators SET github_id=$3,github_login=$4 WHERE repository_id=$1 AND user_id=$2`, f.repoID, id, githubID, login)
+		require.NoError(t, err)
+		_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{SessionKey: login + "-session", UserID: id, Username: login, ExpiresAt: time.Now().Add(time.Hour)})
 		require.NoError(t, err)
 		return middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: id}, SessionHash: login + "-session"})
 	}

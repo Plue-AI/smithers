@@ -483,6 +483,52 @@ type WorkspaceFiles interface {
 	RemoveFile(ctx context.Context, workspaceID, path string) error
 }
 
+// FileMutation replaces or removes one relative workspace path. Nil Content
+// removes the file; a non-nil empty slice creates or replaces an empty file.
+// BaseDigest is the full SHA-256 of the read bytes, or "absent". Implementations
+// preserve existing file modes and use 0644 for new files.
+type FileMutation struct {
+	Path       string
+	BaseDigest string
+	Content    []byte
+}
+
+// FileWriteResult acknowledges applied bytes and retained outside versions.
+// Empty Raced is an empty JSON array, never null.
+type FileWriteResult struct {
+	Paths []FileMutationResult `json:"paths"`
+	Raced []FileRace           `json:"raced"`
+}
+
+type FileMutationResult struct {
+	Path   string `json:"path"`
+	Digest string `json:"post_digest"`
+}
+
+// Version is the retained outside version used by Compare.
+type FileRace struct {
+	Path    string `json:"path"`
+	Version string `json:"version"`
+}
+
+// WorkspaceCompareWriter is the qualified mutation capability. Implementations
+// compare every full SHA-256 (or "absent") at one mutation boundary and must
+// leave the entire batch unchanged on stale refusal. A write racing the swap
+// remains applied; retain the displaced bytes and return their version in Raced.
+// A move is one batch containing both the removal and the destination write.
+// A runtime without this capability must never fall back to WriteFile.
+type WorkspaceCompareWriter interface {
+	CompareWriteFiles(ctx context.Context, workspaceID string, changes []FileMutation) (*FileWriteResult, error)
+}
+
+// StaleFileError reports the version that refused a compare-and-write.
+type StaleFileError struct {
+	Path          string
+	CurrentDigest string
+}
+
+func (e *StaleFileError) Error() string { return "stale workspace file: " + e.CurrentDigest }
+
 // WorkspaceRuntime is the common execution contract. Deployments may expose
 // narrower facets to services that do not need every operation. Optional
 // capabilities such as WorkspaceSnapshots remain separate interfaces.

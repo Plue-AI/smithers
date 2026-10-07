@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, test } from "vitest"
-import { FileCardSchema } from "../../src/FileCard.ts"
+import { FileCardSchema, FileWrittenSchema, projectBranchFiles } from "../../src/FileCard.ts"
 import { cardContract } from "../cardContract.ts"
 import { person } from "../fixtures/_shared.ts"
 import { fixtures } from "../fixtures/File.ts"
@@ -116,4 +116,28 @@ describe("File states and co-editing", () => {
       expect(FileCardSchema.safeParse({ ...text(), unsaved: { count, text: "x" } }).success).toBe(false)
     }
   })
+})
+
+test("file-written hints decode literal digests and replace the previous hint", () => {
+  const event = { kind: "file_written", path: "src/retry.ts", post_digest: "digest-2", actor: { kind: "outside", color_index: 7 } }
+  expect(FileWrittenSchema.parse(event)).toEqual(event)
+  expect(projectBranchFiles([{ path: "old.ts" }], event)).toEqual({ rows: [{ path: "old.ts" }], written: event })
+  expect(projectBranchFiles({ rows: [{ path: "old.ts" }], written: event }, [])).toEqual({ rows: [] })
+  expect(FileWrittenSchema.safeParse({ ...event, actor: undefined }).success).toBe(false)
+  expect(FileWrittenSchema.safeParse({ ...event, post_digest: 2 }).success).toBe(false)
+  expect(() => projectBranchFiles(event, { ...event, kind: "untrusted" })).toThrow()
+})
+
+test("outside versions keep their burst digest independently of current file bytes", () => {
+  const file = { ...text(), digest: "current-3", outside: { version: "versions-17", at: "now", post_digest: "burst-2" } }
+  expect(FileCardSchema.parse(file).outside).toEqual({ version: "versions-17", at: "now", post_digest: "burst-2" })
+})
+
+test("branch file rows preserve other files and clear a superseded outside flag", () => {
+  const before = [{ path: "retry.ts", digest: "one", outside_change: { version: "old" } }, { path: "other.ts", digest: "two" }]
+  const projected = projectBranchFiles(before, { path: "retry.ts", outside_change: { version: "new" } })
+  expect(projected).toEqual({ rows: [{ path: "retry.ts", digest: "one", outside_change: { version: "new" } }, before[1]] })
+  expect(projectBranchFiles(projected, { path: "retry.ts" })).toEqual({ rows: [{ path: "retry.ts", digest: "one" }, before[1]] })
+  expect(projectBranchFiles([], { path: "added.ts", digest: "three" })).toEqual({ rows: [{ path: "added.ts", digest: "three" }] })
+  expect(() => projectBranchFiles(before, {})).toThrow("Invalid file delta")
 })

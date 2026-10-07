@@ -2,8 +2,11 @@
  * `flows/todo/flow.ts`; the legacy route interpreter stays available here
  * while already-admitted request histories drain.
  */
+import * as RunCatalogRead from "@smthrs/engine-store/RunCatalogRead"
 import { Action } from "@smthrs/flow"
+import { Layer } from "effect"
 import { CodingError, RequestResult } from "./schema.ts"
+import { readTodoDelivery } from "./vibe-evidence.ts"
 import { VibeInput } from "./vibe-schema.ts"
 
 // Keep the legacy route interpreter available while admitted requests drain.
@@ -22,11 +25,14 @@ export {
 
 /** No caller-supplied child ID: only a current-attempt host binding may
  * resolve the planner receipt used by the existing delivery implementation.
- * Deliberately unimplemented until the durable candidate provider is wired
- * (T-STK-12); an interpreter cannot dispatch the composition without it.
+ * The existing candidate provider still authorizes submission against the
+ * current attempt and machine; this action only resolves retained evidence.
  */
 export const TodoDelivery = Action.make("coding/todo-delivery", {
   payload: { request: RequestResult },
   success: VibeInput,
-  error: CodingError
+  error: CodingError,
+  nondeterministic: true
 })
+
+export const todoDeliveryLayer = TodoDelivery.toLayer(readTodoDelivery).pipe(Layer.provide(RunCatalogRead.layer))

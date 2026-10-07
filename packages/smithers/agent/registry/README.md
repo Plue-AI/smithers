@@ -156,7 +156,13 @@ its entry and static project helpers after a restart or live edit, using the
 same private sibling loader. The manifest retains the approved descriptor and
 the project lockfile identity; missing or corrupt artifacts and changed
 lockfiles refuse restoration. Installed workspace packages remain host code,
-so run the host from a pinned checkout. `snapshots.roots(digests)` supplies CAS
+so run the host from a pinned checkout.
+
+Project registries also bind the repository lockfiles into the descriptor’s
+execution identity. A custom discovery source opts in with `lockfileRoot`;
+the descriptor stores its root relative to the discovery root. Discovery reads
+these files without importing code. Body loading and snapshot admission refuse
+dependency drift; older descriptors remain readable with their original identity. `snapshots.roots(digests)` supplies CAS
 roots for nonterminal executions, including when lockfiles have changed.
 
 Measured project helpers reached through `import()` or `require()`, tsconfig

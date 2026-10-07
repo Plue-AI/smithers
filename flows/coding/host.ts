@@ -3,17 +3,16 @@ import * as Seat from "@smthrs/agent/Seat"
 import * as SeatResolver from "@smthrs/agent/SeatResolver"
 import type * as SeatRouter from "@smthrs/agent/SeatRouter"
 import * as Digest from "@smthrs/core/Digest"
-import { HumanTask } from "@smthrs/flow"
+import { HumanTask, Interpreter } from "@smthrs/flow"
 import * as Executable from "@smthrs/registry/Executable"
 import * as Registry from "@smthrs/registry/Registry"
 import { Context, Effect, FileSystem, Layer } from "effect"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import type * as Application from "../../packages/smithers/src/Application.ts"
 import * as NativeControl from "../../packages/smithers/src/internal/NativeControl.ts"
 import * as NativeEquipment from "../../packages/smithers/src/internal/NativeEquipment.ts"
 import { expandSeat, seatAliases, seatRefusal } from "../../packages/smithers/src/Providers.ts"
 import * as Serve from "../../packages/smithers/src/Serve.ts"
-import { registration as registerRepository } from "../register-repository/host.ts"
 import { activationLayers } from "../repository/activation.ts"
 import { changeLayers, changeModelLayers, changeModelNames } from "../repository/changes.ts"
 import { checkLayers as repositoryCheckLayers } from "../repository/checks.ts"
@@ -43,7 +42,8 @@ import { correctionLayers, SelectRepair } from "./correction.ts"
 import { dispatchModels } from "./dispatch.ts"
 import { dispatchRegistration } from "./dispatch/flow.ts"
 import * as CodingFileSystem from "./filesystem.ts"
-import { flowLoadRegistration } from "./flow-load/flow.ts"
+import { loadFlowsLayer } from "./flow-load.ts"
+import FlowLoad from "./flow-load/flow.ts"
 import { atomFlows } from "./implementation/flow.ts"
 import { jevCheckDelegate, jevCheckLayers } from "./jev-check.ts"
 import type { Landing } from "./landing.ts"
@@ -71,7 +71,7 @@ import { sourceAdmission } from "./source-admission.ts"
 import { stackBaseLayer } from "./stack.ts"
 import * as CodingState from "./state.ts"
 import { feedbackLayer, routeMessages } from "./steering.ts"
-import { todoLayers } from "./todo.ts"
+import { todoDeliveryLayer, todoLayers } from "./todo.ts"
 import { verifyRegistration } from "./verify.ts"
 import { cleanupModels } from "./vibe-cleanup.ts"
 import { vibeRegistration } from "./vibe.ts"
@@ -85,6 +85,11 @@ import { dependencyPagesLayer, wikiRefreshRegistration } from "./wiki-route.ts"
 export interface Options extends NativeOptions {
   /** Exact system names from the backend's packaged flow catalog. */
   readonly systemFlows: ReadonlyArray<string>
+  /** Machine-local immutable export of the server-authorized source commit. */
+  readonly flowSourceRoot?: string | undefined
+  /** Commit identity returned by the verified native source export, never copied from the launch envelope. */
+  readonly flowSourceRevision?: string | undefined
+  readonly todoExecutionDigest?: string | undefined
   /** Same operator credential used by Serve; enables the existing native gateway delegation. */
   readonly credential?: string | undefined
   /** Existing authority override, including a narrower operator policy. */
@@ -195,6 +200,19 @@ export const missingCodingExecutables = (
   ).map(([name]) => name)
 }
 
+/** Explicit host model pins override repository and generated role defaults. */
+export const operatorSeats = (
+  environment: Readonly<Record<string, string | undefined>>
+): Readonly<Record<string, string>> => {
+  const implement = environment.SMITHERS_CODING_IMPLEMENT_MODEL
+  return implement === undefined ? {} : defaultRoles(implement, {
+    planningModel: environment.SMITHERS_CODING_PLAN_MODEL,
+    pocModel: environment.SMITHERS_CODING_POC_MODEL,
+    wikiModel: environment.SMITHERS_CODING_WIKI_MODEL,
+    reviewModel: environment.SMITHERS_CODING_REVIEW_MODEL
+  })
+}
+
 /** Resolve at host startup, including accounts connected since workspace boot. */
 export const optionsFromEnv = (environment: Readonly<Record<string, string | undefined>>) =>
   Effect.gen(function*() {
@@ -228,6 +246,13 @@ export const systemFlowsFromEnv = (
 }
 
 const configured = (options: Options) => {
+  if (
+    options.todoExecutionDigest !== undefined && (
+      !/^[a-f0-9]{64}$/.test(options.todoExecutionDigest) || options.flowSourceRoot === undefined ||
+      resolve(options.flowSourceRoot) === resolve(options.repositoryPath) ||
+      options.flowSourceRevision !== options.runtimeSourceRevision
+    )
+  ) throw new Error("A pinned TODO host requires a separate source checkout and its admitted digest")
   if (!validSystemFlows(options.systemFlows)) {
     throw new Error("SMITHERS_SYSTEM_FLOWS must supply the backend's system flow names")
   }
@@ -474,12 +499,15 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
       evaluator,
       jj: (root) => Snapshots.layerAt({ ...options, repositoryPath: root }),
       filesystem: (root, fs, spawner) =>
-        fs.realPath(root).pipe(
-          Effect.map((canonicalRoot) =>
-            CodingFileSystem.make({ ...options, repositoryPath: root }, fs, spawner, canonicalRoot)
-          ),
-          Effect.orDie
-        )
+        Effect.gen(function*() {
+          const canonicalRoot = yield* fs.realPath(root)
+          return CodingFileSystem.make(
+            { ...options, repositoryPath: root },
+            fs,
+            spawner,
+            canonicalRoot
+          )
+        }).pipe(Effect.orDie)
     },
     roleSeats(options, suppliedSeats),
     options.planning === undefined ? undefined : routeMessages
@@ -542,9 +570,10 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
                 : bindWikiRegistry(base, wikiCheckPolicy(wikiOptions)),
               builtins.registry,
               repositoryPolicy,
-              options.systemFlows
+              options.systemFlows,
+              options.todoExecutionDigest
             ))
-        ).pipe(Layer.provide(native.layerRegistry(options.repositoryPath)))
+        ).pipe(Layer.provide(native.layerRegistry(options.flowSourceRoot ?? options.repositoryPath)))
         const request = options.planning === undefined ? Layer.empty : Layer.mergeAll(
           memoryLayer({
             ...options.planning,
@@ -575,9 +604,17 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
           dependencyPagesLayer(options.repositoryPath, fs),
           requestRegistration,
           todoLayers(evaluator),
+          todoDeliveryLayer,
           feedbackLayer,
           verifyRegistration,
-          flowLoadRegistration(options.repositoryPath, options.systemFlows),
+          Layer.mergeAll(
+            Interpreter.layer(FlowLoad),
+            loadFlowsLayer(
+              options.flowSourceRoot ?? options.repositoryPath,
+              options.systemFlows,
+              options.checkEnvironment
+            )
+          ),
           pocPolicy,
           pocModels,
           pocSource({ ...options, fs }),
@@ -613,12 +650,6 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
             fs,
             exporterPath: options.exporterPath,
             environment: options.checkEnvironment
-          }),
-          registerRepository({
-            repositoryPath: options.repositoryPath,
-            fs,
-            environment: options.checkEnvironment ?? {},
-            evaluator
           }),
           activationLayers,
           triggerLayers,
@@ -706,16 +737,20 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
           ]
         }
         const catalog = Layer.unwrap(
-          repositoryCatalog(executableOptions, builtins.load).pipe(
-            Effect.provideService(FileSystem.FileSystem, fs),
-            // The catalog this host serves is rebuildable one entry at a time, which
-            // is what lets a run of this host author `flows/<id>/flow.ts` and have
-            // the next plan draw it. A reserved job declaration is held fixed: its
-            // bytes are the measured bundle this host shipped as, and rebuilding one
-            // from the working tree would replace an admitted declaration with
-            // whatever is on disk.
-            Effect.map((built) => repositoryRegistration(executableOptions, built, leaves))
-          )
+          (options.todoExecutionDigest === undefined
+            ? Effect.void
+            : Effect.flatMap(Registry.Registry, (registry) => registry.loadBody("todo", options.todoExecutionDigest))
+              .pipe(Effect.asVoid)).pipe(
+              Effect.andThen(repositoryCatalog(executableOptions, builtins.load)),
+              Effect.provideService(FileSystem.FileSystem, fs),
+              // The catalog this host serves is rebuildable one entry at a time, which
+              // is what lets a run of this host author `flows/<id>/flow.ts` and have
+              // the next plan draw it. A reserved job declaration is held fixed: its
+              // bytes are the measured bundle this host shipped as, and rebuilding one
+              // from the working tree would replace an admitted declaration with
+              // whatever is on disk.
+              Effect.map((built) => repositoryRegistration(executableOptions, built, leaves))
+            )
         ).pipe(Layer.orDie)
         const modules = registration.pipe(
           Layer.provideMerge(catalog),
@@ -760,6 +795,9 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
             stateRoot,
             credential: options.credential,
             expectedSourceRevision: options.runtimeSourceRevision,
+            catalogRevision: options.flowSourceRevision === undefined
+              ? undefined
+              : () => Effect.succeed(options.flowSourceRevision),
             approvalChannel: true,
             approvalAuthority: options.approvalAuthority ?? native.gatewayApprovalAuthority
           },

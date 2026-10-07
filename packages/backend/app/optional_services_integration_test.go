@@ -219,6 +219,7 @@ func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
 		require.NoError(t, err)
 		req, err := http.NewRequestWithContext(ctx, method, server.URL+path, bytes.NewReader(raw))
 		require.NoError(t, err)
+		req.Host = "127.0.0.1:4000"
 		req.Header.Set("Content-Type", "application/json")
 		if session != "" {
 			attachBrowserSession(req, session)
@@ -264,6 +265,15 @@ func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
 	require.NoError(t, json.Unmarshal(request("POST", "/api/user/repos", session, map[string]any{"name": "optional-repo", "private": true, "auto_init": true, "default_bookmark": "main"}, 201), &repo))
 	require.Positive(t, repo.ID)
 	require.Equal(t, "optional-repo", repo.Name)
+	// Bind the install to its real repository, rather than the seed's
+	// pre-repository sentinel, before chat's live roster checks run.
+	_, err = pool.Exec(t.Context(), `UPDATE install_settings
+		SET value=jsonb_set(value,'{repository_id}',to_jsonb($1::bigint))
+		WHERE key IN ('github.repository','owner.access')`, repo.ID)
+	require.NoError(t, err)
+	_, err = pool.Exec(t.Context(), `INSERT INTO collaborators(repository_id,user_id,permission)
+		VALUES($1,$2,'admin')`, repo.ID, owner.ID)
+	require.NoError(t, err)
 	var readRepo struct {
 		ID int64 `json:"id"`
 	}
@@ -287,9 +297,8 @@ func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
 	select {
 	case grant := <-grants:
 		require.Equal(t, owner.ID, grant.OwnerID)
-		// The public chat route is account-scoped. Repository context stays
-		// in the model request and does not authorize a repository scope.
-		require.Zero(t, grant.RepositoryID)
+		// Install chat is bound to the installed repository and its roster.
+		require.Equal(t, repo.ID, grant.RepositoryID)
 		var modelRequest struct {
 			RepositoryID int64 `json:"repositoryId"`
 		}

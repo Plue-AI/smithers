@@ -1,6 +1,7 @@
 import * as Model from "@smthrs/model/Model"
 import type * as ModelEvent from "@smthrs/model/ModelEvent"
 import { Deferred, Effect, Stream } from "effect"
+import { environmentModelResolver } from "../../src/EnvironmentResolver.ts"
 import { createModelTurnHandler, MODEL_HOST_PROTOCOL } from "../../src/HostServer.ts"
 
 const authorization = process.env.SMITHERS_CHAT_HOST_TOKEN ?? ""
@@ -16,10 +17,11 @@ const events: ReadonlyArray<ModelEvent.ModelEvent> = [
   { type: "tool-call-end", id: "call-1", arguments: "{\"path\":\"README.md\"}" },
   { type: "settle", stopReason: "tool-calls" }
 ]
+const modelOrigin = process.env.SMITHERS_FIXTURE_MODEL_ORIGIN
 const handler = createModelTurnHandler({
   authorization,
   callbackBaseUrl,
-  resolve: (grant) => {
+  resolve: modelOrigin === undefined ? (grant) => {
     const content = grant.request.messages.flatMap((message) =>
       "role" in message && message.role === "user" ? [message.content] : []
     )[0]
@@ -34,7 +36,10 @@ const handler = createModelTurnHandler({
       model: Model.make({ stream: () => stream }),
       options: { modelId: "deterministic-fixture", credential }
     })
-  }
+  } : environmentModelResolver({
+    binding: { protocol: "openai-chat", baseUrl: modelOrigin, modelId: "recording-coding", credential: "FIXTURE" },
+    env: { SMITHERS_MODEL_KEY_FIXTURE: credential, SMITHERS_MODEL_KEY_FIXTURE_ORIGIN: modelOrigin }
+  })
 })
 
 const server = Bun.serve({

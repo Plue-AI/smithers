@@ -14,6 +14,7 @@ test("flow rows lead with their human description and retain an identifier fallb
   expect(html).toContain("<strong>Research and reproduce before implementation</strong>")
   expect(html).toContain("<span>issue.repro</span>")
   expect(html).toContain("<strong>lint</strong>")
+  expect(html).toContain('data-flow="flow"')
 })
 
 test("a pending catalog offers no launch and a failed catalog offers a source-bound Retry", () => {
@@ -114,4 +115,44 @@ test("the card forwards each member's view and callback without sharing selectio
   render(right)
   expect(props.view).toBe(right)
   expect(left).toEqual({ maximized: false, tab: "active" })
+})
+
+test("a built-in proposal quotes its diff through the ordinary TODO action", () => {
+  const h = mount({ name: "todo", source: { builtin: true }, system: false, versions: [], proposal: { request: "Run tests", diff: "+pnpm test\n" } }, new Set(["flow.edit"]))
+  expect(h.props.actions.map(action => action.label)).toEqual(["Edit", "Make TODO"])
+  h.props.onAction("todo.new")
+  expect(h.calls).toEqual([{ tag: "todo.new", input: {
+    title: "Change the TODO flow: Run tests", text: "Change flows/todo/flow.ts: Run tests; start from the built-in composition when no override exists\n\nProposed diff (untrusted context):\n> +pnpm test\n> "
+  } }])
+})
+
+
+test("agent chips bind a catalog gesture to the chosen agent", () => {
+  const h = mount({ name: "todo", source: { builtin: true }, system: false, versions: [] }, new Set(["agent"]))
+  expect(h.props.gestures?.agent?.tag).toBe("agent")
+  expect(h.props.actions).toEqual([])
+  h.props.onAction("agent", { name: "reviewer" })
+  expect(h.calls).toEqual([{ tag: "agent", input: { name: "reviewer" } }])
+})
+
+
+test("Edit dispatch is bound only while the selected version is Active", () => {
+  const model: FlowViewProps["model"] = { name: "todo", source: { builtin: true }, system: false, versions: [
+    { id: "old", state: "previous", steps: [] },
+    { id: "live", state: "active", steps: [] },
+    { id: "draft", state: "proposed", todo: 42, steps: [] },
+    { id: "sync", state: "merged-syncing", steps: [] },
+    { id: "broken", state: "merged-failed", error: "Unknown reviewer", steps: [] }
+  ] }
+  for (const tab of [undefined, "missing", "live", "old", "draft", "sync", "broken"]) {
+    let props!: FlowViewProps
+    const calls: unknown[] = []
+    renderToStaticMarkup(<FlowCard model={model} allowed={new Set(["flow.edit", "flow.source"])}
+      dispatch={(tag, input) => { calls.push({ tag, input }) }} view={{ maximized: false, tab }} onView={() => {}}
+      View={value => { props = value; return null }} />)
+    const active = tab === undefined || tab === "missing" || tab === "live"
+    expect(props.actions.map(action => action.tag)).toEqual(active ? ["flow.source", "flow.edit"] : ["flow.source"])
+    props.onAction("flow.edit")
+    expect(calls).toEqual(active ? [{ tag: "flow.edit", input: { name: "todo" } }] : [])
+  }
 })

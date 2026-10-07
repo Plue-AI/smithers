@@ -397,7 +397,7 @@ test.each([
   } finally { await t.close() }
 })
 
-test("a completed change request without validation never starts its follow-up", async () => {
+test("a retained change request never starts legacy delivery", async () => {
   const t = await launchFixture()
   try {
     await t.controller.start({ ...request, workflow: "coding/request", then: "coding/vibe" })
@@ -408,8 +408,7 @@ test("a completed change request without validation never starts its follow-up",
         inputTokens: 0, outputTokens: 0, verdict: "done", diagnosis: "done" },
       journal: { mode: "full", events: [] }, journalComplete: true
     } }).isPersisted.promise
-    await waitFor(() => t.toasts()[0]?.status === "failed")
-    expect(t.toasts()[0]?.detail).toBe("The run finished without a validated change.")
+    await waitFor(() => t.toasts()[0]?.status === "ok")
     expect(t.cards()).toHaveLength(1)
     expect(t.cards()[0]?.payload.phase).toBe("completed")
     expect(t.launched).toHaveLength(1)

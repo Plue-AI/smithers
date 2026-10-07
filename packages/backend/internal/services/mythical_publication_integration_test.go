@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os/exec"
@@ -115,6 +116,7 @@ func newPublicationFixture(t *testing.T, private bool, issues ...int64) *publica
 func (f *publicationFixture) todo(title, prompt, base, path, content string) db.MythicalItem {
 	f.t.Helper()
 	ctx := middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{User: &db.User{ID: f.userID}, SessionHash: "owner-session"})
+	ctx = registerTestInstallCredential(f.t, f.pool, ctx, f.repoID)
 	view, err := f.service.FileTodo(ctx, f.repoID, f.userID, MythicalTodoInput{Title: title, Prompt: prompt, Acceptance: []string{"JOURNEY.md greets"}, Request: title})
 	require.NoError(f.t, err)
 	f.git(f.work, "checkout", "-q", base)
@@ -207,6 +209,9 @@ func (f *publicationFixture) pullCreates() []map[string]any {
 
 func TestTodoPublicationOpensReadyThenDraftPullRequests(t *testing.T) {
 	f := newPublicationFixture(t, false)
+	// No machine capacity provider: accepted publications still proceed,
+	// while fresh launches remain refused by the zero-slot admission gate.
+	f.service.SetInstallParallel(nil)
 	first := f.todo("Add a greeting to JOURNEY.md", "Say hello. Fixes #12.", f.main, "JOURNEY.md", "Hello from T1\n")
 	f.wake()
 
@@ -247,7 +252,7 @@ func TestTodoPublicationOpensReadyThenDraftPullRequests(t *testing.T) {
 	// The owner saves the Address teammates open (setup step 0): the next
 	// pull request links there, not to the configured loopback origin.
 	address := &InstallAddress{Configured: []string{"http://smithers.test"}}
-	address.commit("0.0.0.0:4000", []string{"http://localhost:4000", "http://williams-mac-mini.local:4000"})
+	address.commit("0.0.0.0:4000", []string{"http://williams-mac-mini.local:4000", "http://localhost:4000"})
 	f.service.SetPublicOrigin(address.Public)
 	second := f.todo("Wave goodbye", "Say goodbye too", first.CandidateHead, "GOODBYE.md", "Bye from T2\n")
 	f.wake()
@@ -261,6 +266,11 @@ func TestTodoPublicationOpensReadyThenDraftPullRequests(t *testing.T) {
 	assert.Equal(t, true, creates[1]["draft"], "a later item's pull request opens as a draft")
 	assert.Contains(t, creates[1]["body"], "Includes [T1](https://github.com/rehearsal-owner/app/pull/1) until they merge")
 	secondHead := f.githubRef(secondBranch)
+	manifests := mythicalChecksOf(f.item(second.Number.Int64)).PRManifests
+	require.Len(t, manifests, 1)
+	require.Equal(t, secondHead, manifests[0].Head)
+	require.Equal(t, []mythicalManifestItem{{ID: uuidString(first.ID), Number: 1, Head: first.CandidateHead, Change: f.main + ".." + first.CandidateHead}}, manifests[0].Included)
+
 	assert.Equal(t, f.main, f.git(f.github, "rev-parse", secondHead+"^"))
 	assert.Equal(t, "Hello from T1", f.git(f.github, "show", secondHead+":JOURNEY.md"), "the prefix's change is included")
 	card = f.card(second.Number.Int64)
@@ -543,6 +553,175 @@ func TestTodoPublicationPushesOnlyTheRecordedTodoBranch(t *testing.T) {
 			op, err := decodeMythicalOutbound(f.item(first.Number.Int64).PendingOp)
 			require.NoError(t, err)
 			assert.Equal(t, target, op.Target, "the slot stays for a person to see")
+		})
+	}
+}
+
+// Fixture acceptance supplies a verified unchanged tree after the prompt or
+// placement changed. Publication and keyed recovery use the real worker and App.
+func TestTodoPublicationUpdatesAcceptedBodyAndPlacementDraftThroughRecovery(t *testing.T) {
+	f := newPublicationFixture(t, false)
+	ctx := context.Background()
+	first := f.todo("First", "original prompt", f.main, "FIRST.txt", "first\n")
+	f.wake()
+	item := f.item(first.Number.Int64)
+	number := item.PRNumber.Int64
+	item.Revisions = []byte(`[{"rev":1,"text":"original prompt"},{"rev":2,"text":"updated prompt","acceptance":["passes"]}]`)
+	item.State = "proposing"
+	_, err := db.New(f.pool).SaveMythicalItem(ctx, item)
+	require.NoError(t, err)
+	for range 5 {
+		f.wake()
+	}
+	item = f.item(first.Number.Int64)
+	require.Equal(t, number, item.PRNumber.Int64)
+	require.Equal(t, "proposed", item.State, item.Reason)
+	gh, err := f.service.github.Resolve(ctx, mustPublicationRepository(t, f), "smithers-canary", f.userID)
+	require.NoError(t, err)
+	pull, err := f.service.github.Pull(ctx, gh, number)
+	require.NoError(t, err)
+	require.Contains(t, pull.Body, "updated prompt")
+	require.NotContains(t, pull.Body, "original prompt")
+	require.Len(t, f.pullCreates(), 1)
+	// Put an unverified predecessor before it. That predecessor contributes no
+	// tree, so the original item's verified candidate still has main as base.
+	_, err = f.pool.Exec(ctx, `INSERT INTO mythical_items(repository_id,source,state,issue_title,checks) VALUES ($1,'todo','proposed','Waiting predecessor','{"branch":"smithers/waiting-predecessor"}')`, f.repoID)
+	require.NoError(t, err)
+	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET stack_position=NULL WHERE repository_id=$1`, f.repoID)
+	require.NoError(t, err)
+	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET stack_position=CASE WHEN id=$2 THEN 2 ELSE 1 END, state=CASE WHEN id=$2 THEN 'proposing' ELSE state END WHERE repository_id=$1`, f.repoID, first.ID)
+	require.NoError(t, err)
+	for range 5 {
+		f.wake()
+	}
+	item = f.item(first.Number.Int64)
+	require.True(t, mythicalChecksOf(item).PRDraft)
+	require.Empty(t, item.PendingOp)
+	require.Equal(t, "proposed", item.State, item.Reason)
+	// Its predecessor drops, and the already accepted head becomes first.
+	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET state=CASE WHEN id=$2 THEN 'proposing' ELSE 'rejected' END WHERE repository_id=$1`, f.repoID, first.ID)
+	require.NoError(t, err)
+	for range 5 {
+		f.wake()
+	}
+	item = f.item(first.Number.Int64)
+	require.False(t, mythicalChecksOf(item).PRDraft)
+	require.Empty(t, item.PendingOp)
+	require.Equal(t, number, item.PRNumber.Int64)
+	mutations := 0
+	for _, write := range f.fake.Writes() {
+		if write.Path == "/graphql" {
+			mutations++
+		}
+	}
+	require.Equal(t, 2, mutations, "one draft and one ready mutation; lookup never duplicates writes")
+}
+
+func mustPublicationRepository(t *testing.T, f *publicationFixture) db.Repository {
+	t.Helper()
+	repository, err := db.New(f.pool).GetRepoByID(context.Background(), f.repoID)
+	require.NoError(t, err)
+	return repository
+}
+
+// The answer's durable lease must reach the real smart-HTTP publication path.
+// Detection is seeded here; the composed install HTTP test independently proves
+// permission, wait/revision binding and the same AnswerBranch transaction.
+func TestForeignPushDiscardPublishesAgainstObservedLease(t *testing.T) {
+	for _, name := range []string{"discard", "newer-push", "receive-pack-race"} {
+		moved := name != "discard"
+		t.Run(name, func(t *testing.T) {
+			f := newPublicationFixture(t, false)
+			ctx := t.Context()
+			q := db.New(f.pool)
+			binding, err := json.Marshal(map[string]any{"owner_login": "smithers-canary", "repository_name": "smithers", "repository_id": f.repoID})
+			require.NoError(t, err)
+			require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: binding}))
+			first := f.todo("Add a greeting to JOURNEY.md", "Say hello", f.main, "JOURNEY.md", "Hello from T1\n")
+			f.wake()
+			f.wake()
+			item := f.item(first.Number.Int64)
+			require.Equal(t, "proposed", item.State, item.Reason)
+			branch := mythicalChecksOf(item).Branch
+			originalPR := item.PRNumber
+
+			// A verified new candidate and Alice's unrelated laptop commit coexist.
+			f.git(f.work, "checkout", "-q", first.CandidateHead)
+			candidate := f.commit("Smithers' verified revision", "JOURNEY.md", "Hello again from T1\n")
+			f.git(f.work, "push", "-q", f.hostDir, candidate+":"+repohost.MythicalReservedRefNS+"keep/"+candidate)
+			f.git(f.work, "checkout", "-q", f.main)
+			alice := f.commit("Alice's laptop change", "LAPTOP.md", "Alice\n")
+			f.git(f.work, "push", "-q", "--force", f.github, alice+":refs/heads/"+branch)
+			// Use the production retention transport before admitting an answer.
+			repo, err := q.GetRepoByID(ctx, f.repoID)
+			require.NoError(t, err)
+			gh, err := f.service.github.Resolve(ctx, repo, "smithers-canary", f.userID)
+			require.NoError(t, err)
+			require.NoError(t, f.service.retainFetchedPush(ctx, q, repo, "smithers-canary", gh, alice))
+			checks := mythicalChecksOf(item)
+			checks.ForeignHead = alice
+			checks.Waits = []TodoWait{{ID: "laptop", Kind: "foreign_push", SHA: alice, Since: time.Now(), By: json.RawMessage(`{"kind":"github","login":"Alice","color_index":7}`)}}
+			item.State, item.CandidateHead, item.CandidateVerified, item.Checks = "proposing", candidate, true, checks.encode()
+			item, err = q.SaveMythicalItem(ctx, item)
+			require.NoError(t, err)
+			f.wake()
+			require.Equal(t, alice, f.githubRef(branch), "a verified candidate stays held before the answer")
+			owner, err := q.GetUserByID(ctx, f.userID)
+			require.NoError(t, err)
+			session := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: "owner-session"})
+			receipt, err := f.service.AnswerBranch(session, branch, TodoControlInput{Op: "discard-foreign", Wait: "laptop", Revision: alice, Repository: f.repoID, Actor: f.userID, Request: "discard-laptop"})
+			require.NoError(t, err)
+			require.Equal(t, "accepted", receipt.State)
+			require.Equal(t, alice, f.hostRef(repohost.KeptCommitRefPrefix+alice))
+			expected := alice
+			var raced chan error
+			if moved {
+				expected = f.commit("Alice pushes again", "LAPTOP.md", "Alice again\n")
+				if name == "receive-pack-race" {
+					// Git has already advertised the old head when receive-pack
+					// starts. A laptop push now must fail the server's atomic
+					// old-object comparison, not merely the client's ls-remote.
+					raced = make(chan error, 1)
+					f.fake.OnNextRequest(http.MethodPost, "/rehearsal-owner/app.git/git-receive-pack", func() {
+						out, err := exec.Command("git", "-C", f.work, "push", "-q", f.github, expected+":refs/heads/"+branch).CombinedOutput()
+						if err != nil {
+							err = fmt.Errorf("laptop push: %w: %s", err, out)
+						}
+						raced <- err
+					})
+				} else {
+					f.git(f.work, "push", "-q", f.github, expected+":refs/heads/"+branch)
+				}
+			}
+			for range 3 {
+				f.wake()
+			}
+			if raced != nil {
+				select {
+				case err := <-raced:
+					require.NoError(t, err)
+				case <-time.After(5 * time.Second):
+					t.Fatal("publication did not reach receive-pack")
+				}
+			}
+			after := f.item(first.Number.Int64)
+			require.Equal(t, originalPR, after.PRNumber, "the answer retains the pull request")
+			if moved {
+				require.Equal(t, expected, f.githubRef(branch), "the old answer never authorizes overwriting a newer push")
+				require.Equal(t, expected, mythicalChecksOf(after).ForeignHead)
+				op, err := decodeMythicalOutbound(after.PendingOp)
+				require.NoError(t, err)
+				require.Equal(t, "conflict", op.State)
+			} else {
+				require.Equal(t, "proposed", after.State, after.Reason)
+				published := f.githubRef(branch)
+				require.Equal(t, after.PRHead, published)
+				require.NotEqual(t, alice, published)
+				require.Equal(t, "Hello again from T1", f.git(f.github, "show", published+":JOURNEY.md"))
+				require.Equal(t, f.main, f.git(f.github, "rev-parse", published+"^"))
+				require.Empty(t, mythicalChecksOf(after).ForeignHead)
+			}
+			require.Equal(t, alice, f.hostRef(repohost.KeptCommitRefPrefix+alice), "publication cannot erase the discarded commit")
 		})
 	}
 }

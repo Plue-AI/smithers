@@ -26,7 +26,6 @@
     "flows",
     "flows/coding",
     "apps/*",
-    "apps/docs/*",
     "evals/*"
   ],
   "scripts": {
@@ -44,10 +43,8 @@
     "dev": "pnpm --filter smithers-app run start",
     "checklist": "pnpm --filter smithers-app run checklist",
     "deploy:dry": "pnpm --filter smithers-server run deploy:dry",
-    "docs:build": "pnpm --filter \"@smithers/docs-*\" --filter \"!@smithers/docs-shared\" -r run build",
-    "docs:check": "go run ./packages/backend/modelprice/cmd/generate -check && node apps/docs/shared/check-llms.mjs && node apps/docs/shared/gen-sites.mjs --check && node apps/docs/shared/sync-content.mjs --all --check",
-    "docs:deploy": "pnpm --filter \"@smithers/docs-*\" --filter \"!@smithers/docs-shared\" -r run deploy",
-    "docs:sync": "node apps/docs/shared/sync-content.mjs --all",
+    "docs:check": "go run ./packages/backend/modelprice/cmd/generate -check && node scripts/package-docs.test.mjs",
+    "docs:sync": "pnpm --filter @smithers/site run sync:docs",
     "lint": "pnpm --recursive --if-present run lint",
     "target-index": "pnpm exec smthrs target '//:targetIndex' --write",
     "test": "pnpm --recursive --if-present run test",

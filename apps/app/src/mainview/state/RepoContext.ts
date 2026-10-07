@@ -1,6 +1,6 @@
 /*
  * The one target-repo resolution rule for repo-scoped commands (issues, PRs,
- * environment, import), following the flow.create precedent (Wave 12 §2):
+ * environment, import), following the flow.new precedent (Wave 12 §2):
  * a known trailing `owner/repo` token wins; otherwise the active row
  * (lane piper: the active working copy's repository, else the selected
  * repository's head); otherwise the answer is an honest error naming the
@@ -30,8 +30,8 @@ export const knownRepositories = (store: AppStore): KnownRepositories => {
   const known = new Set<string>(store.collections.repositories.keys())
   // A completed import is authoritative before the repository inventory refreshes.
   // Use the returned repository, never the name of a pending import request.
-  for (const card of store.collections.cards.values()) {
-    if (card.kind !== "repo-import" || card.payload.phase !== "done" || card.payload.repository == null) continue
+  for (const card of store.session().repositoryImports ?? []) {
+    if (card.payload.phase !== "done" || card.payload.repository == null) continue
     const repo = `${card.payload.repository.owner}/${card.payload.repository.name}`
     if (REPO_TOKEN.test(repo)) known.add(repo)
   }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,12 +15,14 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
@@ -119,23 +122,45 @@ func openAPIConformanceRouter(cfg *config.Config) chi.Router {
 }
 
 // Shared production-router fixture: host HTTP tests use real PostgreSQL queries.
-func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *services.InstallCapacityService) chi.Router {
+type conformanceServices struct {
+	pool     *pgxpool.Pool
+	billing  *routes.BillingHandler
+	jobs     *routes.RepositoryJobHandler
+	terminal *routes.WorkspaceTerminalHandler
+	live     *routes.LiveHandler
+	wiki     *services.WikiService
+}
+
+func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *services.InstallCapacityService, supplied ...conformanceServices) chi.Router {
+	deps := conformanceServices{billing: &routes.BillingHandler{}, jobs: &routes.RepositoryJobHandler{}, live: &routes.LiveHandler{}}
+	if len(supplied) > 0 {
+		deps = supplied[0]
+	}
+	if deps.live == nil {
+		deps.live = &routes.LiveHandler{}
+	}
+	if deps.terminal == nil {
+		deps.terminal = &routes.WorkspaceTerminalHandler{}
+	}
 	authHandler := &routes.AuthHandler{}
 	workspaceHandler := &routes.WorkspaceHandler{
 		EnvironmentImages: &routes.SandboxEnvironmentImageHandler{},
 	}
-	wiki := services.NewWikiService(nil, nil, services.WithWikiCollaboration(nil, nil), services.WithWikiContent(nil))
-	router := buildRouter(cfg, queries, nil,
+	wiki := deps.wiki
+	if wiki == nil {
+		wiki = services.NewWikiService(nil, nil, services.WithWikiCollaboration(nil, nil), services.WithWikiContent(nil))
+	}
+	router := buildRouter(cfg, queries, deps.pool,
 		&routes.RepoHandler{}, &routes.GitMirrorSyncHandler{}, authHandler, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.DeployKeyHandler{}, &routes.LabelHandler{},
 		&routes.OrgHandler{}, &routes.LandingHandler{}, &routes.BuildCacheHandler{}, &routes.StackHandler{}, &routes.SearchHandler{}, &routes.IssueHandler{},
 		wiki, &routes.GitSmartHandler{}, &routes.NotificationHandler{}, &routes.AdminUserHandler{}, &routes.AdminOrgHandler{}, &routes.AdminRepoHandler{}, &routes.AdminGitHubAppHandler{}, &routes.AdminAuditHandler{},
-		&routes.WebhookHandler{}, &routes.SecretHandler{}, &routes.ProviderConnectionHandler{}, &routes.VariableHandler{}, &routes.BillingHandler{},
+		&routes.WebhookHandler{}, &routes.SecretHandler{}, &routes.ProviderConnectionHandler{}, &routes.VariableHandler{}, deps.billing,
 		&routes.ProtectedBookmarkHandler{}, &routes.CommitStatusHandler{}, &routes.LFSHandler{}, &routes.JJVCSHandler{}, &routes.AgentInternalHandler{},
 		&routes.AgentSessionHandler{}, &routes.AgentSessionStreamHandler{}, &routes.ApprovalsHandler{}, &routes.InternalPushHookHandler{},
 		&routes.WorkflowHandler{}, &routes.WorkflowCacheHandler{}, &routes.WorkflowArtifactHandler{},
-		&routes.IssueEventHandler{}, workspaceHandler, &routes.WorkspaceInternalHandler{}, &routes.RepositoryJobHandler{}, &routes.GitHubProxyHandler{},
+		&routes.IssueEventHandler{}, workspaceHandler, &routes.WorkspaceInternalHandler{}, deps.jobs, &routes.GitHubProxyHandler{},
 		&routes.GitHubRepoListHandler{}, &routes.GitHubUserReposHandler{}, &routes.GitHubSyncedReposHandler{}, &routes.GitHubImportHandler{},
-		&routes.WorkspaceTerminalHandler{}, &routes.TelemetryHandler{}, &routes.FeatureFlagHandler{}, &routes.OAuth2Handler{},
+		deps.terminal, &routes.TelemetryHandler{}, &routes.FeatureFlagHandler{}, &routes.OAuth2Handler{},
 		&routes.GitHubWebhookHandler{}, routes.NewSmithersMetrics(),
 		routerExtras{
 			InstallScorecard:    &routes.InstallScorecardHandler{Authorize: func(*http.Request) error { return nil }, Service: &services.ScorecardService{}},
@@ -145,9 +170,9 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *s
 			AdminAnalytics: &routes.AdminAnalyticsHandler{}, AdminAgentSessions: &routes.AdminAgentSessionHandler{},
 			AdminWorkspaces: &routes.AdminWorkspaceHandler{}, AdminTokens: &routes.AdminTokenHandler{}, ModelProxy: http.NotFoundHandler(),
 			EgressPolicy:     &routes.RepositoryEgressPolicyHandler{},
-			GitHubAppSetup:   &routes.GitHubAppSetupHandler{Owners: queries, Setup: &services.InstallSetupService{Capacity: host}},
+			GitHubAppSetup:   &routes.GitHubAppSetupHandler{Owners: queries, Setup: &services.InstallSetupService{Capacity: host}, Origins: deps.live.Origins},
 			Members:          &routes.MembersHandler{},
-			Live:             &routes.LiveHandler{},
+			Live:             deps.live,
 			ExternalSessions: &routes.ExternalSessionsHandler{},
 		},
 	)
@@ -466,6 +491,9 @@ func TestCutBackendCompositionRoutes(t *testing.T) {
 			_, health := served["get /api/admin/system/health"]
 			require.Equal(t, mode != "unknown", health)
 			for _, key := range []string{
+				"post /api/recommend",
+				"post /api/recommend/outcome",
+				"post /api/repos/{owner}/{repo}/changes/{change_id}/split",
 				"post /api/repos/{owner}/{repo}/branch-locks/acquire",
 				"post /api/repos/{owner}/{repo}/branch-locks/heartbeat",
 				"post /api/repos/{owner}/{repo}/branch-locks/release",
@@ -505,11 +533,13 @@ func TestCutBackendCompositionRoutes(t *testing.T) {
 				require.Equal(t, 404, response.Code)
 			}
 			_, split := served["post /api/repos/{owner}/{repo}/changes/{change_id}/split"]
-			require.Equal(t, hosted, split)
+			require.False(t, split)
+			_, sessionEgress := served["get /api/repos/{owner}/{repo}/agent-sessions/{id}/egress"]
+			require.Equal(t, hosted, sessionEgress)
 			admins := 0
 			for _, route := range served {
 				require.NotContains(t, route.path, "/api/repository-setup/")
-				if strings.HasPrefix(route.path, "/api/admin/") && route.path != "/api/admin/system/health" {
+				if strings.HasPrefix(route.path, "/api/admin/") && route.path != "/api/admin/system/health" && route.path != "/api/admin/users/{username}/erase" {
 					admins++
 				}
 			}
@@ -529,19 +559,28 @@ func TestCutBackendHTTPPostgres(t *testing.T) {
 	q := db.New(pool)
 	u, err := q.CreateUser(t.Context(), db.CreateUserParams{Username: "cutowner", LowerUsername: "cutowner"})
 	require.NoError(t, err)
-	_, err = q.CreateRepo(t.Context(), db.CreateRepoParams{UserID: pgtype.Int8{Int64: u.ID, Valid: true}, Name: "repo", LowerName: "repo", IsPublic: true, DefaultBookmark: "main"})
+	repository, err := q.CreateRepo(t.Context(), db.CreateRepoParams{UserID: pgtype.Int8{Int64: u.ID, Valid: true}, Name: "repo", LowerName: "repo", IsPublic: true, DefaultBookmark: "main"})
 	require.NoError(t, err)
 	_, err = pool.Exec(t.Context(), `INSERT INTO self_host_owners(user_id) VALUES ($1)`, u.ID)
 	require.NoError(t, err)
+	binding, err := json.Marshal(map[string]any{"owner_login": "cutowner", "repository_name": "repo", "repository_id": repository.ID})
+	require.NoError(t, err)
+	require.NoError(t, q.UpsertInstallSetting(t.Context(), db.UpsertInstallSettingParams{Key: "github.repository", Value: binding}))
+	access, err := json.Marshal(map[string]any{"owner_login": "cutowner", "repository_name": "repo", "repository_id": repository.ID, "last_access_check_at": time.Now().UTC().Format(time.RFC3339Nano)})
+	require.NoError(t, err)
+	require.NoError(t, q.UpsertInstallSetting(t.Context(), db.UpsertInstallSettingParams{Key: "owner.access", Value: access}))
 	token := "smithers_0123456789012345678901234567890123456789"
 	digest := sha256.Sum256([]byte(token))
 	hash := hex.EncodeToString(digest[:])
 	_, err = q.CreateAccessToken(t.Context(), db.CreateAccessTokenParams{UserID: u.ID, Name: "cuts", TokenHash: hash, TokenLastEight: hash[56:], Scopes: "read:repository,write:repository"})
 	require.NoError(t, err)
+	_, err = q.CreateAuthSession(t.Context(), db.CreateAuthSessionParams{SessionKey: hash, UserID: u.ID, Username: u.Username, ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
 	for _, mode := range []string{config.AuthModeSelfHosted, config.AuthModeMultitenant} {
 		t.Run(mode, func(t *testing.T) {
 			cfg := testConfigAllFlagsOn()
 			cfg.Auth.Mode = mode
+			cfg.Server.PublicURL = "http://example.com"
 			router := hostStatusProductionRouter(cfg, q, &services.InstallCapacityService{})
 			dispatcher := &browserFlowRecordingDispatcher{}
 			deps := &browserReadDependencies{canWrite: true, workspace: db.Workspace{ID: browserBoxID, Status: "running"}}
@@ -552,7 +591,7 @@ func TestCutBackendHTTPPostgres(t *testing.T) {
 				`{"repo":"cutowner/repo","workspaceId":"` + browserBoxID + `","procedure":"Signal","payload":{"signal":{"name":"register-repository/review#old"}}}`,
 				`{"repo":"cutowner/repo","workspaceId":"` + browserBoxID + `","procedure":"Approval.Submit","payload":{"target":{"requestId":"register-repository/decline-note#old"}}}`,
 			} {
-				req := httptest.NewRequest("POST", "/api/workflow/rpc", strings.NewReader(body))
+				req := httptest.NewRequest("POST", config.PublicOrigin(cfg)+"/api/workflow/rpc", strings.NewReader(body))
 				req.Header.Set("Authorization", "token "+token)
 				req.Header.Set("Content-Type", "application/json")
 				rec := httptest.NewRecorder()
@@ -579,10 +618,21 @@ func TestCutBackendHTTPPostgres(t *testing.T) {
 				{"PUT", "/api/gateways/host/repository-jobs/ci/check-receipts/request", 404, 503},
 				{"GET", "/api/admin/users", 404, 403},
 				{"GET", "/api/admin/system/health", 403, 403},
+				{"POST", "/api/recommend", 404, 404},
+				{"POST", "/api/recommend/outcome", 404, 404},
+				{"POST", "/api/repos/cutowner/repo/changes/change/split", 404, 404},
+				{"GET", "/api/repos/cutowner/repo/agent-sessions/session/egress", 404, 500},
 				{"GET", "/api/health", 200, 200},
 			} {
-				req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(`{}`))
-				req.Header.Set("Authorization", "token "+token)
+				req := httptest.NewRequest(tc.method, config.PublicOrigin(cfg)+tc.path, strings.NewReader(`{}`))
+				if mode == config.AuthModeSelfHosted {
+					req.AddCookie(&http.Cookie{Name: "smithers_session", Value: token})
+					req.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "cuts-csrf"})
+					req.Header.Set("Origin", config.PublicOrigin(cfg))
+					req.Header.Set("X-CSRF-Token", "cuts-csrf")
+				} else {
+					req.Header.Set("Authorization", "token "+token)
+				}
 				req.Header.Set("Content-Type", "application/json")
 				rec := httptest.NewRecorder()
 				router.ServeHTTP(rec, req)
@@ -676,5 +726,42 @@ func TestDeferredTriggerAliasesAndDarkCallbacks(t *testing.T) {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, httptest.NewRequest("PUT", path, nil))
 		require.Equal(t, http.StatusForbidden, rec.Code, path)
+	}
+}
+
+// These are literal command doors; schema checks do not generate policy.
+func TestInstallAuthorizationOpenAPIResponses(t *testing.T) {
+	paths := loadOpenAPIPaths(t)
+	for _, door := range []struct{ method, path string }{
+		{"post", "/api/todos"}, {"patch", "/api/todos/{n}"}, {"post", "/api/todos/{n}"},
+		{"post", "/api/todos/{n}/merge"}, {"post", "/api/branches/{b}"},
+		{"post", "/api/proposals/{id}/accept"}, {"post", "/api/proposals/{id}/dismiss"},
+		{"post", "/api/confirmations"},
+	} {
+		operation := mappingValue(mappingValue(paths, door.path), door.method)
+		require.NotNil(t, operation, door.path)
+		responses := mappingValue(operation, "responses")
+		require.Equal(t, "#/components/responses/AuthorizationForbidden", mappingValue(mappingValue(responses, "403"), "$ref").Value, door.path)
+		accepted := mappingValue(responses, "202")
+		require.NotNil(t, accepted, door.path)
+		content := mappingValue(accepted, "content")
+		require.NotNil(t, content, door.path)
+		media := mappingValue(content, "application/json")
+		require.NotNil(t, media, door.path)
+		schema := mappingValue(media, "schema")
+		require.NotNil(t, schema, door.path)
+		var containsReceipt func(*yaml.Node) bool
+		containsReceipt = func(node *yaml.Node) bool {
+			if node.Value == "#/components/schemas/ConfirmationReceipt" {
+				return true
+			}
+			for _, child := range node.Content {
+				if containsReceipt(child) {
+					return true
+				}
+			}
+			return false
+		}
+		require.True(t, containsReceipt(schema), door.path)
 	}
 }

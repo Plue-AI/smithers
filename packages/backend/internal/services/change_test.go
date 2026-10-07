@@ -332,10 +332,6 @@ type changeTestRepoHost struct {
 	revisionDiff repohost.ChangeDiff
 	diffErr      error
 	diffArgs     []string
-	splitResult  repohost.SplitChangeResult
-	splitErr     error
-	splitChange  string
-	splitRequest repohost.SplitChangeRequest
 }
 
 type changeTestAgent struct {
@@ -402,12 +398,6 @@ func (r *changeTestRepoHost) GetFileAtChange(_ context.Context, _, _, _, filePat
 func (r *changeTestRepoHost) GetRevisionDiff(_ context.Context, owner, repo, changeID, fromCommitID, toCommitID, path string) (repohost.ChangeDiff, error) {
 	r.diffArgs = []string{owner, repo, changeID, fromCommitID, toCommitID, path}
 	return r.revisionDiff, r.diffErr
-}
-
-func (r *changeTestRepoHost) SplitChange(_ context.Context, _, _, changeID string, req repohost.SplitChangeRequest) (repohost.SplitChangeResult, error) {
-	r.splitChange = changeID
-	r.splitRequest = req
-	return r.splitResult, r.splitErr
 }
 
 func TestChangeService_RecordPushRecordsEveryRevisionAndProvenance(t *testing.T) {
@@ -532,77 +522,6 @@ func TestChangeService_RecordGeneratedRevertDoesNotTrustCopiedTrailers(t *testin
 	assert.Equal(t, "revert", queries.records[0].Source)
 	assert.Empty(t, queries.records[0].AgentSessionID)
 	assert.Equal(t, "main-commit", queries.records[0].ParentCommitID)
-}
-
-func TestChangeService_SplitChangeRecordsBothSplitRevisions(t *testing.T) {
-	t.Parallel()
-
-	queries := &changeTestQueries{}
-	original := repohost.Change{
-		ChangeID: "change-1", CommitID: "commit-original-2", ParentCommitID: "commit-split-1",
-		Description: "original", ParentChangeIDs: []string{"change-2"},
-	}
-	split := repohost.Change{
-		ChangeID: "change-2", CommitID: "commit-split-1", ParentCommitID: "parent-1",
-		Description: "focused files", ParentChangeIDs: []string{"parent-change"},
-	}
-	repoHost := &changeTestRepoHost{
-		change:      repohost.Change{ChangeID: "change-1", CommitID: "commit-original-1"},
-		splitResult: repohost.SplitChangeResult{Original: original, Split: split},
-	}
-
-	got, err := NewChangeService(queries, repoHost, nil).SplitChange(
-		context.Background(), 42, "alice", "demo", "change-1",
-		SplitChangeInput{Paths: []string{"src/a.go", "src/b.go"}, Description: "focused files"},
-	)
-	require.NoError(t, err)
-	assert.Equal(t, SplitChangeResponse{Original: original, Split: split}, got)
-	assert.Equal(t, "change-1", repoHost.splitChange)
-	assert.Equal(t, repohost.SplitChangeRequest{Paths: []string{"src/a.go", "src/b.go"}, Description: "focused files"}, repoHost.splitRequest)
-	require.Len(t, queries.upserts, 2)
-	require.Len(t, queries.records, 2)
-	assert.Equal(t, []string{"change-1", "change-2"}, []string{queries.records[0].ChangeID, queries.records[1].ChangeID})
-	assert.Equal(t, "split", queries.records[0].Source)
-	assert.Equal(t, "split", queries.records[1].Source)
-}
-
-func TestChangeService_SplitChangeRejectsLandedOrConflictedChange(t *testing.T) {
-	t.Parallel()
-
-	t.Run("landed", func(t *testing.T) {
-		queries := &changeTestQueries{landed: &db.GetChangeLandingProvenanceRow{LandingRequestID: 9}}
-		repoHost := &changeTestRepoHost{change: repohost.Change{ChangeID: "change-1"}}
-		_, err := NewChangeService(queries, repoHost, nil).SplitChange(context.Background(), 42, "alice", "demo", "change-1", SplitChangeInput{Paths: []string{"a.go"}})
-		requireAPIErrorStatus(t, err, http.StatusConflict)
-		assert.Empty(t, repoHost.splitChange)
-	})
-
-	t.Run("conflicted", func(t *testing.T) {
-		queries := &changeTestQueries{}
-		repoHost := &changeTestRepoHost{change: repohost.Change{ChangeID: "change-1", HasConflict: true}}
-		_, err := NewChangeService(queries, repoHost, nil).SplitChange(context.Background(), 42, "alice", "demo", "change-1", SplitChangeInput{Paths: []string{"a.go"}})
-		requireAPIErrorStatus(t, err, http.StatusConflict)
-		assert.Empty(t, repoHost.splitChange)
-	})
-
-	t.Run("landed changeset member", func(t *testing.T) {
-		queries := &changeTestQueries{landedChangeset: &db.Changeset{ID: 10, State: "landed"}}
-		repoHost := &changeTestRepoHost{change: repohost.Change{ChangeID: "change-1"}}
-		_, err := NewChangeService(queries, repoHost, nil).SplitChange(context.Background(), 42, "alice", "demo", "change-1", SplitChangeInput{Paths: []string{"a.go"}})
-		requireAPIErrorStatus(t, err, http.StatusConflict)
-		assert.Empty(t, repoHost.splitChange)
-	})
-}
-
-func TestChangeService_SplitChangePreservesUnprocessableStatus(t *testing.T) {
-	t.Parallel()
-
-	repoHost := &changeTestRepoHost{
-		change:   repohost.Change{ChangeID: "change-1"},
-		splitErr: &repohost.StatusError{StatusCode: http.StatusUnprocessableEntity, Message: "no listed path is in the change"},
-	}
-	_, err := NewChangeService(&changeTestQueries{}, repoHost, nil).SplitChange(context.Background(), 42, "alice", "demo", "change-1", SplitChangeInput{Paths: []string{"missing.go"}})
-	requireAPIErrorStatus(t, err, http.StatusUnprocessableEntity)
 }
 
 func TestChangeService_GetChangeBuildsRevisionAwareDetail(t *testing.T) {

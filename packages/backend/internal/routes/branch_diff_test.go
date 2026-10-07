@@ -37,7 +37,7 @@ func TestTODOBranchDiffRoute(t *testing.T) {
 		{name: "wrapped gate", reader: &branchDiffFixture{err: fmt.Errorf("prefix: %w", &services.TODOPrUnavailable{})}, status: 503, body: `{"code":"dependency_unavailable","class":"infra","message":"TODO PR publication dependencies are unavailable"}`},
 		{name: "permission", reader: &branchDiffFixture{err: pkgerrors.Forbidden("branch access refused")}, status: 403},
 		{name: "missing", reader: &branchDiffFixture{err: pkgerrors.NotFound("branch not found")}, status: 404},
-		{name: "read failure", reader: &branchDiffFixture{err: fmt.Errorf("read failed")}, status: 500},
+		{name: "read failure", reader: &branchDiffFixture{err: fmt.Errorf("read failed")}, status: 503, body: `{"code":"branch_machine_unavailable","class":"infra","message":"Branch unavailable"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := &BranchDiffHandler{}

@@ -31,8 +31,8 @@ import (
 // loaded once. The run (flows/coding/flow-load) answers each overridable
 // flow's version; settling it writes the versions and moves Active in one
 // transaction (flow_versions.go). The stack's own MainMoved listener is the
-// trigger: the pass that folds main is the pass after which this step sees
-// the new main.
+// trigger: the production GitHub poll callback records the observed main,
+// and this step loads it independently of stack folding or a frozen stack.
 const (
 	flowLoadFlow        = "flow-load"
 	flowLoadBindingKind = "flow-load"
@@ -52,8 +52,8 @@ type flowLoadProjection struct {
 	Generation   int64  `json:"generation"`
 }
 
-// advanceFlowLoad moves the repository's flow-load one step. The stack is
-// current (its landed main is main's tip) when this runs.
+// advanceFlowLoad uses the main observed by the GitHub poll independently
+// of stack folding. The stack claim serializes admission and settlement.
 func (s *MythicalService) advanceFlowLoad(ctx context.Context, r *mythicalRun) {
 	if !s.flowLoad || s.launcher == nil || s.lanes == nil || !r.row.ActorUserID.Valid || !flowCommitPattern.MatchString(r.row.LandedMain) {
 		return
@@ -105,7 +105,7 @@ func (s *MythicalService) stepFlowLoad(ctx context.Context, r *mythicalRun) erro
 func (s *MythicalService) launchFlowLoad(ctx context.Context, r *mythicalRun, row db.FlowLoad, attempt int32, now time.Time) error {
 	q := s.queries()
 	main := r.row.LandedMain
-	tree, syncing, err := s.flowLoadTree(ctx, r, main, row.Tree)
+	tree, syncing, err := s.flowLoadTree(ctx, r, main, row.Tree, row.Versions)
 	if err != nil {
 		return err
 	}
@@ -170,18 +170,18 @@ func (s *MythicalService) launchFlowLoad(ctx context.Context, r *mythicalRun, ro
 
 // flowLoadTree reads the flow files at commit (path to blob) and names the
 // flows whose files differ from the last load's tree.
-func (s *MythicalService) flowLoadTree(ctx context.Context, r *mythicalRun, commit string, loaded json.RawMessage) (map[string]string, json.RawMessage, error) {
+func (s *MythicalService) flowLoadTree(ctx context.Context, r *mythicalRun, commit string, loaded, versions json.RawMessage) (map[string]string, json.RawMessage, error) {
 	if !r.g.has(ctx, commit) {
 		if err := r.g.fetch(ctx, r.bridge.URL(), 1, 0, "refs/heads/"+r.branch); err != nil {
 			return nil, nil, fmt.Errorf("fetch main: %s", sanitizeMirrorError(err, r.bridge.URL()))
 		}
 	}
-	listing, err := r.g.git(ctx, "ls-tree", "-r", commit, "--", "flows/")
+	listing, err := r.g.git(ctx, "ls-tree", "-r", "-z", commit)
 	if err != nil {
 		return nil, nil, err
 	}
 	tree := map[string]string{}
-	for _, line := range strings.Split(listing, "\n") {
+	for _, line := range strings.Split(listing, "\x00") {
 		meta, path, ok := strings.Cut(line, "\t")
 		if fields := strings.Fields(meta); ok && len(fields) == 3 && fields[1] == "blob" {
 			tree[path] = fields[2]
@@ -204,10 +204,31 @@ func (s *MythicalService) flowLoadTree(ctx context.Context, r *mythicalRun, comm
 			entries[name] = path
 		}
 	}
+	var measured []FlowLoadVersion
+	_ = json.Unmarshal(versions, &measured)
+	dependencies := map[string][]string{}
+	for _, flow := range measured {
+		for _, path := range flow.Dependencies {
+			dependencies[path] = append(dependencies[path], flow.Name)
+		}
+	}
+	locks := map[string]bool{"pnpm-lock.yaml": true, "package-lock.json": true, "yarn.lock": true, "bun.lock": true, "bun.lockb": true}
 	changed := map[string]bool{}
 	for path := range unionKeys(before, tree) {
 		if before[path] == tree[path] {
 			continue
+		}
+		if locks[path] {
+			for name := range entries {
+				if Overridable(name) {
+					changed[name] = true
+				}
+			}
+		}
+		for _, name := range dependencies[path] {
+			if Overridable(name) {
+				changed[name] = true
+			}
 		}
 		owner, longest := "", 0
 		for dir, name := range dirs {
@@ -255,11 +276,29 @@ func unionKeys(a, b map[string]string) map[string]bool {
 	return keys
 }
 
-// retainMainFor makes main's commit reachable in the workspace's source ref.
+// retainMainFor makes a pinned main commit reachable in the workspace's source ref.
 func (s *MythicalService) retainMainFor(ctx context.Context, r *mythicalRun, workspaceID, commit string) (string, error) {
 	if !r.g.has(ctx, commit) {
-		if err := r.g.fetch(ctx, r.bridge.URL(), 1, 0, "refs/heads/"+r.branch); err != nil {
-			return "", fmt.Errorf("fetch main: %s", sanitizeMirrorError(err, r.bridge.URL()))
+		// After scratch loss, prefer an advertised ref retaining the exact pin.
+		// The repository server need not allow requests for unadvertised SHAs.
+		refs, err := r.g.lsRemote(ctx, r.bridge.URL())
+		if err != nil {
+			return "", fmt.Errorf("locate pinned main: %s", sanitizeMirrorError(err, r.bridge.URL()))
+		}
+		for _, ref := range slices.Sorted(maps.Keys(refs)) {
+			if refs[ref] == commit {
+				if err := r.g.fetch(ctx, r.bridge.URL(), 1, 0, ref); err != nil {
+					return "", fmt.Errorf("fetch pinned main: %s", sanitizeMirrorError(err, r.bridge.URL()))
+				}
+				break
+			}
+		}
+		if !r.g.has(ctx, commit) {
+			// A pin without its own ref is still recoverable from append-only
+			// main. Reuse the bounded, resumable history fetch.
+			if err := s.connectMain(ctx, r, commit); err != nil {
+				return "", err
+			}
 		}
 	}
 	return s.retainFor(ctx, r, workspaceID, commit)
@@ -352,7 +391,18 @@ func (s *MythicalService) persistFlowLoad(ctx context.Context, r *mythicalRun, r
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	q := db.New(tx)
-	moved, err := persistFlowVersions(ctx, q, r.row.RepositoryID, row.CommitID, result.Flows)
+	current := row.CommitID == r.row.LandedMain
+	// Fence activation against the poll receipt in the same transaction:
+	// main may have moved since this worker read the mirrored bookmark.
+	var syncedHead string
+	readErr := tx.QueryRow(ctx, `SELECT smithers_head FROM github_main_pulls WHERE repository_id=$1 FOR SHARE`, r.row.RepositoryID).Scan(&syncedHead)
+	if readErr != nil && !errors.Is(readErr, pgx.ErrNoRows) {
+		return readErr
+	}
+	if readErr == nil && syncedHead != "" {
+		current = current && syncedHead == row.CommitID
+	}
+	moved, err := persistFlowVersions(ctx, q, r.row.RepositoryID, row.CommitID, result.Flows, current)
 	if err != nil {
 		return err
 	}
@@ -367,6 +417,21 @@ func (s *MythicalService) persistFlowLoad(ctx context.Context, r *mythicalRun, r
 	}
 	if err != nil {
 		return err
+	}
+	// Only an activation of current main with no failed declarations advances
+	// instruction data. Keep the previous revision during failed or stale loads.
+	verified := current
+	for _, version := range result.Flows {
+		verified = verified && version.Status == "loaded"
+	}
+	if verified {
+		revision, err := json.Marshal(row.CommitID)
+		if err != nil {
+			return err
+		}
+		if err := q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: fmt.Sprintf("agent.instructions.main:%d", r.row.RepositoryID), Value: revision}); err != nil {
+			return err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return err

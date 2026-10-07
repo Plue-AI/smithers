@@ -63,7 +63,7 @@ describe("ordinary explanations use chat", () => {
     expect((await controller.commands.run("agent.explain", "why?")).status).not.toBe("executed")
     await settle()
     expect(recorder.launches).toEqual([])
-    await controller.commands.run("agent.list")
+    await controller.commands.run("agents")
     const card = store.collections.cards.get("agents")
     expect(card?.kind === "agents" && "agents" in card.payload ? card.payload.agents.map(role => role.id) : []).not.toContain("explainer")
     expect(controller.commands.find("chat.send")).toBeDefined()

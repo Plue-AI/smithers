@@ -3,6 +3,7 @@
   "compilerOptions": {
     // Tests share the process-table probe in packages/testing; this config emits nothing.
     "rootDir": "../../..",
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "noEmit": true,
     "declaration": false,
     "declarationMap": false,

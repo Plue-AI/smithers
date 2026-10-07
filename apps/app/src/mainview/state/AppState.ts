@@ -1,3 +1,4 @@
+import { BranchTreeNodeCardSchema } from "@smthrs/rpc/BranchTreeNodeCard"
 import type { ConversationHistory } from "./ConversationHistory"
 import type { ApprovalRow } from "@smthrs/gateway/GatewayProjection"
 import type { AgentRole } from "@smthrs/rpc/AgentRoles"
@@ -6,6 +7,7 @@ import { BillingPlanSchema,SandboxEntitlementSchema } from "@smthrs/rpc/BillingP
 import type { Card,CardPatch } from "@smthrs/rpc/Cards"
 import {
 CardPatchSchema,
+RepositoryImportRequestSchema,
 CardPlanItemSchema,
 CardSchema,
 EnvironmentImageRowSchema,
@@ -18,7 +20,7 @@ WorkspaceServiceSchema
 } from "@smthrs/rpc/Cards"
 import type { ConfiguredModel,ModelRecordId,ModelTestRecord,SeatId } from "@smthrs/rpc/ConfiguredModel"
 import { ConfiguredModelSchema,ModelTestRecordSchema,SeatAssignmentSchema } from "@smthrs/rpc/ConfiguredModel"
-import { ContextItemSchema } from "@smthrs/rpc/CardPrimitives"
+import { ActorSchema as ParticipantActorSchema, ContextItemSchema } from "@smthrs/rpc/CardPrimitives"
 import { RepoFileEntrySchema } from "@smthrs/rpc/LocalApp"
 import type { AgentTurnUsage } from "@smthrs/rpc/NativeAgent"
 import type { LocalRepositoryInspection,RepositoryAccess } from "@smthrs/rpc/NativeRepository"
@@ -539,6 +541,16 @@ const AnsweredActionSchema = MessageActionSchema.extend({ answer: z.string(), an
 
 export const MessageSchema = z.object({
   id: z.string(),
+  /** Imported identities are data only, never executable Smithers turns. */
+  origin: z.enum(["smithers", "external"]).optional(),
+  agent_kind: z.enum(["claude-code", "codex"]).optional(),
+  format_version: z.string().trim().min(1).optional(),
+  source_id: z.string().trim().min(1).optional(),
+  session_id: z.string().trim().min(1).optional(),
+  participant_id: z.string().trim().min(1).optional(),
+  actor: ParticipantActorSchema.optional(),
+  read_only: z.literal(true).optional(),
+  correlation_id: z.string().trim().min(1).optional(),
   issueCardId: z.string().optional(),
   issueCommentId: z.number().int().optional(),
   /** Owning turn for tool-act cleanup on retry. */
@@ -555,7 +567,7 @@ export const MessageSchema = z.object({
   /** A one-line visible tool act ("Smithers ran /world.new-note") renders as a marker row, not a bubble. */
   act: z.string().optional(),
   /** The Context line of an answer (T-APP-17): what it read, shown as "Context · N". */
-  context: z.array(ContextItemSchema).max(16).optional(),
+  context: z.array(ContextItemSchema).optional(),
   /**
    * A door's own refusal, written where it stays.
    *
@@ -582,6 +594,27 @@ export const MessageSchema = z.object({
    * persisted by a build that had conversation tabs parse unchanged.
    */
   tabId: z.string().optional()
+}).superRefine((message, ctx) => {
+  const imported = message.origin === "external"
+  const metadata = [message.agent_kind, message.format_version, message.source_id,
+    message.session_id, message.participant_id, message.read_only]
+  if (!imported && (metadata.some(value => value !== undefined) || message.correlation_id !== undefined ||
+    (message.actor?.kind === "agent" && ["claude-code", "codex"].includes(message.actor.agent)))) {
+    ctx.addIssue({ code: "custom", message: "External metadata requires external origin" })
+  }
+  if (!imported) return
+  const actor = message.actor
+  if (metadata.some(value => value === undefined) || !actor ||
+    (actor.kind === "person" && !actor.login.trim()) || (actor.kind === "agent" && !actor.id.trim()) ||
+    (message.role === "user" ? actor.kind !== "person" :
+      actor.kind !== "agent" || actor.agent !== message.agent_kind ||
+      actor.id !== message.participant_id || actor.session_id !== message.session_id || !actor.for_member?.login.trim())) {
+    ctx.addIssue({ code: "custom", message: "Incomplete external conversation identity" })
+  }
+  if (message.turnId !== undefined || message.action !== undefined || message.answeredAction !== undefined ||
+    message.disclosed !== undefined) {
+    ctx.addIssue({ code: "custom", message: "External conversations cannot carry executable turns or actions" })
+  }
 })
 export type Message = z.infer<typeof MessageSchema>
 
@@ -611,6 +644,7 @@ export const FrameSnapshotSchema = z.object({
 export type FrameSnapshot = z.infer<typeof FrameSnapshotSchema>
 
 export const BranchSchema = z.object({
+  archiveOwner: z.string().optional(),
   id: z.string(),
   workspaceId: z.string(),
   title: z.string(),
@@ -646,7 +680,20 @@ export type Frame = z.infer<typeof FrameSchema>
  * not state mutations — they never gate the app, and a failure toast is
  * honest and stays until dismissed.
  */
+/** Authoritative member-routed entry facts; ordinary background work has no audience. */
+export const ToastAudienceSchema = z.object({
+  member: z.string(),
+  entryId: z.string(),
+  kind: z.enum(["needs_you", "approval", "conflict", "in_review", "failed", "merged"]),
+  actorLabel: z.string(),
+  target: z.discriminatedUnion("flow", [
+    z.object({ flow: z.literal("todo"), n: z.number().int().positive() }),
+    z.object({ flow: z.literal("run"), id: z.string().min(1) })
+  ])
+})
+
 export const ToastSchema = z.object({
+  audience: ToastAudienceSchema.optional(),
   sourceCard: z.string().optional(),
   id: z.string(),
   /** The work identity ("billing.balance.refresh"): one toast per background flow. */
@@ -785,7 +832,25 @@ export const ChatUsageSchema = z.object({
 })
 export type ChatUsage = z.infer<typeof ChatUsageSchema>
 
+export const BranchNavigationSchema = z.object({
+  owner: z.string().nullable(), open: z.boolean(), selected_branch: z.string(), selected_archive: z.string().optional(), previous_branch: z.string().optional(),
+  nodes: z.array(BranchTreeNodeCardSchema)
+})
+
+export const SharedPromptSchema = z.object({
+  id: z.string(), owner: z.string(), branch: z.string(), prompt: z.string(),
+  state: z.enum(["editing", "requested", "accepted", "completed", "failed", "cancelled"]), turnId: z.string().optional(), error: z.string().optional()
+})
+export type SharedPrompt = z.infer<typeof SharedPromptSchema>
+
 export const SessionSchema = z.object({
+  sharedPrompts: z.array(SharedPromptSchema).optional(),
+  uiInstructionsSeen: z.array(z.string()).optional(),
+  branchNavigation: BranchNavigationSchema.optional(),
+  wikiSaves: z.array(z.object({
+    id: z.string(), owner: z.string(), branch: z.string(), repo: z.string(), space: z.enum(["public", "private"]),
+    name: z.string(), text: z.string(), state: z.enum(["requested", "completed", "failed"]), error: z.string().optional()
+  })).optional(),
   installRequests: z.array(z.object({
     id: z.string(), step: SetupStepIdSchema, origin: z.string(), body: z.record(z.string(), z.unknown()),
     state: z.enum(["requested", "running", "completed", "failed"]),
@@ -804,8 +869,10 @@ export const SessionSchema = z.object({
     state: z.enum(["requested", "completed", "failed"])
   })).optional(),
   /* Repository secret writes (SecretsSeam.setSecret/deleteSecret): never a value, only what a reload needs to settle them. */
+  repositoryImports: z.array(RepositoryImportRequestSchema).optional(),
   secretRequests: z.array(z.object({
-    id: z.string(), owner: z.string(), repo: z.string(), name: z.string(), action: z.enum(["set", "delete"]),
+    id: z.string(), owner: z.string(), repo: z.string(), name: z.string(), action: z.enum(["set", "delete", "scope"]),
+    mainOnly: z.boolean().optional(),
     state: z.enum(["requested", "completed", "failed"])
   })).optional(),
   /** Atomic egress additions can be replayed; only the authorized owner, repository and host are saved. */
@@ -814,6 +881,7 @@ export const SessionSchema = z.object({
     state: z.enum(["requested", "completed", "failed"]), error: z.string().max(1024).optional()
   }).strict()).optional(),
   /* Wiki refreshes asked of a repository's stack (StackSeam.refreshWiki): each notice reconnects after a reload until the Wiki settles. */
+  githubSyncRequest: z.object({ id: z.string(), owner: z.string(), lastSuccessAt: z.string().nullable(), phase: z.enum(["requested", "running", "failed"]), error: z.string().optional() }).optional(),
   wikiRequests: z.array(z.object({ repo: z.string(), owner: z.string(), requestedAt: z.number() })).optional(),
 
   /** Optional so previously saved sessions still parse. */
@@ -1122,6 +1190,7 @@ export type ConnectorOperation = z.infer<typeof ConnectorOperationSchema>
  * available action) — never which page exists.
  */
 export const IdentitySessionSchema = z.object({
+  memberId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
   /** Present on provider-aware session observations; absent only in legacy journal history. */
   provider: z.enum(["github", "local"]).optional(),
   id: z.literal("identity"),
@@ -1255,6 +1324,7 @@ export type AppTransition =
     type: "session.turn.orphaned"
     actor: "system"
   }
+  | { type: "conversation.archives.loaded"; actor: "system"; owner: string; branches: readonly Branch[] }
   | { type: "conversation.restored"; actor: "system"; owner: string; afterRevision: number; conversations: readonly ConversationHistory[] }
   | { type: "conversation.reset"; actor: "user" }
   | { type: "conversation.reset.asked"; actor: "user"; open: boolean }
@@ -1277,10 +1347,16 @@ export type AppTransition =
   /* Retired with the Librarian history flow (#2165): replayed journals still decode it; it changes nothing. */
   | { type: "librarian.launches.changed"; actor: Actor; launches: ReadonlyArray<unknown> }
   | { type: "coding.provider.requests.changed"; actor: Actor; requests: NonNullable<Session["codingProviderRequests"]> }
+  | { type: "github.sync.request.changed"; actor: Actor; request?: Session["githubSyncRequest"] }
   | { type: "stack.wiki.requests.changed"; actor: Actor; requests: NonNullable<Session["wikiRequests"]> }
+  | { type: "wiki.saves.changed"; actor: Actor; requests: NonNullable<Session["wikiSaves"]> }
   | { type: "install.requests.changed"; actor: Actor; requests: NonNullable<Session["installRequests"]> }
+  | { type: "repository.imports.changed"; actor: Actor; requests: NonNullable<Session["repositoryImports"]> }
   | { type: "secret.requests.changed"; actor: Actor; requests: NonNullable<Session["secretRequests"]> }
   | { type: "egress.requests.changed"; actor: Actor; requests: NonNullable<Session["egressRequests"]> }
+  | { type: "conversation.ui.applied"; actor: "system"; owner: string; id: string }
+  | { type: "conversation.prompt.changed"; actor: Actor; request: SharedPrompt; clearDraft?: boolean }
+  | { type: "branch.navigation.changed"; actor: Actor; navigation: z.infer<typeof BranchNavigationSchema> }
   | { type: "theme.changed"; actor: "user" | "system"; theme: Session["theme"] }
   /* The color theme (/theme) — the axis orthogonal to light/dark. */
   | { type: "palette.changed"; actor: "user" | "system"; palette: Palette }
@@ -1575,6 +1651,7 @@ export type AppTransition =
   }
   | {
     type: "identity.session.loaded"
+    memberId?: number
     provider?: "github" | "local"
     actor: "system"
     state: "signed-out" | "signed-in" | "unavailable"
@@ -1599,6 +1676,7 @@ export type AppTransition =
   | {
     /* The 300ms toast law: slow background work states what is running. */
     type: "toast.shown"
+    audience?: Toast["audience"]
     sourceCard?: string
     actor: "system"
     key: string

@@ -4,8 +4,11 @@ import { FlowRuntime } from "@smthrs/flow"
 import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Executable from "@smthrs/registry/Executable"
 import { Effect, Layer, Schema } from "effect"
+import { atomError } from "./atoms.ts"
 import { CodingError, Implementation, Receipt } from "./schema.ts"
 import { Implement, RunCheck } from "./workflow.ts"
+
+const isStepFailure = Schema.is(atomError)
 
 const invoke = (name: string, expectedDigest: string, input: Schema.Json, key: ReadonlyArray<string>) =>
   Effect.gen(function*() {
@@ -56,7 +59,11 @@ const invoke = (name: string, expectedDigest: string, input: Schema.Json, key: R
       payload: { input }
     }).pipe(
       Effect.catch((cause) =>
-        Effect.fail(new CodingError({ code: "execution", message: `Project flow ${name} failed: ${String(cause)}` }))
+        Effect.fail(
+          isStepFailure(cause)
+            ? cause
+            : new CodingError({ code: "execution", message: `Project flow ${name} failed: ${String(cause)}` })
+        )
       )
     )
   })
@@ -72,7 +79,7 @@ export const catalogLayers = Layer.mergeAll(
       Effect.flatMap(Schema.decodeUnknownEffect(Implementation)),
       Effect.catch((cause) =>
         Effect.fail(
-          cause instanceof CodingError
+          isStepFailure(cause)
             ? cause
             : new CodingError({
               code: "execution",
@@ -92,7 +99,7 @@ export const catalogLayers = Layer.mergeAll(
       Effect.flatMap(Schema.decodeUnknownEffect(Receipt)),
       Effect.catch((cause) =>
         Effect.fail(
-          cause instanceof CodingError
+          isStepFailure(cause)
             ? cause
             : new CodingError({
               code: "invalid_receipt",

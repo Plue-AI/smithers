@@ -13,7 +13,8 @@ class FollowupTests(unittest.TestCase):
     def test_cli_refuses_host_without_creating_evidence(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            for script, args in [('growth.py', [str(root), str(root / 'growth'), '--jj', '/missing']),
+            for script, args in [('snapshot.py', [str(root), str(root / 'snapshot'), '--busy-workers', '2']),
+                                 ('growth.py', [str(root), str(root / 'growth'), '--jj', '/missing']),
                                  ('kernel.py', [str(root), str(root / 'kernel.json')])]:
                 result = subprocess.run([sys.executable, str(Path(__file__).with_name(script)), *args],
                                         capture_output=True, text=True)

@@ -91,7 +91,7 @@ const RecheckInput = Schema.Struct({ plan: Plan, implementations: Schema.Array(I
 const RecheckHistory = Flow.make("coding/RecheckFinalHistory", {
   payload: RecheckInput,
   success: Result,
-  error: CodingError,
+  error: RunCheck.errorSchema,
   body: ({ plan, implementations }) => {
     const changes = Object.fromEntries(plan.changes.map((change, index) => {
       const implementation = implementations[index]!

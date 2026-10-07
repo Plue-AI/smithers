@@ -78,6 +78,7 @@ export function DraftView({ model, actions, gestures, onAction: dispatch }: Draf
           </> : null}
           {model.seed ? <div className="draft-seed"><span>Seed · Read-only</span>
             {model.seed.files.map(file => <code key={file}>{file}</code>)}
+            {model.seed.diff && <pre>{model.seed.diff}</pre>}
           </div> : null}
           {edit?.disabled ? <p className="draft-reason">{edit.disabled.reason}</p> : null}
         </>}

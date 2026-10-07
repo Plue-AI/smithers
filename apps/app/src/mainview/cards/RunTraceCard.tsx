@@ -5,7 +5,7 @@ import { flowProps } from "../flows/FlowAction"
 import type { UserFailure } from "@smthrs/rpc/UserFailure"
 import type { CardFamily } from "./CardFamily"
 import { RunResult } from "./RunResult.tsx"
-import { useState, type KeyboardEvent, type ReactNode } from "react"
+import { type ReactNode } from "react"
 import { flowArgs } from "../flows/FlowArgs"
 import { flowAction } from "../flows/FlowAction"
 import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
@@ -16,7 +16,7 @@ import { describedFailure, FailureNotice } from "../FailureNotice"
  * Every view choice enters an existing runs.trace flow; this card owns no state.
  */
 import { runSourceCommand } from "@smthrs/ui/run-command"
-import { Button, Input, StatusPill } from "@smthrs/ui"
+import { Button, StatusPill } from "@smthrs/ui"
 import { PhaseStrip } from "./RunTracePhaseStrip"
 export { phasePins } from "./RunTracePhaseStrip"
 import { codingEvidenceOf } from "./CodingPlan"
@@ -182,7 +182,6 @@ export const selectedSpan = (card: RunTraceCard, model: TraceModel): TraceSpan =
 export const RunTraceBody = ({
   card,
   onRunCommand: sendRunCommand,
-  workflowCatalogs,
   flowDurations,
   fileCards,
   childCards,
@@ -273,7 +272,7 @@ export const RunTraceBody = ({
         null}
       {<RunTraceSummary card={card} model={whole} facts={facts} onRunCommand={onRunCommand} admin={admin} />}
       {result !== null ? <RunResult result={result} technical={repositoryRun} /> : null}
-      <CodingPlanBody model={whole} card={card} onRunCommand={onRunCommand} workflowCatalogs={workflowCatalogs} />
+      <CodingPlanBody model={whole} card={card} onRunCommand={onRunCommand} />
       <CodingPocBody card={card} onRunCommand={onRunCommand} />
       <CodingVibeBody card={card} onRunCommand={onRunCommand} />
       {/* The run's progress words (payload.steps, a short tail the pump and replays write), newest last. */}
@@ -1064,7 +1063,6 @@ export const WorkflowRunCardBody = ({
           null}
       </div>}
       {/* Spec 06 §3: a prototype is never steered; its header has no Steer, so its card has no steer row. */}
-      {LIVE_RUN_PHASES.has(phase) && kind !== "prototype" ? <RunSteerRow runId={runId} onRunCommand={onRunCommand} /> : null}
     </div>
   )
 }
@@ -1073,56 +1071,6 @@ export const WorkflowRunCardBody = ({
 const LIVE_RUN_PHASES: ReadonlySet<string> = new Set(["launching", "running", "waiting-approval", "reconnecting"])
 // "stopped" is the phase a REFUSED cancel leaves (workflow-pump stopWatchingRun): the run may still be live, so it is not terminal;
 // TERMINAL_RUN_PHASES (RunTraceCard.tsx) is the set a Run again answers.
-
-const RunSteerRow = ({
-  runId,
-  onRunCommand
-}: {
-  readonly runId: string
-  readonly onRunCommand: RunCommand
-}) => {
-  const [message, setMessage] = useState("")
-  const sendMessage = (): void => {
-    const body = message.trim()
-    if (body === "") return
-    onRunCommand("runs.steer", flowArgs("runs.steer", { runId, body }))
-    setMessage("")
-  }
-  const onEnter = (submit: () => void) => (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Enter") {
-      event.preventDefault()
-      submit()
-    }
-  }
-  return (
-    <div className="flow-run-steer" data-testid={`flow-run-steer-${runId}`}>
-      <div className="flow-run-actions">
-        <Input
-          className="flow-run-steer-input"
-          aria-label="Steer this run"
-          placeholder="Steer this run — a message for the next turn"
-          value={message}
-          data-testid={`flow-run-steer-input-${runId}`}
-          onInput={(event) => setMessage(event.currentTarget.value)}
-          onKeyDown={onEnter(sendMessage)}
-        />
-        <Button
-          variant="outline"
-          {...flowProps("runs.steer")}
-          disabled={message.trim() === ""}
-          onClick={() => {
-            if (message.trim() === "") return
-            onRunCommand("runs.steer", flowArgs("runs.steer", { runId, body: message.trim() }))
-            setMessage("")
-          }}
-        >
-          Steer
-        </Button>
-      </div>
-    </div>
-  )
-}
-
 
 export const runTraceCardFamily: CardFamily<"run-trace"> = {
   "run-trace": {

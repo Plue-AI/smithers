@@ -195,6 +195,7 @@ func TestGitHubUserRepos_H_TokenHTTPAndSyncErrorBranches(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 
+	t.Setenv(envGitHubAppAPIBaseURL, "https://github.invalid")
 	svc = NewGitHubUserReposService(githubUserReposHNewDB(), githubUserReposHDecrypter{token: "tok"}, WithGitHubUserReposHTTPClient(&http.Client{
 		Transport: githubUserReposHRoundTrip(func(*http.Request) (*http.Response, error) {
 			return nil, errors.New("dial failed")
@@ -202,7 +203,7 @@ func TestGitHubUserRepos_H_TokenHTTPAndSyncErrorBranches(t *testing.T) {
 	}))
 	_, _, err = svc.requestGitHubUserRepos(context.Background(), "tok", url.Values{})
 	require.Error(t, err)
-	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
+	assert.Equal(t, http.StatusBadGateway, apiStatus(t, err))
 
 	for _, tc := range []struct {
 		name   string
@@ -210,8 +211,8 @@ func TestGitHubUserRepos_H_TokenHTTPAndSyncErrorBranches(t *testing.T) {
 		body   string
 		want   int
 	}{
-		{name: "forbidden", status: http.StatusForbidden, want: http.StatusForbidden},
-		{name: "bad json", status: http.StatusOK, body: `not-json`, want: http.StatusInternalServerError},
+		{name: "forbidden", status: http.StatusForbidden, want: http.StatusBadGateway},
+		{name: "bad json", status: http.StatusOK, body: `not-json`, want: http.StatusBadGateway},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -261,7 +262,7 @@ func TestGitHubUserRepos_H_TokenHTTPAndSyncErrorBranches(t *testing.T) {
 	}()
 }
 
-func TestGitHubUserRepos_H_LiveRefreshFailureFallsBackToOriginalError(t *testing.T) {
+func TestGitHubUserRepos_H_LiveRefreshFailureKeepsUpstreamClass(t *testing.T) {
 	hits := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		hits++
@@ -278,7 +279,7 @@ func TestGitHubUserRepos_H_LiveRefreshFailureFallsBackToOriginalError(t *testing
 	)
 	_, err := svc.listLiveGitHubRepos(context.Background(), 42, mustParseQuery(t, "cursor=2"))
 	require.Error(t, err)
-	assert.Equal(t, http.StatusUnauthorized, apiStatus(t, err))
+	assert.Equal(t, http.StatusBadGateway, apiStatus(t, err))
 	assert.Equal(t, 1, hits)
 	assert.Equal(t, 1, refresher.callCount())
 }

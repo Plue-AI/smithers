@@ -14,25 +14,25 @@ export function MembersView({ model, actions, onAction }: MembersViewProps) {
     const actor = { kind: "person" as const, login: member.login, name: member.name, avatar_url: member.avatar_url, color_index: member.color_index }
     rows.push(<li key={member.login} data-login={member.login}>
       <ActorChip actor={actor} size="s" />
-      <span className="mvp-member-name" title={actorName(actor)}>{member.name}</span>
-      <span className="mvp-member-login">@{member.login}</span>
-      {member.suspended || member.needs_access ? <a className="mvp-access" href={model.access_url} target="_blank" rel="noreferrer">{member.suspended ? "lost access on GitHub" : "needs access on GitHub"}<ExternalLink size={12} aria-hidden="true" /></a> : <span />}
-      <span className="mvp-member-controls">
-        {!member.actions.some(action => action.input?.some(field => field.name === "role")) ? <span className="mvp-role">{roleWords[member.role]}</span> : null}
+      <span className="member-name" title={actorName(actor)}>{member.name}</span>
+      <span className="member-login">@{member.login}</span>
+      {member.suspended || member.needs_access ? <a className="member-access" href={model.access_url} target="_blank" rel="noreferrer">{member.suspended ? "suspended" : "needs access on GitHub"}<ExternalLink size={12} aria-hidden="true" /></a> : <span />}
+      <span className="member-controls">
+        {!member.actions.some(action => action.input?.some(field => field.name === "role")) ? <span className="member-role">{roleWords[member.role]}</span> : null}
         {controls}
       </span>
     </li>)
   }
   const footer = []
   for (const action of actions) footer.push(<MemberAction key={action.tag} action={action} onAction={onAction} />)
-  return <section className="mvp-members-view" data-kind="members" data-keyboard-pane="Members" aria-label="Members">
+  return <section className="members-view" data-kind="members" data-keyboard-pane="Members" aria-label="Members">
     <h2>Members</h2>
-    <ul className="mvp-members">
+    <ul className="members-list">
       {rows}
     </ul>
-    <div className="mvp-add-row">{footer}
-      {model.add_refused?.fix ? <a className="mvp-access" href={model.add_refused.fix} target="_blank" rel="noreferrer">{model.add_refused.text}<ExternalLink size={12} aria-hidden="true" /></a>
-        : model.add_refused ? <span className="mvp-member-reason">{model.add_refused.text}</span> : null}
+    <div className="members-add-row">{footer}
+      {model.add_refused?.fix ? <a className="member-access" href={model.add_refused.fix} target="_blank" rel="noreferrer">{model.add_refused.text}<ExternalLink size={12} aria-hidden="true" /></a>
+        : model.add_refused ? <span className="member-reason">{model.add_refused.text}</span> : null}
     </div>
   </section>
 }
@@ -46,8 +46,13 @@ function MemberAction({ action, onAction }: { action: Action; onAction: MembersV
   const initial = (field: NonNullable<Action["input"]>[number]) => field.value ?? (field.kind === "choice" ? field.choices?.[0] : undefined) ?? ""
   const input = { ...action.args, ...Object.fromEntries((action.input ?? []).map(field => [field.name, initial(field)])), ...values }
   const change = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setDraft({ signature, values: { ...values, [event.currentTarget.name]: event.currentTarget.value } })
-  const submit = (event: FormEvent) => { event.preventDefault(); onAction(action.tag, input) }
-  return <span className="mvp-member-action">
+  const submit = (event: FormEvent) => {
+    event.preventDefault()
+    if (action.tag === "members.remove" && !window.confirm(`Remove @${action.args?.login}?`)) return
+    onAction(action.tag, input)
+    if (action.tag === "members.role") setDraft({ signature, values: {} })
+  }
+  return <span className="member-action">
     <form data-flow={action.tag} onSubmit={submit}>
       {action.input?.map(field => field.kind === "choice"
         ? <select key={field.name} name={field.name} aria-label={field.label} required={field.required} disabled={!!action.disabled} value={values[field.name] ?? initial(field)} onChange={change}>
@@ -56,6 +61,6 @@ function MemberAction({ action, onAction }: { action: Action; onAction: MembersV
         : <input key={field.name} name={field.name} aria-label={field.label} placeholder={field.label} type={field.kind === "secret" ? "password" : "text"} required={field.required} disabled={!!action.disabled} value={values[field.name] ?? initial(field)} onChange={change} />)}
       <button data-flow={action.tag} type="submit" disabled={!!action.disabled}>{action.label}</button>
     </form>
-    {action.disabled ? <span className="mvp-member-reason">{action.disabled.reason}</span> : null}
+    {action.disabled ? <span className="member-reason">{action.disabled.reason}</span> : null}
   </span>
 }

@@ -14,6 +14,18 @@ This ledger tracks implementation and required proof, not completion. [ADR 0002]
 - Only a person's browser session can approve or merge, subject to role. Delegated agent credentials request person confirmations. Product state, durable admission and replay semantics remain shared with Plue ([ADR 0002](0002-mac-install.md), E-09).
 - The container topology is superseded for the Mac install. T-INS-05 owns deletion of the Docker self-host image; this ledger does not claim that deletion is complete.
 
+## Sleeping branch files
+
+File reads of a sleeping branch use the host repository store at the recorded
+head, after checking `refs/smithers/branches/<id>/head` matches it. Reads never
+enter the guest or execute captured hooks or files. Capture includes untracked,
+not-ignored files: an unignored `.env` is part of the snapshot and readable by
+members. Ignore private files before writing them to a shared branch.
+
+Sleep still refuses until the authenticated daemon capture, object verification,
+outbox drain and machine-state publication are composed. The stored-file read
+path alone is not evidence that final capture or safe sleep is enabled.
+
 ## Mode acceptance matrix
 
 | ID | Presentation | Product backend | Database | Execution | Required proof |
@@ -63,7 +75,9 @@ One dedicated Sol owner per issue, scheduled in dependency waves due to bounded 
 
 Sleep remains disabled until authenticated final capture, object verification,
 outbox drain, branch runtime binding and live state publication are available.
-Snapshot reads never wake a machine. Work-triggered wake requires admission and
+File, directory, head and item-base diff reads use the verified captured head
+without entering the guest. The diff base stays the TODO’s recorded base rather
+than current main. Snapshot reads never wake a machine. Work-triggered wake requires admission and
 validated privileged entry; billing quota alone does not authorize it.
 
 A captured working copy includes untracked files that are not ignored. Every

@@ -106,10 +106,29 @@ missing executables, timeouts and unavailable cleanup fail execution instead of
 inventing validation evidence. Output is drained and a bounded prefix is stored
 in the existing receipt, with truncation disclosed.
 
+Command checks compare the exported tracked files before and after execution,
+including executable modes, symlink targets and replaced parent directories.
+A directory replaced with a link fails even when the link reads identical bytes.
+A write, deletion or replacement
+fails with `check_modified_tree`, even on exit zero. The stack stops for a
+person's Retry even if a retained runtime labels this failure as a factory
+fault or reports only its checkpoint code. Generated build outputs do
+not change the candidate. The changed export is retained under
+`modified-*/source` under the host-selected `sourceDirectory`, or the default
+`.jj/smithers-checks` cache; formatting must happen before capture.
+Retention does not require a writable checkout when `sourceDirectory` is configured.
+The adjacent `failure.json` records the sorted changed tracked paths.
+This failure stops correction rather than starting a repair or reproposal cycle.
+
+The stack rechecks outsider protected-path policy from current trusted `main`
+before creating a proposal and before sending a recovered push. A recovered PR
+head must have the verified candidate's tree; a pinned head alone is insufficient.
+Unreadable policy refuses publication, and candidate policy cannot replace it.
+
 ## Close scratch after contained processes
 
 The export directory and contained processes use Effect scopes. The recipe relies
-on the injected runtime's scoped cleanup contract on success, failure and cancellation. It is a source snapshot, not a security
+on the injected runtime's scoped cleanup contract on success, ordinary failure and cancellation. Tree-writing failures move their output outside the scoped directory before cleanup. It is a source snapshot, not a security
 sandbox: the host must provide its existing process confinement when running
 untrusted project commands. FileSystem, Path and ChildProcessSpawner are Effect
 dependencies; the recipe does not select Node or Bun.
@@ -210,3 +229,19 @@ the next Change and correction feeds the failure back to the owning one. A
 target already on the known-red list is reported but does not fail the check.
 A Change that wrote nothing affects no target and passes. `coding/verify`
 hands a rebased stack candidate's changed paths to the same checks.
+
+### Reserved stack operations
+
+The packaged coding host registers `stack.candidate` and `stack.propose` as
+Actions in its existing stack layer, rather than repository flows. Their native
+provider resolves the current TODO attempt, run and machine; flow payloads carry
+no credential or binding authority. Candidate returns the existing generation,
+base and head; Propose names that generation and returns the PR head.
+
+Both refuse before ordinary native reads or capture when the authority transport
+is absent or the host is local-only. Native request identities derive from the
+engine's durable invocation key, so another capture in the same run has a new
+identity and replay retains the original one. The installed native adapter still
+needs the run/machine credential transport before these actions can dispatch on
+an install. The scripted native-provider test proves packaged action dispatch
+and journal replay, not machine admission or a C-STK-06 microVM receipt.

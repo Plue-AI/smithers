@@ -10,7 +10,7 @@ import { CodingError, Plan, Revision, validatePlan } from "./schema.ts"
 export const AdmitSource = Action.make("coding/admit-retained-source", {
   payload: { plan: Plan },
   success: Schema.Struct({ ...Plan.fields, observedHead: Revision }),
-  error: CodingError,
+  error: Schema.Union([CodingError, NativeCodingError]),
   nondeterministic: true
 })
 
@@ -53,7 +53,23 @@ export const admitSource = (plan: Plan, requestId?: string) =>
     }
     // Retain the observed immutable commit before even the admission snapshot
     // may rewrite it. Dirty files then refuse this plan without losing its base.
-    yield* jj.snapshot("coding request source admission")
+    yield* jj.snapshot("coding request source admission").pipe(
+      // Only source conflicts justify a replan. Adapter outages and grant
+      // refusals must stop without spending the factory's correction budget.
+      Effect.mapError((error) =>
+        new CodingError({
+          code: error.code === "conflict" ?
+            "stale_revision"
+            : error.code === "invalid_ref" || error.code === "snapshot_refused" ||
+                error.code === "permission_denied" || error.code === "permission_required"
+            ? "source_refused" :
+            "execution",
+          message: `Prepared source snapshot failed (${error.code}): ${
+            "reason" in error ? error.reason : error.message || error._tag
+          }`
+        })
+      )
+    )
     {
       const after = yield* native.read([plan.base.changeId])
       const afterBase = after.revisions.find((row) => row.changeId === plan.base.changeId)
@@ -68,14 +84,7 @@ export const admitSource = (plan: Plan, requestId?: string) =>
       }
     }
     return { ...plan, observedHead: plan.observedHead }
-  }).pipe(Effect.mapError((error) =>
-    error instanceof CodingError ? error : new CodingError({
-      code: error instanceof NativeCodingError && error.code.startsWith("source_publication_")
-        ? "unavailable"
-        : "stale_revision",
-      message: "Prepared source could not be verified: " + (error instanceof Error ? error.message : String(error))
-    })
-  ))
+  })
 
 export const sourceAdmission = AdmitSource.toLayer(({ plan }) =>
   Effect.gen(function*() {

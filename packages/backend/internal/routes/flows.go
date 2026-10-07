@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -15,11 +16,12 @@ import (
 // the model the Flow card and the app agent's flow commands read. Any member's
 // browser session reads it.
 type FlowsHandler struct {
-	Queries *db.Queries
+	Queries   *db.Queries
+	Proposals services.FlowProposalReader
 }
 
-// List answers the catalog: each overridable flow with its versions, and no
-// system flow. Before setup binds a repository it lists the built-ins.
+// List answers overridable flows and measured refusals of repository files
+// with system names. Before setup binds a repository it lists the built-ins.
 func (h *FlowsHandler) List(w http.ResponseWriter, r *http.Request) {
 	if h == nil || h.Queries == nil {
 		todoRouteError(w, &services.TodoControlError{Status: http.StatusServiceUnavailable, Code: "flows_unavailable", Class: "infra", Message: "Flows unavailable"})
@@ -39,29 +41,50 @@ func (h *FlowsHandler) List(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(cards)
 }
 
+// Show resolves system names without putting them in the overridable list.
+func (h *FlowsHandler) Show(w http.ResponseWriter, r *http.Request) {
+	if h == nil || h.Queries == nil {
+		todoRouteError(w, &services.TodoControlError{Status: 503, Class: "infra", Code: "flows_unavailable", Message: "Flows unavailable"})
+		return
+	}
+	if _, err := services.Authorize(r.Context(), h.Queries, "flows.read"); err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	cards, err := h.catalog(r)
+	if err != nil {
+		todoRouteError(w, &services.TodoControlError{Status: 503, Class: "infra", Code: "flows_unavailable", Message: "Flows unavailable"})
+		return
+	}
+	name := chi.URLParam(r, "name")
+	var selected *services.FlowCard
+	for i := range cards {
+		if cards[i].Name == name {
+			selected = &cards[i]
+			break
+		}
+	}
+	if selected == nil && !services.Overridable(name) {
+		selected = &services.FlowCard{Name: name, System: true, Source: services.FlowSource{Builtin: true}, Versions: []services.FlowVersion{}}
+	}
+	if selected == nil {
+		todoRouteError(w, &services.TodoControlError{Status: 404, Class: "user", Code: "flow_not_found", Message: "No flow " + name})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(selected)
+}
+
 // catalog is the install repository's catalog (its loaded versions), or the
 // built-in catalog while setup has bound no repository.
 func (h *FlowsHandler) catalog(r *http.Request) ([]services.FlowCard, error) {
-	setting, err := h.Queries.GetInstallSetting(r.Context(), "github.repository")
-	if errors.Is(err, pgx.ErrNoRows) {
+	repositoryID, err := h.Queries.InstallRepositoryID(r.Context())
+	if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, db.ErrInstallRepositoryUnavailable) {
 		return services.FlowCatalog()
 	}
 	if err != nil {
 		return nil, err
 	}
-	var binding struct {
-		Owner string `json:"owner_login"`
-		Name  string `json:"repository_name"`
-	}
-	if err = json.Unmarshal(setting.Value, &binding); err != nil || binding.Owner == "" || binding.Name == "" {
-		return services.FlowCatalog()
-	}
-	repo, err := h.Queries.GetRepoByOwnerAndName(r.Context(), db.GetRepoByOwnerAndNameParams{Owner: binding.Owner, Name: binding.Name})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return services.FlowCatalog()
-	}
-	if err != nil {
-		return nil, err
-	}
-	return services.RepositoryFlowCatalog(r.Context(), h.Queries, repo.ID)
+	return services.RepositoryFlowCatalog(r.Context(), h.Queries, repositoryID, h.Proposals)
 }

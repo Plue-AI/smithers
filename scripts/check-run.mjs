@@ -3,7 +3,7 @@
 import { execFileSync } from 'node:child_process'
 import { lstatSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { expectedCommand, fullSha, gitRead, hashLog, unpackResults, validMapping, verifyCiRun, zeroTests } from './check-evidence.mjs'
+import { checkDeclaration, expectedCommand, fullSha, gitRead, hashLog, unpackResults, validMapping, verifyCiRun, zeroTests } from './check-evidence.mjs'
 
 const root = realpathSync(process.cwd())
 /** Writes one receipt and its log; never follows a pre-existing artifact symlink. */
@@ -27,14 +27,11 @@ try {
   if (!landed || !/^C-[A-Z][A-Z0-9]*-\d+$/.test(id ?? '')) throw new Error('expected one check ID with --landed <sha>')
   const commit = landed
   if (!fullSha(commit)) throw new Error('full commit SHA unavailable')
-  const doc = gitRead(root, ['show', `${landed}:.specs/engineering/checks/${id}.md`])
-  const declaration = /^Automation: `([^`\n]+)`(?:[^\n]*?) · Runs in: ([^\n]+)$/m.exec(doc)
-  if (!declaration || /to write|unwritten|unavailable/i.test(declaration[0])) throw new Error('absent, unwritten or unparsable Automation')
-  const layer = /\bLayer: ([a-z]+)\b/.exec(doc)?.[1]
+  const { automation, runsIn, layer } = checkDeclaration(root, landed, id)
   const mappings = JSON.parse(gitRead(root, ['show', `${landed}:scripts/check-commands.json`]))
   const mapping = mappings.version === 1 && mappings.checks[id]
   if (mapping && !mapping.status && !('target' in mapping)) throw new Error('argv mappings are not executable; map the check to a smthrs target')
-  if (!layer || !validMapping(mapping) || mapping.status || mapping.automation !== declaration[1] || mapping.runsIn !== declaration[2]) throw new Error('no reviewed executable mapping')
+  if (!layer || !validMapping(mapping) || mapping.status || mapping.automation !== automation || mapping.runsIn !== runsIn) throw new Error('no reviewed executable mapping')
   // CI already ran the label at `landed`: read its record, execute nothing (#3663).
   const repo = /github\.com[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?$/.exec(gitRead(root, ['config', '--get', 'remote.origin.url']))?.[1]
   const { proxied } = await import('./issue-claim.mjs')

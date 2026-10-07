@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/subscriptiontoken"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
@@ -91,8 +92,26 @@ func validCredentialName(name string) bool {
 	return len(name) >= 2 && len(name) <= 63 && credentialNamePattern.MatchString(name) && !strings.HasSuffix(name, "ORIGIN")
 }
 
-func (s OwnerModels) Catalog(w http.ResponseWriter, r *http.Request) {
+// Reads on an install describe the owner's model access for every member.
+func (s OwnerModels) readOwner(r *http.Request) (int64, error) {
 	owner := ownerOf(r)
+	if owner <= 0 {
+		return 0, nil
+	}
+	var installOwner int64
+	err := s.Pool.QueryRow(r.Context(), `SELECT user_id FROM self_host_owners WHERE singleton`).Scan(&installOwner)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return owner, nil
+	}
+	return installOwner, err
+}
+
+func (s OwnerModels) Catalog(w http.ResponseWriter, r *http.Request) {
+	owner, readErr := s.readOwner(r)
+	if readErr != nil {
+		modelJSON(w, http.StatusServiceUnavailable, map[string]string{"code": "storage_failed"})
+		return
+	}
 	if owner <= 0 {
 		modelJSON(w, http.StatusUnauthorized, map[string]string{"code": "sign_in_required"})
 		return
@@ -302,7 +321,8 @@ func (s OwnerModels) SetDefault(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if string(input.Model) == "null" {
-		_, err := s.Pool.Exec(r.Context(), `DELETE FROM owner_model_defaults WHERE user_id=$1`, owner)
+		_, err := s.Pool.Exec(r.Context(), `WITH cleared AS (DELETE FROM owner_model_defaults WHERE user_id=$1)
+ DELETE FROM install_settings s USING self_host_owners o WHERE o.user_id=$1 AND o.singleton AND s.key='agent:coding'`, owner)
 		if err != nil {
 			modelJSON(w, http.StatusServiceUnavailable, map[string]string{"code": "storage_failed"})
 			return
@@ -328,7 +348,17 @@ func (s OwnerModels) SetDefault(w http.ResponseWriter, r *http.Request) {
 		modelJSON(w, http.StatusBadRequest, map[string]string{"code": "request_invalid"})
 		return
 	}
-	_, err := s.Pool.Exec(r.Context(), `INSERT INTO owner_model_defaults(user_id,model) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET model=EXCLUDED.model`, owner, input.Model)
+	q := db.New(s.Pool)
+	installOwner, err := q.GetSelfHostOwner(r.Context())
+	if err == nil && installOwner.ID == owner {
+		if !ValidModelBinding(input.Model) {
+			modelJSON(w, http.StatusBadRequest, map[string]string{"code": "request_invalid"})
+			return
+		}
+		err = q.AssignInstallAgentModel(r.Context(), "coding", input.Model)
+	} else if err == nil || errors.Is(err, pgx.ErrNoRows) {
+		_, err = s.Pool.Exec(r.Context(), `INSERT INTO owner_model_defaults(user_id,model) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET model=EXCLUDED.model`, owner, input.Model)
+	}
 	if err != nil {
 		modelJSON(w, http.StatusServiceUnavailable, map[string]string{"code": "storage_failed"})
 		return
@@ -337,7 +367,11 @@ func (s OwnerModels) SetDefault(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s OwnerModels) Default(w http.ResponseWriter, r *http.Request) {
-	owner := ownerOf(r)
+	owner, readErr := s.readOwner(r)
+	if readErr != nil {
+		modelJSON(w, http.StatusServiceUnavailable, map[string]string{"code": "storage_failed"})
+		return
+	}
 	if owner <= 0 {
 		modelJSON(w, http.StatusUnauthorized, map[string]string{"code": "sign_in_required"})
 		return

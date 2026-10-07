@@ -6,15 +6,15 @@ export type EarlierArchiveProps = { model: { node: BranchTreeNodeCard & { kind: 
 export function EarlierArchive({ model, view, onView }: EarlierArchiveProps) {
   const selectArchive = (event: MouseEvent<HTMLButtonElement>) => onView({ selected_archive: event.currentTarget.dataset.archive })
   const selected = model.archives.find(archive => archive.id === view.selected_archive)
-  return <section className="mvp-earlier" aria-label="Earlier" data-keyboard-pane="Earlier">
+  return <section className="earlier" aria-label="Earlier" data-keyboard-pane="Earlier">
     <header>
     <span>Earlier · {model.node.archive_count}
     </span>
-    <span className="mvp-read-only">Read-only</span>
+    <span className="read-only">Read-only</span>
     </header>
     <nav aria-label="Archives">{model.archives.map(archive => <button key={archive.id} type="button" data-archive={archive.id} aria-current={archive.id === view.selected_archive ? "page" : undefined} onClick={selectArchive}>{archive.title}
     </button>)}
-    </nav>{selected ? <div className="mvp-archive-entries">{selected.entries}
+    </nav>{selected ? <div className="archive-entries">{selected.entries}
     </div> : null}
     </section>
 }

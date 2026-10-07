@@ -190,6 +190,22 @@ func (launcher *LocalLauncher) LaunchChatHost(ctx context.Context, grant ports.C
 	if err != nil {
 		return nil, err
 	}
+	if binding.Preflight != nil {
+		if binding.Preflight.Preflight != nil {
+			return nil, errors.New("nested preflight binding is invalid")
+		}
+		fastEnvironment, err := credentialEnvironment(*binding.Preflight)
+		if err != nil {
+			return nil, err
+		}
+		for key, value := range fastEnvironment {
+			if existing, ok := environment[key]; ok && existing != value {
+				return nil, errors.New("model credential bindings disagree")
+			}
+			environment[key] = value
+		}
+		environment["SMITHERS_CHAT_PREFLIGHT_MODEL"] = string(binding.Preflight.Model)
+	}
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		return nil, fmt.Errorf("create private model host token: %w", err)

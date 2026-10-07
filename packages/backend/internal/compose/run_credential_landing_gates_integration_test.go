@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -31,10 +32,14 @@ type gateTestRepoHost struct {
 	services.LandingRepoHostClient
 	commits map[string]string
 	factory string
+	calls   *atomic.Int64
 }
 
 // GetChange serves a change by its change id or its commit id.
 func (h gateTestRepoHost) GetChange(_ context.Context, _, _, selector string) (repohost.Change, error) {
+	if h.calls != nil {
+		h.calls.Add(1)
+	}
 	for changeID, commitID := range h.commits {
 		if selector == commitID {
 			return repohost.Change{ChangeID: changeID, CommitID: commitID, ParentChangeIDs: []string{}}, nil
@@ -87,14 +92,15 @@ func (h gateTestRepoHost) GetBookmark(ctx context.Context, owner, repo, name str
 // landingGateFixture is a repository with two people and one commit per
 // change, served through the assembled router.
 type landingGateFixture struct {
-	t      *testing.T
-	ctx    context.Context
-	q      *db.Queries
-	pool   *pgxpool.Pool
-	owner  db.User
-	other  db.User
-	repoID int64
-	router http.Handler
+	t         *testing.T
+	ctx       context.Context
+	q         *db.Queries
+	pool      *pgxpool.Pool
+	owner     db.User
+	other     db.User
+	repoID    int64
+	router    http.Handler
+	hostCalls *atomic.Int64
 }
 
 func newLandingGateFixture(t *testing.T, commits map[string]string) *landingGateFixture {
@@ -104,7 +110,7 @@ func newLandingGateFixture(t *testing.T, commits map[string]string) *landingGate
 
 // newLandingGateFixtureWithFactory serves factory as main's
 // .smithers/factory.json.
-func newLandingGateFixtureWithFactory(t *testing.T, commits map[string]string, factory string) *landingGateFixture {
+func newLandingGateFixtureWithFactory(t *testing.T, commits map[string]string, factory string, installFlags ...bool) *landingGateFixture {
 	t.Helper()
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx := context.Background()
@@ -122,14 +128,30 @@ func newLandingGateFixtureWithFactory(t *testing.T, commits map[string]string, f
 		_, err = q.RecordChangeRevision(ctx, db.RecordChangeRevisionParams{RepositoryID: repoID, ChangeID: changeID, CommitID: commitID, Source: "push", OperationIds: []string{}})
 		require.NoError(t, err)
 	}
+	install := len(installFlags) > 0 && installFlags[0]
+	cfg := testConfigAllFlagsOn()
+	calls := &atomic.Int64{}
+	var vcsClient *repohost.Client
+	if install {
+		cfg.Auth.Mode = "selfhost"
+		cfg.Auth.SessionCookieName = "session"
+		cfg.Server.PublicURL = "http://example.com"
+		cfg.Server.AllowedOrigins = []string{"http://example.com"}
+		_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, owner.ID)
+		require.NoError(t, err)
+		binding := fmt.Sprintf(`{"owner_login":"gate-owner","repository_name":"app","repository_id":%d}`, repoID)
+		require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(binding)}))
+		require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "owner.access", Value: []byte(binding[:len(binding)-1] + `,"last_access_check_at":"2026-10-06T12:00:00Z"}`)}))
+		vcsClient = repohost.NewLocalClientWithStagingEndpoint(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { calls.Add(1); w.WriteHeader(500) }), "fixture-token", "http://127.0.0.1:1", true)
+	}
 	router := buildRouter(
-		testConfigAllFlagsOn(), q, pool,
+		cfg, q, pool,
 		&routes.RepoHandler{Service: services.NewRepoService(q, nil, "")},
 		nil,
 		&routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{},
 		&routes.DeployKeyHandler{Service: services.NewDeployKeyService(q)},
 		&routes.LabelHandler{}, &routes.OrgHandler{},
-		&routes.LandingHandler{Service: services.NewLandingService(q, gateTestRepoHost{commits: commits, factory: factory})},
+		&routes.LandingHandler{Service: services.NewLandingService(q, gateTestRepoHost{commits: commits, factory: factory, calls: calls}, services.WithLandingInstallMainMirror(install))},
 		nil, nil,
 		&routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{},
 		nil,
@@ -139,7 +161,7 @@ func newLandingGateFixtureWithFactory(t *testing.T, commits map[string]string, f
 		&routes.ProtectedBookmarkHandler{Service: services.NewProtectedBookmarkService(q)},
 		&routes.CommitStatusHandler{Service: services.NewCommitStatusService(q)},
 		nil,
-		&routes.JJVCSHandler{RepoResolver: q},
+		&routes.JJVCSHandler{RepoResolver: q, RepoHost: vcsClient},
 		&routes.AgentInternalHandler{},
 		nil, nil,
 		&routes.ApprovalsHandler{Enabled: true},
@@ -149,7 +171,7 @@ func newLandingGateFixtureWithFactory(t *testing.T, commits map[string]string, f
 		&routes.RepositoryJobHandler{},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 	)
-	return &landingGateFixture{t: t, ctx: ctx, q: q, pool: pool, owner: owner, other: other, repoID: repoID, router: router}
+	return &landingGateFixture{t: t, ctx: ctx, q: q, pool: pool, owner: owner, other: other, repoID: repoID, router: router, hostCalls: calls}
 }
 
 func (f *landingGateFixture) landing(title string, authorID int64, changeID string) db.LandingRequest {
@@ -321,4 +343,55 @@ func TestRunCredentialCannotClearHumanLandingGatesPostgres(t *testing.T) {
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
 		assert.Equal(t, name != "person", created.AgentAuthored, "%s: agent_authored", name)
 	}
+}
+
+// Every install credential is refused before protected refs reach repo-host.
+func TestInstallProtectedBookmarkMutationMatrixPostgres(t *testing.T) {
+	f := newLandingGateFixtureWithFactory(t, map[string]string{"protected-change": "1111111111111111111111111111111111111111"}, "", true)
+	_, err := f.pool.Exec(f.ctx, `INSERT INTO protected_bookmarks(repository_id,pattern) VALUES($1,'release*')`, f.repoID)
+	require.NoError(t, err)
+	landing := f.landing("Protected", f.owner.ID, "protected-change")
+	_, err = f.pool.Exec(f.ctx, `UPDATE landing_requests SET target_bookmark='release-stable' WHERE id=$1`, landing.ID)
+	require.NoError(t, err)
+	tokens := map[string]string{
+		"delegated":  f.token(f.owner, "protected-codex", "write:repository,via:codex", true),
+		"legacy PAT": f.token(f.owner, "protected-pat", "write:repository", false),
+		"run":        f.token(f.owner, "protected-run", "write:repository", true),
+		"machine":    f.token(f.owner, "protected-machine", "write:repository,workspace:owned-box", true),
+	}
+	cookie := "protected-session"
+	sum := sha256.Sum256([]byte(cookie))
+	_, err = f.q.CreateAuthSession(f.ctx, db.CreateAuthSessionParams{UserID: f.owner.ID, Username: f.owner.Username, SessionKey: hex.EncodeToString(sum[:]), ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
+	tokens["session"] = ""
+	for kind, token := range tokens {
+		for _, operation := range []struct{ method, path, body string }{
+			{"POST", "/bookmarks", `{"name":"release-stable","target_change_id":"protected-change"}`},
+			{"DELETE", "/bookmarks/release-stable", `{}`},
+			{"PUT", fmt.Sprintf("/landings/%d/land", landing.Number), `{"commit_id":"1111111111111111111111111111111111111111"}`},
+			{"POST", fmt.Sprintf("/landings/%d/auto-land", landing.Number), `{"enabled":true}`},
+		} {
+			req := httptest.NewRequest(operation.method, "/api/repos/gate-owner/app"+operation.path, bytes.NewBufferString(operation.body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Origin", "http://example.com")
+			if kind == "session" {
+				req.AddCookie(&http.Cookie{Name: "session", Value: cookie})
+				req.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
+				req.Header.Set("X-CSRF-Token", "csrf")
+			} else {
+				req.Header.Set("Authorization", "Bearer "+token)
+			}
+			w := httptest.NewRecorder()
+			f.router.ServeHTTP(w, req)
+			require.Equal(t, 403, w.Code, "%s %s %s: %s", kind, operation.method, operation.path, w.Body.String())
+			var body map[string]any
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+			require.Equal(t, "permission", body["class"])
+			require.Equal(t, "permission", body["code"])
+			require.Zero(t, f.hostCalls.Load(), "refusal reached repo-host")
+		}
+	}
+	var queued int
+	require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM landing_tasks`).Scan(&queued))
+	require.Zero(t, queued)
 }

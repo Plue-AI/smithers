@@ -209,7 +209,7 @@ var workspaceMutationCases = []workspaceMutationCase{
 		return err
 	}},
 	{name: "write file", call: func(ctx context.Context, fx *authorityFixture, svc *WorkspaceService, userID int64) error {
-		_, err := svc.WriteWorkspaceFile(ctx, fx.workspaceID, fx.repoID, userID, "notes.txt", "hi")
+		_, err := svc.WriteWorkspaceFile(ctx, fx.workspaceID, fx.repoID, userID, "notes.txt", "hi", "absent")
 		return err
 	}},
 	{name: "open terminal", call: func(ctx context.Context, fx *authorityFixture, svc *WorkspaceService, userID int64) error {

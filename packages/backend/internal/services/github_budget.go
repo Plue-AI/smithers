@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
 // GitHubInstallationHourlyBudget is GitHub's documented per-installation
@@ -22,16 +24,17 @@ const GitHubInstallationHourlyBudget = 5000
 // install constructor selects response-header accounting; the hosted
 // constructor retains its existing per-installation rolling token bucket.
 type BudgetTracker struct {
-	mu                 sync.Mutex
-	buckets            map[int64]*budgetEntry
-	capacity           int
-	window             time.Duration
-	now                func() time.Time
-	headers            bool
-	resources          map[string]GitHubRateLimit
-	pauses             map[string]time.Time
-	streamResources    map[string]string
-	tokenInstallations map[[32]byte]int64
+	mu              sync.Mutex
+	buckets         map[int64]*budgetEntry
+	capacity        int
+	window          time.Duration
+	now             func() time.Time
+	headers         bool
+	resources       map[string]GitHubRateLimit
+	pauses          map[string]time.Time
+	streamResources map[string]string
+	tokenPrincipals map[[32]byte]gitHubTokenPrincipal
+	userRefused     func()
 }
 
 type budgetEntry struct {
@@ -213,6 +216,22 @@ func GitHubRetryAt(header http.Header, now time.Time) time.Time {
 	return now.Add(time.Second)
 }
 
+// GitHubRateLimitError classifies both primary and secondary refusals. It
+// consumes only response status/headers, never GitHub's untrusted error body.
+// Non-rate-limit statuses remain available to callers (for example a missing
+// optional object is still a 404, rather than a failed request).
+func GitHubRateLimitError(status int, header http.Header, now time.Time) *pkgerrors.APIError {
+	if status != http.StatusTooManyRequests && (status != http.StatusForbidden ||
+		(strings.TrimSpace(header.Get("Retry-After")) == "" && strings.TrimSpace(header.Get("X-RateLimit-Remaining")) != "0")) {
+		return nil
+	}
+	retryAt := GitHubRetryAt(header, now).UTC()
+	err := pkgerrors.New(pkgerrors.CodeGitHubRateLimited, "GitHub rate limit reached")
+	err.RetryAt = &retryAt
+	err.RetryAfter = int(math.Ceil(retryAt.Sub(now).Seconds()))
+	return err
+}
+
 // GitHubRateLimitHeaders returns only complete, valid primary-limit receipts.
 // An incomplete receipt must never invent remaining capacity.
 func GitHubRateLimitHeaders(header http.Header) (string, GitHubRateLimit, bool) {
@@ -232,23 +251,69 @@ func GitHubRateLimitHeaders(header http.Header) (string, GitHubRateLimit, bool) 
 // NewGitHubResponseBudgetTracker selects upstream accounting for the install.
 // Hosted deployments retain their existing token bucket; install calls have no
 // hourly request-count cap and no linear refill between GitHub resets.
-func NewGitHubResponseBudgetTracker() *BudgetTracker {
+func NewGitHubResponseBudgetTracker(clock ...func() time.Time) *BudgetTracker {
 	t := NewBudgetTracker()
+	if len(clock) > 0 && clock[0] != nil {
+		t.now = clock[0]
+	}
 	t.headers = true
 	t.resources = make(map[string]GitHubRateLimit)
 	t.pauses = make(map[string]time.Time)
 	t.streamResources = make(map[string]string)
-	t.tokenInstallations = make(map[[32]byte]int64)
+	t.tokenPrincipals = make(map[[32]byte]gitHubTokenPrincipal)
 	return t
 }
 
-func (t *BudgetTracker) registerToken(token string, installationID int64) {
+type gitHubTokenPrincipal struct {
+	key     string
+	expires time.Time
+	user    bool
+}
+
+func (t *BudgetTracker) registerToken(token string, installationID int64, expires time.Time) {
+	t.registerCredential(token, fmt.Sprintf("installation:%d", installationID), expires)
+}
+
+// Called only by the credential source after signing with its loaded App key.
+// Incoming JWT claims never supply trusted accounting identity.
+func (t *BudgetTracker) registerAppToken(token string, appID int64, expires time.Time) {
+	t.registerCredential(token, fmt.Sprintf("app:%d", appID), expires)
+}
+
+func (t *BudgetTracker) registerCredential(token, principal string, expires time.Time) {
+	t.registerTypedCredential(token, principal, expires, false)
+}
+
+// User classification is supplied by AuthService after resolving a stored
+// GitHub account. It is only a recheck hint, never an authorization grant or a
+// permission cache. Retain the existing per-credential accounting identity.
+func (t *BudgetTracker) registerUserCredential(token string) {
+	if t == nil || !t.headers || token == "" {
+		return
+	}
+	digest := sha256.Sum256([]byte("Bearer " + token))
+	t.registerTypedCredential(token, fmt.Sprintf("credential:%x", digest), t.now().Add(time.Hour), true)
+}
+
+func (t *BudgetTracker) registerTypedCredential(token, principal string, expires time.Time, user bool) {
 	if t == nil || !t.headers {
 		return
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.tokenInstallations[sha256.Sum256([]byte("Bearer "+token))] = installationID
+	now := t.now()
+	for digest, known := range t.tokenPrincipals {
+		if !known.expires.After(now) {
+			delete(t.tokenPrincipals, digest)
+		}
+	}
+	if token != "" && expires.After(now) {
+		digest := sha256.Sum256([]byte("Bearer " + token))
+		if existing, ok := t.tokenPrincipals[digest]; user && ok && !existing.user {
+			return // A known App/installation credential is not a user token.
+		}
+		t.tokenPrincipals[digest] = gitHubTokenPrincipal{key: principal, expires: expires, user: user}
+	}
 }
 
 // StreamCadence changes only the low-priority streams, until the resource reset.
@@ -271,6 +336,29 @@ func (t *BudgetTracker) StreamCadence(installationID int64, stream string, base 
 		return 2 * base
 	}
 	return base
+}
+
+// StreamRetryAt exposes shared admission to the existing pollers, so a paused
+// stream does not attempt even token minting. Expired receipts do not pause it.
+func (t *BudgetTracker) StreamRetryAt(installationID int64, stream string) time.Time {
+	if t == nil || !t.headers {
+		return time.Time{}
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	key := fmt.Sprintf("installation:%d", installationID)
+	resource := t.streamResources[key+"/"+stream]
+	if resource == "" {
+		resource = "core"
+	}
+	retryAt := t.pauses[key+"/"+stream]
+	if receipt, ok := t.resources[key+"/"+resource]; ok && receipt.Remaining == 0 && receipt.ResetAt.After(retryAt) {
+		retryAt = receipt.ResetAt
+	}
+	if !retryAt.After(t.now()) {
+		return time.Time{}
+	}
+	return retryAt
 }
 
 // WrapClient shares admission/accounting across existing callers without
@@ -299,8 +387,14 @@ func (b *gitHubBudgetTransport) RoundTrip(req *http.Request) (*http.Response, er
 	stream := gitHubBudgetStream(req.URL.Path)
 	t.mu.Lock()
 	principal := fmt.Sprintf("credential:%x", digest)
-	if id, ok := t.tokenInstallations[digest]; ok {
-		principal = fmt.Sprintf("installation:%d", id)
+	userCredential := false
+	if known, ok := t.tokenPrincipals[digest]; ok {
+		if known.expires.After(t.now()) {
+			principal = known.key
+			userCredential = known.user
+		} else {
+			delete(t.tokenPrincipals, digest)
+		}
 	}
 	// Token minting is accounted before the token exists, using its installation.
 	parts := strings.Split(strings.Trim(req.URL.Path, "/"), "/")
@@ -348,7 +442,13 @@ func (b *gitHubBudgetTransport) RoundTrip(req *http.Request) (*http.Response, er
 	t.mu.Unlock()
 	resp, err := b.base.RoundTrip(req)
 	t.mu.Lock()
-	defer t.mu.Unlock()
+	var recheck func()
+	defer func() {
+		t.mu.Unlock()
+		if recheck != nil {
+			recheck() // Only queues work; runs outside the budget lock.
+		}
+	}()
 	if err != nil {
 		return nil, err
 	} // conservative reservation; no invented refund
@@ -389,6 +489,9 @@ func (b *gitHubBudgetTransport) RoundTrip(req *http.Request) (*http.Response, er
 			t.pauses[streamKey] = at
 		}
 	}
+	if userCredential && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) && GitHubRateLimitError(resp.StatusCode, resp.Header, t.now()) == nil {
+		recheck = t.userRefused
+	}
 	return resp, nil
 }
 
@@ -399,7 +502,7 @@ func gitHubBudgetStream(path string) string {
 		switch {
 		case suffix == "issues/events":
 			return "issue-events"
-		case suffix == "issues/comments":
+		case suffix == "issues/comments" || len(parts) == 6 && parts[3] == "issues" && parts[5] == "comments":
 			return "conversation-comments"
 		case suffix == "pulls/comments":
 			return "review-comments"
@@ -407,6 +510,8 @@ func gitHubBudgetStream(path string) string {
 			return "permissions"
 		case parts[3] == "issues":
 			return "issues"
+		case len(parts) == 6 && parts[3] == "pulls" && (parts[5] == "reviews" || parts[5] == "comments"):
+			return "reviews"
 		case parts[3] == "pulls":
 			return "pulls"
 		case parts[3] == "commits":

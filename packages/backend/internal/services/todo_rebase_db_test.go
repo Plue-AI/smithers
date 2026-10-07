@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -231,4 +232,106 @@ func TestTodoRebaseWhenMainMoves(t *testing.T) {
 	assert.Equal(t, "outside", f.git(f.github, "show", head2+":OUTSIDE.md"))
 	assert.Equal(t, []string{"Rebased onto T1"}, f.rebasedActivity(t2))
 	assert.Nil(t, f.card(second.Number.Int64)["approval_cleared"], "T2 had no approval to clear")
+}
+
+// A moved prefix waits across polls while a person is editing, or the roster
+// cannot prove who is present. Departure permits exactly one verification.
+func TestTodoRebaseWaitsForPresence(t *testing.T) {
+	f := newRebaseFixture(t)
+	first := f.candidate("First", f.main, "FIRST.md", "first\n")
+	second := f.candidate("Second", f.main, "SECOND.md", "second\n")
+	presence := RebasePresenceUnknown
+	f.service.SetRebasePresence(func(ctx context.Context, repository int64, workspace string) (RebasePresence, error) {
+		require.Equal(t, f.repoID, repository)
+		require.Equal(t, second.WorkspaceID, workspace)
+		return presence, nil
+	})
+	for _, state := range []RebasePresence{RebasePresenceUnknown, RebasePresencePeople, RebasePresencePeople} {
+		presence = state
+		f.wake()
+		held := f.item(second.Number.Int64)
+		require.Equal(t, second.CandidateHead, held.CandidateHead)
+		require.Equal(t, second.Generation, held.Generation)
+		require.Equal(t, "rebase_pending", held.Reason)
+		require.Equal(t, map[string]any{"onto": "T1"}, f.card(second.Number.Int64)["rebase_pending"])
+		require.Zero(t, f.verifies(held))
+		require.Empty(t, f.rebasedActivity(held))
+	}
+	presence = RebasePresenceAgent
+	f.wake()
+	rebased := f.item(second.Number.Int64)
+	require.Equal(t, first.CandidateHead, rebased.CandidateBase)
+	require.NotEqual(t, second.CandidateHead, rebased.CandidateHead)
+	require.Equal(t, "verifying", rebased.State)
+	require.Equal(t, 1, f.verifies(rebased))
+	f.wake()
+	require.Equal(t, 1, f.verifies(rebased))
+}
+
+// A commit-only move of main still changes the candidate's ancestry contract.
+// Equal trees cannot reuse the old generation, checks or merge approval.
+func TestTodoRebaseEqualTreeNewBaseRequiresFreshVerification(t *testing.T) {
+	f := newRebaseFixture(t)
+	first := f.candidate("Greet", f.main, "JOURNEY.md", "Hello\n")
+	f.wake()
+	old := f.item(first.Number.Int64)
+	require.Equal(t, "proposed", old.State, old.Reason)
+	checks := mythicalChecksOf(old)
+	checks.Land = &mythicalLand{By: "smithers-canary", Account: f.userID, Generation: old.Generation, Session: "owner-session", Head: old.PRHead}
+	old.Checks = checks.encode()
+	old.WorkspaceID = ""
+	old.Lane = pgtype.Int4{}
+	_, err := db.New(f.pool).SaveMythicalItem(context.Background(), old)
+	require.NoError(t, err)
+	f.service.SetOrchestration(f.service.github, f.launcher, &fakeMythicalLanes{})
+	f.git(f.work, "checkout", "-q", "main")
+	f.git(f.work, "commit", "-q", "--allow-empty", "-m", "main metadata changes")
+	moved := f.publish()
+	require.NotEqual(t, f.main, moved)
+	require.Equal(t, f.hostTree(f.main), f.hostTree(moved))
+	for range 4 {
+		f.wake()
+		if f.item(first.Number.Int64).State == "verifying" {
+			break
+		}
+	}
+	next := f.item(first.Number.Int64)
+	require.Equal(t, "verifying", next.State, next.Reason)
+	require.Equal(t, moved, next.CandidateBase)
+	require.Equal(t, old.Generation+1, next.Generation)
+	require.NotEqual(t, old.CandidateHead, next.CandidateHead)
+	require.Equal(t, f.hostTree(old.CandidateHead), f.hostTree(next.CandidateHead))
+	require.False(t, next.CandidateVerified)
+	require.Nil(t, mythicalChecksOf(next).Land)
+	require.Equal(t, 1, f.verifies(next))
+	require.Equal(t, old.PRHead, f.githubRef(mythicalChecksOf(old).Branch), "retain the last verified publication while new checks run")
+	f.verify(next)
+	f.wake()
+	published := f.item(first.Number.Int64)
+	require.Equal(t, "proposed", published.State, published.Reason)
+	require.True(t, published.CandidateVerified)
+	require.Equal(t, next.Generation, published.Generation)
+	require.Equal(t, 1, f.verifies(published))
+	require.Equal(t, moved, f.git(f.github, "rev-parse", published.PRHead+"^"))
+	require.Equal(t, f.hostTree(published.CandidateHead), f.git(f.github, "rev-parse", published.PRHead+"^{tree}"))
+	require.Equal(t, "Hello", f.git(f.github, "show", published.PRHead+":JOURNEY.md"))
+	// A retired review's checkpoint must not attach to the new review just
+	// because both measure this generation. Production checkpoints carry
+	// the dispatcher's existing machine/workspace target.
+	review := mythicalChecksOf(published).Review
+	require.NotNil(t, review)
+	request := f.launcher.last(mythicalReviewFlow)
+	require.Contains(t, request.RequestID, ":lane:"+review.Lane)
+	var projected mythicalProjection
+	require.NoError(t, json.Unmarshal(request.Projection, &projected))
+	require.Equal(t, published.Generation, projected.Generation)
+	staleTarget := request.Target
+	staleTarget.WorkspaceID = "retired-review-lane"
+	output := "approve"
+	require.NoError(t, f.service.ProjectFlowRuntime(context.Background(), flowdispatch.ProjectionUpdate{
+		State: jobs.StateCompleted,
+		Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: request.Projection, Target: staleTarget, RunID: "stale-review",
+			Run: &flowruntime.FlowRuntimeRun{RunID: "stale-review", FinalOutput: &output}},
+	}))
+	require.Equal(t, review, mythicalChecksOf(f.item(first.Number.Int64)).Review)
 }

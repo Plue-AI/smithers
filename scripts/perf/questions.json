@@ -1,0 +1,22 @@
+[
+  "What does README.md say this repository does? Show the file.",
+  "How does README.md say to run this project? Show the file.",
+  "What installation steps are documented in README.md? Show the file.",
+  "What test command is documented in README.md? Show the file.",
+  "What configuration is documented in README.md? Show the file.",
+  "What license does this repository use? Show its license file.",
+  "Where is the application's entry point? Show the file.",
+  "Where are dependencies declared? Show the file.",
+  "Which file configures the build? Show the file.",
+  "Which file configures the tests? Show the file.",
+  "Where is the first unit test? Show the file.",
+  "Where is an HTTP route defined? Show the file.",
+  "Where is an application type defined? Show the file.",
+  "Where is an error handled? Show the file.",
+  "Where is a configuration value read? Show the file.",
+  "What does the wiki say about getting started? Show the wiki page.",
+  "What does the wiki say about the architecture? Show the wiki page.",
+  "What does the wiki say about testing? Show the wiki page.",
+  "What does the wiki say about configuration? Show the wiki page.",
+  "What does the wiki say about contributing? Show the wiki page."
+]

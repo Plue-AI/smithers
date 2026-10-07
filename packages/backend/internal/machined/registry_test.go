@@ -159,3 +159,54 @@ func TestRegistryConcurrentReplacement(t *testing.T) {
 		}
 	}
 }
+
+func TestPresenceScopeRequiresAdmittedConnection(t *testing.T) {
+	var missing *Connection
+	expectError(t, missing.RequireReady("branch"), ErrUnauthorized)
+	_, err := new(Connection).PresenceScope("branch")
+	expectError(t, err, ErrUnauthorized)
+	var registry Registry
+	id := [16]byte{1}
+	expectError(t, registry.BindBoot("branch", "machine", id, []byte("secret")), nil)
+	connection, err := registry.Admit(id, []byte("secret"), new(testStream))
+	expectError(t, err, nil)
+	_, err = connection.PresenceScope("branch")
+	expectError(t, err, ErrNotReady)
+	expectError(t, connection.Reconciled(), nil)
+	scope, err := connection.PresenceScope("branch")
+	expectError(t, err, nil)
+	if scope != "01000000000000000000000000000000" {
+		t.Fatalf("boot scope = %q", scope)
+	}
+	_, err = connection.PresenceScope("other")
+	expectError(t, err, ErrUnauthorized)
+	expectError(t, connection.Close(), nil)
+	_, err = connection.PresenceScope("branch")
+	expectError(t, err, ErrUnauthorized)
+}
+
+func TestRegistryShutdownFencesBoots(t *testing.T) {
+	var r Registry
+	authority, err := r.MintBoot("branch", "machine")
+	expectError(t, err, nil)
+	stream := new(testStream)
+	connection, err := r.Admit(authority.ID, []byte(authority.Credential), stream)
+	expectError(t, err, nil)
+	expectError(t, connection.Reconciled(), nil)
+	expectError(t, r.Close(), nil)
+	expectError(t, connection.RequireReady("branch"), ErrUnauthorized)
+	expectError(t, connection.Reconciled(), ErrUnauthorized)
+	expectError(t, connection.Close(), nil)
+	expectError(t, r.Close(), nil)
+	if stream.closed.Load() != 1 {
+		t.Fatal("shutdown must close each transport exactly once")
+	}
+	_, err = r.MintBoot("branch", "machine")
+	expectError(t, err, ErrNotReady)
+	bad := new(testStream)
+	_, err = r.Admit(authority.ID, []byte(authority.Credential), bad)
+	expectError(t, err, ErrUnauthorized)
+	if bad.closed.Load() != 1 {
+		t.Fatal("closed registry leaked newcomer")
+	}
+}

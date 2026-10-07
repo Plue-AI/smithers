@@ -3,7 +3,6 @@ import { owner, say } from "./j1-fixtures"
 
 // Written before implementation: mvp.md Appendix A, M-35; lands with T-APP-20
 test("A-DOCS: /docs opens Quickstart", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md Appendix A, M-35; lands with T-APP-20")
   await owner(page)
   await page.goto("/")
   await say(page, "/docs")

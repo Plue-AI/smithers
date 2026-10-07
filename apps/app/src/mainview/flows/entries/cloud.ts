@@ -22,8 +22,8 @@ export const cloudFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
     name: "cloud.sign-in", hidden: true, discloseToAgent: false,
     summary: "Sign in to Smithers Cloud",
     runtime: ["cloud", "cloud.pat"],
-    userOnly: true,
-    userOnlyReason:
+    agent: "never" as const,
+    agentReason:
       "the Smithers Cloud browser login is the human's gesture on their account; the agent renders the step with cloud.prompt",
     input: NoPayload,
     handler: () => actions.signInCloud()
@@ -45,8 +45,8 @@ export const cloudFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
     name: "cloud.sign-out", hidden: true, discloseToAgent: false,
     summary: "Sign out of Smithers Cloud",
     runtime: ["cloud", "cloud.pat"],
-    userOnly: true,
-    userOnlyReason: "dropping the human's Smithers Cloud credential is theirs alone",
+    agent: "never" as const,
+    agentReason: "dropping the human's Smithers Cloud credential is theirs alone",
     input: NoPayload,
     handler: () => actions.signOutCloud()
   })

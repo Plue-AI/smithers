@@ -1,4 +1,4 @@
-import { TURN_PATH } from "@smthrs/rpc/AgentApiRoutes"
+const TURN_PATH = '/api/agent/turn'
 import type { CloudKeychain } from "../CloudAuth"
 
 /*

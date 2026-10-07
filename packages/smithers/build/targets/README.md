@@ -261,6 +261,10 @@ takes no `runtimeArgs`: those are flags for the JavaScript runtime a built
 binary is not, and a declaration that passes them is refused rather than run
 with a different argv.
 
+`Shell.Build({ cache: false, ... })` always executes instead of replaying a
+stored result. Use it when external toolchains or dependencies lack complete
+content identities, such as a release bundle assembler.
+
 ## Contributing to the documentation
 
 The pages in `docs/reference/` feed the main site's

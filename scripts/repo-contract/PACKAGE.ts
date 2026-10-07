@@ -11,6 +11,7 @@
  * `node`.
  */
 import { Smithers } from "@smthrs/targets"
+import { Package as scriptPackage } from "../PACKAGE.ts"
 import { Package as sitePackage } from "../../apps/site/PACKAGE.ts"
 
 /** Every gate in this directory, digested as the input of each target. */
@@ -80,13 +81,11 @@ const testScriptWiring = Smithers.NodeTest({
     Smithers.file("//PACKAGE.ts"),
     Smithers.file("//scripts/PACKAGE.ts"),
     Smithers.file("//scripts/repo-contract/PACKAGE.ts"),
-    Smithers.glob("//scripts/**/*.test.mjs"),
-    Smithers.glob("//factory/**/*.test.ts"),
     Smithers.file("//.github/workflows/ci.yml"),
     Smithers.file("//package.json"),
     Smithers.file("//pnpm-workspace.yaml")
   ],
-  deps: []
+  deps: [scriptPackage.repositoryInputs]
 })
 
 /**
@@ -126,23 +125,11 @@ const reliabilityWorkflow = Smithers.NodeTest({
   deps: []
 })
 
-/**
- * A release version bump retags every distribution image declaration.
- *
- * @since 1.0.0
- * @category test
- */
-const distributionImageTag = Smithers.NodeTest({
-  runner: Smithers.testRunner([Smithers.file("//scripts/repo-contract/distribution-image-tag.test.mjs")]),
-  srcs: [
-    sources,
-    Smithers.file("//scripts/set-release-version.mjs"),
-    Smithers.file("//scripts/workspace-packages.mjs"),
-    Smithers.file("//packages/smithers/package.json"),
-    Smithers.file("//distribution/README.md"),
-    Smithers.file("//distribution/Dockerfile")
-  ],
-  deps: []
+/** Mac distribution deletion and lifecycle handoff contract. */
+const macDistribution = Smithers.NodeTest({
+  runner: Smithers.testRunner([Smithers.file("//scripts/repo-contract/mac-distribution.test.mjs")]),
+  srcs: [sources, ],
+  deps: [scriptPackage.repositoryInputs]
 })
 
 /**
@@ -351,5 +338,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { barrels, cliVerbs, distributionImageTag, egressHttpClient, faultSkips, machinePaths, packageContract, scratchArtifacts, smithersLinks, testScriptWiring, uiCiTier, reliabilityWorkflow, ciInventory, publicExportMaps, ...securityReview }
+  targets: { barrels, cliVerbs, macDistribution, egressHttpClient, faultSkips, machinePaths, packageContract, scratchArtifacts, smithersLinks, testScriptWiring, uiCiTier, reliabilityWorkflow, ciInventory, publicExportMaps, ...securityReview }
 })

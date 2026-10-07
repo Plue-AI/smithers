@@ -19,7 +19,7 @@ export interface AgentJournalPort {
 
 /**
  * The agent contract every host implements: the HTTP agent against the app
- * origin (native/WebAgent.ts) and the unavailable adapter a runtime without
+ * origin (native/ConversationHistory.ts) and the unavailable adapter a runtime without
  * an agent capability binds. It is host-neutral, so it lives beside the
  * runtime composition rather than in the Electrobun bridge.
  */

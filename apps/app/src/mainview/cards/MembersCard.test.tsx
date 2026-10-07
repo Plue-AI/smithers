@@ -148,14 +148,14 @@ test("disposed mutation cannot publish or reread", async () => {
 test("a refused Add shows why in the add row: needs access links to GitHub, other refusals are text, and no row appears", async () => {
   for (const [error, expected] of [
     [{ class: "user", code: "needs_github_access", message: "Needs access on GitHub", fix: "https://github.com/smithersai/smithers/settings/access" },
-      '<a class="mvp-access" href="https://github.com/smithersai/smithers/settings/access" target="_blank" rel="noreferrer">needs access on GitHub<svg'],
-    [{ class: "user", code: "unknown_github_user", message: "Unknown GitHub user" }, '<span class="mvp-member-reason">Unknown GitHub user</span>']
+      '<a class="member-access" href="https://github.com/smithersai/smithers/settings/access" target="_blank" rel="noreferrer">needs access on GitHub<svg'],
+    [{ class: "user", code: "unknown_github_user", message: "Unknown GitHub user" }, '<span class="member-reason">Unknown GitHub user</span>']
   ] as const) {
     const seam = createMembersSeam({ ready: true, http: async (_url, init) => Response.json(init?.method ? error : model, { status: init?.method ? 403 : 200 }),
       live: { subscribe: () => () => {}, getSnapshot: () => undefined } })
     await seam.read()
     await seam.mutate("members.add", { login: "carol", role: "member" })
-    const addRow = () => renderToStaticMarkup(<MembersCard roster={seam.snapshots} role="owner" dispatch={() => {}} view={{ maximized: false }} onView={() => {}} />).split('class="mvp-add-row"')[1]
+    const addRow = () => renderToStaticMarkup(<MembersCard roster={seam.snapshots} role="owner" dispatch={() => {}} view={{ maximized: false }} onView={() => {}} />).split('class="members-add-row"')[1]
     expect(addRow()).toContain(expected)
     expect(addRow()).not.toContain("carol")
     // A later committed read clears the refusal.
@@ -190,4 +190,15 @@ test("the registry renders the controller's roster: nothing before it reads, its
   const markup = render()
   for (const login of ["will", "ben", "sam", "lee"]) expect(markup).toContain(login)
   expect(submitted).toEqual([])
+})
+
+test("a failed roster read keeps committed rows and offers the shared members Retry flow", () => {
+  const calls: unknown[] = []
+  const html = renderToStaticMarkup(<MembersCard roster={{ get: () => ({ model, error: { class: "infra", code: "unavailable", message: "Members unavailable" } }), subscribe: () => () => {} }}
+    role="owner" dispatch={(tag, input) => { calls.push([tag, input]) }} view={{ maximized: false }} onView={() => {}} />)
+  expect(html).toContain('data-error-class="infra"')
+  expect(html).toContain("Not your fault")
+  expect(html).toContain('data-flow="members">Retry</button>')
+  expect(html).toContain('@ben')
+  expect(calls).toEqual([])
 })

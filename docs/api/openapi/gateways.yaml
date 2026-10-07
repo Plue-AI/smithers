@@ -1,4 +1,113 @@
 paths:
+  /api/gateways/{hostID}/file-write-grants:
+    x-composition: install
+    post:
+      x-composition: install
+      summary: Issue an exact-batch coding file credential
+      operationId: post_api_gateways_host_file_write_grants
+      tags:
+        - Gateways
+      description: Private S1 coding-host callback. The bearer is the live host control credential, never a browser session or a repository token. The host asserts the run identity. The returned credential expires after two minutes and admits only the exact SHA-256-bound PUT body at the bound workspace file-content route. Guest qualification remains independently required.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: hostID
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [run_id, batch_digest]
+              properties:
+                run_id:
+                  type: string
+                  pattern: '^[A-Za-z0-9._:-]{1,256}$'
+                batch_digest:
+                  type: string
+                  pattern: '^[0-9a-f]{64}$'
+      responses:
+        '201':
+          description: Ephemeral credential; response is never cached.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [token_id, token, run_id, workspace_id, repository_slug, expires_at, batch_digest]
+                properties:
+                  token_id:
+                    type: integer
+                    format: int64
+                    minimum: 1
+                  token:
+                    type: string
+                  run_id:
+                    type: string
+                  workspace_id:
+                    type: string
+                    format: uuid
+                  repository_slug:
+                    type: string
+                  expires_at:
+                    type: integer
+                    format: int64
+                    description: Expiration in Unix milliseconds.
+                  batch_digest:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '409':
+          description: Coding workspace is no longer running.
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          description: Credential issuer unavailable.
+  /api/gateways/{hostID}/file-write-grants/{tokenID}:
+    x-composition: install
+    delete:
+      x-composition: install
+      summary: Revoke a coding file credential
+      operationId: delete_api_gateways_host_file_write_grants_token
+      tags:
+        - Gateways
+      description: Private idempotent cleanup authenticated by the grant's own bearer. It cannot remove another token. Cleanup remains available after host rotation or stop, and waits for any admitted file batch to settle.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: hostID
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: tokenID
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        '204':
+          description: Matching credential revoked or already absent.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          description: Credential issuer unavailable.
   /api/gateways/{hostID}/repository-jobs/ci/check-receipts/{requestID}:
     put:
       x-composition: plue
@@ -34,8 +143,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -79,8 +187,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -178,8 +285,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -228,8 +334,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':

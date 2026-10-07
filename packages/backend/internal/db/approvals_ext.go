@@ -11,7 +11,7 @@ UPDATE approvals
 SET state = 'expired',
     decided_at = NOW(),
     decided_by = NULL
-WHERE id = $1
+WHERE member_id IS NULL AND id = $1
   AND repository_id = $2
   AND state = 'pending'
   AND expires_at < $3

@@ -22,18 +22,18 @@ export const paletteFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
   flow({
     name: "palette.open",
     summary: "Open the search palette (Cmd+K); a prefix opens it in that mode",
-    userOnly: true,
-    userOnlyReason: PALETTE_OPEN_REASON,
+    agent: "never" as const,
+    agentReason: PALETTE_OPEN_REASON,
     args: "[prefix]",
     input: Schema.Struct({ prefix: Schema.optional(Schema.String) }),
     handler: ({ prefix }) => actions.openPalette(prefix)
   }),
   flow({
-    name: "palette.actions",
+    name: "palette.actions", visibility: "in-card",
     summary: "Open the actions panel for a palette item",
     hidden: true,
-    userOnly: true,
-    userOnlyReason: PALETTE_ACTIONS_REASON,
+    agent: "never" as const,
+    agentReason: PALETTE_ACTIONS_REASON,
     args: "<ref>",
     input: Schema.Struct({ ref: Schema.String }),
     handler: ({ ref }) => actions.togglePaletteActions(ref)

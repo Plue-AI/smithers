@@ -75,6 +75,8 @@ func (s *GitHubUserReposService) ListAuthenticatedUserGitHubIssueComments(
 	if err != nil && isGitHubTokenExpired(err) {
 		if newToken, refreshErr := s.refreshUserGitHubToken(ctx, account); refreshErr == nil {
 			result, err = s.requestGitHubIssueComments(ctx, newToken, normalizedOwner, normalizedRepo, number, query)
+		} else {
+			err = refreshErr
 		}
 	}
 	if err != nil {

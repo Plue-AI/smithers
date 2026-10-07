@@ -128,7 +128,7 @@ test("an install refuses a Member draft from outsider text before writing any Dr
   try {
     await controller.runCommandForResult("issue", "#2")
     expect(await controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toEqual({ status: "failed", error: "Only a maintainer can make a TODO from this issue." })
-    const agent = await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "todo.from-issue", args: `2 ${REPO}` }) })
+    const agent = await controller.commands.runAsAgent("todo.from-issue", `2 ${REPO}`).then(outcome => JSON.stringify(outcome))
     expect(agent).toContain("Only a maintainer")
     expect([...store.collections.cards.values()].filter(card => card.kind === "confirm")).toHaveLength(0)
     expect([...store.collections.cards.values()].filter(card => card.kind === "draft")).toHaveLength(0)
@@ -143,7 +143,7 @@ test("a server demotion after reading refuses confirmation and Draft without any
   const issue = cardOf(store.collections.cards.values(), `issue-github-${REPO}-2`, "issue")
   expect(issue.payload.makeTodoAllowed).toBe(true)
   setAllowed(false)
-  const agent = await controller.commands.executeForAgent({name:"commands",arguments:JSON.stringify({action:"execute",name:"todo.from-issue",args:`2 ${REPO}`})})
+  const agent = await controller.commands.runAsAgent("todo.from-issue", `2 ${REPO}`).then(outcome => JSON.stringify(outcome))
   expect(agent).not.toContain("asked the user to confirm")
   expect(agent).toContain("Only a maintainer")
   expect(await controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toMatchObject({status:"failed"})
@@ -170,9 +170,7 @@ for (const loss of ["disconnect", "gap", "other-topic gap"] as const) test(`live
     if (loss === "disconnect") socket.onclose?.()
     else socket.onmessage?.({ data: JSON.stringify({ t: "gap", id: loss === "gap" ? 1 : 2 }) })
     setAllowed(false) // Demotion elsewhere cannot deliver a roster notification.
-    const agent = await controller.commands.executeForAgent({
-      name: "commands", arguments: JSON.stringify({ action: "execute", name: "todo.from-issue", args: `2 ${REPO}` })
-    })
+    const agent = await controller.commands.runAsAgent("todo.from-issue", `2 ${REPO}`).then(outcome => JSON.stringify(outcome))
     expect(agent).not.toContain("asked the user to confirm")
     expect(await controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toMatchObject({ status: "failed" })
     expect([...store.collections.cards.values()].some(card => card.kind === "draft" || card.kind === "confirm")).toBe(false)
@@ -194,7 +192,7 @@ for (const command of ["todo.from-issue", "issue.implement"]) test(`${command} r
   try {
     await controller.runCommandForResult("issue", "#2")
     setReadFailure(true)
-    const agent = await controller.commands.executeForAgent({name:"commands",arguments:JSON.stringify({action:"execute",name:command,args:`2 ${REPO}`})})
+    const agent = await controller.commands.runAsAgent(command, `2 ${REPO}`).then(outcome => JSON.stringify(outcome))
     expect(agent).not.toContain("asked the user to confirm")
     expect(await controller.runCommandForResult(command, `2 ${REPO}`)).toMatchObject({status:"failed"})
     expect([...store.collections.cards.values()].some(card => card.kind === "draft" || card.kind === "confirm")).toBe(false)

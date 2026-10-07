@@ -700,26 +700,102 @@ test(
 )
 
 
-test("TODO messages refuse before queue effects while the pinned delivery providers are unavailable", async () => {
-  const host = ManagedRuntime.make(Layer.mergeAll(controlLayer, Journal.layerNoop()))
-  try {
-    await host.runPromise(Effect.gen(function*() {
-      const control = yield* ControlRuntime.ControlRuntime
-      const owner = yield* launch(control, "todo")
-      let admissions = 0
-      const queue = {
-        admit: () => Effect.sync(() => { admissions++; throw new Error("unexpected admission") })
-      } as unknown as NotificationQueue.Service
-      const journal = yield* Journal.Journal
-      for (const target of [owner.runId, "explicit-todo-step"]) {
-        const error = yield* routeMessages(queue, control, journal)
-          .admit(owner.runId, message("todo-steer", target)).pipe(Effect.flip)
-        assert.equal(error.code, "notification_unavailable")
-        assert.equal(error.notificationId, "todo-steer")
+test("TODO messages reach the shared root harness at every step and model boundary", { timeout: 60_000 }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "todo-steering-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const journal = await journalLayer(join(root, "control.db"))
+  let nativeQueue: NotificationQueue.Service | undefined
+  let nativeJournal: Journal.Service | undefined
+  const host = ManagedRuntime.make(LocalControl.layer(
+    Registry.layerNoop(), { runtime: controlLayer, journal: journal.pipe(Layer.orDie) },
+    Layer.succeed(ControlExecutor.ControlExecutor, ControlExecutor.makeNoop()),
+    (queue, control, journal) => {
+      nativeQueue = queue
+      nativeJournal = journal
+      return routeMessages(queue, control, journal)
+    }
+  ).pipe(Layer.provideMerge(controlLayer)))
+  t.after(() => host.dispose())
+  await host.runPromise(Effect.gen(function*() {
+    const control = yield* ControlRuntime.ControlRuntime
+    const native = nativeQueue!
+    const owner = yield* launch(control, "todo")
+    const door = yield* Control.Control
+    const source = yield* Notifications.make({ runId: owner.runId, lineageId: owner.runId }).pipe(Effect.provideService(NotificationQueue.NotificationQueue, native))
+    for (const boundary of ["route", "plan", "poc", "implement", "implement:model:1", "implement:model:2", "correct", "deliver"]) {
+      const input = {
+        runId: owner.runId, idempotencyKey: `todo-${boundary}`,
+        message: { runId: owner.runId, messageId: `todo-${boundary}`,
+          principal: yield* control.stampPrincipal(), createdAt: 0, body: `Ben: ${boundary}` }
       }
-      assert.equal(admissions, 0)
+      assert.equal((yield* door.steer(input))._tag, "Accepted")
+      yield* door.steer(input)
+      const drained = yield* source.drain({ boundary, wouldIdle: true })
+      assert.equal(drained.inserts.length, 1)
+      assert.match(JSON.stringify(drained.inserts[0]), new RegExp(`Ben: ${boundary}`))
+      assert.equal((yield* source.drain({ boundary, wouldIdle: true })).duplicate, true)
+      assert.equal((yield* native.pending(owner.runId)).length, 0)
+    }
+    const completed = routeMessages(native, {
+      ...control,
+      getRun: (id) => control.getRun(id).pipe(Effect.map((run) => ({ ...run, status: "completed" as const })))
+    }, nativeJournal!)
+    const closed = yield* completed.admit(owner.runId, message("late-todo", owner.runId)).pipe(Effect.flip)
+    assert.equal(closed.code, "notification_closed")
+    assert.equal((yield* native.pending(owner.runId)).length, 0)
+  }))
+})
+
+
+test("TODO feedback actions consume messages admitted through the control door", { timeout: 60_000 }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "todo-feedback-action-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const journal = await journalLayer(join(root, "control.db"))
+  let routedQueue: NotificationQueue.Service | undefined
+  const parent = ManagedRuntime.make(LocalControl.layer(
+    Registry.layerNoop(), { runtime: controlLayer, journal: journal.pipe(Layer.orDie) },
+    Layer.succeed(ControlExecutor.ControlExecutor, ControlExecutor.makeNoop()),
+    (queue, control, journal) => {
+      routedQueue = routeMessages(queue, control, journal)
+      return routedQueue
+    }
+  ).pipe(Layer.provideMerge(controlLayer)))
+  t.after(() => parent.dispose())
+  const { owner, queue } = await parent.runPromise(Effect.gen(function*() {
+    return {
+      owner: yield* launch(yield* ControlRuntime.ControlRuntime, "todo"),
+      queue: routedQueue!
+    }
+  }))
+  const Probe = Flow.make("test/TodoFeedback", {
+    payload: ReceiveFeedback.payloadSchema,
+    success: FeedbackReceipt,
+    error: ReceiveFeedback.errorSchema,
+    body: (input) => ReceiveFeedback.call(input)
+  })
+  const runtime = ManagedRuntime.make(Layer.mergeAll(Interpreter.layer(Probe), feedbackLayer).pipe(
+    Layer.provideMerge(Action.layerImplementations),
+    Layer.provideMerge(FlowEngine.layerMemory),
+    Layer.provide(Layer.succeed(NotificationQueue.NotificationQueue, queue)),
+    Layer.provide(Layer.succeed(ModuleOwner, { rootId: owner.runId, flowId: "todo" })),
+    Layer.provideMerge(NodeCrypto.layer)
+  ))
+  t.after(() => runtime.dispose())
+  for (const boundary of ["route", "plan", "poc", "implement", "correct", "deliver"] as const) {
+    await parent.runPromise(Effect.gen(function*() {
+      const control = yield* ControlRuntime.ControlRuntime
+      const door = yield* Control.Control
+      const input = {
+        runId: owner.runId, idempotencyKey: boundary,
+        message: { runId: owner.runId, messageId: boundary, createdAt: 0,
+          principal: yield* control.stampPrincipal(), body: `Ben: ${boundary}` }
+      }
+      yield* door.steer(input)
+      yield* door.steer(input)
     }))
-  } finally {
-    await host.dispose()
+    const receipt = await runtime.runPromise(Probe.execute({ boundary, revision: 0 }).pipe(Effect.scoped))
+    assert.deepEqual(receipt.messages.map((message) => message.id), [boundary])
+    assert.match(JSON.stringify(receipt.messages[0]), new RegExp(`Ben: ${boundary}`))
+    assert.equal((await parent.runPromise(queue.pending(owner.runId))).length, 0)
   }
 })

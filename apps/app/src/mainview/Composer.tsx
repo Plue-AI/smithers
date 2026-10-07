@@ -1,3 +1,4 @@
+import { useSharedConversation } from "./state/useSharedConversation"
 import { ChatComposer } from "@smthrs/ui"
 import { useLiveQuery } from "@tanstack/react-db"
 import type { KeyboardEvent } from "react"
@@ -74,8 +75,9 @@ export function Composer({
     index: 0,
     dismissed: false
   })
-  const queued = PromptQueue.inScope(draftRows[0]?.queuedPrompts ?? [], promptQueueScope(controller.store.session()))
-  const queuePaused = draftRows[0]?.promptQueuePaused === true
+  const shared = useSharedConversation(controller.sharedConversation)
+  const queued = controller.sharedConversation ? (shared.queue ?? []).map(row => ({ id: row.id, text: row.prompt })) : PromptQueue.inScope(draftRows[0]?.queuedPrompts ?? [], promptQueueScope(controller.store.session()))
+  const queuePaused = !controller.sharedConversation && draftRows[0]?.promptQueuePaused === true
   const draft = draftRows[0]?.draft ?? controller.store.session().draft
   const paletteOpen = draftRows[0]?.paletteOpen ?? controller.store.session().paletteOpen ?? false
   // Focus as part of the opening commit; waiting for an animation frame lets
@@ -361,7 +363,6 @@ export function Composer({
       />
       {queued.length > 0 && <section className="prompt-queue" aria-label="Queued prompts">
         <div className="prompt-queue-heading"><span>{queuePaused ? "Paused" : "Queued"} · {queued.length}</span>
-          {queuePaused && <button type="button" {...flowAction(controller.runCommand, "chat.queue.resume")}>Resume</button>}
         </div>
         <ol>{queued.map(prompt => <li key={prompt.id}>
           <span className="prompt-queue-text">{prompt.text}</span>

@@ -69,6 +69,8 @@ export interface ApplicationRequestOptions extends RequestInit {
 }
 
 export interface ApplicationIdentity {
+  /** Server member identity for private live topics; legacy backends may omit it. */
+  readonly memberId?: number
   readonly username: string
   /** The trimmed profile name, absent when the backend sends none. */
   readonly displayName?: string
@@ -280,6 +282,7 @@ export const createApplicationClient = (
       const displayName = parsed.data.display_name?.trim()
       return {
         username: parsed.data.username,
+        ...(parsed.data.id === undefined ? {} : { memberId: parsed.data.id }),
         ...(displayName ? { displayName } : {}),
         admin: parsed.data.is_admin === true,
         scopes: degraded ? "degraded" : null

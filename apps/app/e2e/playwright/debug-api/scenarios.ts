@@ -11,7 +11,7 @@ import operations from "../../../src/debugApi/install-operations.fixture.json"
 // Release YAML is input under test; the committed JSON is the literal oracle.
 // Like the app's existing Playwright commands, run from apps/app.
 const document = () => parse(readFileSync(resolve("../../docs/api/openapi.yaml"), "utf8")) as OpenApiDocument
-const activationBlocker = "T-CAT-01: no debug.api descriptor in packages/smithers/ui/src/app-operations; T-ACC-03: production debugApiGates has catalog=false, authorizer=false and no install provider."
+const activationBlocker = "This check still requires its own install or branch-machine evidence. Slash/Advanced and documented forms have a local-own real-backend browser test; the composed install advertises debug.api."
 
 export function debugApiScenarios(prefix: string) {
   test.describe(prefix, () => {
@@ -40,9 +40,9 @@ export function debugApiScenarios(prefix: string) {
       })
     }
 
-    // Unimplemented browser/dispatcher and execution receipts remain visible.
-    // The role cases below own an isolated startLocalOwn backend and PostgreSQL;
-    // it is a seam receipt, not a CardRenderers/browser interaction receipt.
+    // Missing delegated-dispatch and execution receipts remain visible.
+    // Browser and role cases own an isolated startLocalOwn backend and PostgreSQL.
+    // This trusted-process test install supplies no branch-machine receipt.
     // The blocked cases deliberately have no route.fulfill/cloudFixture and
     // no guessed success bodies, sessions, SQL mappings or process receipts.
     const pending = (name: string, dependency: string) => {
@@ -51,8 +51,22 @@ export function debugApiScenarios(prefix: string) {
         throw new Error(`Missing real-install evidence: ${dependency}`)
       })
     }
-    pending("slash and Advanced open through CardRenderers; selecting a literal operation sends zero requests",
-      "No test install composition supplies the catalog-backed Advanced door or activation provider.")
+    test("slash and Advanced reach CardRenderers on a real install; literal operations and secret fields; selection sends nothing", async () => {
+      test.setTimeout(900_000)
+      const output = mkdtempSync(resolve(tmpdir(), "c-ui-10-browser-"))
+      try {
+        const result = await promisify(execFile)("bun", ["e2e/playwright/debug-api/local-own-read.ts", output, "browser"], {
+          env: { ...process.env, TMPDIR: output }, timeout: 840_000, maxBuffer: 8 * 1024 * 1024
+        })
+        expect(result.stdout).toContain("C-UI-10 REAL BROWSER PASS")
+      } finally {
+        for (const name of ["local-own.execution.json", "browser.role-receipt.json"]) {
+          const path = resolve(output, name)
+          if (existsSync(path)) await test.info().attach(name, { path, contentType: "application/json" })
+        }
+        rmSync(output, { recursive: true, force: true })
+      }
+    })
     test("Ben Member GET /api/todos returns literal seeded 200 body; independently compare curl with Ben's session", async () => {
       test.setTimeout(900_000)
       const output = mkdtempSync(resolve(tmpdir(), "c-ui-10-read-"))
@@ -69,7 +83,7 @@ export function debugApiScenarios(prefix: string) {
         rmSync(output, { recursive: true, force: true })
       }
     })
-    test("Ben POST secrets awaits Confirm then 403 permission with zero SQL rows; Mia Maintainer gets 201 and one SQL row", async () => {
+    test("Ben PUT /api/secrets awaits Confirm then 403 permission with zero SQL rows; Mia Maintainer gets 201 and one SQL row", async () => {
       test.setTimeout(900_000)
       const output = mkdtempSync(resolve(tmpdir(), "c-ui-10-write-"))
       try {
@@ -101,17 +115,45 @@ export function debugApiScenarios(prefix: string) {
         rmSync(output, { recursive: true, force: true })
       }
     })
-    pending("eligible delegated app-agent and smthrs dispatch refuse debug.api as never with zero effects; scope/role refusals retain precedence",
-      "No catalog-backed debug.api app-agent/CLI dispatcher or delegated install fixture.")
-    pending("displayed operations and form fields equal committed install fixture; Plue-only and undocumented operations absent",
-      "Release operation inventory exists; production activation and reviewed literal install form-field fixtures unavailable.")
-    pending("repository-flow execution with isolation unavailable refuses before execution with no host process",
-      "POST /api/flows install execution route is absent; T-INS-02/T-FLW-01 route composition and process receipts unavailable.")
+    test("eligible delegated app-agent and smthrs dispatch refuse debug.api with zero API and SQL effects", async () => {
+      test.setTimeout(300_000)
+      const result = await promisify(execFile)("go", ["test", "./internal/compose", "-run", "^TestDebugAPIEligibleDelegatedDispatchPostgres$", "-count=1", "-v"], {
+        cwd: resolve("../../packages/backend"), env: process.env,
+        timeout: 270_000, maxBuffer: 8 * 1024 * 1024
+      })
+      expect(result.stdout).toContain("--- PASS: TestDebugAPIEligibleDelegatedDispatchPostgres")
+      await test.info().attach("delegated-dispatch-http-sql", { body: result.stdout, contentType: "text/plain" })
+    })
+    pending("delegated app-agent and CLI scope/role failures retain precedence over debug.api person-only refusal",
+      "T-CAT-01 shared dispatcher must carry credential/role decisions before its local never guard: flows/Commands.ts runForAgent and smithers/src/internal/backend/Catalog.ts. The eligible production MintForTurn receipt now passes separately.")
+    test("repository-flow execution with isolation unavailable refuses before execution with no host process", async () => {
+      test.setTimeout(300_000)
+      const result = await promisify(execFile)("go", ["test", "./internal/compose", "-run", "^TestDebugAPIInvokeWithoutIsolationPostgres$", "-count=1", "-v"], {
+        cwd: resolve("../../packages/backend"), env: process.env,
+        timeout: 270_000, maxBuffer: 8 * 1024 * 1024
+      })
+      expect(result.stdout).toContain("--- PASS: TestDebugAPIInvokeWithoutIsolationPostgres")
+      await test.info().attach("missing-isolation-http-sql", { body: result.stdout, contentType: "text/plain" })
+    })
     pending("available repository-flow execution runs only in a branch machine",
-      "T-INS-02/T-FLW-01 install execution route and branch-machine evidence unavailable.")
+      "T-FLW-01 guest composition and POST /api/repos/{owner}/{repo}/invoke exist; this Linux local-own fixture has no qualified microVM bundle. Reference-host branch-machine receipts are still required.")
     for (const missing of ["catalog", "authorizer", "view"] as const) {
-      pending(`real install with only ${missing} unavailable produces zero API/SQL effects`,
-        "No real-install composition wires independently selectable DebugApiGates; seam checks above are not backend evidence.")
+      test(`production app with only ${missing} guard unavailable produces zero real-install API/SQL effects`, async () => {
+        test.setTimeout(900_000)
+        const output = mkdtempSync(resolve(tmpdir(), "c-ui-10-guard-"))
+        try {
+          const result = await promisify(execFile)("bun", ["e2e/playwright/debug-api/local-own-read.ts", output, `guard-${missing}`], {
+            env: { ...process.env, TMPDIR: output }, timeout: 840_000, maxBuffer: 8 * 1024 * 1024
+          })
+          expect(result.stdout).toContain(`C-UI-10 REAL GUARD PASS: ${missing}`)
+        } finally {
+          for (const name of ["local-own.execution.json", "guard.role-receipt.json"]) {
+            const path = resolve(output, name)
+            if (existsSync(path)) await test.info().attach(name, { path, contentType: "application/json" })
+          }
+          rmSync(output, { recursive: true, force: true })
+        }
+      })
     }
   })
 }

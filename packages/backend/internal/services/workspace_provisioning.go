@@ -886,13 +886,16 @@ func (s *WorkspaceService) CreateWorkspaceAsync(ctx context.Context, input Creat
 // revoked grantee gets 403 whether or not the install has composed them, and
 // only an authorized requester learns that forking is dark (503).
 func (s *WorkspaceService) ForkWorkspace(ctx context.Context, input ForkWorkspaceInput) (WorkspaceResponse, error) {
+	if err := s.requireBranchMachineProviders(); err != nil {
+		return WorkspaceResponse{}, err
+	}
 	if s.q == nil {
 		if err := s.requireBranchMachineProviders(); err != nil {
 			return WorkspaceResponse{}, err
 		}
 		return WorkspaceResponse{}, pkgerrors.Internal("workspace store unavailable")
 	}
-	if s.runtime != nil {
+	if s.runtime != nil || s.revisionFork != nil {
 		return s.forkRuntimeWorkspace(ctx, input)
 	}
 	if s.sandbox == nil {

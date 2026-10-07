@@ -498,14 +498,14 @@ describe("auth is a conversation state — the chat is the only page", () => {
     const pending = controller.refreshBalance()
     await settled()
     flushSync(() => {})
-    const stack = document.querySelector(".mvp-notify")
+    const stack = document.querySelector(".notify")
     expect(stack).not.toBeNull()
     expect(stack?.textContent).toContain("Refreshing your balance…")
     release(json(503, { status: "error" }))
     await pending
     await settled()
     flushSync(() => {})
-    expect(document.querySelector(".mvp-notify")?.textContent).toContain(
+    expect(document.querySelector(".notify")?.textContent).toContain(
       "Your balance couldn't be refreshed right now."
     )
   })

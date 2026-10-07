@@ -93,8 +93,8 @@ func (h *AuthHandler) PostKeyAuthVerify(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	setSessionCookie(w, h.AuthConfig.SessionCookieName, result.SessionKey, result.ExpiresAt, h.AuthConfig.CookieSecure)
-	middleware.SetCSRFCookie(w, csrfToken, h.AuthConfig.CookieSecure, result.ExpiresAt)
+	setSessionCookie(w, h.AuthConfig.SessionCookieName, result.SessionKey, result.ExpiresAt, h.cookieSecure(r))
+	middleware.SetCSRFCookie(w, csrfToken, h.cookieSecure(r), result.ExpiresAt, h.csrfSameSite())
 
 	if h.AuditService != nil {
 		h.AuditService.Log(r.Context(), services.AuditEvent{
@@ -229,9 +229,6 @@ func (h *AuthHandler) prepareGitHubOAuthStart(w http.ResponseWriter, r *http.Req
 			errors.WriteError(w, errors.Forbidden("request origin differs from install origin"))
 			return h, r, false
 		}
-		local := *h
-		local.AuthConfig.CookieSecure = strings.HasPrefix(origin, "https://")
-		h = &local
 		r = r.WithContext(services.WithGitHubRedirectURI(r.Context(), origin+"/api/auth/github/callback"))
 	}
 	return h, r, true
@@ -273,13 +270,13 @@ func (h *AuthHandler) GetGitHubOAuthStart(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	setOAuthStateCookie(w, stateVerifier, time.Now().UTC().Add(10*time.Minute), h.AuthConfig.CookieSecure)
-	setBrowserReturnCookie(w, r, returnTo, stateVerifier, h.AuthConfig.CookieSecure)
+	setOAuthStateCookie(w, stateVerifier, time.Now().UTC().Add(10*time.Minute), h.cookieSecure(r))
+	setBrowserReturnCookie(w, r, returnTo, stateVerifier, h.cookieSecure(r))
 	// A browser login must never complete as a CLI flow: drop any stale CLI
 	// callback cookie left behind by an earlier (abandoned) CLI login so the
 	// upcoming callback cannot mint a broad CLI token and bounce the browser
 	// to a dead localhost port.
-	clearCLICallbackCookie(w)
+	clearCLICallbackCookie(w, h.cookieSecure(r))
 	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
 
@@ -297,6 +294,11 @@ func (h *AuthHandler) GetGitHubOAuthCLIStart(w http.ResponseWriter, r *http.Requ
 	port, err := strconv.Atoi(portStr)
 	if err != nil || port < 1024 || port > 65535 {
 		errors.WriteError(w, errors.BadRequest("callback_port must be a valid port (1024-65535)"))
+		return
+	}
+	agent := r.URL.Query().Get("agent")
+	if r.URL.Query().Has("agent") && !services.ValidExternalAgent(agent) {
+		writeRouteError(w, r, errors.BadRequest("invalid agent"))
 		return
 	}
 	callbackState := r.URL.Query().Get("callback_state")
@@ -335,15 +337,15 @@ func (h *AuthHandler) GetGitHubOAuthCLIStart(w http.ResponseWriter, r *http.Requ
 	}
 
 	expiry := time.Now().UTC().Add(10 * time.Minute)
-	setOAuthStateCookie(w, stateVerifier, expiry, h.AuthConfig.CookieSecure)
+	setOAuthStateCookie(w, stateVerifier, expiry, h.cookieSecure(r))
 	// Store the callback port BOUND to this flow's state verifier so the
 	// callback handler only enters CLI mode for the exact OAuth flow the CLI
 	// started (a stale cookie must not hijack a later browser login).
 	if r.URL.Query().Get("admin") == "1" {
 		// The durable admin request already binds the callback port and state.
-		clearCLICallbackCookie(w)
+		clearCLICallbackCookie(w, h.cookieSecure(r))
 	} else {
-		setCLICallbackCookie(w, portStr, stateVerifier, expiry, h.AuthConfig.CookieSecure, callbackState)
+		setCLICallbackCookie(w, portStr, stateVerifier, expiry, h.cookieSecure(r), callbackState, agent)
 	}
 
 	http.Redirect(w, r, redirectURL, http.StatusFound)
@@ -365,6 +367,7 @@ func (h *AuthHandler) setupSignInFailed(w http.ResponseWriter, r *http.Request, 
 }
 
 func (h *AuthHandler) GetGitHubOAuthCallback(w http.ResponseWriter, r *http.Request) {
+
 	browserOrigin := h.githubBrowserOrigin()
 	if h.InstallSetup != nil {
 		origin, ok := middleware.ResolveEffectiveOrigin(r, h.knownOrigins())
@@ -381,9 +384,6 @@ func (h *AuthHandler) GetGitHubOAuthCallback(w http.ResponseWriter, r *http.Requ
 		// and the code exchange below repeats that URI, so a teammate's laptop
 		// lands on the address it used, never on configuration's localhost.
 		browserOrigin = origin
-		local := *h
-		local.AuthConfig.CookieSecure = strings.HasPrefix(origin, "https://")
-		h = &local
 		r = r.WithContext(services.WithGitHubRedirectURI(r.Context(), origin+"/api/auth/github/callback"))
 	}
 
@@ -398,7 +398,7 @@ func (h *AuthHandler) GetGitHubOAuthCallback(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	returnTo := consumeBrowserReturnCookie(w, r, h.AuthConfig.CookieSecure)
+	returnTo := consumeBrowserReturnCookie(w, r, h.cookieSecure(r))
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
 	if strings.TrimSpace(code) == "" || strings.TrimSpace(state) == "" {
@@ -420,7 +420,19 @@ func (h *AuthHandler) GetGitHubOAuthCallback(w http.ResponseWriter, r *http.Requ
 	}
 	result, err := h.Service.CompleteGitHubOAuth(ctx, code, state, stateVerifier)
 	if err != nil {
-		clearOAuthStateCookie(w, h.AuthConfig.CookieSecure)
+		// Another setup callback may claim while this callback is fetching
+		// identity or keys. Its consumed setup authority takes precedence over
+		// any intermediate roster/provider refusal from that race.
+		if h.InstallSetup != nil {
+			if cookie, cookieErr := r.Cookie(GitHubAppSetupSessionCookie); cookieErr == nil {
+				authorityErr := h.InstallSetup.AdmitOAuth(ctx, cookie.Value)
+				var closed *errors.APIError
+				if stdErrors.As(authorityErr, &closed) && closed.Code == errors.CodeSetupClosed {
+					err = authorityErr
+				}
+			}
+		}
+		clearOAuthStateCookie(w, h.cookieSecure(r))
 		if h.setupSignInFailed(w, r, err) {
 			return
 		}
@@ -429,7 +441,7 @@ func (h *AuthHandler) GetGitHubOAuthCallback(w http.ResponseWriter, r *http.Requ
 	}
 
 	if h.InstallSetup != nil {
-		http.SetCookie(w, &http.Cookie{Name: GitHubAppSetupSessionCookie, Value: "", Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: h.AuthConfig.CookieSecure, MaxAge: -1})
+		http.SetCookie(w, &http.Cookie{Name: GitHubAppSetupSessionCookie, Value: "", Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: h.cookieSecure(r), MaxAge: -1})
 	}
 	if result.AdminCLI != nil {
 		h.showAdminCLIConsent(w, r, result, state, stateVerifier)
@@ -444,18 +456,18 @@ func (h *AuthHandler) GetGitHubOAuthCallback(w http.ResponseWriter, r *http.Requ
 		h.completeCLIOAuth(w, r, result, portStr)
 		return
 	}
-	clearCLICallbackCookie(w)
+	clearCLICallbackCookie(w, h.cookieSecure(r))
 
 	csrfToken, err := randomHex(32)
 	if err != nil {
-		clearOAuthStateCookie(w, h.AuthConfig.CookieSecure)
+		clearOAuthStateCookie(w, h.cookieSecure(r))
 		writeRouteError(w, r, errors.Internal("failed to generate csrf token").WithCause(err))
 		return
 	}
 
-	setSessionCookie(w, h.AuthConfig.SessionCookieName, result.SessionKey, result.ExpiresAt, h.AuthConfig.CookieSecure)
-	middleware.SetCSRFCookie(w, csrfToken, h.AuthConfig.CookieSecure, result.ExpiresAt)
-	clearOAuthStateCookie(w, h.AuthConfig.CookieSecure)
+	setSessionCookie(w, h.AuthConfig.SessionCookieName, result.SessionKey, result.ExpiresAt, h.cookieSecure(r))
+	middleware.SetCSRFCookie(w, csrfToken, h.cookieSecure(r), result.ExpiresAt, h.csrfSameSite())
+	clearOAuthStateCookie(w, h.cookieSecure(r))
 
 	if h.AuditService != nil {
 		h.AuditService.Log(r.Context(), services.AuditEvent{
@@ -484,7 +496,7 @@ func (h *AuthHandler) GetGitHubOAuthCallback(w http.ResponseWriter, r *http.Requ
 	// the default post-login landing page. The cookie was set by
 	// OAuth2Handler.startUpstreamIDPDetour; we clear it here so it can't
 	// be replayed.
-	if resumeURL := consumeOAuth2PendingAuthorizeCookie(w, r, h.AuthConfig.CookieSecure); resumeURL != "" {
+	if resumeURL := consumeOAuth2PendingAuthorizeCookie(w, r, h.cookieSecure(r)); resumeURL != "" {
 		redirectURL = resumeURL
 	}
 
@@ -516,16 +528,16 @@ func (h *AuthHandler) GetAuth0Authorize(w http.ResponseWriter, r *http.Request) 
 	}
 
 	expiry := time.Now().UTC().Add(10 * time.Minute)
-	setOAuthStateCookie(w, stateVerifier, expiry, h.AuthConfig.CookieSecure)
+	setOAuthStateCookie(w, stateVerifier, expiry, h.cookieSecure(r))
 
 	if portStr != "" {
 		// Bind the CLI callback port to this flow's state verifier (see
 		// GetGitHubOAuthCLIStart).
-		setCLICallbackCookie(w, portStr, stateVerifier, expiry, h.AuthConfig.CookieSecure)
+		setCLICallbackCookie(w, portStr, stateVerifier, expiry, h.cookieSecure(r))
 	} else {
 		// Browser login: discard any stale CLI callback cookie so it cannot
 		// hijack this flow's callback (see GetGitHubOAuthStart).
-		clearCLICallbackCookie(w)
+		clearCLICallbackCookie(w, h.cookieSecure(r))
 	}
 
 	http.Redirect(w, r, redirectURL, http.StatusFound)
@@ -542,7 +554,7 @@ func (h *AuthHandler) GetAuth0Callback(w http.ResponseWriter, r *http.Request) {
 	stateVerifier := oauthStateVerifierFromRequest(r)
 	result, err := h.Service.CompleteAuth0OAuth(r.Context(), code, state, stateVerifier)
 	if err != nil {
-		clearOAuthStateCookie(w, h.AuthConfig.CookieSecure)
+		clearOAuthStateCookie(w, h.cookieSecure(r))
 		writeRouteError(w, r, err)
 		return
 	}
@@ -554,18 +566,18 @@ func (h *AuthHandler) GetAuth0Callback(w http.ResponseWriter, r *http.Request) {
 		h.completeCLIOAuth(w, r, result, portStr)
 		return
 	}
-	clearCLICallbackCookie(w)
+	clearCLICallbackCookie(w, h.cookieSecure(r))
 
 	csrfToken, err := randomHex(32)
 	if err != nil {
-		clearOAuthStateCookie(w, h.AuthConfig.CookieSecure)
+		clearOAuthStateCookie(w, h.cookieSecure(r))
 		writeRouteError(w, r, errors.Internal("failed to generate csrf token").WithCause(err))
 		return
 	}
 
-	setSessionCookie(w, h.AuthConfig.SessionCookieName, result.SessionKey, result.ExpiresAt, h.AuthConfig.CookieSecure)
-	middleware.SetCSRFCookie(w, csrfToken, h.AuthConfig.CookieSecure, result.ExpiresAt)
-	clearOAuthStateCookie(w, h.AuthConfig.CookieSecure)
+	setSessionCookie(w, h.AuthConfig.SessionCookieName, result.SessionKey, result.ExpiresAt, h.cookieSecure(r))
+	middleware.SetCSRFCookie(w, csrfToken, h.cookieSecure(r), result.ExpiresAt, h.csrfSameSite())
+	clearOAuthStateCookie(w, h.cookieSecure(r))
 
 	if h.AuditService != nil {
 		h.AuditService.Log(r.Context(), services.AuditEvent{
@@ -591,7 +603,7 @@ func (h *AuthHandler) GetAuth0Callback(w http.ResponseWriter, r *http.Request) {
 	// the default post-login landing page. The cookie was set by
 	// OAuth2Handler.startUpstreamIDPDetour; we clear it here so it can't
 	// be replayed.
-	if resumeURL := consumeOAuth2PendingAuthorizeCookie(w, r, h.AuthConfig.CookieSecure); resumeURL != "" {
+	if resumeURL := consumeOAuth2PendingAuthorizeCookie(w, r, h.cookieSecure(r)); resumeURL != "" {
 		redirectTarget = resumeURL
 	}
 
@@ -603,7 +615,7 @@ func (h *AuthHandler) GetAuth0Callback(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) completeCLIOAuth(w http.ResponseWriter, r *http.Request, result services.OAuthCallbackResult, portStr string) {
 	// Clear both cookies.
 	clearOAuthStateCookie(w, false)
-	clearCLICallbackCookie(w)
+	clearCLICallbackCookie(w, h.cookieSecure(r))
 
 	// Re-validate the CLI callback port from the (non-Secure, injectable)
 	// cookie before building the redirect. The cookie is not Secure/signed, so
@@ -620,6 +632,7 @@ func (h *AuthHandler) completeCLIOAuth(w http.ResponseWriter, r *http.Request, r
 	tokenResult, err := h.Service.CreateToken(r.Context(), result.User.ID, services.CreateTokenRequest{
 		Name:   "smithers-cli",
 		Scopes: result.TokenScopes,
+		Via:    cliAgentFromRequest(r),
 	})
 	if err != nil {
 		writeRouteError(w, r, err)
@@ -651,9 +664,11 @@ func (h *AuthHandler) completeCLIOAuth(w http.ResponseWriter, r *http.Request, r
 	if result.User.Email.Valid && strings.TrimSpace(result.User.Email.String) != "" {
 		callbackParams.Set("email", strings.TrimSpace(result.User.Email.String))
 	}
-	if !result.ExpiresAt.IsZero() {
-		callbackParams.Set("expires_at", result.ExpiresAt.UTC().Format(time.RFC3339))
+	if tokenResult.ExpiresAt != nil {
+		callbackParams.Set("expires_at", tokenResult.ExpiresAt.UTC().Format(time.RFC3339))
 	}
+	callbackParams.Set("kind", tokenResult.Kind)
+	callbackParams.Set("via", tokenResult.Via)
 	callbackURL := fmt.Sprintf("http://127.0.0.1:%d/callback#%s", port, callbackParams.Encode())
 	http.Redirect(w, r, callbackURL, http.StatusFound)
 }
@@ -735,6 +750,14 @@ func (h *AuthHandler) PostGitHubTokenExchange(w http.ResponseWriter, r *http.Req
 }
 
 func (h *AuthHandler) PostLogout(w http.ResponseWriter, r *http.Request) {
+	if config.IsSingleOwner(h.AuthConfig) {
+		_, ok := middleware.ResolveEffectiveOrigin(r, h.knownOrigins())
+		if !ok {
+			errors.WriteError(w, errors.New(errors.CodeUnknownOrigin, "unknown_origin"))
+			return
+		}
+	}
+
 	cookieName := sessionCookieName(h.AuthConfig.SessionCookieName)
 	sessionCookie, cookieErr := r.Cookie(cookieName)
 
@@ -745,12 +768,12 @@ func (h *AuthHandler) PostLogout(w http.ResponseWriter, r *http.Request) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   h.AuthConfig.CookieSecure,
+		Secure:   h.cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
 		Expires:  time.Unix(0, 0).UTC(),
 		MaxAge:   -1,
 	})
-	clearCSRFCookie(w, h.AuthConfig.CookieSecure)
+	clearCSRFCookie(w, h.cookieSecure(r), h.csrfSameSite())
 
 	if cookieErr == nil && sessionCookie.Value != "" {
 		if err := h.Service.Logout(r.Context(), sessionCookie.Value); err != nil {
@@ -803,14 +826,18 @@ func setOAuthStateCookie(w http.ResponseWriter, stateVerifier string, expiresAt 
 	})
 }
 
-func clearCSRFCookie(w http.ResponseWriter, secure bool) {
+func clearCSRFCookie(w http.ResponseWriter, secure bool, mode ...http.SameSite) {
+	sameSite := http.SameSiteStrictMode
+	if len(mode) != 0 {
+		sameSite = mode[0]
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     middleware.CSRFCookieName,
 		Value:    "",
 		Path:     "/",
 		HttpOnly: false,
 		Secure:   secure,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: sameSite,
 		Expires:  time.Unix(0, 0).UTC(),
 		MaxAge:   -1,
 	})
@@ -845,8 +872,11 @@ func oauthStateVerifierFromRequest(r *http.Request) string {
 // the API origin and must honor its Secure setting, despite the loopback redirect.
 func setCLICallbackCookie(w http.ResponseWriter, portStr, stateVerifier string, expiresAt time.Time, secure bool, callbackState ...string) {
 	value := portStr + ":" + stateVerifier
-	if len(callbackState) > 0 && callbackState[0] != "" {
+	if len(callbackState) > 0 && (callbackState[0] != "" || len(callbackState) > 1 && callbackState[1] != "") {
 		value += ":" + callbackState[0]
+	}
+	if len(callbackState) > 1 && callbackState[1] != "" {
+		value += ":" + callbackState[1]
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     cliCallbackCookieName,
@@ -860,13 +890,13 @@ func setCLICallbackCookie(w http.ResponseWriter, portStr, stateVerifier string, 
 	})
 }
 
-func clearCLICallbackCookie(w http.ResponseWriter) {
+func clearCLICallbackCookie(w http.ResponseWriter, secure bool) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     cliCallbackCookieName,
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   false,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 		Expires:  time.Unix(0, 0).UTC(),
 		MaxAge:   -1,
@@ -907,7 +937,11 @@ func cliCallbackFromRequest(r *http.Request) (string, string, bool) {
 	if !found || portStr == "" || boundVerifier == "" {
 		return "", "", false
 	}
-	if hasCallbackState && !validCLICallbackState(callbackState) {
+	callbackState, agent, hasAgent := strings.Cut(callbackState, ":")
+	if hasAgent && !services.ValidExternalAgent(agent) {
+		return "", "", false
+	}
+	if hasCallbackState && !(hasAgent && callbackState == "") && !validCLICallbackState(callbackState) {
 		return "", "", false
 	}
 	stateVerifier := oauthStateVerifierFromRequest(r)
@@ -1006,6 +1040,7 @@ func writeRouteError(w http.ResponseWriter, r *http.Request, err error) {
 				Class:      apiErr.Class,
 				Fault:      apiErr.Fault,
 				RetryAfter: apiErr.RetryAfter,
+				RetryAt:    apiErr.RetryAt,
 			})
 			return
 		}
@@ -1015,4 +1050,34 @@ func writeRouteError(w http.ResponseWriter, r *http.Request, err error) {
 	// Log the full error server-side before returning a sanitized response.
 	middleware.LoggerFromContext(r.Context()).Error("internal server error", "error", err)
 	errors.WriteError(w, errors.Internal("internal server error"))
+}
+
+// cookieSecure consumes the request's one effective origin for every cookie
+// writer, including CLI browser consent and credential clearing.
+func (h *AuthHandler) cookieSecure(r *http.Request) bool {
+	if config.IsSingleOwner(h.AuthConfig) {
+		if origin, ok := middleware.ResolveEffectiveOrigin(r, h.knownOrigins()); ok {
+			return strings.HasPrefix(origin, "https://")
+		}
+	}
+	return h.AuthConfig.CookieSecure
+}
+
+func (h *AuthHandler) csrfSameSite() http.SameSite {
+	if h.InstallSetup != nil {
+		return http.SameSiteLaxMode
+	}
+	return http.SameSiteStrictMode
+}
+
+func cliAgentFromRequest(r *http.Request) string {
+	if _, _, ok := cliCallbackFromRequest(r); !ok {
+		return "cli"
+	}
+	cookie, _ := r.Cookie(cliCallbackCookieName)
+	parts := strings.Split(cookie.Value, ":")
+	if len(parts) == 4 && services.ValidExternalAgent(parts[3]) {
+		return parts[3]
+	}
+	return "cli"
 }

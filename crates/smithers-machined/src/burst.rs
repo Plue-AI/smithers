@@ -21,6 +21,7 @@ pub struct Burst<A, V> {
     pub files: BTreeMap<String, File<V>>,
     pub last_path: String,
 }
+#[derive(Clone, Debug)]
 pub struct Bursts<A, V> {
     open: Vec<Burst<A, V>>,
     now_ms: u64,
@@ -34,6 +35,42 @@ impl<A: Eq + Clone, V: Clone> Default for Bursts<A, V> {
     }
 }
 impl<A: Eq + Clone, V: Clone> Bursts<A, V> {
+    /// Shared checkpoint decoder restores only structurally valid open bursts.
+    pub fn restore(open: Vec<Burst<A, V>>, now_ms: u64) -> Result<Self, &'static str> {
+        for (i, b) in open.iter().enumerate() {
+            if b.files.is_empty()
+                || !b.files.contains_key(&b.last_path)
+                || b.opened_ms > b.last_ms
+                || b.last_ms > now_ms
+                || b.last_ms.saturating_sub(b.opened_ms) >= 10_000
+                || open[..i].iter().any(|previous| previous.key == b.key)
+            {
+                return Err("invalid burst checkpoint");
+            }
+        }
+        Ok(Self { open, now_ms })
+    }
+    /// Monotonic timestamps belong to a daemon lifetime. Startup resync closes
+    /// recovered bursts before resetting to the new process's clock.
+    pub fn reset_clock(&mut self, now_ms: u64) -> Result<(), &'static str> {
+        if self.is_open() {
+            return Err("cannot reset an open burst clock");
+        }
+        self.now_ms = now_ms;
+        Ok(())
+    }
+    pub fn retain_paths(&mut self, mut keep: impl FnMut(&str) -> bool) {
+        for b in &mut self.open {
+            b.files.retain(|p, _| keep(p));
+            if !b.files.contains_key(&b.last_path) {
+                b.last_path = b.files.keys().next_back().cloned().unwrap_or_default();
+            }
+        }
+        self.open.retain(|b| !b.files.is_empty());
+    }
+    pub fn pending(&self) -> &[Burst<A, V>] {
+        &self.open
+    }
     pub fn is_open(&self) -> bool {
         !self.open.is_empty()
     }

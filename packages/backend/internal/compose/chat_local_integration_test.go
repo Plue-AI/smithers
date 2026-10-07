@@ -177,6 +177,7 @@ func TestLiveProviderChatPersistsAndReplays(t *testing.T) {
 }
 
 type localChat struct {
+	api          func(*chat.Runtime) http.Handler
 	ctx          context.Context
 	pool         *pgxpool.Pool
 	ownerID      int64
@@ -205,6 +206,10 @@ type localTurn struct {
 // startLocalChat composes the local chat runtime around a packaged model
 // host and a fresh product database, signed in as the repository owner.
 func startLocalChat(t *testing.T) *localChat {
+	return startConfiguredLocalChat(t, nil)
+}
+
+func startConfiguredLocalChat(t *testing.T, configure func(*localChat, *chat.RuntimeOptions)) *localChat {
 	t.Helper()
 	if testdb.ServerURL() == "" {
 		testdb.Unavailable(t, testdb.ErrNotConfigured)
@@ -230,7 +235,9 @@ func startLocalChat(t *testing.T) *localChat {
 	output, err := build.CombinedOutput()
 	require.NoError(t, err, string(output))
 
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	// Multi-turn provider-removal rehearsals retain one install and native store
+	// across outages and restoration. Bound the fixture lifetime, not each turn.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	t.Cleanup(cancel)
 	pool, databaseURL := postgresfixture.NewProductDatabase(t)
 	local := &localChat{ctx: ctx, pool: pool, logs: &lockedBuffer{}, client: &http.Client{Timeout: 60 * time.Second}}
@@ -255,9 +262,16 @@ func startLocalChat(t *testing.T) *localChat {
 	require.NoError(t, err)
 	local.host, err = modelhost.New(local.resolver, launcher)
 	require.NoError(t, err)
-	local.composition, err = newChatComposition(runOptions{topology: localTopology, Options: Options{ChatHost: local.host}}, pool, chat.RuntimeOptions{Logger: logger})
+	runtimeOptions := chat.RuntimeOptions{Logger: logger}
+	if configure != nil {
+		configure(local, &runtimeOptions)
+	}
+	local.composition, err = newChatComposition(runOptions{topology: localTopology, Options: Options{ChatHost: local.host}}, pool, runtimeOptions)
 	require.NoError(t, err)
 	t.Cleanup(local.composition.close)
+	if local.api != nil {
+		local.composition.server.Handler = chatCallbackHandler(local.composition.runtime, local.api(local.composition.runtime))
+	}
 	local.serveDone = make(chan error, 1)
 	go func() { local.serveDone <- local.composition.server.Serve(local.composition.listener) }()
 	dispatchCtx, stopDispatch := context.WithCancel(context.Background())

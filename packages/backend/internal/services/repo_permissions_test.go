@@ -1,6 +1,10 @@
 package services
 
 import (
+	"context"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -83,4 +87,104 @@ func TestHighestRepoPermission_MixedCase(t *testing.T) {
 	t.Parallel()
 
 	assert.Equal(t, "admin", highestRepoPermission("READ", "Admin", "write"))
+}
+
+func TestBoundInstallAuthorization(t *testing.T) {
+	info := &middleware.AuthInfo{User: &db.User{ID: 7}, SessionHash: "session"}
+	ctx := middleware.ContextWithAuthInfo(context.Background(), info)
+	decision := InstallAuthorization{UserID: 7, Role: InstallMember}
+	ctx = WithInstallAuthorization(ctx, "todo.read", decision)
+	got, err := Authorize(ctx, nil, "todo.read")
+	assert.NoError(t, err)
+	assert.Equal(t, decision, got)
+	// A dispatcher must not reuse read authority for another command.
+	_, err = Authorize(ctx, nil, "secrets.write")
+	assert.Error(t, err)
+	// A replacement credential for the same person gets a fresh decision.
+	replacement := &middleware.AuthInfo{User: &db.User{ID: 7}, SessionHash: "replacement"}
+	_, err = Authorize(middleware.ContextWithAuthInfo(ctx, replacement), nil, "todo.read")
+	assert.Error(t, err)
+	// Changing principal also prevents decision reuse.
+	_, err = Authorize(middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: 8}}), nil, "todo.read")
+	assert.Error(t, err)
+	_, err = Authorize(ctx, nil, "unmapped")
+	var refusal *AccessError
+	assert.ErrorAs(t, err, &refusal)
+	assert.Equal(t, http.StatusForbidden, refusal.Status)
+}
+
+func TestSystemCredentialsCannotInheritTerminalCommandAuthority(t *testing.T) {
+	for _, binding := range []string{"workspace:box-1", "credential:sync"} {
+		info := &middleware.AuthInfo{User: &db.User{ID: 7}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: binding + ",via:terminal,branch:box-1,profile:terminal_s1"}
+		ctx := middleware.ContextWithAuthInfo(context.Background(), info)
+		_, err := Authorize(ctx, nil, "todo.steer")
+		var access *AccessError
+		assert.ErrorAs(t, err, &access)
+		assert.Equal(t, http.StatusForbidden, access.Status)
+		assert.Equal(t, "permission", access.Code)
+	}
+}
+
+// Literal policy expectations: catalog metadata is the input, never the oracle.
+func TestInstallCommandCatalogPolicies(t *testing.T) {
+	for _, tt := range []struct {
+		command, role, agent string
+		actors               []string
+	}{
+		{"todo.new", "member", "confirm", []string{"person", "app_agent", "external_agent"}},
+		{"todo.amend", "member", "confirm", []string{"person", "app_agent", "external_agent"}},
+		{"todo.drop", "member", "confirm", []string{"person", "app_agent", "external_agent"}},
+		{"merge", "maintainer", "confirm", []string{"person", "app_agent", "external_agent"}},
+		{"branch.bring-in", "member", "confirm", []string{"person", "app_agent"}},
+		{"branch.discard-foreign", "maintainer", "confirm", []string{"person", "app_agent"}},
+		{"learning.accept", "member", "confirm", []string{"person", "app_agent"}},
+		{"todo.takeover", "maintainer", "never", []string{"person"}},
+		{"members.write", "maintainer", "never", []string{"person"}},
+		{"secrets.write", "maintainer", "never", []string{"person"}},
+		{"settings.parallel", "owner", "never", []string{"person"}},
+	} {
+		t.Run(tt.command, func(t *testing.T) {
+			policy, ok := installCommandPolicy(tt.command)
+			assert.True(t, ok)
+			assert.Equal(t, tt.role, policy.MinimumRole)
+			assert.Equal(t, tt.agent, policy.Agent)
+			assert.Equal(t, tt.actors, policy.Actors)
+		})
+	}
+	_, ok := installCommandPolicy("unmapped")
+	assert.False(t, ok)
+}
+
+func TestTerminalProfileCannotUsePersonOnlyCommands(t *testing.T) {
+	for _, command := range []string{"members.list", "members.write", "secrets.read", "secrets.write", "install.read", "settings.parallel", "confirmations.read"} {
+		info := &middleware.AuthInfo{User: &db.User{ID: 7}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "read:repository,via:terminal,branch:own,profile:terminal_s1"}
+		_, err := Authorize(middleware.ContextWithAuthInfo(context.Background(), info), nil, command)
+		var refusal *AccessError
+		assert.ErrorAs(t, err, &refusal, command)
+		assert.Equal(t, 403, refusal.Status, command)
+		assert.Equal(t, "permission", refusal.Class, command)
+		assert.Equal(t, "permission", refusal.Code, command)
+	}
+}
+
+func TestInstallCommandCatalogScopes(t *testing.T) {
+	for _, tt := range []struct{ command, scope string }{
+		{"todo.new", "write:repository"}, {"todo.read", "read:repository"}, {"members.list", "read:repository"},
+		{"secrets.write", "write:repository"}, {"self.read", "read:user"}, {"agent.turn", "read:user"}, {"telemetry.report", "read:user"},
+	} {
+		policy, ok := installCommandPolicy(tt.command)
+		assert.True(t, ok)
+		assert.Equal(t, tt.scope, policy.CredentialScope, tt.command)
+	}
+}
+
+func TestUnknownDelegatedActorCannotRequestPersonAuthority(t *testing.T) {
+	for _, command := range []string{"members.write", "secrets.write", "todo.new", "todo.read"} {
+		info := &middleware.AuthInfo{User: &db.User{ID: 7}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "write:repository,via:unknown-tool", Scopes: middleware.ParseTokenScopes("write:repository")}
+		_, err := Authorize(middleware.ContextWithAuthInfo(context.Background(), info), nil, command)
+		var access *AccessError
+		assert.ErrorAs(t, err, &access)
+		assert.Equal(t, 403, access.Status)
+		assert.Equal(t, "permission", access.Code)
+	}
 }

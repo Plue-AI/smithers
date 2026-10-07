@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,6 +22,8 @@ import (
 
 type WorkspaceAccess = transport.WorkspaceAccess
 type WorkspaceBridge = transport.WorkspaceBridge
+type WorkspaceTCPBridge = transport.WorkspaceTCPBridge
+type WorkspaceTCPConnection = transport.WorkspaceTCPConnection
 type BranchResolver = transport.BranchResolver
 type AmbiguousBranchError = transport.AmbiguousBranchError
 
@@ -85,6 +88,9 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ssh: LFS authentication: %w", err)
 	}
+	if cfg.BranchLogins && cfg.BranchResolver == nil {
+		cfg.BranchResolver = &transport.InstallBranchResolver{Database: cfg.Database}
+	}
 	queries := db.New(cfg.Database)
 	cfg.Repository.SetPushMeter(services.NewGitStorageMeter(cfg.Admission, queries))
 	metrics := cfg.Metrics
@@ -118,6 +124,12 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 }
 
 func (s *Server) ListenAndServe() error { return s.server.ListenAndServe() }
+
+// Prepare validates the gateway and loads its host key without opening a port.
+func (s *Server) Prepare() error { return s.server.Prepare() }
+
+// Serve shares one gateway across the install's loopback and Settings listeners.
+func (s *Server) Serve(listener net.Listener) error { return s.server.Serve(listener) }
 
 func (s *Server) Shutdown(ctx context.Context) error {
 	err := s.server.Shutdown(ctx)

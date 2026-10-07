@@ -105,13 +105,6 @@ type Recommender interface {
 	SelectCommands(context.Context, CommandSelectionRequest) (CommandSelectionResult, error)
 }
 
-// RecommendationLog persists the receipt that pairs a recommendation with
-// the next command the user runs.
-type RecommendationLog interface {
-	AppendRecommendation(context.Context, RecommendationRequest, RecommendationResult, string) (string, error)
-	RecordRecommendationOutcome(context.Context, string, string, time.Time) (int, error)
-}
-
 // ModelStreamHost runs a sealed, non-tool model request in the same owner
 // scoped model host used by durable chat turns.
 type ModelStreamHost interface {
@@ -268,9 +261,10 @@ type ChatTurnGrant struct {
 	// Source is present only when the turn's author can read a mirrored
 	// main; the model host offers its source read tool only then.
 	Source *ChatTurnSource `json:"source,omitempty"`
-	// API is present only when the credential that admitted the turn is its
-	// author's browser session now; the model host offers the commands that
-	// read the install's API only then.
+	// AgentInstructions is backend-verified Active-main Markdown, never request data.
+	AgentInstructions string `json:"agentInstructions,omitempty"`
+	// API is a host-only credential bound to this producer generation and
+	// the turn's author. It never enters model input or conversation frames.
 	API *ChatTurnAPI `json:"api,omitempty"`
 }
 
@@ -280,19 +274,12 @@ type ChatTurnSource struct {
 	Repository string `json:"repository"`
 }
 
-// ChatTurnAPI names the person an app-agent turn's commands read the
-// install's API as, by the login their private cards are addressed to.
-type ChatTurnAPI struct {
-	Author string `json:"author"`
-}
+// ChatTurnAPI carries the delegated bearer and its author's private-card login.
+type ChatTurnAPI = services.TurnAPI
 
-// ChatAPIAnswer is one install route's answer to a host-run command.
-type ChatAPIAnswer = services.APIAnswer
-
-// Install API call refusals, stated by the producer's API callback.
+// Install API credential issuance refusal.
 var (
-	ErrAPIForbidden   = services.ErrAPIForbidden
-	ErrAPICallRefused = services.ErrAPICallRefused
+	ErrAPIForbidden = services.ErrAPIForbidden
 )
 
 // SourceFile is one file an app-agent turn read from its repository's
@@ -305,6 +292,8 @@ type SourceDirectory = services.SourceDirectory
 
 // SourceEntry is one entry of a listed directory: a file or a directory.
 type SourceEntry = services.SourceEntry
+
+const BuiltinAppInstructions = services.BuiltinAppInstructions
 
 // Source read refusals. A turn's host states each one to the model and the
 // conversation; none is retried by the host.

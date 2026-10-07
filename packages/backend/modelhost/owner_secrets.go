@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/smithersai/smithers/packages/backend/internal/config"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/subscriptiontoken"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/ports"
@@ -63,8 +64,9 @@ func NewOwnerSecretResolver(databaseURL, secretKey func() string, options ...Own
 
 func (resolver *OwnerSecretResolver) ResolveChatModel(ctx context.Context, ownerID, repositoryID int64, request json.RawMessage) (Binding, error) {
 	var input struct {
-		RepositoryID int64           `json:"repositoryId"`
-		Model        json.RawMessage `json:"model"`
+		SharedConversation bool            `json:"sharedConversation"`
+		RepositoryID       int64           `json:"repositoryId"`
+		Model              json.RawMessage `json:"model"`
 	}
 	var model struct {
 		Protocol   string `json:"protocol"`
@@ -93,11 +95,14 @@ func (resolver *OwnerSecretResolver) ResolveChatModel(ctx context.Context, owner
 	// §6.15): the owner's fast role or default, never a model the member's
 	// request names.
 	var installOwner int64
+	installRepositoryID, bindingErr := db.New(pool).InstallRepositoryID(ctx)
+	if bindingErr != nil && !errors.Is(bindingErr, pgx.ErrNoRows) {
+		return Binding{}, fmt.Errorf("read install repository: %w", bindingErr)
+	}
 	err = pool.QueryRow(ctx, `SELECT o.user_id FROM self_host_owners o
-		JOIN install_settings s ON s.key='github.repository'
-		JOIN collaborators c ON c.repository_id=(s.value->>'repository_id')::bigint AND c.user_id=$1 AND c.suspended_at IS NULL AND c.permission IN ('write','admin')
+		JOIN collaborators c ON c.repository_id=$2 AND c.user_id=$1 AND c.suspended_at IS NULL AND c.permission IN ('write','admin')
 		JOIN users u ON u.id=c.user_id AND NOT u.prohibit_login
-		WHERE o.singleton AND o.user_id<>$1`, ownerID).Scan(&installOwner)
+		WHERE o.singleton AND o.user_id<>$1`, ownerID, installRepositoryID).Scan(&installOwner)
 	switch {
 	case err == nil:
 		ownerID, input.Model = installOwner, nil
@@ -108,10 +113,14 @@ func (resolver *OwnerSecretResolver) ResolveChatModel(ctx context.Context, owner
 		// A turn that names no model is the app agent's. On an install it runs
 		// on the fast role Model access wrote (mvp.md §6.5), which is the
 		// coding model when no fast key was saved; elsewhere, on the default.
-		err = pool.QueryRow(ctx, `SELECT s.value FROM install_settings s JOIN self_host_owners o ON o.user_id=$1 WHERE s.key='agent:fast'`, ownerID).Scan(&input.Model)
-		if errors.Is(err, pgx.ErrNoRows) {
+		var claimedOwner int64
+		err = pool.QueryRow(ctx, `SELECT user_id FROM self_host_owners WHERE user_id=$1`, ownerID).Scan(&claimedOwner)
+		if err == nil {
+			input.Model, err = db.New(pool).EffectiveInstallAgentModel(ctx, "app")
+		} else if errors.Is(err, pgx.ErrNoRows) {
 			err = pool.QueryRow(ctx, `SELECT model FROM owner_model_defaults WHERE user_id=$1`, ownerID).Scan(&input.Model)
 		}
+
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Binding{}, ErrOwnerModelUnset
 		}
@@ -177,6 +186,24 @@ func (resolver *OwnerSecretResolver) ResolveChatModel(ctx context.Context, owner
 			return Binding{}, errors.New("owner model origin is invalid")
 		}
 		binding.CredentialOrigin = origin
+	}
+	if input.SharedConversation {
+		// The shared prompt route owns this marker. Resolve the owner fast
+		// role independently of an app override; missing fast access uses
+		// the existing coding-role fallback, never the browser's model.
+		fast, err := db.New(pool).EffectiveInstallAgentModel(ctx, "fast")
+		if err != nil {
+			return Binding{}, fmt.Errorf("read preflight model: %w", err)
+		}
+		request, err := json.Marshal(map[string]json.RawMessage{"model": fast})
+		if err != nil {
+			return Binding{}, err
+		}
+		preflight, err := resolver.ResolveChatModel(ctx, ownerID, input.RepositoryID, request)
+		if err != nil {
+			return Binding{}, fmt.Errorf("resolve preflight model: %w", err)
+		}
+		binding.Preflight = &preflight
 	}
 	return binding, nil
 }

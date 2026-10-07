@@ -92,7 +92,7 @@ func TestGitHubUserRepos_Cov_ResolveAndRequestErrors(t *testing.T) {
 	t.Setenv(envGitHubAppAPIBaseURL, upstream.URL)
 	_, _, err = service.requestGitHubUserRepos(context.Background(), "gho", url.Values{"page": []string{"1"}})
 	require.Error(t, err)
-	assert.Equal(t, 500, apiStatus(t, err))
+	assert.Equal(t, 502, apiStatus(t, err))
 }
 
 func TestGitHubUserRepos_Cov_WarmInvalidInputsAndPanicRecovery(t *testing.T) {

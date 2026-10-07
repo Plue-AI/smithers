@@ -1,4 +1,12 @@
-import { renderHomeCard, renderSetupCard } from "./cards/CardRenderers"
+import { useSharedConversation } from "./state/useSharedConversation"
+import { useTodoRole } from "./cards/TodoCard"
+import { SharedConversation } from "./SharedConversation"
+import { accountOwnerOf } from "./state/AccountOwner"
+import { renderHomeCard, renderConfirmCard } from "./cards/CardRenderers"
+import { memberConfirmations, memberConfirmCardProps } from "./cards/ApprovalCard"
+import { useTopic } from "./state/useTopic"
+import { flowArgs } from "./flows/FlowArgs"
+import { BranchNavigation } from "./BranchNavigation"
 import { shownInTranscript } from "./state/ApprovalDeciders"
 import {
 Button,
@@ -12,7 +20,7 @@ SmithersUiStyles
 } from "@smthrs/ui"
 import { useLiveQuery } from "@tanstack/react-db"
 import type { ReactNode, PointerEvent as ReactPointerEvent } from "react"
-import { useMemo,useRef,useSyncExternalStore } from "react"
+import { useMemo,useRef } from "react"
 import { controllerCardActions as cardActions } from "./cards/controllerCardActions"
 import { LoginScreen } from "./cards/LoginScreen"
 import { CardView } from "./ChatCards"
@@ -73,7 +81,6 @@ const EXTERNAL_SESSION = ((): { readonly agent: ExternalAgent; readonly id: stri
 
 function AppContent() {
   const controller = useController()
-  const install = useSyncExternalStore(controller.installSnapshots.subscribe, controller.installSnapshots.get, controller.installSnapshots.get)
   const { collections } = controller.store
   /*
    * The transcript's order is the QUERY's order (§hot path): sorting a copy of
@@ -103,6 +110,7 @@ function AppContent() {
       surface: session.surface,
       maximizedCardId: session.maximizedCardId,
       activeBranchId: session.activeBranchId,
+      branchNavigation: session.branchNavigation,
       devtoolsOpen: session.devtoolsOpen,
       paletteOpen: session.paletteOpen,
       dictating: session.dictating,
@@ -134,9 +142,10 @@ function AppContent() {
    * always main's. Rows keep their conversation stamp (a turn in flight writes
    * where it started), and this filter reads it.
    */
+  const earlier = session.branchNavigation?.open && session.branchNavigation.owner === (accountOwnerOf(identityRows[0]) ?? null) && session.branchNavigation.selected_branch === "earlier"
   const conversationTabId = conversationTabIdOf(session)
   // A recovery door is an acknowledgment only once its journal receipt exists.
-  const messages = messageRows.filter((message) => inConversation(message, conversationTabId) &&
+  const messages = messageRows.filter((message) => (!controller.sharedConversation || message.action !== undefined) && inConversation(message, conversationTabId) &&
     (message.action?.flow !== "sign-in" || savedSignInPrompts.some(receipt => receipt.id === message.id)))
   const conversationRows = cardRows.filter((card) => inConversation(card, conversationTabId))
   // Admin chrome follows the same capability-filtered registry as every act.
@@ -159,9 +168,14 @@ function AppContent() {
    */
   useLiveQuery(collections.repositoryFlows)
   const flows = controller.commands.all()
-  const typing = session.phase === "responding"
+  const sharedConversation = useSharedConversation(controller.sharedConversation)
+  const typing = controller.sharedConversation ? sharedConversation.conversation?.entries.some(row => "authorLogin" in row && row.authorLogin === identityRows[0]?.login && (row.state === "running" || row.state === "accepted")) === true : session.phase === "responding"
   const streamingMessageId = typing ? messages[messages.length - 1]?.id : undefined
   const identity = identityRows[0]
+  const confirmations = useTopic(identity?.state === "signed-in" && identity.memberId && controller.live
+    ? `confirmations:${identity.memberId}` : undefined, controller.live)
+  const confirmationRole = useTodoRole()
+  const privateConfirms = confirmations?.error ? [] : memberConfirmations(confirmations?.data)
 
   // The door is already mounted. Restore focus in this gesture, before the
   // user's next focus choice can be overwritten by a delayed frame.
@@ -335,7 +349,9 @@ function AppContent() {
       .map((card): TranscriptEntry => ({ kind: "card", card }))
   ].sort(transcriptOrder)
   // Batches before the newest ten fold into one row; opening it is transient chrome for this conversation only.
-  const transcriptKey = `${conversationTabId ?? "main"}:${session.activeRepoKey ?? ""}`
+  const transcriptKey = controller.sharedConversation
+    ? `${identity?.login ?? ""}:${session.branchNavigation?.selected_branch ?? "main"}:${sharedConversation.view ? "ready" : "loading"}`
+    : `${conversationTabId ?? "main"}:${session.activeRepoKey ?? ""}`
 
   /*
    * M-38: a Codex or Claude Code session run on the host's machine, read-only. `?codex=` or `?claude=` names one by
@@ -375,7 +391,7 @@ function AppContent() {
     // data-flow binding against exactly this surface.
     <div
       className="app-shell"
-      data-frame-maximized={session.maximizedCardId !== null}
+      data-frame-maximized={session.maximizedCardId !== null || Object.values(sharedConversation.view?.card_view ?? {}).includes("maximized")}
       data-flows={flows.map((command) => command.name).join(" ")}
       onPointerDownCapture={onShellPointerDownCapture}
       onClickCapture={event => {
@@ -408,6 +424,11 @@ function AppContent() {
         if (event.key === "Escape" && session.paletteOpen === true) {
           event.preventDefault()
           dismissComposer()
+          return
+        }
+        if (event.key === "Escape" && earlier) {
+          event.preventDefault()
+          controller.runCommand("branch", session.branchNavigation?.previous_branch ?? "main")
           return
         }
         if (event.key === "Escape" && session.maximizedCardId !== null) {
@@ -443,8 +464,9 @@ function AppContent() {
         data-testid="tab-body-main"
       >
       <MessageScrollerProvider key={transcriptKey} scrollAnchor="bottom"
-            initialMessageId={initialReadId}
-            readAnchor={{ messageId: latestReadId ?? "",
+            initialMessageId={sharedConversation.view?.scroll_anchor ?? initialReadId}
+            readAnchor={controller.sharedConversation ? undefined : { messageId: latestReadId ?? "",
+              targetId: latestEntry?.kind === "card" && latestEntry.card.kind === "docs" ? latestEntry.card.payload.anchor : undefined,
               actor: latestEntry?.kind === "message" && latestEntry.message.role === "user" ? "user" : "output",
               requestId: readRequestRef.current,
               userMessageId: messages.filter(message => message.role === "user").at(-1)?.id,
@@ -484,17 +506,21 @@ function AppContent() {
             data-login={loginScreen || undefined}
             data-testid="transcript" data-keyboard-pane="Conversation" role="log" aria-label="Conversation" aria-busy={typing}>
             <div data-slot="message-scroller" className="sui-msg-scroller" data-streaming={typing ? "true" : "false"}>
-            <MessageScrollerViewport fade>
+            <MessageScrollerViewport fade onScrollCapture={event => {
+              if (!controller.sharedConversation || !sharedConversation.view) return
+              const viewport = event.currentTarget, top = viewport.getBoundingClientRect().top
+              const first = [...viewport.querySelectorAll<HTMLElement>("[data-message-id]")].find(row => row.getBoundingClientRect().bottom > top + 1)
+              const anchor = first?.dataset.messageId
+              if (anchor && anchor !== sharedConversation.view.scroll_anchor) controller.sharedConversation.rememberScroll(anchor)
+            }}>
             <MessageScrollerContent className="sui-chat-messages">
-            {install.model && install.model.steps.some(step => step.state !== "done") && renderSetupCard({
-              install: controller.installSnapshots, allowed: true, view: { maximized: false }, onView: () => {},
-              dispatch: (name, payload, gesture) => controller.commands.submit({ name, payload: payload ?? {}, actor: "user", gesture })
-            })}
             {loginScreen && <MessageScrollerItem messageId="login" style={{ contentVisibility: "visible" }}>
               <LoginScreen onRunCommand={controller.runCommand} />
             </MessageScrollerItem>}
-            {!repositoryNotice && home && <MessageScrollerItem messageId={HOME_ENTRY_ID}>{homeCard}</MessageScrollerItem>}
-            {entries.map((entry) => <MessageScrollerItem key={entryId(entry)} messageId={entryId(entry)} style={{ contentVisibility: "visible" }}>
+            {!earlier && !repositoryNotice && home && <MessageScrollerItem messageId={HOME_ENTRY_ID}>{homeCard}</MessageScrollerItem>}
+            {!loginScreen && !repositoryNotice && <BranchNavigation />}
+            {!earlier && controller.sharedConversation && <SharedConversation source={controller.sharedConversation} />}
+            {!earlier && entries.filter(entry => !controller.sharedConversation || entry.kind !== "message" || entry.message.origin === "external" || entry.message.action !== undefined).map((entry) => <MessageScrollerItem key={entryId(entry)} messageId={entryId(entry)} style={{ contentVisibility: "visible" }}>
               {entry.kind === "external" ? <ExternalEntry item={entry.item} conversation={entry.conversation} /> : entry.kind === "card" ?
                 (
                   <CardView
@@ -514,7 +540,14 @@ function AppContent() {
                 ) :
                 <TranscriptMessage key={entry.message.id} entry={entry} streamingMessageId={streamingMessageId} />}
             </MessageScrollerItem>)}
-            {typing && <ChatMessage role="assistant" pending pendingLabel="Smithers is responding" />}
+            {!earlier && privateConfirms.map(row => <MessageScrollerItem key={`confirmation:${row.id}`} messageId={`confirmation:${row.id}`}>
+              {renderConfirmCard(memberConfirmCardProps(row, (tag, input) => {
+                if ((tag === "approval.approve" || tag === "approval.deny") && input && "cardId" in input) {
+                  controller.runCommand(tag, flowArgs(tag, { cardId: String(input.cardId) }))
+                }
+              }, confirmationRole !== "member"))}
+            </MessageScrollerItem>)}
+            {!earlier && typing && <ChatMessage role="assistant" pending pendingLabel="Smithers is responding" />}
             </MessageScrollerContent>
             </MessageScrollerViewport>
             <MessageScrollerButton />

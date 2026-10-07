@@ -4,7 +4,7 @@
  */
 
 import { z } from "zod"
-import { HttpUrlSchema } from "./WebUrl.ts"
+import { HttpUrlSchema, RelativeUrlPathSchema } from "./WebUrl.ts"
 
 /**
  * The offline avatar shown when a person's avatar is unavailable.
@@ -305,7 +305,9 @@ export const ContextItemSchema = z.object({
   kind: z.enum(["file", "page", "todo", "run", "issue"]),
   label: z.string(),
   ref: z.string(),
-  revision: z.string().optional()
+  revision: z.string().optional(),
+  /** Absent only on historical persisted context lines. */
+  reason: z.string().optional()
 })
 
 /**
@@ -333,7 +335,7 @@ export const EvidenceItemSchema = z.discriminatedUnion("kind", [
     name: z.string(),
     state: z.enum(["running", "passed", "failed"]),
     took_s: z.number().nonnegative().optional(),
-    log_url: HttpUrlSchema.optional()
+    log_url: z.union([HttpUrlSchema, RelativeUrlPathSchema]).optional()
   }),
   z.object({
     kind: z.literal("github_check"),
@@ -348,8 +350,16 @@ export const EvidenceItemSchema = z.discriminatedUnion("kind", [
     tokens: z.number().int().nonnegative(),
     time_s: z.number().nonnegative()
   }),
-  z.object({ kind: z.literal("flow"), name: z.string(), version: z.string() }),
-  z.object({ kind: z.literal("model_access"), label: z.string() })
+  z.object({ kind: z.literal("flow"), name: z.string(), version: z.string(), source_commit: z.string().optional() }),
+  z.object({ kind: z.literal("model_access"), label: z.string() }),
+  z.object({
+    kind: z.literal("wiki"),
+    slug: z.string().min(1),
+    pageID: z.string().regex(/^[1-9][0-9]*$/),
+    revision: z.number().int().positive(),
+    digest: z.string().regex(/^[0-9a-f]{64}$/),
+    url: RelativeUrlPathSchema
+  })
 ])
 
 /**
@@ -409,3 +419,6 @@ export const MergeSchema = z.object({
  * @category models
  */
 export type Merge = z.infer<typeof MergeSchema>
+
+/** A member's install role, shared by roster projections. @since 1.0.0 */
+export const MemberRoleSchema = z.enum(["owner", "maintainer", "member"])

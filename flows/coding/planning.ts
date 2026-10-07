@@ -10,7 +10,7 @@ import { Effect, Layer, Schema } from "effect"
 import { Learning, learningRows, maxLearnings } from "./learnings.ts"
 import { maxSources, Source } from "./planning-sources.ts"
 import { projectMemory } from "./project-memory.ts"
-import { AtomicPlan, Change, Check, CodingError, Plan, PlanningInput, Revision, validatePlan } from "./schema.ts"
+import { AtomicPlan, Change, Check, CodingError, Plan, PlanningInput, Revision, validatePlan, WikiCitation } from "./schema.ts"
 export { PlanningInput } from "./schema.ts"
 
 const Text = Schema.NonEmptyString
@@ -23,12 +23,7 @@ const Note = Schema.Struct({
   inputDigest: Text,
   generated: Schema.optionalKey(Schema.Boolean)
 })
-export const WikiCitation = Schema.Struct({
-  slug: Text,
-  pageID: Text,
-  revision: Schema.Int.check(Schema.isGreaterThan(0)),
-  digest: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/))
-})
+export { WikiCitation } from "./schema.ts"
 const Historical = Schema.Struct({ ...Revision.fields, description: Schema.String })
 export const PlanningContext = Schema.Struct({
   head: Revision,
@@ -43,9 +38,8 @@ export const PlanningContext = Schema.Struct({
   memoryRevision: Text,
   implementation: Text,
   implementationDigest: Text,
-  // Any number, including none: a repository with only a test script, or with
-  // no detected command at all, still plans (mvp.md J1.4).
-  checks: Schema.Array(Check),
+  // At least one check, including the configured build-only fallback.
+  checks: Schema.Array(Check).check(Schema.isMinLength(1)),
   // The current text of the files the request names, read by the host. Optional
   // only so a run parked before this field existed still replays its captured
   // context; every gathered context carries both arrays.
@@ -63,7 +57,7 @@ export const Draft = Schema.Struct({
     title: Text,
     intent: Text,
     atoms: Schema.Array(AtomicPlan).check(Schema.isMinLength(1), Schema.isMaxLength(100)),
-    checks: Schema.Array(Text)
+    checks: Schema.Array(Text).check(Schema.isMinLength(1))
   })).check(Schema.isMinLength(1), Schema.isMaxLength(50))
 })
 export type Draft = typeof Draft.Type
@@ -123,7 +117,7 @@ export const DraftPlan = AgentAction.make("coding/draft-plan", {
     "Place work where it belongs in the history. To append, choose the current head as baseChangeId and list only new atoms. To amend an older change or insert a new change after it, choose the visible native change before the first one you touch as base, then list every existing atom after that base through the current head in native order, with new atoms placed between them exactly where they belong. Do not omit, duplicate or reorder existing descendants; an empty undescribed working change at the head holds no code and need not be listed.",
     "Appending is the cheapest to reconcile with other work in flight; amend or insert only when the change genuinely belongs inside existing history (a fix to the change that introduced a bug, a missing piece of an existing feature).",
     "Use small contained intents and predict files read and written for every atom. Put fundamental stable work before volatile details when creating new atoms. Preserve existing descendants with explicit keep/revalidate intents if they require no edits.",
-    "Select check IDs only from context.checks. The host always includes every operator-required check on each Change; you may select additional optional checks. When context.checks is empty, select none and say No checks found in the rationale. Delivery checks retain their later delivery tier. Model assertions do not replace checks.",
+    "Select check IDs only from context.checks. The host always includes every operator-required check on each Change; you may select additional optional checks. Select at least one check. A build-only fallback records no checks detected. Delivery checks retain their later delivery tier. Model assertions do not replace checks.",
     "context.sources holds the current text of the files the request names; do not ask the human for file contents that are present there; ask only when a file is listed under missing and the request depends on it.",
     "Cited wiki decision pages are binding constraints. If the plan departs from one, name its slug and revision and explain why in the plan text.",
     "The memory block holds accepted lessons from earlier failed checks and reviews in this repository; plan so they do not recur.",
@@ -402,6 +396,7 @@ export const finalize = (input: typeof PlanningInput.Type, context: PlanningCont
   const plan: Plan = {
     prompt: input.prompt,
     memoryRevision: context.memoryRevision,
+    ...(context.wikiCitations === undefined ? {} : { wikiCitations: context.wikiCitations }),
     ...(memory.length === 0 ? {} : { memory }),
     base: context.history[baseIndex]!,
     observedHead: context.head,

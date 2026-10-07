@@ -3,6 +3,11 @@
 package live
 
 import (
+	"bytes"
+	"context"
+	"errors"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -41,14 +46,79 @@ func validID(id string) bool {
 	return id != "" && utf8.ValidString(id) && !strings.ContainsAny(id, ":/\\\x00") && strings.IndexFunc(id, unicode.IsSpace) < 0
 }
 
-// DocRelay is deliberately unmounted until T-COL-02 supplies authenticated
-// /api/live and T-COL-03r supplies the sole daemon codec. No boolean or fake
-// provider can activate it. The former terminal socket cannot serve documents.
-type DocRelay struct{}
+// Shared daemon contracts live in machined; aliases preserve existing consumers.
+type DocumentStream = machined.DocumentStream
+type DocumentRPC = machined.DocumentRPC
 
-func (DocRelay) Subscribe(topic string) string {
-	if _, ok := ParseDocumentTopic(topic); !ok {
-		return "unknown_topic"
+type DocumentSource struct {
+	OpenClient func(context.Context, uint32) (DocumentStream, error)
+	Open       func(context.Context) (DocumentStream, error)
+	Actor      []byte
+	Sequenced  bool
+	Ready      func() error
+}
+
+// DocRelay admits code documents to the shared host mirror.
+type DocRelay struct {
+	Host       *CodeDocuments
+	Authorize  func(context.Context, DocumentTopic, int64, int64) ([]byte, string)
+	Connection func(context.Context, string) (*machined.Connection, DocumentRPC)
+}
+
+func (r *DocRelay) Resolve(ctx context.Context, topic string, repository, member int64) (Source, string) {
+	doc, ok := ParseDocumentTopic(topic)
+	if !ok {
+		return Source{}, UnknownTopic
 	}
-	return "unsupported"
+	if r == nil || r.Host == nil || r.Host.Library == nil || doc.Kind != "code" || r.Authorize == nil || r.Connection == nil {
+		return Source{}, Unsupported
+	}
+	actor, refusal := r.Authorize(ctx, doc, repository, member)
+	if refusal != "" {
+		return Source{}, refusal
+	}
+	if len(actor) == 0 || len(actor) > 1024 || ctx.Err() != nil {
+		return Source{}, Forbidden
+	}
+	connection, rpc := r.Connection(ctx, doc.Branch)
+	if connection == nil || rpc == nil {
+		return Source{}, Unsupported
+	}
+	ready := func() error {
+		current, code := r.Authorize(ctx, doc, repository, member)
+		if code != "" || !bytes.Equal(current, actor) || ctx.Err() != nil {
+			return machined.ErrUnauthorized
+		}
+		return nil
+	}
+	if err := connection.RequireReady(doc.Branch); err != nil {
+		if errors.Is(err, machined.ErrNotReady) {
+			return Source{}, Unsupported
+		}
+		return Source{}, Forbidden
+	}
+	actor = append([]byte(nil), actor...)
+	return Source{Key: topic, Document: &DocumentSource{Actor: actor, Ready: ready, Open: func(ctx context.Context) (DocumentStream, error) {
+		if err := ready(); err != nil {
+			return nil, err
+		}
+		return r.Host.open(ctx, topic, func(peer context.Context) (DocumentStream, error) {
+			current, transport := r.Connection(peer, doc.Branch)
+			if current == nil || transport == nil {
+				return nil, machined.ErrNotReady
+			}
+			if err := current.RequireReady(doc.Branch); err != nil {
+				return nil, err
+			}
+			return transport.OpenDocument(peer, doc.Path, []byte("host"))
+		}, actor)
+	}}}, ""
+}
+
+func documentInput(kind byte, actor, payload []byte) ([]byte, error) {
+	msg := wire.DocumentInput
+	if kind == 2 {
+		msg = wire.DocumentAwarenessInput
+	}
+	return wire.EncodeDocument(wire.Document{Msg: msg, Actor: actor, Data: payload})
 }

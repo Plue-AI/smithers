@@ -2,7 +2,7 @@ import { flowAction } from "../flows/FlowAction"
 import { flowArgs } from "../flows/FlowArgs"
 
 import { Badge, Button, StatusPill } from "@smthrs/ui"
-import { Check, Circle, ExternalLink, Minus, Plug, RefreshCw, X } from "lucide-react"
+import { Check, Circle, Minus, RefreshCw, X } from "lucide-react"
 import { useCallback, useSyncExternalStore } from "react"
 import { ageLabel, timeLabel, untilLabel } from "../Timestamps"
 import type { Card } from "../state/AppState"
@@ -14,7 +14,6 @@ export interface SyncCardActions {
   readonly onRunCommand: RunCommand
 }
 
-type ConnectorSetupCard = Extract<Card, { kind: "connector-setup" }>
 type SyncOpsCard = Extract<Card, { kind: "sync-ops" }>
 type RateLimit = { readonly limit: number; readonly remaining: number; readonly resetAt: string | null }
 
@@ -108,54 +107,6 @@ export const syncCardFailure = (card: "setup" | "mirror", payload: { readonly er
   const key = payload.rateLimit !== undefined && payload.rateLimit.remaining === 0 ? "rate-limited" : "failed"
   return describedFailure(`GitHubSync.${card}.${key}`, SYNC_CARD_FAILURES[card][key], payload.error ?? "")
 }
-
-/** The GitHub App half: install state, the install/reconcile acts, the rate-limit line. */
-const GitHubSetupBody = ({ card, onRunCommand }: { readonly card: ConnectorSetupCard } & SyncCardActions) => {
-  const { repo, phase, installationId, configured, installUrl } = card.payload
-  const connected = phase === "connected"
-  /* A refused call holds Re-check and Reconcile until the reset, with the time on them (ADR "Rate limits"). */
-  const heldUntil = useRetryHold(card.payload.rateLimit)
-  return (
-    <div className="world-card-list">
-      <div className="world-card-row">
-        <span className="connect-store-icon">
-          <Plug size={14} />
-        </span>
-        <span className="world-card-title">
-          {connected
-            ? `GitHub App installed${installationId != null ? ` · installation ${installationId}` : ""}${configured === true ? " · configured" : ""}`
-            : "The Smithers GitHub App is not installed"}
-        </span>
-        <Badge variant={connected ? "success" : "outline"}>{connected ? "installed" : "not installed"}</Badge>
-      </div>
-      <div className="world-card-row">
-        {!connected && installUrl !== undefined ?
-          (
-            <Button size="sm" variant="outline"  {...flowAction(onRunCommand, "github.app.open", repo)}>
-              <ExternalLink size={14} /> Open GitHub
-            </Button>
-          ) :
-          null}
-        <Button size="sm" variant="ghost"  disabled={heldUntil !== null} {...flowAction(onRunCommand, "github.app", repo)}>
-          <RefreshCw size={14} /> {heldUntil === null ? "Re-check" : `Re-check after ${heldUntil}`}
-        </Button>
-        <Button size="sm" variant="ghost"  disabled={heldUntil !== null} {...flowAction(onRunCommand, "github.reconcile", repo)}>
-          {heldUntil === null ? "Reconcile" : `Reconcile after ${heldUntil}`}
-        </Button>
-      </div>
-      {card.payload.rateLimit !== undefined ? <RateLimitLine rateLimit={card.payload.rateLimit} /> : null}
-      {card.payload.error !== undefined ?
-        <FailureNotice className="world-card-path" data-testid="connector-setup-failure" failure={syncCardFailure("setup", card.payload)} /> :
-        null}
-    </div>
-  )
-}
-
-export const ConnectorSetupCardBody = ({
-  card,
-  onRunCommand
-}: { readonly card: ConnectorSetupCard } & SyncCardActions) =>
-  <GitHubSetupBody card={card} onRunCommand={onRunCommand} />
 
 const OP_LIMIT = 10
 
@@ -266,14 +217,7 @@ export const SyncOpsCardBody = ({ card, onRunCommand }: { readonly card: SyncOps
 }
 
 /* Lane sync (ADR 0005): the wizard runs, the connected state settles. */
-export const syncCardFamily: CardFamily<"connector-setup" | "sync-ops"> = {
-  "connector-setup": {
-    render: (card, actions) => <ConnectorSetupCardBody card={card} onRunCommand={actions.onRunCommand} />,
-    pill: (card) => {
-      if (card.payload.error !== undefined) return "failed"
-      return card.payload.phase === "connected" ? "done" : "running"
-    }
-  },
+export const syncCardFamily: CardFamily<"sync-ops"> = {
   "sync-ops": {
     render: (card, actions) => <SyncOpsCardBody card={card} onRunCommand={actions.onRunCommand} />,
     pill: (card) => {

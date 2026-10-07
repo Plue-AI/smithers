@@ -18,10 +18,11 @@ import (
 // token minter (§12.1.3), and Budget accounts every GitHub request the roster
 // makes against the install's shared rate budget.
 type Members struct {
-	Pool        *pgxpool.Pool
-	Credentials GitHubAppCredentialReader
-	Minter      GitHubInstallationTokenMinter
-	Budget      *BudgetTracker
+	Pool           *pgxpool.Pool
+	Credentials    GitHubAppCredentialReader
+	Minter         GitHubInstallationTokenMinter
+	Budget         *BudgetTracker
+	permissionPoll *memberPermissionPoll
 }
 
 // gitHubMemberPermissions is everything a roster check needs: GitHub lists
@@ -40,6 +41,9 @@ func (m *Members) memberToken(ctx context.Context, installationID int64) (string
 	if err != nil {
 		return "", err
 	}
+	if token.Token == "" || token.InstallationID != installationID {
+		return "", GitHubRequestFailure(ctx, "GitHub installation token unavailable")
+	}
 	return token.Token, nil
 }
 
@@ -54,19 +58,11 @@ func (m *Members) VerifyOwner(ctx context.Context, user db.User) error {
 	if owner.ID != user.ID {
 		return pkgerrors.Forbidden("not a member")
 	}
-	setting, err := q.GetInstallSetting(ctx, "github.repository")
+	repo, err := q.ReadInstallRepositoryBinding(ctx)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
-		return err
-	}
-	var repo struct {
-		Owner string `json:"owner_login"`
-		Name  string `json:"repository_name"`
-		ID    int64  `json:"repository_id"`
-	}
-	if err = json.Unmarshal(setting.Value, &repo); err != nil {
 		return err
 	}
 	if !gitHubAppComponent.MatchString(repo.Owner) || !gitHubAppComponent.MatchString(repo.Name) {
@@ -111,6 +107,9 @@ func (m *Members) VerifyOwner(ctx context.Context, user db.User) error {
 		if _, err = tx.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'admin') ON CONFLICT(repository_id,user_id) WHERE user_id IS NOT NULL DO UPDATE SET permission='admin'`, repo.ID, user.ID); err != nil {
 			return err
 		}
+	}
+	if err = allocateRosterLogins(ctx, tx); err != nil {
+		return err
 	}
 	value, _ := json.Marshal(map[string]any{"last_access_check_at": time.Now().UTC(), "installation_id": installation.ID, "repository_id": repo.ID, "owner_login": repo.Owner, "repository_name": repo.Name})
 	if err = db.New(tx).UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "owner.access", Value: value}); err != nil {

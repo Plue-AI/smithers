@@ -8,10 +8,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
-// GitHubSyncHealth projects T-GH-02's persisted required-stream receipts; it
+// GitHubSyncHealth projects T-GH-02's required-stream observations; it
 // replaces the install's per-repository pull status, without another store.
 type GitHubSyncHealth struct {
 	staleAt       time.Time
@@ -21,10 +22,11 @@ type GitHubSyncHealth struct {
 	RetryAt       *time.Time `json:"retry_at,omitempty"`
 }
 
-// GitHubSyncStream is a required stream's persisted input, not a new receipt.
+// GitHubSyncStream is a required stream's observation, not a second cache.
 // A transport failure leaves LastSuccessAt intact; only permission and
 // not_installed are refusals. RetryAt includes the shared budget pause.
 type GitHubSyncStream struct {
+	Background    bool
 	Target        time.Duration
 	LastSuccessAt *time.Time
 	Cause         string
@@ -32,8 +34,8 @@ type GitHubSyncStream struct {
 }
 
 // GitHubSyncStreams is supplied by the existing poll/admission provider.
-// Retry must durably schedule every required stream atomically, retaining
-// persisted pauses and charging admission before any upstream request.
+// Its methods read local observations or schedule existing workers; they never
+// await GitHub. Retry retains in-memory pauses and shared budget admission.
 type GitHubSyncStreams interface {
 	RequiredStreams(context.Context) ([]GitHubSyncStream, error)
 	RetryStreams(context.Context) error
@@ -47,42 +49,77 @@ type gitHubMainPullReceipts interface {
 	RequestUntrackedGithubMainPulls(ctx context.Context, limit int32) (int64, error)
 }
 
-// gitHubMainPullStreams is the install's one required stream so far: each
-// followed repository's main, read by the main pull. github_main_pulls is
+// gitHubMainPullStreams reports each followed repository's main, read by
+// the existing main pull. github_main_pulls is
 // its receipt: last_synced_at is the last read that found or made the
 // install's main equal to GitHub's, which a failed read leaves intact.
-type gitHubMainPullStreams struct{ receipts gitHubMainPullReceipts }
+type gitHubMainPullStreams struct {
+	receipts gitHubMainPullReceipts
+	wake     func()
+	observe  func(db.GithubMainPull) GitHubSyncStream
+}
 
 func (g gitHubMainPullStreams) RequiredStreams(ctx context.Context) ([]GitHubSyncStream, error) {
+	if g.observe == nil {
+		if _, ok := g.receipts.(interface {
+			GetInstallSetting(context.Context, string) (db.InstallSetting, error)
+		}); !ok {
+			return nil, githubSyncUnavailable()
+		}
+	}
 	rows, err := g.receipts.ListGithubMainPulls(ctx)
 	if err != nil {
 		return nil, err
 	}
 	streams := make([]GitHubSyncStream, 0, len(rows))
 	for _, row := range rows {
-		var stream GitHubSyncStream
-		if row.LastSyncedAt.Valid {
-			at := row.LastSyncedAt.Time
-			stream.LastSuccessAt = &at
-		}
-		streams = append(streams, stream)
-	}
-	// The permission worker uses the same required-stream health projection.
-	if settings, ok := g.receipts.(interface {
-		GetInstallSetting(context.Context, string) (db.InstallSetting, error)
-	}); ok {
-		setting, e := settings.GetInstallSetting(ctx, "github.permissions.health")
-		if e == nil {
+		if g.observe != nil {
+			streams = append(streams, g.observe(row))
+		} else {
 			var stream GitHubSyncStream
-			if e = json.Unmarshal(setting.Value, &stream); e != nil {
-				return nil, e
+			if row.LastSyncedAt.Valid {
+				at := row.LastSyncedAt.Time
+				stream.LastSuccessAt = &at
 			}
 			streams = append(streams, stream)
-		} else if !errors.Is(e, pgx.ErrNoRows) {
-			return nil, e
+		}
+	}
+
+	// The persisted projection owns permissions when no separate provider is installed.
+	if g.observe == nil {
+		if settings, ok := g.receipts.(interface {
+			GetInstallSetting(context.Context, string) (db.InstallSetting, error)
+		}); ok {
+			setting, err := settings.GetInstallSetting(ctx, "github.permissions.health")
+			if err == nil {
+				var stream GitHubSyncStream
+				if err := json.Unmarshal(setting.Value, &stream); err != nil {
+					return nil, err
+				}
+				stream.Background = true
+				streams = append(streams, stream)
+			} else if !errors.Is(err, pgx.ErrNoRows) {
+				return nil, err
+			}
 		}
 	}
 	return streams, nil
+}
+
+// Ref health is committed under the same claim as the read receipt. A new
+// service can recover refusals and pauses without contacting GitHub.
+func (s *GitHubMainPullService) refHealthStream(row db.GithubMainPull) GitHubSyncStream {
+	var stream GitHubSyncStream
+	if row.LastSyncedAt.Valid {
+		at := row.LastSyncedAt.Time
+		stream.LastSuccessAt = &at
+	}
+	stream.Cause = row.HealthCause
+	if row.RetryAt.Valid {
+		at := row.RetryAt.Time
+		stream.RetryAt = &at
+	}
+	return stream
 }
 
 // RetryStreams makes every followed main due now, enrolling any repository
@@ -92,6 +129,9 @@ func (g gitHubMainPullStreams) RetryStreams(ctx context.Context) error {
 		return err
 	}
 	_, err := g.receipts.RequestAllGithubMainPulls(ctx)
+	if err == nil && g.wake != nil {
+		g.wake()
+	}
 	return err
 }
 
@@ -106,10 +146,6 @@ func githubSyncUnavailable() error {
 	return &GitHubSyncUnavailable{Code: "github_sync_unavailable", Class: "infra", Message: "GitHub sync is unavailable"}
 }
 
-// UseInstallPolicy makes the pull the install's GitHub sync: every GitHub
-// repository is followed with no declaration, on the install cadence, as
-// the one writer of the install's main (mainWriter), and its receipts are
-// the sync's health. Plue keeps declaration-based enrollment.
 // gitHubIssueEventsEvery is the install's issue-events cadence (engineering
 // spec §12.2: issues and issue events every 120 s; mvp.md §6.3: issues
 // within 5 minutes), and gitHubIssueEventsTimeout bounds one repository's
@@ -135,7 +171,7 @@ func (s *GitHubMainPullService) SetIssueEvents(read func(ctx context.Context, re
 // no other repository's read.
 func (s *GitHubMainPullService) readIssueEvents(ctx context.Context) {
 	receipts, ok := s.store.(gitHubMainPullReceipts)
-	if !s.install || s.issueEvents == nil || !ok {
+	if !s.install || s.issueEvents == nil || !ok || s.installSyncReady(ctx) != nil {
 		return
 	}
 	rows, err := receipts.ListGithubMainPulls(ctx)
@@ -160,10 +196,117 @@ func (s *GitHubMainPullService) readIssueEvents(ctx context.Context) {
 	}
 }
 
-func (s *GitHubMainPullService) UseInstallPolicy() {
-	s.install = true
-	if receipts, ok := s.store.(gitHubMainPullReceipts); ok {
-		s.syncStreams = gitHubMainPullStreams{receipts: receipts}
+// UseInstallPolicy selects install behavior without qualifying its providers.
+// SetInstallSyncStreams supplies the complete poll/admission boundary.
+func (s *GitHubMainPullService) UseInstallPolicy() { s.install = true }
+
+// SetInstallSyncStreams composes the existing readers, not another scheduler.
+// Missing check/review owners remain stale without blocking qualified readers.
+func (s *GitHubMainPullService) SetInstallSyncStreams(repository, checks, reviews, permissions GitHubSyncStreams) {
+	receipts, ok := s.store.(gitHubMainPullReceipts)
+	if !s.install || !ok {
+		return
+	}
+	s.refReadAdmission, _ = repository.(interface {
+		prepareRefRead(context.Context, db.GithubMainPull) (gitHubRefReadCommit, error)
+	})
+	if s.refReadAdmission == nil {
+		s.syncStreams = nil
+		return
+	}
+	s.syncStreams = requiredGitHubSyncStreams{
+		refs:       gitHubMainPullStreams{receipts: receipts, wake: s.wakePull, observe: s.refHealthStream},
+		repository: repository, checks: checks, reviews: reviews, permissions: permissions,
+	}
+}
+
+type requiredGitHubSyncStreams struct {
+	refs, repository, checks, reviews, permissions GitHubSyncStreams
+}
+
+func (g requiredGitHubSyncStreams) providers() []GitHubSyncStreams {
+	return []GitHubSyncStreams{g.refs, g.repository, g.checks, g.reviews, g.permissions}
+}
+
+func (g requiredGitHubSyncStreams) RequiredStreams(ctx context.Context) ([]GitHubSyncStream, error) {
+	var result []GitHubSyncStream
+	for index, p := range g.providers() {
+		if p == nil {
+			// Missing downstream owners are stale observations, not admission gates
+			// for independently qualified streams.
+			result = append(result, GitHubSyncStream{})
+			continue
+		}
+		observations, err := p.RequiredStreams(ctx)
+		if err != nil {
+			return nil, err
+		}
+		// Permission reads are hourly (§12.2), outside the required freshness
+		// streams (§12.2.3). Preserve unread authority, refusals and pauses;
+		// a successful roster read must not expire the faster sync streams.
+		if index == 4 {
+			for _, observation := range observations {
+				if observation.LastSuccessAt == nil || observation.Cause == "permission" || observation.Cause == "not_installed" || observation.RetryAt != nil {
+					result = append(result, observation)
+				}
+			}
+		} else {
+			result = append(result, observations...)
+		}
+	}
+	return result, nil
+}
+
+func (g requiredGitHubSyncStreams) RetryStreams(ctx context.Context) error {
+	var failures []error
+	owners := map[*GitHubSyncedRepoService]bool{}
+	for _, p := range g.providers() {
+		if p == nil {
+			continue
+		}
+		if _, err := p.RequiredStreams(ctx); err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		// Projections of one poller schedule that owner once per Retry.
+		if shared, ok := p.(interface {
+			sharedRetryOwner() *GitHubSyncedRepoService
+		}); ok {
+			owner := shared.sharedRetryOwner()
+			if owners[owner] {
+				continue
+			}
+			owners[owner] = true
+		}
+		if err := p.RetryStreams(ctx); err != nil {
+			failures = append(failures, err)
+		}
+	}
+	return errors.Join(failures...)
+}
+
+func (s *GitHubMainPullService) installSyncReady(ctx context.Context) error {
+	if !s.install {
+		return nil
+	}
+	if s.syncStreams == nil || s.refReadAdmission == nil {
+		return githubSyncUnavailable()
+	}
+	if streams, ok := s.syncStreams.(requiredGitHubSyncStreams); ok {
+		if streams.repository == nil {
+			return githubSyncUnavailable()
+		}
+		_, err := streams.repository.RequiredStreams(ctx)
+		return err
+	}
+	_, err := s.syncStreams.RequiredStreams(ctx)
+	return err
+}
+
+func (s *GitHubMainPullService) wakePull() {
+	select {
+	case s.wake <- struct{}{}:
+	default:
 	}
 }
 
@@ -182,6 +325,11 @@ func (s *GitHubMainPullService) SyncHealth(ctx context.Context) (GitHubSyncHealt
 }
 
 func (s *GitHubMainPullService) RetrySync(ctx context.Context) error {
+	if s != nil {
+		if err := s.installSyncReady(ctx); err != nil {
+			return err
+		}
+	}
 	if s == nil || s.syncStreams == nil {
 		return githubSyncUnavailable()
 	}
@@ -193,13 +341,13 @@ func aggregateGitHubSyncHealth(streams []GitHubSyncStream, now time.Time) GitHub
 	missing, refused := len(streams) == 0, false
 	stale := false
 	for _, stream := range streams {
-		if stream.LastSuccessAt == nil {
+		if !stream.Background && stream.LastSuccessAt == nil {
 			missing = true
-		} else if health.LastSuccessAt == nil || stream.LastSuccessAt.Before(*health.LastSuccessAt) {
+		} else if !stream.Background && (health.LastSuccessAt == nil || stream.LastSuccessAt.Before(*health.LastSuccessAt)) {
 			at := *stream.LastSuccessAt
 			health.LastSuccessAt = &at
 		}
-		if stream.LastSuccessAt != nil {
+		if !stream.Background && stream.LastSuccessAt != nil {
 			target := stream.Target
 			if target <= 0 {
 				target = 60 * time.Second
@@ -235,7 +383,7 @@ func aggregateGitHubSyncHealth(streams []GitHubSyncStream, now time.Time) GitHub
 		health.State = "refused"
 	case health.RetryAt != nil:
 		health.State = "limited"
-	case missing || stale:
+	case missing || stale || health.LastSuccessAt == nil:
 		health.State = "stale"
 	}
 	return health

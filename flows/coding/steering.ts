@@ -13,6 +13,7 @@ import { ModuleOwner } from "../../packages/smithers/src/internal/ModuleOwner.ts
 import { CodingError, PlanningInput } from "./schema.ts"
 
 const flowId = "coding/request"
+const todoFlowId = "todo"
 const lineage = (rootId: string) => JSON.stringify([flowId, rootId])
 const unavailable = (notificationId: string) =>
   new NotificationQueue.NotificationError({
@@ -38,33 +39,38 @@ export const routeMessages = (
       }
       return journal.transact(Effect.gen(function*() {
         const run = yield* control.getRun(runId).pipe(Effect.mapError(() => unavailable(notification.id)))
-        // TODO ownership, boundary closure and guest delivery are supplied by
-        // T-FLW-11/T-STK-01. Until their production gates pass, a TODO message
-        // must not fall through to generic admission and reach a model turn.
-        if (run.flowId === "todo") return yield* Effect.fail(unavailable(notification.id))
-        if (notification.targetLineageId !== runId || run.flowId !== flowId) {
+        const todo = run.flowId === todoFlowId
+        if (!todo && (notification.targetLineageId !== runId || run.flowId !== flowId)) {
           return yield* queue.admit(runId, notification)
         }
         if (
           run.planId === undefined || run.status === "cancelled" || run.status === "failed" ||
           run.status === "completed"
         ) {
-          return yield* Effect.fail(unavailable(notification.id))
+          return yield* Effect.fail(todo && run.status !== "running" && run.planId !== undefined
+            ? new NotificationQueue.NotificationError({
+              code: "notification_closed", notificationId: notification.id,
+              message: "The TODO run has finished receiving feedback"
+            })
+            : unavailable(notification.id))
         }
         const plan = yield* control.getPlan(run.planId).pipe(Effect.mapError(() => unavailable(notification.id)))
         if (
-          plan.decision !== "approved" || plan.card.flowId !== flowId || run.planDigest !== plan.card.digest ||
+          plan.decision !== "approved" || plan.card.flowId !== run.flowId || run.planDigest !== plan.card.digest ||
           plan.card.executionDigest === undefined ||
           // `coding/request` IS its own flow, so its approved envelope names no
           // delegate. An envelope that names one was approved for a descriptor
           // that hands this work to code this coordinator does not own, and a
           // steering message must not reach it.
-          plan.card.envelope.flows.length !== 0
+          (!todo && plan.card.envelope.flows.length !== 0)
         ) {
           return yield* Effect.fail(unavailable(notification.id))
         }
-        const closed = yield* isClosed(journal, runId)
-        const receipt = yield* queue.admit(runId, { ...notification, targetLineageId: lineage(runId) })
+        // TODO descendants share the root's harness source (ModuleAuthority).
+        // Keep messages there so an implement step drains before every model
+        // call, including while the coordinator is blocked inside that step.
+        const closed = todo ? false : yield* isClosed(journal, runId)
+        const receipt = yield* queue.admit(runId, { ...notification, targetLineageId: todo ? runId : lineage(runId) })
         if (receipt.duplicate) return receipt
         // A duplicate keeps its original acceptance; a new admission after the
         // final empty receipt rolls back with this transaction, including the
@@ -94,7 +100,10 @@ export const routeMessages = (
     })
 })
 
-const Boundary = Schema.Literals(["after-poc", "before-implementation", "after-correction"])
+const Boundary = Schema.Literals([
+  "route", "plan", "poc", "implement", "correct", "deliver",
+  "after-poc", "before-implementation", "after-correction"
+])
 const Revision = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
 const BoundaryTuple = Schema.Tuple([Schema.NonEmptyString, Boundary, Revision])
 const decodeBoundary = Schema.decodeUnknownOption(Schema.fromJsonString(BoundaryTuple))
@@ -173,7 +182,7 @@ export const ReceiveFeedback = Action.make("coding/receive-request-feedback", {
 export const receiveFeedback = (input: typeof ReceiveFeedback.payloadSchema.Type) =>
   Effect.gen(function*() {
     const owner = yield* Effect.serviceOption(ModuleOwner)
-    if (Option.isNone(owner) || owner.value.flowId !== flowId) {
+    if (Option.isNone(owner) || (owner.value.flowId !== flowId && owner.value.flowId !== todoFlowId)) {
       return yield* Effect.fail(
         new CodingError({
           code: "unavailable",
@@ -186,7 +195,7 @@ export const receiveFeedback = (input: typeof ReceiveFeedback.payloadSchema.Type
     const boundary = feedbackBoundary(instance.executionId, input)
     const receipt = yield* queue.drain({
       runId: owner.value.rootId,
-      targetLineageId: lineage(owner.value.rootId),
+      targetLineageId: owner.value.flowId === todoFlowId ? owner.value.rootId : lineage(owner.value.rootId),
       boundary,
       wouldIdle: true
     }).pipe(Effect.mapError(() =>

@@ -40,6 +40,7 @@ func TestTodoFromIssueCommitsTheDraftAsTheIssueTodo(t *testing.T) {
 	s := NewMythicalService(pool, nil)
 	s.github = &snapshotIssueGitHub{gh}
 	ctx = middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: userID}, SessionHash: "will-session"})
+	ctx = registerTestInstallCredential(t, pool, ctx, repoID)
 	refused := func(t *testing.T, input MythicalTodoInput, status int, code string) {
 		t.Helper()
 		_, err := s.FileTodo(ctx, repoID, userID, input)

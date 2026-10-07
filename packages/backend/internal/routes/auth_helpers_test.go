@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -85,7 +86,7 @@ func TestAuthCookieHelpers(t *testing.T) {
 
 	t.Run("set_csrf_cookie", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		middleware.SetCSRFCookie(rec, "csrf-token", true, expiresAt)
+		middleware.SetCSRFCookie(rec, "csrf-token", true, expiresAt, http.SameSiteLaxMode)
 		cookies := rec.Result().Cookies()
 		require.Len(t, cookies, 1)
 		cookie := cookies[0]
@@ -93,7 +94,7 @@ func TestAuthCookieHelpers(t *testing.T) {
 		assert.Equal(t, "csrf-token", cookie.Value)
 		assert.False(t, cookie.HttpOnly)
 		assert.True(t, cookie.Secure)
-		assert.Equal(t, http.SameSiteStrictMode, cookie.SameSite)
+		assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
 		assert.Equal(t, expiresAt, cookie.Expires)
 		assert.Greater(t, cookie.MaxAge, 0)
 	})
@@ -162,4 +163,17 @@ func TestWriteRouteError_Matrix(t *testing.T) {
 		assert.Contains(t, rec.Body.String(), "health probe is not configured on this deployment")
 		assert.Contains(t, rec.Body.String(), string(pkgerrors.CodeCodingGatewayNotConfigured))
 	})
+}
+
+func TestAuthCookieSecureUsesEffectiveOrigin(t *testing.T) {
+	h := &AuthHandler{AuthConfig: config.AuthConfig{Mode: "selfhost", CookieSecure: true}, Origins: func() []string { return []string{"http://lan-a:4000", "https://box.example"} }}
+	for _, tc := range []struct {
+		host   string
+		secure bool
+	}{{"localhost:4000", false}, {"lan-a:4000", false}, {"box.example", true}} {
+		req := httptest.NewRequest("GET", "http://"+tc.host+"/", nil)
+		req.RemoteAddr = "127.0.0.1:1234"
+		req.Header.Set("X-Forwarded-Proto", "https")
+		assert.Equal(t, tc.secure, h.cookieSecure(req))
+	}
 }

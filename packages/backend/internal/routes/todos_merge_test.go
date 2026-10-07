@@ -125,3 +125,15 @@ func TestTodoMergeHTTPRefusals(t *testing.T) {
 	require.Empty(t, stored.PendingOp)
 	require.Equal(t, "proposed", stored.State)
 }
+
+func TestTodoMergeRefusalEnvelopeKeepsGitHubFieldMessages(t *testing.T) {
+	for _, status := range []int{405, 409, 422} {
+		refusal := &services.TodoGitHubRefusal{TodoControlError: &services.TodoControlError{Status: status, Code: "github_refused", Class: "github", Message: "GitHub refuses this merge"}, Errors: []struct {
+			Message string `json:"message"`
+		}{{"protected branch"}, {"head changed"}}}
+		response := httptest.NewRecorder()
+		todoRouteError(response, refusal)
+		require.Equal(t, status, response.Code)
+		require.JSONEq(t, `{"code":"github_refused","class":"github","message":"GitHub refuses this merge","errors":[{"message":"protected branch"},{"message":"head changed"}]}`, response.Body.String())
+	}
+}

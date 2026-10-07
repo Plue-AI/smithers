@@ -28,7 +28,7 @@ func TestMythicalOutboundLegacyAndInvalidSlots(t *testing.T) {
 }
 
 func TestMythicalOutboundLookupResults(t *testing.T) {
-	for _, kind := range []string{"push", "open", "body", "merge", "close"} {
+	for _, kind := range []string{"push", "open", "body", "draft", "merge", "close"} {
 		t.Run(kind, func(t *testing.T) {
 			op := MythicalOutboundOp{Kind: kind, Desired: "new", Precondition: "old"}
 			require.Equal(t, "done", outboundResult(op, "new", false))
@@ -46,7 +46,7 @@ func TestMythicalOutboundAbsentProvidersPreserveSlots(t *testing.T) {
 			guards := []func(context.Context, db.MythicalItem, string) error{allow, allow, allow, allow, allow, allow}
 			guards[missing] = nil
 			s := &MythicalService{outbound: MythicalOutboundProviders{CanonicalApp: guards[0], StackLease: guards[1], Budget: guards[2], Membership: guards[3], Authorization: guards[4], AcceptedGeneration: guards[5]}}
-			for _, kind := range []string{"push", "open", "body", "merge", "close"} {
+			for _, kind := range []string{"push", "open", "body", "draft", "merge", "close"} {
 				state := "unknown"
 				if kind == "merge" {
 					// A sent merge meets no guard: lookup alone settles it
@@ -135,7 +135,7 @@ func TestMythicalOutboundProposalRefusesBeforeResolve(t *testing.T) {
 
 func TestMythicalOutboundDroppedProposalOnlyReconciles(t *testing.T) {
 	for _, state := range []string{"cancelled", "dropped"} {
-		for _, kind := range []string{"push", "open", "body"} {
+		for _, kind := range []string{"push", "open", "body", "draft"} {
 			t.Run(state+"/"+kind, func(t *testing.T) {
 				slot := []byte(`{"kind":"` + kind + `","target":"x","desired":"new","precondition":"old","state":"unknown"}`)
 				reads, sends := 0, 0

@@ -360,3 +360,32 @@ func RecordFactInTx(ctx context.Context, tx pgx.Tx, scope Scope, operationID, ev
 	}
 	return appendEvent(ctx, tx, scope, operationID, eventType, State(state), canonical)
 }
+
+// HasEarlierPending orders matching inputs by their committed admission event,
+// across operation kinds and workers. An uncertain predecessor stays a barrier:
+// only its durable reconciliation can decide whether the input was applied.
+// The existing stream row lock makes event sequence follow commit order.
+func (store *Store) HasEarlierPending(ctx context.Context, scope Scope, operationID string, operations []string, fragment json.RawMessage) (bool, error) {
+	if err := scope.validate(); err != nil {
+		return false, err
+	}
+	filter, err := canonicalJSON(fragment, true)
+	if err != nil {
+		return false, err
+	}
+	var pending bool
+	err = store.pool.QueryRow(ctx, `
+ SELECT EXISTS (
+   SELECT 1 FROM product_job_events earlier
+   JOIN product_job_requests request ON request.id=earlier.operation_id
+   WHERE earlier.tenant_id=current.tenant_id AND earlier.principal_id=current.principal_id
+     AND earlier.event_type='operation.accepted' AND earlier.sequence < current.sequence
+     AND request.operation=ANY($4::text[]) AND request.payload @> $5::jsonb
+     AND request.state NOT IN ('completed','failed','cancelled')
+ )
+ FROM product_job_events current
+ WHERE current.tenant_id=$1 AND current.principal_id=$2
+   AND current.operation_id=$3 AND current.event_type='operation.accepted'`,
+		scope.TenantID, scope.PrincipalID, operationID, operations, filter).Scan(&pending)
+	return pending, err
+}

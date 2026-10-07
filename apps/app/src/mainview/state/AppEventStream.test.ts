@@ -177,3 +177,17 @@ describe("authoritative app event stream", () => {
     expect(() => replayAppEvents(initial.checkpoint, [forged], { ...valid.head, eventHash: forged.hash })).toThrow("event")
   })
 })
+
+test("recorded import cards migrate to durable requests without a live card", () => {
+  const initial = fixture()
+  const recorded = { id: "repo-import-owner/repo", kind: "repo-import", title: "Import", status: "active", ordinal: 1, createdAt: 100,
+    payload: { repo: "owner/repo", jobId: "job-recorded", phase: "running", detail: null, requestId: "request-recorded", accountOwner: "owner" } }
+  const snapshot = normalizeAppProjection({ ...initial.snapshot, cards: [recorded] })
+  expect(snapshot.cards[0]).toMatchObject({ kind: "retired", payload: { was: "repo-import" } })
+  expect(snapshot.sessions[0]?.repositoryImports?.[0]).toMatchObject({ payload: recorded.payload })
+  const next = append(initial, { type: "card.upsert", actor: "system", card: recorded } as unknown as AppTransition)
+  expect(next.snapshot.cards).toEqual([])
+  expect(next.snapshot.sessions[0]?.repositoryImports?.[0]).toMatchObject({ payload: recorded.payload })
+  const replayed = replayAppEvents(initial.checkpoint, [next.event], next.head)
+  expect(replayed.snapshot).toEqual(next.snapshot)
+})

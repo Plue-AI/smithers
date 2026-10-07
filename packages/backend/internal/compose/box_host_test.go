@@ -209,3 +209,36 @@ func TestBoxHostLauncherAddsTheTargetEnvironment(t *testing.T) {
 	require.Len(t, boxes.prepared, 1, "a refused environment never prepares the box")
 	require.Len(t, transport.started, 1)
 }
+
+type todoWakeBoxes struct {
+	recordingBoxes
+	wakes   []string
+	wakeErr error
+}
+
+func (b *todoWakeBoxes) WakeTodoWorkspace(_ context.Context, item, workspace string, _, _ int64) error {
+	b.wakes = append(b.wakes, item+"@"+workspace)
+	return b.wakeErr
+}
+
+func TestTodoHostWakeRunsOnlyOnStartBeforePreparation(t *testing.T) {
+	boxes := &todoWakeBoxes{}
+	transport := &recordingHostTransport{}
+	launcher := newBoxHostLauncher(transport, boxes, nil)
+	launch := flowhost.HostLaunch{Binding: flowhost.Binding{ID: "host", WorkspaceID: "lane", UserID: 9}, Authority: flowhost.Authority{WorkspaceID: "lane", RepositoryID: 3, UserID: 9, Target: flowruntime.Target{BindingKind: "mythical-item", BindingID: "todo"}}}
+	asleep := newBoxHostLauncher(stoppedBoxTransport{lost: workspaceapi.ErrWorkspaceStopped}, boxes, nil)
+	_, err := asleep.InspectFlowHost(context.Background(), launch)
+	require.ErrorIs(t, err, flowhost.ErrHostNotRunning)
+	require.Empty(t, boxes.wakes)
+	require.Empty(t, boxes.restarted, "read inspection must not wake a retained TODO")
+	_, err = launcher.StartFlowHost(context.Background(), launch)
+	require.NoError(t, err)
+	require.Equal(t, []string{"todo@lane"}, boxes.wakes)
+	require.Equal(t, []string{"host@lane"}, boxes.prepared)
+	require.Len(t, transport.started, 1)
+	boxes.wakeErr = errors.New("TODO paused during wake")
+	_, err = launcher.StartFlowHost(context.Background(), launch)
+	require.ErrorIs(t, err, boxes.wakeErr)
+	require.Len(t, boxes.prepared, 1, "denied wake mints no credential")
+	require.Len(t, transport.started, 1, "denied wake dispatches no host")
+}

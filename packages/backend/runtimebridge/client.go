@@ -60,6 +60,9 @@ var gatewayProcedures = map[string]bool{
 }
 
 func rpcPath(procedure string) string {
+	if strings.HasPrefix(procedure, "Branch.") {
+		return "/branch"
+	}
 	if gatewayProcedures[procedure] {
 		return "/projections"
 	}
@@ -459,6 +462,9 @@ func (c *Client) Steer(ctx context.Context, request flowruntime.FlowRuntimeSteer
 		"protocol": flowruntime.FlowRuntimeProtocol, "operation": "steer",
 		"applicationRequestId": request.ApplicationRequestID, "ownerGeneration": request.OwnerGeneration,
 		"runId": request.RunID, "messageId": request.MessageID, "createdAt": request.CreatedAt, "steer": steer,
+	}
+	if len(request.Attribution) > 0 {
+		input["attribution"] = request.Attribution
 	}
 	return c.mutate(ctx, input)
 }

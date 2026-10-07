@@ -30,7 +30,7 @@ const setup = async (fetchImpl?: import("./AppController").AppServices["fetchImp
 }
 
 // A repository read parks on repo-read, which an advertised public repository can satisfy; everything else on signed-in.
-for (const [name, args, requirement] of [["flow.run", "review smithersai/smithers", "signed-in"], ["secrets.list", undefined, "signed-in"], ["issues.view", "3", "repo-read"]] as const) {
+for (const [name, args, requirement] of [["flow.run", "review smithersai/smithers", "signed-in"], ["secrets", undefined, "signed-in"], ["issues.view", "3", "repo-read"]] as const) {
   test(`${name} signed out parks silently with one sign-in prompt across repeated clicks, without starting OAuth`, async () => {
     const { controller, store, requests, redirects } = await setup()
     controller.runCommand(name, args)
@@ -69,7 +69,7 @@ for (const source of ["issues", "github", "prs"] as const) {
 
 test("gates never copy a registry summary; a named launch keeps its repository", async () => {
   const { controller, store } = await setup()
-  await controller.commands.run("secrets.list")
+  await controller.commands.run("secrets")
   let prompts = [...store.collections.messages.values()].filter(message => message.action?.flow === "sign-in").sort((a, b) => a.ordinal - b.ordinal)
   expect(prompts.at(-1)?.text).toBe("Sign in with GitHub to continue.")
   await controller.commands.runForAgent("flow.run", "unpublished smithersai/smithers")
@@ -118,7 +118,7 @@ test("signed-out chrome doors share one short GitHub sign-in step", async () => 
   })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
   await settle()
-  const doors = ["triggers.list", "flow.list", "secrets.list", "history.show"]
+  const doors = ["triggers.list", "flow.list", "secrets", "stack"]
   for (const door of doors) expect(controller.commands.find(door)).toBeDefined()
   for (const door of doors) {
     controller.runCommand(door)

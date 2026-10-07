@@ -1,13 +1,9 @@
-smthrs stack — Submit, sync and land stacked GitHub pull requests
+smthrs stack — TODOs and the stack
 
 Usage: smthrs stack <command>
 
 Commands:
-  land      Land approved stack PRs from the bottom and re-stack remaining changes
-  status    Show stack status with PR, review, and CI state
-  submit    Create or update linked GitHub pull requests from the local jj stack
-  sync      Sync stack with merged PRs, rebase remaining changes, and refresh PR tables
-  unsubmit  Close stacked PRs, delete smithers remote branches, and remove stack mapping
+  move  Reorder an item
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

@@ -16,15 +16,19 @@ export const namespace: Namespace = { id: "github", label: "GitHub", summary: "T
 
 /** The `github` flows registered as one aggregator block. */
 export const githubFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
-  
+
   flow({
     name: "github.app",
-    summary: "Check the Smithers GitHub App on a repository",
-    runtime: ["cloud"],
+    summary: "Open Settings",
+    hidden: true,
+    minimumRole: "owner",
+    actors: ["person"],
+    agent: "never",
+    agentReason: "Install controls require the owner’s person session",
     args: "[owner/repo]",
     requires: ["signed-in"],
     input: RepoTarget,
-    handler: ({ repo }) => actions.githubApp(repo)
+    handler: async () => { await actions.presentCard("settings", "Settings"); return actions.showSettings() }
   }),
   flow({
     /* The card's Install button — browser mechanics the human clicks. */
@@ -58,7 +62,7 @@ export const githubFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     handler: ({ repo }) => actions.githubReconcile(repo)
   }),
   flow({
-    name: "github.mirror-sync",
+    name: "github.mirror-sync", visibility: "hidden",
     summary: "Sync the repository to GitHub",
     runtime: ["cloud"],
     args: "[owner/repo]",
@@ -72,7 +76,7 @@ export const githubFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
      * and rides as one escaped path segment; the answer is a new mirror run,
      * which the same card then tracks.
      */
-    name: "github.mirror.retry-ref",
+    name: "github.mirror.retry-ref", visibility: "hidden",
     summary: "Retry one failed mirror ref",
     runtime: ["cloud"],
     args: "<ref> [owner/repo]",

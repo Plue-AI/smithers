@@ -49,6 +49,9 @@ func (s *WorkspaceService) requireWorkspaceAccess(ctx context.Context, workspace
 		if err != nil {
 			return err
 		}
+		if minLevel == WorkspaceAccessRead {
+			return s.authorizeBranchFileRead(ctx, row, requesterUserID)
+		}
 		if err := s.preflightBranchMachine(ctx, row.RepositoryID, requesterUserID, row.TargetBookmark, row.ID); err != nil {
 			return err
 		}
@@ -86,13 +89,39 @@ type workspaceMutationAuthority struct {
 	userID      int64
 }
 
+type workspaceMutationTransactionKey struct{}
+type workspaceMutationTransaction struct {
+	authority workspaceMutationAuthority
+	tx        pgx.Tx
+}
+
+// Only work for this exact workspace/member may reuse its held transaction.
+// The authority owner commits it after the entire callback succeeds; nested
+// credential issuance must neither acquire another connection nor commit early.
+func heldWorkspaceMutationTransaction(ctx context.Context, workspaceID string, userID int64) pgx.Tx {
+	held, ok := ctx.Value(workspaceMutationTransactionKey{}).(workspaceMutationTransaction)
+	if !ok || held.authority != (workspaceMutationAuthority{workspaceID: workspaceID, userID: userID}) {
+		return nil
+	}
+	return held.tx
+}
+
+func commitWorkspaceMutation(ctx context.Context, tx pgx.Tx, authority workspaceMutationAuthority, fn func(context.Context) error) error {
+	held := context.WithValue(ctx, workspaceMutationAuthorityKey{}, authority)
+	held = context.WithValue(held, workspaceMutationTransactionKey{}, workspaceMutationTransaction{authority: authority, tx: tx})
+	if err := fn(held); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 // withWorkspaceMutationAuthority runs fn, a mutation of row (start, resume,
 // exec, preview publish, snapshot, fork), with the requester's write authority
 // checked inside the same transaction that fn runs under (#3212). The owner
 // needs no grant. A grantee's share row is held FOR SHARE until fn returns, so
 // a revocation or demotion waits for the authorized mutation, and a mutation
-// begun after it is refused. fn's own statements use the service store; the
-// transaction only holds the grant.
+// begun after it is refused. Credential issuance reuses this transaction;
+// ordinary service operations retain their existing stores.
 func (s *WorkspaceService) withWorkspaceMutationAuthority(ctx context.Context, row db.Workspace, requesterID int64, fn func(context.Context) error) error {
 	// Nested lifecycle steps already hold this workspace/member's grant.
 	// Reuse it before any pool read, so a held transaction never needs a
@@ -125,7 +154,7 @@ func (s *WorkspaceService) withWorkspaceMutationAuthority(ctx context.Context, r
 	if err != nil {
 		return pkgerrors.Internal("begin workspace mutation authority").WithCause(err)
 	}
-	// The transaction writes nothing; ending it releases the grant.
+	// Failed callbacks roll back any grant issuance with the authority scope.
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	level, err := db.New(tx).LockWorkspaceShareForMutation(ctx, db.LockWorkspaceShareForMutationParams{
 		WorkspaceID: row.ID, GranteeUserID: requesterID,
@@ -139,7 +168,7 @@ func (s *WorkspaceService) withWorkspaceMutationAuthority(ctx context.Context, r
 	if level != string(WorkspaceAccessWrite) {
 		return pkgerrors.Forbidden("access denied: write permission required")
 	}
-	return fn(held)
+	return commitWorkspaceMutation(ctx, tx, authority, fn)
 }
 
 // withWorkspaceMutation loads a workspace the requester may write and runs fn

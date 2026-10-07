@@ -1,20 +1,25 @@
-import { useSyncExternalStore, type ComponentType } from "react"
+import { useCallback, useSyncExternalStore, type ComponentType, type ReactNode } from "react"
 import { MembersCardSchema } from "@smthrs/rpc/MembersCard"
 import { useTopic } from "../state/useTopic"
+import type { MembersSnapshots } from "../state/seams/MembersSeam"
 import { useLiveQuery } from "@tanstack/react-db"
 import { TodoCardSchema, type TodoCard } from "@smthrs/rpc/TodoCard"
 import type { ConfirmCard } from "@smthrs/rpc/ConfirmCard"
 import type { PersonRef } from "@smthrs/rpc/CardPrimitives"
-import type { CardProps } from "@smthrs/rpc/CardAction"
+import type { CardProps, CatalogTag } from "@smthrs/rpc/CardAction"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
+import { flowArgs, type FlowInput } from "../flows/FlowArgs"
 import type { TodoEntry } from "../state/seams/TodoSeam"
 import { useController } from "../ControllerContext"
 import { useDesignTodoCard } from "../state/seams/DesignWorld/todo"
 import type { CardFamily, CardOf } from "./CardFamily"
 import { TodoView } from "./views/TodoView"
+import { LessonsReceiptContainer } from "./LessonsReceiptContainer"
 
 export interface TodoViewProps extends CardProps<TodoCard> {
   readonly answer?: { readonly text: string; readonly answered_by: string }
+  /** Card-owned terminal for the first (selected) conflict wait. Never serialized. */
+  readonly conflictTerminal?: ReactNode
 }
 export interface TodoContainerProps {
   /** The subscribed todo:<n> collection entry, populated by TodoSeam. */
@@ -24,6 +29,9 @@ export interface TodoContainerProps {
   readonly View: ComponentType<TodoViewProps>
   readonly view: CardProps<TodoCard>["view"]
   readonly onView: CardProps<TodoCard>["onView"]
+  /** Composed providers only; the design seed retains its supplied controls. */
+  readonly availableActions?: readonly CatalogTag[]
+  readonly conflictTerminal?: ReactNode
 }
 const mergeLabel = (model: TodoCard) => {
   if (model.merge.reason === "order") return `Merges after ${model.merge.detail ?? "the previous TODO"}`
@@ -35,21 +43,24 @@ export const todoActionDefinitions = (model: TodoCard, role: TodoContainerProps[
   const n = model.n
   const live = !["merged", "dropped"].includes(model.state)
   const definitions: CardActionDefinition[] = model.branch ? [{ tag: "branch", label: "Open branch", args: { name: model.branch.name, wait: "" }, command_input: { name: model.branch.name } }] : []
+  if (model.branch && live) definitions.push({ tag: "branch.fork", label: "Fork", command_input: { from: `T${n}` } })
   if (model.run) definitions.push({ tag: "run.inspect", label: "Inspect", command_input: { id: model.run.id } })
+  if (model.failure?.missing_tool) definitions.push({ tag: "image.add", label: "Add to machine image", command_input: { name: model.failure.missing_tool.name } })
   if (!live) return definitions
+  if (model.owner_removed && role !== "member") definitions.push({ tag: "todo.takeover", label: "Take over", command_input: { n } })
   const waitsFrom = definitions.length
   for (const wait of model.waits) {
     for (const action of wait.actions) {
       switch (action.tag) {
         case "todo.answer":
           if (!lateAnswer || (lateWait ? wait.id !== lateWait : model.waits.length > 1)) definitions.push({ ...action, tag: "todo.answer", args: { ...action.args, wait: wait.id },
-            command_input: { n, wait: wait.id, answer: "" },
+            command_input: { n, wait: wait.id, answer: action.args?.answer ?? "" },
             resolve_input: input => ({ n, wait: wait.id, answer: input.answer ?? "" }) })
           break
         case "branch":
           if (model.branch) definitions.push({ ...action, tag: "branch", args: { ...action.args, wait: wait.id }, command_input: { name: model.branch.name } }); break
         case "branch.bring-in": case "branch.discard-foreign":
-          if (wait.kind === "foreign_push" && wait.id && wait.sha && model.branch) definitions.push({ ...action, tag: action.tag, args: { ...action.args, wait: wait.id }, command_input: { branch: model.branch.name, id: wait.id, revision: wait.sha } })
+          if ((action.tag !== "branch.discard-foreign" || role !== "member") && wait.kind === "foreign_push" && wait.id && wait.sha && model.branch) definitions.push({ ...action, tag: action.tag, args: { ...action.args, wait: wait.id }, command_input: { branch: model.branch.name, id: wait.id, revision: wait.sha } })
           break
         case "todo.return-to-item": case "todo.keep-moved":
           definitions.push({ ...action, tag: action.tag, args: { ...action.args, wait: wait.id }, command_input: { n } }); break
@@ -60,12 +71,25 @@ export const todoActionDefinitions = (model: TodoCard, role: TodoContainerProps[
   for (let index = waitsFrom; index < definitions.length; index++) definitions[index] = { ...definitions[index]!, gesture: `wait:${index}` }
   // Steer and Amend are plain buttons: an empty text opens Chat on the flow's line (TodoBody); a late answer sends as is.
   definitions.push({ tag: "todo.steer", label: lateAnswer ? "Send as steer" : "Steer", command_input: { n, text: lateAnswer ?? "" } })
-  if (model.state === "paused") definitions.push({ tag: "todo.resume", label: "Resume", command_input: { n } })
-  if (["starting", "working"].includes(model.state) || model.state === "needs_you" && model.waits.some(wait => !["question", "approval"].includes(wait.kind))) definitions.push({ tag: "todo.stop", label: "Stop", command_input: { n } })
+  if (model.state === "paused" || model.pause) definitions.push({ tag: "todo.resume", label: "Resume", command_input: { n } })
+  if (!model.pause && model.state !== "paused" && model.waits.every(wait => !["question", "approval"].includes(wait.kind))
+    && (["starting", "working"].includes(model.state) || model.state === "needs_you" && model.waits.length > 0)) definitions.push({ tag: "todo.stop", label: "Stop", command_input: { n } })
   if (model.state === "failed" && model.failure?.retryable) definitions.push({ tag: "todo.retry", label: "Retry", command_input: { n },
     input: [{ name: "text", label: "Steer", kind: "text", required: false, multiline: true }],
     resolve_input: input => ({ n, text: input.text }) })
-  definitions.push({ tag: "todo.amend", label: "Amend", command_input: { n, text: "" } }, { tag: "todo.drop", label: "Drop", command_input: { n } })
+  if (model.state === "failed" && model.failure?.retryable) definitions.push({ tag: "todo.retry-current-flow", label: "Retry with the current flow", command_input: { n },
+    input: [{ name: "text", label: "Steer", kind: "text", required: false, multiline: true }],
+    resolve_input: input => ({ n, text: input.text }) })
+  if (model.state === "queued") {
+    const revision = model.prompt_revisions.at(-1)
+    definitions.push({ tag: "todo.amend", label: "Save", command_input: { n, text: revision?.text ?? "", acceptance: revision?.acceptance ?? [] },
+      input: [{ name: "text", label: "Prompt", kind: "text", required: true, multiline: true, value: revision?.text ?? "" },
+        { name: "acceptance", label: "Acceptance", kind: "text", required: false, multiline: true, value: revision?.acceptance.join("\n") ?? "" }],
+      resolve_input: input => ({ n, text: input.text ?? revision?.text ?? "", acceptance: (input.acceptance ?? revision?.acceptance.join("\n") ?? "").split("\n").filter(line => line.trim().length > 0) }) })
+  } else definitions.push({ tag: "todo.amend", label: "Amend", command_input: { n, text: "" } })
+  definitions.push({ tag: "todo.drop", label: "Drop", command_input: { n } })
+  if (live && role !== "member") definitions.push({ tag: model.preapproval ? "todo.unapprove" : "todo.preapprove",
+    label: model.preapproval ? "Remove pre-approval" : "Pre-approve", command_input: { n } })
   if (model.pr && model.state === "in_review") {
     // The served merge block is the one readiness rule; dispatch reads GitHub's head, checks, reviews and draft again.
     // Evidence names the verified candidate, and the PR head is its publication: another commit with the same tree.
@@ -102,26 +126,49 @@ export const reviewMergeOf = (model: TodoCard, role: TodoContainerProps["role"],
   ] }
 }
 /**
- * The viewer's role on this host's TODOs: the members roster, else the install owner's own session. The roster rides the
- * controller's live channel; a controller with none opens no socket.
+ * Home and TODO controls share the authenticated member roster. Until it answers, the live roster or
+ * the install owner's own session supplies the role; controllers without live open no socket.
  */
-export const useTodoRole = (): TodoContainerProps["role"] => {
+const NO_MEMBERS_SNAPSHOT = {}
+const NO_MEMBERS: MembersSnapshots = { get: () => NO_MEMBERS_SNAPSHOT, subscribe: () => () => {} }
+export const useTodoRole = (active = true): TodoContainerProps["role"] => {
   const controller = useController()
   const identity = useLiveQuery(controller.store.collections.identitySessions).data[0]
-  const members = useTopic(controller.bootstrap && controller.live ? "members" : undefined, controller.live)
+  const source = active && controller.design?.enabled === false ? controller.membersRoster ?? NO_MEMBERS : NO_MEMBERS
+  const subscribe = useCallback((notify: () => void) => {
+    const stop = source.subscribe(notify)
+    if (source !== NO_MEMBERS) controller.showMembers?.()
+    return stop
+  }, [controller, source])
+  const served = useSyncExternalStore(subscribe, source.get, source.get)
+  const members = useTopic(active && controller.bootstrap && controller.live ? "members" : undefined, controller.live)
   const roster = MembersCardSchema.safeParse(members?.data)
   const install = useSyncExternalStore(controller.installSnapshots.subscribe, controller.installSnapshots.get, controller.installSnapshots.get)
   const role = roster.success ? roster.data.members.find(member => member.login === identity?.login)?.role : undefined
+  if (served.model) return controller.membersRole?.() ?? "member"
+  if (served.error?.class === "permission" || served.error?.class === "never") return "member"
   return role ?? (install.model?.github.signed_in && install.model.github.owner === identity?.login ? "owner" : "member")
 }
-export const TodoContainer =({ card, role, dispatch, View, view, onView }: TodoContainerProps) => {
+export const TodoContainer =({ card, role, dispatch, View, view, onView, availableActions, conflictTerminal }: TodoContainerProps) => {
   if (!card.payload.model) return null
-  const model = TodoCardSchema.parse(card.payload.model)
+  const parsed = TodoCardSchema.parse(card.payload.model)
+  const model = role === "member" ? { ...parsed, waits: parsed.waits.map(wait => ({ ...wait,
+    actions: wait.actions.filter(action => action.tag !== "branch.discard-foreign") })) } : parsed
   const lateWait = [...card.payload.requests].reverse().find(request => request.operation === "answer" && request.state === "failed")?.body.wait
-  const bindings = cardActions(dispatch, todoActionDefinitions(model, role, card.payload.answeredBy ? card.payload.answerDraft : undefined,
-    typeof lateWait === "string" ? lateWait : undefined))
-  return <View model={model} actions={bindings.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView}
+  const definitions = todoActionDefinitions(model, role, card.payload.answeredBy ? card.payload.answerDraft : undefined,
+    typeof lateWait === "string" ? lateWait : undefined).filter(action => availableActions === undefined || availableActions.includes(action.tag))
+  const bindings = cardActions(dispatch, definitions)
+  // Render exactly the wait controls the adapter bound, including their stable wait args.
+  // A provider refusal cannot leave an unbound button visible in a mounted wait.
+  const receipt = model.state === "merged" && model.lessons_receipt?.todo === model.n && model.lessons === model.lessons_receipt.lessons.length ? model.lessons_receipt : undefined
+  const projected = { ...model, ...(receipt ? { lessons: undefined } : {}), waits: model.waits.map(wait => ({ ...wait, actions: definitions
+    .filter(action => action.gesture !== undefined && action.args?.wait === wait.id)
+    .map(action => bindings.gestures[action.gesture!]!) })) }
+  return <><View model={projected} actions={bindings.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView}
+    conflictTerminal={conflictTerminal}
     answer={card.payload.answeredBy ? { text: card.payload.answerDraft ?? "", answered_by: card.payload.answeredBy } : undefined} />
+    <LessonsReceiptContainer model={receipt} dispatch={dispatch} />
+  </>
 }
 
 /** The `todo` kind: the seeded design world's Tn while the seed is mounted (mock seam), else the server projection. */
@@ -132,6 +179,8 @@ const TodoBody = ({ card, maximized }: { readonly card: CardOf<"todo">; readonly
   const role = useTodoRole()
   const dispatch: CardCommandDispatch = (tag, input) => {
     const payload = (input ?? {}) as Record<string, unknown>
+    if (tag === "branch.discard-foreign") return controller.requestFlowConfirmation(tag, flowArgs(tag, payload as FlowInput["branch.discard-foreign"]), "discard this outside push", "Discard this outside push?")
+    if (tag === "todo.drop") return controller.requestFlowConfirmation(tag, flowArgs("todo.drop", { n: card.payload.n }), "drop this TODO", `Drop T${card.payload.n}?`)
     if ((tag === "todo.steer" || tag === "todo.amend") && !payload.text) {
       controller.changeDraft(`/${tag} T${card.payload.n} `)
       return controller.runCommand("chat.open")
@@ -140,8 +189,13 @@ const TodoBody = ({ card, maximized }: { readonly card: CardOf<"todo">; readonly
   }
   const entry: TodoEntry = seeded === undefined ? card : { ...card, payload: { ...card.payload, model: seeded.model } }
   return <TodoContainer card={entry} role={seeded?.role ?? role} dispatch={dispatch} View={TodoView}
-    view={{ maximized }} onView={() => {}} />
+    view={{ maximized }} onView={() => {}} availableActions={seeded ? undefined : [...servedTodoActions, ...(controller.openBranch ? ["branch" as const] : []), ...(controller.forkBranch ? ["branch.fork" as const] : [])]} />
 }
+// POST/PATCH /api/todos/{n}, question answer and merge are composed on the install.
+// Branch navigation is supplied when its install provider is composed.
+// Stop/Resume, Bring in and conflict repair/terminal providers remain gated until their composition lands.
+const servedTodoActions: readonly CatalogTag[] = ["run.inspect", "todo.answer", "todo.steer", "todo.amend", "todo.drop", "todo.retry", "todo.retry-current-flow", "todo.takeover", "image.add", "merge", "branch.discard-foreign", "todo.preapprove", "todo.unapprove"]
+
 export const todoCardFamily: CardFamily<"todo"> = {
   todo: { render: (card, { presentation }) => <TodoBody card={card} maximized={presentation === "maximized"} />, pill: () => "" }
 }

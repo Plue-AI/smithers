@@ -20,6 +20,8 @@ const (
 	// workspace, a workflow job, a gateway. It is the kind every
 	// system-issued token has unless it is issued as CredentialSync.
 	CredentialAgentRun CredentialKind = "run"
+	// CredentialMachine is a system token restricted to one workspace.
+	CredentialMachine CredentialKind = "machine"
 	// CredentialSync is a system-issued token only the platform's own
 	// sync workers hold on the server (repository mirroring and document
 	// synchronization). No agent or workflow ever receives one.
@@ -50,8 +52,9 @@ const (
 const TerminalProfileS1 = "terminal_s1"
 
 // Delegation is what the issuer stored on a delegated credential: the tool
-// it was minted for (via), and for a terminal's, its branch, profile and
-// terminal session.
+// it was minted for (via), and its subject. Session names a terminal session
+// for terminals, or turn ID/producer generation for an app-agent turn.
+// Branch and Profile restrict terminal credentials further.
 type Delegation struct {
 	Via     string
 	Branch  string
@@ -60,7 +63,7 @@ type Delegation struct {
 }
 
 // DelegationScopes are the scopes-list entries that bind a delegated
-// credential to its via, branch, profile and terminal session. Empty fields
+// credential to its via, branch, profile and subject. Empty fields
 // are left out; via is required.
 func DelegationScopes(d Delegation) []string {
 	entries := []string{delegationViaScopePrefix + strings.ToLower(strings.TrimSpace(d.Via))}
@@ -93,7 +96,7 @@ func ParseTokenDelegation(systemIssued bool, raw string) (Delegation, bool) {
 // Delegation is the request credential's stored delegation, if it is a
 // delegated token.
 func (a *AuthInfo) Delegation() (Delegation, bool) {
-	if a == nil || !a.IsTokenAuth {
+	if a == nil || !a.IsTokenAuth || a.CredentialKind() != CredentialDelegated {
 		return Delegation{}, false
 	}
 	return ParseTokenDelegation(a.TokenSystemIssued, a.RawScopes)
@@ -131,9 +134,9 @@ func EffectiveVia(stored, hint string) string {
 }
 
 // Agent reports whether a credential of this kind is an agent's: an agent
-// run's or a delegated one. Neither writes the default bookmark directly.
+// run's, machine's or a delegated one. None writes the default bookmark directly.
 func (k CredentialKind) Agent() bool {
-	return k == CredentialAgentRun || k == CredentialDelegated
+	return k == CredentialAgentRun || k == CredentialDelegated || k == CredentialMachine
 }
 
 // syncCredentialScope marks a system-issued token as CredentialSync. Like the
@@ -170,10 +173,13 @@ func ParseTokenWorkspaceChildrenCredential(raw string) bool {
 // TokenCredentialKind classifies an access token from its stored fields
 // and its user's account type. An agent account (a bot or service user) is
 // an agent whatever token it holds: its token is an agent run's.
-func TokenCredentialKind(systemIssued bool, rawScopes, userType string) CredentialKind {
+func TokenCredentialKind(systemIssued bool, rawScopes, userType string, install ...bool) CredentialKind {
 	if !systemIssued {
 		if IsAgentAccount(userType) {
 			return CredentialAgentRun
+		}
+		if len(install) > 0 && install[0] {
+			return CredentialDelegated
 		}
 		return CredentialPerson
 	}
@@ -181,6 +187,9 @@ func TokenCredentialKind(systemIssued bool, rawScopes, userType string) Credenti
 		if strings.EqualFold(strings.TrimSpace(part), syncCredentialScope) {
 			return CredentialSync
 		}
+	}
+	if ParseTokenWorkspaceRestriction(rawScopes) != "" {
+		return CredentialMachine
 	}
 	if _, ok := ParseTokenDelegation(systemIssued, rawScopes); ok {
 		return CredentialDelegated
@@ -193,7 +202,7 @@ func TokenCredentialKind(systemIssued bool, rawScopes, userType string) Credenti
 // restricted kind.
 func ParseCredentialKind(raw string) CredentialKind {
 	switch kind := CredentialKind(strings.TrimSpace(raw)); kind {
-	case "", CredentialPerson, CredentialAgentRun, CredentialSync, CredentialPlatform, CredentialDelegated:
+	case "", CredentialPerson, CredentialAgentRun, CredentialSync, CredentialPlatform, CredentialDelegated, CredentialMachine:
 		return kind
 	default:
 		return CredentialAgentRun

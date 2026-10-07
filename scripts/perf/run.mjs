@@ -15,8 +15,10 @@ export const budgets = [
   { check: 'C-PERF-06', name: 'rebase-hold', minimum: 100, thresholdsMs: { writeHold: 2000 }, tickets: ['T-STK-08', 'T-GH-07'] }
 ]
 
-export async function run({ root = process.cwd(), origin, token, commit, installVersion, browser, read = readHost, timestamp = new Date().toISOString().replace(/[:.]/g, '-') }) {
+export async function run({ root = process.cwd(), origin, token, commit, installVersion, browser, read = readHost, timestamp = new Date().toISOString().replace(/[:.]/g, '-'), check }) {
   if (!/^[a-f0-9]{40}$/.test(commit ?? '')) throw new Error('full commit SHA required')
+  if (check !== undefined && !budgets.some(budget => budget.check === check)) throw new Error('unknown performance check')
+  const selected = check === undefined ? budgets : budgets.filter(budget => budget.check === check)
   let host = null
   let refusal = null
   let usedOrigin = null
@@ -28,8 +30,10 @@ export async function run({ root = process.cwd(), origin, token, commit, install
   const summary = {
     version: 1, timestamp, commit, installVersion: installVersion ?? null, origin: usedOrigin,
     browser: browser ?? null, host, status: 'incomplete',
-    budgets: budgets.map((budget) => ({ ...budget, status: 'skipped', samples: [],
-      reason: refusal ?? `production measurement driver not implemented; requires ${budget.tickets.join(', ')} and owner-reviewed seams`,
+    budgets: selected.map((budget) => ({ ...budget, status: 'skipped', samples: [],
+      reason: refusal ?? (['keystroke', 'disk-write'].includes(budget.name)
+        ? `standalone driver exists; automatic activation requires ${budget.tickets.join(', ')} and qualified T-INS-02, T-MCH-11, T-SEC-01, T-MCH-10 receipts`
+        : `production measurement driver not implemented; requires ${budget.tickets.join(', ')} and owner-reviewed seams`),
       activation: budget.check === 'C-PERF-01' || budget.check === 'C-PERF-02'
         ? ['T-INS-04'] : ['T-INS-02', 'T-MCH-11', 'T-SEC-01', 'T-MCH-10'] }))
   }
@@ -38,9 +42,9 @@ export async function run({ root = process.cwd(), origin, token, commit, install
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    const result = await run({ origin: process.env.SMITHERS_PERF_ORIGIN, token: process.env.SMITHERS_PERF_TOKEN,
+    const result = await run({ origin: process.env.SMITHERS_PERF_ORIGIN, token: process.env.SMITHERS_PERF_OWNER_COOKIE ? { cookie: process.env.SMITHERS_PERF_OWNER_COOKIE } : process.env.SMITHERS_PERF_TOKEN,
       installVersion: process.env.SMITHERS_PERF_INSTALL_VERSION, browser: process.env.SMITHERS_PERF_BROWSER,
-      commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() })
+      check: process.argv[2], commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() })
     console.log(JSON.stringify({ ...result.summary, directory: result.directory }))
     process.exitCode = result.exit
   } catch (error) { console.error(error.message); process.exitCode = 2 }

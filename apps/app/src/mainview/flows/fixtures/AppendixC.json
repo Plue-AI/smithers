@@ -1,0 +1,2733 @@
+{
+  "version": 1,
+  "rows": [
+    {
+      "id": "coding/prepare-atom",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/atoms.ts:17"
+    },
+    {
+      "id": "coding/prepare-atom-mutation",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/atoms.ts:23"
+    },
+    {
+      "id": "coding/observe-atom",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/atoms.ts:39"
+    },
+    {
+      "id": "coding/edit-atom",
+      "kind": "agent action (coding/implement)",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/atoms.ts:49"
+    },
+    {
+      "id": "coding/check-command",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/checks.ts:20"
+    },
+    {
+      "id": "coding/CommandCheck",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/checks.ts:27"
+    },
+    {
+      "id": "coding/select-owner-repair",
+      "kind": "agent action (coding/implement)",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/correction.ts:142"
+    },
+    {
+      "id": "coding/read-correction-history",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/correction.ts:155"
+    },
+    {
+      "id": "coding/prepare-repair-context",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/correction.ts:165"
+    },
+    {
+      "id": "coding/prepare-owner-repair",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/correction.ts:170"
+    },
+    {
+      "id": "coding/prepare-return-mythical-tip",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/correction.ts:175"
+    },
+    {
+      "id": "coding/refresh-restacked-evidence",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/correction.ts:180"
+    },
+    {
+      "id": "coding/run-correction-round",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/correction.ts:185"
+    },
+    {
+      "id": "coding/finish-correction",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/correction.ts:191"
+    },
+    {
+      "id": "coding/record-learning",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/correction.ts:197"
+    },
+    {
+      "id": "coding/begin-correction",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/correction.ts:202"
+    },
+    {
+      "id": "coding/RepairPass",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/correction.ts:337"
+    },
+    {
+      "id": "coding/RecheckCorrected",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/correction.ts:375"
+    },
+    {
+      "id": "coding/CorrectionRound",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/correction.ts:390"
+    },
+    {
+      "id": "coding/CorrectPlan",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/correction.ts:410"
+    },
+    {
+      "id": "coding/dispatch-turn",
+      "kind": "agent action (?)",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/dispatch.ts:152"
+    },
+    {
+      "id": "coding/observe-dispatch",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/dispatch.ts:167"
+    },
+    {
+      "id": "coding/Dispatch",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/dispatch/flow.ts:25"
+    },
+    {
+      "id": "coding/record-fast-gated-progress",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/feedback.ts:23"
+    },
+    {
+      "id": "coding/record-slow-feedback",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/feedback.ts:29"
+    },
+    {
+      "id": "coding/ObservePlan",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/feedback.ts:150"
+    },
+    {
+      "id": "coding/read-feedback-cancellation",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/feedback.ts:162"
+    },
+    {
+      "id": "coding/ImplementPlan",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/flow.ts:42"
+    },
+    {
+      "id": "coding/ImplementAtom",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/implementation/flow.ts:13"
+    },
+    {
+      "id": "coding/ImplementAtoms",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/implementation/flow.ts:86"
+    },
+    {
+      "id": "coding/check-jev-rules",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/jev-check.ts:44"
+    },
+    {
+      "id": "coding/JevCheck",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/jev-check.ts:51"
+    },
+    {
+      "id": "coding/ReadNative",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/native.ts:305"
+    },
+    {
+      "id": "coding/ApplyNative",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/native.ts:311"
+    },
+    {
+      "id": "coding/configure-planning-wiki",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/planning-wiki.ts:37"
+    },
+    {
+      "id": "coding/find-planning-wiki-review",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/planning-wiki.ts:43"
+    },
+    {
+      "id": "coding/refresh-planning-wiki",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/planning-wiki.ts:49"
+    },
+    {
+      "id": "coding/RefreshWiki",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/planning-wiki.ts:60"
+    },
+    {
+      "id": "coding/gather-planning-context",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/planning.ts:82"
+    },
+    {
+      "id": "coding/review-request",
+      "kind": "agent action (coding/plan)",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/planning.ts:88"
+    },
+    {
+      "id": "coding/draft-plan",
+      "kind": "agent action (coding/plan)",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/planning.ts:105"
+    },
+    {
+      "id": "coding/finalize-plan",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/planning.ts:123"
+    },
+    {
+      "id": "coding/decline-request",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/planning.ts:129"
+    },
+    {
+      "id": "coding/verify-planning-context",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/planning.ts:134"
+    },
+    {
+      "id": "coding/PreparePlan",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/planning.ts:142"
+    },
+    {
+      "id": "coding/capture-poc-source",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/poc.ts:21"
+    },
+    {
+      "id": "coding/draft-poc",
+      "kind": "agent action (coding/poc)",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/poc.ts:27"
+    },
+    {
+      "id": "coding/materialize-poc",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/poc.ts:40"
+    },
+    {
+      "id": "coding/review-poc",
+      "kind": "agent action (coding/poc)",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/poc.ts:45"
+    },
+    {
+      "id": "coding/retain-poc",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/poc.ts:66"
+    },
+    {
+      "id": "coding/Poc",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/poc.ts:74"
+    },
+    {
+      "id": "coding/PrepareRequest",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/preparation.ts:8"
+    },
+    {
+      "id": "coding/Prototype",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/prototype/flow.ts:10"
+    },
+    {
+      "id": "coding/merge-request-feedback",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/request/flow.ts:26"
+    },
+    {
+      "id": "coding/refuse-plan-approval",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/request/flow.ts:31"
+    },
+    {
+      "id": "coding/CoordinateRequest",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/request/flow.ts:93"
+    },
+    {
+      "id": "coding/Request",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "replaced",
+      "source": "flows/coding/request/flow.ts:158"
+    },
+    {
+      "id": "coding/capture-review-check",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/review-check.ts:75"
+    },
+    {
+      "id": "coding/review-lens",
+      "kind": "agent action (?)",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/review-check.ts:83"
+    },
+    {
+      "id": "coding/finish-review-check",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/review-check.ts:95"
+    },
+    {
+      "id": "coding/ReviewCapturedChange",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/review-check.ts:102"
+    },
+    {
+      "id": "coding/ReviewCheck",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/review-check.ts:120"
+    },
+    {
+      "id": "coding/review-security",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/security-review-check.ts:97"
+    },
+    {
+      "id": "coding/SecurityReviewCheck",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/security-review-check.ts:105"
+    },
+    {
+      "id": "coding/audit-security",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/security-review-check.ts:390"
+    },
+    {
+      "id": "coding/SecurityAudit",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/security-review-check.ts:397"
+    },
+    {
+      "id": "coding/admit-retained-source",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/source-admission.ts:10"
+    },
+    {
+      "id": "coding/prepare-stack-base",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/stack.ts:27"
+    },
+    {
+      "id": "coding/create-stack-base",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/stack.ts:34"
+    },
+    {
+      "id": "coding/receive-request-feedback",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/steering.ts:156"
+    },
+    {
+      "id": "factory/route-todo",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/todo.ts:45"
+    },
+    {
+      "id": "factory/stamp-route",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/todo.ts:57"
+    },
+    {
+      "id": "factory/Todo",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/todo.ts:78"
+    },
+    {
+      "id": "coding/admit-verify-source",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/verify-schema.ts:34"
+    },
+    {
+      "id": "coding/Verify",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "replaced",
+      "source": "flows/coding/verify/flow.ts:16"
+    },
+    {
+      "id": "coding/fence-vibe-source",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/vibe-admission.ts:19"
+    },
+    {
+      "id": "coding/VerifyVibe",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/vibe-admission.ts:25"
+    },
+    {
+      "id": "coding/AdmitVibe",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/vibe-admission.ts:58"
+    },
+    {
+      "id": "coding/review-final-history",
+      "kind": "agent action (coding/implement)",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/vibe-cleanup.ts:35"
+    },
+    {
+      "id": "coding/repair-final-history",
+      "kind": "agent action (coding/implement)",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/vibe-cleanup.ts:47"
+    },
+    {
+      "id": "coding/validate-final-history",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/vibe-cleanup.ts:56"
+    },
+    {
+      "id": "coding/prepare-final-description",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/vibe-cleanup.ts:62"
+    },
+    {
+      "id": "coding/confirm-final-description",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/vibe-cleanup.ts:68"
+    },
+    {
+      "id": "coding/DescribeFinalAtom",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/vibe-cleanup.ts:74"
+    },
+    {
+      "id": "coding/refresh-final-history",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/vibe-cleanup.ts:84"
+    },
+    {
+      "id": "coding/RecheckFinalHistory",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/vibe-cleanup.ts:91"
+    },
+    {
+      "id": "coding/finish-final-history",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/vibe-cleanup.ts:135"
+    },
+    {
+      "id": "coding/RewriteFinalHistory",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/vibe-cleanup.ts:141"
+    },
+    {
+      "id": "coding/ProposeFinalHistory",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/vibe-cleanup.ts:168"
+    },
+    {
+      "id": "coding/CleanVibeHistory",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/vibe-cleanup.ts:187"
+    },
+    {
+      "id": "coding/read-vibe-request",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/vibe-evidence.ts:18"
+    },
+    {
+      "id": "coding/read-vibe-lander",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/vibe-lander.ts:9"
+    },
+    {
+      "id": "coding/read-vibe-stack",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/vibe-landing.ts:47"
+    },
+    {
+      "id": "coding/submit-vibe-lane",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/vibe-landing.ts:53"
+    },
+    {
+      "id": "coding/read-vibe-delivery",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/vibe-landing.ts:60"
+    },
+    {
+      "id": "coding/open-vibe-pull",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/vibe-landing.ts:66"
+    },
+    {
+      "id": "coding/prepare-vibe-append",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/vibe-landing.ts:72"
+    },
+    {
+      "id": "coding/create-vibe-landing",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/vibe-landing.ts:78"
+    },
+    {
+      "id": "coding/queue-vibe-append",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/vibe-landing.ts:84"
+    },
+    {
+      "id": "coding/observe-vibe-append",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/vibe-landing.ts:90"
+    },
+    {
+      "id": "coding/verify-vibe-landed",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/vibe-landing.ts:96"
+    },
+    {
+      "id": "coding/prepare-vibe-candidate",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/vibe-landing.ts:107"
+    },
+    {
+      "id": "coding/fast-forward-vibe",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/vibe-landing.ts:114"
+    },
+    {
+      "id": "coding/open-vibe-local-pull",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/vibe-landing.ts:120"
+    },
+    {
+      "id": "coding/observe-vibe-pull-checks",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/vibe-landing.ts:126"
+    },
+    {
+      "id": "coding/merge-vibe-local-pull",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/vibe-landing.ts:133"
+    },
+    {
+      "id": "coding/LandVibe",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/vibe-landing.ts:271"
+    },
+    {
+      "id": "coding/publish-vibe-source",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/vibe-publication.ts:9"
+    },
+    {
+      "id": "coding/PublishVibeSource",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/vibe-publication.ts:17"
+    },
+    {
+      "id": "coding/Vibe",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "replaced",
+      "source": "flows/coding/vibe/flow.ts:13"
+    },
+    {
+      "id": "coding/capture-wiki-check",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/wiki-check.ts:51"
+    },
+    {
+      "id": "coding/finish-wiki-check",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/wiki-check.ts:57"
+    },
+    {
+      "id": "coding/ReviewCapturedWiki",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/wiki-check.ts:82"
+    },
+    {
+      "id": "coding/WikiCheck",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/wiki-check.ts:93"
+    },
+    {
+      "id": "coding/import-dependency-docs",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/wiki-refresh.ts:55"
+    },
+    {
+      "id": "coding/install-dependency-pages",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/wiki-refresh.ts:66"
+    },
+    {
+      "id": "coding/read-published-wiki",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/coding/wiki-refresh.ts:95"
+    },
+    {
+      "id": "coding/Wiki",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/wiki/flow.ts:17"
+    },
+    {
+      "id": "coding/validate-plan",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/workflow.ts:22"
+    },
+    {
+      "id": "coding/implement-change",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/workflow.ts:27"
+    },
+    {
+      "id": "coding/check",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/workflow.ts:38"
+    },
+    {
+      "id": "coding/fast-gate",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/workflow.ts:43"
+    },
+    {
+      "id": "coding/assess",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/workflow.ts:53"
+    },
+    {
+      "id": "review/change",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "replaced",
+      "source": "flows/review/change/flow.mdx:1"
+    },
+    {
+      "id": "review",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/review/flow.ts:11"
+    },
+    {
+      "id": "smithers-review/PrepareReview",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/review/src/workflow/reviewActions.ts:60"
+    },
+    {
+      "id": "smithers-review/MergeFileBatch",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/review/src/workflow/reviewActions.ts:101"
+    },
+    {
+      "id": "smithers-review/FinalizeReview",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/review/src/workflow/reviewActions.ts:129"
+    },
+    {
+      "id": "smithers-review/ApplyVerdicts",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/review/src/workflow/reviewActions.ts:179"
+    },
+    {
+      "id": "smithers-review/RenderWalkthrough",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/review/src/workflow/reviewActions.ts:229"
+    },
+    {
+      "id": "smithers-review/ReviewFile",
+      "kind": "agent action (?)",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/review/src/workflow/reviewAgentActions.ts:38"
+    },
+    {
+      "id": "smithers-review/VerifyFindings",
+      "kind": "agent action (?)",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/review/src/workflow/reviewAgentActions.ts:56"
+    },
+    {
+      "id": "smithers-review/NarrateChanges",
+      "kind": "agent action (?)",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/review/src/workflow/reviewAgentActions.ts:91"
+    },
+    {
+      "id": "smithers-review/NarrateReview",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/review/src/workflow/reviewFlow.ts:51"
+    },
+    {
+      "id": "smithers-review/VerifyReview",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/review/src/workflow/reviewFlow.ts:106"
+    },
+    {
+      "id": "smithers-review/ReviewFiles",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/review/src/workflow/reviewFlow.ts:157"
+    },
+    {
+      "id": "smithers/Wiki",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/wiki/flow.ts:9"
+    },
+    {
+      "id": "wiki/load-recorded-reviews",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/wiki/reuse.ts:54"
+    },
+    {
+      "id": "wiki/select-recorded-review",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/wiki/reuse.ts:59"
+    },
+    {
+      "id": "wiki/bind-review-provenance",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/wiki/reuse.ts:64"
+    },
+    {
+      "id": "wiki/publish-recorded-reviews",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/wiki/reuse.ts:69"
+    },
+    {
+      "id": "smithers/IncrementalWiki",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/wiki/reuse.ts:75"
+    },
+    {
+      "id": "wiki/collect-page",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/wiki/workflow.ts:10"
+    },
+    {
+      "id": "wiki/review-page",
+      "kind": "agent action (wiki/reviewer)",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/wiki/workflow.ts:16"
+    },
+    {
+      "id": "wiki/validate-review",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/wiki/workflow.ts:47"
+    },
+    {
+      "id": "wiki/check-citations",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/wiki/workflow.ts:58"
+    },
+    {
+      "id": "wiki/assess-review",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/wiki/workflow.ts:98"
+    },
+    {
+      "id": "wiki/write-snapshot",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/wiki/workflow.ts:103"
+    },
+    {
+      "id": "memory/calibrate/run",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/memory/calibrate/flow.ts:30"
+    },
+    {
+      "id": "memory/calibrate",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/memory/calibrate/flow.ts:43"
+    },
+    {
+      "id": "memory/mine/run",
+      "kind": "action",
+      "runtime": "install",
+      "status": "keep",
+      "source": "flows/memory/mine/flow.ts:13"
+    },
+    {
+      "id": "memory/mine",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/memory/mine/flow.ts:20"
+    },
+    {
+      "id": "create-flow/clarify",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/create-flow/clarify/flow.mdx:1"
+    },
+    {
+      "id": "create-flow/design",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/create-flow/design/flow.mdx:1"
+    },
+    {
+      "id": "create-flow/document",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/create-flow/document/flow.mdx:1"
+    },
+    {
+      "id": "create-flow/fix",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/create-flow/fix/flow.mdx:1"
+    },
+    {
+      "id": "create-flow",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/create-flow/flow.mdx:1"
+    },
+    {
+      "id": "create-flow/provision",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/create-flow/provision/flow.mdx:1"
+    },
+    {
+      "id": "create-flow/scaffold",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/create-flow/scaffold/flow.mdx:1"
+    },
+    {
+      "id": "create-skill/clarify",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/create-skill/clarify/flow.mdx:1"
+    },
+    {
+      "id": "create-skill/design",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/create-skill/design/flow.mdx:1"
+    },
+    {
+      "id": "create-skill/document",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/create-skill/document/flow.mdx:1"
+    },
+    {
+      "id": "create-skill/scaffold",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/create-skill/scaffold/flow.mdx:1"
+    },
+    {
+      "id": "remember",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/memory/src/Flows.ts:183"
+    },
+    {
+      "id": "recall (namespaced)",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/memory/src/Flows.ts:197"
+    },
+    {
+      "id": "memory",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/src/Memory.ts:331"
+    },
+    {
+      "id": "recall",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/src/StandardFlows.ts:327"
+    },
+    {
+      "id": "jev",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/src/StandardFlows.ts:715"
+    },
+    {
+      "id": "wait",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/src/StandardFlows.ts:843"
+    },
+    {
+      "id": "ask",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/src/StandardFlows.ts:964"
+    },
+    {
+      "id": "apply_patch",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/std/src/ApplyPatch.ts:123"
+    },
+    {
+      "id": "bash",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/std/src/Bash.ts:264"
+    },
+    {
+      "id": "edit",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/std/src/Edit.ts:143"
+    },
+    {
+      "id": "explore",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "cut",
+      "source": "packages/smithers/agent/std/src/Explore.ts:123"
+    },
+    {
+      "id": "fetch",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "cut",
+      "source": "packages/smithers/agent/std/src/Fetch.ts:107"
+    },
+    {
+      "id": "glob",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/std/src/Glob.ts:150"
+    },
+    {
+      "id": "grep",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/std/src/Grep.ts:218"
+    },
+    {
+      "id": "http-post",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "cut",
+      "source": "packages/smithers/agent/std/src/HttpPost.ts:108"
+    },
+    {
+      "id": "ls",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/std/src/Ls.ts:114"
+    },
+    {
+      "id": "lsp",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "cut",
+      "source": "packages/smithers/agent/std/src/Lsp.ts:128"
+    },
+    {
+      "id": "read",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/std/src/Read.ts:140"
+    },
+    {
+      "id": "shell_command",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "cut",
+      "source": "packages/smithers/agent/std/src/ShellCommand.ts:157"
+    },
+    {
+      "id": "test",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/std/src/TestRun.ts:202"
+    },
+    {
+      "id": "update_plan",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "cut",
+      "source": "packages/smithers/agent/std/src/UpdatePlan.ts:146"
+    },
+    {
+      "id": "webfetch",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "cut",
+      "source": "packages/smithers/agent/std/src/WebFetch.ts:111"
+    },
+    {
+      "id": "websearch",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "cut",
+      "source": "packages/smithers/agent/std/src/WebSearch.ts:109"
+    },
+    {
+      "id": "write",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/std/src/Write.ts:106"
+    },
+    {
+      "id": "<park>/parked",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/src/Agent.ts:660"
+    },
+    {
+      "id": "agent/capacity/<seat>/cool/<n>",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/src/Agent.ts:749"
+    },
+    {
+      "id": "<quota-park>/<session>",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/src/AgentAction.ts:802"
+    },
+    {
+      "id": "<structured-output-count>/<name>",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/src/AgentAction.ts:962"
+    },
+    {
+      "id": "agent/run",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/src/AgentSession.ts:2060"
+    },
+    {
+      "id": "agent/opening-memory",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/src/AgentSession.ts:3562"
+    },
+    {
+      "id": "agent/opening-instructions",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/src/AgentSession.ts:3575"
+    },
+    {
+      "id": "agent/spawn",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "cut",
+      "source": "packages/smithers/agent/src/ChildFlows.ts:113"
+    },
+    {
+      "id": "agent/send",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "cut",
+      "source": "packages/smithers/agent/src/ChildFlows.ts:128"
+    },
+    {
+      "id": "agent/await",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "cut",
+      "source": "packages/smithers/agent/src/ChildFlows.ts:142"
+    },
+    {
+      "id": "agent/send (stamp)",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/src/EngineChildren.ts:538"
+    },
+    {
+      "id": "<seal-step>",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/src/FlowEngineLike.ts:1046"
+    },
+    {
+      "id": "<cell-call:flow>",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/src/FlowEngineLike.ts:1212"
+    },
+    {
+      "id": "<boundary:name>",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/src/FlowEngineLike.ts:1293"
+    },
+    {
+      "id": "flows/show-script",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "cut",
+      "source": "packages/smithers/agent/src/PromoteFlows.ts:139"
+    },
+    {
+      "id": "flows/write-flow",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "cut",
+      "source": "packages/smithers/agent/src/PromoteFlows.ts:162"
+    },
+    {
+      "id": "agent/route-seat",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/src/SeatRouter.ts:519"
+    },
+    {
+      "id": "smithers.guide",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "cut",
+      "source": "packages/smithers/agent/src/SmithersPlugin.ts:226"
+    },
+    {
+      "id": "smithers.flows",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "cut",
+      "source": "packages/smithers/agent/src/SmithersPlugin.ts:240"
+    },
+    {
+      "id": "smithers.run",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "cut",
+      "source": "packages/smithers/agent/src/SmithersPlugin.ts:251"
+    },
+    {
+      "id": "smithers.inspect",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "cut",
+      "source": "packages/smithers/agent/src/SmithersPlugin.ts:267"
+    },
+    {
+      "id": "agent/trace/checkpoint",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/agent/src/internal/StepTrace.ts:94"
+    },
+    {
+      "id": "repository/register-candidate",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/activation.ts:92"
+    },
+    {
+      "id": "repository/RegisterCandidate",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/activation.ts:98"
+    },
+    {
+      "id": "repository/probe-trial",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/activation.ts:112"
+    },
+    {
+      "id": "repository/request-manual",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/activation.ts:134"
+    },
+    {
+      "id": "repository/DispatchManual",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/activation.ts:140"
+    },
+    {
+      "id": "repository/probe-manual",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/activation.ts:146"
+    },
+    {
+      "id": "repository/draft-change",
+      "kind": "agent action (repository/author)",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/changes.ts:34"
+    },
+    {
+      "id": "repository/select-change-source",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/changes.ts:52"
+    },
+    {
+      "id": "repository/prepare-change",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/changes.ts:65"
+    },
+    {
+      "id": "repository/retain-proposed-change",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/changes.ts:71"
+    },
+    {
+      "id": "repository/prepare-change-entry",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/changes.ts:76"
+    },
+    {
+      "id": "repository/create-native-source",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/changes.ts:82"
+    },
+    {
+      "id": "repository/verify-written-change",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/changes.ts:88"
+    },
+    {
+      "id": "repository/retain-source-admission-failure",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/changes.ts:94"
+    },
+    {
+      "id": "repository/ApplyChange",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/changes.ts:106"
+    },
+    {
+      "id": "repository/ProposalStep",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/changes.ts:202"
+    },
+    {
+      "id": "repository/capture-checks",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/checks.ts:241"
+    },
+    {
+      "id": "repository/execute-command-check",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/checks.ts:247"
+    },
+    {
+      "id": "repository/retain-semantic-check",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/checks.ts:253"
+    },
+    {
+      "id": "repository/jev-semantic-check",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/checks.ts:269"
+    },
+    {
+      "id": "repository/CommandCheck",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/checks.ts:275"
+    },
+    {
+      "id": "repository/AICheck",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/checks.ts:286"
+    },
+    {
+      "id": "repository/run-checks",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/checks.ts:301"
+    },
+    {
+      "id": "repository/CheckStep",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/checks.ts:306"
+    },
+    {
+      "id": "repository/prepare-landing",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/delivery.ts:25"
+    },
+    {
+      "id": "repository/report-check-receipt",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/delivery.ts:32"
+    },
+    {
+      "id": "repository/create-landing",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/delivery.ts:38"
+    },
+    {
+      "id": "repository/queue-landing",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/delivery.ts:44"
+    },
+    {
+      "id": "repository/observe-landing",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/delivery.ts:54"
+    },
+    {
+      "id": "repository/retain-landing",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/delivery.ts:68"
+    },
+    {
+      "id": "repository/retain-delivery-failure",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/delivery.ts:73"
+    },
+    {
+      "id": "repository/DeliverChange",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/delivery.ts:78"
+    },
+    {
+      "id": "repository/jev-score",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/evaluation.ts:41"
+    },
+    {
+      "id": "repository/score-case",
+      "kind": "agent action (repository/evaluator)",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/evaluation.ts:47"
+    },
+    {
+      "id": "repository/retain-eval-score",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/evaluation.ts:66"
+    },
+    {
+      "id": "repository/ScoreExecution",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/evaluation.ts:71"
+    },
+    {
+      "id": "repository/evaluate-candidate",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/evaluation.ts:89"
+    },
+    {
+      "id": "repository/CaptureCase",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/evaluation.ts:114"
+    },
+    {
+      "id": "repository/capture",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/inspection.ts:23"
+    },
+    {
+      "id": "repository/start-budget",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/inspection.ts:172"
+    },
+    {
+      "id": "repository/assert-budget",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/inspection.ts:178"
+    },
+    {
+      "id": "repository/ApproveStep",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/jobs.ts:127"
+    },
+    {
+      "id": "repository/research",
+      "kind": "agent action (seat repository/research)",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/jobs.ts:203"
+    },
+    {
+      "id": "repository/propose-repro",
+      "kind": "agent action (seat repository/propose-repro)",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/jobs.ts:207"
+    },
+    {
+      "id": "repository/review",
+      "kind": "agent action (seat repository/review)",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/jobs.ts:211"
+    },
+    {
+      "id": "repository/jev-duplicates",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/jobs.ts:219"
+    },
+    {
+      "id": "repository/retain-observation",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/jobs.ts:225"
+    },
+    {
+      "id": "repository/execute-repro",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/jobs.ts:230"
+    },
+    {
+      "id": "repository/jev-reproduction",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/jobs.ts:247"
+    },
+    {
+      "id": "repository/retain-reproduction-review",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/jobs.ts:253"
+    },
+    {
+      "id": "repository/ReviewReproduction",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/jobs.ts:258"
+    },
+    {
+      "id": "repository/retain-step-failure",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/jobs.ts:267"
+    },
+    {
+      "id": "repository/FailedStep",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/jobs.ts:272"
+    },
+    {
+      "id": "repository/InvestigateStep",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/jobs.ts:347"
+    },
+    {
+      "id": "repository/finish-job",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/jobs.ts:360"
+    },
+    {
+      "id": "repository/validate-author-reply",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/jobs.ts:370"
+    },
+    {
+      "id": "repository/CheckReply",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/jobs.ts:375"
+    },
+    {
+      "id": "repository/await-author-reply",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/jobs.ts:381"
+    },
+    {
+      "id": "repository/AwaitReply",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/jobs.ts:386"
+    },
+    {
+      "id": "repository/continue-author",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/jobs.ts:392"
+    },
+    {
+      "id": "repository/run-steps",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/jobs.ts:400"
+    },
+    {
+      "id": "repository/capture-job",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/jobs.ts:410"
+    },
+    {
+      "id": "repository/CaptureFollowup",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/jobs.ts:416"
+    },
+    {
+      "id": "repository/Investigate",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/jobs.ts:422"
+    },
+    {
+      "id": "repository/Job",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/jobs.ts:433"
+    },
+    {
+      "id": "repository/reply-budget",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/replies.ts:98"
+    },
+    {
+      "id": "repository/ConfirmReply",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/replies.ts:108"
+    },
+    {
+      "id": "repository/publish-reply",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/replies.ts:131"
+    },
+    {
+      "id": "repository/PublishReply",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/replies.ts:137"
+    },
+    {
+      "id": "repository/suggest-setup",
+      "kind": "agent action (repository/research)",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/setup.ts:212"
+    },
+    {
+      "id": "repository/Capture",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/setup.ts:243"
+    },
+    {
+      "id": "repository/Suggest",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/setup.ts:249"
+    },
+    {
+      "id": "repository/RunEvaluation",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/setup.ts:255"
+    },
+    {
+      "id": "repository/execute-setup",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/setup.ts:261"
+    },
+    {
+      "id": "repository/Setup",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/setup.ts:267"
+    },
+    {
+      "id": "repository/refuse-setup",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/setup.ts:276"
+    },
+    {
+      "id": "repository/RunSetup",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/setup.ts:281"
+    },
+    {
+      "id": "repository/refuse-job",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/setup.ts:290"
+    },
+    {
+      "id": "repository/RunJob",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/repository/setup.ts:291"
+    },
+    {
+      "id": "repository/recover-trigger",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/triggers.ts:105"
+    },
+    {
+      "id": "repository/RecoverTrigger",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/triggers.ts:111"
+    },
+    {
+      "id": "repository/prepare-trigger",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/triggers.ts:118"
+    },
+    {
+      "id": "repository/PrepareTrigger",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/triggers.ts:124"
+    },
+    {
+      "id": "repository/activate-trigger",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/triggers.ts:130"
+    },
+    {
+      "id": "repository/ActivateTrigger",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/triggers.ts:136"
+    },
+    {
+      "id": "repository/fire-trigger",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/triggers.ts:142"
+    },
+    {
+      "id": "repository/FireTrigger",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/triggers.ts:148"
+    },
+    {
+      "id": "repository/execute-trigger",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/triggers.ts:155"
+    },
+    {
+      "id": "repository/Trigger",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/triggers.ts:161"
+    },
+    {
+      "id": "repository/refuse-trigger",
+      "kind": "action",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/triggers.ts:170"
+    },
+    {
+      "id": "repository/RunTrigger",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/repository/triggers.ts:175"
+    },
+    {
+      "id": "checks/affected-lint",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "internal",
+      "source": "flows/checks/affected-lint/flow.mdx:1"
+    },
+    {
+      "id": "checks/affected-test",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "internal",
+      "source": "flows/checks/affected-test/flow.mdx:1"
+    },
+    {
+      "id": "checks/bundle-bun",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "internal",
+      "source": "flows/checks/bundle-bun/flow.mdx:1"
+    },
+    {
+      "id": "checks/bundle",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "internal",
+      "source": "flows/checks/bundle/flow.mdx:1"
+    },
+    {
+      "id": "checks/drift",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "internal",
+      "source": "flows/checks/drift/flow.mdx:1"
+    },
+    {
+      "id": "checks/lint",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/checks/lint/flow.mdx:1"
+    },
+    {
+      "id": "checks/native-bun",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "internal",
+      "source": "flows/checks/native-bun/flow.mdx:1"
+    },
+    {
+      "id": "checks/native",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "internal",
+      "source": "flows/checks/native/flow.mdx:1"
+    },
+    {
+      "id": "checks/policy",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "internal",
+      "source": "flows/checks/policy/flow.mdx:1"
+    },
+    {
+      "id": "checks/review",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/checks/review/flow.mdx:1"
+    },
+    {
+      "id": "checks/runtime",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "internal",
+      "source": "flows/checks/runtime/flow.mdx:1"
+    },
+    {
+      "id": "checks/security",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/checks/security/flow.mdx:1"
+    },
+    {
+      "id": "checks/wiki",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/checks/wiki/flow.ts:27"
+    },
+    {
+      "id": "issue/poc",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/issue/poc/flow.mdx:1"
+    },
+    {
+      "id": "issue/repro",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/issue/repro/flow.mdx:1"
+    },
+    {
+      "id": "pr-triage",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/pr-triage/flow.mdx:1"
+    },
+    {
+      "id": "issue-triage",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/issue-triage/flow.mdx:1"
+    },
+    {
+      "id": "security-audit",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "defer",
+      "source": "flows/security-audit/flow.mdx:1"
+    },
+    {
+      "id": "lint",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/lint/flow.mdx:1"
+    },
+    {
+      "id": "release-notes",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release-notes/flow.mdx:1"
+    },
+    {
+      "id": "smithers/Release",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release/flow.ts:38"
+    },
+    {
+      "id": "release/audit-documentation",
+      "kind": "agent action (release/reviewer)",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release/workflow.ts:13"
+    },
+    {
+      "id": "release/prepare-plan",
+      "kind": "action",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release/workflow.ts:25"
+    },
+    {
+      "id": "release/write-preparation",
+      "kind": "action",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release/workflow.ts:31"
+    },
+    {
+      "id": "release/validate",
+      "kind": "action",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release/workflow.ts:37"
+    },
+    {
+      "id": "release/checks",
+      "kind": "action",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release/workflow.ts:43"
+    },
+    {
+      "id": "release/build",
+      "kind": "action",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release/workflow.ts:49"
+    },
+    {
+      "id": "release/pack",
+      "kind": "action",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release/workflow.ts:55"
+    },
+    {
+      "id": "release/smoke",
+      "kind": "action",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release/workflow.ts:61"
+    },
+    {
+      "id": "release/verify-candidate",
+      "kind": "action",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release/workflow.ts:67"
+    },
+    {
+      "id": "release/publish",
+      "kind": "action",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release/workflow.ts:73"
+    },
+    {
+      "id": "release/outcome",
+      "kind": "action",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release/workflow.ts:81"
+    },
+    {
+      "id": "smithers/ReleaseContent",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release-content/flow.ts:135"
+    },
+    {
+      "id": "release-content/collect",
+      "kind": "action",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release-content/workflow.ts:28"
+    },
+    {
+      "id": "release-content/record-ui",
+      "kind": "action",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release-content/workflow.ts:34"
+    },
+    {
+      "id": "release-content/analyze",
+      "kind": "agent action (release/analyst)",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release-content/workflow.ts:40"
+    },
+    {
+      "id": "release-content/pick-template",
+      "kind": "action",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release-content/workflow.ts:54"
+    },
+    {
+      "id": "release-content/outline-template",
+      "kind": "agent action (release/writer)",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release-content/workflow.ts:62"
+    },
+    {
+      "id": "release-content/draft-changelog",
+      "kind": "agent action (release/writer)",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release-content/workflow.ts:72"
+    },
+    {
+      "id": "release-content/draft-thread",
+      "kind": "agent action (release/writer)",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release-content/workflow.ts:82"
+    },
+    {
+      "id": "release-content/outline-blog",
+      "kind": "agent action (release/writer)",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release-content/workflow.ts:92"
+    },
+    {
+      "id": "release-content/draft-blog",
+      "kind": "agent action (release/writer)",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release-content/workflow.ts:102"
+    },
+    {
+      "id": "release-content/score",
+      "kind": "agent action (release/reviewer)",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release-content/workflow.ts:112"
+    },
+    {
+      "id": "release-content/check",
+      "kind": "action",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release-content/workflow.ts:122"
+    },
+    {
+      "id": "release-content/revise",
+      "kind": "agent action (release/writer)",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release-content/workflow.ts:127"
+    },
+    {
+      "id": "release-content/quality-gate",
+      "kind": "action",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release-content/workflow.ts:137"
+    },
+    {
+      "id": "release-content/write-preview",
+      "kind": "action",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release-content/workflow.ts:142"
+    },
+    {
+      "id": "release-content/record-approval",
+      "kind": "action",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release-content/workflow.ts:148"
+    },
+    {
+      "id": "release-content/publish-files",
+      "kind": "action",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release-content/workflow.ts:154"
+    },
+    {
+      "id": "release-content/post-thread",
+      "kind": "action",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release-content/workflow.ts:161"
+    },
+    {
+      "id": "release-content/commit-files",
+      "kind": "action",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release-content/workflow.ts:168"
+    },
+    {
+      "id": "release-content/outcome",
+      "kind": "action",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/release-content/workflow.ts:176"
+    },
+    {
+      "id": "rollout/execute",
+      "kind": "action",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/rollout/flow.ts:32"
+    },
+    {
+      "id": "rollout",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "internal",
+      "source": "flows/rollout/flow.ts:39"
+    },
+    {
+      "id": "register-repository",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/register-repository/flow.ts:31"
+    },
+    {
+      "id": "register-repository/setup",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/register-repository/setup/flow.ts:7"
+    },
+    {
+      "id": "register-repository/clone",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/register-repository/workflow.ts:27"
+    },
+    {
+      "id": "register-repository/theme",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/register-repository/workflow.ts:27"
+    },
+    {
+      "id": "register-repository/license",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/register-repository/workflow.ts:27"
+    },
+    {
+      "id": "register-repository/checks",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/register-repository/workflow.ts:27"
+    },
+    {
+      "id": "register-repository/readiness",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/register-repository/workflow.ts:27"
+    },
+    {
+      "id": "register-repository/cleanup",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/register-repository/workflow.ts:27"
+    },
+    {
+      "id": "register-repository/agent-share",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/register-repository/workflow.ts:27"
+    },
+    {
+      "id": "register-repository/commits",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/register-repository/workflow.ts:27"
+    },
+    {
+      "id": "register-repository/contributors",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/register-repository/workflow.ts:27"
+    },
+    {
+      "id": "register-repository/intake",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/register-repository/workflow.ts:27"
+    },
+    {
+      "id": "register-repository/workflows",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/register-repository/workflow.ts:27"
+    },
+    {
+      "id": "register-repository/ci",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/register-repository/workflow.ts:27"
+    },
+    {
+      "id": "register-repository/languages",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/register-repository/workflow.ts:27"
+    },
+    {
+      "id": "register-repository/setup/verify",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/register-repository/workflow.ts:45"
+    },
+    {
+      "id": "issue-sweep/ensure-disk",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/issue-sweep/disk.ts:68"
+    },
+    {
+      "id": "issue-sweep/disk-admission",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/issue-sweep/disk.ts:75"
+    },
+    {
+      "id": "issue-sweep/list-issues",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/issue-sweep/flow.ts:88"
+    },
+    {
+      "id": "issue-sweep/accounts",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/issue-sweep/flow.ts:96"
+    },
+    {
+      "id": "issue-sweep",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/issue-sweep/flow.ts:135"
+    },
+    {
+      "id": "issue-sweep/choose-placement",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/issue-sweep/flow.ts:358"
+    },
+    {
+      "id": "issue-sweep/placement",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/issue-sweep/flow.ts:364"
+    },
+    {
+      "id": "issue-sweep/fetch-issue",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/issue-sweep/work/flow.ts:130"
+    },
+    {
+      "id": "issue-sweep/prepare-workspace",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/issue-sweep/work/flow.ts:138"
+    },
+    {
+      "id": "issue-sweep/adopt",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/issue-sweep/work/flow.ts:186"
+    },
+    {
+      "id": "issue-sweep/readopt",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/issue-sweep/work/flow.ts:201"
+    },
+    {
+      "id": "issue-sweep/fix",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/issue-sweep/work/flow.ts:212"
+    },
+    {
+      "id": "issue-sweep/work",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/issue-sweep/work/flow.ts:219"
+    },
+    {
+      "id": "wrapped/memory",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/wrapped/flow.ts:73"
+    },
+    {
+      "id": "wrapped/prompt",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/wrapped/flow.ts:79"
+    },
+    {
+      "id": "wrapped/session",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/wrapped/flow.ts:85"
+    },
+    {
+      "id": "wrapped/launch",
+      "kind": "action",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/wrapped/flow.ts:90"
+    },
+    {
+      "id": "wrapped",
+      "kind": "flow",
+      "runtime": "install",
+      "status": "cut",
+      "source": "flows/wrapped/flow.ts:108"
+    },
+    {
+      "id": "todo",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/todo/flow.ts:14",
+      "decision": "E-19: overridable route-to-deliver composition"
+    }
+  ],
+  "engineeringOverrides": {
+    "coding/Verify": "E-19: retained engine launch",
+    "review/change": "E-19: retained engine launch"
+  }
+}

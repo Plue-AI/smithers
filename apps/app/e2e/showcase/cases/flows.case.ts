@@ -26,7 +26,7 @@ export default showcase({
   order: 105,
   title: "Flows",
   summary: "Plan a flow and inspect its graph, run it, write a new one; schedules in the Dispatcher.",
-  flows: ["flow.list", "flow.plan", "flow.plan.select", "flow.run", "flow.create", "triggers.list", "triggers.register", "triggers.run", "triggers.pause", "triggers.resume"],
+  flows: ["flow.list", "flow.plan", "flow.plan.select", "flow.run", "flow.new", "triggers.list", "triggers.register", "triggers.run", "triggers.pause", "triggers.resume"],
   run: async ({ page, app, backend }) => {
     let paused = false
     const pauseReceipt = Promise.withResolvers<void>()
@@ -141,7 +141,7 @@ export default showcase({
       await page.getByTestId("composer-input").fill("Chat while Plan is pending")
       await expect(page.getByTestId("composer-input")).toHaveValue("Chat while Plan is pending")
       await page.keyboard.press("Escape")
-      await expect(page.locator('.mvp-notice[data-tone="live"]').filter({ hasText: `Planning ${FLOW}` })).toHaveCount(1)
+      await expect(page.locator('.notice[data-tone="live"]').filter({ hasText: `Planning ${FLOW}` })).toHaveCount(1)
       const departing = Promise.withResolvers<void>()
       const browserNavigation = await page.context().newCDPSession(page)
       let navigating = false
@@ -241,13 +241,13 @@ export default showcase({
     await expect(follow).toHaveAttribute("aria-pressed", "true")
 
     // A new flow from one sentence: an authoring run on the workspace.
-    await app.slash(`/flow.create Mark issues idle for 30 days stale ${REPO}`)
+    await app.slash(`/flow.new Mark issues idle for 30 days stale ${REPO}`)
     const authoring = page.locator('[data-kind="run-trace"][data-run-id="run-create-flow-3"]')
     await expect(authoring).toContainText("Running", { timeout: 15_000 })
     await app.closeComposer()
     await app.show(authoring)
     await app.beat(500)
-    const authorToast = page.locator('.mvp-notice[data-tone="live"]').filter({ hasText: "Creating a flow" })
+    const authorToast = page.locator('.notice[data-tone="live"]').filter({ hasText: "Creating a flow" })
     await expect(authorToast).toHaveCount(1)
     await expect(authorToast.getByRole("button", { name: "Stop", exact: true })).toBeVisible()
 
@@ -267,7 +267,7 @@ export default showcase({
       await route.fallback()
     })
     const dispatched = page.locator('[data-kind="run-trace"]').filter({ hasText: "Run nightly-review" })
-    const dispatchToast = page.locator('.mvp-notice[data-tone="live"]').filter({ hasText: "Run nightly-review" })
+    const dispatchToast = page.locator('.notice[data-tone="live"]').filter({ hasText: "Run nightly-review" })
     try {
       await app.click(dispatcher.getByTestId("trigger-run-nightly-review"))
       await expect.poll(() => reading).toBe(true)
@@ -295,7 +295,7 @@ export default showcase({
       await page.getByTestId("composer-input").fill("Chat while Pause is pending")
       await expect(page.getByTestId("composer-input")).toHaveValue("Chat while Pause is pending")
       await page.keyboard.press("Escape")
-      await expect(page.locator('.mvp-notice[data-tone="live"]').filter({ hasText: "Pausing nightly-review" })).toHaveCount(1)
+      await expect(page.locator('.notice[data-tone="live"]').filter({ hasText: "Pausing nightly-review" })).toHaveCount(1)
       expect(pauseCalls).toBe(1)
       await dispatcher.getByTestId("trigger-pause-nightly-review").focus()
     } finally { pauseReceipt.resolve() }
@@ -317,7 +317,7 @@ export default showcase({
     await resume.focus()
     await page.keyboard.press("Enter")
     await expect(resumeCard).toHaveCount(1)
-    const resumeToast = page.locator('.mvp-notice[data-tone="live"]').filter({ hasText: "Resume nightly-review" })
+    const resumeToast = page.locator('.notice[data-tone="live"]').filter({ hasText: "Resume nightly-review" })
     await expect(resumeToast).toHaveCount(1)
     resumed = true
     await expect(resumeCard).toContainText("Done", { timeout: 15_000 })
@@ -342,7 +342,7 @@ export default showcase({
       await page.getByTestId("composer-input").fill("Chat while the plan is pending")
       await expect(page.getByTestId("composer-input")).toHaveValue("Chat while the plan is pending")
       await page.keyboard.press("Escape")
-      await expect(page.locator('.mvp-notice[data-tone="live"]').filter({ hasText: "Preparing review-schedule" })).toHaveCount(1)
+      await expect(page.locator('.notice[data-tone="live"]').filter({ hasText: "Preparing review-schedule" })).toHaveCount(1)
       await expect(page.getByRole("button", { name: "Approve and register", exact: true })).toHaveCount(0)
       expect(preparationCalls).toBe(2)
     } finally { preparationReceipt.resolve() }
@@ -350,9 +350,9 @@ export default showcase({
     await expect(approveSchedule).toHaveCount(1)
     await approveSchedule.focus()
     await expect(approveSchedule).toBeFocused()
-    await expect(page.locator('.mvp-notice[data-tone="live"]').filter({ hasText: "Preparing review-schedule" })).toHaveCount(0)
+    await expect(page.locator('.notice[data-tone="live"]').filter({ hasText: "Preparing review-schedule" })).toHaveCount(0)
     const registrationCard = page.locator('[data-kind="run-trace"]').filter({ hasText: "Register review-schedule" })
-    const registrationToast = page.locator('.mvp-notice[data-tone="live"]').filter({ hasText: "Register review-schedule" })
+    const registrationToast = page.locator('.notice[data-tone="live"]').filter({ hasText: "Register review-schedule" })
     await page.keyboard.press("Enter")
     try {
       await expect.poll(() => registrationRuns).toBe(1)

@@ -12,6 +12,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
 
 // SourceFile is one file an app-agent turn read from its repository's
@@ -157,7 +158,7 @@ func (s InstallSource) ListSource(ctx context.Context, credential middleware.Cre
 // readable resolves the install's mirror for one turn: Source ready, the
 // mirrored repository, the turn's credential and member now, the member's
 // read permission now, and a turn scoped to no repository or to this one.
-func (s InstallSource) readable(ctx context.Context, credential middleware.Credential, userID, repositoryID int64) (string, db.Repository, *db.User, error) {
+func (s InstallSource) readable(ctx context.Context, credential middleware.Credential, userID, repositoryID int64, may ...func(*middleware.AuthInfo) bool) (string, db.Repository, *db.User, error) {
 	q := db.New(s.Pool)
 	step, err := (&InstallSetupService{}).readStep(ctx, q, "source")
 	if err != nil {
@@ -174,7 +175,7 @@ func (s InstallSource) readable(ctx context.Context, credential middleware.Crede
 	if err != nil {
 		return "", db.Repository{}, nil, err
 	}
-	member, err := s.member(ctx, q, credential, userID)
+	member, err := s.member(ctx, q, credential, userID, may...)
 	if err != nil {
 		return "", db.Repository{}, nil, err
 	}
@@ -198,8 +199,12 @@ func (s InstallSource) readable(ctx context.Context, credential middleware.Crede
 // member is the turn's author as the turn's credential authenticates them
 // now. A credential that is gone, names another account, does not read
 // repositories as a person, or fails the member boundary reads nothing.
-func (s InstallSource) member(ctx context.Context, q *db.Queries, credential middleware.Credential, userID int64) (*db.User, error) {
-	info, err := turnAuthor(ctx, q, s.Members, credential, userID, (*middleware.AuthInfo).ReadsRepositoriesAsPerson)
+func (s InstallSource) member(ctx context.Context, q *db.Queries, credential middleware.Credential, userID int64, may ...func(*middleware.AuthInfo) bool) (*db.User, error) {
+	predicate := (*middleware.AuthInfo).ReadsRepositoriesForTurn
+	if len(may) == 1 {
+		predicate = may[0]
+	}
+	info, err := turnAuthor(ctx, q, s.Members, credential, userID, predicate)
 	if errors.Is(err, errNotTheAuthor) {
 		return nil, ErrSourceForbidden
 	}
@@ -243,4 +248,81 @@ func turnAuthor(ctx context.Context, q *db.Queries, members identity.MemberAutho
 		return nil, errNotTheAuthor
 	}
 	return info, nil
+}
+
+// ReadBranchFile reuses Source-ready and live member authority for an immutable
+// branch read. Main uses the sync-owned bookmark, never a workspace checkout.
+func (s InstallSource) ReadBranchFile(ctx context.Context, credential middleware.Credential, userID int64, branch, filePath, at string, branches interface {
+	GetBranch(context.Context, string, int64, int64) (BranchMachineResponse, error)
+}) (repohost.FileContent, string, error) {
+	if s.Pool == nil || s.Repos == nil || s.Members == nil {
+		return repohost.FileContent{}, "", ErrSourceNotReady
+	}
+	if ValidateRepositoryPath(filePath) != nil {
+		return repohost.FileContent{}, "", ErrSourcePathRefused
+	}
+	owner, repository, _, err := s.readable(ctx, credential, userID, 0, func(info *middleware.AuthInfo) bool {
+		if delegation, delegated := info.Delegation(); delegated && delegation.Branch != "" && branch == "main" {
+			return false
+		}
+		if info.ReadsRepositoriesForTurn() {
+			return true
+		}
+		delegation, ok := info.Delegation()
+		return ok && branch != "main" && delegation.Branch != "" && info.Scopes.Has(middleware.ScopeReadRepository)
+	})
+	if err != nil {
+		return repohost.FileContent{}, "", err
+	}
+	if branch == "main" && at == "" && filePath == ".smithers/instructions/app.md" {
+		text, revision, err := s.activatedAppInstructions(ctx, owner, repository)
+		if err != nil {
+			return repohost.FileContent{}, "", err
+		}
+		if text == "" {
+			text = BuiltinAppInstructions
+		}
+		return repohost.FileContent{Content: text}, revision, nil
+	}
+	if branch == "main" && at == "" {
+		commit, file, err := s.Repos.defaultBookmarkFile(ctx, owner, repository, filePath)
+		return file, commit, err
+	}
+	revision := at
+	if branch != "main" {
+		if branches == nil {
+			return repohost.FileContent{}, "", ErrSourceNotReady
+		}
+		row, err := branches.GetBranch(ctx, branch, repository.ID, userID)
+		if err != nil {
+			return repohost.FileContent{}, "", err
+		}
+		if delegation, ok := middleware.AuthInfoFromContext(ctx).Delegation(); ok &&
+			(!strings.EqualFold(delegation.Branch, row.Machine.ID) || at != "" && at != row.Head) {
+			return repohost.FileContent{}, "", ErrSourceForbidden
+		}
+		if row.State == "asleep" {
+			snapshots, ok := branches.(interface {
+				RetainedBranchHead(context.Context, string, int64, int64) (string, error)
+			})
+			if !ok {
+				return repohost.FileContent{}, "", ErrSourceNotReady
+			}
+			head, err := snapshots.RetainedBranchHead(ctx, row.Machine.ID, repository.ID, userID)
+			if err != nil {
+				return repohost.FileContent{}, "", err
+			}
+			if head != row.Head {
+				return repohost.FileContent{}, "", ErrSourceNotReady
+			}
+		}
+		if revision == "" {
+			revision = row.Head
+		}
+	}
+	if !immutableCommitSHA(revision) {
+		return repohost.FileContent{}, "", ErrSourceNotReady
+	}
+	file, err := s.Repos.fileAt(ctx, owner, repository.Name, revision, filePath)
+	return file, revision, err
 }

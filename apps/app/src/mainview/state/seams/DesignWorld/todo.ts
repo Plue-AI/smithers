@@ -198,13 +198,13 @@ const SEED_ONLY: TodoSourceProbe = { known: () => "seed", ask: () => Promise.res
  * declared JSON that does not decode or is not a list, an unreachable host): it answers real, so its failure
  * shows, and the next flow asks again.
  */
-export const todoSourceProbe = (ctx: SeamContext, configured: boolean): TodoSourceProbe => {
+export const todoSourceProbe = (ctx: SeamContext, configured: boolean, path: "/api/todos" | "/api/proposals" = "/api/todos"): TodoSourceProbe => {
   if (!configured) return SEED_ONLY
   let last: TodoSource | undefined
   let held: Promise<TodoSource> | undefined
   const read = async (): Promise<readonly [TodoSource, boolean]> => {
     try {
-      const response = await ctx.http(`${ctx.baseUrl}/api/todos`, { credentials: "include" })
+      const response = await ctx.http(`${ctx.baseUrl}${path}`, { credentials: "include" })
       if (response.status === 404) return ["seed", true]
       if (!response.ok) return ["real", false]
       if (!/\bjson\b/i.test(response.headers.get("Content-Type") ?? "")) return ["seed", true]
@@ -303,13 +303,14 @@ export const withDesignTodos = (real: TodoSeam, ctx: SeamContext, design: Design
     if (todo !== undefined) await openTodo(todo)
     return { value: outcome.ack }
   }
-  const control = (todo: DesignTodo, operation: "stop" | "resume" | "retry" | "retry-current-flow" | "drop", text?: string): DesignResult => {
+  const control = (todo: DesignTodo, operation: "stop" | "resume" | "retry" | "retry-current-flow" | "drop" | "takeover", text?: string): DesignResult => {
     switch (operation) {
       case "stop": return design.stop(todo.id, by())
       case "resume": return design.resume(todo.id, by())
       case "retry":
       case "retry-current-flow": return design.retry(todo.id, by(), text)
       case "drop": return design.drop(todo.id, by())
+      case "takeover": return { ok: false, refusal: "Take over is unavailable in the preview" }
     }
   }
   const setSeedField = async (id: string, field: string, value: string): Promise<string | void> => {
@@ -358,6 +359,16 @@ export const withDesignTodos = (real: TodoSeam, ctx: SeamContext, design: Design
   }
   return {
     ...real,
+    bringIn: (branch: string, id: string, revision: string) => route(`branch:${branch}`, ["bring-in", id, revision], () => {
+      const target = design.world().branches.find(each => each.id === branch || each.name === branch)
+      const todo = design.world().todos.find(each => each.branch === target?.id)
+      return todo ? result(design.bringIn(todo.id, me())) : "No such TODO"
+    }, () => real.bringIn(branch, id, revision), REQUESTED),
+    discardForeign: (branch: string, id: string, revision: string) => route(`branch:${branch}`, ["discard-foreign", id, revision], () => {
+      const target = design.world().branches.find(each => each.id === branch || each.name === branch)
+      const todo = design.world().todos.find(each => each.branch === target?.id)
+      return todo ? result(design.discardForeign(todo.id, me())) : "No such TODO"
+    }, () => real.discardForeign(branch, id, revision), REQUESTED),
     todoRoute: <T>(n: number, act: ReadonlyArray<unknown>, seed: () => T | Promise<T>, provider: () => T | Promise<T>) =>
       route<T | typeof REQUESTED>(`todo:${n}`, act, seed, provider, REQUESTED),
     showTodo: (n: number) => onTodo(n, ["show"], async todo => {
@@ -385,8 +396,8 @@ export const withDesignTodos = (real: TodoSeam, ctx: SeamContext, design: Design
     answerTodo: (n: number, answer: string, wait?: string) =>
       onTodo(n, ["answer", answer, wait], todo => result(design.answer(todo.id, answer, by())), () => real.answerTodo(n, answer, wait)),
     steerTodo: (n: number, text: string) => onTodo(n, ["steer", text], todo => result(design.steer(todo.id, text, by())), () => real.steerTodo(n, text)),
-    controlTodo: (n: number, operation: "stop" | "resume" | "retry" | "retry-current-flow" | "drop", text?: string) =>
-      onTodo(n, [operation, text], todo => result(control(todo, operation, text)), () => real.controlTodo(n, operation, text)),
+    controlTodo: (n: number, operation: "stop" | "resume" | "retry" | "retry-current-flow" | "drop" | "takeover", text?: string) =>
+      onTodo(n, [operation, text], todo => operation === "takeover" ? "Take over is unavailable in the design fixture" : result(control(todo, operation, text)), () => real.controlTodo(n, operation, text)),
     moveTodo: (n: number, direction: "up" | "down") =>
       onTodo(n, ["move", direction], todo => result(design.move(todo.id, direction, me())), () => real.moveTodo(n, direction))
   }

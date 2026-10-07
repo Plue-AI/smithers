@@ -109,7 +109,8 @@ func TestGitHubRepoMetadata_TypedPullDoesNotFallbackAfterNotFound(t *testing.T) 
 	require.Error(t, err)
 	apiErr, ok := err.(*pkgerrors.APIError)
 	require.True(t, ok)
-	assert.Equal(t, http.StatusNotFound, apiErr.Status)
+	assert.Equal(t, http.StatusBadGateway, apiErr.Status)
+	assert.Equal(t, pkgerrors.CodeGitHubPermission, apiErr.Code)
 	_, err = service.GetAuthenticatedUserGitHubPull(context.Background(), 42, "upstream", "project", 0)
 	require.Error(t, err)
 	apiErr, ok = err.(*pkgerrors.APIError)
@@ -268,7 +269,7 @@ func TestGitHubRepoMetadata_RefreshesExpiredTokenOnce(t *testing.T) {
 	assert.Equal(t, []string{"Bearer gho_old", "Bearer gho_new"}, gotHeaders)
 }
 
-func TestGitHubRepoMetadata_RetryAfterUsesResetAndStaysPositiveAndBounded(t *testing.T) {
+func TestGitHubRepoMetadata_RetryAfterRetainsUpstreamDeadline(t *testing.T) {
 	now := time.Unix(1_000, 0).UTC()
 	tests := []struct {
 		name   string
@@ -277,13 +278,13 @@ func TestGitHubRepoMetadata_RetryAfterUsesResetAndStaysPositiveAndBounded(t *tes
 	}{
 		{name: "reset timestamp", header: http.Header{"X-Ratelimit-Reset": {"1120"}}, want: 120},
 		{name: "past reset floors positive", header: http.Header{"X-Ratelimit-Reset": {"900"}}, want: 1},
-		{name: "distant reset is bounded", header: http.Header{"X-Ratelimit-Reset": {"10000"}}, want: 3600},
-		{name: "explicit retry is bounded", header: http.Header{"Retry-After": {"99999"}}, want: 3600},
+		{name: "distant reset is retained", header: http.Header{"X-Ratelimit-Reset": {"10000"}}, want: 9000},
+		{name: "explicit retry is retained", header: http.Header{"Retry-After": {"99999"}}, want: 99999},
 		{name: "malformed headers still back off", header: http.Header{"Retry-After": {"nope"}}, want: 1},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, gitHubRepoMetadataRetryAfter(tc.header, now))
+			assert.Equal(t, tc.want, GitHubRateLimitError(http.StatusTooManyRequests, tc.header, now).RetryAfter)
 		})
 	}
 }
@@ -297,11 +298,11 @@ func TestGitHubRepoMetadata_MapsUpstreamStatusesWithoutRefreshingForbidden(t *te
 		wantStatus int
 		wantRetry  int
 	}{
-		{name: "forbidden", status: http.StatusForbidden, wantStatus: http.StatusForbidden},
+		{name: "forbidden", status: http.StatusForbidden, wantStatus: http.StatusBadGateway},
 		{name: "forbidden rate limit", status: http.StatusForbidden, headers: map[string]string{"X-RateLimit-Remaining": "0", "Retry-After": "12"}, wantStatus: http.StatusTooManyRequests, wantRetry: 12},
 		{name: "primary rate limit reset", status: http.StatusForbidden, headers: map[string]string{"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1120"}, wantStatus: http.StatusTooManyRequests, wantRetry: 120},
-		{name: "not found", status: http.StatusNotFound, wantStatus: http.StatusNotFound},
-		{name: "unprocessable", status: http.StatusUnprocessableEntity, wantStatus: http.StatusUnprocessableEntity},
+		{name: "not found", status: http.StatusNotFound, wantStatus: http.StatusBadGateway},
+		{name: "unprocessable", status: http.StatusUnprocessableEntity, wantStatus: http.StatusBadGateway},
 		{name: "upstream failure", status: http.StatusInternalServerError, wantStatus: http.StatusBadGateway},
 	}
 	for _, tc := range tests {

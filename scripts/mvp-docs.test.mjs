@@ -115,6 +115,7 @@ test("ADR 0002 remains proposed until Will approves the engineering spec", () =>
 // Literal contracts replace the untested daemon and cross-machine-home claims.
 for (const [name, requirements] of [
   ["machine-only execution", ["Repository code runs only inside machines:", "The Mac host runs only code shipped in the install package", "never loads repository flows into its process", "refuses to start without working microVM isolation", "never falls back to host processes or `trusted_process`", "Members and agents have no `sudo`"]],
+  ["packaged host and guest root boundary", ["The installed bundle is the host's trust anchor", "must match its pinned manifest before use", "Guest root uses only the pinned base image's interpreter and system tools", "root-owned directories that machine users cannot write", "Nothing a branch build produces is installed, loaded or executed by root"]],
   ["person-session approval", ["Only a signed-in person's browser `session` credential can approve or merge", "receive `delegated` credentials with `via` attribution", "The coding agent's `run` credential and a machine's credential cannot approve or merge"]],
   ["per-machine homes and logins", ["a private home on each machine", "Tool logins persist in that machine’s home across sleep and wake", "Tokens, tool history, caches and databases never copy between machines", "a recreated machine starts with empty homes", "The synced per-member credential store is deferred"]],
   ["logged-in S1 LaunchAgent", ["per-user LaunchAgent under `gui/<uid>`", "who must be logged in", "Startup uses no privilege escalation", "T-INS-02 owns the S1 host launcher; T-INS-08 owns the per-user LaunchAgent", "T-INS-03 supplies measured release evidence, not an S1 prerequisite", "Before-login daemon support is unproven"]],
@@ -361,4 +362,13 @@ test("repository documentation relative links resolve", () => {
 test("reference-free cut document may be removed", (t) => {
   const directory = fixture(t, { "docs/index.md": "# Index\n" })
   assert.deepEqual(retirementErrors(directory, "docs/mvp/REGISTRATION.md", scanFiles(directory), {}), [])
+})
+
+// Runtime decoding and decision rules remain; only obsolete documentation
+// references are retired by this ticket.
+test("retained card and approval sources no longer cite cut registration docs", () => {
+  for (const source of [
+    "packages/rpc/src/Cards.ts",
+    "apps/app/src/mainview/state/ApprovalDeciders.ts"
+  ]) assert.ok(!readFileSync(join(root, source), "utf8").includes("docs/mvp/REGISTRATION.md"), source)
 })

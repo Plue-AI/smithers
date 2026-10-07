@@ -9,12 +9,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
@@ -22,9 +21,10 @@ import (
 // Idempotency-Key, the person's login, which the pull request's closing
 // comment names, and when.
 type todoDrop struct {
-	Request string    `json:"request"`
-	By      string    `json:"by"`
-	At      time.Time `json:"at"`
+	Request    string    `json:"request"`
+	Credential string    `json:"credential,omitempty"`
+	By         string    `json:"by"`
+	At         time.Time `json:"at"`
 }
 
 // mythicalAttemptPhases are the launches one attempt admits (commit's phase):
@@ -58,19 +58,16 @@ func (s *MythicalService) dropTodo(ctx context.Context, number int64, input Todo
 	if s == nil || s.store == nil {
 		return TodoControlReceipt{}, todoControlUnavailable()
 	}
-	if err := middleware.RequirePerson(ctx, "drop a TODO"); err != nil {
-		return TodoControlReceipt{}, &TodoControlError{http.StatusForbidden, "permission", "permission", "Only a person drops a TODO"}
-	}
-	person, err := s.queries().GetUserByID(ctx, input.Actor)
-	if err != nil {
+	if _, err := Authorize(ctx, s.queries(), "todo.drop"); err != nil {
 		return TodoControlReceipt{}, err
 	}
 	var receipt TodoControlReceipt
-	err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id = $1 FOR UPDATE`, input.Repository); err != nil {
+	err := pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+		q := db.New(tx)
+		person, credential, err := lockTodoRequest(ctx, tx, q, "todo.drop", input)
+		if err != nil {
 			return err
 		}
-		q := db.New(tx)
 		stack, err := q.GetMythicalStack(ctx, input.Repository)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
@@ -83,20 +80,54 @@ func (s *MythicalService) dropTodo(ctx context.Context, number int64, input Todo
 			if err != nil {
 				return err
 			}
-			if dropped := mythicalChecksOf(item).Dropped; dropped != nil && input.Request != "" && dropped.Request == input.Request {
-				receipt = TodoControlReceipt{State: "accepted"}
-				return nil
+			if prior, found, err := todoControlReplay(ctx, tx, q, item, input, credential, "todo.dropped"); found || err != nil {
+				receipt = prior
+				return err
+			}
+			if dropped := mythicalChecksOf(item).Dropped; dropped != nil && dropped.Request == input.Request && dropped.Credential == "" {
+				return todoControlUnavailable()
 			}
 			if err := todoControlGuard(item, input, todoControlFacts{}); err != nil {
 				return err
 			}
 			if len(item.PendingOp) > 0 {
-				return todoControlConflict("A GitHub write on this TODO is settling; drop it again in a moment")
+				op, err := decodeMythicalOutbound(item.PendingOp)
+				if err != nil {
+					return err
+				}
+				if op.Kind == "merge" || op.State == "intended" {
+					return todoControlConflict("A GitHub write on this TODO is settling; drop it again in a moment")
+				}
+			}
+			// A pinned composition may still write after cancellation admission.
+			// Until stopped-writer capture is composed, refuse before recording
+			// cancellation or allowing successor rebases to discard its work.
+			checks := mythicalChecksOf(item)
+			if item.FlowDigest.Valid && checks.RunLaunched && item.RequestOutcome == "" {
+				return todoControlUnavailable()
+			}
+			// Fork provenance belongs to the retained workspace. Removal cannot
+			// happen until T-MCH-08's stack writer folds this change into its
+			// first unmerged descendant; cancellation alone is no fold receipt.
+			var forks bool
+			if err := tx.QueryRow(ctx, `SELECT EXISTS (
+			 SELECT 1 FROM mythical_items child JOIN workspaces w ON w.id::text=child.workspace_id
+			 WHERE child.repository_id=$1 AND w.forked_from_item=$2
+			 AND child.id<>$2 AND child.state NOT IN ('landed','cancelled','rejected','declined'))`,
+				item.RepositoryID, item.ID).Scan(&forks); err != nil {
+				return err
+			}
+			if forks {
+				return todoControlUnavailable()
 			}
 			if err := s.cancelAttempt(ctx, tx, stack, item); err != nil {
 				return err
 			}
-			next := mythicalDropped(item, todoDrop{Request: input.Request, By: person.Username, At: s.now().UTC()})
+			order, err := q.LockMythicalStackOrder(ctx, input.Repository)
+			if err != nil {
+				return err
+			}
+			next := mythicalDropped(item, todoDrop{Request: input.Request, Credential: credential, By: person.Username, At: s.now().UTC()})
 			saved, err := q.SaveMythicalItem(ctx, next)
 			if errors.Is(err, pgx.ErrNoRows) {
 				continue
@@ -104,15 +135,23 @@ func (s *MythicalService) dropTodo(ctx context.Context, number int64, input Todo
 			if err != nil {
 				return err
 			}
-			fact, _ := json.Marshal(map[string]any{"item": uuidString(saved.ID), "n": saved.Number.Int64, "attempt": saved.Attempt, "pr": len(saved.PendingOp) > 0,
-				"actor": map[string]any{"kind": "person", "id": person.ID, "login": person.Username}, "from": todoState(item), "to": todoState(saved)})
-			if _, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.dropped", todoState(saved), fact); err != nil {
+			changed, err := s.removeTodoPlace(ctx, q, stack, saved, order)
+			if err != nil {
+				return err
+			}
+			for _, successor := range changed {
+				s.itemChanged(ctx, q, stack, successor.ID)
+			}
+			receipt = TodoControlReceipt{State: "accepted"}
+			if err := recordTodoControl(ctx, tx, saved, input, credential, "todo.dropped", receipt, map[string]any{
+				"item": uuidString(saved.ID), "n": saved.Number.Int64, "attempt": saved.Attempt, "pr": len(saved.PendingOp) > 0,
+				"actor": map[string]any{"kind": "person", "id": person.ID, "login": person.Username}, "from": todoState(item), "to": todoState(saved),
+			}); err != nil {
 				return err
 			}
 			if stack.RepositoryID == input.Repository {
 				s.itemChanged(ctx, q, stack, saved.ID)
 			}
-			receipt = TodoControlReceipt{State: "accepted"}
 			return nil
 		}
 		return &TodoControlError{http.StatusConflict, "conflict", "conflict", "TODO is busy; drop it again"}
@@ -120,19 +159,54 @@ func (s *MythicalService) dropTodo(ctx context.Context, number int64, input Todo
 	return receipt, err
 }
 
-// cancelAttempt records the cancellation of every launch of item's current
-// attempt and generation in tx. A phase never launched, or a run already
-// ended, changes nothing.
+// cancelAttempt cancels every persisted launch of the current attempt,
+// including its composition launched before candidate generations advanced.
+// A phase never launched, or a run already ended, changes nothing.
 func (s *MythicalService) cancelAttempt(ctx context.Context, tx pgx.Tx, stack db.MythicalStack, item db.MythicalItem) error {
 	canceller, ok := s.launcher.(mythicalRunCanceller)
 	if !ok || !stack.ActorUserID.Valid || item.Attempt <= 0 {
 		return nil
 	}
 	scope := jobs.Scope{TenantID: "repository:" + strconv.FormatInt(stack.RepositoryID, 10), PrincipalID: "user:" + strconv.FormatInt(stack.ActorUserID.Int64, 10)}
+	// Request identity belongs to admission, not the current candidate. Keep
+	// current-generation identities for legacy launchers, and add persisted
+	// earlier launches from the same item and attempt. Never select a private
+	// principal stream or cancel another item's work.
+	requests := make([]string, 0, len(mythicalAttemptPhases))
+	seen := map[string]bool{}
 	for _, phase := range mythicalAttemptPhases {
 		request := mythicalLaunchRequestID(uuidString(item.ID), item.Attempt, phase, item.Generation)
+		requests = append(requests, request)
+		seen[request] = true
+	}
+	rows, err := tx.Query(ctx, `SELECT request_id FROM product_job_requests
+	 WHERE tenant_id=$1 AND principal_id=$2 AND operation=$3
+	 AND payload->'projection'->>'kind'=$4
+	 AND payload->'projection'->>'itemId'=$5
+	 AND payload->'projection'->>'attempt'=$6
+	 ORDER BY created_at,id`, scope.TenantID, scope.PrincipalID, flowdispatch.OperationLaunch,
+		mythicalBindingKind, uuidString(item.ID), strconv.FormatInt(int64(item.Attempt), 10))
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var request string
+		if err := rows.Scan(&request); err != nil {
+			rows.Close()
+			return err
+		}
+		if !seen[request] {
+			requests = append(requests, request)
+			seen[request] = true
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, request := range requests {
 		if _, err := canceller.CancelRequestInTx(ctx, tx, scope, request); err != nil && !errors.Is(err, jobs.ErrNotFound) {
-			return fmt.Errorf("cancel the TODO's %s run: %w", phase, err)
+			return fmt.Errorf("cancel the TODO's launch %s: %w", request, err)
 		}
 	}
 	return nil
@@ -151,13 +225,16 @@ func mythicalDropped(item db.MythicalItem, drop todoDrop) db.MythicalItem {
 		}
 	}
 	checks.Dropped = &drop
+	checks.GitHubDropRead = nil
+	checks.GitHubClosedAt = &drop.At
+	checks.GitHubClosedPosition = item.StackPosition.Int64
 	next.Checks = checks.encode()
 	next.State, next.Reason = "cancelled", "dropped"
 	next.PausedAt, next.NextAttemptAt = pgtype.Timestamptz{}, pgtype.Timestamptz{}
-	if item.PRNumber.Valid && item.PRState != "closed" {
+	if len(item.PendingOp) == 0 && item.PRNumber.Valid && item.PRState != "closed" {
 		next.PendingOp, _ = json.Marshal(MythicalOutboundOp{Kind: "close", Target: strconv.FormatInt(item.PRNumber.Int64, 10), Desired: "closed", Precondition: "open", State: "intended"})
 	}
-	return next
+	return settleTodoAttemptEvidence(next, "dropped")
 }
 
 // mythicalDropComment is the comment a dropped TODO's pull request closes

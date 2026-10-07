@@ -5,6 +5,10 @@ Spec: spec.md §1.1, §1.2, §5.1.0, §16.1.2, §20.1, §20.2 · Product: mvp.md
 Rescoped by the minimal-code synthesis, 2026-10-03 (v1 §5, v1 §7). Absorbs T-INS-08 ([#3607](https://github.com/smithersai/smithers/issues/3607)).
 Ready: 2026-10-03 smithers-8a sha256:d46fdac6ad4b
 
+## Verified implementation note (2026-10-05)
+
+The existing service transport is `--setup-handoff=socket` and the installing-user-owned, mode-0600 `$STATE/run/host.sock`, not a persisted `setup-urls.json`. Retain that single transport: reads replay the owner authority under the mint/claim lock; claim clears its in-memory URLs. The file-specific wording below describes the superseded transport. `host status` probes `GET /api/install` and reports only numeric capacity/hardware and GitHub configuration flags when available; `SMITHERS_TOKEN` supplies the optional person credential to the fixed loopback endpoint. Unavailable or unauthorized telemetry is omitted. Real launchd qualification and post-login evidence remain required.
+
 ## Goal
 `smthrs host start --bundle <dir>` runs a bundle built from a clean checkout as a launchd service that serves in the installing user’s login session, restarts after a crash and prints the setup URLs, so the walking skeleton installs the way the release does.
 

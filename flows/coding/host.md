@@ -156,30 +156,16 @@ create or describe another planned JJ change. Privileged snapshot subprocesses
 use the existing contained spawner and Control journal process ledger. Standard
 agent tools keep their existing guarded spawner and native journal process ledger.
 
-`filesystem.ts` adds native JJ eligibility to the existing guarded standard file
-tools. New ignored files, metadata/symlink paths, native snapshot exclusions and
-oversized files are refused before final mutation. Existing tracked ignored files
-remain editable. Write/Edit/ApplyPatch retain their own parsing and atomic sibling
-replacement. A transient Set tracks only exclusive Preserve siblings until final
-rename/cleanup; final destinations always receive the native prospective-byte
-check. It is not persistent file ownership or memory. As with Preserve itself,
-process death can leave an operational sibling; this never makes an ignored user
-file an accepted output. Direct streaming/writable handles, recursive mutations,
-links and independent permission/timestamp changes are explicitly unsupported in
-this coding configuration. Shell commands remain irreversible and are never
-advertised as fully compensated file tools. The guard recognizes the provisioned
-root and the canonical root returned by the existing guarded filesystem, allowing
-Preserve's atomic replacements under OS aliases such as `/var` to `/private/var`.
-It never resolves child symlinks independently or relaxes the filesystem boundary.
-Native eligibility requests retain the exact provisioned repository path.
+`filesystem.ts` retains the native eligibility policy over the kernel-guarded
+filesystem. Standard writes use their existing cooperative mutation locks and
+preserve permissions; ignored paths and mutation forms the native helper cannot
+compensate are refused. These locks do not claim atomicity against outside writers.
 
-The native acceptance test rejects an ignored Write, writes through a `*.tmp`
-ignore rule, edits the resulting file, verifies both immutable check tiers, and
-asserts one planned JJ atom and matching health identity. Run the same bundle
-proof with `node flows/test/coding-host-bundle.mjs` or
-`bun flows/test/coding-host-bundle.mjs`, with `PLUE_CODING_ADAPTER_SOURCE` and
-`PLUE_JJ_EXPORT_BINARY` pointing to the actual Plue artifacts. It exercises bundled
-QuickJS, builtin SQLite and contained processes; `--version` alone is insufficient.
+The authenticated daemon compare-and-write rollout (#3508) is deferred until an
+installed runtime implements its qualified capability. The coding host does not
+mount that unavailable replacement or create unused batch grants. The standard
+library's versioned-host contract and the backend's exact-batch authorization
+remain independently enforced for their callers.
 
 Explicitly enabled Wiki planning also registers the private `coding/WikiCheck` delegate.
 Projects opt into continuous semantic backpressure by declaring `checks/wiki`

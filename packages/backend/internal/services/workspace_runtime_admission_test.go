@@ -3,7 +3,11 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
+
+	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 
 	"github.com/stretchr/testify/require"
 
@@ -24,7 +28,7 @@ func (r *admissionWorkspaceRuntime) StartWorkspace(context.Context, string) (wor
 	return workspaceapi.Workspace{}, r.startErr
 }
 
-func TestWorkspaceRuntimeResumeUsesCommonAdmission(t *testing.T) {
+func TestWorkspaceRuntimeResumeRequiresAdmission(t *testing.T) {
 	denied := errors.New("new sandbox slot denied")
 	startFailed := errors.New("runtime start reached")
 	for _, status := range []string{"running", "suspended"} {
@@ -36,15 +40,51 @@ func TestWorkspaceRuntimeResumeUsesCommonAdmission(t *testing.T) {
 			row.VmID = "vm-counted"
 			service := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceBillingPolicy(policy), WithWorkspaceRuntime(runtime))
 			_, err := service.ensureRuntimeWorkspaceRunningLocked(context.Background(), row, row.UserID)
-			if status == "running" {
-				require.ErrorContains(t, err, startFailed.Error())
-				require.Equal(t, 1, runtime.starts)
-				require.Equal(t, 1, policy.countedCalls)
+			require.ErrorContains(t, err, "branch wake requires admission and validated privileged entry")
+			require.Zero(t, runtime.starts)
+			require.Zero(t, policy.countedCalls)
+
+		})
+	}
+}
+
+// A failed person wake must not cancel the TODO sharing its branch, even when
+// the person owns that workspace. Cover both sides of the lifecycle lock.
+func TestWorkspaceRuntimeFailedOwnerWakeCancelsPersonOnly(t *testing.T) {
+	for _, boundary := range []string{"refresh", "locked"} {
+		t.Run(boundary, func(t *testing.T) {
+			row := sampleDBWorkspace("failed-owner-wake")
+			row.Status = "failed"
+			runtime := new(microsandbox.Runtime)
+			holder := machineQueueHolder(row.ID)
+			person := fmt.Sprintf("person:%d", row.UserID)
+			_, err := runtime.Request("todo", holder, holder, "machine")
+			require.NoError(t, err)
+			_, err = runtime.Request("person", "workspace:other", "person:999", "terminal")
+			require.NoError(t, err)
+			_, err = runtime.Request("person", holder, person, "terminal")
+			require.NoError(t, err)
+			q := &mockWorkspaceQuerier{getWorkspaceFn: func(context.Context, string) (db.Workspace, error) {
+				return db.Workspace{}, errors.New("refresh unavailable")
+			}}
+			service := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(runtime))
+			service.EnableMachineAdmission(nil)
+			ctx := personMachineDemand(t.Context())
+			if boundary == "refresh" {
+				_, err = service.ensureRuntimeWorkspaceRunning(ctx, row, row.UserID)
 			} else {
-				require.ErrorIs(t, err, denied)
-				require.Zero(t, runtime.starts)
-				require.Zero(t, policy.countedCalls)
+				_, err = service.ensureRuntimeWorkspaceRunningLocked(ctx, row, row.UserID)
 			}
+			require.Error(t, err)
+			rows := runtime.AdmissionSnapshot()
+			require.Len(t, rows, 3)
+			require.Equal(t, "waiting", rows[0].State, "TODO demand survives the person's failure")
+			require.Equal(t, 2, rows[0].Position)
+			require.Equal(t, "waiting", rows[1].State)
+			require.Equal(t, 1, rows[1].Position)
+			require.Equal(t, "cancelled", rows[2].State)
+			require.Zero(t, rows[2].Position)
+			require.Zero(t, runtime.InUse())
 		})
 	}
 }

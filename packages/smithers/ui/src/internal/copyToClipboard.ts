@@ -20,12 +20,8 @@ export async function copyToClipboard(
     await navigator.clipboard.writeText(text);
     return { ok: true };
   } catch (cause) {
-    if (!onCopy) {
-      const fallback = legacyCopy(text);
-      if (fallback.ok) return fallback;
-      if (fallback.cause !== undefined) return fallback;
-    }
-    return { ok: false, code: "clipboard-write-failed", cause };
+    const fallback = legacyCopy(text);
+    return fallback.ok ? fallback : { ok: false, code: "clipboard-unavailable", cause: fallback.cause ?? cause };
   }
 }
 
@@ -47,9 +43,9 @@ function legacyCopy(text: string): CopyResult {
     field.select();
     return document.execCommand("copy")
       ? { ok: true }
-      : { ok: false, code: "clipboard-write-failed", cause: undefined };
+      : { ok: false, code: "clipboard-unavailable", cause: undefined };
   } catch (cause) {
-    return { ok: false, code: "clipboard-write-failed", cause };
+    return { ok: false, code: "clipboard-unavailable", cause };
   } finally {
     field.remove();
     if (focused instanceof HTMLElement) focused.focus({ preventScroll: true });
@@ -60,3 +56,29 @@ function legacyCopy(text: string): CopyResult {
 
 /** Copy through the host Clipboard API or the plain-HTTP fallback. */
 export const copyText = copyToClipboard;
+
+/** Whether either shared copy path is available in this browser. */
+export const canCopyText = (): boolean =>
+ typeof navigator !== "undefined" && typeof navigator.clipboard?.writeText === "function" ||
+ typeof document !== "undefined" && typeof document.execCommand === "function";
+
+/** Reserve native activation now, then copy only the admitted command's text. */
+export function reserveCopyText(): { copyText(text: string): Promise<void>; release(): void } | undefined {
+ if (typeof navigator === "undefined" || typeof ClipboardItem === "undefined" || !navigator.clipboard?.write) return undefined;
+ let resolve!: (blob: Blob) => void;
+ let reject!: (cause: Error) => void;
+ let consumed = false;
+ const data = new Promise<Blob>((done, failed) => { resolve = done; reject = failed; });
+ void data.catch(() => {});
+ let writing: Promise<void>;
+ try { writing = navigator.clipboard.write([new ClipboardItem({ "text/plain": data })]); }
+ catch (cause) { writing = Promise.reject(cause); }
+ void writing.catch(() => {});
+ return {
+  copyText: async text => {
+   consumed = true; resolve(new Blob([text], { type: "text/plain" }));
+   await writing;
+  },
+  release: () => { if (!consumed) reject(new Error("The command was not accepted")); }
+ };
+}

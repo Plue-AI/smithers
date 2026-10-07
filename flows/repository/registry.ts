@@ -22,7 +22,7 @@ import ImplementPlan from "../coding/flow.ts"
 import ImplementAtoms from "../coding/implementation/flow.ts"
 import Verify from "../coding/verify/flow.ts"
 import CodingWiki from "../coding/wiki/flow.ts"
-import Register from "../register-repository/flow.ts"
+import Todo from "../todo/flow.ts"
 import { deploymentMinutes, deploymentTokens } from "./inspection.ts"
 import { JobInput, JobResult, OperationResult, SetupInput, TriggerRequest } from "./schema.ts"
 import { TriggerOutcome } from "./triggers.ts"
@@ -38,6 +38,8 @@ declare const __SMITHERS_CODING_ARTIFACT_DIGEST__: string | undefined
  * source", where {@link authoringBodies} reads the same files from disk.
  */
 declare const __SMITHERS_CREATE_FLOW_PACK__: Readonly<Record<string, string>> | undefined
+/** Exact default composition bytes, carried inside the measured host bundle. */
+declare const __SMITHERS_BUILTIN_TODO__: string | undefined
 /** Where each pack body lives, relative to this module, in source and in the bundler. */
 const authoringSource = (name: string) => `../${name}/flow.mdx`
 const firstPartyPrompts = ["issue/repro", "issue/poc", "pr-triage", "review/change"] as const
@@ -63,20 +65,7 @@ const policySources = [
   "../coding/wiki/flow.ts",
   "../coding/planning-authority.ts",
   "../coding/immutable-source.ts",
-  ...[
-    "flow.ts",
-    "setup/flow.ts",
-    "workflow.ts",
-    "schema.ts",
-    "host.ts",
-    "tree.ts",
-    "history.ts",
-    "readiness.ts",
-    "cleanup.ts",
-    "pulls.ts",
-    "jev.ts",
-    "link.ts"
-  ].map((name) => `../register-repository/${name}`),
+  "../coding/check-detection.ts",
   "../../packages/rpc/src/RepositorySetup.ts",
   "../../pnpm-lock.yaml",
   // A prompt a workspace runs is policy: editing one changes what every
@@ -175,7 +164,9 @@ const checkBody = (check: BuiltinCheck) =>
     "---",
     `description: ${JSON.stringify(`Run the detected command ${check.argv.join(" ")}.`)}`,
     "flows: [coding/CommandCheck]",
-    `capabilities: ${JSON.stringify(["fs:read:**", `proc:spawn:${check.argv.join(" ")}`])}`,
+    `capabilities: ${
+      JSON.stringify(["fs:read:**", ...(check.argv.length === 0 ? [] : [`proc:spawn:${check.argv.join(" ")}`])])
+    }`,
     "---",
     JSON.stringify({ argv: check.argv, cwd: ".", timeoutMs: check.timeoutMs }),
     ""
@@ -190,9 +181,11 @@ export const provisionBuiltins = (
   Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem, path = yield* Path.Path
     const root = path.join(stateRoot, "builtin-flows", policy)
+    // A reused host state must not rediscover the retired registration door.
+    yield* fs.remove(path.join(root, "register-repository"), { recursive: true, force: true })
     for (const check of checks) {
       if (
-        !builtinCheckName.test(check.flow) || check.argv.length === 0 ||
+        !builtinCheckName.test(check.flow) || (check.argv.length === 0 && check.flow !== "checks/build-only") ||
         check.argv.some((part) => part === "" || /[\0\r\n]/.test(part))
       ) {
         return yield* Effect.die(
@@ -233,12 +226,7 @@ export const provisionBuiltins = (
       { name: "coding", flow: ImplementPlan, description: "Execute a native coding plan with its required checks." },
       { name: "coding/dispatch", flow: Dispatch, description: "Run one dispatched agent turn in this workspace." },
       { name: "coding/implementation", flow: ImplementAtoms, description: "Implement one native coding atom." },
-      ...routes.map((name) => ({ name, ...codingRoutes[name] })),
-      {
-        name: "register-repository",
-        flow: Register,
-        description: "Analyze this repository from its link, wait for Smithers review, then set it up."
-      }
+      ...routes.map((name) => ({ name, ...codingRoutes[name] }))
     ]
     // The policy root outlives a configuration change (landing unbound, wiki
     // off), so a route this host no longer serves must not stay discoverable.
@@ -286,6 +274,17 @@ export const provisionBuiltins = (
           } satisfies FlowBinding.Declared)
       })
     }
+    // Defaults use their shipped declaration bytes, so the backend can pin
+    // the same registry execution identity on every host and policy root.
+    const todoBody = typeof __SMITHERS_BUILTIN_TODO__ === "undefined"
+      ? yield* fs.readFileString(fileURLToPath(new URL("../todo/flow.ts", import.meta.url)))
+      : __SMITHERS_BUILTIN_TODO__
+    const todoFile = path.join(root, "todo", "flow.ts")
+    yield* fs.makeDirectory(path.dirname(todoFile), { recursive: true })
+    if ((yield* fs.readFileString(todoFile).pipe(Effect.orElseSucceed(() => ""))) !== todoBody) {
+      yield* fs.writeFileString(todoFile, todoBody)
+    }
+    modules.set(path.resolve(todoFile), { body: todoBody, declaration: Todo })
     /*
      * The authoring pack, written beside the module built-ins as ordinary
      * prompt bodies.
@@ -455,13 +454,14 @@ export const bindRepositoryRegistry = (
   base: Registry.Registry,
   builtins: Registry.Registry,
   policy: string,
-  systemFlows: ReadonlyArray<string>
+  systemFlows: ReadonlyArray<string>,
+  expectedTodoDigest?: string
 ): Registry.Registry => {
   // The `todo` composition (flows/todo/flow.ts) runs only from stack admission
   // with the real pinned-source and current-attempt providers (T-FLW-03/04,
   // T-FLW-11). Until they bind a launch to its attempt, no generic route may
   // reach it: refuse before module import, packaged or repository alike.
-  const dark = (name: string) => name === "todo"
+  const dark = (name: string) => name === "todo" && expectedTodoDigest === undefined
   const names = new Set(systemFlows)
   const bundled = (name: string) => names.has(name)
   // Legacy packaged delegates retain their codecs and policy fence. These
@@ -477,6 +477,10 @@ export const bindRepositoryRegistry = (
       ? { input: JobInput, output: JobResult }
       : undefined
   const derived = (descriptor: Descriptor.FlowDescriptor) => {
+    // Retained executors are engine bindings, never model command doors.
+    if (["coding/request", "coding/vibe", "coding/verify", "review/change"].includes(descriptor.name)) {
+      descriptor = new Descriptor.FlowDescriptor({ ...descriptor, modelInvocable: false })
+    }
     const schemas = reservedSchemas(descriptor)
     return schemas !== undefined ?
       new Descriptor.FlowDescriptor({
@@ -517,7 +521,11 @@ export const bindRepositoryRegistry = (
   const loadBody: Registry.Registry["loadBody"] = (name, expected) =>
     Effect.gen(function*() {
       const registry = yield* owned(name), original = yield* registry.get(name), descriptor = derived(original)
-      if (expected !== undefined && Descriptor.executionDigest(descriptor) !== expected) {
+      const admitted = name === "todo" ? expectedTodoDigest : expected
+      if (
+        (admitted !== undefined && Descriptor.executionDigest(descriptor) !== admitted) ||
+        (expected !== undefined && Descriptor.executionDigest(descriptor) !== expected)
+      ) {
         return yield* registryError({
           code: "execution_changed",
           method: "loadBody",

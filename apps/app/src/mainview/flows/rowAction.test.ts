@@ -21,7 +21,7 @@ describe("shared viewer action", () => {
       const expected: Action | undefined = state === "needs_you" && kind !== undefined ? waits[kind]
         : state === "failed" ? { tag: "todo.retry", label: "Retry", args: { n: "3" }, primary: true }
         : state === "paused" ? { tag: "todo.resume", label: "Resume", args: { n: "3" }, primary: true }
-        : state === "in_review" && first && place === 1 && ready && draft === false && role !== "member" ? { tag: "merge", label: "Merge", args: { n: "3" }, primary: true }
+        : state === "in_review" && first && ready && draft === false && role !== "member" ? { tag: "merge", label: "Merge", args: { n: "3" }, primary: true }
         : undefined
       expect(result).toEqual(expected)
       if (result && expected) expect(ActionSchema.parse(result)).toEqual(expected)

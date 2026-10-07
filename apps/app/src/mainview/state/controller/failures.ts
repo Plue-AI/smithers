@@ -82,7 +82,65 @@ export interface FailureController {
   readonly surfaceCommandFailure: (name: string, outcome: CommandOutcome, saidBefore?: number) => void
 }
 
+/** Browser permission and delivery share the secure-origin boundary. */
+export const browserNotificationsAvailable = (): boolean =>
+  typeof window !== "undefined" && window.isSecureContext === true && typeof Notification === "function"
+
+export const browserNotificationAskAvailable = (): boolean =>
+  browserNotificationsAvailable() && typeof Notification.requestPermission === "function" && Notification.permission === "default"
+
+export const firstNotificationAsk = (toasts: readonly Toast[], member: string | null | undefined): Toast | undefined =>
+  member && browserNotificationAskAvailable()
+    ? [...toasts].filter(toast => toast.audience?.member === member && toast.audience.kind === "needs_you" && toast.action?.flow !== "notifications.allow")
+      .sort((a, b) => a.createdAt - b.createdAt)[0] : undefined
+
 export const createFailureController = (ctx: ControllerContext): FailureController => {
+  // Browser delivery observes the same collection as ordinary on-screen notices.
+  const askedMembers = new Set([...ctx.store.collections.toasts.values()].filter(toast => toast.action?.flow === "notifications.allow").map(toast => toast.audience?.member))
+  // Entries seen before permission or while visible must never be replayed later.
+  const observed = new Set<string>()
+  const notifications = new Set<Notification>()
+  const closeNotifications = () => {
+    for (const notification of notifications) {
+      notification.onclick = null
+      try { notification.close() } catch { /* Browser teardown cannot retain subscriptions. */ }
+    }
+    notifications.clear()
+    observed.clear()
+  }
+  const deliver = (toasts: readonly Toast[]) => {
+    if (ctx.disposed || !browserNotificationsAvailable()) return
+    const member = ctx.accountOwner?.()
+    if (!member) return
+    const ask = firstNotificationAsk([...ctx.store.collections.toasts.values()], member)
+    if (ask && !askedMembers.has(member)) {
+      askedMembers.add(member)
+      queueMicrotask(() => {
+        if (ctx.disposed || ctx.accountOwner() !== member || !browserNotificationAskAvailable()) return
+        ctx.store.dispatch({ type: "toast.shown", actor: "system", key: `notifications.allow@${member}`, title: "Allow notifications",
+          audience: ask.audience, sourceCard: ask.sourceCard, action: { flow: "notifications.allow", label: "Allow notifications" } })
+      })
+    }
+    for (const toast of toasts) {
+      const audience = toast.audience
+      if (!audience || toast.action?.flow === "notifications.allow" || audience.member !== member || observed.has(audience.entryId)) continue
+      observed.add(audience.entryId)
+      if (!document.hidden || Notification.permission !== "granted") continue
+      try {
+        const notification = new Notification(toast.title, { body: audience.actorLabel, tag: audience.entryId })
+        notifications.add(notification)
+        notification.onclick = () => {
+          if (ctx.disposed || ctx.accountOwner() !== member) return
+          window.focus()
+          void ctx.commands.submit({ name: audience.target.flow, actor: "user",
+            payload: audience.target.flow === "todo" ? { n: audience.target.n } : { id: audience.target.id } })
+        }
+      } catch { /* Denied or unavailable browser APIs never interrupt ordinary toasts. */ }
+    }
+  }
+  const browserSubscription = ctx.store.collections.toasts.subscribeChanges(changes => deliver(changes.filter(change => change.type !== "delete").map(change => change.value)))
+  const stopAccount = ctx.onAccountChange?.(closeNotifications)
+  ctx.onDispose(() => { browserSubscription.unsubscribe(); stopAccount?.(); closeNotifications() })
   /*
    * The door lines already spent on an act (controller/spokenLines.ts),
    * shared with the other surface that yields to one — the form card's error

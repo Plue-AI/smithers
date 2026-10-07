@@ -22,7 +22,7 @@ function orderedRows(nodes: BranchTreeNodeCard[]) {
 }
 
 export function BranchTree({ nodes, view, onAction, onView }: BranchTreeProps) {
-  return <nav className="mvp-tree" aria-label="Branches" data-keyboard-pane="Branches">
+  return <nav className="tree" aria-label="Branches" data-keyboard-pane="Branches">
     <ol>{orderedRows(nodes).map(row => renderNode({ ...row, view, onAction, onView }))}
     </ol>
     </nav>
@@ -49,7 +49,7 @@ export function BranchCrumbs({ nodes, view, onAction, onView }: BranchTreeProps)
   const rows = orderedRows(nodes).filter(row => !row.node.action?.disabled)
   const parents = rows.map(row => rows.findIndex(candidate => candidate.node.id === ancestry(nodes, row.node.id).at(-2)?.id))
   if (!path.length) return null
-  return <div className="mvp-crumbs" onKeyDown={event => {
+  return <div className="crumbs" onKeyDown={event => {
     if (event.key === "Escape") { setOpen(false); trigger.current?.focus(); return }
     if (!open) return
     const index = +(event.target as HTMLElement).dataset.focusIndex! 
@@ -57,9 +57,9 @@ export function BranchCrumbs({ nodes, view, onAction, onView }: BranchTreeProps)
     if (event.key === "ArrowUp") { controls.current[(index >= 0 ? index + controls.current.length - 1 : controls.current.length - 1) % controls.current.length]?.focus(); event.preventDefault() }
     if (event.key === "ArrowLeft") { if (parents[index]! >= 0) controls.current[parents[index]!]?.focus(); else trigger.current?.focus(); event.preventDefault() }
   }}>
-    <nav className="mvp-crumb-path" aria-label="Branch">{path.slice(0, -1).map(node => renderAncestor({ node, onAction, onView }))}<button type="button" className="mvp-crumb mvp-crumb-here" ref={trigger} data-focus-index="-1" aria-expanded={open} onClick={() => setOpen(!open)}>{path.at(-1)?.name}<ChevronDown size={12} aria-hidden="true" />
+    <nav className="crumb-path" aria-label="Branch">{path.slice(0, -1).map(node => renderAncestor({ node, onAction, onView }))}<button type="button" className="crumb crumb-here" ref={trigger} data-focus-index="-1" aria-expanded={open} onClick={() => setOpen(!open)}>{path.at(-1)?.name}<ChevronDown size={12} aria-hidden="true" />
     </button>
-    </nav>{open ? <nav className="mvp-tree" aria-label="Branches" ref={element => { controls.current = element ? Array.from(element.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")) : []; controls.current.forEach((control, index) => { control.dataset.focusIndex = String(index) }) }}>
+    </nav>{open ? <nav className="tree" aria-label="Branches" ref={element => { controls.current = element ? Array.from(element.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")) : []; controls.current.forEach((control, index) => { control.dataset.focusIndex = String(index) }) }}>
     <ol>{orderedRows(nodes).map(row => renderNode({ ...row, view, onAction, onView }))}
     </ol>
     </nav> : null}

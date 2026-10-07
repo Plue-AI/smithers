@@ -2,6 +2,7 @@
 import { NodeServices } from "@effect/platform-node"
 import { Flow, Graph } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
+import * as Executable from "@smthrs/registry/Executable"
 import * as Discovery from "@smthrs/registry/Discovery"
 import * as Registry from "@smthrs/registry/Registry"
 import { Effect, Schema } from "effect"
@@ -42,12 +43,24 @@ export default Flow.make("merge", {
       })
     })).pipe(Effect.provideService(Registry.Registry, registry))
     assert.deepEqual(catalog.refused.map(({ flow, code }) => ({ flow, code })), [
-      { flow: "merge", code: "reserved_name" }
+      { flow: "merge", code: "reserved_name" },
+      { flow: "todo", code: "missing_service" }
     ])
     assert.equal(catalog.executables.find((entry) => entry.descriptor.name === "merge")?.descriptor.provenance.source,
       "repository-host")
+    // Generic TODO dispatch remains fenced until pinned-attempt activation.
+    // This canary qualifies imports in the guest, not the TODO lifecycle.
+    // Load only TODO through the guest's project loader; never expose merge
+    // to this discovery catalog or bypass its system-name refusal.
+    const todoCatalog = yield* Executable.catalog({ delegates: [] }).pipe(
+      Effect.provideService(Registry.Registry, {
+        ...project,
+        list: () => project.list().pipe(Effect.map((entries) => entries.filter((entry) => entry.name === "todo")))
+      })
+    )
+    assert.deepEqual(todoCatalog.refused, [])
     const planned = ["todo", "canary"].map((name) => {
-      const entry = catalog.executables.find((entry) => entry.descriptor.name === name)
+      const entry = (name === "todo" ? todoCatalog : catalog).executables.find((entry) => entry.descriptor.name === name)
       assert.ok(entry, `${name} must be admitted in the guest`)
       assert.equal(entry.descriptor.provenance.source, "project")
       const graph = Graph.build(entry.flow, { input: {} })

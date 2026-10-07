@@ -42,7 +42,7 @@ func TestGitHubRepoList_Z_ErrorBranches(t *testing.T) {
 	svc = NewGitHubRepoListService(fakeRepoListDB{row: fakeRepoListRow{err: pgx.ErrNoRows}}, repoListZTokenIssuer{})
 	_, err = svc.ListInstallationRepositories(context.Background(), 1, url.Values{})
 	require.Error(t, err)
-	assert.Equal(t, 401, apiStatus(t, err))
+	assert.Equal(t, 502, apiStatus(t, err))
 
 	svc = NewGitHubRepoListService(fakeRepoListDB{row: fakeRepoListRow{err: errors.New("db down")}}, repoListZTokenIssuer{})
 	_, err = svc.ListInstallationRepositories(context.Background(), 1, url.Values{})
@@ -69,7 +69,6 @@ func TestGitHubRepoList_Z_ErrorBranches(t *testing.T) {
 	)
 	_, err = svc.ListInstallationRepositories(context.Background(), 1, url.Values{})
 	require.Error(t, err)
-	assert.Equal(t, 500, apiStatus(t, err))
+	assert.Equal(t, 502, apiStatus(t, err))
 
-	assert.Equal(t, "fallback", githubRepoListUpstreamErrorMessage([]byte(`not-json`), "fallback"))
 }

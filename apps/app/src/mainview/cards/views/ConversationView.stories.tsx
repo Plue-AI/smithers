@@ -16,7 +16,7 @@ const entryExpect: Record<keyof typeof entries, string[]> = {
   working: ["Coding agent for Ben", "Working", "Added typed TODO fields", "Context · 1"],
   needs_you: ["Needs you", "Answer"], in_review: ["In review", "Merge"],
   failed: ["Claude Code for Ben", "Failed", "Retry", "Repository access refused"],
-  event: ["Install event", "Source ready"], done: ["Merged"], private: ["Only you", "Drop T12"],
+  event: ["Smithers", "Source ready"], done: ["Merged"], private: ["Only you", "Drop T12"],
 }
 // spec §14.5.2: independent literal controls, never derived from fixture action arrays.
 const entryActions: Partial<Record<keyof typeof entries, ViewStory["actions"]>> = {
@@ -52,13 +52,13 @@ export const stories: ViewStory[] = [
   })),
   ...Object.entries(entries).map(([name, fixture]): ViewStory => ({
     name: `entry-${name}`, expect: entryExpect[name as keyof typeof entries], actions: entryActions[name as keyof typeof entries] ?? [],
-    interactions: fixture.model.context ? [{ selector: ".mvp-context-toggle" }] : [],
+    interactions: fixture.model.context ? [{ selector: ".context-toggle" }] : [],
     render: ({ onAction }, actions) => <EntryRow {...fixture.model} action={actions?.length === 0 ? undefined : fixture.model.action} onAction={onAction} />,
   })),
   ...Object.entries(contexts).map(([name, fixture]): ViewStory => ({
     name: `context-${name}`, expect: name === "collapsed" ? ["Context · 5"] : name === "one" ? ["Context · 1", "flow.ts"] : ["Context · 5", "flow.ts", "head", "Factory decisions", "#3474", "T12", "Implement", "Inspect"],
     actions: [...fixture.model.items.flatMap(item => item.action ? [item.action] : []), ...fixture.model.actions],
-    interactions: [{ selector: ".mvp-context-toggle", patch: { expanded: name === "collapsed" } }],
+    interactions: [{ selector: ".context-toggle", patch: { expanded: name === "collapsed" } }],
     render: ({ onView, onAction }, actions) => <ContextLine {...fixture.model}
       items={fixture.model.items.map(item => ({ ...item, action: !actions || (item.action && actions.includes(item.action)) ? item.action : undefined }))}
       actions={actions ? fixture.model.actions.filter(action => actions.includes(action)) : fixture.model.actions}
@@ -68,5 +68,5 @@ export const stories: ViewStory[] = [
     interactions: [{ selector: '[data-archive="old"]', patch: { selected_archive: "old" } }],
     render: ({ onView }) => <EarlierArchive model={{ node: { ...branches.earlier.model, kind: "earlier", archive_count: 3 }, read_only: true, archives: [{ id: "old", title: "Earlier question", entries: [<EntryRow key="row" {...entries.tombstone.model} onAction={() => {}} />] }] }} view={{ selected_archive: "old" }} onView={onView} /> },
   { name: "earlier-unselected", expect: ["Earlier · 0", "Read-only"], render: ({ onView }) => <EarlierArchive model={{ node: { ...branches.earlier.model, kind: "earlier", archive_count: 0 }, read_only: true, archives: [] }} view={{}} onView={onView} /> },
-  { name: "crumb-ancestry", expect: ["main", "todo/12", "scratch/repro"], interactions: [{ selector: '[data-branch="main"]', patch: { selected_branch: "main" } }, { selector: '[data-branch="todo-12"]', patch: { selected_branch: "todo-12" } }, { selector: ".mvp-crumb-here" }, { selector: '[data-node="main"]', patch: { selected_branch: "main" } }, { selector: '[data-node="todo-12"]', patch: { selected_branch: "todo-12" } }, { selector: '[data-node="scratch-repro"]', action: { tag: "branch", args: { name: "scratch/repro" } } }, { selector: '[data-node="earlier"]', patch: { selected_branch: "earlier" } }], render: ({ onAction, onView }) => <BranchCrumbs nodes={[branches.main.model]} view={{ selected_branch: "scratch-repro" }} onAction={onAction} onView={onView} /> },
+  { name: "crumb-ancestry", expect: ["main", "todo/12", "scratch/repro"], interactions: [{ selector: '[data-branch="main"]', patch: { selected_branch: "main" } }, { selector: '[data-branch="todo-12"]', patch: { selected_branch: "todo-12" } }, { selector: ".crumb-here" }, { selector: '[data-node="main"]', patch: { selected_branch: "main" } }, { selector: '[data-node="todo-12"]', patch: { selected_branch: "todo-12" } }, { selector: '[data-node="scratch-repro"]', action: { tag: "branch", args: { name: "scratch/repro" } } }, { selector: '[data-node="earlier"]', patch: { selected_branch: "earlier" } }], render: ({ onAction, onView }) => <BranchCrumbs nodes={[branches.main.model]} view={{ selected_branch: "scratch-repro" }} onAction={onAction} onView={onView} /> },
 ]

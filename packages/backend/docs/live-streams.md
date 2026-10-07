@@ -13,7 +13,7 @@ owner, as another account and anonymously through the composed backend.
 
 | Stream | Transport | Who may open it | Delivery | Test composition |
 | --- | --- | --- | --- | --- |
-| `GET /api/live` | WebSocket | install members with a browser session from the install's origin | shared topic snapshots (`home`, `todo:<n>`, `flows`; the install owner's `external:<agent>:<session>`) at per-topic cursors; `smithers.live.v1` | refused 404: install-only; the J4 and J11 rehearsals open it on the install |
+| `GET /api/live` | WebSocket | install members with a browser session from the install's origin or a scoped delegated bearer | shared snapshots (`home`, `flows`; the install owner’s `external:<agent>:<session>`); `todo:<n>` snapshots and durable job-event deltas at source cursors; `smithers.live.v1` | refused 404: install-only; the J4 and J11 rehearsals open it on the install |
 | `GET /api/notifications` | SSE | the signed-in account, its own notifications | live hints; no replay | opens |
 | `GET /api/notifications/events/stream` | SSE | the signed-in account, its own notifications | durable facts; `Last-Event-ID` cursor | opens |
 | `GET /api/github/import/{id}` | SSE with `Accept: text/event-stream` | the account that started the import | polled import snapshots until terminal | opens |
@@ -22,7 +22,6 @@ owner, as another account and anonymously through the composed backend.
 | `GET /api/repos/{owner}/{repo}/changes/events` | SSE | repository readers | live hints; no replay | opens |
 | `GET /api/repos/{owner}/{repo}/mythical/events` | SSE | repository readers | live hints; clients refetch the stack | opens |
 | `GET /api/repos/{owner}/{repo}/issues/state-events/stream` | SSE | repository readers | durable facts; `Last-Event-ID` cursor | opens |
-| `GET /api/repos/{owner}/{repo}/wiki/{slug}/stream` | SSE | repository readers of the page | page revisions; `Last-Event-ID` revision cursor | opens |
 | `GET /api/repos/{owner}/{repo}/runs/{id}/logs` | SSE | repository readers | persisted log lines; `Last-Event-ID` replay | opens |
 | `GET /api/repos/{owner}/{repo}/runs/{id}/events` | SSE | repository readers | persisted log lines; `Last-Event-ID` replay | opens |
 | `GET /api/repos/{owner}/{repo}/workflows/runs/{id}/events` | SSE | repository readers | persisted log lines; `Last-Event-ID` replay | opens |
@@ -50,3 +49,29 @@ events (and the run status and import snapshots) through three failures:
   the import stream polls. A reconnect catches up from its cursor.
 - Deleting the credential a stream is open under ends it with a `revoked`
   event, and the credential cannot reopen it.
+
+## Live frame boundary
+
+`GET /api/live` uses `smithers.live.v1`. S1 requests are `sub` and `unsub`;
+reserved `presence` and binary kinds 1 and 2 answer `err unsupported` with
+that subscription id and keep the connection open. A presence refusal does
+not remove an existing subscription. Invalid requests close with WebSocket
+status 1007 and `malformed_frame`; invalid binary kinds close with 1003.
+The shared TypeScript frame contract is `@smthrs/rpc/Live`, with committed
+record fixtures in `packages/rpc/test/fixtures/Live.ts`.
+
+Upgrades without the revocation provider fail with `503 infra/live_unavailable`.
+Revocation watches register before checking retained revocations, including
+browser sessions. `/metrics` exposes `smithers_live_connections` from the
+in-process connection count.
+
+TODO subscriptions reuse `product_job_events` and `product_job_streams` through
+`jobs.Store.Replay`: a resume returns only later source rows, and an expired
+cursor returns a fresh committed snapshot. Broker notifications wake replay;
+a 250 ms repair poll recovers missed notifications. No transport event or
+retention table is created. Home and flows still serve snapshots; they do not
+have the TODO source's replay contract.
+
+Cookie-bearing upgrades require the effective Origin; cookie-free bearer upgrades
+use the same credential loader, scoped authorizer and durable revocation watcher,
+and require no Origin. Machine/run credentials cannot open member Live sockets.

@@ -1,7 +1,7 @@
 import * as Model from "@smthrs/model/Model"
 import type * as ModelEvent from "@smthrs/model/ModelEvent"
 import type { JsonObject, ModelRequest } from "@smthrs/model/ModelRequest"
-import { commandsToolSpec, INSTALL_HOST_COMMANDS, unknownCommandResult } from "@smthrs/rpc/AgentCommands"
+import { commandsToolSpec, unknownCommandResult } from "@smthrs/rpc/AgentCommands"
 import { AGENT_RUNTIME_CONTEXT_VERSION, composeAgentInstructions } from "@smthrs/rpc/AgentContext"
 import type { AgentRuntimeContext } from "@smthrs/rpc/AgentContext"
 import {
@@ -14,6 +14,7 @@ import {
 import { MAX_TOOL_LEGS } from "@smthrs/rpc/AgentToolResult"
 import { agentTurnJournalDigestInput } from "@smthrs/rpc/AgentTurnJournal"
 import type { AgentTurnCursor } from "@smthrs/rpc/AgentTurnJournal"
+import { fixtures as homeFixtures } from "@smthrs/rpc/fixtures/Home"
 import { fixtures } from "@smthrs/rpc/fixtures/Todo"
 import { AgentTurnFrameSchema } from "@smthrs/rpc/NativeAgent"
 import type { AgentTurnFrame, FetchLike, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
@@ -23,6 +24,7 @@ import { createHash } from "node:crypto"
 import { describe, expect, test } from "vitest"
 import { runDurableChatTurn } from "../src/DurableChatProducer.ts"
 import type { DurableChatGrant } from "../src/DurableChatProducer.ts"
+import { apiCaller, runHostTurn } from "../src/HostTools.ts"
 
 // Literal fixtures: the question, main's commit and JOURNEY.md's one line.
 const COMMIT = "0123456789abcdef0123456789abcdef01234567"
@@ -51,7 +53,7 @@ const grant: DurableChatGrant = {
 const { source: _source, ...sourceless } = grant
 
 /** An install turn its author's browser session admitted: it reads main and the install's TODOs as them. */
-const install: DurableChatGrant = { ...grant, api: { author: "ben" } }
+const install: DurableChatGrant = { ...grant, api: { author: "ben", token: "smithers_" + "a".repeat(40) } }
 
 interface SourceCall {
   readonly authorization: string | null
@@ -61,7 +63,7 @@ interface SourceCall {
 /** The install's TODO routes as the API callback answers them: the route's status and body. */
 const routes = (todos: Record<string, readonly [number, unknown]>) => (path: string): Response => {
   const [status, body] = todos[path] ?? [404, { code: "not_found", class: "user", message: "Not Found" }]
-  return Response.json({ status, body })
+  return Response.json(body, { status })
 }
 
 /** No directory: what the list callback answers a test that lists nothing. */
@@ -70,7 +72,7 @@ const noDirectory = (): Response => Response.json({ status: "error", code: "not_
 /** The producer's journal and its source read, source list and API callbacks, recording what the host sent. */
 const producer = (
   answer: (path: string) => Response,
-  api: (path: string) => Response = routes({}),
+  api: (path: string, init?: RequestInit) => Response = routes({}),
   list: (path: string) => Response = noDirectory
 ) => {
   const frames: Array<AgentTurnFrame> = []
@@ -81,6 +83,23 @@ const producer = (
   const fetchImpl: FetchLike = async (input, init) => {
     const url = new URL(String(input))
     if (url.pathname === "/internal/chat/provider-started") return new Response(null, { status: 204 })
+    if (url.pathname.startsWith("/api/")) {
+      calls.push({
+        authorization: new Headers(init?.headers).get("authorization"),
+        body: {
+          method: init?.method,
+          path: url.pathname + url.search,
+          ...(init?.method === "GET" ? {} : {
+            payload: JSON.parse(String(init?.body)),
+            key: new Headers(init?.headers).get("Idempotency-Key")
+          })
+        }
+      })
+      expect(new Headers(init?.headers).get("smithers-via")).toBe("smithers")
+      expect(new Headers(init?.headers).get("x-forwarded-host")).toBe("127.0.0.1:4000")
+      expect(init?.redirect).toBe("manual")
+      return api(url.pathname + url.search, init)
+    }
     const body = JSON.parse(String(init?.body))
     if (url.pathname === "/internal/chat/source/read") {
       reads.push({ authorization: new Headers(init?.headers).get("authorization"), body })
@@ -89,10 +108,6 @@ const producer = (
     if (url.pathname === "/internal/chat/source/list") {
       lists.push({ authorization: new Headers(init?.headers).get("authorization"), body })
       return list(body.path)
-    }
-    if (url.pathname === "/internal/chat/api") {
-      calls.push({ authorization: new Headers(init?.headers).get("authorization"), body })
-      return api(body.path)
     }
     const frame = body.frames[0] as AgentTurnFrame
     frames.push(frame)
@@ -214,11 +229,16 @@ const toolOutputs = (provider: ReturnType<typeof model>): ReadonlyArray<string> 
 
 /** Literal TODO models, as the install's routes serve them: T12 queued, T13 merged, T14 dropped, T15 working. */
 const queued: TodoCard = fixtures.queued.model
-const merged: TodoCard = { ...fixtures.merged.model, n: 13, title: "Merged work" }
-const dropped: TodoCard = { ...fixtures.dropped.model, n: 14, title: "Dropped work" }
-const working: TodoCard = { ...fixtures.working.model, n: 15, title: "Log retry counts", place: 2 }
+const stackHome = {
+  ...homeFixtures.fresh.model,
+  items: [
+    { ...homeFixtures.active.model.items[0]!, ...queued, branch: { id: "todo-12", name: "todo/12" } },
+    { ...homeFixtures.active.model.items[0]!, n: 13, state: "merged" as const },
+    { ...homeFixtures.active.model.items[0]!, n: 14, state: "dropped" as const }
+  ]
+}
 const stackRoutes = routes({
-  "/api/todos": [200, [queued, merged, dropped, working]],
+  "/api/stack": [200, stackHome],
   "/api/todos/12": [200, queued],
   "/api/todos/99": [404, { code: "todo_not_found", class: "user", message: "TODO not found" }]
 })
@@ -228,10 +248,49 @@ const FILES_LINES = [
   "- /files.list [path] [owner/repo] — List a repository directory",
   "- /files.read <path>[:<line>[:<col>]] [owner/repo] [--ref <revision>] — Read a file from a repository"
 ]
-const TODO_LINES = [
-  "- /stack — Show the stack and background runs",
-  "- /todo <Tn> — Open a TODO",
-  "- /todo.new [text] — Write and place a TODO (asks the person: it only shows them what to confirm, and their press acts)"
+// Literal Appendix B HTTP/file commands; unavailable UI providers stay dark.
+const HOST_COMMANDS = [
+  "agent",
+  "agents",
+  "branch",
+  "branch.add-to-stack",
+  "branch.bring-in",
+  "branch.discard-foreign",
+  "branch.fork",
+  "branch.rebase",
+  "branches",
+  "files.list",
+  "files.read",
+  "flow",
+  "flow.edit",
+  "flow.new",
+  "flow.run",
+  "flows",
+  "github",
+  "github.retry",
+  "issue",
+  "issue.comment",
+  "issue.new",
+  "issues",
+  "learning.accept",
+  "learning.dismiss",
+  "monitor",
+  "run",
+  "run.inspect",
+  "runs",
+  "search",
+  "stack",
+  "stack.move",
+  "theme",
+  "todo",
+  "todo.amend",
+  "todo.answer",
+  "todo.drop",
+  "todo.new",
+  "todo.resume",
+  "todo.retry",
+  "todo.steer",
+  "todo.stop"
 ]
 const commandLines = (text: string): ReadonlyArray<string> => text.split("\n").filter((line) => line.startsWith("- /"))
 
@@ -282,7 +341,6 @@ const browserContext: AgentRuntimeContext = {
 const BROWSER_ONLY = [
   "flow.create",
   "flow.list",
-  "flow.run",
   "auth.prompt",
   "cloud.prompt",
   "onboarding.act",
@@ -843,40 +901,48 @@ describe("host-owned turns run their tool calls on the host", () => {
 describe("an install's host runs the catalog commands its grant allows, as the turn's author", () => {
   test("the instructions and the list name exactly the commands the grant runs, never the request's own", async () => {
     const cases: ReadonlyArray<[DurableChatGrant, ReadonlyArray<string>]> = [
-      [install, [...FILES_LINES, ...TODO_LINES]],
-      [grant, FILES_LINES],
-      [{ ...sourceless, api: { author: "ben" } }, TODO_LINES]
+      [install, HOST_COMMANDS],
+      [grant, ["files.list", "files.read"]],
+      [{ ...sourceless, api: install.api! }, HOST_COMMANDS.filter((name) => !name.startsWith("files."))]
     ]
-    for (const [turn, lines] of cases) {
+    for (const [turn, names] of cases) {
       const journal = producer((path) => file(path, JOURNEY), stackRoutes)
       const provider = model([{ name: "commands", arguments: JSON.stringify({ action: "list" }) }])
       await run(turn, provider, journal)
       const system = systemText(provider.requests[0])
-      expect(commandLines(system)).toEqual(lines)
+      expect(commandLines(system).map((line) => line.slice(3).split(" ")[0])).toEqual(names)
       expect(system).not.toContain(question.instructions)
       expect(toolNames(provider.requests[0])).toEqual(["commands"])
       const listed = JSON.parse(toolOutputs(provider)[0]!) as { commands: ReadonlyArray<{ name: string }> }
-      expect(listed.commands.map((command) => command.name)).toEqual(
-        lines.map((line) => line.slice(3).split(" ")[0])
-      )
+      expect(listed.commands.map((command) => command.name)).toEqual(names)
+      expect(journal.calls).toEqual([])
     }
-    // The install's list is the commands @smthrs/rpc declares for it, with their catalog copy.
-    const journal = producer((path) => file(path, JOURNEY), stackRoutes)
-    const provider = model([{ name: "commands", arguments: JSON.stringify({ action: "list" }) }])
-    await run(install, provider, journal)
-    expect(JSON.parse(toolOutputs(provider)[0]!)).toEqual({
-      commands: INSTALL_HOST_COMMANDS.map(({ name, summary, ...rest }) => ({
-        name,
-        summary,
-        ...("args" in rest ? { args: rest.args } : {})
-      }))
-    })
+    const provider = model([])
+    await run(install, provider, producer((path) => file(path, JOURNEY)))
+    const lines = commandLines(systemText(provider.requests[0]))
+    expect(lines).toContain("- /todo.stop — Pause a working TODO")
+    expect(lines.find((line) => line.startsWith("- /todo.drop "))).toContain("asks the person")
+    expect(lines.some((line) => line.startsWith("- /merge "))).toBe(false)
+    expect(lines.filter((line) => line.startsWith("- /files."))).toEqual(FILES_LINES)
+  })
+
+  test("verified grant Markdown survives the host prompt while browser instructions do not", async () => {
+    const provider = model([])
+    await run({ ...install, agentInstructions: "Always end with DONE.\n```js\nthrow new Error('data-only')\n```" }, provider, producer((path) => file(path, JOURNEY)))
+    const system = systemText(provider.requests[0])
+    expect(system).toContain("Always end with DONE.")
+    expect(system).toContain("throw new Error('data-only')")
+    expect(system).not.toContain(question.instructions)
+    expect(commandLines(system).map((line) => line.slice(3).split(" ")[0])).toEqual(HOST_COMMANDS)
   })
 
   test("the instructions keep the app agent's standing rules beside the install's commands", async () => {
     const cases: ReadonlyArray<[DurableChatGrant, string]> = [
       [install, "through files.list and files.read"],
-      [{ ...sourceless, api: { author: "ben" } }, "read arbitrary files off the user's machine; push"]
+      [
+        { ...sourceless, api: { author: "ben", token: "smithers_" + "a".repeat(40) } },
+        "read arbitrary files off the user's machine; push"
+      ]
     ]
     for (const [turn, files] of cases) {
       const provider = model([])
@@ -891,19 +957,25 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     }
     // A turn that cannot list is never told to.
     const provider = model([])
-    await run({ ...sourceless, api: { author: "ben" } }, provider, producer((path) => file(path, JOURNEY), stackRoutes))
+    await run(
+      { ...sourceless, api: { author: "ben", token: "smithers_" + "a".repeat(40) } },
+      provider,
+      producer((path) => file(path, JOURNEY), stackRoutes)
+    )
     expect(systemText(provider.requests[0])).not.toContain("files.list")
   })
 
   test("an install turn's context states the host's capabilities and names no command the host does not run", async () => {
-    for (const turn of [install, grant, { ...sourceless, api: { author: "ben" } }]) {
+    for (
+      const turn of [install, grant, { ...sourceless, api: { author: "ben", token: "smithers_" + "a".repeat(40) } }]
+    ) {
       const provider = model([])
       const journal = producer((path) => file(path, JOURNEY), stackRoutes)
       await run({ ...turn, request: { ...question, context: browserContext } }, provider, journal)
       const system = systemText(provider.requests[0])
       for (const name of BROWSER_ONLY) expect(system).not.toContain(name)
       expect(system).toContain(
-        "Run the commands the instructions list through the \"commands\" tool, as the person who asked; each answers with a card in this chat."
+        "Run the commands the instructions list through the \"commands\" tool, as the person who asked; read the returned status before claiming success. Pending confirmations require the person to act."
       )
       expect(system).toContain(
         "Runs no command the instructions do not list: any other answers unknown-command, and nothing runs."
@@ -928,78 +1000,71 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     const journal = producer((path) => file(path, JOURNEY), stackRoutes)
     const provider = model([{ name: "commands", arguments: JSON.stringify({ action: "list", namespace: "todo" }) }])
     await run(install, provider, journal)
-    expect(JSON.parse(toolOutputs(provider)[0]!)).toEqual({
-      commands: [
-        { name: "todo", summary: "Open a TODO", args: "<Tn>" },
-        { name: "todo.new", summary: "Write and place a TODO", args: "[text]" }
-      ]
+    const listed = JSON.parse(toolOutputs(provider)[0]!)
+    expect(listed.commands.map((row: { name: string }) => row.name)).toEqual([
+      "todo",
+      "todo.amend",
+      "todo.answer",
+      "todo.drop",
+      "todo.new",
+      "todo.resume",
+      "todo.retry",
+      "todo.steer",
+      "todo.stop"
+    ])
+    const stop = listed.commands.find((row: { name: string }) => row.name === "todo.stop")
+    expect(JSON.parse(stop.args)).toEqual({
+      type: "object",
+      properties: { n: { type: "integer", minimum: 1 } },
+      required: ["n"],
+      additionalProperties: false,
+      $defs: {}
     })
     expect(journal.calls).toEqual([])
   })
 
-  test("/stack reads the install's TODOs as the turn's author and shows each open one's TODO card", async () => {
+  test("/stack reads the shared Home projection through the catalog endpoint", async () => {
     const journal = producer((path) => file(path, JOURNEY), stackRoutes)
-    const provider = model([execute("/stack")])
+    const provider = model([execute("stack", "  ")])
     await run(install, provider, journal)
     expect(journal.calls).toEqual([{
-      authorization: "Bearer producer_capability_producer_capability_1234",
-      body: { turnId: install.turnId, generation: 2, method: "GET", path: "/api/todos" }
+      authorization: "Bearer smithers_" + "a".repeat(40),
+      body: { method: "GET", path: "/api/stack" }
+    }, {
+      authorization: "Bearer smithers_" + "a".repeat(40),
+      body: { method: "GET", path: "/api/todos/12" }
     }])
+    expect(journal.frames[1]).toMatchObject({ type: "card", card: { id: "todo:12", kind: "todo", payload: { n: 12, model: queued } } })
     expect(journal.reads).toEqual([])
-    expect(journal.frames.map((frame) => frame.type)).toEqual([
-      "call.started",
-      "card",
-      "card",
-      "call.settled",
-      "delta",
-      "done"
-    ])
+    expect(journal.frames.map((frame) => frame.type)).toEqual(["call.started", "card", "call.settled", "delta", "done"])
     for (const frame of journal.frames) expect(AgentTurnFrameSchema.safeParse(frame).success).toBe(true)
-    expect(journal.frames[0]).toEqual({ runId: "run", type: "call.started", link: 0, ordinal: 0, name: "stack" })
-    const cards = journal.frames.flatMap((frame) => frame.type === "card" ? [frame.card] : [])
-    // Merged and dropped TODOs are not on the stack; each open one is its TODO card, as the person's /todo shows it.
-    expect(cards).toEqual([queued, working].map((todo) => ({
-      id: `todo:${todo.n}`,
-      kind: "todo",
-      title: todo.title,
-      status: "active",
-      createdAt: cards[0]!.createdAt,
-      ordinal: 0,
-      payload: { n: todo.n, model: todo, requests: [] }
-    })))
-    expect(journal.frames[3]).toEqual({
-      runId: "run",
-      type: "call.settled",
-      link: 0,
-      ordinal: 0,
-      name: "stack",
-      verdict: "run"
-    })
-    const rows = {
-      todos: [
-        { n: 12, title: "Card model contracts", state: "queued", owner: "ben", place: 1 },
-        { n: 13, title: "Merged work", state: "merged", owner: "ben" },
-        { n: 14, title: "Dropped work", state: "dropped", owner: "ben" },
-        { n: 15, title: "Log retry counts", state: "working", owner: "ben", place: 2 }
-      ]
+    expect(JSON.parse(toolOutputs(provider)[0]!)).toMatchObject({ items: [{ n: 12 }, { n: 13 }, { n: 14 }] })
+  })
+
+  test("an empty stack needs no detail requests; a failed or mismatched detail refuses", async () => {
+    const empty = producer(path => file(path, JOURNEY), routes({ "/api/stack": [200, homeFixtures.fresh.model] }))
+    const provider = model([execute("stack")])
+    await run(install, provider, empty)
+    expect(empty.calls).toHaveLength(1)
+    expect(empty.frames.some(frame => frame.type === "card")).toBe(false)
+    expect(JSON.parse(toolOutputs(provider)[0]!)).toEqual(homeFixtures.fresh.model)
+    for (const detail of [[403, { code: "forbidden" }], [200, { ...queued, n: 99 }], [200, {}]] as const) {
+      const journal = producer(path => file(path, JOURNEY), routes({ "/api/stack": [200, stackHome], "/api/todos/12": detail }))
+      const provider = model([execute("stack")])
+      await run(install, provider, journal)
+      expect(journal.calls).toHaveLength(2)
+      expect(journal.frames.some(frame => frame.type === "card")).toBe(false)
+      expect(toolOutputs(provider)).toEqual(["failed: Invalid TODO response"])
     }
-    expect(JSON.parse(toolOutputs(provider)[0]!)).toEqual(rows)
-    expect(answerText(journal.frames)).toBe(`From the source: ${JSON.stringify(rows)}`)
-    // An empty stack shows no card and says so.
-    const empty = producer((path) => file(path, JOURNEY), routes({ "/api/todos": [200, []] }))
-    const quiet = model([execute("stack", "  ")])
-    await run(install, quiet, empty)
-    expect(empty.frames.map((frame) => frame.type)).toEqual(["call.started", "call.settled", "delta", "done"])
-    expect(toolOutputs(quiet)).toEqual(["{\"todos\":[]}"])
   })
 
   test("/todo Tn reads one TODO and shows its TODO card", async () => {
-    for (const args of ["T12", "12", "{\"n\":12}"]) {
+    for (const args of ["T12", "{\"n\":12}"]) {
       const journal = producer((path) => file(path, JOURNEY), stackRoutes)
       const provider = model([execute("/todo", args)])
       await run(install, provider, journal)
       expect(journal.calls.map((call) => call.body)).toEqual([
-        { turnId: install.turnId, generation: 2, method: "GET", path: "/api/todos/12" }
+        { method: "GET", path: "/api/todos/12" }
       ])
       expect(journal.frames.map((frame) => frame.type)).toEqual([
         "call.started",
@@ -1018,6 +1083,92 @@ describe("an install's host runs the catalog commands its grant allows, as the t
         }
       })
       expect(JSON.parse(toolOutputs(provider)[0]!)).toEqual(queued)
+    }
+  })
+
+  test("catalog mutations use literal HTTP bindings and host-owned idempotency keys", async () => {
+    const cases = [
+      ["todo.stop", "T12", "POST", "/api/todos/12", { op: "stop" }],
+      ["todo.resume", "T12", "POST", "/api/todos/12", { op: "resume" }],
+      ["todo.retry", "T12", "POST", "/api/todos/12", { op: "retry" }],
+      ["todo.steer", "T12 Keep the greeting", "POST", "/api/todos/12", { steer: "Keep the greeting" }],
+      ["todo.amend", "T12 New prompt", "PATCH", "/api/todos/12", { prompt: "New prompt" }],
+      ["stack.move", "T12 down", "POST", "/api/todos/12", { op: "move", direction: "down" }],
+      ["todo.answer", "{\"n\":12,\"answer\":\"Yes\",\"wait\":\"w1\"}", "POST", "/api/todos/12/answer", {
+        answer: "Yes",
+        wait: "w1"
+      }],
+      ["branch.fork", "{\"from\":\"main\",\"name\":\"greeting\"}", "POST", "/api/branches", {
+        from: "main",
+        name: "greeting"
+      }],
+      ["github.retry", undefined, "POST", "/api/github/sync", {}]
+    ] as const
+    for (const [name, args, method, path, payload] of cases) {
+      const journal = producer((path) => file(path, JOURNEY), () =>
+        name === "todo.amend"
+          ? Response.json({ confirmation: "confirm-amend", state: "pending" }, { status: 202 })
+          : new Response(null, { status: 204 }))
+      const provider = model([execute(name, args)])
+      await run(install, provider, journal)
+      expect(journal.calls, name).toEqual([{
+        authorization: "Bearer smithers_" + "a".repeat(40),
+        body: { method, path, payload, key: `chat:${install.turnId}:0` }
+      }])
+      expect(toolOutputs(provider), name).toEqual([
+        name === "todo.amend"
+          ? "{\"confirmation\":\"confirm-amend\",\"state\":\"pending\"}" :
+          "{\"status\":204,\"body\":null}"
+      ])
+    }
+  })
+
+  test("flow show and edit use the served catalog, quote literal data and never file work", async () => {
+    const catalog = [{ name: "todo", system: false, source: { builtin: true }, versions: [{ id: "d1", state: "active", steps: [] }] },
+      { name: "merge", system: true, source: { builtin: true }, versions: [] }]
+    const journal = producer(path => file(path, JOURNEY), routes({ "/api/flows": [200, catalog] }))
+    const provider = model([execute("flow", "todo"), execute("flow.edit", "todo Run tests\nKeep  spaces"),
+      execute("flow.edit", JSON.stringify({ name: "todo", request: "Run tests", diff: "+<script>\n+```" })),
+      execute("flow.edit", "merge Add a step"), execute("flow", "missing")])
+    await run(install, provider, journal)
+    expect(journal.calls).toHaveLength(6)
+    for (const call of journal.calls) {
+      expect(call.body).toMatchObject({ method: "GET", path: expect.stringMatching(/^\/api\/flows(?:\/missing)?$/u) })
+    }
+    const cards = journal.frames.flatMap(frame => frame.type === "card" ? [frame.card] : [])
+    expect(cards).toHaveLength(3)
+    expect(cards[0]).toMatchObject({ kind: "flow", payload: { name: "todo" }, title: "TODO flow" })
+    expect(cards[1]).toMatchObject({ kind: "draft", audience_member_id: "ben", payload: {
+      title: "Change the TODO flow: Run tests",
+      prompt: "Change flows/todo/flow.ts: Run tests\nKeep  spaces; start from the built-in composition when no override exists",
+      place: { mode: "append", options: [] }, private: true } })
+    expect(cards[2]).toMatchObject({ kind: "draft", audience_member_id: "ben", payload: {
+      prompt: "Change flows/todo/flow.ts: Run tests; start from the built-in composition when no override exists\n\nProposed diff (untrusted context):\n> +<script>\n> +```" } })
+    expect(toolOutputs(provider).slice(-2)).toEqual(["failed: Merge flow is built in", "failed: No flow missing"])
+    for (const frame of journal.frames) expect(AgentTurnFrameSchema.safeParse(frame).success).toBe(true)
+  })
+
+  test("flow edit without a request renders only the missing field and files nothing", async () => {
+    const journal = producer(path => file(path, JOURNEY), stackRoutes)
+    const provider = model([execute("flow.edit", "todo")])
+    await run(install, provider, journal)
+    expect(journal.calls).toEqual([])
+    const cards = journal.frames.flatMap(frame => frame.type === "card" ? [frame.card] : [])
+    expect(cards).toHaveLength(1)
+    expect(cards[0]).toMatchObject({ kind: "flow-form", payload: {
+      flow: "flow.edit", via: "agent", given: { name: "todo" }, fields: [{ name: "request", label: "Request", kind: "text", required: true }] } })
+  })
+
+  test("flow edit refuses missing and invalid catalogs before any Draft or write", async () => {
+    for (const response of [() => Response.json({ class: "infra", code: "unavailable" }, { status: 503 }),
+      () => Response.json([{ name: "todo" }])]) {
+      const journal = producer(path => file(path, JOURNEY), response)
+      const provider = model([execute("flow.edit", "todo Run tests")])
+      await run(install, provider, journal)
+      expect(toolOutputs(provider)).toEqual(["failed: Flows unavailable"])
+      expect(journal.frames.filter(frame => frame.type === "card")).toEqual([])
+      expect(journal.calls).toHaveLength(1)
+      expect(journal.calls[0]!.body).toMatchObject({ method: "GET" })
     }
   })
 
@@ -1083,84 +1234,100 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     )
   })
 
+  test("shared prompts retain the author's server Confirm instead of an invisible private Draft", async () => {
+    const turn = { ...install, request: { ...install.request, sharedConversation: true } }
+    const journal = producer(path => file(path, JOURNEY), () => Response.json({ confirmation: "confirm-1", state: "pending" }, { status: 202 }))
+    const provider = model([execute("todo.new", "Add a greeting"), execute("merge", "T12")])
+    await Effect.runPromise(runHostTurn(provider.model, turn, { modelId: "m" }, frame => Effect.sync(() => { journal.frames.push(frame) }), {
+      read: () => Effect.succeed({ code: "unused" }),
+      list: () => Effect.succeed({ code: "unused" }),
+      api: apiCaller("http://callback.test", turn, journal.fetchImpl)
+    }))
+    expect(journal.calls.map(call => call.body)).toEqual([
+      { method: "POST", path: "/api/todos", payload: { prompt: "Add a greeting", place: { mode: "append" } }, key: `chat:${turn.turnId}:0` },
+      { method: "POST", path: "/api/todos/12/merge", payload: {}, key: `chat:${turn.turnId}:1` }
+    ])
+    expect(journal.frames.some(frame => frame.type === "card")).toBe(false)
+    expect(toolOutputs(provider)).toEqual(Array(2).fill('{"confirmation":"confirm-1","state":"pending"}'))
+  })
+
+  test("confirmation commands return pending status without copying the private Confirm into shared frames", async () => {
+    const cases = [
+      ["todo.drop", "T12", "/api/todos/12", { op: "drop" }],
+      ["issue.comment", "{\"number\":5,\"body\":\"Please check\"}", "/api/issues/5/comments", { body: "Please check" }]
+    ] as const
+    for (const [name, args, path, payload] of cases) {
+      const journal = producer((path) => file(path, JOURNEY), () =>
+        Response.json({
+          confirmation: "confirm-1",
+          state: "pending",
+          private: "AUTHOR ONLY"
+        }, { status: 202 }))
+      const provider = model([execute(name, args)])
+      await run(install, provider, journal)
+      expect(journal.calls, name).toEqual([{
+        authorization: "Bearer smithers_" + "a".repeat(40),
+        body: { method: "POST", path, payload, key: `chat:${install.turnId}:0` }
+      }])
+      expect(toolOutputs(provider)).toEqual(["{\"confirmation\":\"confirm-1\",\"state\":\"pending\"}"])
+      expect(journal.frames.map((frame) => frame.type)).toEqual(["call.started", "call.settled", "delta", "done"])
+      expect(JSON.stringify(journal.frames)).not.toContain("AUTHOR ONLY")
+      expect(JSON.stringify(provider.requests)).not.toContain("AUTHOR ONLY")
+    }
+  })
+
+  test("success and unavailable repository dispatch return the API result without executing a local fallback", async () => {
+    const journal = producer(
+      (path) => file(path, JOURNEY),
+      routes({
+        "/api/search/code?q=hello+world": [200, { matches: [] }],
+        "/api/flows/verify/run": [503, { code: "machine_unavailable", class: "infra" }]
+      })
+    )
+    const provider = model([
+      execute("search", "{\"query\":\"hello world\"}"),
+      execute("flow.run", "{\"name\":\"verify\"}")
+    ])
+    await run(install, provider, journal)
+    expect(journal.calls.map((call) => call.body)).toEqual([
+      { method: "GET", path: "/api/search/code?q=hello+world" },
+      { method: "POST", path: "/api/flows/verify/run", payload: {}, key: `chat:${install.turnId}:1` }
+    ])
+    expect(toolOutputs(provider)).toEqual([
+      "{\"status\":200,\"body\":{\"matches\":[]}}",
+      "failed: {\"status\":503,\"body\":{\"code\":\"machine_unavailable\",\"class\":\"infra\"}}"
+    ])
+    expect(journal.reads).toEqual([])
+  })
+
   test("each refusal is stated to the model and the conversation, and the turn answers", async () => {
     const refusals: ReadonlyArray<[ReturnType<typeof execute>, (path: string) => Response, string]> = [
-      // The route's own refusal, as the person's browser reads it.
       [
         execute("stack"),
-        routes({
-          "/api/todos": [403, { code: "permission", class: "permission", message: "Install owner session required" }]
-        }),
-        "Install owner session required"
+        routes({ "/api/stack": [403, { code: "permission", class: "permission" }] }),
+        "{\"status\":403,\"body\":{\"code\":\"permission\",\"class\":\"permission\"}}"
       ],
-      [execute("todo", "T99"), stackRoutes, "TODO not found"],
+      [
+        execute("todo", "T99"),
+        stackRoutes,
+        "{\"status\":404,\"body\":{\"code\":\"todo_not_found\",\"class\":\"user\",\"message\":\"TODO not found\"}}"
+      ],
       [
         execute("todo", "T12"),
         routes({ "/api/todos/12": [503, "upstream"] }),
-        "The TODO read did not answer. Ask again."
-      ],
-      // The callback's refusal: the admitting credential no longer acts for its author.
-      [
-        execute("stack"),
-        () => Response.json({ status: "error", code: "forbidden" }, { status: 403 }),
-        "The person who asked can't use this install's TODOs now."
+        "{\"status\":503,\"body\":\"upstream\"}"
       ],
       [
         execute("stack"),
-        () => Response.json({ status: "error", code: "producer_fenced" }, { status: 401 }),
-        "The TODO read did not answer. Ask again."
+        () => Response.json({ code: "producer_fenced" }, { status: 401 }),
+        "{\"status\":401,\"body\":{\"code\":\"producer_fenced\"}}"
       ],
-      [
-        execute("stack"),
-        () => new Response("<html>bad gateway</html>", { status: 502 }),
-        "The TODO read did not answer. Ask again."
-      ],
-      [
-        execute("stack"),
-        () => {
-          throw new TypeError("fetch failed")
-        },
-        "The TODO read did not answer. Ask again."
-      ],
-      [execute("stack"), () => Response.json({ status: 200 }), "The TODO read did not answer. Ask again."],
-      [execute("stack"), () => Response.json({ rows: [] }), "The TODO read did not answer. Ask again."],
-      [
-        execute("todo", "T12"),
-        routes({ "/api/todos/12": [200, { n: 12 }] }),
-        "The TODO read did not answer. Ask again."
-      ],
-      // Arguments the commands' own grammar refuses never reach the install.
-      [execute("stack", "everything"), stackRoutes, "/stack takes no arguments."],
-      [execute("todo", "twelve"), stackRoutes, "Name the TODO by its number: /todo T12."],
-      [execute("todo", "{\"n\":-1}"), stackRoutes, "Name the TODO by its number: /todo T12."],
-      [execute("todo", "{broken"), stackRoutes, "Invalid TODO input"],
-      [execute("todo.new", "{broken"), stackRoutes, "Invalid TODO input"],
-      [
-        execute("todo.new", JSON.stringify({ text: "x", cardId: "draft:1" })),
-        stackRoutes,
-        "Only the person commits a Draft: they press Commit on it."
-      ],
-      [
-        execute("todo.new", JSON.stringify({ text: "x", idempotencyKey: "k" })),
-        stackRoutes,
-        "todo.new takes the TODO's text, and optionally its title and acceptance."
-      ],
-      [
-        execute("todo.new", JSON.stringify({ text: "x", before: 0 })),
-        stackRoutes,
-        "todo.new takes the TODO's text, and optionally its title and acceptance."
-      ],
-      [
-        execute("todo.new", JSON.stringify({ text: "x", extra: true })),
-        stackRoutes,
-        "todo.new takes the TODO's text, and optionally its title and acceptance."
-      ],
-      // The install files a new TODO at the end of the stack only, so the Draft offers no other place.
-      [
-        execute("todo.new", JSON.stringify({ text: "x", before: 12 })),
-        stackRoutes,
-        "A new TODO goes at the end of the stack for now: draft it without before."
-      ]
+      [execute("stack"), () => new Response("<html>bad gateway</html>", { status: 502 }), "invalid_answer"],
+      [execute("stack"), () => {
+        throw new TypeError("fetch failed")
+      }, "unreachable"],
+      [execute("stack"), () => Response.json({ rows: [] }), "Invalid stack response"],
+      [execute("todo", "T12"), () => Response.json({ n: 12 }), "Invalid TODO response"]
     ]
     for (const [call, api, message] of refusals) {
       const journal = producer((path) => file(path, JOURNEY), api)
@@ -1171,8 +1338,142 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     }
   })
 
+  test("a named flow is selected from the served catalog without broadening the endpoint", async () => {
+    const journal = producer((path) => file(path, JOURNEY), () => Response.json([{ name: "check/types", system: false, source: { builtin: true }, versions: [] }]))
+    const provider = model([execute("flow", "check/types")])
+    await run(install, provider, journal)
+    expect(journal.calls.map((call) => call.body)).toEqual([{ method: "GET", path: "/api/flows" }])
+    expect(JSON.parse(toolOutputs(provider)[0]!)).toEqual({ name: "check/types", system: false, source: { builtin: true }, versions: [] })
+  })
+
+  test("confirmation replay returns its current state without exposing private payload", async () => {
+    for (const state of ["approved", "rejected", "expired"] as const) {
+      const journal = producer((path) => file(path, JOURNEY), () =>
+        Response.json({
+          confirmation: "confirm-replay",
+          state,
+          payload: { secret: "PRIVATE" }
+        }, { status: 202 }))
+      const provider = model([execute("todo.drop", "T12")])
+      await run(install, provider, journal)
+      expect(toolOutputs(provider)).toEqual([JSON.stringify({ confirmation: "confirm-replay", state })])
+      expect(JSON.stringify(journal.frames)).not.toContain("PRIVATE")
+      expect(JSON.stringify(provider.requests)).not.toContain("PRIVATE")
+    }
+  })
+
+  test("malformed confirmation acknowledgments expose no private payload or false success", async () => {
+    for (
+      const [status, body] of [
+        [202, { confirmation: "", state: "pending", secret: "PRIVATE" }],
+        [202, { confirmation: "confirm-1", state: "executed", secret: "PRIVATE" }],
+        [200, { confirmation: "confirm-1", state: "pending", secret: "PRIVATE" }]
+      ] as const
+    ) {
+      const journal = producer((path) => file(path, JOURNEY), () => Response.json(body, { status }))
+      const provider = model([execute("todo.drop", "T12")])
+      await run(install, provider, journal)
+      expect(toolOutputs(provider)).toEqual(["failed: Invalid confirmation response"])
+      expect(JSON.stringify(journal.frames)).not.toContain("PRIVATE")
+      expect(journal.frames.some((frame) => frame.type === "call.settled")).toBe(false)
+    }
+  })
+
+  test("each call has its own stable key across a producer-generation retry", async () => {
+    const keys: unknown[][] = []
+    for (const generation of [2, 3]) {
+      const journal = producer(
+        (path) => file(path, JOURNEY),
+        () => Response.json({ state: "requested" }, { status: 202 })
+      )
+      const provider = model([execute("todo.stop", "T12"), execute("todo.stop", "T12")])
+      await run({ ...install, generation }, provider, journal)
+      keys.push(journal.calls.map((call) => (call.body as { key: string }).key))
+      expect(toolOutputs(provider)).toEqual([
+        "{\"status\":202,\"body\":{\"state\":\"requested\"}}",
+        "{\"status\":202,\"body\":{\"state\":\"requested\"}}"
+      ])
+    }
+    expect(keys).toEqual([
+      [`chat:${install.turnId}:0`, `chat:${install.turnId}:1`],
+      [`chat:${install.turnId}:0`, `chat:${install.turnId}:1`]
+    ])
+  })
+
+  test("theme commits an explicit private instruction without an HTTP command or card", async () => {
+    const journal = producer(path => file(path, JOURNEY), stackRoutes)
+    const provider = model([execute("theme", "dark")])
+    await run(install, provider, journal)
+    expect(journal.calls).toEqual([])
+    expect(journal.frames.filter(frame => frame.type === "call.settled")).toEqual([
+      { runId: install.request.runId, type: "call.settled", link: 0, ordinal: 0, name: "theme", verdict: "run", ui: { command: "theme", mode: "dark" } }
+    ])
+    expect(toolOutputs(provider)).toEqual(["Requested /theme dark on the author's screen."])
+  })
+
+  test("theme refuses toggles, unknown modes and extra authority fields", async () => {
+    for (const args of [undefined, "pink", "{broken", '{"mode":null}', '{"mode":"dark","command":"todo.drop"}']) {
+      const journal = producer(path => file(path, JOURNEY), stackRoutes)
+      const provider = model([execute("theme", args)])
+      await run(install, provider, journal)
+      expect(journal.calls).toEqual([])
+      expect(journal.frames.filter(frame => frame.type === "call.settled")).toEqual([])
+      expect(toolOutputs(provider)).toEqual(["failed: Invalid arguments for theme; use light or dark."])
+    }
+  })
+
+  test("merge stays a person's action and forged Draft authority refuses", async () => {
+    for (const args of ['{"text":"x","cardId":"forged"}', '{"text":"x","idempotencyKey":"forged"}', '{"text":"x","before":12}']) {
+      const journal = producer(path => file(path, JOURNEY), stackRoutes)
+      const provider = model([execute("todo.new", args)])
+      await run(install, provider, journal)
+      expect(journal.calls).toEqual([])
+      expect(journal.frames.some(frame => frame.type === "card")).toBe(false)
+      expect(toolOutputs(provider)[0]).toMatch(/^failed:/)
+    }
+    const journal = producer(path => file(path, JOURNEY), stackRoutes)
+    const provider = model([execute("merge", "T12")])
+    await run(install, provider, journal)
+    expect(journal.calls).toEqual([])
+    expect(toolOutputs(provider)[0]).toContain("unknown-command")
+  })
+
+  test("schema and argument errors refuse before transport", async () => {
+    for (
+      const [name, args] of [
+        ["stack", "everything"],
+        ["todo", "12"],
+        ["todo", "twelve"],
+        ["todo", "{\"n\":-1}"],
+        ["todo", "{broken"],
+        ["todo", "T12 unwanted"],
+        ["todo", "T9007199254740992"],
+        ["todo.new", "{\"text\":\"x\",\"extra\":true}"],
+        ["todo.new", "{\"before\":0}"],
+        ["stack.move", "T12 sideways"],
+        ["branch.fork", "main"],
+        ["todo.stop", "{\"n\":12,\"op\":\"drop\"}"]
+      ]
+    ) {
+      const journal = producer((path) => file(path, JOURNEY), stackRoutes)
+      const provider = model([execute(name!, args)])
+      await run(install, provider, journal)
+      expect(journal.calls, `${name} ${args}`).toEqual([])
+      expect(toolOutputs(provider)).toEqual([name === "todo.new" ? "failed: todo.new takes the TODO's text, and optionally its title and acceptance." : `failed: Invalid arguments for ${name}; use its declared payload.`])
+    }
+  })
+
   test("a command the host does not run, or whose rule is never, runs nothing and answers unknown-command", async () => {
-    for (const name of ["merge", "approval.approve", "members.remove", "todo.drop", "theme", "todo.erase"]) {
+    for (
+      const name of [
+        "approval.approve",
+        "members.remove",
+        "todo.erase",
+        "flow.list",
+        "files.write",
+        "settings"
+      ]
+    ) {
       const journal = producer((path) => file(path, JOURNEY), stackRoutes)
       await run(install, model([execute(name, "T12")]), journal)
       expect(journal.calls).toEqual([])
@@ -1186,5 +1487,142 @@ describe("an install's host runs the catalog commands its grant allows, as the t
       expect(journal.calls).toEqual([])
       expect(answerText(journal.frames)).toBe(`From the source: ${unknownCommandResult(name)}`)
     }
+  })
+})
+
+describe("delegated public API transport", () => {
+  test("writes require the host key, send JSON once, and accept empty 204 only for writes", async () => {
+    const requests: Array<RequestInit | undefined> = []
+    const call = apiCaller("http://callback.test", install, async (_url, init) => {
+      requests.push(init)
+      return new Response(null, { status: 204 })
+    })
+    expect(await Effect.runPromise(call("/api/todos/12", { method: "POST", body: { op: "stop" } }))).toEqual({
+      code: "call_refused"
+    })
+    expect(requests).toEqual([])
+    expect(
+      await Effect.runPromise(call("/api/todos/12", { method: "POST", body: { op: "stop" }, idempotencyKey: "host-1" }))
+    )
+      .toEqual({ status: 204, body: null })
+    expect(requests).toHaveLength(1)
+    expect(requests[0]?.body).toBe("{\"op\":\"stop\"}")
+    expect(new Headers(requests[0]?.headers).get("Idempotency-Key")).toBe("host-1")
+    expect(new Headers(requests[0]?.headers).get("Content-Type")).toBe("application/json")
+    expect(await Effect.runPromise(call("/api/github/sync", { method: "POST", idempotencyKey: "host-2" })))
+      .toEqual({ status: 204, body: null })
+    expect(requests[1]?.body).toBe("{}")
+    expect(await Effect.runPromise(call("/api/todos/12"))).toEqual({ code: "invalid_answer" })
+  })
+
+  test("interrupting an API read aborts its outstanding request", async () => {
+    let entered!: () => void
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    let observed: AbortSignal | undefined
+    let calls = 0
+    const read = apiCaller("http://callback.test", install, (_input, init) => {
+      calls++
+      return new Promise((_resolve, reject) => {
+        observed = init?.signal as AbortSignal
+        observed.addEventListener("abort", () => reject(new Error("interrupted")))
+        entered()
+      })
+    })
+    const abort = new AbortController()
+    const pending = Effect.runPromiseExit(read("/api/todos"), { signal: abort.signal })
+    await started
+    abort.abort()
+    expect((await pending)._tag).toBe("Failure")
+    expect(observed?.aborted).toBe(true)
+    expect(calls).toBe(1)
+  })
+  test("decodes multibyte characters across stream boundaries", async () => {
+    const bytes = new TextEncoder().encode(JSON.stringify({ title: "café 日本 🐈" }))
+    const read = apiCaller("http://callback.test", install, async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            for (const byte of bytes) controller.enqueue(new Uint8Array([byte]))
+            controller.close()
+          }
+        })
+      ))
+    expect(await Effect.runPromise(read("/api/todos"))).toEqual({ status: 200, body: { title: "café 日本 🐈" } })
+  })
+  test("refuses absent authority and non-API destinations before transport", async () => {
+    let fetched = false
+    const fetchImpl: FetchLike = async () => {
+      fetched = true
+      return Response.json({})
+    }
+    expect(await Effect.runPromise(apiCaller("http://callback.test", grant, fetchImpl)("/api/todos")))
+      .toEqual({ code: "forbidden" })
+    for (
+      const path of [
+        "/private",
+        "https://other.test/api/todos",
+        "//other.test/api/todos",
+        "/api/../private",
+        "/api/x#fragment",
+        "/api/\\private"
+      ]
+    ) {
+      expect(await Effect.runPromise(apiCaller("http://callback.test", install, fetchImpl)(path)))
+        .toEqual({ code: "call_refused" })
+    }
+    expect(fetched).toBe(false)
+  })
+  test("uses the pinned origin and redacts literal and escaped bearer reflections", async () => {
+    const token = install.api!.token
+    const read = apiCaller("http://callback.test", install, async (input, init) => {
+      expect(String(input)).toBe("http://callback.test/api/todos?q=one")
+      expect(init?.method).toBe("GET")
+      expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${token}`)
+      expect(new Headers(init?.headers).get("smithers-via")).toBe("smithers")
+      expect(init?.redirect).toBe("manual")
+      expect(init?.signal).toBeInstanceOf(AbortSignal)
+      return new Response(`{"plain":"${token}","escaped":"\\u0073${token.slice(1)}"}`)
+    })
+    expect(await Effect.runPromise(read("/api/todos?q=one")))
+      .toEqual({ status: 200, body: { plain: "[redacted]", escaped: "[redacted]" } })
+  })
+  test("refuses redirects, empty responses and invalid UTF-8", async () => {
+    const redirected = Response.json({})
+    Object.defineProperty(redirected, "redirected", { value: true })
+    for (
+      const [response, code] of [
+        [Response.redirect("https://other.test", 302), "call_refused"],
+        [redirected, "call_refused"],
+        [new Response(null, { status: 204 }), "invalid_answer"],
+        [new Response(new Uint8Array([255])), "invalid_answer"]
+      ] as const
+    ) {
+      expect(await Effect.runPromise(apiCaller("http://callback.test", install, async () => response)("/api/todos")))
+        .toEqual({ code })
+    }
+  })
+  test("bounds decoded API bodies at four MiB and cancels an oversized stream", async () => {
+    const boundary = JSON.stringify("x".repeat(4 * 1024 * 1024 - 2))
+    const valid = await Effect.runPromise(
+      apiCaller("http://callback.test", install, async () => new Response(boundary))("/api/todos")
+    )
+    expect("status" in valid && valid.status).toBe(200)
+    let cancelled = false
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(boundary + " "))
+        },
+        cancel() {
+          cancelled = true
+          throw new Error("upstream cancellation failed")
+        }
+      })
+    )
+    expect(await Effect.runPromise(apiCaller("http://callback.test", install, async () => response)("/api/todos")))
+      .toEqual({ code: "invalid_answer" })
+    expect(cancelled).toBe(true)
   })
 })

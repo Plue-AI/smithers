@@ -2,8 +2,12 @@ package live
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -29,31 +33,35 @@ const (
 // the refusal code.
 type Resolver func(ctx context.Context, topic string) (Source, string)
 
-// frame is one text frame (spec §7.1).
-type frame struct {
-	T      string          `json:"t"`
-	ID     uint32          `json:"id"`
-	Topic  string          `json:"topic,omitempty"`
-	Cursor *int64          `json:"cursor,omitempty"`
-	Data   json.RawMessage `json:"data,omitempty"`
-	Code   string          `json:"code,omitempty"`
-}
-
 var connections atomic.Int64
 
 // Connections is the number of open live sockets in this process (§20.3).
 func Connections() int64 { return connections.Load() }
 
 // outbox is a connection's unsent frames, bounded by SendBudget.
+type outbound struct {
+	data  []byte
+	kind  websocket.MessageType
+	valid func() bool
+}
+
 type outbox struct {
 	mu     sync.Mutex
-	frames [][]byte
+	frames []outbound
 	bytes  int
 	ready  chan struct{}
 }
 
-// push reserves control space within the connection budget. Refusals cannot grow it.
+// push reserves 256 bytes for a gap; control frames share the same hard
+// connection limit, so refused-subscription floods cannot grow the outbox.
 func (o *outbox) push(b []byte, force bool) bool {
+	return o.pushKind(b, force, websocket.MessageText)
+}
+
+func (o *outbox) pushKind(b []byte, force bool, kind websocket.MessageType) bool {
+	return o.pushChecked(b, force, kind, nil)
+}
+func (o *outbox) pushChecked(b []byte, force bool, kind websocket.MessageType, valid func() bool) bool {
 	o.mu.Lock()
 	limit := SendBudget
 	if !force {
@@ -63,7 +71,7 @@ func (o *outbox) push(b []byte, force bool) bool {
 		o.mu.Unlock()
 		return false
 	}
-	o.frames = append(o.frames, b)
+	o.frames = append(o.frames, outbound{data: b, kind: kind, valid: valid})
 	o.bytes += len(b)
 	o.mu.Unlock()
 	select {
@@ -73,7 +81,7 @@ func (o *outbox) push(b []byte, force bool) bool {
 	return true
 }
 
-func (o *outbox) take() [][]byte {
+func (o *outbox) take() []outbound {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	frames := o.frames
@@ -89,14 +97,21 @@ func (o *outbox) sent(n int) {
 
 // subscription is one sub id's membership of a stream.
 type subscription struct {
-	mu     sync.Mutex
-	closed bool
-	gapped bool
-	leave  func()
+	mu       sync.Mutex
+	closed   bool
+	gapped   bool
+	leave    func()
+	document DocumentStream
+	source   *DocumentSource
+	seq      uint64
 }
 
 func (s *subscription) close() {
 	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return
+	}
 	s.closed = true
 	leave := s.leave
 	s.mu.Unlock()
@@ -109,17 +124,8 @@ func (s *subscription) close() {
 // topic, unsub or presence, each with a positive id, and a cursor that is
 // never negative. Anything else is malformed.
 func clientFrame(raw []byte) (frame, bool) {
-	var in frame
-	if json.Unmarshal(raw, &in) != nil || in.ID == 0 || (in.Cursor != nil && *in.Cursor < 0) {
-		return frame{}, false
-	}
-	switch in.T {
-	case "unsub", "presence":
-		return in, true
-	case "sub":
-		return in, in.Topic != ""
-	}
-	return frame{}, false
+	in, err := DecodeRequest(raw)
+	return in, err == nil
 }
 
 func encode(f frame) []byte {
@@ -131,14 +137,28 @@ func encode(f frame) []byte {
 // joins its topic's stream and receives that stream's snapshots as snap
 // frames; a refused topic gets err and the socket stays open. The caller
 // closes conn.
-func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver) {
+// PresenceSession binds operations to the authenticated socket, never a body identity.
+// Close removes that socket's leases even when its reader was cancelled by revocation.
+type PresenceSession struct {
+	Move  func(context.Context, json.RawMessage) string
+	Close func()
+}
+
+func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver, presence ...PresenceSession) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	var session PresenceSession
+	if len(presence) > 0 {
+		session = presence[0]
+	}
+	if session.Close != nil {
+		defer session.Close()
+	}
 	// The hub's end (the backend stopping) ends every socket.
 	defer context.AfterFunc(h.ctx, cancel)()
 	connections.Add(1)
 	defer connections.Add(-1)
-	conn.SetReadLimit(64 << 10)
+	conn.SetReadLimit(SendBudget + 1)
 	out := &outbox{ready: make(chan struct{}, 1)}
 	var writer sync.WaitGroup
 	writer.Add(1)
@@ -152,10 +172,14 @@ func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver)
 			case <-out.ready:
 			}
 			for _, b := range out.take() {
+				if b.valid != nil && !b.valid() {
+					out.sent(len(b.data))
+					continue
+				}
 				write, stop := context.WithTimeout(ctx, 5*time.Second)
-				err := conn.Write(write, websocket.MessageText, b)
+				err := conn.Write(write, b.kind, b.data)
 				stop()
-				out.sent(len(b))
+				out.sent(len(b.data))
 				if err != nil {
 					return
 				}
@@ -175,45 +199,176 @@ func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver)
 			cancel()
 		}
 	}
+	// Presence is a latest-location snapshot, not a command queue. Bound work
+	// before calling the database/bridge so fast cursor moves cannot backlog
+	// the socket reader or delay its final location behind obsolete moves.
+	moves := make(chan frame, 1)
+	var mover sync.WaitGroup
+	if session.Move != nil {
+		mover.Add(1)
+		go func() {
+			defer mover.Done()
+			ticker := time.NewTicker(250 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+				}
+				select {
+				case in := <-moves:
+					if ctx.Err() != nil {
+						return
+					}
+					if code := session.Move(ctx, in.Where); code != "" {
+						refuse(in.ID, code)
+					}
+				default:
+				}
+			}
+		}()
+	}
+	defer func() { cancel(); mover.Wait() }()
 	for {
 		kind, raw, err := conn.Read(ctx)
 		if err != nil {
 			return
 		}
 		if kind == websocket.MessageBinary {
-			// Document frames are dark until live documents land (§7.4).
-			if len(raw) >= 5 && (raw[0] == 1 || raw[0] == 2) {
-				id := binary.BigEndian.Uint32(raw[1:5])
-				if id == 0 {
-					_ = conn.Close(websocket.StatusInvalidFramePayloadData, "malformed_frame")
-					return
-				}
+			if len(raw) < 5 || (raw[0] != 1 && raw[0] != 2) || binary.BigEndian.Uint32(raw[1:5]) == 0 {
+				_ = conn.Close(websocket.StatusInvalidFramePayloadData, "malformed_frame")
+				return
+			}
+			id := binary.BigEndian.Uint32(raw[1:5])
+			if id == 0 {
+				_ = conn.Close(websocket.StatusInvalidFramePayloadData, "malformed_frame")
+				return
+			}
+			sub := subscriptions[id]
+			if sub == nil || sub.document == nil {
 				refuse(id, Unsupported)
 				continue
 			}
-			_ = conn.Close(websocket.StatusUnsupportedData, "malformed_frame")
-			return
+			sub.mu.Lock()
+			inactive := sub.closed || sub.gapped
+			sub.mu.Unlock()
+			if inactive {
+				continue
+			}
+			if len(raw) > SendBudget {
+				sub.gap(out, id)
+				continue
+			}
+			if sub.source.Ready() != nil {
+				sub.close()
+				refuse(id, Forbidden)
+				continue
+			}
+			var payload []byte
+			if sub.source.Sequenced {
+				msg := wire.DocumentInput
+				if raw[0] == 2 {
+					msg = wire.DocumentAwarenessInput
+				} else if len(raw) > 5 && raw[5] == 2 {
+					sub.seq++
+				}
+				payload, err = wire.EncodeDocumentV2(wire.Document{Msg: msg, Actor: sub.source.Actor, Seq: sub.seq, Data: raw[5:]})
+			} else {
+				payload, err = documentInput(raw[0], sub.source.Actor, raw[5:])
+			}
+			if err != nil || sub.document.Send(ctx, payload) != nil {
+				sub.close()
+				refuse(id, Unsupported)
+			}
+			continue
 		}
-		in, ok := clientFrame(raw)
-		if !ok {
+		in, decodeErr := DecodeRequest(raw)
+		if decodeErr != nil {
 			_ = conn.Close(websocket.StatusInvalidFramePayloadData, "malformed_frame")
 			return
 		}
-		// A frame for an id replaces whatever that id subscribed to.
-		if in.T == "presence" {
-			refuse(in.ID, Unsupported)
-			continue
-		}
-		if previous := subscriptions[in.ID]; previous != nil {
+		if previous := subscriptions[in.ID]; previous != nil && (in.T == "sub" || in.T == "unsub") {
 			previous.close()
 			delete(subscriptions, in.ID)
 		}
 		switch in.T {
 		case "unsub":
+		case "presence":
+			if session.Move == nil {
+				refuse(in.ID, Unsupported)
+				continue
+			}
+			select {
+			case <-moves:
+			default:
+			}
+			moves <- in
 		case "sub":
 			source, code := resolve(ctx, in.Topic)
 			if code != "" {
 				refuse(in.ID, code)
+				continue
+			}
+			if source.Document != nil {
+				if (source.Document.Open == nil && source.Document.OpenClient == nil) || source.Document.Ready == nil || len(source.Document.Actor) == 0 || len(source.Document.Actor) > 1024 {
+					refuse(in.ID, Unsupported)
+					continue
+				}
+				subctx, stop := context.WithCancel(ctx)
+				var stream DocumentStream
+				var err error
+				if source.Document.OpenClient != nil {
+					stream, err = source.Document.OpenClient(subctx, in.ClientID)
+				} else {
+					stream, err = source.Document.Open(subctx)
+				}
+				if err != nil || stream == nil {
+					stop()
+					refuse(in.ID, Unsupported)
+					continue
+				}
+				if ctx.Err() != nil || source.Document.Ready() != nil {
+					stop()
+					_ = stream.Close()
+					refuse(in.ID, Forbidden)
+					continue
+				}
+				sub := &subscription{document: stream, source: source.Document, leave: func() { stop(); _ = stream.Close() }}
+				subscriptions[in.ID] = sub
+				go sub.relay(subctx, out, in.ID, refuse)
+				continue
+			}
+			if source.Log != nil {
+				if source.Log.Page == nil || source.Key == "" {
+					refuse(in.ID, Unsupported)
+					continue
+				}
+				subscriptions[in.ID] = h.serveLog(ctx, source, out, in.ID, in.Cursor, refuse)
+				continue
+			}
+			if source.Durable != nil && source.Snapshot != nil {
+				id := in.ID
+				sub := &subscription{}
+				streamCtx, stop := context.WithCancel(ctx)
+				sub.leave = stop
+				subscriptions[id] = sub
+				go h.serveDurable(streamCtx, source, in.Cursor, func(f frame) bool {
+					sub.mu.Lock()
+					defer sub.mu.Unlock()
+					if sub.closed || sub.gapped {
+						return false
+					}
+					f.ID = id
+					if out.push(encode(f), f.T == "err" || f.T == "gap") {
+						return true
+					}
+					sub.gapped = true
+					if !out.push(encode(frame{T: "gap", ID: id}), true) {
+						cancel()
+					}
+					return false
+				})
 				continue
 			}
 			if source.Build == nil || source.Key == "" {
@@ -243,6 +398,143 @@ func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver)
 			sub.leave = leave
 			sub.mu.Unlock()
 			subscriptions[in.ID] = sub
+		}
+	}
+}
+
+// gap fences the old stream. Resubscription opens a fresh stream and restarts
+// sync step 1, rather than replaying an incomplete old queue.
+func (s *subscription) gap(out *outbox, id uint32) {
+	s.mu.Lock()
+	if s.closed || s.gapped {
+		s.mu.Unlock()
+		return
+	}
+	s.gapped = true
+	out.push(encode(frame{T: "gap", ID: id}), true)
+	leave := s.leave
+	s.mu.Unlock()
+	if leave != nil {
+		leave()
+	}
+}
+
+func (s *subscription) relay(ctx context.Context, out *outbox, id uint32, refuse func(uint32, string)) {
+	hasEpoch := false
+	for {
+		poll, cancel := context.WithTimeout(ctx, time.Second)
+		raw, err := s.document.Receive(poll)
+		cancel()
+		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+			if s.source.Ready() != nil {
+				s.close()
+				refuse(id, Forbidden)
+				return
+			}
+			continue
+		}
+		if errors.Is(err, errDocumentGap) {
+			s.gap(out, id)
+			return
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			s.close()
+			refuse(id, Unsupported)
+			return
+		}
+		if s.source.Ready() != nil {
+			s.close()
+			refuse(id, Forbidden)
+			return
+		}
+		d, err := wire.DecodeDocumentV2(raw)
+		if err != nil {
+			s.close()
+			refuse(id, Unsupported)
+			return
+		}
+		var b []byte
+		kind := websocket.MessageText
+		switch d.Msg {
+		case 0xff:
+			s.close()
+			code := Unsupported
+			if d.Refusal == 11 {
+				code = Forbidden
+			}
+			refuse(id, code)
+			return
+		case wire.DocumentSync, wire.DocumentAwareness:
+			if !hasEpoch {
+				s.close()
+				refuse(id, Unsupported)
+				return
+			}
+			k := byte(1)
+			if d.Msg == wire.DocumentAwareness {
+				k = 2
+			}
+			b = []byte{k}
+			b = binary.BigEndian.AppendUint32(b, id)
+			b = append(b, d.Data...)
+			kind = websocket.MessageBinary
+		case wire.DocumentEpoch:
+			hasEpoch = true
+			data, _ := json.Marshal(struct {
+				Epoch    string `json:"epoch"`
+				ClientID uint32 `json:"client_id"`
+			}{hex.EncodeToString(d.Epoch[:]), d.ClientID})
+			cursor := int64(0)
+			b = encode(frame{T: "snap", ID: id, Cursor: &cursor, Data: data})
+		case wire.DocumentSaved:
+			if !hasEpoch {
+				s.close()
+				refuse(id, Unsupported)
+				return
+			}
+			b, _ = json.Marshal(struct {
+				T   string `json:"t"`
+				ID  uint32 `json:"id"`
+				SV  string `json:"sv"`
+				Seq uint64 `json:"seq"`
+			}{"saved", id, base64.StdEncoding.EncodeToString(d.Data), d.ThroughSeq})
+		case wire.DocumentGone:
+			var data []byte
+			if d.GoneKind == 1 {
+				data, _ = json.Marshal(struct {
+					Deleted bool   `json:"deleted"`
+					By      string `json:"by"`
+				}{true, d.GoneBy})
+			} else {
+				data, _ = json.Marshal(struct {
+					Renamed bool   `json:"renamed"`
+					To      string `json:"to"`
+					By      string `json:"by"`
+				}{true, d.GoneTo, d.GoneBy})
+			}
+			b, _ = json.Marshal(struct {
+				T    string          `json:"t"`
+				ID   uint32          `json:"id"`
+				Data json.RawMessage `json:"data"`
+			}{"gone", id, data})
+		default:
+			s.close()
+			refuse(id, Unsupported)
+			return
+		}
+		s.mu.Lock()
+		if s.closed || s.gapped {
+			s.mu.Unlock()
+			return
+		}
+		ok := out.pushChecked(b, false, kind, func() bool { s.mu.Lock(); defer s.mu.Unlock(); return !s.closed && !s.gapped })
+		s.mu.Unlock()
+		if !ok {
+			s.gap(out, id)
+			return
 		}
 	}
 }

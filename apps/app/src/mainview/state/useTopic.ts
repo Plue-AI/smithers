@@ -2,7 +2,7 @@ import { useCallback, useSyncExternalStore } from "react"
 import { liveChannel, type LiveChannel, type TopicSnapshot } from "../runtime/LiveChannel"
 
 /** The part of a live channel a topic reader needs. */
-export type LiveTopics = Pick<LiveChannel, "subscribe" | "getSnapshot">
+export type LiveTopics = Pick<LiveChannel, "subscribe" | "getSnapshot"> & Partial<Pick<LiveChannel, "trackPresence" | "registerProjection">>
 
 export const useTopic = <T = unknown>(topic: string | undefined, channel: LiveTopics = liveChannel()): TopicSnapshot<T> | undefined => {
   const subscribe = useCallback((listener: () => void) => topic === undefined ? () => {} : channel.subscribe(topic, listener), [channel, topic])
@@ -24,3 +24,11 @@ export const useBranchConversationTopics = <Entries, View>(
     view: useTopic<View>(valid ? `view:${scope.member}:${scope.branch}` : undefined, channel)
   }
 }
+
+/** External subscription owns the heartbeat lifetime, including React unmount. */
+export const useBranchPresence = (branch: string | undefined, channel?: LiveTopics): void => {
+  const subscribe = useCallback(() => branch === undefined || !channel?.trackPresence
+    ? () => {} : channel.trackPresence({ branch }).release, [channel, branch])
+  useSyncExternalStore(subscribe, absentPresence, absentPresence)
+}
+const absentPresence = () => undefined

@@ -54,6 +54,105 @@ const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   ) as Effect.Effect<A, E>)
 
 describe("durable execution snapshots", () => {
+  it("refuses unreadable dependency state during discovery and before module evaluation", async () => {
+    await run(Effect.gen(function*() {
+      const { fs, root } = yield* fixture
+      const path = yield* Path.Path
+      const discovery = Discovery.make(fs, path)
+      const input = { source: "project", root: `${root}/flows`, naming: "path" as const, lockfileRoot: root }
+      const scanned = yield* discovery.scan(input)
+      // A directory at a lockfile path is not an empty dependency set.
+      yield* fs.makeDirectory(`${root}/pnpm-lock.yaml`)
+      expect((yield* discovery.scan(input).pipe(Effect.flip)).code).toBe("read_failed")
+      let imports = 0
+      const failure = yield* Executable.fromDescriptor(scanned.entries[0]!, {
+        delegates: [],
+        load: () => {
+          imports++
+          return Effect.succeed({ default: flow })
+        }
+      }).pipe(Effect.flip)
+      expect(failure.code).toBe("body_unavailable")
+      expect(imports).toBe(0)
+    }))
+  })
+
+  it("binds lockfiles to one execution identity across machines and refuses drift before import", async () => {
+    await run(Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const roots = yield* Effect.all([fs.makeTempDirectoryScoped(), fs.makeTempDirectoryScoped()])
+      const registries = []
+      for (const root of roots) {
+        yield* fs.makeDirectory(`${root}/flows/snapshot`, { recursive: true })
+        yield* fs.writeFileString(`${root}/flows/snapshot/flow.ts`, source)
+        yield* fs.writeFileString(`${root}/flows/snapshot/helper.ts`, "export const value = \"approved\"")
+        yield* fs.writeFileString(`${root}/pnpm-lock.yaml`, "lockfileVersion: 9\n# approved\n")
+        registries.push(
+          yield* Registry.make({
+            sources: [{ source: "project", root: `${root}/flows`, naming: "path", lockfileRoot: root }]
+          })
+        )
+      }
+      const original = yield* registries[0]!.get("snapshot")
+      const relocated = yield* registries[1]!.get("snapshot")
+      const digest = Descriptor.executionDigest(original)!
+      expect(Descriptor.executionDigest(relocated)).toBe(digest)
+      expect(original.lockfiles?.root).toBe("..")
+      let imports = 0
+      const load = () => {
+        imports++
+        return Effect.succeed({ default: flow })
+      }
+      const executable = yield* Executable.fromDescriptor(original, { delegates: [], load })
+      expect(imports).toBe(1)
+      const snapshots = yield* Snapshot.makeFileSystem({ root: roots[0]! })
+      yield* snapshots.pin(executable)
+      const restarted = yield* Snapshot.makeFileSystem({ root: roots[0]! })
+      expect((yield* restarted.restore(digest)).descriptor.lockfiles).toEqual(original.lockfiles)
+      for (const change of ["edited", "removed", "added"] as const) {
+        if (change === "edited") {
+          yield* fs.writeFileString(`${roots[0]}/pnpm-lock.yaml`, "lockfileVersion: 9\n# changed\n")
+        }
+        if (change === "removed") yield* fs.remove(`${roots[0]}/pnpm-lock.yaml`)
+        if (change === "added") yield* fs.writeFileString(`${roots[0]}/package-lock.json`, "{}\n")
+        const refusal = yield* Executable.fromDescriptor(original, { delegates: [], load }).pipe(Effect.flip)
+        expect(refusal.code).toBe("body_unavailable")
+        expect(imports).toBe(1)
+        expect((yield* registries[0]!.loadBody("snapshot", digest).pipe(Effect.result))._tag).toBe("Failure")
+        expect((yield* restarted.restore(digest).pipe(Effect.flip)).code).toBe("lockfile_changed")
+        expect((yield* snapshots.pin(executable).pipe(Effect.flip)).code).toBe("lockfile_changed")
+        yield* registries[0]!.refresh()
+        expect(Descriptor.executionDigest(yield* registries[0]!.get("snapshot"))).not.toBe(digest)
+      }
+    }))
+  })
+
+  it("restores the pinned checkout while the independent TODO checkout changes helper and lockfile bytes", async () => {
+    await run(Effect.gen(function*() {
+      const { fs, root, helper, executable, digest } = yield* fixture
+      const branch = yield* fs.makeTempDirectoryScoped({ prefix: "smithers-editable-todo-" })
+      yield* fs.makeDirectory(`${branch}/flows/snapshot`, { recursive: true })
+      yield* fs.writeFileString(`${branch}/flows/snapshot/flow.ts`, "throw 'BRANCH_IMPORT_CANARY'")
+      yield* fs.writeFileString(`${branch}/flows/snapshot/helper.ts`, "throw 'BRANCH_HELPER_CANARY'")
+      yield* fs.writeFileString(`${branch}/pnpm-lock.yaml`, "lockfileVersion: edited-branch")
+      const snapshots = yield* Snapshot.makeFileSystem({ root })
+      const restored = yield* snapshots.restore(digest)
+      expect(new TextDecoder().decode(restored.modules.get(helper)!.bytes)).toBe("export const value = \"approved\"")
+      expect(restored.descriptor).toEqual(executable.descriptor)
+      const registry = yield* Registry.make({
+        sources: [{ source: "project", root: `${root}/flows`, naming: "path" }],
+        snapshots
+      })
+      const loaded = yield* registry.loadBody("snapshot", digest)
+      expect(loaded._tag).toBe("Module")
+      const index = `${root}/.flows/executions/${digest}.json`
+      yield* fs.writeFileString(index, "\"" + "0".repeat(64) + "\"")
+      const corrupt = yield* snapshots.restore(digest).pipe(Effect.flip)
+      expect(corrupt.code).toBe("missing")
+      expect(corrupt.message).not.toContain("BRANCH_IMPORT_CANARY")
+    }))
+  })
+
   it("verifies the production issue-sweep closure before evaluating any module", async () => {
     await run(Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem

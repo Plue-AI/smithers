@@ -122,12 +122,13 @@
       "types": "./vendor/opentui-native/runtime.d.ts",
       "bun": "./vendor/opentui-native/runtime.bun.mjs",
       "default": "./vendor/opentui-native/runtime.node.mjs"
-    }
+    },
+    "./CatalogRequest": "./src/CatalogRequest.ts",
+    "./Catalog": "./src/Catalog.ts"
   },
   "files": [
     "bin/**/*.mjs",
     "src/**/*.ts",
-    "docs/**",
     "skills/**",
     "dist/**/*.js",
     "dist/**/*.js.map",
@@ -138,7 +139,8 @@
     "README.md",
     "CHANGELOG.md",
     "vendor/opentui-native/**",
-    "dist/vendor/**"
+    "dist/vendor/**",
+    "docs/"
   ],
   "publishConfig": {
     "access": "public",
@@ -764,6 +766,26 @@
         "types": "./vendor/opentui-native/runtime.d.ts",
         "bun": "./vendor/opentui-native/runtime.bun.mjs",
         "default": "./vendor/opentui-native/runtime.node.mjs"
+      },
+      "./CatalogRequest": {
+        "import": {
+          "types": "./dist/esm/CatalogRequest.d.ts",
+          "default": "./dist/esm/CatalogRequest.js"
+        },
+        "require": {
+          "types": "./dist/cjs/CatalogRequest.d.ts",
+          "default": "./dist/cjs/CatalogRequest.js"
+        }
+      },
+      "./Catalog": {
+        "import": {
+          "types": "./dist/esm/Catalog.d.ts",
+          "default": "./dist/esm/Catalog.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Catalog.d.ts",
+          "default": "./dist/cjs/Catalog.js"
+        }
       }
     }
   },
@@ -821,6 +843,7 @@
     "effect": "4.0.0-rc.115",
     "incur": "0.5.1",
     "react": "19.2.8",
+    "smol-toml": "1.8.0",
     "tar": "7.5.22",
     "typescript": "5.9.3",
     "yaml": "2.9.0",

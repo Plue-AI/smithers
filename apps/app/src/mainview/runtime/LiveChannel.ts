@@ -1,6 +1,6 @@
 import { decodeLiveDocBinary, encodeLiveDocBinary, LiveDocReply, parseLiveDocTopic } from "@smthrs/rpc/LiveDoc"
+import { createBrowserPresence, type BrowserWhere } from "../state/seams/BranchSeam"
 import type { DocumentEvent } from "./LiveDocProvider"
-import { createCollection, localOnlyCollectionOptions } from "@tanstack/db"
 import { LiveReplySchema } from "@smthrs/rpc/Live"
 
 export interface TopicSnapshot<T = unknown> {
@@ -19,7 +19,7 @@ export interface LiveSocket {
   close(): void
 }
 export interface LiveChannelOptions {
-  /** Explicit contract seam; production leaves documents disabled until T-APP-14. */
+  /** Explicit contract seam; browser boot enables it on the shared channel. */
   documentFrames?: boolean
   socket?: () => LiveSocket
   random?: () => number
@@ -32,9 +32,6 @@ export interface LiveChannelOptions {
 
 /** One transport, reference-counted topics, and committed projection rows. */
 export class LiveChannel {
-  readonly collection = createCollection(localOnlyCollectionOptions({
-    id: "live-topics", getKey: (row: TopicSnapshot) => row.topic
-  }))
   private readonly topics = new Map<string, { id: number; listeners: Set<() => void>; snapshot: TopicSnapshot; awaitingSnapshot: boolean }>()
   private readonly projectors = new Map<string, (previous: unknown, delta: unknown) => unknown>()
   /** Register the publishing topic's decoder before its consumers subscribe. */
@@ -42,6 +39,39 @@ export class LiveChannel {
     const existing = this.projectors.get(topic)
     if (existing && existing !== project) throw new Error(`Projection already registered: ${topic}`)
     this.projectors.set(topic, project)
+  }
+  private presenceId?: number
+  private readonly presenceOwners = new Map<symbol, BrowserWhere>()
+  private readonly heartbeat = createBrowserPresence({
+    presence: where => this.presence(where),
+    schedule: (callback, ms) => (this.options.schedule ?? setTimeout)(callback, ms),
+    cancel: timer => (this.options.cancel ?? (value => clearTimeout(value as ReturnType<typeof setTimeout>)))(timer)
+  })
+  /** Locations never include identity: the server binds the socket's member. */
+  presence(where: BrowserWhere): void {
+    if (this.disposed || this.socket?.readyState !== 1) return
+    this.presenceId ??= this.nextId++
+    this.send({ t: "presence", id: this.presenceId, where })
+  }
+  /** A mounted reader owns a lease; the latest move wins within this browser tab. */
+  trackPresence(where: BrowserWhere): { move(where: BrowserWhere): void; release(): void } {
+    const owner = Symbol()
+    const move = (next: BrowserWhere) => {
+      if (this.disposed) return
+      this.presenceOwners.delete(owner)
+      this.presenceOwners.set(owner, { ...next })
+      this.heartbeat.move(next)
+    }
+    move(where)
+    let released = false
+    return { move: next => { if (!released) move(next) }, release: () => {
+      if (released) return
+      released = true
+      this.presenceOwners.delete(owner)
+      const remaining = [...this.presenceOwners.values()].at(-1)
+      if (remaining) this.heartbeat.move(remaining)
+      else { this.heartbeat.pause(); this.presence({ branch: "" }) }
+    } }
   }
   private socket?: LiveSocket
   private timer?: unknown
@@ -111,7 +141,6 @@ export class LiveChannel {
       if (entry.listeners.size) return
       if (!this.isDarkTopic(topic) && this.socket?.readyState === 1) this.send({ t: "unsub", id: entry.id })
       this.topics.delete(topic)
-      if (this.collection.has(topic)) this.collection.delete(topic)
       if (!this.hasTransportTopics()) this.disconnect()
     }
   }
@@ -131,13 +160,26 @@ export class LiveChannel {
         if (this.socket !== socket) return
         this.attempt = 0
         for (const [topic, entry] of this.topics) this.sub(topic, entry)
+        const where = [...this.presenceOwners.values()].at(-1)
+        if (where) this.presence(where)
       }
       socket.onmessage = event => { if (this.socket === socket) this.receive(event.data) }
       socket.onclose = () => {
         if (this.socket !== socket) return
         this.socket = undefined
         this.notifyContinuityLoss()
-        for (const [topic, entry] of this.topics) if (topic.startsWith("doc:")) entry.awaitingSnapshot = true
+        for (const [topic, entry] of this.topics) {
+          if (topic.startsWith("confirmations:")) {
+            entry.awaitingSnapshot = true
+            this.publish(topic, entry, { topic })
+          }
+          if (topic.startsWith("doc:") || (topic === "members" || topic === "secrets")) entry.awaitingSnapshot = true
+          if (topic.startsWith("doc:")) {
+            // The closed socket no longer holds branch authority. Retain pending
+            // text, but stop local editing until a fresh authenticated assignment.
+            this.documentEvent(topic, { kind: "refused" })
+          }
+        }
         this.retry()
       }
     } catch { this.retry() }
@@ -173,7 +215,7 @@ export class LiveChannel {
       const reply = result.data
       if (reply.t === "saved") {
         if (entry.awaitingSnapshot || entry.snapshot.error) return
-        try { this.documentEvent(topic, { kind: "saved", vector: Uint8Array.from(atob(reply.sv), char => char.charCodeAt(0)) }) } catch { /* Malformed vectors never save. */ }
+        try { this.documentEvent(topic, { kind: "saved", seq: reply.seq, vector: Uint8Array.from(atob(reply.sv), char => char.charCodeAt(0)) }) } catch { /* Malformed vectors never save. */ }
         return
       }
       if (reply.t === "gap") {
@@ -192,29 +234,29 @@ export class LiveChannel {
     }
     const decoded = LiveReplySchema.safeParse(frame)
     if (!decoded.success) return
-    frame = decoded.data
-    if (frame.t === "gap") {
+    const reply = decoded.data
+    if (reply.t === "gap") {
       entry.awaitingSnapshot = true
       this.notifyContinuityLoss()
       this.publish(topic, entry, { topic, data: entry.snapshot.data })
       this.send({ t: "sub", id: entry.id, topic })
       return
     }
-    if (frame.t !== "snap" && frame.t !== "delta") return
+    if (reply.t !== "snap" && reply.t !== "delta") return
     if (!("data" in frame)) return
-    if (!Number.isSafeInteger(frame.cursor) || (frame.cursor as number) < 0) return
-    const cursor = frame.cursor as number
-    if (frame.t === "delta" && entry.snapshot.cursor !== undefined && cursor <= entry.snapshot.cursor) return
-    if (frame.t === "delta" && entry.awaitingSnapshot) return
+    if (!Number.isSafeInteger(reply.cursor) || (reply.cursor as number) < 0) return
+    const cursor = reply.cursor as number
+    if (reply.t === "delta" && entry.snapshot.cursor !== undefined && cursor <= entry.snapshot.cursor) return
+    if (reply.t === "delta" && entry.awaitingSnapshot) return
     const project = this.projectors.get(topic) ?? (this.options.project ? (previous: unknown, delta: unknown) => this.options.project!(topic, previous, delta) : undefined)
-    if (frame.t === "delta" && !project) {
+    if (reply.t === "delta" && !project) {
       entry.awaitingSnapshot = true
       this.notifyContinuityLoss()
       this.send({ t: "sub", id: entry.id, topic })
       return
     }
     let data: unknown
-    try { data = frame.t === "snap" ? frame.data : project!(entry.snapshot.data, frame.data) }
+    try { data = reply.t === "snap" ? reply.data : project!(entry.snapshot.data, reply.data) }
     catch { entry.awaitingSnapshot = true; this.notifyContinuityLoss(); this.send({ t: "sub", id: entry.id, topic }); return }
     entry.awaitingSnapshot = false
     this.publish(topic, entry, { topic, cursor, data })
@@ -223,10 +265,8 @@ export class LiveChannel {
   private notifyContinuityLoss() {
     for (const entry of this.topics.values()) for (const listener of entry.listeners) listener()
   }
-  private publish(topic: string, entry: { snapshot: TopicSnapshot; listeners: Set<() => void> }, snapshot: TopicSnapshot) {
+  private publish(_topic: string, entry: { snapshot: TopicSnapshot; listeners: Set<() => void> }, snapshot: TopicSnapshot) {
     entry.snapshot = snapshot
-    if (this.collection.has(topic)) this.collection.update(topic, row => { Object.assign(row, snapshot); if (!("data" in snapshot)) row.data = undefined; if (snapshot.cursor === undefined) row.cursor = undefined; if (!snapshot.error) row.error = undefined })
-    else this.collection.insert(snapshot)
     for (const listener of entry.listeners) listener()
   }
   private disconnect() {
@@ -237,9 +277,9 @@ export class LiveChannel {
     if (socket) { socket.onopen = null; socket.onclose = null; socket.onmessage = null; socket.close() }
     this.attempt = 0
   }
-  dispose() { this.disposed = true; for (const topic of this.documents.keys()) this.documentEvent(topic, { kind: "refused" }); this.disconnect(); this.topics.clear(); this.documents.clear(); this.collection.cleanup() }
+  dispose() { this.disposed = true; this.heartbeat.dispose(); this.presenceOwners.clear(); for (const topic of this.documents.keys()) this.documentEvent(topic, { kind: "refused" }); this.disconnect(); this.topics.clear(); this.documents.clear() }
 }
 
 /** Lazy module singleton: exactly one channel for the browser tab. */
 let browserChannel: LiveChannel | undefined
-export const liveChannel = (): LiveChannel => browserChannel ??= new LiveChannel()
+export const liveChannel = (): LiveChannel => browserChannel ??= new LiveChannel({ documentFrames: true })

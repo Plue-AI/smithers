@@ -33,14 +33,21 @@ func TestJ7Rehearsal(t *testing.T) {
 		_ = r.release("tn")
 		_ = r.release("t3")
 	}()
-	if !r.step("1 Parallel defaults to 2", "SQL mythical_stacks.max_parallel", "2, with no PUT /api/install", "T-STK-03", func() error {
-		var parallel int
-		if err := r.pool.QueryRow(r.ctx, `SELECT max_parallel FROM mythical_stacks`).Scan(&parallel); err != nil {
+	if !r.step("1 Parallel defaults to 2", "GET /api/install", "parallel=2, capacity=3, with no PUT /api/install", "T-STK-03", func() error {
+		data, err := r.expect("GET", "/api/install", "", 200)
+		if err != nil {
 			return err
 		}
-		r.actual = fmt.Sprintf("max_parallel=%d", parallel)
-		if parallel != 2 {
-			return fmt.Errorf("the stack's parallel is %d, want 2", parallel)
+		var setting struct {
+			Parallel int `json:"parallel"`
+			Capacity int `json:"capacity"`
+		}
+		if err := json.Unmarshal(data, &setting); err != nil {
+			return err
+		}
+		r.actual = fmt.Sprintf("parallel=%d capacity=%d", setting.Parallel, setting.Capacity)
+		if setting.Parallel != 2 || setting.Capacity != 3 {
+			return fmt.Errorf("the install has %s, want parallel=2 capacity=3", r.actual)
 		}
 		return nil
 	}) {

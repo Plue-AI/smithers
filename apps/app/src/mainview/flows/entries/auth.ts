@@ -72,11 +72,10 @@ export const authFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
      * agent's door, rendering this button in the chat.
      */
     name: "sign-in",
-    summary: "Sign in",
+     slash: "/sign-in", cli: null, journey: ["J1"], group: "Account and settings", visibility: "core", actors: ["person"], minimumRole: "member", http: null, summary: "Sign in with GitHub",
     runtime: ["identity"],
-    userOnly: true,
-    userOnlyReason: "sign-in is the human's browser gesture; the agent renders the step with auth.prompt",
-    input: NoPayload,
+    agentReason: "sign-in is the human's browser gesture; the agent renders the step with auth.prompt",
+    agent: "never", input: NoPayload,
     handler: (_payload, _signal, _call, gesture) => actions.signIn(gesture?.openExternal)
   }),
   flow({
@@ -85,7 +84,8 @@ export const authFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
      * Hidden: it belongs to the login screen's form (cards/LoginScreen.tsx), not to
      * the catalog. The controller answers with what this host can do with it.
      */
-    name: "auth.email",
+    name: "auth.email", visibility: "in-card", actors: ["person"], agent: "never",
+    agentReason: "sign-in is the human's browser gesture; the agent renders the step with auth.prompt",
     hidden: true,
     summary: "Continue with an email address",
     args: "<email>",
@@ -109,12 +109,11 @@ export const authFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     /* Signing out needs a session: offering it signed out is the clearest
 		   case of a listing that names a step the user cannot take (§1.2). */
     name: "sign-out",
-    summary: "Sign out of Smithers",
+     slash: "/sign-out", cli: null, journey: ["J1"], group: "Account and settings", visibility: "core", actors: ["person"], minimumRole: "member", http: null, summary: "Sign in with GitHub",
     runtime: ["identity"],
-    userOnly: true,
-    userOnlyReason: "dropping the human's session is theirs alone",
+    agentReason: "dropping the human's session is theirs alone",
     requires: ["signed-in"],
-    input: NoPayload,
+    agent: "never", input: NoPayload,
     handler: () => actions.signOut()
   })
 ]

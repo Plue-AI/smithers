@@ -10,8 +10,10 @@ export function DocsView({ model, actions, gestures, onAction }: DocsViewProps) 
   const go = (page: string) => { if (open && !open.disabled) onAction(open.tag, { ...open.args, page }) }
   // Derive targets from the shared renderer's actual links, keeping callbacks to one flow.
   const pages: Record<string, string> = Object.create(null)
+  const hrefs: (string | undefined)[] = []
   const collectLinks = (nodes: ReactNode) => Children.forEach(nodes, node => {
     if (!isValidElement<{ href?: string; children?: ReactNode }>(node)) return
+    if (node.type === "a") hrefs.push(node.props.href)
     if (typeof node.props.href === "string") {
       const link = resolveMarkdownLink(`${model.page.slug}.md`, node.props.href)
       if (link.kind === "fragment") pages[node.props.href] = `${model.page.slug}#${link.fragment}`
@@ -25,9 +27,18 @@ export function DocsView({ model, actions, gestures, onAction }: DocsViewProps) 
   // reveals the supplied anchor when the page or anchor changes, without effects.
   const reveal = useCallback((node: HTMLDivElement | null) => {
     if (!node) return
-    for (const link of node.querySelectorAll("a")) {
+    for (const [index, link] of [...node.querySelectorAll("a")].entries()) {
       if (open) link.setAttribute("data-flow", open.tag)
       else link.removeAttribute("data-flow")
+      // Inert links must also refuse browser-native opening (middle click or
+      // the context menu), which does not pass through Markdown's onClick.
+      if (!open || open.disabled) {
+        link.removeAttribute("href")
+        link.tabIndex = -1
+      } else if (hrefs[index] !== undefined) {
+        link.setAttribute("href", hrefs[index]!)
+        link.removeAttribute("tabindex")
+      }
     }
     const seen = new Map<string, number>()
     const headings = [...node.querySelectorAll<HTMLElement>(".sui-md-heading")]
@@ -44,9 +55,9 @@ export function DocsView({ model, actions, gestures, onAction }: DocsViewProps) 
       try { anchor = decodeURIComponent(model.anchor).toLowerCase() } catch { return }
       headings.find(heading => heading.id === anchor)?.scrollIntoView?.({ block: "nearest" })
     }
-  }, [body, model.page.slug, model.anchor, open?.tag])
+  }, [body, model.page.slug, model.anchor, open])
   return <article className="mvp-docs" aria-label="Docs" data-keyboard-pane="Docs">
-    <nav aria-label="Docs pages">{model.toc.map(entry => open ? <a key={entry.slug} href={`#${entry.slug}`}
+    <nav aria-label="Docs pages">{model.toc.map(entry => open ? <a key={entry.slug} href={open.disabled ? undefined : `#${entry.slug}`} tabIndex={open.disabled ? -1 : undefined}
       data-flow={open?.tag} aria-current={entry.slug === model.page.slug ? "page" : undefined}
       aria-disabled={!!open.disabled}
       onClick={event => { event.preventDefault(); go(entry.slug) }}>{entry.title}</a> : <span key={entry.slug} aria-current={entry.slug === model.page.slug ? "page" : undefined}>{entry.title}</span>)}

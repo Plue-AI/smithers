@@ -627,6 +627,20 @@
       "flows": []
     },
     {
+      "id": "coding/flow-load",
+      "description": "Load every overridable flow at one main commit and answer each version's digest and load status.",
+      "summary": null,
+      "featured": false,
+      "kind": "ts",
+      "path": "flows/coding/flow-load/flow.ts",
+      "capabilities": [
+        "*"
+      ],
+      "model": null,
+      "modelInvocable": false,
+      "flows": []
+    },
+    {
       "id": "coding/implementation",
       "description": "Implement one planned Change as native JJ atoms, preserving existing identities and recording exact revision evidence.",
       "summary": null,
@@ -1183,38 +1197,6 @@
         "fs:write:factory/wiki/decisions/**",
         "memory:write:**",
         "model:call:typesafe-ai/jev"
-      ],
-      "model": null,
-      "modelInvocable": false,
-      "flows": []
-    },
-    {
-      "id": "register-repository",
-      "description": "Register a GitHub repository with Smithers: analyze it from its link (theme, license, checks, agent readiness, cleanup opportunities, commits, contributors, contribution intake, workflows to build, CI estimate), wait for Smithers admin review, then set it up.",
-      "summary": null,
-      "featured": false,
-      "kind": "ts",
-      "path": "flows/register-repository/flow.ts",
-      "capabilities": [
-        "fs:read:**",
-        "proc:spawn:*",
-        "net:post:*",
-        "model:call:*"
-      ],
-      "model": null,
-      "modelInvocable": false,
-      "flows": []
-    },
-    {
-      "id": "register-repository/setup",
-      "description": "Set Smithers up for an approved repository: run its detected checks once in this workspace and record the result.",
-      "summary": null,
-      "featured": false,
-      "kind": "ts",
-      "path": "flows/register-repository/setup/flow.ts",
-      "capabilities": [
-        "fs:read:**",
-        "proc:spawn:*"
       ],
       "model": null,
       "modelInvocable": false,

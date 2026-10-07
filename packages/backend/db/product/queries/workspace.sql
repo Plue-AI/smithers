@@ -991,11 +991,13 @@ LIMIT sqlc.arg(max_rows)::integer;
 
 -- name: GetBranchWorkspace :one
 -- Includes excluded-index sources and retained failures; none permit replacement.
+-- Canonical creation holds the branch advisory lock. A no-key update lock
+-- protects metadata without waiting for a launch's long-lived key-share grant.
 SELECT * FROM workspaces
 WHERE repository_id = sqlc.arg(repository_id)
   AND target_bookmark = sqlc.arg(target_bookmark)::text
   AND deleted_at IS NULL
-FOR UPDATE;
+FOR NO KEY UPDATE;
 
 -- name: GetBranchMachineOwner :one
 SELECT id FROM users WHERE lower_username = 'smithers-machines'

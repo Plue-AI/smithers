@@ -54,9 +54,9 @@ const search = (
 export const searchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({
     name: "search",
-    summary: "Search everything by name: files, flows, targets, runs, changes, issues, boxes, secret names",
+     slash: "/search", cli: ["search"], journey: ["J9"], group: "Ask", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/search/code",query:{q:"query"}}, summary: "Search code, wiki and runs",
     args: "[query] [--kinds file,run,…]",
-    input: OptionalQuery,
+    agent: "run", input: OptionalQuery,
     handler: ({ query, kinds }) =>
       actions.search("search", "all", {
         query: query ?? "",

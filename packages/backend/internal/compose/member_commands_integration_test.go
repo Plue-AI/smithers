@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 )
 
@@ -22,8 +25,9 @@ import (
 // loader, member boundary and memberCommands on real PostgreSQL: the owner,
 // Ben (Maintainer) and Alice (Member) reach every route a member's J1 8, J2
 // and J4 paths call; Alice is refused merge and member management by role;
-// a person off the roster, a suspended member and a member's token reach
-// none of them; and a route outside the member table stays the owner's.
+// off-roster and suspended people are refused. Member tokens reach only
+// scoped reads and questions; person-only commands stay refused, and
+// a route outside the member table stays the owner's.
 func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx := t.Context()
@@ -57,25 +61,47 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 		require.NoError(t, err)
 		return key
 	}
-	raw := fmt.Sprintf("smithers_%040x", alice.ID)
-	sum := sha256.Sum256([]byte(raw))
-	hash := hex.EncodeToString(sum[:])
-	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: alice.ID, Name: "cli", TokenHash: hash, TokenLastEight: hash[len(hash)-8:],
-		Scopes: "read:user", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
-	require.NoError(t, err)
+	mintToken := func(u db.User) string {
+		raw := fmt.Sprintf("smithers_%040x", u.ID)
+		sum := sha256.Sum256([]byte(raw))
+		hash := hex.EncodeToString(sum[:])
+		_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: u.ID, Name: "cli", TokenHash: hash, TokenLastEight: hash[len(hash)-8:],
+			Scopes: "read:user", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+		require.NoError(t, err)
+		return raw
+	}
+	raw := mintToken(alice)
+	ownerToken := mintToken(owner)
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = "selfhost"
 	cfg.Auth.SessionCookieName = "session"
 	router := chi.NewRouter()
 	router.Use(authLoader(q, cfg.Auth))
 	router.Use(memberCommands(q))
-	served := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }
+	downgradeAfterDecision := false
+	served := func(w http.ResponseWriter, r *http.Request) {
+		if downgradeAfterDecision {
+			_, err := pool.Exec(ctx, `UPDATE collaborators SET permission='write' WHERE user_id=$1`, ben.ID)
+			require.NoError(t, err)
+		}
+		command := middleware.InstallMemberCommand(r.Method, r.URL.Path)
+		if command == "todo.control" {
+			command = "todo.steer"
+		}
+		if command != "" && command != "self" {
+			// A same-command service entry reuses the middleware decision even
+			// without a second database lookup.
+			_, err := services.Authorize(r.Context(), nil, command)
+			require.NoError(t, err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}
 	routes := []struct{ method, path string }{
 		{"GET", "/api/install"}, {"GET", "/api/user/repos"},
 		{"GET", "/api/repos/maya/demo/mythical"}, {"GET", "/api/repos/maya/demo/mythical/events"}, {"GET", "/api/repos/maya/demo/mythical/items/T1"},
 		{"GET", "/api/github/sync"}, {"POST", "/api/github/sync"}, {"GET", "/api/live"},
 		{"GET", "/api/user/orgs"}, {"GET", "/api/user/workspaces"}, {"POST", "/api/telemetry/errors"},
-		{"POST", "/api/agent/turn"}, {"POST", "/api/agent/turn/cancel"}, {"POST", "/api/agent/turn/replay"}, {"POST", "/api/agent/turn/retire"},
+		{"POST", "/api/agent/turn"}, {"POST", "/api/conversations/1/prompt"}, {"POST", "/api/agent/turn/replay"},
 		{"GET", "/api/agent/conversations"}, {"POST", "/api/agent/conversations/replay"},
 		{"GET", "/api/issues"}, {"GET", "/api/issues/2"},
 		{"GET", "/api/todos"}, {"GET", "/api/todos/1"}, {"POST", "/api/todos"}, {"POST", "/api/todos/1"}, {"POST", "/api/todos/1/answer"},
@@ -86,10 +112,19 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 	for _, route := range routes {
 		router.MethodFunc(route.method, route.path, served)
 	}
-	ownerOnly := map[string]bool{"POST /api/install/setup/models": true, "GET /api/user/tokens": true, "POST /api/agent/turn/erase": true}
+	router.Put("/api/repos/maya/demo/mythical/lanes", served)
+	ownerOnly := map[string]bool{"GET /api/install": true, "POST /api/install/setup/models": true, "GET /api/user/tokens": true, "POST /api/agent/turn/erase": true}
 	maintainerOnly := map[string]bool{"POST /api/todos/1/merge": true, "POST /api/members": true, "PATCH /api/members/alice": true, "DELETE /api/members/alice": true}
-	call := func(method, path, cookie, bearer string) (int, map[string]any) {
-		req := httptest.NewRequest(method, path, nil)
+	call := func(method, path, cookie, bearer string, supplied ...string) (int, map[string]any) {
+		var body *strings.Reader
+		body = strings.NewReader("{}")
+		if method == "POST" && path == "/api/todos/1" {
+			body = strings.NewReader(`{"op":"steer","text":"Continue"}`)
+		}
+		if len(supplied) == 1 {
+			body = strings.NewReader(supplied[0])
+		}
+		req := httptest.NewRequest(method, path, body)
 		if cookie != "" {
 			req.AddCookie(&http.Cookie{Name: "session", Value: cookie})
 		}
@@ -109,6 +144,8 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 			want := http.StatusOK
 			switch {
 			case who == "owner":
+			case who == "member token" && (key == "GET /api/user/orgs" || key == "GET /api/user/workspaces" || key == "POST /api/telemetry/errors" || key == "GET /api/agent/conversations" || key == "POST /api/agent/conversations/replay" || key == "POST /api/agent/turn" || key == "POST /api/conversations/1/prompt" || key == "POST /api/agent/turn/replay"):
+				want = http.StatusOK
 			case ownerOnly[key], who == "off roster", who == "suspended", who == "member token":
 				want = http.StatusForbidden
 			case who == "member" && maintainerOnly[key]:
@@ -126,13 +163,90 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 				require.Equal(t, map[string]any{"class": "permission", "code": "permission", "message": "Only a maintainer can do this"}, envelope, key)
 			}
 			if want == http.StatusForbidden && who == "member token" && !ownerOnly[key] {
-				require.Equal(t, "Sign in with a browser session", envelope["message"], key)
+				message := "Insufficient credential scope"
+				require.Equal(t, message, envelope["message"], key)
 			}
 		}
 	}
+	// Owner tokens cannot bypass authorization on a mapped command.
+	status, envelope := call("GET", "/api/todos", "", ownerToken)
+	require.Equal(t, http.StatusForbidden, status)
+	require.Equal(t, "permission", envelope["class"])
+	// Give the owner token explicit repository scope before repository reads.
+	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes='read:user,read:repository' WHERE user_id=$1`, owner.ID)
+	require.NoError(t, err)
+	// The credential binder normalizes a scoped legacy CLI token to delegation.
+	status, _ = call("POST", "/api/conversations/1/prompt", "", ownerToken)
+	require.Equal(t, http.StatusOK, status)
+	status, _ = call("GET", "/api/repos/maya/demo/mythical", "", ownerToken)
+	require.Equal(t, http.StatusOK, status)
+	// Unbound system-issued credentials inherit no owner read authority.
+	_, err = pool.Exec(ctx, `UPDATE access_tokens SET system_issued=true WHERE user_id=$1`, owner.ID)
+	require.NoError(t, err)
+	status, _ = call("GET", "/api/repos/maya/demo/mythical", "", ownerToken)
+	require.Equal(t, http.StatusForbidden, status)
+	for _, path := range []string{"/api/conversations/1/prompt", "/api/todos/1/merge"} {
+		status, _ = call("POST", path, "", ownerToken)
+		require.Equal(t, http.StatusForbidden, status, path)
+	}
+	// The real provisioned landing shape retains its scoped stack read, but
+	// never gains chat, merge or any other person command.
+	landingScopes := strings.Join(append([]string{"write:repository", middleware.RepositoryRestrictionScope(repo.ID), middleware.LandingWorkspaceScope("11111111-1111-4111-a111-111111111111")}, middleware.PathRestrictionScopes([]string{"**"})...), ",")
+	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes=$2 WHERE user_id=$1`, owner.ID, landingScopes)
+	require.NoError(t, err)
+	status, _ = call("GET", "/api/repos/maya/demo/mythical", "", ownerToken)
+	require.Equal(t, http.StatusOK, status)
+	for _, path := range []string{"/api/conversations/1/prompt", "/api/todos/1/merge"} {
+		status, _ = call("POST", path, "", ownerToken)
+		require.Equal(t, http.StatusForbidden, status, path)
+	}
+	const submission = `{"workspaceId":"11111111-1111-4111-a111-111111111111"}`
+	status, _ = call("PUT", "/api/repos/maya/demo/mythical/lanes", "", ownerToken, submission)
+	require.Equal(t, http.StatusOK, status)
+	for _, body := range []string{`{}`, `{"workspaceId":"22222222-2222-4222-a222-222222222222"}`, submission + `{}`} {
+		status, _ = call("PUT", "/api/repos/maya/demo/mythical/lanes", "", ownerToken, body)
+		require.Equal(t, http.StatusForbidden, status, body)
+	}
+	for _, path := range []string{"/api/repos/maya/demo/mythical/wiki", "/api/user/tokens"} {
+		status, _ = call("PUT", path, "", ownerToken, submission)
+		require.Equal(t, http.StatusForbidden, status, path)
+	}
+	for _, scopes := range []string{
+		strings.Replace(landingScopes, middleware.RepositoryRestrictionScope(repo.ID), middleware.RepositoryRestrictionScope(repo.ID+1), 1),
+		strings.Replace(landingScopes, "write:repository", "read:user", 1),
+		strings.Replace(landingScopes, middleware.PathRestrictionScopes([]string{"**"})[0], middleware.PathRestrictionScopes([]string{"docs"})[0], 1),
+	} {
+		_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes=$2 WHERE user_id=$1`, owner.ID, scopes)
+		require.NoError(t, err)
+		status, _ = call("GET", "/api/repos/maya/demo/mythical", "", ownerToken)
+		require.Equal(t, http.StatusForbidden, status, scopes)
+		status, _ = call("PUT", "/api/repos/maya/demo/mythical/lanes", "", ownerToken, submission)
+		require.Equal(t, http.StatusForbidden, status, scopes)
+	}
+	// No unbound credential, even one minted for the owner, inherits the
+	// owner's legacy route fallback. Refuse before the mounted handler.
+	for _, scopes := range []string{"write:repository,read:user", "write:repository,read:user,credential:sync", "write:repository,read:user,via:codex"} {
+		_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes=$2,system_issued=true WHERE user_id=$1`, owner.ID, scopes)
+		require.NoError(t, err)
+		status, denied := call("POST", "/api/agent/turn/erase", "", ownerToken)
+		require.Equal(t, 403, status, denied)
+		require.Equal(t, "permission", denied["class"])
+		require.Equal(t, "permission", denied["code"])
+	}
+	// An ordinary role downgrade after the request's bound decision does
+	// not change that in-flight decision. The next request sees the new role.
+	downgradeAfterDecision = true
+	status, _ = call("POST", "/api/members", cookies["maintainer"], "")
+	require.Equal(t, http.StatusOK, status)
+	downgradeAfterDecision = false
+	status, envelope = call("POST", "/api/members", cookies["maintainer"], "")
+	require.Equal(t, http.StatusForbidden, status)
+	require.Equal(t, "permission", envelope["code"])
+	_, err = pool.Exec(ctx, `UPDATE collaborators SET permission='admin' WHERE user_id=$1`, ben.ID)
+	require.NoError(t, err)
 	// Suspending Ben refuses his very next request.
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, ben.ID)
 	require.NoError(t, err)
-	status, _ := call("GET", "/api/install", cookies["maintainer"], "")
+	status, _ = call("GET", "/api/install", cookies["maintainer"], "")
 	require.Equal(t, http.StatusForbidden, status)
 }

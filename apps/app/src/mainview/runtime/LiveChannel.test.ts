@@ -27,6 +27,20 @@ const harness = (project?: (topic: string, previous: unknown, delta: unknown) =>
 }
 
 describe("live channel", () => {
+  test("private confirmations disappear on disconnect and await a fresh authorized snapshot", () => {
+    const { channel, sockets, timers } = harness()
+    const release = channel.subscribe("confirmations:17", () => {})
+    sockets[0]!.open()
+    sockets[0]!.receive({ t: "snap", id: 1, cursor: 8, data: [{ id: "private", state: "pending" }] })
+    expect(channel.getSnapshot("confirmations:17")?.data).toEqual([{ id: "private", state: "pending" }])
+    sockets[0]!.drop()
+    expect(channel.getSnapshot("confirmations:17")).toEqual({ topic: "confirmations:17" })
+    timers[0]!.run(); sockets[1]!.open()
+    expect(sockets[1]!.frames[0]).toEqual({ t: "sub", id: 1, topic: "confirmations:17" })
+    sockets[1]!.receive({ t: "err", id: 1, code: "forbidden" })
+    expect(channel.getSnapshot("confirmations:17")?.data).toBeUndefined()
+    release(); channel.dispose()
+  })
   // T-COL-08 Scope In: unavailable real-stack providers must fail closed.
   test("dark code documents refuse without opening a socket or sending a subscription", () => {
     const { channel, sockets, timers } = harness()
@@ -256,5 +270,69 @@ test("a retention snapshot replaces an invalid former cursor", () => {
   sockets[0]!.drop(); timers[0]!.run(); sockets[1]!.open()
   sockets[1]!.receive({ t: "snap", id: 1, cursor: 2, data: "committed" })
   expect(channel.getSnapshot("home")).toEqual({ topic: "home", cursor: 2, data: "committed" })
+  channel.dispose()
+})
+
+test("presence uses one socket, an independent frame id, the latest location, and stops at last close", () => {
+  const { channel, sockets, timers } = harness()
+  const closeTopic = channel.subscribe("branch:b1", () => {})
+  const first = channel.trackPresence({ branch: "b1" })
+  sockets[0]!.open()
+  expect(sockets[0]!.frames).toEqual([
+    { t: "sub", id: 1, topic: "branch:b1" },
+    { t: "presence", id: 2, where: { branch: "b1" } }
+  ])
+  first.move({ branch: "b1", path: "retry.ts", line: 12 })
+  expect(sockets[0]!.frames.at(-1)).toEqual({ t: "presence", id: 2, where: { branch: "b1", path: "retry.ts", line: 12 } })
+  expect(timers[0]!.ms).toBe(10000)
+  timers[0]!.run()
+  expect(sockets[0]!.frames.at(-1)).toEqual({ t: "presence", id: 2, where: { branch: "b1", path: "retry.ts", line: 12 } })
+  const second = channel.trackPresence({ branch: "b1", terminal: "terminal-2" })
+  second.release(); second.release()
+  expect(sockets[0]!.frames.at(-1)).toEqual({ t: "presence", id: 2, where: { branch: "b1", path: "retry.ts", line: 12 } })
+  // A provider's presence refusal cannot discard the card's topic subscription.
+  sockets[0]!.receive({ t: "err", id: 2, code: "unsupported" })
+  expect(channel.getSnapshot("branch:b1")?.error).toBeUndefined()
+  first.release()
+  expect(sockets[0]!.frames.at(-1)).toEqual({ t: "presence", id: 2, where: { branch: "" } })
+  expect(timers.at(-1)!.cancelled).toBe(true)
+  const count = sockets[0]!.frames.length
+  timers.at(-1)!.run(); first.move({ branch: "b2" })
+  expect(sockets[0]!.frames).toHaveLength(count)
+  closeTopic(); channel.dispose()
+})
+
+test("presence reconnects with the latest move and disposal cancels all heartbeats", () => {
+  const { channel, sockets, timers } = harness()
+  channel.subscribe("branch:b1", () => {})
+  const lease = channel.trackPresence({ branch: "b1" })
+  sockets[0]!.open(); sockets[0]!.drop()
+  lease.move({ branch: "b1", run: "run-1", step: "verify" })
+  timers.find(timer => timer.ms === 250)!.run()
+  sockets[1]!.open()
+  expect(sockets[1]!.frames).toEqual([
+    { t: "sub", id: 1, topic: "branch:b1" },
+    { t: "presence", id: 2, where: { branch: "b1", run: "run-1", step: "verify" } }
+  ])
+  channel.dispose()
+  const count = sockets[1]!.frames.length
+  for (const timer of timers) if (timer.ms === 10000) timer.run()
+  lease.move({ branch: "b2" }); lease.release()
+  expect(sockets[1]!.frames).toHaveLength(count)
+})
+
+test("members reconnect requests a fresh snapshot, retains the roster and notifies at an unchanged cursor", () => {
+  const { channel, sockets, timers } = harness()
+  let notices = 0
+  channel.subscribe("members", () => notices++)
+  sockets[0]!.open()
+  sockets[0]!.receive({ t: "snap", id: 1, cursor: 10, data: { members: ["will"] } })
+  sockets[0]!.drop()
+  expect(notices).toBe(2) // Lost authority notifies before the replacement roster.
+  expect(channel.getSnapshot("members")?.data).toEqual({ members: ["will"] })
+  timers[0]!.run(); sockets[1]!.open()
+  expect(sockets[1]!.frames).toEqual([{ t: "sub", id: 1, topic: "members" }])
+  sockets[1]!.receive({ t: "snap", id: 1, cursor: 10, data: { members: ["will"] } })
+  expect(notices).toBe(3)
   channel.dispose()
 })

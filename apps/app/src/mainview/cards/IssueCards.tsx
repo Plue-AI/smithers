@@ -279,7 +279,7 @@ export const IssueCardBody = ({
         <Button size="sm" variant="outline"  {...flowAction(onRunCommand, "issue.flows", flowArgs("issue.flows", { number, repo }))}>Issue flows</Button>
         <Button size="sm" variant="outline"  {...flowAction(onRunCommand, "issue.repro", flowArgs("issue.repro", { number, repo }))}>Research / repro</Button>
         <Button size="sm" variant="outline"  {...flowAction(onRunCommand, "issue.poc", flowArgs("issue.poc", { number, repo }))}>Proof of concept</Button>
-        <Button size="sm"  {...flowAction(onRunCommand, "issue.implement", flowArgs("issue.implement", { number, repo }))}>Implement</Button>
+        <Button size="sm"  {...flowAction(onRunCommand, "todo.from-issue", flowArgs("todo.from-issue", { number, repo }))}>Implement</Button>
         <Button size="sm" variant="outline"  {...flowAction(onRunCommand, "issue.add-flow", flowArgs("issue.add-flow", { number, repo }))}>Add flow</Button>
       </nav>}
       <div className="ghc-detail-grid">

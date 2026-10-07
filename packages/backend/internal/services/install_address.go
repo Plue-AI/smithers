@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 )
@@ -48,18 +49,19 @@ func loopbackOrigin(origin string) bool {
 // connection without a restart.
 type InstallAddress struct {
 	// Configured are the origins the process configuration names
-	// (SMITHERS_PUBLIC_URL or server.allowed_origins); the owner's saved
-	// origins join them.
+	// (SMITHERS_PUBLIC_URL or server.allowed_origins); saved public origins
+	// replace these while loopback control origins stay reachable.
 	Configured []string
 	// Listen serves a network bind beside loopback, opening the new listener
 	// before it closes the previous one; an empty bind closes the network
 	// listener. Nil when the composition's host owns its listener.
 	Listen func(bind string) error
 
-	mu     sync.RWMutex
-	bind   string
-	saved  []string
-	served string
+	settingsMu sync.Mutex
+	mu         sync.RWMutex
+	bind       string
+	saved      []string
+	served     string
 }
 
 // Origins are the configured origins, then the saved ones, without repeats,
@@ -73,7 +75,16 @@ func (a *InstallAddress) Origins() []string {
 	defer a.mu.RUnlock()
 	result := make([]string, 0, len(a.Configured)+len(a.saved))
 	seen := map[string]bool{}
-	for _, origin := range append(append([]string(nil), a.Configured...), a.saved...) {
+	configured := a.Configured
+	if a.saved != nil {
+		configured = nil
+		for _, origin := range a.Configured {
+			if loopbackOrigin(origin) {
+				configured = append(configured, origin)
+			}
+		}
+	}
+	for _, origin := range append(append([]string(nil), configured...), a.saved...) {
 		origin = middleware.CanonicalOrigin(origin)
 		if origin != "" && !seen[origin] {
 			seen[origin] = true
@@ -83,11 +94,8 @@ func (a *InstallAddress) Origins() []string {
 	return result
 }
 
-// Public is the origin links back to the install name, such as a pull
-// request body's: the first saved origin off this Mac's loopback (where
-// teammates open the install), then the first configured one off loopback,
-// then the first saved, then the first configured. Canonical
-// (middleware.CanonicalOrigin); "" when none is known.
+// Public returns the first saved public origin for absolute links, falling
+// back to process configuration only when Address has not been saved.
 func (a *InstallAddress) Public() string {
 	if a == nil {
 		return ""
@@ -98,11 +106,6 @@ func (a *InstallAddress) Public() string {
 	for _, origin := range append(append([]string(nil), a.saved...), a.Configured...) {
 		if origin = middleware.CanonicalOrigin(origin); origin != "" {
 			candidates = append(candidates, origin)
-		}
-	}
-	for _, origin := range candidates {
-		if !loopbackOrigin(origin) {
-			return origin
 		}
 	}
 	if len(candidates) == 0 {
@@ -206,4 +209,83 @@ func (a *InstallAddress) revert() {
 	if err := a.listen(bind); err != nil {
 		slog.Warn("install address: restore the previous bind", "bind", NetworkBind(bind), "error", err)
 	}
+}
+
+// SetAddress changes the owner setting through the same listener and settings
+// writer as setup. A transaction lock serializes concurrent Address changes.
+func (s *InstallSetupService) SetAddress(ctx context.Context, actor int64, input InstallSetupInput) error {
+	if s == nil || s.Pool == nil || s.Address == nil || s.Address.Listen == nil {
+		return &InstallReadinessError{Code: "address_unavailable", Class: "transient", Message: "Install listener unavailable"}
+	}
+	s.Address.settingsMu.Lock()
+	defer s.Address.settingsMu.Unlock()
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(352204)"); err != nil {
+		return err
+	}
+	owner, err := db.New(tx).GetSelfHostOwner(ctx)
+	if err != nil {
+		return err
+	}
+	if actor <= 0 || owner.ID != actor {
+		return &InstallReadinessError{Code: "install_owner_required", Class: "permission", Message: "Install owner required"}
+	}
+	if err = s.Address.apply(input.Bind); err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			s.Address.revert()
+		}
+	}()
+	if err = s.writeAddress(ctx, tx, input); err != nil {
+		return err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+	s.Address.commit(input.Bind, input.Origins)
+	committed = true
+	return nil
+}
+
+// Initialize persists the locally supplied address before the first claim.
+// The regular owner setting takes over once an owner exists.
+func (a *InstallAddress) Initialize(ctx context.Context, pool *pgxpool.Pool, input InstallSetupInput) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	s := &InstallSetupService{Pool: pool, Address: a}
+	if err = s.writeAddress(ctx, tx, input); err != nil {
+		return err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+	a.commit(input.Bind, input.Origins)
+	return nil
+}
+
+// Settings returns the committed Address for a partial owner update.
+func (a *InstallAddress) Settings() InstallSetupInput {
+	if a == nil {
+		return InstallSetupInput{Bind: "127.0.0.1:4000", Origins: []string{"http://localhost:4000"}}
+	}
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	origins := append([]string(nil), a.saved...)
+	if origins == nil {
+		origins = append([]string(nil), a.Configured...)
+	}
+	if len(origins) == 0 {
+		origins = []string{"http://localhost:4000"}
+	}
+	return InstallSetupInput{Bind: a.bind, Origins: origins}
 }

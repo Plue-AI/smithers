@@ -24,7 +24,7 @@ const methods = ["get", "put", "post", "delete", "options", "head", "patch", "tr
 
 /** The spec's operations as the generated client should call them. */
 const operations = Object.entries(spec.paths).flatMap(([path, item]) =>
-  methods.filter((method) => item[method] !== undefined).map((method) => ({ path, method, operation: item[method]! }))
+  methods.filter((method) => item[method] !== undefined).map((method) => ({ path, method, operation: { ...item[method]!, parameters: [...((item.parameters as unknown as ReadonlyArray<Parameter>) ?? []), ...(item[method]!.parameters ?? [])] } }))
 )
 
 const functionName = (id: string) =>
@@ -93,9 +93,10 @@ describe("the generated product API client", () => {
     // (fc5676df0, #3565) and the mythical config setter (44b074f80, #3572) were removed. The flow catalog
     // read, GET /api/flows (#3499), was added. The install issue reads, GET /api/issues and
     // GET /api/issues/{n} (#3457), were added.
-    // The three branch read/create operations, GET /api/live and PATCH /api/todos/{n} were added.
+    // Includes branch operations, live updates, TODO edits and named flow reads.
     // Exact parity above and the literal resource inventory below remain independent.
-    expect(expected).toHaveLength(512)
+    expect(expected).toHaveLength(532)
+    expect(spec.paths["/api/flows/{name}"]).toHaveProperty("get.operationId", "get_api_flows_name")
     expect(spec.paths).not.toHaveProperty("/api/repository-setup/{operation}")
     expect(
       operations.filter(({ path }) => path.startsWith("/api/install")).map(({ path, method }) =>
@@ -105,6 +106,7 @@ describe("the generated product API client", () => {
       // T-INS-06 setup steps in §16.2 order (9e9493943, #3455) plus the install read/write, scorecard and quiesce.
       "DELETE /api/install/quiesce",
       "GET /api/install",
+      "GET /api/install/metrics",
       "GET /api/install/scorecard",
       "POST /api/install/quiesce",
       "POST /api/install/setup/address",

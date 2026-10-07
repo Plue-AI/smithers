@@ -2,8 +2,8 @@ package auth
 
 import "fmt"
 
-// githubOAuthResponseLimit caps how much of a token-endpoint response is read.
-const githubOAuthResponseLimit = 1 << 20
+// githubResponseLimit bounds each token or identity response.
+const githubResponseLimit = 1 << 20
 
 // GitHubOAuthError is a failed GitHub OAuth token-endpoint call. Code is
 // GitHub's OAuth error code (bad_verification_code, redirect_uri_mismatch,

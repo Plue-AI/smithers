@@ -75,7 +75,6 @@ type ChangeRepoHost interface {
 	GetChangeFiles(ctx context.Context, owner, repo, changeID string) ([]repohost.ChangeFile, error)
 	GetFileAtChange(ctx context.Context, owner, repo, changeID, path string) (repohost.FileContent, error)
 	GetRevisionDiff(ctx context.Context, owner, repo, changeID, fromCommitID, toCommitID, path string) (repohost.ChangeDiff, error)
-	SplitChange(ctx context.Context, owner, repo, changeID string, req repohost.SplitChangeRequest) (repohost.SplitChangeResult, error)
 }
 
 type ChangeDiffRequest struct {
@@ -196,16 +195,6 @@ type ResolveChangeConflictInput struct {
 // its task message are durable. Sandbox provisioning continues asynchronously.
 type ResolveChangeConflictResponse struct {
 	AgentSessionID string `json:"agent_session_id"`
-}
-
-type SplitChangeInput struct {
-	Paths       []string `json:"paths"`
-	Description string   `json:"description,omitempty"`
-}
-
-type SplitChangeResponse struct {
-	Original repohost.Change `json:"original"`
-	Split    repohost.Change `json:"split"`
 }
 
 // ChangeConflictAgent is the existing agent-session path used to resolve a
@@ -373,87 +362,6 @@ func (s *ChangeService) RecordGeneratedChange(ctx context.Context, repositoryID 
 		return pkgerrors.Internal("invalid generated change source")
 	}
 	return s.recordChange(ctx, repositoryID, change, source, "", "", "", nil, nil, false)
-}
-
-// SplitChange rejects landed or conflicted changes, asks repo-host to perform
-// the atomic jj rewrite, then records a split revision for both resulting
-// stable change IDs.
-func (s *ChangeService) SplitChange(
-	ctx context.Context,
-	repositoryID int64,
-	owner, repo, changeID string,
-	input SplitChangeInput,
-) (SplitChangeResponse, error) {
-	if s == nil || s.queries == nil || s.repoHost == nil {
-		return SplitChangeResponse{}, pkgerrors.Internal("change split service not configured")
-	}
-	changeID = strings.TrimSpace(changeID)
-	if changeID == "" {
-		return SplitChangeResponse{}, pkgerrors.BadRequest("change_id is required")
-	}
-	if len(input.Paths) == 0 {
-		return SplitChangeResponse{}, pkgerrors.BadRequest("paths must not be empty")
-	}
-	for _, filePath := range input.Paths {
-		if strings.TrimSpace(filePath) == "" {
-			return SplitChangeResponse{}, pkgerrors.BadRequest("paths must not contain empty values")
-		}
-	}
-
-	if _, err := s.queries.GetChangeLandingProvenance(ctx, db.GetChangeLandingProvenanceParams{
-		RepositoryID: repositoryID,
-		ChangeID:     changeID,
-	}); err == nil {
-		return SplitChangeResponse{}, pkgerrors.Conflict("landed changes cannot be split")
-	} else if !stdErrors.Is(err, pgx.ErrNoRows) {
-		return SplitChangeResponse{}, pkgerrors.Internal("failed to check whether change is landed")
-	}
-	if _, err := s.queries.GetLandedChangesetForChange(ctx, db.GetLandedChangesetForChangeParams{
-		RepositoryID: repositoryID,
-		ChangeID:     changeID,
-	}); err == nil {
-		return SplitChangeResponse{}, pkgerrors.Conflict("landed changes cannot be split")
-	} else if !stdErrors.Is(err, pgx.ErrNoRows) {
-		return SplitChangeResponse{}, pkgerrors.Internal("failed to check whether change is in a landed changeset")
-	}
-
-	current, err := s.repoHost.GetChange(ctx, owner, repo, changeID)
-	if err != nil {
-		return SplitChangeResponse{}, mapChangeRepoHostError(err, "failed to get change")
-	}
-	// A change of the mythical stack is rewritten only by the stack service;
-	// splitting it here would rewrite its descendants and move the bookmark.
-	// The check uses the resolved id, so a unique prefix cannot slip past it.
-	if s.pool != nil {
-		owned, err := db.New(s.pool).IsMythicalChange(ctx, repositoryID, current.ChangeID)
-		if err != nil {
-			return SplitChangeResponse{}, pkgerrors.Internal("failed to check whether change is on the mythical stack").WithCause(err)
-		}
-		if owned {
-			return SplitChangeResponse{}, errMythicalBookmarkOwned
-		}
-	}
-	if current.HasConflict {
-		return SplitChangeResponse{}, pkgerrors.Conflict("conflicted changes cannot be split")
-	}
-
-	result, err := s.repoHost.SplitChange(ctx, owner, repo, changeID, repohost.SplitChangeRequest{
-		Paths:       input.Paths,
-		Description: input.Description,
-	})
-	if err != nil {
-		return SplitChangeResponse{}, mapChangeRepoHostError(err, "failed to split change")
-	}
-	if result.Original.ChangeID != current.ChangeID || strings.TrimSpace(result.Split.ChangeID) == "" || result.Split.ChangeID == result.Original.ChangeID {
-		return SplitChangeResponse{}, pkgerrors.Internal("repo-host returned an invalid split result")
-	}
-	if err := s.recordChange(ctx, repositoryID, result.Original, "split", "", "", "", nil, nil, false); err != nil {
-		return SplitChangeResponse{}, err
-	}
-	if err := s.recordChange(ctx, repositoryID, result.Split, "split", "", "", "", nil, nil, false); err != nil {
-		return SplitChangeResponse{}, err
-	}
-	return SplitChangeResponse{Original: result.Original, Split: result.Split}, nil
 }
 
 func (s *ChangeService) recordChange(ctx context.Context, repositoryID int64, change repohost.Change, source, agentSessionID, workspaceSnapshotID, workspaceID string, conflicts []repohost.Conflict, issueLinks []issueTrailerLink, syncIssueLinks bool) error {

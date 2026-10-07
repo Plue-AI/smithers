@@ -40,44 +40,6 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
-  /api/agent/turn/cancel:
-    post:
-      summary: POST /api/agent/turn/cancel
-      operationId: post_api_agent_turn_cancel
-      tags:
-        - Agent
-      parameters: []
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AnyJSON'
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
   /api/agent/turn/erase:
     post:
       summary: POST /api/agent/turn/erase
@@ -116,44 +78,6 @@ paths:
     post:
       summary: POST /api/agent/turn/replay
       operationId: post_api_agent_turn_replay
-      tags:
-        - Agent
-      parameters: []
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AnyJSON'
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /api/agent/turn/retire:
-    post:
-      summary: POST /api/agent/turn/retire
-      operationId: post_api_agent_turn_retire
       tags:
         - Agent
       parameters: []
@@ -388,6 +312,367 @@ paths:
                 anyOf:
                   - $ref: '#/components/schemas/SavedConversationProblem'
                   - $ref: '#/components/schemas/Error'
+  /api/conversations/{b}:
+    get:
+      summary: Read shared branch entries
+      description: Active branch members read started prompts and committed public answer output in turn and batch order. Queued prompts, legacy private history, approvals and browser Drafts are excluded. No journal capability or private request context is returned.
+      operationId: get_api_conversation
+      tags:
+        - Agent
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      parameters:
+        - name: b
+          in: path
+          required: true
+          schema:
+            type: string
+            maxLength: 160
+      responses:
+        '200':
+          description: Shared conversation snapshot with canonical id and ordered entries.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, entries]
+                properties:
+                  id:
+                    type: string
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, author, runId, prompt, state, frames]
+                      properties:
+                        id:
+                          type: string
+                        author:
+                          type: integer
+                          format: int64
+                        runId:
+                          type: string
+                        prompt:
+                          type: string
+                        state:
+                          type: string
+                        frames:
+                          type: array
+                          items:
+                            $ref: '#/components/schemas/AnyJSON'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: Conversation storage or branch provider unavailable.
+  /api/conversations/{b}/prompt:
+    post:
+      summary: Queue my branch prompt
+      description: Persists before acknowledging; does not wait for the model host. Retrying the same credential-scoped key and prompt returns the same turn. Restore uses a new key. Browser history, instructions and author overrides are refused.
+      operationId: post_api_conversation_prompt
+      tags:
+        - Agent
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: b
+          in: path
+          required: true
+          schema:
+            type: string
+            maxLength: 160
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [prompt, idempotencyKey]
+              properties:
+                prompt:
+                  type: string
+                  minLength: 1
+                  maxLength: 1048576
+                idempotencyKey:
+                  type: string
+                  minLength: 1
+                  maxLength: 160
+      responses:
+        '202':
+          description: Durable acceptance or existing turn, with turnId, runId, legId, cursor and terminal. No credential is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: The key was already used with another prompt.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Conversation admission is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/conversations/{b}/turns/{id}:
+    parameters:
+      - name: b
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 160
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 160
+    patch:
+      summary: Edit my queued prompt
+      operationId: patch_api_conversation_turn
+      tags:
+        - Agent
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [prompt]
+              properties:
+                prompt:
+                  type: string
+                  minLength: 1
+                  maxLength: 1048576
+      responses:
+        '200':
+          description: The committed replay cursor. Stop is idempotent; edits and removal require an unstarted queued turn owned by this member.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    delete:
+      summary: Remove my queued prompt
+      operationId: delete_api_conversation_turn
+      tags:
+        - Agent
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: The committed replay cursor. Stop is idempotent; edits and removal require an unstarted queued turn owned by this member.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/conversations/{b}/turns/{id}/stop:
+    parameters:
+      - name: b
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 160
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 160
+    post:
+      summary: Stop my answer
+      operationId: post_api_conversation_turn_stop
+      tags:
+        - Agent
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: The committed replay cursor. Stop is idempotent; edits and removal require an unstarted queued turn owned by this member.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/conversations/{b}/view-state:
+    parameters:
+      - name: b
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 160
+    get:
+      summary: Read my conversation view state
+      operationId: get_api_conversation_view_state
+      tags:
+        - Agent
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The authenticated member's conversation state and global toast preference; GET also includes their committed queued prompts when nonempty. The queue is server-owned and cannot be saved through PUT.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                required:
+                  - toasts_hidden
+                properties:
+                  toasts_hidden:
+                    type: boolean
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    put:
+      summary: Save my conversation view state
+      operationId: put_api_conversation_view_state
+      tags:
+        - Agent
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              properties:
+                toasts_hidden:
+                  type: boolean
+                  description: Global for this member; omission preserves the current preference.
+      responses:
+        '200':
+          description: The authenticated member's conversation state and global toast preference.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                required:
+                  - toasts_hidden
+                properties:
+                  toasts_hidden:
+                    type: boolean
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/agents:
+    x-composition: install
+    get:
+      x-composition: install
+      summary: Read factory agents
+      operationId: get_api_agents
+      tags:
+        - Agent
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Factory models, sources and instruction paths
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+  /api/agents/{role}/model:
+    x-composition: install
+    put:
+      x-composition: install
+      summary: Assign a factory agent model
+      description: Only the install owner's browser session may write. Members and run or machine credentials are refused; eligible delegated owners receive never.
+      operationId: put_api_agents_role_model
+      tags:
+        - Agent
+      security:
+        - sessionCookie: []
+      parameters:
+        - in: path
+          name: role
+          required: true
+          schema:
+            type: string
+            enum: [planner, implementer, reviewer, app, fast, coding, jev]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnyJSON'
+      responses:
+        '200':
+          description: Assignment persisted; current agent projection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
 components:
   schemas:
     SavedConversationCursor:

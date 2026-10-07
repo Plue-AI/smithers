@@ -11,10 +11,10 @@ const manifest = JSON.parse(readFileSync(new URL("../src/catalog/cuts.json", imp
 const root = new URL("../../../", import.meta.url)
 
 describe("MVP cut manifest", () => {
-  it("records the seven cut kinds without absorbing deferred or replacement kinds", () => {
+  it("records the cut kinds without absorbing deferred or replacement kinds", () => {
     expect(manifest.version).toBe(1)
     expect(manifest.rows.flatMap(row => row.cardKinds).sort()).toEqual([
-      "admin-health", "agent", "connect", "grant-confirm", "notifications", "registration", "repository-setup"
+      "admin-health", "agent", "commit", "commit-list", "connect", "grant-confirm", "notifications", "registration", "repository-setup"
     ])
     expect(manifest.rows.every(row => row.disposition === "cut")).toBe(true)
     expect(new Set(manifest.rows.map(row => row.id)).size).toBe(manifest.rows.length)

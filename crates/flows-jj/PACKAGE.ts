@@ -13,6 +13,12 @@
  */
 import { Smithers } from "@smthrs/targets"
 
+/** Package-owned Rust sources consumed by the root native FFI gate. */
+const nativeSources = Smithers.Filegroup({
+  cwd: "crates/flows-jj",
+  srcs: [Smithers.glob("src/**/*.rs")]
+})
+
 /**
  * The crate sources, the workspace manifest, and the lockfile.
  *
@@ -228,5 +234,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { buildScript, cargoClippy, cargoFmt, cargoTest, wasmReproducibility, ...securityReview }
+  targets: { nativeSources, buildScript, cargoClippy, cargoFmt, cargoTest, wasmReproducibility, ...securityReview }
 })

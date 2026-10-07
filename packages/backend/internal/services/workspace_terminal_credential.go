@@ -36,6 +36,7 @@ func terminalCredentialName(sessionID string) string { return "terminal-session-
 // terminalCredential is one terminal session's delegated credential.
 type terminalCredential struct {
 	registry     *sync.Map
+	issuer       *AuthService
 	tokens       accessTokenStore
 	writer       workspaceapi.SessionCredentialWriter
 	workspaceID  string
@@ -44,12 +45,13 @@ type terminalCredential struct {
 	repositoryID int64
 	url          string
 
-	mu      sync.Mutex
-	path    string
-	tokenID int64 // the live token; 0 while revoked
-	holders int
-	closed  bool
-	renew   *time.Timer
+	mu       sync.Mutex
+	path     string
+	identity string
+	tokenID  int64 // the live token; 0 while revoked
+	holders  int
+	closed   bool
+	renew    *time.Timer
 }
 
 // signInWorkspaceTerminal mints the session's first credential and answers
@@ -61,20 +63,35 @@ func (s *WorkspaceService) signInWorkspaceTerminal(ctx context.Context, row db.W
 	if !ok || s.q == nil || url == "" {
 		return nil, nil
 	}
-	credential := &terminalCredential{registry: s.terminalCredentials, tokens: s.q, writer: writer, workspaceID: row.ID,
+	credential := &terminalCredential{registry: s.terminalCredentials, issuer: s.credentialIssuer, tokens: s.q, writer: writer, workspaceID: row.ID,
 		sessionID: sessionID, userID: userID, repositoryID: row.RepositoryID, url: url}
+	if err := s.installTerminalCredential(ctx, credential); err != nil {
+		return nil, err
+	}
+	return credential, nil
+}
+
+// Serialize replacements before writing the shared session path. Retiring the
+// previous lifecycle first prevents its late close or renewal from deleting or
+// replacing the new lifecycle's file.
+func (s *WorkspaceService) installTerminalCredential(ctx context.Context, credential *terminalCredential) error {
+	s.terminalCredentialMu.Lock()
+	defer s.terminalCredentialMu.Unlock()
+	if s.terminalCredentials != nil {
+		if previous, loaded := s.terminalCredentials.Load(credential.sessionID); loaded {
+			previous.(*terminalCredential).Close()
+		}
+	}
 	credential.mu.Lock()
 	err := credential.issueLocked(ctx)
 	credential.mu.Unlock()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if s.terminalCredentials != nil {
-		if previous, loaded := s.terminalCredentials.Swap(sessionID, credential); loaded {
-			previous.(*terminalCredential).Close()
-		}
+		s.terminalCredentials.Store(credential.sessionID, credential)
 	}
-	return credential, nil
+	return nil
 }
 
 // environment is what the signed-in shell is started with.
@@ -96,11 +113,21 @@ func (c *terminalCredential) scopes() string {
 // and only then revokes the one it replaces.
 func (c *terminalCredential) issueLocked(ctx context.Context) error {
 	q := c.tokens
-	token, err := issueTemporaryRepoTokenWithTTL(ctx, q, c.userID, terminalCredentialName(c.sessionID), c.scopes(), terminalCredentialTTL)
+	var token temporaryRepoCloneToken
+	var err error
+	if c.issuer != nil {
+		var minted CreateTokenResult
+		minted, err = c.issuer.MintForTerminal(ctx, c.userID, c.repositoryID, c.workspaceID, c.sessionID)
+		if err == nil {
+			token = temporaryRepoCloneToken{ID: minted.ID, Plaintext: minted.Token, ExpiresAt: *minted.ExpiresAt}
+		}
+	} else {
+		token, err = issueTemporaryRepoTokenWithTTL(ctx, q, c.userID, terminalCredentialName(c.sessionID), c.scopes(), terminalCredentialTTL)
+	}
 	if err != nil {
 		return err
 	}
-	path, err := c.writer.PutSessionToken(ctx, c.workspaceID, c.sessionID, []byte(token.Plaintext))
+	path, err := c.writer.PutSessionToken(ctx, c.workspaceID, c.sessionID, []byte(token.Plaintext), c.identity)
 	if err != nil {
 		revokeTemporaryRepoCloneToken(ctx, q, c.userID, token.ID)
 		return err
@@ -109,6 +136,7 @@ func (c *terminalCredential) issueLocked(ctx context.Context) error {
 		revokeTemporaryRepoCloneToken(ctx, q, c.userID, c.tokenID)
 	}
 	c.path, c.tokenID = path, token.ID
+	c.identity = workspaceapi.SessionCredentialIdentity([]byte(token.Plaintext))
 	if c.renew != nil {
 		c.renew.Stop()
 	}
@@ -129,9 +157,10 @@ func (c *terminalCredential) revokeLocked() {
 	c.tokenID = 0
 	ctx, cancel := context.WithTimeout(context.Background(), temporaryRepoTokenRevokeTimeout)
 	defer cancel()
-	if err := c.writer.DeleteSessionToken(ctx, c.workspaceID, c.sessionID); err != nil {
+	if err := c.writer.DeleteSessionToken(ctx, c.workspaceID, c.sessionID, c.identity); err != nil {
 		slog.Warn("terminal credential file removal failed", "session_id", c.sessionID, "error", err)
 	}
+	c.identity = ""
 }
 
 func (c *terminalCredential) renewal() {

@@ -617,7 +617,8 @@ func TestInstalledGitEnvironmentIsTheBundles(t *testing.T) {
 	for name, want := range map[string]string{
 		"GIT_EXEC_PATH": filepath.Join(root, "libexec", "git-core"), "GIT_TEMPLATE_DIR": filepath.Join(root, "share", "git-core", "templates"),
 		"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.DevNull, "GIT_CONFIG_SYSTEM": os.DevNull,
-		"PATH": filepath.Join(root, "bin") + ":/usr/bin:/bin:/usr/sbin:/sbin",
+		"SMITHERS_INSTALL_STATE_DIR": inputs.stateRoot,
+		"PATH":                       filepath.Join(root, "bin") + ":/usr/bin:/bin:/usr/sbin:/sbin",
 	} {
 		if inputs.environment[name] != want {
 			t.Errorf("%s = %q; want %q", name, inputs.environment[name], want)

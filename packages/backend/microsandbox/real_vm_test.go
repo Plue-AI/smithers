@@ -71,12 +71,24 @@ func operation(id string) context.Context {
 func TestRealMicroVMWorkspaceConformance(t *testing.T) {
 	runtime := realRuntime(t, t.TempDir())
 	workspaceconformance.RunCore(t, workspaceconformance.CoreHarness{
-		Runtime:       runtime,
+		Runtime: runtime,
+		Reopen: func() (workspaceapi.WorkspaceRuntime, error) {
+			if err := runtime.Close(); err != nil {
+				return nil, err
+			}
+			reopened, err := New(context.Background(), runtime.config)
+			if err == nil {
+				runtime = reopened
+				t.Cleanup(func() { sweepOwner(t, reopened) })
+			}
+			return reopened, err
+		},
 		Context:       operation,
 		Spec:          workspaceapi.WorkspaceSpec{ID: "microvm-conformance"},
 		CreateStates:  []workspaceapi.WorkspaceState{workspaceapi.WorkspaceRunning},
 		Command:       workspaceapi.Command{Args: []string{"/bin/sh", "-c", "printf conformance-ok"}},
 		WantStdout:    "conformance-ok",
+		DeniedEgress:  &workspaceapi.Command{Args: []string{"/bin/sh", "-c", "curl -sS -m 5 -o /dev/null https://registry.npmjs.org/ && printf reachable || printf denied"}},
 		FilePath:      "nested/fixture.txt",
 		FileContent:   []byte("persistent fixture\n"),
 		FileMode:      0o640,
@@ -92,6 +104,15 @@ func TestRealMicroVMWorkspaceConformance(t *testing.T) {
 		Fork:     workspaceapi.WorkspaceSpec{ID: "microvm-snapshot-fork"},
 		Snapshot: workspaceapi.ColdSnapshotSpec{ID: "microvm-snapshot"},
 		FilePath: "snapshot/fixture.txt", FileContent: []byte("snapshot fixture\n"), FileMode: 0o600,
+	})
+}
+
+func TestRealMicroVMCapacityConformance(t *testing.T) {
+	runtime := realRuntime(t, t.TempDir())
+	runtime.SetCapacityReader(func(context.Context) (int, error) { return 0, nil })
+	workspaceconformance.RunCapacityRefusal(t, runtime, operation("capacity-refusal"), workspaceapi.WorkspaceSpec{ID: "capacity-refused"}, func(err error) bool {
+		var refusal *CapacityError
+		return errors.As(err, &refusal) && refusal.Code == "machine_capacity" && refusal.Class == "capacity"
 	})
 }
 

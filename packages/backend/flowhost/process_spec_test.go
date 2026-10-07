@@ -329,3 +329,44 @@ func TestCatalogRefusesProviderCredentials(t *testing.T) {
 		assert.NotContains(t, err.Error(), "sk-operator-secret")
 	}
 }
+
+func TestBuildProcessSpecTransportsInstallProjectAsData(t *testing.T) {
+	target := flowruntime.Target{TenantID: "repository:5", PrincipalID: "user:9", BindingKind: "agent-session", BindingID: "session-1"}
+	authority := Authority{Target: target, RepositoryID: 5, UserID: 9, WorkspaceID: "workspace-1", CatalogKey: CatalogCoding, SourceRevision: strings.Repeat("b", 40)}
+	catalog := Catalog{Key: CatalogCoding, Family: CatalogCoding, SystemFlows: []string{"merge"}, Executable: "/opt/smithers/coding-host", ArtifactDigest: strings.Repeat("a", 64), ServiceName: "coding-host"}
+	binding := Binding{ID: "11111111-1111-4111-8111-111111111111", TenantID: target.TenantID, PrincipalID: target.PrincipalID, BindingKind: target.BindingKind, BindingID: target.BindingID, RepositoryID: 5, UserID: 9, WorkspaceID: "workspace-1", CatalogKey: CatalogCoding, ServiceName: catalog.ServiceName, RuntimeArtifactDigest: catalog.ArtifactDigest, SourceRevision: authority.SourceRevision, OwnerGeneration: 1, State: "starting"}
+	launch := HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "bearer", ProjectConfig: []byte(`{"checks":[{"id":"test"}],"seats":{"coding/implement":"auto"}}`)}
+	paths := WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}
+	spec, err := BuildProcessSpec(launch, paths, 4317)
+	require.NoError(t, err)
+	require.JSONEq(t, string(launch.ProjectConfig), spec.Environment["SMITHERS_CODING_PROJECT_JSON"])
+	require.NotContains(t, spec.Environment, "SMITHERS_CODING_SEATS")
+	launch.Environment = map[string]string{"SMITHERS_CODING_PROJECT_JSON": `{"checks":[]}`}
+	_, err = BuildProcessSpec(launch, paths, 4317)
+	require.Error(t, err)
+	launch.Environment = nil
+	for _, raw := range []string{"{", strings.Repeat(" ", 256*1024+1)} {
+		launch.ProjectConfig = []byte(raw)
+		_, err = BuildProcessSpec(launch, paths, 4317)
+		require.ErrorContains(t, err, "install coding configuration")
+	}
+}
+
+func TestPinnedTodoHostUsesImmutableSourceExport(t *testing.T) {
+	catalog := Catalog{Key: CatalogCoding, Family: CatalogCoding, Executable: "/opt/smithers/coding-host", ArtifactDigest: strings.Repeat("a", 64), ServiceName: "smithers-flow-coding"}
+	target := flowruntime.Target{TenantID: "repository:5", PrincipalID: "user:9", BindingKind: "mythical-item", BindingID: "item"}
+	binding := Binding{ID: "11111111-1111-4111-8111-111111111111", TenantID: target.TenantID, PrincipalID: target.PrincipalID, BindingKind: target.BindingKind, BindingID: target.BindingID, RepositoryID: 5, UserID: 9, WorkspaceID: "lane", CatalogKey: CatalogCoding, ServiceName: catalog.ServiceName, RuntimeArtifactDigest: catalog.ArtifactDigest, SourceRevision: strings.Repeat("b", 40), OwnerGeneration: 1, State: "starting"}
+	authority := Authority{Target: target, RepositoryID: 5, UserID: 9, WorkspaceID: "lane", CatalogKey: CatalogCoding, SourceRevision: binding.SourceRevision, ExecutionPin: &flowruntime.Pin{Flow: "todo", SourceCommit: binding.SourceRevision, ExecutionDigest: strings.Repeat("c", 64)}}
+	spec, err := BuildProcessSpec(HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "bearer"}, WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4317)
+	require.NoError(t, err)
+	require.Equal(t, "1", spec.Environment["SMITHERS_FLOW_SOURCE_PINNED"])
+	require.Equal(t, strings.Repeat("c", 64), spec.Environment["SMITHERS_TODO_EXECUTION_DIGEST"])
+	require.Equal(t, strings.Repeat("b", 40), spec.Environment["SMITHERS_SOURCE_REVISION"])
+	require.Contains(t, spec.Args, "/workspace/repo", "coding actions retain their editable root")
+	authority.ExecutionPin = nil
+	binding.BindingKind = "workflow-run"
+	authority.Target.BindingKind = binding.BindingKind
+	spec, err = BuildProcessSpec(HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "bearer"}, WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4317)
+	require.NoError(t, err)
+	require.NotContains(t, spec.Environment, "SMITHERS_FLOW_SOURCE_PINNED", "scratch flow runs keep the working-copy source")
+}

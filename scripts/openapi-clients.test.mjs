@@ -118,7 +118,6 @@ test("malformed operations are refused", () => {
   refuse({ "/a/{id}": { get: { operationId: "x", responses: {} } } }, /x does not declare path parameter id/)
   refuse({ "/a": { get: { operationId: "x", responses: { "200": json({}), "201": { description: "s", content: { "text/plain": {} } } } } } }, /x mixes JSON and non-JSON/)
   refuse({ "/a": { get: { operationId: "x", responses: { "200": { description: "s", content: { "text/plain": {} } }, "201": json({}) } } } }, /x mixes JSON and non-JSON/)
-  refuse({ "/a": { get: { operationId: "x", responses: { "200": json({}), "201": json({}) } } } }, /x declares more than one JSON success response/)
   refuse({ "/a": { get: { operationId: "x", responses: { "200": { $ref: "#/components/responses/Missing" } } } } }, /x 200 is missing/)
 })
 
@@ -291,4 +290,15 @@ test("the layout names the committed spec and both clients", () => {
     typescript: join(root, "packages/smithers/src/internal/backend/ProductApi.ts"),
     go: join(root, "packages/backend/apiclient/client.gen.go")
   })
+})
+
+
+test("approval clients describe both completed and pending JSON success bodies", () => {
+  const approved = { type: "object", required: ["state"], properties: { state: { enum: ["approved"] } } }
+  const pending = { type: "object", required: ["state"], properties: { state: { enum: ["pending"] } } }
+  const doc = document({ "/approve": { post: { operationId: "approve", responses: { "200": json(approved), "202": json(pending) } } } })
+  assert.deepEqual(operations(doc)[0].success.schema, { anyOf: [approved, pending] })
+  assert.match(typescript(doc), /state: "approved"/)
+  assert.match(typescript(doc), /state: "pending"/)
+  assert.match(go(doc), /json.RawMessage/)
 })

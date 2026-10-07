@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -95,4 +96,42 @@ func TestProducerRenewalCannotReviveExpiredOrReleasedLease(t *testing.T) {
 			require.ErrorIs(t, err, ErrProducerFenced, "old generation must remain fenced after recovery")
 		})
 	}
+}
+
+func TestBranchQueueProgressesAfterExpiredProducerRenewal(t *testing.T) {
+	store, clock := clockedStore(needStore(t))
+	clock.now = clock.now.Truncate(time.Microsecond)
+	ctx := t.Context()
+	ben, alice := testScope(), testScope()
+	alice.RepositoryID = ben.RepositoryID
+	conversation := uuid.NewString()
+	admitShared := func(scope Scope) AdmitResult {
+		runID := uuid.NewString()
+		request, err := json.Marshal(map[string]any{"conversationId": conversation, "runId": runID, "messages": []any{map[string]string{"role": "user", "content": "Continue"}}})
+		require.NoError(t, err)
+		result, err := store.Admit(ctx, AdmitInput{Scope: scope, RunID: runID, Journal: testJournal(), Request: request})
+		require.NoError(t, err)
+		return result
+	}
+	first := admitShared(ben)
+	grant, err := store.Claim(ctx, ben, first.TurnID, time.Second)
+	require.NoError(t, err)
+	require.NoError(t, store.MarkProviderStarted(ctx, grant))
+	clock.advance(time.Microsecond)
+	next := admitShared(alice)
+	_, err = store.Claim(ctx, alice, next.TurnID, time.Minute)
+	require.ErrorIs(t, err, ErrProducerBusy)
+	clock.advance(time.Second)
+	_, err = store.RenewProducer(ctx, grant, time.Minute)
+	require.ErrorIs(t, err, ErrProducerFenced)
+	_, err = store.Claim(ctx, ben, first.TurnID, time.Minute)
+	require.ErrorIs(t, err, ErrUncertain, "a started model call must not be repeated after expiry")
+	second, err := store.Claim(ctx, alice, next.TurnID, time.Minute)
+	require.NoError(t, err, "the next member's turn must be able to proceed")
+	_, err = store.Producer(ctx, grant.TurnID, grant.Generation, grant.Token)
+	require.ErrorIs(t, err, ErrProducerFenced)
+	_, err = store.RenewProducer(ctx, grant, time.Minute)
+	require.ErrorIs(t, err, ErrProducerFenced)
+	_, err = store.Commit(ctx, CommitInput{TurnID: second.TurnID, Generation: second.Generation, Token: second.Token, Expected: second.Cursor, Frames: []json.RawMessage{done(second.RunID, "stop")}})
+	require.NoError(t, err)
 }

@@ -165,7 +165,7 @@ test("restored titled tombstones render literal text only through the transcript
     flushSync(() => root.render(<Transcript />))
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
     expect(host.textContent).toBe(title)
-    expect(host.querySelectorAll(".mvp-tombstone")).toHaveLength(1)
+    expect(host.querySelectorAll(".tombstone")).toHaveLength(1)
     expect(host.querySelector("img, button, [data-flow], .card-maximize-backdrop, .smithers-card-body")).toBeNull()
     expect(calls).toEqual([])
     const empty = store.collections.cards.get("legacy-empty")!
@@ -187,7 +187,7 @@ for (const [kind, payload] of [
   const { host, render } = mount({ card })
   expect(card.kind).toBe(kind)
   expect<unknown>(card.payload).toEqual(payload)
-  expect(host.querySelector(".mvp-tombstone")).toBeNull()
+  expect(host.querySelector(".tombstone")).toBeNull()
   expect(host.querySelector("[data-kind]")?.getAttribute("data-kind")).toBe(kind)
   expect(host.textContent).toBe("Saved billing")
   expect(host.querySelector('button, a, input, [data-flow]')).toBeNull()

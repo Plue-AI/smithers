@@ -3,9 +3,12 @@ smthrs host — Operate this installation’s host
 Usage: smthrs host <command>
 
 Commands:
-  start   Start the bundled host service
-  status  Show launchd, bundle and process health
-  stop    Stop the host service
+  backup   Back up the installation
+  restore  Restore the installation from a verified backup
+  start    Start the bundled host service
+  status   Show launchd, bundle and process health
+  stop     Stop the host service
+  upgrade  Upgrade the installation after a verified backup
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

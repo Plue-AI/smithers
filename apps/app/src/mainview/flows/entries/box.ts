@@ -77,7 +77,7 @@ export const workspaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
     handler: () => "Terminal unavailable"
   }),
   flow({
-    name: "box.suspend",
+    name: "box.suspend", agent: "run", minimumRole: "member", actors: ["person","app_agent"], visibility: "in-card",
     summary: "Suspend a box",
     runtime: ["cloud"],
     confirm: "suspend the box",
@@ -87,7 +87,7 @@ export const workspaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
     handler: ({ workspaceId }) => actions.live || actions.bootstrap?.capabilities.includes("install") ? "Branch unavailable" : actions.suspendWorkspace(workspaceId)
   }),
   flow({
-    name: "box.resume",
+    name: "box.resume", agent: "run", minimumRole: "member", actors: ["person","app_agent"], visibility: "in-card",
     summary: "Resume a box",
     runtime: ["cloud"],
     confirm: "resume the box",
@@ -131,7 +131,7 @@ export const workspaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
   }),
   flow({
     /* The card's body tab: showing a facet is how the agent answers "show me the files" too (.specs/engineering/spec.md §6.1). */
-    name: "box.facet", hidden: true, discloseToAgent: false,
+    name: "box.facet", visibility: "in-card", hidden: true, discloseToAgent: false,
     form: { fields: { workspaceId: { optionsFrom: "workspaces" } } },
     summary: "Switch a box card's facet",
     runtime: ["cloud"],

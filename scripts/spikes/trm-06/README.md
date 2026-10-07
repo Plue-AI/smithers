@@ -39,6 +39,21 @@ startup registration.
   failed operation. It is not called by a process launcher; account provisioning
   and real before-payload identity observations remain unimplemented. Mac tests
   inject syscall failures; Linux code is cross-compiled, not executed.
+- The dormant Go channel adapter pumps real SSH channels into length-prefixed
+  frames: numeric byte arrays match Rust, stdin half-close is preserved, stdout
+  and stderr remain separate, and exit status/signals use SSH messages. Input
+  credit is capped at 256 KiB; output credit is returned only after the SSH
+  channel write finishes. Unknown/malformed guest envelopes, duplicate fields, trailing JSON and null/non-integer byte elements refuse before SSH output.
+  A real SSH dispatch regression confirms an ambiguous guest exit closes the
+  channel without emitting an SSH exit status. Channel
+  dispatch supports session and loopback direct-tcpip only. Missing session
+  authority rejects both channel kinds before acceptance. PTY open requests
+  retain the terminal name and encoded modes alongside dimensions. An installed
+  authenticated session opener must supply each stream; entrypoints still refuse.
+  A real loopback SSH test exercises binary stdin, EOF, split output, returned
+  credit and exit 7 against a synthetic guest stream, not the production relay. Another real SSH
+  boundary test preserves PTY settings and refuses session/direct-tcpip without
+  an opener; it does not start a guest PTY or establish installed authority.
 - Go maps shell/exec/PTY/SFTP/direct-tcpip and resize/signal/exit requests, refuses
   agent and remote forwarding, restricts TCP to literal guest loopback targets,
   and returns fixed fresh-only `DefaultImage` configuration with nil environments
@@ -70,7 +85,7 @@ real init/start/restart and authenticated SSH/relay dispatch.
 Still required in #3554: authenticated installed-main provenance and accepted
 T-SEC-01 R1–R3 receipts; fixed account provisioning and process-launch integration
 of the dormant privilege drop; guest PTY/exec/SFTP/TCP execution and owned cgroup registry; authenticated multiplexed
-control/data dispatch; SSH listener/authentication and channel pumping; close,
+control/data dispatch; SSH listener/authentication and installed channel-adapter wiring; close,
 revocation and restart operations; live flow control/reattachment; both real
 root-validation matrices; the nine C-SPK-08 steps on the reference host with
 VS Code on a second Mac; raw samples and screen recording. No result for

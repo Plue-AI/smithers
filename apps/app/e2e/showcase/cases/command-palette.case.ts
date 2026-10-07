@@ -6,7 +6,7 @@ export default showcase({
   order: 20,
   title: "⌘K and slash commands",
   summary: "⌘K opens Chat; / lists every flow; a flow answers with a card.",
-  flows: ["palette.open", "agent.list", "theme"],
+  flows: ["palette.open", "agents", "theme"],
   run: async ({ page, app, backend }) => {
     await backend.cloud()
     await app.open("/")

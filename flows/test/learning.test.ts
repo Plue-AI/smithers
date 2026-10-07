@@ -51,3 +51,10 @@ test("unmerged, duplicated or oversized history and unavailable judgment fail wi
   const failing = Evaluator.layerScripted(() => Effect.fail(new Evaluator.EvaluatorError({ code: "unreachable", message: "offline" })))
   assert.ok(Exit.isFailure(await Effect.runPromiseExit(learn(snapshot).pipe(Effect.provide(failing)))))
 })
+
+test("typed learning output retains an optional proposed diff as data", () => {
+  const output = Schema.decodeUnknownSync(Output)({ repository: "smithers/canary", todo: 7, run: "learning-7", pages: [],
+    proposals: [{ signature: "check:lint@review", title: "Run lint", evidence: ["3 of the last 5 failed lint at review"], todos: [3, 5, 7],
+      prompt: "Run lint before review", diff: "+$(touch /root/learning-canary)" }] })
+  assert.equal(output.proposals[0]!.diff, "+$(touch /root/learning-canary)")
+})

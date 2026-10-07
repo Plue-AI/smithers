@@ -66,6 +66,7 @@ export type SetupStep = z.infer<typeof SetupStepSchema>
 export const ModelRoleSchema = z.object({
   role: ModelRoleIdSchema,
   provider: z.string(),
+  model: z.string().optional(),
   key: z.enum(["none", "validating", "saved", "failed"]),
   error: z.string().optional()
 })

@@ -793,3 +793,19 @@ func TestClient_ListBookmarks_RespectsCanceledContext(t *testing.T) {
 	assert.ErrorIs(t, err, context.Canceled)
 	assert.False(t, sawRequest.Load())
 }
+
+func TestClientListDirectoryPreservesOptionalRegularFileMetadata(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"path":"regular","kind":"file","regular_file":true},{"path":"link","kind":"file","regular_file":false},{"path":"legacy","kind":"file"}]`))
+	}))
+	defer server.Close()
+	entries, err := NewClient(&StaticStorageSetResolver{URL: server.URL}, "test-token").ListDirectory(t.Context(), "owner", "repo", "abc", "", "", 1000)
+	require.NoError(t, err)
+	require.Len(t, entries, 3)
+	require.NotNil(t, entries[0].RegularFile)
+	require.True(t, *entries[0].RegularFile)
+	require.NotNil(t, entries[1].RegularFile)
+	require.False(t, *entries[1].RegularFile)
+	require.Nil(t, entries[2].RegularFile)
+}

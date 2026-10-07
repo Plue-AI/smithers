@@ -1,12 +1,16 @@
 smthrs login — Log in to Smithers
 
-Usage: smthrs login [options]
+Usage: smthrs login [origin] [options]
+
+Arguments:
+  origin
 
 Options:
   --admin
   --host <string>
   --hostname <string>
   --observe
+  --agent <string>
   --ttl <string>
   --with-token
   --verbose            Show redacted diagnostic details

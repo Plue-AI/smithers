@@ -257,9 +257,12 @@ export const run = Effect.fn("Edit.run")(function*(
     return yield* Effect.fail(invalid(input.path, "replaceAll cannot be used with startLine/endLine"))
   }
   const edited = yield* Effect.scoped(Effect.gen(function*() {
-    yield* FileMutation.acquire(fileSystem, [input.path])
-    const bytes = yield* fileSystem.readFile(input.path).pipe(
-      Effect.mapError(FsFailure.reading(input.path, `File not found: ${input.path}`))
+    const mutation = yield* FileMutation.acquire(fileSystem, [input.path])
+    const bytes = yield* mutation.read(
+      input.path,
+      fileSystem.readFile(input.path).pipe(
+        Effect.mapError(FsFailure.reading(input.path, `File not found: ${input.path}`))
+      )
     )
     if (bytes.includes(0)) {
       return yield* Effect.fail(
@@ -319,22 +322,28 @@ export const run = Effect.fn("Edit.run")(function*(
       cursor = span.end
     }
     replaced += content.slice(cursor)
-    yield* Preserve.writeFileString(fileSystem, input.path, replaced).pipe(
-      Effect.mapError((error) =>
-        error.reason.method === "chmod"
-          ? new StdError.StdError({
-            code: "command_failed",
-            message: `Could not preserve the mode of ${input.path} before replacement by chmod`,
-            path: input.path
-          })
-          : FsFailure.denied(input.path, () =>
-            new StdError.StdError({
+    yield* mutation.commit(
+      [{
+        path: input.path,
+        content: new TextEncoder().encode(replaced)
+      }],
+      Preserve.writeFileString(fileSystem, input.path, replaced).pipe(
+        Effect.mapError((error) =>
+          error.reason.method === "chmod"
+            ? new StdError.StdError({
               code: "command_failed",
-              message: `Could not write ${input.path}`,
+              message: `Could not preserve the mode of ${input.path} before replacement by chmod`,
               path: input.path
-            }))(
-              error
-            )
+            })
+            : FsFailure.denied(input.path, () =>
+              new StdError.StdError({
+                code: "command_failed",
+                message: `Could not write ${input.path}`,
+                path: input.path
+              }))(
+                error
+              )
+        )
       )
     )
     // Synced under the file lock, so a later edit's text never reaches the

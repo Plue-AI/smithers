@@ -1,16 +1,14 @@
 import { createContext } from "react"
 import * as Y from "yjs"
+import type { Awareness } from "y-protocols/awareness"
 import { yCollab, yUndoManagerKeymap, ySyncAnnotation } from "y-codemirror.next"
 import { keymap, ViewPlugin } from "@codemirror/view"
-import { EditorState, Facet, StateEffect, StateField } from "@codemirror/state"
+import { EditorState, StateEffect, StateField } from "@codemirror/state"
 import type { EditorBinding } from "@smthrs/ui/adapters/code-editor"
 import { LiveFileMaxBytes } from "@smthrs/rpc/FileCard"
-import type { Actor } from "@smthrs/rpc/CardPrimitives"
+import { authorRanges, type AuthorRange } from "./liveAttribution"
+export { authorRanges, type AuthorRange } from "./liveAttribution"
 import { toActor, type ActorContext } from "../state/ProductActor"
-
-export interface AuthorRange { readonly from: number; readonly to: number; readonly actor: Actor }
-/** Presentation consumes this facet; attribution is never used as write authority. */
-export const authorRanges = Facet.define<readonly AuthorRange[], readonly AuthorRange[]>({ combine: values => values.flat() })
 
 /** The pinned Yjs item traversal is isolated here; deleted and formatting items contribute no characters. */
 export function documentAuthors(doc: Y.Doc, context: ActorContext = {}): AuthorRange[] {
@@ -22,7 +20,7 @@ export function documentAuthors(doc: Y.Doc, context: ActorContext = {}): AuthorR
     const to = from + item.length, wire = authors.get(String(item.id.client))
     if (wire !== undefined) {
       try {
-        const actor = toActor(wire as Parameters<typeof toActor>[0], context.roster, context.runs, context.sessions)
+        const actor = toActor((typeof wire === "string" ? JSON.parse(wire) : wire) as Parameters<typeof toActor>[0], context.roster, context.runs, context.sessions)
         ranges.push({ from, to, actor })
       } catch { /* Unknown attribution is omitted, never granted authority. */ }
     }
@@ -31,8 +29,8 @@ export function documentAuthors(doc: Y.Doc, context: ActorContext = {}): AuthorR
   return ranges
 }
 
-/** Compose sync and own-edit undo without awareness's remote-selection plugin or CM history. */
-export function liveBinding(doc: Y.Doc, context: ActorContext = {}, canEdit: () => boolean = () => true): EditorBinding & { readonly undo: Y.UndoManager; dispose(): void } {
+/** Compose sync and own-edit undo with authenticated awareness and own-edit history. */
+export function liveBinding(doc: Y.Doc, context: ActorContext = {}, canEdit: () => boolean = () => true, awareness?: Awareness): EditorBinding & { readonly undo: Y.UndoManager; dispose(): void } {
   const text = doc.getText("content")
   const undo = new Y.UndoManager(text, { trackedOrigins: new Set() })
   const changed = StateEffect.define<readonly AuthorRange[]>()
@@ -55,7 +53,7 @@ export function liveBinding(doc: Y.Doc, context: ActorContext = {}, canEdit: () 
     return { destroy: () => { disposed = true; doc.off("afterTransaction", refresh) } }
   })
   return { get text() { return text.toString() }, undo,
-    extensions: [EditorState.transactionFilter.of(transaction => !canEdit() && transaction.docChanged && !transaction.annotation(ySyncAnnotation) ? [] : transaction), ranges, attribution, yCollab(text, null, { undoManager: undo }), keymap.of(yUndoManagerKeymap)],
+    extensions: [EditorState.transactionFilter.of(transaction => !canEdit() && transaction.docChanged && !transaction.annotation(ySyncAnnotation) ? [] : transaction), ranges, attribution, yCollab(text, awareness ?? null, { undoManager: undo }), keymap.of(yUndoManagerKeymap)],
     dispose: () => undo.destroy() }
 }
 
@@ -74,29 +72,30 @@ export function documentEditors(states: ReadonlyMap<number, unknown>, local: num
 export function liveFileModel(model: import("@smthrs/rpc/FileCard").FileCard,
   provider: import("../runtime/LiveDocProvider").LiveDocProvider,
   awareness: ReadonlyMap<number, unknown> = new Map(), context: ActorContext = {}) {
+  model = provider.file ?? model
   if (!provider.editable || model.content.kind !== "text" || model.gone) {
-    return { ...model, mode: "read_only" as const, ...(provider.unsaved ? { unsaved: provider.unsaved } : {}) }
+    return { ...model, content: (model.gone || (provider.available && provider.unsaved)) && model.content.kind === "text" ? { kind: "text" as const, text: provider.doc.getText("content").toString() } : model.content, mode: "read_only" as const, ...(provider.unsaved ? { unsaved: provider.unsaved } : {}) }
   }
   const text = provider.doc.getText("content").toString(), bytes = new TextEncoder().encode(text).length
   if (bytes > LiveFileMaxBytes) return { ...model, mode: "read_only" as const, content: { kind: "too_large" as const, bytes, text } }
   const ranges = documentAuthors(provider.doc, context)
   return { ...model, mode: "live" as const, content: { kind: "text" as const, text },
     authors: [...new Map(ranges.map(range => [JSON.stringify(range.actor), range.actor])).values()],
-    editors: documentEditors(awareness, provider.doc.clientID, context), saved: provider.saved }
+    editors: documentEditors(awareness, provider.doc.clientID, context), saved: provider.saved, ...(provider.unsaved ? { unsaved: provider.unsaved } : {}) }
 }
 
 /** Host-owned resource port, beside the seeded read model. No default subscribes or enables edits. */
 export interface FileDocumentBinding { readonly provider: import("../runtime/LiveDocProvider").LiveDocProvider; readonly binding: EditorBinding }
-export const LiveFileContext = createContext<{ resolve(branch: string, path: string): FileDocumentBinding | undefined } | null>(null)
+export const LiveFileContext = createContext<{ resolve(branch: string, path: string, initial?: import("@smthrs/rpc/FileCard").FileCard): FileDocumentBinding | undefined } | null>(null)
 
 /** Own one binding per document identity, including the replacement after an epoch reset. */
 export function fileDocument(provider: import("../runtime/LiveDocProvider").LiveDocProvider, context: ActorContext = {}): FileDocumentBinding & { dispose(): void } {
-  let current: { doc: Y.Doc; binding: ReturnType<typeof liveBinding> } | undefined
+  let current: { doc: Y.Doc; awareness: Awareness; binding: ReturnType<typeof liveBinding> } | undefined
   return { provider,
     get binding() {
-      if (current?.doc !== provider.doc) {
+      if (current?.doc !== provider.doc || current?.awareness !== provider.awareness) {
         current?.binding.dispose()
-        current = { doc: provider.doc, binding: liveBinding(provider.doc, context, () => provider.editable) }
+        current = { doc: provider.doc, awareness: provider.awareness, binding: liveBinding(provider.doc, context, () => provider.editable, provider.awareness) }
       }
       return current.binding
     },

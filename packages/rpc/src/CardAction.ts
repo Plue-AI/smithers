@@ -4,18 +4,20 @@
  */
 
 import { z } from "zod"
+import type { TodoNewInputSchema as TodoCommandNewInputSchema } from "./TodoCommands.ts"
 import { ModelIdSchema } from "./AgentRoles.ts"
 import { type ModelRoleId, ModelRoleIdSchema } from "./CardPrimitives.ts"
-import { type CatalogTag, CatalogTagSchema } from "./catalog/index.ts"
+import { type CatalogTag, CatalogTagSchema } from "./CatalogTags.ts"
 import { ConfirmRevisionSchema } from "./ConfirmCard.ts"
 import { DraftIdSchema } from "./DraftCard.ts"
 import type { SetupStepId } from "./SetupCard.ts"
+import type { ModelProtocol } from "./ConfiguredModel.ts"
 /**
  * The failure codes and fault classes shared by refusal boundaries.
  * @since 1.0.0
  * @category models
  */
-export type { CatalogTag } from "./catalog/index.ts"
+export type { CatalogTag } from "./CatalogTags.ts"
 
 /**
  * An action form field.
@@ -138,7 +140,11 @@ export const BranchForeignAnswerInputSchema = z.strictObject({
  * @category models
  */
 export interface CardCommandInput {
+  readonly "approval.approve": { readonly cardId: string }
+  readonly "approval.deny": { readonly cardId: string }
   readonly "settings.address": { readonly listen: "mac" | "network"; readonly bind: string; readonly origins: readonly string[] }
+  readonly "settings.preapprove-default": { readonly todo_preapprove_default: boolean }
+  readonly "settings.daily-admissions": { readonly todo_daily_admissions: number }
   readonly "settings.capacity": { readonly capacity: number }
   readonly "settings.obsidian": { readonly path: string }
   readonly "settings.parallel": { readonly parallel: number }
@@ -152,15 +158,17 @@ export interface CardCommandInput {
   readonly "stop": undefined
   readonly "search": { readonly query?: string }
   readonly "stack": undefined
-  readonly "todo.new": z.infer<typeof TodoNewInputSchema>
+  readonly "todo.new": z.infer<typeof TodoCommandNewInputSchema>
   readonly "todo.from-issue": { readonly number: number }
   readonly "todo": { readonly n: number }
   readonly "todo.answer": { readonly n: number; readonly answer: string; readonly wait?: string }
   readonly "todo.steer": { readonly n: number; readonly text: string }
-  readonly "todo.amend": { readonly n: number; readonly text: string }
+  readonly "todo.amend": { readonly n: number; readonly text: string; readonly acceptance?: readonly string[] }
   readonly "todo.stop": { readonly n: number }
   readonly "todo.resume": { readonly n: number }
   readonly "todo.retry": { readonly n: number }
+  readonly "todo.preapprove": { readonly n: number }
+  readonly "todo.unapprove": { readonly n: number }
   readonly "todo.drop": { readonly n: number }
   readonly "stack.move": { readonly n: number; readonly direction: "up" | "down" }
   readonly "merge": { readonly n: number }
@@ -170,7 +178,7 @@ export interface CardCommandInput {
   readonly "branch.add-to-stack": z.infer<typeof BranchAddToStackInputSchema>
   readonly "branch.rebase": { readonly branch: string } | undefined
   readonly "terminal": { readonly branch: string } | undefined
-  readonly "file": { readonly path: string }
+  readonly "file": { readonly path: string; readonly branch?: string; readonly revision?: string }
   readonly "files": undefined
   readonly "diff": undefined
   readonly "review": undefined
@@ -180,8 +188,8 @@ export interface CardCommandInput {
   readonly "issue.new": { readonly title: string; readonly body: string }
   readonly "issue.comment": { readonly number: number; readonly body: string }
   readonly "wiki": undefined
-  readonly "wiki.page": { readonly name: string }
-  readonly "wiki.save": { readonly name: string }
+  readonly "wiki.page": { readonly name: string; readonly revision?: number }
+  readonly "wiki.save": { readonly name?: string; readonly text?: string }
   readonly "flows": undefined
   readonly "flow": { readonly name: string }
   readonly "flow.edit": { readonly name: string }
@@ -192,6 +200,7 @@ export interface CardCommandInput {
   readonly "github": undefined
   readonly "github.retry": undefined
   readonly "monitor": undefined
+  readonly "run.view": { readonly cardId: string; readonly selected?: string; readonly at?: number; readonly tab?: string }
   readonly "context.inspect": { readonly branch: string; readonly answer: string }
   readonly "run.inspect": { readonly id: string }
   readonly "flow.source": { readonly name: string }
@@ -212,7 +221,7 @@ export interface CardCommandInput {
   readonly "todo.keep-moved": { readonly n: number }
   readonly "branch.bring-in": z.infer<typeof BranchForeignAnswerInputSchema>
   readonly "branch.discard-foreign": z.infer<typeof BranchForeignAnswerInputSchema>
-  readonly "file.restore": { readonly path: string; readonly revision: string }
+  readonly "file.restore": { readonly path: string; readonly revision: string; readonly post_digest?: string }
   readonly "file.compare": { readonly path: string }
   readonly "file.reapply": { readonly path: string }
   readonly "file.restore-deleted": { readonly path: string }
@@ -221,10 +230,12 @@ export interface CardCommandInput {
   readonly "box.suspend": { readonly branch: string }
   readonly "box.resume": { readonly branch: string }
   readonly "branch.rebase-now": { readonly branch: string }
+  readonly "proposal": { readonly id: string }
   readonly "learning.accept": { readonly id: string }
   readonly "learning.dismiss": { readonly id: string }
   readonly "terminal.watch": { readonly id: string }
   readonly "notifications.allow": undefined
+  readonly "image.add": { readonly name: string }
   readonly "todo.takeover": { readonly n: number }
   readonly "merge.confirm": { readonly n: number; readonly revision: string }
   readonly "order.ok": { readonly n: number }
@@ -238,6 +249,7 @@ export interface CardCommandInput {
     readonly name: string
     readonly value: string
     readonly scope?: "all_branches" | "main_only"
+    readonly hosts?: string
   }
   readonly "secrets.delete": { readonly name: string }
   readonly "secrets.scope": { readonly name: string; readonly scope: "all_branches" | "main_only" }
@@ -245,6 +257,17 @@ export interface CardCommandInput {
   readonly "code.definition": { readonly path: string; readonly line: number; readonly col: number }
   readonly "draft.discard": z.infer<typeof DraftDiscardInputSchema>
   readonly "confirm.cancel": z.infer<typeof ConfirmCancelInputSchema>
+  readonly "agent.model": { readonly role: string; readonly model: string }
+  readonly "agent.open": { readonly role: string }
+  readonly "model": undefined
+  readonly "model.list": undefined
+  readonly "model.new": undefined
+  readonly "model.edit": { readonly id: string }
+  readonly "model.show": { readonly id: string }
+  readonly "model.remove": { readonly id: string }
+  readonly "model.test": { readonly id: string }
+  readonly "model.assign": { readonly role: string; readonly model: string }
+  readonly "model.save": { readonly name: string; readonly protocol: ModelProtocol; readonly modelId: string; readonly credential: string; readonly baseUrl?: string; readonly path?: string }
   readonly "settings.model.set": z.infer<typeof SettingsModelSetInputSchema>
 }
 

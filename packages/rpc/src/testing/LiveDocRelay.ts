@@ -1,4 +1,4 @@
-import { decodeLiveDocBinary, LiveDocReply } from "../LiveDoc.ts"
+import { decodeLiveDocBinary, LiveDocAwareness, LiveDocReply } from "../LiveDoc.ts"
 
 /**
  * A literal text or byte frame used for document channel replay.
@@ -26,6 +26,11 @@ export class LiveDocRelay {
     else decodeLiveDocBinary(Uint8Array.from(frame))
     this.offset++
     return typeof frame === "string" ? frame : Uint8Array.from(frame)
+  }
+
+  /** Test host boundary: client identity and colour are always overwritten. */
+  awareness(input: Record<string, unknown>, principal: { actor: import("../BranchCard.ts").BranchParticipant; colour: string }) {
+    return LiveDocAwareness.parse({ ...input, actor: principal.actor, colour: principal.colour })
   }
 
   reconnect(): void { this.offset = 0 }

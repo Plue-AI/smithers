@@ -4,6 +4,8 @@
  * @since 1.0.0
  */
 
+import { catalogCommands } from "./internal/backend/Catalog.ts"
+import { retainInstallDiscovery } from "./internal/backend/InstallDiscovery.ts"
 import { makeCli as makeBuildCli } from "@smthrs/build-cli/Cli"
 import * as Positionals from "@smthrs/build-cli/Positionals"
 import * as RedactedLogger from "@smthrs/journal/RedactedLogger"
@@ -421,15 +423,60 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
   discovery.use((context, next) => Presentation.scope(context, config, next))
   const discoveryTree = Cli.toCommands.get(discovery as never)!
   discoveryTree.clear()
-  for (const [name, entry] of Cli.toCommands.get(cli as never)!) {
-    if (!["tui", "triggers", "org"].includes(name)) discoveryTree.set(name, entry)
+  // Appendix B.6 is an explicit discovery allowlist. Other public library
+  // commands remain callable, but do not enter install help, skills or MCP.
+  const doors = [...catalogCommands.filter(row => row.actors.includes("external_agent") && row.agent !== "never" &&
+    (row.visibility === "core" || row.visibility === "advanced")).map(row => row.cli!.join(" ")),
+    "login", "ssh-key add", "ssh-key delete", "ssh-key list", "workspace ssh", "shell", "exec", "cp", "api",
+    "host start", "host stop", "host status", "host upgrade", "host backup", "host restore"]
+  const project = (source: Map<string, any>, target: Map<string, any>, prefix: string[] = []) => {
+    for (const [name, entry] of source) {
+      const path = [...prefix, name], key = path.join(" ")
+      if (!doors.some(door => door === key || door.startsWith(key + " "))) continue
+      if ("_group" in entry) {
+        const commands = new Map()
+        project(entry.commands, commands, path)
+        target.set(name, { ...entry, commands, ...(doors.includes(key) ? {} : { root: undefined }) })
+      } else target.set(name, entry)
+    }
   }
+  project(Cli.toCommands.get(cli as never)!, discoveryTree)
+  retainInstallDiscovery(cli, discoveryTree)
+
   const invoke = cli.serve.bind(cli)
   const serve: typeof cli.serve = (argv = [], serveOptions) => {
     const parsed = Argv.parse(argv, cli)
+    // Published commands keep explicit help even when omitted from install
+    // discovery. Resolve against both existing trees; never expose them in
+    // manifests, skill generation or MCP.
+    let helpOffset = 0
+    while (parsed.rest[helpOffset]?.startsWith("-")) {
+      const flag = parsed.rest[helpOffset]!
+      const value = parsed.options.get(flag.split("=")[0]!)
+      helpOffset += !flag.includes("=") && typeof value === "string" ? 2 : 1
+    }
+    let invocationTree = Cli.toCommands.get(cli as never)!
+    let visibleTree = discoveryTree
+    let hiddenHelp = false
+    for (const word of parsed.rest.slice(helpOffset)) {
+      if (word.startsWith("-")) break
+      const entry = invocationTree.get(word)
+      if (entry === undefined) break
+      const visible = visibleTree.get(word)
+      if (visible === undefined) { hiddenHelp = true; break }
+      if (!("_group" in entry) || !("_group" in visible)) break
+      invocationTree = entry.commands
+      visibleTree = visible.commands
+    }
+    const explicitHiddenHelp = hiddenHelp && (argv.includes("--help") || argv.includes("-h")) &&
+      !parsed.mcp && !argv.includes("--http") && !argv.includes("--schema") &&
+      !argv.includes("--llms") && !argv.includes("--llms-full")
     const rootDiscovery = parsed.rest[0] === undefined || parsed.rest[0]?.startsWith("-") ||
-      parsed.rest[0] === "skills" || parsed.mcp || argv.includes("--llms") || argv.includes("--llms-full")
-    return rootDiscovery ? discovery.serve(argv, serveOptions) : invoke(argv, serveOptions)
+      parsed.rest[0] === "skills" || parsed.mcp || argv.includes("--help") || argv.includes("-h") || argv.includes("--llms") || argv.includes("--llms-full")
+    const dispatch = (options: typeof serveOptions) => rootDiscovery && !explicitHiddenHelp ? discovery.serve(argv, options) : invoke(argv, options)
+    if (argv.some(word => word === "--mcp" || word === "--http")) return dispatch(serveOptions)
+    return Presentation.withErrorEnvelope(serveOptions?.stdout ?? (text => process.stdout.write(text)),
+      stdout => dispatch({ ...serveOptions, stdout }))
   }
   cli.serve = async (argv = process.argv.slice(2), serveOptions) => {
     // Read the selected command's actual option arities before Incur extracts

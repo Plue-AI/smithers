@@ -11,6 +11,9 @@ import { Smithers } from "@smthrs/targets"
 
 const cwd = "packages/smithers/build/infra"
 
+/** Infrastructure Markdown read by the umbrella documentation suite. */
+const docsFiles = Smithers.Filegroup({ cwd, srcs: [Smithers.glob("**/*.md")] })
+
 /**
  * The worker, its migrations, and the operator scripts the gates read.
  *
@@ -248,5 +251,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { check, docs, fmt, lint, suite, ...securityReview }
+  targets: { check, docs, docsFiles, fmt, lint, suite, ...securityReview }
 })

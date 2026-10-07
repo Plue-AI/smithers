@@ -4,7 +4,7 @@ import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 import type { FetchLike, StartAgentTurnResult } from "@smthrs/rpc/NativeAgent"
 
 import type { AgentPort } from "./AgentPort"
-import { createWebAgent } from "../native/WebAgent"
+import { createConversationHistory } from "../native/ConversationHistory"
 
 export type ShellPort =
   | { readonly kind: "browser" }
@@ -85,18 +85,9 @@ export const createRuntime = (options: {
     bootstrap,
     http,
     backend: {
-      ...(hasCapability(bootstrap, "agent") ? { agent: createWebAgent({ fetchImpl: http }) }
-        : hasCapability(bootstrap, "model.turn") ? { agent: modelOnlyAgent(http) } : {})
+      ...((hasCapability(bootstrap, "install") || hasCapability(bootstrap, "agent")) ? { agent: createConversationHistory({ fetchImpl: http }) }
+        : {})
     },
     shell: { kind: "browser" }
   }
-}
-
-/*
- * A host that runs configured-model turns but has no agent relays nothing to
- * the shared backend, so it keeps no turn journal: its turns stream frames.
- */
-const modelOnlyAgent = (http: FetchLike): AgentPort => {
-  const { journal: _journal, ...agent } = createWebAgent({ fetchImpl: http })
-  return { ...agent, available: false }
 }

@@ -2,7 +2,7 @@
  * The repo-import seam: POST /api/github/import {owner, repo} starts the job;
  * GET /api/github/import/{jobId} polls it; POST /api/github/import/{jobId}/retry
  * re-runs a failed job (the route exists). Progress lives on one upserted
- * "repo-import" card (phase starting → running → done | failed). Lane sync
+ * durable background request (phase starting → running → done | failed). Lane sync
  * moved the routes behind the `/api/cloud/*` proxy like every other lane
  * seam and taught the card the job's own progress fields (stage, counts,
  * repository, workspace_id) plus the structured-429 rate-limit line — every
@@ -12,7 +12,7 @@
  */
 import { canonicalStoredJsonValue } from "../EventValue"
 import { accountOwnerOf } from "../AccountOwner"
-import type { Card } from "../AppState"
+import type { RepositoryImportRequest } from "@smthrs/rpc/Cards"
 import { resolveTargetRepo } from "../RepoContext"
 import type { GitHubRefusal, SeamContext } from "./SeamContext"
 import { createRunEpochs } from "./RunEpochs"
@@ -167,6 +167,12 @@ interface CardPatch {
 }
 
 export const createRepoImportSeam = (ctx: SeamContext): RepoImportSeam => {
+  const records = () => ctx.store.collections.sessions.get("main")?.repositoryImports ?? []
+  const record = (id: string) => records().find(row => row.id === id)
+  const save = (request: RepositoryImportRequest) => ctx.dispatch({
+    type: "repository.imports.changed", actor: ctx.actor(),
+    requests: [...records().filter(row => row.id !== request.id), request]
+  }).isPersisted.promise
   const cloud = (path: string): string => `${ctx.baseUrl}/api${path}`
   /*
    * One tracking loop per repo: a re-run (the card's "Try again", or the
@@ -193,8 +199,8 @@ export const createRepoImportSeam = (ctx: SeamContext): RepoImportSeam => {
     return flight
   }
   const requestCurrent = (repo: string, requestId: string): boolean => {
-    const card = ctx.store.collections.cards.get(`repo-import-${repo}`)
-    return ctx.isDisposed?.() !== true && card?.kind === "repo-import" &&
+    const card = record(`repo-import-${repo}`)
+    return ctx.isDisposed?.() !== true && card !== undefined &&
       card.payload.requestId === requestId && card.payload.accountOwner === accountOwner()
   }
 
@@ -202,11 +208,10 @@ export const createRepoImportSeam = (ctx: SeamContext): RepoImportSeam => {
   const forRegistration = new Set<string>()
   const upsert = (repo: string, ordinal: number, createdAt: number, patch: CardPatch): Promise<unknown> => {
     const id = `repo-import-${repo}`
-    const existing = ctx.store.collections.cards.get(id)
-    const prior = existing?.kind === "repo-import" ? existing.payload : undefined
-    const card: Card = {
+    const existing = record(id)
+    const prior = existing !== undefined ? existing.payload : undefined
+    const card: RepositoryImportRequest = {
       id,
-      kind: "repo-import",
       title: `Import · ${repo}`,
       status: cardStatus(patch.phase),
       createdAt,
@@ -255,11 +260,9 @@ export const createRepoImportSeam = (ctx: SeamContext): RepoImportSeam => {
         ...(forRegistration.has(repo.toLowerCase()) || prior?.registration === true ? { registration: true } : {})
       }
     }
-    // Polling can return the same progress for minutes. Only a committed
-    // observation permits skipping its next write; optimistic rows do not.
-    const committed = ctx.store.committedCard(id)
+    const committed = ctx.store.committedRepositoryImport(id)
     if (committed !== undefined && canonicalStoredJsonValue(committed) === canonicalStoredJsonValue(card)) return Promise.resolve()
-    return ctx.dispatch({ type: "card.upsert", actor: ctx.actor(), card }).isPersisted.promise
+    return save(card)
   }
 
   const track = async (
@@ -283,8 +286,8 @@ export const createRepoImportSeam = (ctx: SeamContext): RepoImportSeam => {
     let failures = 0
     for (let attempt = 0; attempt < repoImportPolling.maxAttempts; attempt += 1) {
       await sleep(repoImportPolling.delayMs)
-      const card = ctx.store.collections.cards.get(`repo-import-${repo}`)
-      if (!owner() || ctx.isDisposed?.() === true || !epochs.isLive(repo, epoch) || card?.kind !== "repo-import" ||
+      const card = record(`repo-import-${repo}`)
+      if (!owner() || ctx.isDisposed?.() === true || !epochs.isLive(repo, epoch) || card === undefined ||
         card.payload.requestId !== requestId || card.payload.accountOwner !== accountOwner()) return TOAST_SUPERSEDED
       let job: ImportJobAnswer | null = null
       let refusal: GitHubRefusal | null = null
@@ -295,8 +298,8 @@ export const createRepoImportSeam = (ctx: SeamContext): RepoImportSeam => {
       } catch {
         // A dropped poll is retried below; the job keeps running upstream.
       }
-      const currentCard = ctx.store.collections.cards.get(`repo-import-${repo}`)
-      if (!owner() || ctx.isDisposed?.() === true || !epochs.isLive(repo, epoch) || currentCard?.kind !== "repo-import" ||
+      const currentCard = record(`repo-import-${repo}`)
+      if (!owner() || ctx.isDisposed?.() === true || !epochs.isLive(repo, epoch) || currentCard === undefined ||
         currentCard.payload.requestId !== requestId || currentCard.payload.accountOwner !== accountOwner()) return TOAST_SUPERSEDED
       if (refusal !== null) {
         /*
@@ -368,13 +371,13 @@ export const createRepoImportSeam = (ctx: SeamContext): RepoImportSeam => {
     const createdAt = options.keepOrdinal?.createdAt ?? Date.now()
     const epoch = epochs.start(repo)
     const current = (): boolean => {
-      const card = ctx.store.collections.cards.get(`repo-import-${repo}`)
-      return owner() && ctx.isDisposed?.() !== true && epochs.isLive(repo, epoch) && card?.kind === "repo-import" &&
+      const card = record(`repo-import-${repo}`)
+      return owner() && ctx.isDisposed?.() !== true && epochs.isLive(repo, epoch) && card !== undefined &&
         card.payload.requestId === requestId && card.payload.accountOwner === accountOwner()
     }
     /* The job this card already tracks — a 409 "already active" resumes it when the answer names none. */
-    const tracked = ctx.store.collections.cards.get(`repo-import-${repo}`)
-    const priorJobId = tracked?.kind === "repo-import" ? tracked.payload.jobId : null
+    const tracked = record(`repo-import-${repo}`)
+    const priorJobId = tracked !== undefined ? tracked.payload.jobId : null
     await upsert(repo, ordinal, createdAt, { phase: "starting", detail: null, retryMode: "restart", jobId: options.keepOrdinal === undefined ? null : undefined })
     if (!current()) { epochs.settle(repo, epoch); return TOAST_SUPERSEDED }
     /*
@@ -493,7 +496,7 @@ export const createRepoImportSeam = (ctx: SeamContext): RepoImportSeam => {
     })
   }
 
-  const reconnect = (card: Extract<Card, { kind: "repo-import" }>): Flight => {
+  const reconnect = (card: RepositoryImportRequest): Flight => {
     const repo = card.payload.repo
     const requestId = randomUuid()
     const jobId = card.payload.jobId as string
@@ -507,7 +510,7 @@ export const createRepoImportSeam = (ctx: SeamContext): RepoImportSeam => {
 
   const launch = (
     repo: string,
-    prior?: Extract<Card, { kind: "repo-import" }>,
+    prior?: RepositoryImportRequest,
     requestKind: "start" | "retry" = "start",
     recover = false
   ): Flight => {
@@ -515,12 +518,12 @@ export const createRepoImportSeam = (ctx: SeamContext): RepoImportSeam => {
     const createdAt = prior?.createdAt ?? Date.now()
     const requestId = recover && prior?.payload.requestId ? prior.payload.requestId : randomUuid()
     const jobId = prior?.payload.jobId ?? null
-    const persisted = ctx.dispatch({ type: "card.upsert", actor: ctx.actor(), card: {
-      id: "repo-import-" + repo, kind: "repo-import", title: "Import · " + repo,
+    const persisted = save({
+      id: "repo-import-" + repo, title: "Import · " + repo,
       status: "active", createdAt, ordinal,
       payload: { repo, jobId, phase: "starting", detail: null, requestId, requestKind,
         retryMode: "restart", accountOwner: accountOwner() }
-    } }).isPersisted.promise
+    })
     return background(repo, requestId, persisted, current => startJob(repo, async () => {
       if (requestKind === "retry" && jobId !== null) {
         if (recover) {
@@ -552,12 +555,12 @@ export const createRepoImportSeam = (ctx: SeamContext): RepoImportSeam => {
     }
     const resolved = resolveTargetRepo(ctx.store, explicit)
     if ("error" in resolved) return resolved.error
-    const existing = [...ctx.store.collections.cards.values()].find(card =>
-      card.kind === "repo-import" && card.payload.repo.toLowerCase() === resolved.repo.toLowerCase())
-    const repo = existing?.kind === "repo-import" ? existing.payload.repo : resolved.repo
+    const existing = records().find(card =>
+      card.payload.repo.toLowerCase() === resolved.repo.toLowerCase())
+    const repo = existing !== undefined ? existing.payload.repo : resolved.repo
     const active = activeFlight(repo)
     if (active) return acknowledge(repo, active)
-    const prior = existing?.kind === "repo-import" &&
+    const prior = existing !== undefined &&
       (existing.payload.accountOwner === accountOwner() || existing.payload.accountOwner === undefined)
       ? existing : undefined
     if (prior?.payload.jobId && (prior.payload.phase === "running" ||
@@ -574,10 +577,10 @@ export const createRepoImportSeam = (ctx: SeamContext): RepoImportSeam => {
     }
     const trimmed = jobId.trim()
     if (trimmed === "") return "repos.import.retry needs a job id: /repos.import.retry <jobId>"
-    const entry = [...ctx.store.collections.cards.values()].find(card =>
-      card.kind === "repo-import" && card.payload.jobId === trimmed)
-    if (entry?.kind !== "repo-import") {
-      return "No import card tracks job " + trimmed + " — the retry button lives on the failed import's card."
+    const entry = records().find(card =>
+      card.payload.jobId === trimmed)
+    if (entry === undefined) {
+      return "No import request tracks job " + trimmed + "."
     }
     const repo = entry.payload.repo
     if (entry.payload.accountOwner !== undefined && entry.payload.accountOwner !== accountOwner()) {
@@ -594,8 +597,8 @@ export const createRepoImportSeam = (ctx: SeamContext): RepoImportSeam => {
   const resume = (): void => {
     queueMicrotask(() => {
       if (ctx.isDisposed?.() || ctx.store.collections.identitySessions.get("identity")?.state !== "signed-in") return
-      for (const card of ctx.store.collections.cards.values()) {
-        if (card.kind !== "repo-import" || (card.payload.phase !== "starting" && card.payload.phase !== "running")) continue
+      for (const card of records()) {
+        if ((card.payload.phase !== "starting" && card.payload.phase !== "running")) continue
         if (card.payload.accountOwner === undefined || card.payload.accountOwner !== accountOwner()) continue
         void importRepository(card.payload.repo)
       }

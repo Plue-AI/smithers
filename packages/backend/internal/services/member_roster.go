@@ -381,6 +381,9 @@ func (m *Members) Add(ctx context.Context, login string) error {
 	if err != nil {
 		return err
 	}
+	if err = allocateRosterLogins(ctx, tx); err != nil {
+		return err
+	}
 	// Removal barred the account from signing in; being added again lifts it.
 	if tag.RowsAffected() == 1 {
 		if _, err = tx.Exec(ctx, `UPDATE users SET prohibit_login=false WHERE id=(SELECT user_id FROM oauth_accounts WHERE provider='workos' AND provider_user_id=$1) AND id<>(SELECT user_id FROM self_host_owners WHERE singleton)`, githubID); err != nil {
@@ -415,6 +418,16 @@ func (m *Members) List(ctx context.Context) (MembersProjection, error) {
 	if err != nil {
 		return out, err
 	}
+	return m.roster(ctx, decision.Role.rank() >= InstallMaintainer.rank())
+}
+
+// SharedRoster serves authorized live subscribers without role controls.
+func (m *Members) SharedRoster(ctx context.Context) (MembersProjection, error) {
+	return m.roster(ctx, false)
+}
+
+func (m *Members) roster(ctx context.Context, canWrite bool) (MembersProjection, error) {
+	out := MembersProjection{Members: []MemberProjection{}}
 	repo, err := m.repository(ctx)
 	if err != nil {
 		return out, err
@@ -428,7 +441,6 @@ func (m *Members) List(ctx context.Context) (MembersProjection, error) {
 		return out, err
 	}
 	defer rows.Close()
-	canWrite := decision.Role.rank() >= InstallMaintainer.rank()
 	for rows.Next() {
 		var row MemberProjection
 		var permission string

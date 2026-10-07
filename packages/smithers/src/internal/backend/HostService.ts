@@ -14,8 +14,10 @@ import {
   writeFileSync
 } from "node:fs"
 import { request } from "node:http"
+import { isIP } from "node:net"
 import { homedir } from "node:os"
 import { dirname, isAbsolute, join, resolve } from "node:path"
+import { Refused } from "../../CliError.ts"
 
 export const label = "sh.smithers.host"
 export const stateDirectory = (home = homedir()) => join(home, "Library", "Application Support", "Smithers")
@@ -52,28 +54,21 @@ export const plist = (value: { readonly [key: string]: PlistValue }): string =>
     ""
   ].join("\n")
 
-export interface ServiceOptions {
-  readonly bundle: string
-  readonly stateDir: string
-  readonly home: string
-}
-export const hostPlist = (options: ServiceOptions): string =>
-  plist({
-    Label: label,
-    ProgramArguments: [join(options.bundle, "bin/smithers-server"), "--setup-handoff=socket"],
-    WorkingDirectory: options.stateDir,
-    EnvironmentVariables: {
-      HOME: options.home,
-      PATH: `${options.bundle}/bin:/usr/bin:/bin:/usr/sbin:/sbin`
-    },
-    RunAtLoad: true,
-    KeepAlive: true,
-    ThrottleInterval: 5,
-    ExitTimeOut: 30,
-    ProcessType: "Standard",
-    StandardOutPath: join(options.stateDir, "logs/host.log"),
-    StandardErrorPath: join(options.stateDir, "logs/host.log")
-  })
+
+export interface ServiceOptions { readonly bundle: string; readonly stateDir: string; readonly home: string; readonly bind?: string; readonly origins?: ReadonlyArray<string> }
+export const hostPlist = (options: ServiceOptions): string => plist({
+  Label: label,
+  ProgramArguments: [join(options.bundle, "bin/smithers-server"), "--setup-handoff=socket", ...(options.bind === undefined ? [] : ["--bind", options.bind]), ...(options.origins ?? []).flatMap((origin) => ["--origin", origin])],
+  WorkingDirectory: options.stateDir,
+  EnvironmentVariables: {
+    HOME: options.home,
+    PATH: `${options.bundle}/bin:/usr/bin:/bin:/usr/sbin:/sbin`
+  },
+  RunAtLoad: true, KeepAlive: true, ThrottleInterval: 5, ExitTimeOut: 30,
+  ProcessType: "Standard",
+  StandardOutPath: join(options.stateDir, "logs/host.log"),
+  StandardErrorPath: join(options.stateDir, "logs/host.log")
+})
 
 export interface Launchctl {
   (args: ReadonlyArray<string>): { readonly status: number | null; readonly stdout: string; readonly stderr: string }
@@ -230,6 +225,32 @@ export const installedBundle = (system: Launchd): string => {
     )
   )
 }
+
+/** Maintenance runs only the verified installed backend, with an inert environment.
+ * It must not borrow a repository executable, login token or shell hook.
+ */
+export const maintenance = (operation: "backup" | "upgrade" | "restore", directory?: string) => {
+  const system = launchd()
+  if (operation === "restore" && loaded(system)) {
+    throw new Refused({ fault: "infra", code: "install_running", message: "Restore refuses a running install; run smthrs host stop first" })
+  }
+  if (operation === "restore" && !directory?.trim()) {
+    throw new Refused({ fault: "user", code: "invalid_backup", message: "Backup directory is required" })
+  }
+  // stop removes the plist. Recovery must still find the current Homebrew keg.
+  const bundle = verifyBundle(existsSync(plistFile(system)) ? installedBundle(system) : resolveBundle()).bundle
+  const result = spawnSync(join(bundle, "bin/smithers-backend"), ["host-maintenance", operation,
+    ...(directory === undefined ? [] : [resolve(directory)])], {
+    encoding: "utf8", timeout: 120_000, maxBuffer: 65536,
+    env: { HOME: homedir(), PATH: `${bundle}/bin:/usr/bin:/bin:/usr/sbin:/sbin` }
+  })
+  if (result.status !== 0) {
+    const message = result.stderr?.trim() || "Host maintenance backend did not answer"
+    const code = message.match(/^([a-z_]+):/)?.[1] ?? "host_maintenance_failed"
+    throw new Refused({ fault: "infra", code, message })
+  }
+  return JSON.parse(result.stdout)
+}
 /**
  * true when the host is ready; while it starts, the starting page's step
  * (503 `{"status":"starting","phase","applied","total"}`, the backend's
@@ -317,19 +338,22 @@ export const setupURLs = (
     req.on("error", () => reject(new Error("Host setup socket unavailable")))
     req.end()
   })
-export const start = async (input?: string) => {
+export const start = async (input?: string, address: { readonly bind?: string; readonly origins?: ReadonlyArray<string> } = {}) => {
+  validateAddress(address)
   const system = launchd(), stateDir = stateDirectory()
   const bundle = realpathSync(resolveBundle(input))
-  await install({ bundle, stateDir, home: homedir() }, system)
+  await install({ bundle, stateDir, home: homedir(), ...address }, system)
   await waitReady()
-  return setupURLs(stateDir)
+  const result = await setupURLs(stateDir)
+  return address.bind && !address.origins?.length ? { ...result, warning: "LAN browsers need --origin" } : result
 }
 export const status = async () => {
   const system = launchd(), bundle = installedBundle(system)
   const verified = verifyBundle(bundle)
   if (!loaded(system) || await ready() !== true) throw new Error(`Host unhealthy: ${bundle}`)
   doctor(bundle, stateDirectory())
-  return { state: "ready", bundle, version: verified.version, launchd: "running", readiness: "ready", doctor: "ready" }
+  const install = await installTelemetry(undefined, process.env.SMITHERS_TOKEN?.trim())
+  return { state: "ready", bundle, version: verified.version, launchd: "running", readiness: "ready", doctor: "ready", ...(install ? { install } : {}) }
 }
 
 /** Read-only bundled diagnostics need the same state root as the running service; the backend runs only its own bundle's msb. */
@@ -340,4 +364,56 @@ export const doctor = (bundle: string, stateDir: string, run = spawnSync): void 
     env: { HOME: homedir(), PATH: `${bundle}/bin:/usr/bin:/bin`, SMITHERS_DATA_ROOT: stateDir }
   })
   if (result.status !== 0) throw new Error(`Bundled microVM doctor failed: ${bundle}`)
+}
+
+/** Validate local serving flags before changing launchd or opening a listener. */
+export function validateAddress(address: { readonly bind?: string; readonly origins?: ReadonlyArray<string> }): void {
+ if (address.bind !== undefined && address.bind !== "") {
+  const bind = address.bind;
+  const host = isIP(bind) ? bind : bind.match(/^\[([^\]]+)\]:4000$/)?.[1] ?? bind.match(/^([^:]+):4000$/)?.[1] ?? bind;
+  if (host !== "localhost" && !isIP(host)) throw new Error("Invalid bind address");
+ }
+ if ((address.origins?.length ?? 0) > 10) throw new Error("Invalid public origins");
+ const hosts = new Set<string>();
+ for (const origin of address.origins ?? []) {
+  let url: URL;
+  try { url = new URL(origin); } catch { throw new Error("Invalid public origin"); }
+  if (!/^(http|https):$/.test(url.protocol) || !url.host || url.username || url.password || url.pathname !== "/" || url.search || url.hash || origin.includes("?") || origin.includes("#") || origin.endsWith("/") || hosts.has(url.host)) throw new Error("Invalid public origin");
+  if (["localhost:4000", "127.0.0.1:4000", "[::1]:4000"].includes(url.host) && url.protocol !== "http:") throw new Error("Loopback control origin must use HTTP");
+  hosts.add(url.host);
+ }
+}
+
+/** Optional install telemetry. Never copy setup URLs or credentials into status. */
+export const installTelemetry = async (endpoint = "http://127.0.0.1:4000/api/install", credential?: string) => {
+  try {
+    const response = await fetch(endpoint, { signal: AbortSignal.timeout(1000), redirect: "error",
+      ...(credential ? { headers: { Authorization: `Bearer ${credential}` } } : {}) })
+    if (!response.ok) return undefined
+    const body = await response.json() as Record<string, unknown>
+    if (!body || typeof body !== "object" || Array.isArray(body)) return undefined
+    const result: Record<string, unknown> = {}
+    if (typeof body.capacity === "number" && Number.isFinite(body.capacity) && body.capacity >= 0) result.capacity = body.capacity
+    if (body.this_mac && typeof body.this_mac === "object") {
+      const mac = body.this_mac as Record<string, unknown>
+      const values: Record<string, unknown> = {}
+      for (const key of ["memory_gb", "perf_cores", "capacity"]) {
+        const value = mac[key]
+        if (typeof value === "number" && Number.isFinite(value) && value >= 0) values[key] = value
+      }
+      // Capacity-zero guidance is part of the public install model (§8.2.1a).
+      const limit = mac.limit as Record<string, unknown> | null | undefined
+      if (mac.capacity === 0 && limit && ["memory", "cores", "disk"].includes(String(limit.term)) && typeof limit.fix === "string" && limit.fix.trim()) {
+        values.limit = { term: limit.term, fix: limit.fix }
+      }
+      if (Object.keys(values).length) result.this_mac = values
+    }
+    if (body.github_app && typeof body.github_app === "object") {
+      const app = body.github_app as Record<string, unknown>
+      const values: Record<string, boolean> = {}
+      for (const key of ["configured", "installed"]) if (typeof app[key] === "boolean") values[key] = app[key]
+      if (Object.keys(values).length) result.github_app = values
+    }
+    return Object.keys(result).length ? result : undefined
+  } catch { return undefined }
 }

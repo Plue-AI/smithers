@@ -177,7 +177,7 @@ export const openDesignHome = (design: DesignWorld, who: ActorId): DesignResult 
  * The Home card's per-member view state (mvp.md §7.2 `view:<member>:main`, mocked). The filter is
  * kept across reloads in this browser; whether the card is on screen is this tab's alone.
  */
-export interface DesignHomeView { readonly id: ActorId; readonly filter?: TodoState | undefined }
+export interface DesignHomeView { readonly id: ActorId; readonly filter?: TodoState | undefined; readonly menu?: number | undefined }
 export interface DesignHomeScreen { readonly id: ActorId; readonly on_screen: boolean }
 export const HOME_VIEW_STORAGE_KEY = "smithers.design.home-view"
 
@@ -226,9 +226,10 @@ const homeScreensOf = (design: DesignWorld) => {
 
 /** The member's Home view: the remembered filter, plus whether the card is on screen once reported. */
 export const designHomeView = (design: DesignWorld, who: ActorId): HomeViewProps["view"] => {
-  const filter = homeViewsOf(design).get(who)?.filter
+  const saved = homeViewsOf(design).get(who)
+  const filter = saved?.filter
   const onScreen = homeScreensOf(design).get(who)?.on_screen
-  return { maximized: false, ...(filter === undefined ? {} : { filter }), ...(onScreen === undefined ? {} : { on_screen: onScreen }) }
+  return { maximized: false, ...(saved?.menu === undefined ? {} : { menu: saved.menu }), ...(filter === undefined ? {} : { filter }), ...(onScreen === undefined ? {} : { on_screen: onScreen }) }
 }
 
 /** Patch the member's Home view. Idempotent: a value it already holds writes nothing. Answers whether it wrote. */
@@ -240,6 +241,11 @@ export const setDesignHomeView = (design: DesignWorld, who: ActorId, patch: Para
     const current = views.get(who)
     if (current === undefined) { if (filter !== undefined) { views.insert({ id: who, filter }); wrote = true } }
     else if (current.filter !== filter) { views.update(who, draft => { draft.filter = filter }); wrote = true }
+  }
+  if ("menu" in patch) {
+    const views = homeViewsOf(design), current = views.get(who)
+    if (current === undefined) { if (patch.menu !== undefined) { views.insert({ id: who, menu: patch.menu }); wrote = true } }
+    else if (current.menu !== patch.menu) { views.update(who, draft => { draft.menu = patch.menu }); wrote = true }
   }
   if (patch.on_screen !== undefined) {
     const screens = homeScreensOf(design)
@@ -260,10 +266,12 @@ export const useDesignHomeView = (): { readonly view: HomeViewProps["view"]; rea
     return () => { views.unsubscribe(); screens.unsubscribe() }
   }, [design])
   const readFilter = () => homeViewsOf(design).get(viewer)?.filter
+  const readMenu = () => homeViewsOf(design).get(viewer)?.menu
+  const menu = useSyncExternalStore(subscribe, readMenu, readMenu)
   const readScreen = () => homeScreensOf(design).get(viewer)?.on_screen
   const filter = useSyncExternalStore(subscribe, readFilter, readFilter)
   const onScreen = useSyncExternalStore(subscribe, readScreen, readScreen)
-  const view = useMemo(() => ({ maximized: false, ...(filter === undefined ? {} : { filter }), ...(onScreen === undefined ? {} : { on_screen: onScreen }) }), [filter, onScreen])
+  const view = useMemo(() => ({ maximized: false, ...(menu === undefined ? {} : { menu }), ...(filter === undefined ? {} : { filter }), ...(onScreen === undefined ? {} : { on_screen: onScreen }) }), [filter, menu, onScreen])
   const onView = useCallback((patch: Parameters<HomeViewProps["onView"]>[0]) => { setDesignHomeView(design, viewer, patch) }, [design, viewer])
   return { view, onView }
 }

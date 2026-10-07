@@ -44,7 +44,6 @@ func splitProcessDatabase(t *testing.T) (repositoryURL string, repositoryHealthC
 	t.Cleanup(repoHost.Close)
 	for name, value := range map[string]string{
 		"SMITHERS_AUTH_MODE":                     "selfhost",
-		"SMITHERS_AUTH_BOOTSTRAP_TOKEN":          "split-process-bootstrap",
 		"SMITHERS_DATABASE_URL":                  databaseURL,
 		"SMITHERS_PUBLIC_URL":                    "http://127.0.0.1:4000",
 		"SMITHERS_SERVER_ADDR":                   "127.0.0.1:0",
@@ -107,7 +106,9 @@ func TestSingleOwnerReadinessProbesRemoteRepositoryHost(t *testing.T) {
 	handler := startSplitProcess(t, Options{Repository: remote})
 
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	request := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	request.RemoteAddr = "127.0.0.1:1234"
+	handler.ServeHTTP(response, request)
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 	var body struct {
 		Status string            `json:"status"`

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -106,7 +107,15 @@ func (c *ModelProxyCallers) ResolveModelCaller(r *http.Request) (modelproxy.Call
 			caller, err = c.automationPayer(ctx, caller, func() (int64, error) { return c.runActor(ctx, run.ID) })
 		}
 		caller.Source, caller.RepositoryID, caller.WorkflowRunID = modelproxy.SourceAgentRun, run.RepositoryID, run.ID
+		if err == nil {
+			caller.WorkflowStepID, err = c.modelRunStep(ctx, run.ID, run.RepositoryID, r.Header.Get(modelproxy.StepHeader))
+		}
 		return caller, err
+	}
+	// Step attribution requires a run credential; ordinary model credentials
+	// cannot name somebody else's run or step.
+	if r.Header.Get(modelproxy.StepHeader) != "" {
+		return modelproxy.Caller{}, modelproxy.ErrForbidden
 	}
 	if token := bearerCredential(r); strings.HasPrefix(token, flowhost.ModelCredentialPrefix) {
 		binding, err := flowhost.VerifyModelCredential(ctx, c.pool, c.codec, token)
@@ -225,4 +234,27 @@ func bearerCredential(r *http.Request) string {
 		return ""
 	}
 	return strings.TrimSpace(token)
+}
+
+// modelRunStep binds an explicit step to its authenticated run. Harnesses that
+// cannot send a step header inherit the single active step at call admission.
+// Concurrent active steps stay unattributed rather than charging the wrong one.
+func (c *ModelProxyCallers) modelRunStep(ctx context.Context, run, repository int64, header string) (int64, error) {
+	if header != "" {
+		id, err := strconv.ParseInt(header, 10, 64)
+		if err != nil || id <= 0 || strconv.FormatInt(id, 10) != header {
+			return 0, modelproxy.ErrForbidden
+		}
+		var found int64
+		err = c.pool.QueryRow(ctx, `SELECT id FROM workflow_steps
+            WHERE id = $1 AND workflow_run_id = $2 AND repository_id = $3 AND status = 'running'`, id, run, repository).Scan(&found)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, modelproxy.ErrForbidden
+		}
+		return found, err
+	}
+	var id int64
+	err := c.pool.QueryRow(ctx, `SELECT CASE WHEN count(*) = 1 THEN min(id) ELSE 0 END
+        FROM workflow_steps WHERE workflow_run_id = $1 AND repository_id = $2 AND status = 'running'`, run, repository).Scan(&id)
+	return id, err
 }

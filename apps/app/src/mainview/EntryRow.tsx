@@ -5,24 +5,24 @@ import type { EntryRowCard } from "@smthrs/rpc/EntryRowCard"
 import { ActorChip, actorName } from "./cards/views/ActorChip"
 import { StateWord } from "./cards/views/StateWord"
 import { ContextLine } from "./ContextLine"
-export type EntryRowProps = EntryRowCard & { card?: ReactNode; onAction: CardProps<unknown>["onAction"] }
+export type EntryRowProps = EntryRowCard & { card?: ReactNode; source?: { origin?: string; session?: string; correlation?: string; participant?: string }; onAction: CardProps<unknown>["onAction"] }
 
-export function OnlyYouChip() { return <span className="mvp-locked">
+export function OnlyYouChip() { return <span className="locked">
     <Lock size={12} aria-hidden="true" />Only you</span> }
 
-export function EntryRow({ kind, author, title, summary, tone, state, context, action, private: onlyYou, card, tombstone, onAction }: EntryRowProps) {
+export function EntryRow({ kind, author, title, summary, tone, state, context, action, private: onlyYou, card, tombstone, source, onAction }: EntryRowProps) {
   const [expanded, setExpanded] = useState(false)
-  if (tombstone) return <div className="mvp-tombstone">{title}
+  if (tombstone) return <div className="tombstone">{title}
     </div>
-  return <article className="mvp-entry" data-kind={kind} data-tone={tone} data-private={onlyYou || undefined}>
+  return <article className="entry smithers-chat-message" data-role={kind === "prompt" ? "user" : "assistant"} data-origin={source?.origin} data-session-id={source?.session} data-correlation-id={source?.correlation} data-participant-id={source?.participant} data-kind={kind} data-tone={tone} data-private={onlyYou || undefined}>
     <header>
-    <span className="mvp-author">
+    <span className="author">
     <ActorChip actor={author} size="s" />{actorName(author)}
     </span>{onlyYou ? <OnlyYouChip /> : null}{state ? <StateWord state={state} /> : null}
     </header>
-    <div className="mvp-entry-title">{title}
-    </div>{summary ? <p className="mvp-entry-summary">{summary}
-    </p> : null}{card}{context ? <ContextLine count={context.count} items={context.items} actions={[]} onAction={onAction} expanded={expanded} onView={patch => setExpanded(patch.expanded)} /> : null}{action ? <div className="mvp-entry-action">
+    {title ? <div className="entry-title">{title}
+    </div> : null}{summary ? <p className="entry-summary">{summary}
+    </p> : null}{card}{context ? <ContextLine count={context.count} items={context.items} actions={[]} onAction={onAction} expanded={expanded} onView={patch => setExpanded(patch.expanded)} /> : null}{action ? <div className="entry-action">
     <button type="button" data-flow={action.tag} disabled={Boolean(action.disabled)} onClick={() => onAction(action.tag, action.args ?? {})}>{action.label}
     </button>{action.disabled ? <span className="mvp-disabled-reason">{action.disabled.reason}
     </span> : null}

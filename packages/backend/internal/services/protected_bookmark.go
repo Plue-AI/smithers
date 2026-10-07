@@ -2,7 +2,9 @@ package services
 
 import (
 	"context"
+	stdErrors "errors"
 	"fmt"
+	"net/http"
 	"path"
 	"strings"
 
@@ -41,6 +43,17 @@ func RequireBookmarkNotProtected(ctx context.Context, q BookmarkProtectionQuerie
 		}
 	}
 	return nil
+}
+
+// RequireInstallBookmarkNotProtected applies the install refusal envelope to
+// the existing protected-bookmark guard. It grants no mirror/sync authority.
+func RequireInstallBookmarkNotProtected(ctx context.Context, q BookmarkProtectionQuerier, repositoryID int64, bookmark string) error {
+	err := RequireBookmarkNotProtected(ctx, q, repositoryID, bookmark)
+	var refusal *pkgerrors.APIError
+	if stdErrors.As(err, &refusal) && refusal.Status == http.StatusForbidden {
+		return pkgerrors.New(pkgerrors.CodePermission, "Protected bookmarks move through GitHub")
+	}
+	return err
 }
 
 // bookmarkMatchesPattern matches a protected-bookmark pattern the way refs

@@ -1712,6 +1712,7 @@ paths:
                 $ref: '#/components/schemas/AnyJSON'
   /api/user/tokens:
     get:
+      description: Token summaries include derived kind and via. Install PATs are delegated/cli without a stored kind column.
       summary: GET /api/user/tokens
       operationId: get_api_user_tokens
       tags:
@@ -1743,6 +1744,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
     post:
+      description: On an install, mint a delegated credential with via cli and a 30-day expiry. Approval scopes are removed; public inputs cannot select host turn or terminal profiles. The response includes derived kind and via.
       summary: POST /api/user/tokens
       operationId: post_api_user_tokens
       tags:

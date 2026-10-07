@@ -47,7 +47,7 @@ export default showcase({
     await app.slash(`/flow.run review-pr ${REPO} {"args":"PR #70"}`)
     const card = page.locator('[data-kind="run-trace"]')
     await expect(card).toContainText("Requested")
-    const toast = page.locator('.mvp-notify .mvp-notice[data-tone="live"]').filter({ hasText: "review-pr" })
+    const toast = page.locator('.notify .notice[data-tone="live"]').filter({ hasText: "review-pr" })
     await expect(toast).toBeVisible()
     await app.beat(1200)
 
@@ -73,7 +73,7 @@ export default showcase({
 
     complete = true
     // The notice settles with the run (the 300 ms law): done, then the card reads Done.
-    const completed = page.locator('.mvp-notify .mvp-notice[data-tone="done"]').filter({ hasText: "review-pr" })
+    const completed = page.locator('.notify .notice[data-tone="done"]').filter({ hasText: "review-pr" })
     await expect(completed).toBeVisible({ timeout: 15_000 })
     await expect(card).toContainText("Done")
     await app.show(card)

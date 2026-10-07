@@ -1,7 +1,8 @@
 /** Disposable T-COL-01 measurements and local behavioral checks. */
 import { Smithers } from "@smthrs/targets"
+import { Package as backendPackage } from "../../../packages/backend/PACKAGE.ts"
 
-const data = [Smithers.glob("//scripts/spikes/col-01/**"), Smithers.glob("//packages/backend/**/*.go"), Smithers.file("//go.mod"), Smithers.file("//go.sum")]
+const data = [Smithers.glob("//scripts/spikes/col-01/**"), backendPackage.buildInputs, Smithers.file("//go.mod"), Smithers.file("//go.sum")]
 export const Package = Smithers.Package({
   targets: {
     test: Smithers.Shell.Test({

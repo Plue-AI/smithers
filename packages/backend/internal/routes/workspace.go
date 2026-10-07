@@ -3,6 +3,8 @@ package routes
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -29,7 +31,6 @@ type WorkspaceRouteService interface {
 	ListUserWorkspacesAcrossRepos(ctx context.Context, userID int64, page, perPage int) (services.UserWorkspaceListResult, error)
 	ListWorkspaceFiles(ctx context.Context, workspaceID string, repositoryID, userID int64, path string) ([]services.WorkspaceFileEntry, error)
 	ReadWorkspaceFile(ctx context.Context, workspaceID string, repositoryID, userID int64, path string) (services.WorkspaceFileContent, error)
-	WriteWorkspaceFile(ctx context.Context, workspaceID string, repositoryID, userID int64, path, content string) (services.WorkspaceFileContent, error)
 	ListWorkspaceServices(ctx context.Context, workspaceID string, repositoryID, userID int64) ([]services.WorkspaceManagedService, error)
 	ManageWorkspaceService(ctx context.Context, workspaceID string, repositoryID, userID int64, serviceName, action string) (services.WorkspaceManagedService, error)
 	GetWorkspaceSSHConnectionInfo(ctx context.Context, workspaceID string, repositoryID, userID int64) (services.WorkspaceSSHConnectionInfo, error)
@@ -62,6 +63,7 @@ type workspacePreviewRouteService interface {
 
 // WorkspaceHandler handles workspace session API endpoints.
 type WorkspaceHandler struct {
+	CodingFiles CodingFileCredentialService
 	Service     WorkspaceRouteService
 	EgressAudit SandboxEgressAuditRouteService
 	// EnvironmentImages serves the NixOS environment image registry; nil
@@ -153,10 +155,6 @@ type forkWorkspaceRequest struct {
 type createWorkspaceSnapshotRequest struct {
 	WorkspaceID string `json:"workspace_id"`
 	Name        string `json:"name"`
-}
-
-type writeWorkspaceFileRequest struct {
-	Content string `json:"content"`
 }
 
 // LaunchWorkspaceService starts a runtime-managed process. Its declared port
@@ -474,11 +472,50 @@ func (h *WorkspaceHandler) WriteWorkspaceFile(w http.ResponseWriter, r *http.Req
 		return
 	}
 	var request writeWorkspaceFileRequest
-	if !decodeJSONBody(w, r, &request) {
+	if !decodeStrictJSONBody(w, r, &request) {
 		return
 	}
-	content, svcErr := h.Service.WriteWorkspaceFile(r.Context(), workspaceID, repoCtx.Repository.ID, user.ID, r.URL.Query().Get("path"), request.Content)
+	var changes []workspaceapi.FileMutation
+	var decodeErr *pkgerrors.APIError
+	if request.Changes != nil {
+		if request.Content != nil || request.BaseDigest != nil || request.Encoding != nil || r.URL.Query().Has("path") {
+			pkgerrors.WriteError(w, pkgerrors.BadRequest("changes cannot be combined with single-file fields or path"))
+			return
+		}
+		changes, decodeErr = decodeWorkspaceFileChanges(request.Changes)
+		if decodeErr != nil {
+			pkgerrors.WriteError(w, decodeErr)
+			return
+		}
+	} else {
+		// Single-file input shares the same write receipt as a batch.
+		if request.Encoding != nil {
+			pkgerrors.WriteError(w, pkgerrors.BadRequest("encoding requires changes"))
+			return
+		}
+		change, decodeErr := request.workspaceFileValue.decode(r.URL.Query().Get("path"), false)
+		if decodeErr != nil {
+			pkgerrors.WriteError(w, decodeErr)
+			return
+		}
+		changes = []workspaceapi.FileMutation{change}
+	}
+	service, ok := h.Service.(workspaceFileBatchRouteService)
+	if !ok {
+		pkgerrors.WriteError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "workspace compare-and-write unavailable"))
+		return
+	}
+	content, svcErr := service.WriteWorkspaceFiles(r.Context(), workspaceID, repoCtx.Repository.ID, user.ID, changes)
 	if svcErr != nil {
+		var stale *workspaceapi.StaleFileError
+		if errors.As(svcErr, &stale) {
+			response := map[string]string{"code": "stale", "current_digest": stale.CurrentDigest}
+			if request.Changes != nil {
+				response["path"] = stale.Path
+			}
+			pkgerrors.WriteJSON(w, http.StatusConflict, response)
+			return
+		}
 		writeRouteError(w, r, svcErr)
 		return
 	}
@@ -741,8 +778,14 @@ func (h *WorkspaceHandler) ForkWorkspace(w http.ResponseWriter, r *http.Request)
 		UserID:       user.ID,
 		WorkspaceID:  workspaceID,
 		Name:         req.Name,
+		Request:      r.Header.Get("Idempotency-Key"),
 	})
 	if svcErr != nil {
+		var branchErr *services.BranchError
+		if errors.As(svcErr, &branchErr) {
+			writeBranchError(w, r, svcErr)
+			return
+		}
 		writeRouteError(w, r, svcErr)
 		return
 	}

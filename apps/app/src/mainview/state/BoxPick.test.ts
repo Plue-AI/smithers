@@ -73,7 +73,7 @@ test("submitting the Inbox prerequisite opens one box and never silently reads I
       return json(404, { status: "error" })
     }
   })
-  await controller.commands.run("flow.create", `Review the repo ${REPO}`)
+  await controller.commands.run("flow.new", `Review the repo ${REPO}`)
   await controller.commands.run("approvals.list", REPO)
   const formId = "form-box.open-approvals.list"
   expect(calls.filter(call => call.method === "POST" || call.path.startsWith("/api/workflow/") || call.path.includes("/approvals"))).toEqual([])
@@ -91,6 +91,24 @@ test("submitting the Inbox prerequisite opens one box and never silently reads I
   expect((await controller.commands.run("form.submit", formId)).status).toBe("failed")
   expect(calls.filter(call => call.method === "POST" && call.path === `/api/repos/${REPO}/workspaces`)).toHaveLength(1)
   await controller.dispose()
+})
+
+test("retired browser PR review refuses without creating a machine or fetching PR code", async () => {
+  const store = await signedIn()
+  await store.dispatch({ type: "workspaces.loaded", actor: "system", repoId: REPO, workspaces: [] }).isPersisted.promise
+  await store.dispatch({ type: "repo.selected", actor: "user", id: REPO }).isPersisted.promise
+  const calls: string[] = []
+  const controller = createAppController(store, silentAgent, { fetchImpl: async (input: RequestInfo | URL) => {
+    calls.push(new URL(String(input), "https://app.test").pathname)
+    return json(503, { code: "unavailable", message: "Review unavailable" })
+  } })
+  expect((await controller.commands.run("prs.triage", `17 ${REPO}`)).status).toBe("failed")
+  expect((await controller.commands.runForAgent("prs.triage", `17 ${REPO}`)).status).toBe("failed")
+  expect([...store.collections.messages.values()].some(message => message.action?.flow === "prs.triage")).toBe(false)
+  expect(calls.filter(path => path.includes("/workspaces") || path.includes("/pulls/") || path.startsWith("/api/workflow/"))).toEqual([])
+  expect([...store.collections.cards.values()].filter(card => card.kind === "flow-form" && card.payload.afterBox?.kind === "prs.triage")).toEqual([])
+  await controller.dispose()
+  await store.dispose?.()
 })
 
 test("Review a PR refuses before choosing a box, including after reload", async () => {
@@ -156,7 +174,7 @@ test("a recorded run list without a box binding keeps its bound refusal", async 
 })
 
 for (const [flow, args] of [
-  ["flow.create", `Create a lint flow ${REPO}`],
+  ["flow.new", `Create a lint flow ${REPO}`],
   ["triggers.register", `${REPO} --flow checks/fast`]
 ] as const) test(`${flow} keeps the agent on the refusal path`, async () => {
   const store = await signedIn()
@@ -165,8 +183,12 @@ for (const [flow, args] of [
   const relay = boxCalls()
   const controller = createAppController(store, silentAgent, relay.services)
   const outcome = await controller.commands.runForAgent(flow, args)
-  expect(outcome.status).toBe("failed")
-  if (outcome.status === "failed") expect(outcome.error).toContain(`Select a box of ${REPO}`)
+  if (flow === "flow.new") {
+    expect(outcome.status).toBe("executed")
+    expect("value" in outcome ? outcome.value : "").toContain("asked the user to confirm")
+  } else {
+    expect(outcome.status).toBe("failed")
+  }
   expect(pickForm(store)).toBeUndefined()
   expect(relay.calls).toEqual([])
   await controller.dispose()
@@ -178,7 +200,7 @@ for (const flow of ["triggers.run", "triggers.resume"] as const) test(`${flow} a
   await loadBox(store, REPO, BOX_B)
   const relay = boxCalls()
   const controller = createAppController(store, silentAgent, relay.services)
-  expect((await controller.commands.runForAgent(flow, `daily ${REPO}`)).status).toBe("executed")
+  expect((await controller.commands.runForAgent(flow, `daily ${REPO}`)).status).toBe("failed")
   expect(pickForm(store)).toBeUndefined()
   expect(relay.calls).toEqual([])
   await controller.dispose()
@@ -188,7 +210,7 @@ test("flow authoring with no box opens the prerequisite form before creating a r
   const store = await signedIn()
   const relay = boxCalls()
   const controller = createAppController(store, silentAgent, relay.services)
-  expect((await controller.commands.run("flow.create", `Review the repo ${REPO}`)).status).toBe("executed")
+  expect((await controller.commands.run("flow.new", `Review the repo ${REPO}`)).status).toBe("executed")
   expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: { draft: { repo: REPO } } })
   expect([...store.collections.cards.values()].filter(card => card.kind === "run-trace")).toEqual([])
   expect(relay.calls).toEqual([])

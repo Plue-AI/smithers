@@ -20,6 +20,7 @@ func TestOwnerTokenPrerequisite(t *testing.T) {
 	ctx := t.Context()
 	token, err := seed.OwnerToken(ctx, pool, "owner")
 	require.NoError(t, err)
+	require.Regexp(t, "^smithers_[0-9a-f]{40}$", token)
 	digest := sha256.Sum256([]byte(token))
 	row, err := db.New(pool).GetAuthInfoByTokenHash(ctx, hex.EncodeToString(digest[:]))
 	require.NoError(t, err)

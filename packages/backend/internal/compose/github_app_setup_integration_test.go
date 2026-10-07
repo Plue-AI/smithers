@@ -18,6 +18,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -35,20 +36,30 @@ import (
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 )
 
-func githubAppSetupComposeRouter(cfg *config.Config, pool *pgxpool.Pool, h *routes.GitHubAppSetupHandler, additionalHandlers ...any) http.Handler {
+func githubAppSetupComposeRouter(cfg *config.Config, pool *pgxpool.Pool, h *routes.GitHubAppSetupHandler, extras ...any) http.Handler {
 	// Repo/search/Git placeholders are unused by setup requests. The router's
 	// broad constructor requires them to mount unrelated routes; setup itself
 	// uses real PostgreSQL, AuthLoader, credential store, and githubfake.
 	options := []any{routerExtras{GitHubAppSetup: h}}
-	options = append(options, additionalHandlers...)
+	options = append(options, extras...)
+	userHandler := &routes.UserHandler{}
+	workspaceHandler := &routes.WorkspaceHandler{}
+	for _, extra := range extras {
+		if workspace, ok := extra.(*routes.WorkspaceHandler); ok {
+			workspaceHandler = workspace
+		}
+		if user, ok := extra.(*routes.UserHandler); ok {
+			userHandler = user
+		}
+	}
 	return buildRouterCompat(
 		cfg, db.New(pool), pool,
-		&routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{},
+		&routes.RepoHandler{}, &routes.AuthHandler{}, userHandler, &routes.SSHKeyHandler{}, &routes.LabelHandler{},
 		&routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{},
 		nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 		nil, nil, nil, nil, nil, nil,
-		&routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil,
+		workspaceHandler, nil, nil, nil, nil, nil, nil,
 		options...,
 	)
 }
@@ -313,7 +324,7 @@ func TestGitHubAppLegacyEnvironmentIgnoredByCompositionPostgres(t *testing.T) {
 		t.Setenv(name, value)
 	}
 	store := services.NewGitHubAppCredentialStore(pool, codec)
-	_, oauthClient, err := buildAuthProviders(config.AuthConfig{GitHubRedirectURL: "http://localhost:4000/api/auth/github/callback"}, store)
+	_, oauthClient, err := buildAuthProviders(config.AuthConfig{GitHubRedirectURL: "http://localhost:4000/api/auth/github/callback"}, store, nil)
 	require.NoError(t, err)
 	require.NotNil(t, oauthClient)
 	_, err = oauthClient.AuthorizationURL(ctx, "before-setup")
@@ -420,4 +431,279 @@ func TestGitHubAppSetupOriginUsesSocketPeerThroughRouterPostgres(t *testing.T) {
 	router.ServeHTTP(w, r)
 	require.Equal(t, http.StatusMisdirectedRequest, w.Code)
 	require.Contains(t, w.Body.String(), "unknown_origin")
+}
+
+type fetchedWebhookSecret struct{}
+
+func (fetchedWebhookSecret) WebhookSecret(context.Context) (string, error) {
+	return "fetched-test-secret", nil
+}
+
+// The served signed-webhook route changes the hosted cache as before. On an
+// install the same delivery only wakes the existing reconciler, whose missing
+// qualification prevents GitHub reads and product/cache changes.
+func TestGitHubFetchedInstallWebhookBoundary(t *testing.T) {
+	for _, install := range []bool{false, true} {
+		name := "hosted"
+		if install {
+			name = "install"
+		}
+		t.Run(name, func(t *testing.T) {
+			pool, _ := postgresfixture.NewProductDatabase(t)
+			q := db.New(pool)
+			ctx := context.Background()
+			synced := services.NewGitHubSyncedRepoService(q)
+			row, err := synced.EnrollGitHubRepo(ctx, services.EnrollGitHubRepoInput{Owner: "factory", Repo: "app", InstallationID: 12, GitHubRepositoryID: 99})
+			require.NoError(t, err)
+			var calls atomic.Int32
+			notified := make(chan error, 1)
+			if install {
+				synced = services.NewGitHubSyncedRepoService(q, services.WithGitHubSyncedRepoSyncNotify(func(_ int64, err error) {
+					select {
+					case notified <- err:
+					default:
+					}
+				}))
+				require.NoError(t, synced.ConfigureInstallSync(pool))
+				synced.SetConditionalFetcherFactory(func(db.GithubSyncedRepo) services.GitHubSyncedRepoConditionalFetcher {
+					return func(context.Context, string, url.Values, string) (services.GitHubSyncedRepoConditionalPage, error) {
+						calls.Add(1)
+						return services.GitHubSyncedRepoConditionalPage{Body: json.RawMessage(`[]`)}, nil
+					}
+				})
+				workerCtx, cancel := context.WithCancel(ctx)
+				done := make(chan struct{})
+				go func() { defer close(done); synced.StartReconciler(workerCtx) }()
+				t.Cleanup(func() {
+					cancel()
+					select {
+					case <-done:
+					case <-time.After(5 * time.Second):
+						t.Error("reconciler did not stop")
+					}
+				})
+				select {
+				case err := <-notified:
+					require.Error(t, err, "initial polling stays dark")
+				case <-time.After(5 * time.Second):
+					t.Fatal("initial reconcile did not run")
+				}
+			}
+			service := services.NewGitHubWebhookService(pool, fetchedWebhookSecret{}, services.WithGitHubWebhookSyncedRepos(synced))
+			cfg := testConfigAllFlagsOn()
+			cfg.Server.PublicURL = "https://factory.example"
+			cfg.Server.AllowedOrigins = []string{"https://factory.example"}
+			if install {
+				cfg.Auth.Mode = "selfhost"
+			}
+			router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{}, &routes.GitHubWebhookHandler{Service: service})
+			payload := []byte(`{"action":"opened","repository":{"id":99,"name":"app","owner":{"login":"factory"}},"issue":{"id":1001,"number":1,"state":"open","title":"Webhook text","updated_at":"2026-10-05T10:00:00Z"}}`)
+			mac := hmac.New(sha256.New, []byte("fetched-test-secret"))
+			_, err = mac.Write(payload)
+			require.NoError(t, err)
+			request := httptest.NewRequest(http.MethodPost, "https://factory.example/webhooks/github", bytes.NewReader(payload))
+			request.Header.Set("X-GitHub-Delivery", uuid.NewString())
+			request.Header.Set("X-GitHub-Event", "issues")
+			request.Header.Set("X-Hub-Signature-256", "sha256="+hex.EncodeToString(mac.Sum(nil)))
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+			if install {
+				select {
+				case err := <-notified:
+					require.Error(t, err)
+				case <-time.After(5 * time.Second):
+					t.Fatal("signed delivery did not wake reconciler")
+				}
+			}
+			var count int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM github_synced_issues WHERE synced_repo_id=$1`, row.ID).Scan(&count))
+			if install {
+				require.Zero(t, count)
+			} else {
+				require.Equal(t, 1, count)
+			}
+			require.Zero(t, calls.Load())
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume'`).Scan(&count))
+			require.Zero(t, count)
+		})
+	}
+}
+
+func TestGitHubAppManualFallbackThroughInstallRouterPostgres(t *testing.T) {
+	for _, origin := range []string{"http://localhost:4000", "http://lan-a:4000"} {
+		t.Run(origin, func(t *testing.T) {
+			pool, _ := postgresfixture.NewProductDatabase(t)
+			q := db.New(pool)
+			codec, err := webhook.NewSecretCodec("manual-fallback-install-key")
+			require.NoError(t, err)
+			key, err := rsa.GenerateKey(rand.Reader, 2048)
+			require.NoError(t, err)
+			privateKey := string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))
+			fake, err := githubfake.New(githubfake.Config{AppID: 42, Slug: "manual-app", OwnerLogin: "acme", OwnerKind: "org", ClientID: "client", ClientSecret: "secret", WebhookSecret: "webhook", PrivateKeyPEM: privateKey})
+			require.NoError(t, err)
+			t.Cleanup(fake.Close)
+			origins := []string{"http://localhost:4000", "http://lan-a:4000"}
+			store := services.NewGitHubAppCredentialStore(pool, codec)
+			sessions := &services.InstallSetupSessions{Pool: pool}
+			digest := sha256.Sum256([]byte("manual-token"))
+			value, _ := json.Marshal(hex.EncodeToString(digest[:]))
+			require.NoError(t, q.UpsertInstallSetting(t.Context(), db.UpsertInstallSettingParams{Key: "setup.token", Value: value}))
+			session, err := sessions.Exchange(t.Context(), "manual-token")
+			require.NoError(t, err)
+			h := &routes.GitHubAppSetupHandler{Service: services.NewGitHubAppManifestService(pool, store, fake.URL, middleware.FixedOrigins(origins...)), Store: store, Owners: q, Sessions: sessions, Origins: middleware.FixedOrigins(origins...)}
+			cfg := testConfigAllFlagsOn()
+			cfg.Auth.Mode = "selfhost"
+			cfg.Server.PublicURL = origins[0]
+			cfg.Server.AllowedOrigins = origins
+			router := githubAppSetupComposeRouter(cfg, pool, h)
+			input := map[string]any{"app_id": 42, "slug": "manual-app", "pem": privateKey, "client_id": "client", "client_secret": "manual-client-secret", "webhook_secret": "manual-webhook-secret", "callbacks_confirmed": []string{"http://localhost:4000/api/auth/github/callback", "http://lan-a:4000/api/auth/github/callback"}}
+			post := func(body map[string]any, path string) *httptest.ResponseRecorder {
+				raw, err := json.Marshal(body)
+				require.NoError(t, err)
+				req := httptest.NewRequest("POST", origin+path, bytes.NewReader(raw))
+				// Match the socket peer to the listener: remote clients cannot
+				// claim localhost through their Host or Origin headers.
+				req.RemoteAddr = "192.0.2.1:12345"
+				if origin == "http://localhost:4000" {
+					req.RemoteAddr = "127.0.0.1:12345"
+				}
+				req.Header.Set("Origin", origin)
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("X-CSRF-Token", "csrf")
+				req.AddCookie(&http.Cookie{Name: routes.GitHubAppSetupSessionCookie, Value: session})
+				req.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "csrf"})
+				w := httptest.NewRecorder()
+				router.ServeHTTP(w, req)
+				require.NotContains(t, w.Body.String(), privateKey)
+				require.NotContains(t, w.Body.String(), "manual-client-secret")
+				require.NotContains(t, w.Body.String(), "manual-webhook-secret")
+				return w
+			}
+			require.Equal(t, 409, post(input, "/api/install/setup/app").Code)
+			require.NoError(t, q.UpsertInstallSetting(t.Context(), db.UpsertInstallSettingParams{Key: "setup.step.address", Value: []byte(`{"status":"done"}`)}))
+			for _, field := range []string{"app_id", "slug", "pem", "client_id", "client_secret", "webhook_secret", "callbacks_confirmed"} {
+				saved := input[field]
+				delete(input, field)
+				w := post(input, "/api/install/setup/app")
+				require.Equal(t, 400, w.Code, w.Body.String())
+				require.Contains(t, w.Body.String(), field)
+				input[field] = saved
+				_, err := store.Load(t.Context())
+				require.ErrorIs(t, err, services.ErrGitHubAppNotConfigured)
+			}
+			input["callbacks_confirmed"] = []string{"http://localhost:4000/api/auth/github/callback"}
+			require.Equal(t, 400, post(input, "/api/install/setup/app").Code)
+			input["callbacks_confirmed"] = []string{"http://lan-a:4000/api/auth/github/callback"}
+			require.Equal(t, 400, post(input, "/api/install/setup/app").Code)
+			input["callbacks_confirmed"] = []string{"http://localhost:4000/api/auth/github/callback", "http://lan-a:4000/api/auth/github/callback"}
+			input["slug"] = "foreign-app"
+			require.Equal(t, 400, post(input, "/api/install/setup/app").Code)
+			input["slug"] = "manual-app"
+			require.Equal(t, 404, post(input, "/api/install/setup/github_app").Code)
+			// A browser can switch to manual registration after GitHub refuses
+			// the started manifest. The old callback must not replace that App.
+			started := post(map[string]any{"owner": "acme"}, "/api/install/setup/app")
+			require.Equal(t, 200, started.Code, started.Body.String())
+			var attempt services.GitHubAppManifestStart
+			require.NoError(t, json.Unmarshal(started.Body.Bytes(), &attempt))
+			require.NotEmpty(t, attempt.State)
+			w := post(input, "/api/install/setup/app")
+			require.Equal(t, 200, w.Code, w.Body.String())
+			writes := len(fake.Writes())
+			callback := httptest.NewRequest("GET", origin+"/setup/github/callback?code=late-code&state="+attempt.State, nil)
+			callback.RemoteAddr = "192.0.2.1:12345"
+			if origin == "http://localhost:4000" {
+				callback.RemoteAddr = "127.0.0.1:12345"
+			}
+			callback.AddCookie(&http.Cookie{Name: routes.GitHubAppSetupSessionCookie, Value: session})
+			for _, cookie := range started.Result().Cookies() {
+				callback.AddCookie(cookie)
+			}
+			late := httptest.NewRecorder()
+			router.ServeHTTP(late, callback)
+			require.Equal(t, 403, late.Code, late.Body.String())
+			require.Len(t, fake.Writes(), writes, "a late manifest callback never exchanges after manual completion")
+			restarted := services.NewGitHubAppCredentialStore(pool, codec)
+			c, err := restarted.Load(t.Context())
+			require.NoError(t, err)
+			require.Equal(t, "manual-app", c.Slug)
+			require.EqualValues(t, 42, c.ID)
+			for _, key := range []string{"setup.step.app_manifest", "setup.projection.app_manifest"} {
+				row, err := q.GetInstallSetting(t.Context(), key)
+				require.NoError(t, err)
+				require.JSONEq(t, `{"status":"done"}`, string(row.Value))
+			}
+			require.Equal(t, 409, post(input, "/api/install/setup/app").Code)
+		})
+	}
+}
+
+func TestPlueEnvAppCompositionValidatesAtFirstTokenCaller(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	privateKey := string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))
+	fake, err := githubfake.New(githubfake.Config{AppID: 42, Slug: "canonical-plue", OwnerLogin: "acme", OwnerKind: "org", PrivateKeyPEM: privateKey, Installations: []githubfake.Installation{{ID: 914401, Repositories: []githubfake.Repository{{ID: 1001, FullName: "acme/app"}}}}})
+	require.NoError(t, err)
+	t.Cleanup(fake.Close)
+	var identities atomic.Int32
+	status := http.StatusServiceUnavailable
+	identityOverride := ""
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/app" {
+			identities.Add(1)
+			if status != 200 {
+				w.WriteHeader(status)
+				return
+			}
+			if identityOverride != "" {
+				_, _ = w.Write([]byte(identityOverride))
+				return
+			}
+		}
+		req, err := http.NewRequestWithContext(r.Context(), r.Method, fake.URL+r.URL.RequestURI(), r.Body)
+		require.NoError(t, err)
+		req.Header = r.Header.Clone()
+		response, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer response.Body.Close()
+		w.WriteHeader(response.StatusCode)
+		_, _ = io.Copy(w, response.Body)
+	}))
+	t.Cleanup(proxy.Close)
+	t.Setenv("SMITHERS_GITHUB_APP_ID", "42")
+	t.Setenv("SMITHERS_GITHUB_APP_PRIVATE_KEY", privateKey)
+	t.Setenv("SMITHERS_GITHUB_APP_SLUG", "poisoned")
+	t.Setenv("SMITHERS_GITHUB_APP_API_BASE_URL", proxy.URL)
+	source, err := selectGitHubAppCredentials(false, true, nil)
+	require.NoError(t, err)
+	caller := services.NewRepoConnectionService(nil, source)
+	require.Zero(t, identities.Load(), "Plue composition must boot with GitHub unavailable")
+	scope := services.GitHubTokenScope{RepositoryIDs: []int64{1001}, Permissions: map[string]string{"contents": "read"}}
+	_, err = caller.CreateGitHubInstallationToken(t.Context(), 914401, scope)
+	require.Error(t, err)
+	require.Empty(t, fake.Writes())
+	status = 200
+	for _, invalid := range []string{`{"id":99,"slug":"canonical-plue","owner":{"login":"acme","type":"Organization"}}`, `{"id":42,"owner":{"login":"acme","type":"Organization"}}`} {
+		identityOverride = invalid
+		_, err = caller.CreateGitHubInstallationToken(t.Context(), 914401, scope)
+		require.Error(t, err)
+		require.Empty(t, fake.Writes())
+	}
+	identityOverride = ""
+	token, err := caller.CreateGitHubInstallationToken(t.Context(), 914401, scope)
+	require.NoError(t, err)
+	require.NotEmpty(t, token.Token)
+	slug, err := source.Slug(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "canonical-plue", slug)
+	_, err = caller.CreateGitHubInstallationToken(t.Context(), 914401, scope)
+	require.NoError(t, err)
+	require.EqualValues(t, 4, identities.Load())
+	restarted, err := selectGitHubAppCredentials(false, true, nil)
+	require.NoError(t, err)
+	require.EqualValues(t, 4, identities.Load())
+	_, err = services.NewRepoConnectionService(nil, restarted).CreateGitHubInstallationToken(t.Context(), 914401, scope)
+	require.NoError(t, err)
+	require.EqualValues(t, 5, identities.Load())
 }

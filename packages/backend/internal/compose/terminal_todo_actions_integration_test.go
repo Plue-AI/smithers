@@ -65,6 +65,11 @@ func (c *todoCalls) ControlTodo(_ context.Context, n int64, input services.TodoC
 	return services.TodoControlReceipt{State: "requested"}, nil
 }
 
+func (c *todoCalls) AmendTodo(_ context.Context, n int64, input services.TodoAmendInput) (services.TodoControlReceipt, error) {
+	c.record("amend %d T%d %s %q", input.Actor, n, input.Prompt, input.Acceptance)
+	return services.TodoControlReceipt{State: "accepted", Number: n, Revision: 2}, nil
+}
+
 // J6 3b and the scope refusals (T-ACC-04, spec §5.3.2a and §8.11.1) through
 // the production auth loader, member boundary, memberCommands and TODO
 // handler on real PostgreSQL: a stage-1 terminal's delegated credential, the
@@ -110,9 +115,13 @@ func TestTerminalCredentialTodoActionsPostgres(t *testing.T) {
 		raw := fmt.Sprintf("smithers_%040x", 0x7e000+minted)
 		sum := sha256.Sum256([]byte(raw))
 		hash := hex.EncodeToString(sum[:])
+		_, err := pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,name) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO NOTHING`, branch, repo.ID, u.ID, "terminal-"+u.Username)
+		require.NoError(t, err)
+		subject, err := q.CreateWorkspaceSession(ctx, db.CreateWorkspaceSessionParams{WorkspaceID: branch, RepositoryID: repo.ID, UserID: u.ID, Cols: 80, Rows: 24})
+		require.NoError(t, err)
 		scopes := strings.Join(append([]string{"read:repository", "read:user", middleware.RepositoryRestrictionScope(repo.ID)},
-			middleware.DelegationScopes(middleware.Delegation{Via: "terminal", Branch: branch, Profile: middleware.TerminalProfileS1, Session: u.Username + "-session"})...), ",")
-		_, err := q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: u.ID, Name: fmt.Sprintf("terminal-session-%d", minted), TokenHash: hash, TokenLastEight: hash[len(hash)-8:],
+			middleware.DelegationScopes(middleware.Delegation{Via: "terminal", Branch: branch, Profile: middleware.TerminalProfileS1, Session: subject.ID})...), ",")
+		_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: u.ID, Name: fmt.Sprintf("terminal-session-%d", minted), TokenHash: hash, TokenLastEight: hash[len(hash)-8:],
 			Scopes: scopes, SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
 		require.NoError(t, err)
 		return raw
@@ -135,11 +144,12 @@ func TestTerminalCredentialTodoActionsPostgres(t *testing.T) {
 	router.Post("/api/todos", todos.Create)
 	router.Get("/api/todos/{n}", todos.Get)
 	router.Post("/api/todos/{n}", todos.Control)
+	router.Patch("/api/todos/{n}", todos.Amend)
 	router.Post("/api/todos/{n}/answer", todos.Answer)
 	router.Post("/api/todos/{n}/merge", todos.Merge)
 	served := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }
 	for _, route := range []struct{ method, path string }{{"GET", "/api/user"}, {"GET", "/api/repos/maya/demo/wiki"}, {"GET", "/api/install"},
-		{"GET", "/api/members"}, {"POST", "/api/members"}, {"POST", "/api/agent/turn"}, {"POST", "/api/repos/maya/demo/workspace/sessions"}} {
+		{"GET", "/api/members"}, {"POST", "/api/members"}, {"POST", "/api/conversations/1/prompt"}, {"POST", "/api/repos/maya/demo/workspace/sessions"}} {
 		router.MethodFunc(route.method, route.path, served)
 	}
 	call := func(method, path, body string, header http.Header) (int, map[string]any) {
@@ -164,6 +174,10 @@ func TestTerminalCredentialTodoActionsPostgres(t *testing.T) {
 		t.Run(holder.Username, func(t *testing.T) {
 			// The terminal is on T2's branch.
 			header := bearer(terminal(holder, branches[1]))
+			status, envelope := call("PATCH", "/api/todos/2", `{"prompt":"Revised","acceptance":[]}`, header)
+			require.Equal(t, http.StatusForbidden, status)
+			require.Equal(t, "permission", envelope["code"])
+			require.Empty(t, calls.take(), "delegated amendment must not reach the service")
 			for _, admitted := range []struct{ method, path, body, call string }{
 				{"GET", "/api/user", "", ""},
 				{"GET", "/api/todos/1", "", ""},
@@ -195,11 +209,13 @@ func TestTerminalCredentialTodoActionsPostgres(t *testing.T) {
 				{"POST", "/api/todos/2/merge", `{"reviewed_head_sha":"` + strings.Repeat("a", 40) + `"}`, permission},
 				// A delegated TODO is confirmed in the app, which S1 does not serve.
 				{"POST", "/api/todos", `{"title":"Follow-up","prompt":"Add a farewell","place":{"mode":"append"}}`, confirm},
+				{"POST", "/api/todos", `{"title":"Follow-up","prompt":"Add a farewell","place":{"mode":"before","n":2}}`, permission},
+				{"POST", "/api/todos/2", `{"op":"move","direction":"up"}`, permission},
 				// Routes outside the profile.
 				{"GET", "/api/install", "", permission},
 				{"GET", "/api/members", "", permission},
 				{"POST", "/api/members", `{"login":"carol"}`, permission},
-				{"POST", "/api/agent/turn", `{}`, permission},
+				{"POST", "/api/conversations/1/prompt", `{}`, permission},
 				// The owner's alone: the member boundary refuses a member first.
 				{"POST", "/api/repos/maya/demo/workspace/sessions", `{}`, permission},
 			} {
@@ -224,14 +240,23 @@ func TestTerminalCredentialTodoActionsPostgres(t *testing.T) {
 	}
 	// The person's own browser session files a TODO directly; only the
 	// delegated credential confirms in the app.
+	benSession := session(ben)
 	status, envelope := call("POST", "/api/todos", `{"title":"Follow-up","prompt":"Add a farewell","place":{"mode":"append"}}`,
-		http.Header{"Cookie": {"session=" + session(ben)}, "Idempotency-Key": {"ben-browser"}})
+		http.Header{"Cookie": {"session=" + benSession}, "Idempotency-Key": {"ben-browser"}})
 	require.Equal(t, http.StatusAccepted, status, "%v", envelope)
 	require.Equal(t, []string{fmt.Sprintf("file %d Follow-up", ben.ID)}, calls.take())
+	status, envelope = call("PATCH", "/api/todos/2", `{"prompt":"Revised","acceptance":["A check"]}`,
+		http.Header{"Cookie": {"session=" + benSession}, "Idempotency-Key": {"ben-amend"}})
+	require.Equal(t, http.StatusAccepted, status, "%v", envelope)
+	require.Equal(t, map[string]any{"state": "accepted", "n": float64(2), "rev": float64(2)}, envelope)
+	require.Equal(t, []string{fmt.Sprintf(`amend %d T2 Revised ["A check"]`, ben.ID)}, calls.take())
 	// A suspended member's terminal is refused like their browser.
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, alice.ID)
 	require.NoError(t, err)
 	status, _ = call("POST", "/api/todos/2/answer", answer, bearer(terminal(alice, branches[1])))
+	require.Equal(t, http.StatusForbidden, status)
+	require.Empty(t, calls.take())
+	status, _ = call("PATCH", "/api/todos/2", `{"prompt":"Revised"}`, bearer(terminal(alice, branches[1])))
 	require.Equal(t, http.StatusForbidden, status)
 	require.Empty(t, calls.take())
 }

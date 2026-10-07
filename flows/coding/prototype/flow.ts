@@ -12,7 +12,7 @@ export default Flow.make("coding/Prototype", {
   capabilities: ["*"],
   payload: RequestInput,
   success: PocResult,
-  error: Schema.Union([PrepareRequest.errorSchema, Poc.errorSchema]),
+  error: Schema.Union([PrepareRequest.errorSchema, AdmitSource.errorSchema, Poc.errorSchema]),
   body: (input) =>
     PrepareRequest.child({ prompt: input.prompt, feedback: input.feedback ?? "" }).pipe(
       Node.bindPlanned((plan) => AdmitSource.call({ plan })),

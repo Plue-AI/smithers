@@ -27,9 +27,9 @@ test("finished or queued PRs retain their checks without offering another merge 
   }
 })
 
-test("open and failed PRs retain their actions; drafts can be reviewed but not landed", () => {
+test("legacy PRs retain review without an executable Land door", () => {
   for (const state of ["open", "failed"]) {
-    expect(render(state)).toContain('data-flow="prs.land"')
+    expect(render(state)).not.toContain('data-flow="prs.land"')
     expect(render(state)).toContain('data-flow="prs.review"')
   }
   for (const [state, draft] of [["draft", false], ["open", true]] as const) {

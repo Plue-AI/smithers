@@ -164,12 +164,6 @@ const changesetOf = (overrides: Partial<Changeset> = {}): Changeset => ({
   ...overrides
 })
 
-const landButton = (host: HTMLElement): HTMLButtonElement =>
-  host.querySelector('button[data-flow="change.land"]') as HTMLButtonElement
-
-/** The blocking reason a disabled Land wears: the span right after the button. */
-const landReason = (host: HTMLElement): string | null => landButton(host).nextElementSibling?.textContent ?? null
-
 const diffCard = (overrides: Partial<DiffPayload> = {}): Extract<Card, { kind: "diff" }> => ({
   id: "diff-will/smithers-qupxosqw",
   kind: "diff",
@@ -610,54 +604,17 @@ describe("the change card", () => {
     host.remove()
   })
 
-  test("the Land button names the gate's block: open threads and the landing list's blocked_by (ADR 0004)", () => {
-    const { host } = renderChange(liveCard())
-    expect(landButton(host).disabled).toBe(true)
-    expect(landReason(host)).toBe("2 comments open")
-    host.remove()
-
-    const blocked = renderChange(
-      liveCard({
-        threads: [],
-        stack: {
-          ...stackOf(),
-          blockedBy: [
-            { kind: "check", name: "lint", repo: "smithers", missing: null, count: null, path: null, candidates: [] },
-            { kind: "review", name: null, repo: null, missing: "agent_lgtm", count: null, path: null, candidates: [] },
-            { kind: "review", name: null, repo: null, missing: "person_approval", count: null, path: null, candidates: [] },
-            { kind: "agent_policy", name: null, repo: null, missing: null, count: null, path: "docs/guide.md", candidates: ["ana"] }
-          ]
-        }
-      })
-    )
-    expect(landButton(blocked.host).disabled).toBe(true)
-    expect(landReason(blocked.host)).toBe(
-      "check lint · agent LGTM missing · person approval missing · agent changes denied on docs/guide.md"
-    )
-    blocked.host.remove()
-
-    /* A person's requested changes read plainly, and that person is one press from being asked again. */
-    const requested = renderChange(
-      liveCard({
-        threads: [],
-        stack: {
-          ...stackOf(),
-          blockedBy: [{ kind: "review", name: "ana", repo: null, missing: "changes_requested", count: null, path: null, candidates: [] }]
-        }
-      })
-    )
-    expect(landButton(requested.host).disabled).toBe(true)
-    expect(landReason(requested.host)).toBe("changes requested by ana")
-    const ask = requested.host.querySelector('button[aria-label="Request review from ana"]') as HTMLButtonElement
-    expect(ask.textContent).toBe("Ask ana")
-    expect(ask.getAttribute("data-flow")).toBe("review.request")
+  test("retired Change landing cannot bypass TODO Merge, while requested reviews remain available", () => {
+    for (const state of ["open", "queued", "landing", "merged", "closed", "failed"]) {
+      const { host } = renderChange(changeCard({ stack: { ...stackOf(), state } }))
+      expect(host.querySelector('[data-flow="change.land"]')).toBeNull()
+      host.remove()
+    }
+    const requested = renderChange(liveCard({ threads: [], stack: { ...stackOf(), blockedBy: [
+      { kind: "review", name: "ana", repo: null, missing: "changes_requested", count: null, path: null, candidates: [] }
+    ] } }))
+    expect(requested.host.querySelector('button[aria-label="Request review from ana"]')?.getAttribute("data-flow")).toBe("review.request")
     requested.host.remove()
-
-    /* Every thread resolved and no block: Land runs. */
-    const clear = renderChange(liveCard({ threads: [THREADS[2]!] }))
-    expect(landButton(clear.host).disabled).toBe(false)
-    expect(landButton(clear.host).textContent).toContain("Land 1 → 2")
-    clear.host.remove()
   })
 
   test("the owners facet lists each touched path with its owners by name, the policy word, and who satisfied or is asked (plue#467)", () => {
@@ -728,12 +685,10 @@ describe("the change card", () => {
     host.remove()
   })
 
-  test("the Land and Full diff acts carry complete invocations", () => {
+  test("Full diff carries its complete invocation", () => {
     const { host, commands } = renderChange(changeCard())
-    click(host, "Land 1 → 2")
     click(host, "Open the full diff card")
     expect(commands).toEqual([
-      { name: "change.land", args: "qupxosqw" },
       { name: "change.diff", args: "qupxosqw" }
     ])
     host.remove()
@@ -812,48 +767,6 @@ describe("the change card", () => {
       { name: "change.resolve", args: "qupxosqw src/app.ts" }
     ])
     host.remove()
-  })
-
-  test("a landing request's Land names its scope, and only its top change may land", () => {
-    const top = renderChange(changeCard())
-    expect(landButton(top.host).disabled).toBe(false)
-    expect(landButton(top.host).textContent).toContain("Land 1 → 2")
-    expect(landButton(top.host).getAttribute("aria-label")).toBe("Land the change: lands 1 → 2 together")
-    top.host.remove()
-
-    const mid = renderChange(
-      changeCard({ stack: { ...stackOf(), position: 1, changeIds: ["qupxosqw", "ronvznsk"] } })
-    )
-    expect(landButton(mid.host).disabled).toBe(true)
-    expect(landReason(mid.host)).toBe(
-      "Land all 2 changes from ronvznsk."
-    )
-    mid.host.remove()
-
-    const alone = renderChange(changeCard({ stack: { ...stackOf(), position: 1, size: 1, changeIds: ["qupxosqw"] } }))
-    expect(landButton(alone.host).disabled).toBe(false)
-    expect(landButton(alone.host).textContent?.trim()).toBe("Land")
-    expect(landButton(alone.host).getAttribute("aria-label")).toBe("Land the change: lands qupxosqw alone")
-    alone.host.remove()
-  })
-
-  test("Land is disabled with the state while a landing request is queued, landing, merged, or closed; failed re-lands", () => {
-    const blocked: ReadonlyArray<readonly [string, string]> = [
-      ["queued", "queued…"],
-      ["landing", "landing…"],
-      ["merged", "landed"],
-      ["closed", "closed — only open or failed requests can land"]
-    ]
-    for (const [state, reason] of blocked) {
-      const { host } = renderChange(changeCard({ stack: { ...stackOf(), state } }))
-      expect(landButton(host).disabled).toBe(true)
-      expect(landReason(host)).toBe(reason)
-      host.remove()
-    }
-    const failed = renderChange(changeCard({ stack: { ...stackOf(), state: "failed" } }))
-    expect(landButton(failed.host).disabled).toBe(false)
-    expect(landButton(failed.host).textContent).toContain("Retry land 1 → 2")
-    failed.host.remove()
   })
 
   test("the landing pill: merged is done, failed is failed, closed is neutral with plue's own word", () => {
@@ -1128,8 +1041,8 @@ for (const state of ["pending", "landing", "landed", "failed"] as const) {
     expect(legacy.host.textContent).not.toContain("Changeset")
     legacy.host.remove()
     const native = renderChange(changeCard({ changeset: changesetOf({ state }) }))
-    click(native.host, "Land 1 → 2")
-    expect(native.commands).toEqual([{ name: "change.land", args: "qupxosqw" }])
+    expect(native.host.querySelector('[data-flow="change.land"]')).toBeNull()
+    expect(native.commands).toEqual([])
     expect(native.host.textContent).not.toContain("Changeset")
     native.host.remove()
   })

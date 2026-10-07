@@ -1,9 +1,9 @@
+import { useSyncExternalStore } from "react"
 /* T-APP-10: live topics map to BranchView; demo projections remain isolated. */
-import { useState } from "react"
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import type { BranchCard as BranchModel } from "@smthrs/rpc/BranchCard"
-import { useTopic } from "../state/useTopic"
-import { branchModel, branchSeedAvailable } from "../state/seams/BranchSeam"
+import { useBranchPresence, useTopic } from "../state/useTopic"
+import { branchModel, branchSeedAvailable, projectBranchActivity } from "../state/seams/BranchSeam"
 import { useController } from "../ControllerContext"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
 import type { CardActions, CardFamily, CardOf } from "./CardFamily"
@@ -44,15 +44,48 @@ export const branchActionDefinitions = (world: DesignWorldRows, branch: DesignBr
   return definitions
 }
 
+/** Only composed providers bind live presses; topic payloads carry no command authority. */
+export const liveBranchActionDefinitions = (model: BranchModel, providers: ReadonlySet<CatalogTag>): Definition[] => {
+  const definitions: Definition[] = []
+  if (model.terminals.length) definitions.push({ tag: "terminal.watch", label: "Watch", gesture: "terminal",
+    command_input: { id: "" }, resolve_input: input => ({ id: input.id ?? "" }) })
+  const n = model.item?.n
+  if (n !== undefined) definitions.push({ tag: "todo", label: model.item!.title, gesture: "item",
+    command_input: { n }, resolve_input: () => ({ n }) })
+  definitions.push({ tag: "file", label: "Open", gesture: "file",
+    command_input: { path: "", branch: model.name },
+    resolve_input: input => ({ path: input.path ?? "", branch: model.name,
+      ...(input.line === undefined ? {} : { line: Number(input.line) }) }) })
+  if (model.machine.state !== "closed" && n !== undefined) {
+    const question = [...model.activity].reverse().find(entry => entry.kind === "question" || entry.kind === "answer")
+    if (model.item?.state === "needs_you" && question?.kind === "question") definitions.push({
+      tag: "todo.answer", label: "Answer", primary: true,
+      input: [{ name: "answer", label: "Answer the coding agent", kind: "text", required: true, multiline: true }],
+      command_input: { n, answer: "" }, resolve_input: input => ({ n, answer: input.answer ?? "" })
+    })
+    definitions.push({ tag: "todo.steer", label: "Steer",
+      input: [{ name: "text", label: "Steer the coding agent", kind: "text", required: true, multiline: true }],
+      command_input: { n, text: "" }, resolve_input: input => ({ n, text: input.text ?? "" }) })
+  }
+  // The current Fork provider accepts main or a TODO. A scratch branch must not silently fork main.
+  if (n !== undefined || model.name === "main") definitions.push({ tag: "branch.fork", label: "Fork", command_input: { from: n === undefined ? "main" : `T${n}` } })
+  return definitions.filter(definition => providers.has(definition.tag))
+}
+
 /** Each change burst's Diff; the burst id rides as `args` so the View tells rows apart. */
 export const changeActionDefinitions = (model: BranchModel): CardActionDefinition[] =>
   model.activity.filter(entry => entry.kind === "change")
     .map(entry => ({ tag: "diff", label: "Diff", args: { burst: entry.id }, command_input: undefined }))
 
+/** View selections use the same durable card transition on installs and demos. */
+function persistBranchView(controller: ReturnType<typeof useController>, card: CardOf<"branch">, patch: { tab?: string }) {
+  if (patch.tab !== "activity" && patch.tab !== "files" && patch.tab !== "terminals") return
+  controller.setCardTab(card.id, patch.tab)
+}
+
 const DesignBranchBody = ({ card, actions }: { readonly card: CardOf<"branch">; readonly actions: CardActions }) => {
   const controller = useController()
   const world = useDesignWorld()
-  const [tab, setTab] = useState<string | undefined>(undefined)
   const branch = branchOf(world, card.payload.id)
   if (branch === undefined) return null
   const item = branch.item === undefined ? undefined : todoOf(world, branch.item)
@@ -69,23 +102,46 @@ const DesignBranchBody = ({ card, actions }: { readonly card: CardOf<"branch">; 
     : { ...entry, actions: changes.actions.filter(action => action.args?.burst === entry.id) }) }
   return <BranchView model={model} actions={bindings.actions} gestures={bindings.gestures}
     onAction={(tag, input) => (tag === "diff" ? changes : bindings).onAction(tag, input)}
-    view={{ maximized: actions.presentation === "maximized", ...(tab === undefined ? {} : { tab }) }}
-    onView={patch => { if ("tab" in patch) setTab(patch.tab) }} />
+    view={{ maximized: actions.presentation === "maximized", ...(card.payload.tab === undefined ? {} : { tab: card.payload.tab }) }}
+    onView={patch => persistBranchView(controller, card, patch)} />
 }
 
 /** Live facts never inherit seed rows or server-supplied command authority. Dependent actions stay dark. */
 export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branch">; readonly actions: CardActions }) => {
   const controller = useController()
   const topic = controller.live ? `branch:${card.payload.id}` : undefined
+  if (topic) controller.live?.registerProjection?.(`${topic}:activity`, projectBranchActivity)
+  const roster = useSyncExternalStore(controller.membersRoster?.subscribe ?? (() => () => {}),
+    controller.membersRoster?.get ?? (() => undefined), controller.membersRoster?.get ?? (() => undefined))
   const branch = useTopic(topic, controller.live)
   const activity = useTopic(topic && `${topic}:activity`, controller.live)
   const files = useTopic(topic && `${topic}:files`, controller.live)
-  const model = branch?.error || activity?.error || files?.error ? undefined
-    : branchModel(branch?.data, activity?.data, files?.data, card.payload.id)
-  const bindings = cardActions(() => {}, [])
+  // An unserved optional stream must not hide the composed branch roster.
+  // Permission failures and malformed snapshots still refuse the projection;
+  // no seed rows stand in for unavailable activity or changed files.
+  const optionalData = (snapshot: typeof activity) => snapshot?.error === "unsupported" ? [] : snapshot?.data
+  const refused = (snapshot: typeof activity) => snapshot?.error !== undefined && snapshot.error !== "unsupported"
+  const model = branch?.error || refused(activity) || refused(files) ? undefined
+    : branchModel(branch?.data, optionalData(activity), optionalData(files), card.payload.id, { roster: roster?.model?.members.map(member => ({ ...member, id: member.login })) })
+  useBranchPresence(card.payload.id, controller.live)
+  // Outside an install, an unanswered or absent provider keeps the existing seed visible.
+  if (branchSeedAvailable(controller) && branch?.data === undefined
+    && (branch?.error === undefined || branch.error === "unknown_topic" || branch.error === "unsupported")) return <DesignBranchBody card={card} actions={actions} />
+  const providers = new Set<CatalogTag>()
+  if (typeof controller.showTodo === "function") providers.add("todo")
+  if (controller.branchFiles?.available()) providers.add("file")
+  if (controller.terminalCards?.available()) providers.add("terminal.watch")
+  if (controller.forkBranch) providers.add("branch.fork")
+  if (typeof controller.answerTodo === "function") providers.add("todo.answer")
+  if (typeof controller.steerTodo === "function") providers.add("todo.steer")
+  const dispatch: CardCommandDispatch = (tag, input) => controller.commands.submit({
+    name: tag, payload: { branch: card.payload.id, ...(input ?? {}) }, actor: "user", originCardId: card.id
+  })
+  const bindings = cardActions<Gesture>(dispatch, model ? liveBranchActionDefinitions(model, providers) : [])
   if (!model) return branchSeedAvailable(controller) ? <DesignBranchBody card={card} actions={actions} /> : null
   return <BranchView model={model} actions={bindings.actions} gestures={bindings.gestures}
-    onAction={bindings.onAction} view={{ maximized: actions.presentation === "maximized" }} onView={() => {}} />
+    onAction={bindings.onAction} view={{ maximized: actions.presentation === "maximized", tab: card.payload.tab }}
+    onView={patch => persistBranchView(controller, card, patch)} />
 }
 
 const BranchBody = (props: { readonly card: CardOf<"branch">; readonly actions: CardActions }) => {

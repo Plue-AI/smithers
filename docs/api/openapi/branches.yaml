@@ -20,8 +20,7 @@ paths:
                   $ref: '#/components/schemas/Branch'
         '401':
           description: No person's browser session
-        '403':
-          description: Not a member of the install
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: Branch machines or the install repository unavailable
     post:
@@ -71,8 +70,7 @@ paths:
           description: Invalid from or name, or a scratch branch as from (scratch_fork_unavailable)
         '401':
           description: No person's browser session
-        '403':
-          description: Not a member, or not a person
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: No such TODO (todo_not_found)
         '409':
@@ -104,12 +102,67 @@ paths:
                 $ref: '#/components/schemas/Branch'
         '401':
           description: No person's browser session
-        '403':
-          description: Not a member of the install
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: No such branch
         '503':
           description: Branch machines unavailable
+    post:
+      x-composition: install
+      summary: Answer an outside push to a TODO branch
+      operationId: post_api_branches_b
+      tags:
+        - Branches
+      description: Discard requires a maintainer browser session. Bring in retains the hold until the machine checkpoint provider is available. The wait id and revision bind the answer to the displayed commit. Repeated identical requests return the durable receipt.
+      security:
+        - sessionCookie: []
+      parameters:
+        - in: path
+          name: b
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [op, id, revision]
+              properties:
+                op:
+                  type: string
+                  enum: [bring-in, discard-foreign]
+                id:
+                  type: string
+                revision:
+                  type: string
+                  pattern: '^[a-f0-9]{40}$'
+      responses:
+        '202':
+          description: Decision recorded
+          content:
+            application/json:
+              schema: {"oneOf":[{"type":"object","properties":{"state":{"type":"string","enum":["accepted"]},"n":{"type":"integer"}}},{"$ref":"#/components/schemas/ConfirmationReceipt"}]}
+        '400':
+          description: Invalid answer or missing Idempotency-Key
+        '401':
+          description: No person session
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404':
+          description: No TODO on this branch
+        '409':
+          description: Stale or settled wait, changed request, or publication recovering
+        '503':
+          description: Checkpoint rebase or required provider unavailable
   /api/branches/{b}/diff:
     get:
       x-composition: install
@@ -131,8 +184,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TODOBranchDiff'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '503':
@@ -151,6 +203,128 @@ paths:
                     const: infra
                   message:
                     type: string
+  /api/branches/{b}/files/{path}:
+    get:
+      x-composition: install
+      summary: Read a file from the branch mirror
+      description: Reads source data without waking a machine or executing repository code. Main is pinned to the last successful GitHub mirror commit.
+      operationId: get_api_branch_file
+      tags:
+        - Branches
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      parameters:
+        - name: b
+          in: path
+          required: true
+          schema: {type: string}
+        - name: path
+          in: path
+          required: true
+          description: Repository-relative file path, including slash-separated directories.
+          schema: {type: string}
+        - name: at
+          in: query
+          description: Immutable mirrored commit for a pinned history read; never a working copy.
+          schema: {type: string}
+      responses:
+        '200':
+          description: Read-only File card
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchFileCard'
+        '400':
+          description: Invalid repository path
+        '401':
+          description: Not signed in
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404':
+          description: File or branch not found
+        '503':
+          description: Source or authority unavailable
+    post:
+      x-composition: install
+      summary: Restore a saved file version on a branch
+      operationId: post_api_branch_file
+      tags:
+        - Branches
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: b
+          in: path
+          required: true
+          schema: {type: string}
+        - name: path
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [action, version, base_digest]
+              properties:
+                action: {type: string, enum: [restore, restore-deleted]}
+                version: {type: string}
+                base_digest: {type: string}
+      responses:
+        '200':
+          description: File restored against its current digest
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AnyJSON'}
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '409':
+          description: File changed since this version
+        '503':
+          description: File restore unavailable
+  /api/branches/{b}/files:
+    get:
+      x-composition: install
+      summary: List branch files
+      operationId: get_api_branches_b_files
+      tags:
+        - Branches
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: b
+          in: path
+          required: true
+          schema: {type: string}
+        - name: path
+          in: query
+          schema: {type: string}
+      responses:
+        '200':
+          description: File entries from the branch's current or verified retained snapshot
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [name, path, type]
+                  properties:
+                    name: {type: string}
+                    path: {type: string}
+                    type: {type: string}
+                    size: {type: integer, format: int64}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 components:
   schemas:
     Branch:
@@ -191,6 +365,10 @@ components:
         machine:
           type: object
           additionalProperties: true
+          properties:
+            wait_position:
+              type: integer
+              minimum: 1
     TODOBranchDiff:
       type: object
       required: [files]
@@ -254,3 +432,22 @@ components:
                       enum: [' ', '+', '-']
                     text:
                       type: string
+    BranchFileCard:
+      type: object
+      required: [path, branch, language, digest, content, mode, diagnostics, authors, editors]
+      properties:
+        path: {type: string}
+        branch: {type: string}
+        language: {type: string}
+        digest: {type: string}
+        mode: {type: string, enum: [read_only]}
+        content:
+          type: object
+          required: [kind]
+          properties:
+            kind: {type: string, enum: [text, too_large, binary]}
+            text: {type: string}
+            bytes: {type: integer}
+        diagnostics: {type: array, items: {type: object}}
+        authors: {type: array, items: {type: object}}
+        editors: {type: array, items: {type: object}}

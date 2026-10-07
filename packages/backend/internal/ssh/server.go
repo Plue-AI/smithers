@@ -181,6 +181,34 @@ var (
 
 // ListenAndServe starts the SSH server.
 func (s *Server) ListenAndServe() error {
+	srv, err := s.prepareServer()
+	if err != nil {
+		return err
+	}
+	slog.Info("ssh server listening", "addr", s.Addr)
+	return srv.ListenAndServe()
+}
+
+// Prepare loads the stable host key before the composition announces readiness.
+func (s *Server) Prepare() error { _, err := s.prepareServer(); return err }
+
+// Serve adds a listener to the same gateway, sharing its host key, connection
+// limits and revocation registry. Closing a listener does not end sessions.
+func (s *Server) Serve(listener net.Listener) error {
+	srv, err := s.prepareServer()
+	if err != nil {
+		_ = listener.Close()
+		return err
+	}
+	return srv.Serve(listener)
+}
+
+func (s *Server) prepareServer() (*ssh.Server, error) {
+	s.runtimeMu.Lock()
+	defer s.runtimeMu.Unlock()
+	if s.runtimeSrv != nil {
+		return s.runtimeSrv, nil
+	}
 	s.connMu.Lock()
 	if s.activeConnsPerIP == nil {
 		s.activeConnsPerIP = make(map[string]int)
@@ -192,6 +220,10 @@ func (s *Server) ListenAndServe() error {
 		PublicKeyHandler: s.publicKeyHandler,
 		PasswordHandler:  s.passwordHandler,
 		Handler:          s.sessionHandler,
+		ChannelHandlers: map[string]ssh.ChannelHandler{
+			"session":      s.filteredSessionHandler,
+			"direct-tcpip": s.directTCPIPHandler,
+		},
 		// sftp is accepted only for workspace sessions (sessionHandler refuses
 		// it for git principals); the bridge relays it to the guest's server.
 		SubsystemHandlers: map[string]ssh.SubsystemHandler{"sftp": s.sessionHandler},
@@ -213,16 +245,12 @@ func (s *Server) ListenAndServe() error {
 	hostKeyPath := filepath.Join(s.HostKeyDir, "ssh_host_ed25519_key")
 	signer, err := ensureHostKey(hostKeyPath)
 	if err != nil {
-		return fmt.Errorf("ensure host key: %w", err)
+		return nil, fmt.Errorf("ensure host key: %w", err)
 	}
 	srv.AddHostKey(signer)
 
-	s.runtimeMu.Lock()
 	s.runtimeSrv = srv
-	s.runtimeMu.Unlock()
-
-	slog.Info("ssh server listening", "addr", s.Addr)
-	return srv.ListenAndServe()
+	return srv, nil
 }
 
 // Shutdown gracefully shuts down the SSH server without interrupting active
@@ -272,9 +300,11 @@ func (s *Server) connCallback(ctx ssh.Context, conn net.Conn) net.Conn {
 		idleTimeout: s.idleTimeout(),
 		maxDeadline: s.workspaceMaxDeadline(time.Now()),
 	}
+	removeConnection := liveSessions.addConnection(conn, ctx)
 
 	go func() {
 		<-ctx.Done()
+		removeConnection()
 
 		if s.Metrics != nil {
 			s.Metrics.ActiveConns.Dec()
@@ -351,6 +381,9 @@ func (s *Server) publicKeyHandler(ctx ssh.Context, key ssh.PublicKey) bool {
 	remoteIP := remoteAddrIP(ctx.RemoteAddr())
 	hash := sha256.Sum256(key.Marshal())
 	fingerprint := "SHA256:" + base64.RawStdEncoding.EncodeToString(hash[:])
+	// Identify the attempted credential before its lookup can race removal.
+	// This value only permits revocation to close the transport, never access.
+	ctx.SetValue(authFingerprintKey, fingerprint)
 	credential := "key:" + fingerprint
 	if !s.admitAuthAttempt(remoteIP, credential) {
 		return false
@@ -593,6 +626,17 @@ func (s *Server) lookupPrincipal(ctx context.Context, fingerprint string) (sshPr
 	}, nil
 }
 
+// activeMemberKey fences channels opened on an already-authenticated connection.
+// Revocation closes existing channels, but SSH authentication is connection-wide:
+// a removed key must not open another shell, SFTP or forwarding channel.
+func (s *Server) activeMemberKey(ctx context.Context, principal sshPrincipal) bool {
+	if s.Queries == nil || principal.IsDeployKey || principal.UserID == 0 || principal.Fingerprint == "" {
+		return false
+	}
+	current, err := s.Queries.GetUserBySSHFingerprint(ctx, principal.Fingerprint)
+	return err == nil && current.UserID == principal.UserID
+}
+
 // auditAuthFailure records a failed SSH authentication attempt.
 func (s *Server) auditAuthFailure(ctx context.Context, fingerprint, remoteIP string) {
 	if s.AuditService != nil {
@@ -638,7 +682,7 @@ func (s *Server) sessionHandler(sess ssh.Session) {
 		}
 		if s.BranchLogins {
 			p, ok := sess.Context().Value(principalKey).(sshPrincipal)
-			if !ok || p.IsDeployKey || s.BranchResolver == nil {
+			if !ok || p.IsDeployKey || s.BranchResolver == nil || !s.activeMemberKey(sess.Context(), p) {
 				_, _ = fmt.Fprintln(sess.Stderr(), "ERROR: workspace unavailable, retry")
 				_ = sess.Exit(1)
 				return

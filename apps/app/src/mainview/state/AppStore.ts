@@ -784,6 +784,8 @@ export interface AgentContextSnapshot {
 }
 
 export interface AppStore {
+  /** Owned emergency recovery storage, shared with draft and wiki recovery. */
+  readonly documentRecoveryStorage?: StorageApi | undefined
   readonly collections: AppCollections
   /**
    * Apply one transition. Its change is visible in `collections` when this
@@ -815,6 +817,7 @@ export interface AppStore {
   /** Immutable runtime request; legacy model-authored cards have no authority. */
   readonly approvalRequest: (id: string) => ApprovalRequest | undefined
   /** Committed immutable evidence, excluding optimistic rows; used for observation cursors and deduplication. */
+  readonly committedRepositoryImport: (id: string) => import("@smthrs/rpc/Cards").RepositoryImportRequest | undefined
   readonly committedCard: (id: string) => Card | undefined
   readonly committedWorkspace: (id: string) => CloudWorkspaceRow | undefined
   readonly committedToast: (id: string) => Toast | undefined
@@ -1689,7 +1692,7 @@ const initializeAppStore = async (
     if (id === undefined) return undefined
     const card = after.snapshot.cards.find(row => row.id === id) ?? null, prior = before.snapshot.cards.find(row => row.id === id)
     const history = after.snapshot.cardHistories.find(row => row.id === id)
-    const secret = (row: Card): boolean => row.kind === "env" || row.kind === "approval" || row.kind === "approvals-inbox" ||
+    const secret = (row: Card): boolean => row.kind === "approval" || row.kind === "approvals-inbox" ||
       (row.kind === "flow-form" && row.payload.flow === "env.set")
     if ((card === null && prior === undefined) || (card && secret(card)) || (prior && secret(prior)) || history?.entries.some(secret)) return undefined
     // An earlier command's completed card edit must not overwrite a newer human
@@ -2101,6 +2104,7 @@ const initializeAppStore = async (
     dispatch,
     captureComposerDraft,
     approvalRequest,
+    committedRepositoryImport: id => { assertReadable(); return committed.snapshot.sessions.find(row => row.id === SESSION_ID)?.repositoryImports?.find(row => row.id === id) },
     committedCard: id => { assertReadable(); return committed.snapshot.cards.find(row => row.id === id) },
     committedWorkspace: id => { assertReadable(); return committed.snapshot.cloudWorkspaces.find(row => row.id === id) },
     committedToast: id => { assertReadable(); return committed.snapshot.toasts.find(row => row.id === id) },
@@ -2108,6 +2112,7 @@ const initializeAppStore = async (
     committedRuntimeRun: id => { assertReadable(); return committed.snapshot.runtimeRuns.find(row => row.id === id) },
     committedRuntimeApproval: id => { assertReadable(); return committed.snapshot.runtimeApprovals.find(row => row.id === id) },
     committedHttpTurn: (turnId, owner) => { assertReadable(); return committed.snapshot.httpTurns.find(row => row.turnId === turnId && row.owner === owner) },
+    documentRecoveryStorage: draftRecoveryStorage,
     persistenceMode: resolved.mode,
     persistedLoad: loadReport,
     persistenceDegraded: resolved.degraded,

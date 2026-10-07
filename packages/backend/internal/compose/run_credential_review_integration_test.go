@@ -89,6 +89,9 @@ func TestRunCredentialReviewIsNeverAHumanApprovalPostgres(t *testing.T) {
 	unboundRun := token("review-unbound", write, true)
 	person := token("review-person", write, false)
 
+	// Retained repository-job approvals exist only in the multitenant router.
+	// Exercise their authorization here; the self-hosted route-absence contract
+	// is covered by TestDeferredTriggerManagementHTTPPostgres.
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = config.AuthModeMultitenant
 	router := buildRouter(

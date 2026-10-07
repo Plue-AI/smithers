@@ -15,11 +15,11 @@ const pack = Smithers.NodeTest({
 
 const cwd = "flows"
 const sources = Smithers.glob("//flows/**/*.ts")
-const scripts = Smithers.glob("//scripts/*.mjs")
+const scripts = Smithers.Filegroup({ cwd: "scripts", srcs: [Smithers.glob("*.mjs")] })
 
 const check = Smithers.Typecheck({
-  srcs: [sources, scripts],
-  deps: [],
+  srcs: [sources],
+  deps: [scripts],
   tsconfig: Smithers.file("tsconfig.json"),
   buildMode: false,
   incremental: false,
@@ -33,7 +33,7 @@ const suite = Smithers.NodeTest({
     Smithers.file("//flows/test/release-operations.test.ts"),
     Smithers.file("//flows/test/publication.test.ts"),
     Smithers.file("//flows/test/review-flow.test.ts"),
-    Smithers.file("//flows/test/registration-calibration.test.ts"),
+    Smithers.file("//flows/test/coding-wiki-relay.test.ts"),
     Smithers.file("//flows/test/host-jev-routing.test.ts"),
     Smithers.file("//flows/test/system-flow-catalog.test.ts"),
     Smithers.file("//flows/test/workflows.test.ts"),
@@ -43,9 +43,6 @@ const suite = Smithers.NodeTest({
   ]),
   srcs: [
     sources,
-    Smithers.file("//flows/register-repository/calibration/corpus.json"),
-    Smithers.file("//flows/register-repository/calibration/fit.json"),
-    scripts,
     Smithers.file("//flows/review/flow.ts"),
     Smithers.file("//packages/backend/internal/services/flow_catalog.go"),
     Smithers.file("//packages/backend/internal/services/builtin_flows.json"),
@@ -54,7 +51,7 @@ const suite = Smithers.NodeTest({
     Smithers.file("//flows/rollout/refuse-unqualified.mjs"),
     Smithers.file("//apps/bug-worker/package.json")
   ],
-  deps: [],
+  deps: [scripts],
   cwd
 })
 
@@ -195,7 +192,7 @@ const codingBackend = codingPackages.map((cwd) =>
     srcs: [Smithers.glob("src/**"), Smithers.file("package.json"), Smithers.file("tsconfig.json")]
   })
 )
-const codingScripts = Smithers.Filegroup({ cwd: "scripts", srcs: [Smithers.glob("*.mjs")] })
+const codingScripts = scripts
 const codingWiki = Smithers.Filegroup({ cwd: "flows/wiki", srcs: [Smithers.glob("**/*.ts")] })
 const codingFiles = [
   sources,
@@ -251,15 +248,18 @@ const codingPolicy = Smithers.NodeTest({
   runtime: node,
   runner: Smithers.testRunner([
     Smithers.file("//flows/test/coding-host.test.ts"),
+    Smithers.file("//flows/test/coding-build-only.test.ts"),
+    Smithers.file("//flows/test/coding-install-project.test.ts"),
     Smithers.file("//flows/test/coding-builtin-routes.test.ts"),
     Smithers.file("//flows/test/coding-flow-load.test.ts"),
     Smithers.file("//flows/test/coding-runtime-bridge.test.ts"),
     Smithers.file("//flows/test/coding-gates.test.ts"),
     Smithers.file("//flows/test/coding-pool-default-model.test.ts"),
+    Smithers.file("//flows/test/coding-wiki-relay.test.ts"),
     Smithers.file("//flows/test/coding-planning-wiki-prior.test.ts")
   ]),
   // `coding-host.test.ts` and `coding-builtin-routes.test.ts` load the checked-in project configuration.
-  srcs: [...codingSources, ...codingProjectInputs],
+  srcs: [...codingSources, ...codingProjectInputs, Smithers.file("//packages/smithers/flows/flow/test/MemoryFlowRuntime.ts")],
   deps: codingDependencies,
   cwd,
   cache: true
@@ -273,16 +273,24 @@ const codingRuntime = Smithers.NodeTest({
     Smithers.file("//flows/test/coding-planning-answers.test.ts"),
     Smithers.file("//flows/test/coding-project-memory.test.ts"),
     Smithers.file("//flows/test/coding-stack-base.test.ts"),
+    Smithers.file("//flows/test/coding-stack-reserved.test.ts"),
+    Smithers.file("//flows/test/coding-wiki-relay.test.ts"),
     Smithers.file("//flows/test/coding-project-config.test.ts"),
     Smithers.file("//flows/test/coding-project-defaults.test.ts"),
+    Smithers.file("//flows/test/coding-build-only.test.ts"),
+    Smithers.file("//flows/test/coding-candidate-equality.test.ts"),
+    Smithers.file("//flows/test/coding-pinned-source.test.ts"),
+    Smithers.file("//flows/test/coding-install-project.test.ts"),
     Smithers.file("//flows/test/coding-steering.test.ts"),
     Smithers.file("//flows/test/coding-request-coordinator.test.ts"),
     Smithers.file("//flows/test/factory-todo.test.ts"),
+    Smithers.file("//flows/test/coding-todo-failures.test.ts"),
     Smithers.file("//flows/test/coding-correction-stall.test.ts"),
     Smithers.file("//flows/test/coding-host-policy.test.ts"),
     Smithers.file("//flows/test/coding-host-modules.test.ts"),
     Smithers.file("//flows/test/coding-wiki-registry.test.ts"),
     Smithers.file("//flows/test/coding-create-flow-registry.test.ts"),
+    Smithers.file("//flows/test/coding-pinned-source.test.ts"),
     Smithers.file("//flows/test/coding-pr-triage-host.test.ts"),
     Smithers.file("//flows/test/coding-jev-check.test.ts"),
     Smithers.file("//flows/test/coding-review-check.test.ts"),
@@ -295,8 +303,11 @@ const codingRuntime = Smithers.NodeTest({
     Smithers.file("//flows/test/coding-landing-config.test.ts"),
     Smithers.file("//flows/test/coding-check-environment.test.ts"),
     Smithers.file("//flows/test/coding-check-output.test.ts"),
+    Smithers.file("//flows/test/coding-candidate-equality.test.ts"),
+    Smithers.file("//flows/test/coding-pinned-source.test.ts"),
     Smithers.file("//flows/test/coding-vibe-landing.test.ts"),
     Smithers.file("//flows/test/coding-source-publication.test.ts"),
+    Smithers.file("//flows/test/coding-stack-reserved.test.ts"),
     Smithers.file("//flows/test/coding-dispatch.test.ts")
   ]),
   srcs: [...codingSources, ...codingProjectInputs],
@@ -391,7 +402,10 @@ const codingBundleBun = Smithers.Shell.Test({
   timeout: "45m"
 })
 const wiki = Smithers.NodeTest({
-  runner: Smithers.testRunner([Smithers.file("//flows/test/wiki.test.ts")]),
+  runner: Smithers.testRunner([
+    Smithers.file("//flows/test/wiki.test.ts"),
+    Smithers.file("//flows/test/wiki-install-defaults.test.ts")
+  ]),
   srcs: [sources],
   deps: [],
   cwd
@@ -479,14 +493,14 @@ const fixtures = Smithers.NodeTest({
   runtime: node,
   runner: Smithers.testRunner([
     fixture("wiki-reuse.test.ts"),
+    fixture("wiki-install-defaults.test.ts"),
     fixture("wiki-jev-citations.test.ts"),
     fixture("content-jev-template.test.ts"),
     fixture("coding-fault.test.ts"),
     fixture("run-record.test.ts"),
     fixture("canary-coding-setup.test.mjs"),
     fixture("invoke-native-host.test.ts"),
-    fixture("decide-with-jev-docs.test.ts"),
-    fixture("register-repository.test.ts")
+    fixture("decide-with-jev-docs.test.ts")
   ]),
   // `decide-with-jev-docs` reads the guide.
   srcs: [
@@ -530,7 +544,7 @@ const securityReview = Smithers.SecurityReview({
         "invoke/**",
         "repository/remote.ts",
         "repository/check-receipt.ts",
-        "register-repository/host.ts"
+        "coding/check-detection.ts"
       ]
     },
     {
@@ -544,7 +558,7 @@ const securityReview = Smithers.SecurityReview({
         "apiBaseUrl accepted over plain http: outside a loopback test host while carrying a bearer token.",
         "A PR link parsed from comment text used to pick the repository whose source is retained or reviewed."
       ],
-      paths: ["repository/remote.ts", "repository/check-receipt.ts", "coding/landing.ts", "register-repository/**"]
+      paths: ["repository/remote.ts", "repository/check-receipt.ts", "coding/landing.ts"]
     },
     {
       id: "source-tree-confinement",
@@ -568,7 +582,7 @@ const securityReview = Smithers.SecurityReview({
         "coding/immutable-source.ts",
         "coding/snapshots.ts",
         "release-support/io.ts",
-        "register-repository/tree.ts"
+        "coding/check-detection.ts"
       ]
     },
     {
@@ -582,7 +596,7 @@ const securityReview = Smithers.SecurityReview({
         "A model-authored argv (repro.argv, check commands) run without a timeout, output bound, or the isolated source cwd.",
         "A flow.mdx/flow.ts capability grant `proc:spawn:<cmd> *` broader than the commands the body runs."
       ],
-      paths: ["repository/**", "coding/**", "release-support/**", "register-repository/**", "**/flow.mdx", "**/flow.ts"]
+      paths: ["repository/**", "coding/**", "release-support/**", "**/flow.mdx", "**/flow.ts"]
     },
     {
       id: "check-command-provenance",
@@ -688,6 +702,7 @@ const securityReview = Smithers.SecurityReview({
 
 export const Package = Smithers.Package({
   targets: {
+    scripts,
     codingHostInputs,
     coding,
     codingPolicy,

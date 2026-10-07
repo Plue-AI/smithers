@@ -3,7 +3,7 @@ paths:
     get:
       x-composition: install
       summary: Read the install's flow catalog
-      description: Each overridable flow with its versions, as the Flow card shows it. The TODO flow is built in and Active at its digest until the repository overrides it. No system flow is listed. Any member's browser session reads it.
+      description: Each overridable flow with its versions, as the Flow card shows it. The TODO flow is built in and Active at its digest until the repository overrides it. No system flow is listed. Open TODO candidate diffs supply proposed versions and their TODO numbers. A failed merged load retains the previous Active version and exposes its error. Any member's browser session reads it.
       operationId: get_api_flows
       tags:
         - Flows
@@ -24,12 +24,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccessError'
-        '403':
-          description: Not a member, or not a person's browser session
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '503':
+          description: Flows unavailable
+  /api/flows/{name}:
+    get:
+      summary: Read one flow
+      description: Resolves an overridable flow from the install catalog, or an install-owned system name as built in. This read never loads repository code.
+      operationId: get_api_flows_name
+      tags:
+        - Flows
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Flow card model
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/AccessError'
+              schema: {$ref: '#/components/schemas/FlowCard'}
+        '401':
+          description: Not signed in
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404':
+          description: No such flow
         '503':
           description: Flows unavailable
 components:
@@ -55,7 +77,7 @@ components:
             required: [id, state, steps]
             properties:
               id:
-                description: The version's digest
+                description: The loaded version's digest, or a provisional immutable candidate identity before loading
                 type: string
               state: {type: string, enum: [active, proposed, merged-syncing, merged-failed, previous]}
               todo: {type: integer, minimum: 1}

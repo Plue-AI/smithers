@@ -153,9 +153,17 @@ const pending = {
     },
     { actions: [{ tag: "pr", label: "on GitHub ↗", args: { number: "3475" } }], expect: ["required-ci"] }
   ),
+  learning: story("Make TODO", {
+    kind: "one_click",
+    action: { tag: "learning.accept", verb: "Make TODO" },
+    summary: "Run lint",
+    subject: { kind: "proposal", ref: "check:lint@review", revision: "proposal-1" },
+    text: "Run lint before review",
+    asked_by: smithers_for_ben
+  }, { expect: ["Run lint"] }),
   done: story("Receipt: done", receipt("done", "Amended T12"), { expect: ["Amended T12"] }),
-  cancelled: story("Receipt: cancelled", receipt("cancelled"), { expect: ["Amend T12"] }),
-  expired: story("Receipt: expired", receipt("expired"), { expect: ["Amend T12"] })
+  cancelled: story("Receipt: cancelled", receipt("cancelled"), { expect: ["Cancelled"] }),
+  expired: story("Receipt: expired", receipt("expired"), { expect: ["Expired"] })
 } satisfies Record<string, Story<ConfirmCard>>
 
 // Cancel (confirm.cancel, people only) on every confirmation still waiting, bound to its revision.

@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "fixtures": [
+    {
+      "file": "codex-recorded.jsonl",
+      "expected": "codex-recorded.expected.json",
+      "recorded": true,
+      "cli_release": "0.160.0",
+      "format_version": "codex/0.160.0",
+      "capture": "Ordered excerpt of an existing unprivileged Codex CLI rollout captured 2026-10-03. Selected first metadata shapes, user/assistant turns, two exec tool pairs and one encrypted reasoning record; no CLI or repository code executed for capture.",
+      "redactions": "All nonstructural string values replaced with [REDACTED]; timestamp strings fixed (numeric internal timestamps retained); source/session/call IDs replaced consistently; ciphertext replaced with [REDACTED CIPHERTEXT]. Field names, types, nesting, nulls and arrays retained. Records omitted after the selected limits; excerpt byte offsets refer to this sanitized file.",
+      "record_shapes": ["session_meta", "event_msg.task_started", "event_msg.item_completed", "event_msg.token_count", "world_state", "turn_context", "token_usage_record", "response_item.message", "response_item.custom_tool_call", "response_item.custom_tool_call_output", "response_item.reasoning"],
+      "limitations": "One model turn only; no recorded edits or explicit errors in this excerpt. Encrypted reasoning is real; encrypted agent_message coverage is synthetic."
+    },
+    {
+      "file": "claude-synthetic.jsonl",
+      "expected": "claude-synthetic.expected.json",
+      "recorded": false,
+      "cli_release": null,
+      "format_version": "claude-code/2.1.0",
+      "capture": "Synthetic regression input based on historical repository format notes, not a real capture. Provisional release profile; requires owner validation before activation.",
+      "record_shapes": ["queue-operation", "user", "assistant", "tool_use", "tool_result", "isApiErrorMessage"],
+      "limitations": "Does not satisfy C-AGT-01 real-Claude golden evidence."
+    },
+    {
+      "file": "codex-synthetic.jsonl",
+      "expected": "codex-synthetic.expected.json",
+      "recorded": false,
+      "cli_release": null,
+      "format_version": "codex/0.160.0",
+      "capture": "Synthetic edit success/failure, explicit error and encrypted agent_message regressions.",
+      "record_shapes": ["response_item.message", "response_item.custom_tool_call", "response_item.custom_tool_call_output", "response_item.function_call", "response_item.function_call_output", "response_item.agent_message", "event_msg.error"],
+      "limitations": "Does not replace required real edit/error captures."
+    }
+  ]
+}

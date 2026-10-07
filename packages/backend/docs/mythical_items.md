@@ -1,47 +1,151 @@
 ---
 title: "TODO steering and amendments"
-description: "Transactional signal admission and the production activation boundary."
+description: "The install's TODO feedback routes, transaction boundaries, delivery receipts and activation requirements."
 ---
 
-## Transactional admission
+## Availability
 
-`flowdispatch.Service.SignalInTx` admits a signal through the existing jobs
-store in the caller's PostgreSQL transaction. It shares validation, scope
-binding, authorization context, reconciliation policy and request identity with
-`Signal`. The caller commits or rolls back the product event, revision and
-signal intent together. Admission performs no runtime resolution or delivery;
-the existing jobs worker delivers committed intents and reconciles lost replies.
+The single-owner install enables steering with its durable dispatcher and
+selects the TODO digest through the existing Active flow-version store. Missing
+launcher, source pin or guest providers refuse before delivery; there is no host
+execution fallback. Hosted composition leaves these providers disabled.
 
-The dispatcher records intent; it does not authorize a TODO mutation, lock a
-merge fence, settle a wait, append a revision or start an attempt. Those operations
-must use the pinned TODO service and bound catalog authorization before admission.
+Activation requires T-STK-01/02/05/12, T-FLW-11, T-MCH-14, T-INS-02,
+T-FLW-01, T-SEC-01, T-CAT-01 and T-ACC-03. Delegation also requires T-ACC-04;
+delegated Amend requires T-APP-04. Repository code executes only in the
+qualified guest, never on the host or as root through this admission path.
 
-## Activation boundary
+The API source is [todos.yaml](../../../docs/api/openapi/todos.yaml). The
+generated Go and TypeScript clients expose `PatchAPITodosN` and
+`patchApiTodosN` respectively. The routes are install-only.
 
-TODO Message notifications currently refuse `notification_unavailable` before
-queue admission. The pinned `todo` composition and its closure, notification
-lineage and guest-host delivery contracts must pass their production checks
-before replacing this refusal. Existing `coding/request` delivery is retained.
+## Requests and authority
 
-The public `POST /api/todos/{n} {steer}`, `PATCH /api/todos/{n}` and corresponding
-catalog commands are not enabled by this dispatcher change. Their activation
-requires T-STK-01/02/05/12, T-FLW-11, T-MCH-14, T-INS-02, T-FLW-01, T-SEC-01,
-T-CAT-01 and T-ACC-03. Delegation also requires T-ACC-04; delegated Amend requires
-T-APP-04. No branch-built artifact or repository code executes as root or on the
-host through this admission seam.
+Both routes require `Idempotency-Key` containing 1 to 256 bytes. The route
+derives repository and member from authentication; JSON cannot select them.
+The service rechecks current membership inside the product transaction,
+including after acquiring the stack lock. A removed or suspended member
+cannot admit or replay feedback.
+
+| Operation              | Request body                                                                    | Successful admission                                  |
+| ---------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `POST /api/todos/{n}`  | `{"steer":"Keep the public method name"}`                                       | `202 {"state":"accepted","attempt":1}`                |
+| `PATCH /api/todos/{n}` | `{"prompt":"Add cancellation","acceptance":["Cancellation closes the worker"]}` | `202 {"state":"accepted","n":12,"rev":2,"attempt":1}` |
+
+Numbers in these receipts are examples. `attempt` is omitted when zero. A
+202 receipt establishes committed admission, not model consumption or run
+completion. The app keeps progress open until the corresponding live TODO
+receipt arrives.
+
+An amendment accepts only `prompt` and optional `acceptance`, an array of
+strings. The prompt must contain non-whitespace text. The prompt plus formatted
+acceptance criteria must fit 24,576 UTF-8 bytes. The handler bounds JSON to
+256 KiB and refuses unknown fields and multiple JSON documents. Draft-only
+metadata such as title, placement and issue linkage is not a PATCH payload.
+
+Active owners, maintainers and members may reach these operations with their
+browser session. A stage-1 terminal credential may steer only its own branch's
+TODO. Delegated Amend returns `202` with `state: "pending"` and the private
+confirmation ID. Only its person can approve it through the shared confirmation
+route; approval commits one revision and one attributed steer. Replays do not
+repeat either effect. A changed TODO expires the confirmation before effects.
+Without the shared confirmation provider, delegated Amend refuses with
+`503 infra/confirmation_unavailable`. Run and machine credentials do not gain
+amendment authority.
+
+## Committed feedback
+
+`admitTodoFeedback` is the shared service path. Under the stack lock it saves
+the input in `checks.Steers` and records `todo.steer_received` in the existing
+product jobs store. An amendment also appends one entry to `revisions`, records
+`todo.amended`, and invalidates affected later verification through the
+existing prefix calculation. It allocates no TODO number, branch or PR.
+
+The feedback entry links to the amendment's revision. Repeating an admitted
+request with the same authenticated credential returns that revision without
+another event or delivery. Reuse for another TODO, prompt, acceptance array or
+operation returns `409 conflict/idempotency_mismatch`. Creation, Merge, Steer,
+Amend, Retry, Drop and Move share the existing request lookup and repository
+request lock.
+
+A replacement browser session or terminal credential starts a separate
+authorized request even for the same member and key. The server derives the
+identity from the stored session or token and its binding; attribution headers
+cannot change it. Historical feedback without a credential identity stays
+readable, but replay of its key refuses rather than inferring authority from
+its author. Confirmation creation and approval use the same command authority
+and retain the delegated participant's attribution.
+
+For an already-launched, bound attempt, the same transaction calls
+`flowdispatch.SteerInTx`. Its stable input ID becomes the runtime Message ID.
+The existing jobs worker retries delivery after interruption or a lost
+acknowledgment; it does not allocate a second input ID.
+
+Answer signals and Steer messages for the same bound run dispatch in the
+committed order of their `operation.accepted` events. An unresolved earlier
+input holds later delivery across worker concurrency, retry and restart. An
+uncertain outcome remains a barrier until reconciliation. Other runs continue
+independently. This orders runtime delivery; the guest still owns the model-turn
+barrier that consumes every input committed before dispatch.
+
+| State at admission or delivery       | Behavior                                                                       |
+| ------------------------------------ | ------------------------------------------------------------------------------ |
+| Live, attached attempt               | Deliver to its existing run and working copy.                                  |
+| Open question                        | Keep the question open; feedback is a Message, not its answer.                 |
+| Paused or still attaching            | Retain the intent; delivery waits for the lifecycle hold to clear.             |
+| Merge fence                          | Hold Steer; refuse a new Amend with `409 merging`.                             |
+| Merged or dropped                    | Refuse new admission with `409 todo_closed`; do not deliver retained feedback. |
+| Queued or next attempt without a run | Persist feedback in the launch payload; later arrivals acquire an intent on run attachment.              |
+
+Delivery rechecks the stored input, attempt, working copy, stack owner and
+author's current membership before wake and again before sending. Releasing a
+held input clears stale candidate verification and merge consent once, inside
+the product transaction. Replayed delivery cannot repeatedly clear a newer
+candidate. Person and delegated attribution travel separately from the
+runtime's authenticated principal.
+
+## Remaining acceptance work
+
+The following acceptance evidence remains required beyond the composed-router,
+PostgreSQL dispatcher and browser-seam tests:
+
+- Inputs received before run attachment join live Answer and Steer in one
+  committed order, without duplicating initial launch feedback or losing text.
+  The current launch payload aggregates historical feedback into a bounded
+  string; that is not an ordered-consumption receipt.
+- A real pinned guest with a scripted model consumes every input committed
+  before dispatch at its next model call, including during a blocked step and
+  an open question, on the same run and working copy.
+- Missing providers, revocation, pause, merge fencing, restart and lost
+  acknowledgment preserve the required refusal, hold and exactly-once effects.
+
+Selected PostgreSQL, recording-host, route, app and generated-client tests
+cover the implemented boundaries. They do not satisfy the guest journeys in
+[T-STK-06](../../../.specs/engineering/tickets/T-STK-06.md) or establish that
+the complete specification is implemented.
 
 ## Stop, Resume, Retry and Drop
 
-T-STK-05 supplies the control boundary for `POST /api/todos/{n}`. It is
-unmounted until the shared install command dispatcher and its authorization,
-confirmation and execution dependencies pass their joint checks. Direct
-handler calls return `503` with `code: todo_control_unavailable`, `class: infra`;
-they never acknowledge admission or mutate a TODO.
+T-STK-05 supplies the control boundary for `POST /api/todos/{n}`. The install
+mounts and authorizes the route; each control dispatches to its own service.
+Retry, Drop and Move have handlers. Stop, Resume and Retry with the current
+flow return `503 infra/todo_control_unavailable` before effects because their
+handlers are not registered.
 
 The request carries `Idempotency-Key` and JSON `{op, steer?}`. `op` is `stop`,
 `resume`, `retry`, `retry-current-flow` or `drop`. Only the two retries accept a
 steer. The browser retains the request and its key until a committed projection
 receipt arrives; HTTP acceptance alone never completes the toast.
+
+Retry, Drop and Move recheck current authority after waiting for the repository
+and stack locks. A repeated request from the same authenticated session returns
+its original receipt; another operation, TODO, direction or Retry text with
+that key returns `409 conflict/idempotency_mismatch`. A replacement session has
+its own request scope. Replay identity, validated input and the original receipt
+are private metadata on the existing product request, committed atomically
+with the state change and activity. Activity events contain none of that replay
+metadata. Historical controls without a recorded credential remain readable;
+their keys cannot authorize replay.
 
 Stop requires an executing run and no question or approval; branch waits do
 not refuse Stop. Resume requires the committed pause fact. Both retries require
@@ -60,9 +164,28 @@ The PR-close primitive uses a narrowly scoped installation
 token and must be called only through persisted outbound intent/recovery after
 cancellation, final capture and the merge fence settle.
 
-No root operation or host-process execution fallback is added. Full
-Stop/Resume, attempt creation, Drop/fold/removal and restored-input execution
-remain disabled pending their production PostgreSQL/microVM boundary receipts.
+A GitHub reopen within seven days restores the accepted generation without
+reviving the dropped run. Smithers Drop anchors that window to the committed
+Drop, not subsequent close or lane updates. Reopening alone starts no attempt. Its first Steer, Amend or member review input queues a new attempt on the
+same stored flow pin. A rebase also queues fresh work. Feedback is included in
+the new launch; nothing is sent to the closed run. Replays do not create another
+attempt, and late checkpoints from the dropped run cannot replace the restored
+candidate. A Steer held behind a merge fence waits for reconciliation.
+
+Admission records the new attempt and its flow pin in `checks.attempts` in the
+same transaction as its durable launch. Its run id remains empty until the
+runtime binds a run; a failed admission leaves no attempt snapshot.
+
+Settlement records the attempt’s run, flow pin, source, candidate generation and
+`merged` or `dropped` outcome in `checks.attempts` with the item mutation. That
+snapshot stays frozen across late runtime receipts, reopen and retry. Older
+records without these fields remain readable; their missing history is not
+reconstructed from a newer attempt.
+
+No root operation or host-process execution fallback is added. Completing
+Stop/Resume and qualifying restored-input execution still requires their
+production PostgreSQL/microVM boundary receipts, including final-capture restore
+and ordered model consumption; dispatcher fixtures do not prove either.
 
 ## Place and Move
 
@@ -93,23 +216,6 @@ changed loses its verification in the move's transaction and waits in
 `integrating` with reason `rebase_pending`; its candidate stays, and the
 stack rebases it onto the new prefix. A new TODO filed Before has no
 verified candidate, so it changes no prefix until it is verified.
-
-## Steer and Amend refusal boundary
-
-The same unmounted control handler recognizes `POST /api/todos/{n}` with
-`{steer}`; the unmounted Amend handler accepts `PATCH /api/todos/{n}` with
-`{prompt, acceptance}`. Both reuse the existing control decoder, request size
-limit, number validation, idempotency-key requirement and error envelope.
-Valid direct requests return `503 infra/todo_control_unavailable` before subject
-reads or effects, including repeated keys. Neither accepts actor or `via`
-from JSON. Attribution must come from the shared bound authorization decision.
-
-Amend cannot allocate a revision, create a confirmation or send a signal here.
-Once the shared authority exists, delegated Amend must refuse
-`503 infra/confirmation_unavailable` if its confirmation consumer is absent.
-There is no local credential or confirmation substitute. Future activation
-requires the served install router, catalog dispatcher and pinned guest-host
-checks; these direct-handler refusal tests are supplemental evidence only.
 
 ## Questions and answers
 
@@ -313,21 +419,80 @@ guards, `MergeDecision`, the merge's preparation (`PrepareMerge`) and the
 merge kind of the App's lookup and settlement together. A composition without them, such as Plue's, refuses the
 route `409 rechecking` before any approval. C-J1-04 remains incomplete.
 
-## Parallel setting (dark)
+## Parallel setting
 
 `install_settings.parallel` stores the owner's requested integer, 1–8. The
 capacity service projects requested and effective values separately; effective
-is `min(requested, capacity)`, including zero. Only an absent saved value uses
-`max(1, capacity − 1)`. The forward migration preserves a single legacy stack's
+is `min(requested, capacity)`, including zero. Capacity refreshes free disk
+from the runtime state volume while keeping startup memory and core measurements.
+A failed disk read refuses admission. Only an absent saved value uses
+`max(1, capacity − 1)`, bounded by the setting’s maximum of eight. The forward migration preserves a single legacy stack's
 value and never overwrites an install value. Multiple legacy stacks are not a
 single-repository install and are not arbitrarily selected by the migration.
 
 Settings retains the request even above capacity; Home can represent effective
 zero. The old repository config write and `history.parallel` door are removed.
-The install write remains unmounted, and the service refuses writes without the
-shared authorization/catalog provider. On an install a fresh TODO attempt
-launches `coding/request` on its own lane (`EnableTodoAdmission`); hosted
-composition refuses it. Ordered runtime demands, holder release accounting and
-live queue positions require the ordering, scheduler and machine-execution
-providers and C-STK-02.
-No admission queue, root operation or host execution fallback is added.
+`PUT /api/install` reads and writes the requested value through the shared
+owner-only person policy. The service refuses writes without that provider.
+The composed engine uses the effective value for its launch limit, and Home
+reports that value to the owner. Install TODO attempts use their bound branch
+machines and the composed launcher; hosted composition refuses fresh work.
+
+The install counts pending launches and runtime-owned machines, including
+cancelled grants awaiting an observed stop. Unknown runtime ownership refuses
+new launches. Publishing for review retains the branch machine; publication
+alone cannot establish safe-idle. The runtime's existing safe-idle lifecycle
+must observe safety, capture and confirm stop before the slot becomes free.
+
+Existing ungranted workspace demands are reordered in the runtime queue by
+stack position, without changing grants or person priority. TODO projections
+preserve scheduler positions, including waiting person requests. Repeated reads
+of unchanged order do not invalidate a concurrent grant. TODOs without a bound
+workspace still use the retained stack-list projection: pre-workspace demand
+and reservation handoff need the scheduler's branch-authority integration.
+Production safe-idle observation providers and the complete C-STK-02 journey
+remain required. No second queue, root operation or host execution fallback is
+added.
+
+## Placement and order
+
+`POST /api/todos` accepts `place: {mode: "append"}` (the default) or
+`place: {mode: "before", n: 3}`. Before takes T3's slot and shifts the later
+TODOs. `POST /api/todos/3` with `{op: "move", direction: "up"}` or `"down"`
+swaps T3 with its nearest unmerged neighbor. A first item cannot move up and
+a last item cannot move down. Working items may be moved past.
+
+Placement holds the repository lock and records its event in the product
+transaction. The partial unique position index excludes settled items. Swaps
+vacate one slot before assigning either new position; Before shifts from the
+tail toward the insertion point. Drop vacates its slot and compacts later
+positions in the same transaction as cancellation. Changed candidate prefixes
+lose verification and merge approval while retaining captured work for rebase.
+The engine admits items by position; item reads list earlier unmerged items in
+`dependsOn`.
+
+A repeated request with the same credential and Idempotency-Key returns its
+original receipt. Competing moves that read the same item revision permit one
+winner; the stale press returns `409 conflict`. A merging target or neighbor
+returns `409 merging`. Restricted `terminal_s1` credentials cannot place Before
+or Move. Append returns `403 permission/confirm_in_app` while the delegated
+confirmation consumer is unavailable; no TODO is created by that refusal.
+## Standing pre-approval
+
+An owner or maintainer browser session uses `POST /api/todos/{n}/preapproval`
+and `DELETE /api/todos/{n}/preapproval`. These change `checks.Automerge` and its attributed standing
+approval, retaining add/remove history. Agent, run, machine and delegated
+credentials cannot change them. `checks.Land` remains the separate
+revision-bound Review & merge receipt.
+
+The existing stack worker evaluates standing approvals through MergeReady and
+the same sha-bound squash intent, claim, lookup and containment settlement as
+Review & merge. Required checks, reviews, order, pending work and current
+maintainer authority still apply. An expired granting browser session does not
+expire the standing approval. A definitive dispatch refusal is retained and
+requires removing and granting approval again at that head; recovery never
+blindly repeats an uncertain send.
+
+The owner sets `PUT /api/install {todo_preapprove_default: boolean}`. Only TODOs
+created afterwards inherit that owner's approval; disabling the default changes
+no existing TODO. Settings and TODO cards read these persisted projections.

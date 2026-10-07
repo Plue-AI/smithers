@@ -10,7 +10,7 @@ import {
   useState,
 } from "react";
 import { cn } from "../cn";
-import type { CopyFailureCode } from "../internal/copyToClipboard";
+import { canCopyText, type CopyFailureCode } from "../internal/copyToClipboard";
 import { useCopyFeedback } from "../internal/useCopyFeedback";
 import { useInjectUiCss } from "../styles";
 
@@ -53,7 +53,7 @@ export function CodeBlock({
   const { copied, copyFailed, copy: copyCode } = useCopyFeedback({ value: code, onCopy: onCopyCode, onCopyError, copiedDurationMs });
   const isWrapControlled = controlledWrap !== undefined;
   const wrap = isWrapControlled ? controlledWrap : uncontrolledWrap;
-  const hasClipboard = typeof navigator !== "undefined" && typeof navigator.clipboard?.writeText === "function";
+  const hasClipboard = canCopyText();
   const canCopy = showCopy && (onCopyCode !== undefined || hasClipboard);
 
   let highlighted: readonly HighlightLine[] | null = null;

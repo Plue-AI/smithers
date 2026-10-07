@@ -7,6 +7,16 @@
 import { Schema } from "effect"
 
 /**
+ * Producer-supplied attribution carried as data alongside the authenticated
+ * source actor. These labels never authorize a notification or a model action.
+ * They pass through the journal's ordinary redaction policy.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export const Attribution = Schema.Record(Schema.String, Schema.String)
+
+/**
  * Durable origin of a notification: who said it, from where, and at which
  * turn.
  *
@@ -22,7 +32,8 @@ export const Provenance = Schema.Struct({
   sourceRunId: Schema.String,
   sourceLineageId: Schema.String,
   sourceTurn: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
-  sourceActor: Schema.String
+  sourceActor: Schema.String,
+  attribution: Schema.optional(Attribution)
 })
 
 /**

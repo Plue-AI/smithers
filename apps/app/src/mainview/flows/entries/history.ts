@@ -1,14 +1,14 @@
 /*
  * The `history` flows: the repository's mythical stack (epic #1745), which
  * IS its history of logical changes (D-09a, D-20), served by
- * `@smthrs/rpc/Mythical`. `history.show` is dark: the
+ * `@smthrs/rpc/Mythical`. `history.show` is a hidden compatibility door to `/stack`: the
  * Home card replaced the History card (T-APP-01; `/stack`), and they stay
- * only as the seam's readers until StackSeam.ts goes with it. Bootstrap, retry and land are the writes the API
+ * only as hidden compatibility doors until StackSeam.ts goes with it. Bootstrap, retry and land are the writes the API
  * has, each acknowledged at once and finished in the shared toast stack.
  * One module per namespace: Flows.ts registers the block.
  */
 import { Schema } from "effect"
-import { flow, RepoTarget } from "./Declare"
+import { flow } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"
 
@@ -18,17 +18,7 @@ export const namespace: Namespace = { id: "history", label: "History", summary: 
 /** The `history` flows registered as one aggregator block. */
 export const historyFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({
-    name: "history.show",
-    summary: "Show the history: every change, each issue's lane, checks and pull request",
-    hidden: true,
-    runtime: ["cloud"],
-    args: "[owner/repo]",
-    requires: ["signed-in"],
-    input: RepoTarget,
-    handler: ({ repo }) => actions.showStack(repo)
-  }),
-  flow({
-    name: "history.bootstrap",
+    name: "history.bootstrap", visibility: "hidden",
     summary: "Create the history from main's commits",
     hidden: true,
     runtime: ["cloud"],

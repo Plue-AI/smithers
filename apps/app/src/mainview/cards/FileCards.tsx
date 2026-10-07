@@ -1,8 +1,11 @@
+import { ActorSchema } from "@smthrs/rpc/CardPrimitives"
+import { actorColour } from "./views/ActorChip"
 import type { LiveDocProvider } from "../runtime/LiveDocProvider"
 import type { EditorBinding } from "@smthrs/ui/adapters/code-editor"
 import { LiveFileContext, liveFileModel, type FileDocumentBinding } from "./liveDoc"
 import { CodeSurface } from "../ViewModules"
 import { cardActions } from "../flows/cardActions"
+import { flowArgs } from "../flows/FlowArgs"
 import { flowAction } from "../flows/FlowAction"
 import { fileArgs } from "@smthrs/rpc/FileRead"
 /*
@@ -203,7 +206,7 @@ export const FileListCardBody = ({
                     <Button
                       variant="ghost"
                       size="sm"
-                      {...flowAction(onRunCommand, read, fileArgs(childPath(path, entry.name), scope))}
+                      {...(card.id.startsWith("files-branch-") ? flowAction(onRunCommand, "file", flowArgs("file", { path: childPath(path, entry.name), branch: repo })) : flowAction(onRunCommand, read, fileArgs(childPath(path, entry.name), scope)))}
                     >
                       <FileText size={12} aria-hidden="true" />
                       <span className="world-card-title">{entry.name}</span>
@@ -222,9 +225,10 @@ export const FileListCardBody = ({
 
 /** Legacy journal data maps to S1 props without granting execution authority. */
 export const fileModel = (payload: Extract<Card, { kind: "file" }>["payload"]): FileCard => {
+  if (payload.file) return { ...payload.file, mode: "read_only" }
   const bytes = new TextEncoder().encode(payload.content).length
   return {
-    path: payload.path, branch: payload.ref ?? payload.repo, language: "", digest: "",
+    path: payload.path, branch: payload.ref ?? payload.repo, language: "", digest: payload.digest ?? "",
     content: bytes > LiveFileMaxBytes
       ? { kind: "too_large", bytes, text: payload.content }
       : { kind: "text", text: payload.content }, mode: "read_only",
@@ -238,10 +242,11 @@ export const fileModel = (payload: Extract<Card, { kind: "file" }>["payload"]): 
 
 export const FileCardBody = ({ card, live, onRunCommand }: { readonly card: Extract<Card, { kind: "file" }>; readonly live?: { readonly provider: LiveDocProvider; readonly binding: EditorBinding } } & FileCardActions) => {
   const payload = card.payload
-  const documents = useContext(LiveFileContext)
-  const document = live ?? documents?.resolve(payload.ref ?? payload.repo, payload.path)
+  const controller = useContext(ControllerContext)
+  const documents = useContext(LiveFileContext) ?? controller?.fileDocuments
+  const document = live ?? documents?.resolve(payload.ref ?? payload.repo, payload.path, fileModel(payload))
   // Old binary cards carry no byte count. Do not invent one.
-  if (payload.binary) return <p className="code-file-size">Binary file</p>
+  if (payload.binary && !payload.file) return <p className="code-file-size">Binary file</p>
   if (document) return <LiveFileBody card={card} document={document} onRunCommand={onRunCommand} />
   return <FileContent card={card} model={fileModel(payload)} onRunCommand={onRunCommand} />
 }
@@ -249,7 +254,7 @@ export const FileCardBody = ({ card, live, onRunCommand }: { readonly card: Extr
 const LiveFileBody = ({ card, document, onRunCommand }: { card: Extract<Card, { kind: "file" }>; document: FileDocumentBinding } & FileCardActions) => {
   const { data: status } = useLiveQuery(q => q.from({ document: document.provider.collection }))
   const model = liveFileModel(fileModel(card.payload), document.provider, document.provider.awareness.getStates())
-  return <FileContent card={card} model={model} onRunCommand={onRunCommand} binding={status[0]?.editable && model.mode === "live" ? document.binding : undefined} />
+  return <FileContent card={card} model={model} onRunCommand={onRunCommand} binding={status[0]?.editable && model.mode === "live" ? document.binding : undefined} provider={document.provider} />
 }
 
 /** Catalog absence keeps execution dark; persisted answers never grant a gesture. */
@@ -269,14 +274,28 @@ export const fileIntelligenceActions = (
   }] : []
 }))
 
-const FileContent = ({ card, model, binding, onRunCommand }: { card: Extract<Card, { kind: "file" }>; model: FileCard; binding?: EditorBinding | undefined } & FileCardActions) => {
+const FileContent = ({ card, model, binding, provider, onRunCommand }: { provider?: LiveDocProvider; card: Extract<Card, { kind: "file" }>; model: FileCard; binding?: EditorBinding | undefined } & FileCardActions) => {
   const payload = card.payload
   const controller = useContext(ControllerContext)
-  const bindings = fileIntelligenceActions(payload, onRunCommand, tag => controller?.commands.find(tag) !== undefined)
+  const intelligence = fileIntelligenceActions(payload, onRunCommand, tag => !(payload.file && payload.ref) && controller?.commands.find(tag) !== undefined)
+  const recovery = cardActions((tag, input) => {
+    if (tag === "file.compare" || tag === "file.restore-deleted" || tag === "file.follow-rename" || tag === "file.reapply") flowAction(onRunCommand, tag, JSON.stringify({ ...input, branch: model.branch })).onClick()
+  }, (provider || payload.file) ? ([
+    ...(model.outside ? [{ tag: "file.compare" as const, label: "Compare", command_input: { path: model.path } }] : []),
+    ...(model.gone?.kind === "deleted" ? [{ tag: "file.restore-deleted" as const, label: "Restore", command_input: { path: model.path } }] : []),
+    ...(model.gone?.kind === "renamed" ? [{ tag: "file.follow-rename" as const, label: "Follow", command_input: { path: model.path } }] : []),
+    ...(model.unsaved ? [{ tag: "file.reapply" as const, label: "Reapply", command_input: { path: model.path } }] : [])
+  ]).filter(action => controller?.commands.find(action.tag) !== undefined) : [])
+  const bindings = { ...intelligence, actions: recovery.actions, onAction: (tag: Parameters<typeof recovery.onAction>[0], input?: Record<string, string>) => {
+    if (tag === "code.hover" || tag === "code.definition") intelligence.onAction(tag, input)
+    else recovery.onAction(tag, input)
+  } }
   return <div className="world-card-panel" data-line={payload.line}>
     <LazyViewerBoundary fallback={<pre className="world-card-path">{payload.content}</pre>}>
       <Suspense fallback={<pre className="world-card-path">{payload.content}</pre>}>
-        <CodeSurface binding={binding} model={model} view={{ maximized: false }} {...bindings} onView={() => {}} />
+        <div role={provider?.comparison ? "group" : undefined} aria-label={provider?.comparison ? "Live and outside versions" : undefined} data-version={provider?.comparison?.version}>
+        <CodeSurface binding={binding} onCopy={provider ? () => provider.copy() : undefined} comparison={provider?.comparison ?? payload.comparison} model={model} view={{ maximized: false, compare: !!provider?.comparison || payload.compare }} {...bindings} onView={({ line }) => { if (provider) { const actor = ActorSchema.safeParse(provider.doc.getMap("authors").get(String(provider.doc.clientID))); provider.setLine(line ?? 1, actor.success ? actorColour(actor.data) : "var(--lane-0)") } }} />
+        </div>
       </Suspense>
     </LazyViewerBoundary>
     {payload.truncated ? <p className="world-card-empty">Truncated</p> : null}

@@ -142,7 +142,7 @@ func (q *Queries) GetWikiPageIdentity(ctx context.Context, arg GetWikiPageIdenti
 }
 
 const getWikiUpdateReceipt = `-- name: GetWikiUpdateReceipt :one
-SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector, title_source, source_commit FROM wiki_page_revisions WHERE page_id = $1 AND update_id = $2
+SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector, title_source, source_commit, learning_author FROM wiki_page_revisions WHERE page_id = $1 AND update_id = $2
 `
 
 type GetWikiUpdateReceiptParams struct {
@@ -177,6 +177,7 @@ func (q *Queries) GetWikiUpdateReceipt(ctx context.Context, arg GetWikiUpdateRec
 		&i.CrdtVector,
 		&i.TitleSource,
 		&i.SourceCommit,
+		&i.LearningAuthor,
 	)
 	return i, err
 }
@@ -210,7 +211,7 @@ func (q *Queries) InitializeWikiDocument(ctx context.Context, arg InitializeWiki
 }
 
 const listWikiHistoryPending = `-- name: ListWikiHistoryPending :many
-SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector, title_source, source_commit FROM wiki_page_revisions WHERE repository_id = $1 AND history_commit_id = ''
+SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector, title_source, source_commit, learning_author FROM wiki_page_revisions WHERE repository_id = $1 AND history_commit_id = ''
 ORDER BY id LIMIT $2
 `
 
@@ -252,6 +253,7 @@ func (q *Queries) ListWikiHistoryPending(ctx context.Context, arg ListWikiHistor
 			&i.CrdtVector,
 			&i.TitleSource,
 			&i.SourceCommit,
+			&i.LearningAuthor,
 		); err != nil {
 			return nil, err
 		}
@@ -264,7 +266,7 @@ func (q *Queries) ListWikiHistoryPending(ctx context.Context, arg ListWikiHistor
 }
 
 const listWikiHistoryRecovery = `-- name: ListWikiHistoryRecovery :many
-SELECT wr.id, wr.repository_id, wr.page_id, wr.revision, wr.slug, wr.title, wr.body, wr.author_id, wr.author_username, wr.update_id, wr.update_bytes, wr.deleted, wr.history_commit_id, wr.created_at, wr.visibility, wr.path, wr.content_digest, wr.attachment, wr.sequence, wr.crdt_state, wr.crdt_vector, wr.title_source, wr.source_commit, ns.lower_slug AS owner_name, r.name AS repo_name
+SELECT wr.id, wr.repository_id, wr.page_id, wr.revision, wr.slug, wr.title, wr.body, wr.author_id, wr.author_username, wr.update_id, wr.update_bytes, wr.deleted, wr.history_commit_id, wr.created_at, wr.visibility, wr.path, wr.content_digest, wr.attachment, wr.sequence, wr.crdt_state, wr.crdt_vector, wr.title_source, wr.source_commit, wr.learning_author, ns.lower_slug AS owner_name, r.name AS repo_name
 FROM wiki_page_revisions wr JOIN repositories r ON r.id = wr.repository_id
 JOIN owner_namespaces ns ON (ns.owner_type = 'user' AND ns.user_id = r.user_id)
  OR (ns.owner_type = 'org' AND ns.org_id = r.org_id)
@@ -299,6 +301,7 @@ type ListWikiHistoryRecoveryRow struct {
 	CrdtVector      []byte      `json:"crdt_vector"`
 	TitleSource     string      `json:"title_source"`
 	SourceCommit    string      `json:"source_commit"`
+	LearningAuthor  []byte      `json:"learning_author"`
 	OwnerName       string      `json:"owner_name"`
 	RepoName        string      `json:"repo_name"`
 }
@@ -336,6 +339,7 @@ func (q *Queries) ListWikiHistoryRecovery(ctx context.Context, limit int32) ([]L
 			&i.CrdtVector,
 			&i.TitleSource,
 			&i.SourceCommit,
+			&i.LearningAuthor,
 			&i.OwnerName,
 			&i.RepoName,
 		); err != nil {
@@ -350,7 +354,7 @@ func (q *Queries) ListWikiHistoryRecovery(ctx context.Context, limit int32) ([]L
 }
 
 const listWikiRevisions = `-- name: ListWikiRevisions :many
-SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector, title_source, source_commit FROM wiki_page_revisions WHERE repository_id = $1 AND page_id = $2
+SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector, title_source, source_commit, learning_author FROM wiki_page_revisions WHERE repository_id = $1 AND page_id = $2
 ORDER BY revision DESC LIMIT $3 OFFSET $4
 `
 
@@ -399,6 +403,7 @@ func (q *Queries) ListWikiRevisions(ctx context.Context, arg ListWikiRevisionsPa
 			&i.CrdtVector,
 			&i.TitleSource,
 			&i.SourceCommit,
+			&i.LearningAuthor,
 		); err != nil {
 			return nil, err
 		}
@@ -411,7 +416,7 @@ func (q *Queries) ListWikiRevisions(ctx context.Context, arg ListWikiRevisionsPa
 }
 
 const listWikiUpdatesAfter = `-- name: ListWikiUpdatesAfter :many
-SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector, title_source, source_commit FROM wiki_page_revisions
+SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector, title_source, source_commit, learning_author FROM wiki_page_revisions
 WHERE repository_id = $1 AND page_id = $2 AND revision > $3
 ORDER BY revision LIMIT $4
 `
@@ -461,6 +466,7 @@ func (q *Queries) ListWikiUpdatesAfter(ctx context.Context, arg ListWikiUpdatesA
 			&i.CrdtVector,
 			&i.TitleSource,
 			&i.SourceCommit,
+			&i.LearningAuthor,
 		); err != nil {
 			return nil, err
 		}

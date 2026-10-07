@@ -37,6 +37,28 @@ const harness = async (answer: (path: string, init?: RequestInit) => Promise<Res
 }
 
 describe("T-APP-03 install seam", () => {
+  test("a pre-save read cannot suppress the daily admission write", async () => {
+    const stale = deferred<Response>(), saved = deferred<Response>()
+    let reads = 0
+    const before = { ...installFixture(), todo_daily_admissions: 12 }
+    const after = { ...before, todo_daily_admissions: 13 }
+    const h = await harness((_path, init) => init?.method === "PUT" ? saved.promise
+      : ++reads === 2 ? stale.promise : Response.json(reads === 1 ? before : after))
+    await h.seam.readInstall()
+    const oldRead = h.seam.readInstall()
+    await tick()
+    expect(h.seam.setInstallDailyAdmissions(13)).toEqual({ value: "Requested" })
+    await tick()
+    expect(h.requests.at(-1)?.init?.body).toBe('{"todo_daily_admissions":13}')
+    stale.resolve(Response.json(before))
+    await oldRead
+    saved.resolve(Response.json(after))
+    await h.idle()
+    expect(h.seam.snapshots.get().model?.todo_daily_admissions).toBe(13)
+    expect(h.toasts.at(-1)?.outcome).toBe(true)
+    expect(reads).toBe(2)
+    h.seam.dispose()
+  })
   test("setup cookie authenticates reads; subscription begins after the claim", async () => {
     const model = installFixture(); model.github.signed_in = false
     const h = await harness(() => Response.json(model))
@@ -129,6 +151,26 @@ describe("T-APP-03 install seam", () => {
     gate.resolve(Response.json(installFixture())); await h.idle()
     expect(h.presentations).toEqual(["settings"]); expect(h.toasts[0]?.outcome).toBe(true)
   })
+  test("shared install frames retain the browser's authenticated Settings authority and callback fixes", async () => {
+    const model = installFixture()
+    model.callback_fixes = [{ settings_url: "https://github.com/settings/apps/smithers", add_url: "http://mini.lan:4000/api/auth/github/callback" }]
+    const h = await harness(() => Response.json(model))
+    await h.seam.readInstall()
+    const { can_assign_models, callback_fixes, ...shared } = model
+    h.receive({ ...shared, capacity: 1 })
+    expect(h.seam.snapshots.get().model?.capacity).toBe(1)
+    expect(h.seam.snapshots.get().model?.can_assign_models).toBe(true)
+    expect(h.seam.snapshots.get().model?.callback_fixes).toEqual(callback_fixes)
+    h.seam.dispose()
+  })
+  test("a shared frame cannot grant a member the owner's model controls", async () => {
+    const model = installFixture(); model.can_assign_models = false
+    const h = await harness(() => Response.json(model))
+    await h.seam.readInstall()
+    h.receive({ ...model, can_assign_models: true })
+    expect(h.seam.snapshots.get().model?.can_assign_models).toBe(false)
+    h.seam.dispose()
+  })
   test("source and machine progress are independent; malformed topic data retains the projection", async () => {
     const h = await harness(() => Response.json(installFixture())); await h.seam.readInstall()
     const live = installFixture(); live.steps[6] = { id: "machine", state: "running", pct: 20 }; h.receive(live)
@@ -178,6 +220,8 @@ describe("T-APP-03 install seam", () => {
     expect(JSON.parse(String(h.requests[1]?.init?.body))).toEqual({ capacity: 3 })
     h.seam.setInstallParallel(8); await h.idle()
     expect(JSON.parse(String(h.requests[2]?.init?.body))).toEqual({ parallel: 8 })
+    h.seam.setInstallCapacity(0); await h.idle()
+    expect(JSON.parse(String(h.requests[3]?.init?.body))).toEqual({ capacity: 0 })
   })
   test("a done Address is sent again while setup is unfinished, and never once setup is done", async () => {
     const input = { step: "address" as const, bind: "0.0.0.0:4000", origins: ["http://williams-mac-mini.local:4000"] }
@@ -195,13 +239,41 @@ describe("T-APP-03 install seam", () => {
     expect(finished.seam.setupStep(input)).toEqual({ value: "Requested" }); await finished.idle()
     expect(finished.requests.filter(row => row.init?.method === "POST")).toEqual([])
   })
+  test("Settings Address sends the flat install contract and refreshes the saved origins", async () => {
+    const model = installFixture()
+    const address = { listen: "network" as const, bind: "0.0.0.0:4000", origins: ["http://mini.lan:4000"] }
+    const h = await harness((_path, init) => {
+      if (init?.method === "PUT") {
+        expect(JSON.parse(String(init.body))).toEqual({ bind: address.bind, origins: address.origins })
+        model.address = address
+      }
+      return Response.json(model)
+    })
+    await h.seam.readInstall()
+    expect(h.seam.setInstallAddress(address)).toEqual({ value: "Requested" })
+    await h.idle()
+    expect(h.seam.snapshots.get().model?.address).toEqual(address)
+    expect(h.toasts.at(-1)?.outcome).toBe(true)
+    h.seam.dispose()
+  })
   test("refused origins stay inactive and writes remain retryable", async () => {
     const h = await harness((_path, init) => init?.method === "PUT" ? Response.json(failure(), { status: 422 }) : Response.json(installFixture()))
     await h.seam.readInstall(); const address = { listen: "network" as const, bind: "0.0.0.0:4000", origins: ["http://refused.test"] }
     h.seam.setInstallAddress(address); await h.idle()
     expect(h.seam.snapshots.get().model?.address.origins).not.toContain("http://refused.test")
     expect(h.seam.snapshots.get().error).toEqual(failure())
+    expect(h.seam.snapshots.get().model?.address.change_failed).toEqual({ from: "http://localhost:4000", to: "http://refused.test", reason: "Address refused" })
     h.seam.setInstallAddress(address); await h.idle(); expect(h.toasts).toHaveLength(2)
+  })
+  test("a transient address refusal retains the host's literal reason on the Settings row", async () => {
+    const refusal = { code: "address_unavailable", class: "transient" as const, message: "Install listener unavailable" }
+    const h = await harness((_path, init) => init?.method === "PUT" ? Response.json(refusal, { status: 503 }) : Response.json(installFixture()))
+    await h.seam.readInstall()
+    h.seam.setInstallAddress({ listen: "network", bind: "0.0.0.0:4000", origins: ["http://mini.lan:4000"] })
+    await h.idle()
+    expect(h.seam.snapshots.get().error).toEqual(refusal)
+    expect(settingsCardModel(h.seam.snapshots.get().model!, "http://localhost:4000").address.failed?.reason.message).toBe("Install listener unavailable")
+    h.seam.dispose()
   })
   test("a refused setup write fails its own step and keeps the Setup card (gh-setup-walk-2)", async () => {
     // The walk's laptop: POST /install/setup/app answered 403 and the whole card vanished.
@@ -667,13 +739,13 @@ test("the card lists the repository installed on GitHub without a reload, then s
   let served = blocked
   const h = await harness(() => Response.json(served), { installPollMs: 5 })
   await h.seam.readInstall()
-  await Bun.sleep(40)
+  await until(() => h.requests.length > 2)
   const waiting = h.requests.length
   expect(waiting).toBeGreaterThan(2)
   expect(h.seam.snapshots.get().model?.repositories).toEqual([])
   // GitHub returned the person in another tab; this card reads the install on its own.
   served = installed
-  await Bun.sleep(40)
+  await until(() => h.seam.snapshots.get().model?.repositories?.[0] === "smithersai/smithers")
   expect(h.seam.snapshots.get().model?.repositories).toEqual(["smithersai/smithers"])
   expect(h.seam.snapshots.get().model?.steps.find(step => step.id === "repository")?.state).toBe("pending")
   const settled = h.requests.length
@@ -693,4 +765,16 @@ test("a blocked repository step stops reading the install on dispose", async () 
   const count = h.requests.length
   await Bun.sleep(30)
   expect(h.requests.length).toBe(count)
+})
+
+test("the owner default posts the requested value and preserves it in Settings", async () => {
+  const h = await harness((_path, init) => Response.json({ ...installFixture(), todo_preapprove_default: init?.method === "PUT" }))
+  await h.seam.readInstall()
+  expect(h.seam.setInstallPreapproveDefault(true)).toEqual({ value: "Requested" })
+  await h.idle()
+  const write = h.requests.find(row => row.init?.method === "PUT")!
+  expect(write.path).toBe("/api/install")
+  expect(JSON.parse(String(write.init?.body))).toEqual({ todo_preapprove_default: true })
+  expect(h.seam.snapshots.get().model?.todo_preapprove_default).toBe(true)
+  h.seam.dispose()
 })

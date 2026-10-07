@@ -130,7 +130,13 @@ builders, artifact validation and content-addressed cache. The committed
 `.smithers/target-index.json` takes precedence. Without an index,
 detection reads the Node version files, `package.json`, package-manager
 lockfiles, `go.mod`, Rust manifests, Python manifests and requirements files.
-It never runs repository code during detection. Tool versions
+The sole detector is `Checklist.evidence` in `packages/smithers/src/suggest/Checklist.ts`.
+Go supplies revision-bound file contents as JSON to its embedded compiled code,
+using the installed bundle's verified Node executable and an empty credential
+and Node-options environment. Repository contents are never imported or evaluated.
+Regenerate the embedded detector with `go generate ./microsandbox` after editing
+the checklist. Its compiled SHA-256 is part of every detected recipe identity.
+Tool versions
 resolve against the embedded `toolchains.json`: an unavailable exact version
 uses the nearest pinned patch in its minor, or fails naming its source file.
 Cargo's `rust-version` is a minimum; it selects the newest compatible pinned

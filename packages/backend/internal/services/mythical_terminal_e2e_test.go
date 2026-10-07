@@ -75,7 +75,7 @@ func TestTodoInstallHTTPRealPostgres(t *testing.T) {
 	w = request("POST", "/api/todos", body, "", owner)
 	require.Equal(t, 400, w.Code)
 	for place, message := range map[string]string{
-		`{"mode":"before","n":1}`: "T-STK-02", `{"mode":"amend","n":1}`: "T-STK-02",
+		`{"mode":"before","n":1}`: "T1 is not on the stack", `{"mode":"amend","n":1}`: "Amend arrives with T-STK-06",
 		`"append"`: "{mode, n?}", `{"mode":"append","n":1}`: "{mode, n?}", `{"mode":"sideways"}`: "{mode, n?}",
 		`{}`: "{mode, n?}", `null`: "{mode, n?}", `{"mode":"append","extra":true}`: "{mode, n?}", `{"mode":"before","n":1.5}`: "{mode, n?}",
 	} {
@@ -168,7 +168,7 @@ func TestTodoInstallHTTPRealPostgres(t *testing.T) {
 		first, _ := json.Marshal(evidence[0])
 		checks := evidence[0].(map[string]any)["items"].([]any)
 		require.Equal(t, map[string]any{"kind": "check", "name": "unit", "state": "passed", "took_s": 2.5}, checks[0])
-		require.Equal(t, map[string]any{"kind": "flow", "name": "todo", "version": pinOne}, checks[1])
+		require.Equal(t, map[string]any{"kind": "flow", "name": "todo", "version": pinOne, "source_commit": source}, checks[1])
 		var count int
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.run_updated'`).Scan(&count))
 		require.Equal(t, 2, count, "running and completed, once each")

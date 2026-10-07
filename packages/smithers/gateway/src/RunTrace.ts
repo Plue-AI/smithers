@@ -19,9 +19,12 @@
 
 import { CallPresentation, FlowActivity, type FlowDescriptor } from "@smthrs/registry/Descriptor"
 import { Schema } from "effect"
+import { inspectLabel } from "./internal/inspectLabels.ts"
 import { callScope, openCallIndex } from "./Diagnosis.ts"
 import { engineTraceFromJournal } from "./EngineTrace.ts"
 import { type CallEventFilter, callEventFilter, uniqueCallEvents } from "./internal/callEvents.ts"
+
+export { inspectLabel } from "./internal/inspectLabels.ts"
 
 /** One control journal record, as the run card stores it (the run-events projection's row shape).
  *
@@ -1391,7 +1394,7 @@ const foldStep = (state: FoldState, record: JournalRecord): void => {
       case "control.agent.cell-call-started": {
         calls += 1
         const flowName = asString(payload.flowName) ?? `call-${calls}`
-        const span = builder(`call-${calls}`, "call", flowName, "running", at, {
+        const span = builder(`call-${calls}`, "call", inspectLabel(flowName), "running", at, {
           ...opened,
           input: payload.input,
           fields: restOf(payload, ["flowName", "input"])
@@ -2022,8 +2025,6 @@ export const spanMatches = (span: TraceSpan, filter: TraceFilter): boolean => {
     ? span.kind === "model"
     : filter === "flow"
     ? span.kind === "call" || span.kind === "execution" || span.kind === "attempt"
-    : filter === "forks"
-    ? span.kind === "fork"
     : span.kind === "call" && MESSAGE_FLOWS.has(span.label)
   return own || span.children.some((child) => spanMatches(child, filter))
 }
@@ -2033,7 +2034,7 @@ export const spanMatches = (span: TraceSpan, filter: TraceFilter): boolean => {
  * @category models
  * @since 1.0.0
  */
-export type TraceFilter = "all" | "running" | "failed" | "model" | "flow" | "forks" | "messages"
+export type TraceFilter = "all" | "running" | "failed" | "model" | "flow" | "messages"
 
 /**
  * Stable filter identifiers accepted by run trace commands.
@@ -2047,7 +2048,6 @@ export const TRACE_FILTER_IDS: ReadonlyArray<TraceFilter> = [
   "failed",
   "model",
   "flow",
-  "forks",
   "messages"
 ]
 
@@ -2057,7 +2057,6 @@ const FILTER_LABELS: Readonly<Record<TraceFilter, string>> = {
   failed: "failed",
   model: "model calls",
   flow: "flow calls",
-  forks: "forks",
   messages: "messages"
 }
 
@@ -2075,7 +2074,7 @@ const FILTER_LABELS: Readonly<Record<TraceFilter, string>> = {
 export const traceFiltersFor = (kind: string | undefined): ReadonlyArray<readonly [TraceFilter, string]> =>
   (kind === "prototype"
     ? (["all", "messages", "failed"] as const)
-    : (["all", "running", "failed", "model", "flow", "forks"] as const)).map((id) => [id, FILTER_LABELS[id]] as const)
+    : (["all", "running", "failed", "model", "flow"] as const)).map((id) => [id, FILTER_LABELS[id]] as const)
 
 /** Whether a filter word is one the trace knows.
  *

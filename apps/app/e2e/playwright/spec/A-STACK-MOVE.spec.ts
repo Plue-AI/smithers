@@ -7,7 +7,7 @@ test("A-STACK-MOVE: moves a stable ref up and down", async ({ page }) => {
   await owner(page)
   await page.goto("/")
   await say(page, "/stack")
-  const refs = page.locator(".mvp-home").first().locator(".mvp-stack-row .mvp-ref")
+  const refs = page.locator(".home").first().locator(".stack-row .ref")
   await expect(refs).toHaveText(["T8", "T9", "T10", "T11"])
   await say(page, "/stack.move T11 up")
   await expect(refs).toHaveText(["T8", "T9", "T11", "T10"])
@@ -22,7 +22,7 @@ test("A-STACK-MOVE: moves a stable ref up and down", async ({ page }) => {
 test("A-STACK-MOVE: mounted command projection", async ({ page }) => {
   await owner(page)
   await page.goto("/")
-  const refs = page.locator(".mvp-home").first().locator(".mvp-stack-row .mvp-ref")
+  const refs = page.locator(".home").first().locator(".stack-row .ref")
   await expect(refs).toHaveText(["T8", "T9", "T10", "T11"])
   await say(page, "/stack.move T11 up")
   await expect(refs).toHaveText(["T8", "T9", "T11", "T10"])

@@ -20,6 +20,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/lfsauth"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/sse"
@@ -38,6 +39,8 @@ func apiBodyLimit(r *http.Request) int64 {
 }
 
 type routerExtras struct {
+	// Confirmations requires the private browser View and qualified consumers.
+	Confirmations       *services.ApprovalsService
 	Members             *routes.MembersHandler
 	InstallScorecard    *routes.InstallScorecardHandler
 	GitHubAppSetup      *routes.GitHubAppSetupHandler
@@ -144,12 +147,47 @@ func buildRouter(
 			extras = value
 		}
 	}
+	confirmations := extras.Confirmations
+	if confirmations == nil && approvalsHandler != nil {
+		confirmations, _ = approvalsHandler.Service.(*services.ApprovalsService)
+		// Use the same service for delegated admission and member decisions.
+		extras.Confirmations = confirmations
+	}
+	if config.IsSingleOwner(cfg.Auth) && confirmations == nil {
+		confirmations = services.NewApprovalsService(queries)
+		if pool != nil {
+			var todos *services.MythicalService
+			if extras.Mythical != nil {
+				todos, _ = extras.Mythical.Service.(*services.MythicalService)
+			}
+			confirmations = services.NewApprovalsService(queries, services.WithConfirmationTodos(pool, todos))
+		}
+	}
 	if extras.Catalog == nil {
 		extras.Catalog = routes.NewPublicRepositoryCatalog(queries)
 	}
 	r := chi.NewRouter()
+	// Retired browser builds must fail before any install-authority fallback.
+	// There is no handler, credential issuance or model admission behind these addresses.
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+			if request.URL.Path == "/api/app-timelines" || strings.HasPrefix(request.URL.Path, "/api/app-timelines/") {
+				http.NotFound(w, request)
+				return
+			}
+			if request.Method == http.MethodPost {
+				switch request.URL.Path {
+				case "/api/agent/turn/cancel", "/api/agent/turn/retire", "/api/chat/turn", "/api/chat/cancel":
+					http.NotFound(w, request)
+					return
+				}
+			}
+			next.ServeHTTP(w, request)
+		})
+	})
 	if config.IsSingleOwner(cfg.Auth) {
 		r.Use(middleware.RejectTenantProvisioning)
+		r.Use(middleware.RejectLocalAuth)
 		if extras.BillingCapabilities == (services.BillingCapabilities{}) {
 			r.Use(middleware.RejectDeferredCommerce)
 		}
@@ -291,6 +329,24 @@ func buildRouter(
 		}
 	}
 
+	// Install socket-peer trust and origin resolution precede authentication.
+	if config.IsSingleOwner(cfg.Auth) {
+		origins := middleware.FixedOrigins(allowedOrigins...)
+		if extras.GitHubAppSetup != nil && extras.GitHubAppSetup.Origins != nil {
+			origins = extras.GitHubAppSetup.Origins
+		}
+		r.Use(middleware.EffectiveOrigin(origins))
+		// Every GitHub OAuth operation, including CLI consent, uses the already
+		// resolved request origin rather than a global callback configuration.
+		r.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if origin, ok := middleware.ResolveEffectiveOrigin(r, nil); ok {
+					r = r.WithContext(services.WithGitHubRedirectURI(r.Context(), origin+"/api/auth/github/callback"))
+				}
+				next.ServeHTTP(w, r)
+			})
+		})
+	}
 	// Middleware stack prefix (spec order)
 	if extras.GitHubAppSetup != nil && extras.GitHubAppSetup.Sessions != nil {
 		r.Use(middleware.SetupSessionBoundary(extras.GitHubAppSetup.Sessions.Validate))
@@ -440,7 +496,7 @@ func buildRouter(
 	// service-level repository permission checks.
 	if lfsHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(browserCORS(apiCORS, config.IsSingleOwner(cfg.Auth)))
 			r.Use(middleware.JSONAllowContentType("application/json", routes.LFSJSONMediaType))
 			r.Use(middleware.MaxBodySize(middleware.MaxRequestBodySize))
 			r.Use(lfsauth.HTTPMiddleware(lfsAuthManager))
@@ -469,7 +525,7 @@ func buildRouter(
 		}
 		wrrHandler := &routes.WorkflowRunHandler{Service: workflowHandler.Service, Broker: wrrBroker, Metrics: smithersMetrics}
 		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(browserCORS(apiCORS, config.IsSingleOwner(cfg.Auth)))
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(sseTicketAuth)
 			if queries != nil {
@@ -497,34 +553,17 @@ func buildRouter(
 
 	// Wiki collaboration uses the existing shared broker and auth/revocation
 	// infrastructure. The stream must remain outside the JSON timeout group.
-	if collaborative, ok := wikiService.(routes.WikiCollaborationService); ok {
-		var broker *sse.Broker
-		if agentSessionStreamHandler != nil {
-			broker = agentSessionStreamHandler.Broker
-		}
-		handler := &routes.WikiCollaborationHandler{Service: collaborative, Broker: broker}
-		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
-			r.Use(authLoader(queries, cfg.Auth))
-			r.Use(sseTicketAuth)
-			if queries != nil {
-				r.Use(middleware.LoadRepoContext(queries))
-			}
-			gates := []func(http.Handler) http.Handler{middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository), repoAPIQuota, gateWiki}
-			if queries != nil {
-				gates = append(gates, middleware.RequireRepoPermission(middleware.PermissionRead))
-			}
-			r.With(gates...).Get("/api/repos/{owner}/{repo}/wiki/{slug}/stream", handler.Stream)
-		})
-	}
 
 	// SSE agent session stream — registered at the top-level router (outside /api's JSONTimeout
 	// middleware group) so the connection is not subject to the 30s request timeout.
 	if agentSessionStreamHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(browserCORS(apiCORS, config.IsSingleOwner(cfg.Auth)))
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(sseTicketAuth)
+			if config.IsSingleOwner(cfg.Auth) {
+				r.Use(memberCommands(queries))
+			}
 			if queries != nil {
 				r.Use(middleware.LoadRepoContext(queries))
 			}
@@ -547,7 +586,7 @@ func buildRouter(
 	// client times out first so the handler can record failed provisioning state.
 	if workspaceHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(browserCORS(apiCORS, config.IsSingleOwner(cfg.Auth)))
 			r.Use(middleware.JSONTimeout(10 * time.Minute))
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(apiCSRFMiddleware)
@@ -592,7 +631,14 @@ func buildRouter(
 					[]func(http.Handler) http.Handler{userSandboxesQuota},
 				),
 			)
-			r.With(vmProvisionSandbox...).Post("/api/repos/{owner}/{repo}/workspaces", workspaceHandler.CreateWorkspace)
+			workspaceJoin := vmProvisionSandbox
+			if config.IsSingleOwner(cfg.Auth) {
+				// Install branch machines use host admission and the service's
+				// activation providers, not hosted per-user sandbox controls.
+				workspaceJoin = append([]func(http.Handler) http.Handler{}, vmProvision...)
+				workspaceJoin = append(workspaceJoin, memberCommands(queries))
+			}
+			r.With(workspaceJoin...).Post("/api/repos/{owner}/{repo}/workspaces", workspaceHandler.CreateWorkspace)
 			r.With(vmProvisionSandbox...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/resume", workspaceHandler.ResumeWorkspace)
 			r.With(vmProvisionSandbox...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/fork", workspaceHandler.ForkWorkspace)
 			r.With(vmProvision...).Delete("/api/repos/{owner}/{repo}/workspaces/{id}", workspaceHandler.DeleteWorkspace)
@@ -619,7 +665,7 @@ func buildRouter(
 		// binding ID (SMITHERS_GATEWAY_ID) and control credential. Keep these
 		// outside repository auth: the binding ID and credential are the auth.
 		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(browserCORS(apiCORS, config.IsSingleOwner(cfg.Auth)))
 			if !config.IsSingleOwner(cfg.Auth) {
 				r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/{job}", repositoryJobHandler.PutRepositoryJob)
 			}
@@ -634,6 +680,13 @@ func buildRouter(
 				r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/ci/check-receipts/{requestID}", repositoryJobHandler.PutRepositoryCheckReceipt)
 			}
 		})
+	}
+
+	if config.IsSingleOwner(cfg.Auth) && workspaceHandler != nil {
+		// Host-authenticated issuance and self-authenticated revocation never
+		// accept browser cookies or the generic file token as host authority.
+		r.Post("/api/gateways/{hostID}/file-write-grants", workspaceHandler.MintCodingFileGrant)
+		r.Delete("/api/gateways/{hostID}/file-write-grants/{tokenID}", workspaceHandler.RevokeCodingFileGrant)
 	}
 
 	// Inbound GitHub App webhook — signature-verified inside the handler, no auth middleware.
@@ -655,7 +708,7 @@ func buildRouter(
 	if billingHandler != nil && extras.BillingCapabilities.Webhook {
 		r.With(
 			middleware.JSONTimeout(30*time.Second),
-			cors.Handler(apiCORS),
+			browserCORS(apiCORS, config.IsSingleOwner(cfg.Auth)),
 			middleware.JSONAllowContentType("application/json"),
 			middleware.MaxBodySize(middleware.MaxRequestBodySize),
 		).Post("/api/billing/webhook", billingHandler.PostStripeWebhook)
@@ -701,7 +754,7 @@ func buildRouter(
 	// bounded JSON request.
 	if gitHubImportHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(browserCORS(apiCORS, config.IsSingleOwner(cfg.Auth)))
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(middleware.GlobalAPIRateLimit(queries))
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)).
@@ -715,7 +768,7 @@ func buildRouter(
 	// Ticket 12: gated by feature_flags.notifications.
 	if notificationHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(browserCORS(apiCORS, config.IsSingleOwner(cfg.Auth)))
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(sseTicketAuth)
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadUser), gateNotifications).Get("/api/notifications", notificationHandler.NotificationStream)
@@ -726,35 +779,11 @@ func buildRouter(
 	// Issue accepted-state replay uses the shared durable broker outside JSONTimeout.
 	if issueEventHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(browserCORS(apiCORS, config.IsSingleOwner(cfg.Auth)))
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(sseTicketAuth)
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository), gateIssues).
 				Get("/api/repos/{owner}/{repo}/issues/state-events/stream", issueEventHandler.IssueStateFactsStream)
-		})
-	}
-
-	// App-machine timelines — the REST write path for synchronized xstate
-	// history. Authenticated with a session
-	// or read:user token; mutations gated on write:user inside Mount. The
-	// larger body cap covers whole-dump rewrites (service-capped at 4 MiB of
-	// payload; JSON escaping can inflate past the global 1 MB default).
-	if queries != nil {
-		appTimelineService := services.NewAppTimelineService(queries)
-		if pool != nil {
-			services.WithAppTimelineTxBeginner(pool)(appTimelineService)
-		}
-		appTimelineHandler := routes.NewAppTimelineHandler(appTimelineService)
-		appTimelineHandler.WriteRateLimit = middleware.AppTimelineWriteRateLimit(queries, cfg.RateLimit.AppTimelineWritePerMin)
-		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
-			r.Use(authLoader(queries, cfg.Auth))
-			r.Use(apiCSRFMiddleware)
-			r.Group(func(r chi.Router) {
-				r.Use(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadUser))
-				r.Use(middleware.MaxBodySize(appTimelineMaxRequestBodySize))
-				appTimelineHandler.Mount(r)
-			})
 		})
 	}
 
@@ -763,7 +792,7 @@ func buildRouter(
 	// smithers review walkthrough.
 	if jjVCSHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(browserCORS(apiCORS, config.IsSingleOwner(cfg.Auth)))
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(sseTicketAuth)
 			if queries != nil {
@@ -792,12 +821,12 @@ func buildRouter(
 	// refuses PUT and DELETE on a read credential with the protocol's 403.
 	if buildCacheHandler != nil && queries != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(browserCORS(apiCORS, config.IsSingleOwner(cfg.Auth)))
 			r.Get("/api/build-cache/healthz", buildCacheHandler.Health)
 			r.Head("/api/build-cache/healthz", buildCacheHandler.Health)
 		})
 		r.Route("/api/repos/{owner}/{repo}/build-cache", func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(browserCORS(apiCORS, config.IsSingleOwner(cfg.Auth)))
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(apiCSRFMiddleware)
 			r.Group(func(r chi.Router) {
@@ -831,7 +860,7 @@ func buildRouter(
 	// so long-lived connections are not cut at 30 s.
 	if workspaceHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(browserCORS(apiCORS, config.IsSingleOwner(cfg.Auth)))
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(sseTicketAuth)
 			if queries != nil {
@@ -854,14 +883,14 @@ func buildRouter(
 	// group's timeout, body and CSRF rules; the auth loader and the member
 	// boundary still admit the person.
 	if config.IsSingleOwner(cfg.Auth) && extras.Live != nil {
-		r.With(authLoader(queries, cfg.Auth), memberCommands(queries)).Get("/api/live", extras.Live.ServeHTTP)
+		r.With(authLoader(queries, cfg.Auth)).Get("/api/live", extras.Live.ServeHTTP)
 	}
 
 	// WebSocket terminal — mounted outside /api's JSONTimeout group so the
 	// upgrade and subsequent bidirectional stream are not killed after 30 s.
 	if workspaceTerminalHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(browserCORS(apiCORS, config.IsSingleOwner(cfg.Auth)))
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(sseTicketAuth)
 			r.Use(routes.WorkspaceSocketRevocations)
@@ -905,7 +934,7 @@ func buildRouter(
 		handler := &routes.WikiContentHandler{Service: content}
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.JSONTimeout(apiJSONTimeout))
-			r.Use(cors.Handler(apiCORS))
+			r.Use(browserCORS(apiCORS, config.IsSingleOwner(cfg.Auth)))
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(apiCSRFMiddleware)
 			r.Use(middleware.GlobalAPIRateLimit(queries))
@@ -922,7 +951,7 @@ func buildRouter(
 
 	r.Route("/api", func(r chi.Router) {
 		r.Use(middleware.JSONTimeout(apiJSONTimeout))
-		r.Use(cors.Handler(apiCORS))
+		r.Use(browserCORS(apiCORS, config.IsSingleOwner(cfg.Auth)))
 		r.Use(middleware.JSONAllowContentType("application/json", routes.LFSJSONMediaType))
 		r.Use(middleware.MaxBodySizeForRequest(apiBodyLimit))
 		// Global API rate limit: 5000/hr auth, 600/hr anon. AuthLoader runs first
@@ -938,10 +967,16 @@ func buildRouter(
 		r.Use(apiCSRFMiddleware)
 		r.Use(middleware.ExcludePaths(middleware.GlobalAPIRateLimit(queries), "/api/search/", "/api/_test/", "/api/telemetry/", "/api/auth/github/token-exchange"))
 		if config.IsSingleOwner(cfg.Auth) {
-			r.Use(memberCommands(queries))
+			r.Use(memberCommands(queries, confirmations))
 		}
 		if queries != nil {
 			r.Use(delegatedAttribution(services.NewAuditService(queries)))
+		}
+		if config.IsSingleOwner(cfg.Auth) && extras.Live != nil {
+			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)).Get("/stack", extras.Live.Stack)
+		}
+		if config.IsSingleOwner(cfg.Auth) && workspaceTerminalHandler != nil {
+			r.With(middleware.RequireAuth).Post("/terminals", workspaceTerminalHandler.OpenTerminal)
 		}
 		if config.IsSingleOwner(cfg.Auth) && extras.Mythical != nil {
 			service, _ := extras.Mythical.Service.(routes.TodoRouteService)
@@ -949,14 +984,37 @@ func buildRouter(
 			mountTodoReads(r, todos)
 			r.Post("/todos", todos.Create)
 			r.Post("/todos/{n}", todos.Control)
+			r.Patch("/todos/{n}", todos.Amend)
 			r.Post("/todos/{n}/merge", todos.Merge)
+			r.Post("/todos/{n}/preapproval", todos.Preapprove)
+			r.Delete("/todos/{n}/preapproval", todos.Unapprove)
 			r.Post("/todos/{n}/answer", todos.Answer)
+			proposals, _ := extras.Mythical.Service.(routes.LearningProposalRoutes)
+			handler := &routes.LearningProposalsHandler{Queries: queries, Service: proposals}
+			r.Get("/proposals", handler.List)
+			r.Post("/proposals/{id}/accept", handler.Accept)
+			r.Post("/proposals/{id}/dismiss", handler.Dismiss)
 			// The issue list card and the issue card read the install
 			// repository's GitHub issues through the install's App.
 			issueService, _ := extras.Mythical.Service.(routes.InstallIssueRouteService)
 			issues := &routes.InstallIssuesHandler{Queries: queries, Service: issueService}
 			r.Get("/issues", issues.List)
 			r.Get("/issues/{n}", issues.Get)
+			reviewService, _ := extras.Mythical.Service.(routes.InstallReviewRouteService)
+			reviews := &routes.InstallReviewHandler{Queries: queries, Service: reviewService}
+			r.Post("/reviews", reviews.Request)
+			r.Get("/reviews/{id}", reviews.Get)
+		}
+		if config.IsSingleOwner(cfg.Auth) {
+			routes.RegisterConfirmationRoutes(r, &routes.ConfirmationsHandler{Queries: queries, Service: confirmations})
+		}
+		if config.IsSingleOwner(cfg.Auth) && secretHandler != nil {
+			boundSecret := installSecretRepository(queries)
+			r.With(boundSecret, gateSecrets).Get("/secrets", secretHandler.ListSecrets)
+			r.With(boundSecret, gateSecrets).Put("/secrets", secretHandler.SetSecret)
+			r.With(boundSecret, gateSecrets).Patch("/secrets/{name}", secretHandler.SetSecretScope)
+			r.With(boundSecret, gateSecrets).Delete("/secrets", secretHandler.DeleteSecret)
+			r.With(boundSecret, gateSecrets).Delete("/secrets/{name}", secretHandler.DeleteSecret)
 		}
 		if config.IsSingleOwner(cfg.Auth) && extras.Members != nil {
 			r.Get("/members", extras.Members.List)
@@ -965,13 +1023,24 @@ func buildRouter(
 			r.Delete("/members/{login}", extras.Members.Mutate)
 		}
 		if config.IsSingleOwner(cfg.Auth) {
-			mountFlowReads(r, &routes.FlowsHandler{Queries: queries})
+			var proposals services.FlowProposalReader
+			if extras.Mythical != nil {
+				proposals, _ = extras.Mythical.Service.(services.FlowProposalReader)
+			}
+			mountFlowReads(r, &routes.FlowsHandler{Queries: queries, Proposals: proposals})
+			if smithersMetrics != nil && queries != nil {
+				h := &routes.InstallMetricsHandler{Metrics: smithersMetrics}
+				if extras.GitHubAppSetup != nil && extras.GitHubAppSetup.Setup != nil {
+					h.Capacity = extras.GitHubAppSetup.Setup.Capacity
+				}
+				r.With(middleware.RequireAuth, installModelOwner(queries)).Get("/install/metrics", h.Read)
+			}
 		}
 		// Outside the member table: the install owner's sessions are the owner's alone.
 		if config.IsSingleOwner(cfg.Auth) && extras.ExternalSessions != nil {
 			r.Get("/external/sessions", extras.ExternalSessions.Read)
 		}
-		// Unmounted until T-ACC-03 supplies the qualified owner-person authorizer.
+		// Mounted only with the shared owner-person-session authorizer.
 		if extras.InstallScorecard.Available() {
 			r.Get("/install/scorecard", extras.InstallScorecard.Summary)
 		}
@@ -980,18 +1049,35 @@ func buildRouter(
 			sync := &routes.GitHubSyncHandler{Service: extras.GitHubSync}
 			r.With(middleware.RequireAuth).Get("/github/sync", sync.Status)
 			r.With(middleware.RequireAuth).Post("/github/sync", sync.Retry)
-			// Accepted-prefix reads stay dark until T-GH-03 dependency checks qualify.
+			// The stack supplies the immutable accepted-prefix diff.
 			diff := &routes.BranchDiffHandler{}
+			if extras.Mythical != nil {
+				diff.Reader, _ = extras.Mythical.Service.(routes.BranchDiffReader)
+			}
 			r.Get("/branches/{b}/diff", diff.Diff)
 			// The branch projection and Fork, which the stack service performs.
 			branches := &routes.BranchHandler{Authorize: routes.InstallBranchAuthorizer(queries)}
 			if workspaceHandler != nil {
 				branches.Reads, _ = workspaceHandler.Service.(routes.BranchReadService)
+				branches.Files, _ = workspaceHandler.Service.(routes.BranchFileReadService)
 			}
 			if extras.Mythical != nil {
 				branches.Forks, _ = extras.Mythical.Service.(routes.BranchForkService)
+				branches.Answers, _ = extras.Mythical.Service.(routes.BranchAnswerService)
 			}
 			routes.RegisterBranchRoutes(r, branches)
+			files := &routes.BranchFileHandler{Branches: branches.Reads}
+			if repoHandler != nil {
+				if repos, ok := repoHandler.Service.(*services.RepoService); ok {
+					files.Source = services.InstallSource{Pool: pool, Repos: repos, Members: ownerBoundary}
+				}
+			}
+			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)).Get("/branches/{b}/files/*", files.Read)
+			restore := &routes.FileRestoreHandler{Authorize: routes.InstallBranchAuthorizer(queries)}
+			if workspaceHandler != nil {
+				restore.Service, _ = workspaceHandler.Service.(routes.BranchFileRestorer)
+			}
+			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository)).Post("/branches/{b}/files/*", restore.Restore)
 		}
 		if cfg.Install.QuiesceEnabled {
 			h := &routes.InstallQuiesceHandler{Owners: queries, Service: &services.InstallQuiesce{Gate: quiesce}}
@@ -1006,8 +1092,6 @@ func buildRouter(
 			}
 		}
 		if extras.Recommender != nil {
-			r.Post("/recommend", extras.Recommender.Recommend)
-			r.Post("/recommend/outcome", extras.Recommender.Outcome)
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Post("/commands/select", extras.Recommender.Select)
 		}
 		if extras.ModelStream != nil {
@@ -1059,8 +1143,8 @@ func buildRouter(
 		// callback), so the strict 5/min "auth" scope locked out users who
 		// retried a few times within a minute.
 		r.With(middleware.InteractiveAuthRateLimit(queries)).Get("/auth/github", authHandler.GetGitHubOAuthStart)
-		r.With(middleware.InteractiveAuthRateLimit(queries)).Get("/auth/github/cli", authHandler.GetGitHubOAuthCLIStart)
-		r.With(middleware.InteractiveAuthRateLimit(queries)).Get("/auth/github/callback", authHandler.GetGitHubOAuthCallback)
+		r.With(installCredentialIssuer(cfg.Auth, queries, authHandler), middleware.InteractiveAuthRateLimit(queries)).Get("/auth/github/cli", authHandler.GetGitHubOAuthCLIStart)
+		r.With(installCredentialIssuer(cfg.Auth, queries, authHandler), middleware.InteractiveAuthRateLimit(queries)).Get("/auth/github/callback", authHandler.GetGitHubOAuthCallback)
 		r.With(middleware.InteractiveAuthRateLimit(queries)).Get("/auth/auth0/authorize", authHandler.GetAuth0Authorize)
 		r.With(middleware.InteractiveAuthRateLimit(queries)).Get("/auth/auth0/callback", authHandler.GetAuth0Callback)
 		// Worker-only GitHub-token → Plue-token exchange. Guarded by a shared
@@ -1074,6 +1158,7 @@ func buildRouter(
 		// else stays in the strict "auth" bucket. RequireSharedBearerToken
 		// after it remains the real auth gate.
 		r.With(
+			installCredentialIssuer(cfg.Auth, queries, authHandler),
 			middleware.SharedBearerAwareAuthRateLimit(queries, cfg.Auth.WorkerExchangeToken, 120, time.Minute),
 			middleware.RequireSharedBearerToken(cfg.Auth.WorkerExchangeToken),
 		).Post("/auth/github/token-exchange", authHandler.PostGitHubTokenExchange)
@@ -1269,9 +1354,6 @@ func buildRouter(
 				r.With(writeRepo...).Post("/bookmarks", jjVCSHandler.CreateBookmark)
 				r.With(writeRepo...).Delete("/bookmarks/{name}", jjVCSHandler.DeleteBookmark)
 				r.With(writeRepo...).Post("/changes/{change_id}/revert", jjVCSHandler.RevertChange)
-				if config.IsMultitenant(cfg.Auth) {
-					r.With(writeRepo...).Post("/changes/{change_id}/split", jjVCSHandler.SplitChange)
-				}
 				r.With(writeRepo...).Put("/changes/{change_id}/walkthrough", jjVCSHandler.PutChangeWalkthrough)
 				if stackHandler != nil {
 					r.With(append(writeRepo, repoStackQuota)...).Post("/stacks/active", stackHandler.UpsertActiveStack)
@@ -1285,7 +1367,9 @@ func buildRouter(
 				r.With(append(writeRepo, repoStackQuota)...).Put("/landings/requests/{request_uuid}", landingHandler.PutLandingRequest)
 				r.With(writeRepo...).Post("/landings/append/prepare", landingHandler.PrepareLandingAppend)
 				r.With(writeRepo...).Patch("/landings/{number}", landingHandler.PatchLandingRequest)
-				r.With(writeRepo...).Put("/landings/{number}/land", landingHandler.LandLandingRequest)
+				if !config.IsSingleOwner(cfg.Auth) {
+					r.With(writeRepo...).Put("/landings/{number}/land", landingHandler.LandLandingRequest)
+				}
 				r.With(writeRepo...).Put("/landings/{number}/land/append", landingHandler.AppendLandingRequest)
 				r.With(writeRepo...).Put("/landings/{number}/github/pull", landingHandler.OpenLandingGitHubPull)
 				r.With(writeRepo...).Post("/landings/{number}/auto-land", landingHandler.SetLandingRequestAutoLand)
@@ -1315,8 +1399,6 @@ func buildRouter(
 					if collaborative, ok := wikiService.(routes.WikiCollaborationService); ok {
 						handler := &routes.WikiCollaborationHandler{Service: collaborative}
 						r.With(append(readRepo, gateWiki)...).Get("/wiki/{slug}/document", handler.Document)
-						r.With(append(readRepo, gateWiki)...).Get("/wiki/{slug}/updates", handler.Updates)
-						r.With(append(writeRepo, gateWiki)...).Post("/wiki/{slug}/updates", handler.Apply)
 					}
 					r.With(append(writeRepo, gateWiki)...).Patch("/wiki/{slug}", routes.UpdateWikiPage(wikiService))
 					r.With(append(writeRepo, gateWiki)...).Delete("/wiki/{slug}", routes.DeleteWikiPage(wikiService))
@@ -1479,7 +1561,9 @@ func buildRouter(
 					r.With(append(writeRepo, gateAgents)...).Post("/agent/sessions", agentSessionHandler.CreateSession)
 					r.With(append(readRepo, gateAgents)...).Get("/agent/sessions", agentSessionHandler.ListSessions)
 					r.With(append(readRepo, gateAgents)...).Get("/agent/sessions/{id}", agentSessionHandler.GetSession)
-					r.With(append(readRepo, gateAgents)...).Get("/agent-sessions/{id}/egress", agentSessionHandler.ListEgressAudit)
+					if config.IsMultitenant(cfg.Auth) {
+						r.With(append(readRepo, gateAgents)...).Get("/agent-sessions/{id}/egress", agentSessionHandler.ListEgressAudit)
+					}
 					r.With(append(writeRepo, gateAgents)...).Delete("/agent/sessions/{id}", agentSessionHandler.DeleteSession)
 					r.With(append(readRepo, gateAgents)...).Get("/agent/sessions/{id}/messages", agentSessionHandler.ListMessages)
 					r.With(append(agentMessageWriteRepo, gateAgents)...).Post("/agent/sessions/{id}/messages", agentSessionHandler.PostMessage)
@@ -1677,7 +1761,7 @@ func buildRouter(
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteUser), gateSubscriptionConnections).Post("/user/provider-connections/{id}/grants", providerConnectionHandler.AddGrant)
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteUser), gateSubscriptionConnections).Delete("/user/provider-connections/{id}/grants/{grantID}", providerConnectionHandler.DeleteGrant)
 			r.With(middleware.SearchRateLimit(queries), middleware.RequireAuth, middleware.RequireFirstPartyAuth, middleware.RequireScope(middleware.ScopeReadUser)).Get("/user/tokens", userHandler.GetUserTokens)
-			r.With(middleware.SearchRateLimit(queries), middleware.RequireAuth, middleware.RequireFirstPartyAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Post("/user/tokens", userHandler.PostUserToken)
+			r.With(installCredentialIssuer(cfg.Auth, queries, authHandler), middleware.SearchRateLimit(queries), middleware.RequireAuth, middleware.RequireFirstPartyAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Post("/user/tokens", userHandler.PostUserToken)
 			r.With(middleware.SearchRateLimit(queries), middleware.RequireAuth, middleware.RequireFirstPartyAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Delete("/user/tokens/{id}", userHandler.DeleteUserToken)
 			r.With(middleware.RequireAuth, middleware.RequireFirstPartyAuth, middleware.RequireScope(middleware.ScopeReadUser)).Get("/user/sessions", userHandler.GetUserSessions)
 			r.With(middleware.RequireAuth, middleware.RequireFirstPartyAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Delete("/user/sessions/{id}", userHandler.DeleteUserSession)
@@ -1903,6 +1987,21 @@ func buildRouter(
 					if extras.AdminSystemHealth != nil && (config.IsSingleOwner(cfg.Auth) || config.IsMultitenant(cfg.Auth)) {
 						r.With(readAdmin...).Get("/system/health", extras.AdminSystemHealth.SystemHealth)
 					}
+					if config.IsSingleOwner(cfg.Auth) && adminUserHandler != nil {
+						r.With(middleware.RequireAuth).Post("/users/{username}/erase", func(w http.ResponseWriter, r *http.Request) {
+							info := middleware.AuthInfoFromContext(r.Context())
+							role, err := services.InstallRoleOf(r.Context(), queries, info.User.ID)
+							if err != nil {
+								pkgerrors.WriteError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "members unavailable").WithCause(err))
+								return
+							}
+							if role != services.InstallOwner || info.IsTokenAuth || info.IsAgent() || info.SessionHash == "" {
+								pkgerrors.WriteError(w, pkgerrors.Forbidden("install owner session required"))
+								return
+							}
+							adminUserHandler.EraseUser(w, r)
+						})
+					}
 					if config.IsMultitenant(cfg.Auth) {
 						if extras.AdminGrant != nil {
 							r.With(writeAdmin...).Post("/grant", extras.AdminGrant.Grant)
@@ -1984,28 +2083,20 @@ func authLoader(queries *db.Queries, cfg config.AuthConfig) func(http.Handler) h
 }
 
 // mountTodoReads mounts the install's TODO read routes. The app agent's
-// host-run commands read through the same mount (installReadRoutes), as the
+// host-run commands read through the authenticated public API, as the
 // credential that admitted their turn.
 func mountTodoReads(r chi.Router, todos *routes.TodoHandler) {
 	r.Get("/todos", todos.List)
 	r.Get("/todos/{n}", todos.Get)
+	r.Get("/todos/{n}/events", todos.Events)
+	r.Get("/todos/{n}/attempts/{a}/logs/{digest}", todos.Log)
 }
 
 // mountFlowReads mounts the install's flow catalog, which the Flow card and
-// the app agent's host-run commands read (installReadRoutes).
+// the app agent's host-run commands read through the public API.
 func mountFlowReads(r chi.Router, flows *routes.FlowsHandler) {
 	r.Get("/flows", flows.List)
-}
-
-// installReadRoutes are the install API routes a host-run command may read,
-// under /api as the public router mounts them: the TODOs and the flows.
-func installReadRoutes(queries *db.Queries, service routes.TodoRouteService) http.Handler {
-	router := chi.NewRouter()
-	router.Route("/api", func(r chi.Router) {
-		mountTodoReads(r, &routes.TodoHandler{Queries: queries, Service: service})
-		mountFlowReads(r, &routes.FlowsHandler{Queries: queries})
-	})
-	return router
+	r.Get("/flows/{name}", flows.Show)
 }
 
 // mountModelProxy serves the metered model proxy at /model-proxy and, for the
@@ -2028,4 +2119,12 @@ func withAdminAuditActor(next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		next(w, r.WithContext(routes.AdminUserAuditContext(r)))
 	})
+}
+
+// Install requests are same-origin; hosted compositions retain their CORS policy.
+func browserCORS(options cors.Options, install bool) func(http.Handler) http.Handler {
+	if install {
+		return func(next http.Handler) http.Handler { return next }
+	}
+	return cors.Handler(options)
 }

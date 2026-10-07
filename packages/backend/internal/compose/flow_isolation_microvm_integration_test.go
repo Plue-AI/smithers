@@ -26,9 +26,13 @@ func TestRepositoryFlowImportsStayInsideRealMicroVM(t *testing.T) {
 	if os.Getenv("SMITHERS_FLOW_ISOLATION_CHECK") != "1" {
 		t.Skip("set SMITHERS_FLOW_ISOLATION_CHECK=1 for the real microVM canary")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	msb, err := exec.LookPath("msb")
+	msbName := os.Getenv("SMITHERS_MICROSANDBOX_BIN")
+	if msbName == "" {
+		msbName = "msb"
+	}
+	msb, err := exec.LookPath(msbName)
 	require.NoError(t, err)
 	node, err := exec.LookPath("node")
 	require.NoError(t, err)
@@ -160,9 +164,11 @@ payload: {}, success: Schema.String, body: () => Node.succeed(%q) })
 	require.Contains(t, receipt.Planned[0].Values, "guest-todo")
 	require.Equal(t, "canary", receipt.Planned[1].Name)
 	require.Contains(t, receipt.Planned[1].Values, "guest-canary")
-	require.Len(t, receipt.Refused, 1)
+	require.Len(t, receipt.Refused, 2)
 	require.Equal(t, "merge", receipt.Refused[0].Flow)
 	require.Equal(t, "reserved_name", receipt.Refused[0].Code)
+	require.Equal(t, "todo", receipt.Refused[1].Flow)
+	require.Equal(t, "missing_service", receipt.Refused[1].Code)
 	writeEvidence("guest-receipt.json", append(receiptLine, '\n'))
 	guestMarker := run(msb, "exec", "--stream", vm, "--", "cat", "/root/"+markerName)
 	require.Equal(t, nonce, strings.TrimSpace(string(guestMarker)))

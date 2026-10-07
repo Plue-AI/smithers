@@ -15,8 +15,8 @@
 import { readdirSync, readFileSync, writeFileSync, unlinkSync, existsSync, mkdirSync } from "node:fs"
 import { join, relative, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
-import { sites } from "../../docs/shared/manifest.mjs"
-import { outputRelFor, routeFor } from "../../docs/shared/sync-content.mjs"
+import { sites } from "../../../scripts/package-docs.mjs"
+import { outputRelFor, routeFor } from "./package-doc-links.mjs"
 import { mapMarkdownProse } from "./docs-text.mjs"
 
 /**

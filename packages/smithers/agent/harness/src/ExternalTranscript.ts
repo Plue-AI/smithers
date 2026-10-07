@@ -288,7 +288,7 @@ const itemPart = (item: Json, took: number): { readonly role: Entry["role"]; rea
     case "AgentMessage": {
       const content = list(item["content"]).map(record)
       const said = content.map((each) => text(each["text"])).filter(Boolean).join("\n")
-      if (said === "" && content.some((each) => each["type"] === "encrypted_content")) {
+      if (content.some((each) => each["type"] === "encrypted_content")) {
         return { role: "assistant", part: { type: "encrypted" } }
       }
       return { role: "assistant", part: { type: "text", text: said, final: item["phase"] === "final_answer" } }
@@ -296,7 +296,7 @@ const itemPart = (item: Json, took: number): { readonly role: Entry["role"]; rea
     case "Reasoning": {
       // Codex keeps reasoning encrypted; only a summary it chose to write is readable.
       const summary = list(item["summary_text"]).map(text).filter(Boolean).join("\n")
-      return summary === "" ? undefined : { role: "assistant", part: { type: "reasoning", text: summary } }
+      return summary === "" ? (item["encrypted_content"] ? { role: "assistant", part: { type: "encrypted" } } : undefined) : { role: "assistant", part: { type: "reasoning", text: summary } }
     }
     case "CommandExecution": {
       const exit = typeof item["exit_code"] === "number" ? item["exit_code"] : undefined

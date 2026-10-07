@@ -1,3 +1,5 @@
+import { probeHostTurn } from "./host-turn-probe"
+import { csrfHeaders } from "../../server/scripts/canary/uptime-checks"
 /*
  * Wave 6: the seam probe. Against a running product Worker it exercises every
  * configured backend seam end to end and fails on ANY 501 ("not configured")
@@ -69,24 +71,9 @@ const balanceBody = await no501("billing seam /api/billing/balance", balance)
 const watched = await fetch(`${origin}/api/identity/watched`, { headers: { cookie } })
 await no501("identity seam /api/identity/watched", watched)
 
-// 4. Chat seam: one streamed turn completes (delta … done), never a 501/401.
-const turn = await fetch(`${origin}/api/agent/turn`, {
-  method: "POST",
-  headers: { "content-type": "application/json", cookie },
-  body: JSON.stringify({
-    runId: `seam-probe-${Date.now()}`,
-    messages: [{ role: "user", content: "Say the word ok and nothing else." }],
-    instructions: "Answer briefly."
-  })
-})
-const turnBody = await no501("chat seam /api/agent/turn", turn)
-check(
-  "chat turn streamed to a terminal frame",
-  turn.status === 200 && turnBody.includes("\"type\":\"done\""),
-  `HTTP ${turn.status}, ${turnBody.split("\n").length} NDJSON lines, done frame: ${
-    turnBody.includes("\"type\":\"done\"")
-  }`
-)
+// 4. The accepted host turn completes through the shared branch replay.
+const turn = await probeHostTurn(origin, fetch, { cookie, ...csrfHeaders(cookie) }, `seam-probe-${Date.now()}`)
+check("host turn completed", turn.completed, `HTTP ${turn.status}`)
 
 /*
  * 5. The insecure static gateway proxy is retired, not merely unconfigured.

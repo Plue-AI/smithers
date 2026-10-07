@@ -14,15 +14,21 @@ var _ workspaceapi.SessionCredentialWriter = (*Runtime)(nil)
 // token, owned by the guest's single user, mode 0600, replaced by rename in a
 // root-owned directory. The token travels on the helper's stdin, never in
 // argv or the environment.
-func (r *Runtime) PutSessionToken(ctx context.Context, workspaceID, sessionID string, token []byte) (string, error) {
+func (r *Runtime) PutSessionToken(ctx context.Context, workspaceID, sessionID string, token []byte, expectedIdentity string) (string, error) {
 	if err := workspaceapi.ValidateSessionCredential(sessionID, token); err != nil {
 		return "", err
+	}
+	if err := workspaceapi.ValidateSessionCredentialIdentity(expectedIdentity, true); err != nil {
+		return "", err
+	}
+	if token == nil {
+		return "", errors.New("session credential: missing token")
 	}
 	ws, err := r.runningWorkspace(workspaceID)
 	if err != nil {
 		return "", err
 	}
-	if _, err := r.guest(ctx, ws.Machine, token, "put-token", sessionID); err != nil {
+	if _, err := r.guest(ctx, ws.Machine, token, "put-token", sessionID, tokenIdentityArgument(expectedIdentity)); err != nil {
 		return "", err
 	}
 	return workspaceapi.SessionTokenRoot + "/" + sessionID + "/token", nil
@@ -30,8 +36,11 @@ func (r *Runtime) PutSessionToken(ctx context.Context, workspaceID, sessionID st
 
 // DeleteSessionToken removes a terminal session's credential from the guest.
 // A stopped or deleted machine keeps none: /run is not retained.
-func (r *Runtime) DeleteSessionToken(ctx context.Context, workspaceID, sessionID string) error {
+func (r *Runtime) DeleteSessionToken(ctx context.Context, workspaceID, sessionID, expectedIdentity string) error {
 	if err := workspaceapi.ValidateSessionCredential(sessionID, nil); err != nil {
+		return err
+	}
+	if err := workspaceapi.ValidateSessionCredentialIdentity(expectedIdentity, false); err != nil {
 		return err
 	}
 	ws, err := r.runningWorkspace(workspaceID)
@@ -41,6 +50,13 @@ func (r *Runtime) DeleteSessionToken(ctx context.Context, workspaceID, sessionID
 	if err != nil {
 		return err
 	}
-	_, err = r.guest(ctx, ws.Machine, nil, "delete-token", sessionID)
+	_, err = r.guest(ctx, ws.Machine, nil, "delete-token", sessionID, expectedIdentity)
 	return err
+}
+
+func tokenIdentityArgument(identity string) string {
+	if identity == "" {
+		return "absent"
+	}
+	return identity
 }

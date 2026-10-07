@@ -232,3 +232,125 @@ jobs:
           path: reliability-artifacts/jj-abi/**
           if-no-files-found: error
           retention-days: 30
+  "e2e-faults":
+    name: "fault-injection matrix"
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [linux, reference]
+    runs-on: ${{ matrix.host == 'reference' && fromJSON('["self-hosted","macOS","ARM64","smithers-reference"]') || fromJSON('["ubuntu-latest"]') }}
+    services:
+      postgres:
+        image: ${{ matrix.host == 'linux' && 'postgres:18' || '' }}
+        env:
+          POSTGRES_USER: smithers
+          POSTGRES_PASSWORD: fault-fixture
+          POSTGRES_DB: postgres
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U smithers -d postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      SMITHERS_FAULT_HOST: ${{ matrix.host }}
+      SMITHERS_REQUIRE_DATABASE_TESTS: '1'
+    timeout-minutes: 60
+    steps:
+      - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+      - name: Refuse unapproved reference-host execution
+        if: matrix.host == 'reference'
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs'
+          const mapping = JSON.parse(readFileSync('scripts/check-commands.json', 'utf8'))
+          for (const id of ['C-SEC-02', 'C-DUR-02', 'C-DUR-04']) {
+            if (mapping.checks[id]?.status || !mapping.checks[id]?.target) {
+              throw new Error(`Reference-host case refused: ${id} has no approved target`)
+            }
+          }
+          throw new Error('Reference-host case refused: approved main-bundle provenance and authenticated host selection are not yet composed')
+          JS
+        shell: bash
+      - name: Build private-cluster PostgreSQL 18 binaries
+        if: matrix.host == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          postgres_source="$RUNNER_TEMP/fault-postgres-source"
+          postgres_prefix="$RUNNER_TEMP/fault-postgres"
+          mkdir -p "$postgres_source" "$postgres_prefix"
+          curl --fail --location --retry 3 \
+            https://ftp.postgresql.org/pub/source/v18.0/postgresql-18.0.tar.bz2 \
+            --output "$postgres_source/postgresql-18.0.tar.bz2"
+          printf '%s  %s\n' \
+            '0d5b903b1e5fe361bca7aa9507519933773eb34266b1357c4e7780fdee6d6078' \
+            "$postgres_source/postgresql-18.0.tar.bz2" | shasum -a 256 -c
+          tar -xjf "$postgres_source/postgresql-18.0.tar.bz2" -C "$postgres_source"
+          cd "$postgres_source/postgresql-18.0"
+          ./configure --prefix="$postgres_prefix" --without-icu --without-readline --without-zlib --with-ssl=openssl
+          make -j2
+          make install
+          make -C contrib/pgcrypto -j2
+          make -C contrib/pgcrypto install
+          "$postgres_prefix/bin/postgres" --version
+          "$postgres_prefix/bin/initdb" --version
+          printf 'SMITHERS_FAULT_POSTGRES_BIN=%s\n' "$postgres_prefix/bin" >> "$GITHUB_ENV"
+      - name: Install Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.26.8'
+      - name: "Start smthrs results"
+        run: "mkdir -p \"$RUNNER_TEMP/smthrs-results\" && printf '%s\\n' '{\"version\":1,\"results\":[]}' > \"$RUNNER_TEMP/smthrs-results/attempt.json\""
+        shell: "bash"
+      - uses: "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
+      - uses: "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
+        with:
+          "node-version-file": ".node-version"
+          "cache": "pnpm"
+      - name: "Install certified npm"
+        run: |
+          npm install --global 'npm@11.16.0' --ignore-scripts --no-audit --no-fund
+          test "$(npm --version)" = '11.16.0'
+        shell: "bash"
+      - run: "pnpm install --frozen-lockfile --ignore-scripts"
+      - uses: "Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6"
+      - name: "Install native smithers-jj-export"
+        run: |
+          case "$(uname -s)" in Linux|Darwin|MINGW*|MSYS*)
+            native_suffix=''
+            case "$(uname -s)" in MINGW*|MSYS*) native_suffix='.exe';; esac
+            rustup toolchain install '1.98.0' --profile minimal
+            cargo +1.98.0 build --locked -p 'smithers-ffi' --bin 'smithers-jj-export'
+            mkdir -p "$RUNNER_TEMP/smithers-native"
+            native_path="$RUNNER_TEMP/smithers-native/smithers-jj-export$native_suffix"
+            install -m 755 "target/debug/smithers-jj-export$native_suffix" "$native_path"
+            if [ "$native_suffix" = '.exe' ]; then native_path="$(cygpath -w "$native_path")"; fi
+            printf '%s=%s\n' 'SMITHERS_WORKSPACE_JJ_EXPORT_BINARY' "$native_path" >> "$GITHUB_ENV"
+          esac
+        shell: "bash"
+      - name: "Install jj"
+        uses: "taiki-e/install-action@e67fa11c4b9316fa714ddf0abed07a0c3143b95b"
+        with:
+          "tool": "jj-cli@0.39.0"
+      - name: "Initialize colocated jj repository"
+        id: setup
+        run: "jj git init --colocate"
+      - name: "Exclusive fault matrix"
+        env:
+          SMITHERS_TEST_DATABASE_URL: ${{ matrix.host == 'linux' && format('postgres://smithers:fault-fixture@127.0.0.1:{0}/postgres?sslmode=disable', job.services.postgres.ports[5432]) || '' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: "pnpm exec smthrs test '//packages/...:faults' --jobs 1 --results-file \"$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json\" --verbose"
+      - name: "Upload smthrs results"
+        if: always()
+        uses: "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"
+        with:
+          "name": "smthrs-results-e2e-faults-${{ matrix.host }}-${{ github.run_attempt }}"
+          "path": "${{ runner.temp }}/smthrs-results"
+          "if-no-files-found": "error"
+      - name: Preserve durability observations
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: durability-observations-${{ matrix.host }}-${{ github.run_attempt }}
+          path: .artifacts/checks/C-DUR-*/**
+          if-no-files-found: warn

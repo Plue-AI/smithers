@@ -32,6 +32,7 @@ func TestTodoCardNamesTheModelAccessItsRunUsed(t *testing.T) {
 	require.NoError(t, err)
 	s := NewMythicalService(pool, nil)
 	ctx = middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: userID}, SessionHash: "session"})
+	ctx = registerTestInstallCredential(t, pool, ctx, repoID)
 	_, err = s.FileTodo(ctx, repoID, userID, MythicalTodoInput{Title: "One", Prompt: "Change the README", Request: "one"})
 	require.NoError(t, err)
 

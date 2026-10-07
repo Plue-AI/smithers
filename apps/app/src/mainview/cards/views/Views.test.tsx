@@ -1,4 +1,8 @@
 import { SetupAction } from "./SetupAction"
+import { EdgeMap } from "../../EdgeMap"
+import { Timeline } from "../../Timeline"
+import { ToastStack } from "../../ToastStackView"
+import type { ToastCard } from "@smthrs/rpc/ToastCard"
 import type { Action } from "@smthrs/rpc/CardAction"
 import { stories as secretsStories } from "./SecretsView.stories"
 import { SecretsView } from "./SecretsView"
@@ -14,7 +18,7 @@ import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:
 import { Glob } from "bun"
 
 import { act } from "react"
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import type { StoryModule, ViewStory } from "./stories"
 
 let consoleError: ReturnType<typeof spyOn>
@@ -54,16 +58,16 @@ for (const path of paths) {
         // T-UI-10 / C-UI-12: fixture copy spans locally selected versions.
         const displays = [host.textContent]
         if (path.endsWith("FlowView.stories.tsx")) {
-          for (const button of host.querySelectorAll<HTMLButtonElement>(".mvp-version")) {
+          for (const button of host.querySelectorAll<HTMLButtonElement>(".flow-version")) {
             await act(async () => button.click())
             displays.push(host.textContent)
           }
           expect(onAction).toHaveBeenCalledTimes(0)
-          expect(onView).toHaveBeenCalledTimes(0)
+          expect(onView).toHaveBeenCalledTimes(host.querySelectorAll(".flow-version").length)
         }
         for (const text of story.expect) {
           if (story.name.startsWith("actor-")) {
-            const chips = host.querySelectorAll(".mvp-avatar"); expect(chips.length).toBeGreaterThan(0)
+            const chips = host.querySelectorAll(".avatar"); expect(chips.length).toBeGreaterThan(0)
             for (const chip of chips) expect(story.name === "actor-fixture-system" ? chip.getAttribute("data-kind") : chip.getAttribute("aria-label")).toContain(text)
           } else expect([...displays, host.querySelector("diffs-container")?.shadowRoot?.textContent ?? "", ...[...host.querySelectorAll<HTMLInputElement>("input:not([type=password]),textarea")].map(input => input.value)].join("\n")).toContain(text)
         }
@@ -96,6 +100,13 @@ for (const path of paths) {
           }
           return
         }
+        if (path === "SettingsView.stories.tsx" && story.name === "Supplied model slot") {
+          const button = host.querySelector<HTMLButtonElement>(".setup-settings dd button")!
+          expect(button.textContent).toBe("Change model")
+          await act(async () => button.click())
+          expect(onAction.mock.calls).toEqual([["settings.model.set", { role: "fast", model: "llama-4-scout" }]])
+          return
+        }
         if (path === "SetupView.stories.tsx" || path === "SettingsView.stories.tsx") {
           // Form actions project one submit or two stepper controls, with draft fields.
           const fixture = Object.values(path.startsWith("Setup") ? { ...setup, ...personOnlyFixtures } : settings).find(item => item.name === story.name)!
@@ -104,6 +115,7 @@ for (const path of paths) {
             const order = ["machine", "address", "fast", "coding", "jev", "capacity", "parallel", "todo_daily_admissions", "health", "notifications", "obsidian"]
             const rank = (action: import("@smthrs/rpc/CardAction").Action) => order.indexOf(action.tag === "github" ? "health" : action.tag === "docs" ? "notifications" : action.args?.role ?? action.args?.field ?? action.args?.step ?? "")
             supplied.sort((a, b) => rank(a) - rank(b))
+            for (let i = supplied.length - 1; i >= 0; i--) if (["settings.model.set", "settings.model-key"].includes(supplied[i]!.tag)) supplied.splice(i, 1)
             for (const action of supplied) for (const field of action.input ?? []) {
               const model = fixture.model as import("@smthrs/rpc/SettingsCard").SettingsCard
               const value = action.args?.field === "capacity" ? model.capacity : action.args?.field === "parallel" ? model.parallel : action.args?.field === "todo_daily_admissions" ? model.todo_daily_admissions : action.args?.field === "obsidian" ? model.obsidian?.path : undefined
@@ -191,7 +203,11 @@ for (const path of paths) {
               field.dispatchEvent(new Event("change", { bubbles: true }))
             }
           })
-          await act(async () => control.click())
+          const confirmation = action.tag === "members.remove" ? spyOn(window, "confirm").mockReturnValue(true) : undefined
+          try {
+            await act(async () => control.click())
+            if (confirmation && !action.disabled) expect(confirmation).toHaveBeenCalledWith(`Remove @${action.args?.login}?`)
+          } finally { confirmation?.mockRestore() }
           expect(onView).toHaveBeenCalledTimes(0)
           if (action.disabled) expect(onAction).toHaveBeenCalledTimes(0)
           else {
@@ -263,15 +279,15 @@ for (const styleCase of ["starting", "in_review", "merged", "harness"]) test(`pr
   if (styleCase === "harness") css.textContent += readFileSync(new URL("./view-stories.css", import.meta.url), "utf8")
   document.head.append(css)
   const state = document.createElement("span")
-  state.className = "mvp-state"
+  state.className = "state"
   state.dataset.state = styleCase
   const node = document.createElement("span")
   state.append(node)
   document.body.append(state)
   try {
-    node.className = styleCase === "starting" ? "mvp-dot" : styleCase === "harness" ? "view-story" : "mvp-glyph"
+    node.className = styleCase === "starting" ? "dot" : styleCase === "harness" ? "view-story" : "glyph"
     node.dataset.state = styleCase
-    if (styleCase === "starting") expect(getComputedStyle(node).animation).toContain("mvp-blink")
+    if (styleCase === "starting") expect(getComputedStyle(node).animation).toContain("blink")
     else if (styleCase === "harness") {
       expect(getComputedStyle(node).maxWidth).toBe("900px")
       expect(getComputedStyle(node).boxSizing).toBe("border-box")
@@ -285,7 +301,6 @@ for (const styleCase of ["starting", "in_review", "merged", "harness"]) test(`pr
 import { fixtures } from "@smthrs/rpc/fixtures/Confirm"
 import type { ConfirmViewProps } from "@smthrs/rpc/ConfirmCard"
 import { ConfirmView } from "./ConfirmView"
-import { actorName } from "./ActorChip"
 import { confirmStories } from "./ConfirmView.stories"
 
 describe("ConfirmView named cases", () => {
@@ -322,15 +337,46 @@ for (const key of Object.keys(expectedActions) as Array<keyof typeof expectedAct
     expect(calls).toEqual([...expectedActions[key]])
   })
 }
+// Independent labels: fixtures supply inputs, never the rendered-label oracle.
+const expectedAskers: Record<string, string> = {
+  one_click: "Claude Code for Ben",
+  drop: "Smithers for Ben",
+  branch: "Claude Code for Ben",
+  flow: "Claude Code for Ben",
+  agent: "Claude Code for Ben",
+  wiki: "Claude Code for Ben",
+  learning: "Smithers for Ben",
+  no_actions: "Claude Code for Ben",
+  disabled: "Claude Code for Ben",
+  actor_person: "Ben",
+  actor_person_medium: "Ben",
+  actor_ssh: "Ben via SSH",
+  actor_terminal: "Ben's terminal",
+  actor_cli: "Ben via CLI",
+  actor_smithers_for_ben: "Smithers for Ben",
+  actor_claude_code_for_ben: "Claude Code for Ben",
+  actor_codex_for_ben: "Codex for Ben",
+  actor_codex_for_will: "Codex for Will",
+  actor_external_for_ben: "Aider for Ben",
+  actor_coding_agent_for_ben: "Coding agent for Ben",
+  actor_reviewer_for_ben: "Reviewer for Ben",
+  actor_undelegated_agent: "Aider",
+  actor_undelegated_smithers: "Smithers",
+  actor_system: "Smithers",
+  actor_github_user: "@octocat",
+  actor_outside: "Changed outside Smithers"
+}
 for (const [name, story] of Object.entries(confirmStories)) {
   test(`renders ${name}`, () => {
     const host = render({ ...story, ...callbacks })
-    expect(host.querySelector("h2")).not.toBeNull()
-    for (const text of story.expect) expect(host.textContent).toContain(text)
-    if (story.model.kind === "one_click" && !story.model.receipt) {
-      const label = actorName(story.model.asked_by)
-      expect(host.querySelector(".mvp-avatar")?.getAttribute("aria-label")).toBe(label)
-      expect(host.querySelector(".confirm-asker")?.textContent).toContain(label)
+    expect(host.querySelector("h2") !== null).toBe(!["done", "cancelled", "expired"].includes(name))
+    const receiptLabels: Record<string, string[]> = { done: ["Amended T12 · Ben"], cancelled: ["Cancelled"], expired: ["Expired"] }
+    for (const text of receiptLabels[name] ?? story.expect) expect(host.textContent).toContain(text)
+    if (story.model.kind === "one_click" && !("receipt" in story.model && story.model.receipt)) {
+      const label = expectedAskers[name]
+      expect(label).toBeDefined()
+      expect(host.querySelector(".avatar")?.getAttribute("aria-label")).toBe(label)
+      expect(host.querySelector(".confirm-asker > span:last-child")?.textContent).toBe(label)
     }
   })
 }
@@ -366,7 +412,7 @@ test("missing approval leaves only supplied controls", () => {
 })
 test("stale approval is distinct from an expired receipt", () => {
   const host = render({ ...fixtures.stale_approval, ...callbacks })
-  expect(host.textContent).toContain("You approved 1b2c3d4. Review 9e8f7a6.")
+  expect(host.textContent).toContain("Approved 1b2c3d4 · Review 9e8f7a6")
   expect(host.textContent).toContain("Reviewed 1b2c3d4 · same change")
   expect(host.textContent).not.toContain("Expired")
 })
@@ -386,6 +432,179 @@ test("hostile command text stays exact, inert text", () => {
 })
 import { TodoView } from "./TodoView";
 import { todoStories } from "./TodoView.stories";
+import { cardActions, type CardActionDefinition } from "../../flows/cardActions";
+import type { TodoViewProps } from "../TodoCard";
+import type { TodoCard, TodoWait } from "@smthrs/rpc/TodoCard";
+
+// Test-owned inputs and literal expectations exercise the production command adapter.
+const repairTodo: TodoCard = {
+  n: 24, title: "Repair retry", state: "needs_you",
+  owner: { login: "ben", name: "Ben", avatar_url: "https://example.test/ben.png" },
+  prompt_revisions: [], steps: [], waits: [], steers: [], evidence: [], present: [],
+  merge: { state: "waiting", reason: "attention", on_github: false },
+};
+const conflictWait: TodoWait = {
+  id: "conflict-24", kind: "conflict", prompt: "Resolve retry conflict", since: "2026-10-05T10:00:00Z",
+  paths: ["src/retry.ts", "src/backoff.ts"], ssh_line: "ssh todo-24@mac-mini.local", actions: [],
+};
+function boundTodo(model: TodoCard, definitions: CardActionDefinition[], slot?: TodoViewProps["conflictTerminal"]) {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host), calls: unknown[] = [];
+  const render = (next: TodoCard, controls = definitions, terminal = slot) => {
+    const bindings = cardActions((tag, input) => calls.push([tag, input]), controls);
+    act(() => root.render(<TodoView model={next} {...bindings} view={{ maximized: false }} onView={() => {}} conflictTerminal={terminal} />));
+  };
+  render(model);
+  return { host, calls, render, close: () => { act(() => root.unmount()); host.remove(); } };
+}
+function typeTodoInput(input: HTMLInputElement | HTMLTextAreaElement, value: string) {
+  act(() => {
+    const prototype = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(prototype, "value")!.set!.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+test("conflict paths, SSH and a single supplied terminal precede Resolve and Done; both bind the wait once", () => {
+  const resolve: CardActionDefinition = { tag: "branch", label: "Resolve", args: { wait: "conflict-24" },
+    gesture: "resolve", command_input: { name: "todo/24" } };
+  const done: CardActionDefinition = { tag: "todo.answer", label: "Done", args: { wait: "conflict-24" },
+    gesture: "done", command_input: { n: 24, wait: "conflict-24", answer: "done" } };
+  const model = { ...repairTodo, waits: [{ ...conflictWait, actions: [resolve, done] }, { ...conflictWait, id: "conflict-25" }] };
+  const view = boundTodo(model, [resolve, done], <textarea aria-label="Conflict terminal" />);
+  try {
+    expect([...view.host.querySelectorAll("code")].slice(0, 3).map(node => node.textContent)).toEqual([
+      "src/retry.ts", "src/backoff.ts", "ssh todo-24@mac-mini.local",
+    ]);
+    expect(view.host.querySelectorAll(".todo-conflict-terminal")).toHaveLength(1);
+    expect(view.host.querySelector('[data-wait-id="conflict-24"] .todo-conflict-terminal')).not.toBeNull();
+    expect([...view.host.querySelectorAll("textarea,button")].map(node => node.getAttribute("aria-label") ?? node.textContent))
+      .toEqual(["Conflict terminal", "Resolve", "Done"]);
+    for (const button of view.host.querySelectorAll<HTMLButtonElement>("button")) act(() => button.click());
+    expect(view.calls).toEqual([["branch", { name: "todo/24" }], ["todo.answer", { n: 24, wait: "conflict-24", answer: "done" }]]);
+    view.render({ ...repairTodo, waits: [conflictWait] }, [], undefined);
+    expect(view.host.querySelector("button")).toBeNull();
+    view.render({ ...repairTodo, waits: [] }, [], <textarea aria-label="Unused terminal" />);
+    expect(view.host.querySelector("textarea")).toBeNull();
+  } finally { view.close(); }
+});
+test("Fork and Add to stack dispatch literal supplied commands once through cardActions", () => {
+  const view = boundTodo(repairTodo, [
+    { tag: "branch.fork", label: "Fork", command_input: { from: "T24" } },
+    { tag: "branch.add-to-stack", label: "Add to stack", command_input: { text: "Keep retry" } },
+  ]);
+  try {
+    for (const button of view.host.querySelectorAll<HTMLButtonElement>("button")) act(() => button.click());
+    expect(view.calls).toEqual([["branch.fork", { from: "T24" }], ["branch.add-to-stack", { text: "Keep retry" }]]);
+    view.render(repairTodo, []);
+    expect(view.host.querySelector("button")).toBeNull();
+  } finally { view.close(); }
+});
+test("moved_off and foreign_push preserve supplied order, actor and SHA; missing Discard removes its control", () => {
+  const resolve: CardActionDefinition = { tag: "branch", label: "Resolve", args: { wait: "moved-24" }, gesture: "moved", command_input: { name: "todo/24" } };
+  const bring: CardActionDefinition = { tag: "branch.bring-in", label: "Bring in", args: { wait: "foreign-24" }, gesture: "bring",
+    command_input: { branch: "todo/24", id: "foreign-24", revision: "4bc79aef91d66ea28c90b706d584d3b9b48e14ea" } };
+  const discard: CardActionDefinition = { ...bring, tag: "branch.discard-foreign", label: "Discard", gesture: "discard" };
+  const moved: TodoWait = { id: "moved-24", kind: "moved_off", prompt: "Moved off T24", since: "now", actions: [resolve] };
+  const foreign: TodoWait = { id: "foreign-24", kind: "foreign_push", prompt: "Alice pushed", since: "now",
+    by: { kind: "person", login: "alice", name: "Alice", avatar_url: "https://example.test/alice.png", color_index: 1 },
+    sha: "4bc79aef91d66ea28c90b706d584d3b9b48e14ea", actions: [bring, discard] };
+  const view = boundTodo({ ...repairTodo, waits: [moved, foreign] }, [resolve, bring, discard]);
+  try {
+    expect([...view.host.querySelectorAll("[data-wait-id]")].map(row => row.getAttribute("data-wait-id"))).toEqual(["moved-24", "foreign-24"]);
+    expect(view.host.textContent).toContain("Alice");
+    expect(view.host.querySelector("code")!.textContent).toBe("4bc79aef91d66ea28c90b706d584d3b9b48e14ea");
+    for (const button of view.host.querySelectorAll<HTMLButtonElement>("button")) act(() => button.click());
+    expect(view.calls).toEqual([
+      ["branch", { name: "todo/24" }],
+      ["branch.bring-in", { branch: "todo/24", id: "foreign-24", revision: "4bc79aef91d66ea28c90b706d584d3b9b48e14ea" }],
+      ["branch.discard-foreign", { branch: "todo/24", id: "foreign-24", revision: "4bc79aef91d66ea28c90b706d584d3b9b48e14ea" }],
+    ]);
+    view.render({ ...repairTodo, waits: [moved, { ...foreign, actions: [bring] }] }, [resolve, bring]);
+    expect(view.host.querySelector('[data-flow="branch.discard-foreign"]')).toBeNull();
+  } finally { view.close(); }
+});
+test("hostile conflict paths, SSH, commit and actor remain inert text", () => {
+  const hostile = '<script>alert("repair")</script>$(touch /tmp/repair)';
+  const view = boundTodo({ ...repairTodo, waits: [{ ...conflictWait, paths: [hostile], ssh_line: hostile, sha: hostile,
+    by: { kind: "person", login: "alice", name: hostile, avatar_url: "https://example.test/alice.png", color_index: 1 } }] }, []);
+  try {
+    expect([...view.host.querySelectorAll("code")].map(node => node.textContent)).toEqual([hostile, hostile, hostile]);
+    expect(view.host.textContent).toContain(hostile);
+    expect(view.host.querySelector("script")).toBeNull();
+    expect(view.calls).toEqual([]);
+  } finally { view.close(); }
+});
+test("question and approval forms dispatch their own literal wait inputs through cardActions", () => {
+  const question: CardActionDefinition = { tag: "todo.answer", label: "Answer", args: { wait: "question-24" }, gesture: "question",
+    input: [{ name: "answer", label: "Answer", kind: "text", required: true, multiline: true }],
+    command_input: { n: 24, wait: "question-24", answer: "" }, resolve_input: input => ({ n: 24, wait: "question-24", answer: input.answer! }) };
+  const approval: CardActionDefinition = { tag: "todo.answer", label: "Approve", args: { wait: "approval-24" }, gesture: "approval",
+    input: [{ name: "answer", label: "Approval", kind: "choice", choices: ["Approve", "Deny"], required: true }],
+    command_input: { n: 24, wait: "approval-24", answer: "" }, resolve_input: input => ({ n: 24, wait: "approval-24", answer: input.answer! }) };
+  const view = boundTodo({ ...repairTodo, waits: [
+    { id: "question-24", kind: "question", prompt: "Keep retry?", since: "now", actions: [question] },
+    { id: "approval-24", kind: "approval", prompt: "Approve retry?", since: "now", actions: [approval] },
+  ] }, [question, approval]);
+  try {
+    typeTodoInput(view.host.querySelector("textarea")!, "Keep retry\nverbatim");
+    act(() => { const select = view.host.querySelector("select")!; select.value = "Approve"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+    for (const form of view.host.querySelectorAll("form")) act(() => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(view.calls).toEqual([
+      ["todo.answer", { n: 24, wait: "question-24", answer: "Keep retry\nverbatim" }],
+      ["todo.answer", { n: 24, wait: "approval-24", answer: "Approve" }],
+    ]);
+  } finally { view.close(); }
+});
+test("Retry, Take over, Edit and Merge use the production adapter; disabled Merge stays text", () => {
+  const mergeInput = { n: 24, reviewed_head_sha: "verified-head" };
+  const controls: CardActionDefinition[] = [
+    { tag: "todo.retry", label: "Retry", command_input: { n: 24 } },
+    { tag: "todo.takeover", label: "Take over", command_input: { n: 24 } },
+    { tag: "todo.amend", label: "Edit", command_input: { n: 24, text: "" },
+      input: [{ name: "text", label: "Prompt", kind: "text", required: true }], resolve_input: input => ({ n: 24, text: input.text! }) },
+    { tag: "merge", label: "Merge", command_input: mergeInput },
+  ];
+  const model: TodoCard = { ...repairTodo, state: "in_review", merge: { state: "ready", on_github: false } };
+  const view = boundTodo(model, controls);
+  try {
+    typeTodoInput(view.host.querySelector("input")!, "Keep authored prompt");
+    for (const button of view.host.querySelectorAll<HTMLButtonElement>('button[type="button"]')) act(() => button.click());
+    act(() => view.host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(view.calls).toEqual([
+      ["todo.retry", { n: 24 }], ["todo.takeover", { n: 24 }], ["merge", { n: 24, reviewed_head_sha: "verified-head" }],
+      ["todo.amend", { n: 24, text: "Keep authored prompt" }],
+    ]);
+    view.render({ ...model, merge: { state: "blocked", reason: "checks", on_github: false } },
+      [{ tag: "merge", label: "Merge", disabled: { reason: "Checks failed" }, command_input: { n: 24 } }]);
+    expect(view.host.querySelector("button")).toBeNull();
+    expect(view.host.textContent).toContain("Checks failed");
+  } finally { view.close(); }
+});
+for (const [state, word] of [["queued", "Queued"], ["starting", "Starting"], ["working", "Working"], ["needs_you", "Needs you"],
+  ["paused", "Paused"], ["failed", "Failed"], ["in_review", "In review"], ["merged", "Merged"], ["dropped", "Dropped"]] as const) {
+  test(`TODO literal ${state} state`, () => {
+    const view = boundTodo({ ...repairTodo, state }, []);
+    try { expect(view.host.querySelector("header [data-state]")!.textContent).toBe(word); expect(view.calls).toEqual([]); }
+    finally { view.close(); }
+  });
+}
+test("late answer remains Send as steer through the production adapter", () => {
+  const answer: CardActionDefinition = { tag: "todo.answer", label: "Answer", args: { wait: "question-24" }, gesture: "answer",
+    input: [{ name: "answer", label: "Answer", kind: "text", required: true, multiline: true }],
+    command_input: { n: 24, wait: "question-24", answer: "" }, resolve_input: input => ({ n: 24, wait: "question-24", answer: input.answer! }) };
+  const steer: CardActionDefinition = { tag: "todo.steer", label: "Send as steer", command_input: { n: 24, text: "" },
+    input: [{ name: "text", label: "Steer", kind: "text", required: true, multiline: true }], resolve_input: input => ({ n: 24, text: input.text! }) };
+  const view = boundTodo({ ...repairTodo, waits: [{ id: "question-24", kind: "question", prompt: "Keep retry?", since: "now", actions: [answer] }] }, [answer]);
+  try {
+    typeTodoInput(view.host.querySelector("textarea")!, "Keep my answer\nverbatim");
+    view.render({ ...repairTodo, waits: [], first_answer: { text: "Yes", at: "now",
+      by: { kind: "person", login: "ben", name: "Ben", avatar_url: "https://example.test/ben.png", color_index: 1 } } }, [steer]);
+    expect(view.host.textContent).toContain("Ben answered");
+    expect(view.host.querySelector("textarea")!.value).toBe("Keep my answer\nverbatim");
+    act(() => view.host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(view.calls).toEqual([["todo.steer", { n: 24, text: "Keep my answer\nverbatim" }]]);
+  } finally { view.close(); }
+});
 function mount(story = todoStories.needs_you) {
   const element = document.createElement("div");
   document.body.append(element);
@@ -580,7 +799,7 @@ test("a question holds the named step, not the first unfinished step", () => {
   view.close();
 });
 import { fixtures as setup, personOnlyFixtures } from "@smthrs/rpc/fixtures/Setup"
-import { fixtures as settings } from "@smthrs/rpc/fixtures/Settings"
+import { fixtures as settings } from "./SettingsView.stories"
 import { SetupView } from "./SetupView"
 import { SettingsView } from "./SettingsView"
 let root: import("react-dom/client").Root | undefined
@@ -662,15 +881,44 @@ test("Settings shows literal sync health and Obsidian receipts", () => {
   expect(host.textContent).toContain("Disk free · 412 GB")
   expect(host.textContent).toContain("Process · ok")
 })
-test("Owner action forms retain literal order and model arguments", () => {
+test("Settings without a model slot renders no model controls or dispatch", () => {
+  const calls: unknown[] = []
+  const actions: Action[] = [
+    ...settings.ready.actions.filter(action => action.tag === "settings.model.set"),
+    { tag: "settings.model.set", label: "Change", args: { role: "unknown" } },
+    { tag: "settings.model-key", label: "Save", args: { role: "fast" }, input: [{ name: "value", label: "Cerebras key", kind: "secret", required: true }] },
+    { tag: "settings.model-key", label: "Retry" },
+    { tag: "settings.model.set", label: "Misplaced model action", args: { field: "capacity" } },
+    { tag: "settings.model-key", label: "Misplaced key action", args: { step: "address" } }
+  ]
+  const host = render(<SettingsView {...settings.ready} actions={actions} onAction={(...args) => calls.push(args)} onView={() => {}} />)
+  expect(host.querySelector('button[data-flow],form,input,select')).toBeNull()
+  expect(host.textContent).not.toMatch(/Fast model|Coding model|Decisions|AI Gateway key|Cerebras/)
+  expect(calls).toEqual([])
+})
+test("Settings renders the supplied model slot once without duplicate actions", () => {
+  const calls: unknown[] = []
+  const host = render(<SettingsView {...settings.ready} modelSlot={<><dt>Fast model</dt><dd><button type="button" onClick={() => calls.push("slot")}>Change model</button></dd></>}
+    onAction={(...args) => calls.push(args)} onView={() => {}} />)
+  expect([...host.querySelectorAll("dt")].map(row => row.textContent)).toEqual([
+    "This Mac", "Fast model", "GitHub", "Machines", "TODOs per day", "Laptop agent", "Health", "Obsidian folder"
+  ])
+  expect(host.querySelectorAll('button')).not.toHaveLength(0)
+  expect(host.querySelectorAll('button[data-flow="settings.model.set"],button[data-flow="settings.model-key"]')).toHaveLength(0)
+  const slot = [...host.querySelectorAll<HTMLButtonElement>("button")].filter(button => button.textContent === "Change model")
+  expect(slot).toHaveLength(1)
+  act(() => slot[0]!.click())
+  expect(calls).toEqual(["slot"])
+  act(() => root!.render(<SettingsView {...settings.ready} onAction={(...args) => calls.push(args)} onView={() => {}} />))
+  expect(host.textContent).not.toContain("Fast model")
+  expect(calls).toEqual(["slot"])
+})
+test("Owner action forms retain literal order without duplicate model arguments", () => {
   const calls: unknown[] = []
   const host = render(<SettingsView {...settings.ready} onAction={(...args) => calls.push(args)} onView={() => {}} />)
-  expect([...host.querySelectorAll('.setup-action')].map(form => form.getAttribute('data-flow'))).toEqual(['settings.model.set', 'settings.model.set', 'settings.model.set', 'settings', 'settings', 'github', 'settings'])
+  expect([...host.querySelectorAll('.setup-action')].map(form => form.getAttribute('data-flow'))).toEqual(['settings', 'settings', 'github', 'settings'])
   for (const button of host.querySelectorAll<HTMLButtonElement>('.setup-action button[type="submit"]')) act(() => button.click())
   expect(calls).toEqual([
-    ['settings.model.set', { role: 'fast', model: 'llama-4-scout' }],
-    ['settings.model.set', { role: 'coding', model: 'gpt-6.1-sol' }],
-    ['settings.model.set', { role: 'jev', model: 'typesafe-ai/jev' }],
     ['github', {}],
     ['settings', { field: 'obsidian', path: '' }]
   ])
@@ -786,10 +1034,48 @@ test("Settings actions live in their rows and unassigned actions retain order", 
   const row = (label: string) => [...host.querySelectorAll("dt")].find(dt => dt.textContent === label)!.nextElementSibling!
   expect(row("Machines").textContent).toBe("−2+")
   expect(row("TODOs per day").textContent).toBe("−12+")
-  expect(row("Decisions").textContent).toBe("AI GatewaySavedChange")
+  expect([...host.querySelectorAll("dt")].map(row => row.textContent)).not.toContain("Decisions")
   expect(row("Health").querySelector('button[data-flow="github"]')!.textContent).toBe("Repair")
   expect(row("Obsidian folder").querySelector("button")!.textContent).toBe("Change")
   expect([...host.querySelectorAll(".setup-view > .setup-actions button")].map(button => button.textContent)).toEqual(["Add", "Docs"])
+})
+
+// Read the app's relative sheets in their actual entry order; Chromium also loads
+// the full entry (including Tailwind) in C-UI-12's browser shell cases.
+const appStyles = () => {
+  const entry = readFileSync(new URL("../../index.css", import.meta.url), "utf8")
+  return [...entry.matchAll(/@import "(\.\/[^\"]+)";/g)]
+    .map(([, path]) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8")).join("\n")
+}
+
+for (const theme of ["light", "dark"]) test(`Conversation shell uses app Paper styles ${theme}`, async () => {
+  const { EntryRow } = await import("../../EntryRow")
+  const { fixtures } = await import("@smthrs/rpc/fixtures/EntryRow")
+  const chat = readFileSync(new URL("../../styles/chat.css", import.meta.url), "utf8")
+  const cards = readFileSync(new URL("../../styles/cards.css", import.meta.url), "utf8")
+  for (const selector of [".tree", ".crumbs", ".entry", ".author", ".locked", ".tombstone", ".context", ".earlier", ".read-only"]) {
+    expect(chat).toContain(selector)
+    expect(cards).not.toContain(selector)
+    expect(appStyles()).not.toContain(`.mvp-${selector.slice(1)}`)
+  }
+  document.documentElement.dataset.theme = theme
+  const sheet = document.createElement("style")
+  sheet.textContent = appStyles()
+  document.head.append(sheet)
+  const row = await mounted({ name: "styled shell", expect: [], render: ({ onAction }) => <EntryRow {...fixtures.failed.model} onAction={onAction} /> })
+  try {
+    const entry = row.host.querySelector<HTMLElement>(".entry")!
+    expect(getComputedStyle(entry).borderLeftWidth).toBe("2px")
+    expect(getComputedStyle(entry).paddingLeft).toBe("10px")
+    expect(getComputedStyle(row.host.querySelector(".entry-title")!).lineHeight).toBe("1.5")
+    const control = row.host.querySelector<HTMLButtonElement>("button")!
+    // CSSOM verifies the actual entry retains the shell's keyboard focus rule;
+    // the browser case verifies the painted ring on a focused production control.
+    const focus = [...sheet.sheet!.cssRules].find(rule => rule.cssText.startsWith(":is(.tree, .crumbs, .entry, .context, .earlier) button:focus-visible")) as CSSStyleRule
+    expect(focus.style.outlineOffset).toBe("-2px")
+    expect(chat).toContain("button:focus-visible { outline: 2px solid var(--ring-border); outline-offset: -2px; }")
+    expect(control.disabled).toBe(true)
+  } finally { await row.close(); sheet.remove(); delete document.documentElement.dataset.theme }
 })
 
 // T-UI-07: spec §14.1.5, §14.5.1 and ui-components T-UI-07 literal oracles.
@@ -802,12 +1088,12 @@ test("Conversation shell renders branch navigation, entries and Earlier", async 
   const row = await mounted({ name: "tombstone", expect: [], render: ({ onAction }) => <EntryRow {...fixtures.tombstone.model} private action={{ tag: "merge", label: "Merge", args: { n: "12" } }} card={<button>Forbidden body</button>} onAction={onAction} /> })
   try {
     expect(row.host.textContent).toBe("Card model contracts")
-    expect(row.host.querySelectorAll("button, .mvp-avatar, .mvp-locked")).toHaveLength(0)
-    expect(row.host.querySelector(".mvp-tombstone")).not.toBeNull()
+    expect(row.host.querySelectorAll("button, .avatar, .locked")).toHaveLength(0)
+    expect(row.host.querySelector(".tombstone")).not.toBeNull()
   } finally { await row.close() }
   const tree = await mounted({ name: "ancestry", expect: [], render: ({ onAction, onView }) => <BranchTree nodes={[branches.main.model]} view={{ selected_branch: "todo-12" }} onAction={onAction} onView={onView} /> })
   try {
-    expect([...tree.host.querySelectorAll(".mvp-tree-name")].map(node => node.textContent)).toEqual(["main", "todo/12", "scratch/repro", "Earlier · 3"])
+    expect([...tree.host.querySelectorAll(".tree-name")].map(node => node.textContent)).toEqual(["main", "todo/12", "scratch/repro", "Earlier · 3"])
     expect([...tree.host.querySelectorAll("li")].map(node => node.getAttribute("data-depth"))).toEqual(["0", "1", "2", "0"])
     expect(tree.host.querySelector('[aria-current="page"]')?.textContent).toContain("todo/12")
     await act(async () => tree.host.querySelector<HTMLButtonElement>('[data-node="scratch-repro"]')!.click())
@@ -835,9 +1121,9 @@ test("shell text is inert; private, empty and disabled boundaries", async () => 
   const hostile = '<script>throw Error("executed")</script>'
   const row = await mounted({ name: "hostile", expect: [], render: ({ onAction }) => <EntryRow kind="answer" author={actors.system.model.actor} title={hostile} summary={hostile} tone="quiet" onAction={onAction} /> })
   try {
-    expect(row.host.querySelector(".mvp-entry-title")?.textContent).toBe(hostile)
-    expect(row.host.querySelector(".mvp-entry-summary")?.textContent).toBe(hostile)
-    expect(row.host.querySelector(".mvp-avatar")?.getAttribute("aria-label")).toBe("Install event")
+    expect(row.host.querySelector(".entry-title")?.textContent).toBe(hostile)
+    expect(row.host.querySelector(".entry-summary")?.textContent).toBe(hostile)
+    expect(row.host.querySelector(".avatar")?.getAttribute("aria-label")).toBe("Smithers")
     expect(row.host.querySelector("script")).toBeNull()
     expect(row.host.querySelector("button")).toBeNull()
   } finally { await row.close() }
@@ -884,7 +1170,7 @@ test("missing selected branch has no unnamed crumb; popover arrows move and go t
   try { expect(missing.host.querySelector("button")).toBeNull() } finally { await missing.close() }
   const row = await mounted({ name: "keys", expect: [], render: ({ onAction, onView }) => <BranchCrumbs nodes={[fixtures.main.model]} view={{ selected_branch: "scratch-repro" }} onAction={onAction} onView={onView} /> })
   try {
-    const trigger = row.host.querySelector<HTMLButtonElement>(".mvp-crumb-here")!
+    const trigger = row.host.querySelector<HTMLButtonElement>(".crumb-here")!
     await act(async () => { trigger.click(); trigger.focus() })
     const press = async (key: string) => act(async () => { document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true })) })
     await press("ArrowDown")
@@ -900,20 +1186,33 @@ test("missing selected branch has no unnamed crumb; popover arrows move and go t
     expect((document.activeElement as HTMLElement).dataset.node).toBe("main")
     await press("Escape")
     expect(document.activeElement).toBe(trigger)
-    expect(row.host.querySelector(".mvp-tree")).toBeNull()
+    expect(row.host.querySelector(".tree")).toBeNull()
   } finally { await row.close() }
 })
 
 // T-UI-14: Appendix A literal copy, presentation-only policy and inert text.
 const { CommandsView } = await import("./CommandsView")
 test("Commands renders supplied policies and order without dispatch or role filtering", async () => {
-  const { fixtures } = await import("@smthrs/rpc/fixtures/Commands")
-  const story: ViewStory = { name: "commands", expect: [], render: callbacks => <CommandsView {...fixtures.maintainer} {...callbacks} /> }
+  const story: ViewStory = { name: "commands", expect: [], render: callbacks => <CommandsView
+    model={{ groups: [
+      { label: "TODOs", advanced: false, commands: [{ tag: "todo.answer", synopsis: "/todo.answer Tn", description: "Answer", agent: "run" }, { tag: "todo.amend", synopsis: "/todo.amend Tn", description: "Change", agent: "confirm" }] },
+      { label: "People", advanced: false, commands: [{ tag: "members", synopsis: "/members", description: "People", agent: "never" }] },
+      { label: "Advanced", advanced: true, commands: [{ tag: "settings", synopsis: "/settings", description: "Settings", agent: "never" }] }
+    ] }} actions={[]} gestures={{}} view={{ maximized: false }} {...callbacks} /> }
   const mountedStory = await mounted(story)
   try {
     expect([...mountedStory.host.querySelectorAll("h3, summary")].map(node => node.textContent)).toEqual(["TODOs", "People", "Advanced"])
-    expect([...mountedStory.host.querySelectorAll(".mvp-command-policy")].map(node => node.textContent)).toEqual(["Asks first", "Only you", "Only you"])
-    expect(mountedStory.host.querySelector(".mvp-command")!.querySelector(".mvp-command-policy")).toBeNull()
+    expect([...mountedStory.host.querySelectorAll(".command-policy")].map(node => node.textContent)).toEqual(["Asks first", "Only you", "Only you"])
+    expect(mountedStory.host.querySelector(".command")!.querySelector(".command-policy")).toBeNull()
+    const details = mountedStory.host.querySelector("details")!
+    const summary = details.querySelector("summary")!
+    expect(details.open).toBe(false)
+    summary.focus()
+    expect(document.activeElement).toBe(summary)
+    summary.click()
+    expect(details.open).toBe(true)
+    summary.click()
+    expect(details.open).toBe(false)
     expect(mountedStory.onAction).not.toHaveBeenCalled()
     expect(mountedStory.onView).not.toHaveBeenCalled()
   } finally { await mountedStory.close() }
@@ -973,7 +1272,9 @@ test("Members reordered colors and absent owner actions", async () => {
   const root = createRoot(host)
   try {
     await act(async () => root.render(<MembersView {...fixtures.team} model={{ ...fixtures.team.model, members: [...fixtures.team.model.members].reverse() }} onAction={() => {}} onView={() => {}} />))
-    expect([...host.querySelectorAll<HTMLElement>(".mvp-avatar")].map(node => node.style.getPropertyValue("--who"))).toEqual(["var(--lane-2)", "var(--lane-0)", "var(--lane-1)"])
+    expect([...host.querySelectorAll<HTMLElement>(".avatar")].map(node => node.style.getPropertyValue("--who"))).toEqual(["var(--lane-2)", "var(--lane-0)", "var(--lane-1)"])
+    expect(host.querySelector(".members-view .members-list .member-name")?.textContent).toBe("Sam Lee")
+    expect([...host.querySelectorAll("[class]")].flatMap(node => [...node.classList]).filter(name => name.startsWith("mvp-"))).toEqual([])
     expect(host.querySelector('[data-login="williamcory"]')?.querySelectorAll("button[data-flow]").length).toBe(0)
   } finally { await act(async () => root.unmount()) }
 })
@@ -1043,41 +1344,46 @@ test("Members story renders unexpected supplied owner actions for oracle detecti
 // T-UI-10 / C-UI-12: literal state and action oracles, selection is local.
 import { fixtures as flows } from "@smthrs/rpc/fixtures/Flow"
 import { FlowView } from "./FlowView"
+import type { FlowViewProps } from "@smthrs/rpc/FlowCard"
+function ControlledFlowView(props: FlowViewProps) {
+  const [view, setView] = useState(props.view)
+  return <FlowView {...props} view={view} onView={patch => { props.onView(patch); setView(current => ({ ...current, ...patch })) }} />
+}
 for (const [id, fixture] of Object.entries(flows)) test(`Flow ${id}`, () => {
-  const host = render(<FlowView {...fixture} onAction={() => {}} onView={() => {}} />)
+  const host = render(<ControlledFlowView {...fixture} onAction={() => {}} onView={() => {}} />)
   const displays = [host.textContent]
-  for (const button of host.querySelectorAll<HTMLButtonElement>(".mvp-version")) {
+  for (const button of host.querySelectorAll<HTMLButtonElement>(".flow-version")) {
     act(() => button.click())
     displays.push(host.textContent)
   }
   for (const text of fixture.expect) expect(displays.join("\n")).toContain(text)
 })
-test("Flow version selection is local and marks only supplied added true", () => {
+test("Flow version selection patches its member view and marks only supplied added true", () => {
   const calls = mock((..._args: unknown[]) => {})
-  const host = render(<FlowView {...flows.proposed} onAction={calls} onView={calls} />)
+  const host = render(<ControlledFlowView {...flows.proposed} onAction={calls} onView={calls} />)
   expect(host.querySelector('[aria-pressed="true"]')?.textContent).toContain("Active")
   act(() => host.querySelector<HTMLButtonElement>('[data-state="proposed"]')!.click())
   expect(host.textContent).toContain("Update docs")
   expect(host.querySelectorAll('[data-added="true"]').length).toBe(1)
   expect(host.querySelector('[data-added="true"]')?.textContent).toContain("Update docs")
-  expect(calls).toHaveBeenCalledTimes(0)
-  act(() => root!.render(<FlowView {...flows.proposed} model={{ ...flows.proposed.model, versions: [{ id: "v4", state: "proposed", steps: [{ id: "docs", label: "Update docs", added: false }, { id: "other", label: "Other" }] }] }} onAction={calls} onView={calls} />))
+  expect(calls.mock.calls).toEqual([[{ tab: "v4" }]])
+  act(() => root!.render(<ControlledFlowView {...flows.proposed} model={{ ...flows.proposed.model, versions: [{ id: "v4", state: "proposed", steps: [{ id: "docs", label: "Update docs", added: false }, { id: "other", label: "Other" }] }] }} onAction={calls} onView={calls} />))
   expect(host.querySelectorAll("[data-added]").length).toBe(0)
 })
 test("Flow actions retain literal order and bindings; omitted and disabled controls", () => {
   const calls = mock((..._args: unknown[]) => {})
-  const host = render(<FlowView {...flows.active} onAction={calls} onView={() => { throw new Error("Unexpected view patch") }} />)
+  const host = render(<ControlledFlowView {...flows.active} onAction={calls} onView={() => { throw new Error("Unexpected view patch") }} />)
   expect([...host.querySelectorAll('[data-flow]')].map(button => button.textContent)).toEqual(["Source", "Plan", "Run", "Edit"])
   for (const button of host.querySelectorAll<HTMLButtonElement>('[data-flow]')) act(() => button.click())
   expect(calls.mock.calls).toEqual([["flow.source", { name: "todo" }], ["flow.plan", { name: "todo" }], ["flow.run", { name: "todo" }], ["flow.edit", { name: "todo" }]])
-  act(() => root!.render(<FlowView {...flows.active} actions={[{ tag: "flow.run", label: "Run", disabled: { reason: "No machine available" } }]} onAction={calls} onView={() => {}} />))
+  act(() => root!.render(<ControlledFlowView {...flows.active} actions={[{ tag: "flow.run", label: "Run", disabled: { reason: "No machine available" } }]} onAction={calls} onView={() => {}} />))
   expect(host.querySelector('[data-flow="flow.source"]')).toBeNull()
   expect(host.textContent).toContain("No machine available")
   act(() => host.querySelector<HTMLButtonElement>('[data-flow="flow.run"]')!.click())
   expect(calls).toHaveBeenCalledTimes(4)
 })
 test("Flow source is inert text and merge signals use supplied targets", () => {
-  const host = render(<FlowView {...flows.active} model={{ ...flows.active.model, source: { path: '<script>throw new Error("executed")</script>' } }} onAction={() => {}} onView={() => {}} />)
+  const host = render(<ControlledFlowView {...flows.active} model={{ ...flows.active.model, source: { path: '<script>throw new Error("executed")</script>' } }} onAction={() => {}} onView={() => {}} />)
   expect(host.querySelector("script")).toBeNull()
   expect(host.textContent).toContain('<script>throw new Error("executed")</script>')
   expect(host.textContent).toContain("Wait for merge")
@@ -1089,23 +1395,23 @@ for (const [fixture, labels] of [
   [flows.proposed, ["Active", "ProposedT12"]],
   [flows.merged_syncing, ["Merged · active after syncT12", "Active"]],
   [flows.merged_failed, ["Merged · not activeT12", "Active"]],
-  [flows.previous, ["Active", "Previous"]],
+  [flows.previous, ["Active"]],
 ] as const) test(`Flow version words: ${labels.join(", ")}`, () => {
-  const host = render(<FlowView {...fixture} onAction={() => {}} onView={() => {}} />)
-  expect([...host.querySelectorAll(".mvp-version")].map(chip => chip.textContent)).toEqual([...labels])
-  expect(host.querySelector('.mvp-version[aria-pressed="true"]')?.textContent).toBe("Active")
+  const host = render(<ControlledFlowView {...fixture} onAction={() => {}} onView={() => {}} />)
+  expect([...host.querySelectorAll(".flow-version")].map(chip => chip.textContent)).toEqual([...labels])
+  expect(host.querySelector('.flow-version[aria-pressed="true"]')?.textContent).toBe("Active")
 })
 
 // Mock Flow.tsx: the visible title and accessible name agree; signal arrows are decorative.
 test("Flow accessible title and decorative signal arrows", () => {
-  const host = render(<FlowView {...flows.active} onAction={() => {}} onView={() => {}} />)
+  const host = render(<ControlledFlowView {...flows.active} onAction={() => {}} onView={() => {}} />)
   expect(host.querySelector("section")?.getAttribute("aria-label")).toBe("TODO flow")
-  expect([...host.querySelectorAll('.mvp-signal [aria-hidden="true"]')].map(node => node.textContent)).toEqual(["↺", "↺"])
+  expect([...host.querySelectorAll('.flow-signal [aria-hidden="true"]')].map(node => node.textContent)).toEqual(["↺", "↺"])
 })
 
 // Flow mock: only the selected failed version owns its error; Active remains usable.
 test("Flow load failure belongs to selected version", () => {
-  const host = render(<FlowView {...flows.merged_failed} onAction={() => {}} onView={() => {}} />)
+  const host = render(<ControlledFlowView {...flows.merged_failed} onAction={() => {}} onView={() => {}} />)
   expect(host.textContent).not.toContain("Load failed")
   act(() => host.querySelector<HTMLButtonElement>('[data-state="merged-failed"]')!.click())
   expect(host.textContent).toContain("Load failed")
@@ -1122,10 +1428,29 @@ test("Flow load failure belongs to selected version", () => {
 // FlowCard error is optional: absent/blank diagnostics do not invent detail text.
 test("Flow failed version without diagnostics has no disclosure", () => {
   for (const diagnostic of [undefined, "", "   "]) {
-    const host = render(<FlowView {...flows.merged_failed} model={{ ...flows.merged_failed.model, versions: [{ id: "failed", state: "merged-failed", steps: [], error: diagnostic }] }} onAction={() => {}} onView={() => {}} />)
+    const host = render(<ControlledFlowView {...flows.merged_failed} model={{ ...flows.merged_failed.model, versions: [{ id: "failed", state: "merged-failed", steps: [], error: diagnostic }] }} onAction={() => {}} onView={() => {}} />)
     expect(host.querySelector(".flow-failure b")?.textContent).toBe("Load failed")
     expect(host.querySelector(".flow-failure details")).toBeNull()
     expect(host.textContent).not.toContain("undefined")
+  }
+})
+
+test("Flow without supplied actions keeps versions usable and matches its sole stylesheet", () => {
+  const calls = mock((..._args: unknown[]) => {})
+  const host = render(<ControlledFlowView {...flows.proposed} actions={[]} onAction={calls} onView={calls} />)
+  expect(host.querySelectorAll('[data-flow]')).toHaveLength(0)
+  act(() => host.querySelector<HTMLButtonElement>('.flow-version[data-state="proposed"]')!.click())
+  expect(host.querySelector('.flow-steps [data-added="true"]')?.textContent).toContain("Update docs")
+  expect(host.querySelector('.flow-path')?.textContent).toBe("Built-in")
+  expect(calls.mock.calls).toEqual([[{ tab: "v4" }]])
+  const css = readFileSync(new URL("../../styles/cards.css", import.meta.url), "utf8")
+  for (const node of host.querySelectorAll('[class]')) for (const name of node.classList) {
+    if (name.startsWith("flow-")) expect(css).toContain(`.${name}`)
+  }
+  expect(host.innerHTML).not.toMatch(/mvp-(?:flow-|version|signal)/)
+  expect(css).not.toMatch(/\.mvp-(?:flow-|version|signal)/)
+  for (const path of ["../../styles/views/flow.css", "../../styles/views.css"]) {
+    expect(existsSync(new URL(path, import.meta.url))).toBe(false)
   }
 })
 
@@ -1186,14 +1511,24 @@ const change = (element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElem
 })
 const press = (element: HTMLElement) => act(() => element.click())
 
-for (const [name, fixture] of Object.entries(fixtures)) {
+// C-UI-12: the oracle is committed here, independently of fixture.expect and model values.
+for (const [name, texts, privateChip, controls] of [
+  ["append", ["New TODO", "Card models", "Publish typed card models", "Fixtures parse\nUnknown states fail"], true, ["todo.new", "draft.discard"]],
+  ["before", ["New TODO", "Before T8 Persist merge requests"], true, ["todo.new", "draft.discard"]],
+  ["amend", ["Amend T9", "Amend T9 Wire Home"], true, ["todo.amend", "draft.discard"]],
+  ["issue_fixes", ["#3474 Card model contracts", "Closes #3474 when merged"], true, ["todo.new", "draft.discard"]],
+  ["issue_without_fixes", ["#3474 Card model contracts", "Closes #3474 when merged"], true, ["todo.new", "draft.discard"]],
+  ["seed", ["Seed · Read-only", "packages/rpc/src/TodoCard.ts", "packages/rpc/test/fixtures/Todo.ts"], true, ["todo.new", "draft.discard"]],
+  ["committed", ["Committed as T12", "Card models"], false, []],
+  ["committed_amendment", ["Amend T9", "Committed as T9", "+1", "Card models"], false, []],
+  ["empty_stack", ["Publish typed card models", "Append", "Add a title"], true, ["todo.new", "draft.discard"]],
+] as const) {
   test(`Draft fixture ${name} renders`, () => {
-    const host = renderDraft(fixture)
-    for (const expected of fixture.expect) {
-      const contents = host.textContent + Array.from(host.querySelectorAll("input,textarea")).map(element => (element as HTMLInputElement).value).join(" ")
-      expect(contents).toContain(expected)
-    }
-    expect(host.querySelector(".draft-private") !== null).toBe(!fixture.model.committed && fixture.model.private)
+    const host = renderDraft(fixtures[name])
+    const contents = host.textContent + Array.from(host.querySelectorAll("input,textarea")).map(element => (element as HTMLInputElement).value).join(" ")
+    for (const text of texts) expect(contents).toContain(text)
+    expect(host.querySelector(".draft-private")?.textContent ?? null).toBe(privateChip ? "Only you" : null)
+    expect([...host.querySelectorAll<HTMLButtonElement>("button")].map(button => button.dataset.flow)).toEqual([...controls])
   })
 }
 test("DraftView submits fields and renders private and committed drafts", () => {
@@ -1279,26 +1614,35 @@ test("hostile seed text is literal, with no executable surface", () => {
 })
 
 test("unavailable placement stays selected and focus/blur never appends", () => {
-  for (const mode of ["before", "amend"] as const) {
+  for (const [mode, label, value] of [["before", "Before T99 (unavailable)", '{"mode":"before","n":99}'], ["amend", "Amend T99 (unavailable)", '{"mode":"amend","n":99}']] as const) {
     const host = renderDraft({ model: { ...fixtures.append.model, place: { mode, n: 99, options: [] } } })
     const select = host.querySelector("select")!
-    expect(select.selectedOptions[0]!.textContent).toBe(`${mode === "before" ? "Before" : "Amend"} T99 (unavailable)`)
-    expect(select.value).toBe(JSON.stringify({ mode, n: 99 }))
+    expect(select.selectedOptions[0]!.textContent).toBe(label)
+    expect(select.value).toBe(value)
     act(() => select.focus()); blur(select)
     expect(calls).toEqual([])
     act(() => draftRoot.unmount()); host.remove(); draftRoot = undefined!
   }
 })
-test("checkbox and select dispatch once on change without focus or blur", () => {
-  const host = renderDraft(fixtures.issue_fixes)
+test("fixes true and false and Append forward literal strings once without blur", () => {
+  const host = renderDraft({ model: { ...fixtures.issue_without_fixes.model, place: { mode: "before", n: 8, options: fixtures.before.model.place.options } } })
   const fixes = host.querySelector<HTMLInputElement>('input[type="checkbox"]')!
-  const initial = fixes.checked
-  press(fixes)
-  expect(calls).toEqual([["form.set", { entry: "entry-draft-1", field: "fixes", value: String(!initial) }]])
-  blur(fixes)
-  expect(calls.length).toBe(1)
-  change(host.querySelector("select")!, '{"mode":"append"}')
-  expect(calls.length).toBe(1)
+  expect(fixes.checked).toBe(false)
+  press(fixes); blur(fixes)
+  press(fixes); blur(fixes)
+  change(host.querySelector("select")!, '{"mode":"append"}'); blur(host.querySelector("select")!)
+  expect(calls).toEqual([
+    ["form.set", { entry: "entry-draft-1", field: "fixes", value: "true" }],
+    ["form.set", { entry: "entry-draft-1", field: "place", value: '{"mode":"append"}' }]
+  ])
+  // After the saved model changes, clearing fixes emits false (unchanged input is silent).
+  act(() => draftRoot.render(<DraftView {...fixtures.issue_fixes} onAction={(...args) => calls.push(args)} onView={() => {}} />))
+  press(host.querySelector<HTMLInputElement>('input[type="checkbox"]')!); blur(host.querySelector<HTMLInputElement>('input[type="checkbox"]')!)
+  expect(calls).toEqual([
+    ["form.set", { entry: "entry-draft-1", field: "fixes", value: "true" }],
+    ["form.set", { entry: "entry-draft-1", field: "place", value: '{"mode":"append"}' }],
+    ["form.set", { entry: "entry-draft-1", field: "fixes", value: "false" }]
+  ])
 })
 test("Commit has no unsupported Enter hint", () => {
   const host = renderDraft()
@@ -1327,7 +1671,7 @@ test("agent model updates resync every field and unchanged blur never dispatches
 test("issue arrow requires the model GitHub href", () => {
   const host = renderDraft(fixtures.issue_fixes)
   const issue = host.querySelector(".draft-issue")!
-  expect(issue.getAttribute("href")).toBe(fixtures.issue_fixes.model.issue!.url!)
+  expect(issue.getAttribute("href")).toBe("https://github.com/smithersai/smithers/issues/3474")
   expect(issue.textContent).toContain("↗")
   act(() => draftRoot.render(<DraftView {...fixtures.issue_fixes} model={{ ...fixtures.issue_fixes.model, issue: { ...fixtures.issue_fixes.model.issue!, url: undefined as unknown as string } }} onAction={() => {}} onView={() => {}} />))
   expect(host.querySelector(".draft-issue")!.textContent).not.toContain("↗")
@@ -1346,10 +1690,10 @@ test("one model field update preserves other unsubmitted edits", () => {
 
 test("unchanged acceptance is silent for empty entries and embedded newlines", () => {
   const host = renderDraft()
-  for (const acceptance of [[], [""], ["First\nSecond"]]) {
-    act(() => draftRoot.render(<DraftView {...fixtures.append} model={{ ...fixtures.append.model, acceptance }} onAction={(...args) => calls.push(args)} onView={() => {}} />))
+  for (const [acceptance, value] of [[[], ""], [[""], ""], [["First\nSecond"], "First\nSecond"]] as const) {
+    act(() => draftRoot.render(<DraftView {...fixtures.append} model={{ ...fixtures.append.model, acceptance: [...acceptance] }} onAction={(...args) => calls.push(args)} onView={() => {}} />))
     const field = host.querySelectorAll("textarea")[1]!
-    expect(field.value).toBe(acceptance.join("\n")); blur(field)
+    expect(field.value).toBe(value); blur(field)
     expect(calls).toEqual([])
   }
 })
@@ -1410,10 +1754,10 @@ test("Terminal forwards owner bytes and suppresses watcher/frozen bytes through 
 test("Terminal gives the working agent its own avatar and acting-for label", async () => {
   const item = await mountedTerminal(terminalStories.find(story => story.name === "Claude Code working in Ben's terminal")!)
   try {
-    expect(item.host.querySelectorAll('.mvp-avatar[data-kind="agent"]')).toHaveLength(1)
-    expect(item.host.querySelectorAll('.mvp-avatar[data-kind="person"]')).toHaveLength(1)
+    expect(item.host.querySelectorAll('.avatar[data-kind="agent"]')).toHaveLength(1)
+    expect(item.host.querySelectorAll('.avatar[data-kind="person"]')).toHaveLength(1)
     expect(item.host.textContent).toContain("Claude Code for Ben")
-    expect(item.host.querySelector('.mvp-avatar[data-kind="agent"]')!.hasAttribute("data-live")).toBe(true)
+    expect(item.host.querySelector('.avatar[data-kind="agent"]')!.hasAttribute("data-live")).toBe(true)
   } finally { await item.close() }
 })
 
@@ -1448,10 +1792,10 @@ test("Branch actions retain burst identities, forms, omissions and supplied orde
     await act(async () => root.render(<BranchView {...branchFixtures.active} view={{ maximized: false, tab: "terminals" }} onAction={onAction} onView={onView} />))
     expect(host.textContent).toContain("pnpm check")
     expect(host.textContent).toContain("Rebasing…")
-    expect(host.querySelectorAll(".branch-watchers .mvp-avatar")).toHaveLength(2)
+    expect(host.querySelectorAll(".branch-watchers .avatar")).toHaveLength(2)
     await act(async () => root.render(<BranchView {...branchFixtures.active} view={{ maximized: false, tab: "files" }} onAction={onAction} onView={onView} />))
     expect(host.textContent).toContain("flows/todo/prompt.md → flows/todo/instructions/implementer.md")
-    expect(host.querySelectorAll(".branch-list .mvp-avatar")).toHaveLength(6)
+    expect(host.querySelectorAll(".branch-list .avatar")).toHaveLength(6)
   } finally { await act(async () => root.unmount()); host.remove() }
 })
 
@@ -1524,7 +1868,7 @@ test("Branch SSH copies the supplied host line without a flow", async () => {
     await act(async () => root.render(<BranchView {...branchFixtures.awake} onAction={onAction} onView={onView} />))
     expect(host.querySelector(".branch-ssh code")!.getAttribute("title")).toBe("ssh -p 2222 todo-12@mac-mini.local")
     expect(host.querySelector(".branch-presence")).toBeNull()
-    expect(host.querySelector("p.branch-muted")!.textContent).toBe("Nobody here")
+    expect(host.textContent).not.toContain("Nobody here")
     await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Copy SSH line"]')!.click())
     expect(writeText.mock.calls).toEqual([["ssh -p 2222 todo-12@mac-mini.local"]])
     expect(onAction).toHaveBeenCalledTimes(0); expect(onView).toHaveBeenCalledTimes(0)
@@ -1601,7 +1945,7 @@ test("File live notices, snapshot and Compare use supplied data", async () => {
     await act(async () => host.querySelector<HTMLButtonElement>("button[data-flow]")!.click())
     expect(onAction.mock.calls[1]).toEqual(["file.follow-rename", { path: "flows/todo/flow.ts" }])
     await render(liveFileFixtures.comparing)
-    expect(host.querySelector(".code-file-notice > span")!.textContent).toBe("Changed outside Smithers")
+    expect(host.querySelector('.code-notice[data-tone="outside"] > span')!.textContent).toBe("Changed outside Smithers")
     expect(host.querySelector(".code-compare")).toBeNull()
     expect(host.querySelector(".code-snapshot-cap")).toBeNull()
     await act(async () => host.querySelector<HTMLButtonElement>("button[data-flow]")!.click())
@@ -1636,7 +1980,7 @@ test("File disabled and unavailable controls cannot dispatch", async () => {
   } finally { await act(async () => root.unmount()); host.remove() }
 })
 // T-APP-14a: the restored editor stays read-only without live authority.
-for (const saved of ["saving", "saved"] as const) test(`File production ignores unwired co-editing fields (${saved})`, async () => {
+for (const saved of ["saving", "saved"] as const) test(`File without authority hides live indicators and retains recovery (${saved})`, async () => {
   const { CodeEditorSurface: CodeSurface } = await import("../CodeEditorSurface")
   const { fixtures } = await import("@smthrs/rpc/fixtures/File")
   const host = document.createElement("div"); document.body.append(host)
@@ -1649,15 +1993,18 @@ for (const saved of ["saving", "saved"] as const) test(`File production ignores 
     expect(host.querySelector('[data-mode="read_only"]')).not.toBeNull()
     expect(host.querySelector(".cm-editor")).not.toBeNull()
     expect(host.querySelector(".cm-ySelection, .code-name-flag, .code-avatar-stack, .code-saved")).toBeNull()
-    expect(host.querySelector("button, [contenteditable=true]")).toBeNull()
-    expect(host.textContent).not.toMatch(/Saving|Saved to the machine|weren't saved|retained edit/)
+    expect(host.querySelector("[contenteditable=true], [data-flow=\"file.reapply\"]")).toBeNull()
+    expect(host.querySelector("button")?.textContent).toBe("Copy")
+    expect(host.textContent).not.toMatch(/Saving|Saved to the machine/)
+    expect(host.textContent).toContain("2 edits weren't saved")
+    expect(host.querySelector("pre")?.textContent).toBe("retained edit")
     expect(host.querySelector("diffs-container")).toBeNull()
     expect(onAction).not.toHaveBeenCalled()
   } finally { await act(async () => root.unmount()); host.remove() }
 })
 
 test("File recovery renders hostile text inert and copies the literal buffer", async () => {
-  const { FilePresenceView } = await import("./FilePresenceView")
+  const { CodeEditorView } = await import("./CodeEditorView")
   const { fixtures } = await import("@smthrs/rpc/fixtures/File")
   const previous = Object.getOwnPropertyDescriptor(navigator, "clipboard")
   const writeText = mock(async (_text: string) => {})
@@ -1666,7 +2013,7 @@ test("File recovery renders hostile text inert and copies the literal buffer", a
   const root = createRoot(host)
   const onAction = mock((_tag: string, _args?: Record<string, string>) => {})
   try {
-    await act(async () => root.render(<FilePresenceView {...fixtures.unsaved}
+    await act(async () => root.render(<CodeEditorView {...fixtures.unsaved}
       model={{ ...fixtures.unsaved.model, path: "<script>throw 1</script>",
         unsaved: { count: 2, text: '<img src=x onerror="throw 2">\n<script>throw 3</script>' } }}
       actions={[{ tag: "file.reapply", label: "Reapply", args: { path: "<script>throw 1</script>" } }]}
@@ -1693,11 +2040,11 @@ test("File Copy writes the recovered edit, with singular recovery copy", async (
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
   try {
     const onAction = mock(() => {})
-    const { FilePresenceView } = await import("./FilePresenceView")
-    const { fileStories } = await import("./FilePresenceView.stories")
+    const { CodeEditorView } = await import("./CodeEditorView")
+    const { fileStories } = await import("./CodeEditorView.stories")
     const host = document.createElement("div"); document.body.append(host)
     const root = createRoot(host)
-    await act(async () => root.render(<FilePresenceView {...fileStories.unsaved_one} onAction={onAction} onView={() => {}} />))
+    await act(async () => root.render(<CodeEditorView {...fileStories.unsaved_one} onAction={onAction} onView={() => {}} />))
     expect(host.textContent).toContain("1 edit wasn't saved")
     await act(async () => host.querySelector<HTMLButtonElement>('.code-notice button')!.click())
     expect(writeText).toHaveBeenCalledTimes(1)
@@ -1710,23 +2057,23 @@ test("File Copy writes the recovered edit, with singular recovery copy", async (
 })
 
 describe("File presence review regressions", () => {
-  test("presence without binding shares undelegated agent colour with avatar", async () => {
-    const { FilePresenceView } = await import("./FilePresenceView")
+  test("binding shares undelegated agent colour with avatar", async () => {
+    const { CodeEditorView } = await import("./CodeEditorView")
     const { fixtures } = await import("@smthrs/rpc/fixtures/File")
     const agent = { kind: "agent" as const, agent: "coding" as const, id: "agent-1", avatar_url: "", name: "Agent", color_index: 2 as const }
     const host = document.createElement("div"); document.body.append(host)
     const root = createRoot(host)
-    await act(async () => root.render(<FilePresenceView {...fixtures.live} model={{ ...fixtures.live.model, editors: [{ actor: agent, line: 1 }] }} onAction={() => {}} onView={() => {}} />))
+    await act(async () => root.render(<CodeEditorView {...fixtures.live} binding={{ text: fixtures.live.model.content.kind === "text" ? fixtures.live.model.content.text : "", extensions: [] }} model={{ ...fixtures.live.model, editors: [{ actor: agent, line: 1 }] }} onAction={() => {}} onView={() => {}} />))
     expect(host.querySelector(".code-name-flag")).not.toBeNull()
     const flag = host.querySelector<HTMLElement>(".code-name-flag")!
-    const avatar = host.querySelector<HTMLElement>(".code-avatar-stack .mvp-avatar")!
+    const avatar = host.querySelector<HTMLElement>(".code-avatar-stack .avatar")!
     expect(flag.style.getPropertyValue("--who")).toBe("var(--lane-6)")
     expect(flag.style.getPropertyValue("--who")).toBe(avatar.style.getPropertyValue("--who"))
-    expect(host.querySelector(".cm-editor")).toBeNull()
+    expect(host.querySelector(".cm-editor")).not.toBeNull()
     await act(async () => root.unmount())
   })
   test("recovery notice owns primary Reapply and reports Copy failure", async () => {
-    const { stories } = await import("./FilePresenceView.stories")
+    const { stories } = await import("./CodeEditorView.stories")
     const { host, onAction, close } = await mounted(stories.find(story => story.name === "unsaved")!)
     const action = host.querySelector<HTMLButtonElement>('.code-notice [data-flow="file.reapply"]')!
     expect(action.dataset.primary).toBe("true")
@@ -1747,7 +2094,7 @@ describe("File presence review regressions", () => {
     }
   })
   test("outside notice owns Compare", async () => {
-    const { stories } = await import("./FilePresenceView.stories")
+    const { stories } = await import("./CodeEditorView.stories")
     const { host, close } = await mounted(stories.find(story => story.name === "outside")!)
     expect(host.querySelector('.code-notice[data-tone="outside"] [data-flow="file.compare"]')?.textContent).toBe("Compare")
     expect(host.querySelector(".code-actions")).toBeNull()
@@ -1755,15 +2102,15 @@ describe("File presence review regressions", () => {
   })
 })
 test("File editor avatars overlap and cap at four", async () => {
-  const { stories } = await import("./FilePresenceView.stories")
+  const { stories } = await import("./CodeEditorView.stories")
   const { host, close } = await mounted(stories.find(story => story.name === "five_editors")!)
-  expect(host.querySelectorAll(".code-avatar-stack .mvp-avatar")).toHaveLength(4)
+  expect(host.querySelectorAll(".code-avatar-stack .avatar")).toHaveLength(4)
   expect(host.querySelector(".code-avatar-stack")?.textContent).toContain("+1")
   expect(host.querySelector(".code-avatar-stack")?.getAttribute("aria-label")).toBe("Ben, Claude Code for Ben, Ben, Claude Code for Ben, Ben")
   await close()
 })
 test("File over-limit text uses the co-editing limit copy", async () => {
-  const { stories } = await import("./FilePresenceView.stories")
+  const { stories } = await import("./CodeEditorView.stories")
   const { host, close } = await mounted(stories.find(story => story.name === "too_large")!)
   expect(host.querySelector(".code-file-size")?.textContent).toContain("Too large to co-edit · 2.4 MB")
   expect(host.querySelector('[data-slot="code-view"]')).toBeNull()
@@ -1855,8 +2202,18 @@ describe("DocsView", () => {
     for (const gestures of [{}, { open: { ...props.gestures.open!, disabled: { reason: "Unavailable" } } }]) {
       const rendered = await mounted({ name: "inert", expect: [], render: callbacks => <DocsView {...props} gestures={gestures} {...callbacks} /> })
       try {
+        for (const link of rendered.host.querySelectorAll<HTMLAnchorElement>(".sui-md a")) {
+          expect(link.getAttribute("href")).toBeNull()
+          expect(link.tabIndex).toBe(-1)
+        }
         for (const link of rendered.host.querySelectorAll("a")) { const event = new MouseEvent("click", { bubbles: true, cancelable: true }); await act(async () => link.dispatchEvent(event)); expect(event.defaultPrevented).toBe(true) }
         expect(rendered.onAction).toHaveBeenCalledTimes(0)
+        await act(async () => rendered.root.render(<DocsView {...props} onAction={rendered.onAction} onView={rendered.onView} />))
+        const restored = rendered.host.querySelector<HTMLAnchorElement>(".sui-md a")!
+        expect(restored.getAttribute("href")).toBe("../todos.md#review")
+        expect(restored.tabIndex).toBe(0)
+        await act(async () => restored.click())
+        expect(rendered.onAction.mock.calls).toEqual([["docs", { source: "docs-card", page: "todos#review" }]])
       } finally { await rendered.close() }
     }
   })
@@ -2034,7 +2391,7 @@ describe("DebugApiView", () => {
 
 // T-UI-15: literal projection oracles supplement the reused stories.
 for (const [key, text] of [
-  ["asleep", "In review"], ["failed", "Failed · Starting"], ["moved_off", "Ben moved off T12"],
+  ["asleep", "In review"], ["failed", "Failed · Starting"], ["moved_off", "Ben moved this branch off T12"],
   ["waking", "Starting"], ["waiting", "Queued"], ["closed", "Merged"],
   ["waking", "Waking"], ["waiting", "Waiting for a machine · #2"], ["closed", "Closed"],
   ["rebasing", "Rebasing… onto T8"], ["scratch_main", "Forked from main"],
@@ -2081,18 +2438,35 @@ test("Branch disabled location and watcher gestures refuse activation", async ()
   } finally { await item.close() }
 })
 
-for (const key of ["awake", "asleep", "waking", "waiting", "closed", "failed", "moved_off", "rebase_pending", "scratch_conflict"] as const)
+for (const key of Object.keys(branchFixtures) as (keyof typeof branchFixtures)[])
   test(`Branch ${key} copy blocks use product words`, async () => {
     const item = await mounted({ name: key, expect: [], render: callbacks => <BranchView {...branchFixtures[key]} {...callbacks} /> })
     try {
-      const banned = /\b(workflows?|threads?|tasks?|lanes?|boxes?|workspaces?|mythicals?|sandboxes?|VMs?|seats?|profiles?|Jev|forges?)\b/i
-      for (const block of item.host.querySelectorAll("h2, button, label, .branch-machine, .branch-notice > span, .branch-notice > b, .branch-item > span")) {
+      const banned = /\b(workflow|thread|task|lane|box|workspace|mythical|sandbox|VM|seat|profile|Jev|forge)(?:s|es)?\b/i
+      for (const block of item.host.querySelectorAll("h2, button, label, .branch-machine, .branch-notice > span, .branch-notice > b, .branch-item > span, .branch-presence > li, .branch-list > li")) {
         expect(block.textContent).not.toMatch(banned)
         expect(block.textContent!.trim().split(/\s+/).length).toBeLessThanOrEqual(12)
         expect((block.textContent!.match(/[!?]|\.(?:\s|$)/g) ?? []).length).toBeLessThanOrEqual(1)
       }
     } finally { await item.close() }
   })
+
+test("Branch copy identifies editing, running, settled questions and moved-off work", async () => {
+  const item = await mounted({ name: "copy", expect: [], render: callbacks => <BranchView {...branchFixtures.active}
+    {...callbacks} view={{ maximized: true, tab: "activity" }} /> })
+  try {
+    const rows = [...item.host.querySelectorAll(".branch-presence li")].map(row => row.textContent)
+    expect(rows[0]).toContain("editingflows/todo/flow.ts:12")
+    expect(rows[2]).toContain("editingpackages/rpc/src/TodoCard.ts")
+    expect(rows[3]).toContain("runningChecks · pnpm check")
+    expect(item.host.querySelector('[data-kind="steer"]')!.textContent).toContain("Steer · Ben")
+    expect(item.host.querySelector('[data-kind="question"]')!.textContent).toContain("Asked · Coding agent for Ben")
+    expect(item.host.querySelector('[data-kind="answer"]')!.textContent).toContain("Answer · Ben")
+    await act(async () => item.root.render(<BranchView {...branchFixtures.moved_off} onAction={item.onAction} onView={item.onView} />))
+    expect(item.host.querySelector('[data-tone="attention"]')!.textContent).toContain("Ben moved this branch off T12")
+    expect(item.onAction).toHaveBeenCalledTimes(0)
+  } finally { await item.close() }
+})
 
 // Literal oracles for T-UI-18; no fixture expectations or schemas supply these cases.
 describe("SecretsView write-only controls", () => {
@@ -2210,8 +2584,25 @@ test("Secrets stories keep minimal product copy and redact submitted values", as
 import { fixtures as homeFixtures } from "@smthrs/rpc/fixtures/Home"
 import type { HomeViewProps } from "@smthrs/rpc/HomeCard"
 import { HomeView } from "./HomeView"
+import { StoryHome } from "./HomeView.stories"
 import { useState } from "react"
 describe("HomeView", () => {
+  test("Home menu is projected from persisted props and only requests view patches", async () => {
+    const host = document.createElement("div"); document.body.append(host)
+    const root = createRoot(host), onView = mock((_patch: Record<string, unknown>) => {})
+    const props = { ...homeFixtures.active, onAction: () => {}, onView }
+    try {
+      await act(async () => root.render(<HomeView {...props} view={{ maximized: false, menu: 8 }} />))
+      const trigger = host.querySelector<HTMLButtonElement>('[aria-label="Order Persist merge requests"]')!
+      expect(trigger.getAttribute("aria-expanded")).toBe("true")
+      await act(async () => trigger.click())
+      expect(onView.mock.calls).toEqual([[{ menu: undefined }]])
+      expect(trigger.getAttribute("aria-expanded")).toBe("true")
+      await act(async () => root.render(<HomeView {...props} view={{ maximized: false }} />))
+      expect(host.querySelector('[role="menu"]')).toBeNull()
+    } finally { await act(async () => root.unmount()); host.remove() }
+  })
+
   const withBranch = (): HomeViewProps["model"] => {
     const base = homeFixtures.active.model
     const row = base.items[0]!
@@ -2226,19 +2617,143 @@ describe("HomeView", () => {
     const row = model.items[0]!
     try {
       await act(async () => root.render(<HomeView model={model} actions={[]} gestures={{}} view={{ maximized: false }} onAction={onAction} onView={onView} />))
-      const chip = host.querySelector<HTMLButtonElement>(".mvp-stack-row button.mvp-branch-chip")!
+      const chip = host.querySelector<HTMLButtonElement>(".stack-row button.branch-chip")!
       expect(chip.dataset.flow).toBe("branch")
       expect(chip.textContent).toBe(row.branch.name)
       // The chip is the branch action's only control: it is not repeated among the row's end actions.
-      expect(host.querySelectorAll('.mvp-row-end [data-flow="branch"]')).toHaveLength(0)
+      expect(host.querySelectorAll('.row-end [data-flow="branch"]')).toHaveLength(0)
       await act(async () => chip.click())
       expect(onAction.mock.calls).toEqual([["branch", { n: String(row.n), door: "branch" }]])
       expect(onView).toHaveBeenCalledTimes(0)
       await act(async () => root.render(<HomeView model={{ ...model, items: [{ ...row, actions: [] }] }} actions={[]} gestures={{}} view={{ maximized: false }} onAction={onAction} onView={onView} />))
-      expect(host.querySelector(".mvp-branch-chip")).toBeNull()
-      expect(host.querySelector(".mvp-where")?.firstChild?.nodeType).toBe(Node.TEXT_NODE)
-      expect(host.querySelector(".mvp-where")?.firstChild?.textContent).toBe(row.branch.name)
+      expect(host.querySelector(".branch-chip")).toBeNull()
+      expect(host.querySelector(".where")?.firstChild?.nodeType).toBe(Node.TEXT_NODE)
+      expect(host.querySelector(".where")?.firstChild?.textContent).toBe(row.branch.name)
     } finally { await act(async () => root.unmount()); host.remove() }
+  })
+
+  test("HomeView preserves order controls, closes on Escape, and omits unsupplied reset", async () => {
+    const host = document.createElement("div"); document.body.append(host)
+    const root = createRoot(host), onAction = mock((_tag: string, _args?: Record<string, string>) => {}), onView = mock((_patch: Record<string, unknown>) => {})
+    const draw = (model: HomeViewProps["model"], actions: Action[]) => act(async () => root.render(<StoryHome model={model} actions={actions} gestures={{}} view={{ maximized: false }} onAction={onAction} onView={onView} />))
+    const row = homeFixtures.active.model.items[0]!
+    const model: HomeViewProps["model"] = { ...homeFixtures.fresh.model, attention: [{ kind: "order", text: "Order changed", actions: [] }],
+      items: [{ ...row, title: "Unavailable TODO", actions: [] }], background_runs: [{ id: "failed", title: "Refresh wiki", state: "failed", actions: [] }] }
+    try {
+      await draw(model, [])
+      expect(host.querySelectorAll("button[data-flow]")).toHaveLength(0)
+      expect(host.querySelector('[aria-haspopup="menu"]')).toBeNull()
+      expect(host.textContent).not.toContain("Reset to GitHub main")
+      const disabled = { reason: "Permission missing" }
+      await draw({ ...model, attention: [{ ...model.attention[0]!, actions: [{ tag: "order.ok", label: "OK", disabled }] }],
+        items: [{ ...model.items[0]!, actions: [
+          { tag: "todo", label: "Unavailable TODO", args: { n: "8", door: "title" }, disabled },
+          { tag: "branch", label: "Open branch", disabled }, { tag: "merge", label: "Merge", disabled },
+          { tag: "stack.move", label: "Move up", args: { n: "8", direction: "up" }, disabled },
+          { tag: "stack.move", label: "Move down", args: { n: "8", direction: "down" }, disabled },
+          { tag: "todo.drop", label: "Drop", args: { n: "8" }, disabled },
+        ] }], background_runs: [{ ...model.background_runs[0]!, actions: [{ tag: "background.retry", label: "Retry", disabled }, { tag: "background.dismiss", label: "Dismiss", disabled }] }] },
+        [{ tag: "todo.new", label: "New TODO", disabled }, { tag: "main.reset-to-github", label: "Reset to GitHub main", disabled }])
+      const trigger = host.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!
+      await act(async () => trigger.click())
+      expect([...host.querySelectorAll('[role="menuitem"]')].map(button => button.textContent)).toEqual(["Move up", "Move down", "Drop"])
+      expect(host.textContent?.match(/Permission missing/g)).toHaveLength(11)
+      for (const button of host.querySelectorAll<HTMLButtonElement>('button[data-flow]')) {
+        expect(button.disabled).toBe(true)
+        await act(async () => { button.click(); button.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })) })
+      }
+      expect(onAction).toHaveBeenCalledTimes(0)
+      expect(onView.mock.calls).toEqual([[{ menu: 8 }]])
+      await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })))
+      expect(host.querySelector('[role="menu"]')).toBeNull()
+      expect(document.activeElement).toBe(trigger)
+      await draw(model, [{ tag: "main.reset-to-github", label: "Reset to GitHub main", args: { revision: "abc123" } }])
+      await act(async () => host.querySelector<HTMLButtonElement>('[data-flow="main.reset-to-github"]')!.click())
+      expect(onAction.mock.calls).toEqual([["main.reset-to-github", { revision: "abc123" }]])
+    } finally { await act(async () => root.unmount()); host.remove() }
+  })
+
+  test("HomeView menu supports keyboard navigation and outside dismissal with opaque tags", async () => {
+    const model = withBranch(), row = model.items[0]!
+    const story: ViewStory = { name: "menu", expect: [], render: callbacks => <StoryHome {...homeFixtures.fresh} {...callbacks} model={{ ...model, items: [{ ...row, actions: [
+      { tag: "wiki.page", label: "Move up", args: { n: "8", direction: "up" } },
+      { tag: "files", label: "Move down", disabled: { reason: "Last item" } },
+      { tag: "terminal", label: "Drop", args: { n: "8" } },
+    ] }] }} /> }
+    const h = await mounted(story)
+    try {
+      const trigger = h.host.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!
+      await act(async () => trigger.click())
+      const key = (value: string) => act(async () => h.host.querySelector('[role="menu"]')!.dispatchEvent(new KeyboardEvent("keydown", { key: value, bubbles: true })))
+      await key("Home")
+      expect(document.activeElement?.textContent).toBe("Move up")
+      await key("ArrowDown")
+      expect(document.activeElement?.textContent).toBe("Drop")
+      await key("ArrowDown")
+      expect(document.activeElement?.textContent).toBe("Move up")
+      await key("ArrowUp")
+      expect(document.activeElement?.textContent).toBe("Drop")
+      await key("Home")
+      await act(async () => (document.activeElement as HTMLButtonElement).click())
+      expect(h.onAction.mock.calls).toEqual([["wiki.page", { n: "8", direction: "up" }]])
+      await key("Escape")
+      expect(document.activeElement).toBe(trigger)
+      expect(h.host.querySelector('[role="menu"]')).toBeNull()
+      await act(async () => trigger.click())
+      await key("End")
+      expect(document.activeElement?.textContent).toBe("Drop")
+      await act(async () => document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })))
+      expect(h.host.querySelector('[role="menu"]')).toBeNull()
+      expect(h.onView.mock.calls).toEqual([[{ menu: 8 }], [{ menu: undefined }], [{ menu: 8 }], [{ menu: undefined }]])
+    } finally { await h.close() }
+  })
+
+  test("HomeView renders hostile supplied text without executing it", async () => {
+    const hostile = '<img src=x onerror="window.__homePwned=1"><script>window.__homePwned=1</script>'
+    const h = await mounted({ name: "hostile", expect: [], render: callbacks => <HomeView {...homeFixtures.active} {...callbacks}
+      actions={[{ tag: "todo.new", label: hostile }]} model={{ ...homeFixtures.active.model, repository: hostile,
+        main: { ...homeFixtures.active.model.main, health: "refused", title: hostile, cause: hostile },
+        attention: [{ kind: "force_push", text: hostile, actions: [] }],
+        items: [{ ...homeFixtures.active.model.items[0]!, title: hostile, present: [], actions: [] }], background_runs: [] }} /> })
+    try {
+      expect(h.host.querySelector("h2")?.textContent).toBe(hostile)
+      expect(h.host.querySelector(".stack-title")?.textContent).toContain(hostile)
+      expect(h.host.querySelector(".stack-trunk")?.textContent).toContain(hostile)
+      expect(h.host.querySelector(".sync")?.textContent).toBe(hostile)
+      expect(h.host.querySelector(".home-attention")?.textContent).toBe(hostile)
+      expect(h.host.querySelector('button[data-flow="todo.new"]')?.textContent).toBe(hostile)
+      expect(h.host.querySelectorAll("img, script")).toHaveLength(0)
+      expect(Reflect.get(window, "__homePwned")).toBeUndefined()
+      expect(h.onAction).toHaveBeenCalledTimes(0)
+      await act(async () => h.host.querySelector<HTMLButtonElement>('button[data-flow="todo.new"]')!.click())
+      expect(h.onAction.mock.calls).toEqual([["todo.new", {}]])
+      expect(Reflect.get(window, "__homePwned")).toBeUndefined()
+    } finally { await h.close() }
+  })
+
+  test("HomeView sync health ages once per second without sending a command", async () => {
+    let now = Date.parse("2026-10-05T12:00:40Z"), tick: (() => void) | undefined
+    const clock = spyOn(Date, "now").mockImplementation(() => now)
+    const interval = spyOn(globalThis, "setInterval").mockImplementation(((callback: () => void) => { tick = callback; return 1 }) as typeof setInterval)
+    const h = await mounted({ name: "clock", expect: [], render: callbacks => <HomeView {...homeFixtures.fresh} {...callbacks}
+      model={{ ...homeFixtures.fresh.model, main: { sha: "abc123", title: "Publish", last_success_at: "2026-10-05T12:00:00Z", health: "fresh" } }} /> })
+    try {
+      expect(h.host.querySelector(".sync")?.textContent).toBe("synced 40 s ago")
+      await act(async () => { now += 1000; tick!() })
+      expect(h.host.querySelector(".sync")?.textContent).toBe("synced 41 s ago")
+      expect(h.onAction).toHaveBeenCalledTimes(0)
+      expect(h.onView).toHaveBeenCalledTimes(0)
+      for (const [health, main, actions, expected] of [
+        ["stale", { cause: "Network unavailable", last_success_at: "2026-10-05T11:54:41Z" }, [{ tag: "github.retry", label: "Retry" }], "synced 6 min ago · Network unavailableRetry"],
+        ["limited", { cause: "GitHub rate limit", retry_at: "10:42" }, [], "GitHub rate limit · retries at 10:42"],
+        ["refused", { cause: "Repository access refused" }, [{ tag: "settings", label: "Fix" }], "Repository access refusedFix"],
+      ] as const) {
+        await act(async () => h.root.render(<HomeView {...homeFixtures.fresh} model={{ ...homeFixtures.fresh.model, main: { ...homeFixtures.fresh.model.main, health, ...main } }} actions={[...actions]} onAction={h.onAction} onView={h.onView} />))
+        expect(h.host.querySelector(".sync")?.textContent).toBe(expected)
+        expect(h.host.querySelector(".sync")?.getAttribute("data-stale")).toBe("true")
+      }
+      expect(h.onAction).toHaveBeenCalledTimes(0)
+    } finally { await h.close(); interval.mockRestore(); clock.mockRestore() }
   })
 
   test("visibility reports only changes, through one observer, even when every report re-renders with a new onView", async () => {
@@ -2451,14 +2966,14 @@ test("TODO and Home share absent, zero, one and multiple lesson counts without c
   try {
     for (const [lessons, label] of [[undefined, null], [0, "0 lessons"], [1, "1 lesson"], [3, "3 lessons"]] as const) {
       await act(async () => root.render(<TodoView {...todoStories.merged} model={{ ...todoStories.merged.model, lessons }} onAction={() => {}} onView={() => {}} />))
-      expect(host.querySelector(".mvp-state")?.textContent).toBe("Merged")
+      expect(host.querySelector(".state")?.textContent).toBe("Merged")
       if (label) expect(host.textContent).toContain(label)
       else expect(host.textContent).not.toContain("lesson")
       const item = homeReceiptFixtures.active.model.items[0]!
       await act(async () => root.render(<HomeView {...homeReceiptFixtures.active} model={{ ...homeReceiptFixtures.active.model, items: [{ ...item, state: "merged", lessons }] }} onAction={() => {}} onView={() => {}} />))
-      expect(host.querySelector('.mvp-stack-row [data-state="merged"]')?.textContent).toBe("Merged")
-      if (label) expect(host.querySelector(".mvp-stack-row")?.textContent).toContain(label)
-      else expect(host.querySelector(".mvp-stack-row")?.textContent).not.toContain("lesson")
+      expect(host.querySelector('.stack-row [data-state="merged"]')?.textContent).toBe("Merged")
+      if (label) expect(host.querySelector(".stack-row")?.textContent).toContain(label)
+      else expect(host.querySelector(".stack-row")?.textContent).not.toContain("lesson")
     }
   } finally { await act(async () => root.unmount()) }
 })
@@ -2510,18 +3025,18 @@ describe("Timeline glyphs and actions", () => {
   }
   test("state uses the shared failed glyph", async () => {
     const view = await renderLine({ state: "failed" })
-    expect(view.host.querySelector(".mvp-tl-node .lucide-x.mvp-glyph")).not.toBeNull()
+    expect(view.host.querySelector(".tl-node .lucide-x.glyph")).not.toBeNull()
     await view.close()
   })
   test("actor uses the author's avatar", async () => {
     const view = await renderLine({ actor: { kind: "github", login: "octocat", color_index: 7 } })
-    expect(view.host.querySelector('.mvp-avatar[aria-label="@octocat"]')).not.toBeNull()
+    expect(view.host.querySelector('.avatar[aria-label="@octocat"]')).not.toBeNull()
     await view.close()
   })
   for (const [event, selector] of [["running", '[data-slot="spinner"][aria-label="Working"]'], ["ok", ".lucide-check"], ["attention", ".lucide-circle-alert"], ["failed", ".lucide-x"]] as const) {
     test(`event ${event} renders its glyph`, async () => {
       const view = await renderLine({ event }, { fresh: true })
-      expect(view.host.querySelector(`.mvp-tl-node ${selector}`)).not.toBeNull()
+      expect(view.host.querySelector(`.tl-node ${selector}`)).not.toBeNull()
       expect(view.host.querySelector("li[data-fresh]")).not.toBeNull()
       await view.close()
     })
@@ -2542,6 +3057,163 @@ describe("Timeline glyphs and actions", () => {
     expect(view.onAction.mock.calls).toEqual([])
     expect(view.host.textContent).toContain("Run active")
     await view.close()
+  })
+})
+
+// T-UI-16 comparison bytes belong to the supplied revision, never a host fallback.
+test("File Compare shows literal revisions and bytes without remounting the current editor", async () => {
+  const { EditorView } = await import("@codemirror/view")
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host), onAction = mock(() => {}), onView = mock(() => {})
+  const model = { ...liveFileFixtures.text.model, digest: "sha256:current-1",
+    content: { kind: "text" as const, text: "const first = 1\nconst second = 2\n" },
+    outside: { version: "git:snapshot-7", at: "2026-10-05T10:00:00Z" } }
+  const props = { model, view: { compare: false, maximized: false }, actions: [], gestures: {}, onAction, onView }
+  const comparison = { version: "git:snapshot-7", text: '<script>window.__pwned=1</script>\n' }
+  try {
+    await act(async () => root.render(<CodeSurface {...props} />))
+    const dom = host.querySelector<HTMLElement>(".code-file-current .cm-editor")!
+    const editor = EditorView.findFromDOM(dom)!
+    await act(async () => editor.dispatch({ selection: { anchor: 16 } }))
+    const scroller = editor.scrollDOM; scroller.scrollTop = 40
+    onView.mockClear()
+    await act(async () => root.render(<CodeSurface {...props} view={{ maximized: false, compare: true }} comparison={comparison} />))
+    expect(host.querySelector(".code-file-current .cm-editor")).toBe(dom)
+    expect(editor.state.doc.lineAt(editor.state.selection.main.head).number).toBe(2)
+    expect(scroller.scrollTop).toBe(40)
+    expect([...host.querySelectorAll(".code-compare-cap")].map(node => node.textContent)).toEqual(["Currentsha256:current-1", "Snapshotgit:snapshot-7"])
+    expect(host.querySelector(".code-file-current .cm-content")!.textContent).toBe("const first = 1const second = 2")
+    expect(host.querySelector(".code-file-outside .cm-content")!.textContent).toBe('<script>window.__pwned=1</script>')
+    expect(host.querySelector("script, img, [contenteditable=true]")).toBeNull()
+    expect([...host.querySelectorAll('.cm-content')].map(node => node.getAttribute('aria-readonly'))).toEqual(["true", "true"])
+    const snapshotDom = host.querySelector<HTMLElement>(".code-file-outside .cm-editor")!
+    const snapshot = EditorView.findFromDOM(snapshotDom)!
+    await act(async () => snapshot.dispatch({ selection: { anchor: 4 } }))
+    expect(onView).not.toHaveBeenCalled()
+    expect(onAction).not.toHaveBeenCalled()
+    await act(async () => root.render(<CodeSurface {...props} view={{ maximized: false, compare: true }}
+      model={{ ...model, digest: "sha256:current-2", content: { kind: "text", text: "const first = 1\nconst second = 3\n" } }}
+      comparison={{ ...comparison, text: "const snapshot = 7\n" }} />))
+    expect(host.querySelector(".code-file-current .cm-editor")).toBe(dom)
+    expect(host.querySelector(".code-file-outside .cm-editor")).toBe(snapshotDom)
+    expect(editor.state.doc.lineAt(editor.state.selection.main.head).number).toBe(2)
+    expect(scroller.scrollTop).toBe(40)
+    expect(editor.state.doc.toString()).toBe("const first = 1\nconst second = 3\n")
+    expect(snapshot.state.doc.toString()).toBe("const snapshot = 7\n")
+    const labels = [...host.querySelectorAll('.code-compare-cap > span, .code-notice[data-tone="outside"] > span:first-of-type')].map(node => node.textContent!)
+    expect(labels).toEqual(["Changed outside Smithers", "Current", "Snapshot"])
+    for (const copy of labels) {
+      expect(copy.split(/\s+/).length).toBeLessThanOrEqual(12)
+      expect(copy).not.toMatch(/\b(workflows?|threads?|tasks?|lanes?|boxes?|workspaces?|mythical|sandboxes?|VMs?|seats?|profiles?|Jev|forges?)\b/i)
+    }
+  } finally { await act(async () => root.unmount()); host.remove() }
+})
+
+for (const state of ["missing", "stale", "closed", "gone", "binary", "no_outside", "empty"] as const) test(`File Compare gates unavailable versions (${state})`, async () => {
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host), onAction = mock(() => {})
+  try {
+    const model = { ...liveFileFixtures.comparing.model,
+      ...(state === "gone" ? { gone: liveFileFixtures.deleted.model.gone } : {}),
+      ...(state === "binary" ? { content: { kind: "binary" as const, bytes: 7 } } : {}),
+      ...(state === "no_outside" ? { outside: undefined } : {}) }
+    await act(async () => root.render(<CodeSurface model={model} view={{ maximized: false, compare: state !== "closed" }} actions={[]} gestures={{}}
+      comparison={state === "missing" ? undefined : { version: state === "stale" ? "git:wrong" : "git:7d1e0c2", text: state === "empty" ? "" : "snapshot" }}
+      onAction={onAction} onView={() => {}} />))
+    expect(host.querySelectorAll(".code-compare")).toHaveLength(state === "empty" ? 1 : 0)
+    if (state === "empty") expect(host.querySelector(".code-file-outside .cm-content")!.textContent).toBe("")
+    expect(host.querySelector('button[data-flow]')).toBeNull()
+    expect(onAction).not.toHaveBeenCalled()
+  } finally { await act(async () => root.unmount()); host.remove() }
+})
+
+// T-UI-08: the mounted production shell refuses unavailable actions and keeps text inert.
+describe("Shell controls and viewport subscription", () => {
+  const notices: ToastCard[] = [
+    { id: "allow", entry_id: "answer", title: "Notifications", kind: "allow_notifications", tone: "attention", action: { tag: "notifications.allow", label: "Allow" } },
+    { id: "absent", entry_id: "answer", title: '<img src=x onerror="window.__shellPwned=1">', detail: '<script>window.__shellPwned=1</script>', kind: "allow_notifications", tone: "quiet" },
+    { id: "disabled", entry_id: "failed", title: "Retry", kind: "failed", tone: "failed", action: { tag: "todo.retry", label: "Retry", disabled: { reason: "Not yours" } } },
+  ]
+  test("Allow forwards its supplied action without asking permission; absent and disabled acts do nothing", async () => {
+    const permission = mock(() => Promise.resolve("granted"))
+    const original = Object.getOwnPropertyDescriptor(window, "Notification")
+    Object.defineProperty(window, "Notification", { configurable: true, value: { requestPermission: permission } })
+    const view = await mounted({ name: "Notices", expect: [], render: callbacks => <ToastStack toasts={notices} more={0} onAction={callbacks.onAction} onView={patch => callbacks.onView({ ...patch })} /> })
+    try {
+      expect(view.host.querySelectorAll('[data-flow="notifications.allow"]')).toHaveLength(1)
+      expect(view.host.querySelector('[data-notice="absent"] [data-flow]')).toBeNull()
+      expect(view.host.querySelector("img,script")).toBeNull()
+      expect(view.host.textContent).toContain('<img src=x onerror="window.__shellPwned=1">')
+      expect(view.host.textContent).toContain('<script>window.__shellPwned=1</script>')
+      await act(async () => view.host.querySelector<HTMLButtonElement>('[data-flow="notifications.allow"]')!.click())
+      await act(async () => view.host.querySelector<HTMLButtonElement>('[data-flow="todo.retry"]')!.click())
+      expect(view.onAction.mock.calls).toEqual([["notifications.allow", {}]])
+      expect(permission).toHaveBeenCalledTimes(0)
+      expect(Reflect.get(window, "__shellPwned")).toBeUndefined()
+    } finally {
+      await view.close()
+      if (original) Object.defineProperty(window, "Notification", original)
+      else Reflect.deleteProperty(window, "Notification")
+    }
+  })
+  test("Hide preserves timeline and edge entries; empty arrays provide no controls", async () => {
+    const view = await mounted({ name: "Shell", expect: [], render: callbacks => <>
+      <ToastStack toasts={[notices[2]!]} more={0} onAction={callbacks.onAction} onView={patch => callbacks.onView({ ...patch })} />
+      <EdgeMap above={[notices[2]!]} below={[]} narrow={false} onAction={callbacks.onAction} onView={patch => callbacks.onView({ ...patch })} />
+      <Timeline lines={[{ entry_id: "failed", kind: "event", title: "Failed", tone: "failed", glyph: { event: "failed" } }]} on_screen={["failed", "failed"]} onAction={callbacks.onAction} onView={patch => callbacks.onView({ ...patch })} />
+    </> })
+    view.onView.mockClear()
+    await act(async () => view.host.querySelector<HTMLButtonElement>('[aria-label="Hide Retry"]')!.click())
+    expect(view.onView.mock.calls).toEqual([[{ toast_hidden: "disabled" }]])
+    expect(view.host.querySelectorAll(".edge .tl-row")).toHaveLength(1)
+    expect(view.host.querySelectorAll(".timeline li")).toHaveLength(1)
+    await act(async () => view.host.querySelector<HTMLButtonElement>('.edge [data-flow="todo.retry"]')!.click())
+    expect(view.onAction.mock.calls).toEqual([])
+    await view.close()
+    const empty = await mounted({ name: "Empty", expect: [], render: callbacks => <>
+      <EdgeMap above={[]} below={[]} narrow={true} onAction={callbacks.onAction} onView={patch => callbacks.onView({ ...patch })} />
+      <ToastStack toasts={[]} more={0} onAction={callbacks.onAction} onView={patch => callbacks.onView({ ...patch })} />
+    </> })
+    expect(empty.host.querySelectorAll("button")).toHaveLength(0)
+    await empty.close()
+  })
+  test("hostile edge and timeline text stays inert; missing actions render only jumps", async () => {
+    const view = await mounted({ name: "Hostile", expect: [], render: callbacks => <>
+      <EdgeMap above={[notices[1]!]} below={[]} narrow={false} onAction={callbacks.onAction} onView={patch => callbacks.onView({ ...patch })} />
+      <Timeline lines={[{ entry_id: "answer", kind: "answer", title: '<img src=x onerror="window.__shellPwned=1">', summary: '<script>window.__shellPwned=1</script>', tone: "quiet", glyph: { state: "queued" } }]} on_screen={["answer", "answer"]} onAction={callbacks.onAction} onView={patch => callbacks.onView({ ...patch })} />
+    </> })
+    expect(view.host.querySelector("img,script,[data-flow]")).toBeNull()
+    expect(view.host.querySelector(".tl-text")!.textContent).toContain('<script>window.__shellPwned=1</script>')
+    view.onView.mockClear()
+    await act(async () => view.host.querySelector<HTMLButtonElement>('.timeline li > button')!.click())
+    expect(view.onView.mock.calls).toEqual([[{ jump_to: "answer" }]])
+    expect(view.onAction.mock.calls).toEqual([])
+    expect(Reflect.get(window, "__shellPwned")).toBeUndefined()
+    await view.close()
+  })
+  test("visibility reports once per transition, rerenders do not report, and unmount removes the listener", async () => {
+    const original = window.matchMedia
+    const listeners = new Set<() => void>()
+    let matches = false
+    const media = { get matches() { return matches }, addEventListener: (_: string, fn: () => void) => listeners.add(fn), removeEventListener: (_: string, fn: () => void) => listeners.delete(fn) }
+    window.matchMedia = mock(query => { expect(query).toBe("(min-width: 1180px)"); return media as unknown as MediaQueryList })
+    const old = mock((_patch: Record<string, unknown>) => {})
+    const latest = mock((_patch: Record<string, unknown>) => {})
+    const render = (onView: typeof old) => <Timeline lines={[]} on_screen={["", ""]} onAction={() => {}} onView={patch => onView({ ...patch })} />
+    const view = await mounted({ name: "Viewport", expect: [], render: () => render(old) })
+    try {
+      expect(old.mock.calls).toEqual([[{ timeline_visible: false }]])
+      expect(listeners.size).toBe(1)
+      await act(async () => view.root.render(render(latest)))
+      expect(latest.mock.calls).toEqual([])
+      await act(async () => { matches = true; for (const notify of listeners) notify() })
+      await act(async () => { for (const notify of listeners) notify() })
+      await act(async () => { matches = false; for (const notify of listeners) notify() })
+      expect(latest.mock.calls).toEqual([[{ timeline_visible: true }], [{ timeline_visible: false }]])
+      expect(old.mock.calls).toEqual([[{ timeline_visible: false }]])
+      await view.close()
+      expect(listeners.size).toBe(0)
+    } finally { window.matchMedia = original }
   })
 })
 
@@ -2583,7 +3255,7 @@ test.each([false, true])("ContextLine item and Inspect actions expanded=%s", asy
     actions={[{ tag: "context.inspect", label: "Inspect" }]} onAction={onAction} onView={onView} /> })
   try {
     expect(context.host.querySelector('[data-flow="context.inspect"]') !== null).toBe(expanded)
-    expect(context.host.querySelectorAll(".mvp-context-chip").length).toBe(expanded ? 2 : 0)
+    expect(context.host.querySelectorAll(".context-chip").length).toBe(expanded ? 2 : 0)
     if (expanded) {
       const item = context.host.querySelector<HTMLButtonElement>('[data-flow="file"]')!
       expect(item.tagName).toBe("BUTTON")
@@ -2601,7 +3273,7 @@ test.each([false, true])("ContextLine item and Inspect actions expanded=%s", asy
       expect(context.onAction.mock.calls).toEqual([["file", { path: "flows/todo/flow.ts" }], ["context.inspect", {}]])
       expect(context.onView.mock.calls).toEqual([])
     }
-    await act(async () => context.host.querySelector<HTMLButtonElement>(".mvp-context-toggle")!.click())
+    await act(async () => context.host.querySelector<HTMLButtonElement>(".context-toggle")!.click())
     expect(context.onView.mock.calls).toEqual([[{ expanded: !expanded }]])
   } finally { await context.close() }
 })

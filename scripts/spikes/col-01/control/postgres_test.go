@@ -40,12 +40,12 @@ func TestControlPostgresFixtureEnforcesServiceAuthorizationAndCleansUp(t *testin
 		t.Fatalf("bad real fixture row: %+v", row)
 	}
 	svc := services.NewWorkspaceService(db.New(f.pool), services.WithWorkspaceTransactions(f.pool))
-	_, err = svc.WriteWorkspaceFile(ctx, id, 1, 2, "file.txt", "refused")
+	_, err = svc.WriteWorkspaceFile(ctx, id, 1, 2, "file.txt", "refused", "absent")
 	var apiErr *pkgerrors.APIError
 	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusForbidden {
 		t.Fatalf("unshared writer should be refused before runtime: %v", err)
 	}
-	_, err = svc.WriteWorkspaceFile(ctx, id, 1, 1, "../outside", "refused")
+	_, err = svc.WriteWorkspaceFile(ctx, id, 1, 1, "../outside", "refused", "absent")
 	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusBadRequest {
 		t.Fatalf("invalid path should be refused: %v", err)
 	}

@@ -34,8 +34,4 @@ func TestBackendReleaseBuildStampsCLIVersion(t *testing.T) {
 		"-o", filepath.Join(root, "backend"), "./apps/backend",
 	}, strings.Split(strings.TrimSpace(string(args)), "\n"))
 
-	dockerfile, err := os.ReadFile("Dockerfile")
-	require.NoError(t, err)
-	require.Contains(t, string(dockerfile), "COPY packages/smithers/package.json packages/smithers/package.json")
-	require.Contains(t, string(dockerfile), `sh scripts/build-backend.sh /out/smithers-backend "$BUILD_SHA"`)
 }

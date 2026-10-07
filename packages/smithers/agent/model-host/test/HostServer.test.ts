@@ -243,6 +243,8 @@ test.each([
   { ...grant, producerBaseUrl: "http://other.test" },
   { ...grant, expiresAt: "not a date" },
   { ...grant, expiresAt: "2000-01-01" },
+  { ...grant, agentInstructions: 7 },
+  { ...grant, agentInstructions: "x".repeat(66001) },
   { ...grant, source: "acme/app" },
   { ...grant, source: { repository: "acme" } },
   { ...grant, source: { repository: "acme/app/extra" } },
@@ -290,8 +292,9 @@ test("preserves the repository, source and API grants and hides provider failure
     callbackBaseUrl: "https://callback.test/nested",
     resolve: (accepted) => {
       expect(accepted.repositoryId).toBe(17)
+      expect(accepted.agentInstructions).toBe("Always end with DONE.")
       expect(accepted.source).toEqual({ repository: "acme/app" })
-      expect(accepted.api).toEqual({ author: "ben" })
+      expect(accepted.api).toEqual({ author: "ben", token: "smithers_" + "a".repeat(40) })
       expect(accepted.producerBaseUrl).toBe("https://callback.test/")
       expect(accepted.request.tools).toEqual([])
       return options.resolve()
@@ -300,8 +303,9 @@ test("preserves the repository, source and API grants and hides provider failure
   const response = await handler(post(JSON.stringify({
     ...grant,
     repositoryId: 17,
+    agentInstructions: "Always end with DONE.",
     source: { repository: "acme/app" },
-    api: { author: "ben" },
+    api: { author: "ben", token: "smithers_" + "a".repeat(40) },
     request: { ...grant.request, tools: [] },
     producerBaseUrl: "https://callback.test/other"
   })))
@@ -484,3 +488,306 @@ test("the model stream refuses a response that outgrows the stream byte ceiling"
   expect(response.status).toBe(502)
   expect(await response.json()).toEqual({ status: "error", code: "stream_failed" })
 })
+
+test("trusted preflight precedes the answer and its choices cross the durable HTTP journal", async () => {
+  const requests: any[] = [], frames: any[] = []
+  const model = Model.make({
+    stream: (request) => {
+      requests.push(request)
+      return Stream.fromIterable([
+        {
+          type: "text-delta" as const,
+          id: "t",
+          text: requests.length === 1 ? "[{\"index\":0,\"reason\":\"Retry code\"}]" : "Retries three times."
+        },
+        { type: "settle" as const, stopReason: "stop" as const }
+      ])
+    }
+  })
+  const handler = createModelTurnHandler({
+    authorization: "host-token",
+    callbackBaseUrl: "http://callback.test",
+    resolve: () =>
+      Effect.succeed({
+        model,
+        options: { modelId: "coding" },
+        preflight: {
+          model,
+          options: { modelId: "owner-fast" },
+          input: {
+            prompt: "where do we retry webhooks?",
+            author: "ben",
+            branch: "main",
+            state: "synced",
+            recent: [{ title: "Shared", text: "Shared last text" }],
+            tokenBudget: 24000,
+            wikiOnly: false,
+            candidates: [{
+              item: { kind: "file", label: "retry.ts", ref: "src/webhooks/retry.ts", revision: "abc123" },
+              text: "retry(3)"
+            }]
+          }
+        }
+      }),
+    fetchImpl: async (url, init) => {
+      if (String(url).includes("provider-started")) return new Response(null, { status: 204 })
+      const body = JSON.parse(String(init?.body))
+      frames.push(...body.frames)
+      return Response.json(committed(body))
+    }
+  })
+  const response = await handler(
+    new Request("http://host.test/v1/chat/turn", {
+      method: "POST",
+      headers: { authorization: "Bearer host-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        ...grant,
+        request: {
+          ...grant.request,
+          sharedConversation: true,
+          messages: [{ role: "user", content: "canary-browser" }],
+          selectedContext: [{ item: { kind: "file", label: "secret", ref: "secret" }, text: "canary-selection" }]
+        }
+      })
+    })
+  )
+  expect(response.status).toBe(204)
+  expect(requests.map((request) => request.modelId)).toEqual(["owner-fast", "coding"])
+  expect(frames[0]).toMatchObject({
+    type: "context.preflight",
+    phase: "started",
+    result: { context: [], model: "owner-fast" }
+  })
+  expect(frames[1]).toMatchObject({
+    type: "context.preflight",
+    phase: "completed",
+    result: {
+      context: [
+        { kind: "file", label: "retry.ts", ref: "src/webhooks/retry.ts", revision: "abc123", reason: "Retry code" }
+      ],
+      model: "owner-fast"
+    }
+  })
+  expect(JSON.stringify(requests)).not.toContain("canary-browser")
+  expect(JSON.stringify(requests)).not.toContain("canary-selection")
+  expect(requests[1].messages).toHaveLength(2)
+})
+
+test("shared prompt refuses without authorized preflight before model or producer calls", async () => {
+  const stream = vi.fn(() => Stream.empty)
+  const callbacks = vi.fn(async () => new Response(null, { status: 204 }))
+  const handler = createModelTurnHandler({
+    authorization: "host-token",
+    callbackBaseUrl: "http://callback.test",
+    resolve: () => Effect.succeed({ model: Model.make({ stream }), options: { modelId: "coding" } }),
+    fetchImpl: callbacks
+  })
+  const response = await handler(post(JSON.stringify({
+    ...grant,
+    request: { ...grant.request, conversationId: "main", purpose: "conversation", sharedConversation: true }
+  })))
+  expect(response.status).toBeGreaterThanOrEqual(500)
+  expect(await response.json()).toMatchObject({ status: "error", code: "turn_failed" })
+  expect(stream).not.toHaveBeenCalled()
+  expect(callbacks).not.toHaveBeenCalled()
+})
+
+test("unavailable durable preflight writes refuse before either model or provider-start", async () => {
+  let calls = 0, starts = 0, commits = 0
+  const model = Model.make({
+    stream: () => {
+      calls++
+      return Stream.empty
+    }
+  })
+  const handler = createModelTurnHandler({
+    authorization: "host-token",
+    callbackBaseUrl: "http://callback.test",
+    resolve: () =>
+      Effect.succeed({
+        model,
+        options: { modelId: "coding" },
+        preflight: {
+          model,
+          options: { modelId: "fast" },
+          input: {
+            prompt: "Retry?",
+            author: "ben",
+            branch: "main",
+            state: "synced",
+            recent: [],
+            candidates: [],
+            tokenBudget: 24000,
+            wikiOnly: false
+          }
+        }
+      }),
+    fetchImpl: async (url) => {
+      if (String(url).includes("provider-started")) starts++
+      else commits++
+      return new Response(null, { status: 503 })
+    }
+  })
+  const response = await handler(post(JSON.stringify(grant)))
+  expect(response.status).toBeGreaterThanOrEqual(500)
+  expect(commits).toBe(2)
+  expect(starts).toBe(0)
+  expect(calls).toBe(0)
+})
+
+test.each([24000, 68000, 80000])(
+  "preflight budgets the whole pinned snapshot, not recall's shortened preview (%i)",
+  async (tokenBudget) => {
+    const requests: any[] = [], frames: any[] = []
+    // This literal snapshot exceeds recall's independent 64 KiB byte ceiling.
+    const snapshot = "retry webhook\n".repeat(5000)
+    const model = Model.make({
+      stream: (request) => {
+        requests.push(request)
+        return Stream.fromIterable([
+          {
+            type: "text-delta" as const,
+            id: "t",
+            text: requests.length === 1 ? "[{\"index\":0,\"reason\":\"Retry code\"}]" : "Retries three times."
+          },
+          { type: "settle" as const, stopReason: "stop" as const }
+        ])
+      }
+    })
+    const handler = createModelTurnHandler({
+      authorization: "host-token",
+      callbackBaseUrl: "http://callback.test",
+      resolve: () =>
+        Effect.succeed({
+          model,
+          options: { modelId: "coding" },
+          preflight: {
+            model,
+            options: { modelId: "owner-fast" },
+            input: {
+              prompt: "where do we retry webhooks?",
+              author: "ben",
+              branch: "main",
+              state: "synced",
+              recent: [],
+              tokenBudget,
+              wikiOnly: false,
+              candidates: [{
+                item: { kind: "file", label: "retry.ts", ref: "src/webhooks/retry.ts", revision: "abc123" },
+                text: snapshot
+              }]
+            }
+          }
+        }),
+      fetchImpl: async (url, init) => {
+        if (String(url).includes("provider-started")) return new Response(null, { status: 204 })
+        const body = JSON.parse(String(init?.body))
+        frames.push(...body.frames)
+        return Response.json(committed(body))
+      }
+    })
+    const response = await handler(post(JSON.stringify({
+      ...grant,
+      request: { ...grant.request, sharedConversation: true }
+    })))
+    expect(response.status).toBe(204)
+    expect(requests).toHaveLength(2)
+    const preview = JSON.parse(requests[0].messages[0].content[0].text).candidates[0].text
+    expect(preview.length).toBeLessThan(snapshot.length)
+    const selected = JSON.parse(requests[1].system[0].text.split("Selected context:\n")[1])
+    if (tokenBudget < 80000) {
+      expect(selected).toEqual([])
+      expect(frames[1].result.context).toEqual([])
+    } else {
+      expect(selected).toEqual([{
+        item: {
+          kind: "file",
+          label: "retry.ts",
+          ref: "src/webhooks/retry.ts",
+          revision: "abc123",
+          reason: "Retry code"
+        },
+        text: snapshot
+      }])
+      expect(frames[1].result.context).toEqual([{
+        kind: "file",
+        label: "retry.ts",
+        ref: "src/webhooks/retry.ts",
+        revision: "abc123",
+        reason: "Retry code"
+      }])
+    }
+    expect(new TextEncoder().encode(JSON.stringify(selected)).byteLength).toBeLessThanOrEqual(tokenBudget)
+  }
+)
+
+test.each(["trailing-text", "tool-call", "invalid-input"])(
+  "preflight %s cannot publish selected context or invoke the answer",
+  async (mode) => {
+    const frames: any[] = []
+    let selectorCalls = 0, answerCalls = 0, starts = 0
+    const selector = Model.make({
+      stream: () => {
+        selectorCalls++
+        return mode === "tool-call" ?
+          Stream.fromIterable([
+            { type: "tool-call-start" as const, id: "tool", name: "shell" },
+            { type: "text-delta" as const, id: "s", text: "[]" },
+            { type: "settle" as const, stopReason: "stop" as const }
+          ]) :
+          Stream.fromIterable([
+            { type: "settle" as const, stopReason: "stop" as const },
+            { type: "text-delta" as const, id: "s", text: "[]" }
+          ])
+      }
+    })
+    const handler = createModelTurnHandler({
+      authorization: "host-token",
+      callbackBaseUrl: "http://callback.test",
+      resolve: () =>
+        Effect.succeed({
+          model: Model.make({
+            stream: () => {
+              answerCalls++
+              return Stream.empty
+            }
+          }),
+          options: { modelId: "coding" },
+          preflight: {
+            model: selector,
+            options: { modelId: "fast" },
+            input: {
+              prompt: "Retry?",
+              author: "ben",
+              branch: "main",
+              state: "synced",
+              recent: [],
+              candidates: [],
+              tokenBudget: mode === "invalid-input" ? -1 : 24000,
+              wikiOnly: false
+            }
+          }
+        }),
+      fetchImpl: async (url, init) => {
+        if (String(url).includes("provider-started")) {
+          starts++
+          return new Response(null, { status: 204 })
+        }
+        const body = JSON.parse(String(init?.body))
+        frames.push(...body.frames)
+        return Response.json(committed(body))
+      }
+    })
+    const response = await handler(
+      post(JSON.stringify({ ...grant, request: { ...grant.request, sharedConversation: true } }))
+    )
+    expect(response.status).toBe(502)
+    expect(await response.json()).toMatchObject({ status: "error", code: "turn_failed" })
+    expect(answerCalls).toBe(0)
+    expect(selectorCalls).toBe(mode === "invalid-input" ? 0 : 1)
+    expect(starts).toBe(mode === "invalid-input" ? 0 : 1)
+    expect(frames.map((frame) => [frame.type, frame.phase])).toEqual(
+      mode === "invalid-input" ? [] : [["context.preflight", "started"]]
+    )
+  }
+)

@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,6 +22,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/ports"
 )
 
@@ -94,12 +97,19 @@ func TestAPIStaysResponsiveWhileChatWorkersAreSaturated(t *testing.T) {
 	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES ($1)`, owner.ID)
 	require.NoError(t, err)
 	token, _ := isolationToken(t, q, owner, "saturated-all")
+	session := "saturation-owner-session"
+	digest := sha256.Sum256([]byte(session))
+	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{SessionKey: hex.EncodeToString(digest[:]), UserID: owner.ID, Username: owner.Username, ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
 	repo, err := q.CreateRepo(ctx, db.CreateRepoParams{UserID: pgtype.Int8{Int64: owner.ID, Valid: true}, Name: "busy", LowerName: "busy", DefaultBookmark: "main"})
 	require.NoError(t, err)
 
-	binding := fmt.Sprintf(`{"owner_login":"acme","repository_name":"busy","repository_id":%d}`, repo.ID)
-	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(binding)}))
-	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "owner.access", Value: []byte(strings.TrimSuffix(binding, "}") + `,"last_access_check_at":"2026-10-04T22:00:00Z"}`)}))
+	binding := fmt.Sprintf(`{"owner_login":"saturated","repository_name":"busy","repository_id":%d,"last_access_check_at":"%s"}`, repo.ID, time.Now().UTC().Format(time.RFC3339))
+	for _, key := range []string{"github.repository", "owner.access"} {
+		require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: key, Value: []byte(binding)}))
+	}
+	_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'admin')`, repo.ID, owner.ID)
+	require.NoError(t, err)
 
 	call := func(method, path string, body any) (int, []byte, time.Duration) {
 		var reader io.Reader
@@ -112,7 +122,11 @@ func TestAPIStaysResponsiveWhileChatWorkersAreSaturated(t *testing.T) {
 		defer cancel()
 		req, reqErr := http.NewRequestWithContext(requestCtx, method, server.URL+path, reader)
 		require.NoError(t, reqErr)
-		req.Header.Set("Authorization", "Bearer "+token)
+		req.AddCookie(&http.Cookie{Name: "smithers_session", Value: session})
+		req.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "saturation-csrf"})
+		req.Header.Set("Origin", "http://127.0.0.1:4000")
+		req.Header.Set("X-CSRF-Token", "saturation-csrf")
+		req.Host = "127.0.0.1:4000"
 		if body != nil {
 			req.Header.Set("Content-Type", "application/json")
 		}
@@ -135,6 +149,7 @@ func TestAPIStaysResponsiveWhileChatWorkersAreSaturated(t *testing.T) {
 		req, reqErr := http.NewRequest(http.MethodPost, server.URL+chat.TurnPath, bytes.NewReader(body))
 		require.NoError(t, reqErr)
 		req.Header.Set("Authorization", "Bearer "+token)
+		req.Host = "127.0.0.1:4000"
 		req.Header.Set("Content-Type", "application/json")
 		began := time.Now()
 		response, doErr := server.Client().Do(req)

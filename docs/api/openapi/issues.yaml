@@ -33,12 +33,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccessError'
-        '403':
-          description: Not a member, or not a person's browser session
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AccessError'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: github_unavailable, or the install repository is unavailable
           content:
@@ -73,12 +68,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccessError'
-        '403':
-          description: Not a member, or not a person's browser session
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AccessError'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: not_found, for a missing number or a pull request's
           content:

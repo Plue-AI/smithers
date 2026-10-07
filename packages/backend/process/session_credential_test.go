@@ -22,11 +22,11 @@ func TestRuntimeSessionTokenFile(t *testing.T) {
 	runtime := newTestRuntime(t, t.TempDir())
 	workspace, err := runtime.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: "session-token"})
 	require.NoError(t, err)
-	_, err = runtime.PutSessionToken(ctx, workspace.ID, "5e55-a", []byte("smithers_first"))
+	_, err = runtime.PutSessionToken(ctx, workspace.ID, "5e55-a", []byte("smithers_first"), "")
 	require.Error(t, err, "a stopped workspace has no session to sign in")
 	_, err = runtime.StartWorkspace(ctx, workspace.ID)
 	require.NoError(t, err)
-	path, err := runtime.PutSessionToken(ctx, workspace.ID, "5e55-a", []byte("smithers_first"))
+	path, err := runtime.PutSessionToken(ctx, workspace.ID, "5e55-a", []byte("smithers_first"), "")
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join("run", "smithers", "sessions", "5e55-a", "token"), path[len(path)-len(filepath.Join("run", "smithers", "sessions", "5e55-a", "token")):])
 	info, err := os.Stat(path)
@@ -39,7 +39,7 @@ func TestRuntimeSessionTokenFile(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "smithers_first\n", string(data))
 
-	again, err := runtime.PutSessionToken(ctx, workspace.ID, "5e55-a", []byte("smithers_second"))
+	again, err := runtime.PutSessionToken(ctx, workspace.ID, "5e55-a", []byte("smithers_second"), workspaceapi.SessionCredentialIdentity([]byte("smithers_first")))
 	require.NoError(t, err)
 	assert.Equal(t, path, again, "a session keeps one file; no alias names another")
 	data, err = os.ReadFile(path)
@@ -49,15 +49,25 @@ func TestRuntimeSessionTokenFile(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, entries, 1, "no temporary file is left behind")
 
-	other, err := runtime.PutSessionToken(ctx, workspace.ID, "5e55-b", []byte("smithers_other"))
+	// A stale replica and a foreign credential cannot replace or remove the successor.
+	_, err = runtime.PutSessionToken(ctx, workspace.ID, "5e55-a", []byte("smithers_stale"), workspaceapi.SessionCredentialIdentity([]byte("smithers_first")))
+	require.Error(t, err)
+	require.Error(t, runtime.DeleteSessionToken(ctx, workspace.ID, "5e55-a", workspaceapi.SessionCredentialIdentity([]byte("smithers_first"))))
+	_, err = runtime.PutSessionToken(ctx, workspace.ID, "5e55-a", []byte("smithers_create"), "")
+	require.Error(t, err, "create cannot replace a retained bearer")
+	data, err = os.ReadFile(path)
 	require.NoError(t, err)
-	require.NoError(t, runtime.DeleteSessionToken(ctx, workspace.ID, "5e55-a"))
+	require.Equal(t, "smithers_second\n", string(data))
+
+	other, err := runtime.PutSessionToken(ctx, workspace.ID, "5e55-b", []byte("smithers_other"), "")
+	require.NoError(t, err)
+	require.NoError(t, runtime.DeleteSessionToken(ctx, workspace.ID, "5e55-a", workspaceapi.SessionCredentialIdentity([]byte("smithers_second"))))
 	_, err = os.Stat(filepath.Dir(path))
 	assert.True(t, os.IsNotExist(err), "closing session A removes A's credential")
 	_, err = os.Stat(other)
 	assert.NoError(t, err, "closing A leaves B's credential")
-	require.NoError(t, runtime.DeleteSessionToken(ctx, workspace.ID, "5e55-a"), "a second close is a no-op")
-	require.NoError(t, runtime.DeleteSessionToken(ctx, "no-such-workspace", "5e55-a"))
+	require.NoError(t, runtime.DeleteSessionToken(ctx, workspace.ID, "5e55-a", workspaceapi.SessionCredentialIdentity([]byte("smithers_second"))), "a second close is a no-op")
+	require.NoError(t, runtime.DeleteSessionToken(ctx, "no-such-workspace", "5e55-a", workspaceapi.SessionCredentialIdentity([]byte("smithers_second"))))
 }
 
 func TestRuntimeSessionTokenRefusesUnsafeInput(t *testing.T) {
@@ -68,15 +78,15 @@ func TestRuntimeSessionTokenRefusesUnsafeInput(t *testing.T) {
 	_, err = runtime.StartWorkspace(ctx, workspace.ID)
 	require.NoError(t, err)
 	for _, session := range []string{"", "../escape", "a/b", "UPPER", "-lead", string(make([]byte, 65))} {
-		_, err := runtime.PutSessionToken(ctx, workspace.ID, session, []byte("smithers_x"))
+		_, err := runtime.PutSessionToken(ctx, workspace.ID, session, []byte("smithers_x"), "")
 		assert.Error(t, err, "session %q", session)
-		assert.Error(t, runtime.DeleteSessionToken(ctx, workspace.ID, session), "session %q", session)
+		assert.Error(t, runtime.DeleteSessionToken(ctx, workspace.ID, session, workspaceapi.SessionCredentialIdentity([]byte("smithers_second"))), "session %q", session)
 	}
 	for _, token := range [][]byte{{}, []byte("two words"), []byte("line\nbreak"), make([]byte, 513)} {
-		_, err := runtime.PutSessionToken(ctx, workspace.ID, "5e55-a", token)
+		_, err := runtime.PutSessionToken(ctx, workspace.ID, "5e55-a", token, "")
 		assert.Error(t, err, "token %q", token)
 	}
-	_, err = runtime.PutSessionToken(ctx, "no-such-workspace", "5e55-a", []byte("smithers_x"))
+	_, err = runtime.PutSessionToken(ctx, "no-such-workspace", "5e55-a", []byte("smithers_x"), "")
 	assert.Error(t, err)
 	_, err = os.Stat(filepath.Join(filepath.Dir(workspace.Root), "run"))
 	assert.True(t, os.IsNotExist(err), "a refused write creates nothing")

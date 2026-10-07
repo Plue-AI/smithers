@@ -50,6 +50,7 @@ export type SocketTicketResponse = z.infer<typeof SocketTicketResponseSchema>
  * @category models
  */
 export const ApplicationUserSchema = z.object({
+  id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
   username: z.string().min(1),
   /** The profile name; GitHub sign-in stores GitHub's name, or the login when GitHub has none. */
   display_name: z.string().optional(),

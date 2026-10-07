@@ -21,7 +21,9 @@ import {
   ReadResult,
   SourceCreation,
   SourceImport,
-  SourcePublication
+  SourcePublication,
+  type StackCandidate,
+  type StackProposal
 } from "./native-schema.ts"
 export * from "./native-schema.ts"
 
@@ -35,6 +37,10 @@ export const requestIdFor = (executionId: string, actionKey: string): string => 
 
 export class NativeCoding extends Context.Service<NativeCoding, {
   readonly sourcePublication: "cloud" | "local-only"
+  /** Installed authority transport only. Missing bindings refuse before native
+   * reads, capture or publication; local development cannot supply authority. */
+  readonly stackCandidate?: (requestId: string) => Effect.Effect<StackCandidate, NativeCodingError>
+  readonly stackPropose?: (requestId: string, generation: number) => Effect.Effect<StackProposal, NativeCodingError>
   readonly read: (
     changeIds?: ReadonlyArray<string>,
     historyLimit?: number
@@ -315,7 +321,14 @@ export const nativeLayer = (options: NativeOptions) =>
           Effect.mapError(() =>
             failure("invalid_request", "Native operation requires exact resolved JJ revision identities")
           ),
-          Effect.flatMap(invoke),
+          // Native file installation retains recovery copies, but does not
+          // exclude outside writers or roll back a whole stale patch. It must
+          // not bypass the same qualification gate as the standard file tools.
+          Effect.flatMap((input) =>
+            input.operation === "apply_files"
+              ? Effect.fail(failure("host_unavailable", "Authenticated atomic file mutation provider unavailable"))
+              : invoke(input)
+          ),
           Effect.map((result) =>
             result !== null && typeof result === "object" && "status" in result && result.status === "accepted"
               ? { ...result, provenance: "pending" } :

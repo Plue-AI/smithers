@@ -4,6 +4,7 @@ import type { FlowInput, FlowWithInput } from "./FlowArgs"
 import { FLOW_NAMES } from "./FlowName"
 import type { FlowName } from "./FlowName"
 import { payloadFor } from "./SlashPayload"
+import { pendingControlFlows } from "./entries/controls"
 import { triggersFlows } from "./entries/triggers"
 import type { CommandActions } from "./Flows"
 import { nameOf } from "./registry"
@@ -23,8 +24,11 @@ const roundTrip = <N extends FlowWithInput>(name: N, input: FlowInput[N], line: 
 }
 
 describe("flowArgs — one serialisation, and the grammar gives the values back", () => {
+  test("a flow list row opens its named version card", () => {
+    roundTrip("flow", { name: "issue/repro" }, '{"name":"issue/repro"}', { name: "issue/repro" })
+  })
   test("flow authoring keeps prose distinct from the selected repository", () => {
-    roundTrip("flow.create", { description: "Compare owner/other with today", repo: "will/flows" },
+    roundTrip("flow.new", { description: "Compare owner/other with today", repo: "will/flows" },
       '{"description":"Compare owner/other with today","repo":"will/flows"}',
       { description: "Compare owner/other with today", repo: "will/flows" })
   })
@@ -51,12 +55,6 @@ describe("flowArgs — one serialisation, and the grammar gives the values back"
     }
   })
 
-  test("runs.steer carries a message that holds spaces", () => {
-    roundTrip("runs.steer", { runId: "run-1", body: "focus on the failing test" }, "run-1 focus on the failing test", {
-      runId: "run-1",
-      body: "focus on the failing test"
-    })
-  })
 
   test("change.pins carries both pins", () => {
     roundTrip("change.pins", { changeId: "ch-1", from: "parent", to: "current" }, "ch-1 parent current", {
@@ -109,7 +107,6 @@ describe("FlowName — the seam's names are the registry's names", () => {
       "change.pins",
       "change.resolve",
       "form.set",
-      "runs.steer",
     ]
     expect(named.filter((name) => !declared.has(name))).toEqual([])
   })
@@ -226,7 +223,6 @@ test("card configuration args round-trip through their production grammars", () 
     ["change.checks", { changeId: "c1", seq: 3 }],
     ["issues.close", { number: 3, repo: "owner/repo" }],
     ["issues.reopen", { number: 3, repo: "owner/repo" }],
-    ["commits.list", { branch: "feature/topic", repo: "owner/repo" }],
     ["box.facet", { workspaceId: "w1", facet: "files" }],
     ["secrets.move", { id: "conn-1", direction: "down" }],
     ["box.open", { repo: "owner/repo", kind: "vm" }],
@@ -259,15 +255,13 @@ test("wiki selection preserves paths with spaces", () => {
   expect(payloadFor("wiki.card.select", flowArgs("wiki.card.select", selection))).toEqual({ payload: selection })
 })
 
-test("structured commit, trace, wiki and landing actions match their grammars", () => {
-  roundTrip("commits.read", { ref: "abc123", repo: "team/project" }, "abc123 team/project", { ref: "abc123", repo: "team/project" })
+test("structured trace, wiki and landing actions match their grammars", () => {
   roundTrip("runs.trace.view", { runId: "run-1", view: "timeline" }, "run-1 timeline", { runId: "run-1", view: "timeline" })
   roundTrip("runs.graph.follow", { runId: "run-1", follow: false }, "run-1 off", { runId: "run-1", follow: "off" })
   roundTrip("runs.coding.select", { runId: "run-1", changeId: "change-1" }, "run-1 change-1", { runId: "run-1", changeId: "change-1" })
   roundTrip("wiki.cloud", { repo: "team/project", page: 2 }, "team/project 2", { repo: "team/project", page: 2 })
   roundTrip("wiki.card.view", { cardId: "wiki-1", view: "list" }, "wiki-1 list", { cardId: "wiki-1", view: "list" })
   roundTrip("wiki.cloud.open", { slug: "my-page", repo: "team/project" }, "my-page team/project", { slug: "my-page", repo: "team/project" })
-  roundTrip("prs.land", { number: 42, repo: "team/project" }, "42 team/project", { number: 42, repo: "team/project" })
   roundTrip("prs.review", { number: 42, verdict: "request-changes", repo: "team/project" }, '{"number":42,"verdict":"request-changes","repo":"team/project"}', { number: 42, verdict: "request_changes", text: "", repo: "team/project" })
 })
 
@@ -300,4 +294,11 @@ test("a run-open retry round-trips its durable request and rejects duplicate or 
   expect(payloadFor("runs.open", flowArgs("runs.open", input))).toEqual({ payload: input })
   expect(payloadFor("runs.open", "requestId= run-1")).toHaveProperty("error")
   expect(payloadFor("runs.open", "requestId=a requestId=b run-1")).toHaveProperty("error")
+})
+
+for (const tag of ["branch.bring-in", "branch.discard-foreign"] as const) test(`${tag} confirmation retains an outside push's exact branch, wait and head`, () => {
+  const input = { branch: "smithers/retry webhooks", id: "foreign-1", revision: "1111111111111111111111111111111111111111" }
+  const entry = pendingControlFlows({} as unknown as CommandActions).find(flow => nameOf(flow) === tag)
+  expect(entry).toBeDefined()
+  expect(payloadFor(tag, flowArgs(tag, input), entry!.metadata.grammar)).toEqual({ payload: input })
 })

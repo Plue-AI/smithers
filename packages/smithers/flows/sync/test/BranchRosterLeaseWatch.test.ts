@@ -32,6 +32,44 @@ const alice = "alice" as ParticipantId
 const bob = "bob" as ParticipantId
 
 describe("Branch.WatchRoster lease propagation", () => {
+  it.effect("publishes a document move with unchanged cursor and lease through branch RPC", () =>
+    program(Effect.gen(function*() {
+      const presence = yield* BranchPresence.makeMemory()
+      const pair = yield* TestSocket.makePair()
+      const client = yield* connect(pair, { presence })
+      const share = yield* BranchShare.BranchShare
+      const branchId = "location-watch" as BranchId
+      const capability = yield* share.mint({ branchId, capabilityId: "location-cap", access: "write", ttlMs: 600_000 })
+      const announcement = {
+        capability,
+        branchId,
+        participantId: alice,
+        displayName: "Alice",
+        cursor: null,
+        sessionId: "tab-one",
+        kind: "person" as const,
+        where: { kind: "file" as const, path: "retry.ts", line: 12 }
+      }
+      yield* client["Branch.Announce"](announcement)
+      const initial = yield* Deferred.make<void>()
+      const watched = yield* client["Branch.WatchRoster"]({ capability, branchId }).pipe(
+        Stream.tap(() => Deferred.succeed(initial, undefined)),
+        Stream.take(2),
+        Stream.runCollect,
+        Effect.forkChild({ startImmediately: true })
+      )
+      yield* Deferred.await(initial)
+      yield* client["Branch.Announce"]({ ...announcement, where: { kind: "file", path: "retry.ts", line: 40 } })
+      const frames = Array.from(yield* Fiber.join(watched))
+      expect(frames.map((frame) => frame.participants[0]!.where)).toEqual([
+        { kind: "file", path: "retry.ts", line: 12 },
+        { kind: "file", path: "retry.ts", line: 40 }
+      ])
+      expect(frames[1]!.participants[0]!.sessionId).toBe("tab-one")
+      expect(frames[1]!.participants[0]!.kind).toBe("person")
+      expect(frames[1]!.participants[0]!.leaseExpiresAtMs).toBe(frames[0]!.participants[0]!.leaseExpiresAtMs)
+    })))
+
   it.effect("emits one removal when a lease expires while a survivor heartbeats", () =>
     Effect.gen(function*() {
       const rosters = yield* program(

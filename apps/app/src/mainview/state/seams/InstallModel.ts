@@ -1,19 +1,20 @@
 import { z } from "zod"
-import { SetupCardSchema, SetupStepIdSchema, SETUP_STEP_IDS, type SetupStepId, type SetupCard } from "@smthrs/rpc/SetupCard"
+import { SetupCardSchema, ModelRoleSchema, SetupStepIdSchema, SETUP_STEP_IDS, type SetupStepId, type SetupCard } from "@smthrs/rpc/SetupCard"
 import { SettingsCardSchema, type SettingsCard } from "@smthrs/rpc/SettingsCard"
 import { HttpUrlSchema } from "@smthrs/rpc/WebUrl"
 
 // T-APP-03: T-INS-06 wire states are mapped only at the View boundary.
 export const InstallErrorSchema = z.object({
-  code: z.string(), class: z.enum(["user", "permission", "capacity", "github", "infra", "conflict", "never"]),
+  code: z.string(), class: z.enum(["user", "permission", "capacity", "github", "infra", "conflict", "never", "transient"]),
   message: z.string(), retry_at: z.string().optional(), fix: z.string().optional()
 })
 export type InstallError = z.infer<typeof InstallErrorSchema>
 export type InstallStepId = SetupStepId
 const state = z.enum(["pending", "running", "done", "blocked", "failed"])
-const role = z.object({ role: z.enum(["fast", "coding", "jev"]), provider: z.string(),
-  key: z.enum(["none", "validating", "saved", "failed"]), error: z.string().optional() })
+const role = ModelRoleSchema
 export const InstallModelSchema = z.object({
+  callback_fixes: SettingsCardSchema.shape.callback_fixes,
+  can_assign_models: z.boolean().optional(),
   address: z.object({ listen: z.enum(["mac", "network"]), bind: z.string(), origins: z.array(HttpUrlSchema),
     change_failed: z.object({ from: z.string(), to: z.string(), reason: z.string() }).optional() }),
   steps: z.array(z.object({ id: SetupStepIdSchema, state, pct: z.number().min(0).max(100).optional(),
@@ -27,12 +28,14 @@ export const InstallModelSchema = z.object({
     squash_allowed: z.boolean().optional(), app_error: z.string().optional() }),
   repository: z.object({ owner: z.string(), name: z.string() }).optional(),
   repositories: z.array(z.string()).optional(), models: z.array(role), chatgpt: z.boolean(),
+  todo_preapprove_default: z.boolean().optional(),
+  todo_daily_admissions: z.number().int().positive().optional(),
   capacity: z.number().int().nonnegative(), parallel: z.number().int().min(1).max(8).optional(),
   wiki_sync: z.object({ obsidian: SettingsCardSchema.shape.obsidian }).optional(),
   health: z.object({ process: z.enum(["ok", "degraded"]), postgres_bytes: z.number().nonnegative(),
     disk_free_gb: z.number().nonnegative(), github: z.object({ health: z.enum(["fresh", "stale", "limited", "refused"]),
-      cause: z.string().optional(), retry_at: z.string().optional(), rate_remaining: z.number().nonnegative(),
-      rate_limit: z.number().nonnegative() }) }).optional()
+      cause: z.string().optional(), retry_at: z.string().optional(), rate_remaining: z.number().nonnegative().optional(),
+      rate_limit: z.number().nonnegative().optional() }) }).optional()
 }).superRefine((model, ctx) => {
   if (model.steps.length !== SETUP_STEP_IDS.length || model.steps.some((step, index) => step.id !== SETUP_STEP_IDS[index]))
     ctx.addIssue({ code: "custom", message: "Setup steps must follow install order" })
@@ -64,7 +67,7 @@ export const settingsCardModel = (model: InstallModel, origin: string): Settings
   return SettingsCardSchema.parse({ ...setup,
     address: { ...setup.address, origins_unencrypted: model.address.origins.filter(plainHttpOffLoopback), ...(refused ? { failed: { from: refused.from, to: refused.to,
       reason: { class: "user", message: refused.reason } } } : {}) },
-    capacity: model.capacity, parallel: model.parallel, health: model.health, obsidian: model.wiki_sync?.obsidian,
+    todo_preapprove_default: model.todo_preapprove_default, todo_daily_admissions: model.todo_daily_admissions, callback_fixes: model.callback_fixes, capacity: model.capacity, parallel: model.parallel, health: model.health, obsidian: model.wiki_sync?.obsidian,
     laptop_lines: model.address.origins.map(origin => `smthrs login ${origin}`),
     notifications_need_https: plainHttpOffLoopback(origin)
   })

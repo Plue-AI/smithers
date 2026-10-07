@@ -13,8 +13,16 @@
  */
 import { Action, FlowRuntime } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
-import { Effect, Layer } from "effect"
-import { NativeCoding, NativeCodingError, Operation, type OperationResult, requestIdFor } from "./native.ts"
+import { Effect, Layer, Schema } from "effect"
+import {
+  NativeCoding,
+  NativeCodingError,
+  Operation,
+  type OperationResult,
+  requestIdFor,
+  StackCandidate,
+  StackProposal
+} from "./native.ts"
 import { CodingError, Revision, StackBase } from "./schema.ts"
 
 export { StackBase } from "./schema.ts"
@@ -27,16 +35,59 @@ export { StackBase } from "./schema.ts"
 export const PrepareStackBase = Action.make("coding/prepare-stack-base", {
   payload: { base: StackBase },
   success: Operation,
-  error: CodingError,
+  error: Schema.Union([CodingError, NativeCodingError]),
   nondeterministic: true
 })
 /** Applies the journaled create and requires the working change to sit exactly on the tip. */
 export const CreateStackBase = Action.make("coding/create-stack-base", {
   payload: { base: StackBase, operation: Operation },
   success: Revision,
-  error: CodingError,
+  error: Schema.Union([CodingError, NativeCodingError]),
   nondeterministic: true
 })
+
+/** Reserved packaged operations: deliberately not Flow.make declarations. */
+export const Candidate = Action.make("stack.candidate", {
+  payload: {},
+  success: StackCandidate,
+  error: Schema.Union([CodingError, NativeCodingError]),
+  nondeterministic: true
+})
+export const Propose = Action.make("stack.propose", {
+  payload: { generation: StackCandidate.fields.generation },
+  success: StackProposal,
+  error: Schema.Union([CodingError, NativeCodingError]),
+  nondeterministic: true
+})
+
+export const captureStackCandidate = (executionId: string) =>
+  Effect.gen(function*() {
+    const invocation = yield* Action.CurrentInvocationKey
+    if (!invocation) return yield* refused("Durable stack operation identity is unavailable")
+    const native = yield* NativeCoding
+    if (native.sourcePublication !== "cloud" || !native.stackCandidate) {
+      return yield* refused("Current TODO run and machine authority is unavailable")
+    }
+    return yield* native.stackCandidate(requestIdFor(executionId, `stack.candidate/${invocation}`))
+  })
+
+export const proposeStackCandidate = (executionId: string, generation: number) =>
+  Effect.gen(function*() {
+    const invocation = yield* Action.CurrentInvocationKey
+    if (!invocation) return yield* refused("Durable stack operation identity is unavailable")
+    const native = yield* NativeCoding
+    if (native.sourcePublication !== "cloud" || !native.stackPropose) {
+      return yield* refused("Current TODO run and machine authority is unavailable")
+    }
+    const proposal = yield* native.stackPropose(
+      requestIdFor(executionId, `stack.propose/${generation}/${invocation}`),
+      generation
+    )
+    if (proposal.generation !== generation) {
+      return yield* refused("Stack proposal acknowledged another candidate generation")
+    }
+    return proposal
+  })
 
 const refused = (message: string) => new CodingError({ code: "source_refused", message })
 
@@ -61,14 +112,7 @@ export const prepareStackBase = (base: StackBase, executionId: string) =>
       target: { ...target, kind: "resolved" as const },
       description: ""
     }
-  }).pipe(Effect.mapError((error) =>
-    error instanceof CodingError ? error : new CodingError({
-      code: error instanceof NativeCodingError && (error.code === "source_missing" || error.code === "source_changed")
-        ? error.code
-        : "source_unavailable",
-      message: "The base could not be admitted: " + error.message
-    })
-  ))
+  })
 
 export const observeStackBase = (base: StackBase, result: typeof OperationResult.Type) => {
   const revision = result.revision
@@ -97,6 +141,18 @@ export const admitStackBase = (base: StackBase) =>
   )
 
 export const stackBaseLayer = Layer.mergeAll(
+  Candidate.toLayer(() =>
+    Effect.gen(function*() {
+      const instance = yield* FlowRuntime.FlowInstance
+      return yield* captureStackCandidate(instance.executionId)
+    })
+  ),
+  Propose.toLayer(({ generation }) =>
+    Effect.gen(function*() {
+      const instance = yield* FlowRuntime.FlowInstance
+      return yield* proposeStackCandidate(instance.executionId, generation)
+    })
+  ),
   PrepareStackBase.toLayer(({ base }) =>
     Effect.gen(function*() {
       const instance = yield* FlowRuntime.FlowInstance
@@ -108,14 +164,6 @@ export const stackBaseLayer = Layer.mergeAll(
       // Never refresh the request: the native receipt recovers a create whose
       // response was lost; only transient transport failures retry.
       Action.retry({ times: 2, while: transient }),
-      Effect.mapError((error) =>
-        new CodingError({
-          code: error.code === "revision_conflict" || error.code === "operation_conflict"
-            ? "stale_revision"
-            : "source_unavailable",
-          message: "The working change could not be created on the base: " + error.message
-        })
-      ),
       Effect.flatMap((result) => observeStackBase(base, result))
     )
   )

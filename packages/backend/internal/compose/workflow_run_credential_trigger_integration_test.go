@@ -22,6 +22,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/blob"
+	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -153,9 +154,13 @@ func TestRunCredentialCannotStartCacheSavingWorkflowRunsPostgres(t *testing.T) {
 	assert.Equal(t, before, runCount(), "a run credential replayed a run")
 }
 
-func buildWorkflowTriggerRouter(q *db.Queries, pool *pgxpool.Pool, workflow *routes.WorkflowHandler) http.Handler {
+func buildWorkflowTriggerRouter(q *db.Queries, pool *pgxpool.Pool, workflow *routes.WorkflowHandler, configs ...*config.Config) http.Handler {
+	cfg := testConfigAllFlagsOn()
+	if len(configs) > 0 {
+		cfg = configs[0]
+	}
 	return buildRouter(
-		testConfigAllFlagsOn(), q, pool,
+		cfg, q, pool,
 		&routes.RepoHandler{},
 		nil, // mirrorSyncHandler
 		&routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{},
@@ -203,4 +208,113 @@ func (h invokeTestSources) GetBookmark(ctx context.Context, owner, repo, name st
 		}
 	}
 	return repohost.Bookmark{}, &repohost.StatusError{StatusCode: 404, Code: "bookmark_not_found"}
+}
+
+// Deferred trigger management is absent even when its real service and database
+// are composed. Refusal must not create or change trigger state.
+func TestDeferredTriggerManagementHTTPPostgres(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	q := db.New(pool)
+	ctx := t.Context()
+	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "deferredowner", LowerUsername: "deferredowner"})
+	require.NoError(t, err)
+	repoID := ciTestRepo(t, pool, owner.ID, "app")
+	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES ($1)`, owner.ID)
+	require.NoError(t, err)
+	var workspace string
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workspaces(repository_id,user_id) VALUES ($1,$2) RETURNING id::text`, repoID, owner.ID).Scan(&workspace))
+	_, err = pool.Exec(ctx, `INSERT INTO repository_job_registrations(repository_id,workspace_id,user_id,job,mode,revision,digest,source_revision,flow_id,configuration,enabled) VALUES ($1,$2,$3,'ci','enabled',1,'digest','source','ci','{}',true)`, repoID, workspace, owner.ID)
+	require.NoError(t, err)
+	cases := []struct{ method, path string }{
+		{"GET", "/api/repos/deferredowner/app/repository-jobs"},
+		{"GET", "/api/repos/deferredowner/app/repository-jobs/ci/dispatches"},
+		{"POST", "/api/repos/deferredowner/app/repository-jobs/ci/pause"},
+		{"GET", "/api/repos/deferredowner/app/repository-jobs/ci/approvals"},
+		{"POST", "/api/repos/deferredowner/app/repository-jobs/ci/approvals"},
+		{"PUT", "/api/gateways/host/repository-jobs/ci"},
+		{"PUT", "/api/gateways/host/repository-jobs/ci/manual/request"},
+		{"GET", "/api/repos/deferredowner/app/repository-jobs/list"},
+		{"POST", "/api/repos/deferredowner/app/repository-jobs/ci/register"},
+		{"POST", "/api/repos/deferredowner/app/repository-jobs/ci/approve"},
+		{"POST", "/api/repos/deferredowner/app/repository-jobs/ci/resume"},
+		{"POST", "/api/repos/deferredowner/app/repository-jobs/ci/run"},
+	}
+	cfg := testConfigAllFlagsOn()
+	cfg.Auth.Mode = config.AuthModeSelfHosted
+	cfg.Auth.WorkerExchangeToken = "deferred-worker"
+	router := hostStatusProductionRouter(cfg, q, &services.InstallCapacityService{}, conformanceServices{pool: pool, billing: &routes.BillingHandler{Service: services.NewBillingService(q, nil, services.BillingServiceConfig{})}, jobs: &routes.RepositoryJobHandler{RepositoryJobs: services.NewRepositoryJobService(q, nil, pool)}})
+	// Seed credentials through canonical credential queries; OAuth/token minting
+	// is covered separately. Route absence must precede credential admission.
+	credentials := []struct{ name, cookie, bearer string }{{name: "anonymous"}, {name: "worker", bearer: cfg.Auth.WorkerExchangeToken}}
+	for _, role := range []string{"owner", "maintainer", "member"} {
+		user := owner
+		if role != "owner" {
+			user, err = q.CreateUser(ctx, db.CreateUserParams{Username: role, LowerUsername: role})
+			require.NoError(t, err)
+			permission := "write"
+			if role == "maintainer" {
+				permission = "admin"
+			}
+			_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES ($1,$2,$3)`, repoID, user.ID, permission)
+			require.NoError(t, err)
+		}
+		hash := sha256.Sum256([]byte("deferred-session-" + role))
+		cookie := hex.EncodeToString(hash[:])
+		storageDigest := sha256.Sum256([]byte(cookie))
+		_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{SessionKey: hex.EncodeToString(storageDigest[:]), UserID: user.ID, Username: user.Username, ExpiresAt: time.Now().Add(time.Hour)})
+		require.NoError(t, err)
+		credentials = append(credentials, struct{ name, cookie, bearer string }{name: role, cookie: cookie})
+	}
+	token := "smithers_0123456789012345678901234567890123456789"
+	sum := sha256.Sum256([]byte(token))
+	hash := hex.EncodeToString(sum[:])
+	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "deferred-delegated", TokenHash: hash, TokenLastEight: hash[56:], Scopes: "all"})
+	require.NoError(t, err)
+	credentials = append(credentials, struct{ name, cookie, bearer string }{name: "delegated", bearer: token})
+	// Issuer-marked execution credentials must not reopen management doors,
+	// even when they carry write scope and the seeded repository/workspace.
+	for _, execution := range []struct {
+		name, binding string
+		kind          middleware.CredentialKind
+	}{
+		{"run", middleware.AgentSessionRestrictionScope("deferred-run"), middleware.CredentialAgentRun},
+		{"machine", middleware.WorkspaceRestrictionScope(workspace), middleware.CredentialMachine},
+	} {
+		scopes := string(middleware.ScopeWriteRepository) + "," + middleware.RepositoryRestrictionScope(repoID) + "," + execution.binding
+		require.Equal(t, execution.kind, middleware.TokenCredentialKind(true, scopes, "user", true))
+		plaintext := "smithers_" + hex.EncodeToString([]byte("deferred-" + execution.name + "-token-padding-bytes"))[:40]
+		sum := sha256.Sum256([]byte(plaintext))
+		digest := hex.EncodeToString(sum[:])
+		_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{
+			UserID: owner.ID, Name: "deferred-" + execution.name, TokenHash: digest,
+			TokenLastEight: digest[56:], SystemIssued: true, Scopes: scopes,
+			ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
+		})
+		require.NoError(t, err)
+		credentials = append(credentials, struct{ name, cookie, bearer string }{name: execution.name, bearer: plaintext})
+	}
+	snapshot := func() string {
+		var value string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT jsonb_build_object('registrations',(SELECT jsonb_agg(to_jsonb(r)) FROM repository_job_registrations r),'approvals',(SELECT jsonb_agg(to_jsonb(a)) FROM repository_job_approvals a),'dispatches',(SELECT jsonb_agg(to_jsonb(d)) FROM repository_job_dispatches d))::text`).Scan(&value))
+		return value
+	}
+	before := snapshot()
+	for _, credential := range credentials {
+		t.Run(credential.name, func(t *testing.T) {
+			for _, tc := range cases {
+				req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(`{}`))
+				req.Header.Set("Content-Type", "application/json")
+				if credential.cookie != "" {
+					req.AddCookie(&http.Cookie{Name: "smithers_session", Value: credential.cookie})
+				}
+				if credential.bearer != "" {
+					req.Header.Set("Authorization", "Bearer "+credential.bearer)
+				}
+				rec := httptest.NewRecorder()
+				router.ServeHTTP(rec, req)
+				require.Equal(t, http.StatusNotFound, rec.Code, "%s %s: %s", tc.method, tc.path, rec.Body.String())
+				require.Equal(t, before, snapshot(), "%s %s changed trigger state", tc.method, tc.path)
+			}
+		})
+	}
 }

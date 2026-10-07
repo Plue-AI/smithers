@@ -49,6 +49,8 @@ type TokenSummary struct {
 	Name           string     `json:"name"`
 	TokenLastEight string     `json:"token_last_eight"`
 	Scopes         []string   `json:"scopes"`
+	Kind           string     `json:"kind,omitempty"`
+	Via            string     `json:"via,omitempty"`
 	ExpiresAt      *time.Time `json:"expires_at,omitempty"`
 }
 
@@ -56,6 +58,8 @@ type CreateTokenRequest struct {
 	Name      string     `json:"name"`
 	Scopes    []string   `json:"scopes"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	// Via is host-owned and cannot be selected in a public token request.
+	Via string `json:"-"`
 }
 
 type CreateTokenResult struct {
@@ -230,7 +234,7 @@ var (
 var ErrGitHubRefreshTokenInvalid = stdErrors.New("github refresh token is invalid")
 
 // ErrGitHubTokenRejected is wrapped by a GitHubClient's FetchUser and
-// FetchEmails when GitHub answers 401 or 403: the caller's access token is
+// FetchEmails when GitHub answers 401: the caller's access token is
 // expired, revoked, or lacks scope. resolveOAuthUser maps it to 401 so a bad
 // client credential is not reported as a server bug.
 var ErrGitHubTokenRejected = stdErrors.New("github access token was rejected")
@@ -334,9 +338,6 @@ func (s *AuthService) CreateKeyAuthNonce(ctx context.Context) (string, error) {
 
 func (s *AuthService) VerifyKeyAuth(ctx context.Context, message, signature string) (result VerifyKeyAuthResult, retErr error) {
 	defer func() { s.observeLogin("key", retErr) }()
-	if config.IsSingleOwner(s.cfg) {
-		return VerifyKeyAuthResult{}, pkgerrors.NotFound("key authentication is not available in single-owner mode")
-	}
 	if s.keyAuthVerifier == nil {
 		return VerifyKeyAuthResult{}, pkgerrors.Internal("key auth verifier is not configured")
 	}
@@ -423,6 +424,9 @@ func (s *AuthService) StartGitHubOAuth(ctx context.Context, stateVerifier string
 // records its requested personal-access-token scopes in the one-time state.
 // An omitted scopes query preserves the legacy CLI scope set.
 func (s *AuthService) StartGitHubOAuthWithScopes(ctx context.Context, stateVerifier, rawScopes string) (string, error) {
+	if config.IsSingleOwner(s.cfg) && (s.queries == nil || s.Members == nil || s.Members.Pool == nil || GitHubRedirectURI(ctx) == "") {
+		return "", &AccessError{Status: 503, Class: "infra", Code: "credential_issuer_unavailable", Message: "Credential issuer unavailable"}
+	}
 	scopes, err := normalizeAndValidateCLIOAuthScopes(rawScopes)
 	if err != nil {
 		return "", err
@@ -482,6 +486,10 @@ func (s *AuthService) StartAuth0OAuth(ctx context.Context, stateVerifier string)
 }
 
 func (s *AuthService) CompleteGitHubOAuth(ctx context.Context, code, state, stateVerifier string) (result OAuthCallbackResult, retErr error) {
+	if config.IsSingleOwner(s.cfg) && (s.queries == nil || s.Members == nil || s.Members.Pool == nil || GitHubRedirectURI(ctx) == "") {
+		return OAuthCallbackResult{}, &AccessError{Status: 503, Class: "infra", Code: "credential_issuer_unavailable", Message: "Credential issuer unavailable"}
+	}
+
 	defer func() { s.observeLogin("github", retErr) }()
 	if s.githubClient == nil {
 		return OAuthCallbackResult{}, pkgerrors.Internal("github oauth is not configured")
@@ -588,6 +596,10 @@ func (s *AuthService) completeOAuthWithClient(ctx context.Context, client GitHub
 	}
 
 	if claimingOwner && s.Members != nil {
+		if err := s.Members.SyncGitHubKeys(ctx, user.ID, user.Username); err != nil {
+			cleanupErr := s.queries.DeleteAuthSession(ctx, session.SessionKey)
+			return OAuthCallbackResult{}, stdErrors.Join(err, cleanupErr)
+		}
 		_ = s.Members.VerifyOwner(ctx, user)
 	}
 	return OAuthCallbackResult{
@@ -608,7 +620,7 @@ func (s *AuthService) completeOAuthWithClient(ctx context.Context, client GitHub
 func (s *AuthService) resolveOAuthUser(ctx context.Context, client GitHubClient, provider, accessToken, refreshToken string, expiresIn int64) (db.User, error) {
 	profile, err := client.FetchUser(ctx, accessToken)
 	if err != nil {
-		return db.User{}, oauthFetchError("profile", err)
+		return db.User{}, oauthFetchError("profile", err, config.IsSingleOwner(s.cfg))
 	}
 
 	if config.IsSingleOwner(s.cfg) && s.Members != nil {
@@ -619,7 +631,7 @@ func (s *AuthService) resolveOAuthUser(ctx context.Context, client GitHubClient,
 
 	emails, err := client.FetchEmails(ctx, accessToken)
 	if err != nil {
-		return db.User{}, oauthFetchError("emails", err)
+		return db.User{}, oauthFetchError("emails", err, config.IsSingleOwner(s.cfg))
 	}
 
 	providerUserID := fmt.Sprintf("%d", profile.ID)
@@ -742,6 +754,9 @@ func (s *AuthService) resolveOAuthUser(ctx context.Context, client GitHubClient,
 		if err := s.Members.LinkGitHub(ctx, profile.ID, user.ID, profile.Login); err != nil {
 			return db.User{}, err
 		}
+		if err := s.Members.SyncGitHubKeys(ctx, user.ID, profile.Login); err != nil {
+			return db.User{}, err
+		}
 	}
 	return user, nil
 }
@@ -805,6 +820,10 @@ func (s *AuthService) resolveExchangeTokenExpiry(name string, ttlSeconds *int64)
 // cycle. The first server-side refresh backfills a real expiry regardless, so
 // accounts self-upgrade to proactive refresh without any caller change.
 func (s *AuthService) ExchangeGitHubToken(ctx context.Context, githubAccessToken, tokenName, githubRefreshToken string, githubTokenExpiresIn int64, ttlSeconds *int64) (result ExchangeGitHubTokenResult, retErr error) {
+	if config.IsSingleOwner(s.cfg) && (s.queries == nil || s.Members == nil || s.Members.Pool == nil) {
+		return ExchangeGitHubTokenResult{}, &AccessError{Status: 503, Class: "infra", Code: "credential_issuer_unavailable", Message: "Credential issuer unavailable"}
+	}
+
 	defer func() { s.observeLogin("github", retErr) }()
 	if s.githubClient == nil {
 		return ExchangeGitHubTokenResult{}, pkgerrors.Internal("github oauth is not configured")
@@ -837,7 +856,7 @@ func (s *AuthService) ExchangeGitHubToken(ctx context.Context, githubAccessToken
 	// sessions) valid instead of stranding the user with no credential at all.
 	exchangeScopes := []string{"repo", "user", "org"}
 	if config.IsSingleOwner(s.cfg) {
-		exchangeScopes = []string{"repo", "user", "workspace", "approval", "agent"}
+		exchangeScopes = []string{"repo", "user", "workspace", "agent"}
 	}
 	created, err := s.CreateToken(ctx, user.ID, CreateTokenRequest{
 		Name:      name,
@@ -1023,7 +1042,15 @@ func (s *AuthService) ListTokens(ctx context.Context, userID int64) ([]TokenSumm
 
 	result := make([]TokenSummary, 0, len(tokens))
 	for _, token := range tokens {
+		kind, via := string(middleware.TokenCredentialKind(token.SystemIssued, token.Scopes, "", config.IsSingleOwner(s.cfg))), ""
+		if delegation, ok := middleware.ParseTokenDelegation(token.SystemIssued, token.Scopes); ok {
+			via = delegation.Via
+		}
+		if config.IsSingleOwner(s.cfg) && !token.SystemIssued {
+			kind, via = "delegated", "cli"
+		}
 		result = append(result, TokenSummary{
+			Kind: kind, Via: via,
 			ID:             token.ID,
 			Name:           token.Name,
 			TokenLastEight: token.TokenLastEight,
@@ -1050,6 +1077,29 @@ func (s *AuthService) CreateToken(ctx context.Context, userID int64, req CreateT
 		return CreateTokenResult{}, expiresErr
 	}
 
+	systemIssued := false
+	via := ""
+	if config.IsSingleOwner(s.cfg) {
+		if err := s.requireDelegatedMember(ctx, userID); err != nil {
+			return CreateTokenResult{}, err
+		}
+		via = req.Via
+		if via == "" {
+			via = "cli"
+		}
+		if !ValidExternalAgent(via) {
+			return CreateTokenResult{}, pkgerrors.BadRequest("invalid agent")
+		}
+		systemIssued = true
+		filtered := normalizedScopes[:0]
+		for _, scope := range normalizedScopes {
+			if scope != "approval" && scope != "write:approval" && scope != "read:approval" {
+				filtered = append(filtered, scope)
+			}
+		}
+		normalizedScopes = append(filtered, middleware.DelegationScopes(middleware.Delegation{Via: via})...)
+		expiresAt = s.now().Add(30 * 24 * time.Hour)
+	}
 	if containsPrivilegedScope(normalizedScopes) {
 		user, err := s.queries.GetUserByID(ctx, userID)
 		if err != nil {
@@ -1070,6 +1120,7 @@ func (s *AuthService) CreateToken(ctx context.Context, userID int64, req CreateT
 		Name:           name,
 		TokenHash:      tokenHash,
 		TokenLastEight: tokenLastEight,
+		SystemIssued:   systemIssued,
 		Scopes:         strings.Join(normalizedScopes, ","),
 		ExpiresAt:      pgtype.Timestamptz{Time: expiresAt, Valid: true},
 	})
@@ -1079,6 +1130,13 @@ func (s *AuthService) CreateToken(ctx context.Context, userID int64, req CreateT
 
 	return CreateTokenResult{
 		TokenSummary: TokenSummary{
+			Kind: func() string {
+				if systemIssued {
+					return "delegated"
+				}
+				return "person"
+			}(),
+			Via:            via,
 			ID:             created.ID,
 			Name:           created.Name,
 			TokenLastEight: created.TokenLastEight,
@@ -1297,9 +1355,9 @@ func containsPrivilegedScope(scopes []string) bool {
 }
 
 // oauthFetchError maps a GitHub profile or emails fetch failure to an API
-// error: a rejected token is the caller's 401, anything else is a 500 that
-// keeps the cause for the server log.
-func oauthFetchError(what string, err error) error {
+// error. Rejected credentials are 401; typed dependency failures retain their
+// class and pacing, while untyped failures keep a private cause.
+func oauthFetchError(what string, err error, install bool) error {
 	if stdErrors.Is(err, ErrGitHubTokenRejected) {
 		if what == "emails" {
 			// The profile read just accepted this token: the App lacks the permission.
@@ -1307,7 +1365,17 @@ func oauthFetchError(what string, err error) error {
 		}
 		return pkgerrors.Unauthorized("github access token was rejected")
 	}
-	return pkgerrors.Internal("failed to fetch oauth " + what + ": " + err.Error())
+	var failure *pkgerrors.APIError
+	if stdErrors.As(err, &failure) {
+		if install && what == "emails" && failure.Code == pkgerrors.CodeGitHubPermission {
+			return pkgerrors.New(pkgerrors.CodeGitHubPermission, "GitHub App needs Email addresses read access")
+		}
+		return err
+	}
+	if stdErrors.Is(err, context.Canceled) || stdErrors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	return pkgerrors.Internal("failed to fetch oauth " + what).WithCause(err)
 }
 
 // pickVerifiedEmail returns a GitHub-verified email (primary first) or "" when
@@ -1427,10 +1495,15 @@ func (s *AuthService) currentOAuthAccessToken(ctx context.Context, account db.Oa
 // minted before refresh tokens were persisted), or the configured client cannot
 // refresh, it returns the credential-gone error unchanged so callers fall back
 // to today's serve-last-good / honest-401 behavior — never a refresh loop.
-func (s *AuthService) RefreshUserGitHubToken(ctx context.Context, account db.OauthAccount) (string, error) {
+func (s *AuthService) RefreshUserGitHubToken(ctx context.Context, account db.OauthAccount) (result string, resultErr error) {
 	if s == nil || s.githubClient == nil {
 		return "", pkgerrors.Unauthorized("github oauth token was rejected")
 	}
+	defer func() {
+		if resultErr == nil {
+			s.registerGitHubUserCredential(account, result)
+		}
+	}()
 	// No stored refresh token at all: nothing can renew this credential, so say
 	// so in a way the client can act on instead of retrying a dead 401 forever.
 	if len(account.RefreshTokenEncrypted) == 0 {
@@ -1538,7 +1611,7 @@ func (s *AuthService) refreshUserGitHubTokenLocked(
 			// only a human re-authorizing the GitHub App does.
 			return "", pkgerrors.GitHubReconnectRequired("github oauth token was rejected")
 		}
-		return "", pkgerrors.Unauthorized("github oauth token was rejected")
+		return "", gitHubRefreshFailure(ctx, err)
 	}
 	newAccess := strings.TrimSpace(result.AccessToken)
 	if newAccess == "" {
@@ -1708,10 +1781,15 @@ func githubAccessTokenExpired(now time.Time, account db.OauthAccount) bool {
 // alone. A refresh that fails while the current token is still inside the skew
 // window (i.e. not actually expired yet) keeps the existing token, because that
 // token demonstrably still works and GitHub — not our clock — is the authority.
-func (s *AuthService) RefreshUserGitHubTokenIfExpiring(ctx context.Context, account db.OauthAccount, currentToken string) (string, error) {
+func (s *AuthService) RefreshUserGitHubTokenIfExpiring(ctx context.Context, account db.OauthAccount, currentToken string) (result string, resultErr error) {
 	if s == nil {
 		return currentToken, nil
 	}
+	defer func() {
+		if resultErr == nil {
+			s.registerGitHubUserCredential(account, result)
+		}
+	}()
 	now := s.now()
 	if !githubAccessTokenNeedsRefresh(now, account) {
 		return currentToken, nil
@@ -1724,6 +1802,16 @@ func (s *AuthService) RefreshUserGitHubTokenIfExpiring(ctx context.Context, acco
 		return "", err
 	}
 	return refreshed, nil
+}
+
+func (s *AuthService) registerGitHubUserCredential(account db.OauthAccount, token string) {
+	if s.Members == nil || account.UserID <= 0 {
+		return
+	}
+	switch strings.ToLower(strings.TrimSpace(account.Provider)) {
+	case "github", "workos": // Existing GitHub-account compatibility path.
+		s.Members.Budget.registerUserCredential(strings.TrimSpace(token))
+	}
 }
 
 func hashOAuthStateVerifier(verifier string) string {

@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 )
 
@@ -52,14 +53,25 @@ type githubAppCredentialQuerier interface {
 // GitHubAppCredentialStore is the single credential source for App callers.
 // Every read loads PostgreSQL again so changes take effect without restarting.
 type GitHubAppCredentialStore struct {
-	q     githubAppCredentialQuerier
-	codec webhook.SecretCodec
+	q      githubAppCredentialQuerier
+	codec  webhook.SecretCodec
+	budget *BudgetTracker
 }
 
-func NewGitHubAppCredentialStore(pool *pgxpool.Pool, codec webhook.SecretCodec) *GitHubAppCredentialStore {
+type GitHubAppCredentialOption func(*GitHubAppCredentialStore)
+
+// WithGitHubAppCredentialBudget registers signed JWTs with the install budget.
+func WithGitHubAppCredentialBudget(budget *BudgetTracker) GitHubAppCredentialOption {
+	return func(s *GitHubAppCredentialStore) { s.budget = budget }
+}
+
+func NewGitHubAppCredentialStore(pool *pgxpool.Pool, codec webhook.SecretCodec, options ...GitHubAppCredentialOption) *GitHubAppCredentialStore {
 	store := &GitHubAppCredentialStore{codec: codec}
 	if pool != nil {
 		store.q = db.New(pool)
+	}
+	for _, option := range options {
+		option(store)
 	}
 	return store
 }
@@ -184,7 +196,12 @@ func (s *GitHubAppCredentialStore) AppJWT(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("parse GitHub App private key: %w", err)
 	}
-	return createGitHubAppJWT(c.ID, key, time.Now())
+	now := time.Now()
+	token, err := createGitHubAppJWT(c.ID, key, now)
+	if err == nil {
+		s.budget.registerAppToken(token, c.ID, time.Unix(now.Add(gitHubAppJWTValidity).Unix(), 0))
+	}
+	return token, err
 }
 
 func (s *GitHubAppCredentialStore) WebhookSecret(ctx context.Context) (string, error) {
@@ -269,7 +286,7 @@ func validateGitHubAppCallbackURLs(urls []string) ([]string, error) {
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.Path != "/api/auth/github/callback" || u.RawQuery != "" || u.Fragment != "" {
 			return nil, errors.New("GitHub App callback URL snapshot contains an invalid origin")
 		}
-		canonical := u.Scheme + "://" + strings.ToLower(u.Host) + "/api/auth/github/callback"
+		canonical := middleware.CanonicalOrigin(u.Scheme+"://"+u.Host) + "/api/auth/github/callback"
 		if !seen[canonical] {
 			seen[canonical] = true
 			callbacks = append(callbacks, canonical)
@@ -282,6 +299,10 @@ func validateGitHubAppCallbackURLs(urls []string) ([]string, error) {
 // configured origin, without claiming an API update or changing the snapshot.
 func (s *GitHubAppCredentialStore) CallbackFixes(ctx context.Context, origins []string) ([]GitHubAppCallbackFix, error) {
 	configured, err := normalizedGitHubAppOrigins(origins)
+	if err != nil {
+		return nil, err
+	}
+	credentials, err := s.Load(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -302,10 +323,6 @@ func (s *GitHubAppCredentialStore) CallbackFixes(ctx context.Context, origins []
 	}
 	if len(fixes) == 0 {
 		return fixes, nil
-	}
-	credentials, err := s.Load(ctx)
-	if err != nil {
-		return nil, err
 	}
 	settingsURL := "https://github.com/settings/apps/" + url.PathEscape(credentials.Slug)
 	if credentials.OwnerKind == "org" {
@@ -360,7 +377,7 @@ func (e *EnvGitHubAppCredentials) Load(ctx context.Context) (GitHubAppCredential
 			} `json:"owner"`
 		}
 		api := os.Getenv("SMITHERS_GITHUB_APP_API_BASE_URL")
-		if err := NewGitHubAppManifestService(nil, nil, api, nil).request(ctx, http.MethodGet, "/app", jwt, &identity); err != nil {
+		if err := requestGitHubApp(ctx, &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, api, jwt, http.MethodGet, "/app", &identity); err != nil {
 			return GitHubAppCredentials{}, err
 		}
 		if identity.ID != c.ID || !gitHubAppComponent.MatchString(identity.Slug) || !gitHubAppComponent.MatchString(identity.Owner.Login) || (identity.Owner.Type != "User" && identity.Owner.Type != "Organization") {

@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
@@ -89,7 +90,7 @@ func TestTodoDropClosesThePullRequestWithItsComment(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, receipt, again, "the same press again is the same drop")
 	refusal := refusalOf(t, func() error { _, err := h.drop(n, "drop-2"); return err }())
-	require.Equal(t, &TodoControlError{http.StatusConflict, "conflict", "conflict", "TODO is settled"}, refusal)
+	require.Equal(t, &TodoControlError{http.StatusConflict, "todo_transition_refused", "conflict", "TODO is settled"}, refusal)
 	require.Equal(t, MythicalOutboundOp{Kind: "close", Target: strconv.FormatInt(pr, 10), Desired: "closed", Precondition: "open", State: "intended"}, h.operation(n))
 	require.Equal(t, "open", h.pull(pr).State, "the press itself never calls GitHub")
 	require.Equal(t, "dropped", h.card(n)["state"])
@@ -126,11 +127,9 @@ func TestTodoDropRefusedWhileMergingAndOnceMerged(t *testing.T) {
 	require.Equal(t, "TODO is settled", refusal.Message)
 }
 
-// Drop of a working TODO cancels its attempt's run in the same transaction
-// (the dispatcher's worker then stops it), settles its open waits and
-// clears its pause; the run's late updates never revive it, and the stack
-// releases its lane.
-func TestTodoDropCancelsTheRunAndReleasesTheLane(t *testing.T) {
+// A live composition needs a stopped-writer capture before Drop may cancel
+// its launch, settle its waits, or remove its retained workspace.
+func TestTodoDropRefusesLiveWriterWithoutCapture(t *testing.T) {
 	o, session := newTodoAdmission(t)
 	ctx := context.Background()
 	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
@@ -152,37 +151,18 @@ func TestTodoDropCancelsTheRunAndReleasesTheLane(t *testing.T) {
 
 	press := TodoControlInput{Op: "drop", Repository: o.repoID, Actor: o.userID, Request: "drop-working"}
 	_, err = o.service.ControlTodo(mythicalRunContext(ctx, o.userID), n, press)
-	refusal := refusalOf(t, err)
+	var refusal *AccessError
+	require.ErrorAs(t, err, &refusal)
 	require.Equal(t, http.StatusForbidden, refusal.Status, "a run never drops a TODO")
 	require.Empty(t, o.launcher.cancelled)
 
-	receipt, err := o.service.ControlTodo(session, n, press)
-	require.NoError(t, err)
-	require.Equal(t, TodoControlReceipt{State: "accepted"}, receipt)
-	require.Equal(t, []string{launches[0].RequestID}, o.launcher.cancelled, "the attempt's run is cancelled with the drop")
-	dropped := o.byID(id)
-	require.Equal(t, "dropped", todoState(dropped))
-	require.Empty(t, todoOpenWaits(dropped))
-	waits := mythicalChecksOf(dropped).Waits
-	require.Len(t, waits, 1)
-	require.NotNil(t, waits[0].SettledAt, "the open question is settled with the drop")
-	require.False(t, dropped.PausedAt.Valid)
+	_, err = o.service.ControlTodo(session, n, press)
+	require.Equal(t, todoControlUnavailable(), err)
+	require.Equal(t, working, o.byID(id), "a refused Drop leaves the run, waits, attempt and lane intact")
+	require.Empty(t, o.launcher.cancelled)
+	require.Empty(t, o.lanes.deleted)
+	require.Empty(t, o.facts(working, "todo.dropped"))
 
-	facts := o.facts(dropped, "todo.dropped")
-	require.Len(t, facts, 1)
-	require.Equal(t, "needs_you", facts[0]["from"])
-	require.Equal(t, "dropped", facts[0]["to"])
-	require.Equal(t, false, facts[0]["pr"])
-
-	// The cancelled run ends; its update changes nothing the drop decided.
-	o.projectTodo(launches[0], jobs.StateCancelled, "todo-run-1", todoPinOne, "")
-	o.wake()
-	o.wake()
-	released := o.byID(id)
-	require.Equal(t, "cancelled", released.State)
-	require.Empty(t, released.WorkspaceID, "a dropped TODO's lane is released")
-	require.Len(t, o.launcher.byFlow("todo"), 1, "nothing starts again")
-	require.Contains(t, o.lanes.deleted, working.WorkspaceID)
 }
 
 // mythicalDropped closes only an open pull request and keeps every other
@@ -219,4 +199,71 @@ func TestTodoDropSettlesItsCloseWithinSeconds(t *testing.T) {
 	}, 20*time.Second, 100*time.Millisecond, "the dropped TODO's close settles without a sweep")
 	require.Equal(t, "closed", h.pull(pr).State)
 	require.Len(t, h.comments(pr), 1)
+}
+
+// A lost close response followed by a person's reopen settles the original
+// Drop from the App event. Recovery never sends a second close.
+func TestTodoDropRecoveryPreservesPersonsReopen(t *testing.T) {
+	h := newMergeHarness(t)
+	n, _, pr := h.first("Reopened change")
+	_, err := h.drop(n, "drop-reopen")
+	require.NoError(t, err)
+	h.fake.LoseNextResponses(fmt.Sprintf("/repos/rehearsal-owner/app/pulls/%d", pr), 1)
+	h.pass()
+	require.Equal(t, "unknown", h.operation(n).State)
+	require.Equal(t, "closed", h.pull(pr).State)
+	h.fake.UpdatePull("rehearsal-owner/app", pr, func(p *githubfake.Pull) { p.State = "open" })
+	h.pass()
+	require.Empty(t, h.item(n).PendingOp)
+	require.Equal(t, "open", h.pull(pr).State)
+	closes := 0
+	for _, write := range h.fake.Writes() {
+		if write.Method == http.MethodPatch && write.Path == fmt.Sprintf("/repos/rehearsal-owner/app/pulls/%d", pr) && strings.Contains(string(write.Body), `"state":"closed"`) {
+			closes++
+		}
+	}
+	require.Equal(t, 1, closes)
+}
+
+func TestTodoDropRetainsUncertainBodyThenCloses(t *testing.T) {
+	h := newMergeHarness(t)
+	n, _, pr := h.first("Uncertain body")
+	item := h.item(n)
+	op := MythicalOutboundOp{Kind: "body", Target: strconv.FormatInt(pr, 10), Desired: mythicalBodyDigest(h.pull(pr).Body), Precondition: "old-digest", State: "unknown"}
+	raw, err := json.Marshal(op)
+	require.NoError(t, err)
+	h.exec(`UPDATE mythical_items SET pending_op=$2 WHERE id=$1`, item.ID, raw)
+	_, err = h.drop(n, "drop-body")
+	require.NoError(t, err)
+	require.Equal(t, op, h.operation(n), "Drop cannot replace the uncertain slot")
+	h.fake.LoseNextResponses(fmt.Sprintf("/repos/rehearsal-owner/app/pulls/%d", pr), 1)
+	h.pass()
+	h.pass()
+	h.pass()
+	require.Empty(t, h.item(n).PendingOp)
+	require.Equal(t, "closed", h.pull(pr).State)
+	require.Len(t, h.comments(pr), 1)
+}
+
+func TestTodoDropClosesLateDiscoveredPull(t *testing.T) {
+	h := newMergeHarness(t)
+	item := h.todo("Late pull", "Create late pull", h.main, "late.md", "late\n")
+	h.fake.LoseNextResponses("/repos/rehearsal-owner/app/pulls", 1)
+	h.wake()
+	pending := h.item(item.Number.Int64)
+	require.Equal(t, "open", h.operation(item.Number.Int64).Kind)
+	require.False(t, pending.PRNumber.Valid, "lost CreatePull response has not bound a PR")
+	_, err := h.drop(item.Number.Int64, "drop-late")
+	require.NoError(t, err)
+	require.Equal(t, "open", h.operation(item.Number.Int64).Kind)
+	h.wake()
+	h.wake()
+	h.wake()
+	dropped := h.item(item.Number.Int64)
+	require.True(t, dropped.PRNumber.Valid)
+	require.Empty(t, dropped.PendingOp)
+	require.Equal(t, "cancelled", dropped.State)
+	require.Equal(t, "closed", h.pull(dropped.PRNumber.Int64).State)
+	require.Len(t, h.pullCreates(), 1)
+	require.Len(t, h.comments(dropped.PRNumber.Int64), 1)
 }

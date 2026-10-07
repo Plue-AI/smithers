@@ -108,7 +108,7 @@ def measure(repo, output, jj):
                   'git_version': subprocess.check_output(['git', '--version'], text=True).strip(),
                   'limitations': 'Allocated bytes, warm caches, 128-byte fixture files. Synthetic 12-blob flat-tree parentless versions workload; not the full before/after tree builder. Projection is gross pre-GC growth; not a retention policy approval.'}
         (output / 'summary.json').write_text(json.dumps(result, indent=2) + '\n')
-        return 0 if result['growth_budget_passed'] else 1
+        return 0 if result['growth_budget_passed'] else 3
     except BaseException as error:
         failure = {'error': str(error)}
         if isinstance(error, subprocess.CalledProcessError):

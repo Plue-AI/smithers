@@ -5,6 +5,7 @@
  */
 
 import { z } from "zod"
+import type { ContextItem } from "./CardPrimitives.ts"
 
 // Metadata occupies one instruction line. Keep the wire contract bounded and
 // defend direct renderer callers too, which may not have parsed the payload.
@@ -558,5 +559,11 @@ export const renderAgentRuntimeContext = (context: AgentRuntimeContext): string 
  */
 export const composeAgentInstructions = (
   instructions: string,
-  context?: AgentRuntimeContext
-): string => context === undefined ? instructions : `${instructions}\n\n${renderAgentRuntimeContext(context)}`
+  context?: AgentRuntimeContext,
+  selected?: ReadonlyArray<{ readonly item: ContextItem; readonly text: string }>
+): string => {
+  // An explicit selection replaces browser-provided wiki/cards/runtime content,
+  // including when the selection is empty. JSON keeps repository text as data.
+  if (selected !== undefined) return `${instructions}\n\nSelected context:\n${JSON.stringify(selected)}`
+  return context === undefined ? instructions : `${instructions}\n\n${renderAgentRuntimeContext(context)}`
+}

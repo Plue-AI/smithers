@@ -77,7 +77,7 @@ func SSETicketAuth(validator SSETicketValidator, metrics *SSETicketMetrics, boun
 				return
 			}
 			if ownerBoundary != nil {
-				if err := ownerBoundary.AuthorizeMember(r.Context(), principal.User.ID); err != nil {
+				if err := ownerBoundary.AuthorizeMember(installationAuthorizationContext(r), principal.User.ID); err != nil {
 					if metrics != nil && metrics.TicketsValidated != nil {
 						metrics.TicketsValidated.WithLabelValues("wrong_owner").Inc()
 					}

@@ -15,8 +15,8 @@ test("A-MERGE: reviews the next item before merging", async ({ page }) => {
   await confirm.getByRole("button", { name: "Merge", exact: true }).press("Enter")
   await expect(confirm).toContainText("Merged T8")
   await say(page, "/stack")
-  await expect(page.locator(".mvp-stack-row").filter({ hasText: "T8" })).toHaveCount(0)
-  await expect(page.locator(".mvp-stack-row").filter({ hasText: "T10" })).toContainText("Merges after T9")
+  await expect(page.locator(".stack-row").filter({ hasText: "T8" })).toHaveCount(0)
+  await expect(page.locator(".stack-row").filter({ hasText: "T10" })).toContainText("Merges after T9")
   await expect(page.getByTestId("composer-input")).toBeEditable()
 })
 

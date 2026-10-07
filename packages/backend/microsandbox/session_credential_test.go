@@ -17,7 +17,7 @@ func TestSessionTokenRootInputsValidatedBeforeUseSupplemental(t *testing.T) {
 	require.NotZero(t, os.Geteuid())
 	python, err := exec.LookPath("python3")
 	require.NoError(t, err)
-	script := `import importlib.util,os,stat,sys,tempfile,types
+	script := `import hashlib,importlib.util,os,stat,sys,tempfile,types
 spec=importlib.util.spec_from_file_location("g",sys.argv[1]); g=importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
 scenario=sys.argv[2]
 with tempfile.TemporaryDirectory() as root:
@@ -25,14 +25,24 @@ with tempfile.TemporaryDirectory() as root:
  outside=root+"/outside"; open(outside,"wb").write(b"root canary")
  real_open,real_fstat=os.open,os.fstat
  def opened(path,*args,**kwargs): return real_open(root if path=="/" else path,*args,**kwargs)
- def observed(info): return types.SimpleNamespace(st_uid=0,st_gid=0,st_mode=info.st_mode,st_nlink=info.st_nlink,st_dev=info.st_dev,st_ino=info.st_ino)
+ def observed(info): return types.SimpleNamespace(st_uid=0,st_gid=0,st_mode=info.st_mode,st_nlink=info.st_nlink,st_dev=info.st_dev,st_ino=info.st_ino,st_size=info.st_size)
  os.open=opened; os.fstat=lambda *a,**k:observed(real_fstat(*a,**k))
  os.geteuid=lambda:0
  os.fchown=lambda *a:None
- g.assigned_identity=lambda user:types.SimpleNamespace(pw_uid=19999,pw_gid=19999)
+ g.assigned_identity=lambda user:types.SimpleNamespace(pw_uid=0,pw_gid=0)
  session="5e55a0b1-0000-4000-8000-000000000001"
  directory=root+"/run/smithers/sessions/"+session
  body=b"smithers_token"
+ expected="absent"
+ if scenario in ("foreign-token","writable-token","hardlink-token","delete-extra","stale-rotation","stale-close"):
+  os.mkdir(directory); open(directory+"/token","wb").write(b"smithers_foreign\n"); os.chmod(directory+"/token",0o600)
+  expected=hashlib.sha256(b"smithers_foreign").hexdigest()
+  if scenario=="foreign-token": expected=hashlib.sha256(b"smithers_other").hexdigest()
+  if scenario=="writable-token": os.chmod(directory+"/token",0o644)
+  if scenario=="hardlink-token": os.link(directory+"/token",root+"/retained-link")
+  if scenario=="delete-extra": open(directory+"/unrelated","wb").write(b"keep")
+  if scenario in ("stale-rotation","stale-close"): expected=hashlib.sha256(b"smithers_previous").hexdigest()
+ if scenario=="lock-link": os.symlink(outside,root+"/run/smithers/sessions/.credential-lock")
  if scenario=="session-link": os.symlink(root,directory)
  if scenario=="parent-link":
   os.rename(root+"/run/smithers/sessions",root+"/moved"); os.symlink(root+"/moved",root+"/run/smithers/sessions")
@@ -47,24 +57,29 @@ with tempfile.TemporaryDirectory() as root:
  if scenario=="bad-session": session="../escape"
  if scenario=="unprivileged": os.geteuid=lambda:19999
  refused=False
- try: g.put_session_token(session,body)
+ try:
+  if scenario in ("delete-extra","stale-close"): g.delete_session_token(session,expected)
+  else: g.put_session_token(session,body,expected)
  except (SystemExit,OSError): refused=True
  assert open(outside,"rb").read()==b"root canary"
- if scenario in ("valid","leaf-link"):
+ if scenario=="valid":
   assert not refused,scenario
   assert not os.path.islink(directory+"/token")
   assert open(directory+"/token","rb").read()==b"smithers_token\n"
   assert stat.S_IMODE(os.stat(directory+"/token").st_mode)==0o600
-  g.put_session_token(session,b"smithers_rotated")
+  g.put_session_token(session,b"smithers_rotated",hashlib.sha256(body).hexdigest())
   assert open(directory+"/token","rb").read()==b"smithers_rotated\n"
   assert os.listdir(directory)==["token"]
-  g.delete_session_token(session)
+  g.delete_session_token(session,hashlib.sha256(b"smithers_rotated").hexdigest())
   assert not os.path.exists(directory)
-  g.delete_session_token(session)
+  g.delete_session_token(session,hashlib.sha256(b"smithers_rotated").hexdigest())
  else:
   assert refused,scenario
+  if scenario in ("foreign-token","writable-token","hardlink-token","delete-extra","stale-rotation","stale-close"):
+   assert open(directory+"/token","rb").read()==b"smithers_foreign\n"
+  if scenario=="delete-extra": assert open(directory+"/unrelated","rb").read()==b"keep"
 `
-	for _, scenario := range []string{"valid", "session-link", "parent-link", "leaf-link", "temporary-link", "writable-session", "space", "newline", "oversized", "empty", "bad-session", "unprivileged"} {
+	for _, scenario := range []string{"valid", "foreign-token", "writable-token", "hardlink-token", "delete-extra", "stale-rotation", "stale-close", "lock-link", "session-link", "parent-link", "leaf-link", "temporary-link", "writable-session", "space", "newline", "oversized", "empty", "bad-session", "unprivileged"} {
 		t.Run(scenario, func(t *testing.T) {
 			output, err := exec.Command(python, "-B", "-c", script, filepath.Join("guest", "smithers-guest.py"), scenario).CombinedOutput()
 			require.NoError(t, err, string(output))

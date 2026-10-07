@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/sse"
@@ -14,6 +15,8 @@ import (
 // subscriber of a topic reads the same committed facts, so one Build serves
 // them all at one cursor.
 type Source struct {
+	Log      *LogSource
+	Document *DocumentSource
 	// Key names the topic's stream. Subscribers with one key share its
 	// cursor and its snapshots byte for byte.
 	Key string
@@ -23,8 +26,16 @@ type Source struct {
 	// Every rebuilds without a hint, for facts no notification covers (a
 	// run's steps, a machine's state).
 	Every time.Duration
+	// MinInterval coalesces fan-out while subsequent ticks read the newest facts.
+	MinInterval time.Duration
+	// FailClosed discards stale snapshots when their authority becomes unavailable.
+	FailClosed bool
 	// Build reads the snapshot from committed facts.
 	Build func(context.Context) (json.RawMessage, error)
+	// Durable owns replay and retention; Snapshot binds committed data to its
+	// source cursor. Each connection resolves a fresh DurableStream instance.
+	Durable  *sse.DurableStream
+	Snapshot func(context.Context) (int64, json.RawMessage, error)
 }
 
 // Hints are the notifications a hub listens on: events arrive on the
@@ -56,6 +67,7 @@ type Hub struct {
 
 	mu      sync.Mutex
 	streams map[string]*stream
+	logs    atomic.Int64
 	// last is each key's last cursor, so a topic whose stream restarts in
 	// this process never reuses one. lastMu is taken last, under any other.
 	lastMu sync.Mutex
@@ -76,11 +88,12 @@ type stream struct {
 	source Source
 	cancel context.CancelFunc
 
-	mu      sync.Mutex
-	members map[*delivery]struct{}
-	cursor  int64
-	data    json.RawMessage
-	failed  bool
+	mu        sync.Mutex
+	members   map[*delivery]struct{}
+	cursor    int64
+	data      json.RawMessage
+	failed    bool
+	emittedAt time.Time
 }
 
 // Join adds deliver to source's stream, starting it if it is new, and
@@ -132,7 +145,7 @@ func (h *Hub) Join(source Source, deliver func(cursor int64, data json.RawMessag
 func (h *Hub) Streams() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return len(h.streams)
+	return len(h.streams) + int(h.logs.Load())
 }
 
 func (s *stream) run(ctx context.Context) {
@@ -203,6 +216,9 @@ func (s *stream) refresh(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err != nil || !json.Valid(data) {
+		if s.source.FailClosed {
+			s.data = nil
+		}
 		if s.data == nil && !s.failed {
 			s.failed = true
 			for d := range s.members {
@@ -214,6 +230,11 @@ func (s *stream) refresh(ctx context.Context) {
 	if s.data != nil && bytes.Equal(s.data, data) {
 		return
 	}
+	now := s.hub.now()
+	if s.data != nil && s.source.MinInterval > 0 && now.Sub(s.emittedAt) < s.source.MinInterval {
+		return
+	}
+	s.emittedAt = now
 	if s.cursor == 0 {
 		s.hub.lastMu.Lock()
 		s.cursor = max(s.hub.now().UnixMilli(), s.hub.last[s.source.Key]+1)

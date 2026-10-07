@@ -1,13 +1,10 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
-import { afterAll, describe, expect, jest, spyOn, test } from "bun:test"
+import { afterAll, describe, expect, test } from "bun:test"
 import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
 import { pillStatus } from "./CardRenderers"
-import { ControllerTestProvider } from "../ControllerContext"
-import type { AppController } from "../state/AppController"
 import type { Card } from "../state/AppState"
-import { RepoImportCardBody } from "./RepoImportCard"
-import { ConnectorSetupCardBody, endpointLabel, rateLimitHeldUntil, SyncOpsCardBody } from "./SyncCards"
+import { endpointLabel, SyncOpsCardBody } from "./SyncCards"
 
 
 
@@ -20,29 +17,7 @@ afterAll(async () => {
   await GlobalRegistrator.unregister()
 })
 
-type SetupPayload = Extract<Card, { kind: "connector-setup" }>["payload"]
 type SyncOpsPayload = Extract<Card, { kind: "sync-ops" }>["payload"]
-
-const setupCard = (overrides: Partial<SetupPayload> = {}): Extract<Card, { kind: "connector-setup" }> => ({
-  id: "connector-setup-github-will/smithers",
-  kind: "connector-setup",
-  title: "Connect GitHub · will/smithers",
-  status: "active",
-  createdAt: 0,
-  ordinal: 0,
-  payload: {
-    connector: "github",
-    repo: "will/smithers",
-    phase: "setup",
-    steps: [
-      { id: "authorize", label: "Authorize in your browser", state: "done", detail: "authorized as Will" },
-      { id: "team", label: "Team", state: "active", detail: null },
-      { id: "repository", label: "Repository", state: "pending", detail: "will/smithers" },
-      { id: "confirm", label: "Confirm", state: "pending", detail: null }
-    ],
-    ...overrides
-  }
-})
 
 const syncOpsCard = (overrides: Partial<SyncOpsPayload> = {}): Extract<Card, { kind: "sync-ops" }> => ({
   id: "sync-ops-mirror-7",
@@ -71,22 +46,6 @@ const render = (node: React.ReactNode) => {
   return { host, commands }
 }
 
-const renderSetup = (
-  card: Extract<Card, { kind: "connector-setup" }>,
-  controller?: AppController
-) => {
-  const commands: Array<{ name: string; args?: string }> = []
-  const host = document.createElement("div")
-  document.body.append(host)
-  const body = <ConnectorSetupCardBody card={card} onRunCommand={(name, args) => commands.push({ name, args })} />
-  flushSync(() => {
-    createRoot(host).render(
-      controller === undefined ? body : <ControllerTestProvider controller={controller}>{body}</ControllerTestProvider>
-    )
-  })
-  return { host, commands }
-}
-
 const buttonNamed = (host: HTMLElement, text: string): HTMLButtonElement => {
   const button = [...host.querySelectorAll("button")].find((candidate) => candidate.textContent?.includes(text))
   if (button === undefined) throw new Error(`no button named ${text}`)
@@ -98,7 +57,6 @@ const click = (host: HTMLElement, text: string): void => {
 }
 
 /** An ISO stamp a number of minutes from now — the rate-limit line reads against the real clock. */
-const minutesFromNow = (minutes: number): string => new Date(Date.now() + minutes * 60_000).toISOString()
 
 describe("the frame pill of a sync-ops card", () => {
   test("a null run state (nothing has answered yet) is never done, and a wire word is never renamed", () => {
@@ -112,292 +70,6 @@ describe("the frame pill of a sync-ops card", () => {
     expect(pillStatus(syncOpsCard({ runState: "succeeded" }))).toBe("succeeded")
     expect(pillStatus(syncOpsCard({ runState: "failed" }))).toBe("failed")
     expect(pillStatus(syncOpsCard({ runState: null, error: "Starting the sync failed (500)" }))).toBe("failed")
-  })
-})
-
-describe("ConnectorSetupCardBody — the GitHub card", () => {
-  test("not installed offers Open GitHub and Re-check; installed offers Reconcile", () => {
-    const missing = renderSetup(
-      setupCard({
-        connector: "github",
-        phase: "setup",
-        steps: [],
-        installUrl: "https://github.com/apps/smithers/installations/new"
-      })
-    )
-    expect(missing.host.textContent).toContain("The Smithers GitHub App is not installed")
-    click(missing.host, "Open GitHub")
-    click(missing.host, "Re-check")
-    expect(missing.commands).toEqual([
-      { name: "github.app.open", args: "will/smithers" },
-      { name: "github.app", args: "will/smithers" }
-    ])
-
-    const installed = renderSetup(
-      setupCard({ connector: "github", phase: "connected", steps: [], installationId: 5511, configured: true })
-    )
-    expect(installed.host.textContent).toContain("installation 5511 · configured")
-    click(installed.host, "Reconcile")
-    expect(installed.commands).toEqual([{ name: "github.reconcile", args: "will/smithers" }])
-  })
-
-  test("the rate-limit line follows the ADR: a reset ahead reads as time ahead, never as an age", () => {
-    const clock = spyOn(Date, "now").mockReturnValue(new Date(2026, 9, 6, 12, 0).getTime())
-    try {
-      /* Review finding 2: the age label clamped a future reset to "resets just now". */
-      const ahead = renderSetup(
-        setupCard({ connector: "github", steps: [], rateLimit: { limit: 5000, remaining: 0, resetAt: minutesFromNow(12) } })
-      )
-      expect(ahead.host.textContent).toContain("GitHub rate limit reached · 0 of 5,000 · resets in 12 min · Retry after")
-      expect(ahead.host.textContent).not.toContain("just now")
-
-      const later = renderSetup(
-        setupCard({ connector: "github", steps: [], rateLimit: { limit: 5000, remaining: 0, resetAt: minutesFromNow(90) } })
-      )
-      expect(later.host.textContent).toMatch(/resets at \d{1,2}:\d{2}/)
-
-      const behind = renderSetup(
-        setupCard({ connector: "github", steps: [], rateLimit: { limit: 5000, remaining: 0, resetAt: minutesFromNow(-4) } })
-      )
-      expect(behind.host.textContent).toContain("reset 4 min ago")
-
-      clock.mockReturnValue(new Date(2026, 9, 6, 23, 0).getTime())
-      const tomorrow = renderSetup(setupCard({ connector: "github", steps: [],
-        rateLimit: { limit: 5000, remaining: 0, resetAt: minutesFromNow(90) } }))
-      const date = new Date(2026, 9, 7).toLocaleDateString([], { month: "short", day: "numeric" })
-      expect(tomorrow.host.textContent).toContain(`resets at ${date} `)
-    } finally { clock.mockRestore() }
-  })
-
-  test("a refused call holds Re-check and Reconcile until the reset, with the time on them", () => {
-    /* Review finding 5: every retry stayed clickable through the window, re-posting and re-failing. */
-    const resetAt = minutesFromNow(12)
-    const held = renderSetup(
-      setupCard({ connector: "github", steps: [], rateLimit: { limit: 5000, remaining: 0, resetAt }, error: "GitHub rate limit exhausted" })
-    )
-    const clock = new Date(resetAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
-    const recheck = buttonNamed(held.host, "Re-check")
-    const reconcile = buttonNamed(held.host, "Reconcile")
-    expect(recheck.disabled).toBe(true)
-    expect(reconcile.disabled).toBe(true)
-    expect(recheck.textContent).toContain(`Re-check after ${clock}`)
-    expect(reconcile.textContent).toContain(`Reconcile after ${clock}`)
-    flushSync(() => recheck.click())
-    expect(held.commands).toEqual([])
-
-    /* A low-but-positive budget shows the line and holds nothing; a reset behind us holds nothing. */
-    const low = renderSetup(
-      setupCard({ connector: "github", steps: [], rateLimit: { limit: 5000, remaining: 40, resetAt } })
-    )
-    expect(buttonNamed(low.host, "Re-check").disabled).toBe(false)
-    const passed = renderSetup(
-      setupCard({ connector: "github", steps: [], rateLimit: { limit: 5000, remaining: 0, resetAt: minutesFromNow(-1) } })
-    )
-    expect(buttonNamed(passed.host, "Re-check").disabled).toBe(false)
-    expect(rateLimitHeldUntil({ limit: 5000, remaining: 0, resetAt: null })).toBeNull()
-  })
-})
-
-describe("rate-limit clock subscriptions", () => {
-  test.each([180_000, 150_000, 30_000])("releases every mounted retry at a reset %i ms away without a store update", (remaining) => {
-    jest.useFakeTimers({ now: Date.parse("2026-09-06T12:00:00Z") })
-    const host = document.createElement("div")
-    document.body.append(host)
-    const root = createRoot(host)
-    const rateLimit = { limit: 5000, remaining: 0, resetAt: new Date(Date.now() + remaining).toISOString() }
-    try {
-      flushSync(() => root.render(
-        <>
-          <ConnectorSetupCardBody card={setupCard({ connector: "github", steps: [], rateLimit })} onRunCommand={() => {}} />
-          <RepoImportCardBody
-            card={{
-              id: "repo-import-will/flows",
-              kind: "repo-import",
-              title: "Import · will/flows",
-              status: "error",
-              createdAt: 0,
-              ordinal: 0,
-              payload: { repo: "will/flows", jobId: null, phase: "failed", detail: "GitHub rate limit exhausted", rateLimit }
-            }}
-            onRunCommand={() => {}}
-          />
-        </>
-      ))
-      const buttons = ["Re-check", "Reconcile", "Try again"].map((name) => buttonNamed(host, name))
-      const expectCountdown = (label: string) => {
-        expect([...host.querySelectorAll("p")].filter((line) => line.textContent?.includes(label))).toHaveLength(2)
-        expect(buttons.map((button) => button.disabled)).toEqual([true, true, true])
-      }
-      expectCountdown(remaining < 60_000 ? "resets in under a minute" : `resets in ${Math.ceil(remaining / 60_000)} min`)
-      let left = remaining
-      while (left > 60_000) {
-        const step = left % 60_000 || 60_000
-        flushSync(() => jest.advanceTimersByTime(step))
-        left -= step
-        expectCountdown(`resets in ${left / 60_000} min`)
-      }
-      flushSync(() => jest.advanceTimersByTime(left - 1))
-      expect(buttons.map((button) => button.disabled)).toEqual([true, true, true])
-      flushSync(() => jest.advanceTimersByTime(1))
-      expect(buttons.map((button) => button.disabled)).toEqual([false, false, false])
-      expect(buttons.map((button) => button.textContent?.trim())).toEqual(["Re-check", "Reconcile", "Try again"])
-      expect(host.textContent).toContain("reset just now")
-      expect(jest.getTimerCount()).toBe(0)
-      flushSync(() => jest.advanceTimersByTime(60_000))
-      expect(buttons.map((button) => button.disabled)).toEqual([false, false, false])
-    } finally {
-      flushSync(() => root.unmount())
-      host.remove()
-      jest.useRealTimers()
-    }
-  })
-
-  test("unmount cancels the timer re-armed after a countdown tick", () => {
-    jest.useFakeTimers({ now: Date.parse("2026-09-06T12:00:00Z") })
-    const host = document.createElement("div")
-    const root = createRoot(host)
-    try {
-      flushSync(() => root.render(
-        <ConnectorSetupCardBody
-          card={setupCard({ connector: "github", steps: [], rateLimit: { limit: 5000, remaining: 0, resetAt: minutesFromNow(3) } })}
-          onRunCommand={() => {}}
-        />
-      ))
-      flushSync(() => jest.advanceTimersByTime(60_000))
-      expect(host.textContent).toContain("resets in 2 min")
-      expect(jest.getTimerCount()).toBeGreaterThan(0)
-    } finally {
-      flushSync(() => root.unmount())
-      const pending = jest.getTimerCount()
-      jest.useRealTimers()
-      expect(pending).toBe(0)
-    }
-  })
-})
-
-describe("RepoImportCardBody — the job card (ADR 0005 \"Import a GitHub repository\")", () => {
-  const importCard = (
-    payload: Partial<Extract<Card, { kind: "repo-import" }>["payload"]>
-  ): Extract<Card, { kind: "repo-import" }> => ({
-    id: "repo-import-acme/web",
-    kind: "repo-import",
-    title: "Import · acme/web",
-    status: "active",
-    createdAt: 0,
-    ordinal: 0,
-    payload: { repo: "acme/web", jobId: "job-1", phase: "running", detail: null, ...payload }
-  })
-
-  test("the card header says starting until the launch receipt arrives", () => {
-    expect(pillStatus(importCard({ jobId: null, phase: "starting" }))).toBe("starting")
-    expect(pillStatus(importCard({ phase: "running" }))).toBe("running")
-  })
-
-  test("ADR 0005 importing: the counts and the raw stage word, with no act while it runs", () => {
-    const { host } = render(
-      <RepoImportCardBody
-        card={importCard({
-          phase: "running",
-          detail: "Provisioning workspace…",
-          stage: "provisioning_workspace",
-          counts: {
-            refs: { done: 214, total: 214 },
-            objects: { done: 88_210, total: 91_004 },
-            issues: { done: 0, total: 312 }
-          }
-        })}
-        onRunCommand={() => {}}
-      />
-    )
-
-    expect(host.textContent).toContain("refs 214 of 214 · objects 88210 of 91004 · issues 0 of 312")
-    /* plue's own stage word, never translated into one of this app's. */
-    expect(host.textContent).toContain("stage · provisioning_workspace")
-    expect(host.querySelectorAll("button")).toHaveLength(0)
-  })
-
-  test("ADR 0005 failed import: the job's error verbatim, with Retry naming the job", () => {
-    const commands: Array<{ name: string; args?: string }> = []
-    const { host } = render(
-      <RepoImportCardBody
-        card={importCard({
-          phase: "failed",
-          detail: "github: repository acme/web not found or not accessible",
-          stage: "cloning_github",
-          error: "github: repository acme/web not found or not accessible"
-        })}
-        onRunCommand={(name, args) => commands.push({ name, args })}
-      />
-    )
-
-    expect(host.textContent).toContain("github: repository acme/web not found or not accessible")
-    const retry = buttonNamed(host, "Try again")
-    expect(retry.disabled).toBe(false)
-    click(host, "Try again")
-    expect(commands).toEqual([{ name: "repos.import.retry", args: "job-1" }])
-  })
-
-  test("a done import opens repository issues through the product session", () => {
-    const commands: Array<{ name: string; args?: string }> = []
-    const { host } = render(
-      <RepoImportCardBody
-        card={importCard({
-          phase: "done",
-          detail: null,
-          repository: { owner: "acme", name: "web" },
-          workspaceId: "ws-9"
-        })}
-        onRunCommand={(name, args) => commands.push({ name, args })}
-      />
-    )
-
-    expect(host.textContent).toContain("acme/web")
-    click(host, "Show issues")
-    expect(commands).toEqual([{ name: "issues.list", args: "open acme/web" }])
-  })
-})
-
-test("a completed import without a workspace receipt still offers the next repository action", () => {
-  const commands: Array<{ name: string; args?: string }> = []
-  const { host } = render(<RepoImportCardBody card={{ id: "repo-import-acme/web", kind: "repo-import", title: "Import", status: "acted", createdAt: 0, ordinal: 0,
-    payload: { repo: "acme/web", jobId: "job-1", phase: "done", detail: null } }}
-    onRunCommand={(name, args) => commands.push({ name, args })} />)
-  click(host, "Show issues")
-  expect(commands).toEqual([{ name: "issues.list", args: "open acme/web" }])
-})
-
-describe("RepoImportCardBody — the rate-limited retry", () => {
-  test("a structured 429 holds Try again until the reset, with the time on it", () => {
-    const resetAt = minutesFromNow(12)
-    const commands: Array<{ name: string; args?: string }> = []
-    const { host } = render(
-      <RepoImportCardBody
-        card={{
-          id: "repo-import-will/flows",
-          kind: "repo-import",
-          title: "Import · will/flows",
-          status: "error",
-          createdAt: 0,
-          ordinal: 0,
-          payload: {
-            repo: "will/flows",
-            jobId: null,
-            phase: "failed",
-            detail: "GitHub rate limit exhausted",
-            rateLimit: { limit: 5000, remaining: 0, resetAt }
-          }
-        }}
-        onRunCommand={(name, args) => commands.push({ name, args })}
-      />
-    )
-
-    const clock = new Date(resetAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
-    const retry = buttonNamed(host, "Try again")
-    expect(retry.disabled).toBe(true)
-    expect(retry.textContent).toContain(`Try again after ${clock}`)
-    expect(host.textContent).toContain("resets in 12 min")
-    flushSync(() => retry.click())
-    expect(commands).toEqual([])
   })
 })
 

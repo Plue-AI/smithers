@@ -55,10 +55,10 @@ tokens and `SMITHERS_*` exports in the shell never reach it.
 | Launcher network policy, copied by name | `HTTP_PROXY` `HTTPS_PROXY` `NO_PROXY` `ALL_PROXY` (and lowercase) `SSL_CERT_FILE` `SSL_CERT_DIR` |
 | `PATH` | the packaged `bin` directory, then the launcher's `PATH` or the system directories |
 | Git | `GIT_EXEC_PATH` `GIT_TEMPLATE_DIR` (packaged), `GIT_CONFIG_NOSYSTEM=1` `GIT_CONFIG_GLOBAL=/dev/null` |
-| Set by the app | `SMITHERS_AUTH_MODE` `SMITHERS_AUTH_BOOTSTRAP_TOKEN` `SMITHERS_NATIVE_POSTGRES_*` `SMITHERS_NATIVE_STATE_DIR` `SMITHERS_DATA_ROOT` `SMITHERS_SERVER_ADDR` `SMITHERS_PUBLIC_URL` `SMITHERS_WEB_ROOT` `SMITHERS_FLOW_HOST_MANIFEST` `SMITHERS_WORKSPACE_*` `SMITHERS_MODEL_HOST_BUNDLE` `SMITHERS_NODE_BINARY` `SMITHERS_JJ_PATH` `SMITHERS_FFI_LIBRARY_PATH` |
+| Set by the app | `SMITHERS_AUTH_MODE` `SMITHERS_NATIVE_POSTGRES_*` `SMITHERS_NATIVE_STATE_DIR` `SMITHERS_DATA_ROOT` `SMITHERS_SERVER_ADDR` `SMITHERS_PUBLIC_URL` `SMITHERS_WEB_ROOT` `SMITHERS_FLOW_HOST_MANIFEST` `SMITHERS_WORKSPACE_*` `SMITHERS_MODEL_HOST_BUNDLE` `SMITHERS_NODE_BINARY` `SMITHERS_JJ_PATH` `SMITHERS_FFI_LIBRARY_PATH` |
 
-The first-owner token comes from `config/secrets.json` in the state directory,
-or is generated on first launch. Model credentials come from the owner
+Open the one-time setup URL printed by the backend and sign in with GitHub
+to claim the owner. Model credentials come from the owner
 credential store. At spawn the app logs `owned backend env: <names>` to stderr,
 with names only. An owned target always authenticates by session and ignores
 `SMITHERS_API_TOKEN`.
@@ -321,12 +321,10 @@ Lane `change` (ADR 0003) makes the change the unit of review:
   only when an artifact exists, leading when the current revision came from
   an agent session and the change touches more than 20 files and otherwise
   sitting after History; Owners closes the strip only when the change GET
-  carried ownership. The footer acts: Land (the carrying landing request:
-  queued, never "merged"; `Land 1 → N` for a stack, `Retry land` for a failed
-  one, the changeset's own atomic route when one carries the change, a 409
-  re-reads, and a blocked gate names its reason beside the button), Split
-  ready while the changeset can still land, Revert on a landed change, and
-  Full diff. A `degraded` sign-in reads a change freely; dispatching the
+  carried ownership. The footer opens Full diff and lets a person request
+  another review from a reviewer who requested changes. TODOs merge through
+  their own Review & merge control or a maintainer's standing pre-approval.
+  A `degraded` sign-in reads a change freely; dispatching the
   resolve agent refuses with the "sign in again to enable" wording.
 - **`diff`** (`/change.diff <changeId> [from] [to] [path]`) renders one from →
   to pair pinned at the change's commit (`parent → rev 2 · pinned at rev 2 ·

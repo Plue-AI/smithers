@@ -1,7 +1,12 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
+	"github.com/smithersai/smithers/packages/backend/internal/diffview"
+	"github.com/smithersai/smithers/packages/backend/repository"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
@@ -55,4 +60,48 @@ func TestTODOBranchDiffMissingFactsNeverReturnsPartialFiles(t *testing.T) {
 			require.Nil(t, result.Files)
 		})
 	}
+}
+
+func TestAcceptedTreeDiffUsesRecordedBaseAndControlledGit(t *testing.T) {
+	if os.Getenv("SMITHERS_FFI_LIBRARY_PATH") == "" {
+		t.Skip("requires native repository host")
+	}
+	f := newMythicalFixture(t)
+	require.NoError(t, os.WriteFile(filepath.Join(f.root, "old.txt"), []byte("same\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(f.root, "earlier.txt"), []byte("prefix\n"), 0600))
+	f.run("add", ".")
+	f.run("commit", "-qm", "prefix")
+	base := f.run("rev-parse", "HEAD")
+	f.run("mv", "old.txt", "new.txt")
+	require.NoError(t, os.WriteFile(filepath.Join(f.root, "item.txt"), []byte("item\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(f.root, "asset.bin"), []byte{0, 1, 2}, 0600))
+	f.run("add", ".")
+	f.run("commit", "-qm", "item")
+	head := f.run("rev-parse", "HEAD")
+	canary := filepath.Join(f.root, "host-canary")
+	f.run("config", "diff.external", "touch "+canary)
+	storage := t.TempDir()
+	local, err := repository.OpenLocal(repository.Config{StoragePath: storage, AuthToken: "native-diff-test", FFILibraryPath: os.Getenv("SMITHERS_FFI_LIBRARY_PATH")})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, local.Shutdown(context.Background())) })
+	client := local.Client()
+	require.NoError(t, client.InitRepo(t.Context(), "owner", "repo", "main", false))
+	hostGit := filepath.Join(storage, "owner", "repo", ".jj/repo/store/git")
+	f.run("push", hostGit, "HEAD:refs/heads/fixture")
+	require.NoError(t, client.ImportRefs(t.Context(), "owner", "repo"))
+	reader := acceptedTreeDiffReader{store: client, g: f.git, base: base, head: head}
+	diff, err := diffview.BuildChangeDiff(t.Context(), reader, "owner", "repo", head, diffview.BuildOptions{})
+	require.NoError(t, err)
+	require.Len(t, diff.FileDiffs, 3)
+	require.Equal(t, "asset.bin", diff.FileDiffs[0].Path)
+	require.True(t, diff.FileDiffs[0].IsBinary)
+	require.Contains(t, diff.FileDiffs[1].Patch, "+item\n")
+	require.Equal(t, "renamed", diff.FileDiffs[2].ChangeType)
+	require.Equal(t, "old.txt", diff.FileDiffs[2].OldPath)
+	_, err = os.Stat(canary)
+	require.True(t, os.IsNotExist(err))
+	blob, err := reader.GetFileAtChange(t.Context(), "owner", "repo", head, "asset.bin")
+	require.NoError(t, err)
+	require.Equal(t, "base64", blob.Encoding)
+	require.Equal(t, "AAEC", blob.Content)
 }

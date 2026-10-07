@@ -11,7 +11,14 @@ import * as MemoryStore from "../../packages/smithers/agent/memory/src/MemorySto
 import * as TestMemory from "../../packages/smithers/agent/memory/src/test/TestMemory.ts"
 import * as NodeJj from "../../packages/smithers/flows/jj/src/node/NodeJj.ts"
 import { correctionLayers, CorrectPlan } from "../coding/correction.ts"
-import { acceptedLearnings, failureSignatures, learningNote, learningNotes, namespace, recordLearning } from "../coding/learnings.ts"
+import {
+  acceptedLearnings,
+  failureSignatures,
+  learningNote,
+  learningNotes,
+  namespace,
+  recordLearning
+} from "../coding/learnings.ts"
 import { NativeCoding } from "../coding/native.ts"
 import {
   checkInputDigest,
@@ -78,9 +85,14 @@ test("only a rejected round with findings yields a pending note, identified by i
   })!
   assert.equal(long.text.split("\n").length, 21, "at most twenty findings")
   assert.ok(long.text.split("\n")[1]!.endsWith("…"))
-  assert.equal(learningNotes(plan, "run", 1, {
-    ...rejected("x"), findings: Array.from({ length: 30 }, (_, index) => ({ ...rejected("x").findings[0]!, message: String(index) }))
-  }).length, 20, "at most twenty pending patterns per round")
+  assert.equal(
+    learningNotes(plan, "run", 1, {
+      ...rejected("x"),
+      findings: Array.from({ length: 30 }, (_, index) => ({ ...rejected("x").findings[0]!, message: String(index) }))
+    }).length,
+    20,
+    "at most twenty pending patterns per round"
+  )
 })
 
 test("a failing store is logged and never fails the correction", async () => {
@@ -92,38 +104,67 @@ test("a failing store is logged and never fails the correction", async () => {
 
 test("failed review lint has a literal signature, and infrastructure failures propose nothing", () => {
   const result: Result = {
-    status: "changes-requested", findings: [], changes: [{
-      implementation: { change: "owner", parent: revision("base"), atoms: [revision("owner")], head: revision("owner"), reads: [], writes: [] },
-      receipts: [{ checkId: "Lint", target: "lint", tier: "slow", change: "owner", commitId: "commit-owner", treeId: "tree-owner",
-        inputDigest: "fixture", status: "failed", evidence: "Unused import", findings: [] }]
+    status: "changes-requested",
+    findings: [],
+    changes: [{
+      implementation: {
+        change: "owner",
+        parent: revision("base"),
+        atoms: [revision("owner")],
+        head: revision("owner"),
+        reads: [],
+        writes: []
+      },
+      receipts: [{
+        checkId: "Lint",
+        target: "lint",
+        tier: "slow",
+        change: "owner",
+        commitId: "commit-owner",
+        treeId: "tree-owner",
+        inputDigest: "fixture",
+        status: "failed",
+        evidence: "Unused import",
+        findings: []
+      }]
     }]
   }
   assert.deepEqual(failureSignatures(result), ["check:lint@review"])
   assert.equal(learningNote(plan, "run", 1, result)!.id, "check:lint@review")
   assert.equal(learningNote(plan, "run", 1, result)!.text, "Request: Record what failed\n- Lint@review: Unused import")
-  assert.deepEqual(learningNotes(plan, "run", 1, { ...result, findings: rejected("x").findings }).map(note => note.id), [
-    "check:lint@review", "review:2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"
-  ], "a review finding must not hide the literal lint pattern inside an aggregate key")
-  const infra: Result = { ...result, changes: [{ ...result.changes[0]!, receipts: [{ ...result.changes[0]!.receipts[0]!, fault: "infra" }] }] }
+  assert.deepEqual(
+    learningNotes(plan, "run", 1, { ...result, findings: rejected("x").findings }).map((note) => note.id),
+    [
+      "check:lint@review",
+      "review:2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"
+    ],
+    "a review finding must not hide the literal lint pattern inside an aggregate key"
+  )
+  const infra: Result = {
+    ...result,
+    changes: [{ ...result.changes[0]!, receipts: [{ ...result.changes[0]!.receipts[0]!, fault: "infra" }] }]
+  }
   assert.equal(learningNote(plan, "run", 1, infra), undefined)
 })
 
 test("later runs preserve the original note's provenance and rejected status", async () => {
-  await Effect.runPromise(Effect.gen(function*() {
-    const store = yield* MemoryStore.MemoryStore
-    yield* recordLearning(plan, "run-first", 1, rejected("Handle the empty list"))
-    const notes = yield* store.listNotes({ namespace, status: "any" })
-    const id = notes[0]!.id
-    yield* store.setNoteStatus({ id, status: "rejected" })
-    yield* recordLearning(plan, "run-second", 2, rejected("Handle the empty list"))
-    const held = yield* store.getNote({ id })
-    assert.equal(held!.status, "rejected")
-    assert.deepEqual(held!.provenance, { runId: "run-first", iteration: 1 })
-    assert.equal((yield* store.listNotes({ namespace, status: "any" })).length, 1)
-  }).pipe(Effect.provide(TestMemory.layer)))
+  await Effect.runPromise(
+    Effect.gen(function*() {
+      const store = yield* MemoryStore.MemoryStore
+      yield* recordLearning(plan, "run-first", 1, rejected("Handle the empty list"))
+      const notes = yield* store.listNotes({ namespace, status: "any" })
+      const id = notes[0]!.id
+      yield* store.setNoteStatus({ id, status: "rejected" })
+      yield* recordLearning(plan, "run-second", 2, rejected("Handle the empty list"))
+      const held = yield* store.getNote({ id })
+      assert.equal(held!.status, "rejected")
+      assert.deepEqual(held!.provenance, { runId: "run-first", iteration: 1 })
+      assert.equal((yield* store.listNotes({ namespace, status: "any" })).length, 1)
+    }).pipe(Effect.provide(TestMemory.layer))
+  )
 })
 
-test("a rejected correction round records one pending note that planning reads once accepted", {
+test("a rejected correction round records distinct pending patterns that planning reads only once accepted", {
   timeout: 180_000
 }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), "coding-learnings-"))
@@ -200,9 +241,13 @@ test("a rejected correction round records one pending note that planning reads o
   const pending = await host.runPromise(
     Effect.flatMap(MemoryStore.MemoryStore, (store) => store.listNotes({ namespace, status: "any" }))
   )
-  assert.equal(pending.length, 1)
-  assert.equal(pending[0]!.status, "pending")
-  assert.match(pending[0]!.text, /Title owner: Reject empty names/)
+  assert.equal(pending.length, 2)
+  assert.equal(pending.filter((note) => note.id === "check:slow@review").length, 1)
+  assert.equal(pending.filter((note) => note.id.startsWith("review:")).length, 1)
+  for (const note of pending) {
+    assert.equal(note.status, "pending")
+    assert.match(note.text, /Title owner: Reject empty names/)
+  }
   assert.deepEqual(await host.runPromise(acceptedLearnings), [], "pending notes never reach planning")
   const recorded = { writes, checks }
 
@@ -214,7 +259,7 @@ test("a rejected correction round records one pending note that planning reads o
   const notes = await host.runPromise(
     Effect.flatMap(MemoryStore.MemoryStore, (store) => store.listNotes({ namespace, status: "any" }))
   )
-  assert.equal(notes.length, 1)
+  assert.deepEqual(notes, pending, "cold replay retains both distinct patterns without rewriting either")
 
   // The existing gate accepts it; the next planning read includes it.
   await host.runPromise(

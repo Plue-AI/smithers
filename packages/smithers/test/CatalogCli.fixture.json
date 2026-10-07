@@ -1,0 +1,701 @@
+{
+  "commands": [
+    {
+      "path": "search",
+      "agent": "run"
+    },
+    {
+      "path": "stack",
+      "agent": "run"
+    },
+    {
+      "path": "todo new",
+      "agent": "confirm"
+    },
+    {
+      "path": "todo from-issue",
+      "agent": "confirm"
+    },
+    {
+      "path": "todo show",
+      "agent": "run"
+    },
+    {
+      "path": "todo answer",
+      "agent": "run"
+    },
+    {
+      "path": "todo steer",
+      "agent": "run"
+    },
+    {
+      "path": "todo amend",
+      "agent": "confirm"
+    },
+    {
+      "path": "todo stop",
+      "agent": "run"
+    },
+    {
+      "path": "todo resume",
+      "agent": "run"
+    },
+    {
+      "path": "todo retry",
+      "agent": "run"
+    },
+    {
+      "path": "todo drop",
+      "agent": "confirm"
+    },
+    {
+      "path": "stack move",
+      "agent": "run"
+    },
+    {
+      "path": "merge",
+      "agent": "confirm"
+    },
+    {
+      "path": "branches",
+      "agent": "run"
+    },
+    {
+      "path": "branch show",
+      "agent": "run"
+    },
+    {
+      "path": "branch fork",
+      "agent": "run"
+    },
+    {
+      "path": "branch add-to-stack",
+      "agent": "confirm"
+    },
+    {
+      "path": "branch rebase",
+      "agent": "run"
+    },
+    {
+      "path": "file",
+      "agent": "run"
+    },
+    {
+      "path": "files",
+      "agent": "run"
+    },
+    {
+      "path": "diff",
+      "agent": "run"
+    },
+    {
+      "path": "review",
+      "agent": "confirm"
+    },
+    {
+      "path": "pr",
+      "agent": "run"
+    },
+    {
+      "path": "issues",
+      "agent": "run"
+    },
+    {
+      "path": "issue show",
+      "agent": "run"
+    },
+    {
+      "path": "issue new",
+      "agent": "confirm"
+    },
+    {
+      "path": "issue comment",
+      "agent": "confirm"
+    },
+    {
+      "path": "wiki show",
+      "agent": "run"
+    },
+    {
+      "path": "wiki page",
+      "agent": "run"
+    },
+    {
+      "path": "wiki save",
+      "agent": "run"
+    },
+    {
+      "path": "flows",
+      "agent": "run"
+    },
+    {
+      "path": "flow show",
+      "agent": "run"
+    },
+    {
+      "path": "flow edit",
+      "agent": "confirm"
+    },
+    {
+      "path": "flow run",
+      "agent": "run"
+    },
+    {
+      "path": "flow new",
+      "agent": "confirm"
+    },
+    {
+      "path": "runs list",
+      "agent": "run"
+    },
+    {
+      "path": "runs show",
+      "agent": "run"
+    },
+    {
+      "path": "github",
+      "agent": "run"
+    },
+    {
+      "path": "monitor",
+      "agent": "run"
+    },
+    {
+      "path": "run inspect",
+      "agent": "run"
+    },
+    {
+      "path": "flow source",
+      "agent": "run"
+    },
+    {
+      "path": "flow plan",
+      "agent": "run"
+    },
+    {
+      "path": "agents",
+      "agent": "run"
+    },
+    {
+      "path": "agent",
+      "agent": "run"
+    }
+  ],
+  "excluded": [
+    "admin",
+    "org",
+    "tui",
+    "triggers",
+    "webhook",
+    "variable",
+    "cache",
+    "artifact",
+    "label",
+    "notification",
+    "egress",
+    "history",
+    "workflow",
+    "workspace children",
+    "settings",
+    "members",
+    "secrets",
+    "debug"
+  ],
+  "banned": [
+    "workflow",
+    "thread",
+    "task",
+    "lane",
+    "box",
+    "workspace",
+    "mythical",
+    "sandbox",
+    "vm",
+    "microvm",
+    "seat",
+    "profile",
+    "jev",
+    "forge"
+  ],
+  "requests": [
+    {
+      "argv": [
+        "agent",
+        "coding"
+      ],
+      "method": "GET",
+      "path": "/api/agents/coding"
+    },
+    {
+      "argv": [
+        "agents"
+      ],
+      "method": "GET",
+      "path": "/api/agents"
+    },
+    {
+      "argv": [
+        "branch",
+        "show",
+        "retry-webhooks"
+      ],
+      "method": "GET",
+      "path": "/api/branches/retry-webhooks"
+    },
+    {
+      "argv": [
+        "branch",
+        "add-to-stack",
+        "--branch",
+        "retry-webhooks",
+        "--text",
+        "Ship retries"
+      ],
+      "method": "POST",
+      "path": "/api/branches/retry-webhooks/add-to-stack",
+      "body": {
+        "text": "Ship retries"
+      }
+    },
+    {
+      "argv": [
+        "branch",
+        "fork",
+        "--from",
+        "main",
+        "--name",
+        "retry-webhooks"
+      ],
+      "method": "POST",
+      "path": "/api/branches",
+      "body": {
+        "from": "main",
+        "name": "retry-webhooks"
+      }
+    },
+    {
+      "argv": [
+        "branch",
+        "rebase",
+        "--branch",
+        "retry-webhooks"
+      ],
+      "method": "POST",
+      "path": "/api/branches/retry-webhooks/rebase",
+      "body": {}
+    },
+    {
+      "argv": [
+        "branches"
+      ],
+      "method": "GET",
+      "path": "/api/branches"
+    },
+    {
+      "argv": [
+        "flow",
+        "show",
+        "todo"
+      ],
+      "method": "GET",
+      "path": "/api/flows/todo"
+    },
+    {
+      "argv": [
+        "flow",
+        "edit",
+        "todo",
+        "--request",
+        "Add retry",
+        "--diff",
+        "patch"
+      ],
+      "method": "POST",
+      "path": "/api/flows/todo/edit",
+      "body": {
+        "request": "Add retry",
+        "diff": "patch"
+      }
+    },
+    {
+      "argv": [
+        "flow",
+        "new",
+        "--description",
+        "Write release notes"
+      ],
+      "method": "POST",
+      "path": "/api/flows",
+      "body": {
+        "description": "Write release notes"
+      }
+    },
+    {
+      "argv": [
+        "flow",
+        "run",
+        "lint-fix",
+        "--input",
+        "{\"fix\":true}"
+      ],
+      "method": "POST",
+      "path": "/api/flows/lint-fix/run",
+      "body": {
+        "input": {
+          "fix": true
+        }
+      }
+    },
+    {
+      "argv": [
+        "flows"
+      ],
+      "method": "GET",
+      "path": "/api/flows"
+    },
+    {
+      "argv": [
+        "github"
+      ],
+      "method": "GET",
+      "path": "/api/github/sync"
+    },
+    {
+      "argv": [
+        "issue",
+        "show",
+        "12"
+      ],
+      "method": "GET",
+      "path": "/api/issues/12"
+    },
+    {
+      "argv": [
+        "issue",
+        "comment",
+        "12",
+        "--body",
+        "Reproduced"
+      ],
+      "method": "POST",
+      "path": "/api/issues/12/comments",
+      "body": {
+        "body": "Reproduced"
+      }
+    },
+    {
+      "argv": [
+        "issue",
+        "new",
+        "--title",
+        "Retry",
+        "--body",
+        "Reproduction"
+      ],
+      "method": "POST",
+      "path": "/api/issues",
+      "body": {
+        "title": "Retry",
+        "body": "Reproduction"
+      }
+    },
+    {
+      "argv": [
+        "issues"
+      ],
+      "method": "GET",
+      "path": "/api/issues"
+    },
+    {
+      "argv": [
+        "merge",
+        "T1",
+        "--reviewed_head_sha",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ],
+      "method": "POST",
+      "path": "/api/todos/1/merge",
+      "body": {
+        "reviewed_head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "argv": [
+        "monitor"
+      ],
+      "method": "GET",
+      "path": "/api/runs"
+    },
+    {
+      "argv": [
+        "runs",
+        "show",
+        "run-1"
+      ],
+      "method": "GET",
+      "path": "/api/runs/run-1"
+    },
+    {
+      "argv": [
+        "run",
+        "inspect",
+        "run-1"
+      ],
+      "method": "GET",
+      "path": "/api/runs/run-1"
+    },
+    {
+      "argv": [
+        "runs",
+        "list"
+      ],
+      "method": "GET",
+      "path": "/api/runs"
+    },
+    {
+      "argv": [
+        "search",
+        "--query",
+        "retry webhook"
+      ],
+      "method": "GET",
+      "path": "/api/search/code?q=retry+webhook"
+    },
+    {
+      "argv": [
+        "stack"
+      ],
+      "method": "GET",
+      "path": "/api/stack"
+    },
+    {
+      "argv": [
+        "stack",
+        "move",
+        "T1",
+        "up"
+      ],
+      "method": "POST",
+      "path": "/api/todos/1",
+      "body": {
+        "direction": "up",
+        "op": "move"
+      }
+    },
+    {
+      "argv": [
+        "todo",
+        "show",
+        "T1"
+      ],
+      "method": "GET",
+      "path": "/api/todos/1"
+    },
+    {
+      "argv": [
+        "todo",
+        "amend",
+        "T1",
+        "Add retry",
+        "--acceptance",
+        "[\"Retries pass\"]"
+      ],
+      "method": "PATCH",
+      "path": "/api/todos/1",
+      "body": {
+        "prompt": "Add retry",
+        "acceptance": [
+          "Retries pass"
+        ]
+      }
+    },
+    {
+      "argv": [
+        "todo",
+        "answer",
+        "T1",
+        "Use retries",
+        "--wait",
+        "question-1"
+      ],
+      "method": "POST",
+      "path": "/api/todos/1/answer",
+      "body": {
+        "answer": "Use retries",
+        "wait": "question-1"
+      }
+    },
+    {
+      "argv": [
+        "todo",
+        "drop",
+        "T1"
+      ],
+      "method": "POST",
+      "path": "/api/todos/1",
+      "body": {
+        "op": "drop"
+      }
+    },
+    {
+      "argv": [
+        "todo",
+        "new",
+        "--text",
+        "Add retry",
+        "--title",
+        "Retry",
+        "--acceptance",
+        "[\"Retries pass\"]"
+      ],
+      "method": "POST",
+      "path": "/api/todos",
+      "body": {
+        "prompt": "Add retry",
+        "title": "Retry",
+        "acceptance": [
+          "Retries pass"
+        ],
+        "place": {
+          "mode": "append"
+        }
+      }
+    },
+    {
+      "argv": [
+        "todo",
+        "resume",
+        "T1"
+      ],
+      "method": "POST",
+      "path": "/api/todos/1",
+      "body": {
+        "op": "resume"
+      }
+    },
+    {
+      "argv": [
+        "todo",
+        "retry",
+        "T1"
+      ],
+      "method": "POST",
+      "path": "/api/todos/1",
+      "body": {
+        "op": "retry"
+      }
+    },
+    {
+      "argv": [
+        "todo",
+        "steer",
+        "T1",
+        "Use backoff"
+      ],
+      "method": "POST",
+      "path": "/api/todos/1",
+      "body": {
+        "steer": "Use backoff"
+      }
+    },
+    {
+      "argv": [
+        "todo",
+        "stop",
+        "T1"
+      ],
+      "method": "POST",
+      "path": "/api/todos/1",
+      "body": {
+        "op": "stop"
+      }
+    },
+    {
+      "argv": [
+        "todo",
+        "new",
+        "--text",
+        "Insert retry",
+        "--before",
+        "T1"
+      ],
+      "method": "POST",
+      "path": "/api/todos",
+      "body": {
+        "prompt": "Insert retry",
+        "place": {
+          "mode": "before",
+          "n": 1
+        }
+      }
+    }
+  ],
+  "unavailable": [
+    [
+      "diff"
+    ],
+    [
+      "file",
+      "README.md"
+    ],
+    [
+      "files"
+    ],
+    [
+      "flow",
+      "plan",
+      "todo"
+    ],
+    [
+      "flow",
+      "source",
+      "todo"
+    ],
+    [
+      "pr",
+      "12"
+    ],
+    [
+      "review",
+      "12"
+    ],
+    [
+      "todo",
+      "from-issue",
+      "12"
+    ],
+    [
+      "wiki",
+      "show"
+    ],
+    [
+      "wiki",
+      "page",
+      "Home"
+    ],
+    [
+      "wiki",
+      "save",
+      "Home",
+      "--text",
+      "Answer"
+    ]
+  ],
+  "b6": [
+    "login",
+    "ssh-key add",
+    "ssh-key delete",
+    "ssh-key list",
+    "workspace ssh",
+    "shell",
+    "exec",
+    "cp",
+    "api",
+    "host start",
+    "host stop",
+    "host status",
+    "host upgrade",
+    "host backup",
+    "host restore"
+  ]
+}

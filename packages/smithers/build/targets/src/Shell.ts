@@ -103,6 +103,8 @@ const executableCheck = Schema.makeFilter(executableIssue)
  */
 export const BuildAttrs = Schema.Struct({
   ...sharedFields,
+  /** External assembly inputs without complete identities must opt out of replay. */
+  cache: Schema.optional(Schema.Literal(false)),
   outDirs: Schema.optional(Schema.Array(Schema.NonEmptyString)),
   outFiles: Schema.optional(Schema.Array(Schema.NonEmptyString))
 }).check(

@@ -48,9 +48,11 @@ func TestTodoRetryStartsTheNextAttemptWithItsSteer(t *testing.T) {
 	steer := "use the helper in lib/retry.ts"
 	press := TodoControlInput{Op: "retry", Steer: &steer, Repository: o.repoID, Actor: o.userID, Request: "retry-1"}
 	_, err = o.service.ControlTodo(mythicalRunContext(ctx, o.userID), n, press)
-	var refusal *TodoControlError
-	require.ErrorAs(t, err, &refusal)
-	require.Equal(t, http.StatusForbidden, refusal.Status, "a run's credential never lifts a typed stop")
+	var denied *AccessError
+	require.ErrorAs(t, err, &denied)
+	require.Equal(t, http.StatusForbidden, denied.Status, "a run's credential never lifts a typed stop")
+	require.Equal(t, "permission", denied.Class)
+	require.Equal(t, "permission", denied.Code)
 	require.Equal(t, "failed", todoState(o.byID(id)))
 
 	receipt, err := o.service.ControlTodo(session, n, press)
@@ -87,8 +89,9 @@ func TestTodoRetryStartsTheNextAttemptWithItsSteer(t *testing.T) {
 	other := press
 	other.Request = "retry-2"
 	_, err = o.service.ControlTodo(session, n, other)
+	var refusal *TodoControlError
 	require.ErrorAs(t, err, &refusal)
-	require.Equal(t, &TodoControlError{http.StatusConflict, "conflict", "conflict", "TODO has not failed"}, refusal)
+	require.Equal(t, &TodoControlError{http.StatusConflict, "todo_transition_refused", "conflict", "TODO has not failed"}, refusal)
 
 	// The stack takes the launch: attempt 2 of the same pin, the steer its
 	// first input, revision 1 its prompt.
@@ -97,12 +100,24 @@ func TestTodoRetryStartsTheNextAttemptWithItsSteer(t *testing.T) {
 	launches = o.launcher.byFlow("todo")
 	require.Len(t, launches, 2, "one press, one attempt")
 	second := launches[1]
+	admitted := mythicalChecksOf(o.byID(id)).Attempts
+	require.Len(t, admitted, 2, "retry admission records both attempts before attachment")
+	require.Equal(t, int32(1), admitted[0].Attempt)
+	require.Equal(t, "todo-run-1", admitted[0].RunID)
+	require.Equal(t, int32(2), admitted[1].Attempt)
+	require.Empty(t, admitted[1].RunID, "attempt 2 never borrows attempt 1's run")
+	require.Equal(t, todoPinOne, admitted[1].FlowDigest)
 	require.Equal(t, "mythical:"+id+":2:todo:2", second.RequestID)
 	payload := decodeJSON(t, second.Payload)
 	require.Equal(t, steer, payload["feedback"])
 	require.Equal(t, decodeJSON(t, launches[0].Payload)["prompt"], payload["prompt"])
 	require.NotContains(t, decodeJSON(t, launches[0].Payload), "feedback", "attempt 1 had no steer")
 	o.projectTodo(second, jobs.StateWaiting, "todo-run-2", todoPinOne, "")
+	attached := mythicalChecksOf(o.byID(id)).Attempts
+	require.Len(t, attached, 2)
+	require.Equal(t, admitted[0], attached[0])
+	require.Equal(t, "todo-run-2", attached[1].RunID)
+
 	card = o.todoCard(n)
 	require.Equal(t, "working", card["state"])
 	require.Equal(t, map[string]any{"id": "todo-run-2", "attempt": float64(2), "indicators": []any{}}, card["run"])
@@ -206,4 +221,47 @@ func TestMythicalRetryBoundCountsFromTheLastRetry(t *testing.T) {
 	hard.Attempt = 6
 	stopped := mythicalRetry(*hard, "the plan failed", nil, now)
 	require.Equal(t, "blocked", stopped.State)
+}
+
+func TestTodoRetryCurrentFlowPinsAtAcceptance(t *testing.T) {
+	o, session := newTodoAdmission(t)
+	ctx := context.Background()
+	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
+	item := o.fileTodo(session, "current retry")
+	id := uuidString(item.ID)
+	o.wake()
+	launches := o.launcher.byFlow("todo")
+	require.Len(t, launches, 1)
+	o.projectTodo(launches[0], jobs.StateWaiting, "old-run", todoPinOne, "")
+	failed := o.byID(id)
+	failed.State, failed.Reason = "blocked", "fixture failure"
+	failed, err := o.service.queries().SaveMythicalItem(ctx, failed)
+	require.NoError(t, err)
+	earlier := currentTodoEvidence(failed)
+	active := strings.Repeat("c", 64)
+	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return active, nil })
+	receipt, err := o.service.ControlTodo(session, item.Number.Int64, TodoControlInput{Op: "retry-current-flow", Repository: o.repoID, Actor: o.userID, Request: "current-retry"})
+	require.NoError(t, err)
+	require.EqualValues(t, 2, receipt.Attempt)
+	queued := o.byID(id)
+	require.Equal(t, todoPinOne, queued.FlowDigest.String)
+	require.Equal(t, "old-run", queued.RequestRunID)
+	require.Equal(t, earlier, mythicalChecksOf(queued).Attempts[0])
+	// Another activation before admission cannot change the accepted retry.
+	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
+	o.wake()
+	o.wake()
+	launches = o.launcher.byFlow("todo")
+	require.Len(t, launches, 2)
+	require.Equal(t, active, launches[1].Pin.ExecutionDigest)
+	require.EqualValues(t, 2, o.byID(id).Attempt)
+	require.Equal(t, earlier, mythicalChecksOf(o.byID(id)).Attempts[0])
+}
+
+func TestTodoFirstInputRetainsAttribution(t *testing.T) {
+	item := db.MythicalItem{Checks: (mythicalChecks{Steers: []todoSteer{
+		{ID: "first", Text: "Use the retry helper", Attempt: 1, Attribution: map[string]string{"person": "ben", "via": "claude-code"}},
+		{ID: "second", Text: "Cap retries at five", Attempt: 1, Attribution: map[string]string{"person": "will"}},
+	}}).encode()}
+	require.Equal(t, "[TODO input first by {\"person\":\"ben\",\"via\":\"claude-code\"}]\nUse the retry helper\n\n[TODO input second by {\"person\":\"will\"}]\nCap retries at five", todoFeedback(item, 1))
 }

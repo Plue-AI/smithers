@@ -133,6 +133,13 @@ const deferred = <T,>() => {
 }
 
 describe("todoSourceProbe: the seed stands in only where this host has no TODO provider", () => {
+  test("proposal fallback probes its own collection, independently of the TODO provider", async () => {
+    const h = probeContext(() => json([]))
+    const probe = todoSourceProbe(h.context, true, "/api/proposals")
+    expect(await probe.ask()).toBe("real")
+    expect(h.calls).toEqual([{ url: "https://install.test/api/proposals", method: "GET" }])
+  })
+
   test("no bootstrap is the seed without a request", async () => {
     const h = probeContext(() => json([]))
     const probe = todoSourceProbe(h.context, false)

@@ -101,6 +101,13 @@ func (s *InstallSetupSessions) Validate(ctx context.Context, session string) err
 		return err
 	}
 	if result.RowsAffected() != 1 {
+		// Claim may commit between the owner read and this update. Distinguish
+		// claim-invalidated authority from ordinary expiry on the fresh state.
+		if _, ownerErr := q.GetSelfHostOwner(ctx); ownerErr == nil {
+			return pkgerrors.New(pkgerrors.CodeSetupClosed, "setup_closed")
+		} else if !errors.Is(ownerErr, pgx.ErrNoRows) {
+			return ownerErr
+		}
 		return pkgerrors.New(pkgerrors.CodeUnauthenticated, "invalid or expired setup session")
 	}
 	return nil

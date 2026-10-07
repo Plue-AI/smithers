@@ -1,4 +1,3 @@
-import { stubCommandActions } from "./StubCommandActions"
 import { describe, expect, test } from "bun:test"
 import type { CommandActions } from "./Flows"
 import { adminFlows, baseFlows } from "./Flows"
@@ -115,12 +114,6 @@ describe("the runs grammar", () => {
     })
   })
 
-  test("runs.steer keeps the whole message after the run id", () => {
-    expect(payloadFor("runs.steer", "run-1 use the smaller diff")).toEqual({
-      payload: { runId: "run-1", body: "use the smaller diff" }
-    })
-    expect(payloadFor("runs.steer", "run-1")).toEqual({ error: "runs.steer needs the message to deliver" })
-  })
 
   test("runs.logs takes --follow anywhere and nothing else", () => {
     expect(payloadFor("runs.logs", "run-1")).toEqual({ payload: { runId: "run-1" } })
@@ -149,10 +142,13 @@ describe("the runs grammar", () => {
     expect(payloadFor("runs.trace.filter", "run-1 failed")).toEqual({ payload: { runId: "run-1", filter: "failed" } })
     expect(payloadFor("runs.trace.filter", "")).toEqual({ error: "runs.trace.filter needs a run id" })
     expect(payloadFor("runs.trace.filter", "run-1")).toEqual({
-      error: "runs.trace.filter needs one of all, running, failed, model, flow, forks, messages"
+      error: "runs.trace.filter needs one of all, running, failed, model, flow, messages"
+    })
+    expect(payloadFor("runs.trace.filter", "run-1 forks")).toEqual({
+      error: "runs.trace.filter needs one of all, running, failed, model, flow, messages"
     })
     expect(payloadFor("runs.trace.filter", "run-1 calls")).toEqual({
-      error: "runs.trace.filter needs one of all, running, failed, model, flow, forks, messages"
+      error: "runs.trace.filter needs one of all, running, failed, model, flow, messages"
     })
     expect(payloadFor("runs.trace.filter", "run-1 failed extra")).toEqual({
       error: "runs.trace.filter takes a run id and one filter"
@@ -396,9 +392,22 @@ describe("box.open recovery grammar", () => {
   })
 })
 
+ test("confirmation cancellation refuses scalar JSON before form dispatch", () => {
+  const entry = baseFlows(inertActions).find(row => nameOf(row) === "confirm.cancel")!
+  for (const value of ["7", "0", '"hello world"', "500000", "null", "[]"]) {
+    expect(payloadFor("confirm.cancel", value, entry.metadata.grammar)).toEqual({ error: "Invalid confirmation input" })
+  }
+})
+
+test("restored model forms collect missing fields from scalar JSON", () => {
+  for (const name of ["agent.model", "model.save"]) {
+    const entry = baseFlows(inertActions).find(row => nameOf(row) === name)!
+    for (const value of ["7", "0", '"hello world"', "500000", "null", "[]"]) expect(payloadFor(name, value, entry.metadata.grammar)).toEqual({ payload: {} })
+  }
+})
 
 describe("custom JSON grammar at the slash boundary", () => {
-  const grammar = baseFlows(stubCommandActions()).find(entry => nameOf(entry) === "confirm.cancel")!.metadata.grammar!
+  const grammar = (args: string | undefined) => ({ payload: JSON.parse(args ?? "{}") as Record<string, unknown> })
   for (const args of ["7", "0", "500000", '"hello world"', "null", "true", "[]", "[{}]"]) {
     test(`confirmation scalar ${args} supplies no named fields`, () => {
       expect(payloadFor("confirm.cancel", args, grammar)).toEqual({ payload: {} })

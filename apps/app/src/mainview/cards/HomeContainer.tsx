@@ -1,6 +1,6 @@
 import { useMemo, useSyncExternalStore, type ComponentType } from "react"
 import { HomeCardSchema, type HomeCard as HomeModel, type HomeViewProps } from "@smthrs/rpc/HomeCard"
-import type { CatalogTag } from "@smthrs/rpc/CardAction"
+import { type CatalogTag } from "@smthrs/rpc/CardAction"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
 import { useController } from "../ControllerContext"
 import type { AppController } from "../state/AppController"
@@ -43,6 +43,7 @@ export const HomeContainer = ({ model: source, role, allowed, dispatch, View = H
   admitted({ tag: "todo.new", label: "New TODO", command_input: { text: "" } })
   /* Sync Retry shows only once main's sync is stale; limited retries on its own, refused needs a fix. */
   if (health === "stale") admitted({ tag: "github.retry", label: "Retry", command_input: undefined })
+  if (health === "refused") admitted({ tag: "settings", label: "Fix", command_input: undefined })
   const topCount = definitions.length
   const attention = parsed.attention.filter(row => row.kind === "force_push" ? role === "owner" : role !== "member").map(row => {
     const start = definitions.length
@@ -53,6 +54,7 @@ export const HomeContainer = ({ model: source, role, allowed, dispatch, View = H
     return { ...row, start, end: definitions.length }
   })
   const first = parsed.items.find(row => !["merged", "dropped"].includes(row.state))
+  let mergeOffered = false
   const items = parsed.items.map(row => {
     const start = definitions.length
     const primary = actionFor({ ...row, first_in_order: row === first }, { role })
@@ -65,7 +67,10 @@ export const HomeContainer = ({ model: source, role, allowed, dispatch, View = H
         case "todo": case "todo.retry": case "todo.resume": case "todo.drop":
           admitted({ ...action, tag: action.tag, args, command_input: { n: row.n } }); break
         case "merge":
-          admitted({ ...action, tag: "merge", args, command_input: { n: row.n } })
+          if (!mergeOffered && row === first && row.state === "in_review" && row.merge.state === "ready" && row.pr && !row.pr.draft) {
+            admitted({ ...action, tag: "merge", args, command_input: { n: row.n } })
+            mergeOffered = true
+          }
           break
         case "todo.answer":
           admitted({ ...action, tag: "todo.answer", args, command_input: { n: row.n, answer: "" }, resolve_input: input => ({ n: row.n, answer: input.answer ?? "" }) }); break
@@ -98,12 +103,12 @@ export const HomeContainer = ({ model: source, role, allowed, dispatch, View = H
 /** Every control the Home card can render; role and the row's state narrow it further above. */
 export const HOME_TAGS: ReadonlySet<CatalogTag> = new Set<CatalogTag>([
   "todo", "todo.new", "todo.answer", "todo.retry", "todo.resume", "todo.drop", "branch", "merge", "stack.move",
-  "order.ok", "main.reset-to-github", "background.retry", "background.dismiss", "github.retry"
+  "order.ok", "main.reset-to-github", "background.retry", "background.dismiss", "github.retry", "settings"
 ])
 /** A failed `home` provider offers no row or sync control: nothing it shows is a live TODO. */
 const FAILED_TAGS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["todo.new"])
 /** The install's own sync still serves `main`'s row under a failed `home` provider, and its Retry. */
-const FAILED_SYNC_TAGS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["todo.new", "github.retry"])
+const FAILED_SYNC_TAGS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["todo.new", "github.retry", "settings"])
 
 /** `/api/live` refusal codes meaning this host serves no `home` topic (the live channel's 404): the seed stands in. */
 const NO_PROVIDER = new Set(["unknown_topic", "unsupported"])
@@ -141,11 +146,10 @@ const NO_SYNC: GitHubSyncSnapshots = { get: () => undefined, subscribe: () => ()
 const SYNC_CAUSES = { permission: "GitHub App permission missing", not_installed: "GitHub App not installed" } as const
 
 /**
- * `main`'s row from the install's GitHub sync (GET /api/github/sync), where no `home` topic serves it. A sync with no
- * success yet leaves the row as it was.
+ * `main`'s row from the install's GitHub sync (GET /api/github/sync), where no `home` topic serves it. Health is authoritative even before the first successful read.
  */
 export const withGitHubSync = (model: HomeModel, sync: GitHubSyncHealth | undefined): HomeModel => {
-  if (sync === undefined || (sync.last_success_at === null && sync.state !== "refused")) return model
+  if (sync === undefined) return model
   const { cause: _cause, retry_at: _retry, ...main } = model.main
   return { ...model, main: { ...main, health: sync.state, last_success_at: sync.last_success_at ?? new Date(0).toISOString(),
     ...(sync.cause ? { cause: SYNC_CAUSES[sync.cause] } : {}), ...(sync.retry_at ? { retry_at: sync.retry_at } : {}) } }
@@ -159,6 +163,31 @@ export const homeDispatch = (controller: Pick<AppController, "commands">): CardC
   const payload = (input ?? {}) as Record<string, unknown>
   if (tag === "todo.answer" && !payload.answer) return controller.commands.submit({ name: "todo", payload: { n: payload.n }, actor: "user" })
   return controller.commands.submit({ name: tag, payload, actor: "user" })
+}
+
+/** Bind the shared rows' order doors; snapshots remain shared facts. */
+export const withHomeRowControls = (model: HomeModel): HomeModel => {
+  const open = model.items.filter(row => row.state !== "merged" && row.state !== "dropped")
+  return { ...model, items: model.items.map(row => {
+    if (row.state === "merged" || row.state === "dropped") return row
+    const index = open.indexOf(row)
+    const args = { n: String(row.n) }
+    const actions = row.actions.flatMap(action => {
+      // Older served snapshots label every wait Answer. Keep the shared wait policy at the client boundary.
+      if (row.state !== "needs_you" || action.tag !== "todo.answer" || row.needs_you === undefined) return [action]
+      const primary = actionFor(row, { role: "member" })
+      return primary ? [{ ...primary, ...(primary.tag === "branch" ? { args: { name: row.branch.name } } : {}) }] : []
+    })
+    if (row.branch.name && !actions.some(action => action.tag === "branch" && action.args?.door === "branch"))
+      actions.push({ tag: "branch", label: row.branch.name, args: { name: row.branch.name, door: "branch" } })
+    for (const direction of ["up", "down"] as const) {
+      if (direction === "up" && index === 0 || direction === "down" && index === open.length - 1) continue
+      if (!actions.some(action => action.tag === "stack.move" && action.args?.direction === direction))
+        actions.push({ tag: "stack.move", label: direction === "up" ? "Move up" : "Move down", args: { ...args, direction } })
+    }
+    if (!actions.some(action => action.tag === "todo.drop")) actions.push({ tag: "todo.drop", label: "Drop", args })
+    return { ...row, actions }
+  }) }
 }
 
 /** Home as this host serves it to the viewer: which source answered, the model, the viewer's role on it, and whether the install's GitHub sync answers main's row. */
@@ -180,7 +209,7 @@ export interface HomeAnswer {
 export const useHome = (active = true): HomeAnswer | undefined => {
   const controller = useController()
   const seeded = useDesignHome()
-  const session = useTodoRole()
+  const session = useTodoRole(active)
   const answer = homeSource(useTopic(active && controller.live ? "home" : undefined, controller.live))
   const installs = controller.installSnapshots ?? NO_INSTALL
   const install = useSyncExternalStore(installs.subscribe, installs.get, installs.get).model
@@ -195,9 +224,12 @@ export const useHome = (active = true): HomeAnswer | undefined => {
   if (source.kind === "failed" && source.code === "loading") return undefined
   const home = source.kind === "served" ? source.model : source.kind === "failed" ? homeFailureModel(repository, source.code) : seeded.model
   /* A home topic serves main's row itself; elsewhere the install's GitHub sync does. */
-  const model = withInstallCapacity(answer.kind === "served" ? home : withGitHubSync(home, sync), install)
+  const model = withHomeRowControls(withInstallCapacity(answer.kind === "served" ? home : withGitHubSync(home, sync), install))
   return { kind: source.kind, model, role: source.kind === "seed" ? seeded.role : session, synced: sync !== undefined }
 }
+
+const NO_HOME_VIEW = { get: () => EMPTY_HOME_VIEW, subscribe: (_notify: () => void) => () => {} }
+const EMPTY_HOME_VIEW = { maximized: false }
 
 /**
  * The Home card of `main`'s conversation and `/stack` (T-APP-01), composed from the controller: Home and the viewer's
@@ -208,7 +240,10 @@ export const HomeCard = ({ production }: {
   readonly production?: Partial<Omit<HomeContainerProps, "model" | "View">>
 } = {}) => {
   const controller = useController()
-  const member = useDesignHomeView()
+  const seededView = useDesignHomeView()
+  const views = controller.homeView
+  const servedView = useSyncExternalStore(views?.subscribe ?? NO_HOME_VIEW.subscribe, views?.get ?? NO_HOME_VIEW.get, views?.get ?? NO_HOME_VIEW.get)
+  const member = views ? { view: servedView, onView: views.onView } : seededView
   const dispatch = useMemo(() => homeDispatch(controller), [controller])
   const home = useHome()
   if (home === undefined) return null

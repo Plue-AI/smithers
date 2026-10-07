@@ -1,5 +1,5 @@
 /** Private staged /usr/local/bin/smithers-coding-host entry for an owning Plue workspace. */
-import { Effect, Layer } from "effect"
+import { Effect, FileSystem, Layer } from "effect"
 import type { HttpClient } from "effect/unstable/http"
 import { mkdirSync } from "node:fs"
 import { resolve } from "node:path"
@@ -11,9 +11,12 @@ import { layer as checkReceiptLayer } from "../repository/check-receipt.ts"
 import { remoteLayer } from "../repository/remote.ts"
 import { consume as consumeCheckEnvironment } from "./check-environment.ts"
 import { share } from "./host-modules.ts"
-import { layer, optionsFromEnv, systemFlowsFromEnv } from "./host.ts"
+import { layer, operatorSeats, optionsFromEnv, systemFlowsFromEnv } from "./host.ts"
+import { prepareFlowDependencies, withPinnedSource } from "./immutable-source.ts"
+import { consumeInstallProject } from "./install-project.ts"
 import { load as loadLanding } from "./landing-config.ts"
 import * as Landing from "./landing.ts"
+import { nativeLayer } from "./native.ts"
 import { loadProject } from "./project-config.ts"
 import { resolveRuntimeBridgeIdentity } from "./runtime-bridge.ts"
 import * as CodingState from "./state.ts"
@@ -115,6 +118,9 @@ if (parsed.values.version) {
     stateRoot,
     credential: bind.credential,
     gatewayId: process.env.SMITHERS_GATEWAY_ID ?? "",
+    todoExecutionDigest: process.env.SMITHERS_FLOW_SOURCE_PINNED === "1"
+      ? process.env.SMITHERS_TODO_EXECUTION_DIGEST
+      : undefined,
     sourcePublication: process.env.SMITHERS_CODING_LOCAL_OWNER === "1" ? "local-only" as const : "cloud" as const,
     // Checks export immutable trees with the same packaged helper; the
     // guest's fixed /usr/local/bin path is only its default.
@@ -132,9 +138,10 @@ if (parsed.values.version) {
     ...(process.env.SMITHERS_CODING_REVIEW_MODEL === undefined
       ? {}
       : { reviewModel: process.env.SMITHERS_CODING_REVIEW_MODEL }),
-    ...(process.env.SMITHERS_CODING_SEATS === undefined
-      ? {}
-      : { seats: parseSeats(process.env.SMITHERS_CODING_SEATS) }),
+    seats: {
+      ...operatorSeats(process.env),
+      ...(process.env.SMITHERS_CODING_SEATS === undefined ? {} : parseSeats(process.env.SMITHERS_CODING_SEATS))
+    },
     checkEnvironment: repositoryProcesses.environment,
     cacheEnvironment: repositoryProcesses.cache,
     // A local lander's jj, git and gh also get the operator's jj identity and
@@ -155,28 +162,80 @@ if (parsed.values.version) {
   }
   // The reserved repository credential leaves process.env here, before the
   // host, model seats or any approved shell tool can inherit it.
+  // The managed runtime launches this packaged entry as agent. No root helper
+  // parses the repository JSON or selects its destination.
+  const snapshot = consumeInstallProject(process.env)
   const run = (platform: NativeControl.Platform, http: Layer.Layer<HttpClient.HttpClient>) =>
-    Effect.all([
-      loadProject(root, process.env.SMITHERS_CODING_PROJECT),
-      // A guest's binding is root-owned /etc/smithers; a trusted-process
-      // test runtime names its own (the landing credential stays env-only).
-      loadLanding(root, process.env, process.env.SMITHERS_WORKSPACE_CODING_CONFIG),
-      optionsFromEnv(process.env).pipe(Effect.provide(platform.requestExecutor))
-    ]).pipe(
-      Effect.flatMap(([planning, landing, models]) =>
-        Serve.host(bind, root).pipe(Effect.provide(layer(platform, {
-          ...options,
-          ...models,
-          planning,
-          ...(landing === undefined ? {} : {
-            landing: Landing.layer(landing).pipe(Layer.provide(http), Layer.orDie),
-            repositoryRemote: Layer.merge(
-              remoteLayer({ ...landing, gatewayId: options.gatewayId, credential: options.credential ?? "" }),
-              checkReceiptLayer({ ...landing, gatewayId: options.gatewayId, credential: options.credential ?? "" })
-            ).pipe(Layer.provide(http), Layer.orDie)
+    loadLanding(root, process.env, process.env.SMITHERS_WORKSPACE_CODING_CONFIG).pipe(
+      Effect.flatMap((landing) => {
+        const serveSource = (flowSourceRoot: string, flowSourceRevision?: string) =>
+          Effect.all([
+            loadProject(flowSourceRoot, process.env.SMITHERS_CODING_PROJECT).pipe(
+              Effect.mapError((error) =>
+                snapshot === undefined
+                  ? error
+                  : new Error(`Invalid install defaults or main:.smithers/coding-project.json: ${error.message}`)
+              )
+            ),
+            // A guest's binding is root-owned /etc/smithers; a trusted-process
+            // test runtime names its own (the landing credential stays env-only).
+            Effect.succeed(landing),
+            optionsFromEnv(process.env).pipe(Effect.provide(platform.requestExecutor))
+          ]).pipe(
+            Effect.flatMap(([planning, landing, models]) =>
+              Effect.gen(function*() {
+                return yield* Serve.host(bind, root).pipe(Effect.provide(layer(platform, {
+                  ...options,
+                  flowSourceRoot,
+                  flowSourceRevision,
+                  ...models,
+                  planning,
+                  ...(landing === undefined ? {} : {
+                    landing: Landing.layer(landing).pipe(Layer.provide(http), Layer.orDie),
+                    repositoryRemote: Layer.merge(
+                      remoteLayer({ ...landing, gatewayId: options.gatewayId, credential: options.credential ?? "" }),
+                      checkReceiptLayer({
+                        ...landing,
+                        gatewayId: options.gatewayId,
+                        credential: options.credential ?? ""
+                      })
+                    ).pipe(Layer.provide(http), Layer.orDie)
+                  })
+                })))
+                // The mutation provider retains this client for later writes.
+                // Keep its connection pool alive until the serving host exits.
+              }).pipe(Effect.provide(http))
+            ),
+            Effect.provide(platform.host)
+          )
+        // Validate the protected workspace binding before invoking the source exporter.
+        // This entire effect runs in the unprivileged managed coding host.
+        return (process.env.SMITHERS_FLOW_SOURCE_PINNED === "1"
+          ? Effect.gen(function*() {
+            if (!/^[a-f0-9]{64}$/.test(options.todoExecutionDigest ?? "")) {
+              throw new Error("Pinned TODO execution digest is unavailable")
+            }
+            if (landing === undefined) throw new Error("Pinned TODO workspace binding is unavailable")
+            const fs = yield* FileSystem.FileSystem
+            const sourceOptions = {
+              repositoryPath: root,
+              fs,
+              exporterPath: options.exporterPath,
+              sourceDirectory: resolve(stateRoot, "source"),
+              environment: selectEnvironment(["PATH", "HOME"])
+            }
+            return yield* withPinnedSource(
+              sourceOptions,
+              landing.workspaceId,
+              options.runtimeSourceRevision ?? "",
+              (tree, sourceRoot) =>
+                prepareFlowDependencies(sourceOptions, sourceRoot).pipe(
+                  Effect.andThen(serveSource(sourceRoot, tree.commitId))
+                )
+            ).pipe(Effect.provide(nativeLayer({ repositoryPath: root })))
           })
-        })))
-      ),
+          : serveSource(root))
+      }),
       Effect.provide(platform.host)
     )
   // Only the concrete platform boundary is dynamic. Policy, durable stores and

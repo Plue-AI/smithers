@@ -31,7 +31,7 @@ test("Home uses the recorded wait kind and leaves missing-kind bugs without a pr
   for (const [kind, tag, label] of [["question", "todo.answer", "Answer"], ["approval", "todo.answer", "Answer"], ["conflict", "branch", "Resolve"], ["moved_off", "branch", "Resolve"], ["foreign_push", "todo", "Review"]] as const) {
     const todo = { ...base, state: "needs_you" as const, waits: [{ id: "w", kind, prompt: "Act", since: "2026-10-06T00:00:00Z", actions: [] }] }
     const row = homeFromTodos("owner/repo", [todo], "owner").items[0]!
-    expect(row.actions.filter(action => action.primary)).toEqual([{ tag, label, args: tag === "branch" ? { name: `T${todo.n}` } : { n: String(todo.n) }, primary: true }])
+    expect(row.actions.filter(action => action.primary)).toEqual([{ tag, label, args: tag === "branch" ? { name: todo.branch?.name ?? `T${todo.n}` } : { n: String(todo.n) }, primary: true }])
   }
   const broken = homeFromTodos("owner/repo", [{ ...base, state: "needs_you", waits: [] }], "owner").items[0]!
   expect(broken.needs_you).toBeUndefined() // BUG: the host omitted the primary kind.

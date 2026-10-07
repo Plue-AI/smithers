@@ -3,7 +3,7 @@
  * the stage bodies that pipeline is made of.
  *
  * This module exists because those ids are a contract between two halves that
- * cannot import each other. The app's `/flow.create` door launches
+ * cannot import each other. The app's `/flow.new` door launches
  * {@link FLOW_AUTHORING_ENTRY} through the gateway; the workspace host
  * (`flows/repository/registry.ts`) provisions the same names as built-in
  * bodies on every workspace it serves. When the two drifted apart the door
@@ -17,7 +17,7 @@
  */
 
 /**
- * The id `/flow.create` launches.
+ * The id `/flow.new` launches.
  *
  * It is a prompt body, deliberately: `AgentSession` runs a Prompt body through
  * its trace and pump and returns early for every other kind, so a module entry
@@ -69,4 +69,4 @@ export const FLOW_AUTHORING_PACK: ReadonlyArray<string> = [FLOW_AUTHORING_ENTRY,
  */
 export const flowAuthoringUnavailable = (repo: string): string =>
   `${repo}'s workspace does not have the flow-authoring flow installed, so there is nothing to build your flow with yet. `
-  + `Update the workspace from Settings and run /flow.create again, or use /flow.list to see what it can run today.`
+  + `Update the workspace from Settings and run /flow.new again, or use /flow.list to see what it can run today.`

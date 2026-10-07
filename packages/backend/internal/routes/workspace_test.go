@@ -3,6 +3,7 @@ package routes
 import (
 	"context"
 	"encoding/json"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -38,7 +39,7 @@ type mockWorkspaceRouteService struct {
 	listUserWorkspacesFn      func(ctx context.Context, userID int64, page, perPage int) (services.UserWorkspaceListResult, error)
 	listWorkspaceFilesFn      func(ctx context.Context, workspaceID string, repositoryID, userID int64, path string) ([]services.WorkspaceFileEntry, error)
 	readWorkspaceFileFn       func(ctx context.Context, workspaceID string, repositoryID, userID int64, path string) (services.WorkspaceFileContent, error)
-	writeWorkspaceFileFn      func(ctx context.Context, workspaceID string, repositoryID, userID int64, path, content string) (services.WorkspaceFileContent, error)
+	writeWorkspaceFileFn      func(ctx context.Context, workspaceID string, repositoryID, userID int64, path, content, baseDigest string) (services.WorkspaceFileContent, error)
 	listWorkspaceServicesFn   func(ctx context.Context, workspaceID string, repositoryID, userID int64) ([]services.WorkspaceManagedService, error)
 	manageWorkspaceServiceFn  func(ctx context.Context, workspaceID string, repositoryID, userID int64, serviceName, action string) (services.WorkspaceManagedService, error)
 }
@@ -76,9 +77,21 @@ func (m *mockWorkspaceRouteService) ReadWorkspaceFile(ctx context.Context, works
 	return services.WorkspaceFileContent{}, nil
 }
 
-func (m *mockWorkspaceRouteService) WriteWorkspaceFile(ctx context.Context, workspaceID string, repositoryID, userID int64, path, content string) (services.WorkspaceFileContent, error) {
+func (m *mockWorkspaceRouteService) WriteWorkspaceFiles(ctx context.Context, id string, repo, user int64, changes []workspaceapi.FileMutation) (*services.WorkspaceFileWriteResult, error) {
+	if m.writeWorkspaceFileFn == nil {
+		return nil, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "workspace compare-and-write unavailable")
+	}
+	change := changes[0]
+	value, err := m.writeWorkspaceFileFn(ctx, id, repo, user, change.Path, string(change.Content), change.BaseDigest)
+	if err != nil {
+		return nil, err
+	}
+	return &services.WorkspaceFileWriteResult{Paths: []services.WorkspaceFileMutationResult{{Path: value.Path, Digest: value.Digest}}, Raced: []services.WorkspaceFileRace{}}, nil
+}
+
+func (m *mockWorkspaceRouteService) WriteWorkspaceFile(ctx context.Context, workspaceID string, repositoryID, userID int64, path, content, baseDigest string) (services.WorkspaceFileContent, error) {
 	if m.writeWorkspaceFileFn != nil {
-		return m.writeWorkspaceFileFn(ctx, workspaceID, repositoryID, userID, path, content)
+		return m.writeWorkspaceFileFn(ctx, workspaceID, repositoryID, userID, path, content, baseDigest)
 	}
 	return services.WorkspaceFileContent{}, nil
 }
@@ -408,13 +421,13 @@ func TestWorkspaceHandler_ReadAndWriteWorkspaceFile(t *testing.T) {
 			assert.Equal(t, "README.md", filePath)
 			return services.WorkspaceFileContent{Name: "README.md", Path: filePath, Type: "file", Encoding: "utf-8", Content: "old", Size: 3}, nil
 		},
-		writeWorkspaceFileFn: func(_ context.Context, workspaceID string, repositoryID, userID int64, filePath, content string) (services.WorkspaceFileContent, error) {
+		writeWorkspaceFileFn: func(_ context.Context, workspaceID string, repositoryID, userID int64, filePath, content, baseDigest string) (services.WorkspaceFileContent, error) {
 			assert.Equal(t, "ws-1", workspaceID)
 			assert.Equal(t, int64(200), repositoryID)
 			assert.Equal(t, int64(7), userID)
 			assert.Equal(t, "README.md", filePath)
 			assert.Equal(t, "new", content)
-			return services.WorkspaceFileContent{Name: "README.md", Path: filePath, Type: "file", Encoding: "utf-8", Content: content, Size: 3}, nil
+			return services.WorkspaceFileContent{Name: "README.md", Path: filePath, Type: "file", Encoding: "utf-8", Content: content, Size: 3, Digest: "11507a0e2f5e69d5dfa40a62a1bd7b6ee57e6bcd85c67c9b8431b36fff21c437"}, nil
 		},
 	}
 	h := &WorkspaceHandler{Service: service}
@@ -427,16 +440,14 @@ func TestWorkspaceHandler_ReadAndWriteWorkspaceFile(t *testing.T) {
 	h.ReadWorkspaceFile(readRec, readReq)
 	require.Equal(t, http.StatusOK, readRec.Code)
 
-	writeReq := httptest.NewRequest(http.MethodPut, "/api/repos/alice/demo/workspaces/ws-1/files/content?path=README.md", strings.NewReader(`{"content":"new"}`))
+	writeReq := httptest.NewRequest(http.MethodPut, "/api/repos/alice/demo/workspaces/ws-1/files/content?path=README.md", strings.NewReader(`{"content":"new","base_digest":"absent"}`))
 	writeReq = withRouteParams(writeReq, map[string]string{"id": "ws-1"})
 	writeReq = withWorkspaceRepoCtx(writeReq, "alice", "demo")
 	writeReq = withAuth(writeReq, 7, "alice")
 	writeRec := httptest.NewRecorder()
 	h.WriteWorkspaceFile(writeRec, writeReq)
 	require.Equal(t, http.StatusOK, writeRec.Code)
-	var result services.WorkspaceFileContent
-	require.NoError(t, json.Unmarshal(writeRec.Body.Bytes(), &result))
-	assert.Equal(t, "new", result.Content)
+	require.JSONEq(t, `{"paths":[{"path":"README.md","post_digest":"11507a0e2f5e69d5dfa40a62a1bd7b6ee57e6bcd85c67c9b8431b36fff21c437"}],"raced":[]}`, writeRec.Body.String())
 }
 
 func TestWorkspaceHandler_WorkspaceServices(t *testing.T) {
@@ -773,4 +784,31 @@ func TestWorkspaceHandler_GetSSHConnectionInfo_IncludesHostKeys(t *testing.T) {
 	require.Len(t, body.HostKeys, 1)
 	assert.Equal(t, "SHA256:sess-fp", body.HostKeys[0].FingerprintSHA256)
 	assert.Equal(t, "ssh-ed25519", body.HostKeys[0].Algorithm)
+}
+
+func TestWorkspaceHandler_WriteWorkspaceFilePreconditions(t *testing.T) {
+	t.Parallel()
+	const digest = "11507a0e2f5e69d5dfa40a62a1bd7b6ee57e6bcd85c67c9b8431b36fff21c437"
+	calls := 0
+	h := &WorkspaceHandler{Service: &mockWorkspaceRouteService{writeWorkspaceFileFn: func(_ context.Context, _ string, _, _ int64, path, content, baseDigest string) (services.WorkspaceFileContent, error) {
+		calls++
+		assert.Equal(t, "README.md", path)
+		assert.Equal(t, "absent", baseDigest)
+		return services.WorkspaceFileContent{}, &workspaceapi.StaleFileError{CurrentDigest: digest}
+	}}}
+	for _, body := range []string{`{"content":"new"}`, `{"content":"new","base_digest":"no"}`, `{"content":"new","base_digest":"absent","actor":"alice"}`, `{"content":"new","base_digest":"absent","uid":0}`, `{"content":"new","base_digest":"absent","machine":"m"}`, `{"content":"new","base_digest":"absent","branch":"b"}`} {
+		req := httptest.NewRequest(http.MethodPut, "/files/content?path=README.md", strings.NewReader(body))
+		req = withAuth(withWorkspaceRepoCtx(withRouteParams(req, map[string]string{"id": "ws-1"}), "alice", "demo"), 7, "alice")
+		rec := httptest.NewRecorder()
+		h.WriteWorkspaceFile(rec, req)
+		require.Equal(t, 400, rec.Code, rec.Body.String())
+	}
+	require.Zero(t, calls)
+	req := httptest.NewRequest(http.MethodPut, "/files/content?path=README.md", strings.NewReader(`{"content":"new","base_digest":"absent"}`))
+	req = withAuth(withWorkspaceRepoCtx(withRouteParams(req, map[string]string{"id": "ws-1"}), "alice", "demo"), 7, "alice")
+	rec := httptest.NewRecorder()
+	h.WriteWorkspaceFile(rec, req)
+	require.Equal(t, 409, rec.Code)
+	require.JSONEq(t, `{"code":"stale","current_digest":"`+digest+`"}`, rec.Body.String())
+	require.Equal(t, 1, calls)
 }

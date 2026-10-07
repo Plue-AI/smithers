@@ -14,8 +14,10 @@ func TestSystemFlowsAreNeverOverridable(t *testing.T) {
 	want := []string{
 		"stack", "stack.move", "stack.candidate", "stack.propose",
 		"todo.preapprove", "todo.unapprove",
+		"learning.accept", "learning.dismiss",
 		"todo.new", "todo.from-issue", "todo.answer", "todo.steer", "todo.amend", "todo.stop", "todo.resume", "todo.retry", "todo.retry-current-flow", "todo.drop",
 		"branch.fork", "branch.add-to-stack", "branch.rebase",
+		"branch.bring-in", "branch.discard-foreign",
 		"merge", "members", "settings", "secrets", "sync", "admission", "setup", "flow-load", "summarizer",
 	}
 	seen := make(map[string]bool)
@@ -166,6 +168,39 @@ func TestBuiltinFlowDefaultsNameOnlyOverridableFlows(t *testing.T) {
 		}
 		if !Overridable(name) {
 			t.Errorf("builtin default %q is reserved", name)
+		}
+	}
+}
+
+func TestFlowCatalogUsesDeclaredDefaultsForShippedFlows(t *testing.T) {
+	saved := builtinFlowsJSON
+	t.Cleanup(func() { builtinFlowsJSON = saved })
+	digest := strings.Repeat("a", 64)
+	builtinFlowsJSON = []byte(`{"todo":"` + digest + `","review":"` + digest + `"}`)
+	cards, err := FlowCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cards) != 2 || cards[0].Name != "review" || len(cards[0].Versions[0].Steps) != 0 {
+		t.Fatalf("shipped review missing: %+v", cards)
+	}
+	builtinFlowsJSON = []byte(`{"todo":"` + digest + `","undeclared":"` + digest + `"}`)
+	if _, err := FlowCatalog(); err == nil {
+		t.Fatal("undeclared packaged flow was served")
+	}
+}
+
+func TestFlowCatalogRefusesInvalidDefaultDeclarations(t *testing.T) {
+	saved := BuiltinFlowDefaults
+	t.Cleanup(func() { BuiltinFlowDefaults = saved })
+	for _, defaults := range []map[string]string{
+		{"todo": "flows/wrong/flow.ts"},
+		{"merge": "flows/merge/flow.ts", "todo": "flows/todo/flow.ts"},
+		{"review": "flows/review/flow.ts"},
+	} {
+		BuiltinFlowDefaults = defaults
+		if _, err := FlowCatalog(); err == nil {
+			t.Fatalf("invalid defaults served: %v", defaults)
 		}
 	}
 }
