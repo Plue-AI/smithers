@@ -34,7 +34,9 @@ func TestTodoTrustInstallLabelMatrix(t *testing.T) {
 			require.NoError(t, err)
 		}
 	}
-	_, err := r.pool.Exec(r.ctx, `UPDATE collaborators SET suspended_at=now() WHERE github_login='erin'`)
+	_, err := r.expect("PATCH", "/api/members/mia", `{"role":"maintainer"}`, 204)
+	require.NoError(t, err)
+	_, err = r.pool.Exec(r.ctx, `UPDATE collaborators SET suspended_at=now() WHERE github_login='erin'`)
 	require.NoError(t, err)
 	type fixture struct {
 		name, text, actor string
@@ -183,7 +185,10 @@ func TestTodoTrustInstallLabelMatrix(t *testing.T) {
 		userID := ownerID
 		if actorIndex != 0 {
 			username := strings.ReplaceAll(strings.ReplaceAll(actor.login, "[", "-"), "]", "")
-			user, err := db.New(r.pool).CreateUser(r.ctx, db.CreateUserParams{Username: username, LowerUsername: username})
+			user, err := db.New(r.pool).GetUserByLowerUsername(r.ctx, username)
+			if actorIndex >= 4 {
+				user, err = db.New(r.pool).CreateUser(r.ctx, db.CreateUserParams{Username: username, LowerUsername: username})
+			}
 			require.NoError(t, err)
 			userID = user.ID
 			_, err = r.pool.Exec(r.ctx, `UPDATE collaborators SET user_id=$1 WHERE github_login=$2`, userID, actor.login)
