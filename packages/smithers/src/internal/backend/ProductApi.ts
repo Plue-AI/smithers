@@ -1717,6 +1717,17 @@ export type PostApiBranchesBBody = {
   op: "bring-in" | "discard-foreign"
   id: string
   revision: string
+} | {
+  rebase: true
+  op?: "rebase"
+} | {
+  op: "rebase"
+  rebase?: false
+} | {
+  conflict_change: string
+  onto_revision: string
+  op?: "rebase"
+  rebase?: false
 }
 
 export type PostApiBranchesBResponse = {
@@ -1730,7 +1741,7 @@ export interface PostApiBranchesBInput {
   readonly body: PostApiBranchesBBody
 }
 
-/** POST /api/branches/{b}: Answer an outside push to a TODO branch */
+/** POST /api/branches/{b}: Rebase a branch or answer its retained conflict */
 export const postApiBranchesB = (transport: Transport, input: PostApiBranchesBInput): Promise<PostApiBranchesBResponse> =>
   transport.request("POST", `/api/branches/${segment(input.path.b)}`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiBranchesBResponse>
 
