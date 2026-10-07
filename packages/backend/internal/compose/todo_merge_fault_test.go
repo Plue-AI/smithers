@@ -403,7 +403,7 @@ CREATE TRIGGER fault_merge_fact BEFORE INSERT ON product_job_events FOR EACH ROW
 					require.Equal(t, "todo.merged", event.Type)
 					var fact map[string]any
 					require.NoError(t, json.Unmarshal(event.Data, &fact))
-					require.Equal(t, "merged", fact["card"].(map[string]any)["state"])
+					require.Equal(t, "merged", fact["to"])
 				}
 			}
 			require.Equal(t, 1, mergedEvents, "one committed merged transition survives replay")

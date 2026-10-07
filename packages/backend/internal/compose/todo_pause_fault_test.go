@@ -184,7 +184,7 @@ func TestTodoStartCrashThroughRoute(t *testing.T) {
 	require.Equal(t, "starting", string(replay.Events[1].State))
 	var started map[string]any
 	require.NoError(t, json.Unmarshal(replay.Events[1].Data, &started))
-	require.Equal(t, "starting", started["card"].(map[string]any)["state"])
+	require.Equal(t, "starting", started["to"])
 	var launches int
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.launch' AND payload->>'flowId'='todo'`).Scan(&launches))
 	require.Equal(t, 1, launches)
