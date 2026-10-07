@@ -1692,6 +1692,169 @@ mod dispatcher {
         assert!(!disk.0.lock().unwrap().files.contains_key("../escape"));
     }
     #[test]
+    fn refused_actor_never_admits_a_document_or_creates_a_file_later() {
+        for path in ["a.rs", "new.rs"] {
+            for actor_bytes in [vec![], vec![7; 1025]] {
+                let disk = Shared(Arc::new(Mutex::new(Model::with("before"))));
+                let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
+                let service = Service::new(Host::new(disk.clone(), gates(), ids()), clock.clone());
+                let mut cx = LockCx::new(Default::default());
+                let base = if path == "a.rs" {
+                    hooks::Base::Digest(digest(b"before"))
+                } else {
+                    hooks::Base::Absent
+                };
+                let error = service
+                    .write_through(
+                        &mut cx,
+                        path,
+                        &base,
+                        b"refused",
+                        &hooks::Actor::Principal(actor_bytes),
+                    )
+                    .unwrap()
+                    .unwrap_err();
+                assert_eq!(error.code, 1);
+                for now in [200, 2000, 60_001] {
+                    clock.0.store(now, Ordering::Relaxed);
+                    assert!(service.poll(&mut cx).unwrap().is_empty());
+                    assert_eq!(service.flush_all(&mut cx).unwrap(), 0);
+                }
+                assert!(service.projections(&mut cx).unwrap().is_empty());
+                assert!(service.take_notices(&mut cx).unwrap().is_empty());
+                let disk = disk.0.lock().unwrap();
+                assert_eq!(disk.files, Model::with("before").files);
+                assert!(disk.records.is_empty());
+                assert!(disk.versions.is_empty());
+                assert!(
+                    disk.log.is_empty(),
+                    "identity must fail before disk admission"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn stale_interrupted_save_refusal_does_not_start_background_recovery() {
+        let (mut host, stream) = host("before");
+        edit(&mut host, stream, "previous pending save", 0);
+        host.disk.fail = Some("swap");
+        assert!(host.flush_all(1).is_err());
+        host.disk.fail = None;
+        let records = host.disk.records.clone();
+        let disk = Shared(Arc::new(Mutex::new(host.disk)));
+        let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
+        let service = Service::new(Host::new(disk.clone(), gates(), ids()), clock.clone());
+        let mut cx = LockCx::new(Default::default());
+        let error = service
+            .write_through(
+                &mut cx,
+                "a.rs",
+                &hooks::Base::Digest(digest(b"before")),
+                b"refused",
+                &hooks::Actor::Outside,
+            )
+            .unwrap()
+            .unwrap_err();
+        assert_eq!(error.code, 4);
+        assert_eq!(error.current_digest, Some(digest(b"previous pending save")));
+        for now in [200, 2000, 60_001] {
+            clock.0.store(now, Ordering::Relaxed);
+            assert!(service.poll(&mut cx).unwrap().is_empty());
+            assert_eq!(service.flush_all(&mut cx).unwrap(), 0);
+        }
+        assert!(service.projections(&mut cx).unwrap().is_empty());
+        assert!(service.take_notices(&mut cx).unwrap().is_empty());
+        {
+            let disk = disk.0.lock().unwrap();
+            assert_eq!(disk.files["a.rs"], b"before");
+            assert_eq!(disk.records, records);
+            assert!(disk.versions.is_empty());
+        }
+        // The refusal must not discard durable recovery. An explicit document
+        // open recovers the previous intent, with its original epoch intact.
+        let stream = service.open_authenticated("a.rs", b"host").unwrap();
+        service.flush_all(&mut cx).unwrap();
+        assert_eq!(
+            disk.0.lock().unwrap().files["a.rs"],
+            b"previous pending save"
+        );
+        service.close(stream).unwrap();
+    }
+
+    #[test]
+    fn refused_binary_or_oversize_write_does_not_admit_a_readonly_document() {
+        for bytes in [
+            vec![255, 0],
+            vec![b'x'; 1 + smithers_machined::doc::MAX_TEXT_BYTES],
+        ] {
+            let mut model = Model::default();
+            model.files.insert("a.rs".into(), bytes.clone());
+            let disk = Shared(Arc::new(Mutex::new(model)));
+            let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
+            let service = Service::new(Host::new(disk.clone(), gates(), ids()), clock.clone());
+            let mut cx = LockCx::new(Default::default());
+            let error = service
+                .write_through(
+                    &mut cx,
+                    "a.rs",
+                    &hooks::Base::Digest(digest(&bytes)),
+                    b"refused",
+                    &hooks::Actor::Outside,
+                )
+                .unwrap()
+                .unwrap_err();
+            assert_eq!(error.code, 7);
+            clock.0.store(60_001, Ordering::Relaxed);
+            service.poll(&mut cx).unwrap();
+            assert!(service.projections(&mut cx).unwrap().is_empty());
+            let disk = disk.0.lock().unwrap();
+            assert_eq!(disk.files["a.rs"], bytes);
+            assert!(disk.records.is_empty());
+            assert!(disk.versions.is_empty());
+        }
+    }
+
+    #[test]
+    fn closed_document_with_a_completed_outside_save_remains_writable() {
+        let (mut host, _) = host("before");
+        host.flush_all(0).unwrap();
+        host.tick(200, true).unwrap();
+        host.disk.files.insert("a.rs".into(), b"outside".to_vec());
+        let disk = Shared(Arc::new(Mutex::new(host.disk)));
+        let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
+        let service = Service::new(Host::new(disk.clone(), gates(), ids()), clock.clone());
+        let mut cx = LockCx::new(Default::default());
+        let written = service
+            .write_through(
+                &mut cx,
+                "a.rs",
+                &hooks::Base::Digest(digest(b"outside")),
+                b"tool",
+                &hooks::Actor::Outside,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(written.digest, digest(b"tool"));
+        assert_eq!(written.raced, None);
+        service.take_notices(&mut cx).unwrap();
+        let versions = disk.0.lock().unwrap().versions.clone();
+        for now in [200, 2000, 60_001] {
+            clock.0.store(now, Ordering::Relaxed);
+            service.poll(&mut cx).unwrap();
+        }
+        assert!(!service
+            .take_notices(&mut cx)
+            .unwrap()
+            .iter()
+            .any(|n| matches!(n, Notice::Outside { .. })));
+        let disk = disk.0.lock().unwrap();
+        assert_eq!(disk.files["a.rs"], b"tool");
+        assert!(disk.versions.contains(&b"outside".to_vec()));
+        assert_eq!(disk.versions, versions);
+    }
+
+    #[test]
     fn mutation_executor_saves_without_a_connected_host() {
         let disk = Shared(Arc::new(Mutex::new(Model::with("before"))));
         let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));

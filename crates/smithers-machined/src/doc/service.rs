@@ -479,6 +479,9 @@ impl<D: Disk> Documents for Service<D> {
             if bytes.len() > super::MAX_TEXT_BYTES {
                 return Err(error(Error::ReadOnly));
             }
+            // Validate identity before opening a document: even an empty new
+            // document becomes dirty and will otherwise be saved by a timer.
+            let by = actor(by)?;
             let mut temporary = None;
             let current = if let Some(current) = s.host.current_digest(path) {
                 if base != &Base::Digest(current) {
@@ -490,52 +493,21 @@ impl<D: Disk> Documents for Service<D> {
                 }
                 current
             } else {
-                let current = s
-                    .host
-                    .disk
-                    .read(path)
-                    .map_err(error)?
-                    .as_deref()
-                    .map(digest);
-                let matches = match (base, current) {
-                    (Base::Absent, None) => true,
-                    (Base::Digest(expected), Some(actual)) => *expected == actual,
-                    _ => false,
-                };
-                if !matches {
-                    return Err(hooks::Error {
-                        code: 4,
-                        current_digest: current,
-                        ..hooks::Error::unsupported()
-                    });
-                }
                 let mut epoch = [0; 16];
                 getrandom::fill(&mut epoch).map_err(|_| error(Error::Io("entropy".into())))?;
                 temporary = Some(
                     s.host
-                        .open_for_write(path, epoch, self.now())
+                        .open_for_write(path, base, epoch, self.now())
                         .map_err(error)?,
                 );
-                let recovered = s
-                    .host
+                s.host
                     .current_digest(path)
-                    .ok_or_else(hooks::Error::unsupported)?;
-                if current.map_or(recovered != digest(b""), |d| d != recovered) {
-                    if let Some(id) = temporary {
-                        let _ = s.host.close(id, self.now());
-                    }
-                    return Err(hooks::Error {
-                        code: 4,
-                        current_digest: Some(recovered),
-                        ..hooks::Error::unsupported()
-                    });
-                }
-                recovered
+                    .ok_or_else(hooks::Error::unsupported)?
             };
             let result = (|| {
                 let (digest, raced) = s
                     .host
-                    .write_saved(path, current, text, &actor(by)?, self.now())
+                    .write_saved(path, current, text, &by, self.now())
                     .map_err(error)?
                     .ok_or_else(hooks::Error::unsupported)?;
                 // The tool's internal stream is not a network subscriber.

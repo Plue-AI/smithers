@@ -326,18 +326,26 @@ impl<D: Disk> Host<D> {
     /// Epoch randomness comes from the authority's OS entropy provider; the
     /// production adapter must not expose this input in RPC or stream schemas.
     pub fn open(&mut self, path: &str, fresh_epoch: [u8; 16], now: u64) -> Result<u32> {
-        self.open_inner(path, fresh_epoch, now, false)
+        self.open_inner(path, fresh_epoch, now, None)
     }
+    /// Compare before admitting a temporary document. A refused write must not
+    /// leave a dirty recovery document behind for a later timer to save.
     /// File writes can create a missing path without planting placeholder bytes.
-    pub fn open_for_write(&mut self, path: &str, fresh_epoch: [u8; 16], now: u64) -> Result<u32> {
-        self.open_inner(path, fresh_epoch, now, true)
+    pub(crate) fn open_for_write(
+        &mut self,
+        path: &str,
+        base: &crate::hooks::Base,
+        fresh_epoch: [u8; 16],
+        now: u64,
+    ) -> Result<u32> {
+        self.open_inner(path, fresh_epoch, now, Some(base))
     }
     fn open_inner(
         &mut self,
         path: &str,
         fresh_epoch: [u8; 16],
         now: u64,
-        allow_absent: bool,
+        write_base: Option<&crate::hooks::Base>,
     ) -> Result<u32> {
         self.gates.check()?;
         if !disk::valid_path(path) {
@@ -352,13 +360,27 @@ impl<D: Disk> Host<D> {
         if !self.docs.contains_key(path) {
             let disk_bytes = self.disk.read(path)?;
             let missing = disk_bytes.is_none();
+            if let Some(base) = write_base {
+                let current = disk_bytes.as_deref().map(digest);
+                let matches = match (base, current) {
+                    (crate::hooks::Base::Absent, None) => true,
+                    (crate::hooks::Base::Digest(expected), Some(actual)) => *expected == actual,
+                    _ => false,
+                };
+                if !matches {
+                    return Err(Self::stale_write(current));
+                }
+            }
             let bytes = match disk_bytes {
                 Some(bytes) => bytes,
-                None if allow_absent => vec![],
+                None if write_base.is_some() => vec![],
                 None => return Err(Error::Gone),
             };
             let text = std::str::from_utf8(&bytes);
             let readonly = bytes.len() > MAX_TEXT_BYTES || text.is_err();
+            if readonly && write_base.is_some() {
+                return Err(Error::ReadOnly);
+            }
             let text = if readonly { "" } else { text.unwrap() };
             let key = digest(path.as_bytes());
             let record = if readonly || missing {
@@ -429,6 +451,15 @@ impl<D: Disk> Host<D> {
                     }
                 }
             };
+            if write_base.is_some()
+                && entry.dirty_since.is_some()
+                && digest(&bytes) != entry.last_disk
+            {
+                // A persisted but interrupted save is newer than the caller's
+                // disk read. Do not activate its recovery as a side effect of
+                // a rejected write. An ordinary document open still recovers it.
+                return Err(Self::stale_write(Some(entry.last_disk)));
+            }
             // Outside changes are reconciled only if this is not an interrupted
             // save. In that case the record is completed on disk first.
             if !readonly && digest(&bytes) != entry.last_disk && entry.dirty_since.is_none() {
@@ -441,6 +472,13 @@ impl<D: Disk> Host<D> {
                     now,
                     None,
                 )?;
+                // This newly opened document has no unsaved live edits: its
+                // prior base and text were both record.text. Reconciliation
+                // accepted this exact disk snapshot. Use it as the next swap's
+                // predecessor, so it is not misreported as a concurrent write
+                // or merged a second time when the displaced inode goes quiet.
+                entry.base = text.into();
+                entry.last_disk = digest(&bytes);
             }
             if !readonly {
                 for recovered in self.disk.recover_temps(path, key)? {
@@ -463,6 +501,13 @@ impl<D: Disk> Host<D> {
         doc.closing = None;
         self.streams.insert(stream, path.into());
         Ok(stream)
+    }
+    fn stale_write(current_digest: Option<Digest>) -> Error {
+        Error::Provider(crate::hooks::Error {
+            code: 4,
+            current_digest,
+            ..crate::hooks::Error::unsupported()
+        })
     }
     pub fn close(&mut self, stream: u32, now: u64) -> Result<()> {
         let path = self.streams.remove(&stream).ok_or(Error::Invalid)?;

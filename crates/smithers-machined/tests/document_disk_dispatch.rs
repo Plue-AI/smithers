@@ -714,3 +714,136 @@ fn authenticated_file_write_retains_save_author_across_disk_adapter() {
 
 #[path = "document_watcher/mod.rs"]
 mod watcher;
+
+#[test]
+#[ignore = "requires Linux uid19998 and confined real filesystem"]
+fn refused_file_write_does_not_create_an_empty_file_on_a_later_timer() {
+    for path in ["new.rs", "a.rs"] {
+        let f = Fixture::new();
+        let (service, mut cx) = f.service();
+        let base = if path == "a.rs" {
+            hooks::Base::Digest(digest(b"abc"))
+        } else {
+            hooks::Base::Absent
+        };
+        let error = service
+            .write_through(
+                &mut cx,
+                path,
+                &base,
+                b"refused",
+                &hooks::Actor::Principal(vec![]),
+            )
+            .unwrap()
+            .unwrap_err();
+        assert_eq!(error.code, 1);
+        for now in [200, 2000, 60_001] {
+            f.clock.0.store(now, Ordering::Relaxed);
+            assert!(service.poll(&mut cx).unwrap().is_empty());
+            assert_eq!(service.flush_all(&mut cx).unwrap(), 0);
+        }
+        assert!(!f.root.join("workspace/new.rs").exists());
+        assert_eq!(fs::read(f.root.join("workspace/a.rs")).unwrap(), b"abc");
+        assert_eq!(fs::read_dir(f.root.join("store")).unwrap().count(), 0);
+        assert!(service.projections(&mut cx).unwrap().is_empty());
+        assert!(f.receipts.0.lock().unwrap().is_empty());
+        assert!(f.receipts.1.lock().unwrap().is_empty());
+    }
+}
+
+#[test]
+#[ignore = "requires Linux uid19998 and confined real filesystem"]
+fn stale_recovery_comparison_leaves_real_file_and_record_unchanged() {
+    use smithers_machined::doc::disk::Disk;
+    let f = Fixture::new();
+    let mut disk = LinuxDisk::new(
+        File::open(f.root.join("workspace")).unwrap(),
+        File::open(f.root.join("store")).unwrap(),
+        f.receipts.clone(),
+    )
+    .unwrap();
+    let doc = core::document(None);
+    doc.get_or_insert_map("authors");
+    let client = authors::allocate(&doc, "original").unwrap();
+    doc.get_or_insert_text("content");
+    let update = smithers_machined::doc::reconcile::replace(&doc, "pending", client).unwrap();
+    core::apply(&doc, core::decode(&update).unwrap()).unwrap();
+    let record = Record {
+        epoch: [7; 16],
+        previous: digest(b"abc"),
+        previous_text: "abc".into(),
+        text: "pending".into(),
+        state: core::state(&doc),
+        retired_clients: Default::default(),
+    };
+    let key = digest(b"a.rs");
+    disk.store_record(key, &record).unwrap();
+    let before = disk.load_record(key).unwrap().unwrap().encode().unwrap();
+    let inode = fs::metadata(f.root.join("workspace/a.rs")).unwrap().ino();
+    let (service, mut cx) = f.service();
+    let response = write(&mut cx, "a.rs", digest(b"abc"));
+    assert_eq!(response[0], 255);
+    for now in [200, 2000, 60_001] {
+        f.clock.0.store(now, Ordering::Relaxed);
+        assert!(service.poll(&mut cx).unwrap().is_empty());
+        assert_eq!(service.flush_all(&mut cx).unwrap(), 0);
+    }
+    assert_eq!(fs::read(f.root.join("workspace/a.rs")).unwrap(), b"abc");
+    assert_eq!(
+        fs::metadata(f.root.join("workspace/a.rs")).unwrap().ino(),
+        inode
+    );
+    assert_eq!(
+        disk.load_record(key).unwrap().unwrap().encode().unwrap(),
+        before
+    );
+    assert!(service.projections(&mut cx).unwrap().is_empty());
+    assert!(f.receipts.0.lock().unwrap().is_empty());
+    assert!(f.receipts.1.lock().unwrap().is_empty());
+    // A later explicit open must still recover that exact persisted intent.
+    let id = stream(&open(&mut cx, "a.rs"));
+    let frames = service.poll(&mut cx).unwrap();
+    assert!(frames
+        .iter()
+        .any(|f| Document::decode_v2(&f.payload).unwrap().epoch == [7; 16]));
+    service.flush_all(&mut cx).unwrap();
+    assert_eq!(fs::read(f.root.join("workspace/a.rs")).unwrap(), b"pending");
+    service.close(id).unwrap();
+}
+
+#[test]
+#[ignore = "requires Linux uid19998 and confined real filesystem"]
+fn accepted_outside_snapshot_is_not_reported_again_as_a_swap_race() {
+    let f = Fixture::new();
+    let (service, mut cx) = f.service();
+    open(&mut cx, "a.rs");
+    service.flush_all(&mut cx).unwrap();
+    f.clock.0.store(200, Ordering::Relaxed);
+    service.poll(&mut cx).unwrap();
+    drop(cx);
+    drop(service);
+    fs::write(f.root.join("workspace/a.rs"), b"outside").unwrap();
+    let (service, mut cx) = f.service();
+    let written = write(&mut cx, "a.rs", digest(b"outside"));
+    assert_eq!(written[0], 3);
+    let fields = conn::fields("result3", &written[1..]).unwrap();
+    assert_eq!(
+        fields.len(),
+        1,
+        "already accepted bytes are not a raced write"
+    );
+    assert_eq!(fields[0].1, digest(b"new"));
+    assert_eq!(*f.receipts.0.lock().unwrap(), vec![b"outside".to_vec()]);
+    service.take_notices(&mut cx).unwrap();
+    for now in [400, 2000, 60_201] {
+        f.clock.0.store(now, Ordering::Relaxed);
+        service.poll(&mut cx).unwrap();
+    }
+    assert_eq!(fs::read(f.root.join("workspace/a.rs")).unwrap(), b"new");
+    assert_eq!(*f.receipts.0.lock().unwrap(), vec![b"outside".to_vec()]);
+    assert!(!service
+        .take_notices(&mut cx)
+        .unwrap()
+        .iter()
+        .any(|n| matches!(n, smithers_machined::doc::host::Notice::Outside { .. })));
+}
