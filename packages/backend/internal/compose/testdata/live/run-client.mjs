@@ -1,7 +1,7 @@
 import { LiveChannel } from "../../../../../../apps/app/src/mainview/runtime/LiveChannel.ts"
 
 const [origin, cookie] = process.argv.slice(2)
-let socket, connections = 0, dropped = false
+let socket, connections = 0, dropped = false, lastCursor
 const seen = []
 const deadline = setTimeout(() => { console.error("run replay timed out"); process.exit(1) }, 20000)
 const channel = new LiveChannel({ socket: () => {
@@ -16,6 +16,10 @@ channel.subscribe("run:fixture-run", () => {
   const snapshot = channel.getSnapshot("run:fixture-run")
   if (snapshot?.error) throw new Error(snapshot.error)
   if (snapshot?.cursor === undefined) return
+  // A continuity notification preserves the previous projection.
+  if (snapshot.cursor === lastCursor) return
+  if (lastCursor !== undefined && snapshot.cursor < lastCursor) throw new Error("Run cursor moved backwards")
+  lastCursor = snapshot.cursor
   seen.push(...snapshot.data.events.map(event => event.kind))
   if (snapshot.cursor === 1) console.log("ready")
   if (snapshot.cursor === 4 && !dropped) {
