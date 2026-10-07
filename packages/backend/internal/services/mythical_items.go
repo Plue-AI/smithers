@@ -1633,6 +1633,9 @@ func mythicalStepFailedDue(err error, now time.Time) time.Time {
 // pinned, so nothing depends on it. A failed release is retried next claim.
 // It answers the item as saved, so a step that follows works on it.
 func (s *MythicalService) releaseLane(ctx context.Context, r *mythicalRun, item db.MythicalItem) db.MythicalItem {
+	if mythicalChecksOf(item).Capture != nil {
+		return item
+	}
 	// Keep interrupted work for its person. Finished review lanes use the
 	// qualified retirement path until #3572 composes safe-idle release; retaining
 	// them without that observer exhausts capacity and blocks the next TODO.
@@ -1845,7 +1848,7 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 	if mythicalChecksOf(item).Capture != nil {
 		switch item.State {
 		case "integrating", "verifying", "proposing", "waiting", "proposed":
-			return nil, false, nil
+			return st.consumeCapturedEdits(ctx, item)
 		}
 	}
 
@@ -1956,6 +1959,10 @@ func (st *mythicalItemStep) commit(ctx context.Context, item db.MythicalItem, ph
 // commitWith is commit with also, when set, written in the same transaction
 // after the item is saved: an activity entry the launch records.
 func (st *mythicalItemStep) commitWith(ctx context.Context, item db.MythicalItem, phase, flowID string, payload json.RawMessage, also func(pgx.Tx, db.MythicalItem) error) (db.MythicalItem, error) {
+	return st.commitWithGuard(ctx, item, phase, flowID, payload, nil, also)
+}
+
+func (st *mythicalItemStep) commitWithGuard(ctx context.Context, item db.MythicalItem, phase, flowID string, payload json.RawMessage, before func(pgx.Tx) error, also func(pgx.Tx, db.MythicalItem) error) (db.MythicalItem, error) {
 	s, r := st.s, st.r
 	// Every fresh machine must import the attempt's immutable flow source,
 	// including review and rebase verification machines. Retaining only the
@@ -1974,6 +1981,11 @@ func (st *mythicalItemStep) commitWith(ctx context.Context, item db.MythicalItem
 		return db.MythicalItem{}, err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if before != nil {
+		if err := before(tx); err != nil {
+			return db.MythicalItem{}, err
+		}
+	}
 	// Every admitted run counts toward the item's launch bound; the failure
 	// it retries after is behind it.
 	launched := mythicalChecksOf(item)
@@ -2929,6 +2941,13 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 	case err != nil:
 		return mythicalInfraOutage(item, "launch", "the candidate could not be rebased: "+err.Error(), st.now), false, nil
 	}
+	return st.verifyCandidate(ctx, item, next, onto, rebased, nil)
+}
+
+// verifyCandidate is the existing engine verification lane for rebases and
+// captured edits. Both keep the attempt pin and run; only generation advances.
+func (st *mythicalItemStep) verifyCandidate(ctx context.Context, item, next db.MythicalItem, onto, rebased string, captured *MachineCapturePending) (*db.MythicalItem, bool, error) {
+	s, r := st.s, st.r
 	var plan struct {
 		Checks []json.RawMessage `json:"checks"`
 	}
@@ -2955,11 +2974,15 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 	}
 	workspaceID := item.WorkspaceID
 	if !st.slot(item) {
+		if captured != nil {
+			// Keep the capture pending without inventing a rebase dependency.
+			return nil, false, nil
+		}
 		// A verification waits for a lane under the cap, a kept workspace
 		// traded in for its own (the cap may have been lowered meanwhile).
 		return st.awaitRebase(item, onto, st.ontoName(onto)), false, nil
 	}
-	if review := mythicalChecksOf(item).Review; review != nil && review.Lane != "" && review.Lane == workspaceID {
+	if review := mythicalChecksOf(item).Review; captured == nil && review != nil && review.Lane != "" && review.Lane == workspaceID {
 		// The review lane runs the reviewer's host on landed code only: the
 		// rebased candidate's checks run on a coding lane, as its plan's did.
 		if err := s.retireLane(ctx, r, workspaceID); err != nil {
@@ -3004,11 +3027,40 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 	if pending := mythicalChecksOf(item).Rebase; pending != nil && !pending.Since.IsZero() {
 		rebase.Rebase.Since = pending.Since
 	}
+	var before func(pgx.Tx) error
+	also := func(tx pgx.Tx, saved db.MythicalItem) error {
+		return st.s.recordTodoRebased(ctx, tx, saved, from, name)
+	}
+	if captured != nil {
+		rebase.Capture, rebase.Rebase, rebase.Review, rebase.Land = nil, nil, nil, nil
+		next.Integration, _ = json.Marshal(map[string]any{"kind": "captured", "head": captured.Head, "tree": captured.Tree})
+		before = func(tx pgx.Tx) error {
+			if err := st.lockCapturedContinuation(ctx, tx, item, *captured); err != nil {
+				return err
+			}
+			// Native publication can survive a rolled-back SQL projection.
+			// The stack lock excludes capture writers through this commit.
+			head, err := s.refCommit(ctx, r.owner, r.repo, "refs/smithers/branches/"+item.WorkspaceID+"/head")
+			if err != nil {
+				return err
+			}
+			if head != captured.Head {
+				return errors.New("published branch moved before captured edits were consumed")
+			}
+			return nil
+		}
+		also = func(tx pgx.Tx, saved db.MythicalItem) error {
+			if _, err := tx.Exec(ctx, `UPDATE workspaces SET capture_pending=NULL WHERE id=$1`, item.WorkspaceID); err != nil {
+				return err
+			}
+			fact, _ := json.Marshal(map[string]any{"head": captured.Head, "tree": captured.Tree, "previous_head": item.CandidateHead, "attempt": saved.Attempt, "generation": saved.Generation})
+			_, err := st.s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.capture_consumed", todoState(saved), fact)
+			return err
+		}
+	}
 	next.Checks = rebase.encode()
 	payload, _ := json.Marshal(map[string]any{"source": map[string]string{"commitId": rebased, "ref": ref}, "checks": plan.Checks, "writes": writes})
-	saved, err := st.commitWith(ctx, next, "verify", "coding/verify", payload, func(tx pgx.Tx, saved db.MythicalItem) error {
-		return st.s.recordTodoRebased(ctx, tx, saved, from, name)
-	})
+	saved, err := st.commitWithGuard(ctx, next, "verify", "coding/verify", payload, before, also)
 	if err != nil {
 		return mythicalInfraOutage(item, "launch", "verification could not be launched: "+err.Error(), st.now), false, nil
 	}

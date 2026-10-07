@@ -1,0 +1,203 @@
+package services
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/jobs"
+	"github.com/stretchr/testify/require"
+)
+
+// Real PostgreSQL, Git objects, stack poller and durable flow admission. The
+// terminal runtime projection is a fixture: this proves intent/ownership and
+// recovery, not that a real machine executed the checks.
+func TestCapturedEditsContinueSameAttempt(t *testing.T) {
+	f := newRebaseFixture(t)
+	item := f.candidate("Keep member edits", f.main, "AGENT.md", "agent work\n")
+	pool := f.pool.(*pgxpool.Pool)
+	store, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+		t.Error("admission must not contact a runtime")
+		return nil, errors.New("no runtime")
+	})})
+	require.NoError(t, err)
+	f.service.SetLauncher(dispatcher)
+	capturedHead := f.commit("member edits", "MEMBER.md", "kept member edits\n")
+	capturedTree := f.git(f.work, "rev-parse", capturedHead+"^{tree}")
+	capture := MachineCapturePending{Head: capturedHead, Tree: capturedTree, Base: item.CandidateHead, Onto: capturedHead}
+	f.git(f.work, "push", "-q", f.hostDir, capturedHead+":refs/smithers/branches/"+item.WorkspaceID+"/captures/"+capturedHead)
+	branchRef := "refs/smithers/branches/" + item.WorkspaceID + "/head"
+	f.git(f.work, "push", "-q", f.hostDir, capturedHead+":"+branchRef)
+	raw, _ := json.Marshal(capture)
+	_, err = pool.Exec(t.Context(), `INSERT INTO workspaces(id,repository_id,user_id,name,vm_id,status,head_commit_id,capture_pending) VALUES($1,$2,$3,'capture','capture-vm','running',$4,$5)`, item.WorkspaceID, f.repoID, f.userID, capturedHead, raw)
+	require.NoError(t, err)
+	item.FlowDigest = pgtype.Text{String: todoPinOne, Valid: true}
+	item.RequestRunID = "same-composition"
+	item.CandidateVerified = false
+	checks := mythicalChecksOf(item)
+	checks.FlowSource = f.main
+	checks.Capture = &capture
+	checks.Review = &mythicalReview{Head: item.CandidateHead, Candidate: item.CandidateHead, Verdict: "approve"}
+	item.Checks = checks.encode()
+	item, err = db.New(pool).SaveMythicalItem(t.Context(), item)
+	require.NoError(t, err)
+	count := func(want int) {
+		t.Helper()
+		var count int
+		require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.launch'`).Scan(&count))
+		require.Equal(t, want, count)
+	}
+	pending := func(want bool) {
+		t.Helper()
+		var present bool
+		require.NoError(t, pool.QueryRow(t.Context(), `SELECT capture_pending IS NOT NULL FROM workspaces WHERE id=$1`, item.WorkspaceID).Scan(&present))
+		require.Equal(t, want, present)
+	}
+	// Refuse the durable launch after saving the generation. The whole domain
+	// transition and capture consumption must roll back with that failure.
+	_, err = pool.Exec(t.Context(), `ALTER TABLE product_job_requests ADD CONSTRAINT reject_capture_verify CHECK (operation <> 'flow.runtime.launch') NOT VALID`)
+	require.NoError(t, err)
+	f.wake()
+	failed := f.item(item.Number.Int64)
+	require.Equal(t, item.Generation, failed.Generation)
+	require.Equal(t, item.CandidateHead, failed.CandidateHead)
+	require.NotNil(t, mythicalChecksOf(failed).Capture)
+	pending(true)
+	count(0)
+	_, err = pool.Exec(t.Context(), `ALTER TABLE product_job_requests DROP CONSTRAINT reject_capture_verify`)
+	require.NoError(t, err)
+	// Native publication survived a rolled-back projection: SQL still names
+	// the old capture. Do not consume it or launch stale checks.
+	newer := f.commit("newer member edits", "MEMBER.md", "newer member edits\n")
+	f.git(f.work, "push", "-q", f.hostDir, newer+":"+branchRef)
+	f.wake()
+	pending(true)
+	count(0)
+	held := f.item(item.Number.Int64)
+	require.Equal(t, item.Generation, held.Generation)
+	require.Equal(t, item.CandidateHead, held.CandidateHead)
+	// Restore the fixture's published head to complete this continuation.
+	f.git(f.work, "push", "-q", f.hostDir, "+"+capturedHead+":"+branchRef)
+	f.wake()
+	next := f.item(item.Number.Int64)
+	require.Equal(t, "verifying", next.State, next.Reason)
+	require.Equal(t, item.Attempt, next.Attempt)
+	require.Equal(t, item.RequestRunID, next.RequestRunID)
+	require.Equal(t, item.WorkspaceID, next.WorkspaceID)
+	require.Equal(t, item.FlowDigest, next.FlowDigest)
+	require.Equal(t, item.Generation+1, next.Generation)
+	require.Equal(t, capturedHead, next.CandidateHead)
+	require.False(t, next.CandidateVerified)
+	require.Nil(t, mythicalChecksOf(next).Capture)
+	require.Nil(t, mythicalChecksOf(next).Review, "edited bytes always need a fresh review")
+	pending(false)
+	count(1)
+	evidence := todoEvidence(next)
+	require.Len(t, evidence, 1)
+	require.NotNil(t, evidence[0].Previous)
+	require.Equal(t, item.CandidateHead, evidence[0].Previous.Revision)
+	require.Equal(t, capturedHead, evidence[0].Revision)
+	var payload struct {
+		FlowID     string           `json:"flowId"`
+		Pin        *flowruntime.Pin `json:"pin"`
+		Projection json.RawMessage  `json:"projection"`
+		Payload    json.RawMessage  `json:"payload"`
+	}
+	var launch []byte
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT payload FROM product_job_requests WHERE operation='flow.runtime.launch'`).Scan(&launch))
+	require.NoError(t, json.Unmarshal(launch, &payload))
+	require.Equal(t, "coding/verify", payload.FlowID)
+	require.NotNil(t, payload.Pin)
+	require.Equal(t, todoPinOne, payload.Pin.ExecutionDigest)
+	require.Equal(t, f.main, payload.Pin.SourceCommit)
+	require.Contains(t, string(payload.Payload), capturedHead)
+	var consumed int
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_events WHERE event_type='todo.capture_consumed'`).Scan(&consumed))
+	require.Equal(t, 1, consumed)
+	f.wake()
+	count(1)
+	// A late successful receipt from the previous generation cannot approve
+	// the captured candidate. Its own receipt only becomes verified on poll.
+	var projection mythicalProjection
+	require.NoError(t, json.Unmarshal(payload.Projection, &projection))
+	output := `{"status":"passed","failed":[],"receipts":[]}`
+	project := func(generation int64) {
+		p := projection
+		p.Generation = generation
+		raw, _ := json.Marshal(p)
+		require.NoError(t, f.service.ProjectFlowRuntime(t.Context(), flowdispatch.ProjectionUpdate{State: jobs.StateCompleted, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: raw, FlowID: "coding/verify", ExecutionDigest: todoPinOne, RunID: "verify-capture", Run: &flowruntime.FlowRuntimeRun{RunID: "verify-capture", FinalOutput: &output}}}))
+	}
+	project(item.Generation)
+	require.Empty(t, f.item(item.Number.Int64).VerifyOutcome)
+	project(next.Generation)
+	require.Equal(t, "passed", f.item(item.Number.Int64).VerifyOutcome)
+	f.wake()
+	verified := f.item(item.Number.Int64)
+	require.True(t, verified.CandidateVerified, verified.Reason)
+	require.Equal(t, capturedHead, verified.CandidateHead)
+	require.Equal(t, item.Attempt, verified.Attempt)
+	require.Equal(t, "kept member edits", strings.TrimSpace(f.git(f.hostDir, "show", capturedHead+":MEMBER.md")))
+}
+
+// Tree identity alone does not prove that the captured snapshot still includes
+// the stack prefix. Neither malformed identity nor unrelated history may run.
+func TestCapturedContinuationChecksSnapshotBeforeLaunch(t *testing.T) {
+	f := newRebaseFixture(t)
+	item := f.candidate("Snapshot ancestry", f.main, "AGENT.md", "agent work\n")
+	head := f.commit("member edits", "MEMBER.md", "member work\n")
+	tree := f.git(f.work, "rev-parse", head+"^{tree}")
+	orphan := f.git(f.work, "commit-tree", tree, "-m", "unrelated history")
+	branchRef := "refs/smithers/branches/" + item.WorkspaceID + "/head"
+	for _, commit := range []string{head, orphan} {
+		f.git(f.work, "push", "-q", f.hostDir, commit+":refs/smithers/branches/"+item.WorkspaceID+"/captures/"+commit)
+	}
+	_, err := f.pool.Exec(t.Context(), `INSERT INTO workspaces(id,repository_id,user_id,name,vm_id,status) VALUES($1,$2,$3,'snapshot','snapshot-vm','running')`, item.WorkspaceID, f.repoID, f.userID)
+	require.NoError(t, err)
+	for _, name := range []string{"unrelated history", "wrong tree", "valid"} {
+		t.Run(name, func(t *testing.T) {
+			capture := MachineCapturePending{Head: head, Tree: tree, Base: item.CandidateHead, Onto: head}
+			if name == "unrelated history" {
+				capture.Head = orphan
+				capture.Onto = orphan
+			}
+			if name == "wrong tree" {
+				capture.Tree = f.git(f.work, "rev-parse", f.main+"^{tree}")
+			}
+			f.git(f.work, "push", "-q", f.hostDir, "+"+capture.Head+":"+branchRef)
+			current := f.item(item.Number.Int64)
+			current.FlowDigest = pgtype.Text{String: todoPinOne, Valid: true}
+			current.CandidateVerified = false
+			checks := mythicalChecksOf(current)
+			checks.FlowSource = f.main
+			checks.Capture = &capture
+			current.Checks = checks.encode()
+			_, err := db.New(f.pool).SaveMythicalItem(t.Context(), current)
+			require.NoError(t, err)
+			raw, _ := json.Marshal(capture)
+			_, err = f.pool.Exec(t.Context(), `UPDATE workspaces SET head_commit_id=$2,capture_pending=$3 WHERE id=$1`, item.WorkspaceID, capture.Head, raw)
+			require.NoError(t, err)
+			f.wake()
+			next := f.item(item.Number.Int64)
+			if name == "valid" {
+				require.Equal(t, 1, f.verifies(item))
+				require.Equal(t, head, next.CandidateHead)
+				require.Equal(t, item.Generation+1, next.Generation)
+				require.Nil(t, mythicalChecksOf(next).Capture)
+			} else {
+				require.Zero(t, f.verifies(item))
+				require.Equal(t, item.CandidateHead, next.CandidateHead)
+				require.Equal(t, item.Generation, next.Generation)
+				require.NotNil(t, mythicalChecksOf(next).Capture)
+			}
+		})
+	}
+}
