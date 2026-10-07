@@ -216,6 +216,15 @@ pub trait Core: Send + Sync {
         Err(Error::unsupported())
     }
 
+    /// Resolve and retain the return target before freezing any writer.
+    fn validate_return_to_item(&self) -> Result<()> {
+        Err(Error::unsupported())
+    }
+    /// Native jj edit only. RPC owns freeze/capture/reconcile/thaw.
+    fn return_to_item(&self, _cx: &mut LockCx) -> Result<Oid> {
+        Err(Error::unsupported())
+    }
+
     /// Snapshot, pin and enqueue locally while holding the mutation lock.
     /// Unlike capture RPC, this must never wait for host acknowledgement.
     fn capture_local(&self, _cx: &mut LockCx) -> Result<()> {
