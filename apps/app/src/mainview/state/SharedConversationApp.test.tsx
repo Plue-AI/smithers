@@ -328,6 +328,10 @@ test("install conversation binds imported snapshots through the shared renderer 
     await waitFor(() => host.querySelectorAll('article[data-origin="external"]').length === 0)
     expect(host.textContent).toContain("Conversation unavailable")
     expect(store.session().queuedPrompts ?? []).toHaveLength(0)
+    await controller.sharedConversation!.saveView({ scroll_anchor: "turn-ben:prompt" })
+    expect(controller.sharedConversation!.get().error).toBe("Conversation unavailable")
+    expect(host.textContent).toContain("Conversation unavailable")
+    expect(host.querySelectorAll('article[data-origin="external"]')).toHaveLength(0)
     available = true
     await controller.sharedConversation!.read()
     await waitFor(() => host.querySelectorAll('article[data-origin="external"]').length === 4)

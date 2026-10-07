@@ -84,7 +84,7 @@ export function createSharedConversationSeam(ctx: ControllerContext, live?: Live
       const written = await ctx.boundedFetch(path, { method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...previous, ...patch }) })
       if (!written.ok) throw new Error("View unavailable")
       const view = ConversationViewSchema.parse(await written.json())
-      if (valid(revision)) publish({ ...snapshot, view, queue: snapshot.queue, error: undefined })
+      if (valid(revision)) publish({ ...snapshot, view, queue: snapshot.queue, error: snapshot.error === "View unavailable" ? undefined : snapshot.error })
     }).catch(error => { if (valid(revision)) { publish({ ...snapshot, error: "View unavailable" }); ctx.failures.report("seam.failure", error, "conversation-view") } })
     return saving
   }
