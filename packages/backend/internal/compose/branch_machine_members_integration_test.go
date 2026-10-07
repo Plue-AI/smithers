@@ -18,6 +18,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
+	"github.com/smithersai/smithers/packages/backend/installbundle"
+	"github.com/smithersai/smithers/packages/backend/installbundle/bundletest"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
@@ -117,7 +119,7 @@ func branchMachineMemberInstall(t *testing.T, erase, concurrent, realMachine boo
 		if u.ID == alice.ID {
 			permission = "write"
 		}
-		_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,$3)`, repo.ID, u.ID, permission)
+		_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission,unix_login) VALUES($1,$2,$3,$4)`, repo.ID, u.ID, permission, u.Username)
 		require.NoError(t, err)
 	}
 	session := func(u db.User) string {
@@ -137,7 +139,11 @@ func branchMachineMemberInstall(t *testing.T, erase, concurrent, realMachine boo
 	}
 	var vm *microsandbox.Runtime
 	if realMachine {
-		vm, err = microsandbox.New(ctx, microsandbox.Config{Binary: os.Getenv("SMITHERS_MICROSANDBOX_BIN"), Root: t.TempDir(), CPUs: 2, MemoryMiB: 2048, DiskMiB: 8192, MaxRunningVMs: 3})
+		bundlePath := os.Getenv("SMITHERS_CHECK_BUNDLE")
+		require.NotEmpty(t, bundlePath, "member provisioning requires the installed bundle")
+		bundle, openErr := installbundle.Open(bundlePath)
+		require.NoError(t, openErr)
+		vm, err = microsandbox.New(ctx, microsandbox.Config{Bundle: bundle, Root: bundletest.ProtectedTempDir(t), CPUs: 2, MemoryMiB: 2048, DiskMiB: 8192, MaxRunningVMs: 3})
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, vm.Close()) })
 		runtimeBoundary = vm
