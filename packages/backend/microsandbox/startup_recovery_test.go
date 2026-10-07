@@ -26,8 +26,9 @@ func startupRecoveryTransport(t *testing.T, failed string) (*Runtime, *workspace
 	require.NoError(t, err)
 	binary, log := filepath.Join(r.root, "msb"), filepath.Join(r.root, "calls")
 	script := fmt.Sprintf(`#!%s
-import hashlib,json,sys
+import hashlib,json,sys,os
 args=sys.argv[1:]
+stopped=%q
 if args[0]=='exec':
  if args[-1]=='install':
   op='install'
@@ -40,8 +41,9 @@ else:op=args[0]
 with open(%q,'a') as out:out.write(op+'\n')
 if op==%q:
  sys.stderr.write('injected '+op+' failure\n');sys.exit(125)
-if op=='list':print(json.dumps([{'name':%q,'status':'running'}]))
-`, python, guestHelperDigest, log, failed, ws.Machine)
+if op=='stop':open(stopped,'w').close()
+if op=='list':print(json.dumps([{'name':%q,'status':'stopped' if os.path.exists(stopped) else 'running'}]))
+`, python, filepath.Join(r.root, "stopped"), guestHelperDigest, log, failed, ws.Machine)
 	require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
 	r.cli = &cli{binary: binary, home: r.root}
 	return r, ws, log
@@ -74,7 +76,7 @@ func TestRetainedWorkspaceRecoveryFailurePreventsPreparationAndAdmission(t *test
 	_, err := r.StartWorkspace(t.Context(), ws.ID)
 	require.ErrorIs(t, err, ErrUnavailable)
 	require.ErrorContains(t, err, "injected recover-files failure")
-	require.Equal(t, []string{"list", "install", "kill-all", "recover-files", "stop"}, invocations(t, log))
+	require.Equal(t, []string{"list", "install", "kill-all", "recover-files", "stop", "list"}, invocations(t, log))
 	require.Equal(t, string(workspaceapi.WorkspaceStopped), readReclaimMetadata(t, ws).State)
 	require.False(t, ws.guestOK)
 	require.False(t, ws.booting)
@@ -82,5 +84,5 @@ func TestRetainedWorkspaceRecoveryFailurePreventsPreparationAndAdmission(t *test
 	_, err = r.ExecuteCommand(t.Context(), ws.ID, workspaceapi.Command{Args: []string{"echo", "must not run"}})
 	require.Error(t, err)
 	require.NotContains(t, strings.Join(invocations(t, log), "\n"), "setup")
-	require.Equal(t, []string{"list", "install", "kill-all", "recover-files", "stop"}, invocations(t, log))
+	require.Equal(t, []string{"list", "install", "kill-all", "recover-files", "stop", "list"}, invocations(t, log))
 }

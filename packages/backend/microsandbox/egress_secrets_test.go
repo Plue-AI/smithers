@@ -27,7 +27,7 @@ func egressFakeMSB(t *testing.T, relay *egressrelay.Relay) (*Runtime, string, st
 	dir := t.TempDir()
 	argv, stdin := filepath.Join(dir, "argv"), filepath.Join(dir, "stdin")
 	binary := filepath.Join(dir, "fake-msb")
-	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$*\" >> %q\ncat > %q\nexit 0\n", argv, stdin)
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$*\" >> %q\ncat > %q\nif [ \"$1\" = list ]; then printf '[]\\n'; fi\nexit 0\n", argv, stdin)
 	require.NoError(t, os.WriteFile(binary, []byte(script), 0o700))
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "workspaces"), 0o700))
