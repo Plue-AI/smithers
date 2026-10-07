@@ -74,10 +74,11 @@ export const MemberConfirmationSchema = z.object({
     input: z.record(z.string(), z.unknown()),
     merge_attempt: z.number().int().nonnegative().optional(),
     effect: z.object({
-      todo: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+      todo: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+      review: z.string().min(1).optional(),
       request: z.string().min(1),
       revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional()
-    }).optional()
+    }).refine(effect => (effect.todo !== undefined) !== (effect.review !== undefined), "Exactly one confirmation effect is required").optional()
   })
 })
 
