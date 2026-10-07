@@ -105,6 +105,11 @@ func TestConfirmationsBrowserPostgres(t *testing.T) {
 	require.NotNil(t, vite, "browser fixture did not start")
 	proxy := httputil.NewSingleHostReverseProxy(vite)
 	server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			api.ServeHTTP(w, r)
+		} else {
+			proxy.ServeHTTP(w, r)
+		}
 	})
 	server.Start()
 	defer server.Close()

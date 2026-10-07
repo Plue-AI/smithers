@@ -28,7 +28,11 @@ export const flowEditTodoInput = (name: string, request: string, diff?: string) 
 })
 
 
-/** Agent instructions are proposed repository work, never an immediate settings write. */
+/**
+ * Agent instructions are proposed repository work, never an immediate settings write.
+ * @since 1.0.0
+ * @category constructors
+ */
 export const agentEditTodoInput = (name: string, request: string, diff?: string) => {
   const path = name === "app" ? ".smithers/instructions/app.md" : ["planner", "implementer", "reviewer"].includes(name) ? "flows/todo/flow.ts" : undefined
   if (!path) return undefined
