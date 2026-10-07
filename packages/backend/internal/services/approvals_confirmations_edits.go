@@ -120,14 +120,10 @@ func (s *MythicalService) prepareRepositoryEditConfirmation(ctx context.Context,
 func (s *MythicalService) FileRepositoryEdit(ctx context.Context, repository, actor int64, command, name string, request RepositoryEditInput, key string) (MythicalItemView, error) {
 	var item MythicalItemView
 	err := pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
-		bound, currentRepository, err := lockInstallWriteCredential(ctx, tx, middleware.AuthInfoFromContext(ctx))
+		err := guardInstallTodoWrite(ctx, tx, repository, actor)
 		if err != nil {
 			return err
 		}
-		if repository != currentRepository {
-			return confirmationPermission()
-		}
-		ctx = bound
 		subject, _ := json.Marshal(map[string]string{"kind": strings.TrimSuffix(command, ".edit"), "ref": name})
 		payload, _ := json.Marshal(request)
 		prepared, err := s.prepareRepositoryEditConfirmation(ctx, tx, repository, ConfirmationInput{Command: command, Subject: subject, Payload: payload, Key: key}, true)
@@ -136,7 +132,7 @@ func (s *MythicalService) FileRepositoryEdit(ctx context.Context, repository, ac
 		}
 		consumer := *s
 		consumer.store = tx
-		item, err = consumer.FileTodo(ctx, repository, actor, *prepared.editTodo)
+		item, err = consumer.fileTodoCommand(ctx, repository, actor, *prepared.editTodo, command)
 		return err
 	})
 	return item, err

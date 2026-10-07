@@ -799,7 +799,7 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 			switch command {
 			case "flow.edit", "agent.edit":
 				var item MythicalItemView
-				item, err = consumer.FileTodo(bound, repository, info.User.ID, *prepared.editTodo)
+				item, err = consumer.fileTodoCommand(bound, repository, info.User.ID, *prepared.editTodo, command)
 				number = item.Number
 			case "wiki.delete":
 				afterCommit, err = consumer.deleteConfirmedWiki(bound, tx, prepared.wiki)
