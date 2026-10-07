@@ -61,7 +61,8 @@ fn high(fd: &impl std::os::fd::AsFd) -> io::Result<OwnedFd> {
     Ok(rustix::io::fcntl_dupfd_cloexec(fd, 10)?)
 }
 pub struct Installed {
-    controls: super::supervisor::Supervisor<super::spawn::Processes<super::spawn::Unavailable>>,
+    controls:
+        super::supervisor::Supervisor<super::spawn::Processes<super::spawn::InstalledAdmission>>,
     local: UnixListener,
     relay: Option<TcpListener>,
 }
@@ -133,7 +134,7 @@ impl Installed {
         Ok(Self {
             controls: super::supervisor::Supervisor::new(super::spawn::Processes::new(
                 controls,
-                super::spawn::Unavailable,
+                super::spawn::InstalledAdmission,
             )),
             local,
             relay,

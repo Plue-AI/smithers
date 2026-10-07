@@ -27,7 +27,73 @@ pub trait Admission: Send {
     fn available(&mut self) -> io::Result<()> {
         Err(io::ErrorKind::Unsupported.into())
     }
+    fn binding(&mut self, _user: &User) -> io::Result<Option<File>> {
+        Ok(None)
+    }
     fn environment(&mut self, user: &User) -> io::Result<Vec<(String, String)>>;
+}
+/// The host installs a one-use inode per authenticated user. The privileged
+/// broker examines metadata only; the unprivileged launcher parses its bytes.
+pub struct InstalledAdmission;
+impl Admission for InstalledAdmission {
+    fn available(&mut self) -> io::Result<()> {
+        let dir = binding_directory()?;
+        if rustix::fs::fstatfs(&dir)?.f_type as u64 != 0x01021994 {
+            return Err(invalid());
+        }
+        let env = fixed_file("/run/smithers/env")?;
+        let m = env.metadata()?;
+        if m.gid() != 20000 || m.mode() & 0o7777 != 0o640 || m.len() > 256 * 1024 {
+            return Err(invalid());
+        }
+        Ok(())
+    }
+    fn environment(&mut self, _: &User) -> io::Result<Vec<(String, String)>> {
+        self.available()?;
+        Ok(vec![])
+    }
+    fn binding(&mut self, user: &User) -> io::Result<Option<File>> {
+        user.validate()?;
+        let dir = binding_directory()?;
+        let name = format!("u{}", user.uid);
+        let fd = rustix::fs::openat(
+            &dir,
+            &name,
+            rustix::fs::OFlags::RDONLY
+                | rustix::fs::OFlags::NOFOLLOW
+                | rustix::fs::OFlags::NONBLOCK
+                | rustix::fs::OFlags::CLOEXEC,
+            rustix::fs::Mode::empty(),
+        )?;
+        let file = File::from(fd);
+        let m = file.metadata()?;
+        if !m.is_file()
+            || m.uid() != 0
+            || m.gid() != user.uid
+            || m.mode() & 0o7777 != 0o640
+            || m.nlink() != 1
+            || m.len() > 256 * 1024
+        {
+            return Err(invalid());
+        }
+        rustix::fs::unlinkat(&dir, &name, rustix::fs::AtFlags::empty())?;
+        Ok(Some(file))
+    }
+}
+fn binding_directory() -> io::Result<File> {
+    let root = File::open("/")?;
+    let file = File::from(rustix::fs::openat2(
+        &root,
+        "run/smithers/admission",
+        rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::DIRECTORY | rustix::fs::OFlags::CLOEXEC,
+        rustix::fs::Mode::empty(),
+        rustix::fs::ResolveFlags::BENEATH | rustix::fs::ResolveFlags::NO_SYMLINKS,
+    )?);
+    let m = file.metadata()?;
+    if m.uid() != 0 || m.mode() & 0o022 != 0 {
+        return Err(invalid());
+    }
+    Ok(file)
 }
 pub struct Unavailable;
 impl Admission for Unavailable {
@@ -151,7 +217,7 @@ pub struct Processes<A> {
     groups: Cgroups,
     admission: A,
     processes: BTreeMap<u32, Process>,
-    prepared: Option<(User, Vec<(String, String)>)>,
+    prepared: Option<(User, Vec<(String, String)>, Option<File>)>,
 }
 impl<A: Admission> Processes<A> {
     pub fn new(groups: Cgroups, admission: A) -> Self {
@@ -186,7 +252,8 @@ impl<A: Admission> Kernel for Processes<A> {
         {
             return Err(invalid());
         }
-        self.prepared = Some((user.clone(), environment));
+        let binding = self.admission.binding(user)?;
+        self.prepared = Some((user.clone(), environment, binding));
         Ok(())
     }
     fn spawn(
@@ -198,7 +265,7 @@ impl<A: Admission> Kernel for Processes<A> {
         size: Option<(u16, u16)>,
         port: Option<u16>,
     ) -> io::Result<()> {
-        let (authorized, environment) = self.prepared.take().ok_or_else(invalid)?;
+        let (authorized, environment, binding) = self.prepared.take().ok_or_else(invalid)?;
         if &authorized != user || self.processes.contains_key(&id) {
             return Err(invalid());
         }
@@ -214,6 +281,21 @@ impl<A: Admission> Kernel for Processes<A> {
             _ if argv.is_empty() => vec!["/bin/bash".to_owned(), "-l".to_owned()],
             _ => argv.to_vec(),
         };
+        let args = if binding.is_some() {
+            [
+                vec![
+                    "/opt/smithers/bin/smithers-machined".into(),
+                    "session-exec".into(),
+                ],
+                args,
+            ]
+            .concat()
+        } else {
+            args
+        };
+        let binding = binding
+            .map(|f| rustix::io::fcntl_dupfd_cloexec(f, 10))
+            .transpose()?;
         let mut procs = self.groups.create(id)?;
         let result = (|| {
             let mut command = Command::new(&args[0]);
@@ -305,6 +387,11 @@ impl<A: Admission> Kernel for Processes<A> {
                         || libc::setresuid(uid, uid, uid) != 0
                     {
                         return Err(io::Error::last_os_error());
+                    }
+                    if let Some(binding) = &binding {
+                        if libc::dup2(binding.as_raw_fd(), 6) < 0 {
+                            return Err(io::Error::last_os_error());
+                        }
                     }
                     libc::umask(0o002);
                     if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0

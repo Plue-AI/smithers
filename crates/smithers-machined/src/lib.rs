@@ -55,3 +55,4 @@ pub mod watcher_store;
 #[cfg(target_os = "linux")]
 pub mod installed;
 pub mod native_core;
+pub mod session_environment;

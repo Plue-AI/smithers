@@ -26,13 +26,6 @@ use std::{
     sync::{Arc, Mutex},
 };
 type Events = crate::event_service::Events<crate::git::Repository, crate::git::Repository>;
-fn hook(e: io::Error) -> hooks::Error {
-    hooks::Error {
-        code: 12,
-        detail: Some(e.to_string()),
-        ..hooks::Error::unsupported()
-    }
-}
 fn bytes(value: &str) -> Vec<u8> {
     let mut b = (value.len() as u16).to_be_bytes().to_vec();
     b.extend(value.as_bytes());

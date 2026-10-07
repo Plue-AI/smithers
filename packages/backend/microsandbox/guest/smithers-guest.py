@@ -254,10 +254,12 @@ def session_token_parent(session, expected, create):
         os.close(parent)
 
 
-def put_session_token(session, body, expected):
+def put_session_token(session, body, expected, user="agent", uid=None):
     """Compare and atomically replace one session's delegated credential."""
     body = session_token_body(body)
-    entry = assigned_identity("agent")
+    entry = assigned_identity(user)
+    if uid is not None and entry.pw_uid != uid:
+        fail(3, "session identity differs")
     with session_token_parent(session, expected, True) as parent:
         if expected == "absent":
             try:
@@ -291,8 +293,11 @@ def put_session_token(session, body, expected):
             os.close(directory)
 
 
-def delete_session_token(session, expected):
+def delete_session_token(session, expected, user="agent", uid=None):
     """Delete only the matching bearer; never unlink unrelated entries."""
+    entry = assigned_identity(user)
+    if uid is not None and entry.pw_uid != uid:
+        fail(3, "session identity differs")
     with session_token_parent(session, expected, False) as parent:
         if parent is None:
             return
@@ -304,13 +309,74 @@ def delete_session_token(session, expected):
             info = os.fstat(directory)
             if info.st_uid != 0 or info.st_mode & 0o022:
                 fail(3, "untrusted session token directory")
-            session_token_identity(directory, expected, assigned_identity("agent"))
+            session_token_identity(directory, expected, entry)
             if os.listdir(directory) != ["token"]:
                 fail(3, "unexpected session credential entries")
             os.unlink("token", dir_fd=directory)
         finally:
             os.close(directory)
         os.rmdir(session, dir_fd=parent)
+
+
+
+def session_binding_identity(user, uid):
+    if os.geteuid() != 0 or not re.fullmatch(r"[a-z0-9_-]{1,32}", user) or user in ("root", "machined"):
+        fail(3, "invalid session binding identity")
+    if not re.fullmatch(r"[0-9]{1,10}", uid):
+        fail(3, "invalid session binding uid")
+    uid = int(uid)
+    if not (uid == 19999 and user == "agent" or 20000 <= uid <= 2147483647 and user != "agent"):
+        fail(3, "invalid session binding uid")
+    entry = assigned_identity(user)
+    if entry.pw_uid != uid or entry.pw_gid != uid:
+        fail(3, "session binding identity differs")
+    return entry
+
+
+def put_session_binding(user, uid, body):
+    # Opaque branch environment bytes: root checks the envelope and inode only.
+    # The shipped session launcher parses contents after permanent identity drop.
+    if not body or len(body) > 256 * 1024:
+        fail(3, "invalid session binding size")
+    entry = session_binding_identity(user, uid)
+    parent = safe_directory("/run/smithers/admission", trusted=True)
+    name = "u" + str(entry.pw_uid)
+    try:
+        require_secret_tmpfs(parent)
+        fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=parent)
+        try:
+            os.fchown(fd, 0, entry.pw_gid)
+            os.fchmod(fd, 0o640)
+            with os.fdopen(fd, "wb", closefd=False) as handle:
+                handle.write(body)
+                handle.flush()
+                os.fsync(fd)
+        except BaseException:
+            os.unlink(name, dir_fd=parent)
+            raise
+        finally:
+            os.close(fd)
+    finally:
+        os.close(parent)
+
+
+def delete_session_binding(user, uid):
+    entry = session_binding_identity(user, uid)
+    try:
+        parent = safe_directory("/run/smithers/admission", trusted=True, create=False)
+    except FileNotFoundError:
+        return
+    try:
+        name = "u" + str(entry.pw_uid)
+        try:
+            info = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        except FileNotFoundError:
+            return
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != entry.pw_gid or stat.S_IMODE(info.st_mode) != 0o640 or info.st_nlink != 1:
+            fail(3, "untrusted session binding")
+        os.unlink(name, dir_fd=parent)
+    finally:
+        os.close(parent)
 
 
 def load_secret_environment():
@@ -2207,6 +2273,20 @@ def main(args):
     command = args[0]
     if command == "put-env" and len(args) == 1:
         put_secret_environment(sys.stdin.buffer.read(SECRET_ENV_LIMIT + 1))
+        return
+    if command == "put-session-binding" and len(args) == 3:
+        put_session_binding(args[1], args[2], sys.stdin.buffer.read(256 * 1024 + 1))
+        return
+    if command == "delete-session-binding" and len(args) == 3:
+        delete_session_binding(args[1], args[2])
+        return
+    if command == "put-member-token" and len(args) == 5:
+        entry = session_binding_identity(args[1], args[2])
+        put_session_token(args[3], sys.stdin.buffer.read(SESSION_TOKEN_LIMIT + 1), args[4], args[1], entry.pw_uid)
+        return
+    if command == "delete-member-token" and len(args) == 5:
+        entry = session_binding_identity(args[1], args[2])
+        delete_session_token(args[3], args[4], args[1], entry.pw_uid)
         return
     if command == "put-token" and len(args) == 3:
         put_session_token(args[1], sys.stdin.buffer.read(SESSION_TOKEN_LIMIT + 1), args[2])
