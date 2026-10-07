@@ -80,13 +80,18 @@ const holdsCacheWriteCredential = (job: CiJob): boolean =>
   (job.steps ?? []).some((step) => step.env?.SMITHERS_CACHE_WRITE_TOKEN === "${{ secrets.SMITHERS_CACHE_WRITE_TOKEN }}")
 
 const evidenceNames = ["ci-test-tier-evidence", "apps-e2e-artifacts"]
+// GithubCiGen's per-job results upload (#3663): only an upload-artifact step
+// named exactly this, whose artifact name is a smthrs-results-* name.
+const smthrsResults = (step: WorkflowStep): boolean =>
+  step.name === "Upload smthrs results" && step.run === undefined &&
+  /^actions\/upload-artifact@/.test(step.uses ?? "") && /^smthrs-results-/.test(String(step.with?.name ?? ""))
 const evidenceFinalizer = (step: WorkflowStep): boolean =>
-  step.if === "always()" && evidenceNames.some((name) =>
+  step.if === "always()" && (smthrsResults(step) || evidenceNames.some((name) =>
     step.name === `Collect ${name}`
       ? typeof step.run === "string" && step.uses === undefined
       : step.name === `Upload ${name}` && step.run === undefined &&
         /^actions\/upload-artifact@/.test(step.uses ?? "") && step.with?.name === name
-  )
+  ))
 
 /**
  * The guard GithubCiGen puts on every target step so a red gate does not skip
@@ -267,6 +272,9 @@ jobs:
       - name: Upload apps-e2e-artifacts
         if: always()
         run: bun test
+      - name: Upload smthrs results
+        if: always()
+        run: bun test
       - name: Collect ci-test-tier-evidence
         if: always()
         run: cp report.json evidence/
@@ -283,6 +291,7 @@ jobs:
       "checks: Build",
       "checks: Collect ci-test-tier-evidence",
       "checks: Upload apps-e2e-artifacts",
+      "checks: Upload smthrs results",
       "skipped: conditional job"
     ])
   })
