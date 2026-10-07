@@ -1865,6 +1865,15 @@ func (st *mythicalItemStep) commitWith(ctx context.Context, item db.MythicalItem
 	if flowID == flowdispatch.TodoFlow {
 		retained := make([]todoSteer, 0, len(launched.Steers))
 		for _, feedback := range launched.Steers {
+			if feedback.Author > 0 && feedback.GitHubAuthor == 0 && feedback.ReleasePending && feedback.Attempt <= item.Attempt {
+				active, err := currentTodoSteerCredential(ctx, tx, feedback)
+				if err != nil {
+					return db.MythicalItem{}, err
+				}
+				if !active {
+					return db.MythicalItem{}, mythicalFlowFailure{code: "steer_author_revoked"}
+				}
+			}
 			if feedback.GitHubAuthor > 0 && feedback.ReleasePending && feedback.Attempt <= item.Attempt {
 				active, err := currentGitHubFeedbackAuthor(ctx, tx, item.RepositoryID, feedback)
 				if err != nil {
