@@ -80,7 +80,7 @@ scenario = sys.argv[2]
 base = tempfile.mkdtemp()
 group = os.path.join(base, 'group')
 if scenario != 'missing':
-    os.mkdir(group)
+    os.mkdir(group, 0o700)
     with open(os.path.join(group, 'cgroup.kill'), 'w') as target:
         target.write('')
     with open(os.path.join(group, 'cgroup.events'), 'w') as target:
@@ -117,3 +117,39 @@ else:
         raise AssertionError('populated group was falsely confirmed')
     print('confirmed')
 `
+
+// Service callers must receive the same confirmed-cgroup receipt as commands.
+// A failed shutdown cannot be advertised as stopped or permit a restart.
+func TestStopServiceRequiresConfirmedTermination(t *testing.T) {
+	for _, exit := range []int{0, 7} {
+		t.Run(fmt.Sprintf("guest-exit-%d", exit), func(t *testing.T) {
+			marker := filepath.Join(t.TempDir(), "invocations")
+			binary := filepath.Join(t.TempDir(), "fake-msb")
+			require.NoError(t, os.WriteFile(binary, []byte(fmt.Sprintf("#!/bin/sh\nprintf x >> %q\nexit %d\n", marker, exit)), 0700))
+			done := make(chan struct{})
+			close(done)
+			runtime := &Runtime{cli: &cli{binary: binary, home: t.TempDir()}, workspaces: map[string]*workspace{}}
+			command := &guestCommand{runtime: runtime, machine: "fixture-machine", id: "fixture-service", cmd: &exec.Cmd{}, done: done, stdout: &limitedBuffer{}, stderr: &limitedBuffer{}}
+			service := &managedService{spec: workspaceapi.ServiceSpec{Name: "dev"}, command: command}
+			runtime.workspaces["branch"] = &workspace{services: map[string]*managedService{"dev": service}}
+			for attempt := 0; attempt < 2; attempt++ {
+				err := runtime.StopService(t.Context(), "branch", "dev")
+				if exit == 0 {
+					require.NoError(t, err)
+				} else {
+					require.ErrorIs(t, err, workspaceapi.ErrCommandTerminationUnconfirmed)
+				}
+				observation, err := runtime.InspectService(t.Context(), "branch", "dev")
+				require.NoError(t, err)
+				require.Equal(t, exit == 0, observation.State == workspaceapi.ServiceStopped)
+			}
+			if exit != 0 {
+				_, err := runtime.ManageService(t.Context(), "branch", "dev", "restart")
+				require.ErrorIs(t, err, workspaceapi.ErrCommandTerminationUnconfirmed)
+			}
+			calls, err := os.ReadFile(marker)
+			require.NoError(t, err)
+			require.Equal(t, "x", string(calls))
+		})
+	}
+}
