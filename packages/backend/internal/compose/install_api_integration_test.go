@@ -113,6 +113,8 @@ func TestInstallAPIHostUsesPublicRouterAndRevokesBearer(t *testing.T) {
 		cfg.Server.PublicURL = "http://localhost:4000"
 		cfg.Auth.Mode = "selfhost"
 		cfg.Auth.SessionCookieName = "session"
+		cfg.Server.PublicURL = "http://127.0.0.1:4000"
+		cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
 		auth := services.NewAuthService(q, cfg.Auth, nil, nil)
 		auth.Members = &services.Members{Pool: local.pool}
 		options.API = services.InstallAPI{Auth: auth}

@@ -63,6 +63,12 @@ func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 		_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,$3)`, repo.ID, u.ID, permission)
 		require.NoError(t, err)
 	}
+	cfg := testConfigAllFlagsOn()
+	cfg.Auth.Mode, cfg.Auth.SessionCookieName = "selfhost", "session"
+	cfg.Server.PublicURL = "http://example.com"
+	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
+	issuer := services.NewAuthService(q, cfg.Auth, nil, nil)
+	issuer.Members = &services.Members{Pool: pool}
 	infos := map[string]*middleware.AuthInfo{}
 	tokens, sessions := map[string]string{}, map[string]string{}
 	for _, label := range []string{"SO", "SM", "SE", "DO", "DM", "DE", "RO", "RX", "MO", "MX"} {
@@ -80,12 +86,21 @@ func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 			info.SessionHash = hex.EncodeToString(sum[:])
 			_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: users[i].ID, Username: users[i].Username, SessionKey: info.SessionHash, ExpiresAt: time.Now().Add(time.Hour)})
 			require.NoError(t, err)
+		} else if label[0] == 'D' {
+			credential, err := issuer.CreateToken(ctx, users[i].ID, services.CreateTokenRequest{Name: label, Via: "codex", Scopes: []string{"repo", "user"}})
+			require.NoError(t, err)
+			row, err := q.GetAccessTokenByID(ctx, credential.ID)
+			require.NoError(t, err)
+			require.True(t, row.SystemIssued)
+			require.Contains(t, row.Scopes, "via:codex")
+			require.WithinDuration(t, time.Now().Add(30*24*time.Hour), row.ExpiresAt.Time, time.Second)
+			info.IsTokenAuth, info.TokenSystemIssued = true, row.SystemIssued
+			info.TokenID, info.TokenHash, info.RawScopes = row.ID, row.TokenHash, row.Scopes
+			info.Scopes = middleware.ParseTokenScopes(row.Scopes)
+			tokens[label] = credential.Token
 		} else {
 			info.IsTokenAuth, info.TokenSystemIssued = true, true
 			info.RawScopes = "repo,user"
-			if label[0] == 'D' {
-				info.RawScopes += ",via:codex"
-			}
 			if label[0] == 'M' {
 				info.RawScopes += ",workspace:approved-own-branch"
 			}
@@ -99,10 +114,6 @@ func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 		}
 		infos[label] = info
 	}
-	cfg := testConfigAllFlagsOn()
-	cfg.Auth.Mode, cfg.Auth.SessionCookieName = "selfhost", "session"
-	cfg.Server.PublicURL = "http://example.com"
-	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
 	todos := services.NewMythicalService(pool, nil)
 	router := githubAppSetupComposeRouter(cfg, pool, nil, routerExtras{Mythical: &routes.MythicalHandler{Service: todos}})
 	aliases := map[string]string{"install.setup-step": "settings.setup", "secrets.names": "secrets.read", "ssh.copy": "ssh", "confirmation.list": "confirmations.read", "flow.source-coedit": "flow.source"}
