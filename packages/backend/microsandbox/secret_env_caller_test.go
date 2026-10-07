@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
@@ -49,7 +50,9 @@ func TestSecretEnvCallerRejectsBeforeGuestEffects(t *testing.T) {
 		many["A"+strings.Repeat("a", i)] = "v"
 	}
 	require.Error(t, (&Runtime{}).putSecretEnvironment(t.Context(), "machine", many))
-	require.Error(t, (&Runtime{}).putSecretEnvironment(t.Context(), "", nil))
+	for _, machine := range []string{"", "--host-option", "machine/other", "machine\x00", "machine with space", strings.Repeat("m", 129)} {
+		require.Error(t, (&Runtime{}).putSecretEnvironment(t.Context(), machine, nil))
+	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	require.ErrorIs(t, (&Runtime{}).putSecretEnvironment(ctx, "machine", nil), context.Canceled)
@@ -90,4 +93,23 @@ print(os.environ['CANARY_TOKEN'])`}})
 	require.NoError(t, err)
 	require.Equal(t, 1, result.ExitCode)
 	require.Empty(t, result.Stdout)
+}
+
+func TestSecretEnvCallerFailureKeepsValuesOutOfDiagnostics(t *testing.T) {
+	runtime, _, _ := egressFakeMSB(t, nil)
+	require.NoError(t, os.WriteFile(runtime.cli.binary, []byte("#!/bin/sh\ncat >&2\nexit 1\n"), 0700))
+	const sentinel = "private-echoed-secret-value"
+	err := runtime.putSecretEnvironment(t.Context(), "machine", map[string]string{"CANARY_TOKEN": sentinel})
+	require.ErrorIs(t, err, ErrUnavailable)
+	require.NotContains(t, err.Error(), sentinel)
+	require.NotContains(t, err.Error(), "CANARY_TOKEN")
+}
+
+func TestSecretEnvCallerCancellationStopsTransport(t *testing.T) {
+	runtime, _, _ := egressFakeMSB(t, nil)
+	require.NoError(t, os.WriteFile(runtime.cli.binary, []byte("#!/bin/sh\nexec /bin/sleep 30\n"), 0700))
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	err := runtime.putSecretEnvironment(ctx, "machine", map[string]string{"CANARY_TOKEN": "value"})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
