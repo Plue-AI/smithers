@@ -13,6 +13,7 @@ import { ControllerTestProvider } from "../ControllerContext"
 import type { AppController } from "../state/AppController"
 import { BEN, createDesignWorld } from "../state/seams/DesignWorld"
 import { createRoot } from "./views/testDom"
+import { LiveChannel, type LiveSocket } from "../runtime/LiveChannel"
 
 const mount = (model: TodoCard, role: "owner" | "maintainer" | "member" = "maintainer", answerDraft?: string, availableActions?: readonly CatalogTag[]) => {
   let props!: TodoViewProps
@@ -410,4 +411,75 @@ test("a branch wait preserves Resume for a paused run and a question refuses Sto
   const mixed = mount({ ...fixtures.foreign_push.model, waits: [...fixtures.foreign_push.model.waits, ...fixtures.needs_you.model.waits] })
   expect(mixed.props.actions.some(action => action.tag === "todo.stop")).toBe(false)
   expect(mixed.props.model.waits).toHaveLength(2)
+})
+
+const NO_INSTALL = {}
+test("a served conflict binds the viewer's branch terminal, the branch SSH line and Done; without an own terminal it opens one", async () => {
+  const frames: Array<{ t: string; id: number; topic?: string }> = []
+  const socket: LiveSocket = { readyState: 1, onopen: null, onclose: null, onmessage: null,
+    send: frame => { if (typeof frame === "string") frames.push(JSON.parse(frame)) }, close: () => {} }
+  const live = new LiveChannel({ socket: () => socket })
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const design = createDesignWorld({ timers: { set: () => 0, clear: () => {} }, viewer: BEN })
+  const submitted: unknown[] = [], inputs: string[] = [], attached: string[] = []
+  const controller = { design, store, live, installSnapshots: { get: () => NO_INSTALL, subscribe: () => () => {} },
+    terminalCards: { repo: "o/r", viewer: () => "ben", available: () => true, branch: () => undefined },
+    openBranchTerminal: async () => ({ value: "Requested" }),
+    runCommand: (name: string, args?: string, origin?: string) => { submitted.push({ run: name, args, origin }); return true },
+    // Byte transport double: this laptop has no machine runtime. Live decoding, binding and the xterm adapter are production code.
+    cloudTerminal: { attach: (_repo: string, id: string, attachment: { onOutput: (bytes: string) => void }) => { attached.push(id); attachment.onOutput("$ "); return () => {} },
+      input: (_id: string, bytes: string) => inputs.push(bytes), resize: () => {} },
+    requestFlowConfirmation: () => { throw new Error("no confirmation") },
+    commands: { submit: (submission: { name: string; payload: unknown }) => { submitted.push({ name: submission.name, payload: submission.payload }); return Promise.resolve({ status: "executed" }) } } }
+  const { ssh_line: _, ...wait } = fixtures.conflict.model.waits[0]!
+  const model: TodoCard = { ...fixtures.conflict.model, waits: [{ ...wait, actions: [{ tag: "todo.answer", label: "Done", args: { answer: "done" } }] }] }
+  const card = { id: "todo:12", kind: "todo", title: model.title, status: "active", createdAt: 1, ordinal: 1, payload: { n: 12, model, requests: [] } } as unknown as Parameters<typeof todoCardFamily.todo.render>[0]
+  const ben = { kind: "person", login: "ben", name: "Ben", avatar_url: "https://github.com/ben.png", color_index: 0 }
+  const host = document.body.appendChild(document.createElement("div")), root = createRoot(host)
+  let cursor = 0
+  const snapshot = async (owner: typeof ben) => {
+    const sub = frames.find(frame => frame.t === "sub" && frame.topic === "branch:todo-12")!
+    expect(sub).toBeDefined()
+    await act(async () => socket.onmessage?.({ data: JSON.stringify({ t: "snap", id: sub.id, cursor: ++cursor, data: { id: "todo-12", ssh_line: "ssh -p 2222 todo/12@mac-mini.local",
+      terminals: [{ id: `t-${owner.login}`, title: "Shell", owner, agents: [], watchers: [], frozen: false }] } }) }))
+  }
+  try {
+    await act(async () => root.render(<ControllerTestProvider controller={controller as unknown as AppController}>{todoCardFamily.todo.render(card, { presentation: "embedded" } as never)}</ControllerTestProvider>))
+    expect(host.querySelector(".todo-conflict-terminal")).toBeNull()
+    socket.onopen?.()
+    await snapshot(ben)
+    const deadline = Date.now() + 4000
+    while (!host.querySelector(".todo-conflict-terminal .xterm-helper-textarea") && Date.now() < deadline) await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)) })
+    const field = host.querySelector<HTMLTextAreaElement>(".todo-conflict-terminal .xterm-helper-textarea")!
+    expect(field).not.toBeNull()
+    expect(attached).toEqual(["t-ben"])
+    await act(async () => field.dispatchEvent(new KeyboardEvent("keypress", { key: "a", charCode: 97, keyCode: 97, bubbles: true })))
+    expect(inputs).toEqual(["a"])
+    expect([...host.querySelectorAll(".todo-wait code")].map(code => code.textContent)).toEqual(["packages/rpc/src/TodoCard.ts", "packages/rpc/src/CardPrimitives.ts", "ssh -p 2222 todo/12@mac-mini.local"])
+    await act(async () => host.querySelector<HTMLButtonElement>('.todo-wait [data-flow="todo.answer"]')!.click())
+    expect(submitted).toEqual([{ name: "todo.answer", payload: { n: 12, wait: "wait-conflict-1", answer: "done" } }])
+    // Another member's terminal is not the viewer's: the slot opens the viewer's own on the TODO's branch.
+    await snapshot({ ...ben, login: "alice", name: "Alice" })
+    expect(host.querySelector(".todo-conflict-terminal .xterm-helper-textarea")).toBeNull()
+    await act(async () => host.querySelector<HTMLButtonElement>('.todo-conflict-terminal [data-flow="terminal"]')!.click())
+    expect(submitted.at(-1)).toEqual({ run: "terminal", args: "todo/12", origin: "todo:12" })
+  } finally { await act(async () => root.unmount()); host.remove(); live.dispose() }
+})
+
+test("a served Bring in asks for confirmation with its bound revision; a member never gets Discard", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const design = createDesignWorld({ timers: { set: () => 0, clear: () => {} }, viewer: BEN })
+  const confirmations: unknown[] = []
+  const controller = { design, store, installSnapshots: { get: () => NO_INSTALL, subscribe: () => () => {} },
+    requestFlowConfirmation: (...args: unknown[]) => confirmations.push(args),
+    commands: { submit: () => { throw new Error("Bring in needs confirmation") } } }
+  const model = fixtures.foreign_push.model, wait = model.waits[0]!
+  const card = { id: "todo:12", kind: "todo", title: model.title, status: "active", createdAt: 1, ordinal: 1, payload: { n: 12, model, requests: [] } } as unknown as Parameters<typeof todoCardFamily.todo.render>[0]
+  const host = document.body.appendChild(document.createElement("div")), root = createRoot(host)
+  try {
+    await act(async () => root.render(<ControllerTestProvider controller={controller as unknown as AppController}>{todoCardFamily.todo.render(card, { presentation: "embedded" } as never)}</ControllerTestProvider>))
+    expect([...host.querySelectorAll(".todo-wait button")].map(button => button.textContent)).toEqual(["Bring in"])
+    await act(async () => host.querySelector<HTMLButtonElement>('.todo-wait [data-flow="branch.bring-in"]')!.click())
+    expect(confirmations).toEqual([["branch.bring-in", JSON.stringify({ branch: "todo/12", id: wait.id, revision: wait.sha }), "bring in this outside push", "Bring in this outside push?"]])
+  } finally { await act(async () => root.unmount()); host.remove() }
 })

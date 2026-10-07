@@ -1,4 +1,4 @@
-import { useCallback, useSyncExternalStore, type ComponentType, type ReactNode } from "react"
+import { useCallback, useMemo, useSyncExternalStore, type ComponentType, type ReactNode } from "react"
 import { MembersCardSchema } from "@smthrs/rpc/MembersCard"
 import { useTopic } from "../state/useTopic"
 import type { MembersSnapshots } from "../state/seams/MembersSeam"
@@ -10,11 +10,13 @@ import type { CardProps, CatalogTag } from "@smthrs/rpc/CardAction"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
 import { flowArgs, type FlowInput } from "../flows/FlowArgs"
 import type { TodoEntry } from "../state/seams/TodoSeam"
+import { createTerminalBinding, terminalModel } from "../state/seams/TerminalSeam"
 import { useController } from "../ControllerContext"
 import { useDesignTodoCard } from "../state/seams/DesignWorld/todo"
 import type { CardFamily, CardOf } from "./CardFamily"
 import { TodoView } from "./views/TodoView"
 import { LessonsReceiptContainer } from "./LessonsReceiptContainer"
+import { terminalSlot } from "./TerminalCard"
 
 export interface TodoViewProps extends CardProps<TodoCard> {
   readonly answer?: { readonly text: string; readonly answered_by: string }
@@ -171,14 +173,45 @@ export const TodoContainer =({ card, role, dispatch, View, view, onView, availab
   </>
 }
 
+/**
+ * The S1 conflict view (§10.5.4, §14.2.2b) over the composed `branch:<id>` topic: the viewer's own terminal on the
+ * TODO's branch, else Terminal to open one, and the branch's SSH line. Without the live topic, terminal source and
+ * byte client the wait keeps only its paths and served actions.
+ */
+const useConflictView = (model: TodoCard | undefined, originCardId: string): { readonly terminal?: ReactNode; readonly sshLine?: string } => {
+  const controller = useController()
+  const source = controller.terminalCards
+  const branch = model?.waits.some(wait => wait.kind === "conflict") ? model.branch : undefined
+  const topic = branch && controller.live ? `branch:${branch.id}` : undefined
+  const snapshot = useTopic(topic, controller.live)
+  const data = topic && snapshot && !snapshot.error ? snapshot.data as { readonly terminals?: unknown; readonly ssh_line?: unknown } | undefined : undefined
+  const viewer = source?.available() ? source.viewer() : undefined
+  const ids = Array.isArray(data?.terminals) ? data.terminals.flatMap((row: { id?: unknown } | null) => typeof row?.id === "string" ? [row.id] : []) : []
+  const own = branch && viewer ? ids.find(id => terminalModel(data, branch.id, id, viewer)?.viewer_is_owner) : undefined
+  const branchId = branch?.id
+  const binding = useMemo(() => source && branchId && own && controller.live ? createTerminalBinding({
+    repo: source.repo, branch: branchId, id: own, client: controller.cloudTerminal, viewer: source.viewer, available: source.available,
+    metadata: () => { const current = controller.live!.getSnapshot(`branch:${branchId}`); return current?.error ? undefined : current?.data }
+  }) : undefined, [source, branchId, own, controller])
+  if (!branch || !data) return {}
+  const sshLine = typeof data.ssh_line === "string" && data.ssh_line ? data.ssh_line : undefined
+  const terminal = binding?.model()
+  if (terminal && binding) return { sshLine, terminal: terminalSlot(terminal, binding.stream, binding.input, binding.resize) }
+  if (!viewer || !controller.openBranchTerminal) return { sshLine }
+  return { sshLine, terminal: <button type="button" data-flow="terminal"
+    onClick={() => controller.runCommand("terminal", branch.name, originCardId)}>Terminal</button> }
+}
+
 /** The `todo` kind: the seeded design world's Tn while the seed is mounted (mock seam), else the server projection. */
 const TodoBody = ({ card, maximized }: { readonly card: CardOf<"todo">; readonly maximized: boolean }) => {
   const controller = useController()
   const seed = useDesignTodoCard(card.payload.n)
   const seeded = card.payload.model || card.payload.requests.length > 0 ? undefined : seed
   const role = useTodoRole()
+  const conflict = useConflictView(seeded === undefined ? card.payload.model : undefined, card.id)
   const dispatch: CardCommandDispatch = (tag, input) => {
     const payload = (input ?? {}) as Record<string, unknown>
+    if (tag === "branch.bring-in") return controller.requestFlowConfirmation(tag, flowArgs(tag, payload as FlowInput["branch.bring-in"]), "bring in this outside push", "Bring in this outside push?")
     if (tag === "branch.discard-foreign") return controller.requestFlowConfirmation(tag, flowArgs(tag, payload as FlowInput["branch.discard-foreign"]), "discard this outside push", "Discard this outside push?")
     if (tag === "todo.drop") return controller.requestFlowConfirmation(tag, flowArgs("todo.drop", { n: card.payload.n }), "drop this TODO", `Drop T${card.payload.n}?`)
     if ((tag === "todo.steer" || tag === "todo.amend") && !payload.text) {
@@ -187,14 +220,16 @@ const TodoBody = ({ card, maximized }: { readonly card: CardOf<"todo">; readonly
     }
     return controller.commands.submit({ name: tag, payload, actor: "user", originCardId: card.id })
   }
-  const entry: TodoEntry = seeded === undefined ? card : { ...card, payload: { ...card.payload, model: seeded.model } }
-  return <TodoContainer card={entry} role={seeded?.role ?? role} dispatch={dispatch} View={TodoView}
+  const served = card.payload.model && conflict.sshLine ? { ...card.payload.model, waits: card.payload.model.waits.map(wait =>
+    wait.kind === "conflict" && !wait.ssh_line ? { ...wait, ssh_line: conflict.sshLine } : wait) } : card.payload.model
+  const entry: TodoEntry = seeded === undefined ? { ...card, payload: { ...card.payload, model: served } } : { ...card, payload: { ...card.payload, model: seeded.model } }
+  return <TodoContainer card={entry} role={seeded?.role ?? role} dispatch={dispatch} View={TodoView} conflictTerminal={seeded ? undefined : conflict.terminal}
     view={{ maximized }} onView={() => {}} availableActions={seeded ? undefined : [...servedTodoActions, ...(controller.openBranch ? ["branch" as const] : []), ...(controller.forkBranch ? ["branch.fork" as const] : [])]} />
 }
-// POST/PATCH /api/todos/{n}, question answer and merge are composed on the install.
-// Branch navigation is supplied when its install provider is composed.
-// Bring in and conflict repair/terminal providers remain gated until their composition lands.
-const servedTodoActions: readonly CatalogTag[] = ["run.inspect", "todo.stop", "todo.resume", "todo.answer", "todo.steer", "todo.amend", "todo.drop", "todo.retry", "todo.retry-current-flow", "todo.takeover", "image.add", "merge", "branch.discard-foreign", "todo.preapprove", "todo.unapprove"]
+// POST/PATCH /api/todos/{n}, question and conflict answers (Done) and merge are composed on the install.
+// Branch navigation is supplied when its install provider is composed. The server serves Done and Bring in
+// on a wait only once their validator and checkpoint providers are composed; the card binds what it serves.
+const servedTodoActions: readonly CatalogTag[] = ["run.inspect", "todo.stop", "todo.resume", "todo.answer", "todo.steer", "todo.amend", "todo.drop", "todo.retry", "todo.retry-current-flow", "todo.takeover", "image.add", "merge", "branch.bring-in", "branch.discard-foreign", "todo.preapprove", "todo.unapprove"]
 
 export const todoCardFamily: CardFamily<"todo"> = {
   todo: { render: (card, { presentation }) => <TodoBody card={card} maximized={presentation === "maximized"} />, pill: () => "" }

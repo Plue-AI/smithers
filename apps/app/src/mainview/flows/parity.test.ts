@@ -1435,6 +1435,7 @@ describe("launch-law parity: every affordance is a command", () => {
        * registered schedule's Run now and Pause, the button doors of
        * triggers.run and triggers.pause.
        */
+      "../cards/TodoCard.tsx": 1, // The conflict view's Terminal opens the viewer's own terminal on the TODO's branch (/terminal).
       "../cards/TriggersCard.tsx": 4, // -1: a failed pause's Retry (triggers.pause) is a FailureNotice action.
       /* Librarian L5: the rail card's Open and note rows (wiki.open) and the graph card's Refresh (wiki.graph). */
       "../cards/WikiCards.tsx": 5, // + the history card's Previous/Next page (wiki.history).
