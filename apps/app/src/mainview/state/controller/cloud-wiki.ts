@@ -497,12 +497,26 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     return "value" in outcome ? outcome : "superseded" in outcome ? outcome.superseded : outcome.refusal
   }
 
-  // A command can read the real page while document transport is unavailable,
-  // but must not create a new draft or transmit through the retired protocol.
+  // S2 edits use the existing revision guard. The live provider remains dark
+  // until its authority, recovery and transport are composed.
   const prepareCloudWiki = (_id: string, _body: string): PreparedWikiEdit | undefined => undefined
-  const editCloudWiki = async (id: string, _body: string): Promise<string | void> => {
-    if (shared.read(id) === undefined) return "This Wiki page is no longer available."
-    return "Live Wiki editing is unavailable."
+  const editCloudWiki = async (id: string, body: string): Promise<string | void> => {
+    const document = shared.read(id)
+    if (document === undefined) return "This Wiki page is no longer available."
+    const owner = shared.login()
+    const branch = shared.branch()
+    if (owner === null || document.cloud.accountLogin !== owner || document.cloud.branchId !== branch || document.cloud.pending.length > 0 || document.cloud.phase !== "cached")
+      return "Refresh this Wiki page before editing it. Its recorded text has been preserved."
+    const actor = ctx.commandActor
+    const valid = () => !shared.disposed() && shared.login() === owner && shared.branch() === branch
+    return shared.run(Effect.gen(function*() {
+      const api = yield* CloudWikiTransport
+      yield* api.patch(document.cloud.repo, spaceOf(document.cloud), document.cloud.slug, { body, expected_revision: document.cloud.remoteRevision })
+      if (!valid()) return "The account or conversation changed while the Wiki was saving."
+      const incoming = yield* api.read(document.cloud.repo, document.cloud.slug, spaceOf(document.cloud))
+      if (!valid()) return "The account or conversation changed while the Wiki was saving."
+      yield* shared.accept(document.cloud.repo, incoming, owner, branch, actor)
+    }).pipe(Effect.catch((error: CloudWikiError) => Effect.succeed(error.sentence))))
   }
   const retryCloudWiki = async (id: string): Promise<string | void | { value: string }> => {
     const document = shared.read(id)
