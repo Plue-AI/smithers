@@ -97,6 +97,7 @@ type rehearsal struct {
 	root           string
 	evidence       string
 	pool           *pgxpool.Pool
+	processRuntime *process.Runtime
 	repoClient     *repository.Client
 	fake           *githubfake.Server
 	compute        *sandboxfake.Provider
@@ -315,6 +316,7 @@ path = "lib.rs"
 	require.NoError(t, err, string(output))
 	processRuntime, err := process.New(process.Config{Root: processRoot})
 	require.NoError(t, err)
+	r.processRuntime = processRuntime
 	t.Cleanup(func() { require.NoError(t, processRuntime.Close()) })
 	admittedRuntime := &rehearsalAdmissionRuntime{Runtime: processRuntime, aliases: map[string]string{}}
 	var workspace workspaceapi.WorkspaceRuntime = admittedRuntime
