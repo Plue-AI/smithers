@@ -6,6 +6,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
@@ -65,9 +66,20 @@ func machineBranchHead(pool *pgxpool.Pool, host *repohost.Client) func(context.C
 		defer tx.Rollback(ctx)
 		var head string
 		err = withMachineRepositoryTx(ctx, tx, branch, host, func(path string) error {
-			objects := machined.GitCaptureObjects{Resolve: func(context.Context, string) (string, error) { return path, nil }}
+			row, err := db.New(tx).GetWorkspace(ctx, branch)
+			if err != nil {
+				return err
+			}
+			if row.HeadPushTokenID.Valid {
+				return machined.ErrNotReady
+			}
+			seed := row.HeadCommitID
+			if seed == "" {
+				seed = row.SourceCommit
+			}
+			objects := machined.HostObjects{Visit: func(ctx context.Context, _ string, visit func(string) error) error { return visit(path) }}
 			var readErr error
-			head, readErr = objects.BranchHead(ctx, branch)
+			head, readErr = objects.Head(ctx, branch, seed)
 			return readErr
 		})
 		return head, err
