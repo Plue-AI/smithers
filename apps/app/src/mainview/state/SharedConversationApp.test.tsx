@@ -1,3 +1,4 @@
+import { SharedConversationSchema } from "./seams/SharedConversationSeam"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { afterAll, expect, test } from "bun:test"
 import { flushSync } from "react-dom"
