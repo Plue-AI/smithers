@@ -49,6 +49,7 @@ export const CATALOG_TAGS = [
   "issue.comment",
   "wiki",
   "wiki.page",
+  "wiki.delete",
   "wiki.save",
   "flows",
   "flow",
