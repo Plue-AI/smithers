@@ -18,6 +18,7 @@ import (
 type FlowsHandler struct {
 	Queries   *db.Queries
 	Proposals services.FlowProposalReader
+	Runs      *services.InstallFlowRuns
 }
 
 // List answers overridable flows and measured refusals of repository files

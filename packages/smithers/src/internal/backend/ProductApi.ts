@@ -707,6 +707,25 @@ export type ExternalSessionRead = {
   eof: boolean
 }
 
+export type NamedFlowRunRequest = {
+  name?: string
+  workspaceId: string
+  input?: Record<string, unknown>
+}
+
+export type FlowRunRequest = NamedFlowRunRequest & Record<string, unknown>
+
+export type FlowRunReceipt = {
+  operationId: string
+  requestId: string
+  kind: "requested"
+  state: "accepted" | "dispatching" | "running" | "waiting" | "completed" | "failed" | "cancelled" | "uncertain"
+  acceptedAt: string
+  runId?: string
+  code?: string
+  class?: string
+}
+
 export type FlowCard = {
   name: string
   source: {
@@ -1817,6 +1836,19 @@ export type GetApiFlowsResponse = Array<FlowCard>
 export const getApiFlows = (transport: Transport): Promise<GetApiFlowsResponse> =>
   transport.request("GET", `/api/flows`) as Promise<GetApiFlowsResponse>
 
+export type PostApiFlowsBody = FlowRunRequest
+
+export type PostApiFlowsResponse = FlowRunReceipt
+
+export interface PostApiFlowsInput {
+  readonly headers: { readonly "Idempotency-Key": string }
+  readonly body: PostApiFlowsBody
+}
+
+/** POST /api/flows: Request a flow run on a branch machine */
+export const postApiFlows = (transport: Transport, input: PostApiFlowsInput): Promise<PostApiFlowsResponse> =>
+  transport.request("POST", `/api/flows`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiFlowsResponse>
+
 export type GetApiFlowsNameResponse = FlowCard
 
 export interface GetApiFlowsNameInput {
@@ -1826,6 +1858,30 @@ export interface GetApiFlowsNameInput {
 /** GET /api/flows/{name}: Read one flow */
 export const getApiFlowsName = (transport: Transport, input: GetApiFlowsNameInput): Promise<GetApiFlowsNameResponse> =>
   transport.request("GET", `/api/flows/${segment(input.path.name)}`) as Promise<GetApiFlowsNameResponse>
+
+export type PostApiFlowsNameRunBody = NamedFlowRunRequest
+
+export type PostApiFlowsNameRunResponse = FlowRunReceipt
+
+export interface PostApiFlowsNameRunInput {
+  readonly path: { readonly name: string }
+  readonly headers: { readonly "Idempotency-Key": string }
+  readonly body: PostApiFlowsNameRunBody
+}
+
+/** POST /api/flows/{name}/run: Request a flow run on a branch machine */
+export const postApiFlowsNameRun = (transport: Transport, input: PostApiFlowsNameRunInput): Promise<PostApiFlowsNameRunResponse> =>
+  transport.request("POST", `/api/flows/${segment(input.path.name)}/run`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiFlowsNameRunResponse>
+
+export type GetApiFlowsRunsIdResponse = FlowRunReceipt
+
+export interface GetApiFlowsRunsIdInput {
+  readonly path: { readonly id: string }
+}
+
+/** GET /api/flows/runs/{id}: Read the requesting person's flow run status */
+export const getApiFlowsRunsId = (transport: Transport, input: GetApiFlowsRunsIdInput): Promise<GetApiFlowsRunsIdResponse> =>
+  transport.request("GET", `/api/flows/runs/${segment(input.path.id)}`) as Promise<GetApiFlowsRunsIdResponse>
 
 export type PostApiGatewaysHostFileWriteGrantsBody = {
   run_id: string
