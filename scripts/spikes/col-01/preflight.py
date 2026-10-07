@@ -25,7 +25,7 @@ def verify(root):
         raise ValueError('unreviewed root/toolchain input: ' + ', '.join(overrides))
     if os.geteuid() == 0:
         raise ValueError('host measurement must run as non-root')
-    directory = 'packages/backend/microsandbox'
+    directory = 'packages/backend'
     entries = git('ls-tree', '-r', '-z', approved, '--', directory).split(b'\0')
     expected = {}
     for entry in filter(None, entries):
@@ -34,9 +34,18 @@ def verify(root):
         if measurement_only(name):
             continue
         mode, kind, blob = metadata.decode().split()
-        if mode != '100644' or kind != 'blob':
+        if mode not in ['100644', '100755'] or kind != 'blob':
             raise ValueError('unreviewed runtime input type: ' + name)
         expected[name] = blob
+    for entry in filter(None, git('ls-tree', '-r', '-z', approved, '--',
+                                  'go.mod', 'go.sum', 'go.work', 'go.work.sum',
+                                  'rust-toolchain.toml', '.cargo/config.toml',
+                                  'package.json', 'pnpm-lock.yaml', '.npmrc').split(b'\0')):
+        metadata, path = entry.split(b'\t', 1)
+        mode, kind, blob = metadata.decode().split()
+        if mode not in ['100644', '100755'] or kind != 'blob':
+            raise ValueError('unreviewed build input type: ' + path.decode())
+        expected[path.decode()] = blob
     if not expected:
         raise ValueError('main-pinned runtime inventory missing')
     for name, blob in expected.items():

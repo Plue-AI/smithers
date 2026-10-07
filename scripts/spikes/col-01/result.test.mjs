@@ -6,12 +6,13 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 async function followup(dir) {
-  await writeFile(join(dir, 'growth-summary.json'), JSON.stringify({ uid: 19999, captures: 1000, versions: { n: 100, p50_ns: 1, p95_ns: 2, p99_ns: 3 }, projected_14_day_bytes: 1000, growth_budget_passed: true, reclaimed_bytes: 42 }));
+  await writeFile(join(dir, 'growth-summary.json'), JSON.stringify({ uid: 19999, captures: 1000, cycles: [1,2,3].map(cycle => ({cycle, captures:5760, before_cleanup:{'.jj':1000,'.git':0}, after_cleanup:{'.jj':500,'.git':0}})), versions: { n: 100, p50_ns: 1, p95_ns: 2, p99_ns: 3 }, projected_14_day_bytes: 1000, growth_budget_passed: true, reclaimed_bytes: 42 }));
   await writeFile(join(dir, 'kernel-probes.json'), JSON.stringify({ uid: 19999, complete: true, probes: Object.fromEntries(['renameat2_exchange', 'renameat2_noreplace', 'openat2_beneath', 'cgroup.freeze', 'cgroup.kill'].map(name => [name, { yes: false }])) }));
   for (const [file, count] of [['growth-samples.csv', 1000], ['versions-samples.csv', 100]]) {
     await writeFile(join(dir, file), 'seq,value\n' + Array.from({ length: count }, (_, i) => `${i + 1},1`).join('\n') + '\n');
   }
-  for (const file of ['growth-abandon.log', 'growth-gc.log']) await writeFile(join(dir, file), '');
+  await writeFile(join(dir, 'growth-cycles.csv'), 'cycle,capture,time,snapshot_ns,jj_bytes,git_bytes\n' + Array.from({length:17280}, (_,i) => `${Math.floor(i/5760)+1},${i%5760+1},${1+i*5},1,1000,0`).join('\n') + '\n');
+  for (const file of ['growth-abandon.log', 'growth-gc.log', 'growth-operations-1.log', 'growth-operations-2.log', 'growth-operations-3.log']) await writeFile(join(dir, file), '');
 }
 async function snapshot(dir) {
   const cells = ['idle', 'busy'].flatMap(load => [0, 1, 12, 200].map(changed_files => ({ load, changed_files, stats: { n: 100, p50_ns: 1, p95_ns: 2, p99_ns: 3 } })));
@@ -67,15 +68,17 @@ for (const [name, n, verified, status] of [['complete', 100, true, 0], ['short',
   });
 }
 
-for (const scenario of ['missing', 'blocked', 'short', 'budget', 'stale-gate']) {
+for (const scenario of ['missing', 'blocked', 'short', 'budget', 'stale-gate', 'one-shot', 'cycle-short', 'cycle-order']) {
   test(`snapshot report rejects ${scenario} follow-up evidence`, async () => {
     const dir = await mkdtemp(join(tmpdir(), 'col11-result-'));
     try {
       await snapshot(dir);
       if (scenario !== 'missing') await followup(dir);
+      if (scenario === 'one-shot') await writeFile(join(dir, 'growth-summary.json'), JSON.stringify({uid:19999,captures:1000,versions:{n:100,p95_ns:2},projected_14_day_bytes:1000,growth_budget_passed:true}));
+      if (scenario === 'cycle-short' || scenario === 'cycle-order') await writeFile(join(dir, 'growth-cycles.csv'), 'cycle,capture,time,snapshot_ns,jj_bytes,git_bytes\n' + Array.from({length:scenario === 'cycle-short' ? 17279 : 17280}, (_,i) => `${Math.floor(i/5760)+1},${scenario === 'cycle-order' ? 1 : i%5760+1},${1+i*5},1,1000,0`).join('\n') + '\n');
       if (scenario === 'blocked') await writeFile(join(dir, 'kernel-probes.json'), JSON.stringify({ uid: 19999, complete: false, probes: { 'cgroup.kill': { status: 'blocked' } } }));
       if (scenario === 'short') await writeFile(join(dir, 'growth-samples.csv'), 'seq,value\n1,1\n');
-      if (scenario === 'budget' || scenario === 'stale-gate') await writeFile(join(dir, 'growth-summary.json'), JSON.stringify({ uid: 19999, captures: 1000, versions: { n: 100, p95_ns: 2 }, projected_14_day_bytes: 2147483648, growth_budget_passed: scenario === 'stale-gate' }));
+      if (scenario === 'budget' || scenario === 'stale-gate') await writeFile(join(dir, 'growth-summary.json'), JSON.stringify({ uid: 19999, captures: 1000, cycles: [1,2,3].map(cycle => ({cycle, captures:5760, before_cleanup:{'.jj':1000,'.git':0}, after_cleanup:{'.jj':500,'.git':0}})), versions: { n: 100, p95_ns: 2 }, projected_14_day_bytes: 2147483648, growth_budget_passed: scenario === 'stale-gate' }));
       const result = spawnSync(process.execPath, ['scripts/spikes/col-01/result.mjs', dir, dir, dir, 'snapshot'], { encoding: 'utf8' });
       assert.equal(result.status, 2, result.stderr);
       assert.match(result.stdout, /growth|kernel/);

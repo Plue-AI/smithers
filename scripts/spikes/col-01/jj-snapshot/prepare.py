@@ -4,12 +4,18 @@ import base64
 import hashlib
 import json
 import os
+import platform
 from pathlib import Path
 import subprocess
 import sys
 import tarfile
 import urllib.request
 
+if os.geteuid() != 19999 or platform.system() != 'Linux':
+    raise ValueError('preparation requires Linux guest agent uid 19999')
+store_only = len(sys.argv) == 3 and sys.argv[2] == '--store-only'
+if len(sys.argv) not in [2, 3] or len(sys.argv) == 3 and not store_only:
+    raise ValueError('invalid preparation arguments')
 root = Path('/workspace')
 proxy = sys.argv[1]
 opener = urllib.request.build_opener(urllib.request.ProxyHandler({'https': proxy}))
@@ -26,14 +32,16 @@ def download(url, destination, algorithm, expected):
 
 
 store_archive = root / 'snapshot-store.tar'
-if not store_archive.is_file():
+if not store_only and not store_archive.is_file():
     raise RuntimeError('snapshot blocked: complete Linux ARM64 pnpm store archive required')
 store = root / 'snapshot-store'
 store.mkdir()
-with tarfile.open(store_archive) as archive:
-    archive.extractall(store, filter='data')
-store_digest = hashlib.sha256(store_archive.read_bytes()).hexdigest()
-store_archive.unlink()
+store_digest = None
+if not store_only:
+    with tarfile.open(store_archive) as archive:
+        archive.extractall(store, filter='data')
+    store_digest = hashlib.file_digest(store_archive.open('rb'), 'sha256').hexdigest()
+    store_archive.unlink()
 
 node = root / 'snapshot-node' 
 node.mkdir()
@@ -63,11 +71,25 @@ subprocess.run([str(root / 'col01-jj'), 'git', 'clone', '--no-colocate', '--dept
 # An offline frozen install also reads registry metadata; store.sh archives it
 # under cache/ beside the content-addressable v11/ store.
 metadata = ['--cache-dir', str(store / 'cache')] if (store / 'cache').is_dir() else []
-subprocess.run(['node', str(pnpm / 'package/bin/pnpm.cjs'), 'install',
-                '--frozen-lockfile', '--offline', '--store-dir', str(store)] + metadata,
-               cwd=repo, env=env, check=True)
+install = ['node', str(pnpm / 'package/bin/pnpm.cjs'), 'install',
+           '--frozen-lockfile', '--store-dir', str(store), '--cache-dir', str(store / 'cache')]
+if store_only:
+    # Both the online population and offline verification stay at agent uid.
+    subprocess.run(install + ['--ignore-scripts'], cwd=repo, env=env, check=True)
+    subprocess.run(install + ['--offline', '--force', '--ignore-scripts'],
+                   cwd=repo, env=env, check=True)
+    def archive_filter(info):
+        return None if info.name == 'v11/projects' or info.name.startswith('v11/projects/') else info
+    with tarfile.open(store_archive, 'w') as archive:
+        for path in sorted(store.iterdir()):
+            archive.add(path, arcname=path.name, filter=archive_filter)
+    store_digest = hashlib.file_digest(store_archive.open('rb'), 'sha256').hexdigest()
+else:
+    subprocess.run(install + ['--offline'], cwd=repo, env=env, check=True)
+
 receipt = {'repository': 'https://github.com/smithersai/smithers.git',
-           'store_archive_sha256': store_digest, 'dependency_install': 'offline',
+           'uid': os.geteuid(),
+           'lockfile_sha256': hashlib.sha256((repo / 'pnpm-lock.yaml').read_bytes()).hexdigest(), 'store_archive_sha256': store_digest, 'store_only': store_only, 'dependency_install': 'offline',
            'depth': 1, 'branch': 'main', 'pnpm': package['version'],
            'pnpm_integrity': package['dist']['integrity'],
            'node': subprocess.check_output(['node', '--version'], env=env, text=True).strip(),

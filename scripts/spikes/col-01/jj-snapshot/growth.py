@@ -12,7 +12,11 @@ from snapshot import Repository, summary
 
 CAPTURES = 1000
 VERSIONS = 100
-PROJECTED_CAPTURES = 14 * 8 * 60 * 60 // 5
+CYCLES = 3
+DAILY_CAPTURES = 5760
+CADENCE_SECONDS = 5
+DAY_SECONDS = 86400
+KEEP_OPERATIONS = 100
 LIMIT = 2 * 1024 ** 3
 
 
@@ -27,9 +31,51 @@ def sizes(repo):
     return {name: allocated(repo / name) for name in ['.jj', '.git']}
 
 
-def projection(before, after):
-    growth = max(0, sum(after.values()) - sum(before.values()))
-    return (growth * PROJECTED_CAPTURES + CAPTURES - 1) // CAPTURES
+def retention_budget(cycles):
+    if len(cycles) != CYCLES or any(c['captures'] != DAILY_CAPTURES for c in cycles):
+        raise ValueError('three complete daily cycles required')
+    peak = max(sum(c['before_cleanup'].values()) for c in cycles)
+    residue = max(0, *(sum(cycles[i]['after_cleanup'].values()) -
+                       sum(cycles[i - 1]['after_cleanup'].values())
+                       for i in range(1, CYCLES)))
+    return {'peak_bytes': peak, 'largest_residue_bytes': residue,
+            'projected_14_day_bytes': peak + 14 * residue,
+            'growth_budget_passed': peak + 14 * residue < LIMIT}
+
+
+def cleanup(fixture, output, cycle):
+    # jj operation timestamps are kernel-clock observations, never synthetic age.
+    log = fixture.command('op', 'log', '--no-graph', '--template',
+                          'id ++ " " ++ time.end().format("%s") ++ "\\n"',
+                          ignore_working_copy=True).stdout
+    (output / f'operations-{cycle}.log').write_bytes(log)
+    entries = [line.split() for line in log.decode().splitlines()]
+    cutoff = time.time() - DAY_SECONDS
+    boundary = None
+    # Retain the newest 100 and every operation within the last 24 hours.
+    for index, (oid, ended) in enumerate(entries):
+        if len(oid) != 128 or any(c not in '0123456789abcdef' for c in oid):
+            raise ValueError('invalid operation identity')
+        if index < KEEP_OPERATIONS or int(ended) >= cutoff:
+            boundary = oid
+    if boundary is None:
+        raise ValueError('missing retained operation boundary')
+    abandoned = fixture.command('op', 'abandon', '..' + boundary, ignore_working_copy=True)
+    with (output / 'abandon.log').open('ab') as stream:
+        stream.write(f'cycle={cycle} cutoff={cutoff} boundary={boundary}\n'.encode())
+        stream.write(abandoned.stdout + abandoned.stderr)
+    gc = fixture.command('util', 'gc', '--expire', 'now', ignore_working_copy=True)
+    with (output / 'gc.log').open('ab') as stream:
+        stream.write(f'cycle={cycle}\n'.encode() + gc.stdout + gc.stderr)
+    fixture.verify()
+
+
+def wait_until(deadline):
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(min(30, remaining))
 
 
 def git(repo, *args, data=None):
@@ -82,13 +128,32 @@ def measure(repo, output, jj):
                 stream.flush()
                 fixture.verify()
         after = sizes(fixture.repo)
-        abandon = fixture.command('op', 'abandon', '..@' + '-' * 100, ignore_working_copy=True)
-        (output / 'abandon.log').write_bytes(abandon.stdout + abandon.stderr)
-        # Expire unreachable objects now rather than jj's default grace period.
-        gc = fixture.command('util', 'gc', '--expire', 'now', ignore_working_copy=True)
-        (output / 'gc.log').write_bytes(gc.stdout + gc.stderr)
+        cycles = []
+        campaign_start = time.monotonic()
+        with (output / 'cycles.csv').open('x', newline='') as stream:
+            writer = csv.writer(stream)
+            writer.writerow(['cycle', 'capture', 'unix_seconds', 'snapshot_ns', 'jj_bytes', 'git_bytes'])
+            for cycle in range(CYCLES):
+                wait_until(campaign_start + cycle * DAY_SECONDS)
+                started = time.monotonic()
+                for seq in range(DAILY_CAPTURES):
+                    wait_until(started + seq * CADENCE_SECONDS)
+                    fixture.prepare(12)
+                    elapsed = fixture.snapshot()
+                    current = sizes(fixture.repo)
+                    writer.writerow([cycle + 1, seq + 1, time.time(), elapsed,
+                                     current['.jj'], current['.git']])
+                    stream.flush()
+                    fixture.verify()
+                    if time.monotonic() > started + (seq + 1) * CADENCE_SECONDS:
+                        raise ValueError('capture missed the five-second cadence')
+                wait_until(started + DAILY_CAPTURES * CADENCE_SECONDS)
+                pre = sizes(fixture.repo)
+                cleanup(fixture, output, cycle + 1)
+                cycles.append({'cycle': cycle + 1, 'captures': DAILY_CAPTURES,
+                               'before_cleanup': pre, 'after_cleanup': sizes(fixture.repo)})
+                (output / 'cycles.json').write_text(json.dumps(cycles, indent=2) + '\n')
         reclaimed = sizes(fixture.repo)
-        fixture.verify()
         values = []
         with (output / 'versions.csv').open('x', newline='') as stream:
             writer = csv.writer(stream)
@@ -99,14 +164,14 @@ def measure(repo, output, jj):
                 writer.writerow([seq + 1, elapsed, commit])
                 stream.flush()
                 values.append(elapsed)
-        estimate = projection(before, after)
+        budget = retention_budget(cycles)
         result = {'uid': os.geteuid(), 'repo': str(fixture.repo), 'captures': CAPTURES,
                   'before': before, 'after': after, 'after_gc': reclaimed,
                   'reclaimed_bytes': sum(after.values()) - sum(reclaimed.values()),
-                  'projected_14_day_bytes': estimate, 'growth_budget_passed': estimate < LIMIT,
+                  'cycles': cycles, **budget,
                   'versions': summary(values), 'jj_sha256': hashlib.sha256(Path(fixture.jj).read_bytes()).hexdigest(),
                   'git_version': subprocess.check_output(['git', '--version'], text=True).strip(),
-                  'limitations': 'Allocated bytes, warm caches, 128-byte fixture files. Synthetic 12-blob flat-tree parentless versions workload; not the full before/after tree builder. Projection is gross pre-GC growth; not a retention policy approval.'}
+                  'limitations': 'Allocated bytes, warm caches, 128-byte fixture files. Synthetic 12-blob flat-tree parentless versions workload; not the full before/after tree builder. Budget uses three measured daily cycles and post-cleanup residue; not a retention policy approval.'}
         (output / 'summary.json').write_text(json.dumps(result, indent=2) + '\n')
         return 0 if result['growth_budget_passed'] else 3
     except BaseException as error:

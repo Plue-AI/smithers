@@ -81,9 +81,9 @@ The default also shallow-clones public `main` inside the VM, installs dependenci
 with pinned Node 26.5.0 / pnpm 11.25.0 (dependency installation is offline and
 requires `SPIKE_SNAPSHOT_STORE_ARCHIVE`, an absolute path to a tar archive of
 an already populated pnpm 11 store for Linux ARM64). Build it on the reference
-host with `scripts/spikes/col-01/store.sh <main SHA> <absolute dir>`: one
-disposable DefaultImage microVM with public network runs a frozen install of that
-revision and writes `<dir>/store.tar`, then is removed. The archive holds the
+host with `scripts/spikes/col-01/store.sh`: the shared runtime starts one
+fixed-image guest and executes dependency work as agent uid 19999. Its printed
+evidence directory contains `store.tar` and an archive/revision receipt. The archive holds the
 `--store-dir` root without `v11/projects` (symlinks back to the build checkout,
 which the guest's safe extract rejects), so it carries the `v11/` directory pnpm appends,
 plus `cache/` registry metadata, which an offline frozen install also reads;
@@ -175,9 +175,14 @@ T-COL-11 follow-up measurements run inside the same disposable guest after
 snapshot mode's eight cells. `growth.py` snapshots 1,000 additional bursts of
 12 changed 128-byte fixture files, retains allocated `.jj`/`.git` bytes after
 each capture, abandons operations older than the newest 100, and runs GC with
-`--expire now`. Non-colocated Git objects are counted under `.jj` once. Its
-14-day projection uses 80,640 captures and the strict 2 GiB budget; this gross
-pre-GC projection does not approve a retention change. Then 100 synthetic
+`--expire now`. Non-colocated Git objects are counted under `.jj` once. It then runs three daily cycles, each with 5,760 captures at five-second
+intervals over eight hours, with cycle starts 24 hours apart. Each cleanup
+retains the newest 100 operations and all operations under 24 hours old.
+The budget is peak pre-cleanup storage plus 14 times the largest observed
+post-cleanup residue, strictly under 2 GiB. No one-shot extrapolation passes
+this gate. Raw cycle samples, sizes and operation-age inventories are retained.
+A missed five-second cadence refuses acceptance. The snapshot/all command
+watchdog allows 72 hours for this campaign. Then 100 synthetic
 12-blob, flat-tree, parentless versions commits are timed and byte-verified.
 This isolates the requested object-creation workload, not the production
 before/after directory-tree builder. Preparation and validation warm caches.
@@ -203,7 +208,7 @@ Execution, security, corruption, cancellation and incomplete-summary failures
 still stop dependent work. This allows slow snapshot runs to collect growth,
 versions and filesystem evidence without turning a latency miss into a pass.
 The final report requires the 1,000 consecutive growth samples, 100 versions
-samples, abandon/GC logs, evaluated growth budget, and complete guest kernel
+samples, three complete daily cycles, abandon/GC logs, evaluated growth budget, and complete guest kernel
 observations. A blocked privileged probe cannot be reported as a measured no
 or a passing C-SPK-03 receipt.
 
@@ -213,7 +218,9 @@ or a passing C-SPK-03 receipt.
 building, installing dependencies or starting a machine, including remote
 browser mode. Changed or extra executable inputs and helper/image/toolchain/
 plist overrides fail closed. The launcher refuses non-Apple-Silicon hosts and
-root host measurement processes. This is an admission gate, not a completed
+root host measurement processes. The executable independently refuses them,
+and validates the fresh guest as Linux ARM64 agent uid 19999 before repository
+commands. Backend sources and root build manifests are also pinned to main. This is an admission gate, not a completed
 ExecutionPlacementAndRootInputs receipt: executable/toolchain identities and
 actual guest command/cleanup uid evidence still require the reference-host run.
 
@@ -228,3 +235,13 @@ kill events, then reaps that child and removes the group. It accepts no working
 copy path. Existing groups and absent cgroup v2 refuse the run. No privileged
 probe has been executed by the Linux lane; `kernel.py` deliberately retains its
 blocked result until approved provisioning and receipt plumbing are available.
+
+Store preparation uses `store.sh` without arguments (or `run.sh store`). It
+reuses the normal fixed-image runtime, agent uid 19999 and allowlisted bridge.
+The old direct microsandbox root-shell builder has been removed. Online store
+population and forced offline verification disable lifecycle scripts; snapshot
+preparation later performs the real offline dependency install as agent.
+The printed evidence directory retains `store.tar`, `store-receipt.json`,
+command output and machine cleanup. The receipt records revision, lockfile digest and
+package integrity and archive digest. This Linux lane cannot produce the
+ARM64 guest archive because no microVM runtime is available.

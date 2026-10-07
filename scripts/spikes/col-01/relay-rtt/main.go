@@ -21,6 +21,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	goruntime "runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -170,6 +171,9 @@ func main() {
 	}
 }
 func run() (retErr error) {
+	if os.Geteuid() == 0 || goruntime.GOOS != "darwin" || goruntime.GOARCH != "arm64" {
+		return errors.New("reference Apple Silicon non-root host required; no host fallback")
+	}
 	mode := flag.String("mode", "all", "all|rtt|control|keystrokes|snapshot|serve")
 	build := flag.String("build", "", "private build directory")
 	evidence := flag.String("evidence-root", "", "checks artifact root")
@@ -180,7 +184,7 @@ func run() (retErr error) {
 	if *build == "" || *evidence == "" || net.ParseIP(*lan) == nil || net.ParseIP(*lan).IsLoopback() {
 		return errors.New("build, evidence-root and non-loopback LAN IPv4 are required")
 	}
-	if !strings.Contains(" all rtt control keystrokes snapshot serve ", " "+*mode+" ") {
+	if !strings.Contains(" all rtt control keystrokes snapshot serve store ", " "+*mode+" ") {
 		return errors.New("invalid mode")
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -209,12 +213,16 @@ func run() (retErr error) {
 	if memBytes < 24<<30 {
 		memory = 6144
 	}
+	commandTimeout := 3 * time.Hour
+	if *mode == "snapshot" || *mode == "all" {
+		commandTimeout = 72 * time.Hour
+	}
 	state, err := os.MkdirTemp(*build, "state-")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(state)
-	runtime, err := microsandbox.New(ctx, microsandbox.Config{Binary: filepath.Join(*build, "msb-name"), Root: state, CPUs: cpus, MemoryMiB: memory, DiskMiB: 32768, MaxRunningVMs: 1, CommandTimeout: 3 * time.Hour, HostPorts: []uint16{port(rttListener), port(docListener)}})
+	runtime, err := microsandbox.New(ctx, microsandbox.Config{Binary: filepath.Join(*build, "msb-name"), Root: state, CPUs: cpus, MemoryMiB: memory, DiskMiB: 32768, MaxRunningVMs: 1, CommandTimeout: commandTimeout, HostPorts: []uint16{port(rttListener), port(docListener)}})
 	if err != nil {
 		return err
 	}
@@ -263,11 +271,15 @@ func run() (retErr error) {
 	// Read-only guest kernel/profile probes, requested by the dispatch. No watcher,
 	// per-write attribution, namespace mutation or BPF program is installed.
 	profile, profileErr := runtime.ExecuteCommand(ctx, h.id, workspace.Command{Args: []string{
-		"python3", "-c", "import json,os,platform; paths=['/sys/kernel/btf/vmlinux','/proc/config.gz','/sys/fs/cgroup/cgroup.controllers','/proc/sys/kernel/unprivileged_userns_clone']; print(json.dumps({'kernel':platform.release(),'machine':platform.machine(),'uid':os.getuid(),'paths':{p:os.path.exists(p) for p in paths},'proc_status':open('/proc/self/status').read()},sort_keys=True))",
+		"python3", "-c", "import json,os,platform; paths=['/sys/kernel/btf/vmlinux','/proc/config.gz','/sys/fs/cgroup/cgroup.controllers','/proc/sys/kernel/unprivileged_userns_clone']; print(json.dumps({'kernel':platform.release(),'system':platform.system(),'machine':platform.machine(),'uid':os.getuid(),'paths':{p:os.path.exists(p) for p in paths},'proc_status':open('/proc/self/status').read()},sort_keys=True))",
 	}})
 	if profileErr != nil || profile.ExitCode != 0 {
 		return fmt.Errorf("guest kernel profile: exit=%d stderr=%s: %v", profile.ExitCode, profile.Stderr, profileErr)
 	}
+	if err = validateGuestProfile([]byte(profile.Stdout)); err != nil {
+		return err
+	}
+	h.environment["host_uid"] = os.Geteuid()
 	if err = os.WriteFile(filepath.Join(dir03, "guest-kernel.json"), []byte(profile.Stdout), 0600); err != nil {
 		return err
 	}
@@ -275,6 +287,9 @@ func run() (retErr error) {
 		if err = writeJSON(filepath.Join(dir, "env.json"), h.environment); err != nil {
 			return err
 		}
+	}
+	if *mode == "store" {
+		return h.prepareStore(dir03)
 	}
 	if *mode == "snapshot" {
 		retErr = h.snapshots(dir03, cpus)
@@ -695,4 +710,17 @@ func digest(b []byte) string { sum := sha256.Sum256(b); return hex.EncodeToStrin
 
 func playwrightCommand(ctx context.Context, args ...string) *exec.Cmd {
 	return exec.CommandContext(ctx, "node", append([]string{"scripts/spikes/col-01/node_modules/@playwright/test/cli.js"}, args...)...)
+}
+
+// Repository work cannot start before the fresh image's actual identity is known.
+func validateGuestProfile(data []byte) error {
+	var profile struct {
+		UID     *int   `json:"uid"`
+		System  string `json:"system"`
+		Machine string `json:"machine"`
+	}
+	if json.Unmarshal(data, &profile) != nil || profile.UID == nil || *profile.UID != 19999 || profile.System != "Linux" || profile.Machine != "aarch64" {
+		return errors.New("fresh guest must be Linux ARM64 agent uid 19999 before repository execution")
+	}
+	return nil
 }

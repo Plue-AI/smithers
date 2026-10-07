@@ -22,18 +22,23 @@ func (h *harness) snapshots(dir string, cpus int) (retErr error) {
 		defer cancel()
 		completed := retErr == nil
 		for destination, source := range map[string]string{
-			"snapshot-prepare.json": "snapshot-prepare.json",
-			"snapshot-samples.csv":  "jj-snapshot-output/samples.csv",
-			"snapshot-summary.json": "jj-snapshot-output/summary.json",
-			"snapshot-env.json":     "jj-snapshot-output/env.json",
-			"snapshot-failure.json": "jj-snapshot-output/failure.json",
-			"kernel-probes.json":    "kernel-probes.json",
-			"growth-samples.csv":    "jj-growth-output/growth.csv",
-			"versions-samples.csv":  "jj-growth-output/versions.csv",
-			"growth-abandon.log":    "jj-growth-output/abandon.log",
-			"growth-gc.log":         "jj-growth-output/gc.log",
-			"growth-summary.json":   "jj-growth-output/summary.json",
-			"growth-failure.json":   "jj-growth-output/failure.json",
+			"snapshot-prepare.json":   "snapshot-prepare.json",
+			"snapshot-samples.csv":    "jj-snapshot-output/samples.csv",
+			"snapshot-summary.json":   "jj-snapshot-output/summary.json",
+			"snapshot-env.json":       "jj-snapshot-output/env.json",
+			"snapshot-failure.json":   "jj-snapshot-output/failure.json",
+			"kernel-probes.json":      "kernel-probes.json",
+			"growth-samples.csv":      "jj-growth-output/growth.csv",
+			"growth-cycles.csv":       "jj-growth-output/cycles.csv",
+			"growth-cycles.json":      "jj-growth-output/cycles.json",
+			"growth-operations-1.log": "jj-growth-output/operations-1.log",
+			"growth-operations-2.log": "jj-growth-output/operations-2.log",
+			"growth-operations-3.log": "jj-growth-output/operations-3.log",
+			"versions-samples.csv":    "jj-growth-output/versions.csv",
+			"growth-abandon.log":      "jj-growth-output/abandon.log",
+			"growth-gc.log":           "jj-growth-output/gc.log",
+			"growth-summary.json":     "jj-growth-output/summary.json",
+			"growth-failure.json":     "jj-growth-output/failure.json",
 		} {
 			data, err := h.runtime.ReadFile(copyCtx, h.id, source)
 			if err != nil {
@@ -147,7 +152,10 @@ func completedBudgetMiss(index int, data []byte) bool {
 		SnapshotPassed *bool `json:"idle_12_file_gate_passed"`
 		GrowthPassed   *bool `json:"growth_budget_passed"`
 		Captures       int   `json:"captures"`
-		Versions       struct {
+		Cycles         []struct {
+			Captures int `json:"captures"`
+		} `json:"cycles"`
+		Versions struct {
 			N   int   `json:"n"`
 			P95 int64 `json:"p95_ns"`
 		} `json:"versions"`
@@ -164,6 +172,14 @@ func completedBudgetMiss(index int, data []byte) bool {
 		return false
 	}
 	if index == 2 {
+		if len(result.Cycles) != 3 {
+			return false
+		}
+		for _, cycle := range result.Cycles {
+			if cycle.Captures != 5760 {
+				return false
+			}
+		}
 		return result.GrowthPassed != nil && !*result.GrowthPassed && result.Captures == 1000 && result.Versions.N >= 100 && result.Versions.P95 > 0
 	}
 	if index != 1 || result.SnapshotPassed == nil || *result.SnapshotPassed || len(result.Cells) != 8 {
@@ -181,4 +197,49 @@ func completedBudgetMiss(index int, data []byte) bool {
 		seen[key] = true
 	}
 	return true
+}
+
+// prepareStore reuses the normal fixed-image runtime and agent command launcher.
+// No msb root shell ever reads or installs repository dependencies.
+func (h *harness) prepareStore(dir string) error {
+	server := &http.Server{Handler: snapshotProxy(), ReadHeaderTimeout: 10 * time.Second}
+	go server.Serve(h.rttBridge)
+	defer server.Close()
+	for destination, source := range map[string]string{
+		"col01-jj":            filepath.Join(h.build, "col01-jj"),
+		"snapshot-prepare.py": "scripts/spikes/col-01/jj-snapshot/prepare.py",
+	} {
+		data, err := os.ReadFile(source)
+		if err != nil {
+			return err
+		}
+		if err = h.runtime.WriteFile(h.ctx, h.id, destination, data, 0755); err != nil {
+			return err
+		}
+	}
+	result, err := h.runtime.ExecuteCommand(h.ctx, h.id, workspace.Command{Args: []string{
+		"python3", "/workspace/snapshot-prepare.py", "http://" + h.rttBridge.Addr().String(), "--store-only",
+	}})
+	if writeErr := os.WriteFile(filepath.Join(dir, "store-command.log"), []byte(result.Stdout+"\n"+result.Stderr), 0600); writeErr != nil {
+		return errors.Join(err, writeErr)
+	}
+	if err != nil {
+		return err
+	}
+	if result.ExitCode != 0 {
+		return fmt.Errorf("store preparation exit %d: %s", result.ExitCode, result.Stderr)
+	}
+	for destination, source := range map[string]string{
+		"store.tar": "snapshot-store.tar", "store-receipt.json": "snapshot-prepare.json",
+	} {
+		data, err := h.runtime.ReadFile(h.ctx, h.id, source)
+		if err != nil {
+			return err
+		}
+		if err = os.WriteFile(filepath.Join(dir, destination), data, 0600); err != nil {
+			return err
+		}
+	}
+	fmt.Println("STORE_ARCHIVE", filepath.Join(dir, "store.tar"))
+	return nil
 }

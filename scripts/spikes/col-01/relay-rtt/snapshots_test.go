@@ -30,11 +30,11 @@ func TestCompletedBudgetMiss(t *testing.T) {
 		input string
 		want  bool
 	}{
-		{`{"growth_budget_passed":false,"captures":1000,"versions":{"n":100,"p95_ns":1}}`, true},
-		{`{"growth_budget_passed":true,"captures":1000,"versions":{"n":100,"p95_ns":1}}`, false},
+		{`{"growth_budget_passed":false,"captures":1000,"cycles":[{"captures":5760},{"captures":5760},{"captures":5760}],"versions":{"n":100,"p95_ns":1}}`, true},
+		{`{"growth_budget_passed":true,"captures":1000,"cycles":[{"captures":5760},{"captures":5760},{"captures":5760}],"versions":{"n":100,"p95_ns":1}}`, false},
 		{`{"growth_budget_passed":false,"captures":999,"versions":{"n":100,"p95_ns":1}}`, false},
-		{`{"growth_budget_passed":false,"captures":1000,"versions":{"n":99,"p95_ns":1}}`, false},
-		{`{"growth_budget_passed":false,"captures":1000,"versions":{"n":100,"p95_ns":0}}`, false},
+		{`{"growth_budget_passed":false,"captures":1000,"cycles":[{"captures":5760},{"captures":5760},{"captures":5760}],"versions":{"n":99,"p95_ns":1}}`, false},
+		{`{"growth_budget_passed":false,"captures":1000,"cycles":[{"captures":5760},{"captures":5760},{"captures":5760}],"versions":{"n":100,"p95_ns":0}}`, false},
 	} {
 		if got := completedBudgetMiss(2, []byte(tc.input)); got != tc.want {
 			t.Fatalf("%s got %v", tc.input, got)
@@ -42,5 +42,16 @@ func TestCompletedBudgetMiss(t *testing.T) {
 		if completedBudgetMiss(0, []byte(tc.input)) {
 			t.Fatal("preparation failure accepted")
 		}
+	}
+}
+
+func TestGuestProfileAdmission(t *testing.T) {
+	for _, input := range []string{`{`, `{}`, `{"uid":0,"system":"Linux","machine":"aarch64"}`, `{"uid":19999,"system":"Darwin","machine":"aarch64"}`, `{"uid":19999,"system":"Linux","machine":"x86_64"}`, `{"uid":"19999","system":"Linux","machine":"aarch64"}`} {
+		if validateGuestProfile([]byte(input)) == nil {
+			t.Fatalf("accepted unqualified guest: %s", input)
+		}
+	}
+	if err := validateGuestProfile([]byte(`{"uid":19999,"system":"Linux","machine":"aarch64"}`)); err != nil {
+		t.Fatal(err)
 	}
 }

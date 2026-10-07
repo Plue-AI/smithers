@@ -21,6 +21,27 @@ if (requested("snapshot")) {
       growth?.growth_budget_passed !== (growth?.projected_14_day_bytes < 2147483648)) {
     failures.push("growth: expected 1000 guest captures, >=100 versions samples and evaluated 2 GiB budget");
   }
+  const cycles = growth?.cycles;
+  const validSize = size => size && Object.keys(size).sort().join(',') === '.git,.jj' &&
+    Object.values(size).every(n => Number.isSafeInteger(n) && n >= 0);
+  if (!Array.isArray(cycles) || cycles.length !== 3 || cycles.some((c, i) =>
+      c.cycle !== i + 1 || c.captures !== 5760 || !validSize(c.before_cleanup) || !validSize(c.after_cleanup))) {
+    failures.push('growth: three complete daily cycles and cleanup sizes required');
+  } else {
+    const total = size => size['.jj'] + size['.git'];
+    const peak = Math.max(...cycles.map(c => total(c.before_cleanup)));
+    const residue = Math.max(0, ...cycles.slice(1).map((c, i) => total(c.after_cleanup) - total(cycles[i].after_cleanup)));
+    if (growth.projected_14_day_bytes !== peak + 14 * residue) failures.push('growth: residue budget mismatch');
+  }
+  try {
+    const lines = (await readFile(join(snapshotDir, 'growth-cycles.csv'), 'utf8')).trim().split('\n');
+    if (lines.length !== 17281 || lines.slice(1).some((line, i) => {
+      const values = line.split(',').map(Number);
+      return values.length !== 6 || values[0] !== Math.floor(i / 5760) + 1 || values[1] !== i % 5760 + 1 ||
+        !Number.isFinite(values[2]) || values[2] <= 0 || !Number.isSafeInteger(values[3]) || values[3] <= 0 ||
+        values.slice(4).some(v => !Number.isSafeInteger(v) || v < 0);
+    })) failures.push('growth-cycles.csv: expected three ordered 5760-capture cycles');
+  } catch (error) { failures.push(`growth-cycles.csv: ${error.message}`); }
   for (const [file, count] of [["growth-samples.csv", 1000], ["versions-samples.csv", 100]]) {
     try {
       const lines = (await readFile(join(snapshotDir, file), "utf8")).trim().split("\n");
@@ -29,7 +50,7 @@ if (requested("snapshot")) {
       }
     } catch (error) { failures.push(`${file}: ${error.message}`); }
   }
-  for (const file of ["growth-abandon.log", "growth-gc.log"]) {
+  for (const file of ["growth-abandon.log", "growth-gc.log", "growth-operations-1.log", "growth-operations-2.log", "growth-operations-3.log"]) {
     try { await readFile(join(snapshotDir, file)); }
     catch (error) { failures.push(`${file}: ${error.message}`); }
   }

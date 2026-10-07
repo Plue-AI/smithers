@@ -8,7 +8,7 @@ SPIKE_BUILD="$SPIKE_ROOT/.artifacts/spikes/col01-build"
 SPIKE_MODE="${1:-all}"
   # The runtime embeds a root bootstrap, helper and recipes. Branch bytes
   # must never reach their installation step, even with a matching digest.
-python3 "$SPIKE_DIR/preflight.py" "$SPIKE_ROOT"
+python3 -I "$SPIKE_DIR/preflight.py" "$SPIKE_ROOT"
 SPIKE_FREE_KIB="$(df -k "$SPIKE_ROOT" | awk 'NR==2 {print $4}')"
 df -h "$SPIKE_ROOT"
 if (( SPIKE_FREE_KIB < 8 * 1024 * 1024 )); then
@@ -33,7 +33,7 @@ if [[ "$SPIKE_MODE" == remote ]]; then
 fi
 mkdir -p "$SPIKE_BUILD" "$SPIKE_ROOT/.artifacts/col01-tmp"
 export TMPDIR="$SPIKE_ROOT/.artifacts/col01-tmp"
-if [[ "$SPIKE_MODE" == all || "$SPIKE_MODE" == snapshot ]]; then
+if [[ "$SPIKE_MODE" == all || "$SPIKE_MODE" == snapshot || "$SPIKE_MODE" == store ]]; then
   if [[ ! -x "$SPIKE_BUILD/col01-jj" ]]; then
     curl -fL --retry 3 'https://github.com/jj-vcs/jj/releases/download/v0.39.0/jj-v0.39.0-aarch64-unknown-linux-musl.tar.gz' -o "$SPIKE_BUILD/jj.tar.gz"
     echo "15bbb0199adf57929d1e3cd90ae0b47356858cbe374814769815a1fb87d5ad1d  $SPIKE_BUILD/jj.tar.gz" | shasum -a 256 -c -
