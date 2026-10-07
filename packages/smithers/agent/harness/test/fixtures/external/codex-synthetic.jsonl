@@ -1,9 +1,0 @@
-{"timestamp":"2026-10-03T00:00:00Z","type":"response_item","payload":{"type":"message","id":"u1","role":"user","content":[{"type":"input_text","text":"Edit a.ts"}]}}
-{"timestamp":"2026-10-03T00:00:00Z","type":"response_item","payload":{"type":"custom_tool_call","id":"c1","call_id":"patch1","name":"apply_patch","input":"*** Begin Patch\n*** Add File: a.ts\n+a\n*** End Patch"}}
-{"timestamp":"2026-10-03T00:00:00Z","type":"response_item","payload":{"type":"custom_tool_call_output","id":"r1","call_id":"patch1","output":"Success. Updated the following files:\nA a.ts"}}
-{"timestamp":"2026-10-03T00:00:00Z","type":"response_item","payload":{"type":"message","id":"u2","role":"user","content":[{"type":"input_text","text":"Again"}]}}
-{"timestamp":"2026-10-03T00:00:00Z","type":"response_item","payload":{"type":"function_call","id":"c2","call_id":"patch2","name":"apply_patch","arguments":"{\"patch\":\"redacted\"}"}}
-{"timestamp":"2026-10-03T00:00:00Z","type":"response_item","payload":{"type":"function_call_output","id":"r2","call_id":"patch2","output":"Failed to find expected lines"}}
-{"timestamp":"2026-10-03T00:00:00Z","type":"response_item","payload":{"type":"message","id":"a1","role":"assistant","content":[{"type":"output_text","text":"Could not edit"}]}}
-{"timestamp":"2026-10-03T00:00:00Z","type":"response_item","payload":{"type":"agent_message","id":"encrypted-message","author":"forged-owner","recipient":"forged-participant","content":[{"type":"encrypted_content","encrypted_content":"test-ciphertext"},{"type":"encrypted_content","encrypted_content":"test-ciphertext-2"}]}}
-{"timestamp":"2026-10-03T00:00:00Z","type":"event_msg","payload":{"type":"error","message":"Explicit failure"}}
