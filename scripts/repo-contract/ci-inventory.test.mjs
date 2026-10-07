@@ -173,7 +173,7 @@ test("the default inventory artifact lives in a fresh private directory", () => 
   }
 })
 
-test("required CI resolves package, app, script, evaluation and fault suites to real runners", async () => {
+test("required CI resolves package, app, script and evaluation suites to real runners", async () => {
   const inventory = await resolveInventory()
   const artifact = inventoryArtifact()
   writeFileSync(artifact, `${JSON.stringify(inventory, null, 2)}\n`)
@@ -202,17 +202,12 @@ test("required CI resolves package, app, script, evaluation and fault suites to 
   assert.deepEqual(inventoryRunner.slice(1), ["--test", "scripts/repo-contract/ci-inventory.test.mjs"])
   const uiUnits = inventory.rows.filter((row) => row.label === "//apps/app:unitTests" && row.required && row.selectedRoot)
   assert.equal(uiUnits.length, 1, "the UI unit tier runs once in required CI")
-  assert.deepEqual(uiUnits[0].runner, ["bun", "test", "src", "e2e/contracts", "e2e/real/coverage", "e2e/real/support", "e2e/real/auth-permissions/profile.test.ts", "scripts"])
+  assert.deepEqual(uiUnits[0].runner, ["bun", "test", "--isolate", "src", "./proof", "e2e/contracts", "e2e/support", "e2e/real/coverage", "e2e/real/support", "e2e/real/auth-permissions/profile.test.ts", "scripts"])
   const packageTests = inventory.rows.filter((row) => row.job === "packages" && row.required && row.selectedRoot)
   assert.ok(packageTests.length > 100, "the complete package test graph must resolve")
   for (const row of packageTests) assert.ok(selected(row.label, "test").length, `${row.label} must also be selected by ci //packages/...`)
-  const faults = inventory.rows.filter((row) => row.job === "e2e-faults" && row.selectedRoot)
-  assert.ok(faults.length >= 3)
-  for (const row of faults) {
-    assert.equal(row.rule, "Vitest")
-    assert.ok(row.runner.includes("vitest.faults.config.ts"), row.label)
-    assert.ok(row.inputs.some((input) => input.pattern?.includes("test/faults/")), row.label)
-  }
+  assert.deepEqual(inventory.rows.filter((row) => row.job === "e2e-faults"), [],
+    "ordinary CI must not run the nightly fault matrix")
   const native = selected("//crates/flows-jj:cargoTest", "rust")
   assert.equal(native.length, 1)
   assert.equal(basename(native[0].runner[0]), "cargo")
@@ -261,6 +256,28 @@ test("required CI resolves package, app, script, evaluation and fault suites to 
   }
   assert.match(readFileSync(join(root, "flows/review/PACKAGE.ts"), "utf8"), /Coverage policy: assertion-only/)
   if (process.env.SMITHERS_CI_INVENTORY === undefined) rmSync(dirname(artifact), { recursive: true, force: true })
+})
+
+test("nightly faults resolve through the public CLI to every declared serial runner", async () => {
+  const workflow = workflowJobs(".github/workflows/reliability.yml")
+  const commands = workflow["e2e-faults"].steps.map((step) => step.run).filter((run) => run?.includes("//packages/...:faults"))
+  assert.equal(commands.length, 1)
+  const invocation = targetInvocation(commands[0])
+  assert.equal(invocation.verb, "test")
+  assert.equal(invocation.pattern, "//packages/...:faults")
+  assert.equal(invocation.jobs, 1)
+  assert.equal(invocation.knownRed, undefined)
+  const plan = planned(invocation.verb, invocation.pattern)
+  assert.ok(plan.roots.length >= 3, "the complete library and production fault matrix must resolve")
+  const index = await openPackageIndex({ workspace: root })
+  const native = await PackageExec.plan({ index, verb: invocation.verb, patterns: [invocation.pattern], cacheDirectory: index.workspace.cache.directory })
+  for (const label of plan.roots) {
+    const node = native.nodes.get(label)
+    assert.equal(node.target, "Vitest", label)
+    assert.ok(runnerFor(node, index.workspace, invocation.verb).includes("vitest.faults.config.ts"), label)
+    const inputs = [...(node.attrs.srcs ?? []), ...(node.attrs.sources ?? []), ...(node.attrs.tests ?? []), ...(node.attrs.data ?? [])]
+    assert.ok(inputs.some((input) => input.pattern?.includes("test/faults/")), label)
+  }
 })
 
 test("public project copy keeps the support contract out of the short description", () => {
