@@ -316,12 +316,27 @@ interface DeclaredMove {
 }
 
 /** Only these app doors left; the persisted oracle is unchanged. */
-const CUT_FLOW_NAMES = new Set([/* renamed to their mvp.md Appendix A names, or replaced by /help */ "appearance.dark-mode", "history.show", "branches.list", "secrets.list", "flow.create", "chat.stop", "search.open", "auth.sign-in", "auth.sign-out", "chat.commands", "chat.filter", "chat.filter.grep", "chat.filter.reset", "chat.filter.toggle", "chat.clear", "tab.card", "tab.close", "tab.select", "world", "world.delete", "world.delete.cancel", "world.delete.confirm", "world.new-note", "world.select", "subagents", "flows", "connect", "smithers.who", "workspace.rename", "workspace.rename.edit", "app.first-run.dismiss", "notifications.read-update", "notifications.tag", "search.targets", "search.boxes", "box.select", "files.add", "change.request", "change.split", "change.revert", "prs.create", "issues", "issues.fix", "issues.verify", "issues.set", "issues.comment.react", "issues.comment.retry", "wiki.ask", "runs.takeover", "runs.release", "runs.handoff", "runs.burndown.filter", "runs.burndown.select", "agent.session.list", "agent.session.new", "agent.session.say", "agent.session.stop", "agent.session.view", "notifications.list", "notifications.read", "admin.grant", "admin.grant.confirm", "admin.grant.cancel", "admin.health", "repository.register", "signup.account", "signup.finish", "signup.next", "signup.repo", "signup.set", "setup.ask", "setup.configure", "setup.discard", "setup.discard.confirm", "setup.guide", "setup.retry", "setup.run", "setup.view", "setup.work", "issues.setup", "review.setup", "ci.setup", "feature.setup", "chores.setup", "feature.prototype", "system.recommend", "issue-sweep"])
+const CUT_FLOW_NAMES = new Set([/* renamed to their mvp.md Appendix A names, or replaced by /help */ "issue.implement", "appearance.dark-mode", "history.show", "branches.list", "secrets.list", "flow.create", "chat.stop", "search.open", "auth.sign-in", "auth.sign-out", "chat.commands", "chat.filter", "chat.filter.grep", "chat.filter.reset", "chat.filter.toggle", "chat.clear", "tab.card", "tab.close", "tab.select", "world", "world.delete", "world.delete.cancel", "world.delete.confirm", "world.new-note", "world.select", "subagents", "flows", "connect", "smithers.who", "workspace.rename", "workspace.rename.edit", "app.first-run.dismiss", "notifications.read-update", "notifications.tag", "search.targets", "search.boxes", "box.select", "files.add", "change.request", "change.split", "change.revert", "prs.create", "issues", "issues.fix", "issues.verify", "issues.set", "issues.comment.react", "issues.comment.retry", "wiki.ask", "runs.takeover", "runs.release", "runs.handoff", "runs.burndown.filter", "runs.burndown.select", "agent.session.list", "agent.session.new", "agent.session.say", "agent.session.stop", "agent.session.view", "notifications.list", "notifications.read", "admin.grant", "admin.grant.confirm", "admin.grant.cancel", "admin.health", "repository.register", "signup.account", "signup.finish", "signup.next", "signup.repo", "signup.set", "setup.ask", "setup.configure", "setup.discard", "setup.discard.confirm", "setup.guide", "setup.retry", "setup.run", "setup.view", "setup.work", "issues.setup", "review.setup", "ci.setup", "feature.setup", "chores.setup", "feature.prototype", "system.recommend", "issue-sweep"])
 
 const DECLARED: ReadonlyArray<DeclaredMove> = [
+  ...(["box.resume", "box.suspend"] as const).map(flow => ({ flow, kind: "card" as const, rows: 33,
+    because: "Installed branch sleep and wake controls now carry a branch identity alongside the legacy workspace id." })),
+  // Main's restored owner model editor (263c41d3d8) uses record ids, role/model
+  // assignment and protocol fields; it no longer parses laboratory seat args.
+  ...(["model.show", "model.edit", "model.remove", "model.test"] as const).flatMap(flow => [
+    { flow, kind: "card" as const, rows: 33, because: "The restored owner model editor takes one model record id instead of the retired laboratory fields." },
+    { flow, kind: "sentence" as const, rows: 15, because: "The restored model record grammar accepts a record id instead of the retired laboratory syntax." }
+  ]),
+  { flow: "model.save", kind: "card", rows: 44, because: "Owner model records declare protocol, modelId, credential and optional endpoint fields in the restored editor." },
+  { flow: "model.save", kind: "sentence", rows: 4, because: "The restored model editor reports Invalid model for non-JSON record submissions." },
+  { flow: "model.assign", kind: "card", rows: 36, because: "Model assignment names a role and model instead of the retired seat and recordId fields." },
+  { flow: "model.assign", kind: "sentence", rows: 8, because: "Role/model assignment replaces the retired seat grammar." },
+  ...(["repo.choose", "repo.create"] as const).map(flow => ({ flow, kind: "card" as const, rows: 33,
+    because: "The deferred multi-repository doors accept no payload and present Setup; their removed picker fields cannot reappear." })),
+  { flow: "runs.trace.filter", kind: "sentence", rows: 13, because: "The trace filter includes messages beside all, running, failed, model and flow." },
   { flow: "issues.create", kind: "sentence", rows: 1,
     because: "62c494462e (#3434) adds structured repository-bound confirmation input; malformed JSON is refused before creating or confirming an issue." },
-  ...(["runs.list", "github.mirror.retry-ref", "flow.create"] as const).map(flow => ({
+  ...(["runs.list", "github.mirror.retry-ref"] as const).map(flow => ({
     flow, kind: "sentence" as const, rows: 2,
     because: "Structured button arguments preserve their explicit repository without inventory (#2082). Malformed JSON and unknown fields now receive a grammar diagnostic rather than being interpreted as an identifier or filter."
   })),
@@ -378,8 +393,6 @@ const DECLARED: ReadonlyArray<DeclaredMove> = [
     flow: "runs.trace.view", kind: "sentence", rows: 13,
     because: "The graph IS the third view of a run and the step list the fourth, so the line that refuses a bad one has to name them: main@origin says `runs.trace.view needs turns, timeline or graph` and this branch says `runs.trace.view needs turns, timeline, graph or steps` (SlashPayload.ts). Every swept line whose second token is not a view reads the new sentence; no card moves."
   },
-  // #3457 retires the Fix picker; issue.implement's generic compatibility form
-  // again matches the saved baseline, so it has no remaining card delta.
   {
     flow: "triggers.register", kind: "sentence", rows: 20,
     because: "A limit the LINE names meets the rule the FIELD meets: `--tokens 500000` reached the Tokens field and was told nothing on production, while 500000 typed into that field and prepared is refused with the range before any network call (walk W1 item 4c). The register form routes to TriggersSeam.limitsRefusal, so two rows that used to read the grammar's usage line read the range instead, and four that said nothing now say it. With the one-input form (D-18) a positional line fills its whole card, so twelve more rows keep the grammar's own sentence about a line that parsed into nothing askable (R102d B1d) where main@origin's six-field card still had a field to ask for. Restoring known-flag:tokens and known-flag-number:tokens exercises the same existing limits refusal on two more saved cases: 18 + 2."
@@ -559,7 +572,7 @@ describe("the card every slash line opens, against main@origin", () => {
       atMain: 1437,
       // 12: #3457 retires the Fix picker and its alias-only grammar diagnostics.
       // 29: the #3311 `/appearance.dark-mode` sentences counted in 1361 left with the rename to `/theme`.
-      here: 894 // Exact merged-catalog census, including retained agent.list and issue.implement aliases.
+      here: 891 // Retiring issue.implement removes its three grammar diagnostics; saved messages decode to todo.from-issue.
     })
     /* Every slash line must be answerable without a dispatch exception, including scalar JSON. */
     expect(rows.filter((row) => row.threw !== null).map((row) => `/${row.flow} ${row.args ?? ""}`)).toEqual([])

@@ -323,9 +323,8 @@ const nativeIssueMissing = (repo: string, number: number): string =>
   `Issue #${number} in ${repo} was not found. For a GitHub issue, use /issues.view ${number} ${repo} --source github.`
 
 /**
- * One imported issue's payload without a card: what `issue.implement` hands
- * the coding flow when the person picked the issue on the app home rather
- * than opening it first. Comments stay with the issue card.
+ * Read an imported issue payload without opening a card. The canonical
+ * `todo.from-issue` command checks this source before drafting a TODO.
  */
 export const fetchIssuePayload = async (
   ctx: Pick<SeamContext, "http" | "baseUrl">,

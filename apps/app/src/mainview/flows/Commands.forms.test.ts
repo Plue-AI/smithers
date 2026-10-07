@@ -82,12 +82,14 @@ const boot = async (withIssue = false) => {
   const agents: Array<AgentRole> = [...AGENT_ROLES]
   const puts: Array<{ id: string; body: Record<string, unknown> }> = []
   const issueReads: string[] = []
+  const writes: string[] = []
   const controller = createAppController(store, unavailableAgent, {
     bootstrap: EVERYTHING,
     fetchImpl: async (input, init) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
       const path = new URL(url, "http://local.test").pathname
       const method = init?.method ?? "GET"
+      if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) writes.push(`${method} ${path}`)
       if (withIssue && path === "/api/issues/212" && method === "GET") {
         issueReads.push(path)
         return json(200, { make_todo_allowed: true, issue_digest: "a".repeat(64),
@@ -115,7 +117,7 @@ const boot = async (withIssue = false) => {
   store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: true, scopesPlain: null })
   store.dispatch({ type: "card.upsert", actor: "system", card: { id: "card-1", kind: "status", title: "Status", status: "active", createdAt: 1, ordinal: 0, payload: { progress: 0.5 } } })
   await settle()
-  return { store, controller, puts, issueReads }
+  return { store, controller, puts, issueReads, writes }
 }
 
 /** The production agent door (turns.ts continueToolLeg): one tool call, run as actor smithers. */
@@ -210,8 +212,8 @@ describe("THE FORM LAW — the slash door and the button door", () => {
     expect((await controller.commands.run("flow.run", "7 8 9")).status).toBe("form")
     expect(formOf(store, "flow.run")?.payload.draft).toEqual({ name: "7", repo: "8", input: "9" })
     expect(formOf(store, "flow.run")?.payload.error).toBe("Flow input must be a JSON object.")
-    expect((await controller.commands.run("issue.implement", "0")).status).toBe("form")
-    expect(formOf(store, "issue.implement")?.payload.error).toBe("An issue number is required")
+    expect((await controller.commands.run("todo.from-issue", "0")).status).toBe("form")
+    expect(formOf(store, "todo.from-issue")?.payload.fields.filter(field => field.required).map(field => field.name)).toEqual(["number"])
     expect((await controller.commands.run("issues.list", "one")).status).toBe("form")
     expect(formOf(store, "issues.list")?.payload.error).toBe("issues.list takes open, closed, or all")
     await controller.dispose()
@@ -283,25 +285,27 @@ describe("THE FORM LAW — filling and submitting", () => {
     expect(messages(store).find((message) => message.action?.flow === "runs.resume")?.action?.args).toBe("run-9")
   })
 
-  test("host-owned and person-only commands refuse before opening agent forms", async () => {
-    const { store, controller, issueReads } = await boot(true)
+  test("TODO forms collect input and ask for confirmation; person-only commands refuse before forms", async () => {
+    const { store, controller, issueReads, writes } = await boot(true)
     await loadBox(store, "will/flows")
     await store.dispatch({ type: "repo.selected", actor: "user", id: `will/flows#workspace:${TEST_BOX}` }).isPersisted.promise
     await store.dispatch({ type: "card.upsert", actor: "system", card: {
       id: "issue-github-will/flows-212", kind: "issue", title: "Fix the form", status: "active", createdAt: 1, ordinal: store.nextOrdinal(),
       payload: { number: 212, repo: "will/flows", source: "github", title: "Fix the form", state: "open", author: "will", issueBody: "Keep the values", labels: [], comments: [] }
     } }).isPersisted.promise
-    for (const args of [undefined, "212"]) {
-      expect(await execute(controller, "todo.from-issue", args)).toBe("failed: this command runs on the conversation host")
-    }
+    expect(await execute(controller, "todo.from-issue")).toBe("rendered a form for number: ask the user to fill it in")
+    expect(formOf(store, "todo.from-issue")?.payload.fields.filter(field => field.required).map(field => field.name)).toEqual(["number"])
+    expect(await execute(controller, "todo.from-issue", "212")).toContain("asked the user to confirm")
+    expect(messages(store).filter(message => message.action?.flow === "todo.from-issue").map(message => message.action?.args)).toEqual(["212"])
     for (const args of [undefined, "nightly will/flows"]) {
       expect(await execute(controller, "triggers.pause", args)).toStartWith("failed: /triggers.pause is user-only")
     }
-    for (const flow of ["todo.from-issue", "triggers.pause"]) {
+    for (const flow of ["triggers.pause"]) {
       expect(formOf(store, flow)).toBeUndefined()
       expect(messages(store).filter(message => message.action?.flow === flow)).toEqual([])
     }
-    expect(issueReads).toEqual([])
+    expect(new Set(issueReads)).toEqual(new Set(["/api/issues/212"]))
+    expect(writes).toEqual([])
     await controller.dispose()
   })
 })
