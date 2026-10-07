@@ -15,6 +15,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	"github.com/smithersai/smithers/packages/backend/internal/machined/machinedfake"
 	"github.com/smithersai/smithers/packages/backend/process"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
@@ -25,8 +27,9 @@ import (
 // This does not qualify the guest's atomicity or real-machine race retention.
 type writeReplyRuntime struct {
 	*process.Runtime
-	repo  int64
-	clone string
+	repo   int64
+	clone  string
+	writer workspaceapi.WorkspaceCompareWriter
 }
 
 func (r *writeReplyRuntime) InspectWorkspace(_ context.Context, id string) (workspaceapi.Workspace, error) {
@@ -47,7 +50,10 @@ func (r *writeReplyRuntime) ExecuteCommand(_ context.Context, _ string, c worksp
 	}
 	return workspaceapi.CommandResult{}, nil
 }
-func (r *writeReplyRuntime) CompareWriteFiles(_ context.Context, _ string, changes []workspaceapi.FileMutation) (*workspaceapi.FileWriteResult, error) {
+func (r *writeReplyRuntime) CompareWriteFiles(ctx context.Context, id string, changes []workspaceapi.FileMutation) (*workspaceapi.FileWriteResult, error) {
+	if r.writer != nil {
+		return r.writer.CompareWriteFiles(ctx, id, changes)
+	}
 	for _, change := range changes {
 		if change.BaseDigest != "absent" {
 			return nil, &workspaceapi.StaleFileError{Path: change.Path, CurrentDigest: "absent"}
@@ -124,4 +130,50 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 		require.Equal(t, item.status, response.StatusCode, string(body))
 		require.JSONEq(t, item.reply, string(body))
 	}
+
+	t.Run("daemon adapter", func(t *testing.T) {
+		// Only the missing remote daemon is faked. Exercise real authorization,
+		// runtime identity, adapter and HTTP receipt/error mapping together.
+		const helloDigest = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+		const otherDigest = "486ea46224d1bb4fb680f34f7c9ad96a8f24ec88be73ea8e5a6c65260e9cb8a7"
+		calls := 0
+		provider.writer = machined.WorkspaceWriter{Client: &machinedfake.Client{OnWriteFiles: func(_ context.Context, branch string, actor []byte, changes []machined.FileChange) (machined.WriteResult, error) {
+			calls++
+			require.Equal(t, id, branch)
+			require.Equal(t, fmt.Sprint(owner.ID), string(actor))
+			require.Len(t, changes, 1)
+			require.Equal(t, "daemon.txt", changes[0].Path)
+			if changes[0].BaseDigest != nil {
+				current := otherDigest
+				return machined.WriteResult{Stale: &machined.StaleFile{Path: "daemon.txt", CurrentDigest: &current}}, nil
+			}
+			require.Equal(t, "hello", string(changes[0].Content))
+			return machined.WriteResult{Applied: []machined.AppliedFile{{Path: "daemon.txt", PostDigest: helloDigest}}, Raced: []machined.RacedFile{{Path: "daemon.txt", DisplacedDigest: otherDigest}}}, nil
+		}}}
+		for _, item := range []struct {
+			request  string
+			status   int
+			fragment string
+		}{
+			{`{"content":"hello","base_digest":"absent"}`, 200, `"version":"` + otherDigest + `"`},
+			{`{"content":"hello","base_digest":"` + helloDigest + `"}`, 409, `"current_digest":"` + otherDigest + `"`},
+			{`{"content":"hello"}`, 400, "base_digest"},
+		} {
+			req, err := http.NewRequest("PUT", server.URL+"/api/repos/digestowner/demo/workspaces/"+id+"/files/content?path=daemon.txt", strings.NewReader(item.request))
+			require.NoError(t, err)
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Origin", origin)
+			req.Header.Set("X-CSRF-Token", "digest-csrf")
+			req.AddCookie(&http.Cookie{Name: "__csrf", Value: "digest-csrf"})
+			req.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
+			response, err := server.Client().Do(req)
+			require.NoError(t, err)
+			body, err := io.ReadAll(response.Body)
+			require.NoError(t, err)
+			require.NoError(t, response.Body.Close())
+			require.Equal(t, item.status, response.StatusCode, string(body))
+			require.Contains(t, string(body), item.fragment)
+		}
+		require.Equal(t, 2, calls)
+	})
 }
