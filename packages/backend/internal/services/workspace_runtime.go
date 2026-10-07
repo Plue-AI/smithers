@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/runtimeports"
@@ -112,6 +113,7 @@ func (s *WorkspaceService) workspaceRuntimeContext(ctx context.Context, row db.W
 		TenantID:    strconv.FormatInt(row.UserID, 10),
 		PrincipalID: strconv.FormatInt(requesterID, 10),
 		OperationID: strings.TrimSpace(operationID),
+		Automated:   middleware.AuthInfoFromContext(ctx) != nil && middleware.AuthInfoFromContext(ctx).TokenSystemIssued,
 	}
 	if s.runtimeIdentity != nil {
 		resolved, err := s.runtimeIdentity(ctx, row, requesterID)
@@ -1054,6 +1056,9 @@ func (s *WorkspaceService) OpenWorkspaceTerminal(ctx context.Context, sessionID 
 func mapRuntimeFileError(err error, kind string) error {
 	if err == nil {
 		return nil
+	}
+	if errors.Is(err, workspaceapi.ErrCompareWriteUnavailable) {
+		return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "workspace compare-and-write unavailable")
 	}
 	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, workspaceapi.ErrWorkspaceNotFound) {
 		return pkgerrors.NotFound("workspace " + kind + " not found")
