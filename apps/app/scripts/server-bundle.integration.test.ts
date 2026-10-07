@@ -296,6 +296,9 @@ boundary("packaged setup mint pipe rotates before claim and is silent after clai
   const fixtureErrors = new Response(fixture.stderr).text()
   const captures: Array<{ stdout: string; stderr: string; pipe: string }> = []
   const secrets: string[] = []
+  const setupTokens: string[] = []
+  const readinessMs: number[] = []
+  let persistedSessions: Record<string, string> | undefined
   let child: ReturnType<typeof Bun.spawn> | undefined
   try {
     // A readiness file avoids waiting for the long-lived fixture to exit.
@@ -309,6 +312,14 @@ boundary("packaged setup mint pipe rotates before claim and is silent after clai
       expect(response.status).toBe(200)
       return await response.json() as { owners: number; sessions: number; digest: string }
     }
+    const persistence = async () => {
+      const response = await fetch(external.control + "/persistence")
+      expect(response.status).toBe(200)
+      const result = await response.json() as { version: number; sessions: Record<string, string> }
+      expect(result.version).toBeGreaterThanOrEqual(180000)
+      expect(result.version).toBeLessThan(190000)
+      return result.sessions
+    }
     const stop = async () => {
       child!.kill("SIGTERM")
       const exited = await Promise.race([child!.exited, Bun.sleep(30_000).then(() => undefined)])
@@ -317,6 +328,7 @@ boundary("packaged setup mint pipe rotates before claim and is silent after clai
       child = undefined
     }
     for (let start = 0; start < 3; start++) {
+      const started = performance.now()
       child = Bun.spawn([join(bundle!, "bin/smithers-server"), "--bind", `127.0.0.1:${port}`, "--origin", origin], {
         env: { HOME: home, PATH: "/usr/bin:/bin", HTTPS_PROXY: external.proxy, HTTP_PROXY: external.proxy,
           NO_PROXY: "127.0.0.1,localhost", SSL_CERT_FILE: external.cert }, stdout: "pipe", stderr: "pipe"
@@ -336,7 +348,7 @@ boundary("packaged setup mint pipe rotates before claim and is silent after clai
         } finally { reader.releaseLock() }
       }
       const drained = Promise.all([consume(child.stdout as ReadableStream<Uint8Array>, "stdout"), consume(child.stderr as ReadableStream<Uint8Array>, "stderr")])
-      const startupDeadline = Date.now() + 120_000
+      const startupDeadline = Date.now() + Math.max(0, 30_000 - (performance.now() - started))
       let exited = false
       void child.exited.then(() => { exited = true })
       let ready = false
@@ -347,6 +359,10 @@ boundary("packaged setup mint pipe rotates before claim and is silent after clai
         await Bun.sleep(50)
       }
       expect(ready, "assembled backend readiness").toBe(true)
+      readinessMs.push(performance.now() - started)
+      expect(readinessMs.at(-1)!).toBeLessThan(30_000)
+      if (start === 1) expect(await persistence()).toEqual(persistedSessions!)
+      else expect(await persistence()).toEqual({})
       const processes = spawnSync("/bin/ps", ["-axo", "pid=,ppid=,comm="], { encoding: "utf8" })
       expect(processes.status).toBe(0)
       const backend = processes.stdout.split("\n").map(line => line.trim().split(/\s+/)).find(parts => Number(parts[1]) === child!.pid && parts.slice(2).join(" ").endsWith("/smithers-backend"))
@@ -372,9 +388,22 @@ boundary("packaged setup mint pipe rotates before claim and is silent after clai
         const before = await status()
         expect(before.owners).toBe(0)
         expect(before.digest).toContain(createHash("sha256").update(token).digest("hex"))
+        if (start === 0) {
+          // The served exchange commits a real API row in bundled PG18.
+          // Retain only its digest and compare its complete persisted value
+          // after SIGTERM/restart, independently of token rotation.
+          const exchange = await fetch(`${origin}/setup?token=${encodeURIComponent(token)}`, { redirect: "manual" })
+          expect(exchange.status).toBe(303)
+          const cookie = exchange.headers.getSetCookie().find(value => value.startsWith("smithers_setup_session="))
+          expect(cookie).toBeDefined()
+          const session = cookie!.split(";")[0]!.slice("smithers_setup_session=".length)
+          secrets.push(session)
+          persistedSessions = await persistence()
+          expect(Object.keys(persistedSessions)).toEqual([`setup.session.${createHash("sha256").update(session).digest("hex")}`])
+        }
         if (start === 1) {
-          expect(token === secrets[0]).toBe(false)
-          const stale = await fetch(`${origin}/setup?token=${encodeURIComponent(secrets[0]!)}`, { redirect: "manual" })
+          expect(token === setupTokens[0]).toBe(false)
+          const stale = await fetch(`${origin}/setup?token=${encodeURIComponent(setupTokens[0]!)}`, { redirect: "manual" })
           expect(stale.status).toBe(401)
           const claimed = await fetch(external.control + "/claim", { method: "POST", body: JSON.stringify({ token }) })
           expect(claimed.status, "served OAuth owner claim").toBe(200)
@@ -385,6 +414,7 @@ boundary("packaged setup mint pipe rotates before claim and is silent after clai
           expect(await status()).toEqual({ owners: 1, sessions: 0, digest: "" })
         }
         secrets.push(token)
+        setupTokens.push(token)
       } else {
         expect(lines.length).toBe(0)
         expect(await status()).toEqual({ owners: 1, sessions: 0, digest: "" })
@@ -416,6 +446,7 @@ boundary("packaged setup mint pipe rotates before claim and is silent after clai
     scanLogs(logDirectory)
     if (receipt) writeFileSync(receipt, JSON.stringify({ check: "C-SEC-04", scope: "packaged three-start relay", passed: true,
       starts: 3, mintLines: [1, 1, 0], ownerCount: 1, setupSessions: 0,
+      readinessMs, postgresMajor: 18, persistedSetupSessions: 1,
       manifestSha256: createHash("sha256").update(readFileSync(join(bundle!, "manifest.json"))).digest("hex"),
       completedAt: new Date().toISOString() }, null, 2) + "\n", { mode: 0o600 })
   } catch (error) {

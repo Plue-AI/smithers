@@ -31,6 +31,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
+	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
 
@@ -127,6 +128,9 @@ func TestPackagedSetupGitHubFixture(t *testing.T) {
 				return nil, err
 			}
 			defer pool.Close()
+			if r.URL.Path == "/persistence" {
+				return packagedSetupPersistence(ctx, pool)
+			}
 			if r.URL.Path == "/status" {
 				var owners, sessions int
 				var digest string
@@ -332,14 +336,73 @@ func TestPackagedSetupGitHubFixtureLifetime(t *testing.T) {
 		t.Fatal("fixture exited before completion marker")
 	default:
 	}
-	response, err := http.Get(ready.Control + "/status")
-	require.NoError(t, err)
-	require.Equal(t, 500, response.StatusCode, "live external boundary reports absent private database")
-	response.Body.Close()
+	for _, path := range []string{"/status", "/persistence"} {
+		response, err := http.Get(ready.Control + path)
+		require.NoError(t, err)
+		require.Equal(t, 500, response.StatusCode, "live external boundary reports absent private database")
+		response.Body.Close()
+	}
 	stop()
 	select {
 	case <-done:
 	case <-time.After(10 * time.Second):
 		t.Fatal("fixture did not stop")
 	}
+}
+
+// The observer reads the launcher's own database without changing its rows.
+func packagedSetupPersistence(ctx context.Context, pool *pgxpool.Pool) (any, error) {
+	var version int
+	if err := pool.QueryRow(ctx, `SELECT current_setting('server_version_num')::integer`).Scan(&version); err != nil {
+		return nil, err
+	}
+	rows, err := pool.Query(ctx, `SELECT key, value::text FROM install_settings WHERE key LIKE 'setup.session.%' ORDER BY key`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	sessions := map[string]string{}
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			return nil, err
+		}
+		sessions[key] = value
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return map[string]any{"version": version, "sessions": sessions}, nil
+}
+
+func TestPackagedSetupPersistenceObserverPostgres(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	ctx := context.Background()
+	empty, err := packagedSetupPersistence(ctx, pool)
+	require.NoError(t, err)
+	value := empty.(map[string]any)
+	require.GreaterOrEqual(t, value["version"].(int), 180000)
+	require.Less(t, value["version"].(int), 190000)
+	require.Equal(t, map[string]string{}, value["sessions"])
+	_, err = pool.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES
+		('setup.session.first','{"expires_at":"2026-10-08T00:00:00Z"}'),
+		('setup.session.second','{"expires_at":"2026-10-09T00:00:00Z"}'),
+		('setup.token','"not-a-session"'),('setup.step.sign_in','{"state":"done"}')`)
+	require.NoError(t, err)
+	var before, after string
+	const allRows = `SELECT jsonb_agg(to_jsonb(s) ORDER BY key)::text FROM install_settings s`
+	require.NoError(t, pool.QueryRow(ctx, allRows).Scan(&before))
+	snapshot, err := packagedSetupPersistence(ctx, pool)
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{
+		"setup.session.first":  `{"expires_at": "2026-10-08T00:00:00Z"}`,
+		"setup.session.second": `{"expires_at": "2026-10-09T00:00:00Z"}`,
+	}, snapshot.(map[string]any)["sessions"])
+	require.NoError(t, pool.QueryRow(ctx, allRows).Scan(&after))
+	require.Equal(t, before, after, "observer must preserve values and timestamps")
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	failed, err := packagedSetupPersistence(cancelled, pool)
+	require.Error(t, err)
+	require.Nil(t, failed, "failed observations supply no passing snapshot")
 }
