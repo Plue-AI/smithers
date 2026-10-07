@@ -244,8 +244,13 @@ func (s *WorkspaceService) ListWorkspaceChildren(ctx context.Context, workspaceI
 	err = s.inWorkspaceChildTx(ctx, func(q *db.Queries) error {
 		receipts, err = q.ListWorkspaceChildReceipts(ctx, stringToUUID(parent.ID))
 		return err
-	})
+	}, s.installChildrenReadGuard(ctx, InstallSubject{RepositoryID: repositoryID, WorkspaceID: workspaceID}, userID))
 	if err != nil {
+		var access *AccessError
+		var api *pkgerrors.APIError
+		if errors.As(err, &access) || errors.As(err, &api) {
+			return nil, err
+		}
 		return nil, pkgerrors.Internal("list child workspaces").WithCause(err)
 	}
 	children := make([]WorkspaceChild, 0, len(receipts))
@@ -683,14 +688,44 @@ func (s *WorkspaceService) releaseDrainedWorkspaceChildSnapshots(ctx context.Con
 	return errors.Join(errs...)
 }
 
-func (s *WorkspaceService) inWorkspaceChildTx(ctx context.Context, fn func(*db.Queries) error) error {
+func (s *WorkspaceService) inWorkspaceChildTx(ctx context.Context, fn func(*db.Queries) error, guards ...func(pgx.Tx) error) error {
 	tx, err := s.transactions.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	for _, guard := range guards {
+		if guard != nil {
+			if err := guard(tx); err != nil {
+				return err
+			}
+		}
+	}
 	if err := fn(db.New(tx)); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// Recheck the named publisher and stored parent under the read transaction.
+// Internal child cleanup never receives this guard: revocation cannot prevent
+// recovery from deleting an already admitted child machine.
+func (s *WorkspaceService) installChildrenReadGuard(ctx context.Context, subject InstallSubject, actor int64) func(pgx.Tx) error {
+	if s.installQueries == nil {
+		return nil
+	}
+	return func(tx pgx.Tx) error {
+		if err := guardInstallMemberCredential(ctx, tx, subject.RepositoryID, actor, false); err != nil {
+			return err
+		}
+		var present int
+		if err := tx.QueryRow(ctx, `SELECT 1 FROM workspaces WHERE id=$1 FOR SHARE`, subject.WorkspaceID).Scan(&present); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return confirmationPermission()
+			}
+			return err
+		}
+		_, err := authorizeWorkspaceChildren(ctx, db.New(tx), "workspace.children.list", subject)
+		return err
+	}
 }

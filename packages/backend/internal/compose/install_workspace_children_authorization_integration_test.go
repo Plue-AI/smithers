@@ -102,4 +102,50 @@ func TestInstallWorkspaceChildrenCommandsPostgres(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, fmt.Sprint(err), "credential")
 	})
+	t.Run("bound list rechecks live credential and parent", func(t *testing.T) {
+		sum := sha256.Sum256([]byte(machine))
+		hash := hex.EncodeToString(sum[:])
+		stored, err := f.q.GetAuthInfoByTokenHash(f.ctx, hash)
+		require.NoError(t, err)
+		info := &middleware.AuthInfo{User: &f.owner, IsTokenAuth: true, TokenSystemIssued: true, TokenID: stored.TokenID, TokenHash: hash, RawScopes: scopes, Scopes: middleware.ParseTokenScopes(scopes)}
+		ctx := middleware.ContextWithAuthInfo(f.ctx, info)
+		subject := services.InstallSubject{RepositoryID: f.repoID, WorkspaceID: parent.ID}
+		for _, tc := range []struct {
+			name, mutation, restore string
+			status                  int
+		}{
+			{"expired", `UPDATE access_tokens SET expires_at=now()-interval '1 second' WHERE id=$1`, `UPDATE access_tokens SET expires_at=now()+interval '1 hour' WHERE id=$1`, 401},
+			{"renamed publisher", `UPDATE access_tokens SET name='unrelated' WHERE id=$1`, `UPDATE access_tokens SET name=$2 WHERE id=$1`, 403},
+			{"changed scopes", `UPDATE access_tokens SET scopes='read:user' WHERE id=$1`, `UPDATE access_tokens SET scopes=$3 WHERE id=$1`, 403},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				calls := 0
+				observed := services.WithAuthorizationObserver(ctx, func(string) { calls++ })
+				decision, err := services.Authorize(observed, f.q, "workspace.children.list", subject)
+				require.NoError(t, err)
+				bound := services.WithInstallAuthorization(observed, "workspace.children.list", decision, subject)
+				_, err = f.pool.Exec(f.ctx, tc.mutation, stored.TokenID)
+				require.NoError(t, err)
+				t.Cleanup(func() {
+					var err error
+					switch tc.name {
+					case "renamed publisher":
+						_, err = f.pool.Exec(f.ctx, tc.restore, stored.TokenID, "sandbox-workspace-children-"+parent.ID)
+					case "changed scopes":
+						_, err = f.pool.Exec(f.ctx, `UPDATE access_tokens SET scopes=$2 WHERE id=$1`, stored.TokenID, scopes)
+					default:
+						_, err = f.pool.Exec(f.ctx, tc.restore, stored.TokenID)
+					}
+					require.NoError(t, err)
+				})
+				rows, err := service.ListWorkspaceChildren(bound, parent.ID, f.repoID, f.owner.ID)
+				var access *services.AccessError
+				require.ErrorAs(t, err, &access)
+				require.Equal(t, tc.status, access.Status)
+				require.Nil(t, rows)
+				require.Equal(t, 1, calls)
+			})
+		}
+	})
+
 }
