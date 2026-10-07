@@ -38,7 +38,8 @@ const capital = (words: string): string => words === "" ? words : `${words.charA
 /** The call's verb and subject, in the words its declaration chose. */
 const callStep = (span: TraceSpan): { readonly type: StepType; readonly description: string } => {
   const payload = { ...(span.detail.fields ?? {}), input: span.detail.input }
-  const semantics = callSemantics(span.label, payload)
+  // The label is display text; semantics come from the journaled flow name.
+  const semantics = callSemantics(span.detail.flowName ?? span.label, payload)
   const outcome = span.status === "failed" || span.status === "denied" ? "failure" : span.endedAt === undefined ? "pending" : "success"
   // A flow without a presentation is named, not described: its own name, as
   // written, with no capital it never had.
