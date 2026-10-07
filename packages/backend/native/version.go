@@ -124,17 +124,14 @@ func WriteVersion(root string, v Version) error {
 	return writeDurable(filepath.Join(root, "version.env"), versionText(v))
 }
 func requireCompleteUpgrade(root string) error {
-	path := filepath.Join(root, ".upgrade-incomplete")
-	if _, err := os.Lstat(path); os.IsNotExist(err) {
+	body, err := hostbackup.ReadUpgradeMarker(root)
+	if os.IsNotExist(err) {
 		return nil
-	} else if err != nil {
-		return err
 	}
-	body, err := os.ReadFile(path)
 	if err != nil {
 		return &GuardError{Reason: "upgrade incomplete; recovery marker is unreadable", Cause: err}
 	}
-	backup := strings.TrimSpace(string(body))
+	backup := strings.TrimSpace(body)
 	if backup == "" {
 		return &GuardError{Reason: "upgrade incomplete; recovery marker has no verified backup"}
 	}

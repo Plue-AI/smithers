@@ -137,6 +137,43 @@ type UpgradeContinuationConfig struct {
 	Authority     UpgradeContinuationAuthority
 }
 
+// ReadUpgradeMarker reads only a bounded regular file beneath the pinned state
+// directory. Startup must refuse special files without blocking or following a
+// substituted link, before starting PostgreSQL or any repository runtime.
+func ReadUpgradeMarker(state string) (string, error) {
+	root, err := openSnapshot(state)
+	if err != nil {
+		return "", err
+	}
+	defer root.Close()
+	return readUpgradeMarker(root)
+}
+
+func readUpgradeMarker(root *os.Root) (string, error) {
+	if _, err := root.Lstat(".upgrade-incomplete"); err != nil {
+		return "", err
+	}
+	marker, err := openRegular(root, ".upgrade-incomplete")
+	if err != nil {
+		return "", err
+	}
+	bytes, readErr := io.ReadAll(io.LimitReader(marker, 4097))
+	if err := errors.Join(readErr, marker.Close()); err != nil {
+		return "", err
+	}
+	if len(bytes) > 4096 {
+		return "", errors.New("upgrade recovery marker exceeds 4096 bytes")
+	}
+	// Writers append one newline. Other control bytes cannot name a generated
+	// backup and must never become terminal output or a restore argument.
+	for _, b := range strings.TrimSuffix(string(bytes), "\n") {
+		if b < 32 || b == 127 {
+			return "", errors.New("upgrade recovery marker contains control bytes")
+		}
+	}
+	return string(bytes), nil
+}
+
 // ContinueUpgrade is the new-binary half of upgrade. A return from migration
 // alone never authorizes reopening. The durable guard survives failed checks.
 func ContinueUpgrade(ctx context.Context, cfg UpgradeContinuationConfig) (err error) {
@@ -153,16 +190,11 @@ func ContinueUpgrade(ctx context.Context, cfg UpgradeContinuationConfig) (err er
 		return err
 	}
 	defer root.Close()
-	marker, err := openRegular(root, ".upgrade-incomplete")
+	marker, err := readUpgradeMarker(root)
 	if err != nil {
 		return err
 	}
-	bytes, readErr := io.ReadAll(io.LimitReader(marker, 4097))
-	err = errors.Join(readErr, marker.Close())
-	if err != nil {
-		return err
-	}
-	if len(bytes) > 4096 || string(bytes) != cfg.Backup+"\n" {
+	if marker != cfg.Backup+"\n" {
 		return errors.New("upgrade recovery marker does not match backup")
 	}
 	snapshot, err := openSnapshot(cfg.Backup)
