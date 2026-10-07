@@ -73,7 +73,12 @@ func TestTodoStopResumeComposedInstall(t *testing.T) {
 	source, digest := strings.Repeat("a", 40), "e274ce85c2e7f9fdef2bb4de75700e9847920893d24e6f69d692a573ff11ed3d"
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET flow_digest=$2,workspace_id='11111111-1111-4111-8111-111111111111',checks=jsonb_set(jsonb_set(checks,'{flowSource}',to_jsonb($3::text)),'{run_attached}','true') WHERE id=$1`, item.ID, digest, source)
 	require.NoError(t, err)
-	service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return digest, nil })
+	activeDigest := digest
+	var activeReads atomic.Int32
+	service.SetTodoFlow(func(context.Context, int64, string) (string, error) {
+		activeReads.Add(1)
+		return activeDigest, nil
+	})
 	receiver := &pauseReceiver{reviewFixtureReceiver: &reviewFixtureReceiver{}, signals: make(chan flowruntime.Signal, 10)}
 	store, err := jobs.NewStore(pool)
 	require.NoError(t, err)
@@ -247,6 +252,12 @@ func TestTodoStopResumeComposedInstall(t *testing.T) {
 	_, card = call("GET", "", "")
 	require.Equal(t, "paused", card["state"])
 	require.Equal(t, "person", card["pause"].(map[string]any)["reason"])
+	require.Equal(t, map[string]any{"flow_name": "todo", "source_commit": source, "digest": digest}, card["flow_version"])
+	// A new Active version arrives while the original run is stopped. Resume
+	// must signal that same run without reading Active or rewriting its pin.
+	activeDigest = strings.Repeat("f", 64)
+	_, err = pool.Exec(ctx, `INSERT INTO workflow_definitions(repository_id,name,path,config,is_active,source_commit,digest,status) VALUES($1,'todo','flows/todo/flow.ts','{}',true,$2,$3,'loaded')`, repo.ID, strings.Repeat("b", 40), activeDigest)
+	require.NoError(t, err)
 	// Persisted waits must belong to this exact cycle and authority. A stale
 	// wait cannot admit a freshly reconstructed signal for another cycle.
 	parked, err := q.GetMythicalItem(ctx, item.ID)
@@ -304,6 +315,8 @@ func TestTodoStopResumeComposedInstall(t *testing.T) {
 	_, card = call("GET", "", "")
 	require.Equal(t, "needs_you", card["state"])
 	require.NotContains(t, card, "pause")
+	require.Equal(t, map[string]any{"flow_name": "todo", "source_commit": source, "digest": digest}, card["flow_version"])
+	require.Zero(t, activeReads.Load(), "Stop and Resume must not resolve the newer Active version")
 	saved, err := q.GetMythicalItem(ctx, item.ID)
 	require.NoError(t, err)
 	require.Equal(t, "run-1", saved.RequestRunID)

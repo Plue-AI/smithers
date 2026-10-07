@@ -94,19 +94,20 @@ type rehearsal struct {
 	repositoryRoot string
 	stopBackend    func()
 	// stepBudget overrides readiness polling for non-latency checks under contention.
-	stepBudget     time.Duration
-	deferredDoors  bool
-	installationID int64
-	t              *testing.T
-	ctx            context.Context
-	root           string
-	evidence       string
-	pool           *pgxpool.Pool
-	processRuntime *process.Runtime
-	repoClient     *repository.Client
-	fake           *githubfake.Server
-	compute        *sandboxfake.Provider
-	coder          rehearsalCodingModel
+	stepBudget       time.Duration
+	deferredDoors    bool
+	installationID   int64
+	t                *testing.T
+	ctx              context.Context
+	root             string
+	evidence         string
+	pool             *pgxpool.Pool
+	processRuntime   *process.Runtime
+	workspaceRuntime workspaceapi.WorkspaceRuntime
+	repoClient       *repository.Client
+	fake             *githubfake.Server
+	compute          *sandboxfake.Provider
+	coder            rehearsalCodingModel
 	// mainCommit is the repository's main as the fake's Git holds it, under
 	// gitRoot (<owner>/<repo>.git).
 	mainCommit string
@@ -352,6 +353,8 @@ path = "lib.rs"
 	if enable == "SMITHERS_BRANCH_FILES_INTEGRATION" || enable == "SMITHERS_DEFERRED_DOORS_BROWSER" {
 		// No TODO runs in the held-build file journey. The app agent below
 		// still uses its real model host and registered files.read dispatch.
+	} else if enable == pinnedMicroVMRehearsal {
+		registry = pinnedMicroVMRegistry(t)
 	} else if helper := rehearsalJJExport(r.root, library); helper == "" {
 		fmt.Println("rehearsal: no smithers-jj-export (SMITHERS_WORKSPACE_JJ_EXPORT_BINARY, beside the FFI library, or target/release); the TODO's coding run is not composed")
 	} else {
@@ -366,6 +369,8 @@ path = "lib.rs"
 		}
 		built := buildRehearsalCodingHost(t, node, r.root)
 		registry = &built
+	}
+	if registry != nil {
 		// The coding host's model is scripted: test-only owner keys route every
 		// turn through the composed install's metered proxy to this provider.
 		r.coder = startRehearsalCodingModel(t, node, r.root, r.evidence)
@@ -385,15 +390,19 @@ path = "lib.rs"
 	live, err := os.OpenFile(filepath.Join(r.evidence, "backend.live.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = live.Close() })
+	options := Options{Repository: engine.Client(), Workspace: workspace, MachineImages: trustedProcessImages{sources: repositorySourceFiles{client: engine.Client()}, holdUntilCancelled: enable == "SMITHERS_BRANCH_FILES_INTEGRATION"}, ComputeProvider: r.compute, ChatHost: offlineGatewayHost{host}, FlowHostProductAPIURL: r.origin,
+		FlowHostRegistry: registry, FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true},
+		OwnerModelKeys: ownerKeys, ModelProxyUpstreams: upstreams, BranchMachines: rehearsalBranchMachines(pool),
+		// Explicit synthetic measurements model capacity 3 and default parallel 2.
+		// This process fixture does not qualify a production microVM host.
+		HostProfile: &microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: 400 << 30, MacOSVersion: "15.6", Hypervisor: true},
+		// A label on GitHub is read within seconds, not the product's 120 s.
+		GitHubIssueEventsEvery: 2 * time.Second}
+	if enable == pinnedMicroVMRehearsal {
+		configurePinnedMicroVMRehearsal(t, r, &options)
+	}
 	go func() {
-		done <- StartWithOptions(ctx, nil, r.stdout, io.MultiWriter(r.logs, live), Options{Repository: engine.Client(), Workspace: workspace, MachineImages: trustedProcessImages{sources: repositorySourceFiles{client: engine.Client()}, holdUntilCancelled: enable == "SMITHERS_BRANCH_FILES_INTEGRATION"}, ComputeProvider: r.compute, ChatHost: offlineGatewayHost{host}, FlowHostProductAPIURL: r.origin,
-			FlowHostRegistry: registry, FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true},
-			OwnerModelKeys: ownerKeys, ModelProxyUpstreams: upstreams, BranchMachines: rehearsalBranchMachines(pool),
-			// Explicit synthetic measurements model capacity 3 and default parallel 2.
-			// This process fixture does not qualify a production microVM host.
-			HostProfile: &microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: 400 << 30, MacOSVersion: "15.6", Hypervisor: true},
-			// A label on GitHub is read within seconds, not the product's 120 s.
-			GitHubIssueEventsEvery: 2 * time.Second}, func(h http.Handler) { ready <- h })
+		done <- StartWithOptions(ctx, nil, r.stdout, io.MultiWriter(r.logs, live), options, func(h http.Handler) { ready <- h })
 	}()
 	select {
 	case h := <-ready:
