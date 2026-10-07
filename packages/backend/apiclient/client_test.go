@@ -133,6 +133,7 @@ func TestTodoReadsDecodeTheCard(t *testing.T) {
 	var decoded apiclient.TodoCard
 	require.NoError(t, json.Unmarshal(one, &decoded))
 	assert.Equal(t, "One", decoded.Title)
+	assert.JSONEq(t, card, string(one), "the union response preserves the complete card")
 }
 
 func TestAgentReadSelectsTheCatalogRole(t *testing.T) {
@@ -146,6 +147,19 @@ func TestAgentReadSelectsTheCatalogRole(t *testing.T) {
 	assert.Equal(t, "/api/agents/reviewer", (*requests)[0].RawPath)
 	assert.Equal(t, "token smithers_test", (*requests)[0].Authorization)
 	assert.Empty(t, (*requests)[0].Body)
+}
+
+func TestTodoReadsDecodeBoundCodingFields(t *testing.T) {
+	body := `{"n":7,"title":"Fix retries","state":"editing","attempt":2,"generation":3,"workspace":"lane-7","run":"run-2","base":"accepted-prefix"}`
+	client, requests := server(t, http.StatusOK, "application/json", body)
+	raw, err := client.GetAPITodosN(context.Background(), 7)
+	require.NoError(t, err)
+	var bound apiclient.TodoSystemRead
+	require.NoError(t, json.Unmarshal(raw, &bound))
+	assert.Equal(t, apiclient.TodoSystemRead{N: 7, Title: "Fix retries", State: "editing", Attempt: 2, Generation: 3, Workspace: "lane-7", Run: "run-2", Base: "accepted-prefix"}, bound)
+	assert.JSONEq(t, body, string(raw))
+	require.Len(t, *requests, 1)
+	assert.Equal(t, "/api/todos/7", (*requests)[0].RawPath)
 }
 
 func TestUntypedBodyIsOptional(t *testing.T) {
