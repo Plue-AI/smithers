@@ -83,6 +83,7 @@ const test = Smithers.Vitest({
   sources: [
     Smithers.glob("src/**/*.ts"),
     Smithers.file("package.json"),
+    Smithers.file("../flows/platform-node/src/ProcessSandbox.ts"),
     Smithers.file("README.md"),
     Smithers.file("DESIGN.md"),
     Smithers.file("WIRING.md"),
