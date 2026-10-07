@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"golang.org/x/crypto/ssh"
 	"io"
 )
@@ -79,10 +80,34 @@ func sftpFixture(client *ssh.Client) error {
 	if err != nil || !sftpStatus(reply, 0) {
 		return errors.New("SFTP close failed")
 	}
-	for i, path := range []string{"/var/tmp/trm06-outside", "/workspace/trm06-escape", "/home/agent/trm06-private"} {
+	for i, path := range []string{"/var/tmp/trm06-outside", "/workspace/trm06-escape", "/workspace/../var/tmp/trm06-outside", "/home/agent/trm06-private"} {
 		reply, err = request(3, uint32(4+i), openBody(path))
 		if err != nil || !sftpStatus(reply, 3) {
 			return errors.New("SFTP outside/home write was not denied")
+		}
+	}
+	// Mutating operations must also respect the dropped filesystem boundary.
+	// Existing writable sentinel bytes are checked independently after revocation.
+	for i, fixture := range []struct {
+		kind byte
+		body []byte
+	}{
+		{13, ssh.Marshal(struct{ Path string }{"/var/tmp/trm06-outside"})},
+		{14, ssh.Marshal(struct {
+			Path        string
+			Flags, Mode uint32
+		}{"/var/tmp/trm06-new-dir", 4, 0777})},
+		{9, ssh.Marshal(struct {
+			Path        string
+			Flags, Mode uint32
+		}{"/var/tmp/trm06-outside", 4, 0777})},
+		{18, ssh.Marshal(struct{ Old, New string }{"/workspace/trm06-sftp.txt", "/var/tmp/trm06-outside"})},
+	} {
+		reply, err = request(fixture.kind, uint32(20+i), fixture.body)
+		// Landlock REFER can return EXDEV for cross-boundary rename, represented
+		// as SSH_FX_FAILURE by OpenSSH. All other mutations must deny permission.
+		if err != nil || !(sftpStatus(reply, 3) || (fixture.kind == 18 && sftpStatus(reply, 4))) {
+			return fmt.Errorf("SFTP mutation %d did not refuse", fixture.kind)
 		}
 	}
 	return nil
