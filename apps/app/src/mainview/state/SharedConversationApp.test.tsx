@@ -374,3 +374,45 @@ test("install conversation binds imported snapshots through the shared renderer 
     expect(starts).toBe(0)
   } finally { flushSync(() => root.unmount()); host.remove(); await controller.dispose() }
 })
+
+test("initial member view arrival never remounts an interactive Context disclosure", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  let holdViews = true
+  const releases: Array<(value: Response) => void> = []
+  let reads = 0
+  const releaseViews = () => { holdViews = false; for (const release of releases.splice(0)) release(Response.json({ scroll_anchor: "turn-ben:answer" })) }
+  const item = { kind: "file", label: "retry.ts", ref: "src/webhooks/retry.ts", revision: "0123456789abcdef0123456789abcdef01234567", reason: "Retry implementation" }
+  const controller = createAppController(store, silentAgent, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null },
+    fetchImpl: async (input, init) => {
+      const path = String(input)
+      if (path === "/api/conversations/main") { reads++; return Response.json({ id: "main", entries: [{ ...ben, context: [item] }] }) }
+      if (path.endsWith("/view-state")) return holdViews && (init?.method ?? "GET") === "GET" ? new Promise(resolve => { releases.push(resolve) }) : Response.json({ scroll_anchor: "turn-ben:answer" })
+      return new Response("{}", { status: 404 })
+    }
+  })
+  const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    flushSync(() => root.render(<ControllerTestProvider controller={controller}><App /></ControllerTestProvider>))
+    await waitFor(() => releases.length > 0)
+    expect(host.querySelector(".context-toggle")).toBeNull()
+    releaseViews()
+    await waitFor(() => host.querySelector(".context-toggle") !== null)
+    const toggle = host.querySelector<HTMLButtonElement>(".context-toggle")!
+    flushSync(() => toggle.click())
+    expect(toggle.getAttribute("aria-expanded")).toBe("true")
+    expect(host.querySelector(".context-chip")?.textContent).toBe("retry.ts")
+    holdViews = true
+    const refreshed = controller.sharedConversation!.read()
+    await waitFor(() => releases.length > 0)
+    // The refresh's view request is held, but its answer is already usable.
+    expect(reads).toBe(2)
+    expect(host.querySelector(".context-toggle")).toBe(toggle)
+    expect(toggle.getAttribute("aria-expanded")).toBe("true")
+    releaseViews()
+    await refreshed
+    expect(host.querySelector(".context-toggle")).toBe(toggle)
+    expect(toggle.getAttribute("aria-expanded")).toBe("true")
+  } finally { flushSync(() => root.unmount()); host.remove(); await controller.dispose() }
+})

@@ -45,6 +45,8 @@ test("C-UI-07: native shared preflight survives tab closure and opens four sourc
   await reader.goto("/")
   const disclosure = reader.getByRole("button", { name: "Context · 4", exact: true })
   await expect(disclosure).toBeVisible({ timeout: 30_000 })
+  const restoredComposer = reader.getByTestId("composer-input")
+  if (await restoredComposer.isVisible()) await restoredComposer.press("Escape")
   await disclosure.press("Enter")
   const file = reader.locator('.context-chip[data-flow="file"]')
   await expect(file).toHaveAttribute("title", `src/webhooks/retry.ts · ${revision} · Retry implementation`)
