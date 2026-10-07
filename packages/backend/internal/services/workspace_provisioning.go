@@ -1745,7 +1745,8 @@ func (s *WorkspaceService) tryForkDerivedFromPrimary(ctx context.Context, worksp
 	// Only derived workspaces fork; the primary IS the repo's source of truth
 	// and must clone. A fork also needs the bookmark to switch onto and repo
 	// identity for the fetch auth.
-	if !workspace.IsFork {
+	// A retained revision must start from its objects, never a primary disk.
+	if !workspace.IsFork || workspace.SourceCommit != "" {
 		return workspace, false
 	}
 	// Only containers fork (see workspaceKindForksCleanly). A vm/desktop box
