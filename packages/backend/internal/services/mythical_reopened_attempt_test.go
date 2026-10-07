@@ -69,7 +69,7 @@ func TestReopenedTodoInputStartsNewPinnedAttempt(t *testing.T) {
 			reopened.PendingOp = nil
 			reopened, err = q.SaveMythicalItem(ctx, reopened)
 			require.NoError(t, err)
-			session := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: o.userID}, SessionHash: "reopened-person"})
+			session := registerTestInstallCredential(t, o.pool, middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: o.userID}, SessionHash: "reopened-person"}), o.repoID)
 			text := "Use the backoff helper"
 			send := func() error {
 				switch kind {

@@ -99,12 +99,15 @@ test("TODO pause survives a cold SQLite host restart without repeating finished 
   const directory = await mkdtemp(join(tmpdir(), "todo-pause-cold-"))
   let release!: () => void
   const running = new Promise<void>(resolve => { release = resolve })
-  let entered = 0, finished = 0
+  let entered = 0, secondStarted = 0, finished = 0
+  let releaseSecond!: () => void
+  const secondRunning = new Promise<void>(resolve => { releaseSecond = resolve })
   const Before = Action.make("test/todo-before", { payload: {}, success: Schema.Void })
   const After = Action.make("test/todo-after", { payload: {}, success: Schema.Void })
+  const Done = Action.make("test/todo-done", { payload: {}, success: Schema.Void })
   const Todo = Flow.make("todo", { payload: {}, success: Schema.Void,
     error: TodoBoundary.errorSchema,
-    body: () => Before.call({}).pipe(Node.andThen(TodoBoundary.call({})), Node.andThen(After.call({}))) })
+    body: () => Before.call({}).pipe(Node.andThen(TodoBoundary.call({})), Node.andThen(After.call({})), Node.andThen(TodoBoundary.call({})), Node.andThen(Done.call({}))) })
   const open = () => {
     const sqlite = DurableWriter.layer().pipe(Layer.provideMerge(NodeDatabase.layer({ filename: join(directory, "engine.db") })))
     const persistence = Layer.mergeAll(SqlJournal.layer({ capacity: 1024, overflow: "reject" }),
@@ -112,7 +115,8 @@ test("TODO pause survives a cold SQLite host restart without repeating finished 
       Layer.provideMerge(Layer.effectDiscard(Migrations.run)), Layer.provideMerge(Layer.merge(sqlite, NodeCrypto.layer)))
     const engine = Layer.mergeAll(Interpreter.layer(Todo), Interpreter.layer(TodoBoundary), WaitFor.layer, todoPauseLayer,
       Before.toLayer(() => Effect.promise(async () => { entered++; await running })),
-      After.toLayer(() => Effect.sync(() => { finished++ }))).pipe(
+      After.toLayer(() => Effect.promise(async () => { secondStarted++; await secondRunning })),
+      Done.toLayer(() => Effect.sync(() => { finished++ }))).pipe(
       Layer.provideMerge(Layer.succeed(ModuleOwner, { rootId: "cold-todo", flowId: "todo" })),
       Layer.provideMerge(SqlControlRuntime.layer({}).pipe(Layer.orDie)),
       Layer.provideMerge(Action.layerImplementations),
@@ -121,9 +125,9 @@ test("TODO pause survives a cold SQLite host restart without repeating finished 
       Layer.provideMerge(persistence))
     return ManagedRuntime.make(Layer.merge(engine, plane).pipe(Layer.provideMerge(engine), Layer.provide(Layer.effect(Scope.Scope)(Effect.scope))))
   }
-  const parked = Effect.gen(function*() {
+  const parked = (cycle: number) => Effect.gen(function*() {
     const summary = yield* (yield* ControlRuntime).getRun("cold-todo")
-    return summary.pendingWaits?.some(wait => wait.name === "resume" && wait.attempt === 1) === true
+    return summary.pendingWaits?.some(wait => wait.name === "resume" && wait.attempt === cycle) === true
   })
   let host = open()
   try {
@@ -137,20 +141,32 @@ test("TODO pause survives a cold SQLite host restart without repeating finished 
     await host.runPromise(TestDatabase.until(Effect.gen(function*() {
       const control = yield* Control
       yield* control.signal({ runId: "cold-todo", signal: { name: "pause", payload: 1 }, idempotencyKey: "stop-cold" })
-      return yield* parked
+      return yield* parked(1)
     })))
     assert.equal(finished, 0)
     await host.dispose()
     host = open()
-    assert.equal(await host.runPromise(parked), true)
+    assert.equal(await host.runPromise(parked(1)), true)
     await host.runPromise(Todo.resume("cold-todo"))
     assert.equal(entered, 1)
     assert.equal(finished, 0)
     await host.runPromise(Effect.gen(function*() {
       yield* (yield* Control).signal({ runId: "cold-todo", signal: { name: "resume#1", payload: 1 }, idempotencyKey: "resume-cold" })
+      yield* TestDatabase.until(Effect.sync(() => secondStarted === 1))
+      yield* (yield* Control).signal({ runId: "cold-todo", signal: { name: "pause", payload: 2 }, idempotencyKey: "stop-second" })
+    }))
+    releaseSecond()
+    await host.runPromise(TestDatabase.until(Effect.gen(function*() {
+      yield* (yield* Control).signal({ runId: "cold-todo", signal: { name: "pause", payload: 2 }, idempotencyKey: "stop-second" })
+      return yield* parked(2)
+    })))
+    assert.equal(finished, 0, "the old resume must not settle the second boundary")
+    await host.runPromise(Effect.gen(function*() {
+      yield* (yield* Control).signal({ runId: "cold-todo", signal: { name: "resume#2", payload: 2 }, idempotencyKey: "resume-second" })
       yield* TestDatabase.until(Effect.gen(function*() { return (yield* (yield* RunStore.RunStore).get("cold-todo")).status === "completed" }))
     }))
+    assert.equal(secondStarted, 1)
     assert.equal(entered, 1)
     assert.equal(finished, 1)
-  } finally { release(); await host.dispose(); await rm(directory, { recursive: true, force: true }) }
+  } finally { release(); releaseSecond(); await host.dispose(); await rm(directory, { recursive: true, force: true }) }
 })

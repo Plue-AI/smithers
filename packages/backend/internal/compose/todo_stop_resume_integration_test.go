@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -29,6 +30,7 @@ import (
 type pauseReceiver struct {
 	*reviewFixtureReceiver
 	signals chan flowruntime.Signal
+	reject  atomic.Bool
 }
 
 func (r *pauseReceiver) Signal(ctx context.Context, input flowruntime.Signal) (flowruntime.MutationResult, error) {
@@ -36,6 +38,9 @@ func (r *pauseReceiver) Signal(ctx context.Context, input flowruntime.Signal) (f
 	case r.signals <- input:
 	case <-ctx.Done():
 		return flowruntime.MutationResult{}, ctx.Err()
+	}
+	if r.reject.Load() {
+		return flowruntime.MutationResult{}, nil
 	}
 	return flowruntime.MutationResult{Operation: "signal", ApplicationRequestID: input.ApplicationRequestID, Receipt: flowruntime.Receipt{Tag: "Accepted", ReceiptID: input.ApplicationRequestID, RunID: input.RunID}}, nil
 }
@@ -264,4 +269,41 @@ func TestTodoStopResumeComposedInstall(t *testing.T) {
 	project("resume#2")
 	_, card = call("GET", "", "")
 	require.Equal(t, "paused", card["state"])
+	// A bad runtime receipt is a visible delivery failure, never Resumed.
+	// A new person request retries the same wait, run and attempt.
+	receiver.reject.Store(true)
+	status, _ = call("POST", `{"op":"resume"}`, "failed-resume")
+	require.Equal(t, 202, status)
+	select {
+	case signal := <-receiver.signals:
+		require.Equal(t, "resume#2", signal.Name)
+	case <-time.After(5 * time.Second):
+		t.Fatal("failed Resume was not dispatched")
+	}
+	require.Eventually(t, func() bool { _, card = call("GET", "", ""); return card["control_failure"] != nil }, 5*time.Second, 10*time.Millisecond)
+	require.Equal(t, "paused", card["state"])
+	require.Equal(t, map[string]any{"op": "resume", "message": "Resume failed"}, card["control_failure"])
+	receiver.reject.Store(false)
+	status, _ = call("POST", `{"op":"resume"}`, "retried-resume")
+	require.Equal(t, 202, status)
+	select {
+	case signal := <-receiver.signals:
+		require.Equal(t, "resume#2", signal.Name)
+		require.Equal(t, "run-1", signal.RunID)
+	case <-time.After(5 * time.Second):
+		t.Fatal("retried Resume was not dispatched")
+	}
+	require.Eventually(t, func() bool {
+		saved, e := q.GetMythicalItem(ctx, item.ID)
+		return e == nil && strings.Contains(string(saved.Checks), `"delivered": true`)
+	}, 5*time.Second, 10*time.Millisecond)
+	project("")
+	_, card = call("GET", "", "")
+	require.Equal(t, "working", card["state"])
+	require.NotContains(t, card, "control_failure")
+	saved, err = q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, saved.Attempt)
+	require.Equal(t, "run-1", saved.RequestRunID)
+	require.Equal(t, digest, saved.FlowDigest.String)
 }
