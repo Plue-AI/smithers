@@ -215,7 +215,7 @@ func TestPresenceVisitAuditSharedWithSSH(t *testing.T) {
 	require.Equal(t, 1, count)
 	var metadata []byte
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT metadata FROM audit_log WHERE event_type='presence'`).Scan(&metadata))
-	require.JSONEq(t, fmt.Sprintf(`{"branch":%q,"member":%d,"via":"app","start":"2026-10-06T12:00:00Z","end":"2026-10-06T12:02:00Z"}`, f.row.ID, f.user.ID), string(metadata))
+	require.JSONEq(t, fmt.Sprintf(`{"branch":%q,"member":%d,"via":"app","vias":["app","ssh"],"start":"2026-10-06T12:00:00Z","end":"2026-10-06T12:02:00Z"}`, f.row.ID, f.user.ID), string(metadata))
 }
 
 func TestPresenceAgentSessionResolvesAdmittedBranch(t *testing.T) {
