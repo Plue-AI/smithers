@@ -279,16 +279,7 @@ func buildRouter(
 		}
 		return cfg.FeatureFlags.SubscriptionConnections
 	})
-	gateSubscriptionConnections := func(next http.Handler) http.Handler {
-		gated := subscriptionConnectionsFeature(next)
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if queries != nil && config.IsSingleOwner(cfg.Auth) && strings.HasPrefix(r.URL.Path, "/api/") {
-				installModelOwner(queries)(gated).ServeHTTP(w, r)
-				return
-			}
-			gated.ServeHTTP(w, r)
-		})
-	}
+	gateSubscriptionConnections := subscriptionConnectionsFeature
 
 	gateProtectedBookmarks := middleware.FeatureFlagGate(func() bool { return cfg.FeatureFlags.ProtectedBookmarks })
 	gateWebhooksUser := middleware.FeatureFlagGate(func() bool { return cfg.FeatureFlags.WebhooksUser })
@@ -1080,7 +1071,7 @@ func buildRouter(
 				if extras.GitHubAppSetup != nil && extras.GitHubAppSetup.Setup != nil {
 					h.Capacity = extras.GitHubAppSetup.Setup.Capacity
 				}
-				r.With(middleware.RequireAuth, installModelOwner(queries)).Get("/install/metrics", h.Read)
+				r.With(middleware.RequireAuth).Get("/install/metrics", h.Read)
 			}
 		}
 		// Outside the member table: the install owner's sessions are the owner's alone.
