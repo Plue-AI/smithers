@@ -45,7 +45,7 @@ func (h *WorkspaceTerminalHandler) OpenTerminal(w http.ResponseWriter, r *http.R
 		terminalUnavailable(w)
 		return
 	}
-	repository, member, err := h.AuthorizeTerminal(r, "branch.join")
+	repository, member, err := h.AuthorizeTerminal(r, "box.terminal")
 	if err != nil {
 		writeBranchError(w, r, err)
 		return

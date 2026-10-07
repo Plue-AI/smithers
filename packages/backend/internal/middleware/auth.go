@@ -466,7 +466,6 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "order.ok", regexp.MustCompile(`^/api/stack/attention/[^/]+$`)},
 	{http.MethodGet, "public", regexp.MustCompile(`^/api/status$`)},
 	{http.MethodGet, "install.read", regexp.MustCompile(`^/api/admin/system/health$`)},
-	{http.MethodPost, "terminal", regexp.MustCompile(`^/api/terminals$`)},
 	{http.MethodGet, "terminal.watch", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspace/sessions/[^/]+/terminal$`)},
 	{http.MethodGet, "self", regexp.MustCompile(`^/api/user$`)},
 	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/notifications(?:/(?:list|events(?:/stream)?|preferences))?$`)},
