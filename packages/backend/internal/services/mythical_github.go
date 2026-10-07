@@ -844,6 +844,39 @@ func (g *mythicalGitHubAPI) Comment(ctx context.Context, gh mythicalGitHubRepo, 
 	return nil
 }
 
+// CloseIssueSince reconciles the committed completion intent before repeating
+// a close whose response was lost. A person's later reopen remains open.
+func (g *mythicalGitHubAPI) CloseIssueSince(ctx context.Context, gh mythicalGitHubRepo, number int64, since time.Time) error {
+	applied, err := g.AppliedClose(ctx, gh, number, since)
+	if err != nil {
+		return err
+	}
+	if applied {
+		return nil
+	}
+	token, err := g.installationToken(ctx, gh, map[string]string{"issues": "read"})
+	if err != nil {
+		return err
+	}
+	var issue struct {
+		State string `json:"state"`
+	}
+	status, err := g.api.request(ctx, token, http.MethodGet, landingGitHubRepoPath(gh.Owner, gh.Name)+"/issues/"+strconv.FormatInt(number, 10), nil, &issue)
+	if err != nil {
+		return err
+	}
+	if status != http.StatusOK {
+		return landingGitHubStatusError(status, gh.Owner, gh.Name, "read issue before completion")
+	}
+	if issue.State == "closed" {
+		return nil
+	}
+	if issue.State != "open" {
+		return errors.New("GitHub did not confirm the issue state")
+	}
+	return g.CloseIssue(ctx, gh, number)
+}
+
 func (g *mythicalGitHubAPI) CloseIssue(ctx context.Context, gh mythicalGitHubRepo, number int64) error {
 	token, err := g.installationToken(ctx, gh, map[string]string{"issues": "write"})
 	if err != nil {

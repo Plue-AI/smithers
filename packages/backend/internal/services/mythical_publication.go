@@ -572,10 +572,18 @@ func (st *mythicalItemStep) appLookup(ctx context.Context, item db.MythicalItem,
 			AppliedClose(context.Context, mythicalGitHubRepo, int64, time.Time) (bool, error)
 		})
 		drop := mythicalChecksOf(item).Dropped
-		if !ok || drop == nil {
+		via := mythicalChecksOf(item).MergedVia
+		if !ok || drop == nil && via == nil {
 			return "", false, errors.New("Waiting for canonical App close-event reconciliation")
 		}
-		applied, err := reader.AppliedClose(ctx, gh, number, drop.At)
+		at := time.Time{}
+		if drop != nil {
+			at = drop.At
+		}
+		if via != nil {
+			at = via.At
+		}
+		applied, err := reader.AppliedClose(ctx, gh, number, at)
 		if err != nil {
 			return "", false, err
 		}
@@ -678,7 +686,12 @@ func (st *mythicalItemStep) appSend(ctx context.Context, item db.MythicalItem, o
 		if dropped != nil {
 			key += ":" + dropped.Request
 		}
-		if err := st.s.github.Comment(ctx, gh, number, key, mythicalDropComment(dropped)); err != nil {
+		body := mythicalDropComment(dropped)
+		if via := mythicalChecksOf(item).MergedVia; via != nil {
+			key = "merged-via:" + uuidString(item.ID) + ":" + via.Commit
+			body = fmt.Sprintf("Merged via #%d (T%d)", via.Pull, via.Number)
+		}
+		if err := st.s.github.Comment(ctx, gh, number, key, body); err != nil {
 			return err
 		}
 		return st.s.github.ClosePull(ctx, gh, number)
