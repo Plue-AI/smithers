@@ -23,6 +23,7 @@ export const journeySpecs = [
   "github-j10/sync-health.spec.ts",
   "ask-repository.spec.ts",
   "todo-stack-actions.spec.ts",
+  "home.spec.ts",
   "todo-placement.spec.ts"
 ] as const
 

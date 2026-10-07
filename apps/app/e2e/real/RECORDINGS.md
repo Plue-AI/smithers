@@ -81,6 +81,16 @@ reference-host execution. No Mac recording, live credential soak, microVM proof
 or approved check receipt is produced by supplemental browser tests.
 
 `duplicate-launch.spec.ts` is the exclusive §21 duplicate-launch recording.
+`home.spec.ts` is the exclusive prepared J4 read/filter recording slice. Supply
+distinct `SMITHERS_JOURNEY_HOME_F1` and `SMITHERS_JOURNEY_HOME_F2` failed run IDs,
+an unfiltered Home for each member, and a real stack with Needs you, Starting,
+Working, Queued and two In review items. It records identical shared snapshots
+at one cursor, independent TODO/SQL order and counts, role-specific Merge,
+private filter persistence and failed-run controls after reload. The SQL/API
+readbacks are separate observations, not an atomic cursor-bound database receipt.
+Merged-since-last-look, answer timing, sync age, capacity provenance and actual
+Retry/Dismiss execution remain separate outstanding J4 requirements. Collection
+and supplemental Home tests do not execute this reference body or qualify J4.
 Run it on an empty canary with keyboard mode and an explicit light or dark
 theme, separately for each browser/theme. It sends two physical Enter activations
 on the rendered Commit door and replays the app's exact accepted command and
