@@ -44,6 +44,7 @@ type gitHubReviewFact struct {
 	Stale        bool
 	Held         bool
 	Consumed     bool
+	Admitted     bool
 	Empty        bool // normalized body and line comments contain no input
 }
 
@@ -111,6 +112,16 @@ func decideGitHubReview(f mythicalGitHubFact, item mythicalGitHubFactItem) mythi
 			effect.Input = "withdraw"
 		}
 		return decision
+	}
+	// An edited admitted input retains its bound run and message identity. The
+	// dispatcher still holds delivery while paused or failed; this is not a
+	// new attempt or consent to answer a wait, resume or invalidate approvals.
+	if r.Change == "edited" && r.Admitted {
+		switch item.State {
+		case "queued", "starting", "failed", "paused", "working", "needs_you", "in_review":
+			effect.Input = "steer"
+			return decision
+		}
 	}
 	switch item.State {
 	case "queued", "starting", "failed", "paused":
