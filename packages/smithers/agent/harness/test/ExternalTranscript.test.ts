@@ -171,7 +171,8 @@ describe("ExternalTranscript", () => {
       const decoded = replay([rollout])
       expect(decoded.entries).toEqual(golden.entries)
       expect(decoded.state).toEqual(golden.state)
-      expect(golden.entries).toHaveLength(32)
+      expect(golden.entries).toHaveLength(36)
+      expect(golden.entries.filter((entry) => entry.part.type === "encrypted")).toHaveLength(4)
     })
 
     it("emits entries the published Entry schema accepts", () => {
@@ -279,7 +280,7 @@ describe("ExternalTranscript", () => {
       [16, "response_item/custom_tool_call_output"],
       [17, "event_msg/token_count"],
       [18, "event_msg/item_completed"],
-      [19, "response_item/reasoning"],
+
       [52, "event_msg/task_complete"],
       [53, "event_msg/thread_settings_applied"],
       [97, "inter_agent_communication_metadata"],
@@ -591,7 +592,9 @@ describe("ExternalTranscript", () => {
     })
 
     it("preserves encrypted reasoning as a placeholder", () => {
-      expect(partOf({ type: "Reasoning", summary_text: [], encrypted_content: "ciphertext" })).toEqual({ type: "encrypted" })
+      expect(partOf({ type: "Reasoning", summary_text: [], encrypted_content: "ciphertext" })).toEqual({
+        type: "encrypted"
+      })
     })
 
     it("joins the text of every UserMessage content part, and reads content that is not a list as empty", () => {
@@ -808,11 +811,10 @@ describe("ExternalTranscript", () => {
       ["no type", { id: "call-5" }, "unnamed"],
       ["a list", [], "unnamed"],
       ["null", null, "unnamed"]
-    ])("reports an item with %s as an error part", (_, value, name) => {
-      const [entry] = decodeRows(item(value))
-      expect(entry).toMatchObject({
-        role: "assistant",
-        part: { type: "error", message: `Codex reported an item this release does not read: ${name}` }
+    ])("rejects an item with %s through its tagged error", (_, value, name) => {
+      expect(failure(jsonl(session(), item(value)))).toMatchObject({
+        code: name === "unnamed" ? "malformed_record" : "unsupported_record",
+        line: 2
       })
     })
 
@@ -832,12 +834,15 @@ describe("ExternalTranscript", () => {
       ])
     })
 
-    it("skips other event_msg rows, other row types and rows that carry no payload", () => {
+    it("skips known notifications and context, and rejects a missing semantic payload", () => {
       expect(decodeRows(
         event({ type: "token_count", info: null }),
-        JSON.stringify({ timestamp: at, type: "turn_context", payload: { turn_id: "turn-1" } }),
-        JSON.stringify({ timestamp: at, type: "event_msg" })
+        JSON.stringify({ timestamp: at, type: "turn_context", payload: { turn_id: "turn-1" } })
       )).toEqual([])
+      expect(failure(jsonl(session(), JSON.stringify({ timestamp: at, type: "event_msg" })))).toMatchObject({
+        code: "malformed_record",
+        line: 2
+      })
     })
   })
 })

@@ -1,0 +1,1434 @@
+{
+  "entries": [
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",7626,\"01a10d62-dd51-7e03-956b-9550ea84d4ae\",0]",
+      "source_id": "01a10d62-dd51-7e03-956b-9550ea84d4ae",
+      "source_offset": 7626,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-owner",
+      "kind": "prompt",
+      "body": "How do I use ultrafast"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",8100,\"msg_0fcc528a63092a85016ac3f05bed9087d09fc771db578ed5ca\",0]",
+      "source_id": "msg_0fcc528a63092a85016ac3f05bed9087d09fc771db578ed5ca",
+      "source_offset": 8100,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "assistant",
+      "body": "I’ll check the Codex instructions for selecting the ultrafast service tier."
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",9389,\"ctc_0fcc528a63092a85016ac3f05bee7c87d08593c9e2dc20c3b2\",0]",
+      "source_id": "ctc_0fcc528a63092a85016ac3f05bee7c87d08593c9e2dc20c3b2",
+      "source_offset": 9389,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_request",
+      "body": {
+        "name": "exec",
+        "input": "text(await tools.exec_command({cmd:\"cat /Users/williamcory/.smithers/accounts/codex-acct-2/skills/.system/openai-docs/SKILL.md\",max_output_tokens:5000}));\n"
+      },
+      "call_id": "call_Wm6zE7s4Wu5Vk69B2f7JrBny"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",10792,\"exec-72424bde-7b89-43fe-9962-8fe21e4a3d4b\",0]",
+      "source_id": "exec-72424bde-7b89-43fe-9962-8fe21e4a3d4b",
+      "source_offset": 10792,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_request",
+      "body": {
+        "name": "exec_command",
+        "input": {
+          "command": "cat /Users/williamcory/.smithers/accounts/codex-acct-2/skills/.system/openai-docs/SKILL.md"
+        }
+      },
+      "call_id": "exec-72424bde-7b89-43fe-9962-8fe21e4a3d4b"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",10792,\"exec-72424bde-7b89-43fe-9962-8fe21e4a3d4b\",1]",
+      "source_id": "exec-72424bde-7b89-43fe-9962-8fe21e4a3d4b",
+      "source_offset": 10792,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_result",
+      "body": {
+        "name": "exec_command",
+        "output": "---\nname: \"openai-docs\"\ndescription: \"Use for Codex models/pricing, scheduled tasks, skills, settings, setup, troubleshooting, customization, automations, and self-knowledge—including 'you,' 'your,' 'this app,' or 'this coding agent' when they refer to Codex—and for OpenAI APIs/products and ChatGPT Work. Also use for model choice/migration, prompting, SDKs, Responses, Realtime, agents, evals, and …[fixture: 5033 chars truncated]"
+      },
+      "call_id": "exec-72424bde-7b89-43fe-9962-8fe21e4a3d4b",
+      "failed": false
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",13078,\"ctco_01a10d62-e7b3-7ba1-80a6-f2b7a686e4ee\",0]",
+      "source_id": "ctco_01a10d62-e7b3-7ba1-80a6-f2b7a686e4ee",
+      "source_offset": 13078,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_result",
+      "body": {
+        "name": "exec",
+        "output": [
+          {
+            "type": "input_text",
+            "text": "Script completed\nWall time 0.1 seconds\nOutput:\n"
+          },
+          {
+            "type": "input_text",
+            "text": "{\"chunk_id\":\"e04ff1\",\"wall_time_seconds\":0.000011125,\"exit_code\":0,\"original_token_count\":1360,\"output\":\"---\\nname: \\\"openai-docs\\\"\\ndescription: \\\"Use for Codex models/pricing, scheduled tasks, skills, settings, setup, troubleshooting, customization, automations, and self-knowledge—including 'you,' 'your,' 'this app,' or 'this coding agent' when they refer to Codex—and for OpenAI APIs/products an…[fixture: 5188 chars truncated]"
+          }
+        ]
+      },
+      "call_id": "call_Wm6zE7s4Wu5Vk69B2f7JrBny",
+      "failed": false
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",15274,\"rs_0fcc528a63092a85016ac3f060061c87d09d361383ed8a429c\",0]",
+      "source_id": "rs_0fcc528a63092a85016ac3f060061c87d09d361383ed8a429c",
+      "source_offset": 15274,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "assistant",
+      "body": "Encrypted by Codex"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",15657,\"msg_0fcc528a63092a85016ac3f060070c87d09cfd3d39f7547e40\",0]",
+      "source_id": "msg_0fcc528a63092a85016ac3f060070c87d09cfd3d39f7547e40",
+      "source_offset": 15657,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "assistant",
+      "body": "I’m using the OpenAI Docs skill and checking the local CLI options."
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",16930,\"ctc_0fcc528a63092a85016ac3f060088887d09422d3a4208299b7\",0]",
+      "source_id": "ctc_0fcc528a63092a85016ac3f060088887d09422d3a4208299b7",
+      "source_offset": 16930,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_request",
+      "body": {
+        "name": "exec",
+        "input": "text(await tools.exec_command({cmd:\"codex --help\",max_output_tokens:3500}));\ntext(await tools.web__run({search_query:[{q:\"Codex ultrafast service tier\",domains:[\"developers.openai.com\"]}],response_length:\"short\"}));\n"
+      },
+      "call_id": "call_0qfAjkWdguj8zicFyfrtSOKj"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",18419,\"exec-dd58f97b-f0f4-45ca-a953-8428647d764c\",0]",
+      "source_id": "exec-dd58f97b-f0f4-45ca-a953-8428647d764c",
+      "source_offset": 18419,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_request",
+      "body": {
+        "name": "exec_command",
+        "input": {
+          "command": "codex --help"
+        }
+      },
+      "call_id": "exec-dd58f97b-f0f4-45ca-a953-8428647d764c"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",18419,\"exec-dd58f97b-f0f4-45ca-a953-8428647d764c\",1]",
+      "source_id": "exec-dd58f97b-f0f4-45ca-a953-8428647d764c",
+      "source_offset": 18419,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_result",
+      "body": {
+        "name": "exec_command",
+        "output": "Codex CLI\n\nIf no subcommand is specified, options will be forwarded to the interactive CLI.\n\nUsage: codex [OPTIONS] [PROMPT]\n       codex [OPTIONS] <COMMAND> [ARGS]\n\nCommands:\n  agents            Browse all agent sessions on the shared local app-server daemon\n  exec              Run Codex non-interactively [aliases: e]\n  review            Run a code review non-interactively\n  login             Man…[fixture: 5447 chars truncated]"
+      },
+      "call_id": "exec-dd58f97b-f0f4-45ca-a953-8428647d764c",
+      "failed": false
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",20443,\"exec-24395d10-a525-4db4-b8c4-8be2537b6798\",0]",
+      "source_id": "exec-24395d10-a525-4db4-b8c4-8be2537b6798",
+      "source_offset": 20443,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "assistant",
+      "body": {
+        "type": "search",
+        "call_id": "exec-24395d10-a525-4db4-b8c4-8be2537b6798",
+        "query": "Codex ultrafast service tier"
+      }
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",21560,\"ctco_01a10d62-fde6-71b1-aa61-16cedbfc61c2\",0]",
+      "source_id": "ctco_01a10d62-fde6-71b1-aa61-16cedbfc61c2",
+      "source_offset": 21560,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_result",
+      "body": {
+        "name": "exec",
+        "output": [
+          {
+            "type": "input_text",
+            "text": "Script completed\nWall time 1.6 seconds\nOutput:\n"
+          },
+          {
+            "type": "input_text",
+            "text": "{\"chunk_id\":\"a2c539\",\"wall_time_seconds\":0.000007292,\"exit_code\":0,\"original_token_count\":1463,\"output\":\"Codex CLI\\n\\nIf no subcommand is specified, options will be forwarded to the interactive CLI.\\n\\nUsage: codex [OPTIONS] [PROMPT]\\n       codex [OPTIONS] <COMMAND> [ARGS]\\n\\nCommands:\\n  agents            Browse all agent sessions on the shared local app-server daemon\\n  exec              Run Co…[fixture: 5695 chars truncated]"
+          },
+          {
+            "type": "input_text",
+            "text": "Ultrafast mode | OpenAI API (https://developers.openai.com/api/docs/guides/ultrafast-mode)\nciteturn0search0 [wordlim: 200] Crawled: today; Ultrafast mode is the fastest service tier in the OpenAI API.\n\n# Ultrafast mode\n\nOur fastest API service tier, with up to 8x faster speeds than Standard mode.\n\nCopy Page\n\nUltrafast mode is the fastest service tier in the OpenAI API. It is broadly available f…[fixture: 15635 chars truncated]"
+          }
+        ]
+      },
+      "call_id": "call_0qfAjkWdguj8zicFyfrtSOKj",
+      "failed": false
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",23853,\"ctc_0fcc528a63092a85016ac3f065041487d08bcc9670a98ecb5c\",0]",
+      "source_id": "ctc_0fcc528a63092a85016ac3f065041487d08bcc9670a98ecb5c",
+      "source_offset": 23853,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_request",
+      "body": {
+        "name": "exec",
+        "input": "text(await tools.web__run({open:[{ref_id:\"https://developers.openai.com/api/docs/guides/ultrafast-mode\"}],search_query:[{q:\"Codex service_tier ultrafast config\",domains:[\"developers.openai.com\"]}],response_length:\"short\"}));\ntext(await tools.exec_command({cmd:\"rg -n 'ultrafast|service_tier' packages/harness* packages/agent* /Users/williamcory/.smithers/accounts/codex-acct-2/skills/.system/openai-d…[fixture: 55 chars truncated]"
+      },
+      "call_id": "call_KC1QHGcjAAGfh90tsARmcQGz"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",25557,\"exec-04241274-f6ed-46f4-8c06-a27b222bdaf8\",0]",
+      "source_id": "exec-04241274-f6ed-46f4-8c06-a27b222bdaf8",
+      "source_offset": 25557,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "assistant",
+      "body": {
+        "type": "search",
+        "call_id": "exec-04241274-f6ed-46f4-8c06-a27b222bdaf8",
+        "query": "Codex service_tier ultrafast config"
+      }
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",26655,\"exec-5a04504b-ff72-4f46-9ce6-5354c1af40ae\",0]",
+      "source_id": "exec-5a04504b-ff72-4f46-9ce6-5354c1af40ae",
+      "source_offset": 26655,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_request",
+      "body": {
+        "name": "exec_command",
+        "input": {
+          "command": "rg -n 'ultrafast|service_tier' packages/harness* packages/agent* /Users/williamcory/.smithers/accounts/codex-acct-2/skills/.system/openai-docs/references 2>/dev/null"
+        }
+      },
+      "call_id": "exec-5a04504b-ff72-4f46-9ce6-5354c1af40ae"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",26655,\"exec-5a04504b-ff72-4f46-9ce6-5354c1af40ae\",1]",
+      "source_id": "exec-5a04504b-ff72-4f46-9ce6-5354c1af40ae",
+      "source_offset": 26655,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_result",
+      "body": {
+        "name": "exec_command",
+        "output": "zsh:1: no matches found: packages/harness*\n"
+      },
+      "call_id": "exec-5a04504b-ff72-4f46-9ce6-5354c1af40ae",
+      "failed": true
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",27779,\"ctco_01a10d63-108c-7951-8b55-5c478ebe26fe\",0]",
+      "source_id": "ctco_01a10d63-108c-7951-8b55-5c478ebe26fe",
+      "source_offset": 27779,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_result",
+      "body": {
+        "name": "exec",
+        "output": [
+          {
+            "type": "input_text",
+            "text": "Script completed\nWall time 1.1 seconds\nOutput:\n"
+          },
+          {
+            "type": "input_text",
+            "text": "Ultrafast mode | OpenAI API (https://developers.openai.com/api/docs/guides/ultrafast-mode)\nciteturn1search0 [wordlim: 200] Crawled: today; Ultrafast mode is the fastest service tier in the OpenAI API.\n\n# Ultrafast mode\n\nOur fastest API service tier, with up to 8x faster speeds than Standard mode.\n\nCopy Page\n\nUltrafast mode is the fastest service tier in the OpenAI API. It is broadly available f…[fixture: 15687 chars truncated]"
+          },
+          {
+            "type": "input_text",
+            "text": "{\"chunk_id\":\"e91959\",\"wall_time_seconds\":0.000008334,\"exit_code\":1,\"original_token_count\":11,\"output\":\"zsh:1: no matches found: packages/harness*\\n\"}"
+          }
+        ]
+      },
+      "call_id": "call_KC1QHGcjAAGfh90tsARmcQGz",
+      "failed": false
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",30174,\"rs_0fcc528a63092a85016ac3f068fb5087d08220221b100b7044\",0]",
+      "source_id": "rs_0fcc528a63092a85016ac3f068fb5087d08220221b100b7044",
+      "source_offset": 30174,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "assistant",
+      "body": "Encrypted by Codex"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",30557,\"ctc_0fcc528a63092a85016ac3f068fc4087d0bc9470f4e9eefd4c\",0]",
+      "source_id": "ctc_0fcc528a63092a85016ac3f068fc4087d0bc9470f4e9eefd4c",
+      "source_offset": 30557,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_request",
+      "body": {
+        "name": "exec",
+        "input": "text(await tools.exec_command({cmd:\"which codex; rg -n 'ultrafast|service_tier' packages scripts --max-count 3\",max_output_tokens:2000}));\n"
+      },
+      "call_id": "call_EwQrkf4yh0MV8KF5UxOsfmon"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",31965,\"exec-2557b001-04b2-4665-b500-a249ea8a7e4a\",0]",
+      "source_id": "exec-2557b001-04b2-4665-b500-a249ea8a7e4a",
+      "source_offset": 31965,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_request",
+      "body": {
+        "name": "exec_command",
+        "input": {
+          "command": "which codex; rg -n 'ultrafast|service_tier' packages scripts --max-count 3"
+        }
+      },
+      "call_id": "exec-2557b001-04b2-4665-b500-a249ea8a7e4a"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",31965,\"exec-2557b001-04b2-4665-b500-a249ea8a7e4a\",1]",
+      "source_id": "exec-2557b001-04b2-4665-b500-a249ea8a7e4a",
+      "source_offset": 31965,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_result",
+      "body": {
+        "name": "exec_command",
+        "output": "/Users/williamcory/.nvm/versions/node/v26.10.0/bin/codex\npackages/backend/modelproxy/parameters_unit_test.go:62:\tfor _, field := range []string{`\"service_tier\":\"auto\"`, `\"service_tier\":\"default\"`, `\"service_tier\":\"flex\"`, `\"service_tier\":\"standard_only\"`, `\"speed\":\"standard\"`, `\"service_tier\":null`, `\"speed\":null`} {\npackages/backend/modelproxy/parameters_unit_test.go:68:\t\t{`\"service_tier\":\"priori…[fixture: 462 chars truncated]"
+      },
+      "call_id": "exec-2557b001-04b2-4665-b500-a249ea8a7e4a",
+      "failed": false
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",34178,\"ctco_01a10d63-1fc7-7500-82d2-415205c24e69\",0]",
+      "source_id": "ctco_01a10d63-1fc7-7500-82d2-415205c24e69",
+      "source_offset": 34178,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_result",
+      "body": {
+        "name": "exec",
+        "output": [
+          {
+            "type": "input_text",
+            "text": "Script completed\nWall time 1.3 seconds\nOutput:\n"
+          },
+          {
+            "type": "input_text",
+            "text": "{\"chunk_id\":\"5e0350\",\"wall_time_seconds\":1.175994875,\"exit_code\":0,\"original_token_count\":216,\"output\":\"/Users/williamcory/.nvm/versions/node/v26.10.0/bin/codex\\npackages/backend/modelproxy/parameters_unit_test.go:62:\\tfor _, field := range []string{`\\\"service_tier\\\":\\\"auto\\\"`, `\\\"service_tier\\\":\\\"default\\\"`, `\\\"service_tier\\\":\\\"flex\\\"`, `\\\"service_tier\\\":\\\"standard_only\\\"`, `\\\"speed\\\":\\\"standard\\…[fixture: 639 chars truncated]"
+          }
+        ]
+      },
+      "call_id": "call_EwQrkf4yh0MV8KF5UxOsfmon",
+      "failed": false
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",36416,\"rs_0fcc528a63092a85016ac3f06cec0087d0a2109122c449bc27\",0]",
+      "source_id": "rs_0fcc528a63092a85016ac3f06cec0087d0a2109122c449bc27",
+      "source_offset": 36416,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "assistant",
+      "body": "Encrypted by Codex"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",36799,\"ctc_0fcc528a63092a85016ac3f06cece487d082cfba5f955088ec\",0]",
+      "source_id": "ctc_0fcc528a63092a85016ac3f06cece487d082cfba5f955088ec",
+      "source_offset": 36799,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_request",
+      "body": {
+        "name": "exec",
+        "input": "text(await tools.web__run({search_query:[{q:\"site:developers.openai.com/codex \\\"ultrafast\\\"\"}],response_length:\"short\"}));\n"
+      },
+      "call_id": "call_VqEmsA5LG84wkG1uBfZWoJQx"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",38199,\"exec-f5d3f050-070d-4186-84cd-04af6e947da0\",0]",
+      "source_id": "exec-f5d3f050-070d-4186-84cd-04af6e947da0",
+      "source_offset": 38199,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "assistant",
+      "body": {
+        "type": "search",
+        "call_id": "exec-f5d3f050-070d-4186-84cd-04af6e947da0",
+        "query": "site:developers.openai.com/codex \"ultrafast\""
+      }
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",39377,\"ctco_01a10d63-2f50-70b0-81ab-3c412596af98\",0]",
+      "source_id": "ctco_01a10d63-2f50-70b0-81ab-3c412596af98",
+      "source_offset": 39377,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_result",
+      "body": {
+        "name": "exec",
+        "output": [
+          {
+            "type": "input_text",
+            "text": "Script completed\nWall time 1.1 seconds\nOutput:\n"
+          },
+          {
+            "type": "input_text",
+            "text": "Ultrafast mode | OpenAI API (https://developers.openai.com/api/docs/guides/ultrafast-mode)\nciteturn2search0 [wordlim: 200] Crawled: today; Ultrafast mode is the fastest service tier in the OpenAI API.\n\n# Ultrafast mode\n\nOur fastest API service tier, with up to 8x faster speeds than Standard mode.\n\nCopy Page\n\nUltrafast mode is the fastest service tier in the OpenAI API. It is broadly available f…[fixture: 15277 chars truncated]"
+          }
+        ]
+      },
+      "call_id": "call_VqEmsA5LG84wkG1uBfZWoJQx",
+      "failed": false
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",41184,\"msg_0fcc528a63092a85016ac3f0717be887d0a5ee2fda85a86877\",0]",
+      "source_id": "msg_0fcc528a63092a85016ac3f0717be887d0a5ee2fda85a86877",
+      "source_offset": 41184,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "assistant",
+      "body": "Ultrafast is available through the **OpenAI API with GPT-6 Astra**:\n\n```js\nconst response = await client.responses.create({\n  model: \"gpt-6-astra\",\n  service_tier: \"ultrafast\",\n  input: \"Your prompt\",\n});\n```\n\nIt costs more and offers up to 8× faster output. [Official OpenAI documentation](https://developers.openai.com/api/docs/guides/ultrafast-mode).\n\nIf you mean **inside this Codex app**, I coul…[fixture: 100 chars truncated]"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",48917,\"01a10d63-8901-7552-83f8-320554276784\",0]",
+      "source_id": "01a10d63-8901-7552-83f8-320554276784",
+      "source_offset": 48917,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-owner",
+      "kind": "prompt",
+      "body": "how do I do it in codex?"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",49394,\"msg_0fcc528a63092a85016ac3f088578c87d08bce38ff4253bc7a\",0]",
+      "source_id": "msg_0fcc528a63092a85016ac3f088578c87d08bce38ff4253bc7a",
+      "source_offset": 49394,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "assistant",
+      "body": "I’ll check whether your installed Codex supports an ultrafast setting."
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",50673,\"ctc_0fcc528a63092a85016ac3f08858bc87d0a71c1525be8ecafe\",0]",
+      "source_id": "ctc_0fcc528a63092a85016ac3f08858bc87d0a71c1525be8ecafe",
+      "source_offset": 50673,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_request",
+      "body": {
+        "name": "exec",
+        "input": "text(await tools.exec_command({cmd:\"ls -l /Users/williamcory/.nvm/versions/node/v26.10.0/bin/codex; codex debug --help\",max_output_tokens:2000}));\ntext(await tools.web__run({search_query:[{q:\"site:developers.openai.com/codex \\\"service_tier\\\"\"}],response_length:\"short\"}));\n"
+      },
+      "call_id": "call_JGiWcxBhbNACGoNDp7gfJzHZ"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",52222,\"exec-c775870f-6793-4eb8-9044-de2325ef5903\",0]",
+      "source_id": "exec-c775870f-6793-4eb8-9044-de2325ef5903",
+      "source_offset": 52222,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_request",
+      "body": {
+        "name": "exec_command",
+        "input": {
+          "command": "ls -l /Users/williamcory/.nvm/versions/node/v26.10.0/bin/codex; codex debug --help"
+        }
+      },
+      "call_id": "exec-c775870f-6793-4eb8-9044-de2325ef5903"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",52222,\"exec-c775870f-6793-4eb8-9044-de2325ef5903\",1]",
+      "source_id": "exec-c775870f-6793-4eb8-9044-de2325ef5903",
+      "source_offset": 52222,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_result",
+      "body": {
+        "name": "exec_command",
+        "output": "lrwxr-xr-x@ 1 williamcory  staff  46 Oct  5 11:44 /Users/williamcory/.nvm/versions/node/v26.10.0/bin/codex -> ../lib/node_modules/@openai/codex/bin/codex.js\nDebugging tools\n\nUsage: codex debug [OPTIONS] <COMMAND>\n\nCommands:\n  models        Render the raw model catalog as JSON\n  app-server    Tooling: helps debug the app server\n  prompt-input  Render the model-visible prompt input list as JSON\n  he…[fixture: 831 chars truncated]"
+      },
+      "call_id": "exec-c775870f-6793-4eb8-9044-de2325ef5903",
+      "failed": false
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",54377,\"exec-40c235c9-57a6-4c9c-9921-96f75b84a534\",0]",
+      "source_id": "exec-40c235c9-57a6-4c9c-9921-96f75b84a534",
+      "source_offset": 54377,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "assistant",
+      "body": {
+        "type": "search",
+        "call_id": "exec-40c235c9-57a6-4c9c-9921-96f75b84a534",
+        "query": "site:developers.openai.com/codex \"service_tier\""
+      }
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",55704,\"ctco_01a10d63-9fb3-72c0-a9fa-c9b240d1509e\",0]",
+      "source_id": "ctco_01a10d63-9fb3-72c0-a9fa-c9b240d1509e",
+      "source_offset": 55704,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_result",
+      "body": {
+        "name": "exec",
+        "output": [
+          {
+            "type": "input_text",
+            "text": "Script completed\nWall time 2.6 seconds\nOutput:\n"
+          },
+          {
+            "type": "input_text",
+            "text": "{\"chunk_id\":\"c5dea2\",\"wall_time_seconds\":0.000006542,\"exit_code\":0,\"original_token_count\":308,\"output\":\"lrwxr-xr-x@ 1 williamcory  staff  46 Oct  5 11:44 /Users/williamcory/.nvm/versions/node/v26.10.0/bin/codex -> ../lib/node_modules/@openai/codex/bin/codex.js\\nDebugging tools\\n\\nUsage: codex debug [OPTIONS] <COMMAND>\\n\\nCommands:\\n  models        Render the raw model catalog as JSON\\n  app-server…[fixture: 969 chars truncated]"
+          },
+          {
+            "type": "input_text",
+            "text": "Error codes | OpenAI API (https://developers.openai.com/api/docs/guides/error-codes)\nciteturn3search0 [wordlim: 200] Crawled: today; The API returns the message “Invalid service_tier argument: The requested service tier is not allowed for this project.” as an `invalid_request_error` with `error.param` set to `service_tier` when a request selects or resolves to a service tier that is not allowed…[fixture: 17565 chars truncated]"
+          }
+        ]
+      },
+      "call_id": "call_JGiWcxBhbNACGoNDp7gfJzHZ",
+      "failed": false
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",57992,\"ctc_0fcc528a63092a85016ac3f08f2c7087d08c354e56c32c984c\",0]",
+      "source_id": "ctc_0fcc528a63092a85016ac3f08f2c7087d08c354e56c32c984c",
+      "source_offset": 57992,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_request",
+      "body": {
+        "name": "exec",
+        "input": "text(await tools.exec_command({cmd:\"rg --files /Users/williamcory/.nvm/versions/node/v26.10.0/lib/node_modules/@openai | rg '(codex$|schema|models)'\",max_output_tokens:1000}));\ntext(await tools.web__run({open:[{ref_id:\"https://developers.openai.com/codex/config-reference\"}],response_length:\"short\"}));\n"
+      },
+      "call_id": "call_xyDuMEziEwZil32RQKkamR2C"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",59566,\"exec-911f1a26-e4a6-4690-87f6-42d1acfea9ec\",0]",
+      "source_id": "exec-911f1a26-e4a6-4690-87f6-42d1acfea9ec",
+      "source_offset": 59566,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_request",
+      "body": {
+        "name": "exec_command",
+        "input": {
+          "command": "rg --files /Users/williamcory/.nvm/versions/node/v26.10.0/lib/node_modules/@openai | rg '(codex$|schema|models)'"
+        }
+      },
+      "call_id": "exec-911f1a26-e4a6-4690-87f6-42d1acfea9ec"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",59566,\"exec-911f1a26-e4a6-4690-87f6-42d1acfea9ec\",1]",
+      "source_id": "exec-911f1a26-e4a6-4690-87f6-42d1acfea9ec",
+      "source_offset": 59566,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_result",
+      "body": {
+        "name": "exec_command",
+        "output": ""
+      },
+      "call_id": "exec-911f1a26-e4a6-4690-87f6-42d1acfea9ec",
+      "failed": true
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",60541,\"exec-f566a751-af3e-4c1f-b8f8-37b4c37ab925\",0]",
+      "source_id": "exec-f566a751-af3e-4c1f-b8f8-37b4c37ab925",
+      "source_offset": 60541,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "assistant",
+      "body": {
+        "type": "search",
+        "call_id": "exec-f566a751-af3e-4c1f-b8f8-37b4c37ab925",
+        "query": "https://developers.openai.com/codex/config-reference"
+      }
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",61479,\"ctco_01a10d63-b638-79f1-8356-2dd2393bb31d\",0]",
+      "source_id": "ctco_01a10d63-b638-79f1-8356-2dd2393bb31d",
+      "source_offset": 61479,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_result",
+      "body": {
+        "name": "exec",
+        "output": [
+          {
+            "type": "input_text",
+            "text": "Script completed\nWall time 1.6 seconds\nOutput:\n"
+          },
+          {
+            "type": "input_text",
+            "text": "{\"chunk_id\":\"f4e37c\",\"wall_time_seconds\":0.0000065,\"exit_code\":1,\"original_token_count\":0,\"output\":\"\"}"
+          },
+          {
+            "type": "input_text",
+            "text": "Configuration Reference | ChatGPT Learn (https://developers.openai.com/codex/config-reference)\nciteturn4view0 [wordlim: 200] Crawled: today; Content type: text/html; Source: open({\"ref_id\":\"https://developers.openai.com/codex/config-reference\",\"lineno\":null}); Redirected to URL: https://learn.chatgpt.com/docs/config-file/config-reference; Total lines: 6893\nL0: For the complete documentation ind…[fixture: 12181 chars truncated]"
+          }
+        ]
+      },
+      "call_id": "call_xyDuMEziEwZil32RQKkamR2C",
+      "failed": false
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",63432,\"ctc_0fcc528a63092a85016ac3f093d5e487d0bb01fdd8ec6fec73\",0]",
+      "source_id": "ctc_0fcc528a63092a85016ac3f093d5e487d0bb01fdd8ec6fec73",
+      "source_offset": 63432,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_request",
+      "body": {
+        "name": "exec",
+        "input": "text(await tools.web__run({find:[{ref_id:\"turn4view0\",pattern:\"service_tier\"},{ref_id:\"turn4view0\",pattern:\"ultrafast\"}],response_length:\"short\"}));\ntext(await tools.exec_command({cmd:\"ls /Users/williamcory/.nvm/versions/node/v26.10.0/lib/node_modules/@openai/codex/node_modules/@openai; codex debug models --help\",max_output_tokens:1200}));\n"
+      },
+      "call_id": "call_94xpa9fwvfv9uXVqkH4bNMuG"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",65055,\"exec-6a36ab76-d51d-490a-b1e7-1fd9f5bd6cd6\",0]",
+      "source_id": "exec-6a36ab76-d51d-490a-b1e7-1fd9f5bd6cd6",
+      "source_offset": 65055,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "assistant",
+      "body": {
+        "type": "search",
+        "call_id": "exec-6a36ab76-d51d-490a-b1e7-1fd9f5bd6cd6",
+        "query": "'service_tier'"
+      }
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",66337,\"exec-5f8cb1a2-2a80-4476-9066-f37358c2668a\",0]",
+      "source_id": "exec-5f8cb1a2-2a80-4476-9066-f37358c2668a",
+      "source_offset": 66337,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_request",
+      "body": {
+        "name": "exec_command",
+        "input": {
+          "command": "ls /Users/williamcory/.nvm/versions/node/v26.10.0/lib/node_modules/@openai/codex/node_modules/@openai; codex debug models --help"
+        }
+      },
+      "call_id": "exec-5f8cb1a2-2a80-4476-9066-f37358c2668a"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",66337,\"exec-5f8cb1a2-2a80-4476-9066-f37358c2668a\",1]",
+      "source_id": "exec-5f8cb1a2-2a80-4476-9066-f37358c2668a",
+      "source_offset": 66337,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_result",
+      "body": {
+        "name": "exec_command",
+        "output": "codex-darwin-arm64\nRender the raw model catalog as JSON\n\nUsage: codex debug models [OPTIONS]\n\nOptions:\n      --bundled\n          Skip refresh and dump only the bundled catalog shipped with this binary\n\n  -c, --config <key=value>\n          Override a configuration value that would otherwise be loaded from `~/.codex/config.toml`.\n          Use a dotted path (`foo.bar.baz`) to override nested values.…[fixture: 553 chars truncated]"
+      },
+      "call_id": "exec-5f8cb1a2-2a80-4476-9066-f37358c2668a",
+      "failed": false
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",68590,\"ctco_01a10d63-d7ca-7a01-bf57-db0ace105c9c\",0]",
+      "source_id": "ctco_01a10d63-d7ca-7a01-bf57-db0ace105c9c",
+      "source_offset": 68590,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_result",
+      "body": {
+        "name": "exec",
+        "output": [
+          {
+            "type": "input_text",
+            "text": "Script completed\nWall time 5.4 seconds\nOutput:\n"
+          },
+          {
+            "type": "input_text",
+            "text": "Configuration Reference | ChatGPT Learn (https://developers.openai.com/codex/config-reference)\nciteturn5view0 [wordlim: 200] Crawled: today; Content type: text/html; Source: find({\"ref_id\":\"turn4view0\",\"pattern\":\"service_tier\"}); Redirected to URL: https://learn.chatgpt.com/docs/config-file/config-reference; Total lines: 6893\nL1228: `review_model`  | `string`  | Optional model override used by …[fixture: 13775 chars truncated]"
+          },
+          {
+            "type": "input_text",
+            "text": "{\"chunk_id\":\"639ee2\",\"wall_time_seconds\":0.0000065,\"exit_code\":0,\"original_token_count\":239,\"output\":\"codex-darwin-arm64\\nRender the raw model catalog as JSON\\n\\nUsage: codex debug models [OPTIONS]\\n\\nOptions:\\n      --bundled\\n          Skip refresh and dump only the bundled catalog shipped with this binary\\n\\n  -c, --config <key=value>\\n          Override a configuration value that would otherwi…[fixture: 686 chars truncated]"
+          }
+        ]
+      },
+      "call_id": "call_94xpa9fwvfv9uXVqkH4bNMuG",
+      "failed": false
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",70886,\"ctc_0fcc528a63092a85016ac3f09c7a7887d0928b1d36ffbc2e38\",0]",
+      "source_id": "ctc_0fcc528a63092a85016ac3f09c7a7887d0928b1d36ffbc2e38",
+      "source_offset": 70886,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_request",
+      "body": {
+        "name": "exec",
+        "input": "text(await tools.exec_command({cmd:\"codex debug models --bundled | python3 -c 'import json,sys; d=json.load(sys.stdin); ms=d if isinstance(d,list) else d.get(\\\"models\\\",[]); print(json.dumps([m for m in ms if \\\"astra\\\" in str(m.get(\\\"slug\\\",\\\"\\\"))],indent=2))'\",\"max_output_tokens\":2500}));\n"
+      },
+      "call_id": "call_6R6xyD0YuhAVXxlys99JM2kL"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",72465,\"exec-5986c956-9a87-4142-a207-f9f0d5fe45e7\",0]",
+      "source_id": "exec-5986c956-9a87-4142-a207-f9f0d5fe45e7",
+      "source_offset": 72465,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_request",
+      "body": {
+        "name": "exec_command",
+        "input": {
+          "command": "codex debug models --bundled | python3 -c 'import json,sys; d=json.load(sys.stdin); ms=d if isinstance(d,list) else d.get(\"models\",[]); print(json.dumps([m for m in ms if \"astra\" in str(m.get(\"slug\",\"\"))],indent=2))'"
+        }
+      },
+      "call_id": "exec-5986c956-9a87-4142-a207-f9f0d5fe45e7"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",72465,\"exec-5986c956-9a87-4142-a207-f9f0d5fe45e7\",1]",
+      "source_id": "exec-5986c956-9a87-4142-a207-f9f0d5fe45e7",
+      "source_offset": 72465,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_result",
+      "body": {
+        "name": "exec_command",
+        "output": "[\n  {\n    \"slug\": \"gpt-6-astra\",\n    \"display_name\": \"GPT-6-Astra\",\n    \"description\": \"Frontier intelligence for the most demanding work.\",\n    \"default_reasoning_level\": \"low\",\n    \"supported_reasoning_levels\": [\n      {\n        \"effort\": \"low\",\n        \"description\": \"Fast responses with lighter reasoning\"\n      },\n      {\n        \"effort\": \"medium\",\n        \"description\": \"Balances speed and r…[fixture: 86193 chars truncated]"
+      },
+      "call_id": "exec-5986c956-9a87-4142-a207-f9f0d5fe45e7",
+      "failed": false
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",75014,\"ctco_01a10d63-e3c4-7b40-8102-0b8b3a6c8c90\",0]",
+      "source_id": "ctco_01a10d63-e3c4-7b40-8102-0b8b3a6c8c90",
+      "source_offset": 75014,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_result",
+      "body": {
+        "name": "exec",
+        "output": [
+          {
+            "type": "input_text",
+            "text": "Script completed\nWall time 0.1 seconds\nOutput:\n"
+          },
+          {
+            "type": "input_text",
+            "text": "{\"chunk_id\":\"aaeefe\",\"wall_time_seconds\":0.000007166,\"exit_code\":0,\"original_token_count\":21649,\"output\":\"Warning: truncated output (original token count: 21649)\\nTotal output lines: 130\\n\\n[\\n  {\\n    \\\"slug\\\": \\\"gpt-6-astra\\\",\\n    \\\"display_name\\\": \\\"GPT-6-Astra\\\",\\n    \\\"description\\\": \\\"Frontier intelligence for the most demanding work.\\\",\\n    \\\"default_reasoning_level\\\": \\\"low\\\",\\n    \\\"sup…[fixture: 10061 chars truncated]"
+          }
+        ]
+      },
+      "call_id": "call_6R6xyD0YuhAVXxlys99JM2kL",
+      "failed": false
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",77257,\"rs_0fcc528a63092a85016ac3f0a02dc887d0bbdb30fdb2c5f5d8\",0]",
+      "source_id": "rs_0fcc528a63092a85016ac3f0a02dc887d0bbdb30fdb2c5f5d8",
+      "source_offset": 77257,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "assistant",
+      "body": "Encrypted by Codex"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",77640,\"ctc_0fcc528a63092a85016ac3f0a02eac87d0b09780ed41125ef8\",0]",
+      "source_id": "ctc_0fcc528a63092a85016ac3f0a02eac87d0b09780ed41125ef8",
+      "source_offset": 77640,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_request",
+      "body": {
+        "name": "exec",
+        "input": "text(await tools.exec_command({cmd:\"codex debug models | python3 -c 'import json,sys; d=json.load(sys.stdin); ms=d if isinstance(d,list) else d.get(\\\"models\\\",[]); print(json.dumps([{k:m.get(k) for k in (\\\"slug\\\",\\\"service_tiers\\\",\\\"additional_speed_tiers\\\")} for m in ms if \\\"astra\\\" in str(m.get(\\\"slug\\\",\\\"\\\"))],indent=2))'\",\"max_output_tokens\":1000,\"yield_time_ms\":1000}));\n"
+      },
+      "call_id": "call_WhDQZgMbUHHzRPDCXe20wf0X"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",79320,\"exec-a274b9a8-673b-4dd1-bace-ab896e47c1b6\",0]",
+      "source_id": "exec-a274b9a8-673b-4dd1-bace-ab896e47c1b6",
+      "source_offset": 79320,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_request",
+      "body": {
+        "name": "exec_command",
+        "input": {
+          "command": "codex debug models | python3 -c 'import json,sys; d=json.load(sys.stdin); ms=d if isinstance(d,list) else d.get(\"models\",[]); print(json.dumps([{k:m.get(k) for k in (\"slug\",\"service_tiers\",\"additional_speed_tiers\")} for m in ms if \"astra\" in str(m.get(\"slug\",\"\"))],indent=2))'"
+        }
+      },
+      "call_id": "exec-a274b9a8-673b-4dd1-bace-ab896e47c1b6"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",79320,\"exec-a274b9a8-673b-4dd1-bace-ab896e47c1b6\",1]",
+      "source_id": "exec-a274b9a8-673b-4dd1-bace-ab896e47c1b6",
+      "source_offset": 79320,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_result",
+      "body": {
+        "name": "exec_command",
+        "output": "[\n  {\n    \"slug\": \"gpt-6-astra\",\n    \"service_tiers\": [\n      {\n        \"id\": \"priority\",\n        \"name\": \"Fast\",\n        \"description\": \"2x speed, increased usage\"\n      },\n      {\n        \"id\": \"ultrafast\",\n        \"name\": \"Ultrafast\",\n        \"description\": \"The fastest available responses for latency-sensitive work.\"\n      }\n    ],\n    \"additional_speed_tiers\": [\n      \"fast\",\n      \"ultrafast…[fixture: 14 chars truncated]"
+      },
+      "call_id": "exec-a274b9a8-673b-4dd1-bace-ab896e47c1b6",
+      "failed": false
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",82022,\"ctco_01a10d63-f614-7c70-aa02-10355123a31e\",0]",
+      "source_id": "ctco_01a10d63-f614-7c70-aa02-10355123a31e",
+      "source_offset": 82022,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_result",
+      "body": {
+        "name": "exec",
+        "output": [
+          {
+            "type": "input_text",
+            "text": "Script completed\nWall time 1.1 seconds\nOutput:\n"
+          },
+          {
+            "type": "input_text",
+            "text": "{\"chunk_id\":\"2e21f5\",\"wall_time_seconds\":0.936329917,\"exit_code\":0,\"original_token_count\":104,\"output\":\"[\\n  {\\n    \\\"slug\\\": \\\"gpt-6-astra\\\",\\n    \\\"service_tiers\\\": [\\n      {\\n        \\\"id\\\": \\\"priority\\\",\\n        \\\"name\\\": \\\"Fast\\\",\\n        \\\"description\\\": \\\"2x speed, increased usage\\\"\\n      },\\n      {\\n        \\\"id\\\": \\\"ultrafast\\\",\\n        \\\"name\\\": \\\"Ultrafast\\\",\\n        \\\"descriptio…[fixture: 177 chars truncated]"
+          }
+        ]
+      },
+      "call_id": "call_WhDQZgMbUHHzRPDCXe20wf0X",
+      "failed": false
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",83891,\"msg_0fcc528a63092a85016ac3f0a506e487d0aef341e4b0d52d22\",0]",
+      "source_id": "msg_0fcc528a63092a85016ac3f0a506e487d0aef341e4b0d52d22",
+      "source_offset": 83891,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "assistant",
+      "body": "Your installed Codex supports it with **GPT-6 Astra**. Launch:\n\n```sh\ncodex -m gpt-6-astra -c 'service_tier=\"ultrafast\"'\n```\n\nTo make it the default, set these at the top level of your Codex `config.toml`:\n\n```toml\nmodel = \"gpt-6-astra\"\nservice_tier = \"ultrafast\"\n```\n\nI verified that your live model catalog advertises Ultrafast. Codex documents the setting in its [configuration reference](https://…[fixture: 53 chars truncated]"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",88356,\"call_wnz4r7AkrUXgLb4SLcfYajWn\",0]",
+      "source_id": "call_wnz4r7AkrUXgLb4SLcfYajWn",
+      "source_offset": 88356,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "assistant",
+      "body": {
+        "type": "helper",
+        "call_id": "call_wnz4r7AkrUXgLb4SLcfYajWn",
+        "agent": "spec_audit",
+        "activity": "started"
+      }
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",88806,\"call_nqiMggFMUs8b31oFdvQfrDWr\",0]",
+      "source_id": "call_nqiMggFMUs8b31oFdvQfrDWr",
+      "source_offset": 88806,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "assistant",
+      "body": {
+        "type": "helper",
+        "call_id": "call_nqiMggFMUs8b31oFdvQfrDWr",
+        "agent": "spec_audit",
+        "activity": "interacted"
+      }
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",89391,\"subagent-completed-01a10d67-b692-7752-bd40-fddffa4356c3\",0]",
+      "source_id": "subagent-completed-01a10d67-b692-7752-bd40-fddffa4356c3",
+      "source_offset": 89391,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "assistant",
+      "body": {
+        "type": "helper",
+        "call_id": "subagent-completed-01a10d67-b692-7752-bd40-fddffa4356c3",
+        "agent": "product_contract",
+        "activity": "completed"
+      }
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",89875,\"call_L3gCxnPpczcKmlVVBnwiG5aM\",0]",
+      "source_id": "call_L3gCxnPpczcKmlVVBnwiG5aM",
+      "source_offset": 89875,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "assistant",
+      "body": {
+        "type": "helper",
+        "call_id": "call_L3gCxnPpczcKmlVVBnwiG5aM",
+        "agent": "helpers",
+        "activity": "wait"
+      }
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",90665,\"01a10d6a-d133-7ac0-81d1-eae563409c10\",0]",
+      "source_id": "01a10d6a-d133-7ac0-81d1-eae563409c10",
+      "source_offset": 90665,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "assistant",
+      "body": {
+        "type": "compaction"
+      }
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",91017,\"exec-8e10a42a-a67c-4e61-83d6-76fe621947dc\",0]",
+      "source_id": "exec-8e10a42a-a67c-4e61-83d6-76fe621947dc",
+      "source_offset": 91017,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_request",
+      "body": {
+        "name": "exec_command",
+        "input": {
+          "command": "ls /tmp/smithers-spec-audit-20261005"
+        }
+      },
+      "call_id": "exec-8e10a42a-a67c-4e61-83d6-76fe621947dc"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",91017,\"exec-8e10a42a-a67c-4e61-83d6-76fe621947dc\",1]",
+      "source_id": "exec-8e10a42a-a67c-4e61-83d6-76fe621947dc",
+      "source_offset": 91017,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_result",
+      "body": {
+        "name": "exec_command",
+        "output": "checks-chunks.json\nchecks-read-0.txt\nchecks-read-1.txt\nchecks-read-2.txt\nchecks-read-3.txt\nchecks-read-4.txt\nchecks-read-5.txt\nchecks-read-6.txt\nengineering-contract.json\nissue-3432-comments.json\nissue-3433-comments.json\nissue-3445-comments.json\nissue-3450-comments.json\nissue-3455-comments.json\nissue-3529-comments.json\nissue-3560-comments.json\nissue-3586-comments.json\nissue-3588-comments.json\nissu…[fixture: 136 chars truncated]"
+      },
+      "call_id": "exec-8e10a42a-a67c-4e61-83d6-76fe621947dc",
+      "failed": false
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",93149,\"exec-65c39ade-50f1-4128-854d-f9d984dbcb3f\",0]",
+      "source_id": "exec-65c39ade-50f1-4128-854d-f9d984dbcb3f",
+      "source_offset": 93149,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_request",
+      "body": {
+        "name": "exec_command",
+        "input": {
+          "command": "rg -n 'TestGuestHelperInstallPinsInterpreterAndEnv|TestRootSetupNeverFollowsMemberSymlinks|TestRootPreflightParsesOnlyEnvelope|TestMigrationGate|Per-commit drift|targetIndex|driftCi|TestMigrationRegistry' packages/backend/microsandbox packages/backend/db/product/migration_registry_test.go scripts/commit.mjs .github/workflows/drift.yml scripts/renumber-migration.mjs"
+        }
+      },
+      "call_id": "exec-65c39ade-50f1-4128-854d-f9d984dbcb3f"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",93149,\"exec-65c39ade-50f1-4128-854d-f9d984dbcb3f\",1]",
+      "source_id": "exec-65c39ade-50f1-4128-854d-f9d984dbcb3f",
+      "source_offset": 93149,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_result",
+      "body": {
+        "name": "exec_command",
+        "output": "rg: scripts/renumber-migration.mjs: No such file or directory (os error 2)\npackages/backend/db/product/migration_registry_test.go:14:func TestMigrationRegistryMatchesMigrationDirectory(t *testing.T) {\n.github/workflows/drift.yml:13:    name: \"Per-commit drift\"\n.github/workflows/drift.yml:47:        run: \"pnpm exec smthrs lint '//:targetIndex' --known-red '.github/ci-known-red.json' --verbose\"\n.git…[fixture: 6188 chars truncated]"
+      },
+      "call_id": "exec-65c39ade-50f1-4128-854d-f9d984dbcb3f",
+      "failed": true
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",96111,\"offset:96111\",0]",
+      "source_id": "offset:96111",
+      "source_offset": 96111,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "assistant",
+      "body": {
+        "type": "goal",
+        "objective": "finish the spec",
+        "status": "active"
+      }
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",96465,\"exec-1282e901-20ea-4325-a94a-83a91147b243\",0]",
+      "source_id": "exec-1282e901-20ea-4325-a94a-83a91147b243",
+      "source_offset": 96465,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "edit",
+      "body": {
+        "type": "edit",
+        "call_id": "exec-1282e901-20ea-4325-a94a-83a91147b243",
+        "outcome": "applied",
+        "files": [
+          {
+            "path": "/tmp/smithers-finish-spec-gh04/packages/backend/internal/services/mythical_pr.go",
+            "change": "modified",
+            "diff": "@@ -146,2 +146,3 @@\n \tKind, Head, MergeCommit string\n+\tReview                 *gitHubReviewFact\n \tOnMain                  bool\n@@ -158,2 +159,5 @@\n \tEvent, Noop, Attention string\n+\t// Review describes the activity/PR projection and ordered input effects.\n+\t// The consumer must commit them with its receipt in one transaction.\n+\tReview                 *gitHubReviewEffect\n \tContained              []mythicalManifestItem\n@@ -164,2 +168,5 @@\n func decideGitHubFact(f mythicalGitHubFact, item mythicalGitHubFactItem, now time.Time) mythicalGitHubFactDecision {\n+\tif f.Kind == \"review\" || f.Kind == \"review_comment\" || f.Kind == \"conversation_comment\" {\n+\t\treturn decideGitHubReview(f, item)\n+\t}\n \tswitch {\n"
+          },
+          {
+            "path": "/tmp/smithers-finish-spec-gh04/packages/backend/internal/services/github_review_input.go",
+            "change": "modified",
+            "diff": "@@ -33,2 +33,95 @@\n \n+// gitHubReviewFact is supplied from fetched GitHub data and the locked input\n+// receipt. ActiveMember and OwnApp are resolved by the install, never from a\n+// webhook's author_association or login. Membership must be checked again when\n+// a held input is delivered. This is not a persisted or public actor model.\n+type gitHubReviewFact struct {\n+\tState        string // submitted review state; unused for standalone comments\n+\tChange       string // created, edited, deleted, or deliver-held\n+\tActiveMember bool\n+\tOwnApp       bool\n+\tDuplicate    bool\n+\tStale        bool\n+\tHeld         bool\n+\tConsumed     bool\n+}\n+\n+type gitHubReviewEffect struct {\n+\tActivity string // upsert or hide; empty when delivering an existing held input\n+\tInput    string // steer, hold, withdraw, or empty for record-only activity\n+\tPRReview bool   // project the GitHub review; never a Smithers approval\n+}\n+\n+// decideGitHubReview extends the same decision seam used by PR lifecycle\n+// consumers. It decides no authority from GitHub text and performs no I/O.\n+// An input effect alone does not authorize dispatch: ordered admission, current\n+// member resolution, and the production runtime remain consumer preconditions.\n+func decideGitHubReview(f mythicalGitHubFact, item mythicalGitHubFactItem) mythicalGitHubFactDecision {\n+\tr := f.Review\n+\tif r == nil {\n+\t\treturn mythicalGitHubFactDecision{Noop: \"review_facts_missing\"}\n+\t}\n+\tif r.OwnApp {\n+\t\treturn mythicalGitHubFactDecision{Noop: \"own_app\"}\n+\t}\n+\tif r.Duplicate {\n+\t\treturn mythicalGitHubFactDecision{Noop: \"duplicate\"}\n+\t}\n+\tif r.Stale {\n+\t\treturn mythicalGitHubFactDecision{Noop: \"stale\"}\n+\t}\n+\tif r.Change != \"created\" && r.Change != \"edited\" && r.Change != \"deleted\" && r.Change != \"deliver-held\" {\n+\t\treturn mythicalGitHubFactDecision{Noop: \"unknown_review_change\"}\n+\t}\n+\teffect := &gitHubReviewEffect{Activity: \"upsert\", PRReview: f.Kind == \"review\"}\n+\tdecision := mythicalGitHubFactDecision{Review: effect}\n+\tif r.Change == \"deleted\" {\n+\t\teffect.Activity = \"hide\"\n+\t\tif r.Held && !r.Consumed {\n+\t\t\teffect.Input = \"withdraw\"\n+\t\t}\n+\t\treturn decision\n+\t}\n+\tif r.Change == \"deliver-held\" {\n+\t\teffect.Activity, effect.PRReview = \"\", false\n+\t\tif !r.Held || r.Consumed {\n+\t\t\treturn mythicalGitHubFactDecision{Noop: \"input_not_held\"}\n+\t\t}\n+\t}\n+\tif f.Kind == \"review\" && r.State != \"CHANGES_REQUESTED\" && r.State != \"COMMENTED\" {\n+\t\t// Approval, dismissal and pending review state are PR facts only.\n+\t\t// They must neither create a steer nor grant checks.Land authority.\n+\t\treturn decision\n+\t}\n+\tif !r.ActiveMember {\n+\t\t// Revocation also withdraws an input that was held while its author\n+\t\t// was a member. Already consumed input remains historical evidence.\n+\t\tif r.Held && !r.Consumed {\n+\t\t\teffect.Input = \"withdraw\"\n+\t\t}\n+\t\treturn decision\n+\t}\n+\tif r.Consumed {\n+\t\treturn decision\n+\t}\n+\tswitch item.State {\n+\tcase \"queued\", \"starting\", \"failed\", \"paused\":\n+\t\teffect.Input = \"hold\"\n+\tcase \"working\", \"needs_you\":\n+\t\teffect.Input = \"steer\"\n+\tcase \"in_review\":\n+\t\teffect.Input, decision.Event = \"steer\", \"working\"\n+\tcase \"merged\", \"dropped\":\n+\t\t// A review cannot reopen a settled TODO or revive its closed run.\n+\t\tif r.Held {\n+\t\t\teffect.Input = \"withdraw\"\n+\t\t}\n+\tdefault:\n+\t\t// Review consumers supply todoState's canonical product state. An\n+\t\t// unknown state records the fact without admitting executable input.\n+\t\tdecision.Noop = \"unknown_todo_state\"\n+\t}\n+\treturn decision\n+}\n+\n // normalizeGitHubReviewText only formats data. Authorization, TODO state,\n"
+          }
+        ]
+      },
+      "call_id": "exec-1282e901-20ea-4325-a94a-83a91147b243",
+      "failed": false
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",101915,\"exec-40ee6791-dfdf-4fc7-9dbb-77137c49e29f\",0]",
+      "source_id": "exec-40ee6791-dfdf-4fc7-9dbb-77137c49e29f",
+      "source_offset": 101915,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "edit",
+      "body": {
+        "type": "edit",
+        "call_id": "exec-40ee6791-dfdf-4fc7-9dbb-77137c49e29f",
+        "outcome": "applied",
+        "files": [
+          {
+            "path": "/tmp/smithers-finish-spec-gh04/packages/backend/flowdispatch/steer_test.go",
+            "change": "added",
+            "diff": "@@ -0,0 +1,14 @@\n+package flowdispatch\n+\n+import (\n+\t\"context\"\n+\t\"encoding/json\"\n+\t\"math\"\n+\t\"testing\"\n+\n+\t\"github.com/smithersai/smithers/packages/backend/flowruntime\"\n+\t\"github.com/smithersai/smithers/packages/backend/jobs\"\n+\t\"github.com/stretchr/testify/require\"\n+)\n+\n+func testSteerRequest() SteerRequest {\n"
+          }
+        ]
+      },
+      "call_id": "exec-40ee6791-dfdf-4fc7-9dbb-77137c49e29f",
+      "failed": false
+    }
+  ],
+  "state": {
+    "profile": "codex/0.160.0",
+    "context": {
+      "owner_id": "trusted-owner",
+      "participant_id": "trusted-participant",
+      "session_id": "registered-session",
+      "source_generation": "generation-1"
+    },
+    "pending": "",
+    "offset": 103220,
+    "native": {
+      "pending": "",
+      "line": 107,
+      "seq": 36,
+      "session": {
+        "id": "01a10d62-91c7-7163-b038-72dab55a2e8c",
+        "format_version": "codex-rollout/0.160",
+        "cwd": "/Users/williamcory/smithers"
+      },
+      "goal": "active:finish the spec"
+    }
+  },
+  "needs_more": false
+}

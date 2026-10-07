@@ -595,8 +595,7 @@ describe("ExternalTranscript Claude Code", () => {
       expect(decodeRows(
         JSON.stringify({ type: "permission-mode", permissionMode: "default" }),
         JSON.stringify({ type: "queue-operation", operation: "enqueue", content: "hello" }),
-        JSON.stringify({ type: "cost-state", totalCostUSD: 1 }),
-        JSON.stringify({ type: "some-future-row", uuid: 7 })
+        JSON.stringify({ type: "cost-state", totalCostUSD: 1 })
       )).toEqual([])
     })
 
@@ -779,16 +778,8 @@ describe("ExternalTranscript Claude Code", () => {
       expect(part).toMatchObject({ duration_ms: duration })
     })
 
-    it("reads a result for a call this transcript never asked for as a nameless tool", () => {
-      expect(partOf(result("toolu_lost", "late"))).toEqual({
-        type: "tool",
-        call_id: "toolu_lost",
-        command: "",
-        reads: [],
-        status: "ok",
-        output: "late",
-        duration_ms: 0
-      })
+    it("rejects an unpaired result without inventing a nameless tool", () => {
+      expect(failure(jsonl(result("toolu_lost", "late")))).toMatchObject({ code: "malformed_record", line: 1 })
     })
 
     it("reads a Write that replaced a file as modified, with Claude Code's hunks", () => {
@@ -931,10 +922,10 @@ describe("ExternalTranscript Claude Code", () => {
       ["an unknown type", { type: "fallback", from: { model: "a" }, to: { model: "b" } }, "fallback"],
       ["no type", { text: "x" }, "unnamed"],
       ["a value that is not an object", "loose", "unnamed"]
-    ])("reports an assistant block with %s as an error part", (_, block, name) => {
-      expect(partOf(assistant([block]))).toEqual({
-        type: "error",
-        message: `Claude Code wrote a content block this release does not read: ${name}`
+    ])("rejects an assistant block with %s through its tagged error", (_, block, name) => {
+      expect(failure(jsonl(assistant([block])))).toMatchObject({
+        code: name === "unnamed" ? "malformed_record" : "unsupported_record",
+        line: 1
       })
     })
 
@@ -1012,12 +1003,10 @@ describe("ExternalTranscript Claude Code", () => {
       expect(decodeRows(user(content, fields))).toEqual([])
     })
 
-    it("reports a user block it does not read as an error part, beside the owner's words", () => {
-      expect(partsOf(user([{ type: "document", source: {} }, { type: "text", text: "see attached" }, {}]))).toEqual([
-        { type: "error", message: "Claude Code wrote a content block this release does not read: document" },
-        { type: "error", message: "Claude Code wrote a content block this release does not read: unnamed" },
-        { type: "prompt", text: "see attached" }
-      ])
+    it("rejects unsupported user content without publishing its adjacent prompt", () => {
+      expect(failure(jsonl(user([{ type: "document", source: {} }, { type: "text", text: "see attached" }]))))
+        .toMatchObject({ code: "unsupported_record", line: 1 })
+      expect(failure(jsonl(user([{}])))).toMatchObject({ code: "malformed_record", line: 1 })
     })
 
     it.each([
@@ -1051,12 +1040,12 @@ describe("ExternalTranscript Claude Code", () => {
     })
 
     it.each([
-      ["a type this release does not read", "progress", "progress"],
+      ["a type this release does not read", "future-conversation", "future-conversation"],
       ["no type", undefined, "unnamed"]
-    ])("reports a conversation record with %s as an error part", (_, type, name) => {
-      expect(partOf(row(type as string))).toEqual({
-        type: "error",
-        message: `Claude Code wrote a record this release does not read: ${name}`
+    ])("rejects a conversation record with %s through its tagged error", (_, type, name) => {
+      expect(failure(jsonl(row(type as string)))).toMatchObject({
+        code: name === "unnamed" ? "malformed_record" : "unsupported_record",
+        line: 1
       })
     })
 
