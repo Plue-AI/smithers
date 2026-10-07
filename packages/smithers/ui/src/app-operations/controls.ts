@@ -4,6 +4,7 @@ import { operation, type OperationPayload } from "./index"
 const N = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))
 const Text = Schema.NonEmptyString
 const Todo = Schema.Struct({ n: N })
+const Moved = Schema.Struct({ n: N, branch: Schema.optional(Text) })
 const Branch = Schema.Struct({ branch: Text })
 const Foreign = Schema.Struct({ branch: Text, id: Text, revision: Text })
 const Learning = Schema.Struct({ id: Text })
@@ -15,8 +16,8 @@ const control = <const Name extends string, I extends OperationPayload>(name: Na
 export const pendingControls = [
   control("todo.preapprove", "Pre-approve", Todo, "never", "maintainer"),
   control("todo.unapprove", "Remove pre-approval", Todo, "never", "maintainer"),
-  control("todo.return-to-item", "Return to this TODO", Todo, "run"),
-  control("todo.keep-moved", "Keep for now", Todo, "never"),
+  control("todo.return-to-item", "Return to this TODO", Moved, "run"),
+  control("todo.keep-moved", "Keep for now", Moved, "never"),
   control("branch.bring-in", "Bring in", Foreign, "confirm"),
   control("branch.discard-foreign", "Discard", Schema.Struct({ branch: Text, id: Text, revision: Text }), "confirm", "maintainer"),
   control("branch.rebase-now", "Rebase now", Branch, "run"),
