@@ -33,7 +33,7 @@ const expectBuiltinRoles = async (page: Page): Promise<void> => {
 test("/agents opens one durable Agents card that survives a reload", scenario("agents.list-doors-reload", {
   capabilities: [],
   coverage: [
-    "action:agent.list", "host:local", "path:success", "path:persistence",
+    "action:agents", "host:local", "path:success", "path:persistence",
     "door:slash", "dimension:reload", "evidence:persisted-card-after-reload"
   ]
 }), async ({ page }) => {

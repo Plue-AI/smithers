@@ -1,9 +1,13 @@
 import { test, expect } from "@playwright/test"
+import { scenario } from "./coverage/types"
 import { fillComposer } from "../playwright/composer"
 
 // No route interception: the Go rehearsal supplies authenticated journals,
 // the shipped app, and the actual model host with a scripted provider.
-test("C-CUT-02: authenticated Earlier keeps mixed historical cards inert through reload and a model turn", async ({ browser, baseURL }) => {
+test("C-CUT-02: authenticated Earlier keeps mixed historical cards inert through reload and a model turn", scenario("cut-history.install-privacy", {
+  capabilities: [],
+  coverage: ["action:branches", "action:chat.send", "host:local", "path:success", "path:persistence", "path:error", "door:slash", "dimension:reload", "evidence:authenticated-journal-readback"]
+}), async ({ browser, baseURL }) => {
   if (!baseURL) throw new Error("Run through TestCutHistoryInstallBrowserModelPrivacy")
   const origin = new URL(baseURL)
   const member = async (login: string) => {
