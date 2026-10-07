@@ -311,6 +311,7 @@ type preparedConfirmation struct {
 	revision, title string
 	card            map[string]any
 	review          *ReviewAdmission
+	mergeHead       string
 }
 
 // prepareConfirmation adapts existing transactional TODO consumers. Its switch
