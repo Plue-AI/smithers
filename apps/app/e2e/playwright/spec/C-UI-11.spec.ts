@@ -11,7 +11,7 @@ test("C-UI-11: File intelligence and webpage reading stay reachable by keyboard"
   await owner(page)
   await page.goto("/")
   await say(page, "/branch T1")
-  await say(page, "/files.read src/b.ts")
+  await say(page, "/file src/b.ts")
   const file = page.locator(".smithers-card").last()
   await expect(file).toContainText('add(1, "2")')
   await file.getByText("add", { exact: true }).last().focus()
@@ -20,7 +20,7 @@ test("C-UI-11: File intelligence and webpage reading stay reachable by keyboard"
   await page.keyboard.press("Escape")
   await page.keyboard.press("F12")
   await expect(page.locator(".smithers-card").last()).toContainText("src/a.ts")
-  await say(page, "/files.read src/b.ts")
+  await say(page, "/file src/b.ts")
   await expect(page.locator(".smithers-card").last()).toContainText("Argument of type 'string' is not assignable to parameter of type 'number'")
   // Static same-origin fixture is served by the future seeded reader scenario.
   await say(page, "/browser.open http://127.0.0.1:47311/page.html")

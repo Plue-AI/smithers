@@ -349,8 +349,8 @@ describe("command registry pure model", () => {
       })
     }
     const withoutHints = commands.map(({ args: _args, ...command }) => command)
-    expect(parseSubmit("/files.read README.md", withoutHints)).toEqual({
-      kind: "command", name: "files.read", args: "README.md"
+    expect(parseSubmit("/file README.md", withoutHints)).toEqual({
+      kind: "command", name: "file", args: "README.md"
     })
     expect(parseSubmit("/world trailing text", commands)).toEqual({
       kind: "unknown-command", name: "world"

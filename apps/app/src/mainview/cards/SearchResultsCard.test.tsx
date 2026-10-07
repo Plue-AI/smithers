@@ -40,7 +40,7 @@ const fixture: ResultsCard = {
         title: "packages/smithers/journal/src/Redaction.ts",
         subtitle: "opened 2h ago",
         actions: [
-          { flow: "files.read", args: "packages/smithers/journal/src/Redaction.ts r1", label: "Read a file from a repository", role: "open" },
+          { flow: "file", args: "packages/smithers/journal/src/Redaction.ts r1", label: "Read a file from a repository", role: "open" },
           { flow: "code.diagnostics", args: "packages/smithers/journal/src/Redaction.ts", label: "Diagnostics", role: "other" }
         ]
       },
@@ -48,7 +48,7 @@ const fixture: ResultsCard = {
         kind: "file",
         ref: "packages/smithers/journal/src/Redaction.test.ts",
         title: "packages/smithers/journal/src/Redaction.test.ts",
-        actions: [{ flow: "files.read", args: "packages/smithers/journal/src/Redaction.test.ts r1", label: "Read a file from a repository", role: "open" }]
+        actions: [{ flow: "file", args: "packages/smithers/journal/src/Redaction.test.ts r1", label: "Read a file from a repository", role: "open" }]
       }
     ]
   }
@@ -76,9 +76,9 @@ describe("the search-results card", () => {
   test("every action is a button carrying its flow and args, dispatched through onRunCommand", () => {
     const { host, calls } = render(fixture)
     const open = host.querySelector<HTMLButtonElement>("[data-testid='search-item-file-packages/smithers/journal/src/Redaction.ts'] [data-role='open']")
-    expect(open?.dataset["flow"]).toBe("files.read")
+    expect(open?.dataset["flow"]).toBe("file")
     flushSync(() => open?.click())
-    expect(calls).toEqual([["files.read", "packages/smithers/journal/src/Redaction.ts r1"]])
+    expect(calls).toEqual([["file", "packages/smithers/journal/src/Redaction.ts r1"]])
     const history = host.querySelector<HTMLButtonElement>("[data-testid='search-item-history-abc1234'] [data-flow='history.show']")
     flushSync(() => history?.click())
     expect(calls[1]).toEqual(["history.show", undefined])
@@ -105,7 +105,7 @@ describe("the search-results card", () => {
   })
 })
 
-const savedFile = (ref: string, args: string, flow = "files.read"): ResultsCard => ({
+const savedFile = (ref: string, args: string, flow = "file"): ResultsCard => ({
   ...fixture, payload: { ...fixture.payload, items: [{ kind: "file", ref, title: ref,
     actions: [{ flow, args, label: "Open", role: "open" }] }] }
 })
@@ -120,7 +120,7 @@ test("an ambiguous saved file row can be searched again but cannot follow the cu
 test("a saved global file address becomes an explicit repository argument", () => {
   const { host, calls } = render(savedFile("/alpha/one/docs/README.md", "/alpha/one/docs/README.md"))
   flushSync(() => host.querySelector<HTMLButtonElement>("[data-role='open']")?.click())
-  expect(calls).toEqual([["files.read", "docs/README.md alpha/one"]])
+  expect(calls).toEqual([["file", "docs/README.md alpha/one"]])
 })
 
 test("a saved workspace file keeps its explicit workspace and quoted path", () => {

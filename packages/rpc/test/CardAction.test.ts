@@ -44,3 +44,8 @@ it("saved Runs actions retain operation and source without another door", () => 
     expect(ActionSchema.parse({ tag, label: "Saved", args: { sourceCard: "private-run", runId: "run-1" } })).toEqual({ tag: "runs", label: "Saved", args: { sourceCard: "private-run", runId: "run-1", operation } })
   }
 })
+
+it("saved repository file actions keep their source and revision without an executable alias", () => {
+  const args = { path: "src/answer.ts", repo: "owner/repo", ref: "abc", line: "3" }
+  expect(ActionSchema.parse({ tag: "files.read", label: "Open", args })).toEqual({ tag: "file", label: "Open", args: { ...args, operation: "repository" } })
+})

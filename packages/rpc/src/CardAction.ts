@@ -17,7 +17,7 @@ import type { ModelProtocol } from "./ConfiguredModel.ts"
  * @since 1.0.0
  * @category models
  */
-export type CatalogTag = RegisteredCatalogTag | "proposal" | "flow.list" | typeof historicalRuns[number] | typeof historicalGitHub[number] | typeof historicalSettings[number] | "context.inspect" | "secrets.set" | "secrets.delete" | "secrets.scope" | "secrets.bind"
+export type CatalogTag = RegisteredCatalogTag | "files.read" | "proposal" | "flow.list" | typeof historicalRuns[number] | typeof historicalGitHub[number] | typeof historicalSettings[number] | "context.inspect" | "secrets.set" | "secrets.delete" | "secrets.scope" | "secrets.bind"
 
 /**
  * An action form field.
@@ -60,13 +60,13 @@ const recordedSecretArgs = (tag: string, args: Readonly<Record<string, string>> 
   } : {}) }
 }
 export const ActionSchema = z.object({
-  tag: z.union([CatalogTagSchema, z.literal("proposal"), z.literal("flow.list"), z.enum(historicalRuns), z.enum(historicalGitHub), z.enum(historicalSettings), z.literal("context.inspect"), z.enum(["secrets.set", "secrets.delete", "secrets.scope", "secrets.bind"])]),
+  tag: z.union([CatalogTagSchema, z.literal("files.read"), z.literal("proposal"), z.literal("flow.list"), z.enum(historicalRuns), z.enum(historicalGitHub), z.enum(historicalSettings), z.literal("context.inspect"), z.enum(["secrets.set", "secrets.delete", "secrets.scope", "secrets.bind"])]),
   label: z.string(),
   args: z.record(z.string(), z.string()).optional(),
   primary: z.boolean().optional(),
   disabled: z.object({ reason: z.string() }).optional(),
   input: z.array(FormFieldSchema).optional()
-}).overwrite(action => action.tag === "proposal" ? { ...action, tag: "wiki" as const, args: { ...action.args, operation: "proposal" } } : action.tag === "flow.list" ? { ...action, tag: "flows" as const, args: { ...action.args, operation: "workspace" } } : historicalRuns.some(tag => tag === action.tag)
+}).overwrite(action => action.tag === "files.read" ? { ...action, tag: "file" as const, args: { ...action.args, operation: "repository" } } : action.tag === "proposal" ? { ...action, tag: "wiki" as const, args: { ...action.args, operation: "proposal" } } : action.tag === "flow.list" ? { ...action, tag: "flows" as const, args: { ...action.args, operation: "workspace" } } : historicalRuns.some(tag => tag === action.tag)
   ? { ...action, tag: "runs" as const, args: { ...action.args, operation: runsOperation(action.tag) } }
   : historicalGitHub.some(tag => tag === action.tag)
   ? { ...action, tag: "github" as const, args: { ...action.args, operation: githubOperation(action.tag) } }
@@ -164,7 +164,7 @@ export const BranchForeignAnswerInputSchema = z.strictObject({
  * @category models
  */
 /** Historical tags are decodable data; no new typed command can use them. */
-export type CardCommandInput = CurrentCardCommandInput & { readonly [Tag in "proposal" | "flow.list" | typeof historicalRuns[number] | typeof historicalGitHub[number] | typeof historicalSettings[number] | "context.inspect" | "secrets.set" | "secrets.delete" | "secrets.scope" | "secrets.bind"]: never }
+export type CardCommandInput = CurrentCardCommandInput & { readonly [Tag in "files.read" | "proposal" | "flow.list" | typeof historicalRuns[number] | typeof historicalGitHub[number] | typeof historicalSettings[number] | "context.inspect" | "secrets.set" | "secrets.delete" | "secrets.scope" | "secrets.bind"]: never }
 
 interface CurrentCardCommandInput {
   readonly "approval.approve": { readonly cardId: string }
@@ -197,7 +197,7 @@ interface CurrentCardCommandInput {
   readonly "branch.add-to-stack": z.infer<typeof BranchAddToStackInputSchema>
   readonly "branch.rebase": { readonly branch: string; readonly conflict_change?: string; readonly onto_revision?: string } | undefined
   readonly "terminal": { readonly branch: string } | { readonly operation: "command"; readonly id: string; readonly command: string } | undefined
-  readonly "file": { readonly path: string; readonly branch?: string; readonly revision?: string }
+  readonly "file": { readonly path: string; readonly branch?: string; readonly revision?: string; readonly line?: number; readonly column?: number; readonly repo?: string; readonly ref?: string; readonly operation?: "repository" }
   readonly "files": undefined
   readonly "diff": undefined
   readonly "review": undefined

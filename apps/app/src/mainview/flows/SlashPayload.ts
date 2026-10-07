@@ -986,6 +986,11 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
       return cardId && path.length ? ok({ cardId, path: path.join(" ") }) : no("Select a diff and file")
     }
   },
+  "file": (args) => {
+    if (args?.trim().startsWith("{")) { try { return ok(JSON.parse(args)) } catch { return no("Enter a JSON object") } }
+    const parsed = parseFileReadArgs(args)
+    return "error" in parsed ? no(parsed.error) : ok({ ...parsed.payload })
+  },
   "files.read": (args) => {
     const parsed = parseFileReadArgs(args)
     return "error" in parsed ? no(parsed.error) : ok({ ...parsed.payload })

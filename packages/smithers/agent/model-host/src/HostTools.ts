@@ -377,7 +377,7 @@ const repositoryPath = (repository: string, path: string): string => {
 const namesRepository = (repository: string, repo: string): boolean =>
   repo === repository || repo === repository.slice(repository.indexOf("/") + 1)
 
-/** `files.read` on the turn's mirrored main. */
+/** `file` on the turn's mirrored main. */
 const filesRead: Bind = (grant, { read }) => {
   const repository = grant.source?.repository
   if (repository === undefined) return undefined
@@ -390,7 +390,7 @@ const filesRead: Bind = (grant, { read }) => {
         return { refusal: `This question reads ${repository} only; name a file in it.` }
       }
       const path = repositoryPath(repository, input.payload.path)
-      if (path === "") return { refusal: "files.read needs a file path" }
+      if (path === "") return { refusal: "file needs a file path" }
       if (ref !== undefined) return { refusal: "This question reads main only; ask without --ref." }
       const answer = yield* read(path)
       if (!("file" in answer)) return { refusal: refusalText(path, answer.code) }
@@ -627,6 +627,16 @@ const catalogCommand = (row: CatalogDescriptor): Bind => (grant, { api }) => {
       let request: CatalogHttpRequest
       try {
         payload = commandPayload(row, args)
+        const binding = row.http!
+        const projection = binding.method === "GET" ? binding.query : binding.body
+        if (binding.method === "GET" && projection !== undefined) {
+          const fields = new Set([
+            ...Object.values(projection),
+            ...[...binding.path.matchAll(/\{([^}]+)\}/g)].map(match => match[1]!),
+            ...Object.values(binding.objects ?? {}).flatMap(nested => [nested.when, ...Object.values(nested.body)])
+          ])
+          if (Object.keys(payload).some(key => !fields.has(key))) throw new Error("Unavailable payload binding")
+        }
         request = catalogRequest(row, payload)
       } catch {
         return { refusal: `Invalid arguments for ${row.name}; use its declared payload.` }
@@ -685,7 +695,7 @@ const offeredCommands = (grant: DurableChatGrant, transport: HostTransport): Rea
     ) return []
     const bind = row.name === "files.list" ?
       filesList
-      : row.name === "files.read" ?
+      : row.name === "file" ?
       filesRead
       : row.name === "flow" || row.name === "flow.edit" ?
       flowCommand(row)
@@ -699,7 +709,7 @@ const offeredCommands = (grant: DurableChatGrant, transport: HostTransport): Rea
       name: row.name,
       summary: row.summary,
       agent: row.agent,
-      args: row.name === "files.list" ? FILES_LIST_COMMAND.args : row.name === "files.read"
+      args: row.name === "files.list" ? FILES_LIST_COMMAND.args : row.name === "file"
         ? FILES_READ_COMMAND.args
         : JSON.stringify({ ...row.payload.schema, $defs: row.payload.definitions, additionalProperties: false })
     }
@@ -744,7 +754,7 @@ const hostInstructions = (offered: ReadonlyArray<Offered>, docs: ReadonlyArray<D
           { args: "<Tn>" }
           : command.name === "todo.new" ?
           { args: "[text]" }
-          : command.name.startsWith("files.") && args !== undefined ?
+          : (command.name === "file" || command.name.startsWith("files.")) && args !== undefined ?
           { args }
           : {})
       })

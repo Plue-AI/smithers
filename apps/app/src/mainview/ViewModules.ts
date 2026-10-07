@@ -17,7 +17,7 @@ export const DiffSurface = viewModule(() => import("./cards/DiffSurface").then(m
 export async function preloadViewModule(name: string, payload: Record<string, unknown>) {
   const module = name === "wiki.graph" ? KnowledgeGraphSurface
     : ["prs.view", "prs.tab", "change.view", "change.facet", "files.implementation-diff"].includes(name) ? DiffSurface
-    : name === "files.read" ? (/\.mdx?$/i.test(String(payload.path)) ? MarkdownEditorSurface : CodeSurface)
+    : name === "file" ? (/\.mdx?$/i.test(String(payload.path)) ? MarkdownEditorSurface : CodeSurface)
     : ["wiki", "wiki.open", "wiki.edit", "wiki.card.view", "conversation.edit"].includes(name) ? MarkdownEditorSurface
     : undefined
   await module?.preload()

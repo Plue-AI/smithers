@@ -52,7 +52,7 @@ authenticatedTest("files.list, files.read and search.files read seeded bytes fro
   capabilities: ["identity"],
   description: "Push a nested file to an owned repository's main, list its root and directory, read the file, find it with search.files and open it from the keyboard; every listing and byte is compared with the contents API, and the file card survives reload.",
   coverage: [
-    "action:files.list", "action:files.read", "action:search.files",
+    "action:files.list", "action:file", "action:search.files",
     "host:local", "path:success", "path:persistence", "path:keyboard", "door:slash", "door:button",
     "dimension:keyboard", "dimension:reload", "surface:file-card", "evidence:contents-api-readback"
   ]
@@ -79,7 +79,7 @@ authenticatedTest("files.list, files.read and search.files read seeded bytes fro
     await expect(srcCard).toBeVisible({ timeout: 30_000 })
     await expect.poll(async () => (await srcCard.locator(".world-card-row .world-card-title").allTextContents()).sort()).toEqual([`${stem}.ts`])
 
-    await slash(page, `/files.read ${path} ${repo.fullName}`)
+    await slash(page, `/file ${path} ${repo.fullName}`)
     const fileCard = card(page, `file-${repo.fullName}-${path}`)
     await expect(fileCard).toBeVisible({ timeout: 30_000 })
     await expect(fileCard).toContainText(bytes.trim())

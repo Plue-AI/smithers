@@ -68,11 +68,11 @@ test("a cold explicit public target from home persists and acknowledges before i
   })
   try {
     await h.store.dispatch({ type: "repository.entry.changed", actor: "system", entry: null }).isPersisted.promise
-    expect(await h.controller.commands.run("files.read", `README.md ${repo}`)).toEqual({ status: "executed", value: "Requested" })
+    expect(await h.controller.commands.run("file", `README.md ${repo}`)).toEqual({ status: "executed", value: "Requested" })
     expect(h.store.session().pendingCommand?.requirement).toBe("repository-ready")
     expect(JSON.parse(h.store.session().pendingCommand!.args!)).toEqual({ path: "README.md", repo })
     expect(h.store.session().repositoryEntry).toBeNull()
-    expect(await h.controller.commands.run("files.read", `README.md ${repo}`)).toEqual({ status: "executed", value: "Requested" })
+    expect(await h.controller.commands.run("file", `README.md ${repo}`)).toEqual({ status: "executed", value: "Requested" })
     await until(() => catalogs === 1)
     expect(reads).toBe(0)
     expect([...h.store.collections.messages.values()].some(message => message.action?.flow === "sign-in")).toBe(false)
@@ -338,8 +338,8 @@ test("catalog wait acknowledges, coalesces and keeps progress through the actual
   const hits: string[] = []
   const h = await setup(undefined, async input => { const path = String(input); if (path.includes("/contents/README.md")) { hits.push(path); return response }; return json(404, {}) })
   try {
-    expect(await h.controller.commands.run("files.read", `README.md ${repo}`)).toMatchObject({ status: "executed", value: "Requested" })
-    await h.controller.commands.run("files.read", `README.md ${repo}`)
+    expect(await h.controller.commands.run("file", `README.md ${repo}`)).toMatchObject({ status: "executed", value: "Requested" })
+    await h.controller.commands.run("file", `README.md ${repo}`)
     expect(hits).toHaveLength(0)
     expect([...h.store.collections.messages.values()].some(m => m.action?.flow === "sign-in")).toBe(false)
     h.controller.changeDraft("Chat stays usable")
@@ -358,7 +358,7 @@ test("catalog wait acknowledges, coalesces and keeps progress through the actual
 test("a persisted request reconnects after reload and retains its explicit target", async () => {
   const storage = memoryStorage()
   const first = await setup(storage)
-  await first.controller.commands.run("files.read", `README.md ${repo}`)
+  await first.controller.commands.run("file", `README.md ${repo}`)
   await first.close()
   const hits: string[] = []
   const second = await setup(storage, async input => { hits.push(String(input)); return json(200, { path: "README.md", type: "file", content: "RESTORED", encoding: "utf-8" }) })
@@ -374,13 +374,13 @@ test("catalog failure stays visible and a fresh request can retry", async () => 
   const hits: string[] = []
   const h = await setup(undefined, async input => { hits.push(String(input)); return json(200, { path: "README.md", type: "file", content: "RETRY", encoding: "utf-8" }) })
   try {
-    await h.controller.commands.run("files.read", `README.md ${repo}`)
+    await h.controller.commands.run("file", `README.md ${repo}`)
     await pause(20)
     await h.store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { ...h.store.session().repositoryEntry!, phase: "failed", error: "Catalog unavailable" } }).isPersisted.promise
     await until(() => h.store.collections.toasts.get("toast-repository.ready")?.status === "failed")
     expect(hits).toHaveLength(0)
     await h.store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: "retry", repo, phase: "pending" } }).isPersisted.promise
-    await h.controller.commands.run("files.read", `README.md ${repo}`)
+    await h.controller.commands.run("file", `README.md ${repo}`)
     await h.ready()
     await until(() => h.store.collections.cards.get("file-alpha/one-README.md")?.status === "active")
   } finally { await h.close() }
@@ -389,9 +389,9 @@ test("catalog failure stays visible and a fresh request can retry", async () => 
 test("private targets keep their sign-in gate and agent calls never queue", async () => {
   const h = await setup(undefined, async input => String(input) === "/api/public/repos" ? json(200, { repos: [] }) : json(404, {}))
   try {
-    expect(await h.controller.commands.runForAgent("files.read", `README.md ${repo}`)).toMatchObject({ status: "failed", error: expect.stringContaining("loading") })
+    expect(await h.controller.commands.runForAgent("file", `README.md ${repo}`)).toMatchObject({ status: "failed", error: expect.stringContaining("loading") })
     expect(h.store.session().pendingCommand).toBeFalsy()
-    await h.controller.commands.run("files.read", "README.md private/secret")
+    await h.controller.commands.run("file", "README.md private/secret")
     await until(() => h.store.session().pendingCommand?.requirement === "repo-source")
     expect([...h.store.collections.messages.values()].some(m => m.action?.flow === "sign-in")).toBe(true)
     expect(h.store.session().pendingCommand?.requirement).toBe("repo-source")
@@ -427,7 +427,7 @@ test("an explicit private repository requires its own source", async () => {
   const hits: string[] = []
   const h = await setup(undefined, async input => { hits.push(String(input)); return String(input) === "/api/public/repos" ? json(200, { repos: [] }) : json(404, {}) })
   try {
-    await h.controller.commands.run("files.read", "README.md private/secret")
+    await h.controller.commands.run("file", "README.md private/secret")
     await until(() => h.store.session().pendingCommand?.requirement === "repo-source")
     expect(hits.filter(path => path.includes("contents/README"))).toEqual([])
     expect(h.store.session().pendingCommand).toMatchObject({ requirement: "repo-source", args: "README.md private/secret" })
@@ -438,7 +438,7 @@ for (const answer of ["private", "invalid", "offline"] as const) {
   test(`catalog ${answer} is distinct from unresolved authorization`, async () => {
     const h = await setup()
     try {
-      await h.controller.commands.run("files.read", `README.md ${repo}`)
+      await h.controller.commands.run("file", `README.md ${repo}`)
       const http: FetchLike = async () => { if (answer === "offline") throw new Error("offline"); return json(200, answer === "private" ? { repos: [] } : { wrong: [] }) }
       await openRequestedRepo(h.controller, http, repo, h.store.session().repositoryEntry!.requestId, 320)
       await until(() => h.store.session().pendingCommand?.requirement !== "repository-ready")
@@ -540,11 +540,11 @@ test("catalog subscription resumes through the real SQLite projection boundary",
 test("a missing-path form waits for catalog and does not report a completed read", async () => {
   const h = await setup()
   try {
-    expect(await h.controller.commands.run("files.read")).toMatchObject({ status: "executed", value: "Requested" })
+    expect(await h.controller.commands.run("file")).toMatchObject({ status: "executed", value: "Requested" })
     await pause(20)
     await h.ready()
-    await until(() => h.store.collections.cards.get("form-files.read")?.kind === "flow-form")
-    const form = h.store.collections.cards.get("form-files.read")
+    await until(() => h.store.collections.cards.get("form-file")?.kind === "flow-form")
+    const form = h.store.collections.cards.get("form-file")
     expect(form?.kind === "flow-form" && form.payload.given.repo).toBe(repo)
     expect(h.store.collections.toasts.get("toast-repository.ready")?.status).not.toBe("ok")
     expect([...h.store.collections.messages.values()].some(m => m.action?.flow === "sign-in")).toBe(false)

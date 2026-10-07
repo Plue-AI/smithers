@@ -997,7 +997,7 @@ describe("the run trace's reader gestures and the pump's tail (spec 06 §5, §6)
     })
 
     // The workspace journals a call; the pump's next cycle carries it onto the card.
-    journal.push({ kind: "control.agent.cell-call-started", payload: { flowName: "files.read", input: { path: "README.md" }, at: 250 }, sequence: 2, occurredAt: 250 })
+    journal.push({ kind: "control.agent.cell-call-started", payload: { flowName: "file", input: { path: "README.md" }, at: 250 }, sequence: 2, occurredAt: 250 })
     await waitFor(() => {
       const current = store.collections.cards.get(boxRunCard("run-8"))
       return current?.kind === "run-trace" && (current.payload.events?.length ?? 0) === 2
@@ -2398,7 +2398,7 @@ describe("trace gestures retain their source view", () => {
       graph: { follow: true, node: "gate", tab: "code" },
       events: [
         { kind: "control.agent.turn-opened", payload: { seat: "openai:gpt-5.6-sol", at: 100 }, sequence: 1, occurredAt: 100 },
-        { kind: "control.agent.cell-call-started", payload: { flowName: "files.read", input: { path: "README.md" }, at: 250 }, sequence: 2, occurredAt: 250 }
+        { kind: "control.agent.cell-call-started", payload: { flowName: "file", input: { path: "README.md" }, at: 250 }, sequence: 2, occurredAt: 250 }
       ]
     }
   })

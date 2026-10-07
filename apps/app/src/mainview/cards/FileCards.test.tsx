@@ -165,7 +165,7 @@ describe("file listing bindings", () => {
     const buttons = host.querySelectorAll("button")
     const expected = [
       { name: "files.list", args: `"my docs/examples" ${scope}` },
-      { name: "files.read", args: `"my docs/read me.md" ${scope}` }
+      { name: "file", args: `"my docs/read me.md" ${scope}` }
     ]
     for (const [index, button] of Array.from(buttons).entries()) {
       expect(button.dataset.flow).toBe(expected[index]!.name)

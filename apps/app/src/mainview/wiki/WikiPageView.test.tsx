@@ -75,7 +75,7 @@ describe("wiki page view", () => {
         onRunCommand={(name, args) => { calls.push({ name, ...payloadFor(name, args) }) }} />))
       expect(host.querySelector('[data-testid="wiki-page"]')?.textContent).toContain("The answer is 42.")
       host.querySelector<HTMLAnchorElement>('.wiki-page a')!.click()
-      expect(calls).toEqual([{ name: "files.read", payload: { path: "src/answer.ts", repo: "org/repo", ref, line: 2 } }])
+      expect(calls).toEqual([{ name: "file", payload: { path: "src/answer.ts", repo: "org/repo", ref, line: 2 } }])
       const edit = [...host.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === "Edit")!
       edit.click()
       expect(calls[1]).toEqual({ name: "wiki.card.view", payload: { cardId: card.id, view: "document" } })
@@ -94,7 +94,7 @@ describe("wiki page view", () => {
       expect(host.textContent).toContain("The answer is 42.")
       expect(host.textContent).not.toContain("smithers_generated")
       host.querySelector<HTMLAnchorElement>("a")!.click()
-      expect(calls).toEqual([{ name: "files.read", payload: { path: "src/answer.ts", repo: "org/repo", ref, line: 2 } }])
+      expect(calls).toEqual([{ name: "file", payload: { path: "src/answer.ts", repo: "org/repo", ref, line: 2 } }])
     } finally { flushSync(() => root.unmount()) }
   })
   test("resolves each occurrence through the index's links, never by its own rules", () => {

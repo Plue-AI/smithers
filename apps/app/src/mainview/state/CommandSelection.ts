@@ -150,11 +150,11 @@ export const selectFailureToolResult = (error: unknown): string =>
 /*
  * The commands the standing instructions name. Derived from the text so it
  * cannot drift: a rule that tells the model to "execute auth.prompt" always
- * puts auth.prompt's grammar beside it. Only dotted names count; a bare word
- * like "chat" or "wiki" is prose far more often than it is a command.
+ * puts auth.prompt's grammar beside it. Root names require slash or quoted
+ * command syntax, so ordinary prose does not pin "chat" or "wiki".
  */
 export const pinnedCommandNames = (standing: string, catalog: ReadonlyArray<{ readonly name: string }>): ReadonlyArray<string> =>
-  catalog.filter(({ name }) => name.includes(".") && mentions(standing, name)).map(({ name }) => name)
+  catalog.filter(({ name }) => (name.includes(".") ? mentions(standing, name) : mentions(standing, "/" + name) || mentions(standing, "`" + name + "`"))).map(({ name }) => name)
 
 const NAME_CHAR = /[\w-]/u
 /* A whole-name mention: not inside a longer name before it, and not continued by a name character or a further `.segment`. */

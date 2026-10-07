@@ -123,7 +123,7 @@ export const createRepoTreeSeam = (ctx: SeamContext): RepoTreeSeam => {
         copy.id,
         path,
         isRecord(body) && ("content" in body || "encoding" in body)
-          ? `${path} in ${copy.repoId} is a file; run /files.read ${path} instead`
+          ? `${path} in ${copy.repoId} is a file; run /file ${path} instead`
           : `The backend answered ${label} in ${copy.repoId} with an unreadable payload`
       )
       return

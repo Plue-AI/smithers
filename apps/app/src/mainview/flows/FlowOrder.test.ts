@@ -76,7 +76,6 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "prs.tab",
   "branches",
   "files.list",
-  "files.read",
   "github.mirror-sync",
   "github.mirror.retry-ref",
   "repos.import.retry",

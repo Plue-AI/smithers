@@ -270,7 +270,7 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
    */
   const refreshFileList = async (cardId: string): Promise<void> => {
     const card = formCard(cardId)
-    if (card?.payload.flow !== "files.read") return
+    if (card?.payload.flow !== "file") return
     const repo = card.payload.draft["repo"] ?? card.payload.given["repo"]
     if (typeof repo !== "string") return
     const selection = store.session().activeRepoKey
@@ -354,7 +354,7 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
       : positionalRead(fields, hints, request.args)
     let given = publicFormPayload(fields, read.payload, request.payloadField)
     if (request.via === "agent" && (entry ?? ctx.commands.find(request.name))?.metadata.confirm !== undefined) fields = fields.filter(field => field.kind !== "write-only")
-    if (request.name === "files.read") {
+    if (request.name === "file") {
       /* Keep the selected repository and ask only for what is actually missing. */
       const repo = typeof given["repo"] === "string" ? given["repo"] : fileTargetKey(store)
       given = { ...given, ...(repo === undefined ? {} : { repo }) }

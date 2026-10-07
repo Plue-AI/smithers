@@ -21,7 +21,7 @@ const INSTALL_MEMBERS = {
 /*
  * The repo files seam (FilesSeam.ts) through the real command path: /files.list
  * reads GET /api/repos/{owner}/{repo}/contents[/path] and surfaces the
- * "file-list" card (entries sorted dirs-first, then by name); /files.read reads
+ * "file-list" card (entries sorted dirs-first, then by name); /file reads
  * the same route for a file path and surfaces the "file" card (base64 decoded,
  * capped at 16 KB, binary refused). Failures are honest strings, never throws;
  * a 404 is reported as the not-found it is, because the platform codes a
@@ -69,7 +69,7 @@ interface SeenRequest {
 
 /*
  * The deployed platform's own 404 body for a path an IMPORTED repository does
- * not have (C088: /files.read docs/mvp-unlisted-probe.txt on b416, real
+ * not have (C088: /file docs/mvp-unlisted-probe.txt on b416, real
  * account, while GET /api/repos/{owner}/{name} answered 200). It carries the
  * same `not_found` code as a repository the platform has never seen, which is
  * why no message and no code can name the cause here.
@@ -364,7 +364,7 @@ describe("files seam — files.read", () => {
     controller.maximizeCard(files.id)
     expect(store.session().maximizedCardId).toBe(files.id)
 
-    expect((await controller.commands.run("files.read", "README.md", undefined, files.id)).status).toBe("executed")
+    expect((await controller.commands.run("file", "README.md", undefined, files.id)).status).toBe("executed")
     expect(store.collections.cards.get(files.id)).toMatchObject({
       id: files.id,
       kind: "file",
@@ -388,7 +388,7 @@ describe("files seam — files.read", () => {
     const files = listCard(store, "files-will/flows-/")!
     controller.maximizeCard(files.id)
 
-    expect((await controller.commands.run("files.read", "README.md")).status).toBe("executed")
+    expect((await controller.commands.run("file", "README.md")).status).toBe("executed")
     expect(store.session().maximizedCardId).toBeNull()
     expect(store.collections.cards.get(files.id)).toMatchObject({ kind: "file-list", payload: { path: "" } })
     expect(fileCard(store, "file-will/flows-README.md")?.payload.content).toBe(README_TEXT)
@@ -405,10 +405,10 @@ describe("files seam — files.read", () => {
     const files = listCard(store, "files-will/flows-/")!
     controller.maximizeCard(files.id)
 
-    const stale = controller.commands.run("files.read", "README.md", undefined, files.id)
+    const stale = controller.commands.run("file", "README.md", undefined, files.id)
     await settled()
     expect(store.collections.cards.get(files.id)).toMatchObject({ loading: true })
-    expect((await controller.commands.run("files.read", "plain.txt", undefined, files.id)).status).toBe("executed")
+    expect((await controller.commands.run("file", "plain.txt", undefined, files.id)).status).toBe("executed")
     expect(store.collections.cards.get(files.id)).toMatchObject({ kind: "file", payload: { path: "plain.txt" } })
     release.resolve(undefined)
     await stale
@@ -423,7 +423,7 @@ describe("files seam — files.read", () => {
     const files = listCard(store, "files-will/flows-/")!
     controller.maximizeCard(files.id)
 
-    const outcome = await controller.commands.run("files.read", "missing.txt", undefined, files.id)
+    const outcome = await controller.commands.run("file", "missing.txt", undefined, files.id)
     expect(outcome.status).toBe("failed")
     expect(store.collections.cards.get(files.id)).toMatchObject({
       status: "error",
@@ -438,7 +438,7 @@ describe("files seam — files.read", () => {
   test("reads a base64 file into the file card, UTF-8 decoded, untruncated", async () => {
     const { store, controller, requests } = await freshController()
     await ready(store)
-    const outcome = await controller.commands.run("files.read", "README.md")
+    const outcome = await controller.commands.run("file", "README.md")
     expect(outcome.status).toBe("executed")
     await settled()
 
@@ -456,7 +456,7 @@ describe("files seam — files.read", () => {
   test("a plain (non-base64) wire answer passes through as-is", async () => {
     const { store, controller } = await freshController()
     await ready(store)
-    const outcome = await controller.commands.run("files.read", "plain.txt")
+    const outcome = await controller.commands.run("file", "plain.txt")
     expect(outcome.status).toBe("executed")
     expect(fileCard(store, "file-will/flows-plain.txt")?.payload.content).toBe("hello, plain wire\n")
   })
@@ -464,7 +464,7 @@ describe("files seam — files.read", () => {
   test("a file beyond 16 KB is cut at the cap with truncated: true", async () => {
     const { store, controller } = await freshController()
     await ready(store)
-    const outcome = await controller.commands.run("files.read", "big.txt")
+    const outcome = await controller.commands.run("file", "big.txt")
     expect(outcome.status).toBe("executed")
     const card = fileCard(store, "file-will/flows-big.txt")
     expect(card?.payload.content.length).toBe(16 * 1024)
@@ -479,7 +479,7 @@ describe("files seam — files.read", () => {
   test("binary base64 content (NUL bytes) renders a card that says so, never the bytes", async () => {
     const { store, controller } = await freshController()
     await ready(store)
-    const outcome = await controller.commands.run("files.read", "logo.png")
+    const outcome = await controller.commands.run("file", "logo.png")
     expect(outcome.status).toBe("executed")
     const card = fileCard(store, "file-will/flows-logo.png")
     expect(card?.payload.binary).toBe(true)
@@ -489,7 +489,7 @@ describe("files seam — files.read", () => {
   test("binary plain content (a NUL byte in the string) is stated the same way", async () => {
     const { store, controller } = await freshController()
     await ready(store)
-    const outcome = await controller.commands.run("files.read", "raw.bin")
+    const outcome = await controller.commands.run("file", "raw.bin")
     expect(outcome.status).toBe("executed")
     expect(fileCard(store, "file-will/flows-raw.bin")?.payload.binary).toBe(true)
   })
@@ -503,7 +503,7 @@ describe("files seam — files.read", () => {
   test("base64 bytes mislabelled as utf-8 are still recognised as binary", async () => {
     const { store, controller } = await freshController()
     await ready(store)
-    const outcome = await controller.commands.run("files.read", "mislabelled.bin")
+    const outcome = await controller.commands.run("file", "mislabelled.bin")
     expect(outcome.status).toBe("executed")
     expect(fileCard(store, "file-will/flows-mislabelled.bin")?.payload.binary).toBe(true)
   })
@@ -511,7 +511,7 @@ describe("files seam — files.read", () => {
   test("a long plain-text file is not mistaken for base64", async () => {
     const { store, controller } = await freshController()
     await ready(store)
-    const outcome = await controller.commands.run("files.read", "long.md")
+    const outcome = await controller.commands.run("file", "long.md")
     expect(outcome.status).toBe("executed")
     const card = fileCard(store, "file-will/flows-long.md")
     expect(card?.payload.binary ?? false).toBe(false)
@@ -524,7 +524,7 @@ describe("files seam — files.read", () => {
   ])("utf-8 %s stays text even when it uses only the base64 alphabet", async (path, content) => {
     const { store, controller } = await freshController()
     await ready(store)
-    const outcome = await controller.commands.run("files.read", path)
+    const outcome = await controller.commands.run("file", path)
     expect(outcome.status).toBe("executed")
     const card = fileCard(store, `file-will/flows-${path}`)
     expect(card?.payload.binary ?? false).toBe(false)
@@ -534,7 +534,7 @@ describe("files seam — files.read", () => {
   test("a missing path inside an imported repo answers the platform's path message, not the import hint", async () => {
     const { store, controller } = await freshController()
     await ready(store)
-    const outcome = await controller.commands.run("files.read", "missing.txt")
+    const outcome = await controller.commands.run("file", "missing.txt")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") expect(outcome.error).toBe("Path not found: missing.txt")
   })
@@ -542,7 +542,7 @@ describe("files seam — files.read", () => {
   test("a path the platform does not have is reported as not found, never as a missing import", async () => {
     const { store, controller } = await freshController()
     await ready(store)
-    const outcome = await controller.commands.run("files.read", "docs/mvp-unlisted-probe.txt")
+    const outcome = await controller.commands.run("file", "docs/mvp-unlisted-probe.txt")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
       expect(outcome.error).toBe("Path not found: docs/mvp-unlisted-probe.txt in will/flows")
@@ -553,7 +553,7 @@ describe("files seam — files.read", () => {
   test("an unknown repository's namespace 404 is reported as not found too", async () => {
     const { store, controller } = await freshController()
     await ready(store)
-    const outcome = await controller.commands.run("files.read", "README.md acme/ghost")
+    const outcome = await controller.commands.run("file", "README.md acme/ghost")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
       expect(outcome.error).toBe("Path not found: README.md in acme/ghost")
@@ -568,7 +568,7 @@ describe("files seam — honest failures", () => {
   test("a 500 answers what failed and whose fault it was, never a throw", async () => {
     const { store, controller } = await freshController()
     await ready(store)
-    const outcome = await controller.commands.run("files.read", "boom.txt")
+    const outcome = await controller.commands.run("file", "boom.txt")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
       expect(outcome.error).toBe("Reading boom.txt in will/flows failed (500). That's a bug in Smithers, not something you did.")
@@ -586,7 +586,7 @@ describe("files seam — honest failures", () => {
   test("a network throw answers an honest string naming the path and repo, and whose fault it was", async () => {
     const { store, controller } = await freshController()
     await ready(store)
-    const outcome = await controller.commands.run("files.read", "net.txt")
+    const outcome = await controller.commands.run("file", "net.txt")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
       expect(outcome.error).toBe(
@@ -641,7 +641,7 @@ describe("files seam — the model's copy of a Cloud read", () => {
   test("a Cloud files.read answers the file's text as its value, so the model quotes the file and never invents one", async () => {
     const { controller } = await freshController()
     await ready(controller.store ?? (await createAppStore({ kind: "localStorage", storage: memoryStorage() })))
-    const outcome = await controller.commands.run("files.read", "README.md")
+    const outcome = await controller.commands.run("file", "README.md")
     expect(outcome.status).toBe("executed")
     expect(outcome.status === "executed" ? outcome.value : undefined).toBe(`README.md in will/flows:\n${README_TEXT}`)
   })
@@ -660,7 +660,7 @@ describe("files seam — the line anchor", () => {
   test("a Cloud read anchors the same way, and the model's copy is the file", async () => {
     const { store, controller, requests } = await freshController()
     await ready(store)
-    const outcome = await controller.commands.run("files.read", "README.md:1")
+    const outcome = await controller.commands.run("file", "README.md:1")
     expect(outcome.status).toBe("executed")
     expect(outcome.status === "executed" ? outcome.value : undefined).toBe(`README.md in will/flows:\n${README_TEXT}`)
     expect(requests.map((request) => request.url)).toEqual(["/api/repos/will/flows/contents/README.md"])
@@ -681,7 +681,7 @@ describe("files seam — reading at a revision", () => {
   test("the citation command preserves the revision and line through admission into the embedded file", async () => {
     const { store, controller, requests } = await freshController()
     await ready(store)
-    const result = await controller.commands.run("files.read", `README.md:1 will/flows --ref ${REVISION}`)
+    const result = await controller.commands.run("file", `README.md:1 will/flows --ref ${REVISION}`)
     expect(result.status).toBe("executed")
     expect(requests.map((request) => request.url)).toEqual([`/api/repos/will/flows/contents/README.md?ref=${REVISION}`])
     expect(fileCard(store, `file-will/flows-README.md@${REVISION}`)?.payload).toMatchObject({ ref: REVISION, line: 1, content: README_TEXT })
@@ -712,7 +712,7 @@ describe("files seam — reading at a revision", () => {
     expect(CardSchema.safeParse(card).success).toBe(true)
 
     /* And a plain read of the same path is its own card, at its own address. */
-    await controller.commands.run("files.read", "README.md will/flows")
+    await controller.commands.run("file", "README.md will/flows")
     expect(fileCard(store, "file-will/flows-README.md")?.payload.ref).toBeUndefined()
     expect(fileCard(store, `file-will/flows-README.md@${REVISION}`)?.payload.ref).toBe(REVISION)
   })
@@ -739,7 +739,7 @@ describe("install file cards before Machine ready", () => {
     })
     try {
       await ready(store)
-      const result = await controller.commands.run("files.read", "src/b.ts:5:3")
+      const result = await controller.commands.run("file", "src/b.ts:5:3")
       expect(result.status).toBe("executed")
       const cards = [...store.collections.cards.values()].filter(card => card.kind === "file")
       expect(cards).toHaveLength(1)
@@ -772,7 +772,7 @@ test.each([
   })
   try {
     await ready(store)
-    await controller.commands.run("files.read", "src/b.ts")
+    await controller.commands.run("file", "src/b.ts")
     expect([...store.collections.cards.values()].filter(card => card.kind === "file")).toHaveLength(0)
     expect(requests.filter(url => url.includes("src/b.ts"))).toEqual(["/api/branches/main/files/src/b.ts"])
   } finally { await controller.dispose() }
@@ -793,7 +793,7 @@ test("install history read keeps its immutable revision through the same mirror 
   })
   try {
     await ready(store)
-    expect((await controller.commands.run("files.read", `src/a.ts:3:1 --ref ${commit}`)).status).toBe("executed")
+    expect((await controller.commands.run("file", `src/a.ts:3:1 --ref ${commit}`)).status).toBe("executed")
     const card = [...store.collections.cards.values()].find(card => card.kind === "file")
     expect(card?.payload).toMatchObject({ content: "export const old = 1\n", ref: commit, line: 3, column: 1 })
     expect(urls).toContain(`/api/branches/main/files/src/a.ts?at=${commit}`)

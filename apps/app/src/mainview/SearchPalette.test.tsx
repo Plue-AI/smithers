@@ -202,7 +202,7 @@ describe("§3 the keyboard contract", () => {
       await view.act(() => view.controller.changeDraft(draft))
       await press(view, "Enter")
       expect(invoked(view.store)).toContainEqual({ name: "chat.send", args: draft })
-      expect(invoked(view.store).some(row => row.name.startsWith("search.") || row.name === "files.read")).toBe(false)
+      expect(invoked(view.store).some(row => row.name.startsWith("search.") || row.name === "file")).toBe(false)
     })
   }
 
@@ -249,7 +249,7 @@ describe("§3 the keyboard contract", () => {
     await press(view, "ArrowDown")
     expect(highlighted(view.host)?.dataset["ref"]).toBe("/will/smithers/src/Composer.tsx")
     await press(view, "Enter")
-    expect(invoked(view.store)).toContainEqual({ name: "files.read", args: "src/Composer.tsx will/smithers" })
+    expect(invoked(view.store)).toContainEqual({ name: "file", args: "src/Composer.tsx will/smithers" })
 
     await press(view, "k", { meta: true })
     await view.act(() => view.controller.changeDraft("Compose"))
@@ -267,7 +267,7 @@ describe("§3 the keyboard contract", () => {
     expect(highlighted(view.host)?.dataset["ref"]).toBe("/will/smithers/src/Composer.tsx")
     await press(view, "Enter")
     expect(invoked(view.store)).toContainEqual({ name: "chat.send", args: "Compose" })
-    expect(invoked(view.store).some(row => row.name === "files.read")).toBe(false)
+    expect(invoked(view.store).some(row => row.name === "file")).toBe(false)
   })
 
   test("IME Enter leaves the draft and open overlay alone", async () => {
@@ -414,7 +414,7 @@ describe("§3 the keyboard contract", () => {
     // An unprefixed file suggestion must be deliberately selected before Enter opens it.
     await press(view, "ArrowDown")
     await press(view, "Enter")
-    expect(invoked(view.store)).toContainEqual({ name: "files.read", args: "src/Composer.tsx will/smithers" })
+    expect(invoked(view.store)).toContainEqual({ name: "file", args: "src/Composer.tsx will/smithers" })
     expect(view.store.session().draft).toBe("")
     expect(view.store.session().paletteOpen).toBe(false)
     expect(view.store.session().paletteLastQuery).toBe("Composer.tsx")

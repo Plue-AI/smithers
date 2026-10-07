@@ -389,7 +389,7 @@ describe("repo tree seam: the shared read-only copy reads the mirror's contents 
     expect((await controller.commands.run("repo.tree", `${SHARED}#missing`)).status).toBe("executed")
     expect(store.collections.repoTree.get(repoTreeRowId(SHARED, "missing"))?.error).toBe("smithersai/smithers has no missing")
     expect((await controller.commands.run("repo.tree", `${SHARED}#README.md`)).status).toBe("executed")
-    expect(store.collections.repoTree.get(repoTreeRowId(SHARED, "README.md"))?.error).toBe("README.md in smithersai/smithers is a file; run /files.read README.md instead")
+    expect(store.collections.repoTree.get(repoTreeRowId(SHARED, "README.md"))?.error).toBe("README.md in smithersai/smithers is a file; run /file README.md instead")
     // A failed row collapses like any other; expanding it again is the retry, and it reads once more.
     const before = sharedRequests.length
     expect((await controller.commands.run("repo.tree", `${SHARED}#boom`)).status).toBe("executed")

@@ -84,7 +84,7 @@ export const SMITHERS_INSTRUCTIONS = [
 ].join("\n")
 
 /* The impossible effects the launch asks name verbatim (§F-1..§F-5); this door reads files with files.list and files.read. */
-const NAMED_CANT_YETS = namedCantYets(["files.list", "files.read"])
+const NAMED_CANT_YETS = namedCantYets(["files.list", "file"])
 
 /*
  * Wave 13c — the deterministic honest answer per impossible-ask class, one

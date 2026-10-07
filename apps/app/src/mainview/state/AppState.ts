@@ -1,3 +1,4 @@
+import { parseFileReadArgs } from "@smthrs/rpc/FileRead"
 import { workspaceFlowsArgs } from "../flows/WorkspaceFlowsPayload"
 import { runsArgs } from "../flows/RunsPayload"
 import { githubArgs } from "../flows/GitHubPayload"
@@ -593,13 +594,17 @@ const savedTerminalCommand = (args?: string): string => {
   try { const value: unknown = JSON.parse(args ?? "{}"); if (value && typeof value === "object" && !Array.isArray(value)) payload = value as Record<string, unknown> } catch { /* Invalid old input requires a fresh form. */ }
   return JSON.stringify({ ...payload, operation: "command" })
 }
+const savedFileRead = (args?: string): string => {
+  const parsed = parseFileReadArgs(args)
+  return JSON.stringify({ ...("payload" in parsed ? parsed.payload : {}), operation: "repository" })
+}
 const savedProposal = (args?: string): string => {
   let id: unknown = args?.trim()
   try { const value: unknown = JSON.parse(args ?? "{}"); if (value && typeof value === "object" && !Array.isArray(value)) id = (value as Record<string, unknown>).id } catch { /* The old slash door carried the id as one word. */ }
   return JSON.stringify({ operation: "proposal", ...(typeof id === "string" && id.trim() ? { id } : {}) })
 }
 const currentAction = <T extends { readonly flow: string; readonly args?: string }>(action: T): Omit<T, "flow" | "args"> & { flow: string; args?: string } => ({
-  ...action, flow: currentFlowName(action.flow), ...(action.flow === "proposal" ? { args: savedProposal(action.args) } : action.flow === "terminal.send" ? { args: savedTerminalCommand(action.args) } : action.flow === "flow.list" ? { args: workspaceFlowsArgs(action.args) } : ["approvals.list", "approvals.open", "runs.attention"].includes(action.flow) ? { args: runsArgs(action.flow === "approvals.open" ? "approval-open" : action.flow === "approvals.list" ? "approval-list" : "attention", action.args) } : ["github.retry", "github.app", "github.app.open", "github.app.choose", "github.reconcile"].includes(action.flow) ? { args: githubArgs(action.flow === "github.retry" ? "retry" : action.flow === "github.app.open" ? "app-open" : action.flow === "github.app.choose" ? "app-choose" : action.flow === "github.reconcile" ? "reconcile" : "app-status", action.args) } : action.flow.startsWith("settings.") && currentFlowName(action.flow) === "settings" ? { args: savedSettings(action.flow, action.args) } : ["secrets.set", "secrets.delete", "secrets.scope", "secrets.bind"].includes(action.flow) ? { args: savedSecret(action.flow, action.args) } : action.flow === "context.inspect" ? { args: savedContext(action.args) } : action.flow === "run.view" ? { args: savedRunView(action.args) } : action.flow === "debug.seams" ? { args: "--health" } : ["env.set", "agent.codex", "agent.claude"].includes(action.flow) ? { args: undefined } : action.flow === "docs.read"
+  ...action, flow: currentFlowName(action.flow), ...(action.flow === "files.read" ? { args: savedFileRead(action.args) } : action.flow === "proposal" ? { args: savedProposal(action.args) } : action.flow === "terminal.send" ? { args: savedTerminalCommand(action.args) } : action.flow === "flow.list" ? { args: workspaceFlowsArgs(action.args) } : ["approvals.list", "approvals.open", "runs.attention"].includes(action.flow) ? { args: runsArgs(action.flow === "approvals.open" ? "approval-open" : action.flow === "approvals.list" ? "approval-list" : "attention", action.args) } : ["github.retry", "github.app", "github.app.open", "github.app.choose", "github.reconcile"].includes(action.flow) ? { args: githubArgs(action.flow === "github.retry" ? "retry" : action.flow === "github.app.open" ? "app-open" : action.flow === "github.app.choose" ? "app-choose" : action.flow === "github.reconcile" ? "reconcile" : "app-status", action.args) } : action.flow.startsWith("settings.") && currentFlowName(action.flow) === "settings" ? { args: savedSettings(action.flow, action.args) } : ["secrets.set", "secrets.delete", "secrets.scope", "secrets.bind"].includes(action.flow) ? { args: savedSecret(action.flow, action.args) } : action.flow === "context.inspect" ? { args: savedContext(action.args) } : action.flow === "run.view" ? { args: savedRunView(action.args) } : action.flow === "debug.seams" ? { args: "--health" } : ["env.set", "agent.codex", "agent.claude"].includes(action.flow) ? { args: undefined } : action.flow === "docs.read"
     ? { args: savedDocsRead(action.args) } : {})
 })
 const MessageActionSchema = MessageActionBaseSchema.transform(currentAction)

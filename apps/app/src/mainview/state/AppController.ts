@@ -2475,7 +2475,10 @@ export const createAppController = (
     ...diffFilesSeam,
     // Before branch providers are composed, read from the authenticated mirror.
     // An absent live-branch scope must not disable Source-ready file cards.
-    readFile: installHost && branchFileOptions !== undefined ? (path, branch, anchor, ref) => ref === undefined && filesSeam.branchFiles.available() ? filesSeam.branchFiles.open(path, branch, anchor?.line) : filesSeam.readFile(path, branch, anchor, ref) : filesSeam.readFile,
+    readFile: installHost && branchFileOptions !== undefined ? (path, repo, anchor, ref) =>
+      ref === undefined && repo === undefined && branchFileOptions.scope()?.branch !== "main" && filesSeam.branchFiles.available()
+        ? filesSeam.branchFiles.open(path, undefined, anchor?.line)
+        : filesSeam.readFile(path, repo, anchor, ref) : filesSeam.readFile,
     codeIntelligenceAvailable: () => services.daemonLsp?.ready() === true,
     codeHover,
     codeDefinition,
@@ -2587,6 +2590,7 @@ export const createAppController = (
         firstRunTargetPending: !firstRunTargetSettled && repo === undefined &&
           store.session().activeRepoKey == null && routeEntry == null &&
           (identity === undefined || identity.state === "unknown" || identity.state === "signed-out"),
+        repositorySelected: [...store.collections.repositories.values()].length > 0 || activeRepositoryId(store) !== null || repo !== undefined || store.session().activeRepoKey != null || routeEntry != null || commandEntry !== undefined,
         publicRepo: !catalogRefused && (requestedRepo === undefined
           ? activeCatalogRepositoryId(store) !== null
           : [...store.collections.repositories.values()].some(row => row.catalog === true && row.id.toLowerCase() === requestedRepo.toLowerCase())),

@@ -212,7 +212,7 @@ referenceTest("T-REL-02 outside saves preserve two acknowledged editors and Comp
     expect(await ssh("cat outside-save.txt")).toBe(original)
     for (const page of [ben, alice]) {
       await runSlash(page, `/branch ${branch}`)
-      await runSlash(page, `/files.read ${path}`)
+      await runSlash(page, `/file ${path}`)
       await expect(page.getByRole("textbox", { name: path, exact: true }).last()).toHaveAttribute("aria-readonly", "false")
     }
     const editors = [ben.getByRole("textbox", { name: path, exact: true }).last(), alice.getByRole("textbox", { name: path, exact: true }).last()]

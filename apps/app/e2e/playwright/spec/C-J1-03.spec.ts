@@ -38,7 +38,7 @@ test("C-J1-03: mirrored files render read-only during a held machine build", asy
   })
   await page.goto("/setup")
   await sourceReady(page)
-  await say(page, "/files.read src/mail/expiry.ts")
+  await say(page, "/file src/mail/expiry.ts")
   const editor = page.getByRole("textbox", { name: "src/mail/expiry.ts", exact: true }).last()
   await expect(editor).toContainText("export function sendExpiryEmail() { return 'expiry'; }")
   await expect(editor).toHaveAttribute("aria-readonly", "true")

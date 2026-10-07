@@ -236,7 +236,7 @@ describe("host parity — the web and native catalogs against the servers' own c
     // The either/or reads serve the web through Smithers Cloud, and are present.
     const names = web.commands.all().map((command) => command.name)
     expect(names).toContain("files.list")
-    expect(names).toContain("files.read")
+    expect(names).toContain("file")
   })
 
   test("drift: every capability a flow declares is one the bootstrap schema knows", () => {

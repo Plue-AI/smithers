@@ -7,6 +7,9 @@
  * IssuesSeam, FilesSeam, ChangeSeam, the wiki collections, LandingsSeam.
  */
 import { Schema } from "effect"
+import { payloadFor } from "../SlashPayload"
+import { flowArgs } from "../FlowArgs"
+import { FILES_READ_COMMAND } from "@smthrs/rpc/FileRead"
 import { shellViewsOf } from "../../state/seams/DesignWorld/shell"
 import { flow, type CommandActions, type CommandResult } from "./Declare"
 import type { FlowEntry } from "../registry"
@@ -43,21 +46,24 @@ const json = (payload: Record<string, unknown>) => JSON.stringify(payload)
 
 export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => {
   const design = actions.design
-  const repo = () => design.world().repo.repo
+  const designRepo = () => design.world().repo.repo
   const open = async (card: Parameters<CommandActions["presentSubject"]>[0]): Promise<CommandResult> => ({ value: await actions.presentSubject(card) })
   /* An install's issues are its repository's GitHub issues, through IssuesSeam (GET /api/issues). */
   const install = () => actions.bootstrap?.capabilities.includes("install") === true
   const realFiles = () => install() || actions.branchFiles.available()
+  const repositoryFile = (payload: Readonly<Record<string, unknown>>): boolean => payload.branch === undefined && payload.revision === undefined &&
+    (payload.operation === "repository" || payload.repo !== undefined || payload.ref !== undefined || /^\/[^/]+\/[^/]+(?:\/|$)/.test(String(payload.path ?? "")) ||
+      actions.snapshot().repositorySelected === true || actions.snapshot().firstRunTargetPending === true || actions.snapshot().repositoryReadiness !== undefined || install() || actions.bootstrap?.host === "cloud")
   return [
     flow({ name: "issue",   slash: "/issue", cli: ["issue","show"], journey: ["J2"], group: "Issues", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/issues/{number}"}, summary: "Open an issue's card", args: "#n", discloseToAgent: true,
       grammar: numbered(), agent: "run", input: Schema.Struct({ number: Schema.Number }),
       handler: ({ number }) => {
         if (install()) return actions.viewIssue(number, undefined, "github")
         const issue = design.world().issues.find(each => each.number === number)
-        return issue === undefined ? `No issue #${number}` : open(issueCard(repo(), number, issue.title))
+        return issue === undefined ? `No issue #${number}` : open(issueCard(designRepo(), number, issue.title))
       } }),
     flow({ name: "issues",   slash: "/issues", cli: ["issues"], journey: ["J2"], group: "Issues", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/issues"}, summary: "List the repository's issues", agent: "run", input: Schema.Struct({}),
-      handler: () => install() ? actions.listIssues("open") : open(issueListCard(repo())) }),
+      handler: () => install() ? actions.listIssues("open") : open(issueListCard(designRepo())) }),
     flow({ name: "issue.new",   slash: "/issue.new", cli: ["issue","new"], journey: [], group: "Issues", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/issues"}, summary: "Open a GitHub issue", args: "<title>", discloseToAgent: true,
       grammar: positional("title"), agent: "confirm", input: Schema.Struct({ title: Schema.NonEmptyString, body: Schema.String }),
       form: { submitLabel: "Open on GitHub", fields: { title: { label: "Title" }, body: { label: "Body" } }, args: json },
@@ -66,20 +72,26 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
       grammar: numbered("body"), agent: "confirm", input: Schema.Struct({ number: Schema.Number, body: Schema.NonEmptyString }),
       form: { submitLabel: "Comment", fields: { number: { label: "Issue" }, body: { label: "Comment" } }, args: json },
       handler: ({ number, body }) => commentIssue(design, number, body, design.viewer()) ? { value: `Commented on #${number}` } : `No issue #${number}` }),
-    flow({ name: "file",   slash: "/file", cli: ["file"], journey: ["J3","J9"], group: "Files and code", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Open and co-edit a file", args: "<path>", discloseToAgent: true,
-      grammar: positional("path"), agent: "run", input: Schema.Struct({ path: Schema.String, branch: Schema.optional(Schema.String), line: Schema.optional(Schema.Number), revision: Schema.optional(Schema.String) }),
-      handler: ({ path, branch, line, revision }) => {
+    flow({ name: "file",   slash: "/file", cli: ["file"], journey: ["J3","J9"], group: "Files and code", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Open and co-edit a file", args: FILES_READ_COMMAND.args, discloseToAgent: true,
+      grammar: args => payloadFor("file", args), agent: "run",
+      payloadRequires: payload => repositoryFile(payload) ? ["first-run-target", "repo-source"] : [],
+      form: { fields: { branch: { hidden: true }, revision: { hidden: true }, operation: { hidden: true }, path: { kind: "text" }, repo: { optionsFrom: "cloud-repos", kind: "text" } }, args: payload => flowArgs("file", payload as Parameters<typeof flowArgs<"file">>[1]) },
+      input: Schema.Struct({ path: Schema.String, branch: Schema.optional(Schema.String), line: Schema.optional(Schema.Number), column: Schema.optional(Schema.Number), revision: Schema.optional(Schema.String), repo: Schema.optional(Schema.String), ref: Schema.optional(Schema.String), operation: Schema.optional(Schema.Literal("repository")) }),
+      prepare: ({ path, repo, line, column, ref, branch, revision }) => branch === undefined && revision === undefined ? actions.readFile.preload?.(path, repo, line === undefined ? undefined : { line, ...(column === undefined ? {} : { column }) }, ref) : undefined,
+      handler: ({ path, branch, line, column, revision, repo, ref, operation }) => {
+        if (repositoryFile({ path, branch, revision, operation, repo, ref })) return actions.readFile(path, repo, line === undefined ? undefined : { line, ...(column === undefined ? {} : { column }) }, ref)
+
         if (revision !== undefined) return actions.readFile(path, undefined, line === undefined ? undefined : { line }, revision)
         if (install() && !actions.branchFiles.available()) return actions.readFile(path, undefined, line === undefined ? undefined : { line }, branch)
         if (realFiles()) return actions.branchFiles.open(path, branch, line)
         const world = design.world()
-        if (path === "") return open(fileListCard(repo(), findBranch(world, branch ?? "")?.id ?? "main"))
+        if (path === "") return open(fileListCard(designRepo(), findBranch(world, branch ?? "")?.id ?? "main"))
         const file = findFile(world, path, branch, design.viewer())
-        return file === undefined ? `No file ${path}` : open(fileCard(repo(), file.branch, file.path, line))
+        return file === undefined ? `No file ${path}` : open(fileCard(designRepo(), file.branch, file.path, line))
       } }),
     flow({ name: "files",   slash: "/files", cli: ["files"], journey: ["J3"], group: "Files and code", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Browse a branch's files", args: "[branch]", discloseToAgent: true,
       grammar: positional("branch"), agent: "run", input: Schema.Struct({ branch: Schema.optional(Schema.String) }),
-      handler: ({ branch }) => install() ? actions.listFiles("", branch) : realFiles() ? actions.branchFiles.list(branch) : open(fileListCard(repo(), findBranch(design.world(), branch ?? "")?.id ?? "main")) }),
+      handler: ({ branch }) => install() ? actions.listFiles("", branch) : realFiles() ? actions.branchFiles.list(branch) : open(fileListCard(designRepo(), findBranch(design.world(), branch ?? "")?.id ?? "main")) }),
     flow({ name: "diff",   slash: "/diff", cli: ["diff"], journey: ["J2","J3"], group: "Files and code", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Show a branch's changes", args: "[branch|path]", discloseToAgent: true,
       grammar: positional("subject"),
       agent: "run", input: Schema.Struct({ subject: Schema.optional(Schema.String), branch: Schema.optional(Schema.String), path: Schema.optional(Schema.String), entry: Schema.optional(Schema.String) }),
@@ -88,12 +100,12 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
         const world = design.world()
         const wanted = path ?? subject ?? ""
         const file = wanted === "" ? undefined : findFile(world, wanted, branch, design.viewer())
-        if (file !== undefined) return open(diffCard(repo(), file.id, file.path.split("/").at(-1) ?? file.path))
+        if (file !== undefined) return open(diffCard(designRepo(), file.id, file.path.split("/").at(-1) ?? file.path))
         /* A bare /diff shows the branch this person is on; on main, the first item in review. */
         const here = shellViewsOf(design).get(design.viewer())?.at
         const fallback = here !== undefined && here !== "main" ? findBranch(world, here) ?? findBranch(world, "T8") : findBranch(world, "T8")
         const target = findBranch(world, branch ?? wanted) ?? (wanted === "" && branch === undefined ? fallback : undefined)
-        return target === undefined ? `Nothing to diff for ${wanted}` : open(diffCard(repo(), target.id, target.name))
+        return target === undefined ? `Nothing to diff for ${wanted}` : open(diffCard(designRepo(), target.id, target.name))
       } }),
     flow({ name: "file.restore", agent: "run", actors: ["person","app_agent"], minimumRole: "member", visibility: "in-card", summary: "Restore this file", args: "<path>", hidden: true, discloseToAgent: true,
       grammar: positional("path"), input: Schema.Struct({ path: Schema.String, branch: Schema.optional(Schema.String), revision: Schema.optional(Schema.String), post_digest: Schema.optional(Schema.String) }),
@@ -116,9 +128,9 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
         if (name === "file.follow-rename" && file.gone?.kind === "renamed") {
           const path = file.gone.to ?? file.path
           design.patch("files", file.id, current => ({ ...current, path, gone: undefined }))
-          return open({ ...fileCard(repo(), file.branch, path), id: fileCard(repo(), file.branch, file.path).id })
+          return open({ ...fileCard(designRepo(), file.branch, path), id: fileCard(designRepo(), file.branch, file.path).id })
         }
-        if (name === "file.compare") return open(diffCard(repo(), file.id, file.path))
+        if (name === "file.compare") return open(diffCard(designRepo(), file.id, file.path))
         const result = design.restoreFile(file.id)
         return result.ok ? { value: result.ack } : result.refusal
       }
@@ -136,7 +148,7 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
       grammar: numbered(), agent: "run", input: Schema.Struct({ number: Schema.Number }),
       handler: ({ number }) => {
         const pr = design.world().prs.find(each => each.number === number)
-        return pr === undefined ? `No pull request #${number}` : open(prCard(repo(), number, pr.title))
+        return pr === undefined ? `No pull request #${number}` : open(prCard(designRepo(), number, pr.title))
       } })
   ]
 }

@@ -26,7 +26,7 @@ import { refusalWords,readErrorMessage,readResult,unreachableSentence } from "./
  * Both commands answer a `value` beside the card: the card is what the human
  * sees, the value is what the MODEL reads. 2026-09-01: asked "what does the
  * README say?", the model called files.read, got back only "executed
- * /files.read", and wrote a README that does not exist — the card it had
+ * /file", and wrote a README that does not exist — the card it had
  * just rendered never reaches its context. A read the model cannot read is
  * a confabulation waiting to happen.
  */
@@ -236,7 +236,7 @@ export const createFilesSeam = (ctx: SeamContext, branchOptions?: BranchFileOpti
       if (!Array.isArray(body)) {
         // The contents route answers a record (content/encoding) for a file path.
         if (isRecord(body) && ("content" in body || "encoding" in body)) {
-          return `${normalized} in ${repo} is a file — run /files.read ${normalized} instead`
+          return `${normalized} in ${repo} is a file — run /file ${normalized} instead`
         }
         return `The backend answered ${label} in ${repo} with an unreadable payload`
       }
@@ -257,7 +257,7 @@ export const createFilesSeam = (ctx: SeamContext, branchOptions?: BranchFileOpti
       const target = resolveFileTarget(ctx.store, pathArg, explicitRepoArg)
       if ("error" in target) return target.error
       const { repo, path: normalized } = target
-      if (normalized === "") return "files.read needs a file path"
+      if (normalized === "") return "file needs a file path"
       if (install) {
         const selected = resolveFileTarget(ctx.store, normalized, undefined)
         if ("error" in selected || selected.repo !== repo) return "Repository read authority required."
@@ -356,7 +356,7 @@ export const createFilesSeam = (ctx: SeamContext, branchOptions?: BranchFileOpti
         : { repo: repo ?? branchOptions?.scope()?.branch ?? "main", path: normalizePath(path) }
       : resolveFileTarget(ctx.store, path, repo)
     if ("error" in target) return target.error
-    if (kind === "file" && !target.path) return "files.read needs a file path"
+    if (kind === "file" && !target.path) return "file needs a file path"
     const repoId = target.repo
     const label = target.repo
     const maximized = ctx.store.collections.cards.get(ctx.store.session().maximizedCardId ?? "")

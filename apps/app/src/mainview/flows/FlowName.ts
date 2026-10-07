@@ -20,6 +20,7 @@
  * button still runs; nothing writes these names.
  */
 export const RENAMED_FLOWS: Readonly<Record<string, string>> = {
+  "files.read": "file",
   "proposal": "wiki",
   "terminal.send": "terminal",
   "flow.list": "flows",
@@ -207,7 +208,6 @@ export const FLOW_NAMES = [
   "egress.session",
   "files.list",
   "files.open-diff",
-  "files.read",
   "findings.not-useful",
   "findings.please-fix",
   "flow",

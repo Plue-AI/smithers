@@ -127,7 +127,7 @@ export const WikiPageView = ({ body, links, index, repo, space, focusHeading, on
   const onLinkClick = (href: string, event: { readonly currentTarget: HTMLAnchorElement }) => {
     const source = readWikiSourceHref(href, repo)
     if (source !== undefined && onRunCommand !== undefined) {
-      onRunCommand("files.read", flowArgs("files.read", source))
+      onRunCommand("file", flowArgs("file", source))
       return
     }
     const named = readWikiHref(href)

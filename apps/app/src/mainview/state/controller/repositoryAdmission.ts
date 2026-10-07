@@ -1,3 +1,4 @@
+import { requirementIds } from "../../flows/registry"
 import type { ControllerContext } from "./context"
 import type { RepositoryEntry } from "../AppState"
 import { TOAST_SUPERSEDED, type FailureController } from "./failures"
@@ -10,6 +11,12 @@ export const createRepositoryReadiness = (
   refresh: (repo: string, requestId: string, isCurrent: () => boolean, scope?: "command") => Promise<string | void>
 ) => {
   const pending = () => ctx.store.session().pendingCommand
+  const readsRepository = (request: ReturnType<typeof pending>): boolean => {
+    const entry = request && ctx.commands.find(request.name)
+    if (!entry) return false
+    if (entry.metadata.requires?.includes("repo-source")) return true
+    try { return requirementIds(entry.metadata, JSON.parse(request!.args ?? "{}")).includes("repo-source") } catch { return false }
+  }
   const accountOwner = ctx.accountOwner
   const target = (request: ReturnType<typeof pending>): { entry: RepositoryEntry; scope?: "command" } | undefined => {
     if (request?.requirement !== "repository-ready") return
@@ -38,7 +45,7 @@ export const createRepositoryReadiness = (
     const bound = target(request)
     if (bound?.scope !== "command" || bound.entry.phase !== "pending" || resolving.has(bound.entry.requestId) ||
       persisting.has(JSON.stringify([request?.name, request?.args])) ||
-      !request || !ctx.commands.find(request.name)?.metadata.requires?.includes("repo-source")) return
+      !request || !readsRepository(request)) return
     const { requestId, repo } = bound.entry
     const owner = accountOwner()
     const epoch = ctx.accountEpoch
@@ -74,7 +81,7 @@ export const createRepositoryReadiness = (
       await Promise.resolve()
       await persisting.get(JSON.stringify([request.name, request.args]))
       if (!owns()) return TOAST_SUPERSEDED
-      if (!ctx.commands.find(request.name)?.metadata.requires?.includes("repo-source")) return "The saved repository command is unavailable."
+      if (!readsRepository(request)) return "The saved repository command is unavailable."
       let payload: Record<string, unknown>
       try { payload = JSON.parse(request.args ?? "") } catch { return "The saved repository request could not be read. Run the command again." }
       if (typeof payload?.repo !== "string") return "The saved repository request has no target. Run the command again."

@@ -386,7 +386,7 @@ describe("durable command intent at the active shared door", () => {
     const controller = controllerFor(observed, { fetchImpl: async () => {
       reads++; started.resolve(); return Response.json([])
     } })
-    controller.renderFlowForm({ name: "files.read", args: "README.md will/smithers", via: "user",
+    controller.renderFlowForm({ name: "file", args: "README.md will/smithers", via: "user",
       input: Schema.Struct({ path: Schema.String, repo: Schema.optional(Schema.String) }),
       hints: { fields: { path: { optionsFrom: "files" } } } })
     expect(reads).toBe(0)

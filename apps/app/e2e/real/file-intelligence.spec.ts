@@ -8,7 +8,7 @@ import { awaitBoot, command, expect, realApi } from "./support/test"
 // a real GitHub repository or starts a language server on the test host.
 test("File card keyboard intelligence on the branch machine", scenario("file.intelligence", {
   capabilities: ["install", "cloud.terminal"],
-  coverage: ["action:files.read", "action:code.hover", "action:code.definition", "action:code.diagnostics", "dimension:keyboard", "path:success", "evidence:branch-file-http-readback", "door:slash", "host:local"]
+  coverage: ["action:file", "action:code.hover", "action:code.definition", "action:code.diagnostics", "dimension:keyboard", "path:success", "evidence:branch-file-http-readback", "door:slash", "host:local"]
 }), async ({ page, request }, info) => {
   await page.goto("/")
   await awaitBoot(page)
@@ -17,7 +17,7 @@ test("File card keyboard intelligence on the branch machine", scenario("file.int
     socket.on("framesent", frame => frames.push(String(frame.payload)))
   })
   await command(page, "/branch T1")
-  await command(page, "/files.read src/b.ts:5:1 --ref T1")
+  await command(page, "/file src/b.ts:5:1 --ref T1")
   const editor = page.getByRole("textbox", { name: "src/b.ts", exact: true }).last()
   await expect(editor).toContainText('add(1, "2")')
   await expect(editor).toHaveAttribute("aria-readonly", "true")
@@ -32,7 +32,7 @@ test("File card keyboard intelligence on the branch machine", scenario("file.int
   await expect(definition).toBeVisible()
   await expect(definition.locator("xpath=ancestor::*[@data-line][1]")).toHaveAttribute("data-line", "3")
   await expect(definition.locator(".cm-line").nth(2)).toContainText("export function add(x: number, y: number): number")
-  await command(page, "/files.read src/b.ts:5:1 --ref T1")
+  await command(page, "/file src/b.ts:5:1 --ref T1")
   await command(page, "/code.diagnostics src/b.ts")
   await expect(editor.locator(".cm-lintRange-error")).toHaveCount(1)
   await editor.focus()

@@ -219,7 +219,7 @@ describe("the palette's rows (the button door) come from what the store holds", 
     card(store, { id: "file-1", kind: "file", title: "f", payload: { repo: "smithers", path: "src/index.ts", content: "x", truncated: false } })
     await settled()
     const answer = controller.searchPalette(":120:8")
-    expect(answer.groups[0]?.items[0]?.item.actions[0]).toEqual({ flow: "files.read", args: "src/index.ts:120:8 smithers", label: "Read a file from a repository", role: "open" })
+    expect(answer.groups[0]?.items[0]?.item.actions[0]).toEqual({ flow: "file", args: "src/index.ts:120:8 smithers", label: "Read a file from a repository", role: "open" })
   })
 
   test("unindexed prefixes remain ordinary queries", async () => {
@@ -425,7 +425,7 @@ test("saved local file cards cannot advertise a retired file route", async () =>
     const items=controller.searchPalette("README").groups.flatMap(group=>group.items.map(row=>row.item)).filter(item=>item.kind==="file")
     expect(items).toEqual([])
     expect(controller.searchPalette(":120").groups).toEqual([])
-    expect(items.every(item=>item.actions.length===1&&item.actions[0]?.flow==="files.read")).toBe(true)
+    expect(items.every(item=>item.actions.length===1&&item.actions[0]?.flow==="file")).toBe(true)
   } finally {await controller.dispose?.();await store.dispose?.()}
 })
 

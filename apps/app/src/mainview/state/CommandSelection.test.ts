@@ -135,23 +135,24 @@ describe("commandSelectRequest", () => {
 describe("pinnedCommandNames", () => {
   const catalog = [
     { name: "auth.prompt" }, { name: "debug.errors" }, { name: "chat" }, { name: "wiki" },
-    { name: "theme" }, { name: "files.read" }, { name: "auth" }
+    { name: "theme" }, { name: "file" }, { name: "auth" }
   ]
 
-  test("the real standing instructions pin the commands they name, and only dotted names", () => {
+  test("standing instructions pin dotted commands without treating root words as commands", () => {
     const pinned = pinnedCommandNames(STANDING_INSTRUCTION_TEXT, catalog)
     expect(pinned).toContain("auth.prompt")
     expect(pinned).toContain("debug.errors")
-    expect(pinned).toContain("files.read")
+    expect(pinned).not.toContain("file")
     expect(pinned).not.toContain("chat")
     expect(pinned).not.toContain("wiki")
     expect(pinned).not.toContain("auth")
     expect(pinned).not.toContain("theme")
+    expect(pinnedCommandNames("Read the file, then execute `/file`", catalog)).toEqual(["file"])
   })
 
   test("a name matches whole: a prefix or a longer dotted name is not a mention", () => {
     expect(pinnedCommandNames("execute files.read.all and auth.prompts", catalog)).toEqual([])
-    expect(pinnedCommandNames("run /files.read, then auth.prompt.", catalog)).toEqual(["auth.prompt", "files.read"])
+    expect(pinnedCommandNames("run /file, then auth.prompt.", catalog)).toEqual(["auth.prompt", "file"])
   })
 })
 

@@ -114,12 +114,12 @@ test("the install projection shows instructions and source; only the owner gets 
  expect(owner.querySelector('[data-testid="agent-source-reviewer"]')?.textContent).toBe("owner")
  click(owner, '[data-testid="agent-model-reviewer"]')
  expect(recorded.calls[0]).toEqual(["model.assign", '{"role":"reviewer"}'])
- click(owner, '[data-flow="files.read"]')
- expect(recorded.calls[1]?.[0]).toBe("files.read")
+ click(owner, '[data-flow="file"]')
+ expect(recorded.calls[1]?.[0]).toBe("file")
  expect(recorded.calls[1]?.[1]).toContain("flows/todo/flow.ts")
  const member = mount(<AgentsCardBody card={agentsCard({ native: false, canAssign: false, agents: [agent] })} onRunCommand={recorded.onRunCommand} />)
  expect(member.querySelector('[data-flow="model.assign"]')).toBeNull()
- expect(member.querySelector('[data-flow="files.read"]')).not.toBeNull()
+ expect(member.querySelector('[data-flow="file"]')).not.toBeNull()
 })
 
 test("opening one agent filters the shared card to that role", () => {

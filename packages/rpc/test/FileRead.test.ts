@@ -9,11 +9,11 @@ import {
   parseFileReadArgs
 } from "../src/FileRead.ts"
 
-describe("the files.read flow every host binds", () => {
+describe("the file flow every host binds", () => {
   test("is named and described once", () => {
     expect(FILES_READ_COMMAND).toEqual({
-      name: "files.read",
-      summary: "Read a file from a repository",
+      name: "file",
+      summary: "Open and co-edit a file",
       args: "<path>[:<line>[:<col>]] [owner/repo] [--ref <revision>]",
       agent: "run"
     })
@@ -55,13 +55,13 @@ describe("the files.read flow every host binds", () => {
     expect(parseFileReadArgs("a:b:3")).toEqual({ payload: { path: "a:b", line: 3 } })
     for (
       const [args, error] of [
-        [undefined, "files.read needs a file path"],
-        [":3", "files.read needs a file path"],
-        ["a b c", "files.read takes a path and optionally an owner/repo"],
-        ["a --ref", "files.read --ref needs a revision"],
-        ["a --ref x b", "files.read --ref needs a revision"],
-        ["a:0", "files.read lines and columns count from 1: /files.read <path>[:<line>[:<col>]]"],
-        ["a:1:0", "files.read lines and columns count from 1: /files.read <path>[:<line>[:<col>]]"],
+        [undefined, "file needs a file path"],
+        [":3", "file needs a file path"],
+        ["a b c", "file takes a path and optionally an owner/repo"],
+        ["a --ref", "file --ref needs a revision"],
+        ["a --ref x b", "file --ref needs a revision"],
+        ["a:0", "file lines and columns count from 1: /file <path>[:<line>[:<col>]]"],
+        ["a:1:0", "file lines and columns count from 1: /file <path>[:<line>[:<col>]]"],
         ["\"open", "Close the quoted file argument before the next argument."]
       ] as const
     ) {

@@ -229,10 +229,10 @@ describe("the files.read line anchor", () => {
   })
 
   test("zero is refused by name: lines and columns are 1-based", () => {
-    const error = "files.read lines and columns count from 1: /files.read <path>[:<line>[:<col>]]"
+    const error = "file lines and columns count from 1: /file <path>[:<line>[:<col>]]"
     expect(payloadFor("files.read", "src/x.ts:0")).toEqual({ error })
     expect(payloadFor("files.read", "src/x.ts:3:0")).toEqual({ error })
-    expect(payloadFor("files.read", ":12")).toEqual({ error: "files.read needs a file path" })
+    expect(payloadFor("files.read", ":12")).toEqual({ error: "file needs a file path" })
   })
 
   test("files.list keeps a path exactly as typed", () => {

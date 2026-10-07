@@ -350,7 +350,7 @@ export const rankItems = <T extends SearchFact>(items: ReadonlyArray<T>, query: 
  * panel names only registered flows, run through the one registry.
  */
 export const OPEN_FLOWS: Readonly<Record<SearchItemKind, ReadonlyArray<string>>> = {
-  file: ["files.read"],
+  file: ["file"],
   flow: [],
   target: [],
   wiki: ["wiki.open", "wiki.select"],

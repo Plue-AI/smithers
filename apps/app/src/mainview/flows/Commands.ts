@@ -47,6 +47,7 @@ import {
   slashItems,
   slashTree,
   unmetRequirements,
+  requirementIds,
   visible
 } from "./registry"
 import type { Parsed } from "./SlashPayload"
@@ -669,7 +670,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
         extra
       )
     const repo = "payload" in parsed && typeof parsed.payload.repo === "string" ? parsed.payload.repo : undefined
-    const readsRepository = target.metadata.requires?.includes("repo-source") === true
+    const readsRepository = requirementIds(target.metadata, "payload" in parsed ? parsed.payload : {}).includes("repo-source")
     const sourcePath = readsRepository
       ? "payload" in parsed && typeof parsed.payload.path === "string" ? parsed.payload.path : ""
       : undefined
@@ -690,7 +691,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       if (canPublish()) trace(invoker, name, args, startedAt, "deferred", "waits on repository catalog")
       return { status: "executed", value: "Requested" }
     }
-    const unmet = unmetRequirements(target.metadata, snapshot, flowRequirements)[0]
+    const unmet = unmetRequirements(target.metadata, snapshot, flowRequirements, "payload" in parsed ? parsed.payload : {})[0]
     if (unmet !== undefined) {
       if (invoker === "agent") {
         /*
@@ -835,7 +836,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     // Speculation resolves the same target the run will: an explicit repository
     // is never authorized by the selection behind it.
     const repo = typeof parsed.payload.repo === "string" ? parsed.payload.repo : undefined
-    if (unmetRequirements(entry.metadata, actions.snapshot(repo)).length) return
+    if (unmetRequirements(entry.metadata, actions.snapshot(repo), flowRequirements, parsed.payload).length) return
     try { await Promise.all([preloadViewModule(nameOf(entry), parsed.payload), entry.prepare?.(parsed.payload)]) } catch { /* Speculation must never interrupt the user. */ }
   }
 

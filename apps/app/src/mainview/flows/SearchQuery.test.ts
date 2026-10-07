@@ -144,7 +144,7 @@ describe("§2 ranking on a fixture", () => {
 describe("§2 actions: every action is a registered flow whose input the ref fills", () => {
   test("a file opens with files.read and keeps unvalidated code reads dark", () => {
     const actions = actionsFor({ kind: "file", ref: "src/index.ts", title: "src/index.ts" }, entries)
-    expect(actions[0]).toEqual({ flow: "files.read", args: "src/index.ts", label: "Read a file from a repository", role: "open" })
+    expect(actions[0]).toEqual({ flow: "file", args: "src/index.ts", label: "Open and co-edit a file", role: "open" })
     const names = actions.map((action) => action.flow)
     for (const name of ["code.hover", "code.definition", "code.diagnostics"]) {
       expect(entries.find(entry => nameOf(entry) === name)?.metadata.visibility).toBe("hidden")
@@ -184,12 +184,12 @@ describe("§2 actions: every action is a registered flow whose input the ref fil
     expect(run.some((action) => action.args?.includes("--delete"))).toBe(false)
     // A value the flow's own builder quotes still gets its button.
     const file = actionsFor({ kind: "file", ref: "src/my --file.ts", title: "src/my --file.ts" }, entries)
-    expect(file[0]).toMatchObject({ flow: "files.read", args: '"src/my --file.ts"' })
+    expect(file[0]).toMatchObject({ flow: "file", args: '"src/my --file.ts"' })
   })
 
   test("a flow item's one action is the flow itself; a secret name opens the secrets list and nothing more", () => {
-    expect(actionsFor({ kind: "flow", ref: "flow.list", title: "flow.list" }, entries)).toEqual([
-      { flow: "flow.list", label: "List the flows on your workspace", role: "open" }
+    expect(actionsFor({ kind: "flow", ref: "flows", title: "flows" }, entries)).toEqual([
+      { flow: "flows", label: "List the repository's flows", role: "open" }
     ])
     expect(actionsFor({ kind: "secret-name", ref: "NPM_TOKEN", title: "NPM_TOKEN" }, entries).map((action) => action.flow)).toEqual(["secrets"])
   })

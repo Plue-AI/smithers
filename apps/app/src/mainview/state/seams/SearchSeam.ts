@@ -139,9 +139,9 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
 
   /** Files the app has listed: the sidebar's loaded directories and the file and listing cards. Box files open in the box. */
   const fileItems = (): ReadonlyArray<Fact> => {
-    const read = (flow: "files.read" | "box.file", path: string, target: string): SearchAction => ({
+    const read = (flow: "file" | "box.file", path: string, target: string): SearchAction => ({
       flow, args: fileArgs(path, target), role: "open",
-      label: flow === "files.read" ? "Read a file from a repository" : "Read one file out of a cloud workspace"
+      label: flow === "file" ? "Read a file from a repository" : "Read one file out of a cloud workspace"
     })
     const seen = new Map<string, Fact>()
     const add = (kind: "shared" | "workspace", target: string, path: string, subtitle: string): void => {
@@ -150,7 +150,7 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
       if (seen.has(ref)) return
       // Identity and execution retain the observed repository or explicit working copy.
       seen.set(ref, { kind: "file", ref, title: relative, subtitle,
-        actions: [read(kind === "workspace" ? "box.file" : "files.read", relative, target)] })
+        actions: [read(kind === "workspace" ? "box.file" : "file", relative, target)] })
     }
     const copies = ctx.store.collections.workingCopies
     for (const row of ctx.store.collections.repoTree.values()) {
@@ -278,7 +278,7 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
       ref: path,
       title: `${path}:${at}`,
       subtitle: file.payload.repo,
-      actions: [{ flow: "files.read", args: fileArgs(`${file.payload.path}:${at}`, file.payload.repo), label: "Read a file from a repository", role: "open" }]
+      actions: [{ flow: "file", args: fileArgs(`${file.payload.path}:${at}`, file.payload.repo), label: "Read a file from a repository", role: "open" }]
     }]
   }
 

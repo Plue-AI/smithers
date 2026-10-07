@@ -70,7 +70,7 @@ const fixture = async () => {
     baseUrl: server.url.origin,
     bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["cloud", "identity"], authFlow: "redirect", sandbox: null }
   })
-  const form = controller.renderFlowForm({ name: "files.read", args: undefined, via: "user" })!
+  const form = controller.renderFlowForm({ name: "file", args: undefined, via: "user" })!
   await store.settled?.()
   expect(form).toBeDefined()
   expect((await controller.commands.run("form.set", `${form.cardId} path README.md`)).status).toBe("executed")
@@ -247,7 +247,7 @@ describe("durable form presentation ordering (#3312)", () => {
         if (path === "sign-in prerequisite") await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
         t.controller.maximizeCard("other-card")
         await t.store.settled?.()
-        const name = path === "missing input" ? "files.read" : "flows"
+        const name = path === "missing input" ? "file" : "flows"
         let released = 0
         let observed: CommandGesture | undefined
         if (path === "sign-in prerequisite") {
@@ -280,7 +280,7 @@ describe("durable form presentation ordering (#3312)", () => {
 
   test("the original inner form preserves browser/write-only closures without releasing them twice", async () => {
     const t = await fixture()
-    const binding = t.controller.commands.find("files.read")!.binding
+    const binding = t.controller.commands.find("file")!.binding
     const run = binding.run
     let observed: CommandGesture | undefined
     const spy = spyOn(binding, "run").mockImplementation(call => Effect.gen(function*() {
@@ -294,7 +294,7 @@ describe("durable form presentation ordering (#3312)", () => {
       expect((await t.controller.commands.submit({ name: "form.submit", payload: { cardId: t.formId }, actor: "user", gesture })).status).toBe("executed")
       await t.store.settled?.()
       resultCommitted(t)
-      expect(observed?.name).toBe("files.read")
+      expect(observed?.name).toBe("file")
       expect(observed?.presentationCurrent).toBeFunction()
       expect(observed?.openExternal).toBe(gesture.openExternal)
       expect(observed?.hasWriteOnly).toBe(gesture.hasWriteOnly)

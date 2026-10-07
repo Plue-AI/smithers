@@ -4,9 +4,8 @@
  * the aggregator order.
  */
 import { Schema } from "effect"
-import { fileArgs, FILES_READ_COMMAND } from "@smthrs/rpc/FileRead"
+import { fileArgs } from "@smthrs/rpc/FileRead"
 import { FILES_LIST_COMMAND } from "@smthrs/rpc/FileList"
-import { flowArgs } from "../FlowArgs"
 import { text } from "@smthrs/ui/flow-form"
 import { flow } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
@@ -46,38 +45,4 @@ export const filesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
     prepare: ({ path, repo }) => actions.listFiles.preload?.(path, repo),
     handler: ({ path, repo }) => actions.listFiles(path, repo)
   }),
-  flow({
-    name: "files.read",
-    form: {
-      /*
-       * The path is TEXT: an inventory lists part of a tree, so the field takes
-       * any path the human types and offers what was read as suggestions
-       * (controller/forms.ts attaches `optionsFrom: "files"`). A select would
-       * refuse every value that is not already an option, including each
-       * keystroke on the way to one.
-       */
-      fields: { path: { kind: "text" }, repo: { optionsFrom: "cloud-repos", kind: "text" } },
-      args: (payload) => flowArgs("files.read", {
-        path: text(payload, "path") ?? "", repo: text(payload, "repo"), ref: text(payload, "ref"),
-        ...(payload.line === undefined ? {} : { line: Number(payload.line) }),
-        ...(payload.column === undefined ? {} : { column: Number(payload.column) })
-      })
-    },
-    /* The model host binds its read of the mirrored main to the same catalog entry and grammar (@smthrs/rpc/FileRead). */
-    summary: FILES_READ_COMMAND.summary,
-    runtimeAny: ["install", "cloud"],
-    /* `:line[:col]` (docs/code-intel/PLAN.md §1): the card scrolls to and marks the line; the parser strips it off the path token. */
-    args: FILES_READ_COMMAND.args,
-    requires: ["first-run-target", "repo-source"],
-    input: Schema.Struct({
-      path: Schema.String,
-      repo: Schema.optional(Schema.String),
-      line: Schema.optional(Schema.Number),
-      column: Schema.optional(Schema.Number),
-      ref: Schema.optional(Schema.String)
-    }),
-    prepare: ({ path, repo, line, column, ref }) => actions.readFile.preload?.(path, repo, line === undefined ? undefined : { line, ...(column === undefined ? {} : { column }) }, ref),
-    handler: ({ path, repo, line, column, ref }) =>
-      actions.readFile(path, repo, line === undefined ? undefined : { line, ...(column === undefined ? {} : { column }) }, ref)
-  })
 ]

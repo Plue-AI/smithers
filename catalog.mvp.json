@@ -4181,10 +4181,65 @@
                 }
               ]
             },
+            "column": {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "revision": {
               "anyOf": [
                 {
                   "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "repo": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "ref": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "operation": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "repository"
+                  ]
                 },
                 {
                   "type": "null"
@@ -4549,103 +4604,6 @@
           },
           "required": [
             "cardId",
-            "path"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "files.read",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "run",
-      "summary": "Read a file from a repository",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "path": {
-              "type": "string"
-            },
-            "repo": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "line": {
-              "anyOf": [
-                {
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "string",
-                      "enum": [
-                        "Infinity",
-                        "-Infinity",
-                        "NaN"
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "column": {
-              "anyOf": [
-                {
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "string",
-                      "enum": [
-                        "Infinity",
-                        "-Infinity",
-                        "NaN"
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "ref": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "required": [
             "path"
           ],
           "additionalProperties": true

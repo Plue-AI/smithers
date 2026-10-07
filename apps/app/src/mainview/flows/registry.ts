@@ -248,13 +248,18 @@ export const flowRequirements: ReadonlyArray<FlowRequirement> = [
   ...repo.requirements
 ]
 
+/** Resolve prerequisites once the operation's grammar has supplied its payload. */
+export const requirementIds = (metadata: FlowMetadata, payload: Readonly<Record<string, unknown>> = {}): ReadonlyArray<string> =>
+  [...new Set([...(metadata.requires ?? []), ...(metadata.payloadRequires?.(payload) ?? [])])]
+
 /** The flow's unmet requirements for a state, in declaration order. */
 export const unmetRequirements = (
   metadata: FlowMetadata,
   state: CommandState,
-  table: ReadonlyArray<FlowRequirement> = flowRequirements
+  table: ReadonlyArray<FlowRequirement> = flowRequirements,
+  payload: Readonly<Record<string, unknown>> = {}
 ): Array<FlowRequirement> =>
-  (metadata.requires ?? []).flatMap((id) => {
+  requirementIds(metadata, payload).flatMap((id) => {
     const requirement = table.find((candidate) => candidate.id === id)
     return requirement === undefined || requirement.satisfied(state) ? [] : [requirement]
   })
@@ -279,6 +284,8 @@ export interface CommandState {
   readonly hostSpendsOwnKey?: boolean
   /** The selected repository came from the public catalog: readable signed out. */
   readonly publicRepo?: boolean
+  /** A repository source has been selected; authorization still uses the payload target. */
+  readonly repositorySelected?: boolean
   /** First run has not finished choosing the starting repository: a bare repository command waits, it does not ask. */
   readonly firstRunTargetPending?: boolean
   /** A named repository still needs a catalog answer before authorization. */

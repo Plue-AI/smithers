@@ -57,6 +57,8 @@ export interface OperationMetadata<Capability extends string = string, Host exte
    * ends.
    */
   readonly requires?: ReadonlyArray<string>
+  /** Extra prerequisites for a payload variant of this same operation. */
+  readonly payloadRequires?: (payload: Readonly<Record<string, unknown>>) => ReadonlyArray<string>
   /** Host services this operation needs; a host without them does not register it. */
   readonly runtime?: ReadonlyArray<Capability>
   /**

@@ -14,7 +14,7 @@ export interface FlowInput {
   readonly "todo.drop": { readonly n: number }
   readonly "branch.bring-in": { readonly branch: string; readonly id: string; readonly revision: string }
   readonly "branch.discard-foreign": { readonly branch: string; readonly id: string; readonly revision: string }
-  readonly "file": { readonly path: string; readonly branch?: string; readonly line?: number; readonly revision?: string }
+  readonly "file": { readonly path: string; readonly branch?: string; readonly line?: number; readonly revision?: string; readonly column?: number; readonly repo?: string; readonly ref?: string; readonly operation?: "repository" }
 
  readonly "model.assign": { readonly role: string; readonly model?: string }
   readonly "run.inspect": { readonly id?: string; readonly branch?: string; readonly answer?: string }
@@ -26,7 +26,6 @@ export interface FlowInput {
   readonly "file.restore-deleted": { readonly path: string }
   readonly "file.follow-rename": { readonly path: string }
   readonly "file.reapply": { readonly path: string }
-  readonly "files.read": { readonly path: string; readonly repo?: string; readonly line?: number; readonly column?: number; readonly ref?: string }
   readonly "github.mirror.retry-ref": { readonly ref: string; readonly repo?: string }
   readonly "runs.trace.view": { readonly runId: string; readonly sourceCard?: string; readonly view: "turns" | "timeline" | "graph" | "steps" | "devtools"; readonly state?: { readonly selected?: string; readonly at?: number; readonly tab?: string } }
   readonly "runs.trace.filter": { readonly runId: string; readonly filter: string }
@@ -183,7 +182,11 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "branch.discard-foreign": payload => JSON.stringify(payload),
   "todo.drop": payload => JSON.stringify(payload),
   "wiki.save": payload => JSON.stringify(payload),
-  "file": payload => JSON.stringify(payload),
+  "file": (payload) => payload.branch !== undefined || payload.revision !== undefined || payload.operation !== undefined ? JSON.stringify(payload) : fileArgs(
+    [payload.path, payload.line, payload.column].filter((value) => value !== undefined).join(":"),
+    payload.repo as string | undefined,
+    ...(payload.ref === undefined ? [] : ["--ref", String(payload.ref)])
+  ),
   "model.assign": payload => JSON.stringify(payload),
   "flow.new": payload => JSON.stringify(payload),
   "runs.trace.view": payload => payload.state !== undefined || payload.sourceCard !== undefined ? JSON.stringify(payload) : line(token(payload, "runId"), token(payload, "view")),
@@ -246,11 +249,6 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "file.restore-deleted": payload => JSON.stringify(payload),
   "file.follow-rename": payload => JSON.stringify(payload),
   "file.reapply": payload => JSON.stringify(payload),
-  "files.read": (payload) => fileArgs(
-    [payload.path, payload.line, payload.column].filter((value) => value !== undefined).join(":"),
-    payload.repo as string | undefined,
-    ...(payload.ref === undefined ? [] : ["--ref", String(payload.ref)])
-  ),
   "issues.view": (payload) => line(token(payload, "number"), token(payload, "repo"), payload.source ? `--source ${payload.source}` : undefined),
   "prs.view": (payload) => line(token(payload, "number"), token(payload, "repo")),
   "prs.tab": (payload) => line(token(payload, "cardId"), token(payload, "tab")),

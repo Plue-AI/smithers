@@ -57,7 +57,7 @@ const fixture = (read: (path: string) => string | { readonly value: string } = (
         ? { ...candidate, options: paths.map((path) => ({ value: path, label: path })) }
         : candidate) } })
   }
-  const ask = (name: "files.read" | "files.list") => forms.renderFlowForm({ name, args: undefined, via: "user" })!
+  const ask = (name: "file" | "files.list") => forms.renderFlowForm({ name, args: undefined, via: "user" })!
   return { forms, reads, card, field, inventoryArrives, ask }
 }
 
@@ -72,10 +72,10 @@ describe("the path a file flow asks for", () => {
       begin()
       return held
     })
-    const { cardId } = app.ask("files.read")
+    const { cardId } = app.ask("file")
     await started
     await app.forms.setFormField(cardId, "path", "REA")
-    if (reopen) app.ask("files.read")
+    if (reopen) app.ask("file")
     release(Response.json([{ name: "README.md", path: "README.md", type: "file" }]))
     await settled()
     expect(app.field(cardId, "path").options ?? []).toEqual(reopen ? [] : [{ value: "README.md", label: "README.md" }])
@@ -85,7 +85,7 @@ describe("the path a file flow asks for", () => {
 
   test("files.read asks for it as a text field that carries the inventory as suggestions", () => {
     const app = fixture()
-    const rendered = app.ask("files.read")
+    const rendered = app.ask("file")
     expect(rendered.missing).toEqual(["path"])
     const path = app.field(rendered.cardId, "path")
     expect(path.kind).toBe("text")
@@ -94,7 +94,7 @@ describe("the path a file flow asks for", () => {
 
   test("a path typed before the inventory arrives keeps growing after it lands, and submits exactly what was typed", async () => {
     const app = fixture()
-    const { cardId } = app.ask("files.read")
+    const { cardId } = app.ask("file")
     await app.forms.setFormField(cardId, "path", "REA")
     expect(app.card(cardId).payload.draft["path"]).toBe("REA")
     app.inventoryArrives(cardId, ["README.md", "src/index.ts"])
@@ -111,7 +111,7 @@ describe("the path a file flow asks for", () => {
 
   test("clearing the typed path leaves the same text field, with the inventory still offered", async () => {
     const app = fixture()
-    const { cardId } = app.ask("files.read")
+    const { cardId } = app.ask("file")
     await app.forms.setFormField(cardId, "path", "REA")
     app.inventoryArrives(cardId, ["README.md", "src/index.ts"])
     await app.forms.setFormField(cardId, "path", "")
@@ -123,7 +123,7 @@ describe("the path a file flow asks for", () => {
 
   test("a path another suggestion extends submits as typed, never as the longer suggestion", async () => {
     const app = fixture()
-    const { cardId } = app.ask("files.read")
+    const { cardId } = app.ask("file")
     app.inventoryArrives(cardId, ["src/index.ts", "src/index.ts.map"])
     for (const typed of ["src", "src/", "src/index", "src/index.ts"]) {
       await app.forms.setFormField(cardId, "path", typed)
@@ -135,7 +135,7 @@ describe("the path a file flow asks for", () => {
 
   test("a path the inventory does not carry is submitted as typed, and the flow's own refusal is what the card shows", async () => {
     const app = fixture((path) => `Path not found: ${path} in ${REPO}`)
-    const { cardId } = app.ask("files.read")
+    const { cardId } = app.ask("file")
     app.inventoryArrives(cardId, ["README.md"])
     await app.forms.setFormField(cardId, "path", "docs/UNLISTED.md")
     expect(app.card(cardId).payload.draft["path"]).toBe("docs/UNLISTED.md")

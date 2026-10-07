@@ -1,5 +1,5 @@
 /**
- * The `files.read` flow shared by every host that runs it: its catalog entry,
+ * The `file` flow shared by every host that runs it: its catalog entry,
  * its argument grammar, and its answer, the File card and the model's copy of
  * what the card shows. The GUI binds its read to these; the model host binds
  * its read of the mirrored main to the same ones.
@@ -16,8 +16,8 @@ import type { Card } from "./Cards.ts"
  * @category constants
  */
 export const FILES_READ_COMMAND = {
-  name: "files.read",
-  summary: "Read a file from a repository",
+  name: "file",
+  summary: "Open and co-edit a file",
   args: "<path>[:<line>[:<col>]] [owner/repo] [--ref <revision>]",
   agent: "run"
 } as const satisfies AgentCommand
@@ -122,19 +122,19 @@ export const parseFileReadArgs = (
   const refAt = tokens.indexOf("--ref")
   const ref = refAt === -1 ? undefined : tokens[refAt + 1]
   if (refAt !== -1) {
-    if (refAt !== tokens.length - 2 || !ref) return { error: "files.read --ref needs a revision" }
+    if (refAt !== tokens.length - 2 || !ref) return { error: "file --ref needs a revision" }
     tokens.splice(refAt, 2)
   }
   const [token, repo] = tokens
-  if (token === undefined) return { error: "files.read needs a file path" }
-  if (tokens.length > 2) return { error: "files.read takes a path and optionally an owner/repo" }
+  if (token === undefined) return { error: "file needs a file path" }
+  if (tokens.length > 2) return { error: "file takes a path and optionally an owner/repo" }
   const anchor = /^(.*?):(\d+)(?::(\d+))?$/.exec(token)
   const path = anchor === null ? token : anchor[1] ?? ""
-  if (path === "") return { error: "files.read needs a file path" }
+  if (path === "") return { error: "file needs a file path" }
   const line = anchor === null ? undefined : Number(anchor[2])
   const column = anchor?.[3] === undefined ? undefined : Number(anchor[3])
   if (line === 0 || column === 0) {
-    return { error: "files.read lines and columns count from 1: /files.read <path>[:<line>[:<col>]]" }
+    return { error: "file lines and columns count from 1: /file <path>[:<line>[:<col>]]" }
   }
   return {
     payload: {

@@ -10,7 +10,7 @@ import { flowAction } from "../flows/FlowAction"
 import { fileArgs } from "@smthrs/rpc/FileRead"
 /*
  * The repo file cards: a directory listing ("file-list") whose rows open
- * /files.list or /files.read, and a file view ("file") rendered as a fenced
+ * /files.list or /file, and a file view ("file") rendered as a fenced
  * code block, honest about truncation. Every row is a command binding through
  * onRunCommand — the one delegated dispatch CardView threads from App.tsx —
  * and carries data-flow with its registered command name.
@@ -49,7 +49,7 @@ export interface FileCardActions {
 type FileListNavigation = {
   readonly scope: string
 } & (
-  | { readonly list: "files.list"; readonly read: "files.read" }
+  | { readonly list: "files.list"; readonly read: "file" }
   | { readonly list: "box.files"; readonly read: "box.file" }
 )
 
@@ -71,7 +71,7 @@ const FileCardHeader = (props: {
   readonly path: string
   readonly address?: string | undefined
   readonly readAt?: { readonly changeId: string | null; readonly commitId: string | null; readonly source?: "head" | "working-copy" | undefined } | undefined
-  readonly refreshCommand: "files.read" | FileListNavigation["list"]
+  readonly refreshCommand: "file" | FileListNavigation["list"]
   readonly refreshScope?: string | undefined
   readonly onRunCommand: RunCommand
   readonly trailing?: ReactNode
@@ -99,7 +99,7 @@ export const FileCardAddressLine = ({
   readonly address?: string | undefined
   readonly readAt?: { readonly changeId: string | null; readonly commitId: string | null; readonly source?: "head" | "working-copy" | undefined } | undefined
   readonly head: { readonly changeId: string | null; readonly commitId: string | null } | null
-  readonly refreshCommand: "files.read" | FileListNavigation["list"]
+  readonly refreshCommand: "file" | FileListNavigation["list"]
   readonly refreshScope?: string | undefined
   readonly onRunCommand: RunCommand
   /** Rendered at the end of the address line: the file card's language word. */
@@ -145,7 +145,7 @@ const FileCardHeaderLive = ({
   readonly path: string
   readonly address?: string | undefined
   readonly readAt?: { readonly changeId: string | null; readonly commitId: string | null; readonly source?: "head" | "working-copy" | undefined } | undefined
-  readonly refreshCommand: "files.read" | FileListNavigation["list"]
+  readonly refreshCommand: "file" | FileListNavigation["list"]
   readonly refreshScope?: string | undefined
   readonly onRunCommand: RunCommand
   readonly trailing?: ReactNode
@@ -168,7 +168,7 @@ export const FileListCardBody = ({
   readonly navigation?: FileListNavigation
 } & FileCardActions) => {
   const { repo, path, entries } = card.payload
-  const { list, read, scope } = navigation ?? { list: "files.list", read: "files.read", scope: card.payload.localRepoId ?? repo }
+  const { list, read, scope } = navigation ?? { list: "files.list", read: "file", scope: card.payload.localRepoId ?? repo }
   return (
     <div className="world-card-list world-card-panel">
       <FileCardHeader

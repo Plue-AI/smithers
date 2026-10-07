@@ -219,7 +219,7 @@ const execute = (name: string, args?: string) => ({
   name: "commands",
   arguments: JSON.stringify({ action: "execute", name, ...(args === undefined ? {} : { args }) })
 })
-const readCall = (args: string) => execute("files.read", args)
+const readCall = (args: string) => execute("file", args)
 const listCall = (args?: string) => execute("files.list", args)
 
 const answerText = (frames: ReadonlyArray<AgentTurnFrame>): string =>
@@ -252,8 +252,8 @@ const stackRoutes = routes({
 
 /** The instructions' command lines for each grant, literal. */
 const FILES_LINES = [
-  "- /files.list [path] [owner/repo] — List a repository directory",
-  "- /files.read <path>[:<line>[:<col>]] [owner/repo] [--ref <revision>] — Read a file from a repository"
+  "- /file <path>[:<line>[:<col>]] [owner/repo] [--ref <revision>] — Open and co-edit a file",
+  "- /files.list [path] [owner/repo] — List a repository directory"
 ]
 // Literal Appendix B HTTP, file and UI-only commands.
 const HOST_COMMANDS = [
@@ -277,8 +277,8 @@ const HOST_COMMANDS = [
   "card.history.forward",
   "change.facet",
   "chat.reload",
+  "file",
   "files.list",
-  "files.read",
   "flow",
   "flow.edit",
   "flow.new",
@@ -288,7 +288,6 @@ const HOST_COMMANDS = [
   "flows",
   "form.set",
   "github",
-  "github.retry",
   "help",
   "issue",
   "issue.comment",
@@ -413,7 +412,7 @@ describe("host-owned turns run their tool calls on the host", () => {
     }])
     expect(journal.frames.map((frame) => frame.type)).toEqual(["call.started", "card", "call.settled", "delta", "done"])
     for (const frame of journal.frames) expect(AgentTurnFrameSchema.safeParse(frame).success).toBe(true)
-    expect(journal.frames[0]).toEqual({ runId: "run", type: "call.started", link: 0, ordinal: 0, name: "files.read" })
+    expect(journal.frames[0]).toEqual({ runId: "run", type: "call.started", link: 0, ordinal: 0, name: "file" })
     expect(journal.frames[1]).toMatchObject({
       runId: "run",
       type: "card",
@@ -438,7 +437,7 @@ describe("host-owned turns run their tool calls on the host", () => {
       type: "call.settled",
       link: 0,
       ordinal: 0,
-      name: "files.read",
+      name: "file",
       verdict: "run"
     })
     // The continuation carries the call and the file's text, so the answer is grounded in it.
@@ -503,7 +502,7 @@ describe("host-owned turns run their tool calls on the host", () => {
       readAt: { changeId: null, commitId: COMMIT, source: "head" }
     })
     expect(journal.frames.filter((frame) => frame.type === "call.settled")).toEqual(
-      ["files.list", "files.list", "files.read"].map((name, ordinal) => ({
+      ["files.list", "files.list", "file"].map((name, ordinal) => ({
         runId: "run",
         type: "call.settled",
         link: ordinal,
@@ -602,7 +601,7 @@ describe("host-owned turns run their tool calls on the host", () => {
     ])
     // A path that names no file once the repository is taken off it is refused before any read.
     const refused = reads.frames.flatMap((frame) => frame.type === "gate.rejected" ? [frame.message] : [])
-    expect(refused).toEqual(["files.read needs a file path", "files.read needs a file path"])
+    expect(refused).toEqual(["file needs a file path", "file needs a file path"])
   })
 
   test("each listing refusal is stated to the model and the conversation, and the turn answers", async () => {
@@ -681,22 +680,22 @@ describe("host-owned turns run their tool calls on the host", () => {
   test("the list action answers the commands this host runs", async () => {
     const listing = JSON.stringify({
       commands: [{
+        name: "file",
+        summary: "Open and co-edit a file",
+        args: "<path>[:<line>[:<col>]] [owner/repo] [--ref <revision>]"
+      }, {
         name: "files.list",
         summary: "List a repository directory",
         args: "[path] [owner/repo]"
-      }, {
-        name: "files.read",
-        summary: "Read a file from a repository",
-        args: "<path>[:<line>[:<col>]] [owner/repo] [--ref <revision>]"
       }]
     })
     for (
       const [listed, answer] of [
         [{ action: "list" }, listing],
-        [{ action: "list", namespace: "files" }, listing],
-        [{ action: "list", namespace: "/files." }, listing],
+        [{ action: "list", namespace: "files" }, JSON.stringify({ commands: [JSON.parse(listing).commands[1]] })],
+        [{ action: "list", namespace: "/files." }, JSON.stringify({ commands: [JSON.parse(listing).commands[1]] })],
         [{ action: "list", query: "read a file" }, listing],
-        [{ action: "list", namespace: "files.read" }, JSON.stringify({ commands: [JSON.parse(listing).commands[1]] })],
+        [{ action: "list", namespace: "file" }, JSON.stringify({ commands: [JSON.parse(listing).commands[0]] })],
         [{ action: "list", namespace: "repo" }, JSON.stringify({ commands: [] })]
       ] as const
     ) {
@@ -704,7 +703,7 @@ describe("host-owned turns run their tool calls on the host", () => {
       await run(grant, model([{ name: "commands", arguments: JSON.stringify(listed) }]), journal)
       expect(journal.reads).toEqual([])
       expect(journal.frames.map((frame) => frame.type)).toEqual(["delta", "done"])
-      expect(answerText(journal.frames)).toBe(`From the source: ${answer}`)
+      expect(answerText(journal.frames), JSON.stringify(listed)).toBe(`From the source: ${answer}`)
     }
   })
 
@@ -712,7 +711,7 @@ describe("host-owned turns run their tool calls on the host", () => {
     const journal = producer((path) => file(path, JOURNEY))
     await run(
       grant,
-      model([execute("/files.read", "docs/guide.md:3:2 acme/app"), execute("files.read", "\"docs/Meeting Notes.md\"")]),
+      model([execute("/file", "docs/guide.md:3:2 acme/app"), execute("file", "\"docs/Meeting Notes.md\"")]),
       journal
     )
     expect(journal.reads.map((call) => (call.body as { path: string }).path)).toEqual([
@@ -888,16 +887,16 @@ describe("host-owned turns run their tool calls on the host", () => {
       expect(answerText(journal.frames)).toBe(`From the source: ${output}`)
     }
     const refusedReads: ReadonlyArray<[string | undefined, string]> = [
-      [undefined, "files.read needs a file path"],
+      [undefined, "file needs a file path"],
       ["\"unfinished", "Close the quoted file argument before the next argument."],
-      ["a b c", "files.read takes a path and optionally an owner/repo"],
-      ["JOURNEY.md:0", "files.read lines and columns count from 1: /files.read <path>[:<line>[:<col>]]"],
+      ["a b c", "file takes a path and optionally an owner/repo"],
+      ["JOURNEY.md:0", "file lines and columns count from 1: /file <path>[:<line>[:<col>]]"],
       ["JOURNEY.md other/repo", "This question reads acme/app only; name a file in it."],
       ["JOURNEY.md --ref feature", "This question reads main only; ask without --ref."]
     ]
     for (const [args, message] of refusedReads) {
       const journal = producer((path) => file(path, JOURNEY))
-      await run(grant, model([execute("files.read", args)]), journal)
+      await run(grant, model([execute("file", args)]), journal)
       expect(journal.reads).toEqual([])
       expect(journal.frames.map((frame) => frame.type)).toEqual(["call.started", "gate.rejected", "delta", "done"])
       expect(journal.frames[1]).toMatchObject({ type: "gate.rejected", kind: "call_failed", message })
@@ -953,8 +952,8 @@ describe("an install's host runs the catalog commands its grant allows, as the t
   test("the instructions and the list name exactly the commands the grant runs, never the request's own", async () => {
     const cases: ReadonlyArray<[DurableChatGrant, ReadonlyArray<string>]> = [
       [install, HOST_COMMANDS],
-      [grant, ["files.list", "files.read"]],
-      [{ ...sourceless, api: install.api! }, HOST_COMMANDS.filter((name) => !name.startsWith("files."))]
+      [grant, ["file", "files.list"]],
+      [{ ...sourceless, api: install.api! }, HOST_COMMANDS.filter((name) => name !== "file" && !name.startsWith("files."))]
     ]
     for (const [turn, names] of cases) {
       const journal = producer((path) => file(path, JOURNEY), stackRoutes)
@@ -974,7 +973,7 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     expect(lines).toContain("- /todo.stop — Pause a working TODO")
     expect(lines.find((line) => line.startsWith("- /todo.drop "))).toContain("asks the person")
     expect(lines.find((line) => line.startsWith("- /merge "))).toContain("asks the person")
-    expect(lines.filter((line) => line.startsWith("- /files."))).toEqual(FILES_LINES)
+    expect(lines.filter((line) => line.startsWith("- /file"))).toEqual(FILES_LINES)
   })
 
   test("verified grant Markdown survives the host prompt while browser instructions do not", async () => {
@@ -993,7 +992,7 @@ describe("an install's host runs the catalog commands its grant allows, as the t
 
   test("the instructions keep the app agent's standing rules beside the install's commands", async () => {
     const cases: ReadonlyArray<[DurableChatGrant, string]> = [
-      [install, "through files.list and files.read"],
+      [install, "through file and files.list"],
       [
         {
           ...sourceless,
@@ -1176,7 +1175,6 @@ describe("an install's host runs the catalog commands its grant allows, as the t
         from: "main",
         name: "greeting"
       }],
-      ["github.retry", undefined, "POST", "/api/github/sync", {}]
     ] as const
     for (const [name, args, method, path, payload] of cases) {
       const journal = producer((path) => file(path, JOURNEY), () =>
@@ -1194,6 +1192,16 @@ describe("an install's host runs the catalog commands its grant allows, as the t
           ? "{\"confirmation\":\"confirm-amend\",\"state\":\"pending\"}" :
           "{\"status\":204,\"body\":null}"
       ])
+    }
+  })
+
+  test("read-only catalog bindings reject browser-only variants without dispatch", async () => {
+    for (const [name, args] of [["github", '{"operation":"retry"}'], ["runs", '{"operation":"attention"}']] as const) {
+      const journal = producer((path) => file(path, JOURNEY))
+      const provider = model([execute(name, args)])
+      await run(install, provider, journal)
+      expect(journal.calls).toEqual([])
+      expect(toolOutputs(provider)).toEqual([`failed: Invalid arguments for ${name}; use its declared payload.`])
     }
   })
 

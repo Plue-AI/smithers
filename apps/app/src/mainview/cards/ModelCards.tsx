@@ -27,7 +27,7 @@ type AgentRow = Extract<Extract<Card, { kind: "agents" }>["payload"], { native: 
 export function AgentModel({ agent, canAssign, onRunCommand }: { readonly agent: AgentRow; readonly canAssign: boolean; readonly onRunCommand: RunCommand }) {
  return <>
   {agent.source && <span data-testid={`agent-source-${agent.id}`}>{agent.source}</span>}
-  {agent.instructions && <Button variant="ghost" size="sm" {...flowAction(onRunCommand, "files.read", flowArgs("files.read", { path: agent.instructions, ref: "main" }))}>{agent.instructions}</Button>}
+  {agent.instructions && <Button variant="ghost" size="sm" {...flowAction(onRunCommand, "file", flowArgs("file", { path: agent.instructions, ref: "main" }))}>{agent.instructions}</Button>}
   {canAssign && agent.binding && <Button variant="ghost" size="sm" data-testid={`agent-model-${agent.id}`} {...flowAction(onRunCommand, "model.assign", flowArgs("model.assign", { role: agent.id }))}>Change model</Button>}
  </>
 }
