@@ -1,5 +1,5 @@
 import type * as Bash from "@smthrs/std/Bash"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { type CommandFrame, type CommandPort, Commands } from "../src/internal/AgentTerminalCommand.ts"
 
 const input: Bash.Input = { command: "printf fixture", mode: "unhermetic" }
@@ -39,6 +39,26 @@ function deferred<T>() {
 }
 
 describe("registered terminal command result contract", () => {
+  it("preserves the implicit Bash timeout in the typed failure", async () => {
+    vi.useFakeTimers()
+    try {
+      const entered = deferred<void>()
+      const commands = new Commands({
+        execute: async function*() {
+          entered.resolve()
+          await new Promise(() => {})
+          yield status
+        },
+        killRun: async () => {}
+      })
+      const pending = commands.run(input, controller().signal).catch((error) => error)
+      await entered.promise
+      await vi.advanceTimersByTimeAsync(600_000)
+      expect(await pending).toMatchObject({ code: "timeout", limitMillis: 600_000 })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
   it.each([status, { kind: "signal", signal: 15 } as const])("releases the command subscription before reusing the session: %j", async (completion) => {
     let active = false
     let releases = 0
@@ -271,7 +291,9 @@ describe("registered terminal command result contract", () => {
     await killed.promise
     expect(settled).toBe(false)
     cleanup.resolve()
-    expect(await pending).toMatchObject({ code: reason === "timeout" ? "timeout" : "command_failed" })
+    const failure = await pending
+    expect(failure).toMatchObject({ code: reason === "timeout" ? "timeout" : "command_failed" })
+    expect(failure.limitMillis).toBe(reason === "timeout" ? 20 : undefined)
     await end
     await commands.end()
     expect(kills).toBe(1)
