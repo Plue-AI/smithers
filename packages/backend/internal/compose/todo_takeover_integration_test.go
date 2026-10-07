@@ -82,6 +82,15 @@ func TestTodoTakeoverComposedInstall(t *testing.T) {
 		Scopes:       strings.Join(append([]string{"read:repository", "read:user", middleware.RepositoryRestrictionScope(repo)}, middleware.DelegationScopes(middleware.Delegation{Via: "terminal", Branch: branch.ID, Profile: middleware.TerminalProfileS1, Session: subject.ID})...), ","),
 		SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
 	require.NoError(t, err)
+	// A general delegated credential reaches the person-only policy; the S1
+	// terminal profile is independently confined by its route/scope boundary.
+	agentToken := "smithers_0000000000000000000000000000000000003467"
+	agentDigest := sha256.Sum256([]byte(agentToken))
+	agentHash := hex.EncodeToString(agentDigest[:])
+	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: ben.ID, Name: "takeover-agent", TokenHash: agentHash, TokenLastEight: agentHash[len(agentHash)-8:],
+		Scopes:       strings.Join(append([]string{"write:repository", "read:user"}, middleware.DelegationScopes(middleware.Delegation{Via: "codex"})...), ","),
+		SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+	require.NoError(t, err)
 	service := services.NewMythicalService(pool, nil)
 	server := httptest.NewUnstartedServer(nil)
 	origin := "http://" + server.Listener.Addr().String()
@@ -102,6 +111,8 @@ func TestTodoTakeoverComposedInstall(t *testing.T) {
 		req.Header.Set("Idempotency-Key", key)
 		if login == "delegated" {
 			req.Header.Set("Authorization", "Bearer "+delegated)
+		} else if login == "agent" {
+			req.Header.Set("Authorization", "Bearer "+agentToken)
 		} else {
 			req.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookies[login]})
 		}
@@ -122,7 +133,12 @@ func TestTodoTakeoverComposedInstall(t *testing.T) {
 	require.Equal(t, "permission", body["code"])
 	status, body = call("delegated", "POST", 3, "delegated-refused")
 	require.Equal(t, 403, status)
+	require.Equal(t, "permission", body["code"])
+	require.Equal(t, "permission", body["class"])
+	status, body = call("agent", "POST", 3, "agent-refused")
+	require.Equal(t, 403, status)
 	require.Equal(t, "never", body["code"])
+	require.Equal(t, "never", body["class"])
 	for _, login := range []string{"ben", "alice", "maya"} {
 		status, body = call(login, "GET", 3, "")
 		require.Equal(t, 200, status)

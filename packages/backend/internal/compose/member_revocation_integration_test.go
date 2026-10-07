@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -222,9 +223,14 @@ func exerciseMemberRevocation(t *testing.T, pool *pgxpool.Pool, origin string, w
 				data, err := io.ReadAll(response.Body)
 				streamDone <- streamResult{string(data), err, time.Now()}
 			}()
+			var currentUID uint32
+			require.NoError(t, pool.QueryRow(ctx, `SELECT unix_uid FROM collaborators WHERE user_id=$1`, writer.ID).Scan(&currentUID))
+			guestMu.Lock()
+			memberUID = currentUID
+			guestMu.Unlock()
 			require.NoError(t, roster.syncBranch(ctx, workspace))
 			guestMu.Lock()
-			require.True(t, guestMember)
+			assert.True(t, guestMember)
 			partitioned, guestChild = true, true
 			guestMu.Unlock()
 			started := time.Now()
@@ -232,7 +238,7 @@ func exerciseMemberRevocation(t *testing.T, pool *pgxpool.Pool, origin string, w
 			require.Equal(t, 204, status, body)
 			responseAt := time.Now()
 			guestMu.Lock()
-			require.True(t, guestChild, "partitioned guest retains processes until roster reconciliation")
+			assert.True(t, guestChild, "partitioned guest retains processes until roster reconciliation")
 			partitioned = false
 			guestMu.Unlock()
 			handshakeAt := time.Now()
@@ -246,8 +252,8 @@ func exerciseMemberRevocation(t *testing.T, pool *pgxpool.Pool, origin string, w
 				require.NoError(t, roster.syncBranch(ctx, workspace))
 			}
 			guestMu.Lock()
-			require.False(t, guestMember, "reconnect roster excludes revoked allocation")
-			require.False(t, guestChild, "fake broker must remove unlisted session descendants")
+			assert.False(t, guestMember, "reconnect roster excludes revoked allocation")
+			assert.False(t, guestChild, "fake broker must remove unlisted session descendants")
 			guestMu.Unlock()
 			require.LessOrEqual(t, time.Since(handshakeAt), 5*time.Second)
 			t.Logf("run=%d boundary=fake-broker reconnect_to_roster_seconds=%.6f", run, time.Since(handshakeAt).Seconds())
@@ -312,7 +318,10 @@ func exerciseMemberRevocation(t *testing.T, pool *pgxpool.Pool, origin string, w
 	t.Run("restoration_cannot_preserve_revoked_guest_descendants", func(t *testing.T) {
 		var eventID int64
 		require.NoError(t, pool.QueryRow(ctx, `SELECT max(id) FROM revocation_events WHERE kind='collaborator_removed' AND user_id=$1`, writer.ID).Scan(&eventID))
+		var currentUID uint32
+		require.NoError(t, pool.QueryRow(ctx, `SELECT unix_uid FROM collaborators WHERE user_id=$1`, writer.ID).Scan(&currentUID))
 		guestMu.Lock()
+		memberUID = currentUID
 		guestChild = true
 		guestMu.Unlock()
 		restored := &machineRoster{pool: pool, client: guest, removed: map[int64]revocation.Event{
@@ -320,16 +329,17 @@ func exerciseMemberRevocation(t *testing.T, pool *pgxpool.Pool, origin string, w
 		}}
 		require.NoError(t, restored.syncBranch(ctx, workspace))
 		guestMu.Lock()
-		require.True(t, guestMember, "restoration admits fresh sessions")
-		require.False(t, guestChild, "the original revoked session must first be killed")
+		assert.True(t, guestMember, "restoration admits fresh sessions")
+		assert.False(t, guestChild, "the original revoked session must first be killed")
 		guestMu.Unlock()
 		// A successful cleanup receipt prevents repeat revocation of new sessions.
 		guestMu.Lock()
+		memberUID = currentUID
 		guestChild = true
 		guestMu.Unlock()
 		require.NoError(t, restored.syncBranch(ctx, workspace))
 		guestMu.Lock()
-		require.True(t, guestChild)
+		assert.True(t, guestChild)
 		guestMu.Unlock()
 	})
 
