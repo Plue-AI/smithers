@@ -66,6 +66,13 @@ func TestConfirmationsBrowserPostgres(t *testing.T) {
 	})
 	require.NoError(t, err)
 	token := credential.Token
+	wikiToken := "smithers_" + strings.Repeat("d", 40)
+	wikiSum := sha256.Sum256([]byte(wikiToken))
+	wikiHash := hex.EncodeToString(wikiSum[:])
+	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "browser-wiki-agent", TokenHash: wikiHash, TokenLastEight: wikiHash[len(wikiHash)-8:], Scopes: "read:repository,write:repository,via:smithers,terminal-session:" + liveAppTurnCredentialFixture(t, pool, owner.ID) + "/1", SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+	require.NoError(t, err)
+	_, err = q.CreateWikiPage(ctx, db.CreateWikiPageParams{RepositoryID: repo.ID, AuthorID: owner.ID, Slug: "confirm-delete", Title: "Delete this page", Body: "The exact page to delete", Visibility: "public"})
+	require.NoError(t, err)
 	server := httptest.NewUnstartedServer(nil)
 	origin := "http://" + server.Listener.Addr().String()
 	t.Setenv("SMITHERS_AUTH_SESSION_COOKIE_NAME", "session")
@@ -76,7 +83,7 @@ func TestConfirmationsBrowserPostgres(t *testing.T) {
 	require.NoError(t, err)
 	command := exec.CommandContext(ctx, "bun", "e2e/real/confirm-merge.browser.ts")
 	command.Dir = app
-	command.Env = append(os.Environ(), "SMITHERS_CONFIRMATION_ORIGIN="+origin, "SMITHERS_CONFIRMATION_MEMBER="+fmt.Sprint(owner.ID), "SMITHERS_CONFIRMATION_TOKEN="+token)
+	command.Env = append(os.Environ(), "SMITHERS_CONFIRMATION_ORIGIN="+origin, "SMITHERS_CONFIRMATION_MEMBER="+fmt.Sprint(owner.ID), "SMITHERS_CONFIRMATION_TOKEN="+token, "SMITHERS_CONFIRMATION_WIKI_TOKEN="+wikiToken)
 	stdout, err := command.StdoutPipe()
 	require.NoError(t, err)
 	stdin, err := command.StdinPipe()
@@ -118,5 +125,5 @@ func TestConfirmationsBrowserPostgres(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT jsonb_build_object('approved',count(*) FILTER (WHERE state='approved'),'pending',count(*) FILTER (WHERE state='pending')) FROM approvals`).Scan(&result))
 	var counts map[string]int
 	require.NoError(t, json.Unmarshal(result, &counts))
-	require.Equal(t, map[string]int{"approved": 3, "pending": 0}, counts)
+	require.Equal(t, map[string]int{"approved": 4, "pending": 0}, counts)
 }
