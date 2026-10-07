@@ -28,6 +28,27 @@ type BackupConfig struct {
 	Version       Version
 	Authority     BackupAuthority
 	Cloner        DirectoryCloner
+	// FreeSpaceFloor is the space the backup must leave free on the state
+	// volume. Zero applies the production FreeSpaceFloor; no config disables it.
+	FreeSpaceFloor uint64
+	// AvailableBytes reports caller-available bytes on the state volume. Nil
+	// reads statfs.
+	AvailableBytes func(dir string) (uint64, error)
+}
+
+func (cfg BackupConfig) checkFreeSpace(need uint64) error {
+	floor, available := cfg.FreeSpaceFloor, cfg.AvailableBytes
+	if floor == 0 {
+		floor = FreeSpaceFloor
+	}
+	if available == nil {
+		available = availableBytes
+	}
+	free, err := available(cfg.State)
+	if err != nil {
+		return err
+	}
+	return requireFreeSpace(cfg.State, free, need, floor)
 }
 
 // Backup coordinates a single quiescent snapshot and publishes MANIFEST.json
@@ -75,7 +96,7 @@ func backup(ctx context.Context, cfg BackupConfig, retainFreeze bool) (directory
 			size += uint64(file.Size)
 		}
 	}
-	if err := CheckFreeSpace(cfg.State, size, FreeSpaceFloor); err != nil {
+	if err := cfg.checkFreeSpace(size); err != nil {
 		return "", err
 	}
 	op := fmt.Sprintf("backup-%d", time.Now().UTC().UnixNano())

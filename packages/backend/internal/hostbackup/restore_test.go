@@ -55,7 +55,7 @@ func (a *restoreAuthorityFixture) StartRestored(_ context.Context, bundle string
 func restoreFixture(t *testing.T) string {
 	state := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(state, "secret"), []byte("backup secret"), 0600))
-	dir, err := Backup(t.Context(), BackupConfig{State: state, Version: Version{"1.2.3", 2, 18}, Authority: &backupAuthorityFixture{at: time.Date(2026, 10, 7, 1, 2, 3, 0, time.UTC)}, Cloner: backupCopyFixture{}})
+	dir, err := Backup(t.Context(), BackupConfig{FreeSpaceFloor: testFreeSpaceFloor, State: state, Version: Version{"1.2.3", 2, 18}, Authority: &backupAuthorityFixture{at: time.Date(2026, 10, 7, 1, 2, 3, 0, time.UTC)}, Cloner: backupCopyFixture{}})
 	require.NoError(t, err)
 	return dir
 }
@@ -121,7 +121,7 @@ func TestRestoreKeepsGuardUntilReadyAndUsesContainedBackupBundle(t *testing.T) {
 	require.NoError(t, os.Mkdir(bundle, 0700))
 	require.NoError(t, os.WriteFile(filepath.Join(bundle, "backend"), []byte("verified old binary"), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(oldState, "secret"), []byte("backup secret"), 0600))
-	backup, err := Backup(t.Context(), BackupConfig{State: oldState, Bundle: bundle, Version: Version{"1.2.3", 2, 18}, Authority: &backupAuthorityFixture{at: time.Date(2026, 10, 7, 1, 2, 3, 0, time.UTC)}, Cloner: recursiveCopyFixture{}})
+	backup, err := Backup(t.Context(), BackupConfig{FreeSpaceFloor: testFreeSpaceFloor, State: oldState, Bundle: bundle, Version: Version{"1.2.3", 2, 18}, Authority: &backupAuthorityFixture{at: time.Date(2026, 10, 7, 1, 2, 3, 0, time.UTC)}, Cloner: recursiveCopyFixture{}})
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(state, ".upgrade-incomplete"), []byte("previous failed upgrade"), 0600))
 	a := &restoreAuthorityFixture{onStart: func(selected string) {

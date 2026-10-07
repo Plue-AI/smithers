@@ -510,11 +510,24 @@ const FreeSpaceFloor uint64 = 40 << 30
 
 // CheckFreeSpace checks caller-available bytes against the requested size and floor.
 func CheckFreeSpace(dir string, need uint64, floor uint64) error {
-	var stat unix.Statfs_t
-	if err := unix.Statfs(dir, &stat); err != nil {
+	free, err := availableBytes(dir)
+	if err != nil {
 		return err
 	}
-	free := uint64(stat.Bavail) * uint64(stat.Bsize)
+	return requireFreeSpace(dir, free, need, floor)
+}
+
+// availableBytes reports the bytes an unprivileged caller may still write on
+// dir's volume.
+func availableBytes(dir string) (uint64, error) {
+	var stat unix.Statfs_t
+	if err := unix.Statfs(dir, &stat); err != nil {
+		return 0, err
+	}
+	return uint64(stat.Bavail) * uint64(stat.Bsize), nil
+}
+
+func requireFreeSpace(dir string, free, need, floor uint64) error {
 	if free < floor || need > free-floor {
 		return &Error{Code: InsufficientSpace, Path: dir}
 	}

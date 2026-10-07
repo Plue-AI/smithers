@@ -42,7 +42,7 @@ func TestUpgradeBackupPrecedesHomebrewAndRetainsFreeze(t *testing.T) {
 			a := &upgradeFixture{backupAuthorityFixture: backupAuthorityFixture{fail: fail, at: time.Date(2026, 10, 7, 1, 2, 3, 0, time.UTC)}, state: state, t: t}
 			require.NoError(t, os.Mkdir(bundle, 0700))
 			require.NoError(t, os.WriteFile(filepath.Join(bundle, "backend"), []byte("old release bytes"), 0600))
-			dir, err := Upgrade(t.Context(), UpgradeConfig{BackupConfig: BackupConfig{State: state, Bundle: bundle, Version: Version{"1.2.3", 2, 18}, Cloner: recursiveCopyFixture{}}, Upgrade: a})
+			dir, err := Upgrade(t.Context(), UpgradeConfig{BackupConfig: BackupConfig{FreeSpaceFloor: testFreeSpaceFloor, State: state, Bundle: bundle, Version: Version{"1.2.3", 2, 18}, Cloner: recursiveCopyFixture{}}, Upgrade: a})
 			require.Error(t, err)
 			if fail == "upgrade-check" || fail == "check" || fail == "dump" {
 				require.NotContains(t, a.calls, "brew")
