@@ -1,6 +1,8 @@
 import { Data } from "effect"
 import { createCollection, localOnlyCollectionOptions } from "@tanstack/db"
 import type { HomeViewProps } from "@smthrs/rpc/HomeCard"
+import { HomeCardSchema } from "@smthrs/rpc/HomeCard"
+import type { LiveTopics } from "../useTopic"
 import { TodoStateSchema } from "@smthrs/rpc/CardPrimitives"
 import { randomUuid } from "../../runtime/RandomUuid"
 import type { SeamFetch } from "./SeamContext"
@@ -11,6 +13,7 @@ export class HomeViewFailure extends Data.TaggedError("HomeViewFailure")<{ reado
 
 /** Private main-conversation preferences; shared Home facts never contain these. */
 export function createHomeViewSeam(options: {
+  readonly live?: LiveTopics
   readonly http: SeamFetch
   readonly owner: () => string | undefined
   readonly subscribeOwner: (notify: () => void) => () => void
@@ -29,6 +32,24 @@ export function createHomeViewSeam(options: {
   let owner = options.owner()
   let pending = Promise.resolve()
   let timer: ReturnType<typeof setTimeout> | undefined
+  let lookTimer: ReturnType<typeof setTimeout> | undefined
+  let stopHome: (() => void) | undefined
+  let mergeSequence = 0
+  const cancelLook = () => { if (lookTimer !== undefined) clearTimeout(lookTimer); lookTimer = undefined }
+  const scheduleLook = () => {
+    if (disposed || !get().on_screen || mergeSequence <= (get().last_seen_seq ?? 0) || lookTimer !== undefined) return
+    const seen = mergeSequence
+    lookTimer = setTimeout(() => {
+      lookTimer = undefined
+      if (!disposed && get().on_screen) onView({ last_seen_seq: seen })
+    }, 2000)
+  }
+  const observeHome = () => {
+    const parsed = HomeCardSchema.safeParse(options.live?.getSnapshot("home")?.data)
+    if (!parsed.success || parsed.data.merge_history === undefined) return
+    mergeSequence = Math.max(0, ...parsed.data.merge_history.map(merge => merge.seq))
+    scheduleLook()
+  }
   let stopOwner: (() => void) | undefined
   const listeners = new Set<() => void>()
   // React may read once more while the previous controller is unmounting.
@@ -51,7 +72,9 @@ export function createHomeViewSeam(options: {
     const home = body.home && typeof body.home === "object" ? body.home as Record<string, unknown> : {}
     const parsed = TodoStateSchema.safeParse(home.filter)
     const menu = typeof home.menu === "number" && Number.isSafeInteger(home.menu) && home.menu > 0 ? home.menu : undefined
-    publish({ ...get(), filter: parsed.success ? parsed.data : undefined, menu })
+    const lastSeen = typeof body.last_seen_seq === "number" && Number.isSafeInteger(body.last_seen_seq) && body.last_seen_seq >= 0 ? body.last_seen_seq : 0
+    publish({ ...get(), filter: parsed.success ? parsed.data : undefined, menu, last_seen_seq: lastSeen })
+    scheduleLook()
   }
   const read = async () => {
     const revision = generation, principal = owner, reading = ++readGeneration
@@ -68,6 +91,7 @@ export function createHomeViewSeam(options: {
   const changeOwner = () => {
     const next = options.owner()
     if (next === owner) return
+    cancelLook()
     owner = next; ++generation; ++readGeneration
     pending = Promise.resolve()
     publish({ maximized: false })
@@ -78,11 +102,13 @@ export function createHomeViewSeam(options: {
     listeners.add(notify)
     if (listeners.size === 1 && !disposed) {
       stopOwner = options.subscribeOwner(changeOwner)
-      changeOwner(); void read(); poll()
+      stopHome = options.live?.subscribe("home", observeHome)
+      observeHome(); changeOwner(); void read(); poll()
     }
     return () => {
       listeners.delete(notify)
       if (!listeners.size) {
+        cancelLook(); stopHome?.(); stopHome = undefined
         ++generation; stopOwner?.(); stopOwner = undefined
         if (timer !== undefined) clearTimeout(timer)
         timer = undefined
@@ -92,8 +118,12 @@ export function createHomeViewSeam(options: {
   const onView: HomeViewProps["onView"] = patch => {
     if (disposed) return
     // Visibility is tab-local. Persist preferences only after the server commits them.
-    if (patch.on_screen !== undefined) publish({ ...get(), on_screen: patch.on_screen })
-    if (!("filter" in patch) && !("menu" in patch)) return
+    if (patch.on_screen !== undefined) {
+      publish({ ...get(), on_screen: patch.on_screen })
+      if (patch.on_screen) scheduleLook(); else cancelLook()
+    }
+    if (!("filter" in patch) && !("menu" in patch) && patch.last_seen_seq === undefined) return
+    if (patch.last_seen_seq !== undefined && (!Number.isSafeInteger(patch.last_seen_seq) || patch.last_seen_seq < 0)) throw new Error("Invalid Home last look")
     const changes: Record<string, unknown> = {}
     if ("filter" in patch) changes.filter = patch.filter === undefined ? null : TodoStateSchema.parse(patch.filter)
     if ("menu" in patch) {
@@ -110,13 +140,14 @@ export function createHomeViewSeam(options: {
       const home = saved.home && typeof saved.home === "object" ? saved.home as Record<string, unknown> : {}
       ++readGeneration
       const result = await request({ method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...saved, home: { ...home, ...changes } }) })
+        body: JSON.stringify({ ...saved, ...(patch.last_seen_seq === undefined ? {} : { last_seen_seq: Math.max(typeof saved.last_seen_seq === "number" ? saved.last_seen_seq : 0, patch.last_seen_seq) }), home: { ...home, ...changes } }) })
       if (valid(revision, principal)) apply(result)
     }).catch(error => { if (valid(revision, principal)) options.report(error) })
   }
   const dispose = () => {
     if (disposed) return
     disposed = true; ++generation; stopOwner?.(); stopOwner = undefined
+    stopHome?.(); stopHome = undefined; cancelLook()
     if (timer !== undefined) clearTimeout(timer)
     timer = undefined
     listeners.clear(); rows.cleanup()
