@@ -158,6 +158,13 @@ func (s *MythicalService) validateConflictDone(ctx context.Context, q *db.Querie
 	if !checks.RunLaunched || !checks.RunAttached || s.conflictValidator == nil || item.WorkspaceID == "" || !pinned || item.RequestRunID == "" || wait.Signal == nil || wait.Signal.Run != item.RequestRunID || wait.Signal.Flow != pin.Flow || wait.Signal.Name == "" || !conflictSignalBound(item, wait.Signal) {
 		return &TodoControlError{503, "conflict_validation_unavailable", "infra", "Conflict validation unavailable"}
 	}
+	// Older persisted waits may predate reservations. When one is present,
+	// it belongs to this exact conflict and pinned attempt; a stale budget
+	// record must never authorize completion of a later working copy.
+	if reservation := checks.ConflictReservation; reservation != nil &&
+		(reservation.Change != wait.ConflictChange || reservation.Onto != wait.OntoRevision || reservation.Run != item.RequestRunID) {
+		return &TodoControlError{409, "stale_conflict", "conflict", "The conflict target changed"}
+	}
 	stack, err := q.GetMythicalStack(ctx, item.RepositoryID)
 	if err != nil || !stack.ActorUserID.Valid || wait.Signal.Scope.PrincipalID != "user:"+strconv.FormatInt(stack.ActorUserID.Int64, 10) {
 		return &TodoControlError{503, "conflict_validation_unavailable", "infra", "Conflict validation unavailable"}

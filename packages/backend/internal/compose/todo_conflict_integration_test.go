@@ -86,6 +86,7 @@ func TestConflictDoneComposedInstall(t *testing.T) {
 	tenant, principal := fmt.Sprintf("repository:%d", repo.ID), fmt.Sprintf("user:%d", owner.ID)
 	signal["scope"] = map[string]any{"tenantId": tenant, "principalId": principal}
 	signal["target"] = map[string]any{"tenantId": tenant, "principalId": principal, "workspaceId": "11111111-1111-4111-8111-111111111111", "bindingKind": "mythical-item", "bindingId": fmt.Sprintf("%s", item.ID)}
+	bound["conflictReservation"] = map[string]any{"change": "change", "onto": "onto", "run": "pinned-run", "limit": 1, "reserved": 1}
 	encoded, err := json.Marshal(bound)
 	require.NoError(t, err)
 	checks = string(encoded)
@@ -112,6 +113,29 @@ func TestConflictDoneComposedInstall(t *testing.T) {
 	}
 	call(t, 503, "conflict_validation_unavailable")
 	service.SetConflictValidator(provider)
+	for _, field := range []string{"change", "onto", "run"} {
+		t.Run("stale reservation "+field, func(t *testing.T) {
+			reservation := map[string]any{"change": "change", "onto": "onto", "run": "pinned-run", "limit": 1, "reserved": 1}
+			reservation[field] = "another-conflict"
+			raw, err := json.Marshal(reservation)
+			require.NoError(t, err)
+			_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{conflictReservation}',$2::jsonb) WHERE id=$1`, item.ID, raw)
+			require.NoError(t, err)
+			before, err := q.GetMythicalItem(ctx, item.ID)
+			require.NoError(t, err)
+			validations := provider.validations
+			call(t, 409, "stale_conflict")
+			after, err := q.GetMythicalItem(ctx, item.ID)
+			require.NoError(t, err)
+			require.JSONEq(t, string(before.Checks), string(after.Checks))
+			require.JSONEq(t, string(before.Integration), string(after.Integration))
+			require.Equal(t, before.CandidateHead, after.CandidateHead)
+			require.Equal(t, validations, provider.validations)
+			require.Zero(t, provider.signals)
+			_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=$2 WHERE id=$1`, item.ID, checks)
+			require.NoError(t, err)
+		})
+	}
 	// Missing or mismatched attempt providers refuse individually before native
 	// inspection or signal admission, with the person's retained wait unchanged.
 	for name, update := range map[string]string{
