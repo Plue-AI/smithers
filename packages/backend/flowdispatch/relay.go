@@ -24,6 +24,7 @@ type relayCall struct {
 	// runID names the run a Run of a resume, a Resume or a Run.Fork acts
 	// on; the run's host says which flow it belongs to (refuseTodoRun).
 	runID string
+	draft bool
 }
 
 // RefuseRelay classifies a browser relay call before any host is resolved
@@ -39,7 +40,7 @@ func (service *Service) RefuseRelay(ctx context.Context, target flowruntime.Targ
 }
 
 func (service *Service) classifyRelay(ctx context.Context, target flowruntime.Target, procedure string, payload json.RawMessage) (relayCall, error) {
-	var call relayCall
+	call := relayCall{draft: target.BindingKind == DraftBindingKind}
 	switch procedure {
 	case "Plan", "Run", "Resume", "Run.Fork", "Approval.Submit":
 	default:
@@ -55,7 +56,7 @@ func (service *Service) classifyRelay(ctx context.Context, target flowruntime.Ta
 		if !ok {
 			return call, ErrRelayPayload
 		}
-		if IsTodoFlow(flowID) {
+		if IsTodoFlow(flowID) && !call.draft {
 			return call, ErrTodoOutsideStack
 		}
 		if engineOnlyFlow(flowID) {
@@ -104,7 +105,7 @@ func (service *Service) refuseRelayPlan(ctx context.Context, target flowruntime.
 		return err
 	case !saved:
 		return ErrRelayPlanUnknown
-	case IsTodoFlow(flowID):
+	case IsTodoFlow(flowID) && target.BindingKind != DraftBindingKind:
 		return ErrTodoOutsideStack
 	case engineOnlyFlow(flowID):
 		return ErrEngineFlowOutsideStack
@@ -139,7 +140,7 @@ func (service *Service) refuseTodoRun(ctx context.Context, runtime flowruntime.R
 	if err != nil {
 		return err
 	}
-	if IsTodoFlow(observation.Run.FlowID) {
+	if IsTodoFlow(observation.Run.FlowID) && !call.draft {
 		return ErrTodoOutsideStack
 	}
 	if engineOnlyFlow(observation.Run.FlowID) {

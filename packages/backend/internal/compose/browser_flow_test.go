@@ -144,3 +144,17 @@ func TestBrowserFlowRelayRefusesTheTodoComposition(t *testing.T) {
 		})
 	}
 }
+
+func TestBrowserFlowScratchPlansTodoOnDraftHost(t *testing.T) {
+	deps := &browserReadDependencies{canWrite: true, workspace: db.Workspace{ID: browserBoxID, Status: "running", RepositoryID: 23, UserID: 17, TargetBookmark: "scratch/owner/test"}}
+	dispatcher := &browserFlowRecordingDispatcher{}
+	api := &browserFlowAPI{repos: deps, queries: deps, dispatcher: dispatcher}
+	request := httptest.NewRequest(http.MethodPost, "/api/workflow/rpc", strings.NewReader(`{"repo":"owner/repo","workspaceId":"`+browserBoxID+`","procedure":"Plan","payload":{"flowId":"todo","input":{}}}`))
+	request = request.WithContext(middleware.ContextWithAuthInfo(request.Context(), &middleware.AuthInfo{User: &db.User{ID: 17, UserType: "user"}}))
+	writer := httptest.NewRecorder()
+	api.rpc(writer, request)
+	require.Equal(t, http.StatusOK, writer.Code, writer.Body.String())
+	require.Len(t, dispatcher.calls, 1)
+	require.Equal(t, flowdispatch.DraftBindingKind, dispatcher.calls[0].target.BindingKind)
+	require.Equal(t, "Plan", dispatcher.calls[0].procedure)
+}
