@@ -115,7 +115,7 @@ func (s *WorkspaceService) OpenOwnerTerminal(ctx context.Context, registry *mach
 	}
 	// /usr/bin/env runs only after broker uid drop. No bearer is in argv or env;
 	// the shell receives only its exact delegated file and the public address.
-	terminal, err := sessions.OpenTerminal(ctx, user, []string{"/usr/bin/env", "SMITHERS_TOKEN_FILE=" + credential.path, "SMITHERS_URL=" + credential.url, "/bin/bash", "-l"}, 80, 24)
+	terminal, err := sessions.OpenTerminal(ctx, user, []string{"/usr/bin/env", "SMITHERS_TOKEN_FILE=" + credential.path, "SMITHERS_URL=" + credential.url, "/bin/bash", "-l"}, &machined.SessionSize{Cols: 80, Rows: 24})
 	if err != nil {
 		credential.Close()
 		return nil, err
