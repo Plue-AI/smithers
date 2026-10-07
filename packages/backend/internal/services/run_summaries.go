@@ -170,7 +170,7 @@ func (s *ConversationSummaries) handleRun(ctx context.Context, lease *jobs.Lease
 		return err
 	}
 	if !permitted {
-		return settle()
+		return finishPeriod()
 	}
 
 	data, err := json.Marshal(map[string]any{"phase": phase.Text, "cells": phase.Cells})
@@ -220,7 +220,7 @@ func (s *ConversationSummaries) handleRun(ctx context.Context, lease *jobs.Lease
 		return err
 	}
 	if !permitted {
-		return settle()
+		return finishPeriod()
 	}
 	// The source rechecks and locks its persisted revision in this transaction;
 	// target writes share that transaction, so superseded producers cannot publish.
