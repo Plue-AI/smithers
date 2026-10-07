@@ -133,12 +133,13 @@ func TestCSEC02BundledInstallIsolation(t *testing.T) {
 	if err != nil || !strings.HasPrefix(strings.TrimSpace(string(version)), "18") {
 		t.Fatal("prerequisite: environment: PG18: server version 18 required")
 	}
-	t.Fatal("prerequisite: dependency: T-INS-01/T-INS-08: bundled launcher and production install lifecycle harness unavailable; steps 1-5 and 7 unexecuted")
+	t.Fatal("prerequisite: dependency: bundled-install lifecycle fixture: served fake-GitHub claim, TODO/canary execution and owned guest interruption are not wired; steps 1-5 and 7 unexecuted")
 }
 
 // The production bundled launcher must refuse damaged runtime inputs before
 // it creates state or starts PostgreSQL. This separately qualifies step 6;
-// it does not substitute for the normal TODO and interruption lifecycle above.
+// through both the launcher and shipped host-start CLI. It does not substitute
+// for the normal TODO and interruption lifecycle above.
 func TestCSEC02BundledLauncherRuntimeRefusals(t *testing.T) {
 	bundle := os.Getenv("SMITHERS_CHECK_BUNDLE")
 	if bundle == "" {
@@ -191,29 +192,52 @@ func TestCSEC02BundledLauncherRuntimeRefusals(t *testing.T) {
 			output, err := exec.CommandContext(ctx, "/bin/cp", "-cR", bundle, copy).CombinedOutput()
 			require.NoError(t, err, "%s", output)
 			require.NoError(t, os.Remove(filepath.Join(copy, filepath.FromSlash(dependency))))
-			home := filepath.Join(root, "home")
-			require.NoError(t, os.Mkdir(home, 0700))
-			listener, err := net.Listen("tcp", "127.0.0.1:0")
-			require.NoError(t, err)
-			address := listener.Addr().String()
-			require.NoError(t, listener.Close())
-			started := time.Now()
-			launchCtx, stop := context.WithTimeout(t.Context(), 30*time.Second)
-			defer stop()
-			command := exec.CommandContext(launchCtx, filepath.Join(copy, "bin/smithers-server"), "--bind", address)
-			command.Env = []string{"HOME=" + home, "PATH=/usr/bin:/bin:/usr/sbin:/sbin", "SMITHERS_BACKEND_MODE=plue", "SMITHERS_WORKSPACE_ISOLATION=process", "SMITHERS_MICROSANDBOX_BIN=/bin/false"}
-			output, err = command.CombinedOutput()
-			require.Error(t, err, "missing runtime must refuse startup")
-			require.NoError(t, launchCtx.Err(), "refusal must precede the 30-second timeout")
-			require.Contains(t, string(output), filepath.Base(dependency))
-			require.NotContains(t, string(output), `"setup_urls"`)
-			_, stateErr := os.Stat(filepath.Join(home, "Library", "Application Support", "Smithers"))
-			require.ErrorIs(t, stateErr, os.ErrNotExist, "refusal precedes backend state or PostgreSQL startup")
-			if evidence := os.Getenv("SMITHERS_FLOW_ISOLATION_EVIDENCE_DIR"); evidence != "" {
-				require.NoError(t, os.MkdirAll(evidence, 0700))
-				body, marshalErr := json.Marshal(map[string]any{"dependency": dependency, "refused": true, "durationMs": time.Since(started).Milliseconds(), "output": string(output)})
-				require.NoError(t, marshalErr)
-				require.NoError(t, os.WriteFile(filepath.Join(evidence, "missing-"+filepath.Base(dependency)+".json"), append(body, '\n'), 0600))
+			for _, door := range []string{"launcher", "host-start"} {
+				t.Run(door, func(t *testing.T) {
+					home := filepath.Join(root, door+"-home")
+					require.NoError(t, os.Mkdir(home, 0700))
+					listener, err := net.Listen("tcp", "127.0.0.1:0")
+					require.NoError(t, err)
+					address := listener.Addr().String()
+					require.NoError(t, listener.Close())
+					binary := filepath.Join(copy, "bin/smithers-server")
+					args := []string{"--bind", address}
+					if door == "host-start" {
+						// The service label belongs to the login session, even with
+						// a private HOME. Never touch an operator's running service.
+						require.NotZero(t, os.Getuid(), "host qualification requires an unprivileged login")
+						job := fmt.Sprintf("gui/%d/sh.smithers.host", os.Getuid())
+						_, err := exec.CommandContext(ctx, "/bin/launchctl", "print", job).CombinedOutput()
+						require.Error(t, err, "stop the existing host before qualification")
+						binary = filepath.Join(copy, "bin/smthrs")
+						args = []string{"host", "start", "--bundle", copy, "--bind", address, "--json"}
+					}
+					started := time.Now()
+					launchCtx, stop := context.WithTimeout(t.Context(), 30*time.Second)
+					defer stop()
+					command := exec.CommandContext(launchCtx, binary, args...)
+					command.Env = []string{"HOME=" + home, "PATH=/usr/bin:/bin:/usr/sbin:/sbin", "SMITHERS_BACKEND_MODE=plue", "SMITHERS_WORKSPACE_ISOLATION=process", "SMITHERS_MICROSANDBOX_BIN=/bin/false"}
+					output, err := command.CombinedOutput()
+					require.Error(t, err, "missing runtime must refuse startup")
+					require.NoError(t, launchCtx.Err(), "refusal must precede the 30-second timeout")
+					require.Contains(t, string(output), filepath.Base(dependency))
+					require.NotContains(t, string(output), `"setup_urls"`)
+					_, stateErr := os.Stat(filepath.Join(home, "Library", "Application Support", "Smithers"))
+					require.ErrorIs(t, stateErr, os.ErrNotExist, "refusal precedes backend state or PostgreSQL startup")
+					_, plistErr := os.Stat(filepath.Join(home, "Library", "LaunchAgents", "sh.smithers.host.plist"))
+					require.ErrorIs(t, plistErr, os.ErrNotExist, "refusal precedes service registration")
+					if door == "host-start" {
+						job := fmt.Sprintf("gui/%d/sh.smithers.host", os.Getuid())
+						_, err := exec.CommandContext(ctx, "/bin/launchctl", "print", job).CombinedOutput()
+						require.Error(t, err, "damaged bundle must not bootstrap launchd")
+					}
+					if evidence := os.Getenv("SMITHERS_FLOW_ISOLATION_EVIDENCE_DIR"); evidence != "" {
+						require.NoError(t, os.MkdirAll(evidence, 0700))
+						body, marshalErr := json.Marshal(map[string]any{"door": door, "dependency": dependency, "refused": true, "durationMs": time.Since(started).Milliseconds(), "output": string(output), "revision": approved.Revision(), "manifestSHA256": approved.ManifestSHA256()})
+						require.NoError(t, marshalErr)
+						require.NoError(t, os.WriteFile(filepath.Join(evidence, "missing-"+filepath.Base(dependency)+"-"+door+".json"), append(body, '\n'), 0600))
+					}
+				})
 			}
 		})
 	}
