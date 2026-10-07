@@ -1435,20 +1435,14 @@ func TestForeignPushFetchedWaitAndAcknowledgementAreAtomic(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, local.Shutdown(context.Background())) })
 	require.NoError(t, local.Client().InitRepo(ctx, "ref-owner", "ref-repo", "main", false))
 	sourceDir := filepath.Join(t.TempDir(), "source")
-	jj := func(args ...string) string {
-		t.Helper()
-		out, err := exec.CommandContext(ctx, "jj", args...).CombinedOutput()
-		require.NoError(t, err, "%s", out)
-		return strings.TrimSpace(string(out))
-	}
-	jj("git", "init", "--colocate", sourceDir)
+	git := foreignPushSourceGit(t, ctx, sourceDir)
 	commitOutside := func(text string) string {
 		t.Helper()
-		jj("-R", sourceDir, "new", "-m", "outside")
 		require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "outside.txt"), []byte(text), 0600))
-		jj("-R", sourceDir, "describe", "-m", "outside")
-		jj("-R", sourceDir, "bookmark", "set", "smithers/retry", "-r", "@")
-		return jj("-R", sourceDir, "log", "-r", "@", "--no-graph", "-T", "commit_id")
+		git("add", ".")
+		git("commit", "-m", "outside")
+		git("update-ref", "refs/heads/smithers/retry", "HEAD")
+		return git("rev-parse", "HEAD")
 	}
 	first := commitOutside("first")
 	reader := &foreignPushReaderFixture{fakeMythicalGitHub: &fakeMythicalGitHub{}, source: filepath.Join(sourceDir, ".git")}
@@ -1601,6 +1595,8 @@ func TestForeignPushBeforePRRecordsLeaseWithoutReplacingIntent(t *testing.T) {
 				ctx, q := t.Context(), db.New(pool)
 				repo, err := q.GetRepoByID(ctx, refClaim.RepositoryID)
 				require.NoError(t, err)
+				_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, repo.UserID.Int64)
+				require.NoError(t, err)
 				_, err = q.RequestMythicalBootstrap(ctx, repo.ID, repo.UserID.Int64, 1, false)
 				require.NoError(t, err)
 				local, err := repository.OpenLocal(repository.Config{StoragePath: t.TempDir(), AuthToken: "no-pr-test", FFILibraryPath: ffi, InstallMainMirror: true})
@@ -1608,26 +1604,21 @@ func TestForeignPushBeforePRRecordsLeaseWithoutReplacingIntent(t *testing.T) {
 				t.Cleanup(func() { require.NoError(t, local.Shutdown(context.Background())) })
 				require.NoError(t, local.Client().InitRepo(ctx, "ref-owner", "ref-repo", "main", false))
 				source := filepath.Join(t.TempDir(), "source")
-				jj := func(args ...string) string {
-					t.Helper()
-					out, err := exec.CommandContext(ctx, "jj", args...).CombinedOutput()
-					require.NoError(t, err, "%s", out)
-					return strings.TrimSpace(string(out))
-				}
-				jj("git", "init", "--colocate", source)
+				git := foreignPushSourceGit(t, ctx, source)
 				require.NoError(t, os.WriteFile(filepath.Join(source, "greeting.txt"), []byte("base"), 0600))
-				jj("-R", source, "describe", "-m", "base")
-				jj("-R", source, "bookmark", "set", "main", "-r", "@")
-				base := jj("-R", source, "log", "-r", "@", "--no-graph", "-T", "commit_id")
+				git("add", ".")
+				git("commit", "-m", "base")
+				base := git("rev-parse", "HEAD")
 				makeCommit := func(content string) string {
 					t.Helper()
-					jj("-R", source, "new", "main", "-m", content)
+					git("checkout", "--detach", "main")
 					require.NoError(t, os.WriteFile(filepath.Join(source, "greeting.txt"), []byte(content), 0600))
-					jj("-R", source, "describe", "-m", content)
-					return jj("-R", source, "log", "-r", "@", "--no-graph", "-T", "commit_id")
+					git("add", ".")
+					git("commit", "-m", content)
+					return git("rev-parse", "HEAD")
 				}
 				foreign := makeCommit("outside")
-				jj("-R", source, "bookmark", "set", "smithers/retry", "-r", foreign)
+				git("update-ref", "refs/heads/smithers/retry", foreign)
 				candidate := makeCommit("verified candidate")
 				remote := filepath.Join(source, ".git")
 				reader := &foreignPushReaderFixture{fakeMythicalGitHub: &fakeMythicalGitHub{}, source: remote}
@@ -1705,6 +1696,9 @@ func TestForeignPushBeforePRRecordsLeaseWithoutReplacingIntent(t *testing.T) {
 				require.NoError(t, err)
 				defer bridge.Close()
 				row := claims[0]
+				// Publication rechecks the persisted stack snapshot under its lock.
+				_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET landed_main=$2 WHERE repository_id=$1`, repo.ID, base)
+				require.NoError(t, err)
 				row.LandedMain = base
 				makeStep := func() *mythicalItemStep {
 					restarted := NewMythicalService(pool, local.Client())
@@ -1721,13 +1715,13 @@ func TestForeignPushBeforePRRecordsLeaseWithoutReplacingIntent(t *testing.T) {
 				if pending != "" {
 					// Even a move back to the old precondition is a newer observation;
 					// it cannot authorize replay of the older lease.
-					jj("-R", source, "bookmark", "set", "smithers/retry", "-r", base, "--allow-backwards")
+					git("update-ref", "refs/heads/smithers/retry", base)
 					_, err = step.recoverOutbound(ctx, recorded)
 					require.ErrorContains(t, err, "waiting for fetched refs")
 					unchangedAfterMove, err := q.GetMythicalItem(ctx, item.ID)
 					require.NoError(t, err)
 					require.Equal(t, recorded, unchangedAfterMove)
-					jj("-R", source, "bookmark", "set", "smithers/retry", "-r", foreign)
+					git("update-ref", "refs/heads/smithers/retry", foreign)
 
 					_, err = pool.Exec(ctx, `CREATE FUNCTION refuse_push_conflict() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_type='todo.github_operation_conflict' THEN RAISE EXCEPTION 'conflict receipt refused'; END IF; RETURN NEW; END $$; CREATE TRIGGER refuse_push_conflict BEFORE INSERT ON product_job_events FOR EACH ROW EXECUTE FUNCTION refuse_push_conflict()`)
 					require.NoError(t, err)
@@ -1820,18 +1814,12 @@ func TestForeignPushRetainsCommitThroughNativeRepository(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 	source := filepath.Join(t.TempDir(), "source")
-	jj := func(args ...string) string {
-		t.Helper()
-		cmd := exec.CommandContext(ctx, "jj", args...)
-		out, err := cmd.CombinedOutput()
-		require.NoError(t, err, "%s", out)
-		return strings.TrimSpace(string(out))
-	}
-	jj("git", "init", "--colocate", source)
+	git := foreignPushSourceGit(t, ctx, source)
 	require.NoError(t, os.WriteFile(filepath.Join(source, "outside.txt"), []byte("Alice's change\n"), 0600))
-	jj("-R", source, "describe", "-m", "outside commit")
-	jj("-R", source, "bookmark", "create", "smithers/retry", "-r", "@")
-	head := jj("-R", source, "log", "-r", "@", "--no-graph", "-T", "commit_id")
+	git("add", ".")
+	git("commit", "-m", "outside commit")
+	git("update-ref", "refs/heads/smithers/retry", "HEAD")
+	head := git("rev-parse", "HEAD")
 	local, err := repository.OpenLocal(repository.Config{StoragePath: t.TempDir(), AuthToken: "retention-test", FFILibraryPath: ffi, InstallMainMirror: true})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, local.Shutdown(context.Background())) })
@@ -1877,10 +1865,10 @@ func TestForeignPushRetainsCommitThroughNativeRepository(t *testing.T) {
 	// A newer outside commit is retained separately. If the destination is
 	// replaced after preparation, its verification under the write lock refuses
 	// the pack; a later attempt must resolve and verify the repository again.
-	jj("-R", source, "new", "-m", "second outside commit")
 	require.NoError(t, os.WriteFile(filepath.Join(source, "outside.txt"), []byte("Alice's newer change\n"), 0600))
-	jj("-R", source, "describe", "-m", "second outside commit")
-	second := jj("-R", source, "log", "-r", "@", "--no-graph", "-T", "commit_id")
+	git("add", ".")
+	git("commit", "-m", "second outside commit")
+	second := git("rev-parse", "HEAD")
 	var checks atomic.Int32
 	changedBridge, err := startMythicalBridge(ctx, client, "owner", "repo", func(context.Context) error {
 		if checks.Add(1) > 1 {
@@ -2182,4 +2170,20 @@ func TestTodoDarkAdmissionChatRepair(t *testing.T) {
 	require.Equal(t, "a chat result that no longer applies to the tip must be requested again", refused.Reason)
 	refused.State, refused.Reason = item.State, item.Reason
 	require.Equal(t, item, *refused)
+}
+
+// GitHub serves ordinary Git objects. Fixture creation does not need a jj CLI;
+// the production retention path below still uses the real native repository.
+func foreignPushSourceGit(t *testing.T, ctx context.Context, dir string) func(...string) string {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(dir, 0700))
+	git := func(args ...string) string {
+		t.Helper()
+		argv := append([]string{"-C", dir, "-c", "user.name=Review fixture", "-c", "user.email=review@example.test", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"}, args...)
+		out, err := exec.CommandContext(ctx, "git", argv...).CombinedOutput()
+		require.NoError(t, err, "%s", out)
+		return strings.TrimSpace(string(out))
+	}
+	git("init", "--initial-branch=main")
+	return git
 }
