@@ -174,7 +174,7 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 	if err != nil {
 		return live.Source{}, live.Forbidden
 	}
-	return live.Source{Key: "branch:" + row.ID, Every: 250 * time.Millisecond, MinInterval: 250 * time.Millisecond, FailClosed: true, Build: func(ctx context.Context) (json.RawMessage, error) {
+	return live.Source{Key: "branch:" + row.ID, Hints: []string{"workspace_status_" + strings.ReplaceAll(row.ID, "-", "")}, Every: 250 * time.Millisecond, MinInterval: 250 * time.Millisecond, FailClosed: true, Build: func(ctx context.Context) (json.RawMessage, error) {
 		// Refresh by stable identity: a rename or machine transition must update
 		// the same mounted card, and removed access must stop the projection.
 		current, err := p.branches.PresenceBranch(ctx, row.ID, repository, member)
