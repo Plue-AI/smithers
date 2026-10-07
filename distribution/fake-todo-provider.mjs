@@ -61,7 +61,7 @@ const chat = (input) => {
     ...(matched?.hold === undefined ? {} : { hold: matched.hold }),
     // Unscripted turns keep their teaching, so the next step can be scripted.
     ...(matched === undefined ? { system: systemOf(messages).slice(0, 6000), last: text(messages.at(-1)?.content).slice(0, 6000) } : {}),
-    ...(process.env.TRACE_MESSAGES === "1" ? { all: messages.map((message) => ({ role: message.role, content: text(message.content).slice(-5000) })) } : {})
+    ...(process.env.TRACE_MESSAGES === "1" ? { all: messages.map((message) => ({ role: message.role, content: text(message.content) })) } : {})
   })
   return matched === undefined ? { content: done({ messages: ["scripted"] }) } : matched
 }

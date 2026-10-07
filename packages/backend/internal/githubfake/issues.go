@@ -142,13 +142,19 @@ func (s *Server) CommentIssue(repo string, number int64, login, body string) int
 func (s *Server) personComment(repo string, number int64, login, body string) int64 {
 	key := issueKey(repo, number)
 	opened := s.opened[key]
-	if opened == nil {
+	pull, isPull := s.pulls[key]
+	if opened == nil && !isPull {
 		return 0
 	}
 	s.commentIDs++
 	now := time.Now().UTC()
 	s.comments[key] = append(s.comments[key], IssueComment{ID: s.commentIDs, Body: body, Author: login, CreatedAt: now})
-	opened.UpdatedAt = now
+	if opened != nil {
+		opened.UpdatedAt = now
+	} else {
+		pull.UpdatedAt = now
+		s.pulls[key] = pull
+	}
 	return s.commentIDs
 }
 
