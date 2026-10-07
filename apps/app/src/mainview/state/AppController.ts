@@ -51,7 +51,7 @@ import { createActorBindings } from "./ActorBindings"
 import type { AppTransition, Card, Message } from "./AppState"
 import { DEFAULT_BRANCH_ID, DEFAULT_WORKSPACE_ID, MAIN_TAB_ID, rootFrameId } from "./AppState"
 import type { AppStore } from "./AppStore"
-import { createCloudLspClient,pageCloudLspSocketUrl } from "./CloudLspClient"
+import { createCloudLspClient } from "./CloudLspClient"
 import type { CloudTerminalClient } from "./CloudTerminalClient"
 import { createCloudTerminalClient,pageCloudSocketUrl } from "./CloudTerminalClient"
 import { selectFirstRunRepository } from "./BootRepositoryTarget"
@@ -607,6 +607,7 @@ export interface AppController extends IssueFlowsController {
   readonly openDiffFile: ReturnType<typeof createDiffFilesSeam>["openDiffFile"]
   readonly readFile: FilesSeam["readFile"]
   /* Code intelligence (docs/code-intel/PLAN.md §4): the three code.* reads against the local language server (seams/CodeIntelSeam.ts). */
+  readonly codeIntelligenceAvailable?: () => boolean
   readonly codeHover: CodeIntelSeam["hover"]
   readonly codeDefinition: CodeIntelSeam["definition"]
   readonly codeDiagnostics: CodeIntelSeam["diagnostics"]
@@ -728,12 +729,8 @@ export interface AppServices {
    * default the page's own origin. Tests bind `() => undefined`.
    */
   readonly cloudSocketUrl?: (repo: string, sessionId: string) => string | undefined
-  /**
-   * Lane L6: the `/api/cloud-ws/…/lsp` tunnel URL for one workspace
-   * language-server session; default the page's own origin. Tests bind
-   * `() => undefined` or a real local origin.
-   */
-  readonly cloudLspSocketUrl?: (repo: string, sessionId: string, language: string) => string | undefined
+  /** The shared session host supplies admitted member-owned daemon exec sessions. */
+  readonly daemonLsp?: Pick<import("./CloudLspClient").CloudLspClientOptions, "openSession" | "socketUrl"> & { readonly ready: () => boolean }
   readonly bootstrap?: AppBootstrap
   readonly repositoryApp?: string
   readonly frameHistory?: FrameHistoryPort
@@ -1522,23 +1519,22 @@ export const createAppController = (
   }) : undefined
   if (terminalProvider) ctx.onDispose(terminalProvider.dispose)
 
-  /*
-   * Lane L6: the workspace language-server transport (plue #505), one socket
-   * per (workspace, language) through the same tunnel the cloud terminal
-   * rides — so it exists exactly where that tunnel does (`cloud.terminal`);
-   * elsewhere the seam tells a cloud file so instead of dialing nothing.
-   */
-  const createCloudLsp = services.bootstrap === undefined || services.bootstrap.capabilities.includes("cloud.terminal")
-    ? () => createCloudLspClient({
-      http: seamCtx.http,
-      baseUrl,
-      socketUrl: services.cloudLspSocketUrl ?? ((repo, sessionId, language) => pageCloudLspSocketUrl(repo, sessionId, language, baseUrl)),
+  const createCloudLsp = services.daemonLsp === undefined ? undefined
+    : () => createCloudLspClient({
+      openSession: services.daemonLsp!.openSession,
+      socketUrl: services.daemonLsp!.socketUrl,
       ...(services.authorizeSocket === undefined
         ? { socketProtocol: () => socketProtocols()[0] }
         : { authorizeSocket: services.authorizeSocket })
     })
-    : undefined
-  const codeIntelSeam = actors.pair(seamCtx, (context, select) => createCodeIntelSeam(context, { readFile: select(filesSeam.readFile), ...(createCloudLsp === undefined ? {} : { createCloudLsp }) }))
+  const codeIntelSeam = actors.pair(seamCtx, (context, select) => createCodeIntelSeam(context, {
+    readFile: installHost
+      ? (path, repo, anchor, branch) => select(filesSeam).branchFiles.open(path, branch ?? repo, anchor?.line)
+      : select(filesSeam.readFile),
+    validatedGuestExecution: () => services.daemonLsp?.ready() === true,
+    ...(installHost ? { branchScope: branchFileOptions!.scope } : {}),
+    ...(createCloudLsp === undefined ? {} : { createCloudLsp })
+  }))
   ctx.onDispose(codeIntelSeam.dispose)
   const { codeHover, codeDefinition, codeDiagnostics } = actors.pair(seamCtx, (_context, select) => {
     const seam = select(codeIntelSeam)
@@ -2330,6 +2326,7 @@ export const createAppController = (
     // Before branch providers are composed, read from the authenticated mirror.
     // An absent live-branch scope must not disable Source-ready file cards.
     readFile: installHost && branchFileOptions !== undefined ? (path, branch, anchor, ref) => ref === undefined && filesSeam.branchFiles.available() ? filesSeam.branchFiles.open(path, branch, anchor?.line) : filesSeam.readFile(path, branch, anchor, ref) : filesSeam.readFile,
+    codeIntelligenceAvailable: () => services.daemonLsp?.ready() === true,
     codeHover,
     codeDefinition,
     codeDiagnostics,
