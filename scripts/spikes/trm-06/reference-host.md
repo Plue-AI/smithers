@@ -130,3 +130,12 @@ retain the independent samples. The root campaigns still return incomplete;
 none of this local evidence changes their pending_controls or accepts the
 unsupported-Landlock kernel variant. All nine steps, ten VS Code-connected
 revocations and second-Mac recording remain unrun.
+
+Pass-6 installed environment controls (unrun): `check-install` now schedules
+12 individual poison variables and their combination in 13 fresh VMs. The
+installed fixture sets the installer process environment before its imports and
+init launch, alongside workspace import canaries. Each requires independently
+observed installed supervisor bytes, root identity and PATH-only environment,
+then revocation with no Ben process survivors and unchanged outside sentinel.
+This exercises guest installer/init sanitation, not host launcher startup;
+installed host poison/race and unsupported-Landlock controls remain pending.

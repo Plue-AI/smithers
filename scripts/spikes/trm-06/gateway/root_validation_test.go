@@ -150,3 +150,34 @@ func TestCgroupRestartControlsInstallBeforeMutation(t *testing.T) {
 		}
 	}
 }
+
+func TestStartupEnvironmentFixturesAreClosedAndIndependent(t *testing.T) {
+	expected := map[string]string{
+		"PATH": "/workspace", "HOME": "/workspace", "PYTHONPATH": "/workspace",
+		"PYTHONHOME": "/workspace", "PYTHONSTARTUP": "/workspace/sitecustomize.py",
+		"LD_PRELOAD": "/workspace/canary.so", "LD_LIBRARY_PATH": "/workspace",
+		"DYLD_INSERT_LIBRARIES": "/workspace/canary.dylib", "DYLD_LIBRARY_PATH": "/workspace",
+		"BASH_ENV": "/workspace/sitecustomize.py", "ENV": "/workspace/sitecustomize.py", "MSB_BACKEND": "remote",
+	}
+	all, ok := startupEnvironmentFixture("environment-all")
+	if !ok || len(all) != len(expected) {
+		t.Fatalf("incomplete combined fixture: %v", all)
+	}
+	for name, want := range expected {
+		one, ok := startupEnvironmentFixture("environment-" + name)
+		if !ok || len(one) != 1 || one[name] != want || all[name] != want {
+			t.Fatalf("bad fixture %s: %v", name, one)
+		}
+		one[name] = "mutated"
+	}
+	all["PATH"] = "mutated"
+	next, _ := startupEnvironmentFixture("environment-all")
+	if next["PATH"] != "/workspace" {
+		t.Fatal("fixture mutation escaped its invocation")
+	}
+	for _, name := range []string{"", "positive", "environment-", "environment-USER", "environment-PATH=/canary", "../environment-all"} {
+		if _, ok := startupEnvironmentFixture(name); ok {
+			t.Fatalf("unknown environment selector accepted: %q", name)
+		}
+	}
+}

@@ -15,6 +15,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -68,6 +69,17 @@ func runRootValidation(ctx context.Context, a *installedAuthority, root, home, o
 	if operation == "check-session" {
 		scenarios = []string{"positive", "device-regular", "cleanup-poison", "cgroup-writable", "cgroup-parent-replaced", "cgroup-child-writable"}
 	}
+	if operation == "check-install" {
+		names := make([]string, 0, len(startupEnvironmentPoisons))
+		for name := range startupEnvironmentPoisons {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			scenarios = append(scenarios, "environment-"+name)
+		}
+		scenarios = append(scenarios, "environment-all")
+	}
 	for _, scenario := range scenarios {
 		if err = validationScenario(ctx, a, runtime, cfg.Root, home, string(fixture), scenario, operation, evidence); err != nil {
 			return err
@@ -82,6 +94,36 @@ func runRootValidation(ctx context.Context, a *installedAuthority, root, home, o
 	fmt.Printf("{\"check\":%q,\"status\":\"partial-pass\",\"evidence\":%q}\n", check, evidence)
 	return errors.New("root validation incomplete: pending controls retained in receipt")
 }
+
+// Each poison is exercised independently and together in fresh disposable VMs.
+// The independently sampled supervisor must still have the literal PATH-only
+// environment; unchanged sentinel bytes detect workspace import execution.
+var startupEnvironmentPoisons = map[string]string{
+	"PATH": "/workspace", "HOME": "/workspace", "PYTHONPATH": "/workspace",
+	"PYTHONHOME": "/workspace", "PYTHONSTARTUP": "/workspace/sitecustomize.py",
+	"LD_PRELOAD": "/workspace/canary.so", "LD_LIBRARY_PATH": "/workspace",
+	"DYLD_INSERT_LIBRARIES": "/workspace/canary.dylib", "DYLD_LIBRARY_PATH": "/workspace",
+	"BASH_ENV": "/workspace/sitecustomize.py", "ENV": "/workspace/sitecustomize.py",
+	"MSB_BACKEND": "remote",
+}
+
+func startupEnvironmentFixture(scenario string) (map[string]string, bool) {
+	if scenario == "environment-all" {
+		values := make(map[string]string, len(startupEnvironmentPoisons))
+		for name, value := range startupEnvironmentPoisons {
+			values[name] = value
+		}
+		return values, true
+	}
+	if strings.HasPrefix(scenario, "environment-") {
+		name := strings.TrimPrefix(scenario, "environment-")
+		if value, ok := startupEnvironmentPoisons[name]; ok {
+			return map[string]string{name: value}, true
+		}
+	}
+	return nil, false
+}
+
 func cgroupRestartFixture(scenario string) bool {
 	switch scenario {
 	case "cgroup-writable", "cgroup-parent-replaced", "cgroup-child-writable":
@@ -122,7 +164,11 @@ func validationScenario(ctx context.Context, a *installedAuthority, runtime *mic
 		// path is evaluated by root. The source and selectors are bundle controlled.
 		return runGuestFixture(ctx, a, home, metadata.Machine, fixture, mode)
 	}
+	environment, environmentFixture := startupEnvironmentFixture(scenario)
 	prepare := scenario
+	if environmentFixture {
+		prepare = "poison-imports"
+	}
 	if scenario == "branch-supervisor" || scenario == "bad-sha" || scenario == "device-regular" || scenario == "cleanup-poison" || cgroupRestartFixture(scenario) || scenario == "boot-symlink" || scenario == "boot-writable" || scenario == "supervisor-replaced" {
 		prepare = "positive"
 	}
@@ -141,6 +187,12 @@ func validationScenario(ctx context.Context, a *installedAuthority, runtime *mic
 		return err
 	}
 	candidate := *a
+	if environmentFixture {
+		// Literal main-installed fixture bytes only. Poison the installer process
+		// before its imports/start; never take environment selectors from members.
+		values, _ := json.Marshal(environment)
+		candidate.installer = append([]byte("import os\nos.environ.update("+string(values)+")\n"), a.installer...)
+	}
 	if scenario == "branch-supervisor" {
 		candidate.supervisor = []byte("#!/bin/sh\nprintf canary >> /var/tmp/trm06-outside\n")
 	}
@@ -148,7 +200,7 @@ func validationScenario(ctx context.Context, a *installedAuthority, runtime *mic
 		candidate.supervisorSHA = "0000000000000000000000000000000000000000000000000000000000000000"
 	}
 	err = installPrototype(ctx, &candidate, id, home, runtimeRoot, identity)
-	if scenario != "positive" && scenario != "poison-imports" && scenario != "device-regular" && scenario != "cleanup-poison" && !cgroupRestartFixture(scenario) && scenario != "boot-symlink" && scenario != "boot-writable" && scenario != "supervisor-replaced" {
+	if !environmentFixture && scenario != "positive" && scenario != "poison-imports" && scenario != "device-regular" && scenario != "cleanup-poison" && !cgroupRestartFixture(scenario) && scenario != "boot-symlink" && scenario != "boot-writable" && scenario != "supervisor-replaced" {
 		if err == nil {
 			return fmt.Errorf("installed destination fixture %s was accepted", scenario)
 		}
