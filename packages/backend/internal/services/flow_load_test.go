@@ -473,4 +473,10 @@ func TestFlowVersionConfigKeepsGuestSteps(t *testing.T) {
 		require.Equal(t, steps, storedFlowSteps(config, builtinFlowSteps["todo"]))
 	}
 	require.Equal(t, builtinFlowSteps["todo"], storedFlowSteps(flowVersionConfig(FlowLoadVersion{Name: "todo"}), nil))
+	inspection := json.RawMessage(`{"nodes":[],"edges":[],"steps":[],"diagnostics":[],"prompt":"({ text }) => text"}`)
+	config := flowVersionConfig(FlowLoadVersion{Name: "todo", Steps: []FlowStep{}, Inspection: inspection})
+	var stored map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(config, &stored))
+	require.JSONEq(t, string(inspection), string(stored["inspection"]))
+
 }
