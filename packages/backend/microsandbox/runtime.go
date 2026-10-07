@@ -984,18 +984,19 @@ func (r *Runtime) ReclaimWorkspaceDisk(ctx context.Context, id string) error {
 	ws.State = string(workspaceapi.WorkspaceStopping)
 	r.mu.Unlock()
 
+	revokeErr := r.machined.RevokeBoot(ws.ID)
 	removeErr := r.removeMachine(ctx, ws.Machine)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	ws.State = string(workspaceapi.WorkspaceStopped)
 	if removeErr != nil {
-		return fmt.Errorf("reclaim workspace disk: %w", removeErr)
+		return errors.Join(fmt.Errorf("reclaim workspace disk: %w", removeErr), revokeErr)
 	}
 	ws.Reclaimed = true
 	if strings.HasPrefix(ws.Snapshot, coldSnapshotPrefix) {
 		ws.Snapshot, ws.LayerKey, ws.Link = "", "", nil
 	}
-	return writeMetadata(ws)
+	return errors.Join(writeMetadata(ws), revokeErr)
 }
 
 // StopWorkspace ends every command and service, then stops the VM. Its disk,
@@ -1008,8 +1009,9 @@ func (r *Runtime) StopWorkspace(ctx context.Context, id string) error {
 		return err
 	}
 	if ws.State == string(workspaceapi.WorkspaceStopped) {
+		revokeErr := r.machined.RevokeBoot(ws.ID)
 		r.mu.Unlock()
-		return nil
+		return revokeErr
 	}
 	if ws.State == string(workspaceapi.WorkspaceStopping) {
 		r.mu.Unlock()
@@ -1025,6 +1027,9 @@ func (r *Runtime) StopWorkspace(ctx context.Context, id string) error {
 	commands := r.detachProcessesLocked(ws)
 	r.mu.Unlock()
 
+	// Revoke before waiting for guest shutdown, including when stop fails.
+	// Restoring the observed VM state never restores its old credential.
+	revokeErr := r.machined.RevokeBoot(ws.ID)
 	for _, command := range commands {
 		command.cancel()
 	}
@@ -1033,12 +1038,12 @@ func (r *Runtime) StopWorkspace(ctx context.Context, id string) error {
 	defer r.mu.Unlock()
 	if stopErr != nil {
 		ws.State = previous
-		return stopErr
+		return errors.Join(stopErr, revokeErr)
 	}
 	ws.State = string(workspaceapi.WorkspaceStopped)
 	r.detachAdmissionMachineLocked(ws.Machine, true)
 	ws.guestOK = false
-	return writeMetadata(ws)
+	return errors.Join(writeMetadata(ws), revokeErr)
 }
 
 // detachProcessesLocked revokes the egress binding, marks services stopped,
@@ -1079,11 +1084,12 @@ func (r *Runtime) DeleteWorkspace(ctx context.Context, id string) error {
 	commands := r.detachProcessesLocked(ws)
 	ws.State = string(workspaceapi.WorkspaceStopping)
 	r.mu.Unlock()
+	revokeErr := r.machined.RevokeBoot(ws.ID)
 	for _, command := range commands {
 		command.cancel()
 	}
 	if err := r.removeMachine(ctx, ws.Machine); err != nil {
-		return fmt.Errorf("delete workspace microVM: %w", err)
+		return errors.Join(fmt.Errorf("delete workspace microVM: %w", err), revokeErr)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -1091,7 +1097,7 @@ func (r *Runtime) DeleteWorkspace(ctx context.Context, id string) error {
 		return fmt.Errorf("delete microsandbox workspace state: %w", err)
 	}
 	delete(r.workspaces, ws.ID)
-	return nil
+	return revokeErr
 }
 
 // Close ends every command the backend holds and stops running VMs so no

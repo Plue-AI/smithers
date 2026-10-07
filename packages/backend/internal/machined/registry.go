@@ -112,6 +112,29 @@ func (r *Registry) Close() error {
 	return errors.Join(errs...)
 }
 
+// RevokeBoot fences a stopped or removed machine before its transport is
+// closed. Unlike disconnecting a lease, revocation also forbids reconnecting
+// with the old boot credential. A subsequent wake must mint a fresh boot.
+// Keep the boot ID tombstone so it cannot be reused after revocation.
+func (r *Registry) RevokeBoot(branch string) error {
+	r.mu.Lock()
+	b := r.branches[branch]
+	if b == nil {
+		r.mu.Unlock()
+		return nil
+	}
+	delete(r.branches, branch)
+	c := b.connection
+	b.connection = nil
+	b.secret = [32]byte{}
+	b.credential = [32]byte{}
+	r.mu.Unlock()
+	if c != nil {
+		return c.closeStream()
+	}
+	return nil
+}
+
 // Admit is called only after the wire handshake verifies the host nonce proof.
 // It compares the credential against the boot's host binding; no branch or
 // machine identity supplied by a frame is accepted. On refusal only the
