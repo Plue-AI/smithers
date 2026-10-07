@@ -115,7 +115,7 @@ const unvouched: WorkspaceObservation.Changes = {
  * can miss a write made just before the call. `settled` first writes a fence
  * file and waits for its event: the feed delivers one root's events in order,
  * so once the fence is back, every earlier change is counted. The fence goes in
- * the first pruned directory the root holds (`.git` in a checkout), which the
+ * the first pruned directory other than node_modules the root holds (`.git` in a checkout), which the
  * walk never measures. A root with none, or a watch the host refuses or that
  * fails, answers `Option.none()`, and so does a fence that is not back within
  * `fenceTimeoutMillis`. `WorkspaceObservation.cached` races the fence
@@ -141,6 +141,9 @@ export const changes = (
     const excluded = new Set(options.excludePaths)
     const home = yield* Effect.promise(async () => {
       for (const name of prune) {
+        // Invocation permits only pinned library links here. An observer's
+        // transient fence would make an otherwise valid closure refuse.
+        if (name === "node_modules") continue
         const info = await lstat(`${base}/${name}`).catch(() => undefined)
         if (info?.isDirectory()) return name
       }
