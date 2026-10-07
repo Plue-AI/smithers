@@ -561,6 +561,22 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		attention := `[{"id":"order-one","kind":"order","revision":2,"text":"T3 merged before T2; T2's change is in T3's commit","entries":[{"pr":3,"commit":"abc","text":"first"},{"pr":4,"commit":"def","text":"second"}],"actions":[{"tag":"order.ok","label":"OK"}]}]`
 		_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET attention=$2 WHERE repository_id=$1`, repo.ID, []byte(attention))
 		require.NoError(t, err)
+		projection := &liveTopics{queries: q, todos: mythical}
+		ownerSource, refusal := projection.resolve(ctx, "home", repo.ID, "rehearsal-owner/app", owner.ID)
+		require.Empty(t, refusal)
+		memberSource, refusal := projection.resolve(ctx, "home", repo.ID, "rehearsal-owner/app", member.ID)
+		require.Empty(t, refusal)
+		require.NotEqual(t, ownerSource.Key, memberSource.Key, "role-filtered Home snapshots cannot share a cache")
+		ownerHome, err := ownerSource.Build(ctx)
+		require.NoError(t, err)
+		memberHome, err := memberSource.Build(ctx)
+		require.NoError(t, err)
+		require.Contains(t, string(ownerHome), "order-one")
+		var memberProjection struct {
+			Attention []json.RawMessage `json:"attention"`
+		}
+		require.NoError(t, json.Unmarshal(memberHome, &memberProjection))
+		require.Empty(t, memberProjection.Attention)
 		for _, tc := range []struct {
 			cookie   string
 			via      bool

@@ -688,8 +688,10 @@ func (st *mythicalItemStep) appSend(ctx context.Context, item db.MythicalItem, o
 		}
 		body := mythicalDropComment(dropped)
 		if via := mythicalChecksOf(item).MergedVia; via != nil {
-			key = "merged-via:" + uuidString(item.ID) + ":" + via.Commit
-			body = fmt.Sprintf("Merged via #%d (T%d)", via.Pull, via.Number)
+			if !via.Commented {
+				return errors.New("Waiting for the retained merged-via comment")
+			}
+			return st.s.github.ClosePull(ctx, gh, number)
 		}
 		if err := st.s.github.Comment(ctx, gh, number, key, body); err != nil {
 			return err

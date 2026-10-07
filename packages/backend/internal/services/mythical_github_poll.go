@@ -164,7 +164,7 @@ func (s *MythicalService) requestInstallPulls(ctx context.Context, row db.Github
 		if !strings.EqualFold(owner, row.OwnerLogin) || !strings.EqualFold(repo, row.RepoName) {
 			continue
 		}
-		items, err := s.queries().ListMythicalOpenPullItems(ctx, id)
+		items, err := s.queries().ListMythicalOpenPullItems(ctx, id, s.now())
 		if err != nil {
 			return err
 		}
@@ -265,7 +265,7 @@ func (s *MythicalService) requiredInstallPullResources(ctx context.Context, row 
 		if !strings.EqualFold(owner, row.OwnerLogin) || !strings.EqualFold(repo, row.RepoName) {
 			continue
 		}
-		items, err := s.queries().ListMythicalOpenPullItems(ctx, id)
+		items, err := s.queries().ListMythicalOpenPullItems(ctx, id, s.now())
 		if err != nil {
 			return nil, err
 		}

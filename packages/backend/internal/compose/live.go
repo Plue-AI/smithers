@@ -316,8 +316,16 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 		if t.todos == nil {
 			return live.Source{}, live.Unsupported
 		}
-		return live.Source{Key: topic, Hints: hints, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
-			return t.home(ctx, repository, slug)
+		var role services.InstallRole
+		if t.queries != nil {
+			var err error
+			role, err = services.InstallRoleOf(ctx, t.queries, member)
+			if err != nil || role == "" {
+				return live.Source{}, live.Forbidden
+			}
+		}
+		return live.Source{Key: fmt.Sprintf("home:%d:member:%d:role:%s", repository, member, role), Hints: hints, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
+			return t.home(ctx, repository, slug, member)
 		}}, ""
 	case topic == "flows":
 		return live.Source{Key: topic, Hints: hints, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
