@@ -157,8 +157,8 @@ func (resolver *OwnerSecretResolver) resolveChatModel(ctx context.Context, owner
 			}
 			connections := services.NewProviderConnectionService(db.New(pool), codec,
 				services.NewHTTPProviderTokenRefresher(services.DefaultProviderConnectionsConfig(), nil),
-				services.WithSubscriptionConnectionsSetting(func() bool {
-					enabled, err := services.InstallChatGPTEnabled(ctx, db.New(pool))
+				services.WithSubscriptionConnectionsSetting(func(ctx context.Context) bool {
+					enabled, err := services.InstallChatGPTEnabled(ctx, services.ProviderPoolQueries(ctx, db.New(pool)))
 					return err == nil && enabled
 				}))
 			pick, err := connections.PickForModelCall(ctx, ownerID, input.RepositoryID, "codex", nil)

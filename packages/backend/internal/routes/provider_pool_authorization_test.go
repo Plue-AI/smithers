@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -66,9 +67,9 @@ func TestProviderPoolBoundPayloadReachesOnlyAdmittedUpstream(t *testing.T) {
 	for _, substitute := range []bool{false, true} {
 		t.Run(map[bool]string{false: "original", true: "substituted"}[substitute], func(t *testing.T) {
 			const body = `{"model":"original","input":"hello"}`
-			calls := 0
+			var calls atomic.Int64
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				calls++
+				calls.Add(1)
 				raw, err := io.ReadAll(r.Body)
 				require.NoError(t, err)
 				require.Equal(t, body, string(raw))
@@ -90,11 +91,11 @@ func TestProviderPoolBoundPayloadReachesOnlyAdmittedUpstream(t *testing.T) {
 			require.Equal(t, 1, scopes.calls)
 			if substitute {
 				require.Equal(t, 403, out.Code, out.Body.String())
-				require.Zero(t, calls)
+				require.Zero(t, calls.Load())
 				require.Zero(t, pool.next, "must refuse before selecting a provider account")
 			} else {
 				require.Equal(t, 200, out.Code, out.Body.String())
-				require.Equal(t, 1, calls)
+				require.EqualValues(t, 1, calls.Load())
 			}
 		})
 	}

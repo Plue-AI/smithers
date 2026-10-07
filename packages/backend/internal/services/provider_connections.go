@@ -254,7 +254,7 @@ type ProviderConnectionService struct {
 	// default, and the hosted product): nothing connects, refreshes, pools or
 	// resolves a stored subscription token.
 	enabled        bool
-	enabledSetting func() bool
+	enabledSetting func(context.Context) bool
 	poolOwner      func(context.Context) (int64, error)
 }
 
@@ -268,7 +268,7 @@ func WithSubscriptionConnectionsEnabled(enabled bool) ProviderConnectionServiceO
 }
 
 // WithSubscriptionConnectionsSetting resolves the install owner setting at use.
-func WithSubscriptionConnectionsSetting(read func() bool) ProviderConnectionServiceOption {
+func WithSubscriptionConnectionsSetting(read func(context.Context) bool) ProviderConnectionServiceOption {
 	return func(s *ProviderConnectionService) { s.enabledSetting = read }
 }
 
@@ -279,12 +279,12 @@ func WithProviderPoolOwner(owner func(context.Context) (int64, error)) ProviderC
 }
 
 // SubscriptionConnectionsEnabled reports feature_flags.subscription_connections.
-func (s *ProviderConnectionService) SubscriptionConnectionsEnabled() bool {
+func (s *ProviderConnectionService) SubscriptionConnectionsEnabled(ctx context.Context) bool {
 	if s == nil {
 		return false
 	}
 	if s.enabledSetting != nil {
-		return s.enabledSetting()
+		return s.enabledSetting(ctx)
 	}
 	return s.enabled
 }
@@ -494,7 +494,7 @@ func (s *ProviderConnectionService) ConnectForUser(ctx context.Context, actor *d
 	if actor == nil {
 		return ProviderConnectionResponse{}, pkgerrors.Unauthorized("authentication required")
 	}
-	if !s.SubscriptionConnectionsEnabled() {
+	if !s.SubscriptionConnectionsEnabled(ctx) {
 		return ProviderConnectionResponse{}, errSubscriptionConnectionsUnavailable()
 	}
 	if err := s.validateConnectInput(&in); err != nil {
@@ -560,7 +560,7 @@ func (s *ProviderConnectionService) grantEverywhere(ctx context.Context, answer 
 // holder's own runs; sharing one across an organization's members
 // is exactly what the providers' consumer terms forbid.
 func (s *ProviderConnectionService) ConnectForOrg(ctx context.Context, actor *db.User, orgName string, in ConnectProviderInput) (ProviderConnectionResponse, error) {
-	if !s.SubscriptionConnectionsEnabled() {
+	if !s.SubscriptionConnectionsEnabled(ctx) {
 		return ProviderConnectionResponse{}, errSubscriptionConnectionsUnavailable()
 	}
 	if _, err := s.requireOrgRole(ctx, actor, orgName, true); err != nil {
@@ -749,7 +749,7 @@ func (s *ProviderConnectionService) SetRepositoryPreference(ctx context.Context,
 // account holder's own runs: organization rows (legacy) never resolve, and
 // org_only and platform_only keep the platform credentials.
 func (s *ProviderConnectionService) usesUserConnections(ctx context.Context, repositoryID int64) (bool, error) {
-	if !s.SubscriptionConnectionsEnabled() {
+	if !s.SubscriptionConnectionsEnabled(ctx) {
 		return false, nil
 	}
 	preference, err := s.q.GetRepositoryProviderConnectionPreference(ctx, repositoryID)
@@ -894,7 +894,7 @@ func (s *ProviderConnectionService) refreshClaimedRow(ctx context.Context, row d
 // RefreshDue leases and refreshes one due connection. It returns false when
 // nothing was due.
 func (s *ProviderConnectionService) RefreshDue(ctx context.Context) (bool, error) {
-	if !s.SubscriptionConnectionsEnabled() {
+	if !s.SubscriptionConnectionsEnabled(ctx) {
 		return false, nil
 	}
 	now := s.now()

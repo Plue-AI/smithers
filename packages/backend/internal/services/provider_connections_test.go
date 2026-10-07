@@ -654,7 +654,7 @@ func TestProviderConnectionOwnerSettingGatesExistingSignIn(t *testing.T) {
 	q.repos[2] = db.Repository{ID: 2, UserID: pgtype.Int8{Int64: 7, Valid: true}}
 	enabled := false
 	makeService := func() *ProviderConnectionService {
-		return NewProviderConnectionService(q, plainCodec{}, nil, WithSubscriptionConnectionsEnabled(true), WithSubscriptionConnectionsSetting(func() bool { return enabled }))
+		return NewProviderConnectionService(q, plainCodec{}, nil, WithSubscriptionConnectionsEnabled(true), WithSubscriptionConnectionsSetting(func(context.Context) bool { return enabled }))
 	}
 	svc := makeService()
 	actor := &db.User{ID: 7}

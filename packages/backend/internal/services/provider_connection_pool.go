@@ -51,6 +51,7 @@ type ProviderPoolPick struct {
 // The pool is the run user's own connections only: a subscription serves only
 // its account holder's own runs.
 func (s *ProviderConnectionService) PickForModelCall(ctx context.Context, userID, repositoryID int64, provider string, excluded []string) (ProviderPoolPick, error) {
+	s = s.withPoolAuthorityStore(ctx)
 	if s == nil || repositoryID <= 0 || userID <= 0 {
 		return ProviderPoolPick{}, nil
 	}
@@ -134,6 +135,7 @@ func (s *ProviderConnectionService) ServesPool(ctx context.Context, userID, repo
 // HasPool reports whether the run user has any connection for the provider,
 // limited or not; such a run's calls are served by the pool.
 func (s *ProviderConnectionService) HasPool(ctx context.Context, userID, repositoryID int64, provider string) (bool, error) {
+	s = s.withPoolAuthorityStore(ctx)
 	if s == nil || repositoryID <= 0 || userID <= 0 {
 		return false, nil
 	}
@@ -178,6 +180,7 @@ func (s *ProviderConnectionService) MarkRejected(ctx context.Context, connection
 // It fails when the connection has no refresh token or another refresh holds
 // the lease.
 func (s *ProviderConnectionService) ForceRefresh(ctx context.Context, connectionID string) error {
+	s = s.withPoolAuthorityStore(ctx)
 	row, err := s.q.GetProviderConnection(ctx, connectionID)
 	if err != nil {
 		return err
@@ -255,7 +258,7 @@ func (s *ProviderConnectionService) StartCodexDeviceLogin(ctx context.Context, a
 	if actor == nil {
 		return ProviderDeviceLoginResponse{}, pkgerrors.Unauthorized("authentication required")
 	}
-	if !s.SubscriptionConnectionsEnabled() {
+	if !s.SubscriptionConnectionsEnabled(ctx) {
 		return ProviderDeviceLoginResponse{}, errSubscriptionConnectionsUnavailable()
 	}
 	if s.device == nil {
@@ -295,7 +298,7 @@ func (s *ProviderConnectionService) PollCodexDeviceLogin(ctx context.Context, ac
 	if actor == nil {
 		return ProviderDeviceLoginResponse{}, pkgerrors.Unauthorized("authentication required")
 	}
-	if !s.SubscriptionConnectionsEnabled() {
+	if !s.SubscriptionConnectionsEnabled(ctx) {
 		return ProviderDeviceLoginResponse{}, errSubscriptionConnectionsUnavailable()
 	}
 	row, err := s.q.GetProviderConnectionDeviceLogin(ctx, db.GetProviderConnectionDeviceLoginParams{ID: strings.TrimSpace(id), UserID: actor.ID})

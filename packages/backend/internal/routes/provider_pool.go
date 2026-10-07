@@ -92,7 +92,7 @@ func (h *ProviderPoolHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		writeModelPoolError(w, http.StatusNotFound, "not_found_error", "Only POST "+route.path+" is served.", 0)
 		return
 	}
-	userID, repositoryID, ok := h.authorizePool(w, r)
+	r, userID, repositoryID, ok := h.authorizePool(w, r)
 	if !ok {
 		return
 	}
@@ -116,6 +116,7 @@ type providerPoolAuthorization struct {
 	method, path, query string
 	payload, headers    [sha256.Size]byte
 	user, repository    int64
+	authority           *services.ProviderPoolAuthority
 }
 
 // Authorize runs before install feature gates. The handler consumes the same
@@ -123,19 +124,49 @@ type providerPoolAuthorization struct {
 // cannot reuse it.
 func (h *ProviderPoolHandler) Authorize(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, bodyErr := h.readPoolBody(r)
-		bound := providerPoolAuthorization{handler: h, credential: middleware.AuthInfoFromContext(r.Context()), bearer: sha256.Sum256([]byte(poolBearer(r))), method: r.Method, path: r.URL.EscapedPath(), query: r.URL.RawQuery, payload: sha256.Sum256(body), headers: poolHeadersDigest(r.Header)}
-		user, repository, ok := h.authorizePool(w, r)
-		if !ok {
-			return
+		admitted, _, _, ok := h.authorizePool(w, r)
+		if ok {
+			next.ServeHTTP(w, admitted)
 		}
-		if bodyErr != nil {
-			writeModelPoolError(w, http.StatusRequestEntityTooLarge, "invalid_request_error", "Request body is too large.", 0)
-			return
-		}
-		bound.user, bound.repository = user, repository
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), providerPoolAuthorizationKey{}, bound)))
 	})
+}
+
+func (h *ProviderPoolHandler) bindPoolRequest(w http.ResponseWriter, r *http.Request) (*http.Request, bool) {
+	body, bodyErr := h.readPoolBody(r)
+	bound := providerPoolAuthorization{handler: h, credential: middleware.AuthInfoFromContext(r.Context()), bearer: sha256.Sum256([]byte(poolBearer(r))), method: r.Method, path: r.URL.EscapedPath(), query: r.URL.RawQuery, payload: sha256.Sum256(body), headers: poolHeadersDigest(r.Header)}
+	var user, repository int64
+	if scoped, ok := h.Scopes.(interface {
+		ScopeAuthorization(context.Context, string) (*services.ProviderPoolAuthority, error)
+	}); ok {
+		authority, err := scoped.ScopeAuthorization(r.Context(), poolBearer(r))
+		if err != nil {
+			var refusal *services.AccessError
+			if errors.As(err, &refusal) {
+				writeRouteError(w, r, err)
+			} else {
+				writeModelPoolError(w, http.StatusForbidden, "permission_error", "A pool credential is required.", 0)
+			}
+			return nil, false
+		}
+		if authority == nil {
+			writeRouteError(w, r, &services.AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"})
+			return nil, false
+		}
+		bound.authority = authority
+		user, repository = authority.Scope()
+	} else {
+		var ok bool
+		user, repository, ok = h.resolvePoolScope(w, r)
+		if !ok {
+			return nil, false
+		}
+	}
+	if bodyErr != nil {
+		writeModelPoolError(w, http.StatusRequestEntityTooLarge, "invalid_request_error", "Request body is too large.", 0)
+		return nil, false
+	}
+	bound.user, bound.repository = user, repository
+	return r.WithContext(context.WithValue(r.Context(), providerPoolAuthorizationKey{}, bound)), true
 }
 
 // readPoolBody snapshots the opaque provider payload without changing what the
@@ -163,15 +194,25 @@ func poolHeadersDigest(headers http.Header) [sha256.Size]byte {
 	return sha256.Sum256(encoded)
 }
 
-func (h *ProviderPoolHandler) authorizePool(w http.ResponseWriter, r *http.Request) (int64, int64, bool) {
+func (h *ProviderPoolHandler) authorizePool(w http.ResponseWriter, r *http.Request) (*http.Request, int64, int64, bool) {
 	if bound, ok := r.Context().Value(providerPoolAuthorizationKey{}).(providerPoolAuthorization); ok {
 		body, err := h.readPoolBody(r)
 		if err != nil || bound.payload != sha256.Sum256(body) || bound.headers != poolHeadersDigest(r.Header) || bound.query != r.URL.RawQuery || bound.handler != h || bound.credential != middleware.AuthInfoFromContext(r.Context()) || bound.bearer != sha256.Sum256([]byte(poolBearer(r))) || bound.method != r.Method || bound.path != r.URL.EscapedPath() {
 			writeRouteError(w, r, &services.AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"})
-			return 0, 0, false
+			return r, 0, 0, false
 		}
-		return bound.user, bound.repository, true
+		return r, bound.user, bound.repository, true
 	}
+	admitted, ok := h.bindPoolRequest(w, r)
+	if !ok {
+		return r, 0, 0, false
+	}
+	// Direct handler calls acquire the same binding. Check it after the
+	// decision so a resolver cannot substitute request data during admission.
+	return h.authorizePool(w, admitted)
+}
+
+func (h *ProviderPoolHandler) resolvePoolScope(w http.ResponseWriter, r *http.Request) (int64, int64, bool) {
 	if h.Scopes == nil {
 		writeModelPoolError(w, http.StatusForbidden, "permission_error", "A pool credential is required.", 0)
 		return 0, 0, false
@@ -199,19 +240,43 @@ func (h *ProviderPoolHandler) authorizePool(w http.ResponseWriter, r *http.Reque
 	return 0, 0, false
 }
 
+func (h *ProviderPoolHandler) withPoolAuthority(ctx context.Context, effect func(context.Context) error) error {
+	if bound, ok := ctx.Value(providerPoolAuthorizationKey{}).(providerPoolAuthorization); ok && bound.authority != nil {
+		return bound.authority.WithLiveAuthority(ctx, effect)
+	}
+	return effect(ctx)
+}
+
+func writePoolAuthorityError(w http.ResponseWriter, r *http.Request, err error) bool {
+	var refusal *services.AccessError
+	if errors.As(err, &refusal) {
+		writeRouteError(w, r, err)
+		return true
+	}
+	return false
+}
+
 // serveRoutes lists the routes with connected accounts in the caller's
 // scope, limited or not: {"routes":["anthropic","chatgpt"]}. A guest asks
 // when it resolves a seat, so an account connected after boot serves the next
 // seat without a restart.
 func (h *ProviderPoolHandler) serveRoutes(w http.ResponseWriter, r *http.Request) {
-	userID, repositoryID, ok := h.authorizePool(w, r)
+	r, userID, repositoryID, ok := h.authorizePool(w, r)
 	if !ok {
 		return
 	}
 	routes := []string{}
 	for name := range modelPoolRoutes {
-		has, err := h.Pool.HasPool(r.Context(), userID, repositoryID, modelPoolRoutes[name].pool)
+		var has bool
+		err := h.withPoolAuthority(r.Context(), func(ctx context.Context) error {
+			var err error
+			has, err = h.Pool.HasPool(ctx, userID, repositoryID, modelPoolRoutes[name].pool)
+			return err
+		})
 		if err != nil {
+			if writePoolAuthorityError(w, r, err) {
+				return
+			}
 			slog.Error("provider pool routes failed", "repository_id", repositoryID, "error", err)
 			writeModelPoolError(w, http.StatusBadGateway, "api_error", "Connected accounts are unavailable.", 0)
 			return
@@ -347,8 +412,15 @@ func (h *ProviderPoolHandler) servePool(w http.ResponseWriter, r *http.Request, 
 	var pick services.ProviderPoolPick
 	for attempt := 0; attempt < modelPoolMaxAttempts; attempt++ {
 		var err error
-		pick, err = h.Pool.PickForModelCall(ctx, userID, repositoryID, route.pool, tried)
+		err = h.withPoolAuthority(ctx, func(ctx context.Context) error {
+			var pickErr error
+			pick, pickErr = h.Pool.PickForModelCall(ctx, userID, repositoryID, route.pool, tried)
+			return pickErr
+		})
 		if err != nil {
+			if writePoolAuthorityError(w, r, err) {
+				return
+			}
 			slog.Error("provider pool pick failed", "provider", route.pool, "repository_id", repositoryID, "error", err)
 			writeModelPoolError(w, http.StatusBadGateway, "api_error", "Connected accounts are unavailable.", 0)
 			return
@@ -362,8 +434,19 @@ func (h *ProviderPoolHandler) servePool(w http.ResponseWriter, r *http.Request, 
 			break
 		}
 		tried = append(tried, conn.ConnectionID)
-		resp, err := h.sendPooled(ctx, provider, route, r.Header, body, conn)
+		var resp *http.Response
+		err = h.withPoolAuthority(ctx, func(ctx context.Context) error {
+			var sendErr error
+			resp, sendErr = h.sendPooled(ctx, provider, route, r.Header, body, conn)
+			return sendErr
+		})
 		if err != nil {
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+			if writePoolAuthorityError(w, r, err) {
+				return
+			}
 			// The request may have reached the provider; retrying could
 			// duplicate a generation.
 			writeModelPoolError(w, http.StatusBadGateway, "api_error", "Model provider unreachable.", 0)
@@ -388,10 +471,16 @@ func (h *ProviderPoolHandler) servePool(w http.ResponseWriter, r *http.Request, 
 			// A refused Codex token is refreshed once and the account tried
 			// again; an API key, or a token refused again after its refresh,
 			// needs a new sign-in.
-			if conn.HasRefreshToken && !refreshed[conn.ConnectionID] && h.Pool.ForceRefresh(context.WithoutCancel(ctx), conn.ConnectionID) == nil {
-				refreshed[conn.ConnectionID] = true
-				tried = tried[:len(tried)-1]
-				continue
+			if conn.HasRefreshToken && !refreshed[conn.ConnectionID] {
+				refreshErr := h.withPoolAuthority(ctx, func(ctx context.Context) error { return h.Pool.ForceRefresh(ctx, conn.ConnectionID) })
+				if writePoolAuthorityError(w, r, refreshErr) {
+					return
+				}
+				if refreshErr == nil {
+					refreshed[conn.ConnectionID] = true
+					tried = tried[:len(tried)-1]
+					continue
+				}
 			}
 			if err := h.Pool.MarkRejected(context.WithoutCancel(ctx), conn.ConnectionID, conn.RefreshGeneration, "provider refused the credential (401)"); err != nil {
 				slog.Warn("mark provider connection rejected failed", "connection_id", conn.ConnectionID, "error", err)

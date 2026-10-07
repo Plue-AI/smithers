@@ -136,27 +136,8 @@ func lockInstallCredential(ctx context.Context, tx pgx.Tx, info *middleware.Auth
 	if err != nil {
 		return ctx, 0, err
 	}
-	for _, query := range []struct {
-		sql       string
-		args      []any
-		writeOnly bool
-	}{
-		{`SELECT 1 FROM self_host_owners WHERE singleton FOR SHARE`, nil, false},
-		{`SELECT pg_advisory_xact_lock($1)`, []any{repository}, true},
-		{`SELECT 1 FROM repositories WHERE id=$1 FOR SHARE`, []any{repository}, false},
-		{`SELECT 1 FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, []any{repository}, true},
-		{`SELECT 1 FROM users WHERE id=$1 FOR SHARE`, []any{info.User.ID}, false},
-		{`SELECT 1 FROM auth_sessions WHERE session_key=$1 FOR SHARE`, []any{info.SessionHash}, false},
-		{`SELECT 1 FROM access_tokens WHERE id=$1 FOR SHARE`, []any{info.TokenID}, false},
-		{`SELECT 1 FROM collaborators WHERE repository_id=$1 AND user_id=$2 FOR SHARE`, []any{repository, info.User.ID}, false},
-		{`SELECT 1 FROM install_settings WHERE key IN ('github.repository','owner.access') ORDER BY key FOR SHARE`, nil, false},
-	} {
-		if !write && query.writeOnly {
-			continue
-		}
-		if _, err = tx.Exec(ctx, query.sql, query.args...); err != nil {
-			return ctx, 0, err
-		}
+	if err := lockInstallCredentialRows(ctx, tx, repository, info, write); err != nil {
+		return ctx, 0, err
 	}
 	// The install binding may have moved while we acquired its locks. Never
 	// authorize the new repository and then mutate the previously read one.
@@ -198,6 +179,35 @@ func lockInstallCredential(ctx context.Context, tx pgx.Tx, info *middleware.Auth
 		ctx = context.WithValue(ctx, installAuthorizationKey{}, binding)
 	}
 	return middleware.ContextWithAuthInfo(ctx, fresh), repository, nil
+}
+
+// lockInstallCredentialRows serializes credential and install membership changes.
+// Model-host credentials use the same membership rows and lock their own host
+// credential separately; this helper performs no authorization on its own.
+func lockInstallCredentialRows(ctx context.Context, tx pgx.Tx, repository int64, info *middleware.AuthInfo, write bool) error {
+	for _, query := range []struct {
+		sql       string
+		args      []any
+		writeOnly bool
+	}{
+		{`SELECT 1 FROM self_host_owners WHERE singleton FOR SHARE`, nil, false},
+		{`SELECT pg_advisory_xact_lock($1)`, []any{repository}, true},
+		{`SELECT 1 FROM repositories WHERE id=$1 FOR SHARE`, []any{repository}, false},
+		{`SELECT 1 FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, []any{repository}, true},
+		{`SELECT 1 FROM users WHERE id=$1 FOR SHARE`, []any{info.User.ID}, false},
+		{`SELECT 1 FROM auth_sessions WHERE session_key=$1 FOR SHARE`, []any{info.SessionHash}, false},
+		{`SELECT 1 FROM access_tokens WHERE id=$1 FOR SHARE`, []any{info.TokenID}, false},
+		{`SELECT 1 FROM collaborators WHERE repository_id=$1 AND user_id=$2 FOR SHARE`, []any{repository, info.User.ID}, false},
+		{`SELECT 1 FROM install_settings WHERE key IN ('github.repository','owner.access') ORDER BY key FOR SHARE`, nil, false},
+	} {
+		if !write && query.writeOnly {
+			continue
+		}
+		if _, err := tx.Exec(ctx, query.sql, query.args...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 var confirmationNamespace = uuid.MustParse("8dd896cf-923d-4510-b2c6-f499d9fb47bd")

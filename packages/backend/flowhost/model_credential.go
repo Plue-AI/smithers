@@ -58,8 +58,27 @@ type CredentialBinding struct {
 // VerifyModelCredential resolves a model credential to its binding. A
 // retired binding, or one whose control credential rotated, is refused.
 func VerifyModelCredential(ctx context.Context, pool *pgxpool.Pool, codec SecretCodec, token string) (CredentialBinding, error) {
+	if pool == nil {
+		return CredentialBinding{}, ErrModelCredentialInvalid
+	}
+	return verifyModelCredential(ctx, pool, codec, token, false)
+}
+
+// LockModelCredential verifies the same stored binding while holding a shared
+// row lock until the caller finishes the transaction. Retirement and rotation
+// cannot race an admitted outbound model call.
+func LockModelCredential(ctx context.Context, tx pgx.Tx, codec SecretCodec, token string) (CredentialBinding, error) {
+	if tx == nil {
+		return CredentialBinding{}, ErrModelCredentialInvalid
+	}
+	return verifyModelCredential(ctx, tx, codec, token, true)
+}
+
+func verifyModelCredential(ctx context.Context, query interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, codec SecretCodec, token string, lock bool) (CredentialBinding, error) {
 	rest, ok := strings.CutPrefix(token, ModelCredentialPrefix)
-	if !ok || pool == nil || codec == nil {
+	if !ok || codec == nil {
 		return CredentialBinding{}, ErrModelCredentialInvalid
 	}
 	id, mac, ok := strings.Cut(rest, ".")
@@ -76,8 +95,12 @@ func VerifyModelCredential(ctx context.Context, pool *pgxpool.Pool, codec Secret
 	var out CredentialBinding
 	var encrypted string
 	var credentialHash []byte
-	err := pool.QueryRow(ctx, `SELECT id::text, user_id, repository_id, workspace_id, credential_ciphertext, credential_hash
-		FROM flow_runtime_host_bindings WHERE id = $1::uuid AND state <> 'retired'`, id).
+	sql := `SELECT id::text, user_id, repository_id, workspace_id, credential_ciphertext, credential_hash
+        FROM flow_runtime_host_bindings WHERE id = $1::uuid AND state <> 'retired'`
+	if lock {
+		sql += " FOR SHARE"
+	}
+	err := query.QueryRow(ctx, sql, id).
 		Scan(&out.ID, &out.UserID, &out.RepositoryID, &out.WorkspaceID, &encrypted, &credentialHash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return CredentialBinding{}, ErrModelCredentialInvalid

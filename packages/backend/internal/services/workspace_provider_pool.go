@@ -164,7 +164,11 @@ func (p *ProviderPoolScopes) Scope(ctx context.Context, bearer string) (int64, i
 	return user, repository, err == nil
 }
 
-func (p *ProviderPoolScopes) ScopeDecision(ctx context.Context, bearer string) (userID, repositoryID int64, failure error) {
+func (p *ProviderPoolScopes) ScopeDecision(ctx context.Context, bearer string) (int64, int64, error) {
+	return p.scopeDecision(ctx, bearer, nil)
+}
+
+func (p *ProviderPoolScopes) scopeDecision(ctx context.Context, bearer string, bind func(InstallSubject, *flowhost.CredentialBinding)) (userID, repositoryID int64, failure error) {
 	if p == nil {
 		return 0, 0, errors.New("pool credential required")
 	}
@@ -178,8 +182,12 @@ func (p *ProviderPoolScopes) ScopeDecision(ctx context.Context, bearer string) (
 		}
 		if p.install {
 			verified := context.WithValue(ctx, verifiedInstallPoolHostKey{}, binding)
-			if _, err := Authorize(verified, db.New(p.pool), "workspace.provider-pool", InstallSubject{RepositoryID: binding.RepositoryID, WorkspaceID: binding.WorkspaceID}); err != nil {
+			subject := InstallSubject{RepositoryID: binding.RepositoryID, WorkspaceID: binding.WorkspaceID}
+			if _, err := Authorize(verified, db.New(p.pool), "workspace.provider-pool", subject); err != nil {
 				return 0, 0, err
+			}
+			if bind != nil {
+				bind(subject, &binding)
 			}
 		}
 		return binding.UserID, binding.RepositoryID, nil
@@ -198,6 +206,9 @@ func (p *ProviderPoolScopes) ScopeDecision(ctx context.Context, bearer string) (
 		decision, err := Authorize(ctx, q, "workspace.provider-pool", InstallSubject{RepositoryID: repositoryID, WorkspaceID: workspaceID})
 		if err != nil {
 			return 0, 0, err
+		}
+		if bind != nil {
+			bind(InstallSubject{RepositoryID: repositoryID, WorkspaceID: workspaceID}, nil)
 		}
 		return decision.UserID, repositoryID, nil
 	}

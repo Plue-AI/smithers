@@ -952,13 +952,13 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	)
 	if config.IsSingleOwner(cfg.Auth) {
 		services.WithProviderPoolOwner(func(ctx context.Context) (int64, error) {
-			owner, err := queries.GetSelfHostOwner(ctx)
+			owner, err := services.ProviderPoolQueries(ctx, queries).GetSelfHostOwner(ctx)
 			return owner.ID, err
 		})(providerConnectionService)
-		services.WithSubscriptionConnectionsSetting(func() bool {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		services.WithSubscriptionConnectionsSetting(func(ctx context.Context) bool {
+			ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			defer cancel()
-			enabled, err := services.InstallChatGPTEnabled(ctx, queries)
+			enabled, err := services.InstallChatGPTEnabled(ctx, services.ProviderPoolQueries(ctx, queries))
 			return err == nil && enabled
 		})(providerConnectionService)
 	}
