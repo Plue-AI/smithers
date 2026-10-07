@@ -433,12 +433,6 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 	}
 	// Removing the pinned-flow provider after admission holds the input;
 	// restoring it releases the same identity once through the real worker.
-	_, err = pool.Exec(ctx, `UPDATE mythical_items SET paused_at=NOW() WHERE id=$1`, item.ID)
-	require.NoError(t, err)
-	call("POST", `{"steer":"Retain while provider is absent"}`, "provider-held")
-	service.SetTodoFlow(nil)
-	_, err = pool.Exec(ctx, `UPDATE mythical_items SET paused_at=NULL WHERE id=$1`, item.ID)
-	require.NoError(t, err)
 	seen := func(text string) int {
 		receiver.mu.Lock()
 		defer receiver.mu.Unlock()
@@ -450,23 +444,60 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 		}
 		return count
 	}
-	require.Never(t, func() bool { return seen("Retain while provider is absent") > 0 }, 200*time.Millisecond, 10*time.Millisecond)
-	service.SetTodoFlow(func(ctx context.Context, repositoryID int64, sourceCommit string) (string, error) {
-		return services.ActiveFlowDigest(ctx, q, repositoryID, "todo")
-	})
-	require.Eventually(t, func() bool { return seen("Retain while provider is absent") == 1 }, 5*time.Second, 10*time.Millisecond)
-	call("POST", `{"steer":"Retain while provider is absent"}`, "provider-held")
-	require.Equal(t, 1, seen("Retain while provider is absent"))
+	for _, amendment := range []bool{false, true} {
+		text := fmt.Sprintf("Retain while provider is absent amendment=%t", amendment)
+		method, field := "POST", "steer"
+		if amendment {
+			method, field = "PATCH", "prompt"
+		}
+		body, err := json.Marshal(map[string]string{field: text})
+		require.NoError(t, err)
+		before, err := q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET paused_at=NOW() WHERE id=$1`, item.ID)
+		require.NoError(t, err)
+		accepted := call(method, string(body), text)
+		service.SetTodoFlow(nil)
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET paused_at=NULL WHERE id=$1`, item.ID)
+		require.NoError(t, err)
+		require.Never(t, func() bool { return seen(text) > 0 }, 200*time.Millisecond, 10*time.Millisecond)
+		service.SetTodoFlow(func(ctx context.Context, repositoryID int64, sourceCommit string) (string, error) {
+			return services.ActiveFlowDigest(ctx, q, repositoryID, "todo")
+		})
+		require.Eventually(t, func() bool { return seen(text) == 1 }, 5*time.Second, 10*time.Millisecond)
+		require.Equal(t, accepted, call(method, string(body), text))
+		require.Equal(t, 1, seen(text))
+		after, err := q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, err)
+		require.Equal(t, before.RequestRunID, after.RequestRunID)
+		require.Equal(t, before.WorkspaceID, after.WorkspaceID)
+		require.Equal(t, before.Attempt, after.Attempt)
+		var revisions []json.RawMessage
+		require.NoError(t, json.Unmarshal(after.Revisions, &revisions))
+		if amendment {
+			require.Len(t, revisions, 5, "provider restoration and replay retain one amendment revision")
+		} else {
+			require.JSONEq(t, string(before.Revisions), string(after.Revisions))
+		}
+	}
 	// A held input cannot borrow the runtime owner's authority after its
 	// admitting browser session or delegated token expires. Enter through the
 	// install HTTP doors and let the real worker recheck the stored credential.
-	for _, delegated := range []bool{false, true} {
-		text := fmt.Sprintf("Expired credential %t", delegated)
+	for _, input := range []struct {
+		delegated bool
+		amendment bool
+	}{{false, false}, {true, false}, {false, true}} {
+		delegated := input.delegated
+		text := fmt.Sprintf("Expired credential delegated=%t amendment=%t", delegated, input.amendment)
+		method, field := "POST", "steer"
+		if input.amendment {
+			method, field = "PATCH", "prompt"
+		}
 		_, err = pool.Exec(ctx, `UPDATE mythical_items SET paused_at=NOW() WHERE id=$1`, item.ID)
 		require.NoError(t, err)
-		body, err := json.Marshal(map[string]string{"steer": text})
+		body, err := json.Marshal(map[string]string{field: text})
 		require.NoError(t, err)
-		confirmationCall("POST", "/api/todos/1", string(body), text, delegated, 202)
+		confirmationCall(method, "/api/todos/1", string(body), text, delegated, 202)
 		if delegated {
 			_, err = pool.Exec(ctx, `UPDATE access_tokens SET expires_at=NOW()-interval '1 minute' WHERE token_hash=$1`, tokenHash)
 		} else {
@@ -488,6 +519,18 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 		var retained int
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items, jsonb_array_elements(checks->'steers') input WHERE mythical_items.id=$1 AND input->>'text'=$2`, item.ID, text).Scan(&retained))
 		require.Equal(t, 1, retained, "refusal preserves the admitted input")
+		if input.amendment {
+			current, err := q.GetMythicalItem(ctx, item.ID)
+			require.NoError(t, err)
+			var revisions []struct {
+				Text string `json:"text"`
+			}
+			require.NoError(t, json.Unmarshal(current.Revisions, &revisions))
+			require.Len(t, revisions, 6)
+			require.Equal(t, text, revisions[5].Text, "credential expiry cannot discard a committed amendment")
+			require.Equal(t, "pinned-run", current.RequestRunID)
+			require.EqualValues(t, 1, current.Attempt)
+		}
 		if delegated {
 			_, err = pool.Exec(ctx, `UPDATE access_tokens SET expires_at=NOW()+interval '1 hour' WHERE token_hash=$1`, tokenHash)
 		} else {
