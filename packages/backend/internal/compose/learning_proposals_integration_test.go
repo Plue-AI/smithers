@@ -211,6 +211,9 @@ func TestLearningProposalsComposedInstall(t *testing.T) {
 		require.ErrorIs(t, runtime.ProjectFlowRuntime(ctx, badUpdate), services.ErrLearningBinding)
 		_, err = pool.Exec(ctx, `UPDATE product_job_dispatches SET external_receipt=$2 WHERE operation_id=$1`, admitted.OperationID, saved)
 		require.NoError(t, err)
+		homeScope := jobs.RepositoryTodosScope(fmt.Sprint(repo))
+		beforeHome, err := store.Head(ctx, homeScope)
+		require.NoError(t, err)
 		// Fail after page and note insertion, before the receipt commits.
 		_, err = pool.Exec(ctx, `CREATE FUNCTION reject_learning_receipt() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.lessons IS NOT NULL THEN RAISE EXCEPTION 'injected receipt failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_learning_receipt BEFORE UPDATE ON mythical_items FOR EACH ROW EXECUTE FUNCTION reject_learning_receipt()`)
 		require.NoError(t, err)
@@ -228,6 +231,9 @@ func TestLearningProposalsComposedInstall(t *testing.T) {
 		afterFailure, err := store.Head(ctx, todoScope)
 		require.NoError(t, err)
 		require.Equal(t, beforeReceipt, afterFailure)
+		homeAfterFailure, err := store.Head(ctx, homeScope)
+		require.NoError(t, err)
+		require.Equal(t, beforeHome, homeAfterFailure)
 		// Several completion deliveries race the same immutable dispatch
 		// receipt. Only one may create lessons, a wiki revision and a fact.
 		var deliveries sync.WaitGroup
@@ -250,6 +256,9 @@ func TestLearningProposalsComposedInstall(t *testing.T) {
 		afterReceipt, err := store.Head(ctx, todoScope)
 		require.NoError(t, err)
 		require.Equal(t, beforeReceipt+1, afterReceipt)
+		afterHome, err := store.Head(ctx, homeScope)
+		require.NoError(t, err)
+		require.Equal(t, beforeHome+1, afterHome)
 		var fact []byte
 		require.NoError(t, pool.QueryRow(ctx, `SELECT data FROM product_job_events WHERE event_type='learning.receipt' AND data->>'itemId'=$1`, itemID).Scan(&fact))
 		require.Contains(t, string(fact), `"topics": ["todo:1", "home", "proposals"]`)
@@ -313,6 +322,36 @@ func TestLearningProposalsComposedInstall(t *testing.T) {
 				card := fact["Data"].(map[string]any)["card"].(map[string]any)
 				require.Equal(t, "merged", card["state"])
 				require.Equal(t, float64(2), card["lessons"])
+				break
+			}
+			// Home uses the shared repository cursor, including the same
+			// committed Learning fact. A new hub must resume it without
+			// inventing a second receipt or dropping the TODO projection.
+			require.NoError(t, conn.Write(readCtx, websocket.MessageText, []byte(fmt.Sprintf(`{"t":"sub","id":2,"topic":"home","cursor":%d}`, beforeHome))))
+			for {
+				_, raw, err := conn.Read(readCtx)
+				require.NoError(t, err)
+				var frame liveFrame
+				require.NoError(t, json.Unmarshal(raw, &frame))
+				if frame.ID != 2 {
+					continue
+				}
+				require.NotEqual(t, "err", frame.T, string(raw))
+				if frame.T != "delta" {
+					continue
+				}
+				require.NotNil(t, frame.Cursor)
+				require.Equal(t, afterHome, *frame.Cursor)
+				var fact struct {
+					Type string
+					Data struct {
+						Card map[string]any `json:"card"`
+					}
+				}
+				require.NoError(t, json.Unmarshal(frame.Data, &fact))
+				require.Equal(t, "todo.learning_receipt", fact.Type)
+				require.Equal(t, "merged", fact.Data.Card["state"])
+				require.Equal(t, float64(2), fact.Data.Card["lessons"])
 				break
 			}
 			conn.CloseNow()
