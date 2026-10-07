@@ -46,6 +46,18 @@ const DocsInputSchema = z.strictObject({
   mode: z.literal("read").optional()
 })
 
+/** An empty bundled page collection cannot produce a Docs card.
+ * @since 1.0.0
+ * @category errors
+ */
+export class DocsPagesEmpty extends Error {
+  readonly _tag = "DocsPagesEmpty"
+  constructor() {
+    super("The docs have no pages.")
+    this.name = "DocsPagesEmpty"
+  }
+}
+
 const pageList = (pages: ReadonlyArray<DocsPage>): string => pages.map((page) => page.slug).join(", ")
 
 /**
@@ -108,7 +120,7 @@ export const docsCard = (
   createdAt: number
 ): { readonly card: DocsPageCard; readonly value: string } => {
   const first = pages[0]
-  if (first === undefined) throw new Error("The docs have no pages.")
+  if (first === undefined) throw new DocsPagesEmpty()
   const [named = "", anchor] = (wanted?.trim() ?? "").split("#", 2)
   const slug = named === "" ? first.slug : named
   const requested = pages.find((page) => page.slug === slug)

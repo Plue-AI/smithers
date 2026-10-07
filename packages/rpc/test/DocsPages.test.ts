@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest"
 import { CardSchema } from "../src/Cards.ts"
-import { docsCard, type DocsPage, parseDocsArgs, readDocsPage, unknownDocsPage } from "../src/DocsPages.ts"
+import { docsCard, DocsPagesEmpty, type DocsPage, parseDocsArgs, readDocsPage, unknownDocsPage } from "../src/DocsPages.ts"
 
 // Literal pages in table-of-contents order.
 const PAGES: ReadonlyArray<DocsPage> = [
@@ -87,6 +87,9 @@ describe("docsCard", () => {
   })
 
   test("docs with no pages cannot embed one", () => {
-    expect(() => docsCard([], undefined, 0, 1)).toThrow("The docs have no pages.")
+    expect(() => docsCard([], undefined, 0, 1)).toThrow(DocsPagesEmpty)
+    try { docsCard([], undefined, 0, 1) } catch (error) {
+      expect(error).toMatchObject({ _tag: "DocsPagesEmpty", name: "DocsPagesEmpty", message: "The docs have no pages." })
+    }
   })
 })
