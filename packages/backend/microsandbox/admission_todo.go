@@ -56,8 +56,13 @@ func (r *Runtime) grantableAdmissionLocked() []*AdmissionRequest {
 		if strings.HasPrefix(row.Holder, "todo:") {
 			return true
 		}
-		if row.Class != "todo" || h.todoScope == "" {
+		if row.Class != "todo" {
 			return false
+		}
+		if h.todoScope == "" {
+			// Recovered workspace demand must wait for authoritative stack order
+			// on an install, even before the first engine/projection pass.
+			return r.todoParallelReader != nil
 		}
 		if !h.todoEligible {
 			return true
