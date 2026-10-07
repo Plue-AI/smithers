@@ -154,7 +154,9 @@ func TestSessionReservationSharesWakeAuthorityAndFencesTombstone(t *testing.T) {
 	defer tx.Rollback(context.Background())
 	_, err = tx.Exec(t.Context(), `SELECT id FROM workspaces WHERE id=$1 FOR SHARE`, row.ID)
 	require.NoError(t, err)
-	bounded, cancel := context.WithTimeout(t.Context(), time.Second)
+	// Keep the parent lock held throughout the reservation: an incompatible
+	// wake lock still times out, with room for database scheduler contention.
+	bounded, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	session, err := q.CreateWorkspaceSession(bounded, db.CreateWorkspaceSessionParams{WorkspaceID: row.ID, RepositoryID: repo, UserID: member, Cols: 80, Rows: 24})
 	require.NoError(t, err, "reservation must not await wake work")
