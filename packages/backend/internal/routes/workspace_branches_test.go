@@ -56,7 +56,7 @@ func TestBranchRoutesAnswerUnavailableWithoutTheirServices(t *testing.T) {
 	for _, h := range []*BranchHandler{{}, {Authorize: branchSignedIn}, {Reads: &branchRouteFixture{}}, {Forks: &branchRouteFixture{}},
 		{Authorize: branchSignedIn, Forks: &branchRouteFixture{}}} {
 		router := branchRouter(h)
-		for _, path := range []string{"/api/branches", "/api/branches/main"} {
+		for _, path := range []string{"/api/branches", "/api/branches/main", "/api/branches/main/activity"} {
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
 			require.Equal(t, 503, w.Code)

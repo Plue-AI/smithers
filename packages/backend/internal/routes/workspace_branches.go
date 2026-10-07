@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
@@ -64,6 +65,7 @@ type BranchHandler struct {
 	Adds      BranchAddService
 	Rebases   BranchRebaseService
 	Machines  BranchMachineControl
+	Activity  *LiveHandler
 }
 
 // RegisterBranchRoutes mounts /branches under the install's /api router;
@@ -80,6 +82,47 @@ func RegisterBranchRoutes(r chi.Router, h *BranchHandler) {
 	r.Post("/branches/{b}/archive", h.Archive)
 	r.Post("/branches/{b}", h.Answer)
 	r.Get("/branches/{b}/files", h.ListFiles)
+	r.Get("/branches/{b}/activity", h.GetActivity)
+}
+
+// GetActivity reads exactly the retained projection used by branch:<id>:activity.
+// Authorization resolves the branch before the shared topic's own access check.
+func (h *BranchHandler) GetActivity(w http.ResponseWriter, r *http.Request) {
+	repository, user, err := h.authorize(r, "branch.read", h.Reads != nil && h.Activity != nil && h.Activity.Topics != nil)
+	if err != nil {
+		writeBranchError(w, r, err)
+		return
+	}
+	branch, err := url.PathUnescape(chi.URLParam(r, "b"))
+	if err != nil {
+		writeBranchError(w, r, pkgerrors.BadRequest("Invalid branch"))
+		return
+	}
+	row, err := h.Reads.GetBranch(r.Context(), branch, repository, user)
+	if err != nil {
+		writeBranchError(w, r, err)
+		return
+	}
+	resolve, bound := h.Activity.Topics(r)
+	if resolve == nil || bound != repository {
+		writeBranchError(w, r, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "Branch activity unavailable"))
+		return
+	}
+	source, refusal := resolve(r.Context(), "branch:"+row.Machine.ID+":activity")
+	if refusal == live.Forbidden {
+		writeBranchError(w, r, pkgerrors.Forbidden("access denied"))
+		return
+	}
+	if refusal != "" || source.Log == nil || source.Log.Page == nil {
+		writeBranchError(w, r, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "Branch activity unavailable"))
+		return
+	}
+	page, err := source.Log.Page(r.Context(), nil)
+	if err != nil {
+		writeBranchError(w, r, err)
+		return
+	}
+	pkgerrors.WriteJSON(w, http.StatusOK, page.Data)
 }
 
 func (h *BranchHandler) Answer(w http.ResponseWriter, r *http.Request) {

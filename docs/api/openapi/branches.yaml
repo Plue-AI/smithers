@@ -244,6 +244,35 @@ paths:
           description: Stale target, unresolved conflict, settled wait, changed request, or publication recovering
         '503':
           description: Checkpoint rebase or required provider unavailable
+  /api/branches/{b}/activity:
+    get:
+      x-composition: install
+      summary: Read retained branch activity
+      description: >-
+        Returns the latest 200 activity entries in chronological order from the
+        same host projection as branch:{id}:activity. Never wakes the machine.
+      operationId: get_api_branches_activity
+      tags: [Branches]
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      parameters:
+        - name: b
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Retained activity
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {type: object}
+        '401': {description: Sign in required}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404': {description: Branch not found}
+        '503': {description: Activity provider unavailable}
   /api/branches/{b}/diff:
     get:
       x-composition: install
