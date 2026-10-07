@@ -24,8 +24,12 @@ type learningMachineFixture struct {
 	retireError error
 }
 
-func (f learningMachineFixture) EnsureLearningMachine(_ context.Context, repo, actor int64, item string, pin flowruntime.Pin) (flowruntime.Target, error) {
-	f.calls <- pin
+func (f learningMachineFixture) EnsureLearningMachine(ctx context.Context, repo, actor int64, item string, pin flowruntime.Pin) (flowruntime.Target, error) {
+	select {
+	case f.calls <- pin:
+	case <-ctx.Done():
+		return flowruntime.Target{}, ctx.Err()
+	}
 	return flowruntime.Target{TenantID: fmt.Sprintf("repository:%d", repo), PrincipalID: fmt.Sprintf("user:%d", actor), WorkspaceID: "isolated-learning-fixture", BindingKind: "learning", BindingID: item}, nil
 }
 
