@@ -182,6 +182,14 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string, poolCapacity ..
 	// of a typical repository (mvp.md J1.4); with TODO_RELAY_URL
 	// (distribution/fake-todo-provider.mjs) a real model then codes the TODO.
 	makefile := "build:\n\ttest -s JOURNEY.md\n\ntest:\n\tgrep -q . JOURNEY.md\n"
+	if enable == "SMITHERS_TODO_ISSUE_SECURITY_REHEARSAL" {
+		// This fixture uses synthetic canaries only. The upstream's existing
+		// message trace proves the actual quoted input, without auth headers.
+		t.Setenv("TRACE_MESSAGES", "1")
+		// Execute the assertion inside the branch's actual revision check,
+		// with a main-only secret enrolled through the owner API below.
+		makefile = "build:\n\ttest -s JOURNEY.md\n\ttest -z \"$$ISSUE_SECURITY_MAIN_ONLY\"\n\ntest:\n\tgrep -q . JOURNEY.md\n"
+	}
 	if os.Getenv("REHEARSAL_TEST_ONLY_REPOSITORY") == "1" {
 		makefile = "test:\n\tgrep -q . JOURNEY.md\n"
 	}

@@ -133,6 +133,7 @@ func (s *Server) UnlabelIssue(repo string, number int64, login, label string) in
 
 // CommentIssue posts body on repo#number as the person login, as on
 // github.com, and answers the comment's id; 0 when no such issue is open.
+// CommentIssue adds a person's issue or pull-request conversation comment.
 func (s *Server) CommentIssue(repo string, number int64, login, body string) int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
