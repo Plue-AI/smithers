@@ -557,6 +557,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		repoHostClient = repohost.NewClient(storageSetResolver, cfg.RepoHost.AuthToken, smithersMetrics)
 	}
 
+	if config.IsSingleOwner(cfg.Auth) {
+		stopObjects := bindMachineObjects(ctx, options.Machined, pool, repoHostClient)
+		defer stopObjects()
+	}
+
 	webhookDispatcher := webhooks.NewDispatcher(queries)
 	sshAuthzService := services.NewSSHAuthorizationService(queries)
 	// Every door in front of the repository engine applies the engine's own
