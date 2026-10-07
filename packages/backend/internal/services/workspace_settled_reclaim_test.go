@@ -64,7 +64,7 @@ func (r *settledReclaimRuntime) ReclaimWorkspaceDisk(ctx context.Context, id str
 	return r.err
 }
 func TestSettledDiskReclaimRequiresCurrentCompleteAuthority(t *testing.T) {
-	for _, name := range []string{"verified", "lock order", "unsettled", "busy", "unverified", "mismatch", "missing candidate", "wrong workspace", "resumed", "deleted", "head changed", "binding changed", "machine changed", "owner changed", "repository changed", "authority failure", "runtime failure", "cancelled", "reopened", "paused", "lane moved"} {
+	for _, name := range []string{"verified", "lock order", "unsettled", "busy", "unverified", "mismatch", "missing candidate", "wrong workspace", "resumed", "deleted", "head changed", "binding changed", "machine changed", "owner changed", "repository changed", "authority failure", "runtime failure", "cancelled", "reopened", "paused", "lane moved", "pending capture", "capture arrives"} {
 		t.Run(name, func(t *testing.T) {
 			row := db.Workspace{ID: "settled", UserID: 1, RepositoryID: 2, Status: "suspended", TargetBookmark: "todo", HeadCommitID: "pinned"}
 			f := &finalCaptureFixture{ids: []string{row.ID}, facts: WorkspaceDiskReclaimFacts{WorkspaceID: row.ID, CandidateHead: "pinned", CaptureHead: "pinned", Settled: true, Quiet: true, CaptureVerified: true}}
@@ -91,6 +91,10 @@ func TestSettledDiskReclaimRequiresCurrentCompleteAuthority(t *testing.T) {
 				f.entered = func() { row.DeletedAt.Valid = true }
 			case "head changed":
 				f.entered = func() { row.HeadCommitID = "new" }
+			case "pending capture":
+				row.CapturePending = []byte(`{"head":"unaccepted"}`)
+			case "capture arrives":
+				f.entered = func() { row.CapturePending = []byte(`{"head":"unaccepted"}`) }
 			case "binding changed":
 				f.entered = func() { row.TargetBookmark = "other" }
 			case "machine changed":
@@ -166,6 +170,20 @@ func TestWorkspaceCleanerReclaimsSettledDiskInsideCaptureExclusion(t *testing.T)
 	f := &finalCaptureFixture{ids: []string{row.ID}, facts: WorkspaceDiskReclaimFacts{WorkspaceID: row.ID, CandidateHead: "pinned", CaptureHead: "pinned", Settled: true, Quiet: true, CaptureVerified: true}}
 	r := &settledReclaimRuntime{authority: f}
 	service := NewWorkspaceService(q, WithWorkspaceRuntime(r), WithWorkspaceDiskReclaimAuthority(f))
+	// The hint and authority can both predate a durable pending snapshot.
+	// Even with a matching verified candidate, that work must survive the sweep.
+	f.entered = func() {
+		_, err := pool.Exec(context.Background(), `UPDATE workspaces SET capture_pending='{"head":"unaccepted"}' WHERE id=$1`, row.ID)
+		require.NoError(t, err)
+	}
+	require.NoError(t, service.CleanupStoppedAgentWorkspaceDisks(context.Background()))
+	require.Zero(t, r.calls)
+	retained, err := q.GetWorkspace(context.Background(), row.ID)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"head":"unaccepted"}`, string(retained.CapturePending))
+	f.entered = nil
+	_, err = pool.Exec(context.Background(), `UPDATE workspaces SET capture_pending=NULL WHERE id=$1`, row.ID)
+	require.NoError(t, err)
 	store := &darkCleanupStore{WorkspaceService: service, tick: make(chan struct{}, 1)}
 	cleaner := cleanup.NewWorkspaceCleaner(store, 50*time.Millisecond)
 	ctx, cancel := context.WithCancel(context.Background())

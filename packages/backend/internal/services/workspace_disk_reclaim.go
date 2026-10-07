@@ -103,7 +103,10 @@ func (s *WorkspaceService) reclaimAgentWorkspaceDisk(ctx context.Context, id str
 		default:
 			return nil
 		}
-		if current.ID != id || current.VmID != row.VmID || current.DeletedAt.Valid || (current.Status != "stopped" && current.Status != "suspended") ||
+		// A retained snapshot awaiting reconciliation is newer work, even if
+		// the last verified head still matches the settled candidate. Read this
+		// durable fence under exclusion; a stale authority receipt cannot erase it.
+		if len(current.CapturePending) != 0 || current.ID != id || current.VmID != row.VmID || current.DeletedAt.Valid || (current.Status != "stopped" && current.Status != "suspended") ||
 			current.UserID != row.UserID || current.RepositoryID != row.RepositoryID || current.TargetBookmark != row.TargetBookmark ||
 			facts.WorkspaceID != id || !facts.Settled || !facts.Quiet || !facts.CaptureVerified ||
 			facts.CandidateHead == "" || facts.CandidateHead != facts.CaptureHead || current.HeadCommitID != facts.CandidateHead {
