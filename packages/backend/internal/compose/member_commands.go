@@ -25,6 +25,20 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			info := middleware.AuthInfoFromContext(r.Context())
 			command := middleware.InstallMemberCommand(r.Method, r.URL.EscapedPath())
+			if r.Method == http.MethodPut && r.URL.Path == "/api/install" {
+				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 16<<10))
+				if err != nil {
+					writeConfirmationDispatchError(w, pkgerrors.BadRequest("invalid setup body"))
+					return
+				}
+				var settings map[string]json.RawMessage
+				if json.Unmarshal(raw, &settings) == nil {
+					if _, parallel := settings["parallel"]; parallel {
+						command = "settings.parallel"
+					}
+				}
+				r.Body = io.NopCloser(bytes.NewReader(raw))
+			}
 			if command == "order.ok" {
 				var ok bool
 				command, ok = routes.StackAttentionCommand(w, r)
