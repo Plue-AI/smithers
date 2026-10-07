@@ -766,3 +766,15 @@ func TestGuestArtifactManifestRefusesUnsafeModeAndArchitecture(t *testing.T) {
 		})
 	}
 }
+
+func TestTerminalDataArtifactsRefuseExecutableManifestMode(t *testing.T) {
+	for _, relative := range []string{"share/skills/smithers/SKILL.md"} {
+		t.Run(relative, func(t *testing.T) {
+			bundle, _ := approvedBundleFixture(t)
+			require.NoError(t, os.MkdirAll(filepath.Join(bundle, filepath.Dir(relative)), 0o755))
+			approveBundleFile(t, bundle, relative, []byte("approved data"), 0o755)
+			_, _, err := plantable(pinned(t, bundle), relative)
+			require.ErrorIs(t, err, ErrUnapprovedArtifact)
+		})
+	}
+}

@@ -121,6 +121,8 @@ func plantable(bundle *installbundle.Bundle, relative string) ([]byte, string, e
 	switch {
 	case !ok:
 		return nil, "", fmt.Errorf("%w: %s is not declared by the bundle manifest", ErrUnapprovedArtifact, relative)
+	case relative == "share/skills/smithers/SKILL.md" && entry.Mode != 0o644:
+		return nil, "", fmt.Errorf("%w: generated skill must have mode 0644", ErrUnapprovedArtifact)
 	case entry.Mode != managedArtifactMode && entry.Mode != 0o644:
 		return nil, "", fmt.Errorf("%w: %s must have mode 0644 or 0755", ErrUnapprovedArtifact, relative)
 	case len(parts) > managedArtifactDepth:
