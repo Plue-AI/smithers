@@ -139,6 +139,9 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | [T-RMT-03](T-RMT-03.md) | Remote `WorkspaceRuntime`: the pinned `msb` on a registered host over one install-dialed SSH connection | S1 | L | T-RMT-01, T-RMT-02, T-INS-02, T-FLW-01 | C-RMT-03 |
 | [T-RMT-04](T-RMT-04.md) | Summed capacity, placement at wake, sticky disks, pause, unreachable and Remove | S1 | M | T-RMT-03, T-MCH-01 | C-RMT-04, C-RMT-06 |
 | [T-RMT-05](T-RMT-05.md) | Cloud boxes as remote hosts | S2 | M | T-RMT-01, T-RMT-03, T-RMT-04 | C-RMT-05 |
+| **Fast model through the Smithers sign-in (mvp.md §12 item 5)** | | | | | |
+| [T-FM-01](T-FM-01.md) | Install: fast model through the Smithers sign-in, key fallback and quota display | S2 | M | T-INS-06, T-FLW-08 | C-FM-01 |
+| [T-FM-02](T-FM-02.md) | Smithers fast-model gateway: per-install auth, metering and a card-free daily quota | S2 | M | — | C-FM-02 |
 | **Live layer and machine daemon** | | | | | |
 | [T-COL-10](T-COL-10.md) | Every file write carries `base_digest`; a stale write is refused | S1, S2 | M | S1: T-FLW-01 · S2: T-COL-03 | S1: C-COL-01, C-J1-04 |
 | [T-COL-02](T-COL-02.md) | Live channel `/api/live`: topics, cursors, backpressure | S1 | M | T-STK-01, T-ACC-03, T-INS-04, T-FLW-01 | C-COL-02, C-J1-04, C-PERF-02 |

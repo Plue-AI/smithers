@@ -1,6 +1,6 @@
 # T-FLW-08 Restore owner model assignment (`ModelCards` slice); Agent card
 
-Stage S1 · Size M · Depends on first merge: T-INS-06, T-ACC-01 · rest of S1: T-ACC-03, T-ACC-04, T-FLW-02, T-FLW-03, T-COL-02, T-CAT-01, T-STK-02, T-INS-02, T-FLW-01 · Unblocks T-APP-03, T-APP-05, T-APP-07, T-APP-16, T-APP-17, T-REL-02, T-UI-02 · Issue: [#3454](https://github.com/smithersai/smithers/issues/3454)
+Stage S1 · Size M · Depends on first merge: T-INS-06, T-ACC-01 · rest of S1: T-ACC-03, T-ACC-04, T-FLW-02, T-FLW-03, T-COL-02, T-CAT-01, T-STK-02, T-INS-02, T-FLW-01 · Unblocks T-APP-03, T-APP-05, T-APP-07, T-APP-16, T-APP-17, T-FM-01, T-REL-02, T-UI-02 · Issue: [#3454](https://github.com/smithersai/smithers/issues/3454)
 Spec: spec.md §5.2 (install settings row), §6.3 `/api/agents`, §7.2 `agents`, §11.5a, §14.3, §15.1.5, §16.2 step 5 · Delta: delta.md §1 (Restore model configuration row) · Product: mvp.md §11 item 3, J11.4, §6.14, §6.5 Models, M-23, Appendix A `/agents`, `/agent <name>`, Appendix B.2 (`agent.list`, `model.*`)
 Ready: 2026-10-03 smithers-8a sha256:72d13fe4ab2d
 
