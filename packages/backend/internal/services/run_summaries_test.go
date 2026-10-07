@@ -130,6 +130,25 @@ func TestRunSummariesContractDurabilityAndFences(t *testing.T) {
 	admit(true)
 	require.Equal(t, 1, count("product_job_requests"))
 	require.Equal(t, 1, count("run_summaries"))
+	// Closing inspection before dispatch must not prevent same-revision backfill.
+	source.change(func(run *services.SummaryRun) { run.InspectionUntil = time.Now().Add(-time.Second) })
+	expiredCtx, expiredCancel := context.WithCancel(ctx)
+	defer expiredCancel()
+	expiredDone := make(chan error, 1)
+	go func() {
+		expiredDone <- jobsStore.RunWorker(expiredCtx, jobs.WorkerConfig{WorkerID: "run-summary-expired", Capacity: 1, Lease: time.Minute, PollInterval: time.Millisecond, Operations: []string{services.RunSummaryOperation}}, summaries.Handle)
+	}()
+	require.Eventually(t, func() bool {
+		var pending int
+		err := pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE state<>'completed'`).Scan(&pending)
+		return err == nil && pending == 0
+	}, 5*time.Second, 10*time.Millisecond)
+	expiredCancel()
+	require.NoError(t, <-expiredDone)
+	require.Zero(t, calls.Load())
+	source.change(func(run *services.SummaryRun) { run.InspectionUntil = time.Now().Add(time.Minute) })
+	admit(true)
+	require.Equal(t, 2, count("product_job_requests"), "reopening inspection backfills the unchanged source revision")
 	// The restarted durable worker uses the same sealed model handler as entries.
 	restarted, err := jobs.NewStore(pool)
 	require.NoError(t, err)
@@ -173,6 +192,14 @@ func TestRunSummariesContractDurabilityAndFences(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{"phase:0": "Checked retries", "cell:1": "rm -rf /; import repo/flow.ts; tool()"}, values)
 	require.NoError(t, tx.Commit(ctx))
+	// A member cannot forge a host summary job even with valid run facts.
+	forgedScope := jobs.Scope{TenantID: fmt.Sprint(repo.ID), PrincipalID: fmt.Sprint(owner)}
+	forged, err := jobsStore.Admit(ctx, jobs.Admission{Scope: forgedScope, Operation: services.RunSummaryOperation, RequestID: "forged-summary", Payload: json.RawMessage(fmt.Sprintf(`{"RunID":"run","RepositoryID":%d,"OwnerID":%d,"Attempt":1,"Revision":2,"Phase":0}`, repo.ID, owner)), EffectPolicy: jobs.EffectIdempotent})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		operation, err := jobsStore.Get(ctx, forgedScope, forged.OperationID)
+		return err == nil && operation.State == jobs.StateFailed
+	}, 5*time.Second, 10*time.Millisecond)
 	admit(true)
 	require.Equal(t, int64(2), calls.Load(), "a completed phase is not summarized twice")
 	var pending *time.Time
@@ -183,7 +210,7 @@ func TestRunSummariesContractDurabilityAndFences(t *testing.T) {
 	// Missing provider preserves labels and cannot enqueue a replacement framework.
 	summaries.RunSource = nil
 	admit(true)
-	require.Equal(t, 2, count("product_job_requests"))
+	require.Equal(t, 4, count("product_job_requests"))
 	require.Equal(t, 2, count("run_summaries"))
 	// A live phase uses the durable five-second debounce and thirty-second cap.
 	summaries.RunSource = source

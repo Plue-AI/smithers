@@ -8,5 +8,6 @@ CREATE TABLE run_summaries (
     rev bigint NOT NULL DEFAULT 0 CHECK (rev>=0),
     updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     pending_since timestamptz,
+    pending_key uuid,
     PRIMARY KEY (run_id, attempt, target)
 );

@@ -79,12 +79,18 @@ func (s *ConversationSummaries) Admit(ctx context.Context, tx pgx.Tx, turnID, pr
 }
 
 func (s *ConversationSummaries) Handle(ctx context.Context, lease *jobs.Lease) error {
+	if lease.Claim().Scope.PrincipalID != "conversation-summary" {
+		return lease.Fail(ctx, json.RawMessage(`{"status":"forbidden"}`))
+	}
 	if lease.Claim().Operation == RunSummaryOperation {
 		return s.handleRun(ctx, lease)
 	}
 	var input summarySource
 	if err := json.Unmarshal(lease.Claim().Payload, &input); err != nil {
 		return lease.Fail(ctx, json.RawMessage(`{"status":"invalid"}`))
+	}
+	if input.RepositoryID <= 0 || lease.Claim().Scope.TenantID != fmt.Sprint(input.RepositoryID) {
+		return lease.Fail(ctx, json.RawMessage(`{"status":"forbidden"}`))
 	}
 	settle := func() error { return lease.Complete(ctx, json.RawMessage(`{"status":"completed"}`)) }
 	if s.Model == nil {
@@ -206,7 +212,7 @@ func summaryOutput(stream io.Reader) (string, error) {
 		if err := json.Unmarshal(scanner.Bytes(), &frame); err != nil {
 			return "", err
 		}
-		if frame.Type == "delta" && frame.Kind == "text" && text.Len() < 4096 {
+		if frame.Type == "delta" && frame.Kind == "text" && text.Len() < 64<<10 {
 			text.WriteString(frame.Text)
 		}
 		if frame.Type == "done" {
