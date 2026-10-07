@@ -328,7 +328,15 @@ type InstallAuthorization struct {
 
 type installAuthorizationKey struct{}
 
+// InstallSubject is resolved from the route and checked against stored authority.
+// A system grant cannot be reused for a different workspace or repository.
+type InstallSubject struct {
+	RepositoryID int64
+	WorkspaceID  string
+}
+
 type boundInstallAuthorization struct {
+	subject    InstallSubject
 	command    string
 	credential *middleware.AuthInfo
 	decision   InstallAuthorization
@@ -336,8 +344,12 @@ type boundInstallAuthorization struct {
 
 // WithInstallAuthorization carries the decision made before dispatch. Binding
 // both command and principal prevents reuse after a dispatcher changes either.
-func WithInstallAuthorization(ctx context.Context, command string, decision InstallAuthorization) context.Context {
-	return context.WithValue(ctx, installAuthorizationKey{}, boundInstallAuthorization{command: command, credential: middleware.AuthInfoFromContext(ctx), decision: decision})
+func WithInstallAuthorization(ctx context.Context, command string, decision InstallAuthorization, subjects ...InstallSubject) context.Context {
+	var subject InstallSubject
+	if len(subjects) == 1 {
+		subject = subjects[0]
+	}
+	return context.WithValue(ctx, installAuthorizationKey{}, boundInstallAuthorization{subject: subject, command: command, credential: middleware.AuthInfoFromContext(ctx), decision: decision})
 }
 
 type authorizationObserverKey struct{}
@@ -358,15 +370,25 @@ func WithAuthorizationObserver(ctx context.Context, observe func(string)) contex
 // credential is refused. A person-only command checks the role first, so an
 // eligible delegated caller is told never and an ineligible one permission
 // (§5.2.1).
-func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAuthorization, error) {
+func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...InstallSubject) (InstallAuthorization, error) {
+	var subject InstallSubject
+	if len(subjects) > 1 {
+		return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Invalid subject"}
+	}
+	if len(subjects) == 1 {
+		subject = subjects[0]
+	}
 	if bound, ok := ctx.Value(installAuthorizationKey{}).(boundInstallAuthorization); ok {
 		info := middleware.AuthInfoFromContext(ctx)
-		if info != nil && info.User != nil && info == bound.credential && info.User.ID == bound.decision.UserID && command == bound.command {
+		if info != nil && info.User != nil && info == bound.credential && info.User.ID == bound.decision.UserID && command == bound.command && subject == bound.subject {
 			return bound.decision, nil
 		}
 	}
 	if observe, ok := ctx.Value(authorizationObserverKey{}).(func(string)); ok && observe != nil {
 		observe(command)
+	}
+	if command == "workspace.head" {
+		return authorizeWorkspaceHead(ctx, q, subject)
 	}
 	policy, ok := installCommandPolicy(command)
 	if !ok {
@@ -619,4 +641,46 @@ func InstallRoleOf(ctx context.Context, q *db.Queries, userID int64) (InstallRol
 		return InstallMember, nil
 	}
 	return "", nil
+}
+
+// authorizeWorkspaceHead reuses the machine credential's stored workspace
+// restriction. Person roles never grant this system action (spec 6.1.2d).
+func authorizeWorkspaceHead(ctx context.Context, q *db.Queries, subject InstallSubject) (InstallAuthorization, error) {
+	deny := func() (InstallAuthorization, error) {
+		return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Workspace credential required"}
+	}
+	info := middleware.AuthInfoFromContext(ctx)
+	if info == nil || info.User == nil {
+		return InstallAuthorization{}, &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Sign in"}
+	}
+	if q == nil || !info.IsTokenAuth || !info.TokenSystemIssued || info.CredentialKind() != middleware.CredentialMachine ||
+		!info.Scopes.Has(middleware.ScopeWriteRepository) || middleware.ParseTokenWorkspaceChildrenCredential(info.RawScopes) ||
+		subject.RepositoryID <= 0 || subject.WorkspaceID == "" || info.RepositoryRestriction() != subject.RepositoryID || !strings.EqualFold(info.WorkspaceRestriction(), subject.WorkspaceID) {
+		return deny()
+	}
+	workspace, err := q.GetWorkspace(ctx, subject.WorkspaceID)
+	if stdErrors.Is(err, pgx.ErrNoRows) {
+		return deny()
+	}
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if workspace.RepositoryID != subject.RepositoryID || !workspace.HeadPushTokenID.Valid || workspace.HeadPushTokenID.Int64 != info.TokenID || workspace.DeletedAt.Valid {
+		return deny()
+	}
+	repository, err := InstallRepositoryID(ctx, q)
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if repository != subject.RepositoryID {
+		return deny()
+	}
+	role, err := InstallRoleOf(ctx, q, info.User.ID)
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if role == "" {
+		return deny()
+	}
+	return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
 }

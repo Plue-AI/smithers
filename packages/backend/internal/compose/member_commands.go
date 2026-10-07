@@ -45,6 +45,23 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				r.Body = io.NopCloser(bytes.NewReader(raw))
 			}
 
+			if command == "workspace.head" {
+				subject := services.InstallSubject{}
+				if repo := middleware.RepoFromContext(r.Context()); repo != nil {
+					subject.RepositoryID = repo.ID
+				}
+				parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+				if len(parts) == 7 {
+					subject.WorkspaceID = parts[5]
+				}
+				decision, err := services.Authorize(r.Context(), queries, command, subject)
+				if err != nil {
+					writeConfirmationDispatchError(w, err)
+					return
+				}
+				next.ServeHTTP(w, r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, subject)))
+				return
+			}
 			if info != nil && info.User != nil && info.IsTokenAuth && command == "" {
 				// AuthLoader already confines these system grants to their exact
 				// workspace/child or verified coding batch before dispatch.

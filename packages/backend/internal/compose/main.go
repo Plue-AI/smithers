@@ -984,6 +984,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithWorkspaceProviderConnections(subscriptionPool),
 		services.WithWorkspaceProviderBootstrap(modelSeats, cfg.Sandbox.WorkspaceCodingDefaultModel),
 	)
+	if config.IsSingleOwner(cfg.Auth) {
+		services.WithWorkspaceInstallAuthorization(queries)(workspaceService)
+	}
 	branchMachines, err := composeBranchMachines(options.Options, options.topology.hosted(), identity.NewMemberBoundary(queries))
 	if err != nil {
 		return err

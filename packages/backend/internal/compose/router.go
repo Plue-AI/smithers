@@ -678,7 +678,11 @@ func buildRouter(
 			r.With(vmProvision...).Delete("/api/repos/{owner}/{repo}/workspaces/{id}", workspaceHandler.DeleteWorkspace)
 			r.With(vmProvision...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/suspend", workspaceHandler.SuspendWorkspace)
 			// RFD-004: guest head reports; a workspace-bound token reaches only this route.
-			r.With(vmProvision...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/head", workspaceHandler.ReportWorkspaceHead)
+			headReport := append([]func(http.Handler) http.Handler{}, vmProvision...)
+			if config.IsSingleOwner(cfg.Auth) {
+				headReport = append(headReport, memberCommands(queries))
+			}
+			r.With(headReport...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/head", workspaceHandler.ReportWorkspaceHead)
 			r.With(vmProvision...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/snapshot", workspaceHandler.CreateWorkspaceSnapshot)
 			r.With(vmProvision...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/coding/operations", workspaceHandler.ApplyCodingOperation)
 			if jjVCSHandler != nil {

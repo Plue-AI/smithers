@@ -509,6 +509,7 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "flow.run.stop", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:workflows/|actions/)?runs/[0-9]+/cancel$`)},
 	{http.MethodPost, "runs.rerun", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:workflows/|actions/)?runs/[0-9]+/rerun$`)},
 	{http.MethodPost, "runs.resume", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:workflows/)?runs/[0-9]+/resume$`)},
+	{http.MethodPost, "workspace.head", workspaceHeadReportPath},
 	// Retained review doors use their literal catalog actions; the service
 	// consumes the same bound decision when entered from this router.
 	{http.MethodPost, "review.ack", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/landings/[0-9]+/threads/[0-9]+/ack$`)},

@@ -730,6 +730,12 @@ type ReportWorkspaceHeadInput struct {
 // ReportWorkspaceHead stores the head and emits it on the workspace status
 // stream as {"status", "head", "ahead", "behind"}.
 func (s *WorkspaceService) ReportWorkspaceHead(ctx context.Context, input ReportWorkspaceHeadInput) (WorkspaceResponse, error) {
+	if s.installQueries != nil {
+		if _, err := Authorize(ctx, s.installQueries, "workspace.head", InstallSubject{RepositoryID: input.RepositoryID, WorkspaceID: strings.TrimSpace(input.WorkspaceID)}); err != nil {
+			return WorkspaceResponse{}, err
+		}
+	}
+
 	if s.q == nil {
 		return WorkspaceResponse{}, pkgerrors.Internal("workspace store unavailable")
 	}
