@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -32,7 +33,10 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx := t.Context()
 	q := db.New(pool)
+	busCtx, stopBus := context.WithCancel(ctx)
+	defer stopBus()
 	bus := revocation.NewBus(pool, q)
+	require.NoError(t, bus.Start(busCtx))
 	routes.SetRevocationSource(bus)
 	t.Cleanup(func() { routes.SetRevocationSource(nil) })
 	digest := sha256.Sum256([]byte("fixture-person"))
@@ -148,6 +152,11 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 						wiki["detail"] = "Page review failed"
 					}
 					expected = append(expected, wiki)
+				}
+				// A shared snapshot may initially retain the previous committed state.
+				// Require convergence within readCtx rather than assuming the first frame is fresh.
+				if !reflect.DeepEqual(expected, home.Runs) {
+					continue
 				}
 				require.Equal(t, expected, home.Runs)
 				break
