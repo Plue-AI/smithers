@@ -175,7 +175,10 @@ func lockInstallCredential(ctx context.Context, tx pgx.Tx, info *middleware.Auth
 		// The captured decision belongs to this exact membership role. A
 		// demotion after admission must not retain an Owner command grant;
 		// even promotions need a fresh request instead of rebinding authority.
-		if role == "" || role != binding.decision.Role {
+		if role == "" {
+			return ctx, 0, &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Sign in again"}
+		}
+		if role != binding.decision.Role {
 			return ctx, 0, confirmationPermission()
 		}
 		binding.credential = fresh

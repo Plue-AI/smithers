@@ -740,11 +740,15 @@ func TestBoundInstallCredentialReloadPostgres(t *testing.T) {
 			fresh, repository, err := lockInstallWriteCredential(ctx, tx, info)
 			if scenario != "same grant" {
 				require.Error(t, err)
-				if scenario == "changed role" {
+				if scenario == "changed role" || scenario == "removed member" {
 					var refusal *AccessError
 					require.ErrorAs(t, err, &refusal)
-					require.Equal(t, 403, refusal.Status)
-					require.Equal(t, "permission", refusal.Code)
+					status, code := 403, "permission"
+					if scenario == "removed member" {
+						status, code = 401, "unauthenticated"
+					}
+					require.Equal(t, status, refusal.Status)
+					require.Equal(t, code, refusal.Code)
 				}
 				return
 			}

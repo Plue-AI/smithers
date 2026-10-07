@@ -139,7 +139,7 @@ func TestInstallLabelMutationsPostgres(t *testing.T) {
 		require.Equal(t, description, stored.Description)
 		call(t, "DELETE", fmt.Sprintf("/labels/%d", row.ID), ownerCookie, "", "", "labels.delete", 204)
 	})
-	for _, mode := range []string{"payload substitution", "expired after admission", "demoted after admission"} {
+	for _, mode := range []string{"payload substitution", "expired after admission", "demoted after admission", "removed after admission"} {
 		t.Run(mode, func(t *testing.T) {
 			probe := &labelAdmissionProbe{LabelRouteService: service, replace: mode == "payload substitution"}
 			status := 403
@@ -150,15 +150,25 @@ func TestInstallLabelMutationsPostgres(t *testing.T) {
 					require.NoError(t, err)
 				}
 			}
-			if mode == "demoted after admission" {
+			if mode == "demoted after admission" || mode == "removed after admission" {
+				if mode == "removed after admission" {
+					status = 401
+				}
 				probe.before = func() {
-					_, err := f.pool.Exec(f.ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, f.repoID, f.owner.ID)
-					require.NoError(t, err)
-					_, err = f.pool.Exec(f.ctx, `UPDATE self_host_owners SET user_id=$1 WHERE singleton`, f.other.ID)
+					expectedRole := services.InstallMember
+					if mode == "demoted after admission" {
+						_, err := f.pool.Exec(f.ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, f.repoID, f.owner.ID)
+						require.NoError(t, err)
+					} else {
+						expectedRole = ""
+						_, err := f.pool.Exec(f.ctx, `DELETE FROM collaborators WHERE repository_id=$1 AND user_id=$2`, f.repoID, f.owner.ID)
+						require.NoError(t, err)
+					}
+					_, err := f.pool.Exec(f.ctx, `UPDATE self_host_owners SET user_id=$1 WHERE singleton`, f.other.ID)
 					require.NoError(t, err)
 					role, err := services.InstallRoleOf(f.ctx, f.q, f.owner.ID)
 					require.NoError(t, err)
-					require.Equal(t, services.InstallMember, role)
+					require.Equal(t, expectedRole, role)
 				}
 			}
 			handler.Service = probe
