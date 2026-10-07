@@ -130,7 +130,25 @@ func TestTodoReadsDecodeTheCard(t *testing.T) {
 	client, _ = server(t, http.StatusOK, "application/json", card)
 	one, err := client.GetAPITodosN(context.Background(), 1)
 	require.NoError(t, err)
-	assert.Equal(t, "One", one.Title)
+	assert.JSONEq(t, card, string(one))
+	var decoded apiclient.TodoCard
+	require.NoError(t, json.Unmarshal(one, &decoded))
+	assert.Equal(t, "One", decoded.Title)
+}
+
+func TestTodoReadPreservesScopedResponse(t *testing.T) {
+	body := `{"n":7,"title":"Scoped","state":"queued","attempt":2,"generation":3,"workspace":"branch-7","run":"run-7","base":"base-7"}`
+	client, requests := server(t, http.StatusOK, "application/json", body)
+	raw, err := client.GetAPITodosN(context.Background(), 7)
+	require.NoError(t, err)
+	assert.JSONEq(t, body, string(raw))
+	var decoded apiclient.TodoSystemRead
+	require.NoError(t, json.Unmarshal(raw, &decoded))
+	assert.Equal(t, int64(3), decoded.Generation)
+	assert.Equal(t, "branch-7", decoded.Workspace)
+	assert.Equal(t, "run-7", decoded.Run)
+	assert.Equal(t, "base-7", decoded.Base)
+	assert.Equal(t, "/api/todos/7", (*requests)[0].RawPath)
 }
 
 func TestUntypedBodyIsOptional(t *testing.T) {
