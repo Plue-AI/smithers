@@ -71,17 +71,42 @@ func backupName(m Manifest) string {
 // WriteManifest inventories a quiescent staging directory and publishes it only
 // after MANIFEST.json and the directory are synced. Callers own the freeze.
 func WriteManifest(dir string, m Manifest) error {
-	if !strings.HasPrefix(filepath.Base(dir), ".partial-") {
-		return &Error{Code: Partial, Path: dir}
+	parent, err := openSnapshot(filepath.Dir(dir))
+	if err != nil {
+		return err
+	}
+	defer parent.Close()
+	return writeManifestRoot(parent, filepath.Base(dir), m)
+}
+
+func writeManifestRoot(parent *os.Root, name string, m Manifest) error {
+	if !strings.HasPrefix(name, ".partial-") || !safePath(name) {
+		return &Error{Code: Partial, Path: name}
 	}
 	if err := metadata(m); err != nil {
 		return err
 	}
-	files, err := inventory(dir)
+	info, err := parent.Lstat(name)
 	if err != nil {
 		return err
 	}
-	if _, err = os.Lstat(filepath.Join(dir, "MANIFEST.json")); !os.IsNotExist(err) {
+	if !info.IsDir() {
+		return &Error{Code: UnsafePath, Path: name}
+	}
+	root, err := parent.OpenRoot(name)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	pinned, err := root.Stat(".")
+	if err != nil || !os.SameFile(info, pinned) {
+		return &Error{Code: UnsafePath, Path: name}
+	}
+	files, err := inventoryRoot(root)
+	if err != nil {
+		return err
+	}
+	if _, err = root.Lstat("MANIFEST.json"); !os.IsNotExist(err) {
 		return &Error{Code: ExtraFile, Path: "MANIFEST.json"}
 	}
 	if !hasDump(files) {
@@ -92,35 +117,38 @@ func WriteManifest(dir string, m Manifest) error {
 	if err != nil {
 		return err
 	}
-	final := filepath.Join(filepath.Dir(dir), backupName(m))
-	if _, err = os.Lstat(final); !os.IsNotExist(err) {
-		return &Error{Code: ExtraFile, Path: filepath.Base(final)}
+	final := backupName(m)
+	if _, err = parent.Lstat(final); !os.IsNotExist(err) {
+		return &Error{Code: ExtraFile, Path: final}
 	}
-	if err = os.Chmod(dir, 0700); err != nil {
+	directory, err := root.Open(".")
+	if err != nil {
 		return err
 	}
-	f, err := os.OpenFile(filepath.Join(dir, "MANIFEST.json"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	defer directory.Close()
+	if err = directory.Chmod(0700); err != nil {
+		return err
+	}
+	f, err := root.OpenFile("MANIFEST.json", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		return err
 	}
 	_, err = f.Write(data)
-	if err == nil {
-		err = f.Sync()
-	}
-	closeErr := f.Close()
+	err = errors.Join(err, f.Sync(), f.Close())
 	if err != nil {
 		return err
 	}
-	if closeErr != nil {
-		return closeErr
-	}
-	if err = syncDir(dir); err != nil {
+	if err = directory.Sync(); err != nil {
 		return err
 	}
-	if err = os.Rename(dir, final); err != nil {
+	if err = parent.Rename(name, final); err != nil {
 		return err
 	}
-	return syncDir(filepath.Dir(final))
+	ancestor, err := parent.Open(".")
+	if err != nil {
+		return err
+	}
+	return errors.Join(ancestor.Sync(), ancestor.Close())
 }
 
 func syncDir(dir string) error {
@@ -354,15 +382,19 @@ func verifiedManifest(dir string, installed *Version) (Manifest, error) {
 		return m, err
 	}
 	defer root.Close()
-	m, err = readManifestRoot(root)
+	return verifyPinnedManifest(root, filepath.Base(dir), installed)
+}
+
+func verifyPinnedManifest(root *os.Root, name string, installed *Version) (Manifest, error) {
+	m, err := readManifestRoot(root)
 	if err != nil {
 		return m, err
 	}
 	if err := metadata(m); err != nil {
 		return m, err
 	}
-	if filepath.Base(dir) != backupName(m) {
-		return m, &Error{Code: WrongVersion, Path: filepath.Base(dir)}
+	if name != backupName(m) {
+		return m, &Error{Code: WrongVersion, Path: name}
 	}
 	if installed == nil {
 		installed = &Version{Release: m.Version, Schema: m.SchemaVersion, PostgresMajor: m.PostgresMajor}
@@ -422,7 +454,17 @@ func Prune(dir string, keep int) error {
 	if keep < 0 {
 		return errors.New("negative retention")
 	}
-	entries, err := os.ReadDir(dir)
+	root, err := openSnapshot(dir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	directory, err := root.Open(".")
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	entries, err := directory.ReadDir(-1)
 	if err != nil {
 		return err
 	}
@@ -435,8 +477,12 @@ func Prune(dir string, keep int) error {
 		if !e.IsDir() || strings.HasPrefix(e.Name(), ".partial-") || strings.HasPrefix(e.Name(), "pre-restore-") {
 			continue
 		}
-		path := filepath.Join(dir, e.Name())
-		m, err := readManifest(path)
+		child, err := root.OpenRoot(e.Name())
+		if err != nil {
+			continue
+		}
+		m, err := readManifestRoot(child)
+		child.Close()
 		if err != nil {
 			continue
 		}
@@ -452,11 +498,11 @@ func Prune(dir string, keep int) error {
 		return backups[i].at.After(backups[j].at)
 	})
 	for i := keep; i < len(backups); i++ {
-		if err = os.RemoveAll(filepath.Join(dir, backups[i].name)); err != nil {
+		if err = root.RemoveAll(backups[i].name); err != nil {
 			return err
 		}
 	}
-	return syncDir(dir)
+	return directory.Sync()
 }
 
 // FreeSpaceFloor reserves 40 GiB on the state volume.
@@ -481,3 +527,13 @@ type Cloner interface {
 type RefusingCloner struct{}
 
 func (RefusingCloner) Clone(string, string) error { return &Error{Code: CloneUnavailable} }
+
+// DirectoryCloner accepts pinned ancestors so renamed STATE paths cannot redirect
+// a maintenance capture. Names are single directory entries, never paths.
+type DirectoryCloner interface {
+	CloneAt(source *os.File, name string, destination *os.File, target string) error
+}
+
+func (RefusingCloner) CloneAt(*os.File, string, *os.File, string) error {
+	return &Error{Code: CloneUnavailable}
+}
