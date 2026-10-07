@@ -14,6 +14,7 @@ export class HomeViewFailure extends Data.TaggedError("HomeViewFailure")<{ reado
 /** Private main-conversation preferences; shared Home facts never contain these. */
 export function createHomeViewSeam(options: {
   readonly live?: LiveTopics
+  readonly serializeView?: (work: () => Promise<void>) => Promise<void>
   readonly http: SeamFetch
   readonly owner: () => string | undefined
   readonly subscribeOwner: (notify: () => void) => () => void
@@ -131,7 +132,7 @@ export function createHomeViewSeam(options: {
       changes.menu = patch.menu ?? null
     }
     const revision = generation, principal = owner
-    pending = pending.then(async () => {
+    pending = pending.then(() => (options.serializeView ?? (work => work()))(async () => {
       if (!valid(revision, principal)) return
       const body = await request()
       if (!valid(revision, principal)) return
@@ -142,7 +143,7 @@ export function createHomeViewSeam(options: {
       const result = await request({ method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...saved, ...(patch.last_seen_seq === undefined ? {} : { last_seen_seq: Math.max(typeof saved.last_seen_seq === "number" ? saved.last_seen_seq : 0, patch.last_seen_seq) }), home: { ...home, ...changes } }) })
       if (valid(revision, principal)) apply(result)
-    }).catch(error => { if (valid(revision, principal)) options.report(error) })
+    })).catch(error => { if (valid(revision, principal)) options.report(error) })
   }
   const dispose = () => {
     if (disposed) return

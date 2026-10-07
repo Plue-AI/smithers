@@ -71,6 +71,11 @@ export function createSharedConversationSeam(ctx: ControllerContext, live?: Live
   let stopView: (() => void) | undefined
   let reading = false, again = false, viewRevision = 0
   let saving = Promise.resolve()
+  const serializeView = (work: () => Promise<void>) => {
+    const result = saving.then(work)
+    saving = result.catch(() => {})
+    return result
+  }
   let scrollTimer: ReturnType<typeof setTimeout> | undefined
   const listeners = new Set<() => void>()
   const publish = (next: ConversationSnapshot) => { snapshot = next; for (const listener of listeners) listener() }
@@ -124,7 +129,7 @@ export function createSharedConversationSeam(ctx: ControllerContext, live?: Live
     const revision = generation, at = branch
     if (!key || !valid(revision)) return Promise.resolve()
     ++viewRevision
-    saving = saving.then(async () => {
+    return serializeView(async () => {
       if (!valid(revision)) return
       const path = `${ctx.baseUrl}/api/conversations/${encodeURIComponent(at)}/view-state`
       const response = await ctx.boundedFetch(path, { credentials: "same-origin" })
@@ -136,7 +141,6 @@ export function createSharedConversationSeam(ctx: ControllerContext, live?: Live
       const view = ConversationViewSchema.parse(await written.json())
       if (valid(revision)) publish({ ...snapshot, view, queue: snapshot.queue, error: snapshot.error === "View unavailable" ? undefined : snapshot.error })
     }).catch(error => { if (valid(revision)) { publish({ ...snapshot, error: "View unavailable" }); ctx.failures.report("seam.failure", error, "conversation-view") } })
-    return saving
   }
   let timelineVisible = false
   let leaseTimer: ReturnType<typeof setTimeout> | undefined
@@ -172,7 +176,7 @@ export function createSharedConversationSeam(ctx: ControllerContext, live?: Live
     if (next === key) return
     if (scrollTimer !== undefined) clearTimeout(scrollTimer)
     scrollTimer = undefined
-    key = next; branch = nextBranch; ++generation; ++viewRevision; saving = Promise.resolve(); stopLive?.(); stopView?.(); stopLive = undefined; stopView = undefined; publish({})
+    key = next; branch = nextBranch; ++generation; ++viewRevision; stopLive?.(); stopView?.(); stopLive = undefined; stopView = undefined; publish({})
     if (!key) return
     // The HTTP response and authorized topic use the same SharedEntries projection.
     // Topic invalidations trigger a fresh bounded read, including reconnects.
@@ -191,6 +195,6 @@ export function createSharedConversationSeam(ctx: ControllerContext, live?: Live
   const dispose = () => { if (typeof document !== "undefined") document.removeEventListener("visibilitychange", visibilityChanged); if (leaseTimer !== undefined) clearTimeout(leaseTimer); if (scrollTimer !== undefined) clearTimeout(scrollTimer); disposed = true; ++generation; stopLive?.(); stopView?.(); sessions.unsubscribe(); identities.unsubscribe(); stopAccount(); listeners.clear() }
   ctx.onDispose(dispose)
   change()
-  return { get: () => snapshot, subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } }, read, saveView, setTimelineVisible, rememberScroll, dispose }
+  return { get: () => snapshot, subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } }, read, saveView, serializeView, setTimelineVisible, rememberScroll, dispose }
 }
 export type SharedConversationSeam = ReturnType<typeof createSharedConversationSeam>
