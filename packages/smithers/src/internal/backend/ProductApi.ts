@@ -1821,35 +1821,6 @@ export interface GetApiBranchesBFilesInput {
 export const getApiBranchesBFiles = (transport: Transport, input: GetApiBranchesBFilesInput): Promise<GetApiBranchesBFilesResponse> =>
   transport.request("GET", `/api/branches/${segment(input.path.b)}/files${search({ path: input.query?.path })}`) as Promise<GetApiBranchesBFilesResponse>
 
-export type PostApiBranchesBLspBody = {
-  language: "typescript"
-}
-
-export type PostApiBranchesBLspResponse = {
-  id: string
-  kind: "exec"
-  language: string
-  branch: string
-}
-
-export interface PostApiBranchesBLspInput {
-  readonly path: { readonly b: string }
-  readonly body: PostApiBranchesBLspBody
-}
-
-/** POST /api/branches/{b}/lsp: Admit a File card code-intelligence session */
-export const postApiBranchesBLsp = (transport: Transport, input: PostApiBranchesBLspInput): Promise<PostApiBranchesBLspResponse> =>
-  transport.request("POST", `/api/branches/${segment(input.path.b)}/lsp`, input.body) as Promise<PostApiBranchesBLspResponse>
-
-export interface GetApiBranchesBLspIdInput {
-  readonly path: { readonly b: string; readonly id: string }
-  readonly query?: { readonly language?: string; readonly ticket?: string }
-}
-
-/** GET /api/branches/{b}/lsp/{id}: Relay a File card language server */
-export const getApiBranchesBLspId = (transport: Transport, input: GetApiBranchesBLspIdInput): Promise<void> =>
-  transport.request("GET", `/api/branches/${segment(input.path.b)}/lsp/${segment(input.path.id)}${search({ language: input.query?.language, ticket: input.query?.ticket })}`).then(() => undefined)
-
 export type PostApiBranchesBArchiveResponse = Branch
 
 export interface PostApiBranchesBArchiveInput {
@@ -4586,6 +4557,16 @@ export interface GetApiReposOwnerRepoWorkspaceSessionsIdInput {
 /** GET /api/repos/{owner}/{repo}/workspace/sessions/{id} */
 export const getApiReposOwnerRepoWorkspaceSessionsId = (transport: Transport, input: GetApiReposOwnerRepoWorkspaceSessionsIdInput): Promise<GetApiReposOwnerRepoWorkspaceSessionsIdResponse> =>
   transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspace/sessions/${segment(input.path.id)}`) as Promise<GetApiReposOwnerRepoWorkspaceSessionsIdResponse>
+
+export type GetApiReposOwnerRepoWorkspaceSessionsIdLspResponse = AnyJSON
+
+export interface GetApiReposOwnerRepoWorkspaceSessionsIdLspInput {
+  readonly path: { readonly owner: string; readonly repo: string; readonly id: string }
+}
+
+/** GET /api/repos/{owner}/{repo}/workspace/sessions/{id}/lsp */
+export const getApiReposOwnerRepoWorkspaceSessionsIdLsp = (transport: Transport, input: GetApiReposOwnerRepoWorkspaceSessionsIdLspInput): Promise<GetApiReposOwnerRepoWorkspaceSessionsIdLspResponse> =>
+  transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspace/sessions/${segment(input.path.id)}/lsp`) as Promise<GetApiReposOwnerRepoWorkspaceSessionsIdLspResponse>
 
 export type GetApiReposOwnerRepoWorkspaceSessionsIdSshResponse = AnyJSON
 

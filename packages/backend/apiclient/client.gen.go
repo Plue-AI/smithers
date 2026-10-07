@@ -1986,25 +1986,6 @@ type GetAPIBranchesBFilesResponseItem struct {
 	Size *int64 `json:"size,omitempty"`
 }
 
-// PostAPIBranchesBLspBody is generated from docs/api/openapi.yaml.
-type PostAPIBranchesBLspBody struct {
-	Language string `json:"language"`
-}
-
-// PostAPIBranchesBLspResponse is generated from docs/api/openapi.yaml.
-type PostAPIBranchesBLspResponse struct {
-	ID       string `json:"id"`
-	Kind     string `json:"kind"`
-	Language string `json:"language"`
-	Branch   string `json:"branch"`
-}
-
-// GetAPIBranchesBLspIDParams is the query of GET /api/branches/{b}/lsp/{id}.
-type GetAPIBranchesBLspIDParams struct {
-	Language *string
-	Ticket   *string
-}
-
 // PostAPIConfirmationsIDApproveResponse is generated from docs/api/openapi.yaml.
 type PostAPIConfirmationsIDApproveResponse struct {
 	ID    string `json:"id"`
@@ -3179,25 +3160,6 @@ func (c *Client) GetAPIBranchesBFiles(ctx context.Context, b string, params GetA
 	var out []GetAPIBranchesBFilesResponseItem
 	err := c.do(ctx, "GET", "/api/branches/"+url.PathEscape(b)+"/files", query, nil, &out)
 	return out, err
-}
-
-// PostAPIBranchesBLsp calls POST /api/branches/{b}/lsp.
-func (c *Client) PostAPIBranchesBLsp(ctx context.Context, b string, body PostAPIBranchesBLspBody) (PostAPIBranchesBLspResponse, error) {
-	var out PostAPIBranchesBLspResponse
-	err := c.do(ctx, "POST", "/api/branches/"+url.PathEscape(b)+"/lsp", nil, body, &out)
-	return out, err
-}
-
-// GetAPIBranchesBLspID calls GET /api/branches/{b}/lsp/{id}.
-func (c *Client) GetAPIBranchesBLspID(ctx context.Context, b string, id string, params GetAPIBranchesBLspIDParams) error {
-	query := url.Values{}
-	if params.Language != nil {
-		query.Set("language", *params.Language)
-	}
-	if params.Ticket != nil {
-		query.Set("ticket", *params.Ticket)
-	}
-	return c.do(ctx, "GET", "/api/branches/"+url.PathEscape(b)+"/lsp/"+url.PathEscape(id), query, nil, nil)
 }
 
 // PostAPIBranchesBArchive calls POST /api/branches/{b}/archive.
@@ -5130,6 +5092,13 @@ func (c *Client) PostAPIReposOwnerRepoWorkspaceSessions(ctx context.Context, own
 func (c *Client) GetAPIReposOwnerRepoWorkspaceSessionsID(ctx context.Context, owner string, repo string, id string) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/workspace/sessions/"+url.PathEscape(id), nil, nil, &out)
+	return out, err
+}
+
+// GetAPIReposOwnerRepoWorkspaceSessionsIDLsp calls GET /api/repos/{owner}/{repo}/workspace/sessions/{id}/lsp.
+func (c *Client) GetAPIReposOwnerRepoWorkspaceSessionsIDLsp(ctx context.Context, owner string, repo string, id string) (AnyJSON, error) {
+	var out AnyJSON
+	err := c.do(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/workspace/sessions/"+url.PathEscape(id)+"/lsp", nil, nil, &out)
 	return out, err
 }
 
