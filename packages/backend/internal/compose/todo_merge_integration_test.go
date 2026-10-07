@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -36,6 +38,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	smitherscrypto "github.com/smithersai/smithers/packages/backend/internal/pkg/crypto"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
@@ -76,22 +79,34 @@ func (noPolicy) GetFileAtCommit(context.Context, string, string, string, string)
 // credential is refused before any TODO is read, and none records an
 // approval, a fence or a GitHub merge.
 func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
-	testTodoMergeComposedRouteBoundaryPostgres(t, false, false)
+	testTodoMergeComposedRouteBoundaryPostgres(t, false, false, false)
 }
 
 func TestConfirmationMergeAdmissionComposedPostgres(t *testing.T) {
-	testTodoMergeComposedRouteBoundaryPostgres(t, true, false)
+	testTodoMergeComposedRouteBoundaryPostgres(t, true, false, false)
 }
 
 var confirmationMergeInstallations atomic.Int64
 
 func TestTodoPullLabelApprovalComposedPostgres(t *testing.T) {
-	testTodoMergeComposedRouteBoundaryPostgres(t, false, true)
+	testTodoMergeComposedRouteBoundaryPostgres(t, false, true, false)
 }
 
-func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, labelApproval bool) {
+func TestCatalogMergeBrowserPostgres(t *testing.T) {
+	if os.Getenv("SMITHERS_CATALOG_MERGE_BROWSER") != "1" {
+		t.Skip("set SMITHERS_CATALOG_MERGE_BROWSER=1 for the composed browser journey")
+	}
+	testTodoMergeComposedRouteBoundaryPostgres(t, true, false, true)
+}
+
+func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, labelApproval, browserJourney bool) {
 	installation := int64(98300) + confirmationMergeInstallations.Add(1)
-	pool, _ := postgresfixture.NewProductDatabase(t)
+	var pool *pgxpool.Pool
+	if browserJourney {
+		_, _, pool = splitProcessDatabase(t)
+	} else {
+		pool, _ = postgresfixture.NewProductDatabase(t)
+	}
 	ctx := context.Background()
 	q := db.New(pool)
 	var mirror *pollingGitHost
@@ -241,6 +256,30 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, lab
 	cfg.Server.AllowedOrigins = []string{origin}
 	issuer := &outboundProxyIssuer{}
 	server.Config.Handler = todoMergeComposeRouter(cfg, q, pool, &routes.MythicalHandler{Service: mythical}, &routes.GitHubProxyHandler{Service: services.NewGitHubProxyService(issuer)})
+	if browserJourney {
+		encrypted, err := smitherscrypto.Encrypt(smitherscrypto.DeriveKey("split-process-session-secret"), []byte("ghu_githubfake_owner"))
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `UPDATE oauth_accounts SET access_token_encrypted=$1 WHERE user_id=$2`, encrypted, owner.ID)
+		require.NoError(t, err)
+		t.Setenv("SMITHERS_PUBLIC_URL", origin)
+		t.Setenv("SMITHERS_SERVER_ALLOWED_ORIGINS", origin)
+		t.Setenv("SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY", "merge-route-sealing-key")
+		api := startSplitProcess(t, Options{ChatHost: unusedChatHost{}})
+		spa, err := filepath.Abs("../../../../apps/app/dist")
+		require.NoError(t, err)
+		_, err = os.Stat(filepath.Join(spa, "index.html"))
+		require.NoError(t, err, "build apps/app before the browser journey")
+		files := http.FileServer(http.Dir(spa))
+		server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				api.ServeHTTP(w, r)
+			} else if filepath.Ext(r.URL.Path) == "" {
+				http.ServeFile(w, r, filepath.Join(spa, "index.html"))
+			} else {
+				files.ServeHTTP(w, r)
+			}
+		})
+	}
 	server.Start()
 	t.Cleanup(server.Close)
 
@@ -309,6 +348,22 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, lab
 		replayCode, replay := invoke(argv...)
 		require.Equal(t, 3, replayCode)
 		require.Equal(t, receipt, replay, "repeated CLI invocation keeps the same private confirmation")
+		if browserJourney {
+			command := exec.CommandContext(t.Context(), "bun", "e2e/real/catalog-merge.browser.ts")
+			command.Dir = "../../../../apps/app"
+			command.Env = append(os.Environ(), "SMITHERS_CATALOG_ORIGIN="+origin, "SMITHERS_CATALOG_CONFIRMATION="+id)
+			output, err := command.CombinedOutput()
+			t.Log(string(output))
+			require.NoError(t, err)
+			row, err := q.GetMemberConfirmation(ctx, id, owner.ID)
+			require.NoError(t, err)
+			require.Equal(t, "rejected", row.State)
+			require.Empty(t, item().PendingOp)
+			for _, write := range fake.Writes() {
+				require.False(t, write.Method == "PUT" && strings.HasSuffix(write.Path, "/merge"))
+			}
+			return
+		}
 		status := 0
 		require.Empty(t, item().PendingOp)
 		status, receipt = call("POST", "/api/confirmations/"+id+"/approve", "", pat, "agent-press", `{}`)
