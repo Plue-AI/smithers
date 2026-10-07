@@ -29,12 +29,23 @@ type workspaceSnapshotStore interface {
 
 // Metadata and snapshot reads share the credential's branch restriction.
 // Snapshot verification belongs only to reads that consume retained objects.
-func authorizeWorkspaceReadBinding(ctx context.Context, row db.Workspace) error {
-	if delegation, delegated := middleware.AuthInfoFromContext(ctx).Delegation(); delegated && (delegation.Branch == "" || !strings.EqualFold(delegation.Branch, row.ID)) {
+func (s *WorkspaceService) authorizeWorkspaceReadBinding(ctx context.Context, row db.Workspace) error {
+	if delegation, delegated := middleware.AuthInfoFromContext(ctx).Delegation(); delegated {
 		if subject, ok := ctx.Value(branchConfirmationSnapshotKey{}).(string); ok && subject == row.ID && delegation.Branch == "" && delegation.Profile == "" {
 			return nil
 		}
-		return pkgerrors.Forbidden("credential is bound to another branch")
+		if s.installQueries != nil && delegation.Profile == "" && delegation.Branch == "" {
+			// A full-scope delegated reader is a catalog actor, not a
+			// branch-restricted terminal. Reuse its actual command decision.
+			_, err := Authorize(ctx, s.installQueries, "branch.read")
+			return err
+		}
+		if delegation.Branch == "" || !strings.EqualFold(delegation.Branch, row.ID) {
+			if s.installQueries != nil {
+				return confirmationPermission()
+			}
+			return pkgerrors.Forbidden("credential is bound to another branch")
+		}
 	}
 	return nil
 }
@@ -44,7 +55,7 @@ func (s *WorkspaceService) workspaceSnapshotTarget(ctx context.Context, id strin
 	if err != nil {
 		return row, "", "", "", false, err
 	}
-	if err := authorizeWorkspaceReadBinding(ctx, row); err != nil {
+	if err := s.authorizeWorkspaceReadBinding(ctx, row); err != nil {
 		return row, "", "", "", false, err
 	}
 	if row.Status != "suspended" && row.Status != "stopped" && (row.HeadCommitID == "" || capturedForOperation(ctx, row.ID) != row.HeadCommitID) {
@@ -272,7 +283,7 @@ func (l *workspaceMythicalLanes) PrepareCapturedHead(ctx context.Context, id str
 	if err != nil {
 		return err
 	}
-	if err := authorizeWorkspaceReadBinding(ctx, row); err != nil {
+	if err := s.authorizeWorkspaceReadBinding(ctx, row); err != nil {
 		return err
 	}
 	if row.Status == "stopped" || row.Status == "suspended" {

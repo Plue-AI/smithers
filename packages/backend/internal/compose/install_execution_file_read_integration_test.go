@@ -95,19 +95,72 @@ func TestInstallExecutionFileReadsPostgres(t *testing.T) {
 	scopes := "read:repository," + middleware.RepositoryRestrictionScope(f.repoID) + "," + middleware.LandingWorkspaceScope(ws.ID) + "," + middleware.AgentSessionRestrictionScope("file-run")
 	own := f.token(f.owner, "file-own-run", scopes, true)
 	machine := f.token(f.owner, "file-machine", "read:repository,"+middleware.RepositoryRestrictionScope(f.repoID)+","+middleware.WorkspaceRestrictionScope(ws.ID), true)
+	// Members and delegated readers use the same branch-read command for
+	// retained workspace metadata and files, without waking the machine.
+	memberCookie := "retained-workspace-member"
+	memberSum := sha256.Sum256([]byte(memberCookie))
+	_, err = f.q.CreateAuthSession(f.ctx, db.CreateAuthSessionParams{UserID: f.other.ID, Username: f.other.Username, SessionKey: hex.EncodeToString(memberSum[:]), ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
+	for _, reader := range []struct{ name, token string }{
+		{"member", ""},
+		{"external", f.token(f.other, "retained-workspace-external", "read:repository,via:codex", true)},
+		{"app", f.token(f.other, "retained-workspace-app", "read:repository,via:smithers,terminal-session:"+liveAppTurnCredentialFixture(t, f.pool, f.other.ID)+"/1", true)},
+	} {
+		for _, suffix := range []string{"", "/files", "/files/content?path=history.txt"} {
+			t.Run(reader.name+" retained workspace"+suffix, func(t *testing.T) {
+				req := httptest.NewRequest("GET", cfg.Server.PublicURL+"/api/repos/gate-owner/app/workspaces/"+ws.ID+suffix, nil)
+				if reader.token == "" {
+					req.AddCookie(&http.Cookie{Name: "session", Value: memberCookie})
+				} else {
+					req.Header.Set("Authorization", "Bearer "+reader.token)
+				}
+				var decisions []string
+				req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) { decisions = append(decisions, command) }))
+				out := httptest.NewRecorder()
+				router.ServeHTTP(out, req)
+				require.Equal(t, 200, out.Code, out.Body.String())
+				require.Equal(t, []string{"branch.read"}, decisions)
+				if suffix == "" {
+					require.Contains(t, out.Body.String(), ws.ID)
+				} else {
+					require.Contains(t, out.Body.String(), "history.txt")
+				}
+				stored, err := f.q.GetWorkspace(f.ctx, ws.ID)
+				require.NoError(t, err)
+				require.Equal(t, "suspended", stored.Status)
+			})
+		}
+	}
 	otherRun := f.token(f.owner, "file-other-run", strings.Replace(scopes, "file-run", "other-run", 1), true)
 	unbound := f.token(f.owner, "file-unbound", "read:repository", true)
 	children := f.token(f.owner, "file-children", "read:repository,read:workspace,write:workspace,"+middleware.RepositoryRestrictionScope(f.repoID)+","+middleware.WorkspaceRestrictionScope(ws.ID)+","+middleware.WorkspaceChildrenCredentialScope(), true)
 	otherWS, err := f.q.CreateWorkspace(f.ctx, db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: machineOwner, Name: "other-files", Kind: "container", Status: "suspended", TargetBookmark: "smithers/other"})
 	require.NoError(t, err)
+	foreignDelegate := f.token(f.other, "file-foreign-delegation", "read:repository,via:codex,branch:"+otherWS.ID, true)
+	readUser := f.token(f.other, "file-insufficient-scope", "read:user,via:codex", true)
+	for _, suffix := range []string{"", "/files", "/files/content?path=history.txt"} {
+		t.Run("delegation bound elsewhere"+suffix, func(t *testing.T) {
+			before := store.reads.Load()
+			req := httptest.NewRequest("GET", cfg.Server.PublicURL+"/api/repos/gate-owner/app/workspaces/"+ws.ID+suffix, nil)
+			req.Header.Set("Authorization", "Bearer "+foreignDelegate)
+			var decisions []string
+			req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) { decisions = append(decisions, command) }))
+			out := httptest.NewRecorder()
+			router.ServeHTTP(out, req)
+			require.Equal(t, 403, out.Code, out.Body.String())
+			require.Contains(t, out.Body.String(), `"code":"permission"`)
+			require.Equal(t, []string{"branch.read"}, decisions)
+			require.Equal(t, before, store.reads.Load())
+		})
+	}
 	for _, actor := range []struct {
 		name, token string
 		status      int
-	}{{"run", own, 200}, {"machine", machine, 200}, {"other run", otherRun, 403}, {"unbound", unbound, 403}, {"children", children, 403}} {
+	}{{"run", own, 200}, {"machine", machine, 200}, {"other run", otherRun, 403}, {"unbound", unbound, 403}, {"children", children, 403}, {"insufficient scope", readUser, 403}} {
 		for _, door := range []struct {
 			name, path string
 			own        bool
-		}{{"list", "/api/repos/gate-owner/app/workspaces/" + ws.ID + "/files", true}, {"file", "/api/repos/gate-owner/app/workspaces/" + ws.ID + "/files/content?path=history.txt", true}, {"other", "/api/repos/gate-owner/app/workspaces/" + otherWS.ID + "/files/content?path=history.txt", false}, {"branch card", "/api/branches/" + ws.ID, false}, {"main file", "/api/branches/main/files/history.txt", false}} {
+		}{{"list", "/api/repos/gate-owner/app/workspaces/" + ws.ID + "/files", true}, {"file", "/api/repos/gate-owner/app/workspaces/" + ws.ID + "/files/content?path=history.txt", true}, {"other", "/api/repos/gate-owner/app/workspaces/" + otherWS.ID + "/files/content?path=history.txt", false}, {"retained branch", "/api/repos/gate-owner/app/workspaces/" + ws.ID, false}, {"branch card", "/api/branches/" + ws.ID, false}, {"main file", "/api/branches/main/files/history.txt", false}} {
 			t.Run(actor.name+"/"+door.name, func(t *testing.T) {
 				status := actor.status
 				if !door.own {

@@ -1060,6 +1060,12 @@ func (s *WorkspaceService) GetWorkspace(ctx context.Context, workspaceID string,
 		return WorkspaceResponse{}, err
 	}
 
+	if s.installQueries != nil {
+		if err := s.authorizeWorkspaceReadBinding(ctx, workspace); err != nil {
+			return WorkspaceResponse{}, err
+		}
+	}
+
 	return s.toWorkspaceResponse(workspace), nil
 }
 

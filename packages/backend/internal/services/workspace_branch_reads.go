@@ -159,7 +159,7 @@ func (s *WorkspaceService) GetBranch(ctx context.Context, branch string, reposit
 	}
 	// Machine state and queue position are metadata reads. They must
 	// remain visible when retained file objects are unavailable.
-	if err := authorizeWorkspaceReadBinding(ctx, row); err != nil {
+	if err := s.authorizeWorkspaceReadBinding(ctx, row); err != nil {
 		return BranchMachineResponse{}, err
 	}
 	projected, err := s.GetWorkspace(ctx, row.ID, repositoryID, userID)
