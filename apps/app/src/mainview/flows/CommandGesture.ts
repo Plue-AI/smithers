@@ -1,4 +1,4 @@
-import { reserveCopyText } from "@smthrs/ui"
+import { reserveCopyText } from "@smthrs/ui/copy"
 import { Context } from "effect"
 
 /** Local text is prepared synchronously; publication still waits for command admission. */
