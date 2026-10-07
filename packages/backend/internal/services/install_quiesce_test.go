@@ -255,9 +255,58 @@ func TestQuiesceBarrierChecksDoNotFreeze(t *testing.T) {
 			calls := []string{}
 			steps := quiesceSteps{calls: &calls}
 			service := &InstallQuiesce{Gate: &QuiesceGate{Store: store, StateDir: t.TempDir()}, Machines: steps, Admission: steps, Host: steps, Barriers: barrierFixtures(&calls, "check-"+ticket)}
+			if err := service.Check(t.Context()); err == nil || store.updates != 0 || len(calls) != 0 {
+				t.Fatalf("preflight mutated: err=%v writes=%d calls=%v", err, store.updates, calls)
+			}
 			_, err := service.Freeze(t.Context(), "backup", 7)
 			if err == nil || store.updates != 0 || len(calls) != 0 {
 				t.Fatalf("preflight mutated: err=%v writes=%d calls=%v", err, store.updates, calls)
+			}
+		})
+	}
+}
+
+type quiesceCheckFixture struct {
+	quiesceBarrierFixture
+	check func(context.Context) error
+}
+
+func (s quiesceCheckFixture) Check(ctx context.Context) error { return s.check(ctx) }
+
+func TestQuiesceCheckCancellationPreservesRefusals(t *testing.T) {
+	for _, tc := range []struct {
+		ticket string
+		checks int
+	}{{"T-STK-04", 1}, {"T-SEC-01", 6}} {
+		t.Run(tc.ticket, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			store := &memoryFreeze{}
+			calls := []string{}
+			steps := quiesceSteps{calls: &calls}
+			service := NewInstallQuiesce(&QuiesceGate{Store: store, StateDir: t.TempDir()})
+			service.Machines, service.Admission, service.Host = steps, steps, steps
+			service.Barriers = map[string]QuiesceBarrier{}
+			checks := 0
+			refusal := errors.New("merge in flight")
+			for _, ticket := range []string{"T-STK-04", "T-COL-08", "T-COL-09", "T-GH-09", "T-TRM-07", "T-SEC-01"} {
+				service.Barriers[ticket] = quiesceCheckFixture{
+					quiesceBarrierFixture: quiesceBarrierFixture{calls: &calls, ticket: ticket},
+					check: func(context.Context) error {
+						checks++
+						if ticket == tc.ticket {
+							cancel()
+						}
+						return refusal
+					},
+				}
+			}
+			err := service.Check(ctx)
+			if !errors.Is(err, context.Canceled) || !errors.Is(err, refusal) || checks != tc.checks || store.updates != 0 || len(calls) != 0 {
+				t.Fatalf("cancelled preflight: err=%v checks=%d writes=%d calls=%v", err, checks, store.updates, calls)
+			}
+			if _, err := service.Freeze(ctx, "backup", 7); !errors.Is(err, context.Canceled) || checks != tc.checks || store.updates != 0 {
+				t.Fatalf("cancelled freeze: err=%v checks=%d writes=%d", err, checks, store.updates)
 			}
 		})
 	}
