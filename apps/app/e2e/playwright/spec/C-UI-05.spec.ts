@@ -13,6 +13,8 @@ test("C-UI-05: held admission leaves chat usable, and retry follows committed li
   let model = { ...structuredClone(fixtures.queued.model), n: 12, title: "Held launch" }
   const requests: string[] = []
   const retries: string[] = []
+  let releaseRetry!: () => void
+  const retryHold = new Promise<void>(resolve => { releaseRetry = resolve })
   let active: { id: number; send: (raw: string) => void } | undefined
   const publish = (next: typeof model) => {
     model = next; head++
@@ -31,6 +33,7 @@ test("C-UI-05: held admission leaves chat usable, and retry follows committed li
       const body = route.request().postDataJSON()
       expect(body.op).toBe("retry")
       retries.push(route.request().headers()["idempotency-key"]!)
+      await retryHold
       await route.fulfill({ status: 202, json: { state: "accepted", n: 12, attempt: 2 } })
     } else await route.fulfill({ json: model })
   })
@@ -72,9 +75,31 @@ test("C-UI-05: held admission leaves chat usable, and retry follows committed li
   await expect(card).toContainText("Waiting for a machine")
   publish({ ...structuredClone(fixtures.failed.model), n: 12, title: "Held launch" })
   await expect(card).toContainText("Failed")
-  await say(page, "/todo.retry T12")
-  await say(page, "/todo.retry T12")
+  // Dispatch two composer submissions in one browser turn so machine load
+  // between Playwright calls cannot stretch the specified 100 ms interval.
+  const retryInterval = await page.getByTestId("composer-input").evaluate(input => {
+    const composer = input as HTMLTextAreaElement
+    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!
+    const submit = () => {
+      setValue.call(composer, "/todo.retry T12")
+      composer.dispatchEvent(new Event("input", { bubbles: true }))
+      composer.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }))
+    }
+    const first = performance.now()
+    submit()
+    const second = performance.now()
+    submit()
+    return second - first
+  })
+  expect(retryInterval).toBeLessThan(100)
   await expect.poll(() => retries.length).toBe(1)
+  expect(retries[0]).toBeTruthy()
+  await expect(card).toContainText("Failed")
+  const retryAccepted = page.waitForResponse(response => response.url().endsWith("/api/todos/12") && response.request().method() === "POST")
+  releaseRetry()
+  expect((await retryAccepted).status()).toBe(202)
+  // Acceptance is not a committed runtime transition.
+  await expect(card).toContainText("Failed")
   publish({ ...structuredClone(fixtures.working.model), n: 12, title: "Held launch", run: { ...fixtures.working.model.run!, attempt: 2 } })
   await expect(card).toContainText("Working")
   expect(retries).toHaveLength(1)
