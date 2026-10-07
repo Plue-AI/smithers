@@ -42,8 +42,9 @@ test("C-J8-03: a refused install provider exposes no folder control", async ({ p
   await page.goto("/")
   await expect(page.getByTestId("composer-input")).toBeEditable()
   await page.route("**/api/install", route => route.fulfill({ status: 403, json: { code: "permission", class: "permission", message: "Only the owner can do this" } }))
+  const refused = page.waitForResponse(response => new URL(response.url()).pathname === "/api/install" && response.status() === 403)
   await say(page, "/settings")
-  await expect(page.getByTestId("card-settings")).toHaveCount(0)
+  await refused
   await expect(page.getByLabel("Obsidian folder", { exact: true })).toHaveCount(0)
   await expect(page.getByTestId("composer-input")).toBeEditable()
 })
