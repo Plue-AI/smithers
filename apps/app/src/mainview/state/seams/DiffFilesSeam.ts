@@ -15,7 +15,7 @@ export const createDiffFilesSeam = (ctx: SeamContext, options?: BranchFileOption
   const watches = new Map<string, () => void>()
   options?.onDispose?.(() => { for (const stop of watches.values()) stop(); watches.clear(); generation++ })
   const branchDiff = async (branch = options?.scope()?.branch) => {
-    if (installDiff && branch && (!options || branch.startsWith("scratch/"))) return installDiff(branch)
+    if (installDiff && branch) return installDiff(branch)
     if (!options || BRANCH_FILE_PROVIDERS.some(provider => !options.ready(provider))) return "Branch files are unavailable."
     const scope = options.scope()
     if (!scope || !branch || scope.branch !== branch || !scope.member) return "Branch access was removed."
