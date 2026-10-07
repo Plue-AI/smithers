@@ -1898,6 +1898,36 @@ export interface PutApiGatewaysHostRepositoryJobsJobTrialsRequestInput {
 export const putApiGatewaysHostRepositoryJobsJobTrialsRequest = (transport: Transport, input: PutApiGatewaysHostRepositoryJobsJobTrialsRequestInput): Promise<PutApiGatewaysHostRepositoryJobsJobTrialsRequestResponse> =>
   transport.request("PUT", `/api/gateways/${segment(input.path.hostID)}/repository-jobs/${segment(input.path.job)}/trials/${segment(input.path.requestID)}`, input.body) as Promise<PutApiGatewaysHostRepositoryJobsJobTrialsRequestResponse>
 
+export type GetApiGatewaysHostLearningRunEvidenceResponse = {
+  repository: string
+  todo: number
+  run: string
+  state: "merged"
+  change: string
+  commit: string
+  attempts: Array<string>
+  journal: Array<{
+    seq: number
+    eventType: string
+    payload: AnyJSON
+  }>
+  outcomes: Array<{
+    todo: number
+    failures: Array<{
+      signature: string
+      text: string
+    }>
+  }>
+}
+
+export interface GetApiGatewaysHostLearningRunEvidenceInput {
+  readonly path: { readonly hostID: string; readonly runID: string }
+}
+
+/** GET /api/gateways/{hostID}/learning/{runID}/evidence: Read run-bound Learning evidence */
+export const getApiGatewaysHostLearningRunEvidence = (transport: Transport, input: GetApiGatewaysHostLearningRunEvidenceInput): Promise<GetApiGatewaysHostLearningRunEvidenceResponse> =>
+  transport.request("GET", `/api/gateways/${segment(input.path.hostID)}/learning/${segment(input.path.runID)}/evidence`) as Promise<GetApiGatewaysHostLearningRunEvidenceResponse>
+
 export type GetApiGithubSyncResponse = {
   state: "fresh" | "stale" | "refused" | "limited"
   last_success_at: string

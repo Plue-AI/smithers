@@ -22,6 +22,7 @@ import ImplementAtoms from "../coding/implementation/flow.ts"
 import Verify from "../coding/verify/flow.ts"
 import CodingWiki from "../coding/wiki/flow.ts"
 import Todo from "../todo/flow.ts"
+import Learning from "../learning/flow.ts"
 import { deploymentMinutes, deploymentTokens } from "./inspection.ts"
 import { JobInput, JobResult, OperationResult, SetupInput, TriggerRequest } from "./schema.ts"
 import { TriggerOutcome } from "./triggers.ts"
@@ -38,7 +39,7 @@ declare const __SMITHERS_CODING_ARTIFACT_DIGEST__: string | undefined
  */
 declare const __SMITHERS_CREATE_FLOW_PACK__: Readonly<Record<string, string>> | undefined
 /** Exact default composition bytes, carried inside the measured host bundle. */
-declare const __SMITHERS_BUILTIN_TODO__: string | undefined
+declare const __SMITHERS_BUILTIN_DEFAULTS__: Readonly<Record<string, string>> | undefined
 /** Where each pack body lives, relative to this module, in source and in the bundler. */
 const authoringSource = (name: string) => `../${name}/flow.mdx`
 const firstPartyPrompts = ["issue/repro", "issue/poc", "pr-triage", "review/change"] as const
@@ -59,6 +60,7 @@ const policySources = [
   "../coding/flow-load.ts",
   "../coding/flow-load/flow.ts",
   "../todo/flow.ts",
+  "../learning/flow.ts",
   "../coding/verify/flow.ts",
   "../coding/vibe-flow.ts",
   "../coding/wiki/flow.ts",
@@ -273,15 +275,18 @@ export const provisionBuiltins = (
     }
     // Defaults use their shipped declaration bytes, so the backend can pin
     // the same registry execution identity on every host and policy root.
-    const todoBody = typeof __SMITHERS_BUILTIN_TODO__ === "undefined"
-      ? yield* fs.readFileString(fileURLToPath(new URL("../todo/flow.ts", import.meta.url)))
-      : __SMITHERS_BUILTIN_TODO__
-    const todoFile = path.join(root, "todo", "flow.ts")
-    yield* fs.makeDirectory(path.dirname(todoFile), { recursive: true })
-    if ((yield* fs.readFileString(todoFile).pipe(Effect.orElseSucceed(() => ""))) !== todoBody) {
-      yield* fs.writeFileString(todoFile, todoBody)
+    for (const [name, declaration] of [["todo", Todo], ["learning", Learning]] as const) {
+      const body = typeof __SMITHERS_BUILTIN_DEFAULTS__ === "undefined"
+        ? yield* fs.readFileString(fileURLToPath(new URL(`../${name}/flow.ts`, import.meta.url)))
+        : __SMITHERS_BUILTIN_DEFAULTS__[name]
+      if (body === undefined) return yield* Effect.die(new Error(`Missing packaged ${name} default`))
+      const file = path.join(root, name, "flow.ts")
+      yield* fs.makeDirectory(path.dirname(file), { recursive: true })
+      if ((yield* fs.readFileString(file).pipe(Effect.orElseSucceed(() => ""))) !== body) {
+        yield* fs.writeFileString(file, body)
+      }
+      modules.set(path.resolve(file), { body, declaration })
     }
-    modules.set(path.resolve(todoFile), { body: todoBody, declaration: Todo })
     /*
      * The authoring pack, written beside the module built-ins as ordinary
      * prompt bodies.

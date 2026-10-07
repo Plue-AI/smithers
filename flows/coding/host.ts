@@ -17,6 +17,7 @@ import * as NativeControl from "../../packages/smithers/src/internal/NativeContr
 import * as NativeEquipment from "../../packages/smithers/src/internal/NativeEquipment.ts"
 import { expandSeat, seatAliases, seatRefusal } from "../../packages/smithers/src/Providers.ts"
 import * as Serve from "../../packages/smithers/src/Serve.ts"
+import { machineBinding, layer as learningLayer } from "../learning/flow.ts"
 import { activationLayers } from "../repository/activation.ts"
 import { changeLayers, changeModelLayers, changeModelNames } from "../repository/changes.ts"
 import { checkLayers as repositoryCheckLayers } from "../repository/checks.ts"
@@ -99,6 +100,7 @@ export interface Options extends NativeOptions {
   readonly credential?: string | undefined
   /** Existing authority override, including a narrower operator policy. */
   readonly approvalAuthority?: Application.Config["approvalAuthority"]
+  readonly learningEvidenceOrigin?: string | undefined
   readonly gatewayId: string
   readonly implementationModel: string
   readonly exporterPath?: string | undefined
@@ -753,6 +755,7 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
         // serves the agent completion brake and every repository classifier.
         const repository = Layer.mergeAll(
           evaluator,
+          learningLayer.pipe(Layer.provideMerge(Layer.merge(evaluator, machineBinding({ origin: options.learningEvidenceOrigin, host: options.gatewayId, credential: options.credential })))),
           inspectionLayers({
             repositoryPath: options.repositoryPath,
             fs,

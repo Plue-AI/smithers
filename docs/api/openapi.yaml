@@ -3377,6 +3377,72 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/gateways/{hostID}/learning/{runID}/evidence:
+    x-composition: install
+    get:
+      x-composition: install
+      summary: Read run-bound Learning evidence
+      operationId: get_api_gateways_host_learning_run_evidence
+      tags:
+        - Gateways
+      description: Private isolated-host callback. Requires the live Learning host control credential and a persisted nonterminal Learning dispatch with the same run, workspace, repository, source pin and host generation. Returns the merged TODO's retained attempts, steers, review comments and the last 20 merged TODO outcomes. No write authority is granted.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: hostID
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+        - name: runID
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 512}
+      responses:
+        '200':
+          description: Evidence for the dispatch's bound merged TODO
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [repository, todo, run, state, change, commit, attempts, journal, outcomes]
+                properties:
+                  repository: {type: string}
+                  todo: {type: integer, minimum: 1}
+                  run: {type: string}
+                  state: {type: string, enum: [merged]}
+                  change: {type: string}
+                  commit: {type: string}
+                  attempts:
+                    type: array
+                    items: {type: string}
+                  journal:
+                    type: array
+                    items:
+                      type: object
+                      required: [seq, eventType, payload]
+                      properties:
+                        seq: {type: integer}
+                        eventType: {type: string}
+                        payload: {$ref: '#/components/schemas/AnyJSON'}
+                  outcomes:
+                    type: array
+                    maxItems: 20
+                    items:
+                      type: object
+                      required: [todo, failures]
+                      properties:
+                        todo: {type: integer, minimum: 1}
+                        failures:
+                          type: array
+                          items:
+                            type: object
+                            required: [signature, text]
+                            properties:
+                              signature: {type: string}
+                              text: {type: string}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
   /api/github/sync:
     x-composition: install
     get:
