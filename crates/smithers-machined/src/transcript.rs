@@ -89,7 +89,7 @@ impl Framer {
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "linux")]
-pub use linux::Tail;
+pub use linux::{CheckpointStore, Tail};
 
 #[cfg(test)]
 mod tests {
