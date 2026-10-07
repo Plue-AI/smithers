@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -590,6 +591,13 @@ func assertSyncHomeOverLive(t *testing.T, pool *pgxpool.Pool, sync *services.Git
 	binding, err := json.Marshal(map[string]any{"owner_login": user.Username, "repository_name": "app"})
 	require.NoError(t, err)
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: binding}))
+	bus := revocation.NewBus(pool, q)
+	require.NoError(t, bus.Start(ctx))
+	routes.SetRevocationSource(bus)
+	defer routes.SetRevocationSource(nil)
+	sessionKey := fmt.Sprintf("poll-session-%d", time.Now().UnixNano())
+	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: user.ID, Username: user.Username, SessionKey: sessionKey, ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
 	server := httptest.NewUnstartedServer(nil)
 	origin := "http://" + server.Listener.Addr().String()
 	cfg := testConfigAllFlagsOn()
@@ -602,7 +610,7 @@ func assertSyncHomeOverLive(t *testing.T, pool *pgxpool.Pool, sync *services.Git
 	handler := &routes.LiveHandler{Queries: q, Hub: live.NewHub(hubCtx, nil), Origins: func() []string { return []string{origin} }, Topics: topics.resolver}
 	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{}, routerExtras{GitHubSync: sync, Live: handler})
 	server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		info := &middleware.AuthInfo{User: &user, SessionHash: "poll-session"}
+		info := &middleware.AuthInfo{User: &user, SessionHash: sessionKey}
 		router.ServeHTTP(w, r.WithContext(middleware.ContextWithAuthInfo(r.Context(), info)))
 	})
 	server.Start()

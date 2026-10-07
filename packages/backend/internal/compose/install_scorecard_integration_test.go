@@ -35,15 +35,15 @@ func TestInstallScorecardOwnerReadsRealCreationReceipts(t *testing.T) {
 	binding := fmt.Sprintf(`{"owner_login":"scorecard-owner","repository_name":"app","repository_id":%d}`, repo)
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(binding)}))
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "owner.access", Value: []byte(binding[:len(binding)-1] + `,"last_access_check_at":"2026-10-05T10:00:00Z"}`)}))
-	person := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: owner}, SessionHash: "scorecard-session"})
+	sum := sha256.Sum256([]byte("scorecard-cookie"))
+	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: owner, Username: "scorecard-owner", SessionKey: hex.EncodeToString(sum[:]), ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
+	person := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: owner}, SessionHash: hex.EncodeToString(sum[:])})
 	service := services.NewMythicalService(pool, nil)
 	input := services.MythicalTodoInput{Title: "One", Prompt: "Change README", Request: "scorecard-create"}
 	_, err = service.FileTodo(person, repo, owner, input)
 	require.NoError(t, err)
 	_, err = service.FileTodo(person, repo, owner, input)
-	require.NoError(t, err)
-	sum := sha256.Sum256([]byte("scorecard-cookie"))
-	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: owner, Username: "scorecard-owner", SessionKey: hex.EncodeToString(sum[:]), ExpiresAt: time.Now().Add(time.Hour)})
 	require.NoError(t, err)
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = "selfhost"
@@ -109,8 +109,8 @@ func TestInstallScorecardOwnerReadsRealCreationReceipts(t *testing.T) {
 		info *middleware.AuthInfo
 		code string
 	}{
-		{"delegated", &middleware.AuthInfo{User: &db.User{ID: owner}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "via:claude-code"}, "never"},
-		{"personal token", &middleware.AuthInfo{User: &db.User{ID: owner}, IsTokenAuth: true}, "never"},
+		{"delegated", &middleware.AuthInfo{User: &db.User{ID: owner}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "write:repository,via:claude-code"}, "never"},
+		{"personal token", &middleware.AuthInfo{User: &db.User{ID: owner}, IsTokenAuth: true, RawScopes: "write:repository"}, "never"},
 		{"run", &middleware.AuthInfo{User: &db.User{ID: owner}, IsTokenAuth: true, TokenSystemIssued: true}, "permission"},
 		{"machine", &middleware.AuthInfo{User: &db.User{ID: owner}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "credential:sync"}, "permission"},
 	} {

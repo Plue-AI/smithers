@@ -230,6 +230,9 @@ func TestFileRestoreCommandBoundary(t *testing.T) {
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT status FROM workspaces WHERE id=$1`, f.row.ID).Scan(&sleepState))
 	require.Equal(t, "suspended", sleepState)
 	// The independent member-access case operates on an awake branch.
+	// Its write share requires the fixture's coding host to be retired.
+	_, err = f.pool.Exec(ctx, `UPDATE flow_runtime_host_bindings SET state='retired' WHERE workspace_id=$1 AND catalog_key='coding'`, f.row.ID)
+	require.NoError(t, err)
 	_, err = f.pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, f.row.ID)
 	require.NoError(t, err)
 	// presenceInstall supplies a running coding-host binding. A write share
