@@ -299,14 +299,19 @@ func TestJ4Rehearsal(t *testing.T) {
 			}
 			sockets = append(sockets, socket)
 		}
-		// Find a cursor all three received and compare its bytes.
+		// Refresh snapshots can advance machine facts without advancing the TODO
+		// journal cursor. Compare each member's latest snapshot at that cursor,
+		// waiting for all three to observe the same settled facts.
 		deadline := time.Now().Add(10 * time.Second)
 		for {
-			seen := map[int64][]string{}
-			for _, socket := range sockets {
+			seen := map[int64]map[int]string{}
+			for member, socket := range sockets {
 				for _, frame := range socket.received("home") {
 					if frame.T == "snap" {
-						seen[*frame.Cursor] = append(seen[*frame.Cursor], string(frame.Data))
+						if seen[*frame.Cursor] == nil {
+							seen[*frame.Cursor] = map[int]string{}
+						}
+						seen[*frame.Cursor][member] = string(frame.Data)
 					}
 				}
 			}
@@ -314,16 +319,17 @@ func TestJ4Rehearsal(t *testing.T) {
 				if len(payloads) != len(sockets) {
 					continue
 				}
-				for _, payload := range payloads[1:] {
-					if payload != payloads[0] {
-						return fmt.Errorf("home at cursor %d differs between members", cursor)
-					}
+				identical := true
+				for _, payload := range payloads {
+					identical = identical && payload == payloads[0]
 				}
-				r.actual = fmt.Sprintf("cursor %d: 3 identical snapshots of %d bytes", cursor, len(payloads[0]))
-				return nil
+				if identical {
+					r.actual = fmt.Sprintf("cursor %d: 3 identical snapshots of %d bytes", cursor, len(payloads[0]))
+					return nil
+				}
 			}
 			if time.Now().After(deadline) {
-				return fmt.Errorf("no home cursor reached all three members within 10 s")
+				return fmt.Errorf("no identical home snapshot reached all three members within 10 s")
 			}
 			time.Sleep(200 * time.Millisecond)
 		}

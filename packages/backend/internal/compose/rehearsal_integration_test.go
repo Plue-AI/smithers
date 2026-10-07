@@ -44,6 +44,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
@@ -337,7 +338,7 @@ path = "lib.rs"
 	build.Dir = r.root
 	output, err := build.CombinedOutput()
 	require.NoError(t, err, string(output))
-	processRuntime, err := process.New(process.Config{Root: processRoot})
+	processRuntime, err := process.New(process.Config{Root: processRoot, Environment: map[string]string{"PATH": os.Getenv("PATH")}})
 	require.NoError(t, err)
 	r.processRuntime = processRuntime
 	t.Cleanup(func() { require.NoError(t, processRuntime.Close()) })
@@ -354,6 +355,7 @@ path = "lib.rs"
 	// It binds its lane's checkout through the native helper; without one the
 	// rehearsal composes no flow host and no TODO starts.
 	var registry *flowmanifest.Registry
+	var processDaemons *machined.Registry
 	var ownerKeys modelproxy.Keys
 	var upstreams map[string]string
 	if enable == "SMITHERS_BRANCH_FILES_INTEGRATION" || enable == "SMITHERS_DEFERRED_DOORS_BROWSER" {
@@ -369,7 +371,9 @@ path = "lib.rs"
 		// base and publishes the lane's result as a guest's does; any other
 		// stays local-only, and the TODO stops at its base import.
 		if capabilities, err := exec.Command(helper, "--capabilities").Output(); err == nil && bytes.Contains(capabilities, []byte(`"trusted-process-binding/v1"`)) {
-			workspace = bindingProcessRuntime{admittedRuntime, r.evidence}
+			processDaemons = new(machined.Registry)
+			t.Cleanup(func() { _ = processDaemons.Close() })
+			workspace = bindingProcessRuntime{rehearsalAdmissionRuntime: admittedRuntime, evidence: r.evidence, t: t, daemons: processDaemons}
 		} else {
 			fmt.Println("rehearsal: smithers-jj-export lacks trusted-process-binding (cargo build --release -p smithers-ffi --bin smithers-jj-export --features trusted-process-binding); the TODO cannot import its base")
 		}
@@ -406,6 +410,7 @@ path = "lib.rs"
 		GitHubIssueEventsEvery: 2 * time.Second}
 	if !realMicroVM {
 		options.BranchCapture = rehearsalPublishedCapture{r}
+		options.Machined = processDaemons
 	}
 	if realMicroVM {
 		configurePinnedMicroVMRehearsal(t, r, &options)
@@ -1706,6 +1711,7 @@ type rehearsalAdmissionRuntime struct {
 	*process.Runtime
 	admissionMu sync.Mutex
 	eligible    map[string]bool
+	released    map[string]bool
 	aliases     map[string]string
 }
 
@@ -1737,13 +1743,49 @@ func (r *rehearsalAdmissionRuntime) TodoAdmissionEligible(holder string) bool {
 func (r *rehearsalAdmissionRuntime) TransferTodoAdmission(from, to string) error {
 	r.admissionMu.Lock()
 	defer r.admissionMu.Unlock()
-	if !r.eligible[from] || to == "" || r.aliases[from] != "" {
+	origin := from
+	if target := r.aliases[from]; target != "" {
+		if !r.released[target] {
+			return errors.New("TODO admission handoff still active")
+		}
+		from = target
+	}
+	_, known := r.eligible[from]
+	_, targetExists := r.eligible[to]
+	if (!known && !r.released[from]) || to == "" || to == from || targetExists {
 		return errors.New("TODO admission handoff unavailable")
 	}
-	r.eligible[to] = true
+	r.eligible[to] = r.eligible[from]
 	delete(r.eligible, from)
-	r.aliases[from] = to
+	delete(r.released, from)
+	for holder, target := range r.aliases {
+		if target == from {
+			r.aliases[holder] = to
+		}
+	}
+	r.aliases[origin], r.aliases[from] = to, to
 	return nil
+}
+
+// Stop confirms release only after its actual processes stop. As in the
+// production admission holder, aliases survive so ordered Sync can re-admit
+// reviews and transfer a released holder to the next attempt's new lane.
+func (r *rehearsalAdmissionRuntime) StopWorkspace(ctx context.Context, id string) error {
+	err := r.Runtime.StopWorkspace(ctx, id)
+	if err == nil || errors.Is(err, workspaceapi.ErrWorkspaceStopped) || errors.Is(err, workspaceapi.ErrWorkspaceNotFound) {
+		r.releaseTodoAdmission("workspace:" + id)
+	}
+	return err
+}
+
+func (r *rehearsalAdmissionRuntime) releaseTodoAdmission(holder string) {
+	r.admissionMu.Lock()
+	defer r.admissionMu.Unlock()
+	if r.released == nil {
+		r.released = map[string]bool{}
+	}
+	r.released[holder] = true
+	delete(r.eligible, holder)
 }
 
 // bindingProcessRuntime is the trusted-process runtime with the source binding
@@ -1756,6 +1798,8 @@ func (r *rehearsalAdmissionRuntime) TransferTodoAdmission(from, to string) error
 type bindingProcessRuntime struct {
 	*rehearsalAdmissionRuntime
 	evidence string
+	t        *testing.T
+	daemons  *machined.Registry
 }
 
 var _ workspaceapi.WorkspaceCodingBindingInstaller = bindingProcessRuntime{}
@@ -1778,6 +1822,33 @@ func (r bindingProcessRuntime) InstallWorkspaceCodingBinding(ctx context.Context
 	if err != nil {
 		return err
 	}
+	// The confined native helper also invokes jj. Host-home tools are outside
+	// its runtime reads, so provision the exact fixture executable inside .jj,
+	// alongside the protected test-only binding; never grant the host home.
+	jj, err := exec.LookPath("jj")
+	if err != nil {
+		return err
+	}
+	tools := filepath.Join(observed.Root, ".jj", "rehearsal-tools")
+	if err := os.MkdirAll(tools, 0700); err != nil {
+		return err
+	}
+	binary, err := os.ReadFile(jj)
+	if err != nil {
+		return err
+	}
+	tool := filepath.Join(tools, "jj")
+	if installed, err := os.ReadFile(tool); err == nil {
+		if !bytes.Equal(installed, binary) {
+			return errors.New("rehearsal jj executable changed across restart")
+		}
+	} else if os.IsNotExist(err) {
+		if err := os.WriteFile(tool, binary, 0500); err != nil {
+			return err
+		}
+	} else {
+		return err
+	}
 	data, err := json.Marshal(struct {
 		workspaceapi.WorkspaceCodingBinding
 		Version          int    `json:"version"`
@@ -1792,11 +1863,39 @@ func (r bindingProcessRuntime) InstallWorkspaceCodingBinding(ctx context.Context
 	if err = os.WriteFile(temporary, data, 0600); err != nil {
 		return err
 	}
-	return os.Rename(temporary, file)
+	if err := os.Rename(temporary, file); err != nil {
+		return err
+	}
+	// This controlled runtime has no SSH/PTY/session broker. An authenticated
+	// fixture peer reports that empty source census; it cannot execute or mutate.
+	if _, err := r.daemons.Current(workspaceID); err != nil {
+		link, guest := presenceTestLink(r.t, r.daemons, workspaceID)
+		go func() {
+			defer guest.Close()
+			for {
+				request, err := wire.Read(guest)
+				if err != nil {
+					return
+				}
+				id, method, _, err := request.Request()
+				if err != nil || method != byte(wire.SetRoster) {
+					return
+				}
+				if wire.Write(guest, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, wire.Union(method)))}) != nil {
+					return
+				}
+			}
+		}()
+		if err := link.Reconciled(); err != nil {
+			return err
+		}
+		daemonHeartbeat(r.t, guest)
+	}
+	return nil
 }
 
 func (r bindingProcessRuntime) StartManagedHost(ctx context.Context, workspaceID string, spec workspaceapi.ManagedHostSpec) (workspaceapi.ManagedHostConnection, error) {
-	file, _, err := r.binding(ctx, workspaceID)
+	file, observed, err := r.binding(ctx, workspaceID)
 	if err != nil {
 		return workspaceapi.ManagedHostConnection{}, err
 	}
@@ -1811,6 +1910,7 @@ func (r bindingProcessRuntime) StartManagedHost(ctx context.Context, workspaceID
 			environment[name] = value
 		}
 		environment["SMITHERS_WORKSPACE_CODING_CONFIG"] = file
+		environment["PATH"] = filepath.Join(observed.Root, ".jj", "rehearsal-tools") + ":" + os.Getenv("PATH")
 		command.Environment = environment
 		return command, nil
 	})
@@ -2025,7 +2125,7 @@ func (r *rehearsal) restartBackend() {
 }
 
 // The controlled process journey has no daemon/outbox. The same native helper
-// snapshots its working copy, then Git delivers the immutable object into the
+// reads the coding host's snapshotted head, then Git delivers that immutable object into the
 // fixture's real repository store and publishes the branch ref. Never main.
 // This is not a guest capture or isolation qualification receipt.
 type rehearsalPublishedCapture struct{ r *rehearsal }
