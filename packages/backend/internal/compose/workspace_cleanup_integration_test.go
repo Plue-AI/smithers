@@ -108,7 +108,7 @@ func TestCleanupComposedInstallRetainsWithoutCaptureBroker(t *testing.T) {
 	_, err = pool.Exec(ctx, `UPDATE workspaces SET branch_archived_at=NULL WHERE id=$1`, row.ID)
 	require.NoError(t, err)
 	archive := func(selector string, status int) {
-		req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:4000/api/branches/"+row.ID+"/archive", nil)
+		req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:4000/api/branches/"+selector+"/archive", nil)
 		req.RemoteAddr = "127.0.0.1:12345"
 		req.Header.Set("Origin", "http://127.0.0.1:4000")
 		req.Header.Set("X-CSRF-Token", "archive-csrf")

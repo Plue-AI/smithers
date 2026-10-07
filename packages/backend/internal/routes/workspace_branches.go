@@ -552,7 +552,12 @@ func (h *BranchHandler) Archive(w http.ResponseWriter, r *http.Request) {
 		writeBranchError(w, r, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch archive unavailable"))
 		return
 	}
-	branch, err := h.Archives.ArchiveScratchBranch(r.Context(), chi.URLParam(r, "b"), repositoryID, userID)
+	selector, err := url.PathUnescape(chi.URLParam(r, "b"))
+	if err != nil {
+		writeBranchError(w, r, pkgerrors.BadRequest("invalid branch"))
+		return
+	}
+	branch, err := h.Archives.ArchiveScratchBranch(r.Context(), selector, repositoryID, userID)
 	if err != nil {
 		writeBranchError(w, r, err)
 		return
