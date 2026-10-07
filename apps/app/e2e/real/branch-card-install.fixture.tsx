@@ -142,9 +142,9 @@ try {
   await waitFor(() => requests.some(request => request.method === "POST" && request.path === "/api/branches"))
   const fork = requests.find(request => request.method === "POST" && request.path === "/api/branches")!
   assert.deepEqual(fork.body, { from: "T1" })
-  // A blocked TODO cannot be forked. Check before Answer changes its state.
+  // This TODO has no verified candidate. Check before Answer changes its state.
   assert.equal(fork.status, 409, JSON.stringify(fork))
-  assert.deepEqual(fork.refusal, { class: "conflict", code: "todo_settled", message: "T1 is needs_you; fork main" })
+  assert.deepEqual(fork.refusal, { class: "conflict", code: "no_verified_head", message: "T1 has no verified head to fork yet" })
   await waitFor(() => host.querySelector('form[data-flow="todo.answer"]') !== null)
   const steer = host.querySelector('form[data-flow="todo.steer"]') as HTMLFormElement
   const steerField = steer.querySelector("input")!
