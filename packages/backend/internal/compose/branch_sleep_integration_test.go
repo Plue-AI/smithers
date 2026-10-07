@@ -471,6 +471,34 @@ func branchSleepInstall(t *testing.T, scenario string) {
 	require.Zero(t, counted.starts.Load(), "wake requires admission")
 	requestOp = "sleep"
 
+	// Activity is already durable host state; it is read without consulting
+	// captured files or contacting the guest, through HTTP and the live topic.
+	activityTx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	activity, err := jobs.RecordFactInTx(ctx, activityTx, jobs.Scope{TenantID: fmt.Sprint(repo.ID), PrincipalID: "branch:" + id}, "00000000-0000-4000-8000-000000000007", "branch.burst", "completed", json.RawMessage(`{"id":"sleep-burst","kind":"burst","actor":{"id":"outside","kind":"outside","via":"tool"},"versions":"1111111111111111111111111111111111111111"}`))
+	require.NoError(t, err)
+	_, err = activityTx.Exec(ctx, `INSERT INTO burst_files(event_id,path,change,after_blob) VALUES($1,'src/backoff.ts','added','2222222222222222222222222222222222222222')`, activity.EventID)
+	require.NoError(t, err)
+	_, err = activityTx.Exec(ctx, `UPDATE product_job_events SET recorded_at='2026-10-06T12:00:00Z' WHERE event_id=$1`, activity.EventID)
+	require.NoError(t, err)
+	require.NoError(t, activityTx.Commit(ctx))
+	assertActivity := func() {
+		t.Helper()
+		var entries []struct {
+			ID, Kind, Versions, At string
+			Actor                  json.RawMessage
+			Files                  json.RawMessage
+		}
+		require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id+"/activity", 200), &entries))
+		require.Len(t, entries, 1)
+		require.Equal(t, "sleep-burst", entries[0].ID)
+		require.Equal(t, "burst", entries[0].Kind)
+		require.Equal(t, "2026-10-06T12:00:00.000000Z", entries[0].At)
+		require.Equal(t, "1111111111111111111111111111111111111111", entries[0].Versions)
+		require.JSONEq(t, `{"id":"outside","kind":"outside","via":"tool"}`, string(entries[0].Actor))
+		require.JSONEq(t, `[{"path":"src/backoff.ts","change":"added","after_blob":"2222222222222222222222222222222222222222"}]`, string(entries[0].Files))
+	}
+	assertActivity()
 	assertDiff := func() {
 		var diff services.BranchDiff
 		require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id+"/diff", 200), &diff))
@@ -601,16 +629,18 @@ func branchSleepInstall(t *testing.T, scenario string) {
 		require.Equal(t, backoff, branchFile.Content.Text)
 		read("/files/content?path=src/retry.ts", 200)
 		assertDiff()
+		assertActivity()
 		readPath("/api/branches/"+id+"/files?path=src", 200)
 		_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=NOW() WHERE repository_id=$1 AND user_id=$2`, repo.ID, member.ID)
 		require.NoError(t, err)
-		for _, path := range []string{"/api/branches/" + id + "/files/src/backoff.ts", "/api/branches/" + id + "/diff"} {
+		for _, path := range []string{"/api/branches/" + id + "/files/src/backoff.ts", "/api/branches/" + id + "/diff", "/api/branches/" + id + "/activity"} {
 			require.Contains(t, string(readPath(path, 401)), `"code":"unauthenticated"`)
 		}
 	}
 	cookie = ownerCookie
 	var tokenID int64
 	credential, tokenID = mint(id)
+	assertActivity()
 	for _, op := range []string{"sleep", "wake"} {
 		req, err := http.NewRequest("POST", server.URL+"/api/branches/"+id, strings.NewReader(fmt.Sprintf(`{"op":%q}`, op)))
 		require.NoError(t, err)
@@ -659,9 +689,11 @@ func branchSleepInstall(t *testing.T, scenario string) {
 	require.NoError(t, err)
 	readPath("/api/branches/"+id+"/files/src/backoff.ts", 401)
 	readPath("/api/branches/"+id+"/diff", 401)
+	readPath("/api/branches/"+id+"/activity", 401)
 	credential, _ = mint("different-branch")
 	readPath("/api/branches/"+id+"/files/src/backoff.ts", 403)
 	readPath("/api/branches/"+id+"/diff", 403)
+	readPath("/api/branches/"+id+"/activity", 403)
 	readPath("/api/branches/"+id, 403)
 	read("/files/content?path=src/retry.ts", 403)
 	credential, tokenID = mint(id)
