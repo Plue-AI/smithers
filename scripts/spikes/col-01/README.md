@@ -206,3 +206,25 @@ The final report requires the 1,000 consecutive growth samples, 100 versions
 samples, abandon/GC logs, evaluated growth budget, and complete guest kernel
 observations. A blocked privileged probe cannot be reported as a measured no
 or a passing C-SPK-03 receipt.
+
+### T-COL-11 root-input refusal
+
+`run.sh` checks host harness and runtime bytes against `origin/main` before
+building, installing dependencies or starting a machine, including remote
+browser mode. Changed or extra executable inputs and helper/image/toolchain/
+plist overrides fail closed. The launcher refuses non-Apple-Silicon hosts and
+root host measurement processes. This is an admission gate, not a completed
+ExecutionPlacementAndRootInputs receipt: executable/toolchain identities and
+actual guest command/cleanup uid evidence still require the reference-host run.
+
+`jj-snapshot/cgroup_probe.py` is the fixed, no-argument freeze/kill probe source.
+It must first land on reviewed main, then be embedded in the approved image or
+bundle; a lane checkout must never install or execute it as root. Invoke the
+installed helper with the image-shipped Python interpreter in isolated mode
+(`python3 -I <installed-main-helper>`), without caller-selected environment or
+stdin. It exclusively creates `/sys/fs/cgroup/smithers-col11-probe`, forks its
+own disposable child, drops the child to uid/gid 19999, checks freeze/thaw and
+kill events, then reaps that child and removes the group. It accepts no working
+copy path. Existing groups and absent cgroup v2 refuse the run. No privileged
+probe has been executed by the Linux lane; `kernel.py` deliberately retains its
+blocked result until approved provisioning and receipt plumbing are available.
