@@ -10,7 +10,7 @@ import { describe, expect, test } from "bun:test"
 import type { AppStore } from "./AppStore"
 import { createAppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
-import { json, loadBox, memoryStorage, silentAgent } from "./TestFixtures"
+import { json, loadBox, memoryStorage, silentAgent, waitFor } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 
@@ -93,7 +93,7 @@ test("submitting the Inbox prerequisite opens one box and never silently reads I
   await controller.dispose()
 })
 
-test("retired browser PR review refuses without creating a machine or fetching PR code", async () => {
+test("review requests host admission without creating a machine or fetching PR code", async () => {
   const store = await signedIn()
   await store.dispatch({ type: "workspaces.loaded", actor: "system", repoId: REPO, workspaces: [] }).isPersisted.promise
   await store.dispatch({ type: "repo.selected", actor: "user", id: REPO }).isPersisted.promise
@@ -102,8 +102,12 @@ test("retired browser PR review refuses without creating a machine or fetching P
     calls.push(new URL(String(input), "https://app.test").pathname)
     return json(503, { code: "unavailable", message: "Review unavailable" })
   } })
-  expect((await controller.commands.run("prs.triage", `17 ${REPO}`)).status).toBe("failed")
-  expect((await controller.commands.runForAgent("prs.triage", `17 ${REPO}`)).status).toBe("failed")
+  expect(await controller.commands.run("review", `17 ${REPO}`)).toEqual({ status: "executed", value: "Requested" })
+  await waitFor(() => store.session().reviewRequests?.some(request => request.state === "failed") ?? false)
+  expect(calls.filter(path => path === "/api/reviews")).toHaveLength(1)
+  expect(await controller.commands.runForAgent("review", `17 ${REPO}`)).toMatchObject({ status: "executed", value: expect.stringContaining("it runs only when they confirm") })
+  expect(calls.filter(path => path === "/api/reviews")).toHaveLength(1)
+  expect([...store.collections.messages.values()].some(message => message.action?.flow === "review" && message.action.args === `17 ${REPO}`)).toBe(true)
   expect([...store.collections.messages.values()].some(message => message.action?.flow === "prs.triage")).toBe(false)
   expect(calls.filter(path => path.includes("/workspaces") || path.includes("/pulls/") || path.startsWith("/api/workflow/"))).toEqual([])
   expect([...store.collections.cards.values()].filter(card => card.kind === "flow-form" && card.payload.afterBox?.kind === "prs.triage")).toEqual([])
@@ -111,7 +115,7 @@ test("retired browser PR review refuses without creating a machine or fetching P
   await store.dispose?.()
 })
 
-test("Review a PR refuses before choosing a box, including after reload", async () => {
+test("review host failures remain visible without choosing a box, including after reload", async () => {
   const storage = memoryStorage()
   const store = await createAppStore({ kind: "localStorage", storage })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
@@ -123,7 +127,9 @@ test("Review a PR refuses before choosing a box, including after reload", async 
   } }
   const check = async (current: AppStore) => {
     const controller = createAppController(current, silentAgent, services)
-    expect(await controller.commands.run("prs.triage", `17 ${REPO}`)).toEqual({ status: "failed", error: "Review is unavailable on this host." })
+    expect(await controller.commands.run("review", `17 ${REPO}`)).toEqual({ status: "executed", value: "Requested" })
+    const requested = current.session().reviewRequests!.at(-1)!.id
+    await waitFor(() => current.session().reviewRequests?.some(request => request.id === requested && request.state === "failed") ?? false)
     expect([...current.collections.cards.values()].filter(card => card.kind === "flow-form" && card.payload.afterBox?.kind === "prs.triage")).toEqual([])
     expect(calls.filter(path => path.includes("pulls/") || path.startsWith("/api/workflow/") || path.endsWith("/workspaces"))).toEqual([])
     await controller.dispose()
@@ -133,7 +139,7 @@ test("Review a PR refuses before choosing a box, including after reload", async 
   await check(restored)
 })
 
-test("a refused retained PR review stays visible and consumed instead of offering a duplicate launch", async () => {
+test("a retained PR review uses the canonical admission once and stays consumed after failure", async () => {
   const store = await signedIn()
   await loadBox(store, REPO, BOX_A)
   await store.dispatch({ type: "repo.selected", actor: "user", id: `${REPO}#workspace:${BOX_A}` }).isPersisted.promise
@@ -148,10 +154,13 @@ test("a refused retained PR review stays visible and consumed instead of offerin
     calls.push(new URL(String(input), "https://app.test").pathname)
     return json(503, { code: "unavailable", message: "PR source unavailable" })
   } })
-  expect((await controller.commands.run("form.submit", formId)).status).toBe("failed")
+  expect((await controller.commands.run("form.submit", formId)).status).toBe("executed")
+  await waitFor(() => store.session().reviewRequests?.some(request => request.state === "failed") ?? false)
+  expect(calls.filter(path => path === "/api/reviews")).toHaveLength(1)
   expect(store.collections.cards.get(formId)).toMatchObject({ status: "acted", payload: {
-    afterBox: { consumed: true }, errorKind: "run" } })
+    afterBox: { consumed: true } } })
   expect((await controller.commands.run("form.submit", formId)).status).toBe("failed")
+  expect(calls.filter(path => path === "/api/reviews")).toHaveLength(1)
   expect(calls.filter(path => path === `/api/repos/${REPO}`)).toHaveLength(0)
   await controller.dispose()
   await store.dispose?.()

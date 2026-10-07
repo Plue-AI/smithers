@@ -26,7 +26,7 @@ export interface LandingsSeam {
   readonly viewLanding: ViewAction<[number: number, repo?: string]>
   /**
    * One pull request as the context a review flow reads (the Review a PR
-   * app, `prs.triage`): its title, description, state, author, commits and
+   * app, `review`): its title, description, state, author, commits and
    * files with the patches the diff read carried. No card; the run card is
    * what follows.
    */

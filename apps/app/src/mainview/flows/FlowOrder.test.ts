@@ -77,7 +77,6 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "prs.list",
   "prs.view",
   "prs.tab",
-  "prs.triage",
   "branches",
   "files.list",
   "files.read",

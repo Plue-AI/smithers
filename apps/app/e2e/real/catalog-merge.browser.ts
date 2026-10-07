@@ -58,6 +58,7 @@ try {
   expect(await debugReads()).toBe(before + 1)
   await expect(debug).toContainText("Wave")
   await expect(help.getByText("/docs.read <page>", { exact: true })).toHaveCount(0)
+  await expect(help.getByText("/prs.triage <number> [owner/repo]", { exact: true })).toHaveCount(0)
   await fillComposer(page, "/docs flows")
   await page.keyboard.press("Enter")
   const docs = page.getByRole("article", { name: "Docs", exact: true })

@@ -89,9 +89,9 @@ describe("the Make TODO command", () => {
 })
 
 describe("the Review a PR app", () => {
-  test("prs.triage opened bare asks for a PR without offering a cached native number before its source read", () => {
+  test("review opened bare asks for a PR without offering a cached native number before its source read", () => {
     const app = fixture()
-    const { cardId, missing } = app.ask("prs.triage")
+    const { cardId, missing } = app.ask("review")
     expect(missing).toEqual(["number"])
     expect(app.card(cardId).payload.submitLabel).toBe("Review")
     expect(app.card(cardId).payload.fields.map((field) => [field.name, field.label, field.kind])).toEqual([["number", "PR", "number"]])
@@ -102,12 +102,12 @@ describe("the Review a PR app", () => {
     let release!: () => void
     const launched = new Promise<void>(resolve => { release = resolve })
     const app = fixture({ submit: async () => { await launched; return { status: "executed", value: "run-requested" } } })
-    const { cardId } = app.ask("prs.triage")
+    const { cardId } = app.ask("review")
     await app.forms.setFormField(cardId, "number", "70")
     const submitted = app.forms.submitForm(cardId)
     await Promise.resolve()
     expect(app.card(cardId).payload.submitting).toBe(true)
-    expect(app.ask("prs.triage").cardId).toBe(cardId)
+    expect(app.ask("review").cardId).toBe(cardId)
     expect(app.card(cardId).payload.submitting).toBe(true)
     release()
     await submitted

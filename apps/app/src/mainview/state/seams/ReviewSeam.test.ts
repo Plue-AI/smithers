@@ -100,8 +100,8 @@ test("an account change ignores a stale launch response", async () => {
 })
 
 
-test("the review slash and retained button alias accept the specified #PR spelling", () => {
-  for (const door of ["review", "prs.triage"]) {
+test("the canonical review command accepts the specified #PR spelling", () => {
+  for (const door of ["review"]) {
     expect(payloadFor(door, "#50 owner/repo")).toEqual({ payload: { number: 50, repo: "owner/repo" } })
   }
 })

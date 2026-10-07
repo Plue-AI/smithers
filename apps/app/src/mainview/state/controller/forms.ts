@@ -231,9 +231,9 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
   /** The fields as the card payload carries them: the seam's options resolved for this draft, arrays copied for the wire. */
   const withOptions = (fields: ReadonlyArray<FormField>, draft: FormDraft, flow?: string): FlowFormCard["payload"]["fields"] =>
     fields.map((field) => {
-      // prs.triage must wait for the source-aware seam. A cached native PR card
+      // Review must wait for the source-aware seam. A cached native PR card
       // may contain the same number as an imported GitHub PR.
-      const options = flow === "prs.triage" && field.optionsFrom === "pull-requests" ? []
+      const options = flow === "review" && field.optionsFrom === "pull-requests" ? []
         : field.optionsFrom === undefined ? field.options : optionsFor(field.optionsFrom, draft)
       const { options: _derived, ...rest } = field
       return options === undefined ? rest : { ...rest, options: [...options] }
@@ -521,11 +521,11 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
       // Persist the claim before any command can launch. A reload or second click cannot repeat it.
       await patch(card, { ...card.payload, afterBox: { ...pending, consumed: true } }, "acted")
       if (ctx.disposed || ctx.accountEpoch !== epoch || ctx.accountOwner() !== pending.owner) return "The account changed before the review could start."
-      const outcome = await ctx.commands.run("prs.triage", flowArgs("prs.triage", { number: pending.number, repo: pending.repo }))
+      const outcome = await ctx.commands.run("review", flowArgs("review", { number: pending.number, repo: pending.repo }))
       if (outcome.status === "executed") return { value: outcome.value ?? `Review PR #${pending.number} requested.` }
       const error = outcome.status === "failed" ? outcome.error
         : outcome.status === "unavailable" ? outcome.reason
-        : outcome.status === "unknown-command" ? "/prs.triage is not available here."
+        : outcome.status === "unknown-command" ? "/review is not available here."
         : `Review PR #${pending.number} could not be started. Check Runs before requesting it again.`
       const current = formCard(cardId)
       if (current !== undefined) await patch(current, { ...current.payload, error, errorKind: "run" }, "acted")

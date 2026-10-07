@@ -3,8 +3,9 @@ import { createAppController } from "../../state/AppController"
 import { createAppStore } from "../../state/AppStore"
 import { memoryStorage, signupProfileFetch, waitFor } from "../../state/TestFixtures"
 import { modelInvocable } from "../registry"
+import { MessageSchema, ToastSchema } from "../../state/AppState"
 
-test("review is a confirmable command and both review doors refuse browser execution", async () => {
+test("review is the only confirmable review command and refuses browser execution", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const requests: string[] = []
   const controller = createAppController(store, {
@@ -20,8 +21,17 @@ test("review is a confirmable command and both review doors refuse browser execu
     expect(review.metadata.confirm).toBe("review the pull request")
     expect(review.metadata).toMatchObject({ agent: "confirm", cli: ["review"], actors: ["person", "app_agent", "external_agent"] })
     expect(controller.commands.find("prs.land")).toBeUndefined()
-    expect(controller.commands.find("prs.triage")!.metadata.hidden).toBe(true)
-    for (const name of ["review", "prs.triage"]) {
+    expect(controller.commands.find("prs.triage")).toBeUndefined()
+    expect((await controller.commands.run("prs.triage", "50 owner/repo")).status).toBe("unknown-command")
+    const recorded = { flow: "prs.triage", args: "50 owner/repo", label: "Review" }
+    const saved = MessageSchema.shape.action.parse(recorded)!
+    expect(saved).toEqual({ ...recorded, flow: "review" })
+    expect(ToastSchema.shape.action.parse(recorded)).toEqual(saved)
+    const answered = { ...recorded, answer: "Requested", answeredAt: 1 }
+    expect(MessageSchema.shape.answeredAction.parse(answered)?.flow).toBe("review")
+    expect(ToastSchema.shape.answeredAction.parse(answered)?.flow).toBe("review")
+    expect(await controller.commands.run(saved.flow, saved.args)).toEqual({ status: "failed", error: "Sign in" })
+    for (const name of ["review"]) {
       const result = await controller.runCommandForResult(name, "50 owner/repo")
       // #3612 (42a4fa17b0): sign-in precedes host admission (spec §5.2.1).
       expect(result).toEqual({ status: "failed", error: "Sign in" })
@@ -34,7 +44,7 @@ test("review is a confirmable command and both review doors refuse browser execu
   } finally { await controller.dispose() }
 })
 
-for (const name of ["review", "prs.triage"]) {
+for (const name of ["review"]) {
   test(`${name} requests only host admission and never falls back to browser execution`, async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const requests: string[] = []

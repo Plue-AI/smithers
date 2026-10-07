@@ -43,6 +43,7 @@ export const RENAMED_FLOWS: Readonly<Record<string, string>> = {
   "secrets.revoke": "settings",
   "github.app": "settings",
   "docs.read": "docs",
+  "prs.triage": "review",
   "env.view": "settings",
   "env.set": "settings",
   "env.remove-token": "settings"
@@ -239,7 +240,6 @@ export const FLOW_NAMES = [
   "prs.list",
   "prs.review",
   "prs.tab",
-  "prs.triage",
   "review",
   "prs.view",
   "repo.choose",

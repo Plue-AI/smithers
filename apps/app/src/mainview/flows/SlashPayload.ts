@@ -673,7 +673,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "issue.repro": (args, known) => numbered(args, "An issue number is required", known),
   "issue.poc": (args, known) => numbered(args, "An issue number is required", known),
   "todo.from-issue": (args, known) => numbered(args, "An issue number is required", known),
-  "prs.triage": (args, known) => numbered(args?.trim().replace(/^#(?=\d)/, ""), "A pull request number is required", known),
   "review": (args, known) => numbered(args?.trim().replace(/^#(?=\d)/, ""), "A pull request number is required", known),
   "issue.add-flow": (args) => {
     try {
