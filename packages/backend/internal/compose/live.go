@@ -424,6 +424,15 @@ func (t *liveTopics) home(ctx context.Context, repository int64, slug string) (j
 	}
 	model := homeModel(slug, cards, sync)
 	if provider, ok := t.todos.(interface {
+		StackAttention(context.Context, int64, int64) ([]services.OrderAttention, error)
+	}); ok {
+		attention, err := provider.StackAttention(ctx, repository, member)
+		if err != nil {
+			return nil, err
+		}
+		model["attention"] = attention
+	}
+	if provider, ok := t.todos.(interface {
 		LearningBackgroundRuns(context.Context, int64) ([]map[string]any, error)
 	}); ok {
 		runs, err := provider.LearningBackgroundRuns(ctx, repository)

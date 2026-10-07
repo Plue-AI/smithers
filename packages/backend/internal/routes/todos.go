@@ -499,3 +499,31 @@ func (h *TodoHandler) preapproval(w http.ResponseWriter, r *http.Request, approv
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(map[string]string{"state": "accepted"})
 }
+
+func (h *TodoHandler) OrderOK(w http.ResponseWriter, r *http.Request) {
+	repository, _, ok := h.authorize(w, r, "order.ok")
+	if !ok {
+		return
+	}
+	var input struct {
+		Revision int64 `json:"revision"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&input) != nil || input.Revision <= 0 {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Class: "user", Code: "invalid_attention", Message: "Invalid attention revision"})
+		return
+	}
+	service, ok := h.Service.(interface {
+		OrderOK(context.Context, int64, string, int64) error
+	})
+	if !ok {
+		todoRouteError(w, nil)
+		return
+	}
+	if err := service.OrderOK(r.Context(), repository, chi.URLParam(r, "id"), input.Revision); err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
