@@ -85,13 +85,21 @@ func TestBurstIngestProductionBoundaryRealObjects(t *testing.T) {
 		}
 		done <- e
 	}()
-	delivered, err := link.Receive(ctx)
-	require.NoError(t, err)
-	require.NoError(t, ingest.DispatchBurst(ctx, link, scope, delivered))
+	// The same production event pump handles bursts and capture/reconcile
+	// events. It must not route a burst through the generic receipt writer.
+	pump := &Ingestor{Pool: pool, Bursts: ingest}
+	dispatchCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	dispatched := make(chan error, 1)
+	go func() { dispatched <- pump.Dispatch(dispatchCtx, link, branch) }()
 	require.NoError(t, <-done)
 	ack, err := ingest.Apply(ctx, link.Connection, scope, event)
 	require.NoError(t, err)
 	require.Equal(t, AckDuplicate, ack.Outcome)
+	t.Cleanup(func() {
+		cancel()
+		require.ErrorIs(t, <-dispatched, context.Canceled)
+	})
 	var count int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM burst_files`).Scan(&count))
 	require.Equal(t, 1, count)

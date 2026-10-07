@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 // EventWriter verifies already transferred objects and writes the head/activity
@@ -32,11 +33,14 @@ type Ingestor struct {
 	Write EventWriter
 	// Prepare and Write are exclusive; use Prepare for ordered cross-row locks.
 	Prepare EventPreparation
+	// Bursts shares this pump and its authenticated lease. Split bursts own
+	// their staging transaction; other events use Write or Prepare.
+	Bursts *BurstIngest
 }
 
 func (i *Ingestor) Commit(ctx context.Context, connection *Connection, branch string, event Event) (Acknowledgement, error) {
 	ack := Acknowledgement{Seq: event.Seq}
-	if i == nil || i.Pool == nil || (i.Write == nil && i.Prepare == nil) || (i.Write != nil && i.Prepare != nil) {
+	if i == nil || i.Pool == nil || (i.Write == nil && i.Prepare == nil && i.Bursts == nil) || (i.Write != nil && i.Prepare != nil) {
 		return ack, ErrNotReady
 	}
 	if connection == nil || connection.registry == nil {
@@ -53,6 +57,24 @@ func (i *Ingestor) Commit(ctx context.Context, connection *Connection, branch st
 		wire.Field(3, event.Payload))}
 	if _, err := wire.Encode(f); err != nil {
 		return ack, err
+	}
+	if event.Payload[0] == 1 {
+		if i.Bursts == nil || i.Bursts.Pool != i.Pool {
+			return ack, ErrNotReady
+		}
+		// Scope comes from the host row; neither caller nor daemon chooses a
+		// repository stream. Apply fences this exact lease through commit.
+		if connection.boot == nil || connection.boot.branch != branch {
+			return ack, ErrUnauthorized
+		}
+		var repository int64
+		if err := i.Pool.QueryRow(ctx, `SELECT repository_id FROM workspaces WHERE id=$1`, branch).Scan(&repository); err != nil {
+			return ack, err
+		}
+		return i.Bursts.Apply(ctx, connection, jobs.Scope{TenantID: fmt.Sprint(repository), PrincipalID: "branch:" + branch}, event)
+	}
+	if i.Write == nil && i.Prepare == nil {
+		return ack, ErrNotReady
 	}
 	id := event.EventID
 	digest := sha256.Sum256(event.Payload)
@@ -152,6 +174,17 @@ func (i *Ingestor) Commit(ctx context.Context, connection *Connection, branch st
 // link when acknowledging an older event: doing so could release a new boot's
 // outbox entry with the same sequence number.
 func (i *Ingestor) Dispatch(ctx context.Context, link *Link, branch string) error {
+	if link == nil {
+		return ErrNotReady
+	}
+	if link.Connection == nil || link.Connection.registry == nil {
+		return ErrUnauthorized
+	}
+	// A failed direct consumer cannot leave this lease ready for RPCs.
+	defer link.Close()
+	if i == nil || i.Pool == nil || (i.Write == nil && i.Prepare == nil && i.Bursts == nil) || (i.Write != nil && i.Prepare != nil) {
+		return ErrNotReady
+	}
 	return dispatchEvents(ctx, link, branch, func(ctx context.Context, link *Link, branch string, event Event) (Acknowledgement, error) {
 		return i.Commit(ctx, link.Connection, branch, event)
 	})
