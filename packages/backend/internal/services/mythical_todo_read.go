@@ -246,7 +246,15 @@ func (s *MythicalService) todoCardAtQueuePosition(ctx context.Context, item db.M
 		card["flow_version"] = map[string]any{"flow_name": pin.Flow, "source_commit": pin.SourceCommit, "digest": pin.ExecutionDigest}
 	}
 	if item.Attempt > 0 && item.RequestRunID != "" {
-		card["run"] = map[string]any{"id": item.RequestRunID, "attempt": item.Attempt, "indicators": []any{}}
+		indicators := []any{}
+		if detector := checks.Thrash; detector != nil && detector.Attempt == item.Attempt {
+			for _, failure := range detector.Failures {
+				if failure.Count >= 3 {
+					indicators = append(indicators, map[string]any{"tone": "thrash", "text": "Thrashing: " + failure.Check + " failed 3×"})
+				}
+			}
+		}
+		card["run"] = map[string]any{"id": item.RequestRunID, "attempt": item.Attempt, "indicators": indicators}
 	}
 	// A merged or dropped TODO has left the stack: it has no place, so its
 	// card never reads "Next to merge".
