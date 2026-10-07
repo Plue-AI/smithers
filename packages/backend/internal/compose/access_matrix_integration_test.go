@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -42,6 +44,10 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 	}
 	_, err = pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,actor_user_id,state) VALUES($1,$2,'active')`, repo.ID, users[0].ID)
 	require.NoError(t, err)
+	issuerConfig := testConfigAllFlagsOn()
+	issuerConfig.Auth.Mode = "selfhost"
+	issuer := services.NewAuthService(q, issuerConfig.Auth, nil, nil)
+	issuer.Members = &services.Members{Pool: pool}
 	sessions, tokens, hashes := make([]string, 3), make([]string, 3), make([]string, 3)
 	for i, u := range users {
 		role := "admin"
@@ -54,11 +60,11 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 		sum := sha256.Sum256([]byte(sessions[i]))
 		_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: u.ID, Username: u.Username, SessionKey: hex.EncodeToString(sum[:]), ExpiresAt: time.Now().Add(time.Hour)})
 		require.NoError(t, err)
-		tokens[i] = fmt.Sprintf("smithers_%040x", u.ID+900)
+		credential, err := issuer.CreateToken(ctx, u.ID, services.CreateTokenRequest{Name: "matrix-codex", Via: "codex", Scopes: []string{"repo", "user"}})
+		require.NoError(t, err)
+		tokens[i] = credential.Token
 		sum = sha256.Sum256([]byte(tokens[i]))
 		hashes[i] = hex.EncodeToString(sum[:])
-		_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: u.ID, Name: "matrix-codex", TokenHash: hashes[i], TokenLastEight: hashes[i][56:], Scopes: "write:repository,read:user,via:codex", SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
-		require.NoError(t, err)
 	}
 	todos := services.NewMythicalService(pool, nil)
 	confirmations := services.NewApprovalsService(q, services.WithConfirmationTodos(pool, todos))
@@ -93,6 +99,148 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 		require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&n))
 		return n
 	}
+	// Catalog names measure coverage only. Every expected result below is a
+	// literal invariant of the real confirmation HTTP door, independent of
+	// descriptor roles, scopes, actors and delegation policy. This sweep is
+	// not evidence that each command's execution consumer is composed.
+	t.Run("all-command confirmation admission ledger", func(t *testing.T) {
+		catalog, err := os.ReadFile("../../../smithers/src/internal/backend/catalog.mvp.json")
+		require.NoError(t, err)
+		var inventory struct {
+			Operations []struct {
+				Name string `json:"name"`
+				HTTP *struct {
+					Method string `json:"method"`
+					Path   string `json:"path"`
+				} `json:"http"`
+			} `json:"operations"`
+		}
+		require.NoError(t, json.Unmarshal(catalog, &inventory))
+		require.NotEmpty(t, inventory.Operations)
+		type cell struct {
+			Command        string `json:"command"`
+			Role           string `json:"role"`
+			Credential     string `json:"credential"`
+			CredentialHash string `json:"credential_hash"`
+			ExpectedStatus int    `json:"expected_status"`
+			ExpectedCode   string `json:"expected_code"`
+			Status         int    `json:"status"`
+			Class          string `json:"class"`
+			Code           string `json:"code"`
+		}
+		var ledger []cell
+		original := append([]string(nil), tokens...)
+		defer copy(tokens, original)
+		credentials := map[string][]string{}
+		for _, state := range []string{"expired-delegated", "revoked-delegated", "read-only-delegated"} {
+			credentials[state] = make([]string, len(users))
+		}
+		for i, u := range users {
+			credential, err := issuer.CreateToken(ctx, u.ID, services.CreateTokenRequest{Name: "expired-matrix", Scopes: []string{"repo", "user"}})
+			require.NoError(t, err)
+			sum := sha256.Sum256([]byte(credential.Token))
+			_, err = pool.Exec(ctx, `UPDATE access_tokens SET expires_at=now()-interval '1 second' WHERE token_hash=$1`, hex.EncodeToString(sum[:]))
+			require.NoError(t, err)
+			credentials["expired-delegated"][i] = credential.Token
+			revoked, err := issuer.CreateToken(ctx, u.ID, services.CreateTokenRequest{Name: "revoked-matrix", Scopes: []string{"repo", "user"}})
+			require.NoError(t, err)
+			require.NoError(t, issuer.DeleteToken(ctx, u.ID, revoked.ID))
+			credentials["revoked-delegated"][i] = revoked.Token
+			limited, err := issuer.CreateToken(ctx, u.ID, services.CreateTokenRequest{Name: "read-only-matrix", Scopes: []string{"read:user"}})
+			require.NoError(t, err)
+			credentials["read-only-delegated"][i] = limited.Token
+		}
+		roles := []string{"owner", "maintainer", "member"}
+		for _, operation := range inventory.Operations {
+			for i := range users {
+				for _, state := range []string{"session", "expired-delegated", "revoked-delegated", "read-only-delegated"} {
+					if state != "session" {
+						tokens[i] = credentials[state][i]
+					}
+					person := state == "session"
+					status, body := call(i, person, "/api/confirmations", "ledger-"+operation.Name+"-"+state, fmt.Sprintf(`{"command":%q,"payload":{}}`, operation.Name))
+					wantStatus, wantCode := 401, "unauthenticated"
+					if person || state == "read-only-delegated" {
+						wantStatus, wantCode = 403, "permission"
+					}
+					require.Equal(t, wantStatus, status, "%s %s %s: %v", operation.Name, roles[i], state, body)
+					require.Equal(t, "permission", body["class"], body)
+					require.Equal(t, wantCode, body["code"], body)
+					require.NotContains(t, body, "confirmation")
+					identity := tokens[i]
+					if person {
+						identity = sessions[i]
+					}
+					digest := sha256.Sum256([]byte(identity))
+					ledger = append(ledger, cell{operation.Name, roles[i], state, hex.EncodeToString(digest[:]), wantStatus, wantCode, status, body["class"].(string), body["code"].(string)})
+				}
+			}
+		}
+		// Exercise credential death at every declared HTTP execution door too.
+		// A valid browser cookie and forged actor assertions accompany each dead
+		// bearer. Authentication must refuse before parsing command payloads,
+		// looking up subjects, or disclosing even a saved result. This is separate
+		// from live-role execution and does not qualify unmounted consumers.
+		type executionCell struct {
+			cell
+			Method string `json:"method"`
+			Path   string `json:"path"`
+		}
+		var executionAdmission []executionCell
+		replaceSubject := strings.NewReplacer("{name}", "sample", "{id}", "1", "{branch}", "sample", "{b}", "sample", "{number}", "1", "{n}", "1", "{owner}", "maya", "{repo}", "demo")
+		for _, operation := range inventory.Operations {
+			if operation.HTTP == nil {
+				continue
+			}
+			for i := range users {
+				for _, state := range []string{"expired-delegated", "revoked-delegated"} {
+					identity := credentials[state][i]
+					req := httptest.NewRequest(operation.HTTP.Method, "http://example.com"+replaceSubject.Replace(operation.HTTP.Path), strings.NewReader(`{}`))
+					req.Header.Set("Authorization", "Bearer "+identity)
+					req.Header.Set("Content-Type", "application/json")
+					req.Header.Set("Origin", "http://example.com")
+					req.Header.Set("Idempotency-Key", "dead-door-"+operation.Name+"-"+state)
+					req.Header.Set("Smithers-Via", "smithers")
+					req.Header.Set("Smithers-Actor", "person")
+					req.Header.Set("Smithers-Profile", "app_agent")
+					req.AddCookie(&http.Cookie{Name: "session", Value: sessions[i]})
+					w := httptest.NewRecorder()
+					router.ServeHTTP(w, req)
+					var body map[string]any
+					require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body), w.Body.String())
+					require.Equal(t, 401, w.Code, "%s %s %s: %v", operation.Name, roles[i], state, body)
+					require.Equal(t, "permission", body["class"], body)
+					require.Equal(t, "unauthenticated", body["code"], body)
+					require.NotContains(t, body, "confirmation")
+					digest := sha256.Sum256([]byte(identity))
+					executionAdmission = append(executionAdmission, executionCell{cell{operation.Name, roles[i], state, hex.EncodeToString(digest[:]), 401, "unauthenticated", w.Code, "permission", "unauthenticated"}, operation.HTTP.Method, req.URL.EscapedPath()})
+				}
+			}
+		}
+		require.NotEmpty(t, executionAdmission)
+		t.Logf("declared HTTP execution-door credential death: %d passing cells (not live command execution)", len(executionAdmission))
+		if output := os.Getenv("SMITHERS_ACCESS_LEDGER_DIR"); output != "" {
+			require.NoError(t, os.MkdirAll(output, 0755))
+			data, err := json.MarshalIndent(struct {
+				Boundary string          `json:"boundary"`
+				Cells    []executionCell `json:"cells"`
+			}{"declared HTTP execution doors (dead-credential admission only)", executionAdmission}, "", "  ")
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(filepath.Join(output, "execution-door-dead-admission-matrix.json"), append(data, '\n'), 0644))
+		}
+		require.Zero(t, count("approvals"))
+		require.Zero(t, count("mythical_items"))
+		t.Logf("confirmation admission: %d commands, %d passing cells; command execution coverage remains separate", len(inventory.Operations), len(ledger))
+		if output := os.Getenv("SMITHERS_ACCESS_LEDGER_DIR"); output != "" {
+			require.NoError(t, os.MkdirAll(output, 0755))
+			data, err := json.MarshalIndent(struct {
+				Boundary string `json:"boundary"`
+				Cells    []cell `json:"cells"`
+			}{"POST /api/confirmations (admission only)", ledger}, "", "  ")
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(filepath.Join(output, "confirmation-admission-matrix.json"), append(data, '\n'), 0644))
+		}
+	})
 	for i := range users {
 		key := "new-" + users[i].Username
 		payload := `{"title":"Keep greeting","prompt":"Keep greeting","acceptance":[]}`
