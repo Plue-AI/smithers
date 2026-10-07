@@ -2,8 +2,6 @@ package app_test
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -31,7 +29,6 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, local.Shutdown(context.Background())) })
 	for key, value := range map[string]string{
-		"SMITHERS_AUTH_MODE":    "selfhost",
 		"SMITHERS_DATABASE_URL": databaseURL, "SMITHERS_BLOB_DATA_DIR": t.TempDir(),
 		"SMITHERS_AUTH_SESSION_COOKIE_NAME": "smithers_session",
 		"SMITHERS_AUTH_MODE":                "selfhost", "SMITHERS_AUTH_BOOTSTRAP_TOKEN": "release-audit-bootstrap",
@@ -88,11 +85,6 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 		return result, res.Header
 	}
 	token, err = seed.OwnerToken(t.Context(), pool, "releaseowner")
-	require.NoError(t, err)
-	session = strings.TrimPrefix(token, "smithers_") + strings.Repeat("0", 24)
-	digest := sha256.Sum256([]byte(session))
-	_, err = pool.Exec(ctx, `INSERT INTO auth_sessions(session_key,user_id,username,expires_at)
-        SELECT $1,id,username,now()+interval '1 hour' FROM users WHERE username='releaseowner'`, hex.EncodeToString(digest[:]))
 	require.NoError(t, err)
 
 	repo, _ := request("POST", "/api/user/repos", `{"name":"audit","private":true,"auto_init":true}`, 201, nil)
@@ -154,7 +146,7 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 	for next != "" {
 		req, err := http.NewRequest("GET", server.URL+next, nil)
 		require.NoError(t, err)
-		req.AddCookie(&http.Cookie{Name: "smithers_session", Value: session})
+		attachBrowserSession(req, browserSession)
 		req.Host = "127.0.0.1:4000"
 		res, err := server.Client().Do(req)
 		require.NoError(t, err)

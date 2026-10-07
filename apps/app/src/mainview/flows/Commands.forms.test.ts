@@ -283,35 +283,26 @@ describe("THE FORM LAW — filling and submitting", () => {
     expect(messages(store).find((message) => message.action?.flow === "runs.resume")?.action?.args).toBe("run-9")
   })
 
-  /*
-   * An agent's form for a consequential flow submits as the agent, so its line
-   * becomes the confirm button's line and re-runs through the flow's grammar.
-   * todo.from-issue's form wrote JSON its `numbered` grammar refuses, and
-   * triggers.pause's a positional line its carried grammar refuses: both
-   * answered "cannot be confirmed" and left the person no button to press.
-   */
-  test("an agent's form for a confirm flow posts a confirmation whose line re-runs the same values", async () => {
+  test("host-owned and person-only commands refuse before opening agent forms", async () => {
     const { store, controller, issueReads } = await boot(true)
-    // Make TODO confirms only an open GitHub issue after current server reads.
     await loadBox(store, "will/flows")
     await store.dispatch({ type: "repo.selected", actor: "user", id: `will/flows#workspace:${TEST_BOX}` }).isPersisted.promise
     await store.dispatch({ type: "card.upsert", actor: "system", card: {
       id: "issue-github-will/flows-212", kind: "issue", title: "Fix the form", status: "active", createdAt: 1, ordinal: store.nextOrdinal(),
       payload: { number: 212, repo: "will/flows", source: "github", title: "Fix the form", state: "open", author: "will", issueBody: "Keep the values", labels: [], comments: [] }
     } }).isPersisted.promise
-    const cases = [
-      { flow: "todo.from-issue", set: [["number", "212"]], payload: { number: 212 } },
-      { flow: "triggers.pause", set: [["slug", "nightly"], ["repo", "will/flows"]], payload: { slug: "nightly", repo: "will/flows" } }
-    ] as const
-    for (const { flow, set, payload } of cases) {
-      expect(await execute(controller, flow)).toStartWith("rendered a form")
-      for (const [field, value] of set) expect(await execute(controller, "form.set", `form-${flow} ${field} ${value}`)).toBe("executed /form.set")
-      expect(await execute(controller, "form.submit", `form-${flow}`)).toContain("asked the user to confirm")
-      expect(formOf(store, flow)?.payload.error).toBeUndefined()
-      const line = messages(store).find((message) => message.action?.flow === flow)?.action?.args
-      expect(payloadFor(flow, line ?? undefined, controller.commands.find(flow)?.metadata.grammar)).toEqual({ payload })
+    for (const args of [undefined, "212"]) {
+      expect(await execute(controller, "todo.from-issue", args)).toBe("failed: this command runs on the conversation host")
     }
-    expect(issueReads).toEqual(["/api/issues/212", "/api/issues/212"])
+    for (const args of [undefined, "nightly will/flows"]) {
+      expect(await execute(controller, "triggers.pause", args)).toStartWith("failed: /triggers.pause is user-only")
+    }
+    for (const flow of ["todo.from-issue", "triggers.pause"]) {
+      expect(formOf(store, flow)).toBeUndefined()
+      expect(messages(store).filter(message => message.action?.flow === flow)).toEqual([])
+    }
+    expect(issueReads).toEqual([])
+    await controller.dispose()
   })
 })
 
@@ -342,7 +333,10 @@ describe("THE FORM LAW — every flow's form round-trips through its own grammar
       const draft = draftFrom(fields, sample)
       const publicFields = fields.filter(field => field.kind !== "write-only")
       if (missingFields(publicFields, draft).length > 0) failures.push(`${name}: the sample left ${missingFields(publicFields, draft).join(", ")} missing`)
-      const args = assembleArgs(fields, entry.metadata.form, { ...draft })
+      // Carried controls and the owner checkbox accept named JSON, while
+      // ordinary slash forms retain their declared display grammar.
+      const namedJson = ["branch.bring-in", "branch.discard-foreign", "run.view", "settings.preapprove-default"].includes(name)
+      const args = namedJson ? JSON.stringify(submissionOf(entry, sample)) : assembleArgs(fields, entry.metadata.form, { ...draft })
       const parsed = payloadFor(name, args === "" ? undefined : args, entry.metadata.grammar)
       if ("error" in parsed) failures.push(`${name}: "${args}" → ${parsed.error}`)
     }
@@ -526,7 +520,7 @@ describe("THE FORM LAW — every flow's form submits its own named payload", () 
   })
 })
 
-test("GitHub installation choice has the same missing-input form at slash and agent doors", async () => {
+test("GitHub installation choice forms at the slash door and refuses the agent door", async () => {
   const { store, controller } = await boot()
   for (const [repo, installationId] of [["ada/hello", 42], ["ada/second", 42], ["acme/api", 99]] as const) {
     await store.dispatch({ type: "github.app-status.loaded", actor: "system", status: {
@@ -542,8 +536,8 @@ test("GitHub installation choice has the same missing-input form at slash and ag
     { name: "installationId", label: "Installation", kind: "select", required: true,
       options: [{ value: "42", label: "ada" }, { value: "99", label: "acme" }] }
   ])
-  expect(await execute(controller, "github.app.choose")).toBe("rendered a form for installationId: ask the user to fill it in")
-  expect(formOf(store, "github.app.choose")?.payload.via).toBe("agent")
+  expect(await execute(controller, "github.app.choose")).toStartWith("failed: /github.app.choose is user-only")
+  expect(formOf(store, "github.app.choose")?.payload.via).toBe("user")
   await controller.dispose()
 })
 

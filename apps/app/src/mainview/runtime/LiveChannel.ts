@@ -131,7 +131,7 @@ export class LiveChannel {
     // T-COL-08: no code-document transport until the real providers and checks
     // are connected. This replaces speculative subscription with a refusal.
     if (this.isDarkTopic(topic)) {
-      if (entry.snapshot.error !== "unsupported") this.publish(entry, { topic, error: "unsupported" })
+      if (entry.snapshot.error !== "unsupported") this.publish(topic, entry, { topic, error: "unsupported" })
     } else this.connect()
     let released = false
     return () => {
@@ -171,7 +171,7 @@ export class LiveChannel {
         for (const [topic, entry] of this.topics) {
           if (topic.startsWith("confirmations:")) {
             entry.awaitingSnapshot = true
-            this.publish(entry, { topic })
+            this.publish(topic, entry, { topic })
           }
           if (topic.startsWith("doc:") || (topic === "members" || topic === "secrets")) entry.awaitingSnapshot = true
           if (topic.startsWith("doc:")) {
@@ -238,11 +238,11 @@ export class LiveChannel {
     if (reply.t === "gap") {
       entry.awaitingSnapshot = true
       this.notifyContinuityLoss()
-      this.publish(entry, { topic, data: entry.snapshot.data })
+      this.publish(topic, entry, { topic, data: entry.snapshot.data })
       this.send({ t: "sub", id: entry.id, topic })
       return
     }
-    if (frame.t !== "snap" && frame.t !== "delta") return
+    if (reply.t !== "snap" && reply.t !== "delta") return
     if (!("data" in frame)) return
     if (!Number.isSafeInteger(reply.cursor) || (reply.cursor as number) < 0) return
     const cursor = reply.cursor as number
@@ -259,13 +259,13 @@ export class LiveChannel {
     try { data = reply.t === "snap" ? reply.data : project!(entry.snapshot.data, reply.data) }
     catch { entry.awaitingSnapshot = true; this.notifyContinuityLoss(); this.send({ t: "sub", id: entry.id, topic }); return }
     entry.awaitingSnapshot = false
-    this.publish(entry, { topic, cursor, data })
+    this.publish(topic, entry, { topic, cursor, data })
   }
   /** Topic observers must reauthorize retained actions after transport continuity is lost. */
   private notifyContinuityLoss() {
     for (const entry of this.topics.values()) for (const listener of entry.listeners) listener()
   }
-  private publish(entry: { snapshot: TopicSnapshot; listeners: Set<() => void> }, snapshot: TopicSnapshot) {
+  private publish(_topic: string, entry: { snapshot: TopicSnapshot; listeners: Set<() => void> }, snapshot: TopicSnapshot) {
     entry.snapshot = snapshot
     for (const listener of entry.listeners) listener()
   }

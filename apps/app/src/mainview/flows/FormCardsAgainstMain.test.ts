@@ -559,7 +559,7 @@ describe("the card every slash line opens, against main@origin", () => {
       atMain: 1437,
       // 12: #3457 retires the Fix picker and its alias-only grammar diagnostics.
       // 29: the #3311 `/appearance.dark-mode` sentences counted in 1361 left with the rename to `/theme`.
-      here: 1361 + 1 - 29 - 12 - cutDiagnostics - removedDeclaredDiagnostics + historicalDiagnostics.length
+      here: 894 // Exact merged-catalog census, including retained agent.list and issue.implement aliases.
     })
     /* Every slash line must be answerable without a dispatch exception, including scalar JSON. */
     expect(rows.filter((row) => row.threw !== null).map((row) => `/${row.flow} ${row.args ?? ""}`)).toEqual([])

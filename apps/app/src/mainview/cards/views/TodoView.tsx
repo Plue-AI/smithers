@@ -52,7 +52,7 @@ function EvidenceLine({ item }: { item: EvidenceItem }) {
       return <span>{item.label}</span>;
   }
 }
-export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
+export function TodoView({ model: todo, actions, onAction, conflictTerminal }: TodoViewProps) {
   const { message: todoDiagnostic } = todo.failure ?? {};
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const mergeAction = actions.find((action) => action.tag === "merge");

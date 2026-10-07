@@ -66,7 +66,6 @@ func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
 	configFile := filepath.Join(t.TempDir(), "config.json")
 	require.NoError(t, os.WriteFile(configFile, []byte(`{"email":{"smtp_host":"","smtp_user":"","smtp_pass":""},"auth":{"github_client_id":"","github_client_secret":""},"wiki_sync":{"obsidian":[]}}`), 0600))
 	for key, value := range map[string]string{
-		"SMITHERS_AUTH_MODE":    "selfhost",
 		"SMITHERS_DATABASE_URL": databaseURL, "SMITHERS_DATA_ROOT": t.TempDir(), "SMITHERS_BLOB_DATA_DIR": t.TempDir(),
 		"SMITHERS_AUTH_SESSION_COOKIE_NAME": "smithers_session",
 		"SMITHERS_AUTH_MODE":                "selfhost", "SMITHERS_AUTH_BOOTSTRAP_TOKEN": "optional-bootstrap",
