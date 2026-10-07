@@ -34,7 +34,8 @@ const ImportedTurnSchema = z.object({
 }).superRefine((entry, ctx) => {
   if (entry.owner_id !== String(entry.author) ||
     entry.author_id !== (entry.kind === "prompt" ? entry.owner_id : entry.participant_id) ||
-    entry.source_format_version !== (entry.agent === "codex" ? "codex/0.160.0" : "claude-code/2.1.0")) {
+    entry.source_format_version !== (entry.agent === "codex" ? "codex/0.160.0" : "claude-code/2.1.0") ||
+    (["tool_request", "tool_result", "edit"].includes(entry.kind) && !entry.call_id)) {
     ctx.addIssue({ code: "custom", message: "Incomplete external conversation identity" })
   }
 }).transform(entry => {

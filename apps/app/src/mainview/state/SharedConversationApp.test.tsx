@@ -379,6 +379,15 @@ test("install conversation binds imported snapshots through the shared renderer 
       await waitFor(() => host.querySelectorAll('article[data-origin="external"]').length === 0)
       expect(host.textContent).toContain("Conversation unavailable")
     }
+    for (const kind of ["tool_request", "tool_result", "edit"]) {
+      const invalid = { ...journal[1], kind } as Record<string, unknown>
+      delete invalid.call_id
+      entries = [invalid]
+      await controller.sharedConversation!.read()
+      await waitFor(() => host.querySelectorAll('article[data-origin="external"]').length === 0)
+      expect(host.textContent).toContain("Conversation unavailable")
+      expect(starts).toBe(0)
+    }
     entries = [{ ...ben, read_only: true, session_id: "external-session" }]
     await controller.sharedConversation!.read()
     await waitFor(() => host.querySelectorAll('[data-shared-turn]').length === 0)
