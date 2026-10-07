@@ -1,13 +1,8 @@
-/**
- * The request flow's host wiring.
- *
- * The flow itself is `request/flow.ts`, the file discovery reads: it
- * default-exports the `@smthrs/flow` flow, so there is no second declaration
- * and no delegate name joining the two.
- */
+/** Internal request steps for TODO composition and retained native histories.
+ * No filesystem command entrypoint is published for this executor. */
 import { Interpreter } from "@smthrs/flow"
 import { Effect, Layer } from "effect"
-import Request, { Coordinate, maximumPlanningPasses, MergeFeedback, RefusePlan } from "./request/flow.ts"
+import Request, { Coordinate, maximumPlanningPasses, MergeFeedback, RefusePlan } from "./request-flow.ts"
 import { CodingError } from "./schema.ts"
 export { RequestInput } from "./schema.ts"
 import { appendFeedback } from "./steering.ts"

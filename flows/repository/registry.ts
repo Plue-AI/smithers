@@ -1,5 +1,4 @@
 /** Bundled declarations are available before a repository has written any flows. */
-import { Request, Vibe } from "@smthrs/coding"
 import * as Digest from "@smthrs/core/Digest"
 import type * as RuntimeFlow from "@smthrs/flow/Flow"
 import type * as FlowBinding from "@smthrs/harness/FlowBinding"
@@ -52,7 +51,7 @@ const policySources = [
   "../coding/flow.ts",
   "../coding/dispatch/flow.ts",
   "../coding/implementation/flow.ts",
-  "../coding/request/flow.ts",
+  "../coding/request-flow.ts",
   "../coding/todo.ts",
   "../coding/todo-route.ts",
   "../coding/steps.ts",
@@ -61,7 +60,7 @@ const policySources = [
   "../coding/flow-load/flow.ts",
   "../todo/flow.ts",
   "../coding/verify/flow.ts",
-  "../coding/vibe/flow.ts",
+  "../coding/vibe-flow.ts",
   "../coding/wiki/flow.ts",
   "../coding/planning-authority.ts",
   "../coding/immutable-source.ts",
@@ -139,9 +138,7 @@ export const authoringBodies: Effect.Effect<ReadonlyMap<string, string>, Error, 
  * require the packaged implementation.
  */
 const codingRoutes = {
-  "coding/request": { flow: Request, description: "Plan and implement one coding request." },
   "coding/verify": { flow: Verify, description: "Re-run a Change's required checks on a rebased candidate." },
-  "coding/vibe": { flow: Vibe, description: "Land one approved coding request." },
   "coding/wiki": { flow: CodingWiki, description: "Refresh the repository wiki after a fold." },
   "flow-load": { flow: FlowLoad, description: "Load every overridable flow at a main commit and answer its versions." }
 } as const satisfies Record<string, { readonly flow: RuntimeFlow.Any; readonly description: string }>
@@ -461,6 +458,7 @@ export const bindRepositoryRegistry = (
   // with the real pinned-source and current-attempt providers (T-FLW-03/04,
   // T-FLW-11). Until they bind a launch to its attempt, no generic route may
   // reach it: refuse before module import, packaged or repository alike.
+  const retired = (name: string) => name === "coding/request" || name === "coding/vibe"
   const dark = (name: string) => name === "todo" && expectedTodoDigest === undefined
   const names = new Set(systemFlows)
   const bundled = (name: string) => names.has(name)
@@ -497,7 +495,14 @@ export const bindRepositoryRegistry = (
       descriptor
   }
   const owned = (name: string): Effect.Effect<Registry.Registry, RegistryError> =>
-    dark(name)
+    retired(name)
+      ? Effect.fail(registryError({
+        code: "body_unavailable",
+        method: "get",
+        path: name,
+        description: "This coding route has been retired; start a TODO"
+      }))
+      : dark(name)
       ? Effect.fail(
         registryError({
           code: "body_unavailable",
@@ -512,9 +517,10 @@ export const bindRepositoryRegistry = (
   const list = () =>
     Effect.all([base.list(), builtins.list()]).pipe(Effect.map(([project, defaults]) =>
       [
-        ...project.filter((entry) => !dark(entry.name) && !bundled(entry.name)),
+        ...project.filter((entry) => !retired(entry.name) && !dark(entry.name) && !bundled(entry.name)),
         ...defaults.filter((entry) =>
-          !dark(entry.name) && (bundled(entry.name) || !project.some((candidate) => candidate.name === entry.name))
+          !retired(entry.name) && !dark(entry.name) &&
+          (bundled(entry.name) || !project.some((candidate) => candidate.name === entry.name))
         )
       ].map(derived)
     ))
