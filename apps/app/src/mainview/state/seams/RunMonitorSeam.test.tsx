@@ -113,3 +113,39 @@ test("an account switch hides cached run data and fences pending reads", async (
   expect(await seam.trace("native-run")).toBe("Run unavailable")
   stop(); seam.dispose()
 })
+
+test("live refreshes keep the selected historical frame and share its pending read", async () => {
+  let view: { tab: string; at?: number } = { tab: "run" }
+  let receive!: () => void
+  let resolve!: (response: Response) => void
+  let reads = 0
+  let snapshot: TopicSnapshot = { topic: "run:native-run", data: run }
+  const seam = createRunMonitorSeam({ view: () => view,
+    live: { subscribe: (_topic, notify) => { receive = notify; return () => {} }, getSnapshot: () => snapshot },
+    http: () => { reads++; return new Promise(done => { resolve = done }) } })
+  const stop = seam.snapshots.subscribe("native-run", () => {})
+  const historical = { ...run, title: "Earlier checks", journal: [], replay: { at: 1, last: 3 } }
+  await (async () => {
+    const read = seam.trace("native-run", 1)
+    resolve(Response.json(historical))
+    await read
+  })()
+  view = { tab: "journal", at: 2 }
+  const read = seam.trace("native-run", 2)
+  for (let i = 0; i < 3; i++) {
+    snapshot = { topic: "run:native-run", data: { ...run, title: "Latest checks" } }
+    receive()
+    const html = renderToStaticMarkup(<RunContainer model={seam.snapshots.get("native-run").model} dispatch={() => {}}
+      view={{ maximized: true }} onView={() => {}} />)
+    expect(html).toContain("Earlier checks")
+    expect(html).not.toContain("Latest checks")
+  }
+  expect(reads).toBe(2)
+  resolve(Response.json({ ...historical, title: "Selected checks", replay: { at: 2, last: 3 } }))
+  await read
+  expect(seam.snapshots.get("native-run").model?.title).toBe("Selected checks")
+  view = { tab: "run" }
+  receive()
+  expect(seam.snapshots.get("native-run").model?.title).toBe("Latest checks")
+  stop(); seam.dispose()
+})

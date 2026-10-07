@@ -25,6 +25,7 @@ export function createRunMonitorSeam(options: {
   const listeners = new Map<string, Set<() => void>>()
   const subscriptions = new Map<string, () => void>()
   const revisions = new Map<string, number>()
+  const reads = new Map<string, { at?: number; owner?: string; revision: number; promise: Promise<string | void> }>()
   let disposed = false
   const publish = (id: string, next: RunMonitorSnapshot, owner = options.owner?.()) => {
     if (disposed || owner !== options.owner?.()) return
@@ -45,7 +46,9 @@ export function createRunMonitorSeam(options: {
       const parsed = MonitorCardSchema.safeParse(value.data)
       if (!parsed.success || parsed.data.id !== id) { revisions.set(id, (revisions.get(id) ?? 0) + 1); publish(id, { error: unavailable }); return }
       const view = options.view?.(id)
-      if (view?.at === undefined || snapshots.get(id).model?.replay?.at !== view.at) publish(id, { model: parsed.data })
+      // Keep the selected historical frame while its read is pending. Live
+      // snapshots still validate authority, but must not replace replay data.
+      if (view?.at === undefined || !snapshots.get(id).model) publish(id, { model: parsed.data })
       if (view?.tab === "journal" || view?.at !== undefined) void trace(id, view.at).then(error => {
         if (error) publish(id, { error }, owner)
       })
@@ -67,16 +70,22 @@ export function createRunMonitorSeam(options: {
   const trace = async (id: string, at?: number): Promise<string | void> => {
     if (disposed || !snapshots.get(id).model) return unavailable
     const owner = options.owner?.()
+    const pending = reads.get(id)
+    if (pending && pending.owner === owner && pending.at === at && pending.revision === revisions.get(id)) return pending.promise
     const revision = (revisions.get(id) ?? 0) + 1
     revisions.set(id, revision)
     const path = `/api/runs/${encodeURIComponent(id)}/trace${at === undefined ? "" : `?at=${at}`}`
-    try {
-      const response = await options.http(path, { method: "GET", credentials: "same-origin" })
-      const parsed = response.ok ? MonitorCardSchema.safeParse(await response.json()) : undefined
-      if (disposed || owner !== options.owner?.() || revisions.get(id) !== revision) return
-      if (!parsed?.success || parsed.data.id !== id || parsed.data.journal === undefined || (at !== undefined && parsed.data.replay?.at !== at)) return unavailable
-      publish(id, { model: parsed.data })
-    } catch { if (!disposed && owner === options.owner?.() && revisions.get(id) === revision) return unavailable }
+    const promise = (async (): Promise<string | void> => {
+      try {
+        const response = await options.http(path, { method: "GET", credentials: "same-origin" })
+        const parsed = response.ok ? MonitorCardSchema.safeParse(await response.json()) : undefined
+        if (disposed || owner !== options.owner?.() || revisions.get(id) !== revision) return
+        if (!parsed?.success || parsed.data.id !== id || parsed.data.journal === undefined || (at !== undefined && parsed.data.replay?.at !== at)) return unavailable
+        publish(id, { model: parsed.data })
+      } catch { if (!disposed && owner === options.owner?.() && revisions.get(id) === revision) return unavailable }
+    })()
+    reads.set(id, { at, owner, revision, promise })
+    try { return await promise } finally { if (reads.get(id)?.revision === revision) reads.delete(id) }
   }
   const list = async (): Promise<ReadonlyArray<Pick<MonitorCard, "id" | "title">> | undefined> => {
     if (disposed || !options.live) return undefined
@@ -90,7 +99,7 @@ export function createRunMonitorSeam(options: {
   const dispose = () => {
     disposed = true
     for (const stop of subscriptions.values()) stop()
-    subscriptions.clear(); rows.clear(); owners.clear(); listeners.clear(); revisions.clear()
+    subscriptions.clear(); rows.clear(); owners.clear(); listeners.clear(); revisions.clear(); reads.clear()
   }
   return { snapshots, trace, list, dispose }
 }

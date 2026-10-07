@@ -32,16 +32,23 @@ test("C-J11-01: install Inspect reads its authenticated run topic and journal", 
     await listReady
     await route.fulfill({ json: [model, { ...model, id: "background-run", title: "Background native", flow: "flow-load", attempts: [] }] })
   })
-  await page.route("**/api/runs/native-run/trace*", route => {
+  let holdReplay = false
+  let replayReads = 0
+  let releaseReplay!: () => void
+  const replayReady = new Promise<void>(resolve => { releaseReplay = resolve })
+  await page.route("**/api/runs/native-run/trace*", async route => {
     const at = Number(new URL(route.request().url()).searchParams.get("at") ?? "3")
+    if (holdReplay && at === 0) { replayReads++; await replayReady }
     return route.fulfill({ json: { ...model, replay: { at, last: 3 },
       journal: at === 0 ? [] : [{ seq: 3, at: "2026-10-06T10:00:00Z", type: "step_failed", step: "checks#1", text: "2 failed" }] } })
   })
+  let refreshRun: (() => void) | undefined
   await page.routeWebSocket("**/api/live", socket => socket.onMessage(raw => {
     const frame = JSON.parse(String(raw)) as { t: string; id: number; topic?: string }
     if (frame.t !== "sub") return
     const data = frame.topic === "members" ? roster : frame.topic === "run:native-run" ? model : frame.topic === "run:background-run"
       ? { ...model, id: "background-run", title: "Background native", flow: "flow-load", attempts: [] } : undefined
+    if (frame.topic === "run:native-run") refreshRun = () => socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: 2, data: { ...model, title: "Latest native checks" } }))
     socket.send(JSON.stringify(data === undefined ? { t: "err", id: frame.id, code: "unsupported" }
       : { t: "snap", id: frame.id, cursor: 1, data }))
   }))
@@ -61,7 +68,16 @@ test("C-J11-01: install Inspect reads its authenticated run topic and journal", 
     if (request.url().includes("/api/runs/") && request.method() !== "GET") writes.push(request.url())
   })
   const position = run.getByRole("slider", { name: "Run position", exact: true })
-  await position.focus(); await position.press("Home"); await position.press("End")
+  holdReplay = true
+  await position.focus(); await position.press("Home")
+  await expect.poll(() => replayReads).toBe(1)
+  refreshRun?.()
+  await expect(run.locator(".mvp-run-journal")).toContainText("2 failed")
+  await expect(page.getByRole("region", { name: "Run Latest native checks", exact: true })).toHaveCount(0)
+  expect(replayReads).toBe(1)
+  releaseReplay()
+  await expect(run.locator(".mvp-run-journal")).not.toContainText("2 failed")
+  await position.press("End")
   expect(writes).toEqual([])
   await page.getByRole("button", { name: "Restore", exact: true }).press("Enter")
   await say(page, "/monitor")
