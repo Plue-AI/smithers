@@ -1651,7 +1651,7 @@
         "method": "POST",
         "path": "/api/branches/{branch}",
         "defaults": {
-          "rebase": true
+          "op": "rebase"
         }
       },
       "payload": {

@@ -31,7 +31,9 @@ export function createBranchControlsSeam(ctx: SeamContext, options: BranchContro
       if (!available(operation)) return "Branch unavailable"
       const response = await ctx.http(`${ctx.baseUrl}/api/branches/${encodeURIComponent(branch)}`, {
         method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "Idempotency-Key": randomUuid() },
-        body: JSON.stringify({ op: operation, ...input })
+        body: JSON.stringify(operation === "rebase"
+          ? input.conflict_change === undefined ? { rebase: true } : { conflict_change: input.conflict_change, onto_revision: input.onto_revision }
+          : { op: operation, ...input })
       })
       const body = await response.json() as { message?: string; state?: string }
       if (!response.ok) return { refusal: refusalOf({ body, status: response.status, message: body.message ?? "Branch unavailable" }) }

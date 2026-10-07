@@ -78,7 +78,7 @@ func (h *BranchHandler) Answer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if command == "branch.rebase" || command == "branch.rebase-now" {
-		input := services.BranchRebaseInput{Rebase: body.Rebase || body.Op == "rebase", ConflictChange: body.ConflictChange, OntoRevision: body.OntoRevision, Request: r.Header.Get("Idempotency-Key")}
+		input := services.BranchRebaseInput{Rebase: body.rebaseNow(), ConflictChange: body.ConflictChange, OntoRevision: body.OntoRevision, Request: r.Header.Get("Idempotency-Key")}
 		if err := input.Validate(); err != nil {
 			writeBranchError(w, r, err)
 			return
@@ -133,6 +133,12 @@ type BranchCommandInput struct {
 	OntoRevision   string `json:"onto_revision"`
 }
 
+// The catalog's op selects the shared command; retained bindings select Done.
+// An explicit rebase:true remains a new-rebase request and rejects bindings.
+func (body BranchCommandInput) rebaseNow() bool {
+	return body.Rebase || (body.Op == "rebase" && body.ConflictChange == "" && body.OntoRevision == "")
+}
+
 func DecodeBranchCommand(reader io.Reader) (BranchCommandInput, string, error) {
 	var body BranchCommandInput
 	decoder := json.NewDecoder(reader)
@@ -144,7 +150,7 @@ func DecodeBranchCommand(reader io.Reader) (BranchCommandInput, string, error) {
 		return invalid()
 	}
 	if body.Rebase || body.ConflictChange != "" || body.OntoRevision != "" || body.Op == "rebase" {
-		input := services.BranchRebaseInput{Rebase: body.Rebase || body.Op == "rebase", ConflictChange: body.ConflictChange, OntoRevision: body.OntoRevision}
+		input := services.BranchRebaseInput{Rebase: body.rebaseNow(), ConflictChange: body.ConflictChange, OntoRevision: body.OntoRevision}
 		if (body.Op != "" && body.Op != "rebase") || body.ID != "" || body.Revision != "" {
 			return invalid()
 		}
