@@ -17,7 +17,6 @@ pollster = "1"
 yrs = { version = "=0.27.4", features = ["small-client"] }
 sha2 = "0.10"
 similar = "=2.7.0"
-serde_json = "1"
 tokio = { version = "1", features = ["sync", "rt", "macros"] }
 hmac = "0.12"
 getrandom = "0.3"

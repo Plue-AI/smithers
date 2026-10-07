@@ -234,10 +234,43 @@ impl<D: Disk> Documents for Service<D> {
     }
     fn close(&self, stream: u32) -> hooks::Result<()> {
         let mut s = self.state()?;
+        let path = s
+            .peers
+            .get(&stream)
+            .ok_or_else(|| error(Error::Invalid))?
+            .path
+            .clone();
+        let clients = s
+            .awareness_clocks
+            .iter()
+            .filter(|((id, _), _)| *id == stream)
+            .map(|((_, client), clock)| {
+                (
+                    yrs::ClientID::new(*client),
+                    yrs::sync::awareness::AwarenessUpdateEntry {
+                        clock: clock.saturating_add(1),
+                        json: "null".into(),
+                    },
+                )
+            })
+            .collect();
+        let removal = yrs::sync::AwarenessUpdate { clients };
         s.host.close(stream, self.now()).map_err(error)?;
         s.peers.remove(&stream);
         s.awareness_clocks.retain(|(id, _), _| *id != stream);
         s.output.retain(|f| f.stream != stream);
+        if !removal.clients.is_empty() {
+            for id in s.host.streams_for(&path) {
+                s.output.push_back(frame(
+                    id,
+                    Document {
+                        msg: 4,
+                        data: removal.encode_v1(),
+                        ..Default::default()
+                    },
+                )?);
+            }
+        }
         Ok(())
     }
     fn frame(&self, f: &Frame) -> hooks::Result<Frame> {

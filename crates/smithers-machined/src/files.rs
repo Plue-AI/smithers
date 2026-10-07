@@ -135,9 +135,6 @@ impl Core for Files {
     fn return_to_item(&self, cx: &mut LockCx) -> hooks::Result<hooks::Oid> {
         self.next.return_to_item(cx)
     }
-    fn restore_rewrite(&self, cx: &mut LockCx) -> hooks::Result<()> {
-        self.next.restore_rewrite(cx)
-    }
     fn capture_local(&self, cx: &mut LockCx) -> hooks::Result<()> {
         self.next.capture_local(cx)
     }

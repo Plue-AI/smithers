@@ -134,7 +134,7 @@ fn panic_does_not_lose_later_mutations() {
     executor.shutdown().unwrap()
 }
 #[test]
-fn disabled_executable_has_no_connection_or_hook_side_effect() {
+fn unprovisioned_daemon_has_no_connection_or_hook_side_effect() {
     let dir = std::env::temp_dir().join(format!("machined-disabled-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -148,7 +148,8 @@ fn disabled_executable_has_no_connection_or_hook_side_effect() {
         .current_dir(&dir)
         .output()
         .unwrap();
-    assert_eq!(out.status.code(), Some(78));
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(out.stderr, b"{\"error\":{\"code\":\"unavailable\"}}\n");
     assert!(listener.accept().is_err());
     assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
     std::fs::remove_dir(dir).unwrap()

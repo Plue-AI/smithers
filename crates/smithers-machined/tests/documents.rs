@@ -1018,6 +1018,31 @@ mod dispatcher {
             4
         );
         assert!(service.projections(&mut cx).unwrap()[0].editors.is_empty());
+        rpc::dispatch(&presence(3, json), &mut cx).unwrap();
+        service.poll(&mut cx).unwrap();
+        let closed = rpc::dispatch(
+            &control(14, &[conn::field(1, id.to_be_bytes())]),
+            &mut cx,
+        )
+        .unwrap();
+        assert_ne!(closed.payload[0], 255);
+        assert!(service.projections(&mut cx).unwrap()[0].editors.is_empty());
+        let frames = service.poll(&mut cx).unwrap();
+        assert!(!frames.iter().any(|f| f.stream == id));
+        let removals: Vec<_> = frames
+            .iter()
+            .filter_map(|f| {
+                let d = Document::decode_v2(&f.payload).unwrap();
+                (f.stream == other && d.msg == 4).then_some(d)
+            })
+            .collect();
+        assert_eq!(removals.len(), 1);
+        let removal = yrs::sync::AwarenessUpdate::decode_v1(&removals[0].data).unwrap();
+        assert_eq!(removal.clients.len(), 1);
+        let entry = &removal.clients[&yrs::ClientID::new(epoch.client_id as u64)];
+        assert_eq!(entry.clock, 4);
+        assert_eq!(entry.json.as_ref(), "null");
+        assert!(service.poll(&mut cx).unwrap().is_empty());
     }
 
     fn setup() -> (
