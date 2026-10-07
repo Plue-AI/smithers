@@ -323,8 +323,6 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 		}}
 		if t.jobs != nil {
 			source = liveJobSource(source, t.jobs, services.FlowLiveScope(repository))
-			source = liveCardRefresh(source, "card")
-			source.RefreshEvery = liveRefreshEvery
 		}
 		return source, ""
 	case kind == "todo":

@@ -130,7 +130,7 @@ func TestInstallFlowsServesPersistedGuestSteps(t *testing.T) {
 	require.NoError(t, err)
 	projection, err := json.Marshal(map[string]any{"card": cards})
 	require.NoError(t, err)
-	event, err := jobs.RecordProjectedFactInTx(ctx, tx, services.FlowLiveScope(repository), uuid.NewString(), "flows.changed", "completed", json.RawMessage(`{}`), projection)
+	event, err := jobs.RecordFactInTx(ctx, tx, services.FlowLiveScope(repository), uuid.NewString(), "flows.changed", "completed", projection)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit(ctx))
 	runtime, err := process.New(process.Config{Root: t.TempDir()})

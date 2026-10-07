@@ -159,7 +159,13 @@ func TestTodoMoveInvalidatesACandidateBuiltOnItsOldPrefix(t *testing.T) {
 	require.NoError(t, err)
 	two, err := o.fileTodoAt(session, "two", MythicalTodoPlace{})
 	require.NoError(t, err)
-	headOne, headTwo := strings.Repeat("1", 40), strings.Repeat("2", 40)
+	// Candidate projections read immutable objects. Keep this prefix oracle
+	// backed by real commits, rather than SHA-shaped nonexistent placeholders.
+	tree := o.git(o.hostDir, "rev-parse", main+"^{tree}")
+	headOne := o.git(o.hostDir, "commit-tree", tree, "-p", main, "-m", "candidate one")
+	headTwo := o.git(o.hostDir, "commit-tree", tree, "-p", headOne, "-m", "candidate two")
+	o.git(o.hostDir, "update-ref", "refs/heads/fixture-one", headOne)
+	o.git(o.hostDir, "update-ref", "refs/heads/fixture-two", headTwo)
 	_, err = o.pool.Exec(context.Background(), `UPDATE mythical_items SET state = 'proposing', candidate_verified = true,
 		candidate_base = CASE number WHEN $2 THEN $4 ELSE $5 END, candidate_head = CASE number WHEN $2 THEN $5 ELSE $6 END
 		WHERE repository_id = $1 AND number IN ($2, $3)`, o.repoID, one.Number, two.Number, main, headOne, headTwo)
