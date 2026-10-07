@@ -33,3 +33,6 @@ pub mod confinement;
 
 #[cfg(target_os = "linux")]
 pub mod daemon;
+
+#[cfg(target_os = "linux")]
+pub mod installed;
