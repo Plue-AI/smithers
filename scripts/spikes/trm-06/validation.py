@@ -24,6 +24,21 @@ def fingerprint():
     return {"sha256": hashlib.sha256(OUTSIDE.read_bytes()).hexdigest(), "uid": info.st_uid, "mode": stat.S_IMODE(info.st_mode)}
 
 
+def cgroup_parent():
+    # O_NOFOLLOW on the leaf alone would still follow a replaced ancestor.
+    # Observe only the literal subtree reached through held directory inodes.
+    fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        for name in ("sys", "fs", "cgroup", "smithers", "sessions"):
+            child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
 def sample():
     processes = []
     supervisors = []
@@ -51,7 +66,7 @@ def sample():
         except (FileNotFoundError, ProcessLookupError):
             pass
     cgroups = {}
-    root = os.open("/sys/fs/cgroup/smithers/sessions", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    root = cgroup_parent()
     try:
         for name in os.listdir(root):
             if not name.startswith("s-"):
@@ -77,7 +92,7 @@ def arm_observer():
     # Hold kernel events descriptors before revocation/removal. No member path
     # or supervisor-reported population participates in this observation.
     handles = {}
-    root = os.open("/sys/fs/cgroup/smithers/sessions", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    root = cgroup_parent()
     try:
         for name in os.listdir(root):
             if not name.startswith("s-"):
