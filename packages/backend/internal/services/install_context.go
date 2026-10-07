@@ -69,39 +69,18 @@ func (s InstallContext) Read(ctx context.Context, credential middleware.Credenti
 		}
 		candidates = append(candidates, files...)
 	}
-	// A conversation is shared. Even its author's readable private wiki is not
-	// an eligible source; discard any private scope inherited from a caller.
-	shared, _ := WithWikiVisibility(ctx, "public")
-	index, err := s.Wiki.GetWikiIndex(shared, member, owner, repository.Name)
+	pages, err := WikiContextCandidates(ctx, s.Wiki, member, owner, repository.Name)
 	if err != nil {
 		return nil, err
 	}
-	for _, entry := range index.Pages {
-		page, e := s.Wiki.GetWikiPage(shared, member, owner, repository.Name, entry.Slug)
-		if e != nil {
-			return nil, e
-		}
-		if page.Attachment != nil {
-			continue
-		}
-		candidates = append(candidates, map[string]any{"item": map[string]string{"kind": "page", "label": page.Title, "ref": page.Slug, "revision": strconv.FormatInt(page.Revision, 10)}, "text": page.Body})
-	}
+	candidates = append(candidates, pages...)
 	todos, err := s.todos(ctx, repository.ID)
 	if err != nil {
 		return nil, err
 	}
 	candidates = append(candidates, todos...)
-	budget := 24000
-	setting, err := db.New(s.Source.Pool).GetInstallSetting(ctx, "context.preflight")
-	if err == nil {
-		var configured struct {
-			TokenBudget *int `json:"tokenBudget"`
-		}
-		if json.Unmarshal(setting.Value, &configured) != nil || configured.TokenBudget == nil || *configured.TokenBudget < 0 || *configured.TokenBudget > 1000000 {
-			return nil, ErrSourceNotReady
-		}
-		budget = *configured.TokenBudget
-	} else if !errors.Is(err, pgx.ErrNoRows) {
+	budget, err := ContextPreflightBudget(ctx, db.New(s.Source.Pool))
+	if err != nil {
 		return nil, err
 	}
 	// The credential/member and repository permission may change during IO.
@@ -122,6 +101,51 @@ func (s InstallContext) Read(ctx context.Context, credential middleware.Credenti
 		}
 	}
 	return json.Marshal(map[string]any{"state": state, "candidates": candidates, "tokenBudget": budget})
+}
+
+// WikiContextCandidates lists the repository's wiki pages as preflight
+// candidates pinned at their current revisions, for a shared conversation and
+// a TODO's plan step alike (T-APP-17, T-FLW-10). Even a reader's own private
+// page is not an eligible source; any inherited private scope is discarded.
+func WikiContextCandidates(ctx context.Context, wiki *WikiService, member *db.User, owner, repository string) ([]map[string]any, error) {
+	if wiki == nil {
+		return nil, ErrSourceNotReady
+	}
+	shared, _ := WithWikiVisibility(ctx, "public")
+	index, err := wiki.GetWikiIndex(shared, member, owner, repository)
+	if err != nil {
+		return nil, err
+	}
+	candidates := []map[string]any{}
+	for _, entry := range index.Pages {
+		page, err := wiki.GetWikiPage(shared, member, owner, repository, entry.Slug)
+		if err != nil {
+			return nil, err
+		}
+		if page.Attachment != nil {
+			continue
+		}
+		candidates = append(candidates, map[string]any{"item": map[string]string{"kind": "page", "label": page.Title, "ref": page.Slug, "revision": strconv.FormatInt(page.Revision, 10)}, "text": page.Body})
+	}
+	return candidates, nil
+}
+
+// ContextPreflightBudget is the owner's preflight token budget, 24000 unset.
+func ContextPreflightBudget(ctx context.Context, q *db.Queries) (int, error) {
+	setting, err := q.GetInstallSetting(ctx, "context.preflight")
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 24000, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	var configured struct {
+		TokenBudget *int `json:"tokenBudget"`
+	}
+	if json.Unmarshal(setting.Value, &configured) != nil || configured.TokenBudget == nil || *configured.TokenBudget < 0 || *configured.TokenBudget > 1000000 {
+		return 0, ErrSourceNotReady
+	}
+	return *configured.TokenBudget, nil
 }
 
 // branchRevision reuses the stack's accepted candidate for S1 item branches.

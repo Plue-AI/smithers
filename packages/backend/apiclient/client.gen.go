@@ -2188,6 +2188,25 @@ type GetAPIReposOwnerRepoIssuesStateEventsStreamParams struct {
 	After *int64
 }
 
+// PostAPIReposOwnerRepoWikiSelectionBody is generated from docs/api/openapi.yaml.
+type PostAPIReposOwnerRepoWikiSelectionBody struct {
+	Prompt string `json:"prompt"`
+}
+
+// PostAPIReposOwnerRepoWikiSelectionResponse is generated from docs/api/openapi.yaml.
+type PostAPIReposOwnerRepoWikiSelectionResponse struct {
+	Pages      []PostAPIReposOwnerRepoWikiSelectionResponsePagesItem `json:"pages"`
+	Model      string                                                `json:"model"`
+	DurationMs float64                                               `json:"durationMs"`
+}
+
+// PostAPIReposOwnerRepoWikiSelectionResponsePagesItem is generated from docs/api/openapi.yaml.
+type PostAPIReposOwnerRepoWikiSelectionResponsePagesItem struct {
+	Slug     string `json:"slug"`
+	Revision int64  `json:"revision"`
+	Reason   string `json:"reason"`
+}
+
 // GetAPIReposOwnerRepoWorkspacesIDEgressParams is the query of GET /api/repos/{owner}/{repo}/workspaces/{id}/egress.
 type GetAPIReposOwnerRepoWorkspacesIDEgressParams struct {
 	Cursor *string
@@ -4965,6 +4984,13 @@ func (c *Client) GetAPIReposOwnerRepoWikiSlugDocument(ctx context.Context, owner
 func (c *Client) GetAPIReposOwnerRepoWikiSlugRevisions(ctx context.Context, owner string, repo string, slug string) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/wiki/"+url.PathEscape(slug)+"/revisions", nil, nil, &out)
+	return out, err
+}
+
+// PostAPIReposOwnerRepoWikiSelection calls POST /api/repos/{owner}/{repo}/wiki/selection.
+func (c *Client) PostAPIReposOwnerRepoWikiSelection(ctx context.Context, owner string, repo string, body PostAPIReposOwnerRepoWikiSelectionBody) (PostAPIReposOwnerRepoWikiSelectionResponse, error) {
+	var out PostAPIReposOwnerRepoWikiSelectionResponse
+	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/wiki/selection", nil, body, &out)
 	return out, err
 }
 

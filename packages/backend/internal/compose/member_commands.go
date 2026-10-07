@@ -222,6 +222,28 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				next.ServeHTTP(w, r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, subject)))
 				return
 			}
+			if command == "wiki.read" && services.InstallExecutionCredential(r.Context()) {
+				// The stored lane names the run's TODO; the path names only the
+				// repository, which must be that lane's.
+				parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+				subject := services.InstallSubject{}
+				if len(parts) >= 5 && parts[1] == "repos" && parts[4] == "wiki" {
+					repository, err := queries.GetRepoByOwnerAndLowerName(r.Context(), db.GetRepoByOwnerAndLowerNameParams{Owner: strings.ToLower(parts[2]), LowerName: strings.ToLower(parts[3])})
+					if err == nil {
+						subject = services.InstallSubject{RepositoryID: repository.ID}
+						if resolved, err := services.ResolveInstallExecutionSubject(r.Context(), queries, repository.ID); err == nil {
+							subject = resolved
+						}
+					}
+				}
+				decision, err := services.Authorize(r.Context(), queries, command, subject)
+				if err != nil {
+					writeConfirmationDispatchError(w, err)
+					return
+				}
+				next.ServeHTTP(w, r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, subject)))
+				return
+			}
 			if command == "todo.read" && services.InstallExecutionCredential(r.Context()) {
 				parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 				subject := services.InstallSubject{}

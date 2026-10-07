@@ -494,6 +494,11 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 	if command == "todo.read" && InstallExecutionCredential(ctx) {
 		return authorizeExecutionTodoRead(ctx, q, subject)
 	}
+	// A plan step reads and selects its repository's wiki pages only while
+	// bound to its own live TODO attempt (T-FLW-10); no write scope follows.
+	if command == "wiki.read" && InstallExecutionCredential(ctx) {
+		return authorizeExecutionTodoRead(ctx, q, subject)
+	}
 	if len(policy.Actors) == 0 {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Not available"}
 	}

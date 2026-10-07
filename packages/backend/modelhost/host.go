@@ -229,6 +229,80 @@ func (host *Host) RunModelStream(ctx context.Context, grant ports.ModelStreamGra
 	return io.NopCloser(bytes.NewReader(body)), nil
 }
 
+// maxContextSelectionBytes bounds the selector's one JSON result.
+const maxContextSelectionBytes = 4 << 20
+
+// SelectContext runs the shared context preflight selector alone, on the
+// owner's fast role, in the same short-lived owner-scoped host as a chat
+// turn. The host validates the input; the provider credential stays inside it.
+func (host *Host) SelectContext(ctx context.Context, grant ports.ContextSelectionGrant) (result json.RawMessage, runErr error) {
+	if grant.OwnerID <= 0 {
+		return nil, errors.New("context selection has no authenticated owner")
+	}
+	if !json.Valid(grant.Input) || len(grant.Input) == 0 || grant.Input[0] != '{' {
+		return nil, ports.ErrModelRequestInvalid
+	}
+	runID := uuid.NewString()
+	requestBody, err := json.Marshal(map[string]any{
+		"runId": runID, "ownerId": grant.OwnerID, "instructions": "", "messages": []any{}, "contextSelection": grant.Input,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("encode context selection: %w", err)
+	}
+	binding, err := host.resolver.ResolveChatModel(ctx, grant.OwnerID, grant.RepositoryID, requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("resolve owner model: %w", err)
+	}
+	// Managed credit is metered against a durable chat turn; a selection has none.
+	if binding.Managed || binding.Preflight != nil && binding.Preflight.Managed {
+		return nil, fmt.Errorf("context selection has no chat turn to meter managed credit: %w", ports.ErrModelCredentialMissing)
+	}
+	if binding, requestBody, err = host.standIn.route(binding, requestBody); err != nil {
+		return nil, fmt.Errorf("resolve owner model: %w", err)
+	}
+	chatGrant := ports.ChatTurnGrant{
+		TurnID: "context-selection-" + runID, OwnerID: grant.OwnerID, RepositoryID: grant.RepositoryID,
+		RunID: runID, LegID: runID, Generation: 1, Token: "context-selection",
+		ExpiresAt: time.Now().Add(15 * time.Minute), Request: requestBody, ProducerBaseURL: "http://127.0.0.1",
+	}
+	lease, err := host.launcher.LaunchChatHost(ctx, chatGrant, binding)
+	if err != nil {
+		return nil, fmt.Errorf("launch owner model host: %w", err)
+	}
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+		defer cancel()
+		runErr = errors.Join(runErr, lease.Close(cleanupCtx))
+	}()
+	baseURL, client, token := leaseEndpoint(lease)
+	requestHTTP, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(baseURL, "/")+"/v1/context/select", bytes.NewReader(requestBody))
+	if err != nil {
+		return nil, err
+	}
+	requestHTTP.Header.Set("content-type", "application/json")
+	requestHTTP.Header.Set("authorization", "Bearer "+token)
+	response, err := client.Do(requestHTTP)
+	if err != nil {
+		return nil, fmt.Errorf("run context selection: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+		if response.StatusCode == http.StatusBadRequest {
+			return nil, ports.ErrModelRequestInvalid
+		}
+		return nil, fmt.Errorf("context selection host refused request with status %d", response.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxContextSelectionBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read context selection: %w", err)
+	}
+	if len(body) > maxContextSelectionBytes || !json.Valid(body) {
+		return nil, errors.New("context selection response is invalid")
+	}
+	return body, nil
+}
+
 // Close releases any launcher's retained cleanup work after dispatcher drain.
 func (host *Host) Close(ctx context.Context) error {
 	if closer, ok := host.launcher.(interface{ Close(context.Context) error }); ok {

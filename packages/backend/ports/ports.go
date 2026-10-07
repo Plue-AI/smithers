@@ -140,6 +140,20 @@ type ModelStreamGrant struct {
 	Request      json.RawMessage
 }
 
+// ContextSelector runs the shared context preflight selector (spec §15.1.2)
+// on the owner's fast role, in the same owner-scoped model host, with no
+// chat turn. Input is a ContextPreflightInput; the result is the selector's
+// ContextPreflightResult. A TODO's plan step uses it over wiki pages only.
+type ContextSelector interface {
+	SelectContext(context.Context, ContextSelectionGrant) (json.RawMessage, error)
+}
+
+type ContextSelectionGrant struct {
+	OwnerID      int64
+	RepositoryID int64
+	Input        json.RawMessage
+}
+
 // RepositoryEndpointResolver chooses the storage/execution endpoint for a
 // repository. The common repository client still owns its operation protocol;
 // local installations resolve to their bundled repository service, while a

@@ -4392,6 +4392,29 @@ export interface GetApiReposOwnerRepoWikiSlugRevisionsInput {
 export const getApiReposOwnerRepoWikiSlugRevisions = (transport: Transport, input: GetApiReposOwnerRepoWikiSlugRevisionsInput): Promise<GetApiReposOwnerRepoWikiSlugRevisionsResponse> =>
   transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/wiki/${segment(input.path.slug)}/revisions`) as Promise<GetApiReposOwnerRepoWikiSlugRevisionsResponse>
 
+export type PostApiReposOwnerRepoWikiSelectionBody = {
+  prompt: string
+}
+
+export type PostApiReposOwnerRepoWikiSelectionResponse = {
+  pages: Array<{
+    slug: string
+    revision: number
+    reason: string
+  }>
+  model: string
+  durationMs: number
+}
+
+export interface PostApiReposOwnerRepoWikiSelectionInput {
+  readonly path: { readonly owner: string; readonly repo: string }
+  readonly body: PostApiReposOwnerRepoWikiSelectionBody
+}
+
+/** POST /api/repos/{owner}/{repo}/wiki/selection: Select a TODO plan's wiki pages */
+export const postApiReposOwnerRepoWikiSelection = (transport: Transport, input: PostApiReposOwnerRepoWikiSelectionInput): Promise<PostApiReposOwnerRepoWikiSelectionResponse> =>
+  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/wiki/selection`, input.body) as Promise<PostApiReposOwnerRepoWikiSelectionResponse>
+
 export type GetApiReposOwnerRepoWikiSearchResponse = AnyJSON
 
 export interface GetApiReposOwnerRepoWikiSearchInput {

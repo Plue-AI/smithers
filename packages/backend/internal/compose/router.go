@@ -79,6 +79,9 @@ type routerExtras struct {
 	// ExternalSessions serves the owner's Codex and Claude Code sessions
 	// (GET /api/external/sessions); nil serves none.
 	ExternalSessions *routes.ExternalSessionsHandler
+	// WikiSelection is a TODO plan step's shared-selector call over the
+	// install's wiki (T-FLW-10); nil serves none.
+	WikiSelection http.Handler
 }
 
 func buildRouter(
@@ -1990,6 +1993,14 @@ func buildRouter(
 				r.With(append(readRepo, gateWiki)...).Get("/repos/{owner}/{repo}/wiki/search", routes.SearchWikiPages(wikiService))
 				r.With(append(readRepo, gateWiki)...).Get("/repos/{owner}/{repo}/wiki/{slug}", routes.GetWikiPage(wikiService))
 				r.With(append(readRepo, gateWiki)...).Get("/repos/{owner}/{repo}/wiki/{slug}/revisions", routes.ListWikiRevisions(wikiService))
+				if config.IsSingleOwner(cfg.Auth) {
+					// Without a configured selector the route refuses as unavailable.
+					var selection http.Handler = wikiSelection{queries: queries}
+					if extras.WikiSelection != nil {
+						selection = extras.WikiSelection
+					}
+					r.With(append(readRepo, gateWiki)...).Post("/repos/{owner}/{repo}/wiki/selection", selection.ServeHTTP)
+				}
 			}
 			r.With(readRepo...).Get("/repos/{owner}/{repo}/landings", landingHandler.ListLandingRequests)
 			r.With(readRepo...).Get("/repos/{owner}/{repo}/landings/{number}", landingHandler.GetLandingRequest)

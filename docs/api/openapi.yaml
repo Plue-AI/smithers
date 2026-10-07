@@ -13966,6 +13966,93 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/repos/{owner}/{repo}/wiki/selection:
+    post:
+      summary: Select a TODO plan's wiki pages
+      x-composition: install
+      description: >-
+        A TODO's plan step asks the shared context selector which wiki pages
+        its prompt needs (T-FLW-10). Only the run credential of the TODO's own
+        live attempt is admitted, as `wiki.read`; person credentials and other
+        runs get 403. The selector runs on the owner's fast role over the
+        repository's shared wiki pages only. A disabled wiki gate answers 404
+        and an unavailable selector 503, never an empty selection.
+      operationId: post_api_repos_owner_repo_wiki_selection
+      tags:
+        - Repositories
+      parameters:
+        - name: owner
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: repo
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - prompt
+              properties:
+                prompt:
+                  type: string
+                  minLength: 1
+      responses:
+        '200':
+          description: The selected pages, most relevant first, at the revisions the selector saw.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - pages
+                  - model
+                  - durationMs
+                properties:
+                  pages:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - slug
+                        - revision
+                        - reason
+                      properties:
+                        slug:
+                          type: string
+                        revision:
+                          type: integer
+                          minimum: 1
+                        reason:
+                          type: string
+                  model:
+                    type: string
+                  durationMs:
+                    type: number
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/repos/{owner}/{repo}/wiki/search:
     get:
       summary: GET /api/repos/{owner}/{repo}/wiki/search

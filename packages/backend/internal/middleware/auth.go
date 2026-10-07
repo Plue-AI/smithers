@@ -505,6 +505,8 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/user/(?:repos|readable-repos)$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/mythical(/events|/items/[^/]+)?$`)},
 	{http.MethodGet, "wiki.read", wikiReadPath},
+	// The plan step's shared-selector call over the same pages (T-FLW-10).
+	{http.MethodPost, "wiki.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/wiki/selection$`)},
 	{http.MethodPost, "wiki.create", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/wiki$`)},
 	{http.MethodPatch, "wiki.edit", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/wiki/[^/]+$`)},
 	{http.MethodPut, "wiki.edit", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/wiki/attachments/[^/]+$`)},

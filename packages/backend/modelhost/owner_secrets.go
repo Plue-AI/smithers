@@ -66,6 +66,7 @@ func NewOwnerSecretResolver(databaseURL, secretKey func() string, options ...Own
 func (resolver *OwnerSecretResolver) ResolveChatModel(ctx context.Context, ownerID, repositoryID int64, request json.RawMessage) (Binding, error) {
 	var input struct {
 		SharedConversation bool            `json:"sharedConversation"`
+		ContextSelection   json.RawMessage `json:"contextSelection"`
 		RepositoryID       int64           `json:"repositoryId"`
 		Model              json.RawMessage `json:"model"`
 	}
@@ -221,8 +222,8 @@ func (resolver *OwnerSecretResolver) ResolveChatModel(ctx context.Context, owner
 		}
 		binding.CredentialOrigin = origin
 	}
-	if input.SharedConversation {
-		// The shared prompt route owns this marker. Resolve the owner fast
+	if input.SharedConversation || len(input.ContextSelection) > 0 && string(input.ContextSelection) != "null" {
+		// The shared prompt route and a plan step's wiki selection own these markers. Resolve the owner fast
 		// role independently of an app override; missing fast access uses
 		// the existing coding-role fallback, never the browser's model.
 		fast, err := db.New(pool).EffectiveInstallAgentModel(ctx, "fast")
