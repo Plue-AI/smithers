@@ -200,6 +200,7 @@ func (b testBundle) installedEnvironment(t *testing.T) map[string]string {
 	t.Helper()
 	parent := bundletest.ProtectedTempDir(t)
 	return map[string]string{
+		"TMPDIR":             parent,
 		"SMITHERS_DATA_ROOT": filepath.Join(parent, "data"), "SMITHERS_FLOW_HOST_MANIFEST": b.hostManifest,
 		"SMITHERS_FFI_LIBRARY_PATH": b.ffi, "SMITHERS_NODE_BINARY": b.node, "SMITHERS_MODEL_HOST_BUNDLE": b.modelHost,
 		"SMITHERS_NATIVE_POSTGRES_BIN": b.postgres,
