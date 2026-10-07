@@ -433,7 +433,21 @@ func testStackCrash(t *testing.T, point string) {
 			require.Equal(t, settled.TipCommit, f.hostRef(repohost.MythicalBookmarkRef), "the stale owner's push is refused: %v", outcome)
 			after, err := q.GetMythicalStack(ctx, f.repoID)
 			require.NoError(t, err)
-			require.Equal(t, settled, after, "the stale owner's finish is fenced: it changes nothing")
+			// A lost owner can wake reconciliation; only the new claim may write.
+			// Scheduling counters are not logical stack contents.
+			require.GreaterOrEqual(t, after.RequestedGeneration, settled.RequestedGeneration)
+			require.Equal(t, after.RequestedGeneration, after.ProcessedGeneration)
+			require.GreaterOrEqual(t, after.Claim, settled.Claim)
+			require.GreaterOrEqual(t, after.ClaimedGeneration, settled.ClaimedGeneration)
+			require.False(t, after.Running)
+			require.False(t, after.LeaseExpiresAt.Valid)
+			require.False(t, after.UpdatedAt.Time.Before(settled.UpdatedAt.Time))
+			require.False(t, after.NextAttemptAt.Time.Before(settled.NextAttemptAt.Time))
+			logical := after
+			logical.RequestedGeneration, logical.ProcessedGeneration = settled.RequestedGeneration, settled.ProcessedGeneration
+			logical.ClaimedGeneration, logical.Claim = settled.ClaimedGeneration, settled.Claim
+			logical.NextAttemptAt, logical.UpdatedAt = settled.NextAttemptAt, settled.UpdatedAt
+			require.Equal(t, settled, logical, "the stale owner's finish cannot change any durable stack content")
 			child.Kill(t)
 		} else {
 			child.Kill(t)
