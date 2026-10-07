@@ -11,6 +11,7 @@ import { catalogRequest } from "../../CatalogRequest.ts"
 import type { Runtime } from "../../cli/ControlBridge.ts"
 import * as Presentation from "../../cli/Presentation.ts"
 import { Refused, UsageError } from "../../CliError.ts"
+import * as Failure from "../Failure.ts"
 import { Client, list, object } from "./Client.ts"
 
 /**
@@ -178,7 +179,8 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
               result = { ...receipt, message: `Waiting for ${person} to confirm` }
               runtime.exit?.(3)
             }
-            return client.redact(result)
+            const value = client.redact(result)
+            return ["md", "yaml", "toon"].includes(context.format) ? Failure.terminalSafeValue(value) : value
           } catch (error) {
             throw client.failure(error)
           } finally {
@@ -187,11 +189,11 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
         }, {
           next: [],
           render: (value) => {
-            const receipt = object(value)
+            const receipt = object(Failure.terminalSafeValue(value))
             return {
               human: receipt.confirmation !== undefined && receipt.state === "pending"
                 ? `${String(receipt.message)}\n${String(receipt.confirmation)} pending` :
-                JSON.stringify(value)
+                JSON.stringify(Failure.terminalSafeValue(value))
             }
           }
         })
