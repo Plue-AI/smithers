@@ -294,6 +294,13 @@ const journeyTodoMerge = Smithers.NodeTest({
   deps: [], exclusive: true, cache: false, timeout: "17m", cwd
 })
 
+const journeyAskRepository = Smithers.NodeTest({
+  runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
+  runner: Smithers.entrypoint(Smithers.file("scripts/run-journey-j2.ts"), ["ask-repository"]),
+  srcs: [suiteSources, harnessSources, Smithers.file("playwright.real.config.ts")],
+  deps: [], exclusive: true, cache: false, timeout: "7m", cwd
+})
+
 /**
  * The evidence flow (EVIDENCE-CONTRACT.md): proofRecord drives the real bundle
  * through every journey's proof spec (e2e/proof) with real models and records
@@ -484,5 +491,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { distributionInputs, crateInputs, proofMockInputs, serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, viewStories, journeyJ1Activation, journeySetup, journeyWikiObsidian, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, proofRecord, proofPage, webSources, ...securityReview }
+  targets: { distributionInputs, crateInputs, proofMockInputs, serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, viewStories, journeyJ1Activation, journeySetup, journeyWikiObsidian, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, journeyAskRepository, proofRecord, proofPage, webSources, ...securityReview }
 })
