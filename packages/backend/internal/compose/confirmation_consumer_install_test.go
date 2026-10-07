@@ -31,7 +31,7 @@ func TestConfirmFlowEditConsumerInstall(t *testing.T) {
 		{"request", "Change flows/todo/flow.ts: Run tests; start from the built-in composition when no override exists"},
 		{"diff", "Change flows/todo/flow.ts: Run tests; start from the built-in composition when no override exists\n\nProposed diff (untrusted context):\n> diff --git a/flows/todo/flow.ts b/flows/todo/flow.ts\n> +pnpm test\n> +```\n> +<script>untrusted</script>"},
 	} {
-		for _, via := range []string{"codex", "claude-code", "cli"} {
+		for _, via := range []string{"codex", "claude-code", "cli", "smithers"} {
 			t.Run(tc.name+"/"+via, func(t *testing.T) {
 				testConfirmTodoConsumerInstall(t, "Change the TODO flow: Run tests", tc.prompt, via)
 			})
@@ -74,8 +74,21 @@ func testConfirmTodoConsumerInstall(t *testing.T, wantTitle, wantPrompt, via str
 	token := "smithers_" + strings.Repeat("c", 40)
 	tokenSum := sha256.Sum256([]byte(token))
 	tokenHash := hex.EncodeToString(tokenSum[:])
-	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: via + "-confirm", TokenHash: tokenHash, TokenLastEight: tokenHash[len(tokenHash)-8:], Scopes: "read:repository,write:repository,via:" + via, SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
-	require.NoError(t, err)
+	if via == "smithers" {
+		// Use the production issuer and a live producer subject: a bare
+		// via:smithers token must never stand in for app-agent authority.
+		cfg := testConfigAllFlagsOn()
+		cfg.Auth.Mode = "selfhost"
+		issuer := services.NewAuthService(q, cfg.Auth, nil, nil)
+		issuer.Members = &services.Members{Pool: pool}
+		turn := liveAppTurnCredentialFixture(t, pool, owner.ID)
+		credential, err := issuer.MintForTurn(ctx, owner.ID, turn, 1)
+		require.NoError(t, err)
+		token = credential.Token
+	} else {
+		_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: via + "-confirm", TokenHash: tokenHash, TokenLastEight: tokenHash[len(tokenHash)-8:], Scopes: "read:repository,write:repository,via:" + via, SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+		require.NoError(t, err)
+	}
 	handler := startSplitProcess(t, Options{ChatHost: unusedChatHost{}})
 	call := func(method, path, body, key string, delegated bool, cookies ...string) *httptest.ResponseRecorder {
 		request := httptest.NewRequest(method, "http://127.0.0.1:4000"+path, strings.NewReader(body))
