@@ -10,7 +10,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { fileURLToPath } from "node:url"
-import { describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as NodeControl from "../src/NodeControl.ts"
 import { commitCancelBeforeCleanup } from "./fixtures/cancel-before-cleanup.ts"
 
@@ -36,12 +36,15 @@ export default Flow.make("hold", {
 
 type Result = { code: number | null; stdout: string; stderr: string }
 const command = (root: string, args: ReadonlyArray<string>) => {
+  const environment = { ...process.env }
+  delete environment.SMITHERS_POSTGRES_TEST_BIN
+  delete environment.SMITHERS_TEST_PG_URL
   const child = spawn(
     process.execPath,
     ["--no-warnings", "--import", preload, bin, ...args, "--root", root, "--json"],
     {
       cwd: root,
-      env: { ...process.env, SMITHERS_REMOTE: "", SMITHERS_BACKEND: "sqlite", XDG_CONFIG_HOME: join(root, "config") }
+      env: { ...environment, SMITHERS_REMOTE: "", SMITHERS_BACKEND: "sqlite", XDG_CONFIG_HOME: join(root, "config") }
     }
   )
   const finished = new Promise<Result>((resolve, reject) => {
@@ -79,6 +82,8 @@ const until = async <A>(read: () => A | undefined): Promise<A> => {
 }
 
 describe("native CLI cancellation", { timeout: 120_000 }, () => {
+  beforeEach(() => vi.stubEnv("SMITHERS_BACKEND", "sqlite"))
+  afterEach(() => vi.unstubAllEnvs())
   it.each(["driving", "external", "released", "released committed request"] as const)(
     "converges after a %s cancellation",
     async (mode) => {
@@ -127,9 +132,9 @@ describe("native CLI cancellation", { timeout: 120_000 }, () => {
           )
         } else {
           const cancelled = await command(root, ["runs", "cancel", runId]).finished
-          expect(cancelled.code, cancelled.stdout + cancelled.stderr).toBe(
-            mode === "released committed request" ? 130 : 0
-          )
+          // The cancellation request succeeds; the attached execution reports
+          // its cancelled settlement through its own exit status below.
+          expect(cancelled.code, cancelled.stdout + cancelled.stderr).toBe(0)
           expect(cancelled.stderr).toBe("")
           if (mode === "released") {
             const receipt = JSON.parse(cancelled.stdout)
@@ -145,7 +150,7 @@ describe("native CLI cancellation", { timeout: 120_000 }, () => {
             expect(Date.now()).toBeLessThan(staleAt)
             await new Promise((resolve) => setTimeout(resolve, staleAt - Date.now()))
             const settled = await command(root, ["runs", "cancel", runId]).finished
-            expect(settled.code, settled.stdout + settled.stderr).toBe(130)
+            expect(settled.code, settled.stdout + settled.stderr).toBe(0)
             expect(JSON.parse(settled.stdout)).toMatchObject({ _tag: "Terminal", status: "cancelled" })
           }
           if (mode.startsWith("released")) {
@@ -170,11 +175,23 @@ describe("native CLI cancellation", { timeout: 120_000 }, () => {
         expect(engine.length).toBeGreaterThanOrEqual(2)
         expect(engine.every((row) => row.status === "cancelled")).toBe(true)
         expect(readFileSync(marker, "utf8")).toBe(entered)
-        const shown = await command(root, ["runs", "show", runId]).finished
+        const shown = await command(root, ["status", runId]).finished
         expect(shown.code, shown.stdout + shown.stderr).toBe(0)
-        expect(JSON.parse(shown.stdout).status).toBe("cancelled")
-        const listed = await command(root, ["runs", "list"]).finished
+        expect(JSON.parse(shown.stdout)).toMatchObject({
+          _tag: "runs",
+          items: [{ runId, status: "cancelled" }]
+        })
+        expect(JSON.parse(shown.stdout).items).toHaveLength(1)
+        const listed = await command(root, ["ps"]).finished
+        expect(listed.code, listed.stdout + listed.stderr).toBe(0)
         expect(JSON.parse(listed.stdout).items).toMatchObject([{ runId, status: "cancelled" }])
+        const replay = await command(root, ["runs", "cancel", runId]).finished
+        expect(replay.code, replay.stdout + replay.stderr).toBe(0)
+        // The stable request can replay Accepted; the durable state stays terminal.
+        expect(JSON.parse(replay.stdout).runId).toBe(runId)
+        expect(rows(root, "control")).toEqual(control)
+        expect(rows(root, "engine")).toEqual(engine)
+        expect(readFileSync(marker, "utf8")).toBe(entered)
         expect(() => process.kill(runner!.child.pid!, 0)).toThrow()
         qualified = true
       } finally {
