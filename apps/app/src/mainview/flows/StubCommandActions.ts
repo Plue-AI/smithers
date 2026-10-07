@@ -201,6 +201,7 @@ export const stubCommandActions = (overrides: Partial<CommandActions> = {}): Com
   amendTodo: unexpected,
   controlTodo: unexpected,
   moveTodo: unexpected,
+  backgroundRun: unexpected,
   refreshWiki: unexpected,
   showMembers: unexpected,
   flowCards: unexpected,
