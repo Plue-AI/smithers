@@ -48,6 +48,13 @@ describe("names rc.0 ignores (X-01, the release policy)", () => {
     ).toEqual([])
   })
 
+  it("does not announce native Go fixture programs as legacy database configuration", () => {
+    expect(UnsupportedBackend.ignoredNames({
+      SMITHERS_POSTGRES_TEST_BIN: "/usr/lib/postgresql/18/bin",
+      SMITHERS_POSTGRES_POOL_MAX: "10"
+    })).toEqual(["SMITHERS_POSTGRES_POOL_MAX"])
+  })
+
   /**
    * The contract lists `SMITHERS_POSTGRES_*`, not every name that starts with
    * those letters. A prefix test without the separator claims rc.0 ignores

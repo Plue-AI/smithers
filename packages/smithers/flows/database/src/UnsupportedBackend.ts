@@ -9,7 +9,9 @@ type Source = Readonly<Record<string, string | undefined>>
 
 /**
  * The `SMITHERS_*` names rc.0 ignores: `SMITHERS_TEST_PG_URL` and every
- * `SMITHERS_POSTGRES_*` name (the release policy).
+ * legacy `SMITHERS_POSTGRES_*` configuration name (the release policy).
+ * `SMITHERS_POSTGRES_TEST_BIN` selects native programs for Go test fixtures;
+ * it is not a database configuration setting.
  *
  * The separator is part of the prefix. Every name 0.x actually read carries it
  * (`SMITHERS_POSTGRES_URL`, `SMITHERS_POSTGRES_POOL_MAX`,
@@ -30,7 +32,7 @@ export const ignoredNames = (environment: Source): ReadonlyArray<string> =>
     .filter((name) =>
       (name === "SMITHERS_TEST_PG_URL" ||
         (name.startsWith("SMITHERS_POSTGRES_") && name !== "SMITHERS_POSTGRES_URL" &&
-          name !== "SMITHERS_POSTGRES_SCHEMA")) &&
+          name !== "SMITHERS_POSTGRES_SCHEMA" && name !== "SMITHERS_POSTGRES_TEST_BIN")) &&
       environment[name] !== undefined && environment[name] !== ""
     )
     .sort()
