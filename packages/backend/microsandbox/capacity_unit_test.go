@@ -956,6 +956,7 @@ func TestAdmissionReleaseObservedWithoutWaitingCaller(t *testing.T) {
 				require.Contains(t, string(calls), "stop -t 0 -q vm-a")
 			} else {
 				require.NotContains(t, string(calls), "stop -t 0")
+				require.Contains(t, string(calls), "stop -t 10 -q vm-a", "cancelled boot requests a normal stop on the first tick")
 			}
 			// Atomic replacement avoids an incomplete observation while the daemon reads.
 			next := filepath.Join(root, "next")

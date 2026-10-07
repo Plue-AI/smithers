@@ -13,6 +13,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
@@ -130,6 +131,12 @@ func TestFrTMCH06BranchWaitPositionProductionHTTPPostgres(t *testing.T) {
 	t.Cleanup(pool.Close)
 	require.NoError(t, product.Apply(ctx, pool))
 	q := db.New(pool)
+	bus := revocation.NewBus(pool, q)
+	busCtx, stopBus := context.WithCancel(ctx)
+	require.NoError(t, bus.Start(busCtx))
+	t.Cleanup(stopBus)
+	routes.SetRevocationSource(bus)
+	t.Cleanup(func() { routes.SetRevocationSource(nil) })
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "admissionowner", LowerUsername: "admissionowner"})
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, owner.ID)
@@ -166,7 +173,7 @@ case "$1" in
 esac
 `, marker, machine, machine, marker)
 	require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
-	runtime, err := microsandbox.New(ctx, microsandbox.Config{Root: root, Binary: binary, CPUs: 2, MemoryMiB: 8192, DiskMiB: 32768, MaxRunningVMs: 3, SkipQualification: true})
+	runtime, err := microsandbox.New(ctx, microsandbox.Config{Root: root, Binary: binary, CPUs: 2, MemoryMiB: 8192, DiskMiB: 32768, MaxRunningVMs: 3, HostProfile: &microsandbox.HostProfile{MemoryBytes: 64 << 30, PerfCores: 8, DiskFreeBytes: 140 << 30}, SkipQualification: true})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
 	require.FileExists(t, marker)
@@ -314,6 +321,37 @@ esac
 	runtime.CancelAdmission(holder, holder, time.Now())
 	read(0)
 	require.Zero(t, runtime.InUse())
+
+	// A granted terminal closed while boot is in flight requests a normal stop
+	// on the production runtime tick, rather than waiting for the force deadline.
+	pending, err := q.CreateWorkspaceSession(ctx, db.CreateWorkspaceSessionParams{WorkspaceID: row.ID, RepositoryID: repo.ID, UserID: owner.ID, Cols: 80, Rows: 24})
+	require.NoError(t, err)
+	runtime.SetCapacityReader(func(context.Context) (int, error) { return 1, nil })
+	_, err = runtime.WaitAdmission(ctx, microsandbox.AdmissionProviders{
+		FreeDisk: func(context.Context) (int64, error) { return 140 << 30, nil },
+		Ready:    func(context.Context, microsandbox.AdmissionRequest) error { return nil },
+	}, "person", holder, actor(pending.ID), "terminal")
+	require.NoError(t, err)
+	require.NoError(t, runtime.BindAdmissionMachine(holder, machine))
+	require.NoError(t, os.Remove(marker)) // the runtime now observes a starting VM
+	require.Equal(t, 1, runtime.InUse())
+	closeRequest := httptest.NewRequest("POST", origin+"/api/repos/admissionowner/fixture/workspace/sessions/"+pending.ID+"/destroy", nil)
+	closeRequest.RemoteAddr = "127.0.0.1:1234"
+	closeRequest.Header.Set("Origin", origin)
+	closeRequest.Header.Set("X-CSRF-Token", "csrf")
+	closeRequest.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
+	closeRequest.AddCookie(&http.Cookie{Name: "smithers_session", Value: token})
+	closeResponse := httptest.NewRecorder()
+	router.ServeHTTP(closeResponse, closeRequest)
+	require.Equal(t, http.StatusNoContent, closeResponse.Code, closeResponse.Body.String())
+	require.Eventually(t, func() bool { return runtime.InUse() == 0 }, 2*time.Second, 10*time.Millisecond)
+	require.FileExists(t, marker, "release requires independently observed stop")
+	for _, demand := range runtime.AdmissionSnapshot() {
+		if demand.Actor == actor(pending.ID) {
+			require.Equal(t, "cancelled", demand.State)
+		}
+	}
+	runtime.SetCapacityReader(func(context.Context) (int, error) { return 3, nil })
 
 	// The Home card uses the same owner capacity and runtime accounting as
 	// admission, rather than counting only the machines visible on TODO cards.
