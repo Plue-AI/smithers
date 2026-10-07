@@ -511,10 +511,7 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		fake.SignInAs("merge-login-code", 17)
 		_, err = pool.Exec(ctx, `INSERT INTO oauth_accounts(id,user_id,provider,provider_user_id,profile_data) VALUES(2,$1,'workos','17','{}')`, owner.ID)
 		require.NoError(t, err)
-		via := "claude-code"
-		if len(explicitHead) > 0 && explicitHead[0] {
-			via = "cli"
-		}
+		via := "cli"
 		pat = confirmationCLILogin(t, ctx, origin, "merge-login-code", via)
 		digest := sha256.Sum256([]byte(pat))
 		var scopes string

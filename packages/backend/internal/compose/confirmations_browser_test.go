@@ -66,6 +66,7 @@ func TestConfirmationsBrowserPostgres(t *testing.T) {
 		Name: "browser-test-claude-code", Via: "claude-code", Scopes: []string{"repo", "user"},
 	})
 	require.NoError(t, err)
+	token := credential.Token
 	wikiToken := "smithers_" + strings.Repeat("d", 40)
 	wikiSum := sha256.Sum256([]byte(wikiToken))
 	wikiHash := hex.EncodeToString(wikiSum[:])
