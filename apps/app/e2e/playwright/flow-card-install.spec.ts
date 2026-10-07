@@ -212,3 +212,26 @@ test("install system flow and missing catalog refuse edit before a Draft or TODO
   expect(writes).toBe(0)
   await expect(page.getByTestId("composer-input")).toBeEditable()
 })
+
+test("named system flow stays mounted when the repository list refreshes", async ({ page }) => {
+  await owner(page)
+  await page.route("**/api/bootstrap", route => route.fulfill({ json: {
+    apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "credentials", sandbox: null
+  } }))
+  await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
+  await page.route("**/api/flows", route => route.fulfill({ json: [{ name: "todo", source: { builtin: true }, system: false,
+    versions: [{ id: "d1", state: "active", steps: [] }] }] }))
+  await page.route("**/api/flows/merge", route => route.fulfill({ json: { name: "merge", source: { builtin: true }, system: true, versions: [] } }))
+  await page.goto("/")
+  await say(page, "/flow merge")
+  const system = page.getByRole('region', { name: 'merge flow', exact: true })
+  await expect(system).toBeVisible()
+  await expect(system.locator("[data-flow]")).toHaveCount(0)
+  await say(page, "/flows")
+  await expect(system).toBeVisible()
+  await expect(system.locator("[data-flow]")).toHaveCount(0)
+  await page.reload()
+  await expect(system).toBeVisible()
+  await expect(system.locator("[data-flow]")).toHaveCount(0)
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+})

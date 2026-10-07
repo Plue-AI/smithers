@@ -68,6 +68,15 @@ test("install /flow mounts the served versions through the production card rende
     const card = [...store.collections.cards.values()].find(card => card.kind === "flow")!
     expect(card?.kind).toBe("flow")
     const actions = { presentation: "embedded" } as CardActions
+    expect(await controller.commands.submit({ name: "flow", payload: { name: "merge" }, actor: "user" })).toMatchObject({ status: "executed" })
+    const systemCard = [...store.collections.cards.values()].find(card => card.kind === "flow" && card.payload.name === "merge")!
+    await act(async () => root.render(<ControllerTestProvider controller={controller!}>{renderCardBody(systemCard, actions)}</ControllerTestProvider>))
+    expect(host.querySelector(".flow-view")).not.toBeNull()
+    expect(host.querySelector('[role="alert"]')).toBeNull()
+    expect(host.querySelectorAll("[data-flow]")).toHaveLength(0)
+    await act(async () => { await controller!.flowCards() })
+    expect(host.querySelector(".flow-view")).not.toBeNull()
+    expect(await controller.flowCards()).toHaveLength(1)
     await act(async () => root.render(<ControllerTestProvider controller={controller!}>{renderCardBody(card, actions)}</ControllerTestProvider>))
     expect(reads).toContain("/api/flows")
     expect(host.querySelector('.flow-path')?.textContent).toBe("flows/todo/flow.ts")

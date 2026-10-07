@@ -5,7 +5,7 @@ import { ViewSkeleton } from "../ViewSkeleton"
 import { flowAction, flowProps } from "../flows/FlowAction"
 import { runSourceCommand } from "@smthrs/ui/run-command"
 import { Button, Markdown } from "@smthrs/ui"
-import { useSyncExternalStore } from "react"
+import { useCallback, useSyncExternalStore } from "react"
 import type { Card } from "../state/AppState"
 import type { CardFamily, CardOf, RunCommand } from "./CardFamily"
 import { settledPill } from "./CardFamily"
@@ -116,7 +116,8 @@ const FlowBody = ({ card, maximized }: { readonly card: CardOf<"flow">; readonly
   const saved = useLiveQuery(controller.store.collections.cards).data.find(row => row.id === card.id)
   const payload = saved?.kind === "flow" ? saved.payload : card.payload
   const catalog = controller.flowCatalog ?? noCatalog
-  const served = useSyncExternalStore(catalog.subscribe, catalog.get, catalog.get)
+  const subscribe = useCallback((listener: () => void) => catalog.subscribe(listener, card.payload.name), [catalog, card.payload.name])
+  const served = useSyncExternalStore(subscribe, catalog.get, catalog.get)
   const model = controller.flowCatalog === undefined ? flowCardOf(world, card.payload.name) : served.flows?.find(flow => flow.name === card.payload.name)
   const dispatch: CardCommandDispatch = (tag, input) =>
     controller.commands.submit({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user", originCardId: card.id })
