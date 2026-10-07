@@ -494,14 +494,7 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		writeInstallAPIError(w, pkgerrors.Forbidden("setup origin and CSRF token required"))
 		return
 	}
-	var rawInput struct {
-		Capacity json.RawMessage `json:"capacity"`
-		ChatGPT  json.RawMessage `json:"chatgpt"`
-	}
-	if !decodeStrictJSONBody(w, r, &rawInput) {
-		return
-	}
-	var input struct {
+	type settingsInput struct {
 		Obsidian *struct {
 			Path string `json:"path"`
 		} `json:"wiki_sync.obsidian"`
@@ -512,6 +505,15 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		Bind                  json.RawMessage `json:"bind"`
 		Origins               json.RawMessage `json:"origins"`
 		TodoPreapproveDefault *bool           `json:"todo_preapprove_default"`
+	}
+	var input settingsInput
+	rawInput := struct {
+		*settingsInput
+		Capacity json.RawMessage `json:"capacity"`
+		ChatGPT  json.RawMessage `json:"chatgpt"`
+	}{settingsInput: &input}
+	if !decodeStrictJSONBody(w, r, &rawInput) {
+		return
 	}
 	if len(rawInput.Capacity) > 0 {
 		if json.Unmarshal(rawInput.Capacity, &input.Capacity) != nil || input.Capacity == nil {
@@ -524,10 +526,6 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 			writeInstallAPIError(w, pkgerrors.BadRequest("chatgpt must be a boolean"))
 			return
 		}
-	}
-	if input.Capacity == nil && input.ChatGPT == nil {
-		writeInstallAPIError(w, pkgerrors.BadRequest("install setting required"))
-		return
 	}
 	if input.TodoPreapproveDefault != nil {
 		if err := services.MergeCredential(r.Context(), r.Header.Get("Smithers-Via")); err != nil {
