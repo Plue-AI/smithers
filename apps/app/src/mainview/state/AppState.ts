@@ -895,6 +895,7 @@ export const SessionSchema = z.object({
     state: z.enum(["requested", "completed", "failed"]), error: z.string().max(1024).optional()
   }).strict()).optional(),
   /* Wiki refreshes asked of a repository's stack (StackSeam.refreshWiki): each notice reconnects after a reload until the Wiki settles. */
+  branchArchiveRequests: z.array(z.object({ id:z.string(), owner:z.string(), branch:z.string(), state:z.enum(["requested","completed","failed"]), error:z.string().optional() }).strict()).optional(),
   githubSyncRequest: z.object({ id: z.string(), owner: z.string(), lastSuccessAt: z.string().nullable(), phase: z.enum(["requested", "running", "failed"]), error: z.string().optional() }).optional(),
   wikiRequests: z.array(z.object({ repo: z.string(), owner: z.string(), requestedAt: z.number() })).optional(),
 
@@ -1372,6 +1373,7 @@ export type AppTransition =
   | { type: "install.requests.changed"; actor: Actor; requests: NonNullable<Session["installRequests"]> }
   | { type: "repository.imports.changed"; actor: Actor; requests: NonNullable<Session["repositoryImports"]> }
   | { type: "secret.requests.changed"; actor: Actor; requests: NonNullable<Session["secretRequests"]> }
+  | { type: "branch.archive.requests.changed"; actor: Actor; requests: NonNullable<Session["branchArchiveRequests"]> }
   | { type: "egress.requests.changed"; actor: Actor; requests: NonNullable<Session["egressRequests"]> }
   | { type: "conversation.ui.applied"; actor: "system"; owner: string; id: string }
   | { type: "conversation.prompt.changed"; actor: Actor; request: SharedPrompt; clearDraft?: boolean }

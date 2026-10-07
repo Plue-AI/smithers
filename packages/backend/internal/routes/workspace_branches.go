@@ -30,6 +30,10 @@ type BranchForkService interface {
 	ForkBranch(context.Context, int64, int64, services.BranchForkInput) (services.BranchMachineResponse, error)
 }
 
+type BranchArchiveService interface {
+	ArchiveScratchBranch(context.Context, string, int64, int64) (services.BranchMachineResponse, error)
+}
+
 type BranchAddService interface {
 	AddBranchToStack(context.Context, int64, int64, string, services.BranchAddInput) (services.MythicalItemView, error)
 }
@@ -49,6 +53,7 @@ type BranchHandler struct {
 	Files     BranchFileReadService
 	Answers   BranchAnswerService
 	Adds      BranchAddService
+	Archives  BranchArchiveService
 }
 
 // RegisterBranchRoutes mounts /branches under the install's /api router;
@@ -62,6 +67,7 @@ func RegisterBranchRoutes(r chi.Router, h *BranchHandler) {
 	r.Get("/branches/{b}", h.GetBranch)
 	r.Post("/branches", h.Fork)
 	r.Post("/branches/{b}/add-to-stack", h.AddToStack)
+	r.Post("/branches/{b}/archive", h.Archive)
 	r.Post("/branches/{b}", h.Answer)
 	r.Get("/branches/{b}/files", h.ListFiles)
 }
@@ -348,4 +354,24 @@ func InstallBranchReadSubject(r *http.Request, q *db.Queries) (services.InstallS
 		workspace = row.ID
 	}
 	return services.InstallExecutionFileSubject(r.Context(), q, repository, workspace)
+}
+
+// Archive records the member's decision; runtime cleanup remains background
+// work on the existing five-minute cleaner, after its four safety checks.
+func (h *BranchHandler) Archive(w http.ResponseWriter, r *http.Request) {
+	repositoryID, userID, err := h.authorize(r, "branch.archive", h.Archives != nil)
+	if err != nil {
+		writeBranchError(w, r, err)
+		return
+	}
+	if h.Archives == nil {
+		writeBranchError(w, r, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch archive unavailable"))
+		return
+	}
+	branch, err := h.Archives.ArchiveScratchBranch(r.Context(), chi.URLParam(r, "b"), repositoryID, userID)
+	if err != nil {
+		writeBranchError(w, r, err)
+		return
+	}
+	pkgerrors.WriteJSON(w, http.StatusOK, branch)
 }

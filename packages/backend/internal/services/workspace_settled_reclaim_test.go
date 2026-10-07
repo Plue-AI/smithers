@@ -17,14 +17,14 @@ import (
 // owner can hold writer/admission exclusion and verify retained objects.
 type finalCaptureFixture struct {
 	ids     []string
-	facts   WorkspaceDiskReclaimFacts
+	facts   WorkspaceDiskReclaimCapture
 	entered func()
 	held    bool
 	err     error
 }
 
 func (f *finalCaptureFixture) Candidates(context.Context) ([]string, error) { return f.ids, nil }
-func (f *finalCaptureFixture) WithFinalCapture(ctx context.Context, row db.Workspace, consume func(context.Context, WorkspaceDiskReclaimFacts) error) error {
+func (f *finalCaptureFixture) WithFinalCapture(ctx context.Context, row db.Workspace, consume func(context.Context, WorkspaceDiskReclaimCapture) error) error {
 	if f.err != nil {
 		return f.err
 	}
@@ -67,7 +67,7 @@ func TestSettledDiskReclaimRequiresCurrentCompleteAuthority(t *testing.T) {
 	for _, name := range []string{"verified", "lock order", "unsettled", "busy", "unverified", "mismatch", "missing candidate", "wrong workspace", "resumed", "deleted", "head changed", "binding changed", "machine changed", "owner changed", "repository changed", "authority failure", "runtime failure", "cancelled", "reopened", "paused", "lane moved", "pending capture", "capture arrives"} {
 		t.Run(name, func(t *testing.T) {
 			row := db.Workspace{ID: "settled", UserID: 1, RepositoryID: 2, Status: "suspended", TargetBookmark: "todo", HeadCommitID: "pinned"}
-			f := &finalCaptureFixture{ids: []string{row.ID}, facts: WorkspaceDiskReclaimFacts{WorkspaceID: row.ID, CandidateHead: "pinned", CaptureHead: "pinned", Settled: true, Quiet: true, CaptureVerified: true}}
+			f := &finalCaptureFixture{ids: []string{row.ID}, facts: WorkspaceDiskReclaimCapture{WorkspaceID: row.ID, CandidateHead: "pinned", RetainedHead: "pinned", Settled: true, Quiet: true, CaptureComplete: true, CaptureID: "verified", BindingVerified: true, InventoryCurrent: true}}
 			r := &settledReclaimRuntime{authority: f}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -78,9 +78,9 @@ func TestSettledDiskReclaimRequiresCurrentCompleteAuthority(t *testing.T) {
 			case "busy":
 				f.facts.Quiet = false
 			case "unverified":
-				f.facts.CaptureVerified = false
+				f.facts.CaptureComplete = false
 			case "mismatch":
-				f.facts.CaptureHead = "different"
+				f.facts.RetainedHead = "different"
 			case "missing candidate":
 				f.facts.CandidateHead = ""
 			case "wrong workspace":
@@ -167,7 +167,7 @@ func TestWorkspaceCleanerReclaimsSettledDiskInsideCaptureExclusion(t *testing.T)
 	require.NoError(t, err)
 	_, err = pool.Exec(context.Background(), `UPDATE mythical_items SET state='cancelled' WHERE id=$1`, item.ID)
 	require.NoError(t, err)
-	f := &finalCaptureFixture{ids: []string{row.ID}, facts: WorkspaceDiskReclaimFacts{WorkspaceID: row.ID, CandidateHead: "pinned", CaptureHead: "pinned", Settled: true, Quiet: true, CaptureVerified: true}}
+	f := &finalCaptureFixture{ids: []string{row.ID}, facts: WorkspaceDiskReclaimCapture{WorkspaceID: row.ID, CandidateHead: "pinned", RetainedHead: "pinned", Settled: true, Quiet: true, CaptureComplete: true, CaptureID: "verified", BindingVerified: true, InventoryCurrent: true}}
 	r := &settledReclaimRuntime{authority: f}
 	service := NewWorkspaceService(q, WithWorkspaceRuntime(r), WithWorkspaceDiskReclaimAuthority(f))
 	// The hint and authority can both predate a durable pending snapshot.
@@ -204,7 +204,7 @@ func TestWorkspaceCleanerReclaimsSettledDiskInsideCaptureExclusion(t *testing.T)
 
 func TestSettledDiskSweepReReadsAfterLifecycleLock(t *testing.T) {
 	row := db.Workspace{ID: "resumed", Status: "suspended", HeadCommitID: "pinned"}
-	f := &finalCaptureFixture{ids: []string{row.ID}, facts: WorkspaceDiskReclaimFacts{WorkspaceID: row.ID, CandidateHead: "pinned", CaptureHead: "pinned", Settled: true, Quiet: true, CaptureVerified: true}}
+	f := &finalCaptureFixture{ids: []string{row.ID}, facts: WorkspaceDiskReclaimCapture{WorkspaceID: row.ID, CandidateHead: "pinned", RetainedHead: "pinned", Settled: true, Quiet: true, CaptureComplete: true, CaptureID: "verified", BindingVerified: true, InventoryCurrent: true}}
 	r := &settledReclaimRuntime{authority: f}
 	looked := false
 	q := &settledReclaimStore{mockWorkspaceQuerier: &mockWorkspaceQuerier{getWorkspaceFn: func(context.Context, string) (db.Workspace, error) { looked = true; return row, nil }}}

@@ -175,17 +175,23 @@ func (s *WorkspaceService) GetBranch(ctx context.Context, branch string, reposit
 func (s *WorkspaceService) projectBranch(ctx context.Context, tx pgx.Tx, q *db.Queries, row db.Workspace, machine WorkspaceResponse) (BranchMachineResponse, error) {
 	branch := BranchMachineResponse{Name: row.TargetBookmark, Kind: branchKind(row.TargetBookmark), State: branchMachineState(row),
 		Head: row.HeadCommitID, Machine: machine}
+	if row.BranchArchivedAt.Valid && branch.Kind == "scratch" {
+		branch.State = "closed"
+	}
 	if branch.Kind == "item" {
 		lane, err := q.GetMythicalLane(ctx, row.ID)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return BranchMachineResponse{}, err
 		}
-		if err == nil && !lane.RetiredAt.Valid {
+		if err == nil && (!lane.RetiredAt.Valid || row.BranchArchivedAt.Valid) {
 			item, err := q.GetMythicalItem(ctx, lane.ItemID)
 			if err != nil {
 				return BranchMachineResponse{}, err
 			}
-			if item.WorkspaceID == row.ID {
+			if row.BranchArchivedAt.Valid && (todoState(item) == "merged" || todoState(item) == "dropped") {
+				branch.State = "closed"
+			}
+			if !lane.RetiredAt.Valid && item.WorkspaceID == row.ID {
 				branch.TodoID = uuidString(item.ID)
 				if seed := mythicalChecksOf(item).Seed; seed != nil && row.HeadCommitID == seed.Captured {
 					branch.Head = seed.Head

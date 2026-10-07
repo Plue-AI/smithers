@@ -2911,6 +2911,10 @@ type Workspace struct {
 	ForkedFromItem          pgtype.UUID        `json:"forked_from_item"`
 	ForkedFromBase          string             `json:"forked_from_base"`
 	CapturePending          []byte             `json:"capture_pending"`
+	BranchArchivedAt        pgtype.Timestamptz `json:"branch_archived_at"`
+	CleanupPendingHead      string             `json:"cleanup_pending_head"`
+	CleanupPendingCaptureID string             `json:"cleanup_pending_capture_id"`
+	DiskReclaimedAt         pgtype.Timestamptz `json:"disk_reclaimed_at"`
 }
 
 type WorkspaceChild struct {
