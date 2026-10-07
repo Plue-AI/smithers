@@ -190,7 +190,7 @@ test("install code intelligence uses the selected branch File card and daemon ex
     expect(card.payload.hover?.contents).toBe("literal daemon hover")
     expect(card.payload.file?.branch).toBe(branch)
     // The agent uses the same provider, reusing the member's language session.
-    expect((await app.commands.runAsAgent("code.hover", "retry.ts:1:14")).status).toBe("executed")
+    expect(await app.commands.runAsAgent("code.hover", "retry.ts:1:14")).toMatchObject({ status: "executed" })
     expect((await app.commands.submit({ name: "code.definition", payload: { path: "retry.ts", line: 1, column: 14 }, actor: "user" })).status).toBe("executed")
     const defined = store.collections.cards.get(`file-branch-${branch}-definition.ts`)
     expect(defined?.kind).toBe("file")
