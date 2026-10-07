@@ -32,6 +32,7 @@ export const Code = Schema.Literals([
   "timeout",
   "rate_limited",
   "provider_unavailable",
+  "moved_off",
   "unsupported",
   "unsupported_content_type",
   "response_too_large",
