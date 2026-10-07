@@ -468,6 +468,7 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "install.read", regexp.MustCompile(`^/api/admin/system/health$`)},
 	{http.MethodGet, "self", regexp.MustCompile(`^/api/user$`)},
 	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/notifications(?:/(?:list|events(?:/stream)?|preferences))?$`)},
+	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/user/(?:emails|connections|settings/(?:notifications|signup))$`)},
 	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/users/[^/]+(?:/(?:activity|repos))?$`)},
 	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/user/keys(?:/[0-9]+)?$`)},
 	{http.MethodGet, "self", regexp.MustCompile(`^/api/confirmations$`)},
