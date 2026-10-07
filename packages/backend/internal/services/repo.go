@@ -151,6 +151,8 @@ var _ repoHostProvisioningClient = (*repohost.Client)(nil)
 
 // RepoService handles repository business logic.
 type RepoService struct {
+	install             *installRepositoryMutationStore
+	installAdmitted     bool
 	pool                *pgxpool.Pool
 	revocations         revocation.Publisher
 	queries             RepoQuerier
@@ -1152,6 +1154,9 @@ func (s *RepoService) GetRepoTopics(ctx context.Context, viewer *db.User, owner,
 }
 
 func (s *RepoService) ReplaceRepoTopics(ctx context.Context, actor *db.User, owner, repo string, topics []string) ([]string, error) {
+	if s.install != nil && !s.installAdmitted {
+		return s.withInstallRepoTopics(ctx, actor, owner, repo, topics)
+	}
 	if actor == nil {
 		return nil, errors.Unauthorized("authentication required")
 	}

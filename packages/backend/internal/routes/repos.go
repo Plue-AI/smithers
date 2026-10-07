@@ -112,10 +112,6 @@ type RepoTopicsResponse struct {
 	Topics []string `json:"topics"`
 }
 
-type replaceRepoTopicsRequest struct {
-	Topics []string `json:"topics"`
-}
-
 // CreateRepo handles POST /api/user/repos.
 func (h *RepoHandler) CreateRepo(w http.ResponseWriter, r *http.Request) {
 	user := middleware.UserFromContext(r.Context())
@@ -384,7 +380,7 @@ func (h *RepoHandler) ReplaceRepoTopics(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var req replaceRepoTopicsRequest
+	var req services.ReplaceRepoTopicsInput
 	if !decodeJSONBody(w, r, &req) {
 		return
 	}

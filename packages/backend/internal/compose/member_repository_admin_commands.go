@@ -87,7 +87,7 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 		selector = strings.TrimSpace(selector)
 	}
 	var input any = struct{}{}
-	if command == "labels.create" || command == "labels.update" || command == "protected-bookmarks.upsert" || command == "variables.set" || command == "deploy-keys.create" {
+	if command == "repo.topics.update" || command == "labels.create" || command == "labels.update" || command == "protected-bookmarks.upsert" || command == "variables.set" || command == "deploy-keys.create" {
 		raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, middleware.MaxRequestBodySize))
 		if err != nil {
 			refuse(pkgerrors.BadRequest("invalid configuration body"))
@@ -95,10 +95,14 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 		}
 		r.Body = io.NopCloser(bytes.NewReader(raw))
 		decoder := json.NewDecoder(bytes.NewReader(raw))
-		if command != "deploy-keys.create" {
+		if command != "deploy-keys.create" && command != "repo.topics.update" {
 			decoder.DisallowUnknownFields()
 		}
 		switch command {
+		case "repo.topics.update":
+			var value services.ReplaceRepoTopicsInput
+			err = decoder.Decode(&value)
+			input = value
 		case "deploy-keys.create":
 			var value services.CreateDeployKeyRequest
 			err = decoder.Decode(&value)
@@ -134,7 +138,10 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 			return
 		}
 	}
-	if strings.HasPrefix(command, "deploy-keys.") {
+	if command == "repo.topics.update" {
+		value, _ := input.(services.ReplaceRepoTopicsInput)
+		subject, err = services.InstallRepoTopicsSubject(repository.ID, value)
+	} else if strings.HasPrefix(command, "deploy-keys.") {
 		subject, err = services.InstallDeployKeySubject(repository.ID, command, id, input)
 	} else if strings.HasPrefix(command, "labels.") {
 		subject, err = services.InstallLabelMutationSubject(repository.ID, command, id, input)

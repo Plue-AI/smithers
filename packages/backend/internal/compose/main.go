@@ -736,6 +736,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithRepoWebhookDispatcher(webhookDispatcher),
 		services.WithRepoBillingPolicy(billingPolicy),
 	}
+	if config.IsSingleOwner(cfg.Auth) {
+		repoOptions = append(repoOptions, services.WithRepoInstallAuthorization(pool))
+	}
 	var repoService *services.RepoService
 	if options.topology.hosted() {
 		repoOptions = append(repoOptions, services.WithRepoPlacementResolver(options.RepositoryPlacement), services.WithRepoProvisioningStore(options.RepositoryProvisioning))

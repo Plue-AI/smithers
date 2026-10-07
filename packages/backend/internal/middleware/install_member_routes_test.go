@@ -43,6 +43,7 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodGet, "/api/runs/7/background-status", "flows.read"},
 		{http.MethodPost, "/api/runs/foreign", ""},
 		{http.MethodGet, "/api/runs/7", "monitor"},
+		{http.MethodPut, "/api/repos/maya/app/topics", "repo.topics.update"},
 		{http.MethodGet, "/api/runs", "monitor"},
 		{http.MethodGet, "/api/runs/workspace:run/trace", "monitor"},
 		{http.MethodPost, "/api/reviews", "review"},

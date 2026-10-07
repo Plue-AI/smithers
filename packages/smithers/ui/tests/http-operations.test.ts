@@ -214,3 +214,13 @@ test("deploy key management keeps its owner person boundary", () => {
     })
   }
 })
+
+test("repository topics retain the owner-only person write door", async () => {
+  const { Schema } = await import("effect")
+  const row = httpProjections.find(row => row.name === "repo.topics.update")!
+  expect(row).toMatchObject({ actors: ["person"], agent: "never", minimumRole: "owner", credentialScope: "write:repository", visibility: "hidden", cli: null, slash: null,
+    http: { method: "PUT", path: "/api/repos/{owner}/{repo}/topics" } })
+  const decode = Schema.decodeUnknownSync(row.input)
+  for (const input of [{}, { topics: null }, { topics: [] }, { topics: ["go", "api"] }]) expect(decode(input)).toEqual(input)
+  expect(() => decode({ topics: [3] })).toThrow()
+})

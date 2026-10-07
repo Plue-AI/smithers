@@ -25,7 +25,7 @@ const machine = (op: "sleep" | "wake") => operation({
 })
 
 // Retained repository administration keeps its existing owner-only person doors.
-const repositoryAdmin = (name: string, method: "GET" | "POST" | "PATCH" | "DELETE", path: string, input: OperationPayload, credentialScope: "read:repository" | "write:repository" = method === "GET" ? "read:repository" : "write:repository") =>
+const repositoryAdmin = (name: string, method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE", path: string, input: OperationPayload, credentialScope: "read:repository" | "write:repository" = method === "GET" ? "read:repository" : "write:repository") =>
   operation({ name, input, summary: name, hidden: true, visibility: "hidden", slash: null, cli: null,
     http: { method, path }, minimumRole: "owner", agent: "never", credentialScope, actors: ["person"] })
 
@@ -35,6 +35,7 @@ const accountWrite = (name: string, method: "POST" | "PATCH" | "PUT" | "DELETE",
 const optionalText = Schema.optional(Schema.Union([Schema.String, Schema.Null]))
 
 export const httpProjections = [
+ repositoryAdmin("repo.topics.update", "PUT", "/api/repos/{owner}/{repo}/topics", Schema.Struct({ topics: Schema.optional(Schema.Union([Schema.Array(Schema.String), Schema.Null])) })),
  repositoryAdmin("deploy-keys.read","GET","/api/repos/{owner}/{repo}/keys",NoInput),
  repositoryAdmin("deploy-keys.create","POST","/api/repos/{owner}/{repo}/keys",Schema.Struct({ title:Schema.String,key:Schema.String,read_only:Schema.optional(Schema.Boolean) })),
  repositoryAdmin("deploy-keys.delete","DELETE","/api/repos/{owner}/{repo}/keys/{id}",NoInput),

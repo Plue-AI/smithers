@@ -8485,6 +8485,55 @@
       }
     },
     {
+      "name": "repo.topics.update",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "credentialScope": "write:repository",
+      "agent": "never",
+      "summary": "repo.topics.update",
+      "http": {
+        "method": "PUT",
+        "path": "/api/repos/{owner}/{repo}/topics"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "topics": {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "repo.tree",
       "slash": null,
       "cli": null,
