@@ -42,6 +42,7 @@ import { createServer } from "node:http"
 import { connect } from "node:net"
 import { compileFunction } from "node:vm"
 import { GatewayError, GatewayErrorCode, type GatewayErrorCode as GatewayErrorCodeValue } from "../src/GatewayError.ts"
+import { traceFromJournal } from "../src/RunTrace.ts"
 import { GatewayRpcs } from "../src/GatewayRpcs.ts"
 import * as GatewayServer from "../src/GatewayServer.ts"
 import * as NodeGateway from "../src/node/NodeGateway.ts"
@@ -1319,6 +1320,45 @@ describe("the assembled gateway over a real loopback bind", () => {
       if (listed._tag !== "runs") return
       expect(listed.items[0]?.cancellation?.principal).toMatchObject({ id: "gateway", kind: "bearer" })
     }).pipe(Effect.provide(served({ host: "127.0.0.1", port: 0, credential: "edge-secret" }, delegatedBearer))))
+
+  test("served native journal exposes labeled step instances without evaluating outputs", () =>
+    Effect.gen(function*() {
+      const url = yield* baseUrl
+      const control = yield* Control
+      const card = yield* control.plan({ flowId: "system/test", input: {} })
+      yield* control.approve(approvalOf(card))
+      const receipt = yield* control.run({
+        _tag: "Plan", planId: card.planId, digest: card.digest, envelope: card.envelope,
+        idempotencyKey: `monitor:${card.planId}`
+      })
+      if (receipt._tag !== "Accepted" || receipt.runId === undefined) return yield* Effect.die("expected a run")
+      const runId = receipt.runId
+      const records = [
+        { eventType: "flows.engine.node-scheduled", payload: { nodeId: "edit", kind: "action", attempt: 1, action: "coding/edit-atom" } },
+        { eventType: "flows.engine.node-settled", payload: { nodeId: "edit", outcome: "built", attempts: 1,
+          result: { preview: "globalThis.monitorCanary = true", bytes: 9000, truncated: true } } }
+      ]
+      for (const [index, record] of records.entries()) yield* emit(runId, "control.engine.event", {
+        version: 1, executionId: "native-edit", generation: 0, sequence: index + 1,
+        eventId: `edit-${index}`, sourceId: "engine", sourceSequence: index + 1, emittedAtMs: 100 + index,
+        ...record, meta: {}
+      })
+      const response = yield* Effect.promise(() => fetch(`${url}/projections`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ _tag: "Request", id: 1, tag: "Projection.Snapshot",
+          payload: { selector: { _tag: "run-events", runId } }, headers: [] }) + "\n"
+      }))
+      expect(response.status).toBe(200)
+      const text = yield* Effect.promise(() => response.text())
+      const answer = JSON.parse(text.split("\n")[0]!)
+      expect(answer.exit._tag).toBe("Success")
+      const model = traceFromJournal({ runId, flowId: "system/test", status: "running" }, answer.exit.value.rows)
+      const node = model.rows.find(row => row.id.startsWith("engine-node:"))!
+      expect(node).toMatchObject({ label: "Edited the files", status: "completed", startedAt: 100, endedAt: 101,
+        detail: { output: "globalThis.monitorCanary = true" } })
+      expect(traceFromJournal({ runId, flowId: "system/test", status: "running" }, answer.exit.value.rows)).toEqual(model)
+      expect((globalThis as typeof globalThis & { monitorCanary?: boolean }).monitorCanary).toBeUndefined()
+    }).pipe(Effect.provide(served())))
 
   test("serves a projection snapshot over POST /projections, framed on the wire", () =>
     Effect.gen(function*() {
