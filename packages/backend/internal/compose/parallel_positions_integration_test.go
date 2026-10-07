@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -11,11 +12,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
@@ -122,6 +127,52 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 	require.Equal(t, 202, code, body)
 	position(4, 3)
 	position(5, 4)
+	// The production durable TODO topic must also observe scheduler-only changes:
+	// a person can enter and leave without producing an item-scoped job event.
+	busCtx, stopBus := context.WithCancel(ctx)
+	defer stopBus()
+	bus := revocation.NewBus(pool, q)
+	require.NoError(t, bus.Start(busCtx))
+	routes.SetRevocationSource(bus)
+	defer routes.SetRevocationSource(nil)
+	store, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	topics := &liveTopics{queries: q, todos: service, jobs: store}
+	channel := &routes.LiveHandler{Queries: q, Hub: live.NewHub(ctx, nil), Origins: func() []string { return cfg.Server.AllowedOrigins }, Topics: topics.resolver}
+	server := httptest.NewServer(hostStatusProductionRouter(cfg, q, &services.InstallCapacityService{}, conformanceServices{pool: pool, mythical: &routes.MythicalHandler{Service: service}, live: channel}))
+	defer server.Close()
+	liveCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(liveCtx, "ws"+strings.TrimPrefix(server.URL, "http")+"/api/live", &websocket.DialOptions{Host: "127.0.0.1:4000", Subprotocols: []string{live.Protocol}, HTTPHeader: http.Header{"Origin": {cfg.Server.PublicURL}, "Cookie": {"smithers_session=placement-session"}}})
+	require.NoError(t, err)
+	defer conn.CloseNow()
+	require.NoError(t, conn.Write(liveCtx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"todo:2"}`)))
+	var schedulerCursor *int64
+	readPosition := func(want int) {
+		t.Helper()
+		_, raw, err := conn.Read(liveCtx)
+		require.NoError(t, err)
+		var frame struct {
+			T      string         `json:"t"`
+			Cursor *int64         `json:"cursor"`
+			Data   map[string]any `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &frame), string(raw))
+		require.Equal(t, "snap", frame.T, string(raw))
+		require.NotNil(t, frame.Cursor)
+		if schedulerCursor == nil {
+			schedulerCursor = frame.Cursor
+		} else {
+			require.Equal(t, *schedulerCursor, *frame.Cursor, "scheduler refresh does not invent a job fact")
+		}
+		require.Equal(t, map[string]any{"reason": "machine", "position": float64(want)}, frame.Data["queue"])
+	}
+	readPosition(1)
+	_, err = runtime.Request("person", "workspace:ben-live", "Ben", "machine")
+	require.NoError(t, err)
+	readPosition(2)
+	require.False(t, runtime.CancelAdmission("workspace:ben-live", "Ben", time.Now()))
+	readPosition(1)
 	// Demand includes the full stack, even beyond Home's 500-card page.
 	// Fixture insertion is supplemental; the assertion uses the install route.
 	_, err = pool.Exec(ctx, `INSERT INTO mythical_items(repository_id,source,state,title,owner_id,revisions)

@@ -346,6 +346,9 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 		if t.jobs != nil {
 			scope := jobs.Scope{TenantID: strconv.FormatInt(repository, 10), PrincipalID: "todo:" + uuid.UUID(item.ID.Bytes).String()}
 			source = liveJobSource(source, t.jobs, scope)
+			// Scheduler changes can occur without an item-scoped job event.
+			source.RefreshSnapshot = func(data json.RawMessage) json.RawMessage { return data }
+			source.RefreshEvery = 250 * time.Millisecond
 		}
 
 		return source, ""
