@@ -170,6 +170,7 @@ var migrationRegistry = []migrationSpec{
 	{132, "migrations/0132_github_comment_sources.sql"},
 	{133, "migrations/0133_machine_event_receipts.sql"},
 	{134, "migrations/0134_retire_app_timelines.sql"},
+	{135, "migrations/0135_home_background_dismissal.sql"},
 }
 
 type migration struct {
