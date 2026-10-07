@@ -36,6 +36,11 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 					if _, parallel := settings["parallel"]; parallel {
 						command = "settings.parallel"
 					}
+					// The Obsidian folder's handler authorizes its own command;
+					// binding plain settings here refused it as a substitution.
+					if _, obsidian := settings["wiki_sync.obsidian"]; obsidian {
+						command = "settings.obsidian"
+					}
 				}
 				r.Body = io.NopCloser(bytes.NewReader(raw))
 			}
