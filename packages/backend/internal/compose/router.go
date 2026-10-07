@@ -199,7 +199,7 @@ func buildRouter(
 					}
 				}
 				if !found {
-					r.NotFoundHandler().ServeHTTP(w, request)
+					pkgerrors.WriteError(w, pkgerrors.NotFound("not found"))
 					return
 				}
 			}

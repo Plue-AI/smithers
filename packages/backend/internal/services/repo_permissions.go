@@ -341,6 +341,14 @@ func WithInstallAuthorization(ctx context.Context, command string, decision Inst
 	return context.WithValue(ctx, installAuthorizationKey{}, boundInstallAuthorization{command: command, credential: middleware.AuthInfoFromContext(ctx), decision: decision})
 }
 
+type authorizationObserverKey struct{}
+
+// WithAuthorizationObserver observes evaluated command decisions. Reusing a
+// bound decision does not evaluate policy again. The observer grants no authority.
+func WithAuthorizationObserver(ctx context.Context, observe func(string)) context.Context {
+	return context.WithValue(ctx, authorizationObserverKey{}, observe)
+}
+
 // Authorize is the install's one command authorizer (T-ACC-03): the
 // request's credential, the command and the person's role, read from
 // committed roster state on every call, so a removal or suspension refuses
@@ -357,6 +365,9 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 		if info != nil && info.User != nil && info == bound.credential && info.User.ID == bound.decision.UserID && command == bound.command {
 			return bound.decision, nil
 		}
+	}
+	if observe, ok := ctx.Value(authorizationObserverKey{}).(func(string)); ok && observe != nil {
+		observe(command)
 	}
 	policy, ok := installCommandPolicy(command)
 	if !ok {
