@@ -2315,6 +2315,15 @@ func TestMythicalStandingPreapprovalOrderedVerifiedHeads(t *testing.T) {
 		require.NoError(t, err)
 	}
 	approval := *mythicalChecksOf(h.item(second)).Preapproval
+	synced, row := configureInboundPullPolling(t, h.publicationFixture)
+	defer runFetchedFixture(t, synced)()
+	readChecks := func(head string) {
+		require.NoError(t, synced.pollInstallPull(h.ctx, row, secondPR))
+		require.NoError(t, synced.ReadInstallPullFacts(h.ctx, row, secondPR, head, "checks"))
+		require.Eventually(t, func() bool {
+			return fetchedCount(t, h.pool.(*pgxpool.Pool), `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND principal_id IN ('pulls','checks') AND state<>'completed'`) == 0
+		}, 10*time.Second, 20*time.Millisecond)
+	}
 	_, card := h.mergeCard(second)
 	require.Equal(t, "order", card["reason"])
 	require.Equal(t, "T1", card["detail"])
@@ -2349,10 +2358,21 @@ func TestMythicalStandingPreapprovalOrderedVerifiedHeads(t *testing.T) {
 	}
 	require.NotEqual(t, oldHead, h.item(second).PRHead, "the accepted candidate must publish before pre-approval can merge")
 	newHead := h.item(second).PRHead
-	h.fake.SetCheck("rehearsal-owner/app", oldHead, "unit", "completed", "success")
+	h.fake.SetCheck("rehearsal-owner/app", newHead, "unit", "in_progress", "")
+	readChecks(newHead)
 	h.pass()
-	require.Len(t, h.merges(), 1)
+	require.Len(t, h.merges(), 1, "the rebased head's pending check blocks dispatch")
+	h.fake.SetCheck("rehearsal-owner/app", oldHead, "unit", "completed", "success")
+	// The shared fetched reader refuses an obsolete head before admission.
+	require.Error(t, synced.ReadInstallPullFacts(h.ctx, row, secondPR, oldHead, "checks"))
+	h.pass()
+	require.Len(t, h.merges(), 1, "old-head green cannot authorize the rebased head")
+	require.Equal(t, approval, *mythicalChecksOf(h.item(second)).Preapproval)
 	h.fake.SetCheck("rehearsal-owner/app", newHead, "unit", "completed", "success")
+	readChecks(newHead)
+	deliveries := fetchedCount(t, h.pool.(*pgxpool.Pool), `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND principal_id='checks'`)
+	readChecks(newHead)
+	require.Equal(t, deliveries, fetchedCount(t, h.pool.(*pgxpool.Pool), `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND principal_id='checks'`), "duplicate rebased-head green creates no second delivery")
 	for pass := 0; pass < 6; pass++ {
 		h.pass()
 	}
