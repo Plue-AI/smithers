@@ -1404,7 +1404,7 @@ test("issue model drafting acknowledges unresolved work, freezes its snapshot an
 })
 
 test("failed issue model preparation is visible and retry uses the admitted snapshot", async () => {
-  const source = { number: 7, title: "Original", body: "Body", url: "https://github.com/owner/repo/issues/7", comments: [] }
+  const source = { digest: "a".repeat(64), number: 7, title: "Original", body: "Body", url: "https://github.com/owner/repo/issues/7", comments: [] }
   let calls = 0
   const h = await harness(async () => json([]), memoryStorage(), undefined, true, undefined, async snapshot => {
     expect(snapshot).toEqual(source)
