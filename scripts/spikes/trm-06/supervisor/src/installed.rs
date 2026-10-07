@@ -53,7 +53,7 @@ impl Boot {
         if unsafe { libc::getuid() } != 0 || unsafe { libc::geteuid() } != 0 {
             return Err(refused());
         }
-        let mut file = protected(BOOT, false)?;
+        let mut file = protected(BOOT, false).map_err(|_| refused())?;
         let mut bytes = Vec::new();
         (&mut file).take(4097).read_to_end(&mut bytes)?;
         let boot = Self::parse(&bytes)?;

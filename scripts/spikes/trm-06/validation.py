@@ -191,6 +191,46 @@ def main():
     if operation == "sample":
         print(json.dumps(sample()))
         return
+    if operation in ("boot-symlink", "boot-writable", "supervisor-replaced"):
+        observed = sample()
+        if len(observed["supervisors"]) != 1:
+            raise ValueError("not exactly one owned supervisor")
+        pid = observed["supervisors"][0]
+        # Hold the process identity before changing the pathname. A replacement
+        # fixture must never turn restart into a signal to an unrelated process.
+        process = os.pidfd_open(pid, 0)
+        try:
+            if os.readlink(f"/proc/{pid}/exe") != "/opt/smithers/prototype/supervisor":
+                raise ValueError("supervisor executable mismatch")
+            if operation == "supervisor-replaced":
+                parent = os.open("/opt/smithers/prototype", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+                try:
+                    os.rename("supervisor", "supervisor-original", src_dir_fd=parent, dst_dir_fd=parent)
+                    fd = os.open("supervisor", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o755, dir_fd=parent)
+                    with os.fdopen(fd, "wb") as output:
+                        output.write(b"#!/bin/sh\nprintf canary >> /var/tmp/trm06-outside\n")
+                        os.fchmod(output.fileno(), 0o755)
+                finally:
+                    os.close(parent)
+            else:
+                parent = os.open("/run/smithers/trm06", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+                try:
+                    if operation == "boot-symlink":
+                        os.rename("boot.json", "boot-original.json", src_dir_fd=parent, dst_dir_fd=parent)
+                        os.symlink("/var/tmp/trm06-outside", "boot.json", dir_fd=parent)
+                    else:
+                        fd = os.open("boot.json", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
+                        try:
+                            os.fchmod(fd, 0o666)
+                        finally:
+                            os.close(fd)
+                finally:
+                    os.close(parent)
+            signal.pidfd_send_signal(process, signal.SIGKILL)
+        finally:
+            os.close(process)
+        print(json.dumps({"replaced": operation, "killed": pid, "before": observed, "outside": fingerprint()}))
+        return
     if operation == "device-regular":
         # Main-installed fixture only, in its own disposable VM. Replace a fixed
         # device with an ordinary writable file; the dropped launch must refuse

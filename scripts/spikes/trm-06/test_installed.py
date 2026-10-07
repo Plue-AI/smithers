@@ -21,13 +21,17 @@ class InstalledRefusal(unittest.TestCase):
                 file.write_text(f"#!/bin/sh\nprintf canary >> '{sentinel}'\n")
                 file.chmod(0o755)
             for script in ["install.py", "launcher.py", "validation.py"]:
-                result = subprocess.run([sys.executable, "-I", "-S", str(ROOT / script)],
-                                        input=b'{"supervisor":"branch","boot":{"uid":0}}',
-                                        cwd=base, env={"PATH": str(base), "HOME": str(base)},
-                                        capture_output=True, timeout=2)
-                self.assertEqual(result.returncode, 78)
-                self.assertEqual(result.stdout, b"")
-                self.assertEqual((sentinel.read_bytes(), sentinel.stat().st_uid, sentinel.stat().st_mode), before)
+                modes = [""] if script != "validation.py" else ["", "boot-symlink", "boot-writable", "supervisor-replaced"]
+                for mode in modes:
+                    with self.subTest(script=script, mode=mode):
+                        result = subprocess.run([sys.executable, "-I", "-S", str(ROOT / script), mode],
+                                                input=b'{"supervisor":"branch","boot":{"uid":0}}',
+                                                cwd=base, env={"PATH": str(base), "HOME": str(base)},
+                                                capture_output=True, timeout=2)
+                        self.assertEqual(result.returncode, 78)
+                        self.assertEqual(result.stdout, b"")
+                        self.assertEqual((sentinel.read_bytes(), sentinel.stat().st_uid, sentinel.stat().st_mode), before)
+
 
 
 if __name__ == "__main__":
