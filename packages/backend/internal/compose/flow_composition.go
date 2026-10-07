@@ -85,6 +85,7 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 		// database/compiler load. Match the real fresh-box fixture's bound.
 		readyTimeout = 2 * time.Minute
 	}
+	environment["SMITHERS_PRODUCT_API_URL"] = productAPIURL
 	catalogs := []flowhost.Catalog{
 		{
 			Key: flowhost.CatalogCoding, Family: flowhost.CatalogCoding,
@@ -126,7 +127,7 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 		// persisted item and stack.
 		// flow-load runs on its own short-lived workspace after every main move.
 		flowLoad := services.NewFlowLoadRuntime(mythical)
-		targets = withMythicalTargets(targets, services.NewMythicalFlowHostTargetResolver(mythical), flowLoad)
+		targets = withLearningTargets(withMythicalTargets(targets, services.NewMythicalFlowHostTargetResolver(mythical), flowLoad), mythical.LearningRuntime())
 		projectors = append(projectors, mythical, flowLoad, mythical.LearningRuntime())
 	}
 	workspaceHosts, ok := launcher.(boxHostBase)
@@ -323,3 +324,13 @@ func withInvokedFlowTargets(base, invoked flowhost.TargetResolver) flowhost.Targ
 		return base.ResolveFlowHostTarget(ctx, target)
 	})
 }
+
+func withLearningTargets(base, learning flowhost.TargetResolver) flowhost.TargetResolver {
+	return flowhost.TargetResolverFunc(func(ctx context.Context, target flowruntime.Target) (flowhost.Authority, error) {
+		if target.BindingKind == "learning" {
+			return learning.ResolveFlowHostTarget(ctx, target)
+		}
+		return base.ResolveFlowHostTarget(ctx, target)
+	})
+}
+

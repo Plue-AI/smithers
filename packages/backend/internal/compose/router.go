@@ -682,6 +682,12 @@ func buildRouter(
 		})
 	}
 
+	if config.IsSingleOwner(cfg.Auth) && extras.Mythical != nil {
+		reader, _ := extras.Mythical.Service.(routes.LearningEvidenceReader)
+		handler := &routes.LearningEvidenceHandler{Service: reader}
+		r.Get("/api/gateways/{hostID}/learning/{runID}/evidence", handler.Read)
+	}
+
 	if config.IsSingleOwner(cfg.Auth) && workspaceHandler != nil {
 		// Host-authenticated issuance and self-authenticated revocation never
 		// accept browser cookies or the generic file token as host authority.
