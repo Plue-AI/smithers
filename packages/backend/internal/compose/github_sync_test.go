@@ -28,6 +28,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	smitherscrypto "github.com/smithersai/smithers/packages/backend/internal/pkg/crypto"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
@@ -598,6 +599,10 @@ func assertSyncHomeOverLive(t *testing.T, pool *pgxpool.Pool, sync *services.Git
 	cfg.Server.AllowedOrigins = []string{origin}
 	hubCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	bus := revocation.NewBus(pool, q)
+	require.NoError(t, bus.Start(hubCtx))
+	routes.SetRevocationSource(bus)
+	defer routes.SetRevocationSource(nil)
 	topics := &liveTopics{queries: q, todos: &todoCalls{}, sync: sync}
 	handler := &routes.LiveHandler{Queries: q, Hub: live.NewHub(hubCtx, nil), Origins: func() []string { return []string{origin} }, Topics: topics.resolver}
 	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{}, routerExtras{GitHubSync: sync, Live: handler})
