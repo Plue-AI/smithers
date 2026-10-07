@@ -1090,7 +1090,7 @@ func buildRouter(
 			}
 			r.Get("/branches/{b}/diff", diff.Diff)
 			// The branch projection and Fork, which the stack service performs.
-			branches := &routes.BranchHandler{Authorize: routes.InstallBranchAuthorizer(queries)}
+			branches := &routes.BranchHandler{Authorize: routes.InstallBranchAuthorizer(queries), Activity: extras.Live}
 			if workspaceHandler != nil {
 				branches.Reads, _ = workspaceHandler.Service.(routes.BranchReadService)
 				branches.Machines, _ = workspaceHandler.Service.(routes.BranchMachineControl)

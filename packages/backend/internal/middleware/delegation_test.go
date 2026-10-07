@@ -114,6 +114,7 @@ func TestTerminalProfileRoutes(t *testing.T) {
 		{"GET", "/api/repos/acme/app/wiki/home/revisions"},
 		{"GET", "/api/branches/branch-id/files"},
 		{"GET", "/api/branches/branch-id/diff"},
+		{"GET", "/api/branches/branch-id/activity"},
 		{"GET", "/api/branches/branch-id/files/src/retry.ts"},
 		{"GET", "/api/repos/acme/app/workspaces/branch-id/files/content"},
 		// The TODO doors whose handlers authorize the rest: answer and steer
@@ -137,6 +138,7 @@ func TestTerminalProfileRoutes(t *testing.T) {
 		{"GET", "/api/install"},
 		{"POST", "/api/branches/branch-id/files/src/retry.ts"},
 		{"POST", "/api/branches/branch-id/diff"},
+		{"POST", "/api/branches/branch-id/activity"},
 		{"GET", "/api/branches/branch-id/files-other"},
 		{"GET", "/api/members"},
 		{"POST", "/api/repos/acme/app/wiki"},

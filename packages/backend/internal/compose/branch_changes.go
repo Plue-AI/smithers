@@ -94,7 +94,7 @@ func (t *liveTopics) branchActivityPage(ctx context.Context, repository int64, b
 		selector = " AND sequence>$3"
 		args = append(args, cursor)
 	}
-	rows, err := t.changePool.Query(ctx, `SELECT sequence,jsonb_build_object('id',data->>'id','at',recorded_at,'kind',data->>'kind','actor',data->'actor','files',COALESCE((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object('path',f.path,'change',f.change,'before_blob',f.before_blob,'after_blob',f.after_blob)) ORDER BY f.path) FROM burst_files f WHERE f.event_id=e.event_id),'[]'::jsonb),'versions',data->>'versions') FROM product_job_events e WHERE tenant_id=$1 AND principal_id=$2 AND event_type='branch.burst'`+selector+` ORDER BY sequence `+order, args...)
+	rows, err := t.changePool.Query(ctx, `SELECT sequence,jsonb_build_object('id',data->>'id','at',to_char(recorded_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),'kind',data->>'kind','actor',data->'actor','files',COALESCE((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object('path',f.path,'change',f.change,'before_blob',f.before_blob,'after_blob',f.after_blob)) ORDER BY f.path) FROM burst_files f WHERE f.event_id=e.event_id),'[]'::jsonb),'versions',data->>'versions') FROM product_job_events e WHERE tenant_id=$1 AND principal_id=$2 AND event_type='branch.burst'`+selector+` ORDER BY sequence `+order, args...)
 	if err != nil {
 		return live.LogPage{}, err
 	}

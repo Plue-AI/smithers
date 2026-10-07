@@ -73,6 +73,8 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodGet, "/api/branches/branch-id/files", "branch.read"},
 		{http.MethodGet, "/api/branches/branch-id", "branch.read"},
 		{http.MethodGet, "/api/branches/branch-id/diff", "branch.read"},
+		{http.MethodGet, "/api/branches/branch-id/activity", "branch.read"},
+		{http.MethodPost, "/api/branches/branch-id/activity", ""},
 		{http.MethodPost, "/api/branches/branch-id/diff", ""},
 		{http.MethodGet, "/api/branches", "branches.read"},
 		{http.MethodGet, "/api/branches/branch-id/files/src/retry.ts", "branch.read"},

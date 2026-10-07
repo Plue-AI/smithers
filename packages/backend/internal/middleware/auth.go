@@ -120,7 +120,7 @@ var terminalProfileRoutes = []struct {
 	{http.MethodGet, wikiReadPath},
 	{http.MethodGet, regexp.MustCompile(`^/api/branches/[^/]+/files(/.*)?$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/branches/[^/]+$`)},
-	{http.MethodGet, regexp.MustCompile(`^/api/branches/[^/]+/diff$`)},
+	{http.MethodGet, regexp.MustCompile(`^/api/branches/[^/]+/(diff|activity)$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/files(/content)?$`)},
 }
 
@@ -488,7 +488,7 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "ssh", regexp.MustCompile(`^/api/ssh$`)},
 	{http.MethodGet, "ssh", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(workspaces|workspace/sessions)/[^/]+/ssh$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+$`)},
-	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/diff$`)},
+	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/(diff|activity)$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/files$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/files(/content)?$`)},
 	// File edits enter the same branch mutation admission as joining. The
