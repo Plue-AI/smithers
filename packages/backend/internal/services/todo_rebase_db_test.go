@@ -95,12 +95,16 @@ func (f *rebaseFixture) rebasedActivity(item db.MythicalItem) []string {
 // once on the rebased commit, and its draft PR includes the earlier TODO.
 func TestTodoRebaseOntoEarlierVerifiedHead(t *testing.T) {
 	f := newRebaseFixture(t)
+	// This fixture retains three coding workspaces. Leave each a slot to
+	// verify its rebase; capacity refusal is covered separately.
+	_, err := f.pool.Exec(context.Background(), `UPDATE mythical_stacks SET max_parallel = 3 WHERE repository_id = $1`, f.repoID)
+	require.NoError(t, err)
 	first := f.candidate("Add a greeting to JOURNEY.md", f.main, "JOURNEY.md", "Hello from T1\n")
 	second := f.candidate("Wave goodbye", f.main, "GOODBYE.md", "Bye from T2\n")
 	// A plan that found no checks (No checks found) verifies with none.
 	third := f.candidate("Say thanks", f.main, "THANKS.md", "Thanks from T3\n")
 	third.Plan = json.RawMessage(`{"title":"Say thanks","checks":null}`)
-	third, err := db.New(f.pool).SaveMythicalItem(context.Background(), third)
+	third, err = db.New(f.pool).SaveMythicalItem(context.Background(), third)
 	require.NoError(t, err)
 
 	// One claim proposes T1, finds T2 built beside it (rebase_pending onto
