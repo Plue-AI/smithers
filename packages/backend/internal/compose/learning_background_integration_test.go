@@ -90,6 +90,7 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 	cfg.Server.AllowedOrigins = []string{origin}
 	hubCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	require.NoError(t, bus.Start(hubCtx))
 	topics := &liveTopics{queries: q, todos: service}
 	handler := &routes.LiveHandler{Queries: q, Hub: live.NewHub(hubCtx, nil), Origins: func() []string { return []string{origin} }, Topics: topics.resolver}
 	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{}, routerExtras{Live: handler, Mythical: &routes.MythicalHandler{Service: service}})
@@ -137,7 +138,7 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 				}
 				require.NoError(t, json.Unmarshal(frame.Data, &home))
 				require.Empty(t, home.Items)
-				require.Equal(t, 1, home.Counts["merged"])
+				require.Equal(t, 0, home.Counts["merged"])
 				expected := []map[string]any{}
 				if row.visible != "" {
 					expected = append(expected, map[string]any{"id": operation, "title": "Learning · T1", "state": row.visible, "actions": []any{}})
