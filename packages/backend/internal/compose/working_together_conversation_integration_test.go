@@ -35,6 +35,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/webapp"
 	"github.com/stretchr/testify/require"
 )
@@ -415,3 +416,40 @@ func (o *tabCloseOutput) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 func (o *tabCloseOutput) String() string { o.mu.Lock(); defer o.mu.Unlock(); return o.body.String() }
+
+func TestBranchConversationSummaryThroughSealedHost(t *testing.T) {
+	f := workingConversation(t)
+	jobStore, err := jobs.NewStore(f.local.pool)
+	require.NoError(t, err)
+	summaries := composeConversationSummaries(f.local.pool, jobStore, f.local.composition.runtime.Handler.Store, f.local.host)
+	require.NotNil(t, summaries)
+	workerCtx, cancel := context.WithCancel(f.local.ctx)
+	done := make(chan error, 1)
+	go func() {
+		done <- jobStore.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "summary-rehearsal", Capacity: 1, Lease: time.Minute, PollInterval: 10 * time.Millisecond, Operations: []string{services.ConversationSummaryOperation}}, summaries.Handle)
+	}()
+	t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
+	turn := f.prompt(t, "ben", "Summarize this work")
+	f.terminal(t, turn, "completed", 20*time.Second)
+	require.Eventually(t, func() bool {
+		var shared chat.SharedConversation
+		if json.Unmarshal(f.call(t, "ben", "GET", "/api/conversations/main", "", 200), &shared) != nil || len(shared.Entries) != 1 {
+			return false
+		}
+		return shared.Entries[0].Summary != nil && *shared.Entries[0].Summary == "[]" && shared.Entries[0].SummaryRevision > 0
+	}, 20*time.Second, 100*time.Millisecond)
+	ben := f.call(t, "ben", "GET", "/api/conversations/main", "", 200)
+	alice := f.call(t, "alice", "GET", "/api/conversations/main", "", 200)
+	require.JSONEq(t, string(ben), string(alice))
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var summaryCall bool
+	for _, raw := range f.requests {
+		if strings.Contains(raw, "Summarize the recorded work") {
+			summaryCall = true
+			require.Contains(t, raw, `"model":"selector"`)
+			require.NotContains(t, raw, `"tools"`)
+		}
+	}
+	require.True(t, summaryCall)
+}
