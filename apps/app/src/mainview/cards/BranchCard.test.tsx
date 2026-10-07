@@ -224,6 +224,25 @@ test("live file gestures preserve branch and coordinates and refuse a missing fi
   expect(calls).toEqual([["file", { path: "retry.ts", branch: model.name, line: 12 }], ["file", { path: "deliver.ts", branch: model.name }]])
 })
 
+test("scratch Done requires both retained conflict identities and its rebase provider", () => {
+  const model = { ...definitionsOf(make(), "b-retry").model, item: undefined,
+    scratch: { forked_from: { kind: "main" as const } },
+    rebase: { state: "conflict" as const, onto: "main", paths: ["src/retry.ts"], conflict_change: "conflict-1", onto_revision: "revision-1" } }
+  const providers = new Set<CatalogTag>(["branch.rebase"])
+  for (const missing of ["conflict_change", "onto_revision"] as const) {
+    const { calls, dispatch } = recorder()
+    cardActions(dispatch, liveBranchActionDefinitions({ ...model, rebase: { ...model.rebase, [missing]: undefined } }, providers)).onAction("branch.rebase")
+    expect(calls).toEqual([])
+  }
+  expect(liveBranchActionDefinitions(model, new Set())).toEqual([])
+  const { calls, dispatch } = recorder()
+  const bindings = cardActions(dispatch, liveBranchActionDefinitions(model, providers))
+  expect(() => bindings.onAction("branch.rebase", { conflict_change: "spoofed", onto_revision: "spoofed" })).toThrow("needs an input resolver")
+  expect(calls).toEqual([])
+  bindings.onAction("branch.rebase")
+  expect(calls).toEqual([["branch.rebase", { branch: "retry-webhooks", conflict_change: "conflict-1", onto_revision: "revision-1" }]])
+})
+
 test("opening a Branch announces its authorized scope while child topics are unresolved, and unmount releases it", async () => {
   const leases: unknown[] = [], released: unknown[] = []
   const live = { subscribe: () => () => {}, getSnapshot: () => undefined,

@@ -12,7 +12,8 @@ const actions = { onDecideApproval: () => {}, onConnectGitHub: () => {}, onRunWo
 const cases = [
   ["sleep", "box.suspend", "awake"], ["wake", "box.resume", "asleep"],
   ["add-to-stack", "branch.add-to-stack", "awake"], ["rebase", "branch.rebase-now", "awake"],
-  ["return-to-item", "todo.return-to-item", "awake"], ["keep-moved", "todo.keep-moved", "awake"]
+  ["return-to-item", "todo.return-to-item", "awake"], ["keep-moved", "todo.keep-moved", "awake"],
+  ["wake", "box.resume", "failed"], ["rebase", "branch.rebase", "awake"]
 ] as const
 
 // Contract fakes qualify dark bindings only; they are not install acceptance receipts.
@@ -29,8 +30,8 @@ for (const [operation, flow, state] of cases) for (const ready of [false, true])
     return new Response("{}", { status: 404 })
   })
   const actor = { kind: "person", login: "ben", name: "Ben", avatar_url: "https://example.test/ben.png", color_index: 1 }
-  const model = { id: "b-contract", name: "scratch/ben/try", machine: { state }, presence: [], terminals: [], ssh_line: "ssh -p 2222 scratch/ben/try@localhost",
-    scratch: { forked_from: { kind: "main" } }, moved_off: { by: actor, item: 2 }, rebase: { state: "pending", onto: "main" } }
+  const model = { id: "b-contract", name: "scratch/ben/try", machine: state === "failed" ? { state, error: { code: "machine_unreachable", class: "infra", message: "Machine unreachable" } } : { state }, presence: [], terminals: [], ssh_line: "ssh -p 2222 scratch/ben/try@localhost",
+    scratch: { forked_from: { kind: "main" } }, moved_off: { by: actor, item: 2 }, rebase: flow === "branch.rebase" ? { state: "conflict", onto: "main", paths: ["src/retry.ts"], conflict_change: "retained-conflict-1", onto_revision: "main-revision-1" } : { state: "pending", onto: "main" } }
   const snapshots = new Map([["branch:b-contract", { topic: "branch:b-contract", data: model }], ["branch:b-contract:activity", { topic: "branch:b-contract:activity", data: [] }], ["branch:b-contract:files", { topic: "branch:b-contract:files", data: [] }]])
   const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl,
     bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null },
@@ -50,13 +51,15 @@ for (const [operation, flow, state] of cases) for (const ready of [false, true])
       expect(requests.filter(request => request.method === "POST")).toEqual([])
     } else {
       expect(button).not.toBeNull()
+      if (state === "failed") expect(button!.textContent).toBe("Retry")
+      if (flow === "branch.rebase") expect(button!.textContent).toBe("Done")
       await act(async () => {
         button!.click()
         for (let i = 0; i < 50 && !requests.some(request => request.method === "POST"); i++) await new Promise(resolve => setTimeout(resolve, 2))
       })
       const writes = requests.filter(request => request.method === "POST")
       expect(writes).toHaveLength(1)
-      expect(writes[0]).toMatchObject({ path: "/api/branches/scratch%2Fben%2Ftry", body: operation === "add-to-stack" ? { op: "add-to-stack", text: "scratch/ben/try" } : { op: operation } })
+      expect(writes[0]).toMatchObject({ path: "/api/branches/scratch%2Fben%2Ftry", body: operation === "add-to-stack" ? { op: "add-to-stack", text: "scratch/ben/try" } : flow === "branch.rebase" ? { op: "rebase", conflict_change: "retained-conflict-1", onto_revision: "main-revision-1" } : { op: operation } })
       expect(writes[0]!.key).toMatch(/^[0-9a-f-]{36}$/)
       for (const [, other] of cases) if (other !== flow) expect(host.querySelector(`[data-flow="${other}"]`)).toBeNull()
     }

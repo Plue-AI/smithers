@@ -58,12 +58,16 @@ export const liveBranchActionDefinitions = (model: BranchModel, providers: Reado
       ...(input.line === undefined ? {} : { line: Number(input.line) }) }) })
   if (model.machine.state !== "closed") {
     if (model.machine.state === "awake") definitions.push({ tag: "box.suspend", label: "Sleep", command_input: { branch: model.name } })
+    if (model.machine.state === "failed") definitions.push({ tag: "box.resume", label: "Retry", command_input: { branch: model.name } })
     if (model.machine.state === "asleep") definitions.push({ tag: "box.resume", label: "Wake", command_input: { branch: model.name } })
     if (model.scratch) definitions.push({ tag: "branch.add-to-stack", label: "Add to stack", command_input: { text: model.name } })
     if (model.moved_off) definitions.push(
       { tag: "todo.return-to-item", label: `Return to T${model.moved_off.item}`, command_input: { n: model.moved_off.item } },
       { tag: "todo.keep-moved", label: "Keep for now", command_input: { n: model.moved_off.item } }
     )
+    if (model.scratch && model.rebase?.state === "conflict" && model.rebase.conflict_change && model.rebase.onto_revision) definitions.push({
+      tag: "branch.rebase", label: "Done", command_input: { branch: model.name, conflict_change: model.rebase.conflict_change, onto_revision: model.rebase.onto_revision }
+    })
     if (model.rebase?.state === "pending") definitions.push({ tag: "branch.rebase-now", label: "Rebase now", command_input: { branch: model.name } })
   }
   if (model.machine.state !== "closed" && n !== undefined) {
@@ -146,7 +150,7 @@ export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branc
   if (controls?.available("sleep")) providers.add("box.suspend")
   if (controls?.available("wake")) providers.add("box.resume")
   if (controls?.available("add-to-stack")) providers.add("branch.add-to-stack")
-  if (controls?.available("rebase")) providers.add("branch.rebase-now")
+  if (controls?.available("rebase")) { providers.add("branch.rebase-now"); providers.add("branch.rebase") }
   if (controls?.available("return-to-item")) providers.add("todo.return-to-item")
   if (controls?.available("keep-moved")) providers.add("todo.keep-moved")
   if (typeof controller.answerTodo === "function") providers.add("todo.answer")
