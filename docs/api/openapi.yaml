@@ -3069,6 +3069,33 @@ paths:
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: Flows unavailable
+    post:
+      x-composition: install
+      summary: Request a flow run on a branch machine
+      description: Persists a request for the shared Flow worker. Repository code runs only on the selected machine. Repeated Idempotency-Key values return the same receipt; changed input conflicts. TODO and review use their dedicated admission routes.
+      operationId: post_api_flows
+      tags:
+        - Flows
+      security: [{sessionCookie: []}]
+      parameters:
+        - {name: Idempotency-Key, in: header, required: true, schema: {type: string, maxLength: 255}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FlowRunRequest'}
+      responses:
+        '202':
+          description: Requested; execution has not necessarily started
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FlowRunReceipt'}
+        '400': {description: Invalid request}
+        '401': {description: Not signed in}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404': {description: Branch unavailable}
+        '409': {description: Machine not running or idempotency mismatch}
+        '503': {description: Flow dispatcher unavailable}
   /api/flows/{name}:
     get:
       x-composition: install
@@ -3097,6 +3124,55 @@ paths:
           description: No such flow
         '503':
           description: Flows unavailable
+  /api/flows/{name}/run:
+    post:
+      x-composition: install
+      summary: Request a flow run on a branch machine
+      description: Persists a request for the shared Flow worker. Repository code runs only on the selected machine. Repeated Idempotency-Key values return the same receipt; changed input conflicts. TODO and review use their dedicated admission routes.
+      operationId: post_api_flows_name_run
+      tags:
+        - Flows
+      security: [{sessionCookie: []}]
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+        - {name: Idempotency-Key, in: header, required: true, schema: {type: string, maxLength: 255}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NamedFlowRunRequest'}
+      responses:
+        '202':
+          description: Requested; execution has not necessarily started
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FlowRunReceipt'}
+        '400': {description: Invalid request}
+        '401': {description: Not signed in}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404': {description: Branch unavailable}
+        '409': {description: Machine not running or idempotency mismatch}
+        '503': {description: Flow dispatcher unavailable}
+  /api/flows/runs/{id}:
+    get:
+      x-composition: install
+      summary: Read the requesting person's flow run status
+      operationId: get_api_flows_runs_id
+      tags:
+        - Flows
+      security: [{sessionCookie: []}]
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: Durable dispatch state, runtime run ID and typed failure when available
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FlowRunReceipt'}
+        '401': {description: Not signed in}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404': {description: Run unavailable to this person}
+        '503': {description: Flow dispatcher unavailable}
   /api/gateways/{hostID}/file-write-grants:
     x-composition: install
     post:
@@ -25335,6 +25411,30 @@ components:
         eof:
           description: The read reached the end of the file; a line the agent is still writing waits for its newline
           type: boolean
+    NamedFlowRunRequest:
+      type: object
+      additionalProperties: false
+      required: [workspaceId]
+      properties:
+        name: {type: string}
+        workspaceId: {type: string, format: uuid}
+        input: {type: object, additionalProperties: true}
+    FlowRunRequest:
+      allOf:
+        - {$ref: '#/components/schemas/NamedFlowRunRequest'}
+        - {type: object, required: [name]}
+    FlowRunReceipt:
+      type: object
+      required: [operationId, requestId, kind, state, acceptedAt]
+      properties:
+        operationId: {type: string, format: uuid}
+        requestId: {type: string}
+        kind: {type: string, enum: [requested]}
+        state: {type: string, enum: [accepted, dispatching, running, waiting, completed, failed, cancelled, uncertain]}
+        acceptedAt: {type: string, format: date-time}
+        runId: {type: string}
+        code: {type: string}
+        class: {type: string}
     FlowCard:
       type: object
       required: [name, source, system, versions]
