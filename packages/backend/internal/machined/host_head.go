@@ -57,6 +57,13 @@ func (s HostObjects) Tree(ctx context.Context, branch, head string) (tree string
 		if e != nil {
 			return e
 		}
+		kind, e := burstGit(ctx, repo, 64, "cat-file", "-t", head)
+		if e != nil {
+			return e
+		}
+		if string(kind) != "commit\n" {
+			return wire.BadValue
+		}
 		value, e := burstGit(ctx, repo, 64, "rev-parse", "--verify", head+"^{tree}")
 		if e != nil {
 			return e

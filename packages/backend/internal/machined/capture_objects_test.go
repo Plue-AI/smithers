@@ -62,22 +62,22 @@ func TestGitCaptureObjects(t *testing.T) {
 	_, err = store.VerifyCapture(t.Context(), branch, bad)
 	require.ErrorIs(t, err, wire.BadValue, "a tree is not a captured commit")
 	// Immutable metadata readers reject options, foreign stores and noncommits.
-	tree, err := store.CommitTree(t.Context(), branch, head)
+	tree, err := store.Tree(t.Context(), branch, head)
 	require.NoError(t, err)
 	require.Equal(t, capture.Tree, tree)
 	for _, oid := range []string{"--all", capture.Tree, strings.Repeat("f", 40)} {
-		_, err = store.CommitTree(t.Context(), branch, oid)
+		_, err = store.Tree(t.Context(), branch, oid)
 		require.Error(t, err)
 	}
-	_, err = store.CommitTree(t.Context(), "foreign", head)
+	_, err = store.Tree(t.Context(), "foreign", head)
 	require.ErrorIs(t, err, ErrUnauthorized)
-	_, err = store.BranchHead(t.Context(), branch)
+	_, err = store.Head(t.Context(), branch, "")
 	require.Error(t, err, "absent branch head is not a capture identity")
-	_, err = store.BranchHead(t.Context(), "foreign")
+	_, err = store.Head(t.Context(), "foreign", "")
 	require.ErrorIs(t, err, ErrUnauthorized)
 	ref := "refs/smithers/branches/" + branch + "/head"
 	git("update-ref", ref, base)
-	observed, err := store.BranchHead(t.Context(), branch)
+	observed, err := store.Head(t.Context(), branch, "")
 	require.NoError(t, err)
 	require.Equal(t, base, observed)
 	lock := filepath.Join(repo, ref+".lock")
