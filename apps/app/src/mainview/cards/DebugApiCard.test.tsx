@@ -195,7 +195,7 @@ test("replacing the seam at the same selection and epoch remounts the real form 
   expect(host.innerHTML).not.toContain("seam-a-draft")
 })
 
-test("debug bodies are viewer-only and ephemeral: no storage write, store row or agent request carries them, and the card is not agent context", async () => {
+test("debug bodies are viewer-only and ephemeral: no storage write, store row or agent request carries them, and unavailable chat never dispatches locally", async () => {
   const BODY = "BODY-BYTES-7f3a"
   const writes: string[] = [], base = memoryStorage()
   const storage = { ...base, setItem: (key: string, value: string) => { writes.push(`${key}=${value}`); base.setItem(key, value) } }
@@ -209,10 +209,9 @@ test("debug bodies are viewer-only and ephemeral: no storage write, store row or
   expect((await controller.runCommandForResult("debug.api", JSON.stringify({ operationId: "readFile", intent: "send", values: { "path:path": `${BODY}.ts` } }))).status).toBe("executed")
   await settle(() => store.collections.toasts.get("toast-debug.api.send")?.status === "failed")
   expect(JSON.stringify(controller.debugApi.get())).toContain(BODY)
-  expect(await controller.send("What is on screen?")).toBe(true)
-  await settle(() => requests.length === 1)
-  expect(JSON.stringify(requests[0])).not.toContain(BODY)
-  expect(requests[0]!.context?.recentCards?.map(card => card.kind)).not.toContain("debug-api")
+  // Without composed conversation admission, Chat refuses browser execution.
+  expect(await controller.send("What is on screen?")).toBe(false)
+  expect(requests).toEqual([])
   const rows = Object.values(store.collections).flatMap(collection => [...(collection as unknown as { values: () => Iterable<unknown> }).values()])
   expect(rows.length).toBeGreaterThan(0)
   expect(JSON.stringify(rows)).not.toContain(BODY)
