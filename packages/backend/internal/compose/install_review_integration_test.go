@@ -16,7 +16,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
@@ -61,21 +63,64 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 		&routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil,
 		routerExtras{Mythical: &routes.MythicalHandler{Service: service}},
 	)
+	// Findings already committed by the shared producer must survive reload.
+	// This exercises the production reader, not a new review journal writer.
+	chatStore, err := chat.NewStore(pool)
+	require.NoError(t, err)
+	mountChatPublic(router.(chi.Router), &chat.Runtime{Handler: &chat.Handler{Store: chatStore, ResolveBranch: conversationBranchResolver(services.NewWorkspaceService(q))}}, q, cfg)
+	t.Run("shared conversation retains review findings", func(t *testing.T) {
+		_, err := pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write') ON CONFLICT DO NOTHING`, repo.ID, owner.ID)
+		require.NoError(t, err)
+		scope := chat.Scope{RepositoryID: repo.ID, UserID: owner.ID, Owner: owner.Username}
+		admitted, err := chatStore.Admit(ctx, chat.AdmitInput{Scope: scope, RunID: "shared-review", Journal: chat.JournalRequest{Version: 1, LegID: "review", Token: strings.Repeat("a", 64)}, Request: json.RawMessage(`{"runId":"shared-review","conversationId":"main","sharedConversation":true,"messages":[{"role":"user","content":"/review #50"}]}`)})
+		require.NoError(t, err)
+		grant, err := chatStore.Claim(ctx, scope, admitted.TurnID, time.Minute)
+		require.NoError(t, err)
+		finding := json.RawMessage(`{"runId":"shared-review","type":"card","card":{"id":"review-50","kind":"change","title":"Review","payload":{"repo":"review-owner/app","changeId":"review-50","commitId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","facet":"findings","findings":[{"analyzer":"review","severity":"fix","path":"cache.ts","line":20,"summary":"Off by one"}]}}}`)
+		_, err = chatStore.Commit(ctx, chat.CommitInput{TurnID: grant.TurnID, Generation: grant.Generation, Token: grant.Token, Expected: grant.Cursor, Frames: []json.RawMessage{
+			json.RawMessage(`{"runId":"shared-review","type":"tool_call","call_id":"private","name":"review","arguments":"private-tool-canary"}`),
+			json.RawMessage(`{"runId":"shared-review","type":"card","card":{"kind":"confirm","payload":{"secret":"private-confirm-canary"}}}`),
+			finding, json.RawMessage(`{"runId":"shared-review","type":"done","reason":"stop"}`),
+		}})
+		require.NoError(t, err)
+		private, err := chatStore.Admit(ctx, chat.AdmitInput{Scope: scope, RunID: "private-review", Journal: chat.JournalRequest{Version: 1, LegID: "review", Token: strings.Repeat("b", 64)}, Request: json.RawMessage(`{"runId":"private-review","conversationId":"main","sharedConversation":false,"messages":[{"role":"user","content":"private-review-canary"}]}`)})
+		require.NoError(t, err)
+		privateGrant, err := chatStore.Claim(ctx, scope, private.TurnID, time.Minute)
+		require.NoError(t, err)
+		_, err = chatStore.Commit(ctx, chat.CommitInput{TurnID: privateGrant.TurnID, Generation: privateGrant.Generation, Token: privateGrant.Token, Expected: privateGrant.Cursor, Frames: []json.RawMessage{json.RawMessage(strings.ReplaceAll(string(finding), "shared-review", "private-review")), json.RawMessage(`{"runId":"private-review","type":"done","reason":"stop"}`)}})
+		require.NoError(t, err)
+		for range 2 {
+			req := httptest.NewRequest("GET", "http://localhost:4000/api/conversations/main", nil)
+			req.RemoteAddr = "127.0.0.1:61000"
+			req.AddCookie(&http.Cookie{Name: "session", Value: "review-cookie"})
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, req)
+			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+			var conversation chat.SharedConversation
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &conversation))
+			require.Len(t, conversation.Entries, 1)
+			require.Len(t, conversation.Entries[0].Frames, 2)
+			require.JSONEq(t, string(finding), string(conversation.Entries[0].Frames[0]))
+			require.NotContains(t, response.Body.String(), "private-tool-canary")
+			require.NotContains(t, response.Body.String(), "private-confirm-canary")
+			require.NotContains(t, response.Body.String(), "private-review-canary")
+		}
+	})
 	for _, tc := range []struct {
 		name, body, key string
 		cookie          bool
 		status          int
 		code            string
 	}{
-		{"signed out", `{"number":50,"conversation":"ben"}`, "review", false, 401, "unauthenticated"},
-		{"missing key", `{"number":50,"conversation":"ben"}`, "", true, 400, "invalid_review"},
+		{"signed out", `{"number":50,"conversation":"main"}`, "review", false, 401, "unauthenticated"},
+		{"missing key", `{"number":50,"conversation":"main"}`, "", true, 400, "invalid_review"},
 		{"missing conversation", `{"number":50}`, "review", true, 400, "invalid_review"},
-		{"invalid number", `{"number":0,"conversation":"ben"}`, "review", true, 400, "invalid_review"},
-		{"caller pin refused", `{"number":50,"conversation":"ben","head":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`, "review", true, 400, "invalid_review"},
-		{"caller base refused", `{"number":50,"conversation":"ben","base":"9999999999999999999999999999999999999999"}`, "review", true, 400, "invalid_review"},
-		{"trailing JSON", `{"number":50,"conversation":"ben"}{}`, "review", true, 400, "invalid_review"},
-		{"no GitHub", `{"number":50,"conversation":"ben"}`, "review", true, 503, "github_unavailable"},
-		{"retry no GitHub", `{"number":50,"conversation":"ben"}`, "review", true, 503, "github_unavailable"},
+		{"invalid number", `{"number":0,"conversation":"main"}`, "review", true, 400, "invalid_review"},
+		{"caller pin refused", `{"number":50,"conversation":"main","head":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`, "review", true, 400, "invalid_review"},
+		{"caller base refused", `{"number":50,"conversation":"main","base":"9999999999999999999999999999999999999999"}`, "review", true, 400, "invalid_review"},
+		{"trailing JSON", `{"number":50,"conversation":"main"}{}`, "review", true, 400, "invalid_review"},
+		{"no GitHub", `{"number":50,"conversation":"main"}`, "review", true, 503, "github_unavailable"},
+		{"retry no GitHub", `{"number":50,"conversation":"main"}`, "review", true, 503, "github_unavailable"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest("POST", "http://localhost:4000/api/reviews", strings.NewReader(tc.body))
@@ -184,7 +229,7 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 	writes := len(upstream.Writes())
 	requestReview := func(status int, code string) {
 		t.Helper()
-		req := httptest.NewRequest("POST", "http://localhost:4000/api/reviews", strings.NewReader(`{"number":50,"conversation":"ben"}`))
+		req := httptest.NewRequest("POST", "http://localhost:4000/api/reviews", strings.NewReader(`{"number":50,"conversation":"main"}`))
 		req.RemoteAddr = "127.0.0.1:61000"
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Origin", "http://localhost:4000")
@@ -288,10 +333,15 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 		require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&count))
 		require.Zero(t, count, table)
 	}
+	t.Run("ephemeral machine adapter and real delivery", func(t *testing.T) {
+		upstream.UpdatePull("review-owner/app", 50, func(p *githubfake.Pull) { p.User = &githubfake.PullAuthor{ID: 4242, Login: "alice", Type: "User"} })
+		exerciseReviewMachine(t, pool, service, chatStore, router, repo.ID, owner.ID)
+		service.SetReviewBackground(nil)
+	})
 	t.Run("durable admission and worker recovery", func(t *testing.T) {
 		upstream.UpdatePull("review-owner/app", 50, func(p *githubfake.Pull) { p.User = &githubfake.PullAuthor{ID: 4242, Login: "alice", Type: "User"} })
 		machine := &reviewMachineFixture{runs: map[string]string{}}
-		delivery := &reviewDeliveryFixture{}
+		delivery := &reviewDeliveryFixture{real: reviewConversationDelivery{store: chatStore, resolve: conversationBranchResolver(services.NewWorkspaceService(q))}}
 		background, err := services.NewReviewBackground(pool, service, machine, delivery)
 		require.NoError(t, err)
 		service.SetReviewBackground(background)
@@ -308,8 +358,8 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 			router.ServeHTTP(answer, req)
 			return answer
 		}
-		body := `{"number":50,"conversation":"ben"}`
-		wrongRepository := call(`{"number":50,"repo":"other/app","conversation":"ben"}`, "wrong-repository")
+		body := `{"number":50,"conversation":"main"}`
+		wrongRepository := call(`{"number":50,"repo":"other/app","conversation":"main"}`, "wrong-repository")
 		require.Equal(t, 403, wrongRepository.Code, wrongRepository.Body.String())
 		// Every preflight refusal remains before acceptance and allocation.
 		for _, code := range []string{"review_binding_unavailable", "review_source_unavailable", "review_digest_mismatch", "review_runtime_unavailable", "review_root_boundary_unavailable"} {
@@ -368,9 +418,31 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 		machine.mu.Unlock()
 		delivery.mu.Lock()
 		require.Equal(t, selected.OperationID, delivery.id)
-		require.Equal(t, "ben", delivery.conversation)
+		require.Equal(t, "main", delivery.conversation)
 		require.JSONEq(t, `{"repo":"review-owner/app","changeId":"review-50","description":"Review","commitId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","currentSeq":null,"revisionCount":null,"revisions":[],"authorName":null,"timestamp":null,"repos":[],"diff":null,"checks":null,"findings":[{"analyzer":"review","severity":"fix","path":"cache.ts","line":20,"summary":"Off by one","raisedAtSeq":null}],"reviews":null,"threads":null,"conflicts":null,"stack":null,"changeset":null}`, string(delivery.change))
 		delivery.mu.Unlock()
+		// Delivery actually committed before its lost reply. Recovery must
+		// publish one retained result, with no claimable model turn.
+		req := httptest.NewRequest("GET", "http://localhost:4000/api/conversations/main", nil)
+		req.RemoteAddr = "127.0.0.1:61000"
+		req.AddCookie(&http.Cookie{Name: "session", Value: "review-cookie"})
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, req)
+		require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+		var conversation chat.SharedConversation
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &conversation))
+		require.Len(t, conversation.Entries, 3)
+		result := conversation.Entries[2]
+		require.Equal(t, "/review #50", result.Prompt)
+		require.Equal(t, chat.StateCompleted, result.State)
+		require.Len(t, result.Frames, 3)
+		require.Contains(t, string(result.Frames[1]), "https://github.com/review-owner/app/pull/50")
+		require.Contains(t, string(result.Frames[0]), `"facet":"findings"`)
+		require.Contains(t, string(result.Frames[0]), `"path":"cache.ts"`)
+		require.Contains(t, string(result.Frames[0]), `"commitId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"`)
+		require.ErrorIs(t, chatStore.DeliverReview(ctx, chat.Scope{RepositoryID: repo.ID, UserID: owner.ID}, "main", selected.OperationID, selected.URL, 50, json.RawMessage(`{"findings":[]}`)), chat.ErrConflict)
+		_, err = chatStore.Claim(ctx, chat.Scope{RepositoryID: repo.ID, UserID: owner.ID, Owner: "review-owner"}, result.ID, time.Minute)
+		require.Error(t, err, "completed delivery is never claimable")
 		// Read the persisted findings through the same install router.
 		readReview := func(id, cookie string) *httptest.ResponseRecorder {
 			req := httptest.NewRequest("GET", "http://localhost:4000/api/reviews/"+id, nil)
@@ -430,7 +502,7 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 		pending := requestConfirm("delegated-review")
 		require.Equal(t, pending, requestConfirm("delegated-review"))
 		var jobCount int
-		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review'`).Scan(&jobCount))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review' AND request_id <> 'adapter-review'`).Scan(&jobCount))
 		require.Equal(t, 1, jobCount)
 		require.Equal(t, 403, confirmCall("/api/confirmations/"+pending.ID+"/approve", "agent-review-press", "", true).Code)
 		require.Equal(t, 403, confirmCall("/api/confirmations/"+pending.ID+"/approve", "other-review-press", "alice-review-cookie", false).Code)
@@ -438,7 +510,7 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 			approved := confirmCall("/api/confirmations/"+pending.ID+"/approve", "person-review-press", "review-cookie", false)
 			require.Equal(t, 200, approved.Code, approved.Body.String())
 		}
-		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review'`).Scan(&jobCount))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review' AND request_id <> 'adapter-review'`).Scan(&jobCount))
 		require.Equal(t, 2, jobCount)
 		var confirmedID string
 		require.NoError(t, pool.QueryRow(ctx, `SELECT payload->'effect'->>'review' FROM approvals WHERE id=$1`, pending.ID).Scan(&confirmedID))
@@ -453,7 +525,7 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 		require.NoError(t, err)
 		appPending := requestConfirm("app-agent-review")
 		require.Equal(t, 403, confirmCall("/api/confirmations/"+appPending.ID+"/approve", "app-agent-review-press", "", true).Code)
-		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review'`).Scan(&jobCount))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review' AND request_id <> 'adapter-review'`).Scan(&jobCount))
 		require.Equal(t, 2, jobCount)
 		appApproved := confirmCall("/api/confirmations/"+appPending.ID+"/approve", "person-app-review-press", "review-cookie", false)
 		require.Equal(t, 200, appApproved.Code, appApproved.Body.String())
@@ -462,12 +534,12 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 		stale := requestConfirm("stale-review-confirm")
 		upstream.UpdatePull("review-owner/app", 50, func(p *githubfake.Pull) { p.Head.SHA = strings.Repeat("8", 40) })
 		require.Equal(t, 409, confirmCall("/api/confirmations/"+stale.ID+"/approve", "stale-review-press", "review-cookie", false).Code)
-		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review'`).Scan(&jobCount))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review' AND request_id <> 'adapter-review'`).Scan(&jobCount))
 		require.Equal(t, 3, jobCount)
 		cancelled := requestConfirm("cancel-review-confirm")
 		denied := confirmCall("/api/confirmations/"+cancelled.ID+"/deny", "person-cancel-review", "review-cookie", false)
 		require.Equal(t, 200, denied.Code, denied.Body.String())
-		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review'`).Scan(&jobCount))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review' AND request_id <> 'adapter-review'`).Scan(&jobCount))
 		require.Equal(t, 3, jobCount)
 		machine.mu.Lock()
 		require.Len(t, machine.runs, 1)
@@ -629,16 +701,27 @@ func (m *reviewMachineFixture) Retire(_ context.Context, id string, _ services.R
 }
 
 type reviewDeliveryFixture struct {
+	real             services.ReviewDelivery
 	mu               sync.Mutex
 	failOnce         bool
 	id, conversation string
 	change           json.RawMessage
 }
 
-func (*reviewDeliveryFixture) Ready(context.Context, services.ReviewAdmission) error { return nil }
-func (d *reviewDeliveryFixture) Deliver(_ context.Context, id string, a services.ReviewAdmission, change json.RawMessage) error {
+func (d *reviewDeliveryFixture) Ready(ctx context.Context, a services.ReviewAdmission) error {
+	if d.real != nil {
+		return d.real.Ready(ctx, a)
+	}
+	return nil
+}
+func (d *reviewDeliveryFixture) Deliver(ctx context.Context, id string, a services.ReviewAdmission, change json.RawMessage) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.real != nil {
+		if err := d.real.Deliver(ctx, id, a, change); err != nil {
+			return err
+		}
+	}
 	if d.failOnce {
 		d.failOnce = false
 		return fmt.Errorf("delivery unavailable")
