@@ -101,13 +101,16 @@ def install():
         # Re-read via held descriptors before executing. Untrusted parents are
         # never traversed by a privileged repair/rename or recursive chown.
         fd = os.open("supervisor", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=prototype)
-        with os.fdopen(fd, "rb") as source:
+        held.append(fd)
+        with os.fdopen(os.dup(fd), "rb") as source:
             info = os.fstat(source.fileno())
             if info.st_uid != 0 or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o755 or hashlib.sha256(source.read()).hexdigest() != request["sha256"]:
                 refuse()
         logfd = os.open("init.log", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=state)
         with os.fdopen(logfd, "wb") as log:
-            process = subprocess.Popen(["/opt/smithers/prototype/supervisor", "--init"], stdin=subprocess.DEVNULL, stdout=log, stderr=log, cwd="/", env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin"}, start_new_session=True)
+            # Keep the verified inode through exec. The literal fixed descriptor
+            # path is generated here, never from member/branch input.
+            process = subprocess.Popen(["/opt/smithers/prototype/supervisor", "--init"], executable="/proc/self/fd/" + str(fd), pass_fds=(fd,), stdin=subprocess.DEVNULL, stdout=log, stderr=log, cwd="/", env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin"}, start_new_session=True)
         fresh_file(state, "init.pid", str(process.pid).encode(), 0o400)
         print(json.dumps({"installed": True, "init_pid": process.pid, "sha256": request["sha256"], "revision": boot["revision"]}))
     finally:

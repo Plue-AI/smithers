@@ -9,7 +9,7 @@ use std::{
     net::{TcpListener, TcpStream},
     os::{
         fd::{AsRawFd, FromRawFd},
-        unix::fs::MetadataExt,
+        unix::{fs::MetadataExt, process::CommandExt},
     },
     process::Command,
     sync::{Arc, Mutex, atomic::AtomicBool},
@@ -68,12 +68,7 @@ impl Boot {
         {
             return Err(refused());
         }
-        let mut hash = Sha256::new();
-        let mut actual = actual.take(64 * 1024 * 1024 + 1);
-        let n = io::copy(&mut actual, &mut HashWriter(&mut hash))?;
-        if n > 64 * 1024 * 1024 || format!("{:x}", hash.finalize()) != boot.supervisor_sha256 {
-            return Err(refused());
-        }
+        verify_digest(actual, &boot.supervisor_sha256)?;
         Ok(boot)
     }
     pub fn authenticate(&self, stream: &mut TcpStream) -> io::Result<()> {
@@ -150,6 +145,26 @@ fn protected(path: &str, executable: bool) -> io::Result<File> {
     }
     Ok(dir)
 }
+fn verify_digest(file: File, expected: &str) -> io::Result<()> {
+    let mut hash = Sha256::new();
+    let mut file = file.take(64 * 1024 * 1024 + 1);
+    let n = io::copy(&mut file, &mut HashWriter(&mut hash))?;
+    if n > 64 * 1024 * 1024 || format!("{:x}", hash.finalize()) != expected {
+        return Err(refused());
+    }
+    Ok(())
+}
+fn run_held(executable: &File, args: &[&str]) -> io::Result<std::process::ExitStatus> {
+    // The fork inherits this CLOEXEC descriptor until the kernel resolves exec.
+    // A pathname replacement cannot choose the bytes executed by root.
+    Command::new(format!("/proc/self/fd/{}", executable.as_raw_fd()))
+        .arg0(EXECUTABLE)
+        .args(args)
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+        .current_dir("/")
+        .status()
+}
 pub fn serve() -> io::Result<()> {
     let boot = Boot::installed()?;
     // Supervisor::installed performs the complete startup drain before bind.
@@ -168,13 +183,10 @@ pub fn init() -> io::Result<()> {
     loop {
         // Each replacement re-verifies the installed inode and runs its own
         // cgroup barrier. No executable or env comes from the repository.
-        Boot::installed()?;
-        let status = Command::new(EXECUTABLE)
-            .arg("--serve")
-            .env_clear()
-            .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
-            .current_dir("/")
-            .status()?;
+        let boot = Boot::installed()?;
+        let executable = protected(EXECUTABLE, true)?;
+        verify_digest(executable.try_clone()?, &boot.supervisor_sha256)?;
+        let status = run_held(&executable, &["--serve"])?;
         eprintln!("trm06 supervisor ended: {status}");
         std::thread::sleep(Duration::from_millis(100));
     }
@@ -182,6 +194,28 @@ pub fn init() -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn held_exec_never_runs_replacement_path_bytes() {
+        let directory = std::env::temp_dir().join(format!(
+            "trm06-held-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("supervisor");
+        std::fs::copy("/bin/true", &path).unwrap();
+        let expected = format!("{:x}", Sha256::digest(std::fs::read(&path).unwrap()));
+        let held = File::open(&path).unwrap();
+        verify_digest(held.try_clone().unwrap(), &expected).unwrap();
+        std::fs::rename(&path, directory.join("original")).unwrap();
+        std::fs::copy("/bin/false", &path).unwrap();
+        assert!(run_held(&held, &[]).unwrap().success());
+        assert!(verify_digest(File::open(&path).unwrap(), &expected).is_err());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
     #[test]
     fn boot_is_bounded_and_identity_is_not_request_authority() {
         let good = serde_json::json!({"revision":"a".repeat(40),"supervisor_sha256":"b".repeat(64),"boot":vec![1;16],"secret":vec![2;32]});
