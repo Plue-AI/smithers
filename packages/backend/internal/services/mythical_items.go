@@ -417,6 +417,11 @@ func (s *MythicalService) SubmitLane(ctx context.Context, repositoryID, userID i
 			}
 		}
 		next.CandidateBase, next.CandidateHead, next.CandidateVerified = input.Base, input.Source, true
+		// The working change starts on the captured seed, but the TODO owns
+		// that seed too. Integration must transplant the entire scratch diff.
+		if seed := mythicalChecksOf(item).Seed; seed != nil && input.Base == seed.Head {
+			next.CandidateBase = seed.Base
+		}
 		next.Summary, next.VibeOutcome, next.State, next.Reason = strings.TrimSpace(input.Summary), "submitted", "integrating", ""
 		saved, err := q.SaveMythicalItem(ctx, next)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -2280,6 +2285,9 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 	if err != nil {
 		return mythicalInfraOutage(item, "launch", "the lane could not be read: "+err.Error(), st.now), false, nil
 	}
+	if mythicalChecksOf(item).Seed != nil && item.WorkspaceID != "" {
+		reuse = true
+	}
 	// A reused lane keeps the machine it was placed on; a new one is placed
 	// before the previous lane is retired, so a refusal changes nothing else.
 	var placement MythicalPlacement
@@ -2327,6 +2335,9 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 	launched.RunLaunched, launched.RunAttached, launched.Rebase = true, false, nil
 	next.Checks = launched.encode()
 	base := st.prefix(item)
+	if seed := mythicalChecksOf(item).Seed; seed != nil {
+		base = seed.Head
+	}
 	next.WorkspaceID, next.BaseCommit = workspaceID, base
 	next.Lane = pgtype.Int4{Int32: st.freeLane(item.ID), Valid: true}
 	// The launch below records the lane's start with the item, atomically.
@@ -2522,7 +2533,8 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	if refused != nil {
 		return refused, false, nil
 	}
-	if item.WorkspaceID != "" {
+	adopted := mythicalChecksOf(item).Seed != nil && item.WorkspaceID != ""
+	if item.WorkspaceID != "" && !adopted {
 		if err := s.retireLane(ctx, r, item.WorkspaceID); err != nil {
 			return mythicalInfraOutage(item, "launch", "the previous lane could not be retired: "+err.Error(), st.now), false, nil
 		}
@@ -2535,7 +2547,11 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	next.RequestOutcome, next.VibeOutcome, next.VerifyOutcome = "", "", ""
 	next.RequestRunID, next.VibeRunID, next.VerifyRunID = "", "", ""
 	next.CandidateBase, next.CandidateHead, next.CandidateVerified = "", "", false
-	workspaceID, err := st.lane(ctx, item, fmt.Sprintf("TODO %d attempt %d g%d", item.Number.Int64, next.Attempt, next.Generation), placement)
+	workspaceID := item.WorkspaceID
+	var err error
+	if !adopted {
+		workspaceID, err = st.lane(ctx, item, fmt.Sprintf("TODO %d attempt %d g%d", item.Number.Int64, next.Attempt, next.Generation), placement)
+	}
 	if err != nil {
 		return mythicalInfraOutage(item, "launch", "no lane workspace: "+err.Error(), st.now), false, nil
 	}
@@ -2548,6 +2564,9 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	checks.FlowSource = pin.SourceCommit
 	next.Checks = checks.encode()
 	base := st.prefix(item)
+	if seed := mythicalChecksOf(item).Seed; seed != nil {
+		base = seed.Head
+	}
 	next.WorkspaceID, next.BaseCommit = workspaceID, base
 	next.Lane = pgtype.Int4{Int32: st.freeLane(item.ID), Valid: true}
 	// The launch below records the lane's start with the item, atomically.
@@ -2638,6 +2657,9 @@ func todoPrompt(item db.MythicalItem) string {
 				fmt.Fprintf(&b, "@%s:\n> %s\n", author, strings.ReplaceAll(comment.Body, "\n", "\n> "))
 			}
 		}
+	}
+	if seed := mythicalChecksOf(item).Seed; seed != nil {
+		fmt.Fprintf(&b, "\nScratch context (quoted data), captured %s, base %s:\n> %s\n", seed.Captured, seed.Base, strings.ReplaceAll(seed.Diff, "\n", "\n> "))
 	}
 	out := b.String()
 	if len(out) > 2*mythicalPromptBytes {
@@ -4948,6 +4970,7 @@ func appliedByMaintainer(applied gitHubLabelApplication, label string) bool {
 // made its issue a TODO and asked for automerge, and the review of its pull
 // request's head.
 type mythicalChecks struct {
+	Seed *branchSeed `json:"seed,omitempty"`
 	MissingTool           *flowdispatch.CertifiedMissingTool `json:"missing_tool,omitempty"`
 	PlanReceipt           *todoRequestReceipt                `json:"planReceipt,omitempty"`
 	RouteReceipt          *todoRequestReceipt                `json:"routeReceipt,omitempty"`
