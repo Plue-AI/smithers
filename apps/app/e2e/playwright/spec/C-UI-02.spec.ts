@@ -31,3 +31,39 @@ test("C-UI-02: Product words and minimal text: a deterministic copy lint", async
     }
   }
 })
+
+// All View modules and fixtures are discovered by the existing story entry.
+// Missing stories fail; a feature flag or an unloaded fixture cannot shrink the matrix.
+test("C-UI-02: every View fixture passes copy lint inline and maximized in both themes", async ({ page }) => {
+  test.setTimeout(300_000)
+  await page.goto("/view-stories.html")
+  await expect(page.getByRole("navigation", { name: "View stories" })).toBeVisible()
+  const manifest = await page.evaluate(() => ({ views: window.viewStoryMatrix.views, fixtures: window.viewStoryMatrix.fixtures, missing: window.viewStoryMatrix.missing }))
+  expect(manifest.missing).toEqual([])
+  expect(manifest.views.length).toBeGreaterThan(0)
+  for (const view of manifest.views) expect(manifest.fixtures.some(name => name.startsWith(`${view}/`)), view).toBe(true)
+  expect(new Set(manifest.fixtures).size).toBe(manifest.fixtures.length)
+  const failures: { fixture: string; width: number; maximized: boolean; theme: string; violations: unknown }[] = []
+  let renders = 0
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 })
+    for (const fixture of manifest.fixtures) {
+      for (const maximized of [false, true]) {
+        for (const theme of ["light", "dark"] as const) {
+          await page.evaluate(({ fixture, maximized, theme }) => window.viewStoryMatrix.render(fixture, maximized, theme), { fixture, maximized, theme })
+          const card = page.locator(".view-story")
+          await expect(card).toHaveAttribute("data-story", fixture)
+          await expect(card).toHaveAttribute("data-maximized", String(maximized))
+          await expect(card).toHaveAttribute("data-theme", theme)
+          const violations = await page.evaluate(() => window.viewStoryMatrix.violations())
+          if (violations.length) failures.push({ fixture, width, maximized, theme, violations })
+          renders++
+        }
+      }
+    }
+  }
+  console.log(`Copy matrix: ${manifest.views.length} Views, ${manifest.fixtures.length} fixtures, ${renders} renders, ${failures.length} failing renders`)
+  await test.info().attach("copy-matrix.json", { body: JSON.stringify({ manifest, renders, failures }), contentType: "application/json" })
+  expect(renders).toBe(manifest.fixtures.length * 4 * 2)
+  expect(failures).toEqual([])
+})
