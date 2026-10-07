@@ -365,11 +365,14 @@ func TestInstallProtectedBookmarkMutationMatrixPostgres(t *testing.T) {
 	require.NoError(t, err)
 	tokens["session"] = ""
 	for kind, token := range tokens {
-		for _, operation := range []struct{ method, path, body string }{
-			{"POST", "/bookmarks", `{"name":"release-stable","target_change_id":"protected-change"}`},
-			{"DELETE", "/bookmarks/release-stable", `{}`},
-			{"PUT", fmt.Sprintf("/landings/%d/land", landing.Number), `{"commit_id":"1111111111111111111111111111111111111111"}`},
-			{"POST", fmt.Sprintf("/landings/%d/auto-land", landing.Number), `{"enabled":true}`},
+		for _, operation := range []struct {
+			method, path, body string
+			status             int
+		}{
+			{"POST", "/bookmarks", `{"name":"release-stable","target_change_id":"protected-change"}`, 403},
+			{"DELETE", "/bookmarks/release-stable", `{}`, 403},
+			{"PUT", fmt.Sprintf("/landings/%d/land", landing.Number), `{"commit_id":"1111111111111111111111111111111111111111"}`, 404},
+			{"POST", fmt.Sprintf("/landings/%d/auto-land", landing.Number), `{"enabled":true}`, 403},
 		} {
 			req := httptest.NewRequest(operation.method, "/api/repos/gate-owner/app"+operation.path, bytes.NewBufferString(operation.body))
 			req.Header.Set("Content-Type", "application/json")
@@ -383,12 +386,24 @@ func TestInstallProtectedBookmarkMutationMatrixPostgres(t *testing.T) {
 			}
 			w := httptest.NewRecorder()
 			f.router.ServeHTTP(w, req)
-			require.Equal(t, 403, w.Code, "%s %s %s: %s", kind, operation.method, operation.path, w.Body.String())
+			status := operation.status
+			// Bound token policy rejects this path before route lookup; the
+			// owner session reaches the absent install landing route.
+			if status == http.StatusNotFound && kind != "session" {
+				status = http.StatusForbidden
+			}
+			require.Equal(t, status, w.Code, "%s %s %s: %s", kind, operation.method, operation.path, w.Body.String())
+			require.Zero(t, f.hostCalls.Load(), "refusal reached repo-host")
+			// Direct repository landing is absent from the install; retained
+			// bookmark and auto-land doors still return typed permission refusals.
+			if status == http.StatusNotFound {
+				require.Equal(t, "404 page not found\n", w.Body.String())
+				continue
+			}
 			var body map[string]any
 			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 			require.Equal(t, "permission", body["class"])
 			require.Equal(t, "permission", body["code"])
-			require.Zero(t, f.hostCalls.Load(), "refusal reached repo-host")
 		}
 	}
 	var queued int
