@@ -222,3 +222,33 @@ test("sleeping branch intelligence refuses all doors without reads or session st
     expect([...store.collections.cards.values()].filter(card => card.kind === "file")).toEqual([])
   } finally { await app.dispose() }
 })
+
+test("install File commands consume captured sleep facts and refuse Restore before HTTP", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const branch = "scratch/maya/sleep"
+  const head = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  const requests: string[] = []
+  let snapshot: import("../runtime/LiveChannel").TopicSnapshot = { topic: `branch:${branch}`, data: { id: "machine-1", name: branch, head, machine: { state: "asleep" } } }
+  const subscriptions: string[] = []
+  const app = controller(store, agent, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "none", sandbox: null },
+    live: { subscribe: topic => { subscriptions.push(topic); return () => {} }, getSnapshot: topic => topic === snapshot.topic ? snapshot : undefined },
+    fetchImpl: async url => { requests.push(String(url)); return new Response(JSON.stringify({ ...file, branch, outside: { version: "before-17", post_digest: "fixture-one", at: "2026-10-06T00:00:00Z" } })) }
+  })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maya", admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "branch.navigation.changed", actor: "user", navigation: { owner: "maya", open: true, selected_branch: branch, nodes: [] } }).isPersisted.promise
+  requests.length = 0
+  expect((await app.commands.submit({ name: "file", payload: { path: "README.md" }, actor: "user" })).status).toBe("executed")
+  expect(requests).toEqual([`/api/branches/scratch%2Fmaya%2Fsleep/files/README.md?at=${head}`])
+  expect(subscriptions.filter(topic => topic === snapshot.topic)).toHaveLength(1)
+  const opened = [...store.collections.cards.values()].find(card => card.kind === "file")!
+  expect(opened.payload.ref).toBe(head)
+  requests.length = 0
+  expect((await app.commands.submit({ name: "file.restore", payload: { path: "README.md", branch }, actor: "user" })).status).toBe("failed")
+  expect(requests).toEqual([])
+  snapshot = { topic: snapshot.topic, data: { id: "machine-1", name: branch, machine: { state: "asleep" } } }
+  expect(await app.branchFiles.read(branch, "README.md")).toEqual({ error: "The branch is asleep." })
+  snapshot = { topic: snapshot.topic, error: "forbidden" }
+  expect(await app.branchFiles.read(branch, "README.md")).toEqual({ error: "Branch access was removed." })
+  expect(requests).toEqual([])
+})
