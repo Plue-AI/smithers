@@ -72,7 +72,12 @@ func Upgrade(ctx context.Context, cfg UpgradeConfig) (directory string, err erro
 		defer cancel()
 		err = errors.Join(err, cfg.Upgrade.Reopen(cleanup, lease.op))
 	}()
+	work, stopRenewal := renewLease(ctx, cfg.Upgrade, lease.op)
+	defer stopRenewal()
 	if _, err = VerifySnapshot(directory); err != nil {
+		return directory, err
+	}
+	if err = context.Cause(work); err != nil {
 		return directory, err
 	}
 	marker, err := root.OpenFile(".upgrade-incomplete", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
@@ -85,10 +90,10 @@ func Upgrade(ctx context.Context, cfg UpgradeConfig) (directory string, err erro
 	if err != nil {
 		return directory, err
 	}
-	if err = cfg.Upgrade.BrewUpgrade(ctx); err != nil {
+	if err = cfg.Upgrade.BrewUpgrade(work); err != nil {
 		return directory, err
 	}
-	if err = cfg.Upgrade.Continue(ctx, directory); err != nil {
+	if err = cfg.Upgrade.Continue(work, directory); err != nil {
 		return directory, err
 	}
 	// A successful exec never returns. Returning nil cannot substitute for the
