@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
@@ -79,6 +80,10 @@ func TestWikiLiveCutoverDocumentAdmission(t *testing.T) {
 	cfg.Auth.SessionCookieName = "session"
 	var origin string
 	topics := &liveTopics{queries: q}
+	bus := revocation.NewBus(pool, q)
+	require.NoError(t, bus.Start(ctx))
+	routes.SetRevocationSource(bus)
+	defer routes.SetRevocationSource(nil)
 	handler := &routes.LiveHandler{Hub: live.NewHub(ctx, nil), Queries: q, Origins: func() []string { return []string{origin} }, Topics: topics.resolver}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Router creation waits until the listener assigned its effective origin.

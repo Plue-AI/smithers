@@ -16,6 +16,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/livedocument"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
@@ -59,6 +60,10 @@ func TestWikiHostCrashChild(t *testing.T) {
 	cfg.Auth.SessionCookieName = "session"
 	topics := &liveTopics{queries: q, wikiDocuments: host}
 	var origin string
+	bus := revocation.NewBus(pool, q)
+	require.NoError(t, bus.Start(ctx))
+	routes.SetRevocationSource(bus)
+	defer routes.SetRevocationSource(nil)
 	handler := &routes.LiveHandler{Hub: live.NewHub(ctx, nil), Queries: q, Origins: func() []string { return []string{origin} }, Topics: topics.resolver}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hostStatusProductionRouter(cfg, q, &services.InstallCapacityService{}, conformanceServices{live: handler, wiki: wiki}).ServeHTTP(w, r)
