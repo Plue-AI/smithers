@@ -94,3 +94,14 @@ test("scratch Done preserves the retained binding through the catalog command", 
     body: { op: "rebase", conflict_change: "retained-change", onto_revision: "retained-onto" }
   })
 })
+
+test("system descriptors have no person or delegated doors",()=>{
+ const rows=generateCatalog()
+ for (const [name,scope] of [
+ ["stack.candidate","write:repository"],["stack.propose","write:repository"],
+ ["workspace.head","write:workspace"],["workspace.children.list","read:workspace"],
+ ["workspace.children.spawn","write:workspace"],["workspace.children.stop","write:workspace"],
+ ["workspace.provider-pool","read:workspace"]] as const) {
+ expect(rows.find(row=>row.name===name)).toMatchObject({name,credentialScope:scope,visibility:"hidden",agent:"never",actors:[],slash:null,cli:null})
+ }
+})

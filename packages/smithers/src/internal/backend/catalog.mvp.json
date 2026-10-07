@@ -6381,19 +6381,36 @@
       "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Reset to GitHub main",
-      "http": null,
+      "http": {
+        "method": "POST",
+        "path": "/api/stack/attention/{id}",
+        "body": {
+          "old": "old",
+          "new": "new"
+        }
+      },
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
           "type": "object",
           "properties": {
-            "revision": {
+            "id": {
               "type": "string",
               "minLength": 1
+            },
+            "old": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "new": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
             }
           },
           "required": [
-            "revision"
+            "id",
+            "old",
+            "new"
           ],
           "additionalProperties": true
         },
@@ -10635,6 +10652,95 @@
       }
     },
     {
+      "name": "stack.candidate",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [],
+      "minimumRole": "member",
+      "credentialScope": "write:repository",
+      "agent": "never",
+      "summary": "stack.candidate",
+      "http": {
+        "method": "POST",
+        "path": "/api/repos/{owner}/{repo}/workspaces/{id}/stack/candidate"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "requestId": {
+              "type": "string"
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "change_id": {
+                      "type": "string"
+                    },
+                    "commit_id": {
+                      "type": "string"
+                    },
+                    "tree_id": {
+                      "type": "string"
+                    },
+                    "parent_commit_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "change_id",
+                    "commit_id",
+                    "tree_id",
+                    "parent_commit_ids"
+                  ],
+                  "additionalProperties": true
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "generation": {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "requestId"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "stack.move",
       "slash": "/stack.move",
       "cli": [
@@ -10682,6 +10788,95 @@
           "required": [
             "n",
             "direction"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "stack.propose",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [],
+      "minimumRole": "member",
+      "credentialScope": "write:repository",
+      "agent": "never",
+      "summary": "stack.propose",
+      "http": {
+        "method": "POST",
+        "path": "/api/repos/{owner}/{repo}/workspaces/{id}/stack/propose"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "requestId": {
+              "type": "string"
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "change_id": {
+                      "type": "string"
+                    },
+                    "commit_id": {
+                      "type": "string"
+                    },
+                    "tree_id": {
+                      "type": "string"
+                    },
+                    "parent_commit_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "change_id",
+                    "commit_id",
+                    "tree_id",
+                    "parent_commit_ids"
+                  ],
+                  "additionalProperties": true
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "generation": {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "requestId"
           ],
           "additionalProperties": true
         },
@@ -13492,6 +13687,293 @@
             "view"
           ],
           "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "workspace.children.list",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [],
+      "minimumRole": "member",
+      "credentialScope": "read:workspace",
+      "agent": "never",
+      "summary": "workspace.children.list",
+      "http": {
+        "method": "GET",
+        "path": "/api/repos/{owner}/{repo}/workspaces/{id}/children"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "workspace.children.spawn",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [],
+      "minimumRole": "member",
+      "credentialScope": "write:workspace",
+      "agent": "never",
+      "summary": "workspace.children.spawn",
+      "http": {
+        "method": "POST",
+        "path": "/api/repos/{owner}/{repo}/workspaces/{id}/children"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "count": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            },
+            "profile": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "ttl_secs": {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "count"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "workspace.children.stop",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [],
+      "minimumRole": "member",
+      "credentialScope": "write:workspace",
+      "agent": "never",
+      "summary": "workspace.children.stop",
+      "http": {
+        "method": "POST",
+        "path": "/api/repos/{owner}/{repo}/workspaces/{id}/children/{child_id}/stop"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "workspace.head",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [],
+      "minimumRole": "member",
+      "credentialScope": "write:workspace",
+      "agent": "never",
+      "summary": "workspace.head",
+      "http": {
+        "method": "POST",
+        "path": "/api/repos/{owner}/{repo}/workspaces/{id}/head"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "retain_source": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "change_id": {
+                      "type": "string"
+                    },
+                    "commit_id": {
+                      "type": "string"
+                    },
+                    "tree_id": {
+                      "type": "string"
+                    },
+                    "parent_commit_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "change_id",
+                    "commit_id",
+                    "tree_id",
+                    "parent_commit_ids"
+                  ],
+                  "additionalProperties": true
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "change_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "commit_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "ahead": {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "behind": {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "coding_operations": {
+              "anyOf": [
+                {
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "workspace.provider-pool",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [],
+      "minimumRole": "member",
+      "credentialScope": "read:workspace",
+      "agent": "never",
+      "summary": "workspace.provider-pool",
+      "http": {
+        "method": "GET",
+        "path": "/provider-pool/routes"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
         },
         "definitions": {}
       }

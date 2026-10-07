@@ -409,6 +409,15 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 	if observe, ok := ctx.Value(authorizationObserverKey{}).(func(string)); ok && observe != nil {
 		observe(command)
 	}
+	policy, known := installCommandPolicy(command)
+	if !known {
+		return InstallAuthorization{}, confirmationPermission()
+	}
+	if command == "workspace.head" || command == "workspace.children.list" || command == "workspace.children.spawn" || command == "workspace.children.stop" || command == "workspace.provider-pool" || command == "stack.candidate" || command == "stack.propose" {
+		if policy.Visibility != "hidden" || policy.Agent != "never" || len(policy.Actors) != 0 {
+			return InstallAuthorization{}, confirmationPermission()
+		}
+	}
 	if command == "workspace.children.list" || command == "workspace.children.spawn" || command == "workspace.children.stop" {
 		return authorizeWorkspaceChildren(ctx, q, command, subject)
 	}
@@ -458,8 +467,7 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 	if command == "todo.read" && InstallExecutionCredential(ctx) {
 		return authorizeExecutionTodoRead(ctx, q, subject)
 	}
-	policy, ok := installCommandPolicy(command)
-	if !ok {
+	if len(policy.Actors) == 0 {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Not available"}
 	}
 	info := middleware.AuthInfoFromContext(ctx)

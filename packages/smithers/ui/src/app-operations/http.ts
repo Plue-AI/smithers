@@ -3,14 +3,34 @@
  * must resolve their operation before authorization; there is no control grant.
  */
 import { Schema } from "effect"
-import { NoInput, operation } from "./index"
+import { NoInput, operation, type OperationPayload } from "./index"
 
 const read = (name: string, path: string, agent: "run" | "never" = "run", minimumRole: "member" | "owner" = "member") =>
   operation({ name, input: NoInput, summary: name, hidden: true, visibility: "hidden", slash: null, cli: null,
     http: { method: "GET", path }, minimumRole, agent, credentialScope: name === "self.read" ? "read:user" : "read:repository",
     actors: agent === "never" ? ["person"] : ["person", "app_agent", "external_agent"] })
 
+// Empty person-actor lists are system descriptors, not person permissions.
+// Credential kinds and stored-subject predicates remain the existing handlers
+// (spec 6.1.2d); these rows grant no slash, CLI or model door.
+const system = (name: string, method: "GET" | "POST", path: string, credentialScope: "read:workspace" | "write:workspace" | "write:repository", input: OperationPayload = NoInput) =>
+  operation({ name, input, summary: name, hidden: true, visibility: "hidden", slash: null, cli: null,
+    http: { method, path }, minimumRole: "member", agent: "never", credentialScope, actors: [] })
+const source = Schema.Struct({ change_id: Schema.String, commit_id: Schema.String, tree_id: Schema.String, parent_commit_ids: Schema.Array(Schema.String) })
+const reservedStack = Schema.Struct({ requestId: Schema.String, source: Schema.optional(source), generation: Schema.optional(Schema.Number) })
+
 export const httpProjections = [
+  system("stack.candidate", "POST", "/api/repos/{owner}/{repo}/workspaces/{id}/stack/candidate", "write:repository", reservedStack),
+  system("stack.propose", "POST", "/api/repos/{owner}/{repo}/workspaces/{id}/stack/propose", "write:repository", reservedStack),
+  system("workspace.head", "POST", "/api/repos/{owner}/{repo}/workspaces/{id}/head", "write:workspace", Schema.Struct({
+    retain_source: Schema.optional(source), change_id: Schema.optional(Schema.String), commit_id: Schema.optional(Schema.String),
+    ahead: Schema.optional(Schema.Number), behind: Schema.optional(Schema.Number), coding_operations: Schema.optional(Schema.Array(Schema.Unknown))
+  })),
+  system("workspace.children.list", "GET", "/api/repos/{owner}/{repo}/workspaces/{id}/children", "read:workspace"),
+  system("workspace.children.spawn", "POST", "/api/repos/{owner}/{repo}/workspaces/{id}/children", "write:workspace", Schema.Struct({ count: Schema.Number, profile: Schema.optional(Schema.String), ttl_secs: Schema.optional(Schema.Number) })),
+  system("workspace.children.stop", "POST", "/api/repos/{owner}/{repo}/workspaces/{id}/children/{child_id}/stop", "write:workspace"),
+  system("workspace.provider-pool", "GET", "/provider-pool/routes", "read:workspace"),
+
   operation({
     name: "flow.source-coedit",
     summary: "Edit source",

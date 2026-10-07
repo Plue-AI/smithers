@@ -29,7 +29,7 @@ export interface OperationMetadata<Capability extends string = string, Host exte
   readonly agent?: "run" | "confirm" | "never"
   readonly visibility?: "core" | "advanced" | "in-card" | "hidden"
   readonly actors?: ReadonlyArray<"person" | "app_agent" | "external_agent">
-  readonly credentialScope?: "read:user" | "read:repository" | "write:repository"
+  readonly credentialScope?: "read:user" | "read:repository" | "write:repository" | "read:workspace" | "write:workspace"
   readonly minimumRole?: "member" | "maintainer" | "owner"
   readonly slash?: string | null
   readonly cli?: ReadonlyArray<string> | null
