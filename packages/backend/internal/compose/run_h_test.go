@@ -68,7 +68,7 @@ var composeTestDatabase postgresfixture.Suite
 func TestMain(m *testing.M) {
 	// Restart children connect only to their parent-owned database. Creating
 	// a second suite database would leak it when the parent kills this process.
-	if os.Getenv("SMITHERS_WIKI_CRASH_DATABASE") != "" || os.Getenv("SMITHERS_GH_RESTART_DB") != "" {
+	if os.Getenv("SMITHERS_WIKI_CRASH_DATABASE") != "" || os.Getenv("SMITHERS_GH_RESTART_DB") != "" || os.Getenv("SMITHERS_CONVERSATION_CRASH_DB") != "" {
 		os.Exit(m.Run())
 	}
 	os.Exit(composeTestDatabase.Run(m))
