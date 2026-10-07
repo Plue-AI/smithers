@@ -103,7 +103,18 @@ impl<D: Disk> Service<D> {
             .lock()
             .map_err(|_| error(Error::Io("document lock poisoned".into())))
     }
-    /// The watcher adapter consumes activity/outside receipts under LockCx.
+    /// The branch-files adapter reads the same state that issued stream receipts.
+    pub fn projections(&self, _cx: &mut LockCx) -> hooks::Result<Vec<super::host::Projection>> {
+        let s = self.state()?;
+        s.host.ready().map_err(error)?;
+        s.host
+            .paths()
+            .iter()
+            .map(|path| s.host.projection(path).map_err(error))
+            .collect()
+    }
+    /// The watcher/files adapter consumes saved, gone, activity and outside
+    /// receipts under LockCx. Stream delivery must not consume these receipts.
     pub fn take_notices(&self, _cx: &mut LockCx) -> hooks::Result<Vec<Notice>> {
         let mut s = self.state()?;
         s.collect()?;
@@ -156,8 +167,9 @@ impl<D: Disk> State<D> {
                         }
                     }
                 }
-                _ => self.notices.push(notice),
+                _ => (),
             }
+            self.notices.push(notice);
         }
         Ok(())
     }

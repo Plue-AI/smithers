@@ -534,6 +534,16 @@ pub fn rebase_args(bytes: &[u8]) -> Result<([u8; 20], crate::hooks::Actor), Prot
     Ok((onto, crate::hooks::Actor::Principal(c.take(n)?.to_vec())))
 }
 
+/// Return uses the same authenticated host actor union as rebase.
+pub fn return_to_item_actor(bytes: &[u8]) -> Result<crate::hooks::Actor, ProtocolError> {
+    let fields = fields("args12", bytes)?;
+    let actor = &fields[0].1[10..];
+    if actor.is_empty() {
+        return Err(BadValue);
+    }
+    Ok(crate::hooks::Actor::Principal(actor.to_vec()))
+}
+
 /// Borrow the validated fields of a named ADR structure. Hook implementations
 /// use the same schema parser as framing, rather than another TLV decoder.
 pub fn fields<'a>(name: &str, bytes: &'a [u8]) -> Result<Vec<(u8, &'a [u8])>, ProtocolError> {
