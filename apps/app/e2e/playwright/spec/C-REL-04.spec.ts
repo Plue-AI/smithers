@@ -1,21 +1,24 @@
+import { execFile } from "node:child_process"
+import { resolve } from "node:path"
+import { promisify } from "node:util"
 import { expect, test } from "../browserTest"
-import { owner, say } from "./j1-fixtures"
 
-// UI projection of .specs/engineering/checks/C-REL-04.md; not a qualification receipt.
-// Owner-only scorecard has no product card; requires real PostgreSQL fixtures and separately annotated alpha effort.
-// Written before implementation: mvp.md §12.2, §9; lands with T-REL-03
-test("C-REL-04: Scorecard fixtures report missing sources without inventing passing counts", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md §12.2, §9; lands with T-REL-03")
-  await owner(page)
-  await page.goto("/")
-  await say(page, "/branch retry-webhooks")
-  await page.getByRole("button", { name: "New terminal", exact: true }).last().press("Enter")
-  const terminal = page.getByRole("region", { name: / output$/ }).last()
-  await terminal.click()
-  // Production-router fixtures assert literal counts, source_missing, owner
-  // authorization, UTC boundaries and no writes. Manual effort is separate.
-  await page.keyboard.type("go test -v -run Scorecard ./packages/backend/internal/services/ ./packages/backend/internal/routes/")
-  await page.keyboard.press("Enter")
-  await expect(terminal).toContainText("PASS")
-  await expect(terminal).not.toContainText("FAIL")
+// The owner reads JSON; there is no scorecard card. Exercise the composed
+// install router against real PostgreSQL, never a seeded terminal's output.
+test("C-REL-04: Owner scorecard reads lifecycle receipts and refuses missing sources", async () => {
+  test.setTimeout(180_000)
+  const database = process.env.SMITHERS_TEST_DATABASE_URL
+  expect(database, "C-REL-04 requires real PostgreSQL").toBeTruthy()
+  const { stdout, stderr } = await promisify(execFile)("go", [
+    "test", "-v", "-count=1", "-run", "Scorecard",
+    "./packages/backend/internal/compose", "./packages/backend/internal/services", "./packages/backend/internal/routes"
+  ], {
+    cwd: resolve(__dirname, "../../../../.."),
+    env: process.env,
+    timeout: 150_000,
+    maxBuffer: 8 * 1024 * 1024
+  })
+  expect(stdout + stderr).toContain("--- PASS: TestInstallScorecardOwnerReadsRealCreationReceipts")
+  expect(stdout + stderr).not.toContain("--- FAIL:")
+  expect(stdout + stderr).not.toContain("--- SKIP:")
 })

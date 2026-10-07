@@ -141,6 +141,59 @@ func (s *ScorecardService) Summary(ctx context.Context, from, to time.Time) (Sco
 			facts.FirstAnswer = &answer.AnsweredAt
 		}
 	}
+	if present["burst_files"] && present["product_job_events"] {
+		branchTODOs := make(map[string]string)
+		if present["mythical_items"] {
+			items, err := queries.ScorecardBurstTODOs(ctx)
+			if err != nil {
+				return Scorecard{}, err
+			}
+			for _, item := range items {
+				branchTODOs[item.TenantID+"/branch:"+item.WorkspaceID] = item.ID
+			}
+		}
+		rows, err := queries.ScorecardBursts(ctx)
+		if err != nil {
+			return Scorecard{}, err
+		}
+		complete := len(rows) > 0
+		for _, row := range rows {
+			var burst struct {
+				ID        string `json:"id"`
+				SourceKey string `json:"source_key"`
+				Kind      string `json:"kind"`
+				Actor     struct {
+					Kind      string `json:"kind"`
+					MemberID  int64  `json:"member_id"`
+					Via       string `json:"via"`
+					Run       string `json:"run"`
+					AgentKind string `json:"agent_kind"`
+				} `json:"actor"`
+			}
+			if json.Unmarshal(row.Data, &burst) != nil || burst.ID == "" || burst.SourceKey != burst.ID ||
+				burst.Kind != "burst" || !row.FilesPresent || burst.Actor.MemberID <= 0 {
+				complete = false
+				continue
+			}
+			switch burst.Actor.Via {
+			case "terminal", "ssh", "cli", "web", "agent":
+			default:
+				complete = false
+				continue
+			}
+			if burst.Actor.Kind == "agent" && burst.Actor.Run != "" &&
+				(burst.Actor.AgentKind == "coding" || burst.Actor.AgentKind == "reviewer" || burst.Actor.AgentKind == "external") {
+				continue // Sponsor attribution never makes an agent edit a person edit.
+			}
+			if burst.Actor.Kind != "person" || burst.Actor.Run != "" || burst.Actor.AgentKind != "" || burst.Actor.Via == "agent" {
+				complete = false
+				continue
+			}
+			facts.Actions = append(facts.Actions, scorecardAction{SourceKey: burst.SourceKey, TODO: branchTODOs[row.TenantID+"/"+row.PrincipalID],
+				Person: fmt.Sprint(burst.Actor.MemberID), Via: burst.Actor.Via, Kind: "edit", At: row.RecordedAt})
+		}
+		facts.Coverage["T-COL-04"] = complete
+	}
 	if present["audit_log"] {
 		rows, err := queries.ScorecardPresence(ctx)
 		if err != nil {

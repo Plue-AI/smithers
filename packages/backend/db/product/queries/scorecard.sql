@@ -77,3 +77,18 @@ WHERE event_type = 'presence' AND target_type = 'branch' AND action = 'visit';
 -- Immutable setup initialization receipt; never install_settings.updated_at.
 -- name: ScorecardInstallStart :many
 SELECT value FROM install_settings WHERE key = 'setup.started_at';
+
+-- One logical burst, independent of file count or delivery count. The host
+-- writer binds actor and source_key; absent file receipts leave coverage missing.
+-- name: ScorecardBursts :many
+SELECT e.data, e.recorded_at,
+       e.tenant_id, e.principal_id,
+       EXISTS(SELECT 1 FROM burst_files f WHERE f.event_id=e.event_id)::boolean AS files_present
+FROM product_job_events e
+WHERE e.event_type='branch.burst';
+
+-- The optional TODO association cannot hide terminal activity when stack
+-- sources are absent. It is required only for TODO-based diagnostics.
+-- name: ScorecardBurstTODOs :many
+SELECT id::text AS id, repository_id::text AS tenant_id, workspace_id
+FROM mythical_items WHERE workspace_id <> '' AND (source='todo' OR checks->>'todo'='true');

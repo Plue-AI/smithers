@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -319,6 +320,59 @@ func TestInstallScorecardOwnerReadsRealCreationReceipts(t *testing.T) {
 	malformedStart := readState()
 	require.Equal(t, "source_missing", malformedStart.Measures["install_start"].Verdict)
 	require.Equal(t, mergedCard.Measures["merged"], malformedStart.Measures["merged"])
+	// Person and agent file receipts share the canonical branch journal. Multiple
+	// files and redelivery of a burst must never inflate the diagnostic counts.
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET workspace_id='scorecard-branch' WHERE id=$1::uuid`, item)
+	require.NoError(t, err)
+	appendBurst := func(id, kind, via, run string, member int64, at string) {
+		tx, err := pool.Begin(ctx)
+		require.NoError(t, err)
+		agentKind := ""
+		if kind == "agent" {
+			agentKind = "external"
+		}
+		defer tx.Rollback(ctx)
+		payload, err := json.Marshal(map[string]any{"id": id, "source_key": id, "kind": "burst",
+			"actor": map[string]any{"kind": kind, "member_id": member, "via": via, "run": run, "agent_kind": agentKind}})
+		require.NoError(t, err)
+		fact, err := jobs.RecordFactInTx(ctx, tx, jobs.Scope{TenantID: fmt.Sprint(repo), PrincipalID: "branch:scorecard-branch"}, uuid.NewString(), "branch.burst", "completed", payload)
+		require.NoError(t, err)
+		_, err = tx.Exec(ctx, `UPDATE product_job_events SET recorded_at=$2::timestamptz WHERE event_id=$1`, fact.EventID, at)
+		require.NoError(t, err)
+		_, err = tx.Exec(ctx, `INSERT INTO burst_files(event_id,path,change) VALUES($1,'a.ts','modified'),($1,'b.ts','added')`, fact.EventID)
+		require.NoError(t, err)
+		require.NoError(t, tx.Commit(ctx))
+	}
+	require.Equal(t, "source_missing", readState().Measures["terminal_edits"].Verdict)
+	appendBurst("person-burst", "person", "terminal", "", ben, "2026-10-04T07:00:00Z")
+	appendBurst("person-burst", "person", "terminal", "", ben, "2026-10-04T07:01:00Z")
+	appendBurst("agent-burst", "agent", "terminal", "claude-code", owner, "2026-10-04T07:02:00Z")
+	appendBurst("owner-burst", "person", "ssh", "", owner, "2026-10-04T07:03:00Z")
+	burstCard := readState()
+	require.Equal(t, float64(2), burstCard.Measures["terminal_edits"].Value)
+	require.Equal(t, float64(1), burstCard.Measures["second_member_actions"].Value)
+	require.Equal(t, map[string]any{"todos": float64(0), "merged": float64(1), "percent": float64(0)}, burstCard.Measures["no_hand_written_code"].Value)
+	require.Equal(t, malformedStart.Measures["core_value"], burstCard.Measures["core_value"])
+	_, err = pool.Exec(ctx, `ALTER TABLE mythical_items RENAME TO scorecard_hidden_todos`)
+	require.NoError(t, err)
+	withoutTODOs := readState()
+	_, err = pool.Exec(ctx, `ALTER TABLE scorecard_hidden_todos RENAME TO mythical_items`)
+	require.NoError(t, err)
+	require.Equal(t, burstCard.Measures["terminal_edits"], withoutTODOs.Measures["terminal_edits"])
+	require.Equal(t, "source_missing", withoutTODOs.Measures["second_member_actions"].Verdict)
+	_, err = pool.Exec(ctx, `UPDATE product_job_events SET recorded_at='2026-09-01T00:00:00Z' WHERE event_type='branch.burst'`)
+	require.NoError(t, err)
+	emptyBurstWindow := readState()
+	require.Equal(t, float64(0), emptyBurstWindow.Measures["terminal_edits"].Value)
+	require.Equal(t, "between", emptyBurstWindow.Measures["terminal_edits"].Verdict)
+	_, err = pool.Exec(ctx, `UPDATE product_job_events SET data=jsonb_set(data,'{source_key}','"wrong"') WHERE data->>'id'='owner-burst'`)
+	require.NoError(t, err)
+	malformedBurst := readState()
+	require.Equal(t, "source_missing", malformedBurst.Measures["terminal_edits"].Verdict)
+	require.Equal(t, burstCard.Measures["merged"], malformedBurst.Measures["merged"])
+	_, err = pool.Exec(ctx, `DELETE FROM burst_files`)
+	require.NoError(t, err)
+	require.Equal(t, "source_missing", readState().Measures["terminal_edits"].Verdict)
 	// Independently missing providers must not abort the read-only snapshot
 	// or erase unrelated receipts through the production HTTP boundary.
 	for _, tc := range []struct {
@@ -329,6 +383,7 @@ func TestInstallScorecardOwnerReadsRealCreationReceipts(t *testing.T) {
 		{"chat_turns", "first_answer", "T-APP-16", "merged"},
 		{"chat_turn_batches", "first_answer", "T-APP-16", "merged"},
 		{"audit_log", "multiplayer", "T-COL-06", "merged"},
+		{"burst_files", "terminal_edits", "T-COL-04", "merged"},
 	} {
 		t.Run("missing "+tc.table, func(t *testing.T) {
 			// Names are fixed test literals, never request or repository data.

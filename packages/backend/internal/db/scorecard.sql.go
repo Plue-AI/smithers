@@ -13,6 +13,83 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const scorecardBurstTODOs = `-- name: ScorecardBurstTODOs :many
+SELECT id::text AS id, repository_id::text AS tenant_id, workspace_id
+FROM mythical_items WHERE workspace_id <> '' AND (source='todo' OR checks->>'todo'='true')
+`
+
+type ScorecardBurstTODOsRow struct {
+	ID          string `json:"id"`
+	TenantID    string `json:"tenant_id"`
+	WorkspaceID string `json:"workspace_id"`
+}
+
+// The optional TODO association cannot hide terminal activity when stack
+// sources are absent. It is required only for TODO-based diagnostics.
+func (q *Queries) ScorecardBurstTODOs(ctx context.Context) ([]ScorecardBurstTODOsRow, error) {
+	rows, err := q.db.Query(ctx, scorecardBurstTODOs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScorecardBurstTODOsRow{}
+	for rows.Next() {
+		var i ScorecardBurstTODOsRow
+		if err := rows.Scan(&i.ID, &i.TenantID, &i.WorkspaceID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const scorecardBursts = `-- name: ScorecardBursts :many
+SELECT e.data, e.recorded_at,
+       e.tenant_id, e.principal_id,
+       EXISTS(SELECT 1 FROM burst_files f WHERE f.event_id=e.event_id)::boolean AS files_present
+FROM product_job_events e
+WHERE e.event_type='branch.burst'
+`
+
+type ScorecardBurstsRow struct {
+	Data         json.RawMessage `json:"data"`
+	RecordedAt   time.Time       `json:"recorded_at"`
+	TenantID     string          `json:"tenant_id"`
+	PrincipalID  string          `json:"principal_id"`
+	FilesPresent bool            `json:"files_present"`
+}
+
+// One logical burst, independent of file count or delivery count. The host
+// writer binds actor and source_key; absent file receipts leave coverage missing.
+func (q *Queries) ScorecardBursts(ctx context.Context) ([]ScorecardBurstsRow, error) {
+	rows, err := q.db.Query(ctx, scorecardBursts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScorecardBurstsRow{}
+	for rows.Next() {
+		var i ScorecardBurstsRow
+		if err := rows.Scan(
+			&i.Data,
+			&i.RecordedAt,
+			&i.TenantID,
+			&i.PrincipalID,
+			&i.FilesPresent,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const scorecardFirstAnswer = `-- name: ScorecardFirstAnswer :one
 SELECT COALESCE(min(b.created_at), 'epoch'::timestamptz)::timestamptz AS answered_at,
        (count(*) > 0)::boolean AS covered
