@@ -14,6 +14,7 @@ import assert from "node:assert/strict"
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
 import { join } from "node:path"
 import { describe, it } from "node:test"
+import ts from "typescript"
 
 import { parseWorkflow } from "../release-rehearsal.mjs"
 import { repoRoot as root } from "../workspace-packages.mjs"
@@ -131,7 +132,11 @@ describe("backend consumer gate", () => {
   const declaration = readFileSync(join(root, "PACKAGE.ts"), "utf8")
   const start = declaration.indexOf("const backendGo = Smithers.Shell.Test({")
   const target = declaration.slice(start, declaration.indexOf("\n})", start))
-  const shell = JSON.parse(target.match(/^\s*shell: ("(?:[^"\\]|\\.)*"),$/m)?.[1] ?? "null")
+  const literal = target.match(/^\s*shell: ("(?:[^"\\]|\\.)*"),$/m)?.[1] ?? "null"
+  // A TypeScript string can contain escapes that JSON does not permit.
+  const source = ts.createSourceFile("backend-gate.ts", `const shell = ${literal}`, ts.ScriptTarget.Latest, true)
+  const initializer = source.statements[0]?.declarationList?.declarations[0]?.initializer
+  const shell = initializer && ts.isStringLiteral(initializer) ? initializer.text : null
 
   it("compiles the public backend API from an outside module on every backend run", () => {
     assert.ok(start >= 0, "PACKAGE.ts must declare backendGo")
@@ -149,7 +154,7 @@ describe("backend consumer gate", () => {
     assert.ok(compile >= 0, "product tests must compile even before the consumer gate")
     assert.ok(compile < shell.indexOf("python3 -B -m unittest"))
     assert.match(shell, /go vet \.\/packages\/backend\/\.\.\./)
-    assert.match(shell, /go test -count=1 \.\/packages\/backend\/\.\.\./)
+    assert.match(shell, /go test -count=1 -timeout 40m \.\/packages\/backend\/\.\.\./)
   })
 
   it("keeps the consumer script failing on a compile error", () => {
