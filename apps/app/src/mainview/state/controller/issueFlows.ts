@@ -64,7 +64,7 @@ export const createIssueFlowsController = (
     const resolved = resolveTargetRepo(ctx.store, explicit)
     if ("error" in resolved) return resolved.error
     const issue = cards().find(card => card.kind === "issue" && card.payload.source === "github" && card.payload.repo === resolved.repo && card.payload.number === number)
-    if (issue?.kind !== "issue") return "Open the issue again to check permission to make a TODO."
+    if (issue?.kind !== "issue") return ctx.actor() === "user" && todos.draftIssueNumber ? undefined : "Open the issue again to check permission to make a TODO."
     const scope = issueAuthorizationScope(ctx)
     const selection = ctx.store.session().activeRepoKey
     const validate = (payload: IssuePayload, digest?: string): string | undefined => {
@@ -99,6 +99,8 @@ export const createIssueFlowsController = (
     runIssueImplementation: async (number, explicit) => {
       const resolved = resolveTargetRepo(ctx.store, explicit)
       if ("error" in resolved) return resolved.error
+      const opened = cards().some(card => card.kind === "issue" && card.payload.source === "github" && card.payload.repo === resolved.repo && card.payload.number === number)
+      if (!opened && ctx.actor() === "user" && todos.draftIssueNumber) return todos.draftIssueNumber(number, resolved.repo)
       const refusal = await issueTodoRefusal(number, explicit)
       if (refusal !== undefined) return refusal
       const issue = cards().find((card): card is Extract<Card, { kind: "issue" }> => card.kind === "issue" && card.payload.source === "github"

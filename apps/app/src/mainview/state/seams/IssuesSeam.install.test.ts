@@ -99,6 +99,7 @@ test("Make TODO on an install's issue card drafts the issue and its discussion a
     // The card's Make TODO button runs todo.from-issue with the card's number and repository.
     expect(await controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toEqual({ status: "executed", value: "Requested" })
     await waitFor(() => [...store.collections.cards.values()].some(card => card.kind === "draft" && card.payload.issuePreparation?.state === "ready"))
+    await waitFor(() => [...store.collections.cards.values()].some(card => card.kind === "draft" && card.payload.issuePreparation?.state === "ready"))
     const draft = [...store.collections.cards.values()].find(card => card.kind === "draft")
     if (draft?.kind !== "draft") throw new Error("no Draft")
     const modelRequest = posts.find(post => post.path === "/api/model/stream")?.body
@@ -158,7 +159,7 @@ test("a server demotion after reading refuses confirmation and Draft without any
   // Restoring server permission permits drafting again.
   setAllowed(true)
   expect(await controller.runCommandForResult("issue", "#2")).toMatchObject({status:"executed"})
-  expect(await controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toMatchObject({status:"executed",value:"Drafted"})
+  expect(await controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toMatchObject({status:"executed",value:"Requested"})
  } finally {await controller.dispose()}
 })
 
@@ -189,7 +190,7 @@ for (const loss of ["disconnect", "gap", "other-topic gap"] as const) test(`live
     expect(await controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toMatchObject({ status: "failed" })
     setAllowed(true)
     await controller.runCommandForResult("issue", "#2")
-    expect(await controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toMatchObject({ status: "executed", value: "Drafted" })
+    expect(await controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toMatchObject({ status: "executed", value: "Requested" })
   } finally { await controller.dispose(); channel.dispose() }
 })
 
@@ -204,7 +205,8 @@ for (const command of ["todo.from-issue", "issue.implement"]) test(`${command} r
     expect([...store.collections.cards.values()].some(card => card.kind === "draft" || card.kind === "confirm")).toBe(false)
     setReadFailure(false)
     setDigest("b".repeat(64))
-    expect(await controller.runCommandForResult(command, `2 ${REPO}`)).toMatchObject({status:"executed",value:"Drafted"})
+    expect(await controller.runCommandForResult(command, `2 ${REPO}`)).toMatchObject({status:"executed",value:"Requested"})
+    await waitFor(() => [...store.collections.cards.values()].some(card => card.kind === "draft" && card.payload.issuePreparation?.state === "ready"))
     const draft = [...store.collections.cards.values()].find(card => card.kind === "draft")
     if (!draft) throw Error("no Draft")
     await controller.runCommandForResult("todo.new", JSON.stringify({cardId:draft.id}))
@@ -253,7 +255,7 @@ test("unopened Make TODO persists and acknowledges before its snapshot read; rel
     if (draft?.kind !== "draft") throw Error("no Draft")
     expect(draft.payload.title).toBe("Say goodbye")
     expect(draft.payload.issueDigest).toBe("a".repeat(64))
-    expect(await recovered.controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toEqual({ status: "executed", value: "Drafted" })
+    expect(await recovered.controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toEqual({ status: "executed", value: "Requested" })
     expect(recovered.calls.filter(call => call === "GET /api/issues/2")).toHaveLength(1)
   } finally { await recovered.controller.dispose() }
 })

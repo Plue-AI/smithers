@@ -5,6 +5,7 @@ import { ISSUE_REPO, issueTodoInstall, snapshotDigest } from "./issue-todo-fixtu
 // Mounted install seams; remote snapshots, authorization and writes have
 // separate composed-router/PostgreSQL receipts in todo_label_install_integration_test.go.
 test("C-J2-01: Issue discussion drafts an editable, placed TODO", async ({ page }) => {
+  test.fixme(true, "Requires qualification against the real composed install on the reference host.")
   test.setTimeout(120_000)
   const commits = await issueTodoInstall(page)
   await page.goto(`/${ISSUE_REPO}`)
@@ -30,6 +31,7 @@ test("C-J2-01: Issue discussion drafts an editable, placed TODO", async ({ page 
 
 
 test("C-J2-01: unopened issue drafts through the same command", async ({ page }) => {
+  test.fixme(true, "Requires qualification against the real composed install on the reference host.")
   test.setTimeout(120_000)
   const commits = await issueTodoInstall(page)
   await page.goto(`/${ISSUE_REPO}`)
