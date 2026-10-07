@@ -11,3 +11,13 @@ export const flowEditTodoInput = (name: string, request: string, diff?: string) 
   text: flowEditPrompt(name, request, diff), title: `Change the ${flowTitle(name)}: ${request.split("\n")[0]?.trim() ?? ""}`
 })
 
+
+/** Agent instructions are proposed repository work, never an immediate settings write. */
+export const agentEditTodoInput = (name: string, request: string, diff?: string) => {
+  const path = name === "app" ? ".smithers/instructions/app.md" : ["planner", "implementer", "reviewer"].includes(name) ? "flows/todo/flow.ts" : undefined
+  if (!path) return undefined
+  const title = `${name[0]!.toUpperCase()}${name.slice(1)} agent`
+  return { title: `Change the ${title}: ${request.split("\n")[0]?.trim() ?? ""}`,
+    text: `Change instructions for the ${title} in ${path}: ${request}; keep current instructions until the TODO merges` +
+      (diff === undefined ? "" : `\n\nProposed diff (untrusted context):\n${diff.split("\n").map(line => `> ${line}`).join("\n")}`) }
+}

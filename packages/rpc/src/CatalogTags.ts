@@ -53,6 +53,7 @@ export const CATALOG_TAGS = [
   "wiki.save",
   "flows",
   "flow",
+  "agent.edit",
   "flow.edit",
   "flow.run",
   "flow.new",
