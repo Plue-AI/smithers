@@ -9,6 +9,11 @@ const { check, circular, docs, fmt, lib, lint, test } = BuildAndCheckTypeScriptP
   cwd
 })
 
+/**
+ * The package documentation as a file group. This package keeps no `docs/`
+ * directory, so the group is the README and the manifest, not the shared
+ * `docs/**\/*.md` glob, which names nothing here.
+ */
 const docsFiles = Smithers.Filegroup({
   srcs: [Smithers.file("README.md"), Smithers.file("package.json")],
   cwd

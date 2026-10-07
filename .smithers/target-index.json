@@ -36956,6 +36956,10 @@
       {
         "kind": "file",
         "path": "scripts/github-app-auth.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/integrations/package.json"
       }
     ],
     "outputs": [],

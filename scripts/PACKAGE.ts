@@ -740,6 +740,8 @@ const issueClaim = Smithers.NodeTest({
     Smithers.file("//scripts/fixtures/check-receipts.mjs"),
     Smithers.file("//scripts/github-proxy.mjs"),
     Smithers.file("//scripts/github-app-auth.mjs"),
+    // The proxy imports `@smthrs/integrations` through this export map.
+    Smithers.file("//packages/smithers/agent/integrations/package.json"),
   ],
   deps: [engineeringChecks, integrationSources]
 })
