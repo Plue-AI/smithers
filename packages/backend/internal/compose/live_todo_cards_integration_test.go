@@ -394,9 +394,12 @@ func TestLiveTodoCommittedCardsRollbackAndReplay(t *testing.T) {
 	thrashUpdate := flowdispatch.ProjectionUpdate{State: jobs.StateWaiting, Checkpoint: flowdispatch.RuntimeCheckpoint{
 		Projection: projection, FlowID: "todo", ExecutionDigest: strings.Repeat("a", 64), RunID: "live-transition-run",
 		Run: &flowruntime.Run{RunID: "live-transition-run", FlowID: "todo", Status: "running"}}}
-	for sequence := int64(1); sequence <= 4; sequence++ {
+	for sequence := int64(1); sequence <= 8; sequence++ {
 		flow, value := "coding/check-command", `{"checkId":"unit","status":"failed","findings":[{"message":"bad src/retry.ts:42"}]}`
-		if sequence == 4 {
+		if sequence > 4 {
+			value = `{"checkId":"unit","status":"failed","findings":[{"message":"bad C:/checkout/src/retry.ts:42:7"}]}`
+		}
+		if sequence == 4 || sequence == 8 {
 			flow, value = "coding/edit-atom", `{"writes":["src/retry.ts"]}`
 		}
 		preview, err := json.Marshal(value)
@@ -406,7 +409,7 @@ func TestLiveTodoCommittedCardsRollbackAndReplay(t *testing.T) {
 		require.NoError(t, service.ProjectFlowRuntime(ctx, thrashUpdate))
 		frame := read(thirdSocket)
 		require.Equal(t, "delta", frame.T)
-		if sequence == 3 {
+		if sequence == 3 || sequence == 7 {
 			require.Contains(t, string(frame.Data), `"tone":"thrash"`)
 			require.Contains(t, string(frame.Data), "Thrashing: unit failed 3×")
 		} else {
