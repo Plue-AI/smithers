@@ -139,3 +139,19 @@ func TestRestartRequiresEveryHeldCgroupBeforeAdmissionWithinTwoSeconds(t *testin
 		})
 	}
 }
+
+func TestRestartPreviouslyEmptyGroupStillRequiresHeldRawZero(t *testing.T) {
+	invoked := time.Now().UTC()
+	stamp := invoked.Add(-time.Millisecond).Format(time.RFC3339Nano)
+	const name = "s-0000000000000001"
+	for _, events := range []string{"populated 0\n", "populated 1\n", ""} {
+		raw, _ := json.Marshal(map[string]any{"sample": map[string]any{"processes": []any{}}, "observation": map[string]any{"zero": map[string]string{name: stamp}, "samples": []any{map[string]any{"utc": stamp, "events": map[string]string{name: events}}}}})
+		err := validateRestartDrain(raw, map[string]string{name: "populated 0\n"}, invoked, invoked.Add(time.Second))
+		if (err == nil) != (events == "populated 0\n") {
+			t.Fatalf("initial empty, events=%q: %v", events, err)
+		}
+		if validateRestartDrain(raw, map[string]string{name: "populated 1\n"}, invoked, invoked.Add(time.Second)) == nil {
+			t.Fatal("live old group accepted pre-invocation zero")
+		}
+	}
+}

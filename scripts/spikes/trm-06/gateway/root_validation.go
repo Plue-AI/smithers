@@ -78,7 +78,7 @@ func runRootValidation(ctx context.Context, a *installedAuthority, root, home, o
 	// This executable campaign does not pretend its current fixture subset covers
 	// the complete check. Preserve all samples; the reference lane must add/execute
 	// the remaining poison/race/SFTP/restart controls before issuing PASS.
-	receipt["pending_controls"] = []string{"installed artifact replacement/races", "independent restart admission ordering"}
+	receipt["pending_controls"] = []string{"installed host launcher/artifact/destination replacement races", "startup environment controls", "cgroup/path replacement races", "unsupported-Landlock real kernel variant"}
 	fmt.Printf("{\"check\":%q,\"status\":\"partial-pass\",\"evidence\":%q}\n", check, evidence)
 	return errors.New("root validation incomplete: pending controls retained in receipt")
 }
@@ -443,7 +443,10 @@ func validateSessionBoundary(ctx context.Context, control relayControl, observe 
 			return errors.New("independent saved/real/effective identity or cgroup mismatch")
 		}
 	}
-	return os.WriteFile(filepath.Join(evidence, "identity-cgroup-sample.json"), sample, 0600)
+	if err = os.WriteFile(filepath.Join(evidence, "identity-cgroup-sample.json"), sample, 0600); err != nil {
+		return err
+	}
+	return validateRestartBoundary(ctx, client, listener.Addr().String(), &ssh.ClientConfig{User: "ben", Auth: []ssh.AuthMethod{ssh.PublicKeys(ben)}, HostKeyCallback: ssh.FixedHostKey(host.PublicKey())}, observe, evidence)
 }
 
 // A timeout, malformed reply or unrelated response never proves refusal. EOF

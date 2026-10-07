@@ -232,3 +232,15 @@ the installed root/session campaign and reference-host measurements remain
 required. OpenSSH maps read-only EROFS to SFTP failure (4), while DAC/Landlock
 permission denial maps to 3; neither response replaces independent sentinel
 bytes, owner and mode samples.
+
+The root session campaign and supplemental measurement campaign now race four
+ordinary authenticated SSH requests immediately after the owned supervisor's
+pidfd confirms exit. Each records submission, completion and refusals. All four
+must complete within the original two-second restart budget; every old group's
+held raw zero sample must precede the earliest successful request submission.
+This conservative lower bound may retain a NO for a request submitted while
+cleanup was still running; a later exit response cannot hide early admission.
+Already-empty groups still require a raw held-descriptor zero sample. The root
+campaign preserves restart samples on probe failure and continues to return an
+explicit incomplete result for its unimplemented controls. Real reference-host
+execution, clock observations and automatic VS Code reconnect remain pending.

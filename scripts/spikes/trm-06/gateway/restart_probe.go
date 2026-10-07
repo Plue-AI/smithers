@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -94,4 +98,74 @@ func restartSSHProbe(ctx context.Context, address string, config *ssh.ClientConf
 		return err
 	}
 	return ctx.Err()
+}
+
+// This runs only inside the installed root campaign, using its actual SSH
+// listener, authenticated DialWorkspacePort transport and independent fixture.
+func validateRestartBoundary(ctx context.Context, client *ssh.Client, address string, config *ssh.ClientConfig, observe func(string) ([]byte, error), evidence string) error {
+	session, err := client.NewSession()
+	if err != nil {
+		return err
+	}
+	defer session.Close()
+	stop := context.AfterFunc(ctx, func() { session.Close() })
+	defer stop()
+	output, err := session.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	if err = session.Start("nohup sleep 10000 >/dev/null 2>&1 & printf ready; exec sleep 100"); err != nil {
+		return err
+	}
+	var ready [5]byte
+	if _, err = io.ReadFull(output, ready[:]); err != nil || string(ready[:]) != "ready" {
+		return errors.New("restart foreground/background fixture did not start")
+	}
+	before, err := observe("sample")
+	if err != nil {
+		return err
+	}
+	var old guestSnapshot
+	if json.Unmarshal(before, &old) != nil || len(old.Processes) < 2 || len(old.Cgroups) == 0 {
+		return errors.New("independent live restart fixture unavailable")
+	}
+	if err = os.WriteFile(filepath.Join(evidence, "restart-before.json"), before, 0600); err != nil {
+		return err
+	}
+	armed, err := observe("arm")
+	if err != nil {
+		return err
+	}
+	if err = os.WriteFile(filepath.Join(evidence, "restart-arm.json"), armed, 0600); err != nil {
+		return err
+	}
+	invoked := time.Now()
+	killed, err := observe("restart")
+	if err != nil {
+		return err
+	}
+	if err = os.WriteFile(filepath.Join(evidence, "restart-killed.json"), killed, 0600); err != nil {
+		return err
+	}
+	attempts, first, probeErr := restartAdmissionRace(ctx, address, config, invoked)
+	result, err := json.Marshal(map[string]any{"invoked_utc": invoked.UTC(), "first_successful_submission_utc": first, "attempts": attempts})
+	if err != nil {
+		return err
+	}
+	if err = os.WriteFile(filepath.Join(evidence, "restart-admissions.json"), result, 0600); err != nil {
+		return err
+	}
+	// Preserve drain evidence even when all concurrent probes refuse or time
+	// out. A failed race never becomes a positive restart receipt.
+	drain, err := observe("drain")
+	if err != nil {
+		return err
+	}
+	if err = os.WriteFile(filepath.Join(evidence, "restart-drain.json"), drain, 0600); err != nil {
+		return err
+	}
+	if probeErr != nil {
+		return probeErr
+	}
+	return validateRestartDrain(drain, old.Cgroups, invoked, first)
 }

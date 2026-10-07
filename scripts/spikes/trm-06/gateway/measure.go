@@ -333,7 +333,7 @@ func validateRestartDrain(raw []byte, groups map[string]string, invoked, beforeA
 	for name := range groups {
 		stamp, ok := drain.Observation.Zero[name]
 		zero, err := time.Parse(time.RFC3339Nano, stamp)
-		if !ok || err != nil || zero.Before(invoked) || zero.After(beforeAdmission) || zero.Sub(invoked) > 2*time.Second || !zeroHasRawSample(name, stamp, drain.Observation.Samples) {
+		if !ok || err != nil || (zero.Before(invoked) && !containsPopulatedZero(groups[name])) || zero.After(beforeAdmission) || zero.Sub(invoked) > 2*time.Second || !zeroHasRawSample(name, stamp, drain.Observation.Samples) {
 			return errors.New("old cgroup lacks timed independent populated 0 before restart admission")
 		}
 	}
