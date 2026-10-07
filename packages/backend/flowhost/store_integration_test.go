@@ -456,3 +456,38 @@ func TestPostgresHostStartClearsRecordedServiceIdentity(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT service_identity FROM flow_runtime_host_bindings WHERE id=$1`, restarted.ID).Scan(&recorded))
 	require.Empty(t, recorded)
 }
+
+// A shared workspace's host must never inherit the other mode's registry or
+// stack publication policy when its scratch branch becomes a TODO (or back).
+func TestPostgresDraftHostRebindsAcrossPublicationBoundary(t *testing.T) {
+	pool := hostTestPool(t)
+	ctx := t.Context()
+	authority, catalog := hostFixture(t, pool)
+	store, err := NewStore(pool, testCodec{})
+	require.NoError(t, err)
+	originalKind := authority.Target.BindingKind
+	first, err := store.Acquire(ctx, authority, catalog)
+	require.NoError(t, err)
+	generation := first.Binding().OwnerGeneration
+	require.NoError(t, first.Close())
+	for _, kind := range []string{"draft-flow", originalKind} {
+		authority.Target.BindingKind = kind
+		held, err := store.Acquire(ctx, authority, catalog)
+		require.NoError(t, err)
+		old, changed := held.Supersedes()
+		require.True(t, changed)
+		require.NotEqual(t, kind, old.BindingKind)
+		rebound, err := held.Rebind(ctx)
+		require.NoError(t, err)
+		generation++
+		require.Equal(t, generation, rebound.OwnerGeneration)
+		require.Equal(t, kind, rebound.BindingKind)
+		require.NoError(t, held.Close())
+		restored, err := store.Acquire(ctx, authority, catalog)
+		require.NoError(t, err)
+		require.Equal(t, kind, restored.Binding().BindingKind)
+		_, changed = restored.Supersedes()
+		require.False(t, changed)
+		require.NoError(t, restored.Close())
+	}
+}
