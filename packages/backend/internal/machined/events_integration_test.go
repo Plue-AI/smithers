@@ -274,3 +274,63 @@ func TestBurstMultipartProductionBoundary(t *testing.T) {
 	require.NoError(t, err)
 	counts(1, 2, 2)
 }
+
+func TestChangeIntegrationLandsDark(t *testing.T) {
+	pool, branch, foreign := machineReceiptDatabase(t)
+	registry := new(Registry)
+	authority, err := registry.MintBoot(branch, "vm")
+	require.NoError(t, err)
+	link, _ := connectTest(t, registry, branch, authority)
+	service := func() *BurstIngest {
+		return &BurstIngest{Pool: pool, Objects: &burstObjectFixture{}, ResolveActor: func(context.Context, string, wire.Actor) (json.RawMessage, error) {
+			return json.RawMessage(`{"id":"outside","kind":"outside","via":"tool"}`), nil
+		}}
+	}
+	event := Event{Seq: 1, EventID: [16]byte{23}, Payload: burstPayload([16]byte{24}, "a.ts")}
+	for name, remove := range map[string]func(*Ingestor){
+		"database":       func(i *Ingestor) { i.Pool = nil },
+		"burst_provider": func(i *Ingestor) { i.Bursts = nil },
+		"objects":        func(i *Ingestor) { i.Bursts.Objects = nil },
+		"attribution":    func(i *Ingestor) { i.Bursts.ResolveActor = nil },
+	} {
+		t.Run(name, func(t *testing.T) {
+			pump := &Ingestor{Pool: pool, Bursts: service()}
+			remove(pump)
+			ack, err := pump.Commit(t.Context(), link.Connection, branch, event)
+			require.ErrorIs(t, err, ErrNotReady)
+			require.Zero(t, ack.Outcome)
+		})
+	}
+	pump := &Ingestor{Pool: pool, Bursts: service()}
+	for _, connection := range []*Connection{nil, {}, {registry: registry}} {
+		_, err := pump.Commit(t.Context(), connection, branch, event)
+		require.ErrorIs(t, err, ErrUnauthorized)
+	}
+	_, err = pump.Commit(t.Context(), link.Connection, foreign, event)
+	require.ErrorIs(t, err, ErrUnauthorized)
+	// Moved-off belongs to T-COL-05's transactional provider. Never silently
+	// acknowledge its reserved event while that provider is unavailable.
+	moved := event
+	moved.Payload = wire.Union(4)
+	_, err = pump.Commit(t.Context(), link.Connection, branch, moved)
+	require.ErrorIs(t, err, ErrNotReady)
+	hint := Event{Payload: wire.Union(1, wire.Field(1, wire.String("a.ts")), wire.Field(2, wire.Union(4)))}
+	require.ErrorIs(t, pump.Bursts.Hint(t.Context(), link.Connection, branch, hint), ErrNotReady)
+	require.NoError(t, link.Reconciled())
+	require.ErrorIs(t, pump.Bursts.Hint(t.Context(), link.Connection, foreign, hint), ErrUnauthorized)
+	bad := hint
+	bad.Seq = 1
+	require.ErrorIs(t, pump.Bursts.Hint(t.Context(), link.Connection, branch, bad), wire.BadValue)
+	bad = hint
+	bad.Payload = wire.Union(1, wire.Field(1, wire.String("../escape")), wire.Field(2, wire.Union(4)))
+	require.ErrorIs(t, pump.Bursts.Hint(t.Context(), link.Connection, branch, bad), wire.BadValue)
+	pump.Bursts.ResolveActor = func(context.Context, string, wire.Actor) (json.RawMessage, error) { return nil, ErrUnauthorized }
+	require.ErrorIs(t, pump.Bursts.Hint(t.Context(), link.Connection, branch, hint), ErrUnauthorized)
+	_, err = pump.Commit(t.Context(), link.Connection, branch, event)
+	require.ErrorIs(t, err, ErrUnauthorized)
+	for _, table := range []string{"product_job_events", "burst_files", "machine_event_receipts"} {
+		var count int
+		require.NoError(t, pool.QueryRow(t.Context(), "SELECT count(*) FROM "+table).Scan(&count))
+		require.Zero(t, count, table)
+	}
+}
