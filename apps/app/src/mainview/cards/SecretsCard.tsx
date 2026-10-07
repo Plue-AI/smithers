@@ -57,7 +57,8 @@ const SecretsBody = ({ card }: { card: StoredSecrets }) => {
     : parsed.success ? { ...card, payload: { ...card.payload, secrets: parsed.data.secrets.map(secret => ({
       name: secret.name, mainOnly: secret.scope === "main_only", hosts: secret.hosts ?? [], matchHeaders: [], updatedAt: null
     })) } } : card
-  return <SecretsCardBody card={projected} role={unavailable ? "member" : controller.membersRole()} dispatch={(name, input) => {
+  const role = controller.flowCatalog === undefined ? controller.membersRole() : controller.commands.state().viewerRole ?? "member"
+  return <SecretsCardBody card={projected} role={unavailable ? "member" : role} dispatch={(name, input) => {
     const payload: Record<string, unknown> = { ...(input ?? {}), repo: card.payload.repo || undefined }
     if (name === "secrets.scope") payload.scope = payload.scope === "main_only" ? "main-only" : "all"
     const gesture = name === "secrets.set" ? writeOnlyGesture(name, { value: String(payload.value ?? "") }) : undefined
