@@ -43,10 +43,13 @@ test("C-MCH-07 card: write-only Add, Replace, scope, live member rows and Delete
   let rows: { name: string; scope: string; hosts: string[]; actions: never[] }[] = []
   const notices = new Map<string, () => void>()
   let cursor = 1
+  let topicUnavailable = false
   await page.routeWebSocket("**/api/live", socket => socket.onMessage(raw => {
     const frame = JSON.parse(String(raw))
     if (frame.t !== "sub") return
-    const notify = () => socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: cursor++, data: frame.topic === "members" ? roster() : { secrets: rows } }))
+    const notify = () => socket.send(JSON.stringify(topicUnavailable && frame.topic === "secrets"
+      ? { t: "err", id: frame.id, code: "forbidden" }
+      : { t: "snap", id: frame.id, cursor: cursor++, data: frame.topic === "members" ? roster() : { secrets: rows } }))
     if (frame.topic === "members" || frame.topic === "secrets") { notices.set(frame.topic, notify); notify() }
     else socket.send(JSON.stringify({ t: "err", id: frame.id, code: "unsupported" }))
   }))
@@ -132,5 +135,12 @@ test("C-MCH-07 card: write-only Add, Replace, scope, live member rows and Delete
   page.once("dialog", dialog => { void dialog.accept() })
   await row.getByRole("button", { name: "Delete", exact: true }).press("Enter")
   await expect(row).toHaveCount(0)
+  expect(writes.length).toBe(6)
+  topicUnavailable = true; notices.get("secrets")!()
+  await expect(card.getByRole("button")).toHaveCount(0)
+  await expect(card.getByLabel("Value", { exact: true })).toHaveCount(0)
+  await say(page, "/secrets")
+  await expect(page.getByText("Secrets unavailable", { exact: true }).last()).toBeVisible()
+  await expect(page.getByTestId("composer-input")).toBeEnabled()
   expect(writes.length).toBe(6)
 })
