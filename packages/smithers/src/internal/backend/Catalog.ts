@@ -5,12 +5,14 @@
  */
 
 import { Cli, z } from "incur"
+import { isIP } from "node:net"
 import { randomUUID } from "node:crypto"
 import { catalogDescriptors } from "../../Catalog.ts"
 import { catalogRequest } from "../../CatalogRequest.ts"
 import type { Runtime } from "../../cli/ControlBridge.ts"
 import * as Presentation from "../../cli/Presentation.ts"
 import { Refused, UsageError } from "../../CliError.ts"
+import { spawn } from "./Process.ts"
 import { Client, list, object } from "./Client.ts"
 
 /**
@@ -71,7 +73,7 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
     }
     const schema = row.payload.schema as { properties?: Record<string, any>; required?: Array<string> }
     const fields = schema.properties ?? {}, required = new Set(schema.required ?? [])
-    const positional = ["n", "id", "number", "name", "path", "workflow"].find((key) => required.has(key))
+    const positional = row.name === "ssh" ? "branch" : ["n", "id", "number", "name", "path", "workflow"].find((key) => required.has(key))
     const positionalKeys = new Set([
       positional,
       ...(positional === "n" ? ["answer", "text", "direction"].filter((key) => required.has(key)) : [])
@@ -91,7 +93,7 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
       options: z.object(options),
       run: (context: any) =>
         Presentation.guard(context, async () => {
-          if (row.agent === "never") {
+          if (row.agent === "never" && row.name !== "ssh") {
             throw new Refused({
               fault: "policy",
               code: "never",
@@ -147,6 +149,21 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
             const text = await client.text(response)
             let result: unknown = text.trim() ? JSON.parse(text) : null
             if (row.name === "todo.answer") result = { todo: payload.n, wait: body.wait, ...object(result) }
+            if (row.name === "ssh") {
+              const endpoint = object(result)
+              const host = endpoint.host, branch = endpoint.branch
+              if (typeof host !== "string" || !(isIP(host) || /^[a-zA-Z0-9][a-zA-Z0-9.-]*$/.test(host)) ||
+                typeof branch !== "string" || !/^(?:smithers\/|scratch\/[a-z0-9_-]+\/)?[a-z0-9_-]+$/.test(branch) ||
+                ["main", "root", "developer"].includes(branch) || endpoint.port !== 2222) {
+                throw new Refused({ fault: "infra", code: "invalid_ssh_endpoint", message: "Invalid SSH address" })
+              }
+              const child = spawn("ssh", ["-p", "2222", "-l", branch, host], {
+                env: client.env, stdio: "inherit", signal: runtime.signal
+              })
+              const code = await child.exited
+              runtime.exit?.(code)
+              return { code }
+            }
             const receipt = object(result)
             if (receipt.confirmation !== undefined || receipt.state === "pending") {
               if (response.status !== 202 || receipt.state !== "pending" || typeof receipt.confirmation !== "string" || !receipt.confirmation.trim()) {

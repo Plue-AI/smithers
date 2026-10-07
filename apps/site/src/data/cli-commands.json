@@ -1627,6 +1627,38 @@
       }
     },
     {
+      "name": "ssh",
+      "description": "Copy the SSH line for a branch",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {
+            "branch": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "branch"
+          ],
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
       "name": "ssh-key add",
       "description": "Add an SSH key",
       "schema": {
