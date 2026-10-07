@@ -2,8 +2,10 @@ package routes
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -19,7 +21,7 @@ func (s *countingPoolScopes) Scope(ctx context.Context, bearer string) (int64, i
 }
 
 func TestProviderPoolDecisionCannotBeSubstituted(t *testing.T) {
-	for _, change := range []string{"unchanged", "bearer", "credential", "method", "path", "handler"} {
+	for _, change := range []string{"unchanged", "bearer", "credential", "method", "path", "handler", "body", "headers", "query"} {
 		t.Run(change, func(t *testing.T) {
 			scopes := &countingPoolScopes{}
 			h := &ProviderPoolHandler{Pool: &fakePool{}, Scopes: scopes}
@@ -37,6 +39,12 @@ func TestProviderPoolDecisionCannotBeSubstituted(t *testing.T) {
 					r.Method = http.MethodPost
 				case "path":
 					r.URL.Path = "/provider-pool/another"
+				case "body":
+					r.Body = io.NopCloser(strings.NewReader(`{"model":"substituted"}`))
+				case "headers":
+					r.Header.Set("Anthropic-Beta", "substituted")
+				case "query":
+					r.URL.RawQuery = "substituted=true"
 				case "handler":
 					target = &ProviderPoolHandler{Pool: h.Pool, Scopes: scopes}
 				}
@@ -49,6 +57,44 @@ func TestProviderPoolDecisionCannotBeSubstituted(t *testing.T) {
 			} else {
 				require.Equal(t, http.StatusForbidden, response.Code)
 				require.Contains(t, response.Body.String(), `"permission"`)
+			}
+		})
+	}
+}
+
+func TestProviderPoolBoundPayloadReachesOnlyAdmittedUpstream(t *testing.T) {
+	for _, substitute := range []bool{false, true} {
+		t.Run(map[bool]string{false: "original", true: "substituted"}[substitute], func(t *testing.T) {
+			const body = `{"model":"original","input":"hello"}`
+			calls := 0
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				raw, err := io.ReadAll(r.Body)
+				require.NoError(t, err)
+				require.Equal(t, body, string(raw))
+				_, _ = io.WriteString(w, `{"id":"response"}`)
+			}))
+			defer upstream.Close()
+			pool := &fakePool{pooled: true, accounts: codexAccounts("a")}
+			h := poolHandler(pool, upstream.URL)
+			scopes := &countingPoolScopes{}
+			h.Scopes = scopes
+			h.MaxBodyBytes = int64(len(body))
+			boundary := h.Authorize(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if substitute {
+					r.Body = io.NopCloser(strings.NewReader(`{"model":"other"}`))
+				}
+				h.ServeHTTP(w, r)
+			}))
+			out := proxyRequest(t, boundary, "/provider-pool/chatgpt/codex/responses", body, workspaceContext())
+			require.Equal(t, 1, scopes.calls)
+			if substitute {
+				require.Equal(t, 403, out.Code, out.Body.String())
+				require.Zero(t, calls)
+				require.Zero(t, pool.next, "must refuse before selecting a provider account")
+			} else {
+				require.Equal(t, 200, out.Code, out.Body.String())
+				require.Equal(t, 1, calls)
 			}
 		})
 	}

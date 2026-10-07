@@ -110,29 +110,63 @@ func (h *ProviderPoolHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 
 type providerPoolAuthorizationKey struct{}
 type providerPoolAuthorization struct {
-	handler          *ProviderPoolHandler
-	credential       *middleware.AuthInfo
-	bearer           [sha256.Size]byte
-	method, path     string
-	user, repository int64
+	handler             *ProviderPoolHandler
+	credential          *middleware.AuthInfo
+	bearer              [sha256.Size]byte
+	method, path, query string
+	payload, headers    [sha256.Size]byte
+	user, repository    int64
 }
 
 // Authorize runs before install feature gates. The handler consumes the same
-// scoped decision; changing the credential or HTTP door cannot reuse it.
+// scoped decision; changing the credential, HTTP door, headers or payload
+// cannot reuse it.
 func (h *ProviderPoolHandler) Authorize(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, bodyErr := h.readPoolBody(r)
+		bound := providerPoolAuthorization{handler: h, credential: middleware.AuthInfoFromContext(r.Context()), bearer: sha256.Sum256([]byte(poolBearer(r))), method: r.Method, path: r.URL.EscapedPath(), query: r.URL.RawQuery, payload: sha256.Sum256(body), headers: poolHeadersDigest(r.Header)}
 		user, repository, ok := h.authorizePool(w, r)
 		if !ok {
 			return
 		}
-		bound := providerPoolAuthorization{h, middleware.AuthInfoFromContext(r.Context()), sha256.Sum256([]byte(poolBearer(r))), r.Method, r.URL.EscapedPath(), user, repository}
+		if bodyErr != nil {
+			writeModelPoolError(w, http.StatusRequestEntityTooLarge, "invalid_request_error", "Request body is too large.", 0)
+			return
+		}
+		bound.user, bound.repository = user, repository
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), providerPoolAuthorizationKey{}, bound)))
 	})
 }
 
+// readPoolBody snapshots the opaque provider payload without changing what the
+// handler reads. The bounded copy is made before policy evaluation; malformed or
+// oversized bodies retain credential-refusal priority and never reach the pool.
+func (h *ProviderPoolHandler) readPoolBody(r *http.Request) ([]byte, error) {
+	if r.Body == nil {
+		return nil, nil
+	}
+	limit := h.MaxBodyBytes
+	if limit <= 0 {
+		limit = providerPoolDefaultMaxBody
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	if int64(len(body)) > limit {
+		return nil, errors.New("provider payload too large")
+	}
+	return body, err
+}
+
+func poolHeadersDigest(headers http.Header) [sha256.Size]byte {
+	// JSON sorts map keys and preserves repeated header values and their order.
+	encoded, _ := json.Marshal(headers)
+	return sha256.Sum256(encoded)
+}
+
 func (h *ProviderPoolHandler) authorizePool(w http.ResponseWriter, r *http.Request) (int64, int64, bool) {
 	if bound, ok := r.Context().Value(providerPoolAuthorizationKey{}).(providerPoolAuthorization); ok {
-		if bound.handler != h || bound.credential != middleware.AuthInfoFromContext(r.Context()) || bound.bearer != sha256.Sum256([]byte(poolBearer(r))) || bound.method != r.Method || bound.path != r.URL.EscapedPath() {
+		body, err := h.readPoolBody(r)
+		if err != nil || bound.payload != sha256.Sum256(body) || bound.headers != poolHeadersDigest(r.Header) || bound.query != r.URL.RawQuery || bound.handler != h || bound.credential != middleware.AuthInfoFromContext(r.Context()) || bound.bearer != sha256.Sum256([]byte(poolBearer(r))) || bound.method != r.Method || bound.path != r.URL.EscapedPath() {
 			writeRouteError(w, r, &services.AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"})
 			return 0, 0, false
 		}

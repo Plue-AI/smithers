@@ -57,6 +57,47 @@ func TestInstallProviderPoolAuthorizationPostgres(t *testing.T) {
 			}
 		})
 	}
+	t.Run("model request binds its admitted payload", func(t *testing.T) {
+		originalLimit := handler.Pool.MaxBodyBytes
+		handler.Pool.MaxBodyBytes = 32
+		defer func() { handler.Pool.MaxBodyBytes = originalLimit }()
+		for _, tc := range []struct {
+			name   string
+			status int
+		}{
+			{"unchanged", 404}, {"headers", 403}, {"query", 403}, {"oversized", 413},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				body := `{"model":"original"}`
+				if tc.name == "oversized" {
+					body = strings.Repeat("x", 33)
+				}
+				request := httptest.NewRequest("POST", "http://example.com/provider-pool/chatgpt/codex/responses", strings.NewReader(body))
+				request.Header.Set("Authorization", "Bearer "+machine)
+				decisions := 0
+				request = request.WithContext(services.WithAuthorizationObserver(request.Context(), func(command string) {
+					require.Equal(t, "workspace.provider-pool", command)
+					decisions++
+					switch tc.name {
+					case "headers":
+						request.Header.Set("Originator", "substituted")
+					case "query":
+						request.URL.RawQuery = "substituted=true"
+					}
+				}))
+				out := httptest.NewRecorder()
+				router.ServeHTTP(out, request)
+				require.Equal(t, tc.status, out.Code, out.Body.String())
+				require.Equal(t, 1, decisions)
+				if tc.status == 404 {
+					require.Contains(t, out.Body.String(), "No connected account")
+				}
+				if tc.status == 403 {
+					require.Contains(t, out.Body.String(), `"code":"permission"`)
+				}
+			})
+		}
+	})
 	t.Run("direct entry refuses another subject", func(t *testing.T) {
 		sum := sha256.Sum256([]byte(machine))
 		hash := hex.EncodeToString(sum[:])
