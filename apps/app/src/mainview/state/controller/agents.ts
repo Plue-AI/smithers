@@ -135,7 +135,7 @@ export const createAgentsController = (ctx: ControllerContext, deps: AgentsContr
         status: "active",
         createdAt: existing?.createdAt ?? Date.now(),
         ordinal: toTail || existing === undefined ? deps.nextOrdinal() : existing.ordinal,
-        payload: { ...agentsPayload(), ...(existing && "agents" in existing.payload && existing.payload.testing ? { testing: existing.payload.testing } : {}), ...(shared.selectedAgent ? { selectedAgent: shared.selectedAgent } : {}), ...(shared.selectedModel ? { selectedModel: shared.selectedModel } : {}), ...(error === undefined ? {} : { error }) }
+        payload: { ...agentsPayload(), ...(existing && "agents" in existing.payload && existing.payload.testing ? { testing: existing.payload.testing } : {}), ...(existing && "agents" in existing.payload && existing.payload.testRequests ? { testRequests: existing.payload.testRequests } : {}), ...(shared.selectedAgent ? { selectedAgent: shared.selectedAgent } : {}), ...(shared.selectedModel ? { selectedModel: shared.selectedModel } : {}), ...(error === undefined ? {} : { error }) }
       }
     })
   }

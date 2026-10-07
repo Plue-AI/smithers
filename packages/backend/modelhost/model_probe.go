@@ -96,8 +96,8 @@ func modelTestFailed(code string, detail map[string]any, fault string) map[strin
 	return map[string]any{"ok": false, "latencyMs": 0, "failure": detail, "fault": fault}
 }
 
-// Test accepts the existing {model,input?} wire. A provider failure is a
-// typed HTTP 200 result; authentication and malformed requests are refusals.
+// Test persists {requestId,model,input?} and returns before provider execution.
+// A standalone host adapter uses the same runner without product SQL.
 func (s OwnerModels) Test(w http.ResponseWriter, r *http.Request) {
 	owner := ownerOf(r)
 	if owner <= 0 {
@@ -105,8 +105,9 @@ func (s OwnerModels) Test(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Model json.RawMessage `json:"model"`
-		Input json.RawMessage `json:"input,omitempty"`
+		Model     json.RawMessage `json:"model"`
+		Input     json.RawMessage `json:"input,omitempty"`
+		RequestID string          `json:"requestId,omitempty"`
 	}
 	decoder := json.NewDecoder(io.LimitReader(r.Body, 64<<10+1))
 	decoder.DisallowUnknownFields()
@@ -125,30 +126,44 @@ func (s OwnerModels) Test(w http.ResponseWriter, r *http.Request) {
 		modelJSON(w, http.StatusBadRequest, map[string]string{"code": "request_invalid"})
 		return
 	}
-	result, err := s.Tester.RunModelTest(r.Context(), owner, body)
-	if errors.Is(err, ErrModelTestInvalid) {
-		modelJSON(w, http.StatusBadRequest, map[string]string{"code": "request_invalid"})
-		return
-	}
-	if errors.Is(err, ports.ErrModelCredentialMissing) {
-		var model struct {
-			Credential string `json:"credential"`
-		}
-		_ = json.Unmarshal(input.Model, &model)
-		if validCredentialName(model.Credential) {
-			modelJSON(w, http.StatusOK, modelTestFailed("credential_missing", map[string]any{"credential": model.Credential}, "user"))
+	if s.Pool != nil {
+		if !requestIDPattern.MatchString(input.RequestID) {
+			modelJSON(w, http.StatusBadRequest, map[string]string{"code": "request_invalid"})
 			return
 		}
-	}
-	if err != nil {
-		modelJSON(w, http.StatusOK, modelTestFailed("unreachable", map[string]any{}, "dependency"))
+		// The external payload excludes admission identity.
+		payload, _ := json.Marshal(struct {
+			Model json.RawMessage `json:"model"`
+			Input json.RawMessage `json:"input,omitempty"`
+		}{input.Model, input.Input})
+		s.admitModelTest(w, r, owner, input.RequestID, payload)
 		return
 	}
-	if !json.Valid(result) || len(result) > 64<<10 {
-		modelJSON(w, http.StatusOK, modelTestFailed("unreachable", map[string]any{}, "dependency"))
-		return
+	result, status := s.runModelTest(r.Context(), owner, body)
+	modelJSON(w, status, result)
+}
+
+func (s OwnerModels) runModelTest(ctx context.Context, owner int64, body json.RawMessage) (json.RawMessage, int) {
+	result, err := s.Tester.RunModelTest(ctx, owner, body)
+	encode := func(value any) (json.RawMessage, int) { raw, _ := json.Marshal(value); return raw, http.StatusOK }
+	if errors.Is(err, ErrModelTestInvalid) {
+		return json.RawMessage(`{"code":"request_invalid"}`), http.StatusBadRequest
 	}
-	modelJSON(w, http.StatusOK, json.RawMessage(result))
+	if errors.Is(err, ports.ErrModelCredentialMissing) {
+		var input struct {
+			Model struct {
+				Credential string `json:"credential"`
+			} `json:"model"`
+		}
+		_ = json.Unmarshal(body, &input)
+		if validCredentialName(input.Model.Credential) {
+			return encode(modelTestFailed("credential_missing", map[string]any{"credential": input.Model.Credential}, "user"))
+		}
+	}
+	if err != nil || !json.Valid(result) || len(result) > 64<<10 {
+		return encode(modelTestFailed("unreachable", map[string]any{}, "dependency"))
+	}
+	return result, http.StatusOK
 }
 
 // RunModelTest resolves the caller's credential, launches a private packaged

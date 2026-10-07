@@ -26,7 +26,13 @@ test("C-J11-03: the owner switches the reviewer model immediately", async ({ pag
   path: ".smithers/instructions/app.md", branch: "main", language: "markdown", digest: "sha256:instructions-builtin",
   content: { kind: "text", text: "Answer the repository question as Smithers for the prompt author." }, mode: "read_only", diagnostics: [], authors: [], editors: []
  } }))
- await page.route("**/api/model/test", route => route.fulfill({ json: { ok: true, latencyMs: 2, sample: "ok" } }))
+ let probeComplete = false
+ const probeIds: string[] = []
+ await page.route("**/api/model/test", route => {
+  probeIds.push(route.request().postDataJSON().requestId)
+  return route.fulfill({ status: 202, json: { requestId: probeIds.at(-1), state: "accepted" } })
+ })
+ await page.route("**/api/model/test/receipt?*", route => route.fulfill({ json: probeComplete ? { state: "completed", result: { ok: true, latencyMs: 2, sample: "ok" } } : { state: "running" } }))
  await page.goto("/smithersai/smithers")
  await say(page, "/agents")
  for (const name of ["Planner agent", "Implementer agent", "Reviewer agent", "App agent"])
@@ -52,6 +58,16 @@ test("C-J11-03: the owner switches the reviewer model immediately", async ({ pag
  const record = page.locator('[data-model-id="review-c"]')
  await expect(record).toContainText("model-c")
  await record.getByRole("button", { name: "Test", exact: true }).press("Enter")
+ await expect(record.getByRole("button", { name: "Test", exact: true })).toBeDisabled()
+ await say(page, "/agent reviewer")
+ await expect(page.locator("[data-agent]")).toHaveCount(1)
+ await expect(page.locator('[data-agent="reviewer"]')).toBeVisible()
+ await page.reload()
+ await say(page, "/agents")
+ await expect(record.getByRole("button", { name: "Test", exact: true })).toBeDisabled()
+ await expect.poll(() => probeIds.length).toBe(2)
+ expect(new Set(probeIds).size).toBe(1)
+ probeComplete = true
  await expect(record).toContainText("2 ms")
  await say(page, "/model.assign reviewer review-c")
  await expect(page.locator('[data-agent="reviewer"]')).toContainText("model-c")
