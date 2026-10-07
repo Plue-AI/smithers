@@ -20,7 +20,7 @@ export default showcase({
   order: 106,
   title: "Needs attention",
   summary: "Gates, parked and failed runs in one place: approve, deny, resume, stop all.",
-  flows: ["runs.attention", "approvals.open", "approval.approve", "approvals.list", "approval.deny", "runs.open", "runs.resume", "runs.list", "flow.run.stop-all"],
+  flows: ["runs", "approval.approve", "approval.deny", "runs.open", "runs.resume", "runs.list", "flow.run.stop-all"],
   run: async ({ page, app, backend }) => {
     const now = Date.now()
     const decided = new Map<string, string>()
@@ -66,7 +66,7 @@ export default showcase({
 
     await app.open("/")
     await app.click(page.getByRole("button", { name: "Dismiss", exact: true }))
-    await app.slash(`/runs.attention ${REPO}`)
+    await app.slash(`/runs ${JSON.stringify({ operation: "attention", repo: REPO })}`)
     const attention = page.locator('[data-kind="run-list"]').last()
     await expect(attention).toContainText("run-lint-9")
     await app.closeComposer()
@@ -83,7 +83,7 @@ export default showcase({
     await app.saw("approval.approve", () => expect.poll(() => decided.get("req-land")).toBe("approve"))
     await app.beat(500)
 
-    await app.slash(`/approvals.list ${REPO}`)
+    await app.slash(`/runs ${JSON.stringify({ operation: "approval-list", repo: REPO })}`)
     const inbox = page.locator('[data-kind="approvals-inbox"]').last()
     await expect(inbox.getByTestId("approvals-inbox-count")).toHaveText("1 approval pending")
     await app.closeComposer()

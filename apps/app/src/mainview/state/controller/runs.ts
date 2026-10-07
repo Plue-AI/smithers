@@ -1,3 +1,4 @@
+import { runsArgs } from "../../flows/RunsPayload"
 /*
  * Lane runs — the run lifecycle beyond launch and cancel.
  *
@@ -1122,7 +1123,7 @@ export const createRunsController = (
     const repo = target.repo
     const binding = gatewayBindingFor(store, repo)
     if ("error" in binding) return refuseOrPickBox(ctx, renderFlowForm, binding,
-      { repo, flow: "approvals.list", args: repo }, `Open a box for ${repo}, then retry Inbox once it is ready`)
+      { repo, flow: "runs", args: runsArgs("approval-list", repo) }, `Open a box for ${repo}, then retry Inbox once it is ready`)
     const owner = ctx.accountOwner()
     if (typeof owner !== "string") return "Sign in with GitHub first: flows run on your own workspace."
     const epoch = ctx.accountEpoch

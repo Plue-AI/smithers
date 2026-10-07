@@ -66,7 +66,7 @@ export const RunTraceSummary = ({ card, model, facts, onRunCommand: send, admin 
         {...flowAction(onRunCommand, "runs.continue", flowArgs("runs.continue", { runId, requestId: incident.requestId }))}>Continue</button> : null}
       <button type="button" className="run-trace-filter" data-testid={`flow-run-stop-${runId}`} {...flowAction(onRunCommand, "flow.run.stop", card.id)}>Stop</button>
     </>
-      : action === "approval" && canDecide(card.payload.workflow, admin) ? <button type="button" className="run-trace-filter" {...flowAction(onRunCommand, "approvals.open", runId)}>Answer</button>
+      : action === "approval" && canDecide(card.payload.workflow, admin) ? <button type="button" className="run-trace-filter" {...flowAction(onRunCommand, "runs", flowArgs("runs", { operation: "approval-open", runId, sourceCard: card.id }))}>Answer</button>
       : action === "resume" ? <button type="button" className="run-trace-filter" data-testid={`flow-run-resume-${runId}`} {...flowAction(onRunCommand, "runs.resume", runId)}>Resume</button> : null}
     
     {shown.length === 0 ? null : <span className="run-outcome-facts">{shown.join(" · ")}</span>}

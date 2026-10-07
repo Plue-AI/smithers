@@ -33,7 +33,6 @@ import { agentFlows } from "./entries/agent"
 import { appFlows } from "./entries/app"
 import { themeFlows } from "./entries/theme"
 import { approvalFlows } from "./entries/approval"
-import { approvalsFlows } from "./entries/approvals"
 import { authFlows } from "./entries/auth"
 import { billingBalanceFlows, billingPlanFlows } from "./entries/billing"
 import { branchesFlows } from "./entries/branches"
@@ -128,7 +127,6 @@ export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   ...runsFlows(actions),
   ...graphFlows(actions),
   ...flowRunStopAllFlows(actions),
-  ...approvalsFlows(actions),
   ...cardFlows(actions),
   ...frameFlows(actions),
   ...chatCopyFlows(actions),

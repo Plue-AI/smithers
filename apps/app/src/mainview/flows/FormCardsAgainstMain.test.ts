@@ -582,7 +582,8 @@ describe("the card every slash line opens, against main@origin", () => {
       // 29: the #3311 `/appearance.dark-mode` sentences counted in 1361 left with the rename to `/theme`.
       // github.app and env.view no longer register duplicate Settings doors or their 60 parser diagnostics.
       // github.app.open and github.reconcile retire 60 additional executable-alias diagnostics; saved inputs decode via GitHubPayload.
-      here: 771 // Saved issue, GitHub and environment actions decode to their canonical doors.
+      // The three retired Runs aliases remove 63 parser diagnostics; RunsPayload retains recorded source and operation.
+      here: 708 // Saved issue, GitHub and environment actions decode to their canonical doors.
     })
     /* Every slash line must be answerable without a dispatch exception, including scalar JSON. */
     expect(rows.filter((row) => row.threw !== null).map((row) => `/${row.flow} ${row.args ?? ""}`)).toEqual([])

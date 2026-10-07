@@ -1387,7 +1387,7 @@ describe("launch-law parity: every affordance is a command", () => {
       "../cards/IssueThread.tsx": 3, // The chat body: composer submit and send, reaction toggles, Retry, Resolve an unknown delivery, the parent link, the state acts.
       "../cards/LandingCards.tsx": 4, // Includes the durable PR tab flow.
       "../cards/FileCards.tsx": 2,
-      "../cards/ModelCards.tsx": 6, // Restored model-assignment controls in Settings.
+      "../cards/ModelCards.tsx": 7, // Settings model-assignment controls include the current catalog action.
       /* A row's Test, Edit, Remove and select; New; and the attention row's Assign, Test or Edit. */
       /* Mark-all-read. */
       // The login screen (Will, 2026-10-03): the GitHub door and the email form's submit.

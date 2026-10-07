@@ -78,7 +78,7 @@ export const RunListCardBody = ({
   const loneApprovals = approvals.filter((approval) => !needsYou.has(approval.runId))
   const runCommand = runSourceCommand(card.id, onRunCommand)
   const answer = (runId: string) =>
-    flowAction(onRunCommand, "approvals.open", flowArgs("approvals.open", { runId, sourceCard: card.id }))
+    flowAction(onRunCommand, "runs", flowArgs("runs", { operation: "approval-open", runId, sourceCard: card.id }))
   const runRow = (run: InboxRun) => {
     const tone = runTone(run)
     /* The gate's own words, so the row says what is being asked before it is opened. */
@@ -123,7 +123,7 @@ export const RunListCardBody = ({
     <div className="world-card-list">
       <div className="flow-run-actions">
         <Button size="sm" variant={attention ? "default" : "outline"} 
-          {...flowAction(onRunCommand, "runs.attention", flowArgs("runs.attention", { sourceCard: card.id, repo }))}>Needs attention</Button>
+          {...flowAction(onRunCommand, "runs", flowArgs("runs", { operation: "attention", sourceCard: card.id, repo }))}>Needs attention</Button>
         <Button size="sm" variant="outline" 
           {...flowAction(onRunCommand, "runs.list", listArgs(card.payload.status))}>Refresh</Button>
         {attention ? <Button size="sm" variant="outline" 

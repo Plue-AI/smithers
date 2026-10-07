@@ -1,3 +1,4 @@
+import { runsArgs } from "../flows/RunsPayload"
 import { describe, expect, test } from "bun:test"
 import { createAppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
@@ -85,7 +86,7 @@ describe("box inventory admission", () => {
         held[0]!(json(200, []))
         expect(await first).toBe("A newer box list was requested. Try again.")
         expect(defaultBoxBinding(store, REPO)).toEqual(before)
-        const inbox = await controller.commands.run("approvals.list", REPO)
+        const inbox = await controller.commands.run("runs", runsArgs("approval-list", REPO))
         expect(openForms(store)).toEqual([])
         if (outcome === "ready") {
           expect([...store.collections.cloudWorkspaces.keys()]).toEqual([BOX_A, BOX_B])
@@ -188,7 +189,7 @@ describe("box inventory admission", () => {
     } })
     const list = controller.listWorkspaces(REPO)
     await waitFor(() => listing)
-    const first = await controller.commands.run("approvals.list", REPO)
+    const first = await controller.commands.run("runs", runsArgs("approval-list", REPO))
     expect(first).toMatchObject({ status: "failed", error: "Boxes are loading. Try again." })
     await controller.commands.run("runs.list", REPO)
     await controller.commands.run("flow.new", `Review the repo ${REPO}`)
@@ -200,7 +201,7 @@ describe("box inventory admission", () => {
     expect(store.session().draft).toBe("Still here")
     release(json(200, [wire(BOX_A), wire(BOX_B)]))
     await list
-    expect(await controller.commands.run("approvals.list", REPO)).toMatchObject({ status: "failed", error: `Select a box of ${REPO} first.` })
+    expect(await controller.commands.run("runs", runsArgs("approval-list", REPO))).toMatchObject({ status: "failed", error: `Select a box of ${REPO} first.` })
     expect([...store.collections.cloudWorkspaces.keys()]).toEqual([BOX_A, BOX_B])
     expect(store.collections.cards.get("form-box.select")).toBeUndefined()
     expect(openForms(store)).toEqual([])

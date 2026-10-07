@@ -37,3 +37,10 @@ it("saved GitHub controls retain their operation on the canonical door", () => {
     expect(ActionSchema.parse({ tag, label: "Saved", args: { repo: "owner/repo" } })).toEqual({ tag: "github", label: "Saved", args: { repo: "owner/repo", operation } })
   }
 })
+
+
+it("saved Runs actions retain operation and source without another door", () => {
+  for (const [tag, operation] of [["approvals.list", "approval-list"], ["approvals.open", "approval-open"], ["runs.attention", "attention"]]) {
+    expect(ActionSchema.parse({ tag, label: "Saved", args: { sourceCard: "private-run", runId: "run-1" } })).toEqual({ tag: "runs", label: "Saved", args: { sourceCard: "private-run", runId: "run-1", operation } })
+  }
+})

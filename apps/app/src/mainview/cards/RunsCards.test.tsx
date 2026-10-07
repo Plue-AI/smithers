@@ -225,7 +225,7 @@ describe("the run inbox's groups", () => {
     expect(answers.map((button) => button.getAttribute("data-testid"))).toEqual(["runs-answer-gate", "runs-answer-question", "runs-answer-cap"])
     expect(answers.every((button) => button.textContent === "Answer" && button.tagName === "BUTTON")).toBe(true)
     click(answers[2]!)
-    expect(dispatched.at(-1)).toEqual({ name: "approvals.open", args: `sourceCard=run-list-${REPO} cap` })
+    expect(dispatched.at(-1)).toEqual({ name: "runs", args: JSON.stringify({ operation: "approval-open", runId: "cap", sourceCard: `run-list-${REPO}` }) })
     expect([...host.querySelectorAll("[data-testid^='runs-resume-']")].map((button) => button.getAttribute("data-testid"))).toEqual(["runs-resume-held"])
     click(host.querySelector("[data-testid='runs-resume-held']")!)
     expect(dispatched.at(-1)).toEqual({ name: "runs.resume", args: `sourceCard=run-list-${REPO} held` })
@@ -253,7 +253,7 @@ describe("the run inbox's groups", () => {
     expect(host.querySelector("[data-testid='runs-gate-gate']")?.textContent).toBe("Deploy?")
     expect(host.textContent).toContain("Which auth?")
     click(host.querySelector("[data-testid='runs-answer-elsewhere']")!)
-    expect(dispatched.at(-1)).toEqual({ name: "approvals.open", args: `sourceCard=run-list-${REPO} elsewhere` })
+    expect(dispatched.at(-1)).toEqual({ name: "runs", args: JSON.stringify({ operation: "approval-open", runId: "elsewhere", sourceCard: `run-list-${REPO}` }) })
   })
 })
 

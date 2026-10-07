@@ -4,6 +4,7 @@
  * the aggregator order.
  */
 import { Schema } from "effect"
+import { hasCapability } from "@smthrs/rpc/AppBootstrap"
 import { line, text } from "@smthrs/ui/flow-form"
 import type { FlowEntry, Namespace } from "../registry"
 import { flow, type CommandActions } from "./Declare"
@@ -35,12 +36,30 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     group: "Advanced", journey: ["J11"], visibility: "advanced", actors: ["person", "app_agent", "external_agent"],
     minimumRole: "member", agent: "run", http: { method: "GET", path: "/api/runs" },
     input: Schema.Struct({}), handler: () => actions.listRunMonitors() }),
-  flow({ name: "runs",   slash: "/runs", cli: ["runs","list"], journey: ["J4"], group: "Runs", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/runs"}, summary: "Active and attention-needing runs", agent: "run", input: Schema.Struct({}),
-    handler: async () => {
+  flow({ name: "runs", slash: "/runs", cli: ["runs", "list"], journey: ["J4"], group: "Runs", visibility: "core",
+    actors: ["person", "app_agent", "external_agent"], minimumRole: "member", http: { method: "GET", path: "/api/runs", query: {} },
+    summary: "Active and attention-needing runs", agent: "run",
+    grammar: args => {
+      if (!args?.trim()) return { payload: {} }
+      try { const payload: unknown = JSON.parse(args); return payload && typeof payload === "object" && !Array.isArray(payload)
+        ? { payload: payload as Record<string, unknown> } : { error: "Enter a JSON object" } } catch { return { error: "Enter a JSON object" } }
+    },
+    input: Schema.Struct({ operation: Schema.optional(Schema.Literals(["approval-list", "approval-open", "attention"])),
+      runId: Schema.optional(Schema.String), repo: Schema.optional(Schema.String), sourceCard: Schema.optional(Schema.String) }),
+    form: { args: payload => JSON.stringify(payload), requires: payload => payload.operation === "approval-open" ? ["runId"] : [],
+      fields: { operation: { hidden: true }, runId: { label: "Run" } } },
+    handler: async input => {
+      switch (input.operation) {
+        case "approval-list": return actions.listApprovals(input.repo)
+        case "approval-open": return actions.openApproval(Schema.decodeUnknownSync(Schema.String)(input.runId), input.sourceCard)
+        case "attention": return actions.listRuns({ repo: input.repo, sourceCard: input.sourceCard, status: "attention" })
+      }
+      if (actions.bootstrap && hasCapability(actions.bootstrap, "install")) return actions.listRunMonitors()
       const traces = activeTraces(actions.design.world())
       for (const trace of traces) await actions.presentRun(trace.id, trace.title, false)
       return { value: traces.length === 0 ? "No active runs" : `${traces.length} active ${traces.length === 1 ? "run" : "runs"}` }
-    } }),
+    }
+  }),
   flow({ name: "run",   slash: "/run", cli: ["runs","show"], journey: ["J4"], group: "Runs", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/runs/{id}"}, summary: "Open a run's card", args: "<id>", grammar: runGrammar,
     agent: "run", input: Schema.Struct({ id: Schema.String }), handler: ({ id }) => actions.openRunMonitor(id, false) }),
   flow({ name: "run.inspect",   slash: "/run.inspect", cli: ["run","inspect"], journey: ["J11"], group: "Advanced", visibility: "advanced", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/runs/{id}","query":{}}, summary: "Open a run's monitor", args: "<id>", grammar: runGrammar,
@@ -49,15 +68,6 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     handler: ({ id, branch, answer }) => branch !== undefined && answer !== undefined && id === undefined
       ? actions.inspectContext(branch, answer) : id !== undefined && branch === undefined && answer === undefined
       ? actions.openRunMonitor(id, true) : "Enter a run or an answer context" }),
-  flow({
-    name: "runs.attention",
-    summary: "Show pending approvals and parked or failed runs on this repository",
-    runtime: ["cloud"],
-    requires: ["signed-in"],
-    args: "[sourceCard=id] [owner/repo]",
-    input: Schema.Struct({ repo: Schema.optional(Schema.String), sourceCard: Schema.optional(Schema.String) }),
-    handler: (payload) => actions.listRuns({ ...payload, status: "attention" })
-  }),
   /*
    * Lane runs — the run lifecycle beyond launch.
    *

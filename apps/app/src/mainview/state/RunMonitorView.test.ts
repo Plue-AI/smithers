@@ -37,7 +37,7 @@ test("run view refuses a missing card and invalid scrubber input", async () => {
   expect(store.collections.cards.size).toBe(0)
 })
 
-test("install /monitor returns before its list read and presents every served run without the seed", async () => {
+for (const name of ["runs", "monitor"] as const) test(`install /${name} returns before its list read and presents every served run without the seed`, async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   let resolveList!: (response: Response) => void
   const pending = new Promise<Response>(resolve => { resolveList = resolve })
@@ -52,9 +52,9 @@ test("install /monitor returns before its list read and presents every served ru
     }
   })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "member", admin: false, scopesPlain: null }).isPersisted.promise
-  const result = await controller.commands.submit({ name: "monitor", actor: "user", payload: {} })
+  const result = await controller.commands.submit({ name, actor: "user", payload: {} })
   expect(result).toMatchObject({ status: "executed", value: "Requested" })
-  expect(await controller.commands.submit({ name: "monitor", actor: "user", payload: {} })).toMatchObject({ status: "executed", value: "Requested" })
+  expect(await controller.commands.submit({ name, actor: "user", payload: {} })).toMatchObject({ status: "executed", value: "Requested" })
   expect([...store.collections.cards.values()].filter(card => card.kind === "run")).toEqual([])
   await controller.presentRun("unrelated", "Unrelated", false)
   resolveList(Response.json([{ id: "background-native", title: "Background native", flow: "flow-load", version: "digest", state: "interrupted",

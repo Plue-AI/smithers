@@ -1,3 +1,4 @@
+import { runsArgs } from "../flows/RunsPayload"
 /*
  * Build target approvals in the approvals inbox: a box's pending
  * `system/target` plans list beside the runs' gates, a row's Approve or Deny
@@ -113,7 +114,7 @@ const signedIn = async (services: AppServices) => {
 }
 
 const listInbox = async ({ store, controller }: Awaited<ReturnType<typeof signedIn>>) => {
-  const outcome = await controller.commands.run("approvals.list")
+  const outcome = await controller.commands.run("runs", runsArgs("approval-list"))
   await waitFor(() => (store.session().approvalsInboxRequests ?? []).length === 0, 10_000)
   await store.settled?.()
   const card = store.collections.cards.get(`approvals-inbox-${REPO}-${TEST_BOX}`) as Extract<Card, { kind: "approvals-inbox" }> | undefined

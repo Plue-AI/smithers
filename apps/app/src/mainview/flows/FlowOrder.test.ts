@@ -48,8 +48,6 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "runs.trace.select",
   "runs.events",
   "flow.run.stop-all",
-  "approvals.list",
-  "approvals.open",
   "card.maximize",
   "card.minimize",
   "card.dismiss",

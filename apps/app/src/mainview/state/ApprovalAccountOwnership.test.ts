@@ -1,3 +1,4 @@
+import { runsArgs } from "../flows/RunsPayload"
 import { expect, test } from "bun:test"
 import type { ApprovalRow } from "@smthrs/gateway/GatewayProjection"
 import type { Card } from "./AppState"
@@ -133,7 +134,7 @@ const assertRetired = async (store: AppStore) => {
 for (const change of ["sign-out", "replacement", "ABA", "dispose"] as const) {
   for (const hold of ["receipt", "provision", "response"] as const) test(`approvals.open retires ${hold} continuation after ${change}`, async () => {
     const t = await fixture(hold)
-    const result = t.controller.commands.run("approvals.open", runId)
+    const result = t.controller.commands.run("runs", runsArgs("approval-open", runId))
     let reopened: AppStore | undefined
     try {
       await t.entered.promise
@@ -180,7 +181,7 @@ for (const change of ["sign-out", "replacement", "ABA", "dispose"] as const) {
 
   test(`approvals.open refuses a rejected stale receipt neutrally after ${change}`, async () => {
     const t = await fixture("receipt", true)
-    const result = t.controller.commands.run("approvals.open", runId)
+    const result = t.controller.commands.run("runs", runsArgs("approval-open", runId))
     try {
       await t.entered.promise
       await t.change(change)
@@ -199,7 +200,7 @@ for (const change of ["sign-out", "replacement", "ABA", "dispose"] as const) {
 test("same-account approvals.open waits for the real receipt then retains actionable approvals after reload", async () => {
   const t = await fixture(), id = approvalCardIdFor(t.store, scope, approval.requestId)
   let answered = false, reopened: AppStore | undefined
-  const result = t.controller.commands.run("approvals.open", runId).then(outcome => { answered = true; return outcome })
+  const result = t.controller.commands.run("runs", runsArgs("approval-open", runId)).then(outcome => { answered = true; return outcome })
   try {
     await t.entered.promise
     expect(answered).toBe(false)
@@ -219,7 +220,7 @@ test("same-account approvals.open waits for the real receipt then retains action
 
 test("same-account approvals.open reports a rejected receipt without opening an approval", async () => {
   const t = await fixture("receipt", true)
-  const result = t.controller.commands.run("approvals.open", runId)
+  const result = t.controller.commands.run("runs", runsArgs("approval-open", runId))
   try {
     await t.entered.promise
     t.release.resolve()

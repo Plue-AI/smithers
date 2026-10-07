@@ -3,6 +3,7 @@ import { fileArgs } from "@smthrs/rpc/FileRead"
 
 /** The typed input of every flow a card raises with structured values. */
 export interface FlowInput {
+  readonly "runs": NonNullable<import("@smthrs/rpc/CardAction").CardCommandInput["runs"]>
   readonly "github": NonNullable<import("@smthrs/rpc/CardAction").CardCommandInput["github"]>
   readonly "background.retry": { readonly id: string }
   readonly "background.dismiss": { readonly id: string }
@@ -82,10 +83,8 @@ export interface FlowInput {
   readonly "wiki.heading": { readonly line: string; readonly cardId?: string }
   readonly "billing.upgrade": { readonly plan: string }
   readonly "runs.list": { readonly repo?: string; readonly status?: string; readonly flow?: string; readonly lineage?: string; readonly sourceCard?: string }
-  readonly "runs.attention": { readonly repo?: string; readonly sourceCard?: string }
   readonly "runs.open": { readonly runId: string; readonly repo?: string; readonly sourceCard?: string; readonly requestId?: string }
   readonly "runs.trace.select": { readonly runId: string; readonly nodeId: string; readonly seq?: number; readonly sourceCard?: string }
-  readonly "approvals.open": { readonly runId: string; readonly sourceCard?: string }
   readonly "tutorial.live.inspect": { readonly cardId: string; readonly eventId: string }
   readonly "files.open-diff": { readonly cardId: string; readonly path: string }
   readonly "issues.view": { readonly number: number; readonly repo?: string; readonly source?: "smithers-cloud" | "github" }
@@ -216,6 +215,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "change.checks": payload => line(token(payload, "changeId"), token(payload, "seq")),
   "flow.run.stop-all": payload => line(keyed(payload, "sourceCard"), token(payload, "repo")),
   "box.facet": payload => line(token(payload, "workspaceId"), token(payload, "facet")),
+  "runs": payload => JSON.stringify(payload),
   "github": payload => JSON.stringify(payload),
   "secrets": payload => JSON.stringify(publicSecretInput(payload)),
   "issues.close": payload => line(token(payload, "number"), token(payload, "repo")),
@@ -235,10 +235,8 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "issues.list": (payload) => line(token(payload, "filter") ?? "open", payload.kind === undefined || payload.kind === "all" ? undefined : `--kind ${payload.kind}`, token(payload, "view") === undefined ? undefined : `--view ${token(payload, "view")}`, token(payload, "repo")),
   "billing.upgrade": (payload) => line(token(payload, "plan")),
   "runs.list": (payload) => JSON.stringify(payload),
-  "runs.attention": (payload) => line(keyed(payload, "sourceCard"), token(payload, "repo")),
   "runs.open": (payload) => line(keyed(payload, "sourceCard"), keyed(payload, "requestId"), token(payload, "runId"), token(payload, "repo")),
   "runs.trace.select": (payload) => line(keyed(payload, "sourceCard"), token(payload, "runId"), token(payload, "nodeId"), token(payload, "seq")),
-  "approvals.open": (payload) => line(keyed(payload, "sourceCard"), token(payload, "runId")),
   "tutorial.live.inspect": (payload) => line(token(payload, "cardId"), token(payload, "eventId")),
   "files.open-diff": (payload) => JSON.stringify(payload),
   "debug-api": payload => JSON.stringify(payload),

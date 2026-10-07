@@ -1,3 +1,4 @@
+import { runsArgs } from "../flows/RunsPayload"
 import { workflowLaunchOf, workflowInputOf } from "./WorkflowLaunch"
 import { decodeEventValue } from "./EventValue"
 import { flowArgs } from "../flows/FlowArgs"
@@ -295,7 +296,7 @@ const openMonitor = async (controller: AppController, store: Awaited<ReturnType<
 }
 
 const listInventory = async (controller: AppController, store: Awaited<ReturnType<typeof webStore>>, flow: "runs.list" | "runs.attention", args?: string) => {
-  const result = await controller.commands.run(flow, args)
+  const result = await controller.commands.run(flow === "runs.attention" ? "runs" : flow, flow === "runs.attention" ? runsArgs("attention", args) : args)
   if (result.status === "executed") {
     await waitFor(() => [...store.collections.cards.values()].every(card => card.kind !== "run-list" || card.payload.listRequest?.state !== "pending"))
     await store.settled?.()
@@ -319,7 +320,7 @@ const inboxRequests = (store: Awaited<ReturnType<typeof webStore>>) => store.ses
  * the rows wait for that receipt.
  */
 const listInbox = async (controller: AppController, store: Awaited<ReturnType<typeof webStore>>, repo?: string) => {
-  const outcome = await controller.commands.run("approvals.list", repo)
+  const outcome = await controller.commands.run("runs", runsArgs("approval-list", repo))
   expect(said(outcome)).toBe("Approvals requested.")
   await waitFor(() => inboxRequests(store).length === 0, 10_000)
   await store.settled?.()
@@ -367,7 +368,7 @@ test("attention retains pending approvals when the run inventory cannot be read"
   await listInventory(controller, store, "runs.attention")
   expect(runListCard(store)?.payload.approvals?.[0]?.requestId).toBe("gate")
   expect(runListCard(store)?.payload.observationError).toContain("The workspace isn't answering right now. Not your fault; try again in a moment.")
-  await controller.commands.run("approvals.open", `sourceCard=run-list-${REPO}-${TEST_BOX} uncarded`)
+  await controller.commands.run("runs", runsArgs("approval-open", `sourceCard=run-list-${REPO}-${TEST_BOX} uncarded`))
   expect([...store.collections.cards.values()].some(card => card.kind === "approval" && card.payload.runId === "uncarded")).toBe(true)
 })
 
@@ -1251,7 +1252,7 @@ describe("the approvals inbox — list, open, and the row decision", () => {
     const double = relay({ approvals: [row], runs: [{ runId: "run-a", flowId: "coding/request", status: "waiting-approval" }] })
     const controller = createAppController(store, silentAgent, double.services)
     await signIn(store)
-    await controller.commands.run("approvals.open", "run-a")
+    await controller.commands.run("runs", runsArgs("approval-open", "run-a"))
     await settle(4)
 
     const card = [...store.collections.cards.values()].find((entry) => entry.kind === "approval")
@@ -1296,7 +1297,7 @@ describe("the approvals inbox — list, open, and the row decision", () => {
       expect(currentInbox.payload.approvals[0]?.question?.prompt).toBe("Which services?")
       let id = approvalActionId(currentInbox.id, question)
       if (door === "card") {
-        await controller.commands.run("approvals.open", "run-a")
+        await controller.commands.run("runs", runsArgs("approval-open", "run-a"))
         const approval = [...store.collections.cards.values()].find(card => card.kind === "approval" && card.payload.requestId === question.requestId)
         expect(approval?.kind).toBe("approval")
         id = approval!.id
@@ -1358,7 +1359,7 @@ describe("the approvals inbox — list, open, and the row decision", () => {
     const controller = createAppController(store, silentAgent, double.services)
     await signIn(store)
 
-    const opened = await controller.commands.run("approvals.open", "run-a")
+    const opened = await controller.commands.run("runs", runsArgs("approval-open", "run-a"))
     expect(said(opened)).toContain("1 approval opened for run run-a")
     const card = store.collections.cards.get(approvalCardIdFor(store, { repo: REPO, workspaceId: TEST_BOX, runId: "run-a" }, "req-1"))
     expect(card?.kind === "approval" && card.payload.runId).toBe("run-a")
@@ -1428,7 +1429,7 @@ describe("the approvals inbox — list, open, and the row decision", () => {
     const controller = createAppController(guarded, silentAgent, double.services)
     await signIn(store)
     try {
-      await controller.commands.run("approvals.list")
+      await controller.commands.run("runs", runsArgs("approval-list"))
       await waitFor(() => held)
       await settle(4)
       expect(inboxRequests(store)).toHaveLength(1)
@@ -1461,7 +1462,7 @@ describe("the approvals inbox — list, open, and the row decision", () => {
       const double = relay()
       const controller = createAppController(guarded, silentAgent, double.services)
       await signIn(store)
-      await controller.commands.run("approvals.list")
+      await controller.commands.run("runs", runsArgs("approval-list"))
       await waitFor(() => failedWrites === 1)
       await settle(8)
       await store.settled?.().catch(() => {})
@@ -1492,7 +1493,7 @@ describe("the approvals inbox — list, open, and the row decision", () => {
     const double = relay()
     const controller = createAppController(guarded, silentAgent, double.services)
     await signIn(store)
-    await controller.commands.run("approvals.list")
+    await controller.commands.run("runs", runsArgs("approval-list"))
     await waitFor(() => failedWrites === 2)
     await settle(8)
     await store.settled?.().catch(() => {})
@@ -1517,9 +1518,9 @@ describe("the approvals inbox — list, open, and the row decision", () => {
     const controller = createAppController(guarded, silentAgent, double.services)
     await signIn(store)
     try {
-      const first = controller.commands.run("approvals.list")
+      const first = controller.commands.run("runs", runsArgs("approval-list"))
       await waitFor(() => requests === 1)
-      const second = controller.commands.runForAgent("approvals.list")
+      const second = controller.commands.runForAgent("runs", runsArgs("approval-list"))
       await settle(3)
       await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "someone-else", admin: false, scopesPlain: null }).isPersisted.promise
       release()
@@ -1551,9 +1552,9 @@ describe("the approvals inbox — list, open, and the row decision", () => {
     } })
     await signIn(store)
     try {
-      const first = controller.commands.run("approvals.list")
+      const first = controller.commands.run("runs", runsArgs("approval-list"))
       await waitFor(() => requests === 1)
-      const second = controller.commands.runForAgent("approvals.list")
+      const second = controller.commands.runForAgent("runs", runsArgs("approval-list"))
       await settle(3)
       expect(await controller.signOut()).toContain("Signed out. Smithers could not finish clearing this browser's data.")
       release()
@@ -1581,7 +1582,7 @@ describe("the approvals inbox — list, open, and the row decision", () => {
     } })
     await signIn(store)
     try {
-      await controller.commands.run("approvals.list")
+      await controller.commands.run("runs", runsArgs("approval-list"))
       await waitFor(() => started.read === 1)
       const request = inboxRequests(store)[0]!
       expect(await controller.signOut()).toContain("Signed out. Smithers could not finish clearing this browser's data.")
@@ -1603,7 +1604,7 @@ describe("the approvals inbox — list, open, and the row decision", () => {
     const controller = createAppController(store, silentAgent, services)
     await signIn(store)
 
-    const outcome = await controller.commands.run("approvals.list")
+    const outcome = await controller.commands.run("runs", runsArgs("approval-list"))
     expect(said(outcome)).toBe("Approvals requested.")
     // The request is on record before the acknowledgment, with its target and owner fixed.
     expect(inboxRequests(store)).toMatchObject([{ repo: REPO, owner: "codeplanesmithers" }])
@@ -1643,13 +1644,13 @@ describe("the approvals inbox — list, open, and the row decision", () => {
     await signIn(store)
 
     const asks = await Promise.all([
-      controller.commands.run("approvals.list"),
-      controller.commands.run("approvals.list", REPO),
-      controller.commands.runForAgent("approvals.list")
+      controller.commands.run("runs", runsArgs("approval-list")),
+      controller.commands.run("runs", runsArgs("approval-list", REPO)),
+      controller.commands.runForAgent("runs", runsArgs("approval-list"))
     ])
     for (const ask of asks) expect(said(ask)).toBe("Approvals requested.")
     await waitFor(() => started.read === 1)
-    expect(said(await controller.commands.run("approvals.list"))).toBe("Approvals requested.")
+    expect(said(await controller.commands.run("runs", runsArgs("approval-list")))).toBe("Approvals requested.")
     await settle(6)
     expect(started.provision).toBe(1)
     expect(started.read).toBe(1)
@@ -1670,7 +1671,7 @@ describe("the approvals inbox — list, open, and the row decision", () => {
     const controller = createAppController(store, silentAgent, services)
     await signIn(store)
 
-    expect(said(await controller.commands.run("approvals.list"))).toBe("Approvals requested.")
+    expect(said(await controller.commands.run("runs", runsArgs("approval-list")))).toBe("Approvals requested.")
     await waitFor(() => inboxRequests(store)[0]?.error !== undefined)
     const failed = inboxRequests(store)[0]!
     const unavailable = "The workspace isn't answering right now. Not your fault; try again in a moment."
@@ -1687,7 +1688,7 @@ describe("the approvals inbox — list, open, and the row decision", () => {
 
     // An explicit ask again is the retry: a new request replaces the failed one and the rows land.
     delete refusals.approvals
-    expect(said(await controller.commands.run("approvals.list"))).toBe("Approvals requested.")
+    expect(said(await controller.commands.run("runs", runsArgs("approval-list")))).toBe("Approvals requested.")
     expect(inboxRequests(store)[0]?.id).not.toBe(failed.id)
     expect(inboxRequests(store)[0]?.error).toBeUndefined()
     await waitFor(() => inboxRequests(store).length === 0)
@@ -1715,7 +1716,7 @@ describe("the approvals inbox — list, open, and the row decision", () => {
     let controller = createAppController(store, silentAgent, first.services)
     await signIn(store)
     await selectWorkspace(store, workspaceA)
-    expect(said(await controller.commands.run("approvals.list", REPO))).toBe("Approvals requested.")
+    expect(said(await controller.commands.run("runs", runsArgs("approval-list", REPO)))).toBe("Approvals requested.")
     await waitFor(() => first.started.read === 1)
     expect(inboxRequests(store)).toMatchObject([{ repo: REPO, workspaceId: workspaceA, owner: "codeplanesmithers" }])
     // The page closes with the read still held: nothing was published.
@@ -1753,7 +1754,7 @@ describe("the approvals inbox — list, open, and the row decision", () => {
     const releaseRead = hold("read")
     const controller = createAppController(store, silentAgent, services)
     await signIn(store)
-    expect(said(await controller.commands.run("approvals.list"))).toBe("Approvals requested.")
+    expect(said(await controller.commands.run("runs", runsArgs("approval-list")))).toBe("Approvals requested.")
     await waitFor(() => started.read === 1)
     await waitFor(() => store.collections.toasts.get(inboxToastId)?.status === "running")
 
@@ -1774,7 +1775,7 @@ describe("the approvals inbox — list, open, and the row decision", () => {
     const releaseRead = hold("read")
     const controller = createAppController(store, silentAgent, services)
     await signIn(store)
-    expect(said(await controller.commands.run("approvals.list"))).toBe("Approvals requested.")
+    expect(said(await controller.commands.run("runs", runsArgs("approval-list")))).toBe("Approvals requested.")
     await waitFor(() => started.read === 1)
     const request = inboxRequests(store)[0]!
     await controller.dispose()
@@ -1945,7 +1946,7 @@ describe("workspace-bound run cards", () => {
     await selectWorkspace(store, "ffffffff-ffff-ffff-ffff-ffffffffffff")
     await listInventory(controller, store, "runs.list", `completed sourceCard=${listId} ${REPO}`)
     await openMonitor(controller, store, "listed")
-    await controller.commands.run("approvals.open", "gated")
+    await controller.commands.run("runs", runsArgs("approval-open", "gated"))
     expect(runCardInScope(store, { repo: REPO, runId: "listed", workspaceId })).toMatchObject({ payload: { workspaceId } })
     expect(store.collections.cards.get(approvalCardIdFor(store, { repo: REPO, runId: "gated", workspaceId }, "gate-a"))).toMatchObject({ payload: { workspaceId } })
     await controller.commands.run("approval.approve", approvalCardIdFor(store, { repo: REPO, runId: "gated", workspaceId }, "gate-a"))
@@ -2012,7 +2013,7 @@ describe("workspace-bound run cards", () => {
     await settle()
     expect(gatewayRunContextFor(store, "legacy")).toEqual({ repo: REPO })
     const callsBefore = double.calls.filter(call => !(call.method === "GET" && call.path.split("?")[0] === "/api/repository-setup/state")).length
-    for (const [flow, args] of [["runs.resume", "legacy"], ["runs.signal", "legacy go"], ["approvals.open", "legacy"]] as const) {
+    for (const [flow, args] of [["runs.resume", "legacy"], ["runs.signal", "legacy go"], ["runs", runsArgs("approval-open", "legacy")]] as const) {
       const outcome = await controller.commands.run(flow, args)
       expect(outcome.status).toBe("failed")
       expect(said(outcome)).toBe("This run's box is gone.")
@@ -2123,7 +2124,7 @@ describe("workspace-bound run cards", () => {
       expect((await controller.commands.run("flow.run.retry", card.id)).status).toBe("executed")
       await waitFor(() => snapshots() >= beforeRetry + 2)
       expect(other.calls.length).toBe(otherReads)
-      expect((await controller.commands.run("approvals.open", source)).status).toBe("executed")
+      expect((await controller.commands.run("runs", runsArgs("approval-open", source))).status).toBe("executed")
       const approvalId = approvalCardIdFor(store, card === cardA ? scopeA : scopeB, "same-gate")
       expect((await controller.commands.run("approval.approve", approvalId)).status).toBe("executed")
       await waitFor(() => double.state.submitted.length === 2, 10_000) // Plan plus this gate.
@@ -2262,7 +2263,7 @@ test("a normalized approval waits for its own decision receipt; failed storage s
   const double = relay({ approvals: [approvalRow("run", "gate", "Deploy?")] })
   const controller = createAppController(store, silentAgent, double.services)
   await signIn(store)
-  await controller.commands.run("approvals.open", "run")
+  await controller.commands.run("runs", runsArgs("approval-open", "run"))
   const card = [...store.collections.cards.values()].find(row => row.kind === "approval" && row.payload.runId === "run")!
   await store.settled?.()
   fail = true
@@ -2307,7 +2308,7 @@ test("a human answer draft is one event-derived value across inbox, card and rel
   const controller = createAppController(store, silentAgent, double.services)
   await signIn(store)
   await listInbox(controller, store)
-  await controller.commands.run("approvals.open", "run-answer")
+  await controller.commands.run("runs", runsArgs("approval-open", "run-answer"))
   const initial = inboxCard(store)!
   const target = approvalActionId(initial.id, question)
   const field = `answer:${initial.payload.approvals[0]!.answerDraft!.question}`
@@ -3312,7 +3313,7 @@ describe("run read failures speak a sentence, never a raw message", () => {
     const double = relay({ approvals: [approvalRow("run-1", "gate", "Review deployment")] })
     const controller = createAppController(throwingOn(store, "gateway.approvals.observed", () => new Error(RAW)), silentAgent, double.services)
     await signIn(store)
-    await controller.commands.run("approvals.list")
+    await controller.commands.run("runs", runsArgs("approval-list"))
     const toast = await failedToast(store, "approvals.list.")
     expect(toast.detail).toBe("The approvals could not be loaded. Not your fault.")
     expect(inboxRequests(store)[0]?.error).toBe("The approvals could not be loaded. Not your fault.")

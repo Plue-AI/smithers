@@ -886,86 +886,6 @@
       }
     },
     {
-      "name": "approvals.list",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "run",
-      "summary": "List the workspace's pending approvals",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "repo": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "approvals.open",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "run",
-      "summary": "Open a run's pending approvals as cards",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "runId": {
-              "type": "string"
-            },
-            "sourceCard": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "required": [
-            "runId"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
       "name": "auth.email",
       "slash": null,
       "cli": null,
@@ -8955,39 +8875,39 @@
       "summary": "Active and attention-needing runs",
       "http": {
         "method": "GET",
-        "path": "/api/runs"
+        "path": "/api/runs",
+        "query": {}
       },
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "not": {
-            "type": "null"
-          }
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "runs.attention",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "run",
-      "summary": "Show pending approvals and parked or failed runs on this repository",
-      "http": null,
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
           "type": "object",
           "properties": {
+            "operation": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "approval-list",
+                    "approval-open",
+                    "attention"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "runId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "repo": {
               "anyOf": [
                 {

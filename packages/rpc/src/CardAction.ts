@@ -17,7 +17,7 @@ import type { ModelProtocol } from "./ConfiguredModel.ts"
  * @since 1.0.0
  * @category models
  */
-export type CatalogTag = RegisteredCatalogTag | typeof historicalGitHub[number] | typeof historicalSettings[number] | "context.inspect" | "secrets.set" | "secrets.delete" | "secrets.scope" | "secrets.bind"
+export type CatalogTag = RegisteredCatalogTag | typeof historicalRuns[number] | typeof historicalGitHub[number] | typeof historicalSettings[number] | "context.inspect" | "secrets.set" | "secrets.delete" | "secrets.scope" | "secrets.bind"
 
 /**
  * An action form field.
@@ -47,6 +47,8 @@ export type FormField = z.infer<typeof FormFieldSchema>
  * @since 1.0.0
  * @category schemas
  */
+const historicalRuns = ["approvals.list", "approvals.open", "runs.attention"] as const
+const runsOperation = (tag: string): string => tag === "approvals.open" ? "approval-open" : tag === "approvals.list" ? "approval-list" : "attention"
 const historicalGitHub = ["github.retry", "github.app", "github.app.open", "github.app.choose", "github.reconcile"] as const
 const githubOperation = (tag: string): string => tag === "github.retry" ? "retry" : tag === "github.app.open" ? "app-open" : tag === "github.app.choose" ? "app-choose" : tag === "github.reconcile" ? "reconcile" : "app-status"
 const historicalSettings = ["settings.address", "settings.capacity", "settings.parallel", "settings.preapprove-default", "settings.daily-admissions", "settings.obsidian", "settings.model-key", "settings.setup", "settings.fast-model"] as const
@@ -58,13 +60,15 @@ const recordedSecretArgs = (tag: string, args: Readonly<Record<string, string>> 
   } : {}) }
 }
 export const ActionSchema = z.object({
-  tag: z.union([CatalogTagSchema, z.enum(historicalGitHub), z.enum(historicalSettings), z.literal("context.inspect"), z.enum(["secrets.set", "secrets.delete", "secrets.scope", "secrets.bind"])]),
+  tag: z.union([CatalogTagSchema, z.enum(historicalRuns), z.enum(historicalGitHub), z.enum(historicalSettings), z.literal("context.inspect"), z.enum(["secrets.set", "secrets.delete", "secrets.scope", "secrets.bind"])]),
   label: z.string(),
   args: z.record(z.string(), z.string()).optional(),
   primary: z.boolean().optional(),
   disabled: z.object({ reason: z.string() }).optional(),
   input: z.array(FormFieldSchema).optional()
-}).overwrite(action => historicalGitHub.some(tag => tag === action.tag)
+}).overwrite(action => historicalRuns.some(tag => tag === action.tag)
+  ? { ...action, tag: "runs" as const, args: { ...action.args, operation: runsOperation(action.tag) } }
+  : historicalGitHub.some(tag => tag === action.tag)
   ? { ...action, tag: "github" as const, args: { ...action.args, operation: githubOperation(action.tag) } }
   : historicalSettings.some(tag => tag === action.tag)
   ? { ...action, tag: "settings" as const, args: { ...action.args, operation: action.tag.slice("settings.".length) } }
@@ -160,7 +164,7 @@ export const BranchForeignAnswerInputSchema = z.strictObject({
  * @category models
  */
 /** Historical tags are decodable data; no new typed command can use them. */
-export type CardCommandInput = CurrentCardCommandInput & { readonly [Tag in typeof historicalGitHub[number] | typeof historicalSettings[number] | "context.inspect" | "secrets.set" | "secrets.delete" | "secrets.scope" | "secrets.bind"]: never }
+export type CardCommandInput = CurrentCardCommandInput & { readonly [Tag in typeof historicalRuns[number] | typeof historicalGitHub[number] | typeof historicalSettings[number] | "context.inspect" | "secrets.set" | "secrets.delete" | "secrets.scope" | "secrets.bind"]: never }
 
 interface CurrentCardCommandInput {
   readonly "approval.approve": { readonly cardId: string }
@@ -212,7 +216,7 @@ interface CurrentCardCommandInput {
   readonly "flow.edit": { readonly name: string }
   readonly "flow.run": { readonly name: string; readonly input?: Readonly<Record<string, unknown>> }
   readonly "flow.new": { readonly name: string }
-  readonly "runs": undefined
+  readonly "runs": undefined | { readonly operation?: "approval-list" | "approval-open" | "attention"; readonly runId?: string; readonly repo?: string; readonly sourceCard?: string }
   readonly "run": { readonly id: string }
   readonly "github": undefined | { readonly operation?: "retry" | "app-open" | "app-choose" | "reconcile" | "app-status"; readonly repo?: string; readonly installationId?: string }
   readonly "monitor": undefined

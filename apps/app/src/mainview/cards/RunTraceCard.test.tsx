@@ -1177,8 +1177,8 @@ describe("the primary monitoring surface", () => {
     const header = host.querySelector("[data-testid='run-outcome-run-1']")!
     expect(header.textContent).toContain("Running agent/send")
     expect(header.textContent).toContain("Approval needed")
-    click(header.querySelector("[data-flow='approvals.open']"))
-    expect(dispatched).toEqual([{ name: "approvals.open", args: "sourceCard=flow-run-run-1 run-1" }])
+    click(header.querySelector("[data-flow='runs']"))
+    expect(dispatched).toEqual([{ name: "runs", args: JSON.stringify({ operation: "approval-open", runId: "run-1", sourceCard: "flow-run-run-1" }) }])
     expect(host.querySelector(".run-trace-cursor")?.textContent).toBe("At #4")
   })
   test("known goals stay visible and a write does not tick them", () => {
@@ -1228,7 +1228,7 @@ describe("a runaway guard's park", () => {
     const { host, dispatched } = renderTrace({ events: [...JOURNAL, requested], traceView: undefined })
     expect(header(host).querySelector(".run-outcome-words")?.textContent).toBe("Runaway")
     expect(header(host).querySelector(".run-outcome-words")?.getAttribute("title")).toBe(incident.message)
-    expect(header(host).querySelector("[data-flow='approvals.open']")).toBeNull()
+    expect(header(host).querySelector("[data-flow='runs']")).toBeNull()
     expect([...header(host).querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Continue", "Stop"])
     click(header(host).querySelector("[data-flow='runs.continue']"))
     click(header(host).querySelector("[data-flow='flow.run.stop']"))

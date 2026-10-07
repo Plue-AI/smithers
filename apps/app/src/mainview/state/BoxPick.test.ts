@@ -1,3 +1,4 @@
+import { runsArgs } from "../flows/RunsPayload"
 /*
  * THE FORM LAW for a box-bound act (#2327). When several boxes of a
  * repository could be meant, a human's act renders the box.select form for
@@ -74,8 +75,8 @@ test("submitting the Inbox prerequisite opens one box and never silently reads I
     }
   })
   await controller.commands.run("flow.new", `Review the repo ${REPO}`)
-  await controller.commands.run("approvals.list", REPO)
-  const formId = "form-box.open-approvals.list"
+  await controller.commands.run("runs", runsArgs("approval-list", REPO))
+  const formId = "form-box.open-runs"
   expect(calls.filter(call => call.method === "POST" || call.path.startsWith("/api/workflow/") || call.path.includes("/approvals"))).toEqual([])
   expect((await controller.commands.run("form.set", `${formId} bookmark feature`)).status).toBe("executed")
   expect((await controller.commands.run("form.submit", formId)).status).toBe("executed")
@@ -233,8 +234,8 @@ for (const act of [
   const store = await signedIn()
   const relay = boxCalls()
   const controller = createAppController(store, silentAgent, relay.services)
-  const outcome = await controller.commands.run(act.flow, REPO)
-  const formId = `form-box.open-${act.flow}`
+  const outcome = await controller.commands.run(act.flow === "approvals.list" ? "runs" : act.flow, act.flow === "approvals.list" ? runsArgs("approval-list", REPO) : REPO)
+  const formId = `form-box.open-${act.flow === "approvals.list" ? "runs" : act.flow}`
   expect(outcome).toEqual({ status: "executed", value: `Open a box for ${REPO}, then retry ${act.label} once it is ready.` })
   expect(store.collections.cards.get(formId)).toMatchObject({ kind: "flow-form",
     title: `Open a box for ${REPO}, then retry ${act.label} once it is ready`,
@@ -254,7 +255,7 @@ for (const flow of ["approvals.list", "runs.list"] as const) test(`${flow} agent
   const store = await signedIn()
   const relay = boxCalls()
   const controller = createAppController(store, silentAgent, relay.services)
-  const outcome = await controller.commands.runForAgent(flow, REPO)
+  const outcome = await controller.commands.runForAgent(flow === "approvals.list" ? "runs" : flow, flow === "approvals.list" ? runsArgs("approval-list", REPO) : REPO)
   expect(outcome.status).toBe("failed")
   if (outcome.status === "failed") expect(outcome.error).toContain(`Open a box of ${REPO} first`)
   expect(store.collections.cards.get(`form-box.open-${flow}`)).toBeUndefined()
@@ -268,10 +269,10 @@ test("Inbox sees a starting box as settling, without offering another one", asyn
   await loadBox(store, REPO, BOX_A, "starting")
   const relay = boxCalls()
   const controller = createAppController(store, silentAgent, relay.services)
-  const outcome = await controller.commands.run("approvals.list", REPO)
+  const outcome = await controller.commands.run("runs", runsArgs("approval-list", REPO))
   expect(outcome.status).toBe("failed")
   if (outcome.status === "failed") expect(outcome.error).toBe(`A box of ${REPO} is starting.`)
-  expect(store.collections.cards.get("form-box.open-approvals.list")).toBeUndefined()
+  expect(store.collections.cards.get("form-box.open-runs")).toBeUndefined()
   expect(relay.calls).toEqual([])
   await controller.dispose()
 })
@@ -282,7 +283,7 @@ describe("a box-bound act on one branch", () => {
     await loadBox(store, REPO, BOX_A)
     const relay = boxCalls()
     const controller = createAppController(store, silentAgent, relay.services)
-    expect(await controller.commands.run("approvals.list", REPO)).toEqual({ status: "executed", value: "Approvals requested." })
+    expect(await controller.commands.run("runs", runsArgs("approval-list", REPO))).toEqual({ status: "executed", value: "Approvals requested." })
     expect(pickForm(store)).toBeUndefined()
     expect(inboxRequests(store).map((request) => request.workspaceId)).toEqual([BOX_A])
   })

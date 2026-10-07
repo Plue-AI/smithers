@@ -26,7 +26,6 @@ import * as admin from "./entries/admin"
 import * as agent from "./entries/agent"
 import * as app from "./entries/app"
 import * as approval from "./entries/approval"
-import * as approvals from "./entries/approvals"
 import * as auth from "./entries/auth"
 import * as billing from "./entries/billing"
 import * as branches from "./entries/branches"
@@ -357,7 +356,6 @@ export const NAMESPACES: ReadonlyArray<Namespace> = [
   wiki.namespace,
   flow.namespace,
   runs.namespace,
-  approvals.namespace,
   issues.namespace,
   issue.namespace,
   prs.namespace,
