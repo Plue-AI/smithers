@@ -2897,6 +2897,10 @@ type Workspace struct {
 	DiskMb                  pgtype.Int4        `json:"disk_mb"`
 	ForkedFromItem          pgtype.UUID        `json:"forked_from_item"`
 	ForkedFromBase          string             `json:"forked_from_base"`
+	BranchArchivedAt        pgtype.Timestamptz `json:"branch_archived_at"`
+	CleanupPendingHead      string             `json:"cleanup_pending_head"`
+	CleanupPendingCaptureID string             `json:"cleanup_pending_capture_id"`
+	DiskReclaimedAt         pgtype.Timestamptz `json:"disk_reclaimed_at"`
 }
 
 type WorkspaceChild struct {

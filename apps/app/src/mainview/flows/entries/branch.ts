@@ -37,6 +37,9 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     await actions.presentBranchCard("terminal", terminal.id, terminal.title)
   }
   return [
+    flow({ name:"branch.archive", slash:"/branch.archive", cli:["branch","archive"], group:"Branches and machines", visibility:"core", actors:["person","app_agent","external_agent"], minimumRole:"member", agent:"confirm", http:{method:"POST",path:"/api/branches/{branch}/archive"}, summary:"Archive a scratch branch", args:"<branch>", hidden:true,
+      grammar:field("branch"), input:BranchInput, confirm:payload=>`archive ${String(payload.branch)}`, confirmArgs:payload=>String(payload.branch),
+      handler:({branch})=>actions.archiveBranch ? actions.archiveBranch(branch) : "Branch unavailable" }),
     flow({ name: "branch.fork", slash: "/branch.fork", cli: ["branch","fork"], journey: ["J7"], group: "Branches and machines", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/branches"}, summary: "Fork a scratch branch", args: "<branch>", hidden: true, discloseToAgent: true,
       grammar: field("from"), agent: "run", input: Schema.Struct({ from: Schema.NonEmptyString, name: Schema.optional(Schema.NonEmptyString) }),
       handler: async ({ from, name }) => {

@@ -19,6 +19,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
@@ -57,6 +58,12 @@ func newCheckoutHarness(t *testing.T, public, autoInit bool) *checkoutHarness {
 	queries := db.New(pool)
 	user := processWorkspaceCreateUser(t, pool, "checkout_owner")
 	repo := processWorkspaceCreateRepo(t, pool, user, "checkout_repo", public)
+	_, err := pool.Exec(t.Context(), `INSERT INTO self_host_owners(user_id) VALUES($1)`, user.ID)
+	require.NoError(t, err)
+	binding := fmt.Sprintf(`{"owner_login":%q,"repository_name":%q,"repository_id":%d,"last_access_check_at":%q}`, repo.Owner, repo.Name, repo.ID, time.Now().UTC().Format(time.RFC3339Nano))
+	for _, key := range []string{"github.repository", "owner.access"} {
+		require.NoError(t, queries.UpsertInstallSetting(t.Context(), db.UpsertInstallSettingParams{Key: key, Value: []byte(binding)}))
+	}
 	local, err := repository.OpenLocal(repository.Config{
 		StoragePath: t.TempDir(), AuthToken: "checkout-engine-token", FFILibraryPath: ffi,
 	})
@@ -103,7 +110,14 @@ func newCheckoutHarness(t *testing.T, public, autoInit bool) *checkoutHarness {
 	require.NoError(t, err)
 	commandCodec, err := webhook.NewSecretCodec("checkout-command-secret")
 	require.NoError(t, err)
+	// Checkout and command receipts use the real trusted-process runtime here.
+	// Only microVM and guest-uid qualification are test seams; membership,
+	// credential authorization and branch binding use the installed providers.
+	providers := services.InstallBranchMachineProviders(identity.NewMemberBoundary(queries), runtime)
+	providers.MicroVM = func(context.Context) error { return nil }
+	providers.SessionIdentity = func(context.Context) error { return nil }
 	workspaceService := services.NewWorkspaceService(queries,
+		services.WithWorkspaceTransactions(pool), services.WithBranchMachineProviders(providers),
 		services.WithWorkspaceRuntime(runtime), services.WithWorkspaceGitBaseURL(server.URL), services.WithWorkspaceCommandJobs(commandJobs, commandCodec))
 	workspaceHandler.Service = workspaceService
 	cookie := processWorkspaceCreateSessionCookie(t, queries, user)
