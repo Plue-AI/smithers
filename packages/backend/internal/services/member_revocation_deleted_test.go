@@ -1,9 +1,12 @@
 package services
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -40,6 +43,7 @@ func testMemberDeletedWorkspaceShares(t *testing.T, recheck bool) {
 	require.NoError(t, err)
 	var repoID int64
 	require.NoError(t, f.m.Pool.QueryRow(ctx, `SELECT repository_id FROM collaborators WHERE id=$1`, f.memberID).Scan(&repoID))
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "owner.access", Value: []byte(fmt.Sprintf(`{"owner_login":"factory","repository_name":"app","repository_id":%d,"last_access_check_at":"2026-10-07T00:00:00Z"}`, repoID))}))
 	// Retain a VM ID on the tombstone to verify it is omitted from revocation.
 	deleted, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repoID, UserID: ownerID, Name: "deleted", Kind: "container", Status: "running", TargetBookmark: "main"})
 	require.NoError(t, err)
@@ -66,7 +70,11 @@ func testMemberDeletedWorkspaceShares(t *testing.T, recheck bool) {
 		require.NoError(t, f.m.Pool.QueryRow(ctx, `SELECT suspended_at IS NOT NULL FROM collaborators WHERE user_id=$1`, later.ID).Scan(&suspended))
 		require.True(t, suspended, "the later member must also be processed")
 	} else {
-		asOwner := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: "owner-session"})
+		sessionDigest := sha256.Sum256([]byte("owner-session"))
+		sessionHash := hex.EncodeToString(sessionDigest[:])
+		_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: owner.ID, Username: owner.Username, SessionKey: sessionHash, ExpiresAt: time.Now().Add(time.Hour)})
+		require.NoError(t, err)
+		asOwner := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: sessionHash})
 		require.NoError(t, f.m.Remove(asOwner, "writer"))
 		require.Zero(t, fetchedCount(t, f.m.Pool, `SELECT count(*) FROM collaborators WHERE github_id=77`))
 	}

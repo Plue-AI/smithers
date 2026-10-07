@@ -384,7 +384,8 @@ func TestMythicalUnreadPullRequestIsNotGated(t *testing.T) {
 	o.github.ci = map[string]string{o.item(361).PRHead: mythicalCIPending}
 	o.github.mu.Unlock()
 	o.answerReviews(`"approve"`)
-	require.Equal(t, "waiting for CI on the approved head", o.item(361).Reason)
+	require.Nil(t, mythicalChecksOf(o.item(361)).CIWait, "a legacy automerge label supplies no person approval")
+	require.Empty(t, o.github.merges)
 	_, err := o.pool.Exec(ctx, `UPDATE mythical_items SET next_attempt_at = now() - interval '1 minute' WHERE id = $1`, o.item(361).ID)
 	require.NoError(t, err)
 	o.service.SetOrchestration(pullsDown{o.github}, o.launcher, o.lanes)
