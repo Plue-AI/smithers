@@ -992,6 +992,9 @@ func (s *WorkspaceService) WorkspaceRuntimeTerminalAvailable() bool {
 }
 
 func (s *WorkspaceService) OpenWorkspaceTerminal(ctx context.Context, sessionID string, repositoryID, userID int64, columns, rows uint16) (workspaceapi.Terminal, error) {
+	if s.credentialIssuer != nil && s.credentialIssuer.TerminalSubject != nil {
+		return nil, pkgerrors.BadRequest("Open a branch terminal")
+	}
 	if !s.WorkspaceRuntimeTerminalAvailable() {
 		return nil, pkgerrors.Internal("workspace terminal unavailable")
 	}
