@@ -57,6 +57,12 @@ test("Settings syncs a Mac folder in both directions without restart", scenario(
   const read = async (path: string) => readFile(path).catch(() => Buffer.alloc(0))
   await setFolder(vault)
   await expect.poll(async () => (await read(join(vault, filename))).toString(), { timeout: 70_000 }).toBe(initial)
+  // Visible bytes precede the durable reconciliation receipt. Wait for the
+  // successful pass before simulating the next independent person edit.
+  await expect.poll(async () => {
+    const sync = (await get("/api/install")).wiki_sync?.obsidian
+    return sync?.path === vault && !sync.error && Boolean(sync.last_sync_at)
+  }, { timeout: 70_000 }).toBe(true)
   await info.attach("folder-before", { body: await read(join(vault, filename)), contentType: "text/markdown" })
   await cp(vault, join(directory, "folder-before"), { recursive: true })
   await writeFile(join(vault, filename), diskEdit)
