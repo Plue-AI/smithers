@@ -35,9 +35,14 @@ func (s *MythicalService) prepareMergeConfirmation(ctx context.Context, tx pgx.T
 	if err != nil || number <= 0 || subject.Ref != "T"+strconv.FormatInt(number, 10) {
 		return p, invalidConfirmation()
 	}
-	request.Head, err = mythicalReviewedHead(request.Head)
-	if err != nil {
-		return p, err
+	// A delegated request asks the person to review; it need not have read
+	// the PR head. Preserve that literal input for idempotent replay while
+	// binding the private card to the head observed under the subject lock.
+	if request.Head != "" {
+		request.Head, err = mythicalReviewedHead(request.Head)
+		if err != nil {
+			return p, err
+		}
 	}
 	p.input, _ = json.Marshal(request)
 	p.subject, _ = json.Marshal(subject)
@@ -57,6 +62,13 @@ func (s *MythicalService) prepareMergeConfirmation(ctx context.Context, tx pgx.T
 	if s.github == nil || s.outbound.MergeDecision == nil || s.outbound.Lookup == nil || s.outbound.PrepareMerge == nil || s.outbound.Settle == nil {
 		return p, confirmationUnavailable()
 	}
+	if request.Head == "" {
+		request.Head, err = mythicalReviewedHead(item.PRHead)
+		if err != nil {
+			return p, confirmationUnavailable()
+		}
+	}
+	p.mergeHead = request.Head
 	if item.PRHead != request.Head {
 		return p, &MythicalStaleHeadError{TodoControlError: *mythicalMergeConflict("stale_head", "the pull request changed since you saw it"), CurrentHead: item.PRHead}
 	}
@@ -139,6 +151,9 @@ func (s *ApprovalsService) admitMergeConfirmation(ctx context.Context, tx pgx.Tx
 	if json.Unmarshal(prepared.subject, &subject) != nil || json.Unmarshal(prepared.input, &request) != nil {
 		return ConfirmationReceipt{}, invalidConfirmation()
 	}
+	// prepare and the stored revision comparison have already rechecked the
+	// exact head shown to this person. Direct MergeTodo still requires a SHA.
+	request.Head = prepared.mergeHead
 	number, _ := strconv.ParseInt(strings.TrimPrefix(subject.Ref, "T"), 10, 64)
 	pressDigest := sha256.Sum256([]byte(key))
 	request.Request = "confirmation:" + id + ":" + hex.EncodeToString(pressDigest[:])
