@@ -21,7 +21,7 @@ import { CallPresentation, FlowActivity, type FlowDescriptor } from "@smthrs/reg
 import { Schema } from "effect"
 import { inspectLabel } from "./internal/inspectLabels.ts"
 import { callScope, openCallIndex } from "./Diagnosis.ts"
-import { engineTraceFromJournal } from "./EngineTrace.ts"
+import { engineExecutionEvidence, engineTraceFromJournal } from "./EngineTrace.ts"
 import { ACTION_RENDERINGS } from "./internal/actionRenderings.ts"
 import { type CallEventFilter, callEventFilter, uniqueCallEvents } from "./internal/callEvents.ts"
 
@@ -2308,6 +2308,18 @@ export const monitorFromJournal = (run: TraceRun, records: ReadonlyArray<Journal
       label: row.label, ...(row.detail.output === undefined ? {} : { output: row.detail.output }),
       tone: tone(row.status) }]
   }))
+  const declaredGraph = engineExecutionEvidence(journal).filter(execution => execution.coherent).flatMap(execution => {
+    const prefix = `engine-node:${encodeURIComponent(`${encodeURIComponent(execution.executionId)}:${execution.generation}`)}:`
+    return (execution.graph?.nodes ?? []).map(node => {
+      const id = prefix + encodeURIComponent(node.id)
+      const instances = calls.filter(row => row.id.startsWith(`${id}#`))
+      const current = instances.at(-1)
+      return { id, label: inspectLabel(node.action ?? node.id),
+        state: current === undefined ? "next" as const : current.status === "completed" ? "done" as const
+          : current.status === "failed" ? "failed" as const : current.status === "waiting" ? "waiting" as const : "current" as const,
+        deps: node.dependsOn.map(dependency => prefix + encodeURIComponent(dependency)) }
+    })
+  })
   const waits = trace.rows.filter(row => row.kind === "approval").map(row => ({
     id: row.id, kind: "approval" as const, label: row.label, since: new Date(row.startedAt).toISOString(),
     ...(row.endedAt === undefined ? {} : { settled: { by: { kind: "system" as const, color_index: 7 as const }, at: new Date(row.endedAt).toISOString() } })
@@ -2315,7 +2327,7 @@ export const monitorFromJournal = (run: TraceRun, records: ReadonlyArray<Journal
   return {
     id: run.runId, flow: run.flowId, version: "", title: run.flowId, state: state(status),
     attempts: [{ n: 1, run_id: run.runId, state: state(status), steps, phases,
-      graph: calls.map(row => ({ id: row.id, label: row.label, state: row.status === "completed" ? "done" as const
+      graph: declaredGraph.length > 0 ? declaredGraph : calls.map(row => ({ id: row.id, label: row.label, state: row.status === "completed" ? "done" as const
         : row.status === "failed" ? "failed" as const : row.status === "waiting" ? "waiting" as const : "current" as const, deps: [] as string[] })) }],
     waits, tokens: trace.rows.reduce((total, row) => total + (row.detail.usage?.inputTokens ?? 0) + (row.detail.usage?.outputTokens ?? 0), 0),
     time_s: Math.max(0, trace.extent.end - trace.extent.start) / 1000, cost_usd: 0,
