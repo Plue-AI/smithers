@@ -687,8 +687,12 @@ func todoPinnedEngineLaunches(t *testing.T, review string) {
 	require.Len(t, retainedPlan.Checks, 1)
 	require.Equal(t, "test", retainedPlan.Checks[0].ID, "candidate and rebase checks persist in the same write")
 	require.Equal(t, todoPinOne, item.FlowDigest.String, "the pin stays the attempt's")
-	o.wake()
-	require.Equal(t, "proposing", o.byID(id).State)
+	// Dispatcher projections can hold the stack lock during a wake. Wait for
+	// the durable transition, rather than treating one skipped wake as failure.
+	require.Eventually(t, func() bool {
+		o.wake()
+		return o.byID(id).State == "proposing"
+	}, 10*time.Second, 10*time.Millisecond)
 	require.Equal(t, candidate, o.hostRef(repohost.MythicalReservedRefNS+"keep/"+candidate))
 	o.wake()
 	require.Equal(t, mythicalPublicationUnavailable, o.byID(id).Reason, "publication stays the PR lane's gate")
