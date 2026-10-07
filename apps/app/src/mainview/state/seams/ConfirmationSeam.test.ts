@@ -206,3 +206,25 @@ test("Merge admission stays pending, observes its subject, and a definitive refu
     expect(keys).toEqual([`confirmation:${id}:approved:0`, `confirmation:${id}:approved:1`])
   } finally { h.seam.dispose() }
 })
+
+
+test("Wiki Delete keeps progress through the press and settles from its committed private receipt", async () => {
+  const request = deferred<Response>()
+  const h = await harness(async () => request.promise)
+  const wiki: MemberConfirmation = { ...pending, command: "wiki.delete", revision: "7:2", payload: { input: { owner: "ben", repo: "app" },
+    card: { ...pending.payload.card, action: { tag: "wiki.delete", verb: "Delete" }, subject: { kind: "wiki", ref: "home", revision: "7:2" } } } }
+  try {
+    h.publish({ topic: "confirmations:17", data: [wiki] })
+    h.seam.decide(id, "approved")
+    await waitFor(() => h.store.collections.toasts.size === 1)
+    expect(h.outcomes).toEqual([])
+    request.resolve(Response.json({ id, state: "approved" }))
+    await settle()
+    expect(h.outcomes).toEqual([])
+    h.publish({ topic: "confirmations:17", data: [{ ...wiki, state: "approved", payload: { ...wiki.payload,
+      card: { ...wiki.payload.card, receipt: { ...fixtures.done.model.receipt!, text: "Deleted" } } } }] })
+    await waitFor(() => h.outcomes.length === 1)
+    expect(h.outcomes).toEqual([{ key: `todo.request.confirmation:${id}`, status: "ok", detail: "Deleted" }])
+    expect(h.store.collections.toasts.get(`toast-todo.request.confirmation:${id}`)?.status).toBe("ok")
+  } finally { h.seam.dispose() }
+})

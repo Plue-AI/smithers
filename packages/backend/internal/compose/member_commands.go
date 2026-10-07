@@ -516,6 +516,18 @@ func dispatchConfirmation(w http.ResponseWriter, r *http.Request, command string
 			input.Payload, _ = json.Marshal(body)
 		}
 	}
+	if command == "wiki.delete" {
+		parts := strings.Split(r.URL.EscapedPath(), "/")
+		if len(parts) != 7 {
+			writeConfirmationDispatchError(w, &services.AccessError{Status: 400, Class: "user", Code: "invalid_confirmation", Message: "Invalid wiki page"})
+			return true
+		}
+		owner, _ := url.PathUnescape(parts[3])
+		repo, _ := url.PathUnescape(parts[4])
+		slug, _ := url.PathUnescape(parts[6])
+		input.Subject, _ = json.Marshal(map[string]string{"kind": "wiki", "ref": slug})
+		input.Payload, _ = json.Marshal(map[string]string{"owner": owner, "repo": repo, "visibility": r.URL.Query().Get("visibility")})
+	}
 	if command == "learning.accept" || command == "learning.dismiss" {
 		part := strings.TrimPrefix(r.URL.EscapedPath(), "/api/proposals/")
 		ref, _, ok := strings.Cut(part, "/")
