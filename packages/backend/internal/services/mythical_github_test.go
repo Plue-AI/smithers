@@ -226,16 +226,18 @@ func TestMythicalGitHubReadPushSourcePreservesMintFailure(t *testing.T) {
 func TestMythicalGitHubPushActorExactBindingAndFallback(t *testing.T) {
 	const activityPath = "GET /repos/o/r/activity?direction=desc&per_page=100&ref=refs%2Fheads%2Fsmithers%2Fretry"
 	const head = "1111111111111111111111111111111111111111"
-	const event = `{"ref":"refs/heads/smithers/retry","after":"1111111111111111111111111111111111111111","pusher":{"id":4,"login":"alice","type":"User"}}`
+	const event = `{"ref":"refs/heads/smithers/retry","after":"1111111111111111111111111111111111111111","actor":{"id":4,"login":"alice","type":"User"}}`
 	for _, tc := range []struct {
 		name, activity, author, login string
 		status, calls                 int
 		fail                          bool
 	}{
 		{"exact", "[" + event + "]", "", "alice", 200, 1, false},
-		{"wrong ref", `[{"ref":"refs/heads/smithers/other","after":"` + head + `","pusher":{"id":8,"login":"wrong"}}]`, `{"sha":"` + head + `","author":{"id":5,"login":"author","type":"User"}}`, "author", 200, 2, false},
-		{"wrong head", `[{"ref":"refs/heads/smithers/retry","after":"2222222222222222222222222222222222222222","pusher":{"id":8,"login":"wrong"}}]`, `{"sha":"` + head + `","author":{"id":5,"login":"author"}}`, "author", 200, 2, false},
-		{"missing pusher ignores older repeat", `[{"ref":"refs/heads/smithers/retry","after":"` + head + `","pusher":null},` + event + `]`, `{"sha":"` + head + `","author":{"id":5,"login":"author"}}`, "author", 200, 2, false},
+		{"wrong ref", `[{"ref":"refs/heads/smithers/other","after":"` + head + `","actor":{"id":8,"login":"wrong"}}]`, `{"sha":"` + head + `","author":{"id":5,"login":"author","type":"User"}}`, "author", 200, 2, false},
+		{"wrong head", `[{"ref":"refs/heads/smithers/retry","after":"2222222222222222222222222222222222222222","actor":{"id":8,"login":"wrong"}}]`, `{"sha":"` + head + `","author":{"id":5,"login":"author"}}`, "author", 200, 2, false},
+		{"missing actor ignores older repeat", `[{"ref":"refs/heads/smithers/retry","after":"` + head + `","actor":null},` + event + `]`, `{"sha":"` + head + `","author":{"id":5,"login":"author"}}`, "author", 200, 2, false},
+		// GitHub's activity names the person "actor"; a "pusher" key is not GitHub's shape.
+		{"pusher key is not the actor", `[{"ref":"refs/heads/smithers/retry","after":"` + head + `","pusher":{"id":8,"login":"wrong"},"actor":null}]`, `{"sha":"` + head + `","author":{"id":5,"login":"author"}}`, "author", 200, 2, false},
 		{"no activity", `[]`, `{"sha":"` + head + `","author":{"id":5,"login":"author"}}`, "author", 200, 2, false},
 		{"wrong commit", `[]`, `{"sha":"2222222222222222222222222222222222222222","author":{"id":5,"login":"author"}}`, "", 200, 2, true},
 		{"unlinked commit author", `[]`, `{"sha":"` + head + `","author":null,"commit":{"author":{"name":"Not a GitHub login"}}}`, "", 200, 2, true},
@@ -331,7 +333,7 @@ func TestMythicalGitHubPushActorPagination(t *testing.T) {
 					w.Header().Set("Link", "<"+path+"?after="+strconv.Itoa(page+1)+">; rel=\"next\"")
 					_, _ = io.WriteString(w, `[]`)
 				} else {
-					_, _ = io.WriteString(w, `[{"ref":"refs/heads/smithers/retry","after":"`+head+`","pusher":{"id":4,"login":"alice"}}]`)
+					_, _ = io.WriteString(w, `[{"ref":"refs/heads/smithers/retry","after":"`+head+`","actor":{"id":4,"login":"alice"}}]`)
 				}
 			}
 		}

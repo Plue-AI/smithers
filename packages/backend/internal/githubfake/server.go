@@ -159,6 +159,8 @@ type Server struct {
 	pullReviews map[string][]PullReview
 	reviewIDs   int64
 	down        bool
+	// activity are the pushes PushAs recorded, by repo, oldest first.
+	activity map[string][]PushActivity
 }
 
 // FailNextWrites makes the next n writes to path answer 502 and apply
@@ -625,7 +627,8 @@ func Handler(config Config) (*Server, error) {
 		grants: make(map[string]map[string]string), lost: make(map[string]int), failures: make(map[string]int), unread: make(map[string]int), hooks: make(map[string]func()),
 		labels: make(map[string][]string), main: make(map[string]bool), heldTip: make(map[string]string), refusals: make(map[string]Refusal), delayed: make(map[string]bool), checks: make(map[string][]CheckRun),
 		accounts: make(map[int64]string), access: make(map[string]string), reviews: make(map[string]map[string]string), pullReviews: make(map[string][]PullReview),
-		opened: make(map[string]*issue), events: make(map[string][]IssueEvent), comments: make(map[string][]IssueComment), eventIDs: 1000}
+		opened: make(map[string]*issue), events: make(map[string][]IssueEvent), comments: make(map[string][]IssueComment), eventIDs: 1000,
+		activity: make(map[string][]PushActivity)}
 	s.codes = make(map[string]string)
 	s.signIns = make(map[string]int64)
 	if config.OAuthCode != "" {
@@ -1213,6 +1216,9 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 			return 200, map[string]any{"status": "ahead", "ahead_by": 1, "behind_by": 0}
 		}
 		return failure(404, "No common ancestor between main and "+head)
+	}
+	if r.Method == http.MethodGet && len(path) == 1 && path[0] == "activity" {
+		return s.repositoryActivity(r, repo)
 	}
 	if len(path) == 0 || path[0] != "pulls" {
 		return failure(404, "endpoint not found")

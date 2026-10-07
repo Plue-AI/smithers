@@ -460,9 +460,12 @@ func (g *mythicalGitHubAPI) PushActor(ctx context.Context, gh mythicalGitHubRepo
 			return gitHubActor{}, errors.New("GitHub activity cursor repeated")
 		}
 		seen[key] = true
+		// GitHub names the person who pushed "actor" (List repository
+		// activities); a null actor falls through to the commit's author.
 		var activity []struct {
-			Ref, After string
-			Pusher     gitHubActor
+			Ref   string      `json:"ref"`
+			After string      `json:"after"`
+			Actor gitHubActor `json:"actor"`
 		}
 		status, headers, err := g.api.requestHeaders(ctx, gh.Token, http.MethodGet, path+"?"+key, "", nil, &activity)
 		if err != nil {
@@ -477,8 +480,8 @@ func (g *mythicalGitHubAPI) PushActor(ctx context.Context, gh mythicalGitHubRepo
 		matched := false
 		for _, event := range activity {
 			if event.Ref == ref && event.After == head {
-				if event.Pusher.ID > 0 && strings.TrimSpace(event.Pusher.Login) != "" {
-					return event.Pusher, nil
+				if event.Actor.ID > 0 && strings.TrimSpace(event.Actor.Login) != "" {
+					return event.Actor, nil
 				}
 				// An older push of the same SHA is not the current pusher.
 				matched = true
