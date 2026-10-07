@@ -368,3 +368,18 @@ test("an account change ignores an earlier background admission response", async
     expect(h.requests.filter(row => row.includes("/api/runs/8"))).toEqual([])
   } finally { h.controller.dispose() }
 })
+
+test("install background failure keeps transport details out of the durable request and toast", async () => {
+  const bootstrap: AppBootstrap = { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null }
+  const h = await boot({ bootstrap, fetch: (url, init) => {
+    if (new URL(url, "http://local.test").pathname === "/api/runs/7" && init?.method === "POST") throw new Error("RAW PRIVATE TRANSPORT TRACE")
+    return undefined
+  } })
+  try {
+    expect(await button(h, "background.retry", { id: "7" })).toMatchObject({ status: "executed", value: "Requested" })
+    await waitFor(() => h.store.session().homeBackgroundRequests?.[0]?.state === "failed")
+    expect(h.store.session().homeBackgroundRequests?.[0]?.error).toBe("Run action failed")
+    await waitFor(() => [...h.store.collections.toasts.values()].some(row => row.key.startsWith("background.") && row.status === "failed"))
+    expect(JSON.stringify([...h.store.collections.toasts.values()])).not.toContain("RAW PRIVATE TRANSPORT TRACE")
+  } finally { await h.controller.dispose() }
+})
