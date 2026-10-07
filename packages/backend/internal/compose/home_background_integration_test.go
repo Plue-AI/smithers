@@ -118,6 +118,22 @@ func TestHomeBackgroundRetryIdempotent(t *testing.T) {
 		t.Cleanup(func() { response.Body.Close() })
 		return response
 	}
+	t.Run("HomeBackgroundAdmissionRefusals", func(t *testing.T) {
+		require.Equal(t, 400, post("home-member", "retry", "").StatusCode)
+		require.Equal(t, 400, post("home-member", "delete", "invalid").StatusCode)
+		_, err = pool.Exec(ctx, `UPDATE workflow_runs SET status='success' WHERE id=$1`, failed.ID)
+		require.NoError(t, err)
+		require.Equal(t, 409, post("home-member", "dismiss", "completed").StatusCode)
+		require.Equal(t, 409, post("home-member", "retry", "completed").StatusCode)
+		_, err = pool.Exec(ctx, `UPDATE workflow_runs SET status='failure' WHERE id=$1`, failed.ID)
+		require.NoError(t, err)
+		var count int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workflow_runs WHERE repository_id=$1`, repo).Scan(&count))
+		require.Equal(t, 1, count)
+		var dismissed bool
+		require.NoError(t, pool.QueryRow(ctx, `SELECT dismissed_at IS NOT NULL FROM workflow_runs WHERE id=$1`, failed.ID).Scan(&dismissed))
+		require.False(t, dismissed)
+	})
 	first := post("home-member", "retry", "one")
 	if first.StatusCode != 202 {
 		var refusal any
