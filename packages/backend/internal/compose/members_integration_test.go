@@ -27,6 +27,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/sse"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
@@ -356,6 +357,26 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	require.True(t, pending)
 	require.Equal(t, "writer", unixLogin)
 	firstUID := uid
+	machine, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: owner.ID, TargetBookmark: "mythical", Kind: "container", Status: "running", EnvironmentSource: "repository"})
+	require.NoError(t, err)
+	provisioning := &machineRoster{pool: pool}
+	assertProvisioningWriter := func(present bool) {
+		t.Helper()
+		require.NoError(t, provisioning.withProvisioningRoster(ctx, machine.ID, func(roster []microsandbox.MemberIdentity) error {
+			found := false
+			for _, member := range roster {
+				if member.Login == "writer" {
+					require.Equal(t, uid, member.UID)
+					require.True(t, member.Active)
+					found = true
+				}
+			}
+			require.Equal(t, present, found, "provisioning reads the current HTTP-mutated roster")
+			return nil
+		}))
+	}
+	assertProvisioningWriter(true)
+
 	require.GreaterOrEqual(t, uid, 20000)
 	// OAuth start/callback uses the composed router and production HTTP client.
 	login := func(name string, want int) string {
@@ -554,6 +575,7 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM collaborators WHERE unix_login='writer' AND user_id IS NULL AND github_id IS NULL AND suspended_at IS NOT NULL`).Scan(&count))
 	require.Zero(t, count, "main removes the roster row")
+	assertProvisioningWriter(false)
 	status, body = request("GET", "/api/members", "", "owner-cookie")
 	require.Equal(t, 200, status, body)
 	require.NotContains(t, body, `"login":"writer"`)
@@ -565,6 +587,7 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT unix_uid,unix_login FROM collaborators WHERE github_id=102`).Scan(&uid, &unixLogin))
 	require.NotEqual(t, firstUID, uid, "main re-admission creates a fresh roster allocation")
 	require.Equal(t, "writer", unixLogin, "the fresh roster row receives the available login")
+	assertProvisioningWriter(true)
 	login("writer", 302)
 	createSession(writer, "writer-cookie-2")
 	status, body = request("GET", "/api/members", "", "writer-cookie-2")
