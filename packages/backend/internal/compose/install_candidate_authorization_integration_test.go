@@ -2,6 +2,7 @@ package compose
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -118,6 +120,50 @@ func TestInstallCandidateAuthorizationPostgres(t *testing.T) {
 	require.Equal(t, "integrating", row.State)
 	call(run, input, 202)
 	afterReplay := reads.Load()
+	t.Run("stack lock precedes repository reads on replay", func(t *testing.T) {
+		tx, err := f.pool.Begin(f.ctx)
+		require.NoError(t, err)
+		defer func() { _ = tx.Rollback(context.Background()) }()
+		_, err = tx.Exec(f.ctx, `SELECT repository_id FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, f.repoID)
+		require.NoError(t, err)
+		raw, err := json.Marshal(input)
+		require.NoError(t, err)
+		ctx, cancel := context.WithTimeout(f.ctx, time.Second)
+		defer cancel()
+		req := httptest.NewRequest("PUT", "http://example.com/api/repos/gate-owner/app/mythical/lanes", bytes.NewReader(raw)).WithContext(ctx)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+run)
+		out := httptest.NewRecorder()
+		router.ServeHTTP(out, req)
+		require.ErrorIs(t, ctx.Err(), context.DeadlineExceeded)
+		require.NotEqual(t, 202, out.Code, out.Body.String())
+		require.Equal(t, afterReplay, reads.Load(), "admission waits behind publication before reading refs")
+		require.NoError(t, tx.Rollback(f.ctx))
+		call(run, input, 202)
+		afterReplay = reads.Load()
+	})
+	t.Run("merge fence and closed items refuse equal-source replay before repository reads", func(t *testing.T) {
+		for _, state := range []string{"merging", "landed", "cancelled", "rejected", "declined", "skipped"} {
+			t.Run(state, func(t *testing.T) {
+				if state == "merging" {
+					_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET pending_op=jsonb_build_object('kind','merge','target','1','desired',$2::text,'state','intended') WHERE id=$1`, itemID, source)
+				} else {
+					_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET state=$2,pending_op=NULL WHERE id=$1`, itemID, state)
+				}
+				require.NoError(t, err)
+				call(run, input, 409)
+				require.Equal(t, afterReplay, reads.Load())
+				retained, err := f.q.GetMythicalItemByNumber(f.ctx, f.repoID, 1)
+				require.NoError(t, err)
+				require.Equal(t, source, retained.CandidateHead)
+				require.True(t, retained.CandidateVerified)
+			})
+		}
+		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET state='integrating',pending_op=NULL WHERE id=$1`, itemID)
+		require.NoError(t, err)
+		call(run, input, 202)
+		afterReplay = reads.Load()
+	})
 	call(run, stale, 403)
 	require.Equal(t, afterReplay, reads.Load(), "stale replay is refused before ref reads or receipt disclosure")
 	_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='replacement-run',generation=generation+1 WHERE id=$1`, itemID)

@@ -342,6 +342,12 @@ func (s *MythicalService) SubmitLane(ctx context.Context, repositoryID, userID i
 	if repository != repositoryID {
 		return MythicalLaneReceipt{}, confirmationPermission()
 	}
+	// Publication, head reports and stack mutations all lock the stack before
+	// its items. Admission must participate in that same ordering, including
+	// replays of a previously retained candidate.
+	if _, err := tx.Exec(live, `SELECT repository_id FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, repositoryID); err != nil {
+		return MythicalLaneReceipt{}, err
+	}
 	if _, err := tx.Exec(live, `SELECT workspace_id FROM mythical_lanes WHERE workspace_id=$1 FOR SHARE`, subject.WorkspaceID); err != nil {
 		return MythicalLaneReceipt{}, err
 	}
@@ -356,6 +362,16 @@ func (s *MythicalService) SubmitLane(ctx context.Context, repositoryID, userID i
 	}
 	if _, err := authorizeStackCandidate(live, db.New(tx), subject); err != nil {
 		return MythicalLaneReceipt{}, err
+	}
+	item, err := db.New(tx).GetMythicalItemByNumber(live, repositoryID, subject.TodoNumber)
+	if err != nil {
+		return MythicalLaneReceipt{}, err
+	}
+	if mythicalMergeFenced(item) {
+		return MythicalLaneReceipt{}, pkgerrors.Conflict("a merge is in flight")
+	}
+	if item.State == "landed" || item.State == "cancelled" || item.State == "rejected" || item.State == "declined" || item.State == "skipped" {
+		return MythicalLaneReceipt{}, pkgerrors.Conflict("TODO is closed")
 	}
 	scoped := *s
 	scoped.store = tx
