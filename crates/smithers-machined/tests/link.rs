@@ -858,7 +858,10 @@ fn capture_delivery_case(mode: &str) {
             ]))
         }
     }
-    let dir = tempfile::tempdir().unwrap();
+    let dir = match std::env::var_os("MACHINED_DELIVERY_FAULT_ROOT") {
+        Some(root) => tempfile::tempdir_in(root).unwrap(),
+        None => tempfile::tempdir().unwrap(),
+    };
     std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     let outbox_dir = dir.path().join("outbox");
     std::fs::create_dir(&outbox_dir).unwrap();
@@ -956,7 +959,9 @@ fn capture_delivery_case(mode: &str) {
             ],
         ),
     };
-    request(3, 4).write(&mut stream).unwrap();
+    if mode != "fault" {
+        request(3, 4).write(&mut stream).unwrap();
+    }
     request(4, 1).write(&mut stream).unwrap();
     let mut status = false;
     let mut receipts = 0;
@@ -1188,4 +1193,96 @@ fn authenticated_wake_starts_cadence_and_disconnect_keeps_capturing() {
     check(611, 3);
     check(612, 4);
     assert_eq!(timers.cleanups.load(SeqCst), 2); // Disconnected local capture does not wait for host receipts.
+}
+
+// Authenticated daemon/socket and real durable disk queue evidence. The bundle
+// provider and refs are fixtures, so this does not qualify the integrated VM,
+// host object-store and PostgreSQL C-DUR-04 campaign.
+#[cfg(all(feature = "killpoints", debug_assertions))]
+#[test]
+fn authenticated_delivery_killpoints_replay_ten_runs_each() {
+    use smithers_machined::{hooks, outbox::Outbox, outbox_store::Store};
+    use std::{io, process::Command};
+    struct References;
+    impl smithers_machined::outbox::Refs for References {
+        fn pin_and_sync(&mut self, _: [u8; 16], _: hooks::Oid) -> io::Result<()> {
+            Ok(())
+        }
+        fn acknowledge_and_sync(&mut self, _: hooks::Oid) -> io::Result<()> {
+            Ok(())
+        }
+        fn unpin(&mut self, _: [u8; 16]) -> io::Result<()> {
+            Ok(())
+        }
+        fn pending(&mut self) -> io::Result<Vec<[u8; 16]>> {
+            Ok(vec![])
+        }
+    }
+    for point in ["K3b", "K5b", "K5c"] {
+        for run in 1..=10 {
+            let root = tempfile::tempdir().unwrap();
+            let output = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "authenticated_delivery_fault_child",
+                    "--nocapture",
+                ])
+                .env("MACHINED_DELIVERY_FAULT_ROOT", root.path())
+                .env("SMITHERS_MACHINED_KILL_AT", point)
+                .output()
+                .unwrap();
+            assert_eq!(
+                output.status.code(),
+                Some(73),
+                "{point} run {run}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let directories = std::fs::read_dir(root.path())
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            assert_eq!(directories.len(), 1);
+            let path = directories[0].path().join("outbox");
+            let owner = rustix::process::geteuid().as_raw();
+            let mut outbox =
+                Outbox::open(Store::open(&path, owner).unwrap(), owner, References).unwrap();
+            assert_eq!(
+                outbox.depth(),
+                1,
+                "{point} must leave the unacknowledged capture queued"
+            );
+            let retained = outbox.front().unwrap().unwrap();
+            assert_ne!(retained.id, [0; 16]);
+            assert_eq!(
+                retained.event,
+                smithers_machined::outbox::captured([10; 20], [9; 20], [8; 20])
+            );
+            let replay = outbox.after_bundle(retained.seq).unwrap();
+            assert_eq!(replay, retained.frame());
+            outbox.reconnect();
+            assert_eq!(outbox.after_bundle(retained.seq).unwrap(), replay);
+            let ack = Frame {
+                kind: 2,
+                stream: 0,
+                payload: conn::tagged(
+                    3,
+                    &[
+                        conn::field(1, retained.seq.to_be_bytes()),
+                        conn::field(2, [2]),
+                    ],
+                ),
+            };
+            outbox.acknowledge(&ack).unwrap();
+            assert_eq!(outbox.depth(), 0);
+        }
+    }
+}
+
+#[cfg(all(feature = "killpoints", debug_assertions))]
+#[test]
+fn authenticated_delivery_fault_child() {
+    if std::env::var_os("MACHINED_DELIVERY_FAULT_ROOT").is_some() {
+        capture_delivery_case("fault");
+        panic!("delivery killpoint did not fire");
+    }
 }

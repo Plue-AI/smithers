@@ -28,12 +28,16 @@ enum Sending<R> {
 pub struct Delivery<B: Bundles> {
     bundles: B,
     sending: Sending<B::Source>,
+    #[cfg(all(feature = "killpoints", debug_assertions))]
+    capture_stream: Option<u32>,
 }
 impl<B: Bundles> Delivery<B> {
     pub fn new(bundles: B) -> Self {
         Self {
             bundles,
             sending: Sending::Idle,
+            #[cfg(all(feature = "killpoints", debug_assertions))]
+            capture_stream: None,
         }
     }
     pub fn begin<R: crate::outbox::Refs>(
@@ -48,6 +52,10 @@ impl<B: Bundles> Delivery<B> {
             return Ok(false);
         };
         let source = self.bundles.export(&event, outbox.haves())?;
+        #[cfg(all(feature = "killpoints", debug_assertions))]
+        {
+            self.capture_stream = event.captured_head().map(|_| stream);
+        }
         self.sending = Sending::Bundle(event.seq, BundleSender::new(stream, source)?);
         Ok(true)
     }
@@ -68,6 +76,8 @@ impl<B: Bundles> Delivery<B> {
                 if !sender.verified() {
                     return Ok(None);
                 }
+                #[cfg(all(feature = "killpoints", debug_assertions))]
+                crate::events::killpoint("K3b");
                 let event = outbox.after_bundle(*seq)?;
                 self.sending = Sending::Receipt;
                 Ok(Some(event))
@@ -80,9 +90,31 @@ impl<B: Bundles> Delivery<B> {
             Sending::Idle => Err(io::ErrorKind::InvalidData.into()),
         }
     }
+    /// Called only after the authenticated socket write succeeds.
+    #[cfg(all(feature = "killpoints", debug_assertions))]
+    pub(crate) fn sent(&mut self, frame: &Frame) {
+        if frame.kind == 6
+            && frame.payload.first() == Some(&1)
+            && self.capture_stream == Some(frame.stream)
+        {
+            self.capture_stream = None;
+            crate::events::killpoint("K5b");
+        }
+        if frame.kind == 2
+            && crate::conn::Durable::decode(&frame.payload)
+                .is_ok_and(|event| event.captured_head().is_some())
+        {
+            crate::events::killpoint("K5c");
+        }
+    }
+
     /// A Welcome starts replay from disk and invalidates the previous stream.
     pub fn reconnect<R: crate::outbox::Refs>(&mut self, outbox: &mut crate::outbox::Outbox<R>) {
         self.sending = Sending::Idle;
+        #[cfg(all(feature = "killpoints", debug_assertions))]
+        {
+            self.capture_stream = None;
+        }
         outbox.reconnect();
     }
 }

@@ -69,6 +69,8 @@ impl Daemon {
         let session_reconciled = self.reconciled.clone();
         let session_roster = self.roster.clone();
         let responder_generation = self.generation.clone();
+        #[cfg(all(feature = "killpoints", debug_assertions))]
+        let fault_events = self.hooks.events.clone();
         let responder = std::thread::spawn(move || {
             // A capture's local phase runs on the mutation executor, but its
             // reply waits here while the same pump transfers bytes and accepts
@@ -108,6 +110,8 @@ impl Daemon {
                                 if frame.write(&mut *socket).is_err() {
                                     break;
                                 }
+                                #[cfg(all(feature = "killpoints", debug_assertions))]
+                                fault_events.sent(&frame);
                             }
                         }
                     }
@@ -147,7 +151,14 @@ impl Daemon {
                     frames.append(&mut captures);
                 }
                 let Ok(mut socket) = output.lock() else { break };
-                if frames.iter().any(|f| f.write(&mut *socket).is_err()) {
+                if frames.iter().any(|f| {
+                    if f.write(&mut *socket).is_err() {
+                        return true;
+                    }
+                    #[cfg(all(feature = "killpoints", debug_assertions))]
+                    fault_events.sent(f);
+                    false
+                }) {
                     break;
                 }
             }

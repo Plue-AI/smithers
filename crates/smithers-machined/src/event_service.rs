@@ -98,6 +98,13 @@ impl<R: Refs + Send, B: Bundles + Send> EventSink for Events<R, B>
 where
     B::Source: Send,
 {
+    #[cfg(all(feature = "killpoints", debug_assertions))]
+    fn sent(&self, frame: &Frame) {
+        if let Ok(mut state) = self.state.lock() {
+            state.delivery.sent(frame);
+        }
+    }
+
     fn presence(&self, payload: &[u8]) -> hooks::Result<()> {
         let frame = Frame {
             kind: 3,

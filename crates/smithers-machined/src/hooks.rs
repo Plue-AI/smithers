@@ -228,6 +228,9 @@ pub trait Broker: Send + Sync {
     }
 }
 pub trait EventSink: Send + Sync {
+    /// Fault builds observe completed socket writes, never queued frames.
+    #[cfg(all(feature = "killpoints", debug_assertions))]
+    fn sent(&self, _frame: &Frame) {}
     /// Monotonic durable burst-close generation; capture events do not count.
     fn burst_generation(&self) -> u64 {
         0
