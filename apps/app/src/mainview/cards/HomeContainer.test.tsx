@@ -316,15 +316,21 @@ test("production props alone keep the seed until the home topic serves data; the
 test("the install Home reads the live seam and disabled title actions never launch a flow", async () => {
   const b = browser(), h = seeded(MAYA, true, "smithersai")
   h.controller.design.dispose()
-  const controller = { ...h.controller, design: createDesignWorld({ enabled: false }) } as AppController
+  const installed = installFixture(); installed.capacity = 9
+  const installedSnapshot = { model: installed }
+  const controller = { ...h.controller, design: createDesignWorld({ enabled: false }),
+    installSnapshots: { get: () => installedSnapshot, subscribe: () => () => {} } } as AppController
   try {
     await act(async () => b.root.render(<ControllerTestProvider controller={controller}><HomeCard /></ControllerTestProvider>))
     expect(b.host.textContent).not.toContain("Stripe")
     const row = fixtures.active.model.items[0]!
     await b.answer({ t: "snap", cursor: 1, data: { ...fixtures.fresh.model, repository: "install-owner/repo",
+      machines: { in_use: 0, capacity: 2, slots: [] },
       items: [{ ...row, title: "Real served TODO", actions: [{ tag: "todo", label: "Real served TODO", args: { n: "8", door: "title" }, disabled: { reason: "Permission missing" } }] }] } })
     expect(b.host.querySelector("h2")?.textContent).toBe("install-owner/repo")
     expect(b.host.textContent).toContain("Real served TODO")
+    expect(b.host.textContent).toContain("0/2 machines")
+    expect(b.host.textContent).not.toContain("0/9 machines")
     expect(b.host.textContent).toContain("Permission missing")
     const title = b.host.querySelector<HTMLButtonElement>('.stack-title button[data-flow="todo"]')!
     expect(title.disabled).toBe(true)

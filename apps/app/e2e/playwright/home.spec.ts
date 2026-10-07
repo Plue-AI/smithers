@@ -1,5 +1,6 @@
 import { expect, test } from "./browserTest"
 import type { Page } from "./browserTest"
+import { fillComposer } from "./composer"
 
 /*
  * The Home card (T-APP-01) on the seeded design world: it stands first in
@@ -113,11 +114,18 @@ test("T-UI-06 Home sync, actions, keyboard menu and inert text in both Paper the
   }
 })
 
-test("install Home keeps the next Merge after an earlier item merged and exposes reorder controls", async ({ page }) => {
+test("install Home keeps the next Merge after an earlier item merged and exposes reorder controls", async ({ page, baseURL }) => {
   const { installCloudFixture } = await import("./cloudFixture")
   const { fixtures } = await import("@smthrs/rpc/fixtures/Todo")
   await installCloudFixture(page, { capabilities: ["agent", "identity", "install"] })
-  let login = "ben"
+  // Bind each intercepted request to the session that sent it. A teardown
+  // request from Ben must never be written into Alice's view after navigation.
+  const principal = (headers: Record<string, string>) => headers.cookie?.match(/home_member=(ben|alice|maya)/)?.[1] ?? "ben"
+  const signIn = async (login: string) => {
+    await page.goto("about:blank")
+    await page.context().addCookies([{ name: "home_member", value: login, url: baseURL! }])
+    await page.goto("/")
+  }
   const memberViews: Record<string, Record<string, unknown>> = {
     ben: { scroll_anchor: "entry-8", last_seen_seq: 12, home: { filter: null }, toasts_hidden: false },
     alice: { home: { filter: null }, toasts_hidden: false },
@@ -125,13 +133,17 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
   }
   const viewWrites: Array<{ login: string; body: unknown }> = []
   await page.route("**/api/conversations/main/view-state", route => {
+    const login = principal(route.request().headers())
     if (route.request().method() === "PUT") {
       const body = route.request().postDataJSON()
       viewWrites.push({ login, body }); memberViews[login] = body
     }
     return route.fulfill({ json: memberViews[login] })
   })
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: login, is_admin: false } }))
+  await page.route("**/api/user", route => {
+    const login = principal(route.request().headers())
+    return route.fulfill({ json: { id: { ben: 1, alice: 2, maya: 3 }[login], username: login, is_admin: false } })
+  })
   await page.route("**/api/install", route => route.fulfill({ json: {
     steps: ["address", "app_manifest", "sign_in", "repository", "models", "source", "machine"].map(id => ({ id, state: "done" })), capacity: 2, this_mac: { capacity: 2, memory_gb: 16, disk_free_gb: 100 },
     github: { app_installed: true, signed_in: true, owner: "maya", squash_allowed: true },
@@ -175,7 +187,7 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
     }
     return route.fulfill({ json: currentTodos().find(todo => todo.n === 3) })
   })
-  await page.goto("/")
+  await signIn("ben")
   const home = page.locator(".home").first()
   await expect(home).toBeVisible()
   await expect(home.locator(".stack-row .ref")).toHaveText(["T2", "T3"])
@@ -209,11 +221,8 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
   await expect(home.locator(".stack-row .ref")).toHaveText(["T3"])
   await expect(home.locator('[data-filter="in_review"]')).toContainText("1")
 
-  // Navigation has already persisted a newer anchor and timeline preference.
-  // Filtering must retain that independently recorded server state.
-  const beforeFilter = structuredClone(memberViews.ben)
-  expect(beforeFilter?.scroll_anchor).toBe("home")
-  expect(beforeFilter?.last_seen_seq).toBe(12)
+  // Navigation may advance the anchor while a card scrolls into view.
+  // Filtering must retain the member's independent look and toast preferences.
   viewWrites.length = 0
   const reviewFilter = home.locator('[data-filter="in_review"]')
   await reviewFilter.click()
@@ -221,15 +230,13 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
   expect(viewWrites[0]).toEqual({ login: "ben", body: { scroll_anchor: expect.stringMatching(/^(home|todo:3)$/), last_seen_seq: 12, home: { filter: "in_review", menu: null }, toasts_hidden: false, timeline_visible_until: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/) } })
   await page.reload()
   await expect(reviewFilter).toHaveAttribute("aria-pressed", "true")
-  login = "alice"
-  await page.reload()
+  await signIn("alice")
   await expect(home.getByText("T3", { exact: true })).toBeVisible()
   await expect(home.getByText("T2", { exact: true })).toHaveCount(0)
   await expect(home.getByRole("button", { name: "Merge", exact: true })).toHaveCount(0)
   await expect(reviewFilter).toHaveAttribute("aria-pressed", "false")
   expect(memberViews.ben?.home).toEqual({ filter: "in_review", menu: null })
-  login = "maya"
-  await page.reload()
+  await signIn("maya")
   await expect(home.getByRole("button", { name: "Merge", exact: true })).toHaveCount(1)
   const backgroundWrites: string[] = []
   await page.route("**/api/runs/**", route => {
@@ -247,4 +254,41 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
   await expect(home.getByRole("button", { name: "Resolve", exact: true })).toBeVisible()
   await expect(home.getByRole("button", { name: "Answer", exact: true })).toHaveCount(0)
   await expect(home.locator('.branch-chip')).toHaveCount(1)
+})
+
+test("install Home keeps capacity from the shared live snapshot across updates", async ({ page }) => {
+  const { installCloudFixture } = await import("./cloudFixture")
+  const { installFixture } = await import("../../src/mainview/state/seams/InstallFixtures.test-support")
+  await installCloudFixture(page, { capabilities: ["identity", "install"] })
+  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "maya", is_admin: false } }))
+  await page.route("**/api/install", route => route.fulfill({ json: { ...installFixture(), capacity: 9 } }))
+  await page.route("**/api/todos", route => route.fulfill({ json: [] }))
+  await page.route("**/api/conversations/main", route => route.fulfill({ json: { id: "main", entries: [] } }))
+  await page.route("**/api/conversations/main/view-state", route => route.fulfill({ json: {} }))
+  let capacity = 2
+  const publishers: Array<() => void> = []
+  await page.routeWebSocket("**/api/live", socket => socket.onMessage(raw => {
+    const frame = JSON.parse(String(raw))
+    if (frame.t !== "sub") return
+    if (frame.topic !== "home") { socket.send(JSON.stringify({ t: "err", id: frame.id, code: "unsupported" })); return }
+    let cursor = 0
+    const publish = () => socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: ++cursor, data: {
+      repository: "owner/repo", main: { sha: "a".repeat(40), title: "main", last_success_at: "2026-10-07T00:00:00Z", health: "fresh" },
+      attention: [], items: [], counts: { queued: 0, starting: 0, working: 0, needs_you: 0, paused: 0, failed: 0, in_review: 0, merged: 0, dropped: 0 },
+      merged_since_last_look: [], machines: { in_use: 0, capacity, slots: [] }, background_runs: []
+    } }))
+    publishers.push(publish); publish()
+  }))
+  await page.goto("/")
+  await fillComposer(page, "/stack")
+  await page.keyboard.press("Enter")
+  await expect(page.getByTestId("composer-input")).toHaveValue("")
+  const home = page.locator(".home").first()
+  await expect(home).toContainText("0/2 machines")
+  await expect(home).not.toContainText("0/9 machines")
+  capacity = 3
+  publishers.forEach(publish => publish())
+  await expect(home).toContainText("0/3 machines")
+  await expect(home).not.toContainText("0/9 machines")
+  await expect(page.getByTestId("composer-input")).toBeEditable()
 })
