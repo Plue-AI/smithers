@@ -126,6 +126,19 @@ func TestInstallLabelMutationsPostgres(t *testing.T) {
 		_, err := f.q.GetLabelByID(f.ctx, db.GetLabelByIDParams{RepositoryID: f.repoID, ID: row.ID})
 		require.ErrorIs(t, err, pgx.ErrNoRows)
 	})
+	t.Run("escaped description retains the existing API body allowance", func(t *testing.T) {
+		description := strings.Repeat("\t", 48*1024)
+		body, err := json.Marshal(services.CreateLabelInput{Name: "escaped", Color: "112233", Description: description})
+		require.NoError(t, err)
+		require.Greater(t, len(body), 64<<10)
+		created := call("POST", "/labels", ownerCookie, "", string(body), "labels.create", 201)
+		var row db.Label
+		require.NoError(t, json.Unmarshal(created.Body.Bytes(), &row))
+		stored, err := f.q.GetLabelByID(f.ctx, db.GetLabelByIDParams{RepositoryID: f.repoID, ID: row.ID})
+		require.NoError(t, err)
+		require.Equal(t, description, stored.Description)
+		call("DELETE", fmt.Sprintf("/labels/%d", row.ID), ownerCookie, "", "", "labels.delete", 204)
+	})
 	for _, mode := range []string{"payload substitution", "expired after admission"} {
 		t.Run(mode, func(t *testing.T) {
 			probe := &labelAdmissionProbe{LabelRouteService: service, replace: mode == "payload substitution"}
