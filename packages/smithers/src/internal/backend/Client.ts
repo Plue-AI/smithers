@@ -412,7 +412,7 @@ export class Client {
     if (!path.startsWith("/") || path.startsWith("//")) {
       throw new UsageError({ message: "API path must start with /" })
     }
-    if (this.session.managedFile && options.token != null) {
+    if (this.session.managedFile && (options.token != null || Object.keys(options.headers ?? {}).some(key => key.toLowerCase() === "authorization"))) {
       throw new Refused({ fault: "user", code: "token_file_unavailable", message: "A managed terminal uses only its session credential" })
     }
     const origin = options.origin ?? this.session.target().api_url

@@ -34,7 +34,7 @@ try {
     const staged = join(staging, String(index))
     await stagePackage(join(repoRoot, directory), staged, manifest)
     run("npm", ["pack", "--ignore-scripts", "--pack-destination", staging], staged)
-    packages.push({ name: manifest.name, archive: join(staging, manifest.name.replace(/^@/, "").replaceAll("/", "-") + "-" + manifest.version + ".tgz") })
+    packages.push({ name: manifest.name, peers: manifest.peerDependencies, archive: join(staging, manifest.name.replace(/^@/, "").replaceAll("/", "-") + "-" + manifest.version + ".tgz") })
   }
   await installCLI(packages, staging, destination, guest ? { os: "linux", cpu: "arm64", libc: "glibc" } : undefined)
   if (guest) await writeFile(join(destination, "guest-platform.json"), JSON.stringify({ platform: "linux-arm64", runtime: "node26" }) + "\n")
