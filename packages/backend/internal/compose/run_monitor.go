@@ -149,30 +149,51 @@ func (m *runMonitors) read(ctx context.Context, repo int64, id string, at *int64
 				waits = append(waits, projected)
 			}
 			value["waits"] = waits
-			attempts, _ := value["attempts"].([]any)
 			if facts.Thrash != nil && facts.Thrash.Attempt == attempt {
 				for _, failure := range facts.Thrash.Failures {
-					if failure.Count < 3 {
-						continue
-					}
-					for _, a := range attempts {
-						attemptRow, _ := a.(map[string]any)
-						phases, _ := attemptRow["phases"].([]any)
-						for i := len(phases) - 1; i >= 0; i-- {
-							phase, _ := phases[i].(map[string]any)
-							if phase["title"] == "Ran checks" {
-								phase["tone"] = "thrash"
-								phase["indicator"] = "Thrashing: " + failure.Check + " failed 3×"
-								break
-							}
-						}
+					if failure.Count >= 3 {
+						markMonitorThrash(value, failure.Check)
 					}
 				}
 			}
 		}
 	}
 
+	if at != nil {
+		journal, _ := value["journal"].([]any)
+		events := make([]flowruntime.Event, 0, len(journal))
+		for _, entry := range journal {
+			row, _ := entry.(map[string]any)
+			sequence, ok := row["seq"].(float64)
+			text, textOK := row["text"].(string)
+			kind, kindOK := row["type"].(string)
+			if !ok || sequence < 0 || sequence > float64(*at) || sequence != float64(int64(sequence)) || !textOK || !kindOK || !json.Valid([]byte(text)) {
+				return nil, errors.New("invalid replay journal")
+			}
+			events = append(events, flowruntime.Event{RunID: cps[0].RunID, Sequence: int64(sequence), Kind: kind, Payload: json.RawMessage(text)})
+		}
+		for _, check := range services.RunThrashChecks(cps[0].RunID, events) {
+			markMonitorThrash(value, check)
+		}
+	}
 	return json.Marshal(value)
+}
+
+func markMonitorThrash(value map[string]any, check string) {
+	attempts, _ := value["attempts"].([]any)
+	for _, a := range attempts {
+		attempt, _ := a.(map[string]any)
+		phases, _ := attempt["phases"].([]any)
+		for i := len(phases) - 1; i >= 0; i-- {
+			phase, _ := phases[i].(map[string]any)
+			title, _ := phase["title"].(string)
+			if title == "Ran checks" || strings.HasPrefix(title, "Ran checks · ") {
+				phase["tone"] = "thrash"
+				phase["indicator"] = "Thrashing: " + check + " failed 3×"
+				break
+			}
+		}
+	}
 }
 func mountRunMonitors(router chi.Router, cfg *config.Config, q *db.Queries, m *runMonitors) {
 	access := []func(http.Handler) http.Handler{authLoader(q, cfg.Auth), middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)}
