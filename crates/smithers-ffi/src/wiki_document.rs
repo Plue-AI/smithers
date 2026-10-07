@@ -55,6 +55,7 @@ pub(crate) fn execute(request: Request) -> Result<Document, FfiError> {
     // characters. A Rust byte offset must never split a browser character.
     let doc = document_core::document(None);
     let text = doc.get_or_insert_text("markdown");
+    doc.get_or_insert_map("authors");
     let replacement = match request {
         Request::Seed { markdown } => Some(markdown),
         Request::Apply { state, update } => {
@@ -80,8 +81,9 @@ pub(crate) fn execute(request: Request) -> Result<Document, FfiError> {
             text.insert(&mut txn, 0, &markdown);
         }
     }
-    document_core::validate(&doc, "markdown", true)
-        .map_err(|_| invalid("wiki documents may contain only the Markdown text root"))?;
+    document_core::validate(&doc, "markdown", true).map_err(|_| {
+        invalid("wiki documents may contain only Markdown text and authenticated authors")
+    })?;
     let txn = doc.transact();
     let markdown = text.get_string(&txn);
     if markdown.len() > MAX_MARKDOWN_BYTES {
@@ -105,7 +107,7 @@ pub(crate) fn execute(request: Request) -> Result<Document, FfiError> {
 mod tests {
     use super::*;
     use yrs::updates::decoder::Decode;
-    use yrs::{OffsetKind, Options, StateVector};
+    use yrs::{Map, OffsetKind, Options, StateVector};
 
     fn seed(markdown: &str) -> Document {
         execute(Request::Seed {
@@ -137,6 +139,29 @@ mod tests {
         let mut txn = doc.transact_mut();
         text.insert(&mut txn, index, value);
         BASE64_STANDARD.encode(txn.encode_update_v1())
+    }
+
+    #[test]
+    fn replacement_preserves_live_document_authors() {
+        let original = seed("Decision");
+        let live = client(&original.state);
+        live.get_or_insert_map("authors")
+            .insert(&mut live.transact_mut(), "42", "alice");
+        let replaced = execute(Request::Replace {
+            state: BASE64_STANDARD.encode(document_core::state(&live)),
+            markdown: "Updated decision".into(),
+        })
+        .unwrap();
+        assert_eq!(replaced.markdown, "Updated decision");
+        let restored = client(&replaced.state);
+        assert_eq!(
+            restored
+                .get_or_insert_map("authors")
+                .get(&restored.transact(), "42")
+                .unwrap()
+                .to_string(&restored.transact()),
+            "alice"
+        );
     }
 
     #[test]
