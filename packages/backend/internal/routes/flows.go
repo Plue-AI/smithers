@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -15,7 +16,12 @@ import (
 // FlowsHandler serves the install's flow catalog (spec §6.3 GET /api/flows),
 // the model the Flow card and the app agent's flow commands read. Any member's
 // browser session reads it.
+type FlowEditService interface {
+	FileFlowEdit(context.Context, int64, int64, string, services.FlowEditInput, string) (services.MythicalItemView, error)
+}
+
 type FlowsHandler struct {
+	Edits     FlowEditService
 	Queries   *db.Queries
 	Proposals services.FlowProposalReader
 }
@@ -87,4 +93,30 @@ func (h *FlowsHandler) catalog(r *http.Request) ([]services.FlowCard, error) {
 		return nil, err
 	}
 	return services.RepositoryFlowCatalog(r.Context(), h.Queries, repositoryID, h.Proposals)
+}
+
+func (h *FlowsHandler) Edit(w http.ResponseWriter, r *http.Request) {
+	repository, user, ok := authorizeInstallRepository(w, r, h.Queries, "flow.edit")
+	if !ok {
+		return
+	}
+	if h.Edits == nil {
+		todoRouteError(w, &services.TodoControlError{Status: 503, Class: "infra", Code: "confirmation_unavailable", Message: "Flow edit unavailable"})
+		return
+	}
+	var input services.FlowEditInput
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
+	decoder.DisallowUnknownFields()
+	if err := decodeSingleJSONDocument(decoder, &input); err != nil {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Class: "user", Code: "invalid_flow_edit", Message: "Invalid flow edit"})
+		return
+	}
+	item, err := h.Edits.FileFlowEdit(r.Context(), repository, user, chi.URLParam(r, "name"), input, r.Header.Get("Idempotency-Key"))
+	if err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(item)
 }

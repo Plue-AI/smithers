@@ -335,6 +335,7 @@ type preparedConfirmation struct {
 	card            map[string]any
 	review          *ReviewAdmission
 	mergeHead       string
+	flowEdit        *MythicalTodoInput
 	wiki            *wikiDeleteConfirmation
 }
 
@@ -357,6 +358,8 @@ func (s *MythicalService) prepareConfirmation(ctx context.Context, tx pgx.Tx, re
 	}
 	text, verb := "", ""
 	switch input.Command {
+	case "flow.edit":
+		return s.prepareFlowEditConfirmation(ctx, tx, repository, input, inspect)
 	case "wiki.delete":
 		return s.prepareWikiDeleteConfirmation(ctx, tx, repository, input, inspect)
 	case "learning.accept", "learning.dismiss":
@@ -794,6 +797,10 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 			var amendedRevision int
 			var reviewOperationID string
 			switch command {
+			case "flow.edit":
+				var item MythicalItemView
+				item, err = consumer.FileTodo(bound, repository, info.User.ID, *prepared.flowEdit)
+				number = item.Number
 			case "wiki.delete":
 				afterCommit, err = consumer.deleteConfirmedWiki(bound, tx, prepared.wiki)
 			case "learning.accept", "learning.dismiss":
