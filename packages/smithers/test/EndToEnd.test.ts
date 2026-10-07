@@ -331,22 +331,24 @@ describe("one project, from init to gc", processBudget, () => {
   })
 
   it("cancels the run durably", async () => {
-    const cancelled = smithers("cancel", runId, "--json")
+    // Earlier approval denial can settle the shared run; cancel a fresh run.
+    const { runId: cancelRunId } = launchIdle()
+    const cancelled = smithers("cancel", cancelRunId, "--json")
     // An external cancellation is a request until the owning process settles.
     expect(cancelled.status, cancelled.stdout + cancelled.stderr).toBe(0)
     expect(cancelled.stderr).toBe("")
-    expect(JSON.parse(cancelled.stdout)).toMatchObject({ _tag: "Accepted", runId })
+    expect(JSON.parse(cancelled.stdout)).toMatchObject({ _tag: "Accepted", runId: cancelRunId })
     const deadline = Date.now() + 30_000
     for (;;) {
-      const run = json("ps").items.find((entry: { readonly runId: string }) => entry.runId === runId)
+      const run = json("ps").items.find((entry: { readonly runId: string }) => entry.runId === cancelRunId)
       if (run.status === "cancelled") break
       expect(Date.now(), JSON.stringify(run)).toBeLessThan(deadline)
       await new Promise((resolve) => setTimeout(resolve, 25))
     }
     // A later cancel sees the durable terminal status and reports its exit code.
-    const settled = smithers("cancel", runId, "--json")
+    const settled = smithers("cancel", cancelRunId, "--json")
     expect(settled.status, settled.stdout + settled.stderr).toBe(130)
-    expect(JSON.parse(settled.stdout)).toMatchObject({ _tag: "Terminal", runId, status: "cancelled" })
+    expect(JSON.parse(settled.stdout)).toMatchObject({ _tag: "Terminal", runId: cancelRunId, status: "cancelled" })
   })
 
   it("takes every remaining run down", () => {
