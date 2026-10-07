@@ -126,7 +126,7 @@ func TestRetainedWorkspaceForkUsesRevisionWriter(t *testing.T) {
 	// A scratch source cannot reach the legacy disk fork even without a runtime.
 	input.WorkspaceID, input.Request, input.Name = first.ID, "scratch-refusal", "scratch-refusal"
 	_, err = ws.ForkWorkspace(ctx, input)
-	require.ErrorContains(t, err, "cannot be forked yet")
+	require.ErrorContains(t, err, "Capture unavailable")
 	var count int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workspaces WHERE repository_id=$1`, f.repoID).Scan(&count))
 	require.Equal(t, 4, count)
