@@ -48,6 +48,7 @@ func TestInstallRetainedReadCommandsPostgres(t *testing.T) {
 		{"/landings", "prs.list", "Stored review"},
 		{fmt.Sprintf("/landings/%d", landing.Number), "prs.view", "Stored review"},
 		{fmt.Sprintf("/landings/%d/changes", landing.Number), "prs.view", "[]"},
+		{fmt.Sprintf("/landings/%d/diff", landing.Number), "prs.view", `"changes":[]`},
 		{fmt.Sprintf("/landings/%d/conflicts", landing.Number), "prs.view", `"has_conflicts":false`},
 		{fmt.Sprintf("/landings/%d/reviews", landing.Number), "prs.view", "Stored review body"},
 		{fmt.Sprintf("/landings/%d/comments", landing.Number), "prs.view", "Stored note"},
@@ -60,7 +61,7 @@ func TestInstallRetainedReadCommandsPostgres(t *testing.T) {
 	// could inspect repository-wide or another execution's data.
 	for _, row := range []struct{ path, command string }{
 		{"/landings", "prs.list"}, {"/landings/1", "prs.view"}, {"/landings/1/changes", "prs.view"},
-		{"/landings/1/comments", "prs.view"}, {"/landings/1/conflicts", "prs.view"}, {"/landings/1/reviews", "prs.view"},
+		{"/landings/1/diff", "prs.view"}, {"/landings/1/comments", "prs.view"}, {"/landings/1/conflicts", "prs.view"}, {"/landings/1/reviews", "prs.view"},
 	} {
 		t.Run("run"+row.path, func(t *testing.T) {
 			require.Contains(t, call(row.path, row.command, run, 403), `"code":"permission"`)

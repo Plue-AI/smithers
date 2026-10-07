@@ -34,7 +34,7 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				}
 				decoder := json.NewDecoder(bytes.NewReader(raw))
 				decoder.DisallowUnknownFields()
-				if err != nil || decoder.Decode(&body) != nil || body.Op != "bring-in" && body.Op != "discard-foreign" {
+				if err != nil || decoder.Decode(&body) != nil || decoder.Decode(new(any)) != io.EOF || body.Op != "bring-in" && body.Op != "discard-foreign" {
 					writeConfirmationDispatchError(w, &services.AccessError{Status: 400, Class: "user", Code: "invalid_confirmation", Message: "Invalid branch answer"})
 					return
 				}

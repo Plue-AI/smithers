@@ -494,7 +494,7 @@ var installMemberRoutes = []struct {
 	{http.MethodDelete, "wiki.delete", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/wiki/[^/]+$`)},
 	// Retained PR history uses the catalog view commands.
 	{http.MethodGet, "prs.list", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/landings$`)},
-	{http.MethodGet, "prs.view", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/landings/[0-9]+(?:/(?:changes|comments|conflicts|reviews))?$`)},
+	{http.MethodGet, "prs.view", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/landings/[0-9]+(?:/(?:changes|comments|conflicts|reviews|diff))?$`)},
 	// Retained repository history reads are the same catalog repository read.
 	// Their commit selectors are not a bound execution branch: run and machine
 	// credentials must use the separately scoped branch/file doors.

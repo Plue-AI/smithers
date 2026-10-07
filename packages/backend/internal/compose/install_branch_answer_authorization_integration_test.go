@@ -38,9 +38,10 @@ func TestInstallBranchAnswerAuthorizationPostgres(t *testing.T) {
 	require.NoError(t, err)
 	before, err := f.q.GetMythicalItem(f.ctx, item.ID)
 	require.NoError(t, err)
-	call := func(op, revision, key string, status int) {
+	call := func(op, revision, key string, status int, suffix ...string) {
 		t.Helper()
-		req := httptest.NewRequest(http.MethodPost, cfg.Server.PublicURL+"/api/branches/smithers%2Faccess-answer", strings.NewReader(fmt.Sprintf(`{"op":%q,"id":"outside","revision":%q}`, op, revision)))
+		raw := fmt.Sprintf(`{"op":%q,"id":"outside","revision":%q}`, op, revision) + strings.Join(suffix, "")
+		req := httptest.NewRequest(http.MethodPost, cfg.Server.PublicURL+"/api/branches/smithers%2Faccess-answer", strings.NewReader(raw))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Origin", cfg.Server.PublicURL)
 		req.Header.Set("Idempotency-Key", key)
@@ -52,7 +53,14 @@ func TestInstallBranchAnswerAuthorizationPostgres(t *testing.T) {
 		out := httptest.NewRecorder()
 		router.ServeHTTP(out, req)
 		require.Equal(t, status, out.Code, out.Body.String())
-		require.Equal(t, []string{"branch." + op}, commands)
+		if status == 400 {
+			require.Empty(t, commands)
+		} else {
+			require.Equal(t, []string{"branch." + op}, commands)
+		}
+	}
+	for _, suffix := range []string{`{}`, `null`, `true`, ` trailing`} {
+		call("discard-foreign", head, "invalid-body", 400, suffix)
 	}
 	// The Member's role is evaluated for the resolved body command, not as an owner-only route.
 	call("discard-foreign", head, "member-discard", 403)
