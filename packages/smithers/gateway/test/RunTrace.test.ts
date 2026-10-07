@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest"
 import {
   durationWords,
   inspectLabel,
+  monitorFromJournal,
   isTraceFilter,
   phaseBandGeometry,
   phaseExtent,
@@ -1457,4 +1458,62 @@ describe("Appendix C Inspect labels", () => {
     expect(traceFromJournal(run, journal)).toEqual(first)
     expect(first.rows.find(row => row.id === "call-2")?.detail.message).toBe("2 failed")
   })
+})
+
+
+describe("install monitor adapter", () => {
+  test.each([
+    ["running", "running"], ["completed", "done"], ["done", "done"], ["failed", "failed"],
+    ["cancelled", "interrupted"], ["interrupted", "interrupted"], ["held", "held"],
+    ["waiting", "waiting"], ["waiting-approval", "waiting"], ["paused", "waiting"], ["suspended", "waiting"]
+  ])("maps recorded %s to %s", (status, expected) => {
+    expect(monitorFromJournal({ ...RUN, status: status! }, []).state).toBe(expected)
+  })
+  test("maps recorded I/O, measurable usage and waits without running repository code", () => {
+    const model = monitorFromJournal(RUN, JOURNAL)
+    expect(model.tokens).toBe(1280)
+    expect(model.attempts[0]!.steps.find(row => row.label === "files.read")).toMatchObject({ input: { path: "README.md" }, output: "# Smithers" })
+    expect(model.waits).toMatchObject([{ id: "approval-req-1", kind: "approval", since: "1970-01-01T00:00:06.000Z" }])
+    expect(model.waits[0]!.settled).toBeUndefined()
+    const replay = monitorFromJournal(RUN, JOURNAL, 5)
+    expect(replay.replay).toEqual({ at: 5, last: 14 })
+    expect(replay.attempts[0]!.steps.every(row => row.output === undefined)).toBe(true)
+    expect(replay.waits).toEqual([])
+    expect(monitorFromJournal(RUN, JOURNAL)).toEqual(model)
+  })
+  test("historical terminal state comes from the journal rather than the current run", () => {
+    const records = [at(1,"control.run.completed",{},2000)]
+    expect(monitorFromJournal({ ...RUN, status: "running" }, records,1).state).toBe("done")
+    expect(monitorFromJournal({ ...RUN, status: "failed" }, records,0).state).toBe("running")
+    expect(monitorFromJournal(RUN,records,100).replay).toEqual({ at:1,last:1 })
+  })
+})
+
+
+test("native monitor keeps rescheduled instances, waits and bookkeeping apart", () => {
+  const wrap = (sequence: number, eventType: string, payload: unknown): JournalRecord => ({
+    sequence, kind: "control.engine.event", occurredAt: sequence,
+    payload: { version: 1, executionId: "native", generation: 0, sequence, eventId: `event-${sequence}`,
+      sourceId: "engine", sourceSequence: sequence, emittedAtMs: sequence * 1000, eventType, payload, meta: {} }
+  })
+  const rows = [
+    wrap(1,"flows.engine.node-scheduled",{ nodeId:"read",kind:"action",attempt:1,action:"agent/opening-instructions" }),
+    wrap(2,"flows.engine.node-settled",{ nodeId:"read",outcome:"deferred",attempts:1 }),
+    wrap(3,"flows.engine.node-scheduled",{ nodeId:"seal",kind:"action",attempt:1,action:"<seal-step>" }),
+    wrap(4,"flows.engine.node-scheduled",{ nodeId:"boundary",kind:"action",attempt:1,action:"<boundary:finished>" }),
+    wrap(5,"flows.engine.node-scheduled",{ nodeId:"read",kind:"action",attempt:2,action:"agent/opening-instructions" }),
+    { sequence:6,kind:"control.approval.requested",occurredAt:6000,payload:{requestId:"approval",question:"Continue?"} },
+    { sequence:7,kind:"control.approval.approved",occurredAt:7000,payload:{requestId:"approval"} },
+    {} as JournalRecord
+  ]
+  const model = monitorFromJournal(RUN, rows)
+  expect(model.attempts[0]!.steps.map(row=>[row.label,row.k])).toEqual([["Read the instructions",1],["Read the instructions",2]])
+  expect(model.attempts[0]!.graph.map(row=>row.state)).toEqual(["waiting","current"])
+  expect(model.attempts[0]!.phases.map(row=>row.tone)).toEqual(["wait","live"])
+  expect(model.attempts[0]!.phases[0]!.cells[0]!.kind).toBe("read")
+  expect(model.engine.map(row=>row.label)).toContain("<seal-step>")
+  expect(model.engine.map(row=>row.label)).toContain("<boundary:finished>")
+  expect(model.waits[0]!.settled).toMatchObject({ at:"1970-01-01T00:00:07.000Z" })
+  expect(model.journal.at(-1)).toEqual({ seq:0,at:"1970-01-01T00:00:00.000Z",type:"event",text:"null" })
+  expect(monitorFromJournal(RUN,rows,0).journal).toEqual([{ seq:0,at:"1970-01-01T00:00:00.000Z",type:"event",text:"null" }])
 })

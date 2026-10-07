@@ -1344,7 +1344,7 @@ describe("the assembled gateway over a real loopback bind", () => {
         ...record, meta: {}
       })
       const response = yield* Effect.promise(() => fetch(`${url}/projections`, {
-        method: "POST", headers: { "content-type": "application/json" },
+        method: "POST", headers: { "content-type": "application/json", authorization: "Bearer edge-secret" },
         body: JSON.stringify({ _tag: "Request", id: 1, tag: "Projection.Snapshot",
           payload: { selector: { _tag: "run-events", runId } }, headers: [] }) + "\n"
       }))
@@ -1358,7 +1358,29 @@ describe("the assembled gateway over a real loopback bind", () => {
         detail: { output: "globalThis.monitorCanary = true" } })
       expect(traceFromJournal({ runId, flowId: "system/test", status: "running" }, answer.exit.value.rows)).toEqual(model)
       expect((globalThis as typeof globalThis & { monitorCanary?: boolean }).monitorCanary).toBeUndefined()
-    }).pipe(Effect.provide(served())))
+      const monitor = (at?: number) => Effect.promise(async () => {
+        const response = await fetch(`${url}/runtime/v1/monitor`, {
+          method: "POST", headers: { "content-type": "application/json", authorization: "Bearer edge-secret" },
+          body: JSON.stringify({ protocol: "smithers.flow-runtime/v1", runId, ...(at === undefined ? {} : { at }) })
+        })
+        expect(response.status).toBe(200)
+        return (await response.json() as { value: any }).value
+      })
+      const snapshot = yield* monitor()
+      expect(snapshot.id).toBe(runId)
+      expect(snapshot.attempts[0].steps).toMatchObject([{ label: "Edited the files", state: "completed", started_at: "1970-01-01T00:00:00.100Z", ended_at: "1970-01-01T00:00:00.101Z" }])
+      expect(snapshot.attempts[0].steps[0].usage).toBeUndefined()
+      expect(snapshot.attempts[0].phases[0].cells[0].output).toBe("globalThis.monitorCanary = true")
+      const before = yield* control.list({ _tag: "runs" })
+      const replay = yield* monitor(answer.exit.value.rows.find((row: any) => row.payload?.eventType === "flows.engine.node-scheduled").sequence)
+      expect(replay.attempts[0].steps[0].state).toBe("running")
+      expect(replay.attempts[0].steps[0].output).toBeUndefined()
+      expect(yield* control.list({ _tag: "runs" })).toEqual(before)
+      expect((globalThis as typeof globalThis & { monitorCanary?: boolean }).monitorCanary).toBeUndefined()
+
+    }).pipe(Effect.provide(served({ host: "127.0.0.1", port: 0, credential: "edge-secret",
+      runtimeBridge: { runtimeArtifactDigest: "a".repeat(64), sourceRevision: "b".repeat(40), ownerGeneration: 1 }
+    }, delegatedBearer))))
 
   test("serves a projection snapshot over POST /projections, framed on the wire", () =>
     Effect.gen(function*() {
