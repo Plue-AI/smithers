@@ -42,10 +42,13 @@ try {
   expect(denied.body.class).toBe("permission")
   expect(denied.body.code).toBe("permission")
   await barrier("MERGE_BROWSER_STALE")
-  const staleResponse = page.waitForResponse(response => response.url().endsWith(`/api/confirmations/${id}/approve`))
-  await press.press("Enter")
-  const stale = await staleResponse
-  expect(stale.status()).toBe(409)
+  // Live delivery may expire the card before a keyboard press. Exercise the
+  // old person-session request directly, then press the fresh card below.
+  const csrf = (await context.cookies(origin)).find(cookie => cookie.name === "__csrf")!.value
+  const stale = await page.request.post(`${origin}/api/confirmations/${id}/approve`, {
+    headers: { "X-CSRF-Token": csrf, Origin: origin, "Idempotency-Key": "stale-browser-generation" }, data: {},
+  })
+  expect(stale.status(), JSON.stringify(await stale.json())).toBe(409)
   expect((await stale.json()).code).toBe("confirmation_resolved")
   await expect(card).toContainText("Expired")
   await expect(card.getByRole("button")).toHaveCount(0)
