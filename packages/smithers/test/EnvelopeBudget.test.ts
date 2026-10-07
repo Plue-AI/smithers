@@ -29,7 +29,7 @@ import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
 import { Control as ControlService, ControlSchema } from "@smthrs/control"
 import * as GrantStore from "@smthrs/kernel/GrantStore"
 import * as RequestExecutor from "@smthrs/model/RequestExecutor"
-import { Effect, Layer, Schedule, Schema, Stream } from "effect"
+import { Clock, Effect, Layer, Schedule, Schema, Stream } from "effect"
 import * as HttpClient from "effect/unstable/http/HttpClient"
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -205,13 +205,26 @@ const sse = (text: string, tokens: number): string =>
  */
 const parkedRun = async (
   decision: "approve" | "deny",
-  ceiling: { readonly declaration: ReadonlyArray<string>; readonly delayMs: number } = {
+  ceiling: { readonly declaration: ReadonlyArray<string>; readonly providerMillis: number } = {
     declaration: ["  tokens: 30"],
-    delayMs: 0
+    providerMillis: 0
   }
 ) => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "flows-cli-budget-park-")))
   const agent = new MockAgent()
+  const liveClock = await Effect.runPromise(Clock.Clock)
+  let now = Date.now()
+  // Keep startup outside the provider latency boundary. Real sleeps still
+  // drive the HTTP/control workers; only budget timestamps are controlled.
+  const clock: Clock.Clock = ceiling.providerMillis === 0 ? liveClock : {
+    currentTimeMillisUnsafe: () => now,
+    currentTimeMillis: Effect.sync(() => now),
+    currentTimeNanosUnsafe: () => liveClock.currentTimeNanosUnsafe(),
+    currentTimeNanos: liveClock.currentTimeNanos,
+    monotonicTimeNanosUnsafe: () => liveClock.monotonicTimeNanosUnsafe(),
+    monotonicTimeNanos: liveClock.monotonicTimeNanos,
+    sleep: (duration) => liveClock.sleep(duration)
+  }
   try {
     await mkdir(join(root, "flows", "review"), { recursive: true })
     await writeFile(
@@ -236,12 +249,11 @@ const parkedRun = async (
       200,
       (options) => {
         bodies.push(String(options.body))
+        now += ceiling.providerMillis
         return sse(bodies.length === 1 ? "```cell\nconst looked = 1\n```" : "```cell\nctx.done(\"reviewed\")\n```", 20)
       },
       { headers: { "content-type": "text/event-stream" } }
     )
-    // Undici refuses a zero delay, so only a slow provider sets one.
-    if (ceiling.delayMs > 0) reply.delay(ceiling.delayMs)
     reply.persist()
     const client = await Effect.runPromise(
       NodeHttpClient.makeUndici.pipe(Effect.provideService(NodeHttpClient.Dispatcher, agent))
@@ -293,6 +305,8 @@ const parkedRun = async (
         const approval = Schema.decodeUnknownSync(ControlSchema.ApprovalPayload)(
           (requested[0]!.payload as { readonly payload: unknown }).payload
         )
+        // A denied request must retain its identity as parked time advances.
+        if (ceiling.providerMillis > 0) now += 1_000
         yield* decision === "approve" ? control.approve(approval) : control.deny(approval)
         const terminal = new Set(["control.run.completed", "control.run.failed", "control.run.cancelled"])
         // A second request, not a settlement, is what a decision whose
@@ -302,7 +316,7 @@ const parkedRun = async (
           Stream.runCollect
         )
         return { parked, callsWhileParked, approval, last: [...events].at(-1)?.kind, settled: yield* summary }
-      }).pipe(Effect.provide(layer), Effect.scoped, Effect.orDie)
+      }).pipe(Effect.provide(layer), Effect.provideService(Clock.Clock, clock), Effect.scoped, Effect.orDie)
     )
     return { ...observed, bodies }
   } finally {
@@ -340,16 +354,15 @@ describe("a parked budget", () => {
   }, 60_000)
 
   it("fails a run whose latency raise is denied instead of asking again on resume", async () => {
-    // The first response takes 6 s against a 5 s ceiling, so the second
-    // call parks. The elapsed time keeps growing while parked, and the denial
-    // must still answer the request it was made on (#2739).
-    // Leave enough startup time for the initial durable snapshot on a loaded host.
-    const observed = await parkedRun("deny", { declaration: ["  milliseconds: 5000"], delayMs: 6000 })
+    // Charge the first response 150 ms against a 100 ms ceiling, then advance
+    // another second while parked. Denial still answers that request (#2739).
+    const observed = await parkedRun("deny", { declaration: ["  milliseconds: 100"], providerMillis: 150 })
 
     expect(observed.parked).toMatchObject({ status: "parked", waitingReason: "budget" })
     expect(observed.last).toBe("control.run.failed")
     expect(observed.settled?.status).toBe("failed")
     expect(observed.callsWhileParked).toBe(1)
+    expect(observed.approval.target.envelope.budget.milliseconds).toBe(250)
     expect(observed.bodies).toHaveLength(1)
   }, 60_000)
 })
