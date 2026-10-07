@@ -229,6 +229,9 @@ func TestFileRestoreCommandBoundary(t *testing.T) {
 	var sleepState string
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT status FROM workspaces WHERE id=$1`, f.row.ID).Scan(&sleepState))
 	require.Equal(t, "suspended", sleepState)
+	// The independent member-access case operates on an awake branch.
+	_, err = f.pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, f.row.ID)
+	require.NoError(t, err)
 	// A member removed after opening a version cannot restore it.
 	member, err := q.CreateUser(ctx, db.CreateUserParams{Username: "w6-member", LowerUsername: "w6-member"})
 	require.NoError(t, err)
