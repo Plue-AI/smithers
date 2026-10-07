@@ -1136,11 +1136,12 @@ export const make = (
         const sql = yield* SqlClient.pipe(Effect.provide(engine.stores))
         const nativeSql = yield* SqlClient
         const active = yield* nativeSql<{ readonly runId: string }>`
-          WITH RECURSIVE live(run_id) AS (
+          WITH RECURSIVE parents(child_id, parent_id) AS (
+            SELECT child_id, parent_id FROM flows_run_parents
+            UNION SELECT run_id, parent_run_id FROM flows_runs WHERE parent_run_id IS NOT NULL
+          ), live(run_id) AS (
             SELECT run_id FROM flows_runs WHERE status NOT IN ('completed', 'failed', 'cancelled')
-            UNION SELECT parents.parent_id FROM flows_run_parents AS parents JOIN live ON parents.child_id = live.run_id
-            UNION SELECT runs.parent_run_id FROM flows_runs AS runs JOIN live ON runs.run_id = live.run_id
-              WHERE runs.parent_run_id IS NOT NULL
+            UNION SELECT parents.parent_id FROM parents JOIN live ON parents.child_id = live.run_id
           ) SELECT run_id AS "runId" FROM live
         `.pipe(Effect.orDie)
         const liveIds = new Set(active.map((row) => row.runId))
@@ -1195,7 +1196,13 @@ export const make = (
               }
             }
           }
-          if (summary.executionDigest === undefined || snapshots === undefined) continue
+          // Verification compares current source against copied history. It
+          // starts with that source loaded, so parked sibling runs do not
+          // require rebuilding a shared live catalog. Keep their adapter
+          // identities above; ordinary hosts still restore approved snapshots.
+          if (options.replayOnly !== undefined || summary.executionDigest === undefined || snapshots === undefined) {
+            continue
+          }
           const restored = yield* snapshots.descriptor(summary.executionDigest).pipe(
             // Missing or dependency-drifted snapshots keep the live catalog;
             // the pre-claim CodeDrift check reports the refusal.
@@ -1627,11 +1634,12 @@ export const make = (
           prepareAdoption: (flowId, runId) =>
             Effect.gen(function*() {
               const executions = yield* nativeSql<{ readonly executionId: string }>`
-              WITH RECURSIVE owned(run_id) AS (
+              WITH RECURSIVE children(child_id, parent_id) AS (
+                SELECT child_id, parent_id FROM flows_run_parents
+                UNION SELECT run_id, parent_run_id FROM flows_runs WHERE round_ordinal > 0
+              ), owned(run_id) AS (
                 SELECT ${runId}
-                UNION SELECT parents.child_id FROM flows_run_parents AS parents JOIN owned ON parents.parent_id = owned.run_id
-                UNION SELECT rounds.run_id FROM flows_runs AS rounds JOIN owned ON rounds.parent_run_id = owned.run_id
-                  WHERE rounds.round_ordinal > 0
+                UNION SELECT children.child_id FROM children JOIN owned ON children.parent_id = owned.run_id
               ) SELECT run_id AS "executionId" FROM owned
             `.pipe(Effect.orDie)
               const executable = engine.host.catalog?.executables.find((entry) => entry.descriptor.name === flowId)

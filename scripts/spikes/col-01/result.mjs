@@ -45,7 +45,7 @@ for (const transport of ["relay","bridge"]) {
     if (data) browser.push({ transport, run, data });
   }
 }
-if (requested("rtt") && (!rtt || rtt.cells?.filter(c => c.transport !== "bridge-nodelay").length !== 8 || typeof rtt.local_gate_passed !== "boolean")) failures.push("RTT: expected 8 cells and an evaluated gate");
+if (requested("rtt") && (!rtt || rtt.cells?.filter(c => !c.transport.startsWith("bridge-nodelay")).length !== 8 || typeof rtt.local_gate_passed !== "boolean")) failures.push("RTT: expected 8 cells and an evaluated gate");
 if (requested("snapshot")) {
   for (const load of ["idle", "busy"]) for (const count of [0, 1, 12, 200]) {
     const cells = (snapshot?.cells ?? []).filter(c => c.load === load && c.changed_files === count);

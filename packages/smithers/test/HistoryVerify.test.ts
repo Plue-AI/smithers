@@ -7,16 +7,23 @@ import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
 import { Control, ControlRuntime } from "@smthrs/control"
 import type { RunId } from "@smthrs/control/ControlSchema"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
-import { Action, Flow, HumanTask, Interpreter } from "@smthrs/flow"
-import { Node } from "@smthrs/plan"
-import * as Executable from "@smthrs/registry/Executable"
-import { Effect, Layer, Schema } from "effect"
+import { Effect, Layer } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { Cli } from "incur"
 import { randomUUID } from "node:crypto"
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { afterEach, expect, it, vi } from "vitest"
 
@@ -24,76 +31,50 @@ import { appendHistoryCommands } from "../src/cli/HistoryCommands.ts"
 import * as Verify from "../src/history/Verify.ts"
 import * as NodeControl from "../src/NodeControl.ts"
 
-const moduleSource = `import * as Flow from "@smthrs/core/Flow"
-import { Schema } from "effect"
-export default ({ effects: undefined, name:"steps",description:"Steps",input:Schema.Unknown,output:Schema.Json,capabilities:[],flows:["test/Steps"] })
-`
-
-const ran: Array<string> = []
-const step = (name: string) =>
-  Action.make(name, {
-    payload: {},
-    success: Schema.String,
-    tier: "irreversible",
-    idempotencyKey: name
-  })
+const moduleSource = (root: string, second = "verify/second") =>
+  `import { Action, Flow, HumanTask } from "@smthrs/flow"
+import { Node } from "@smthrs/plan"
+import { Effect, Layer, Schema } from "effect"
+import { appendFileSync } from "node:fs"
+const step = (name) => Action.make(name, {
+  payload: {}, success: Schema.String, tier: "irreversible",
+  implementationVersion: "v1", idempotencyKey: name
+})
 const First = step("verify/first")
-const Second = step("verify/second")
-const Renamed = step("verify/second-renamed")
-
-/** The `test/Steps` delegate: two steps, then a park on a human task. */
-const modulesFor = (second: typeof Second) => {
-  const Steps = Flow.make("test/Steps", {
-    payload: Executable.Invocation,
-    success: Schema.Json,
-    error: HumanTask.HumanTaskFailed,
-    body: () =>
-      First.call({}).pipe(
-        Node.bindPlanned(() => second.call({})),
-        Node.bindPlanned(() => HumanTask.action.call({ name: "probe", kind: "ask", prompt: "Go?", maxAttempts: 3 }))
-      )
-  })
-  const implement = (action: typeof Second) =>
-    action.toLayer(() =>
-      Effect.sync(() => {
-        ran.push(action.name)
-        return action.name
-      })
-    )
-  return Executable.layer({
-    delegates: [Steps],
-    load: () =>
-      Effect.succeed({
-        default: ({
-          name: "steps",
-          description: "Steps",
-          input: Schema.Unknown,
-          output: Schema.Json,
-          capabilities: [],
-          flows: ["test/Steps"]
-        })
-      })
-  }).pipe(
-    Layer.provideMerge(
-      Layer.mergeAll(Interpreter.layer(Steps), HumanTask.layer, implement(First), implement(Second), implement(Renamed))
-        .pipe(Layer.provideMerge(Action.layerImplementations))
-    ),
-    Layer.orDie
-  )
-}
+const Second = step(${JSON.stringify(second)})
+const implement = (action) => action.toLayer(() => Effect.sync(() => {
+  appendFileSync(${JSON.stringify(join(root, "ran.txt"))}, action.name + "\\n")
+  return action.name
+}), { implementationVersion: "v1" })
+export const layer = Layer.mergeAll(HumanTask.layer, implement(First), implement(Second))
+export default Flow.make("steps", {
+  description: "Steps", capabilities: [],
+  effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "irreversible" },
+  payload: { key: Schema.String }, success: Schema.Json, error: HumanTask.HumanTaskFailed,
+  body: Node.capture({ action: First.name, implementationVersion: "v1" }, () => First.call({}).pipe(
+    Node.bindPlanned(Node.capture({ action: Second.name, implementationVersion: "v1" }, () => Second.call({}))),
+    Node.bindPlanned(Node.capture({ name: "probe" }, () =>
+      HumanTask.action.call({ name: "probe", kind: "ask", prompt: "Go?", maxAttempts: 3 })
+    ))
+  ))
+})
+`
+const recordedActions = (root: string) => readFileSync(join(root, "ran.txt"), "utf8").trim().split("\n")
+const renameSecond = (root: string) =>
+  writeFileSync(join(root, "flows", "steps", "flow.ts"), moduleSource(root, "verify/second-renamed"))
 
 const roots: Array<string> = []
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
-  ran.length = 0
 })
 
 /** A project whose `steps` runs recorded both steps and parked on their task; `cancelled` more are then cancelled. */
-const parkedProject = async (runs = 1, cancelled = 0) => {
+const parkedProject = async (runs = 1, cancelled = 0, adopt = false) => {
   const root = mkdtempSync(join(tmpdir(), "smithers-verify-"))
   roots.push(root)
+  symlinkSync(resolve("node_modules"), join(root, "node_modules"), "dir")
   mkdirSync(join(root, "flows", "steps"), { recursive: true })
-  writeFileSync(join(root, "flows", "steps", "flow.ts"), moduleSource)
+  writeFileSync(join(root, "flows", "steps", "flow.ts"), moduleSource(root))
   const registry = NodeControl.layerRegistry(root)
   const engine = NodeControl.engineDurable(root, registry)
   const runIds = await Effect.runPromise(
@@ -128,10 +109,26 @@ const parkedProject = async (runs = 1, cancelled = 0) => {
           yield* Effect.sleep("10 millis")
         }
       }
+      if (adopt) {
+        const runId = ids[0]!
+        const before = yield* runtime.getRun(runId)
+        writeFileSync(join(root, "flows", "steps", "flow.ts"), `${moduleSource(root)}// adopted\n`)
+        expect((yield* control.resume({ runId, idempotencyKey: "adopt", allowCodeDrift: true }))._tag).toBe("Accepted")
+        for (let attempt = 0;; attempt++) {
+          const after = yield* runtime.getRun(runId)
+          if (after.status === "parked" && after.updatedAt > before.updatedAt) {
+            expect(after.executionDigest).not.toBe(before.executionDigest)
+            break
+          }
+          if (attempt >= 1_000) return yield* Effect.die("the adopted run never parked")
+          yield* Effect.sleep("10 millis")
+        }
+        expect(recordedActions(root)).toEqual(["verify/first", "verify/second"])
+      }
       return ids
     }).pipe(
       Effect.provide(Layer.merge(
-        NodeControl.layerControl({ root, evaluator: ScriptedJudge.layer }, registry, engine, modulesFor(Second)),
+        NodeControl.layerControl({ root, evaluator: ScriptedJudge.layer }, registry, engine),
         Layer.merge(engine.runtime, registry)
       )),
       Effect.scoped,
@@ -148,34 +145,37 @@ const storeBytes = (root: string) =>
 
 it("replays every recorded step of an unchanged flow and changes nothing", async () => {
   const { root, runId } = await parkedProject()
-  expect(ran).toEqual(["verify/first", "verify/second"])
+  expect(recordedActions(root)).toEqual(["verify/first", "verify/second"])
   const before = storeBytes(root)
-  const report = await Verify.verify(root, runId, { modules: modulesFor(Second) })
+  const report = await Verify.verify(root, runId)
   expect(report.verdict).toBe("consistent")
   expect(report.replayed.map((step) => step.action)).toEqual(["verify/first", "verify/second"])
   // The human task the run parked inside is re-entered, not executed afresh.
   expect(report.resumes?.action).toBe("system/human-task")
   expect(report.notReplayed).toEqual([])
   expect(report.executes).toBeUndefined()
-  expect(ran).toEqual(["verify/first", "verify/second"])
+  expect(recordedActions(root)).toEqual(["verify/first", "verify/second"])
   expect(storeBytes(root)).toEqual(before)
 }, 120_000)
 
 it("reports a re-keyed step as dropped and the step that would execute", async () => {
   const { root, runId } = await parkedProject()
-  const report = await Verify.verify(root, runId, { modules: modulesFor(Renamed) })
+  const before = storeBytes(root)
+  renameSecond(root)
+  const report = await Verify.verify(root, runId)
   expect(report.verdict).toBe("divergent")
   expect(report.replayed.map((step) => step.action)).toEqual(["verify/first"])
   expect(report.executes?.action).toBe("verify/second-renamed")
   expect(report.notReplayed).toHaveLength(1)
   expect(report.notReplayed[0]?.stepKeyDigest).not.toBe(report.executes?.stepKeyDigest)
+  expect(storeBytes(root)).toEqual(before)
   // Nothing ran: the renamed step stopped at the gate.
-  expect(ran).toEqual(["verify/first", "verify/second"])
+  expect(recordedActions(root)).toEqual(["verify/first", "verify/second"])
 }, 120_000)
 
 it("refuses a copy that does not stop in time", async () => {
   const { root, runId } = await parkedProject()
-  await expect(Verify.verify(root, runId, { modules: modulesFor(Second), settleWithin: "1 millis" })).rejects
+  await expect(Verify.verify(root, runId, { settleWithin: "1 millis" })).rejects
     .toMatchObject({ code: "verify_timeout" })
 }, 120_000)
 
@@ -217,7 +217,7 @@ it("names the step that would execute and the steps that would not replay", () =
 it("verifies every run a store holds and lists the settled ones apart", async () => {
   const { root, runIds } = await parkedProject(2, 1)
   const before = storeBytes(root)
-  const summary = await Verify.verifyAll(root, { modules: modulesFor(Second) })
+  const summary = await Verify.verifyAll(root)
   expect(summary.verdict).toBe("consistent")
   expect(summary.reports.map((report) => [report.runId, report.verdict])).toEqual([
     [runIds[0], "consistent"],
@@ -231,7 +231,9 @@ it("verifies every run a store holds and lists the settled ones apart", async ()
   expect(summary.unverified).toEqual([])
   expect(storeBytes(root)).toEqual(before)
 
-  const divergent = await Verify.verifyAll(root, { modules: modulesFor(Renamed) })
+  renameSecond(root)
+  const divergent = await Verify.verifyAll(root)
+  expect(divergent.unverified).toEqual([])
   expect(divergent.verdict).toBe("divergent")
   expect(divergent.reports.map((report) => report.executes?.action)).toEqual([
     "verify/second-renamed",
@@ -240,12 +242,12 @@ it("verifies every run a store holds and lists the settled ones apart", async ()
   expect(Verify.storeDivergence(divergent).message).toBe(
     divergent.reports.map((report) => Verify.divergence(report).message).join("\n")
   )
-  expect(ran).toEqual(Array(3).fill(["verify/first", "verify/second"]).flat())
+  expect(recordedActions(root)).toEqual(Array(3).fill(["verify/first", "verify/second"]).flat())
 }, 240_000)
 
 it("lists a run whose copy does not stop in time instead of ending the whole verification", async () => {
   const { root, runId } = await parkedProject()
-  const summary = await Verify.verifyAll(root, { modules: modulesFor(Second), settleWithin: "1 millis" })
+  const summary = await Verify.verifyAll(root, { settleWithin: "1 millis" })
   expect(summary.reports).toEqual([])
   expect(summary.unverified).toEqual([
     { runId, code: "verify_timeout", message: `The copy of ${runId} did not stop replaying in time` }
@@ -259,9 +261,9 @@ it("verifies a store elsewhere against the project's flows", async () => {
   roots.push(elsewhere)
   cpSync(join(root, ".flows"), elsewhere, { recursive: true })
   rmSync(join(root, ".flows"), { recursive: true, force: true })
-  const summary = await Verify.verifyAll(root, { modules: modulesFor(Second), against: join(elsewhere, "engine.db") })
+  const summary = await Verify.verifyAll(root, { against: join(elsewhere, "engine.db") })
   expect(summary.reports.map((report) => [report.runId, report.verdict])).toEqual([[runId, "consistent"]])
-  const one = await Verify.verify(root, runId, { modules: modulesFor(Second), against: join(elsewhere, "engine.db") })
+  const one = await Verify.verify(root, runId, { against: join(elsewhere, "engine.db") })
   expect(one.replayed.map((step) => step.action)).toEqual(["verify/first", "verify/second"])
   // No store under the project itself was created or read.
   expect(existsSync(join(root, ".flows", "engine.db"))).toBe(false)
@@ -299,27 +301,28 @@ it("verifies a PostgreSQL-backed project on a schema copy it drops afterwards", 
         Number(row!.count)
       )
   try {
-    const { root, runId } = await parkedProject()
+    const { root, runId } = await parkedProject(1, 0, true)
     expect(existsSync(join(root, ".flows", "engine.db"))).toBe(false)
     expect(await schemas()).toEqual([`${prefix}_control_db`, `${prefix}_engine_db`])
     const before = await rows()
-    const consistent = await Verify.verify(root, runId, { modules: modulesFor(Second) })
+    const consistent = await Verify.verify(root, runId)
     expect(consistent.verdict).toBe("consistent")
     expect(consistent.replayed.map((step) => step.action)).toEqual(["verify/first", "verify/second"])
     expect(consistent.resumes?.action).toBe("system/human-task")
-    const divergent = await Verify.verify(root, runId, { modules: modulesFor(Renamed) })
+    renameSecond(root)
+    const divergent = await Verify.verify(root, runId)
     expect(divergent.verdict).toBe("divergent")
     expect(divergent.executes?.action).toBe("verify/second-renamed")
     // A prefix that leaves no room for a scratch name is refused before any copy.
     vi.stubEnv("SMITHERS_POSTGRES_SCHEMA", `${prefix}_${"x".repeat(63 - prefix.length - 12)}`)
-    await expect(Verify.verify(root, runId, { modules: modulesFor(Second) })).rejects.toMatchObject({
+    await expect(Verify.verify(root, runId, {})).rejects.toMatchObject({
       code: "verify_schema_too_long"
     })
     vi.stubEnv("SMITHERS_POSTGRES_SCHEMA", prefix)
     // The originals are untouched and every scratch schema is gone.
     expect(await rows()).toBe(before)
     expect(await schemas()).toEqual([`${prefix}_control_db`, `${prefix}_engine_db`])
-    expect(ran).toEqual(["verify/first", "verify/second"])
+    expect(recordedActions(root)).toEqual(["verify/first", "verify/second"])
   } finally {
     await admin(Effect.gen(function*() {
       const sql = yield* SqlClient
