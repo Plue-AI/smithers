@@ -182,6 +182,15 @@
       "reason": "Absent: crates/smithers-machined/tests/versions.rs, crates/smithers-machined/tests/overflow.rs, packages/backend/internal/machined/events_integration_test.go",
       "ticket": "T-COL-04"
     },
+    "C-COL-06": {
+      "status": "pending-owner",
+      "reason": "Machined wire target requires smithers-22 mapping approval and authenticated CI evidence",
+      "ticket": "T-COL-03r",
+      "pendingBinding": {
+        "target": "//:machinedWire",
+        "host": "CI"
+      }
+    },
     "C-CUT-01": {
       "status": "pending-owner",
       "reason": "Absent: packages/rpc/src/catalog/Cuts.test.ts, packages/backend/internal/compose/cut_routes_test.go",
