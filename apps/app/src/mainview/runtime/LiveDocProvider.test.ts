@@ -287,3 +287,82 @@ test("a replacement authenticated client retains old-id updates rather than forg
   expect(f.provider.unsaved).toBeUndefined()
   f.provider.dispose()
 })
+
+test("durable wiki edits wait for storage before send and reload replays under the same assigned identity", async () => {
+  let receive!: (event: DocumentEvent) => void
+  const sent: Uint8Array[] = []
+  let release!: () => void
+  let hold = false
+  let stored: import("./LiveDocProvider").DurableDocument | undefined
+  const channel: DocumentChannel = { subscribeDocument(_topic, listener, clientId) {
+    receive = listener
+    if (stored) expect(clientId).toBe(7)
+    return { send(_kind, bytes) { sent.push(bytes) }, release() {} }
+  } }
+  const persistence = { save: async (value: import("./LiveDocProvider").DurableDocument) => {
+    if (hold) await new Promise<void>(resolve => { release = resolve })
+    stored = value
+  } }
+  const p = new LiveDocProvider("doc:wiki:42", channel, ready, persistence)
+  receive({ kind: "assigned", epoch, clientId: 7 })
+  receive({ kind: "sync", payload: Uint8Array.from([1, 2, 0, 0]) })
+  await new Promise(resolve => setTimeout(resolve, 0))
+  hold = true
+  p.doc.getText("markdown").insert(0, "offline")
+  const before = sent.length
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(sent.length).toBe(before)
+  hold = false; release()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(sent.length).toBe(before + 1)
+  expect(stored!.pending).toHaveLength(1)
+  p.dispose()
+  const reloaded = new LiveDocProvider("doc:wiki:42", channel, ready, { ...persistence, initial: stored! })
+  const prior = sent.length
+  receive({ kind: "assigned", epoch, clientId: 7 })
+  receive({ kind: "sync", payload: Uint8Array.from([1, 2, 0, 0]) })
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(sent.length).toBe(prior + 2)
+  expect(reloaded.doc.getText("markdown").toString()).toBe("offline")
+  receive({ kind: "saved", vector: Y.encodeStateVector(reloaded.doc), seq: 0 })
+  expect(reloaded.saved).toBe("saving")
+  receive({ kind: "saved", vector: Y.encodeStateVector(reloaded.doc), seq: 1 })
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(stored!.pending).toHaveLength(0)
+  reloaded.dispose()
+
+})
+
+// Admission prepares a causal delta before persistence; committing that delta
+// is a local transaction rather than synchronization with another replica.
+test("a prepared local wiki delta keeps the host-assigned client id", () => {
+  let receive!: (event: DocumentEvent) => void
+  const provider = new LiveDocProvider("doc:wiki:42", { subscribeDocument(_topic, listener) { receive = listener; return { send() {}, release() {} } } }, ready)
+  receive({ kind: "assigned", epoch, clientId: 7 })
+  receive({ kind: "sync", payload: Uint8Array.from([1, 2, 0, 0]) })
+  const draft = new Y.Doc(); draft.clientID = 7; draft.getText("markdown").insert(0, "admitted")
+  provider.doc.transact(transaction => { Y.applyUpdate(provider.doc, Y.encodeStateAsUpdate(draft)); transaction.local = true })
+  expect(provider.doc.clientID).toBe(7)
+  receive({ kind: "saved", seq: 1, vector: Y.encodeStateVector(provider.doc) })
+  expect(provider.saved).toBe("saved")
+  provider.dispose(); draft.destroy()
+})
+
+test("remote text reaches its editor subscription before local persistence finishes", async () => {
+  let receive!: (event: DocumentEvent) => void
+  let release!: () => void
+  const held = new Promise<void>(done => { release = done })
+  let writes = 0
+  const provider = new LiveDocProvider("doc:wiki:42", { subscribeDocument(_topic, listener) { receive = listener; return { send() {}, release() {} } } }, ready, { save: async () => { await held; writes++ } })
+  receive({ kind: "assigned", epoch, clientId: 7 })
+  receive({ kind: "sync", payload: Uint8Array.from([1, 2, 0, 0]) })
+  const shown: string[] = []
+  provider.subscribeText(() => { if (provider.available) shown.push(provider.doc.getText("markdown").toString()) })
+  const peer = new Y.Doc(); peer.getText("markdown").insert(0, "peer keystroke")
+  const message = encoding.createEncoder(); sync.writeUpdate(message, Y.encodeStateAsUpdate(peer))
+  receive({ kind: "sync", payload: encoding.toUint8Array(message) })
+  expect(shown.at(-1)).toBe("peer keystroke")
+  expect(writes).toBe(0)
+  provider.dispose(); peer.destroy(); release()
+  await new Promise(done => setTimeout(done, 0))
+})
