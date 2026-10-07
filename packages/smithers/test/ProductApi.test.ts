@@ -95,8 +95,8 @@ describe("the generated product API client", () => {
     // GET /api/issues/{n} (#3457), were added.
     // Includes branch operations, live updates, TODO edits and named flow reads.
     // Exact parity above and the literal resource inventory below remain independent.
-    // Main's 536 served operations plus the revision-bound order acknowledgment.
-    expect(expected).toHaveLength(537)
+    // Includes the revision-bound order acknowledgment and run-bound Learning evidence.
+    expect(expected).toHaveLength(538)
     expect(spec.paths["/api/agents/{name}"]).toHaveProperty("get.operationId", "get_api_agents_name")
     expect(spec.paths["/api/model/test/receipt"]).toHaveProperty("get.operationId", "get_api_model_test_receipt")
     expect(spec.paths["/api/stack/attention/{id}"]).toHaveProperty("post.operationId", "post_api_stack_attention_id")
@@ -171,6 +171,17 @@ describe("the generated product API client", () => {
       expect(result).toBe(kind === "raw" ? raw : kind === "json" ? answer : undefined)
     }
   )
+
+  it("reads Learning evidence through the run-bound callback with escaped identifiers", async () => {
+    const { calls, transport, answer } = recorder()
+    const result = await ProductApi.getApiGatewaysHostLearningRunEvidence(transport, {
+      path: { hostID: "host/1?", runID: "run:7/steer" }
+    })
+    expect(result).toBe(answer)
+    expect(calls).toEqual([{ via: "request", args: [
+      "GET", "/api/gateways/host%2F1%3F/learning/run%3A7%2Fsteer/evidence"
+    ] }])
+  })
 
   it("leaves unset query parameters out of the path", async () => {
     const { calls, transport } = recorder()

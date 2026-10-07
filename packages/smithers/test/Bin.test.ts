@@ -1858,7 +1858,7 @@ describe("an attached launch's exit status", processBudget, () => {
     try {
       const launched = launch(cwd, ["up", "failing", "--json", "--verbose"])
 
-      expect(launched.error).toBeUndefined()
+      expect(launched.error, launched.stderr).toBeUndefined()
       expect(launched.status).toBe(1)
       const warnings = launched.stderr.split("\n").filter((line) => line.includes("WARN"))
 
@@ -1882,7 +1882,7 @@ describe("an attached launch's exit status", processBudget, () => {
     try {
       const launched = launch(cwd, ["up", "failing", "--json", "--verbose"])
 
-      expect(launched.error).toBeUndefined()
+      expect(launched.error, launched.stderr).toBeUndefined()
       expect(launched.status, launched.stderr).toBe(1)
       const warnings = launched.stderr.split("\n").filter((line) => line.includes("WARN"))
       expect(warnings, launched.stderr).toHaveLength(1)
