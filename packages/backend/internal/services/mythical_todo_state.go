@@ -11,6 +11,9 @@ import (
 // TodoWait is an independent reason the item needs a member. Settled waits stay
 // in checks as evidence; projection considers only the open ones.
 type TodoWait struct {
+	Paths              []string           `json:"paths,omitempty"`
+	ConflictChange     string             `json:"conflict_change,omitempty"`
+	OntoRevision       string             `json:"onto_revision,omitempty"`
 	ID                 string             `json:"id"`
 	Kind               string             `json:"kind"`
 	Prompt             string             `json:"prompt"`

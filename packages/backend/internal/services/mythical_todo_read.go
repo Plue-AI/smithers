@@ -167,6 +167,9 @@ func (s *MythicalService) todoCardAtQueuePosition(ctx context.Context, item db.M
 			projected["answered_by"] = wait.AnsweredBy
 			projected["answer"] = wait.Answer
 		}
+		if wait.Kind == "conflict" {
+			projected["paths"] = wait.Paths
+		}
 		if wait.SHA != "" {
 			projected["sha"] = wait.SHA
 		}
