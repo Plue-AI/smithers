@@ -102,167 +102,229 @@ const servedTools = async (server: Awaited<ReturnType<typeof serve>>) => {
   return tools
 }
 
+/** Script only the remote install; command discovery and MCP dispatch run in a real CLI. */
+const install = async () => {
+  const seen: Array<
+    {
+      method: string | undefined
+      path: string | undefined
+      authorization: string | undefined
+      body: unknown
+      idempotency: string | undefined
+    }
+  > = []
+  const server = createServer(async (request, response) => {
+    let body = ""
+    for await (const chunk of request) body += chunk
+    seen.push({
+      method: request.method,
+      path: request.url,
+      authorization: request.headers.authorization,
+      body: body ? JSON.parse(body) : null,
+      idempotency: request.headers["idempotency-key"] as string | undefined
+    })
+    response.setHeader("content-type", "application/json")
+    if (request.method === "POST" && request.url === "/api/todos") {
+      response.statusCode = 202
+      response.end(JSON.stringify({ confirmation: "confirm-fixture", state: "pending" }))
+    } else {
+      response.end(JSON.stringify({ items: [{ name: "fixture" }] }))
+    }
+  })
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  return {
+    seen,
+    origin: `http://127.0.0.1:${(server.address() as { port: number }).port}`,
+    close: async () => {
+      server.closeAllConnections()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  }
+}
+const hostEnvironment = (root: string, origin: string) => ({
+  HOME: root,
+  XDG_CONFIG_HOME: root,
+  SMITHERS_AUTH_FILE: join(root, "auth.json"),
+  SMITHERS_DISABLE_SYSTEM_KEYRING: "1",
+  SMITHERS_API_ORIGIN: origin,
+  SMITHERS_TOKEN: "host-synthetic-credential"
+})
+
 it(
-  "discovers canonical MCP tools, executes the real flow catalog, and exits cleanly on SIGTERM",
+  "discovers canonical MCP tools, reads the install catalog, and exits cleanly on SIGTERM",
   { timeout: 180_000 },
   async () => {
     const root = await mkdtemp(join(tmpdir(), "smthrs-unified-mcp-"))
-    const server = await serve(root)
+    const host = await install()
+    const server = await serve(root, hostEnvironment(root, host.origin))
     try {
       const listed = await server.request("tools/list", {})
       expect(listed?.tools?.map((tool) => tool.name)).toContain("search_tools")
-      const details = await server.call("get_tool_details", { name: "flow_list" })
-      expect(details?.content?.[0]?.text).toContain("root")
-      for (const name of ["runs_fork", "eval_compare", "targets", "credentials_list", "triggers_fire"]) {
+      for (
+        const name of [
+          "flows",
+          "flow_show",
+          "todo_show",
+          "todo_stop",
+          "todo_new"
+        ]
+      ) {
         const tool = await server.call("get_tool_details", { name })
+        expect(tool?.isError, JSON.stringify(tool)).not.toBe(true)
         expect(tool?.content?.[0]?.text).toContain(`"name":"${name}"`)
       }
-      for (const name of ["approvals_approve", "approvals_deny", "flow_start"]) {
+      for (
+        const name of [
+          "approvals_approve",
+          "approvals_deny",
+          "flow_start",
+          "debug_api",
+          "settings",
+          "members",
+          "secrets",
+          "auth_status",
+          "auth_token",
+          "runs_fork",
+          "runs_rewind"
+        ]
+      ) {
         const details = await server.call("get_tool_details", { name })
-        expect(details?.isError, JSON.stringify(details)).toBe(true)
-        const refused = await server.call("call_write_tool", {
-          name,
-          arguments: { approval: "{}", flow: "absent", root, audience: "human" }
-        })
+        expect(details?.isError, `${name}: ${JSON.stringify(details)}`).toBe(true)
+        const refused = await server.call("call_write_tool", { name, arguments: {} })
         expect(refused?.isError, JSON.stringify(refused)).toBe(true)
       }
+      expect(host.seen).toEqual([])
       expect(await readdir(root)).toEqual([])
-      const catalog = await server.call("call_read_tool", { name: "flow_list", arguments: { root } })
-      expect(catalog?.content?.[0]?.text, server.stderr()).toContain("flows")
+      const catalog = await server.call("call_read_tool", { name: "flows", arguments: {} })
+      expect(catalog?.isError, JSON.stringify(catalog)).not.toBe(true)
+      expect(catalog?.content?.[0]?.text).toContain("fixture")
+      expect(host.seen).toEqual([{
+        method: "GET",
+        path: "/api/flows",
+        authorization: "token host-synthetic-credential",
+        body: null,
+        idempotency: undefined
+      }])
       server.child.kill("SIGTERM")
       expect(await server.exited, server.stderr()).toBe(143)
     } finally {
       await server.stop()
+      await host.close()
       await rm(root, { recursive: true, force: true })
     }
   }
 )
 
-/**
- * Progressive discovery routes a tool through `call_read_tool` only when its
- * command declares `readOnlyHint: true`, and `call_write_tool` refuses such a
- * tool. An unclassified tool therefore forces every agent through the write
- * wrapper, so each served command must state its classification: this case
- * reads the served set itself, so a new command cannot slip in unclassified.
- */
+/** An unclassified tool forces reads through the write wrapper. Check the entire served set. */
 it(
-  "classifies every served tool and serves the read verbs through call_read_tool alone",
+  "classifies every served tool and routes catalog reads and writes through their respective wrappers",
   { timeout: 180_000 },
   async () => {
     const root = await mkdtemp(join(tmpdir(), "smthrs-unified-mcp-read-"))
-    const server = await serve(root)
+    const host = await install()
+    const server = await serve(root, hostEnvironment(root, host.origin))
     try {
       const tools = await servedTools(server)
       expect(tools.length).toBeGreaterThan(50)
-      const unclassified = tools.filter((tool) => typeof tool.annotations?.readOnlyHint !== "boolean")
-      expect(unclassified.map((tool) => tool.name)).toEqual([])
-
+      expect(tools.filter((tool) => typeof tool.annotations?.readOnlyHint !== "boolean").map((tool) => tool.name))
+        .toEqual([])
       const readOnly = new Set(tools.filter((tool) => tool.annotations?.readOnlyHint === true).map((tool) => tool.name))
       for (
         const name of [
-          "flow_list",
+          "flows",
           "flow_show",
+          "todo_show",
+          "branch_show",
           "runs_list",
-          "runs_show",
-          "runs_devtools",
-          "runs_logs",
-          "approvals_list",
-          "cache_steps_ls",
-          "cache_steps_show"
+          "runs_show"
         ]
       ) {
         expect(readOnly.has(name), name).toBe(true)
       }
-      // `flow plan` commits the plan card and its approval token and journals
-      // `control.plan.created`; it is a write even though nothing executes.
+      const names = new Set(tools.map((tool) => tool.name))
       for (
         const name of [
           "flow_plan",
-          "flow_execute",
-          "runs_cancel",
-          "runs_rewind",
-          "memory_set",
-          "cache_steps_evict",
-          "cache_steps_sweep"
+          "flow_run",
+          "flow_edit",
+          "todo_stop",
+          "todo_new",
+          "todo_amend",
+          "branch_rebase"
         ]
       ) {
+        expect(names.has(name), name).toBe(true)
         expect(readOnly.has(name), name).toBe(false)
+        const refused = await server.call("call_read_tool", { name, arguments: {} })
+        expect(refused?.isError, `${name}: ${JSON.stringify(refused)}`).toBe(true)
       }
       for (const name of readOnly) {
         const refused = await server.call("call_write_tool", { name, arguments: {} })
         expect(refused?.content?.[0]?.text, name).toContain(`Tool is read-only: ${name}`)
       }
-
-      // The catalog reads the discovery snapshot and leaves the project as it found it.
-      const catalog = await server.call("call_read_tool", { name: "flow_list", arguments: { root } })
-      expect(catalog?.isError, JSON.stringify(catalog)).not.toBe(true)
-      expect(catalog?.content?.[0]?.text).toMatch(/"items":\s*\[\]/)
-      const missing = await server.call("call_read_tool", {
-        name: "flow_show",
-        arguments: { flow: "absent", root }
+      expect(host.seen).toEqual([])
+      for (
+        const [name, args] of [["flows", {}], ["flow_show", { name: "team/todo" }], ["todo_show", { n: "T2" }]] as const
+      ) {
+        const result = await server.call("call_read_tool", { name, arguments: args })
+        expect(result?.isError, JSON.stringify(result)).not.toBe(true)
+        expect(result?.content?.[0]?.text).toContain("fixture")
+      }
+      const stopped = await server.call("call_write_tool", { name: "todo_stop", arguments: { n: "T2" } })
+      expect(stopped?.isError, JSON.stringify(stopped)).not.toBe(true)
+      const pending = await server.call("call_write_tool", {
+        name: "todo_new",
+        arguments: { text: "Fix it", idempotencyKey: "request-fixture" }
       })
-      expect(missing?.content?.[0]?.text).toContain("Unknown flow absent")
+      expect(pending?.content?.[0]?.text).toContain("confirm-fixture")
+      expect(pending?.content?.[0]?.text).toContain("Waiting for you to confirm")
+      expect(host.seen.map(({ method, path, body }) => ({ method, path, body }))).toEqual([
+        { method: "GET", path: "/api/flows", body: null },
+        { method: "GET", path: "/api/flows/team%2Ftodo", body: null },
+        { method: "GET", path: "/api/todos/2", body: null },
+        { method: "POST", path: "/api/todos/2", body: { op: "stop" } },
+        { method: "POST", path: "/api/todos", body: { prompt: "Fix it", place: { mode: "append" } } }
+      ])
+      expect(host.seen.every((request) => request.authorization === "token host-synthetic-credential")).toBe(true)
+      expect(host.seen[3]!.idempotency).toBeTruthy()
+      expect(host.seen[4]!.idempotency).toBe("request-fixture")
       expect(await readdir(root)).toEqual([])
     } finally {
       await server.stop()
+      await host.close()
       await rm(root, { recursive: true, force: true })
     }
   }
 )
 
-/**
- * The backend origin an MCP session reaches, and the login it presents, are
- * host configuration: a caller cannot aim the host's credential at a server
- * it chose, through any destination option of a mounted backend command.
- */
+/** MCP callers cannot redirect the host's credential through command options or path input. */
 it(
   "never sends the host's backend login to a caller-selected server over MCP",
   { timeout: 180_000 },
   async () => {
     const root = await mkdtemp(join(tmpdir(), "smthrs-unified-mcp-auth-"))
-    const listen = async () => {
-      const seen: Array<{ path: string | undefined; authorization: string | undefined }> = []
-      const server = createServer((request, response) => {
-        seen.push({ path: request.url, authorization: request.headers.authorization })
-        response.setHeader("content-type", "application/json")
-        response.end(JSON.stringify({ login: "fixture" }))
-      })
-      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
-      const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
-      const close = async () => {
-        server.closeAllConnections()
-        await new Promise<void>((resolve) => server.close(() => resolve()))
-      }
-      return { seen, origin, close }
-    }
-    const host = await listen(), attacker = await listen()
-    const server = await serve(root, {
-      HOME: root,
-      XDG_CONFIG_HOME: root,
-      SMITHERS_AUTH_FILE: join(root, "auth.json"),
-      SMITHERS_DISABLE_SYSTEM_KEYRING: "1",
-      SMITHERS_API_ORIGIN: host.origin,
-      SMITHERS_TOKEN: "host-synthetic-credential"
-    })
+    const host = await install(), attacker = await install()
+    const server = await serve(root, hostEnvironment(root, host.origin))
     try {
-      for (
-        const [tool, name, args] of [
-          ["call_read_tool", "auth_status", { hostname: attacker.origin }],
-          ["call_read_tool", "auth_token", { hostname: attacker.origin }]
-        ] as const
-      ) {
-        const refused = await server.call(tool, { name, arguments: args })
-        expect(refused?.isError, `${name} ${JSON.stringify(refused)}`).toBe(true)
-        expect(refused?.content?.[0]?.text).toContain("host-owned")
-        expect(refused?.content?.[0]?.text).not.toContain("host-synthetic-credential")
+      for (const flag of ["hostname", "host", "apiUrl", "origin"]) {
+        const result = await server.call("call_read_tool", { name: "flows", arguments: { [flag]: attacker.origin } })
+        expect(result?.isError, JSON.stringify(result)).not.toBe(true)
+        expect(result?.content?.[0]?.text).toContain("fixture")
+        expect(result?.content?.[0]?.text).not.toContain("host-synthetic-credential")
       }
+      const result = await server.call("call_read_tool", { name: "flow_show", arguments: { name: attacker.origin } })
+      expect(result?.isError, JSON.stringify(result)).not.toBe(true)
+      expect(result?.content?.[0]?.text).toContain("fixture")
+      expect(result?.content?.[0]?.text).not.toContain("host-synthetic-credential")
       expect(attacker.seen).toEqual([])
-
-      // The host-owned destination still answers with the host's login.
-      const status = await server.call("call_read_tool", { name: "auth_status", arguments: {} })
-      expect(status?.isError, JSON.stringify(status)).not.toBe(true)
-      expect(status?.content?.[0]?.text).toContain("fixture")
-      expect(host.seen).toEqual([{ path: "/api/user", authorization: "token host-synthetic-credential" }])
+      expect(host.seen).toHaveLength(5)
+      expect(
+        host.seen.every((request) =>
+          request.method === "GET" && request.authorization === "token host-synthetic-credential"
+        )
+      ).toBe(true)
+      expect(host.seen.at(-1)?.path).toBe(`/api/flows/${encodeURIComponent(attacker.origin)}`)
+      expect(host.seen.slice(0, -1).every((request) => request.path === "/api/flows")).toBe(true)
     } finally {
       await server.stop()
       await host.close()

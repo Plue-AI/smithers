@@ -90,6 +90,8 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
     }
     const command = Cli.create("root").command(leaf, {
       description: `${row.summary}${row.agent === "confirm" ? "; waits for the person's confirmation" : ""}`,
+      // Unbound operations are conservative writes until their HTTP binding exists.
+      mcp: row.agent === "never" ? false : { annotations: { readOnlyHint: row.http?.method === "GET" } },
       args: z.object(args),
       options: z.object(options),
       run: (context: any) =>
