@@ -41,6 +41,7 @@ type Config struct {
 // credential: never log or format an Instance or expose it to renderer code.
 type Instance struct {
 	ConnectionString string
+	binDir           string
 	cmd              *exec.Cmd
 	done             chan struct{}
 	waitErr          error
@@ -310,7 +311,7 @@ func startOnce(ctx context.Context, cfg Config, data, binary string, password []
 		_ = cmd.Wait()
 		return nil, false, fmt.Errorf("persist postgres process identity: %w", err)
 	}
-	instance := &Instance{cmd: cmd, done: make(chan struct{}), lock: lock, log: log, recordPath: recordPath}
+	instance := &Instance{binDir: cfg.BinDir, cmd: cmd, done: make(chan struct{}), lock: lock, log: log, recordPath: recordPath}
 	go func() {
 		instance.waitErr = cmd.Wait()
 		close(instance.done)
