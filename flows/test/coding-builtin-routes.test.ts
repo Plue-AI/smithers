@@ -304,7 +304,7 @@ test("the TODO composition reuses the request and delivery children and no host 
   const calls = graph.nodes.flatMap(({ ast }) =>
     ast._tag === "FlowCall" ? [ast.flow] : ast._tag === "ActionCall" ? [ast.action] : []
   )
-  assert.deepEqual(calls, ["coding/Request", "coding/todo-delivery", "coding/Vibe", "todo"])
+  assert.deepEqual(calls, ["coding/todo-boundary", "coding/Request", "coding/todo-boundary", "coding/todo-delivery", "coding/Vibe", "coding/todo-boundary", "todo"])
   const { repositoryPath, stateRoot } = await workspace(t)
   const started = await startup(repositoryPath, stateRoot, "host")
   assert.deepEqual(started.missing, [])
@@ -386,6 +386,7 @@ test("a repository copy of the TODO composition loads on the packaged host with 
     "Request",
     "RequestInput",
     "StackBase",
+    "TodoBoundary",
     "TodoDelivery",
     "Vibe",
     "VibeDelivered",
@@ -398,9 +399,12 @@ test("a repository copy of the TODO composition loads on the packaged host with 
   )
   assert.deepEqual(host.calls, builtin)
   assert.deepEqual(builtin.filter((call) => call.includes("/")), [
+    "coding/todo-boundary",
     "coding/Request",
+    "coding/todo-boundary",
     "coding/todo-delivery",
-    "coding/Vibe"
+    "coding/Vibe",
+    "coding/todo-boundary"
   ])
   // Source discovery and the packaged host measure one version, and it is the
   // composition alone: the steps are the host's, so no coding module is in its

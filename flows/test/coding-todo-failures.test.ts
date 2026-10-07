@@ -1,7 +1,7 @@
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import { BudgetExceeded } from "@smthrs/agent/Budget"
 import { SeatUnresolved } from "@smthrs/agent/Seat"
-import { Action, Fault, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
+import { Action, Fault, Flow, FlowRuntime, Interpreter, WaitFor } from "@smthrs/flow"
 import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
 import { HarnessError } from "@smthrs/harness/HarnessError"
 import * as Evaluator from "@smthrs/model/Evaluator"
@@ -32,6 +32,7 @@ import { ReceiveFeedback } from "../coding/steering.ts"
 import { TodoDelivery, todoLayers } from "../coding/todo.ts"
 import { InstallDependencyPages } from "../coding/wiki-refresh.ts"
 import { Implement, policyLayers, RunCheck } from "../coding/workflow.ts"
+import { TodoBoundary, TodoPauseRequested } from "../coding/todo-pause.ts"
 import Todo from "../todo/flow.ts"
 
 const base = {
@@ -229,6 +230,9 @@ for (const scenario of cases) {
     let sourceReads = 0
     const layers = Layer.mergeAll(
       Interpreter.layer(Todo),
+      Interpreter.layer(TodoBoundary),
+      WaitFor.layer,
+      TodoPauseRequested.toLayer(() => Effect.succeed({ requested: false, pause: "", resume: "" })),
       requestRegistration,
       correctionLayers,
       policyLayers,

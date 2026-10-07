@@ -3,7 +3,7 @@ import * as Seat from "@smthrs/agent/Seat"
 import * as SeatResolver from "@smthrs/agent/SeatResolver"
 import type * as SeatRouter from "@smthrs/agent/SeatRouter"
 import * as Digest from "@smthrs/core/Digest"
-import { HumanTask, Interpreter } from "@smthrs/flow"
+import { HumanTask, Interpreter, WaitFor } from "@smthrs/flow"
 import * as Action from "@smthrs/flow/Action"
 import * as FlowRuntime from "@smthrs/flow/FlowRuntime"
 import * as RequestExecutor from "@smthrs/model/RequestExecutor"
@@ -76,6 +76,7 @@ import { sourceAdmission } from "./source-admission.ts"
 import { stackBaseLayer } from "./stack.ts"
 import * as CodingState from "./state.ts"
 import { feedbackLayer, routeMessages } from "./steering.ts"
+import { TodoBoundary, todoPauseLayer } from "./todo-pause.ts"
 import { todoDeliveryLayer, todoLayers } from "./todo.ts"
 import { verifyRegistration } from "./verify.ts"
 import { cleanupModels } from "./vibe-cleanup.ts"
@@ -731,6 +732,9 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
           requestRegistration,
           todoLayers(evaluator),
           todoDeliveryLayer,
+          todoPauseLayer,
+          WaitFor.layer,
+          Interpreter.layer(TodoBoundary),
           feedbackLayer,
           verifyRegistration,
           Layer.mergeAll(

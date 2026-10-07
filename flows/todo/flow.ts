@@ -6,8 +6,8 @@
  * packaged or overridden, until pinned-source activation (T-FLW-03/04) binds
  * each launch to its attempt (flows/repository/registry.ts).
  */
-import { Request, RequestInput, StackBase, TodoDelivery, Vibe, VibeDelivered, VibeError } from "@smthrs/coding"
-import { Flow } from "@smthrs/flow"
+import { Request, RequestInput, StackBase, TodoBoundary, TodoDelivery, Vibe, VibeDelivered, VibeError } from "@smthrs/coding"
+import { Flow, WaitFor } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Schema } from "effect"
 
@@ -19,10 +19,13 @@ export default Flow.make("todo", {
   modelInvocable: false,
   payload: Schema.Struct({ ...RequestInput.fields, base: StackBase }),
   success: VibeDelivered,
-  error: Schema.Union([Request.errorSchema, VibeError]),
+  error: Schema.Union([Request.errorSchema, VibeError, WaitFor.WaitForRequestInvalid]),
   body: (input) =>
-    Request.child(input).pipe(
+    TodoBoundary.child({}).pipe(
+      Node.bindPlanned(() => Request.child(input)),
+      Node.bindPlanned((request) => TodoBoundary.child({}).pipe(Node.andThen(Node.succeed(request)))),
       Node.bindPlanned((request) => TodoDelivery.call({ request })),
-      Node.bindPlanned((delivery) => Vibe.child(delivery))
+      Node.bindPlanned((delivery) => Vibe.child(delivery)),
+      Node.bindPlanned((delivered) => TodoBoundary.child({}).pipe(Node.andThen(Node.succeed(delivered))))
     )
 })
