@@ -1,13 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
-import type { StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { MAIN_TAB_ID } from "./AppState"
-import type { AgentTurnFrame } from "@smthrs/rpc/NativeAgent"
 import type { AgentPort } from "../runtime/AgentPort"
 import { scopedControllers } from "./ControllerTestScope"
 import { createAppStore } from "./AppStore"
-import { memoryStorage, settled } from "./TestFixtures"
+import { memoryStorage, settled, waitFor } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 
@@ -20,6 +18,34 @@ const webAgent = (message = "Could not reach the Smithers web agent."): AgentPor
   cancelTurn: async () => {},
   subscribe: () => () => {}
 })
+
+/** HTTP is the shared conversation seam; browser agent execution must stay unused. */
+const installedConversation = async (store: Awaited<ReturnType<typeof webStore>>) => {
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", memberId: 1, admin: false, scopesPlain: null }).isPersisted.promise
+  const requests: Array<{ prompt: string; idempotencyKey: string }> = []
+  let nativeStarts = 0
+  const controller = createAppController(store, { ...webAgent(), available: true,
+    startTurn: async () => { nativeStarts++; return { status: "error", message: "Unexpected browser execution" } }
+  }, {
+    applicationIdentity: { current: async () => ({ memberId: 1, username: "owner", admin: false, scopes: null }) },
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "redirect", sandbox: null },
+    fetchImpl: async (input, init) => {
+      const path = String(input)
+      if (path.endsWith("/api/user")) return Response.json({ id: 1, username: "owner", is_admin: false })
+      if (path.endsWith("/api/conversations/main/prompt") && init?.method === "POST") {
+        requests.push(JSON.parse(String(init.body)))
+        return Response.json({ turnId: `turn-${requests.length}`, terminal: true }, { status: 202 })
+      }
+      if (path.endsWith("/api/conversations/main")) return Response.json({ id: "main", entries: requests.map((request, index) => ({
+        id: `turn-${index + 1}`, author: 1, authorLogin: "owner", runId: `run-${index + 1}`, prompt: request.prompt, state: "completed",
+        frames: [{ runId: `run-${index + 1}`, type: "delta", kind: "text", text: "Hello from Smithers." }, { runId: `run-${index + 1}`, type: "done" }]
+      })) })
+      if (path.endsWith("/api/conversations/main/view-state")) return Response.json({})
+      return new Response(null, { status: 404 })
+    }
+  })
+  return { controller, requests, nativeStarts: () => nativeStarts }
+}
 
 test("parking a gated act dispatches only the durable command, leaving the answer to its prompt", async () => {
   const store = await webStore()
@@ -38,68 +64,42 @@ describe("createAppController in pure web mode", () => {
     expect(controller.nativeAgentAvailable).toBe(false)
   })
 
-  test("records the user message and a visible failure when no native agent can run the turn", async () => {
+  test("refuses an unadmitted prompt with a visible failure when no conversation provider exists", async () => {
     const store = await webStore()
-    const controller = createAppController(store, webAgent())
+    const controller = createAppController(store, webAgent(), { toastDebounceMs: 0 })
 
-    controller.send("hello from the web build")
-    await settled()
-
-    const messages = [...store.collections.messages.values()]
-    const submitted = messages.find((message) => message.text === "hello from the web build")
-    expect(submitted?.role).toBe("user")
-
-    const failure = messages.find((message) => message.status === "failed")
-    expect(failure?.role).toBe("smithers")
-    expect(failure?.text).toContain("Could not reach the Smithers web agent.")
+    expect(await controller.send("hello from the web build")).toBe(false)
+    await waitFor(() => [...store.collections.toasts.values()].some(toast => toast.status === "failed"))
+    expect([...store.collections.toasts.values()].find(toast => toast.status === "failed")?.detail).toBe("Chat didn't finish — the app hit an unexpected error.")
+    expect([...store.collections.messages.values()]).toEqual([])
   })
 
-  test("returns the session to idle so the composer stays usable after a failed turn", async () => {
+  test("keeps the composer draft and idle session usable after failed admission", async () => {
     const store = await webStore()
-    const controller = createAppController(store, webAgent())
+    const controller = createAppController(store, webAgent(), { toastDebounceMs: 0 })
 
-    controller.send("first attempt")
-    await settled()
-    expect(store.session().phase).toBe("idle")
-
-    controller.send("second attempt")
-    await settled()
-    const texts = [...store.collections.messages.values()].map((message) => message.text)
-    expect(texts).toContain("second attempt")
-  })
-
-  test("renders a streamed web turn to completion through the shared frame contract", async () => {
-    const store = await webStore()
-    const listeners = new Set<(frame: AgentTurnFrame) => void>()
-    const streamingAgent: AgentPort = {
-      available: true,
-      startTurn: async (request) => {
-        queueMicrotask(() => {
-          for (const listener of listeners) {
-            listener({ runId: request.runId, type: "delta", kind: "text", text: "Hello from " })
-            listener({ runId: request.runId, type: "delta", kind: "text", text: "Smithers Cloud." })
-            listener({ runId: request.runId, type: "done" })
-          }
-        })
-        return { status: "started" }
-      },
-      cancelTurn: async () => {},
-      subscribe: (listener) => {
-        listeners.add(listener)
-        return () => listeners.delete(listener)
-      }
+    for (const text of ["first attempt", "second attempt"]) {
+      controller.changeDraft(text)
+      expect(await controller.send(text)).toBe(false)
+      await settled()
+      expect(store.session().phase).toBe("idle")
+      expect(store.session().draft).toBe(text)
     }
-    const controller = createAppController(store, streamingAgent)
-    expect(controller.nativeAgentAvailable).toBe(true)
+    expect([...store.collections.messages.values()]).toEqual([])
+  })
 
-    controller.send("Hello who are you")
-    await settled()
+  test("reads completed host frames through the shared conversation without browser execution", async () => {
+    const store = await webStore()
+    const { controller, requests, nativeStarts } = await installedConversation(store)
+    await waitFor(() => store.collections.identitySessions.get("identity")?.state === "signed-in")
 
-    const response = [...store.collections.messages.values()]
-      .filter((message) => message.role === "smithers")
-      .sort((left, right) => right.ordinal - left.ordinal)[0]
-    expect(response?.text).toBe("Hello from Smithers Cloud.")
-    expect(response?.status).toBe("complete")
+    await controller.send("Hello who are you")
+    await waitFor(() => controller.sharedConversation?.get().conversation?.entries.length === 1)
+    expect(requests[0]?.prompt).toBe("Hello who are you")
+    expect(controller.sharedConversation?.get().conversation?.entries[0]).toMatchObject({
+      state: "completed", frames: [{ type: "delta", kind: "text", text: "Hello from Smithers." }, { type: "done" }]
+    })
+    expect(nativeStarts()).toBe(0)
     expect(store.session().phase).toBe("idle")
   })
 
@@ -165,11 +165,16 @@ describe("the controller's command surface", () => {
       .filter((key): key is string => key !== undefined)
     const compositionRoot = [
       "contextLine",
-      "flowCatalog",
-      "membersRoster",
-      "membersRole",
       "store",
       "stackSnapshots",
+      "homeView",
+      "runMonitors",
+      "listRunMonitors",
+      "openRunMonitor",
+      "openBranchTerminal",
+      "setRunView",
+      "secretsProviders",
+      "sharedConversation",
       "installSnapshots",
       "todoList",
       "fileDocuments",
@@ -207,7 +212,7 @@ describe("the controller's command surface", () => {
   })
 })
 
-test("restored tombstones refuse maximize and tab activation and never enter a model request", async () => {
+test("restored tombstones refuse maximize and tab activation and never enter a shared prompt", async () => {
   const storage = memoryStorage()
   const original = await createAppStore({ kind: "localStorage", storage })
   await original.dispatch({ type: "card.upsert", actor: "system", card: {
@@ -225,19 +230,18 @@ test("restored tombstones refuse maximize and tab activation and never enter a m
   await original.dispatch({ type: "tab.selected", actor: "user", id: "legacy-tab" }).isPersisted.promise
   await original.dispose?.()
   const store = await createAppStore({ kind: "localStorage", storage })
-  let request: StartAgentTurnRequest | undefined
-  const controller = createAppController(store, { ...webAgent(), available: true,
-    startTurn: async value => { request = value; return { status: "error", message: "Stopped after capture" } }
-  })
+  const { controller, requests, nativeStarts } = await installedConversation(store)
+  await waitFor(() => store.collections.identitySessions.get("identity")?.state === "signed-in")
   expect(store.session().maximizedCardId).toBeNull()
   expect(store.session().activeTabId).toBe(MAIN_TAB_ID)
   expect(controller.maximizeCard("legacy")).toBe("This feature is not enabled.")
   const outcome = await controller.runCommandForResult("card.maximize", "legacy")
   expect(outcome.status).toBe("failed")
   expect(store.session().maximizedCardId).toBeNull()
-  controller.send("Read the current conversation")
-  await settled()
-  expect(request).toBeDefined()
-  expect(JSON.stringify(request)).not.toContain("PRIVATE_LEGACY")
-  expect(JSON.stringify(request)).toContain("CURRENT_LIVE_TITLE")
+  await controller.send("Read the current conversation")
+  await waitFor(() => requests.length === 1)
+  expect(requests[0]?.prompt).toBe("Read the current conversation")
+  expect(Object.keys(requests[0]!).sort()).toEqual(["idempotencyKey", "prompt"])
+  expect(JSON.stringify(requests)).not.toContain("PRIVATE_LEGACY")
+  expect(nativeStarts()).toBe(0)
 })
