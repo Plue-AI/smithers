@@ -27,6 +27,12 @@ for (const [label, output, baseline, allowed] of [
   ['vitest timed cross', ' × some test 124ms', 'some test', true],
   ['vitest decimal duration', ' × some test 1.25s', 'some test', true],
   ['vitest new timed failure', ' × new test 124ms', 'some test', false],
+  ['timed baseline milliseconds', ' × some test 124ms', 'some test 5312ms', true],
+  ['timed baseline seconds', ' × some test 1.25s', 'some test 2.75s', true],
+  ['timed baseline parentheses', '✖ some test (1.2ms)', 'some test (4ms)', true],
+  ['timed baseline does not admit new names', ' × other test 124ms', 'some test 5312ms', false],
+  ['timed baseline mixed names', ' × first test 1ms\n × second test 2ms', 'first test 13ms\nsecond test 2.5s', true],
+  ['duration inside a name stays significant', ' × takes 10ms for input 1ms', 'takes 11ms for input 13ms', false],
   ['ANSI node', '\x1b[31m✖ some test (1ms)\x1b[0m', 'some test', true],
   ['missing tool baseline', 'Error: compiler unavailable', 'other test', false]
 ]) test(label, t => {
@@ -40,6 +46,7 @@ check flows 'cat "$FIXTURE/output"; exit 1'
     encoding: 'utf8', env: { ...process.env, FIXTURE: dir }
   });
   assert.equal(result.status, allowed ? 0 : 1, result.stderr);
+  assert.equal(readFileSync(join(dir, 'baseline'), 'utf8'), baseline + '\n');
 });
 for (const behavior of ['drop', 'keep', 'delete', 'allow-delete', 'wrong-allowance']) test(`integration ${behavior}`, t => {
   const dir = fixture(t);
@@ -103,4 +110,18 @@ test('unformatted Go in a touched package is refused even with a tool baseline',
   assert.equal(result.status, 1, result.stderr);
   assert.match(result.stdout, /FAIL gofmt:/);
   assert.match(result.stdout, /bad\.go/);
+});
+
+
+test('an unreadable baseline cannot admit a named failure', t => {
+  const dir = fixture(t);
+  writeFileSync(join(dir, 'output'), ' × some test 1ms');
+  const result = spawnSync('bash', ['-c', `source "$1"
+mode=gate; log="$2/log"; baseline="$2/missing"; newreds=()
+check flows 'cat "$FIXTURE/output"; exit 1'
+[ \${#newreds[@]} -eq 0 ]`, '_', script, dir], {
+    encoding: 'utf8', env: { ...process.env, FIXTURE: dir }
+  });
+  assert.equal(result.status, 1);
+  assert.match(readFileSync(join(dir, 'log'), 'utf8'), /unreadable baseline/);
 });

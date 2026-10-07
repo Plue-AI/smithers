@@ -6,9 +6,10 @@
 # Rule: no new failing names. Only name-free tool failures may use a tool-failure baseline.
 set -u
 # Failing names: Node spec/TAP, Go tests and subtests (TestX, TestX/sub), bun "(fail) name", vitest "FAIL|× name".
-extract() { local esc=$'\033'; sed -E "s/${esc}\\[[0-9;]*[mK]//g" | sed -n -E '/^ *✖ failing tests:$/d; s/^ *--- FAIL: ([^ ]+).*/\1/p; s/^\(fail\) (.*) \[[0-9.]+m?s\]$/\1/p; s/^ *(FAIL|×) +(.*)$/\2/p; s/^ *✖ +(.*)$/\1/p; s/^ *not ok [0-9]+ - (.*)$/\1/p' | sed -E 's/ \([0-9.]+m?s\)$//; s/ [0-9.]+m?s$//; s/ # (TODO|SKIP).*//' | sort -u; }
+normalize_names() { sed -E 's/ \([0-9.]+m?s\)$//; s/ [0-9.]+m?s$//; s/ # (TODO|SKIP).*//'; }
+extract() { local esc=$'\033'; sed -E "s/${esc}\\[[0-9;]*[mK]//g" | sed -n -E '/^ *✖ failing tests:$/d; s/^ *--- FAIL: ([^ ]+).*/\1/p; s/^\(fail\) (.*) \[[0-9.]+m?s\]$/\1/p; s/^ *(FAIL|×) +(.*)$/\2/p; s/^ *✖ +(.*)$/\1/p; s/^ *not ok [0-9]+ - (.*)$/\1/p' | normalize_names | sort -u; }
 check() {
-  local name=$1 cmd=$2 out rc names n
+  local name=$1 cmd=$2 out rc names n known
   echo "== $name: $cmd" >> "$log"
   out=$(bash -o pipefail -c "$cmd" 2>&1); rc=$?
   printf '%s\n' "$out" >> "$log"
@@ -30,7 +31,13 @@ check() {
     if grep -qxF "$name: tool-failure" "$baseline"; then echo "FAIL $name (no test names; main fails this check the same way: allowed)" >> "$log"; return 0; fi
     echo "FAIL $name (no test names: build or tool failure)" >> "$log"; newreds+=("$name"); return 1
   fi
-  while IFS= read -r n; do grep -qxF "$n" "$baseline" || newreds+=("$name: $n"); done <<< "$names"
+  # Older receipts retained reporter timings. Compare the same name identity
+  # on both sides without rewriting the shared baseline.
+  if ! known=$(normalize_names < "$baseline"); then
+    echo "FAIL $name (unreadable baseline)" >> "$log"
+    newreds+=("$name: unreadable baseline"); return 1
+  fi
+  while IFS= read -r n; do grep -qxF "$n" <<< "$known" || newreds+=("$name: $n"); done <<< "$names"
   echo "FAIL $name (compared with main's baseline)" >> "$log"
 }
 
