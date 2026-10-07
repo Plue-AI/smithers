@@ -8,7 +8,7 @@ const Context = Schema.Struct({
   source_generation: Schema.String
 })
 const Input = Schema.Struct({
-  profile: Schema.Literals(["codex-rollout/0.160", "claude-code/2.1"]),
+  profile: Schema.Literals(["codex-rollout/0.159", "codex-rollout/0.160", "claude-code/2.1"]),
   context: Context,
   record: Schema.String,
   start: Schema.Number,
@@ -54,12 +54,12 @@ export const normalizeTranscript = (value: unknown) => {
     previous.profile !== input.profile || previous.source_generation !== context.source_generation) {
     throw new Error("invalid transcript checkpoint")
   }
-  const codex = input.profile === "codex-rollout/0.160"
+  const codex = input.profile.startsWith("codex-rollout/")
   const decode = (): Result.Result<Transcript.Decoded<Transcript.CodexState | Transcript.ClaudeState>, Transcript.ExternalTranscriptError> => {
     if (codex) {
       const state = previous === undefined ? Transcript.codexStart : Schema.decodeUnknownSync(Codex)(previous.decoder)
       validateState(state)
-      if (state.session !== undefined && state.session.format_version !== "codex-rollout/0.160") throw new Error("profile changed")
+      if (state.session !== undefined && state.session.format_version !== input.profile) throw new Error("profile changed")
       return Transcript.decodeCodex(state, input.record + "\n")
     }
     const state = previous === undefined ? Transcript.claudeStart : Schema.decodeUnknownSync(Claude)(previous.decoder)
@@ -70,7 +70,7 @@ export const normalizeTranscript = (value: unknown) => {
   if (Result.isFailure(result)) throw new Error(result.failure.code)
   const decoded = result.success
   validateState(decoded.state)
-  const expected = codex ? "codex-rollout/0.160" : "claude-code/2.1"
+  const expected = input.profile
   if (codex && typeof decoded.state.session === "object" && decoded.state.session.format_version !== expected) throw new Error("profile changed")
   if (decoded.entries.some(entry => entry.format_version !== expected)) throw new Error("profile changed")
   return {

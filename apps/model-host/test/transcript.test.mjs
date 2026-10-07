@@ -86,6 +86,20 @@ test("packaged transcript HTTP normalization preserves inert identities, checkpo
         { ...next, profile: "codex/unsupported" }, { ...next, record: "{}\n{}" }
       ]) assert.equal((await post(forged)).status, 422)
     }
+    // The adapter supports both releases. A registered profile must match the
+    // source metadata on first import and every recovered decoder checkpoint.
+    const metadata159 = '{"type":"session_meta","payload":{"id":"older","cli_version":"0.159.2","cwd":"/work"}}'
+    const older = { profile: "codex-rollout/0.159", context, record: metadata159, start: 0, end: Buffer.byteLength(metadata159) + 1 }
+    const accepted159 = await post(older)
+    assert.equal(accepted159.status, 200)
+    const recovered159 = await accepted159.json()
+    assert.deepEqual(recovered159.entries, [])
+    assert.equal(recovered159.state.decoder.session.format_version, "codex-rollout/0.159")
+    const next159 = { profile: older.profile, context, record: "{}", start: older.end, end: older.end + 3, state: recovered159.state }
+    assert.equal((await post(next159)).status, 200)
+    assert.equal((await post({ ...older, profile: "codex-rollout/0.160" })).status, 422)
+    assert.equal((await post({ ...next159, profile: "codex-rollout/0.160" })).status, 422)
+    assert.equal((await post({ ...next159, state: { ...recovered159.state, decoder: { ...recovered159.state.decoder, session: { ...recovered159.state.decoder.session, format_version: "codex-rollout/0.160" } } } })).status, 422)
     // Constructed maximum-sized metadata record. Its escaped HTTP envelope
     // exceeds the model-turn body limit; normalization keeps its own bound.
     const maximum = JSON.stringify({ type: "session_meta", payload: { id: "large", cli_version: "0.160.0", cwd: "\\".repeat(524247) + "x" } })
