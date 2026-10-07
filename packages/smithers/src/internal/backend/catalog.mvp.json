@@ -1626,7 +1626,10 @@
       "summary": "Rebase this branch now",
       "http": {
         "method": "POST",
-        "path": "/api/branches/{branch}/rebase"
+        "path": "/api/branches/{branch}",
+        "defaults": {
+          "rebase": true
+        }
       },
       "payload": {
         "dialect": "draft-2020-12",
@@ -1660,7 +1663,13 @@
       "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Rebase now",
-      "http": null,
+      "http": {
+        "method": "POST",
+        "path": "/api/branches/{branch}",
+        "defaults": {
+          "rebase": true
+        }
+      },
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
