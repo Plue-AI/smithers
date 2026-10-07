@@ -25,7 +25,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-DUR-05 | [C-DUR-05.spec.ts](C-DUR-05.spec.ts) | passing: 3 browser receipt/reload projections; literal outbox migration/crash/refusal in Rust and composed document refusal in Go pass; real-Mac/microVM qualification pending | T-COL-13 |
 | C-UI-12 · Setup/Settings | [C-UI-12.spec.ts](C-UI-12.spec.ts) | Empty/supplied model slot, zero dispatch, keyboard; 390px capacity line passed | T-UI-02 |
 | C-FM-01 | [C-FM-01.spec.ts](C-FM-01.spec.ts) | passed (Chromium; install seam fixtures, host proof in Go) | T-FM-01 |
-| C-FM-02 | [C-FM-02.spec.ts](C-FM-02.spec.ts) | fixme-before-implementation | T-FM-02 |
+| C-FM-02 | [C-FM-02.spec.ts](C-FM-02.spec.ts) | passed (Chromium; quota status seam fixtures, gateway proof in Go) | T-FM-02 |
 | C-MCH-12 | [C-MCH-12.spec.ts](C-MCH-12.spec.ts) | fixme-before-implementation | T-MCH-16 |
 | C-UI-14 | [C-UI-14.spec.ts](C-UI-14.spec.ts) | Mounted two-member /file flag on/off and person-colour projection pass; story accessibility passes; reference-host and second-Mac latency qualification pending | T-UI-19 |
 | C-J1-01 | [C-J1-01.spec.ts](C-J1-01.spec.ts) | fixme-before-implementation | T-INS-08 |
