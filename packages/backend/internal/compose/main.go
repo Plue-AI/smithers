@@ -756,6 +756,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 
 	searchService := services.NewSearchService(queries)
 	notificationService := services.NewNotificationServiceWithPool(queries, pool)
+	if config.IsSingleOwner(cfg.Auth) {
+		services.WithNotificationInstallAuthorization(pool)(notificationService)
+	}
 
 	mentionService := services.NewMentionService(queries, notificationService, services.WithMentionEmailSender(emailService))
 	commitStatusService := services.NewCommitStatusService(queries, services.WithCommitStatusWebhookDispatcher(webhookDispatcher))

@@ -23,7 +23,7 @@ func admitInstallAccountMutation(w http.ResponseWriter, r *http.Request, q *db.Q
 	}
 	var input any = struct{}{}
 	var resource int64
-	if command == "account.connection.delete" || command == "account.email.delete" || command == "account.email.verify" {
+	if command == "account.connection.delete" || command == "account.email.delete" || command == "account.email.verify" || command == "account.inbox.read" {
 		parts := strings.Split(strings.Trim(r.URL.EscapedPath(), "/"), "/")
 		var err error
 		index := len(parts) - 1
@@ -35,7 +35,7 @@ func admitInstallAccountMutation(w http.ResponseWriter, r *http.Request, q *db.Q
 			refuse(pkgerrors.BadRequest("invalid account id"))
 			return
 		}
-	} else {
+	} else if command != "account.inbox.read-all" {
 		raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, middleware.MaxRequestBodySize))
 		if err != nil {
 			if middleware.IsMaxBytesError(err) {
@@ -50,6 +50,10 @@ func admitInstallAccountMutation(w http.ResponseWriter, r *http.Request, q *db.Q
 		// Match the retained handlers: unknown fields are ignored, and cannot
 		// affect the authenticated account or the typed mutation binding.
 		switch command {
+		case "account.inbox.preferences":
+			var value services.UpdateInboxPreferencesRequest
+			err = decoder.Decode(&value)
+			input = value
 		case "account.email.add":
 			var value services.AddEmailRequest
 			err = decoder.Decode(&value)

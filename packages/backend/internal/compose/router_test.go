@@ -2474,7 +2474,7 @@ func (m *mockRouterNotificationService) GetPreferences(_ context.Context, _ int6
 	return services.NotificationPreferencesResponse{}, nil
 }
 
-func (m *mockRouterNotificationService) UpdatePreferences(_ context.Context, _ int64, _, _, _ bool) (services.NotificationPreferencesResponse, error) {
+func (m *mockRouterNotificationService) UpdatePreferences(_ context.Context, _ int64, _ services.UpdateInboxPreferencesRequest) (services.NotificationPreferencesResponse, error) {
 	return services.NotificationPreferencesResponse{}, nil
 }
 

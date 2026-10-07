@@ -37,7 +37,7 @@ func TestNotification_H_PreferencesAndReplayBranches(t *testing.T) {
 			getPrefsFn: func(context.Context, int64) (services.NotificationPreferencesResponse, error) {
 				return services.NotificationPreferencesResponse{NotifyIssues: true, NotifyLandings: true, NotifyMentions: true}, nil
 			},
-			updatePrefsFn: func(context.Context, int64, bool, bool, bool) (services.NotificationPreferencesResponse, error) {
+			updatePrefsFn: func(context.Context, int64, services.UpdateInboxPreferencesRequest) (services.NotificationPreferencesResponse, error) {
 				return services.NotificationPreferencesResponse{}, pkgerrors.Internal("update failed")
 			},
 		}}

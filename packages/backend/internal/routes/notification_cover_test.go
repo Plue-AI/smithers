@@ -45,19 +45,20 @@ func TestNotification_Cov_PreferencesHandlers(t *testing.T) {
 		assert.Contains(t, rec.Body.String(), `"notify_landings":false`)
 	})
 
-	t.Run("put partial update preserves omitted fields", func(t *testing.T) {
+	t.Run("put passes omitted fields to the service", func(t *testing.T) {
 		t.Parallel()
 
 		h := &NotificationHandler{Service: &mockNotificationRouteService{
 			getPrefsFn: func(context.Context, int64) (services.NotificationPreferencesResponse, error) {
 				return services.NotificationPreferencesResponse{NotifyIssues: true, NotifyLandings: true, NotifyMentions: false}, nil
 			},
-			updatePrefsFn: func(_ context.Context, userID int64, notifyIssues, notifyLandings, notifyMentions bool) (services.NotificationPreferencesResponse, error) {
+			updatePrefsFn: func(_ context.Context, userID int64, req services.UpdateInboxPreferencesRequest) (services.NotificationPreferencesResponse, error) {
 				assert.Equal(t, int64(42), userID)
-				assert.False(t, notifyIssues)
-				assert.True(t, notifyLandings)
-				assert.False(t, notifyMentions)
-				return services.NotificationPreferencesResponse{NotifyIssues: notifyIssues, NotifyLandings: notifyLandings, NotifyMentions: notifyMentions}, nil
+				require.NotNil(t, req.NotifyIssues)
+				assert.False(t, *req.NotifyIssues)
+				assert.Nil(t, req.NotifyLandings)
+				assert.Nil(t, req.NotifyMentions)
+				return services.NotificationPreferencesResponse{NotifyIssues: false, NotifyLandings: true, NotifyMentions: false}, nil
 			},
 		}}
 		req := httptest.NewRequest(http.MethodPut, "/api/notifications/preferences", strings.NewReader(`{"notify_issues":false}`))
@@ -70,11 +71,11 @@ func TestNotification_Cov_PreferencesHandlers(t *testing.T) {
 		assert.Contains(t, rec.Body.String(), `"notify_issues":false`)
 	})
 
-	t.Run("put current preferences error", func(t *testing.T) {
+	t.Run("put service error", func(t *testing.T) {
 		t.Parallel()
 
 		h := &NotificationHandler{Service: &mockNotificationRouteService{
-			getPrefsFn: func(context.Context, int64) (services.NotificationPreferencesResponse, error) {
+			updatePrefsFn: func(context.Context, int64, services.UpdateInboxPreferencesRequest) (services.NotificationPreferencesResponse, error) {
 				return services.NotificationPreferencesResponse{}, pkgerrors.Internal("prefs unavailable")
 			},
 		}}

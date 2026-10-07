@@ -14,6 +14,12 @@ import (
 )
 
 type installAccountMutationStore struct{ pool *pgxpool.Pool }
+type NotificationServiceOption func(*NotificationService)
+
+func WithNotificationInstallAuthorization(pool *pgxpool.Pool) NotificationServiceOption {
+	return func(s *NotificationService) { s.install = &installAccountMutationStore{pool: pool} }
+}
+
 type EmailServiceOption func(*EmailService)
 
 func WithEmailInstallAuthorization(pool *pgxpool.Pool) EmailServiceOption {
@@ -56,6 +62,15 @@ func InstallAccountMutationSubject(repository, userID int64, command string, res
 	case "account.device.delete":
 		_, valid = input.(string)
 		valid = valid && resourceID == 0
+	case "account.inbox.preferences":
+		_, valid = input.(UpdateInboxPreferencesRequest)
+		valid = valid && resourceID == 0
+	case "account.inbox.read-all":
+		_, valid = input.(struct{})
+		valid = valid && resourceID == 0
+	case "account.inbox.read":
+		_, valid = input.(struct{})
+		valid = valid && resourceID > 0
 	case "account.email.add":
 		_, valid = input.(AddEmailRequest)
 		valid = valid && resourceID == 0

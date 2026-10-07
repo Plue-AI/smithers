@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -1088,7 +1089,7 @@ func TestNotificationService_UpdatePreferences_ForwardsParams(t *testing.T) {
 	}
 
 	svc := NewNotificationService(mock)
-	prefs, err := svc.UpdatePreferences(context.Background(), 7, false, true, false)
+	prefs, err := svc.UpdatePreferences(context.Background(), 7, UpdateInboxPreferencesRequest{NotifyIssues: new(false), NotifyLandings: new(true), NotifyMentions: new(false)})
 	require.NoError(t, err)
 	assert.Equal(t, int64(7), capturedArg.UserID)
 	assert.False(t, capturedArg.NotifyIssues)
@@ -1346,4 +1347,53 @@ func TestNotificationService_NotifyWatchers_SkipsWatcherWithoutRepoReadAccess(t 
 	svc.notifyWatchersSync(context.Background(), 1, "issue", 7, "private issue", "secret body")
 
 	assert.Equal(t, []int64{3}, notifiedUsers, "a stale watch row must not deliver private repo notifications")
+}
+
+func TestNotificationService_UpdatePreferencesPartial(t *testing.T) {
+	for mask := 0; mask < 8; mask++ {
+		t.Run(fmt.Sprintf("fields-%d", mask), func(t *testing.T) {
+			current := db.UserNotificationPreference{NotifyIssues: false, NotifyLandings: true, NotifyMentions: false}
+			reads, writes := 0, 0
+			q := &mockNotificationQuerier{
+				getPrefsFn: func(context.Context, int64) (db.UserNotificationPreference, error) { reads++; return current, nil },
+				upsertPrefsFn: func(_ context.Context, arg db.UpsertNotificationPreferencesParams) (db.UserNotificationPreference, error) {
+					writes++
+					return db.UserNotificationPreference{NotifyIssues: arg.NotifyIssues, NotifyLandings: arg.NotifyLandings, NotifyMentions: arg.NotifyMentions}, nil
+				},
+			}
+			req := UpdateInboxPreferencesRequest{}
+			expected := NotificationPreferencesResponse{NotifyLandings: true}
+			if mask&1 != 0 {
+				req.NotifyIssues = new(true)
+				expected.NotifyIssues = true
+			}
+			if mask&2 != 0 {
+				req.NotifyLandings = new(false)
+				expected.NotifyLandings = false
+			}
+			if mask&4 != 0 {
+				req.NotifyMentions = new(true)
+				expected.NotifyMentions = true
+			}
+			actual, err := NewNotificationService(q).UpdatePreferences(t.Context(), 7, req)
+			require.NoError(t, err)
+			require.Equal(t, expected, actual)
+			require.Equal(t, 1, writes)
+			if mask == 7 {
+				require.Zero(t, reads)
+			} else {
+				require.Equal(t, 1, reads)
+			}
+		})
+	}
+	t.Run("read failure has no write", func(t *testing.T) {
+		q := &mockNotificationQuerier{getPrefsFn: func(context.Context, int64) (db.UserNotificationPreference, error) {
+			return db.UserNotificationPreference{}, fmt.Errorf("unavailable")
+		}, upsertPrefsFn: func(context.Context, db.UpsertNotificationPreferencesParams) (db.UserNotificationPreference, error) {
+			t.Fatal("write after failed read")
+			return db.UserNotificationPreference{}, nil
+		}}
+		_, err := NewNotificationService(q).UpdatePreferences(t.Context(), 7, UpdateInboxPreferencesRequest{NotifyIssues: new(false)})
+		require.Error(t, err)
+	})
 }

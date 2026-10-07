@@ -38,6 +38,41 @@ func (m *accountMailRecorder) Send(_ context.Context, msg email.Message) error {
 	return nil
 }
 
+type accountInboxProbe struct {
+	routes.NotificationRouteService
+	before                 func()
+	userID, notificationID int64
+	replace                bool
+}
+
+func (p *accountInboxProbe) MarkRead(ctx context.Context, userID, notificationID int64) error {
+	if p.before != nil {
+		p.before()
+	}
+	if p.notificationID != 0 {
+		notificationID = p.notificationID
+	}
+	return p.NotificationRouteService.MarkRead(ctx, userID, notificationID)
+}
+func (p *accountInboxProbe) MarkAllRead(ctx context.Context, userID int64) error {
+	if p.before != nil {
+		p.before()
+	}
+	if p.userID != 0 {
+		userID = p.userID
+	}
+	return p.NotificationRouteService.MarkAllRead(ctx, userID)
+}
+func (p *accountInboxProbe) UpdatePreferences(ctx context.Context, userID int64, req services.UpdateInboxPreferencesRequest) (services.NotificationPreferencesResponse, error) {
+	if p.before != nil {
+		p.before()
+	}
+	if p.replace {
+		req.NotifyMentions = new(false)
+	}
+	return p.NotificationRouteService.UpdatePreferences(ctx, userID, req)
+}
+
 type accountEmailProbe struct {
 	routes.UserEmailService
 	before  func()
@@ -181,9 +216,18 @@ func TestInstallAccountMutationsPostgres(t *testing.T) {
 	require.NoError(t, err)
 	otherEmail, err := f.q.UpsertEmailAddress(f.ctx, db.UpsertEmailAddressParams{UserID: f.other.ID, Email: "other@example.test", LowerEmail: "other@example.test"})
 	require.NoError(t, err)
+	inbox := services.NewNotificationServiceWithPool(q, pool)
+	services.WithNotificationInstallAuthorization(pool)(inbox)
+	inboxHandler := &routes.NotificationHandler{Service: inbox}
+	makeNotice := func(userID int64) db.Notification {
+		row, err := f.q.CreateNotification(f.ctx, db.CreateNotificationParams{UserID: userID, SourceType: "system", Subject: "Private notification", Body: "Private body"})
+		require.NoError(t, err)
+		return row
+	}
+	ownerNotice, otherNotice := makeNotice(f.owner.ID), makeNotice(f.other.ID)
 	router := buildRouterCompat(cfg, q, pool, &routes.RepoHandler{}, &routes.AuthHandler{}, handler, &routes.SSHKeyHandler{}, &routes.LabelHandler{},
 		&routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}},
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil)
+		inboxHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil)
 	session := func(user db.User, raw string) string {
 		sum := sha256.Sum256([]byte(raw))
 		hash := hex.EncodeToString(sum[:])
@@ -255,6 +299,17 @@ func TestInstallAccountMutationsPostgres(t *testing.T) {
 		require.Zero(t, tokens)
 		require.Empty(t, mailbox.sent)
 	}
+	assertInbox := func(t *testing.T) {
+		t.Helper()
+		for _, id := range []int64{ownerNotice.ID, otherNotice.ID} {
+			row, err := f.q.GetNotificationByID(f.ctx, id)
+			require.NoError(t, err)
+			require.Equal(t, "unread", row.Status)
+		}
+		prefs, err := inbox.GetPreferences(f.ctx, f.owner.ID)
+		require.NoError(t, err)
+		require.Equal(t, services.NotificationPreferencesResponse{NotifyIssues: true, NotifyLandings: true, NotifyMentions: true}, prefs)
+	}
 	signupBody := `{"name":"Owner","account":"owner-account","stage":"poll","question":1,"answers":{"choices":["one","two"],"text":"hello"}}`
 	assertSetup := func(t *testing.T, count int, name string) {
 		t.Helper()
@@ -288,6 +343,9 @@ func TestInstallAccountMutationsPostgres(t *testing.T) {
 		{"anonymous", "", "", 401, "unauthenticated"},
 	} {
 		for _, op := range []struct{ method, path, body, command string }{
+			{"PATCH", fmt.Sprintf("/api/notifications/%d", ownerNotice.ID), "", "account.inbox.read"},
+			{"PUT", "/api/notifications/mark-read", "", "account.inbox.read-all"},
+			{"PUT", "/api/notifications/preferences", `{"notify_issues":false}`, "account.inbox.preferences"},
 			{"POST", "/api/user/emails", `{"email":"new@example.test"}`, "account.email.add"},
 			{"DELETE", fmt.Sprintf("/api/user/emails/%d", ownerEmail.ID), "", "account.email.delete"},
 			{"POST", fmt.Sprintf("/api/user/emails/%d/verify", ownerEmail.ID), "", "account.email.verify"},
@@ -308,6 +366,7 @@ func TestInstallAccountMutationsPostgres(t *testing.T) {
 				assertConnections(t, 1)
 				assertSetup(t, 0, "")
 				assertEmails(t, 1)
+				assertInbox(t)
 			})
 		}
 	}
@@ -366,6 +425,113 @@ func TestInstallAccountMutationsPostgres(t *testing.T) {
 		case <-time.After(3 * time.Second):
 			t.Fatal("verification delivery did not run")
 		}
+	})
+
+	for _, op := range []struct{ method, path, body, command string }{
+		{"PATCH", fmt.Sprintf("/api/notifications/%d", ownerNotice.ID), "", "account.inbox.read"},
+		{"PUT", "/api/notifications/mark-read", "", "account.inbox.read-all"},
+		{"PUT", "/api/notifications/preferences", `{"notify_issues":false}`, "account.inbox.preferences"},
+	} {
+		for _, mode := range []string{"substitution", "expired"} {
+			t.Run(op.command+"/"+mode, func(t *testing.T) {
+				probe := &accountInboxProbe{NotificationRouteService: inbox}
+				status := 403
+				if mode == "substitution" {
+					probe.replace = true
+					probe.userID = f.other.ID
+					probe.notificationID = otherNotice.ID
+				} else {
+					status = 401
+					probe.before = func() {
+						_, err := f.pool.Exec(f.ctx, `UPDATE auth_sessions SET expires_at=now()-interval '1 second' WHERE session_key=$1`, ownerHash)
+						require.NoError(t, err)
+					}
+				}
+				inboxHandler.Service = probe
+				defer func() {
+					inboxHandler.Service = inbox
+					_, err := f.pool.Exec(f.ctx, `UPDATE auth_sessions SET expires_at=now()+interval '1 hour' WHERE session_key=$1`, ownerHash)
+					require.NoError(t, err)
+				}()
+				call(t, op.method, op.path, ownerCookie, "", op.body, op.command, status)
+				assertInbox(t)
+			})
+		}
+	}
+	t.Run("owner marks only own notifications and patches preferences", func(t *testing.T) {
+		call(t, "PATCH", fmt.Sprintf("/api/notifications/%d", otherNotice.ID), ownerCookie, "", "", "account.inbox.read", 403)
+		call(t, "PATCH", fmt.Sprintf("/api/notifications/%d", ownerNotice.ID), ownerCookie, "", "", "account.inbox.read", 204)
+		row, err := f.q.GetNotificationByID(f.ctx, ownerNotice.ID)
+		require.NoError(t, err)
+		require.Equal(t, "read", row.Status)
+		second := makeNotice(f.owner.ID)
+		call(t, "PUT", "/api/notifications/mark-read", ownerCookie, "", "", "account.inbox.read-all", 204)
+		row, err = f.q.GetNotificationByID(f.ctx, second.ID)
+		require.NoError(t, err)
+		require.Equal(t, "read", row.Status)
+		row, err = f.q.GetNotificationByID(f.ctx, otherNotice.ID)
+		require.NoError(t, err)
+		require.Equal(t, "unread", row.Status)
+		call(t, "PUT", "/api/notifications/preferences", ownerCookie, "", `{"notify_issues":false,"notify_mentions":false}`, "account.inbox.preferences", 200)
+		call(t, "PUT", "/api/notifications/preferences", ownerCookie, "", `{"notify_landings":false,"notify_issues":null}`, "account.inbox.preferences", 200)
+		prefs, err := inbox.GetPreferences(f.ctx, f.owner.ID)
+		require.NoError(t, err)
+		require.Equal(t, services.NotificationPreferencesResponse{}, prefs)
+		prefs, err = inbox.GetPreferences(f.ctx, f.other.ID)
+		require.NoError(t, err)
+		require.Equal(t, services.NotificationPreferencesResponse{NotifyIssues: true, NotifyLandings: true, NotifyMentions: true}, prefs)
+	})
+
+	t.Run("concurrent partial notification preferences preserve both edits", func(t *testing.T) {
+		call(t, "PUT", "/api/notifications/preferences", ownerCookie, "", `{"notify_issues":true,"notify_landings":true,"notify_mentions":true}`, "account.inbox.preferences", 200)
+		ctx, cancel := context.WithTimeout(f.ctx, 5*time.Second)
+		defer cancel()
+		arrived := make(chan struct{}, 2)
+		release := make(chan struct{})
+		probe := &accountInboxProbe{NotificationRouteService: inbox, before: func() {
+			arrived <- struct{}{}
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+		}}
+		inboxHandler.Service = probe
+		defer func() { inboxHandler.Service = inbox }()
+		type result struct {
+			out      *httptest.ResponseRecorder
+			commands []string
+		}
+		done := make(chan result, 2)
+		for _, body := range []string{`{"notify_issues":false}`, `{"notify_mentions":false}`} {
+			req := request("PUT", "/api/notifications/preferences", ownerCookie, "", body)
+			go func() {
+				var commands []string
+				req = req.WithContext(services.WithAuthorizationObserver(ctx, func(command string) { commands = append(commands, command) }))
+				out := httptest.NewRecorder()
+				router.ServeHTTP(out, req)
+				done <- result{out, commands}
+			}()
+		}
+		for range 2 {
+			select {
+			case <-arrived:
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+		}
+		close(release)
+		for range 2 {
+			select {
+			case got := <-done:
+				require.Equal(t, 200, got.out.Code, got.out.Body.String())
+				require.Equal(t, []string{"account.inbox.preferences"}, got.commands)
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+		}
+		prefs, err := inbox.GetPreferences(f.ctx, f.owner.ID)
+		require.NoError(t, err)
+		require.Equal(t, services.NotificationPreferencesResponse{NotifyLandings: true}, prefs)
 	})
 	t.Run("owner saves signup and registers own device", func(t *testing.T) {
 		call(t, "PUT", "/api/user/settings/signup", ownerCookie, "", signupBody, "account.signup.update", 200)

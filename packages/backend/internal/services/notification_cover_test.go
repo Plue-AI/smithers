@@ -94,7 +94,7 @@ func TestNotification_Cov_ListPreferenceAndWatcherErrors(t *testing.T) {
 			return db.UserNotificationPreference{}, errors.New("upsert failed")
 		},
 	})
-	_, err = svc.UpdatePreferences(context.Background(), 7, true, false, true)
+	_, err = svc.UpdatePreferences(context.Background(), 7, UpdateInboxPreferencesRequest{NotifyIssues: new(true), NotifyLandings: new(false), NotifyMentions: new(true)})
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 

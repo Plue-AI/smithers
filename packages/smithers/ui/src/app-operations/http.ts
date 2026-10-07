@@ -35,6 +35,11 @@ const accountWrite = (name: string, method: "POST" | "PATCH" | "PUT" | "DELETE",
 const optionalText = Schema.optional(Schema.Union([Schema.String, Schema.Null]))
 
 export const httpProjections = [
+ accountWrite("account.inbox.read", "PATCH", "/api/notifications/{id}", NoInput),
+ accountWrite("account.inbox.read-all", "PUT", "/api/notifications/mark-read", NoInput),
+ accountWrite("account.inbox.preferences", "PUT", "/api/notifications/preferences", Schema.Struct({
+ notify_issues: Schema.optional(Schema.Union([Schema.Boolean, Schema.Null])), notify_landings: Schema.optional(Schema.Union([Schema.Boolean, Schema.Null])), notify_mentions: Schema.optional(Schema.Union([Schema.Boolean, Schema.Null]))
+ })),
  accountWrite("account.email.add", "POST", "/api/user/emails", Schema.Struct({ email: Schema.String, is_primary: Schema.optional(Schema.Boolean) })),
  accountWrite("account.email.delete", "DELETE", "/api/user/emails/{id}", NoInput),
  accountWrite("account.email.verify", "POST", "/api/user/emails/{id}/verify", NoInput),

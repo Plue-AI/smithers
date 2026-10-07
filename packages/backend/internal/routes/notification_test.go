@@ -28,7 +28,7 @@ type mockNotificationRouteService struct {
 	markAllFn     func(ctx context.Context, userID int64) error
 	listAfterIDFn func(ctx context.Context, userID, afterID int64, limit int) ([]services.NotificationResponse, error)
 	getPrefsFn    func(ctx context.Context, userID int64) (services.NotificationPreferencesResponse, error)
-	updatePrefsFn func(ctx context.Context, userID int64, notifyIssues, notifyLandings, notifyMentions bool) (services.NotificationPreferencesResponse, error)
+	updatePrefsFn func(ctx context.Context, userID int64, req services.UpdateInboxPreferencesRequest) (services.NotificationPreferencesResponse, error)
 }
 
 func (m *mockNotificationRouteService) ListNotifications(ctx context.Context, userID int64, beforeID int64, limit int) ([]services.NotificationResponse, string, int64, error) {
@@ -66,15 +66,11 @@ func (m *mockNotificationRouteService) GetPreferences(ctx context.Context, userI
 	return services.NotificationPreferencesResponse{NotifyIssues: true, NotifyLandings: true, NotifyMentions: true}, nil
 }
 
-func (m *mockNotificationRouteService) UpdatePreferences(ctx context.Context, userID int64, notifyIssues, notifyLandings, notifyMentions bool) (services.NotificationPreferencesResponse, error) {
+func (m *mockNotificationRouteService) UpdatePreferences(ctx context.Context, userID int64, req services.UpdateInboxPreferencesRequest) (services.NotificationPreferencesResponse, error) {
 	if m.updatePrefsFn != nil {
-		return m.updatePrefsFn(ctx, userID, notifyIssues, notifyLandings, notifyMentions)
+		return m.updatePrefsFn(ctx, userID, req)
 	}
-	return services.NotificationPreferencesResponse{
-		NotifyIssues:   notifyIssues,
-		NotifyLandings: notifyLandings,
-		NotifyMentions: notifyMentions,
-	}, nil
+	return services.NotificationPreferencesResponse{}, nil
 }
 
 // ---- ListNotifications ----

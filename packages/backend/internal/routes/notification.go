@@ -25,7 +25,7 @@ type NotificationRouteService interface {
 	MarkRead(ctx context.Context, userID, notificationID int64) error
 	MarkAllRead(ctx context.Context, userID int64) error
 	GetPreferences(ctx context.Context, userID int64) (services.NotificationPreferencesResponse, error)
-	UpdatePreferences(ctx context.Context, userID int64, notifyIssues, notifyLandings, notifyMentions bool) (services.NotificationPreferencesResponse, error)
+	UpdatePreferences(ctx context.Context, userID int64, req services.UpdateInboxPreferencesRequest) (services.NotificationPreferencesResponse, error)
 }
 
 // NotificationHandler handles REST and SSE notification endpoints.
@@ -109,13 +109,6 @@ func (h *NotificationHandler) MarkAllNotificationsRead(w http.ResponseWriter, r 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// notificationPreferencesRequest is the request body for updating notification preferences.
-type notificationPreferencesRequest struct {
-	NotifyIssues   *bool `json:"notify_issues"`
-	NotifyLandings *bool `json:"notify_landings"`
-	NotifyMentions *bool `json:"notify_mentions"`
-}
-
 // GetNotificationPreferences handles GET /api/notifications/preferences.
 // Returns the authenticated user's in-app notification preferences.
 func (h *NotificationHandler) GetNotificationPreferences(w http.ResponseWriter, r *http.Request) {
@@ -145,32 +138,12 @@ func (h *NotificationHandler) PutNotificationPreferences(w http.ResponseWriter, 
 		return
 	}
 
-	var req notificationPreferencesRequest
+	var req services.UpdateInboxPreferencesRequest
 	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 
-	// Read current preferences so that omitted fields keep their value.
-	current, svcErr := h.Service.GetPreferences(r.Context(), user.ID)
-	if svcErr != nil {
-		writeRouteError(w, r, svcErr)
-		return
-	}
-
-	notifyIssues := current.NotifyIssues
-	if req.NotifyIssues != nil {
-		notifyIssues = *req.NotifyIssues
-	}
-	notifyLandings := current.NotifyLandings
-	if req.NotifyLandings != nil {
-		notifyLandings = *req.NotifyLandings
-	}
-	notifyMentions := current.NotifyMentions
-	if req.NotifyMentions != nil {
-		notifyMentions = *req.NotifyMentions
-	}
-
-	updated, svcErr := h.Service.UpdatePreferences(r.Context(), user.ID, notifyIssues, notifyLandings, notifyMentions)
+	updated, svcErr := h.Service.UpdatePreferences(r.Context(), user.ID, req)
 	if svcErr != nil {
 		writeRouteError(w, r, svcErr)
 		return

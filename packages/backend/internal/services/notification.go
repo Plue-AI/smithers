@@ -105,6 +105,8 @@ func (t *pgxNotificationCreateTx) Rollback(ctx context.Context) error {
 
 // NotificationService handles reading and marking notifications for a user.
 type NotificationService struct {
+	install         *installAccountMutationStore
+	installAdmitted bool
 	q               NotificationQueries
 	createTxManager notificationCreateTxManager
 	// fanoutSem bounds how many watcher fan-outs perform DB work concurrently
@@ -394,6 +396,14 @@ func (c *notificationAccessChecker) canReadRepoID(ctx context.Context, repoID in
 // Returns NotFound if the notification does not exist, Forbidden if it belongs
 // to a different user.
 func (s *NotificationService) MarkRead(ctx context.Context, userID, notificationID int64) error {
+	if s.install != nil && !s.installAdmitted {
+		_, err := withInstallAccountMutation(s.install, ctx, userID, "account.inbox.read", notificationID, struct{}{}, func(ctx context.Context, q *db.Queries) (struct{}, error) {
+			scoped := *s
+			scoped.q, scoped.installAdmitted = q, true
+			return struct{}{}, scoped.MarkRead(ctx, userID, notificationID)
+		})
+		return err
+	}
 	notif, err := s.q.GetNotificationByID(ctx, notificationID)
 	if err != nil {
 		if stdErrors.Is(err, pgx.ErrNoRows) {
@@ -416,6 +426,14 @@ func (s *NotificationService) MarkRead(ctx context.Context, userID, notification
 
 // MarkAllRead marks all unread notifications for the given user as read.
 func (s *NotificationService) MarkAllRead(ctx context.Context, userID int64) error {
+	if s.install != nil && !s.installAdmitted {
+		_, err := withInstallAccountMutation(s.install, ctx, userID, "account.inbox.read-all", 0, struct{}{}, func(ctx context.Context, q *db.Queries) (struct{}, error) {
+			scoped := *s
+			scoped.q, scoped.installAdmitted = q, true
+			return struct{}{}, scoped.MarkAllRead(ctx, userID)
+		})
+		return err
+	}
 	if err := s.q.MarkAllNotificationsRead(ctx, userID); err != nil {
 		return pkgerrors.Internal("mark all notifications read: " + err.Error())
 	}
@@ -440,13 +458,46 @@ func (s *NotificationService) GetPreferences(ctx context.Context, userID int64) 
 	return toPreferencesResponse(prefs), nil
 }
 
-// UpdatePreferences upserts notification preferences for the given user.
-func (s *NotificationService) UpdatePreferences(ctx context.Context, userID int64, notifyIssues, notifyLandings, notifyMentions bool) (NotificationPreferencesResponse, error) {
+// UpdateInboxPreferencesRequest keeps omitted or null preferences unchanged.
+type UpdateInboxPreferencesRequest struct {
+	NotifyIssues   *bool `json:"notify_issues"`
+	NotifyLandings *bool `json:"notify_landings"`
+	NotifyMentions *bool `json:"notify_mentions"`
+}
+
+// UpdatePreferences applies the caller's partial preferences.
+func (s *NotificationService) UpdatePreferences(ctx context.Context, userID int64, req UpdateInboxPreferencesRequest) (NotificationPreferencesResponse, error) {
+	if s.install != nil && !s.installAdmitted {
+		return withInstallAccountMutation(s.install, ctx, userID, "account.inbox.preferences", 0, req, func(ctx context.Context, q *db.Queries) (NotificationPreferencesResponse, error) {
+			scoped := *s
+			scoped.q, scoped.installAdmitted = q, true
+			return scoped.UpdatePreferences(ctx, userID, req)
+		})
+	}
+	// Merge omitted fields inside the guarded transaction, not in the handler.
+	current := NotificationPreferencesResponse{}
+	if req.NotifyIssues == nil || req.NotifyLandings == nil || req.NotifyMentions == nil {
+		var err error
+		current, err = s.GetPreferences(ctx, userID)
+		if err != nil {
+			return NotificationPreferencesResponse{}, err
+		}
+	}
+	if req.NotifyIssues != nil {
+		current.NotifyIssues = *req.NotifyIssues
+	}
+	if req.NotifyLandings != nil {
+		current.NotifyLandings = *req.NotifyLandings
+	}
+	if req.NotifyMentions != nil {
+		current.NotifyMentions = *req.NotifyMentions
+	}
+
 	prefs, err := s.q.UpsertNotificationPreferences(ctx, db.UpsertNotificationPreferencesParams{
 		UserID:         userID,
-		NotifyIssues:   notifyIssues,
-		NotifyLandings: notifyLandings,
-		NotifyMentions: notifyMentions,
+		NotifyIssues:   current.NotifyIssues,
+		NotifyLandings: current.NotifyLandings,
+		NotifyMentions: current.NotifyMentions,
 	})
 	if err != nil {
 		return NotificationPreferencesResponse{}, pkgerrors.Internal("upsert notification preferences: " + err.Error())
