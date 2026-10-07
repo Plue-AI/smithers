@@ -15,11 +15,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 const gitHubAppLocalOrigin = "http://localhost:4000"
@@ -300,11 +302,35 @@ func (s *GitHubAppManifestService) Begin(ctx context.Context, req GitHubAppManif
 	if step.Error != nil && step.Error.Code == "outcome_unknown" {
 		return GitHubAppManifestStart{}, pkgerrors.Conflict("Recover the existing GitHub App credentials")
 	}
+	if step.OperationID != "" {
+		var live bool
+		err = tx.QueryRow(ctx, installWorkerLive, step.OperationID).Scan(&live)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return GitHubAppManifestStart{}, err
+		}
+		if live {
+			return GitHubAppManifestStart{}, pkgerrors.Conflict("GitHub App setup is already running or complete")
+		}
+	}
 	if !installStepCanStart(step, setupNow(s.Now)) {
 		return GitHubAppManifestStart{}, pkgerrors.Conflict("GitHub App setup is already running or complete")
 	}
+	jobStore, err := jobs.NewStore(s.pool)
+	if err != nil {
+		return GitHubAppManifestStart{}, err
+	}
+	operationID := step.OperationID
+	if operationID == "" {
+		payload, _ := json.Marshal(InstallSetupInput{Owner: req.OwnerLogin})
+		receipt, err := jobStore.AdmitInTx(ctx, tx, jobs.Admission{Scope: jobs.Scope{TenantID: "install", PrincipalID: "owner"}, Operation: "install.setup.app_manifest", RequestID: GitHubAppStateDigest(state), Payload: payload, EffectPolicy: jobs.EffectReconcile})
+		if err != nil {
+			return GitHubAppManifestStart{}, err
+		}
+		operationID = receipt.OperationID
+	}
+	step.OperationID, step.Attempt = operationID, step.Attempt+1
 	expires := setupNow(s.Now).Add(10 * time.Minute)
-	result, err := tx.Exec(ctx, `UPDATE install_settings SET value=jsonb_build_object('status','running','digest',$1::text,'expires_at',$2::timestamptz), updated_at=now() WHERE key='setup.step.app_manifest'`, GitHubAppStateDigest(state), expires)
+	result, err := tx.Exec(ctx, `UPDATE install_settings SET value=jsonb_build_object('status','running','digest',$1::text,'expires_at',$2::timestamptz,'operation_id',$3::text,'attempt',$4::int), updated_at=now() WHERE key='setup.step.app_manifest'`, GitHubAppStateDigest(state), expires, step.OperationID, step.Attempt)
 	if err != nil {
 		return GitHubAppManifestStart{}, err
 	}
@@ -382,8 +408,21 @@ func (s *GitHubAppManifestService) validateAttemptLease(ctx context.Context, q *
 	return nil
 }
 
-// Convert serializes the one-time exchange across backend processes. State is
-// consumed before the remote write, including when GitHub fails or times out.
+type gitHubAppConversion struct {
+	ID            int64  `json:"id"`
+	Slug          string `json:"slug"`
+	PEM           string `json:"pem"`
+	ClientID      string `json:"client_id"`
+	ClientSecret  string `json:"client_secret"`
+	WebhookSecret string `json:"webhook_secret"`
+	Owner         struct {
+		Login string `json:"login"`
+		Type  string `json:"type"`
+	} `json:"owner"`
+}
+
+// Convert runs the browser conversion under its admitted Go job lease. State
+// consumption precedes GitHub; sealed outcomes reconcile without another call.
 func (s *GitHubAppManifestService) Convert(ctx context.Context, code, state, browserState string) (string, error) {
 	if err := validateGitHubAppBrowserState(state, browserState); err != nil {
 		return "", err
@@ -394,24 +433,14 @@ func (s *GitHubAppManifestService) Convert(ctx context.Context, code, state, bro
 	if s == nil || s.pool == nil || s.store == nil {
 		return "", pkgerrors.Internal("GitHub App setup is unavailable")
 	}
-	conn, err := s.pool.Acquire(ctx)
+	// A Go job claim serializes conversion and fences its completion. No
+	// connection remains occupied across GitHub, including a one-connection pool.
+	conn := s.pool
+	jobStore, err := jobs.NewStore(s.pool)
 	if err != nil {
 		return "", err
 	}
-	// Keep every database operation on this connection. A session lock permits
-	// the consumed state to commit before GitHub's one-time exchange, even when
-	// the pool has only one connection. A failed unlock discards the connection
-	// so a session lock can never leak into the pool after cancellation.
-	defer func() {
-		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if _, unlockErr := conn.Exec(cleanup, "SELECT pg_advisory_unlock($1)", gitHubAppConversionLock); unlockErr != nil {
-			_ = conn.Hijack().Close(cleanup)
-			return
-		}
-		conn.Release()
-	}()
-	if _, err = conn.Exec(ctx, "SELECT pg_advisory_lock($1)", gitHubAppConversionLock); err != nil {
+	if _, err = jobStore.RecoverExpiredForOperations(ctx, []string{"install.setup.app_manifest"}, 1); err != nil {
 		return "", err
 	}
 	store := *s.store
@@ -428,19 +457,56 @@ func (s *GitHubAppManifestService) Convert(ctx context.Context, code, state, bro
 	if err = s.validateAttemptLease(ctx, db.New(conn), state); err != nil {
 		return "", err
 	}
-	// Autocommit makes refusal durable when GitHub fails or the owner cancels.
-	attempt, err := db.New(conn).ConsumeGithubAppManifestState(ctx, db.ConsumeGithubAppManifestStateParams{Digest: GitHubAppStateDigest(state), SetupSessionDigest: session.digest, Origin: session.origin})
+	step, err := (&InstallSetupService{}).readStep(ctx, db.New(conn), "app_manifest")
+	if err != nil {
+		return "", err
+	}
+	stateRecord, err := db.New(conn).GetGithubAppManifestState(ctx, GitHubAppStateDigest(state))
+	if err == nil && stateRecord.SetupSessionDigest == session.digest && stateRecord.Origin == session.origin && stateRecord.UsedAt.Valid {
+		var live bool
+		if liveErr := conn.QueryRow(ctx, installWorkerLive, step.OperationID).Scan(&live); liveErr == nil && live {
+			return "", pkgerrors.Conflict("GitHub App conversion is already running")
+		}
+	}
+	if err != nil || stateRecord.SetupSessionDigest != session.digest || stateRecord.Origin != session.origin || stateRecord.UsedAt.Valid || !stateRecord.ExpiresAt.After(time.Now()) {
+		return "", pkgerrors.Forbidden("GitHub App setup state is used or expired")
+	}
+	claim, err := jobStore.ClaimOperation(ctx, "app-conversion-"+uuid.NewString(), time.Minute, step.OperationID)
+	if errors.Is(err, jobs.ErrNoWork) {
+		return "", pkgerrors.Conflict("GitHub App conversion is already running")
+	}
+	if err != nil {
+		return "", err
+	}
+	if claim.OperationID != step.OperationID {
+		return "", jobs.ErrClaimLost
+	}
+	if _, err = jobStore.BeginExternal(ctx, claim, json.RawMessage(`{"phase":"app_conversion"}`)); err != nil {
+		return "", err
+	}
+	// Recheck browser authority after the admission lock wait, before consuming.
+	admission, err := conn.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer admission.Rollback(context.Background())
+	if _, err = admission.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", gitHubAppConversionLock); err != nil {
+		return "", err
+	}
+	if err = s.validateAttemptLease(ctx, db.New(admission), state); err != nil {
+		return "", err
+	}
+	attempt, err := db.New(admission).ConsumeGithubAppManifestState(ctx, db.ConsumeGithubAppManifestStateParams{Digest: GitHubAppStateDigest(state), SetupSessionDigest: session.digest, Origin: session.origin})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", pkgerrors.Forbidden("GitHub App setup state is used or expired")
 	}
 	if err != nil {
 		return "", err
 	}
-	defer func() {
-		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_, _ = conn.Exec(cleanup, `UPDATE install_settings SET value=jsonb_set(value,'{status}','"failed"') WHERE key='setup.step.app_manifest' AND value->>'status'='running' AND value->>'digest'=$1`, GitHubAppStateDigest(state))
-	}()
+
+	if err = admission.Commit(ctx); err != nil {
+		return "", err
+	}
 	var callbackURLs []string
 	if json.Unmarshal(attempt.CallbackUrls, &callbackURLs) != nil || len(callbackURLs) == 0 {
 		return "", pkgerrors.Internal("invalid GitHub App manifest state")
@@ -448,19 +514,43 @@ func (s *GitHubAppManifestService) Convert(ctx context.Context, code, state, bro
 	if _, err := validateGitHubAppCallbackURLs(callbackURLs); err != nil {
 		return "", pkgerrors.Internal("invalid GitHub App manifest state").WithCause(err)
 	}
-	var converted struct {
-		ID            int64  `json:"id"`
-		Slug          string `json:"slug"`
-		PEM           string `json:"pem"`
-		ClientID      string `json:"client_id"`
-		ClientSecret  string `json:"client_secret"`
-		WebhookSecret string `json:"webhook_secret"`
-		Owner         struct {
-			Login string `json:"login"`
-			Type  string `json:"type"`
-		} `json:"owner"`
-	}
+	var converted gitHubAppConversion
 	if err = requestGitHubApp(ctx, s.client, s.apiBaseURL, "", http.MethodPost, "/app-manifests/"+url.PathEscape(code)+"/conversions", &converted); err != nil {
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if parkErr := jobStore.Park(cleanup, claim, json.RawMessage(`{"phase":"outcome_unknown"}`), 24*time.Hour); parkErr != nil {
+			return "", parkErr
+		}
+		return "", err
+	}
+	convertedJSON, err := json.Marshal(converted)
+	if err != nil {
+		return "", err
+	}
+	sealed, err := s.store.codec.EncryptString(string(convertedJSON))
+	if err != nil {
+		return "", err
+	}
+	checkpoint, _ := json.Marshal(map[string]string{"sealed_conversion": sealed})
+	if _, err = jobStore.Checkpoint(ctx, claim, checkpoint); err != nil {
+		return "", err
+	}
+	return s.completeConversion(ctx, jobStore, claim, step, converted)
+}
+
+func (s *GitHubAppManifestService) completeConversion(ctx context.Context, jobStore *jobs.Store, claim jobs.Claim, step InstallStep, converted gitHubAppConversion) (string, error) {
+	conn := s.pool
+	store := *s.store
+	store.q = db.New(conn)
+	attempt, err := db.New(conn).GetGithubAppManifestState(ctx, step.Digest)
+	if err != nil {
+		return "", err
+	}
+	var callbackURLs []string
+	if json.Unmarshal(attempt.CallbackUrls, &callbackURLs) != nil || len(callbackURLs) == 0 {
+		return "", pkgerrors.Internal("invalid GitHub App manifest state")
+	}
+	if _, err = validateGitHubAppCallbackURLs(callbackURLs); err != nil {
 		return "", err
 	}
 	var kind string
@@ -489,7 +579,7 @@ func (s *GitHubAppManifestService) Convert(ctx context.Context, code, state, bro
 	defer tx.Rollback(context.Background())
 
 	// Completion may write only while this attempt still owns the durable step.
-	result, err := tx.Exec(ctx, `UPDATE install_settings SET value='{"status":"done"}',updated_at=now() WHERE key='setup.step.app_manifest' AND value->>'status'='running' AND value->>'digest'=$1`, GitHubAppStateDigest(state))
+	result, err := tx.Exec(ctx, `UPDATE install_settings SET value='{"status":"done"}',updated_at=now() WHERE key='setup.step.app_manifest' AND value->>'status'='running' AND value->>'digest'=$1`, step.Digest)
 	if err != nil {
 		return "", err
 	}
@@ -506,17 +596,24 @@ func (s *GitHubAppManifestService) Convert(ctx context.Context, code, state, bro
 	// Once the singleton App exists, only its successful attempt may record
 	// the installation. Failed or pending attempts for the same owner must not
 	// choose a different repository for this App.
-	if err = db.New(tx).DeleteOtherGithubAppManifestStates(ctx, GitHubAppStateDigest(state)); err != nil {
+	if err = db.New(tx).DeleteOtherGithubAppManifestStates(ctx, step.Digest); err != nil {
 		return "", err
 	}
 	repository, _ := json.Marshal(map[string]string{"owner_login": attempt.OwnerLogin, "owner_kind": attempt.OwnerKind, "repository_name": attempt.RepositoryName})
 	if err = db.New(tx).UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: repository}); err != nil {
 		return "", err
 	}
-	for _, key := range []string{"setup.step.app_manifest", "setup.projection.app_manifest"} {
-		if err = db.New(tx).UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: key, Value: []byte(`{"status":"done"}`)}); err != nil {
-			return "", err
-		}
+	step.Status, step.ExpiresAt, step.Error = InstallReady, time.Time{}, nil
+	step.Attempt = claim.Attempt
+	completion, _ := json.Marshal(step)
+	if err = jobStore.SettleInTx(ctx, tx, claim, completion, false); err != nil {
+		return "", err
+	}
+	if err = saveInstallStep(ctx, tx, step); err != nil {
+		return "", err
+	}
+	if err = db.New(tx).UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "setup.projection.app_manifest", Value: []byte(`{"status":"done"}`)}); err != nil {
+		return "", err
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return "", err
@@ -563,4 +660,58 @@ func (s *GitHubAppManifestService) discoverInstallation(ctx context.Context, att
 		return s.store.SetInstallation(ctx, installation.ID)
 	}
 	return pkgerrors.Forbidden("GitHub App is not installed on the repository")
+}
+
+// ReconcileConversion commits a sealed post-effect receipt after process loss.
+// It never exchanges the one-time code again and never steals a live claim.
+func (s *GitHubAppManifestService) ReconcileConversion(ctx context.Context) error {
+	var operation string
+	err := s.pool.QueryRow(ctx, `SELECT operation_id FROM product_job_dispatches WHERE operation_id=(SELECT (value->>'operation_id')::uuid FROM install_settings WHERE key='setup.step.app_manifest') AND external_receipt ? 'sealed_conversion' AND (status='ready' OR (status='claimed' AND lease_expires_at<=clock_timestamp()))`).Scan(&operation)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	store, err := jobs.NewStore(s.pool)
+	if err != nil {
+		return err
+	}
+	if _, err = store.RecoverExpiredForOperations(ctx, []string{"install.setup.app_manifest"}, 1); err != nil {
+		return err
+	}
+	claim, err := store.ClaimOperation(ctx, "app-reconcile-"+uuid.NewString(), time.Minute, operation)
+	if err != nil {
+		return err
+	}
+	if claim.OperationID != operation {
+		return jobs.ErrClaimLost
+	}
+	var checkpoint struct {
+		Sealed string `json:"sealed_conversion"`
+	}
+	if json.Unmarshal(claim.ExternalReceipt, &checkpoint) != nil || checkpoint.Sealed == "" {
+		return pkgerrors.Internal("invalid App conversion receipt")
+	}
+	raw, err := s.store.codec.DecryptString(checkpoint.Sealed)
+	if err != nil {
+		return pkgerrors.Internal("unreadable App conversion receipt")
+	}
+	var converted gitHubAppConversion
+	if json.Unmarshal([]byte(raw), &converted) != nil {
+		return pkgerrors.Internal("invalid App conversion receipt")
+	}
+	row, err := db.New(s.pool).GetInstallSetting(ctx, "setup.step.app_manifest")
+	if err != nil {
+		return err
+	}
+	var step InstallStep
+	if err = json.Unmarshal(row.Value, &step); err != nil {
+		return err
+	}
+	if step.OperationID != claim.OperationID {
+		return jobs.ErrClaimLost
+	}
+	_, err = s.completeConversion(ctx, store, claim, step, converted)
+	return err
 }

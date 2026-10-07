@@ -12,7 +12,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +33,7 @@ func WithInstallSetupSession(ctx context.Context, session string) context.Contex
 }
 
 type InstallSetupSessions struct {
+	Setup  *InstallSetupService
 	Pool   *pgxpool.Pool
 	mu     sync.Mutex
 	urls   []byte
@@ -285,11 +288,42 @@ func (s *InstallSetupSessions) FailSignIn(ctx context.Context, setup string, fai
 	if err := s.Validate(ctx, setup); err != nil {
 		return err
 	}
-	value, err := json.Marshal(InstallStep{ID: "sign_in", Status: InstallFailed, Error: failure})
+	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	return db.New(s.Pool).UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "setup.step.sign_in", Value: value})
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", installSetupOwnerLockID); err != nil {
+		return err
+	}
+	var live bool
+	if err = tx.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM self_host_owners) AND EXISTS(SELECT 1 FROM install_settings WHERE key=$1 AND (value->>'expires_at')::timestamptz>now())`, "setup.session."+GitHubAppStateDigest(setup)).Scan(&live); err != nil {
+		return err
+	}
+	if !live {
+		return pkgerrors.New(pkgerrors.CodeSetupClosed, "setup_closed")
+	}
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(345506)`); err != nil {
+		return err
+	}
+	step, err := (&InstallSetupService{}).readStep(ctx, db.New(tx), "sign_in")
+	if err != nil {
+		return err
+	}
+	step.Status, step.Error = InstallFailed, failure
+	if step.OperationID != "" {
+		store, err := jobs.NewStore(s.Pool)
+		if err != nil {
+			return err
+		}
+		if _, err = store.RequestCancellationForWorkerInTx(ctx, tx, jobs.Scope{TenantID: "install", PrincipalID: "owner"}, step.OperationID); err != nil {
+			return err
+		}
+	}
+	if err = saveInstallStep(ctx, tx, step); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // AdmitOAuth refuses pre-claim sign-in before GitHub or identity writes.
@@ -304,7 +338,21 @@ func (s *InstallSetupSessions) AdmitOAuth(ctx context.Context, setup string) err
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
-	return s.Validate(ctx, setup)
+	if err = s.Validate(ctx, setup); err != nil {
+		return err
+	}
+	if s.Setup != nil {
+		step, err := s.Setup.readStep(ctx, db.New(s.Pool), "sign_in")
+		if err != nil {
+			return err
+		}
+		if step.Status == InstallRunning && step.OperationID != "" {
+			return nil
+		}
+		_, err = s.Setup.Admit(ctx, "sign_in", "oauth-sign-in-"+strconv.Itoa(step.Attempt+1), json.RawMessage(`{}`))
+		return err
+	}
+	return nil
 }
 
 type githubRedirectKey struct{}
