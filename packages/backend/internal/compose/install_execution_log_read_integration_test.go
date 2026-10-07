@@ -48,7 +48,7 @@ func TestInstallExecutionLogReadPostgres(t *testing.T) {
 		require.NoError(t, err)
 	}
 	for _, kind := range []string{"run", "machine"} {
-		binding := middleware.LandingWorkspaceScope(workspaces[0].ID)
+		binding := middleware.LandingWorkspaceScope(workspaces[0].ID) + "," + middleware.AgentSessionRestrictionScope("log-run-0")
 		if kind == "machine" {
 			binding = middleware.WorkspaceRestrictionScope(workspaces[0].ID)
 		}
@@ -83,31 +83,41 @@ func TestInstallExecutionLogReadPostgres(t *testing.T) {
 			})
 		}
 	}
-	t.Run("current attempt changes after admission", func(t *testing.T) {
-		scopes := "read:repository," + middleware.RepositoryRestrictionScope(f.repoID) + "," + middleware.LandingWorkspaceScope(workspaces[0].ID)
-		token := f.token(f.owner, "log-stale", scopes, true)
-		hash := sha256.Sum256([]byte(token))
-		tokenHash := hex.EncodeToString(hash[:])
-		stored, err := f.q.GetAuthInfoByTokenHash(f.ctx, tokenHash)
-		require.NoError(t, err)
-		info := &middleware.AuthInfo{User: &f.owner, IsTokenAuth: true, TokenSystemIssued: true, TokenID: stored.TokenID, TokenHash: tokenHash, RawScopes: scopes, Scopes: middleware.ParseTokenScopes(scopes)}
-		ctx := middleware.ContextWithAuthInfo(f.ctx, info)
-		count := 0
-		ctx = services.WithAuthorizationObserver(ctx, func(string) { count++ })
-		subject := services.InstallSubject{RepositoryID: f.repoID, TodoNumber: 1, Attempt: 2, PayloadDigest: digest}
-		decision, err := services.Authorize(ctx, f.q, "todo.read", subject)
-		require.NoError(t, err)
-		ctx = services.WithInstallAuthorization(ctx, "todo.read", decision, subject)
-		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET attempt=3 WHERE repository_id=$1 AND number=1`, f.repoID)
-		require.NoError(t, err)
-		before := store.reads.Load()
-		data, err := service.TodoLog(ctx, f.repoID, 1, 2, digest)
-		var refusal *services.AccessError
-		require.ErrorAs(t, err, &refusal)
-		require.Equal(t, 403, refusal.Status)
-		require.Nil(t, data)
-		require.Equal(t, before, store.reads.Load())
-		require.Equal(t, 1, count)
-	})
+	for _, mutation := range []struct{ name, sql string }{
+		{"attempt", `UPDATE mythical_items SET attempt=3 WHERE repository_id=$1 AND number=1`},
+		{"run", `UPDATE mythical_items SET request_run_id='replacement-run' WHERE repository_id=$1 AND number=1`},
+		{"sponsor", fmt.Sprintf(`UPDATE mythical_items SET owner_id=%d WHERE repository_id=$1 AND number=1`, f.other.ID)},
+	} {
+		t.Run("current "+mutation.name+" changes after admission", func(t *testing.T) {
+			t.Cleanup(func() {
+				_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET attempt=2,request_run_id='log-run-0',owner_id=$2 WHERE repository_id=$1 AND number=1`, f.repoID, f.owner.ID)
+				require.NoError(t, err)
+			})
+			scopes := "read:repository," + middleware.RepositoryRestrictionScope(f.repoID) + "," + middleware.LandingWorkspaceScope(workspaces[0].ID) + "," + middleware.AgentSessionRestrictionScope("log-run-0")
+			token := f.token(f.owner, "log-stale-"+mutation.name, scopes, true)
+			hash := sha256.Sum256([]byte(token))
+			tokenHash := hex.EncodeToString(hash[:])
+			stored, err := f.q.GetAuthInfoByTokenHash(f.ctx, tokenHash)
+			require.NoError(t, err)
+			info := &middleware.AuthInfo{User: &f.owner, IsTokenAuth: true, TokenSystemIssued: true, TokenID: stored.TokenID, TokenHash: tokenHash, RawScopes: scopes, Scopes: middleware.ParseTokenScopes(scopes)}
+			ctx := middleware.ContextWithAuthInfo(f.ctx, info)
+			count := 0
+			ctx = services.WithAuthorizationObserver(ctx, func(string) { count++ })
+			subject := services.InstallSubject{RepositoryID: f.repoID, TodoNumber: 1, Attempt: 2, PayloadDigest: digest}
+			decision, err := services.Authorize(ctx, f.q, "todo.read", subject)
+			require.NoError(t, err)
+			ctx = services.WithInstallAuthorization(ctx, "todo.read", decision, subject)
+			_, err = f.pool.Exec(f.ctx, mutation.sql, f.repoID)
+			require.NoError(t, err)
+			before := store.reads.Load()
+			data, err := service.TodoLog(ctx, f.repoID, 1, 2, digest)
+			var refusal *services.AccessError
+			require.ErrorAs(t, err, &refusal)
+			require.Equal(t, 403, refusal.Status)
+			require.Nil(t, data)
+			require.Equal(t, before, store.reads.Load())
+			require.Equal(t, 1, count)
+		})
 
+	}
 }

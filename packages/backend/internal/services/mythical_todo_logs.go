@@ -79,7 +79,7 @@ func (s *MythicalService) TodoLog(ctx context.Context, repository, number int64,
 		if info.CredentialKind() == middleware.CredentialAgentRun {
 			workspace = middleware.ParseTokenLandingWorkspace(info.RawScopes)
 		}
-		if item.WorkspaceID != workspace || item.RequestRunID == "" || item.Attempt != attempt {
+		if item.WorkspaceID != workspace || !executionTodoSponsorMatches(info, item) || item.Attempt != attempt {
 			return nil, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Credential cannot read this log"}
 		}
 	}
