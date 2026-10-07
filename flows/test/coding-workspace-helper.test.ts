@@ -1,4 +1,6 @@
 import { NodeServices } from "@effect/platform-node"
+import * as Read from "@smthrs/std/Read"
+import * as Write from "@smthrs/std/Write"
 import { Effect, FileSystem, Layer, ManagedRuntime } from "effect"
 import { ChildProcessSpawner } from "effect/unstable/process"
 import assert from "node:assert/strict"
@@ -14,7 +16,7 @@ import { layerAt } from "../coding/snapshots.ts"
 
 const helper = process.env.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY
 
-test("packaged helper admits a file edit and restores its real JJ preimage", {
+test("packaged helper restores outside edits while unregistered coding writes refuse", {
   skip: helper === undefined ? "Build the workspace helper and set SMITHERS_WORKSPACE_JJ_EXPORT_BINARY" : false,
   timeout: 120_000
 }, async (t) => {
@@ -41,9 +43,24 @@ test("packaged helper admits a file edit and restores its real JJ preimage", {
       const fs = yield* FileSystem.FileSystem
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
       const guarded = CodingFileSystem.make(options, fs, spawner, yield* fs.realPath(root))
-      yield* guarded.writeFileString(join(root, "note.txt"), "after\n")
+      const path = join(root, "note.txt")
+      const raw = yield* Effect.flip(guarded.writeFileString(path, "after\n"))
+      assert.equal(raw.reason._tag, "PermissionDenied", "raw writes cannot bypass the digest boundary")
+      yield* Read.run({ path }).pipe(
+        Effect.provideService(FileSystem.FileSystem, guarded),
+        Effect.provideService(Read.ReadSession, "fixture")
+      )
+      const refusal = yield* Effect.flip(Write.run({ path, content: "after\n" }).pipe(
+        Effect.provideService(FileSystem.FileSystem, guarded),
+        Effect.provideService(Read.ReadSession, "fixture")
+      ))
+      assert.equal(refusal.code, "provider_unavailable")
+      assert.equal(yield* fs.readFileString(path), "before\n")
     }).pipe(Effect.provide(NodeServices.layer))
   )
+  // An outside fixture edit still exercises real native snapshot/restore.
+  // It is not an authenticated coding mutation or a machine qualification.
+  await writeFile(join(root, "note.txt"), "after\n")
   const after = await call((jj) => jj.snapshot())
   assert.notEqual(after.commitId, before.commitId)
   assert.equal(after.changeId, before.changeId, "snapshot must preserve the planned change identity")
