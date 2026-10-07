@@ -510,7 +510,25 @@ func TestMicroVMDoctorChecksTheStateChain(t *testing.T) {
 			test.prepare(t, data)
 			withoutInjected(t)
 			t.Setenv("SMITHERS_DATA_ROOT", data)
-			err := runMicroVM(context.Background(), []string{"doctor"}, func() (string, error) { return bundle.backend, nil })
+			// Doctor intentionally prints FAIL for hostile state. Capture that
+			// product output so test runners do not parse its random path as a
+			// failing test name; assert the diagnostic as well as the error.
+			output, err := os.CreateTemp(t.TempDir(), "doctor-output")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = output.Close() })
+			previous := os.Stdout
+			os.Stdout = output
+			err = runMicroVM(context.Background(), []string{"doctor"}, func() (string, error) { return bundle.backend, nil })
+			os.Stdout = previous
+			diagnostic, readErr := os.ReadFile(output.Name())
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if name == "world-writable layer records" && (!strings.Contains(string(diagnostic), "FAIL state") || !strings.Contains(string(diagnostic), "not owned by root or this user")) {
+				t.Fatalf("doctor diagnostic = %q", diagnostic)
+			}
 			if err == nil || !strings.Contains(err.Error(), test.names) {
 				t.Fatalf("doctor = %v; want %q", err, test.names)
 			}

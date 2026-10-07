@@ -17,6 +17,8 @@ func TestSessionBindingRootInputsBeforePayloadSupplemental(t *testing.T) {
 	script := `import importlib.util,os,stat,sys,tempfile,types
 spec=importlib.util.spec_from_file_location("g",sys.argv[1]);g=importlib.util.module_from_spec(spec);spec.loader.exec_module(g)
 scenario=sys.argv[2]
+# The fixture models root-protected ancestors independently of the host umask.
+os.umask(0o022)
 with tempfile.TemporaryDirectory() as root:
  root=os.path.realpath(root);os.makedirs(root+"/run/smithers/admission")
  outside=root+"/canary";open(outside,"wb").write(b"untouched")

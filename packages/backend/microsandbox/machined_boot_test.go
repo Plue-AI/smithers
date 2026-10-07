@@ -17,6 +17,8 @@ func TestMachinedInstalledBootSupplemental(t *testing.T) {
 	require.NoError(t, err)
 	script := `import importlib.util,os,stat,sys,tempfile,types,subprocess,hashlib
 spec=importlib.util.spec_from_file_location("g",sys.argv[1]);g=importlib.util.module_from_spec(spec);spec.loader.exec_module(g)
+# The fixture models root-protected ancestors independently of the host umask.
+os.umask(0o022)
 with tempfile.TemporaryDirectory() as root:
  root=os.path.realpath(root);g.PROTECTED_BASE=root
  os.makedirs(root+"/var/lib");os.chmod(root,0o700)
