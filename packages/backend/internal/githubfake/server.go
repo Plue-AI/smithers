@@ -1570,6 +1570,17 @@ func (s *Server) serveGit(w http.ResponseWriter, r *http.Request) {
 			allowed = allowed || repo.FullName == fullName
 		}
 	}
+	// Public GitHub repositories permit anonymous smart-HTTP reads. Keep
+	// receive-pack, unknown endpoints and supplied invalid credentials gated.
+	publicRead := r.Method == http.MethodGet && suffix == "info/refs" && r.URL.Query().Get("service") == "git-upload-pack" ||
+		r.Method == http.MethodPost && suffix == "git-upload-pack"
+	if valid && r.Header.Get("Authorization") == "" && publicRead {
+		for _, installation := range s.config.Installations {
+			for _, repo := range installation.Repositories {
+				allowed = allowed || repo.FullName == fullName && !repo.Private
+			}
+		}
+	}
 	root := s.config.GitRoot
 	s.mu.Unlock()
 	if !allowed {
@@ -1581,7 +1592,11 @@ func (s *Server) serveGit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// http-backend serves receive-pack only to an authenticated REMOTE_USER.
-	handler := cgi.Handler{Path: "/usr/bin/git", Args: []string{"http-backend"}, Root: "/", Dir: root, Env: []string{"GIT_PROJECT_ROOT=" + root, "GIT_HTTP_EXPORT_ALL=1", "REMOTE_USER=x-access-token"}}
+	environment := []string{"GIT_PROJECT_ROOT=" + root, "GIT_HTTP_EXPORT_ALL=1"}
+	if basic && authenticated {
+		environment = append(environment, "REMOTE_USER=x-access-token")
+	}
+	handler := cgi.Handler{Path: "/usr/bin/git", Args: []string{"http-backend"}, Root: "/", Dir: root, Env: environment}
 	receipt := httptest.NewRecorder()
 	handler.ServeHTTP(receipt, r)
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {

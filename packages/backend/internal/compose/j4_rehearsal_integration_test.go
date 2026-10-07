@@ -113,13 +113,17 @@ func TestJ4Rehearsal(t *testing.T) {
 	// The model trace keeps each turn's messages: row 14b reads the steer in
 	// the first turn of T3's retried attempt.
 	t.Setenv("TRACE_MESSAGES", "1")
+	// Public repositories support drafts on every plan. The default private
+	// fixture exercises the waiting-label fallback in the other journeys.
+	t.Setenv("REHEARSAL_PUBLIC_REPOSITORY", "1")
 	r := newRehearsal(t, "SMITHERS_J4_REHEARSAL", "C-J4", "j4-")
 	if !r.install("0 Install through Machine ready") {
 		return
 	}
 	var t1, t2, t3, t4 int64
 	head1, wait2 := "", ""
-	var pr1 int64
+	head2BeforeMerge, node2 := "", ""
+	var pr1, pr2 int64
 	const answer2 = "Say hello in French"
 	if !r.step("1 File T1-T3", "POST /api/todos ×3", "202 ×3 with distinct numbers", "T-STK-01", func() error {
 		for _, todo := range []struct {
@@ -344,7 +348,7 @@ func TestJ4Rehearsal(t *testing.T) {
 	var retriedAt time.Time
 	var retriedTo int
 	var chats []<-chan error
-	if !r.step("7 Answer T2 while chatting", "POST /api/todos/{T2}/answer beside POST "+chat.TurnPath, "202 within 1 s; the same answer again 202; T2 leaves needs_you", "T-STK-01, T-APP-03", func() error {
+	if !r.step("7 Answer T2 while chatting", "POST /api/todos/{T2}/answer beside POST "+chat.TurnPath, "202 within 1 s; the same answer again 202; T2 reaches in_review as a draft behind T1", "T-STK-01, T-APP-03", func() error {
 		chats = append(chats, r.besideChat())
 		began := time.Now()
 		code, data, err := r.answer(t2, wait2, answer2)
@@ -359,11 +363,21 @@ func TestJ4Rehearsal(t *testing.T) {
 		if code, data, err = r.answer(t2, wait2, answer2); err != nil || code != 202 {
 			return fmt.Errorf("the same answer again: HTTP %d %s %v", code, data, err)
 		}
-		v, err := r.waitTodoWithin(t2, time.Minute, "working", "in_review")
+		// Hold the person's merge until T2 has a draft PR. Otherwise a fast
+		// T1 merge lets T2 open ready and never exercises draft promotion.
+		v, err := r.waitTodoWithin(t2, 8*time.Minute, "in_review")
 		if err != nil {
 			return err
 		}
-		r.actual = fmt.Sprintf("202 in %s; T%d %s", took.Round(time.Millisecond), t2, v.State)
+		pull, err := r.checkPull(v.PR.Number, v.PR.Head)
+		if err != nil {
+			return err
+		}
+		if !pull.Draft || !v.PR.Draft || v.Merge.Reason != "order" || v.Merge.State == "ready" {
+			return fmt.Errorf("T%d before T1 merges: GitHub draft=%v, card draft=%v, merge=%s/%s", t2, pull.Draft, v.PR.Draft, v.Merge.State, v.Merge.Reason)
+		}
+		pr2, head2BeforeMerge, node2 = pull.Number, pull.Head.SHA, pull.NodeID
+		r.actual = fmt.Sprintf("202 in %s; T%d in_review with draft PR #%d, waiting on T%d", took.Round(time.Millisecond), t2, pr2, t1)
 		return nil
 	}) {
 		return
@@ -708,7 +722,98 @@ func TestJ4Rehearsal(t *testing.T) {
 		return nil
 	})
 	r.pending("16 Merged since last look", "PUT view state; GET /api/todos", "the browser derives [T1] after the merge and [] after a new look", "T-APP-01", "last-look")
-	r.pending("17 T2 ready after T1 merges", "GitHub fake PR; GET /api/todos", "T2 rebases onto the merged main; one ready-for-review change on T2's PR; merge.state ready on T2 only", "T-STK-04, T-STK-08", "second-merge")
+	r.step("17 T2 ready after T1 merges", "GitHub fake PR and write log; GET /api/todos; GitHub main ancestry and diff", "the same T2 PR rebases onto merged main with only t2.md; one ready-for-review change; merge.state ready on T2 only", "T-STK-04, T-STK-08", func() error {
+		if pr2 <= 0 || head2BeforeMerge == "" || node2 == "" {
+			return fmt.Errorf("row 7 did not observe T2's draft PR")
+		}
+		deadline := time.Now().Add(2 * time.Minute)
+		var list []rehearsalTodo
+		for {
+			var err error
+			list, err = r.todoList()
+			if err != nil {
+				return err
+			}
+			ready := false
+			for _, todo := range list {
+				if todo.N == t2 {
+					ready = todo.State == "in_review" && todo.Merge.State == "ready" && !todo.PR.Draft
+				}
+			}
+			if ready {
+				break
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("T%d did not become ready after T%d merged: %s", t2, t1, r.actual)
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		var ready []int64
+		for _, todo := range list {
+			if todo.Merge.State == "ready" {
+				ready = append(ready, todo.N)
+			}
+			if todo.N == t2 && todo.PR.Number != pr2 {
+				return fmt.Errorf("T2 replaced PR #%d with #%d", pr2, todo.PR.Number)
+			}
+		}
+		if !slices.Equal(ready, []int64{t2}) {
+			return fmt.Errorf("merge-ready TODOs %v, want only T%d", ready, t2)
+		}
+		pull, err := r.readFakePull(pr2)
+		if err != nil {
+			return err
+		}
+		if pull.Draft || pull.State != "open" || pull.Base.Ref != "main" || pull.Head.SHA == head2BeforeMerge {
+			return fmt.Errorf("T2 PR did not rebase and leave draft: %+v", pull)
+		}
+		merged, err := r.readFakePull(pr1)
+		if err != nil {
+			return err
+		}
+		main, err := r.githubGit("rev-parse", "refs/heads/main")
+		if err != nil {
+			return err
+		}
+		ancestor, err := r.githubGit("merge-base", main, pull.Head.SHA)
+		if err != nil {
+			return err
+		}
+		if main != merged.MergeCommitSHA || ancestor != main {
+			return fmt.Errorf("T2 ancestor=%s, GitHub main=%s, T1 squash=%s", ancestor, main, merged.MergeCommitSHA)
+		}
+		files, err := r.prFiles(pull)
+		if err != nil {
+			return err
+		}
+		if !slices.Equal(files, []string{"t2.md"}) {
+			return fmt.Errorf("T2 PR changes %v, want only t2.md after T1 merged", files)
+		}
+		promotions := 0
+		for _, write := range r.fake.Writes() {
+			if write.Method != "POST" || write.Path != "/graphql" {
+				continue
+			}
+			var body struct {
+				Query     string
+				Variables struct{ ID string }
+			}
+			if json.Unmarshal(write.Body, &body) != nil {
+				continue
+			}
+			if body.Variables.ID == node2 && strings.Contains(body.Query, "markPullRequestReadyForReview(") {
+				if write.Status != 200 {
+					return fmt.Errorf("T2 promotion answered HTTP %d", write.Status)
+				}
+				promotions++
+			}
+		}
+		if promotions != 1 {
+			return fmt.Errorf("T2 PR #%d had %d ready-for-review writes, want one", pr2, promotions)
+		}
+		r.actual = fmt.Sprintf("T%d alone ready; PR #%d head %s rebased onto %s, changes %v, one ready-for-review write", t2, pr2, pull.Head.SHA, main, files)
+		return nil
+	})
 	r.pending("18 main row synced", "GET /api/github/sync; Home card", "last_success_at within one poll; 'synced N s ago'; machines in use of capacity", "T-GH-02", "sync-row")
 	r.pending("19 Retry and dismiss failed background runs", "POST /api/runs/{id}", "Retry starts exactly one run; Dismiss removes the row for everyone; 403 without the role", "T-APP-01", "background-runs")
 	r.pending("20 Ben merges, Alice answers", "POST /api/todos/{n}/merge and /answer as Ben and Alice", "maintainer Ben merges; member Alice answers and her merge is 403", "T-ACC-02", "members")

@@ -244,7 +244,7 @@ path = "lib.rs"
 		require.Positive(t, installationID)
 	}
 	r.installationID = installationID
-	r.fake, err = githubfake.New(githubfake.Config{OAuthCode: "owner-code", GitRoot: gitRoot, AppID: 42, Slug: "j1-rehearsal", OwnerLogin: "rehearsal-owner", OwnerKind: "user", ClientID: "client", ClientSecret: "secret", WebhookSecret: "webhook", PrivateKeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), ConversionCode: "manifest-code", Installations: []githubfake.Installation{{ID: installationID, Repositories: []githubfake.Repository{{ID: 100, FullName: "rehearsal-owner/app", Private: true}, {ID: 101, FullName: "rehearsal-owner/trunk-app", Private: true, DefaultBranch: "trunk"}}}}})
+	r.fake, err = githubfake.New(githubfake.Config{OAuthCode: "owner-code", GitRoot: gitRoot, AppID: 42, Slug: "j1-rehearsal", OwnerLogin: "rehearsal-owner", OwnerKind: "user", ClientID: "client", ClientSecret: "secret", WebhookSecret: "webhook", PrivateKeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), ConversionCode: "manifest-code", Installations: []githubfake.Installation{{ID: installationID, Repositories: []githubfake.Repository{{ID: 100, FullName: "rehearsal-owner/app", Private: os.Getenv("REHEARSAL_PUBLIC_REPOSITORY") != "1"}, {ID: 101, FullName: "rehearsal-owner/trunk-app", Private: true, DefaultBranch: "trunk"}}}}})
 	require.NoError(t, err)
 	t.Cleanup(r.fake.Close)
 	server := httptest.NewUnstartedServer(nil)

@@ -357,6 +357,9 @@ func TestOwnerOAuthAndRepositoryBoundaries(t *testing.T) {
 
 func TestGitSmartHTTPUsesRealObjectsAndInstallationAuthority(t *testing.T) {
 	server, cfg, key := fixture(t)
+	server.mu.Lock()
+	server.config.Installations[0].Repositories[0].Private = true
+	server.mu.Unlock()
 	root := t.TempDir()
 	seed := filepath.Join(root, "seed")
 	git := func(args ...string) string {
@@ -405,6 +408,34 @@ func TestGitSmartHTTPUsesRealObjectsAndInstallationAuthority(t *testing.T) {
 		}
 		return false
 	}(), "real pack transfer must leave a write receipt")
+	// Making this repository public permits anonymous fetches, never pushes
+	// or reads of a different repository, even if its objects share GitRoot.
+	server.mu.Lock()
+	server.config.Installations[0].Repositories[0].Private = false
+	server.mu.Unlock()
+	publicClone := filepath.Join(root, "public-clone")
+	git("-c", "credential.helper=", "clone", server.URL+"/acme/app.git", publicClone)
+	publicContents, err := os.ReadFile(filepath.Join(publicClone, "JOURNEY.md"))
+	require.NoError(t, err)
+	require.Equal(t, "canary\n", string(publicContents))
+	require.Equal(t, strings.TrimSpace(git("-C", seed, "rev-parse", "HEAD")), strings.TrimSpace(git("-C", publicClone, "rev-parse", "HEAD")))
+	for _, test := range []struct{ method, path string }{
+		{"GET", "/acme/app.git/info/refs?service=git-receive-pack"},
+		{"POST", "/acme/app.git/git-receive-pack"},
+		{"GET", "/acme/foreign.git/info/refs?service=git-upload-pack"},
+		{"GET", "/acme/app.git/info/refs?service=unknown"},
+		{"POST", "/acme/app.git/info/refs?service=git-upload-pack"},
+	} {
+		status, _ := request(t, server, test.method, test.path, "", nil)
+		require.Equal(t, 403, status, test)
+	}
+	invalid, err := http.NewRequest("GET", server.URL+"/acme/app.git/info/refs?service=git-upload-pack", nil)
+	require.NoError(t, err)
+	invalid.SetBasicAuth("x-access-token", "invalid-token")
+	denied, err := server.Client().Do(invalid)
+	require.NoError(t, err)
+	denied.Body.Close()
+	require.Equal(t, 403, denied.StatusCode, "invalid credentials are not anonymous access")
 }
 
 // In a repository the Git fixture hosts, a squash merge is a real commit
