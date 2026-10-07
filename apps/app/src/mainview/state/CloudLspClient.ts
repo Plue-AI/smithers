@@ -1,33 +1,12 @@
-/*
- * The cloud language-server transport (lane L6, plue #505; docs/code-intel/
- * PLAN.md "Live"): one WebSocket per (workspace, language), through the Bun
- * tunnel at `/api/cloud-ws/…/lsp` (the local session capability rides the
- * subprotocol, the bearer never reaches the renderer), to the language server
- * plue runs inside the workspace. The client speaks LSP itself — `initialize`
- * with the guest checkout as root and workspace folder, `initialized`,
- * `didOpen` with the CARD's text at its checkout-relative path, then hover,
- * definition and the publications the server makes — and converts the wire
- * once, through the same @smthrs/rpc/LspWire the native host uses, so a hover
- * reads the same on either machine.
- *
- * Mirrors CloudTerminalClient's stance on the close codes (ADR 0002, plue
- * #505): 1001 and an abnormal 1006 reconnect (a fresh server: initialize and
- * every open document again), 1011 retries once with a fresh initialize,
- * 1008/1002/1003/1009 and every 44xx refusal are final — except 4425
- * `workspace_session_pending` and 4503 `guest_not_ready`, which the server
- * asked to be retried on its own `Retry-After` (bounded, the server's words
- * shown meanwhile). Pending requests receive bounded automatic reconnects.
- * Terminal and idle closes reach listeners with the reason verbatim; an
- * idle closed connection is redialed by the next act.
- */
+/* LSP JSON-RPC over a member-owned daemon exec session. The admitted host
+ * provider owns startup, socket authorization and branch sleep; this client
+ * retains document synchronization, deadlines, reconnects and result decoding. */
 import { Data } from "effect"
 import {
   CLOUD_LSP_REASSEMBLY_CAP_BYTES,
-  CLOUD_LSP_ROOT_URI,
   CLOUD_WS_NOT_READY_CLOSE_CODE,
   CLOUD_WS_PENDING_CLOSE_CODE,
   CloudLspFragmentSchema,
-  CloudLspSessionSchema,
   retryAfterOf
 } from "@smthrs/rpc/CloudTunnel"
 import {
@@ -60,10 +39,11 @@ export interface LspRefusal {
 /** One language-server answer: what the server said, or why it said nothing. */
 export type LspAnswer<T> = { readonly ok: T } | { readonly refusal: LspRefusal }
 
-/** One file card's text as the workspace server should see it. */
+/** One File card's text as the branch server should see it. */
 export interface CloudLspDocument {
   /** `owner/repo`. */
   readonly repo: string
+  /** The authorized branch machine, retained under this field name for persisted callers. */
   readonly workspaceId: string
   readonly language: LspLanguageId
   /** Checkout-relative. */
@@ -133,9 +113,8 @@ export interface CloudLspClient {
 }
 
 export interface CloudLspClientOptions {
-  /** The controller's bounded, tapped fetch (SeamContext.http): the session POST rides the cloud proxy. */
-  readonly http: (input: string, init?: RequestInit) => Promise<Response>
-  readonly baseUrl: string
+  /** Bound to the authenticated member and branch by the existing session host. */
+  readonly openSession: (scope: { branch: string; kind: "exec"; language: LspLanguageId }, signal: AbortSignal) => Promise<Response>
   /** The tunnel URL for one session; undefined where no socket can exist (tests, server render). */
   readonly socketUrl: (repo: string, sessionId: string, language: string) => string | undefined
   /** The local-session capability subprotocol; undefined means no socket opens. */
@@ -166,21 +145,12 @@ const RECONNECT_CODES: ReadonlySet<number> = new Set([1001, 1006])
 const RETRY_CODES: ReadonlySet<number> = new Set([CLOUD_WS_PENDING_CLOSE_CODE, CLOUD_WS_NOT_READY_CLOSE_CODE])
 const GUEST_NOT_READY = "guest_not_ready"
 /** The guest's checkout as a path, for the redaction of the server's free text. */
-const ROOT_PATH = "/home/developer/workspace"
+const ROOT_PATH = "/workspace"
 
-/** The same-origin tunnel URL of the page for the lsp branch, or undefined outside a browser. */
-export const pageCloudLspSocketUrl = (repo: string, sessionId: string, language: string, baseUrl = ""): string | undefined => {
-  if (typeof window === "undefined" || typeof WebSocket === "undefined") return undefined
-  const origin = new URL(baseUrl === "" ? window.location.origin : baseUrl)
-  const { protocol, host } = origin
-  const [owner = "", name = ""] = repo.split("/")
-  return `${protocol === "https:" ? "wss" : "ws"}://${host}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/workspace/sessions/${
-    encodeURIComponent(sessionId)
-  }/lsp?language=${encodeURIComponent(language)}`
-}
+export const DAEMON_LSP_ROOT_URI = "file:///workspace"
 
 /** The file URI of a checkout-relative path under the guest root. */
-export const cloudDocumentUri = (path: string): string => `${CLOUD_LSP_ROOT_URI}/${path.split("/").map(encodeURIComponent).join("/")}`
+export const cloudDocumentUri = (path: string): string => `${DAEMON_LSP_ROOT_URI}/${path.split("/").map(encodeURIComponent).join("/")}`
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null
 
@@ -337,38 +307,26 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
     }
   }
 
-  /*
-   * `POST …/workspace/sessions { workspace_id, kind: "lsp", language }` through
-   * the cloud proxy: one session per (workspace, language), the same id on a
-   * repeat. plue#504's `503 guest_not_ready` carries a `Retry-After` and is the
-   * one refusal the POST retries, on the server's clock, bounded; every other
-   * refusal is answered once, in plue's words.
-   */
+  // The host opens a daemon exec session; no workspace kind=lsp or SSH startup.
   const createSession = async (conn: Connection, attempt: { count: number }): Promise<string> => {
-    const [owner = "", name = ""] = conn.repo.split("/")
-    const url = `${options.baseUrl}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/workspace/sessions`
     for (;;) {
       assertActive()
       let response: Response
       try {
-        response = await whileActive(options.http(url, {
-          signal: lifetime.signal,
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ workspace_id: conn.workspaceId, kind: "lsp", language: conn.language })
-        }))
+        response = await whileActive(options.openSession({ branch: conn.workspaceId, kind: "exec", language: conn.language }, lifetime.signal))
         assertActive()
       } catch {
         assertActive()
         // A thrown request's text is not copy; the tapped fetch recorded it.
-        throw new Refused({ code: "unreachable", sentence: "Could not reach Smithers Cloud." })
+        throw new Refused({ code: "unreachable", sentence: "Could not reach the language server." })
       }
       const body: unknown = await whileActive(response.json().catch(() => null))
       assertActive()
       if (response.ok) {
-        const session = CloudLspSessionSchema.safeParse(body)
-        if (!session.success) throw new Refused({ code: "unreadable", sentence: "Smithers Cloud's answer for the language-server session was malformed." })
-        return session.data.id
+        if (!isRecord(body) || typeof body.id !== "string" || body.id === "" || body.kind !== "exec" || body.language !== conn.language) {
+          throw new Refused({ code: "unreadable", sentence: "The language-server session answer was malformed." })
+        }
+        return body.id
       }
       const code = isRecord(body) && typeof body.code === "string" && body.code !== "" ? body.code : null
       const fallback = "The workspace language server didn't start."
@@ -441,7 +399,7 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
 
   const onPublishDiagnostics = (conn: Connection, params: unknown): void => {
     if (!isRecord(params) || typeof params.uri !== "string" || !Array.isArray(params.diagnostics)) return
-    const relative = relativeToRoot(params.uri, CLOUD_LSP_ROOT_URI)
+    const relative = relativeToRoot(params.uri, DAEMON_LSP_ROOT_URI)
     if (relative === null) return
     // A publication for a file no card opened has no card to land on: it stays with the server.
     const document = conn.documents.get(relative)
@@ -645,8 +603,8 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
         const initialize = enqueue(conn, "initialize", {
           processId: null,
           clientInfo: { name: "smithers" },
-          rootUri: CLOUD_LSP_ROOT_URI,
-          workspaceFolders: [{ uri: CLOUD_LSP_ROOT_URI, name: "workspace" }],
+          rootUri: DAEMON_LSP_ROOT_URI,
+          workspaceFolders: [{ uri: DAEMON_LSP_ROOT_URI, name: "workspace" }],
           capabilities: LSP_CLIENT_CAPABILITIES
         })
         initializeId = initialize.id
@@ -825,7 +783,7 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
       for (const entry of list) {
         const uri = "targetUri" in entry ? entry.targetUri : entry.uri
         const range = "targetUri" in entry ? entry.targetSelectionRange ?? entry.targetRange : entry.range
-        const relative = relativeToRoot(uri, CLOUD_LSP_ROOT_URI)
+        const relative = relativeToRoot(uri, DAEMON_LSP_ROOT_URI)
         // A target outside the checkout (a store path, a lib.d.ts) is not a file card the renderer can open; it is counted, never invented away.
         if (relative === null) {
           omitted += 1
