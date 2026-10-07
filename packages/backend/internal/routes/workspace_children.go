@@ -2,6 +2,8 @@ package routes
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"math"
 	"net/http"
 	"strings"
@@ -80,19 +82,13 @@ func (h *WorkspaceHandler) SpawnWorkspaceChildren(w http.ResponseWriter, r *http
 	if !ok {
 		return
 	}
-	var req spawnWorkspaceChildrenRequest
-	if !decodeStrictJSONBody(w, r, &req) {
+	input, err := DecodeWorkspaceChildrenSpawn(http.MaxBytesReader(w, r.Body, 8192))
+	if err != nil {
+		writeRouteError(w, r, err)
 		return
 	}
-	if req.TTLSecs < 0 || req.TTLSecs > math.MaxInt64/int64(time.Second) {
-		pkgerrors.WriteError(w, pkgerrors.BadRequest("ttl_secs is out of range"))
-		return
-	}
-	batch, err := svc.SpawnWorkspaceChildren(r.Context(), services.SpawnWorkspaceChildrenInput{
-		RepositoryID: repositoryID, UserID: userID, ParentWorkspaceID: workspaceID,
-		Count: req.Count, Profile: req.Profile, TTL: time.Duration(req.TTLSecs) * time.Second,
-		ViaWorkspaceCredential: bound,
-	})
+	input.RepositoryID, input.UserID, input.ParentWorkspaceID, input.ViaWorkspaceCredential = repositoryID, userID, workspaceID, bound
+	batch, err := svc.SpawnWorkspaceChildren(r.Context(), input)
 	if err != nil {
 		writeRouteError(w, r, err)
 		return
@@ -131,4 +127,24 @@ func (h *WorkspaceHandler) StopWorkspaceChild(w http.ResponseWriter, r *http.Req
 		return
 	}
 	pkgerrors.WriteJSON(w, http.StatusOK, child)
+}
+
+// DecodeWorkspaceChildrenSpawn is shared by route dispatch and the handler.
+func DecodeWorkspaceChildrenSpawn(reader io.Reader) (services.SpawnWorkspaceChildrenInput, error) {
+	var req spawnWorkspaceChildrenRequest
+	decoder := json.NewDecoder(reader)
+	decoder.DisallowUnknownFields()
+	if err := decodeSingleJSONDocument(decoder, &req); err != nil {
+		if field, ok := strings.CutPrefix(err.Error(), "json: unknown field "); ok {
+			return services.SpawnWorkspaceChildrenInput{}, pkgerrors.BadRequest("unknown field " + field)
+		}
+		if middleware.IsMaxBytesError(err) {
+			return services.SpawnWorkspaceChildrenInput{}, pkgerrors.RequestEntityTooLarge("request body too large")
+		}
+		return services.SpawnWorkspaceChildrenInput{}, pkgerrors.BadRequest("invalid request body")
+	}
+	if req.TTLSecs < 0 || req.TTLSecs > math.MaxInt64/int64(time.Second) {
+		return services.SpawnWorkspaceChildrenInput{}, pkgerrors.BadRequest("ttl_secs is out of range")
+	}
+	return services.SpawnWorkspaceChildrenInput{Count: req.Count, Profile: req.Profile, TTL: time.Duration(req.TTLSecs) * time.Second}, nil
 }

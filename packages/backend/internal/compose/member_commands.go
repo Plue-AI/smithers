@@ -284,6 +284,26 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 						}
 					}
 				}
+				if command == "workspace.children.spawn" {
+					raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 8192))
+					if err != nil {
+						writeConfirmationDispatchError(w, pkgerrors.BadRequest("invalid children request"))
+						return
+					}
+					input, err := routes.DecodeWorkspaceChildrenSpawn(bytes.NewReader(raw))
+					if err != nil {
+						writeConfirmationDispatchError(w, err)
+						return
+					}
+					input.RepositoryID, input.ParentWorkspaceID = subject.RepositoryID, subject.WorkspaceID
+					subject, err = services.InstallWorkspaceChildrenSpawnSubject(input)
+					if err != nil {
+						writeConfirmationDispatchError(w, err)
+						return
+					}
+					r.Body = io.NopCloser(bytes.NewReader(raw))
+				}
+
 				decision, err := services.Authorize(r.Context(), queries, command, subject)
 				if err != nil {
 					writeConfirmationDispatchError(w, err)

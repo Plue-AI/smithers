@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -93,27 +95,25 @@ type WorkspaceChild struct {
 // sandbox hours left today, and the user's live children plus this batch must
 // fit the plan and MaxWorkspaceChildren.
 func (s *WorkspaceService) SpawnWorkspaceChildren(ctx context.Context, input SpawnWorkspaceChildrenInput) (WorkspaceChildBatch, error) {
+	subject, err := InstallWorkspaceChildrenSpawnSubject(input)
+	if err != nil {
+		return WorkspaceChildBatch{}, err
+	}
+	profile := normalizedWorkspaceChildProfile(input.Profile)
 	if s.installQueries != nil {
-		if _, err := Authorize(ctx, s.installQueries, "workspace.children.spawn", InstallSubject{RepositoryID: input.RepositoryID, WorkspaceID: input.ParentWorkspaceID}); err != nil {
+		decision, err := Authorize(ctx, s.installQueries, "workspace.children.spawn", subject)
+		if err != nil {
 			return WorkspaceChildBatch{}, err
 		}
+		if decision.UserID != input.UserID {
+			return WorkspaceChildBatch{}, confirmationPermission()
+		}
+		ctx = WithInstallAuthorization(ctx, "workspace.children.spawn", decision, subject)
 	}
 	if s.transactions == nil || s.sandbox == nil || s.runtime != nil {
 		return WorkspaceChildBatch{}, pkgerrors.Conflict("child workspaces need the sandbox provider")
 	}
-	if input.Count < 1 || input.Count > MaxWorkspaceChildren {
-		return WorkspaceChildBatch{}, pkgerrors.BadRequest(fmt.Sprintf("count must be between 1 and %d", MaxWorkspaceChildren))
-	}
-	profile := strings.TrimSpace(input.Profile)
-	if profile == "" {
-		profile = workspaceChildProfileSmall
-	}
-	if _, ok := workspaceChildSizes[profile]; !ok {
-		return WorkspaceChildBatch{}, pkgerrors.BadRequest(`profile must be "small" or "build"`)
-	}
-	if input.TTL < 0 {
-		return WorkspaceChildBatch{}, pkgerrors.BadRequest("ttl must not be negative")
-	}
+
 	limit, maxTTL, err := s.workspaceChildLimits(ctx, input.UserID)
 	if err != nil {
 		return WorkspaceChildBatch{}, err
@@ -198,7 +198,7 @@ func (s *WorkspaceService) SpawnWorkspaceChildren(ctx context.Context, input Spa
 			return pkgerrors.Internal("list child workspaces").WithCause(err)
 		}
 		return nil
-	})
+	}, s.installChildrenGuard(ctx, "workspace.children.spawn", subject, input.UserID, true))
 	if err != nil {
 		return WorkspaceChildBatch{}, err
 	}
@@ -208,7 +208,15 @@ func (s *WorkspaceService) SpawnWorkspaceChildren(ctx context.Context, input Spa
 		defer done()
 		bootCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), workspaceProvisionTimeout)
 		defer cancel()
-		s.bootWorkspaceChildBatch(bootCtx, batch, parent, rows)
+		err := s.withInstallChildrenAuthority(bootCtx, "workspace.children.spawn", subject, input.UserID, func() error {
+			s.bootWorkspaceChildBatch(bootCtx, batch, parent, rows)
+			return nil
+		})
+		if err != nil {
+			for _, row := range rows {
+				s.failWorkspaceChild(bootCtx, row.ID, "", "child authority changed: "+err.Error())
+			}
+		}
 	}()
 
 	out := WorkspaceChildBatch{ID: batch.ID, ParentWorkspaceID: parent.ID, Profile: batch.Profile, ExpiresAt: batch.ExpiresAt}
@@ -244,7 +252,7 @@ func (s *WorkspaceService) ListWorkspaceChildren(ctx context.Context, workspaceI
 	err = s.inWorkspaceChildTx(ctx, func(q *db.Queries) error {
 		receipts, err = q.ListWorkspaceChildReceipts(ctx, stringToUUID(parent.ID))
 		return err
-	}, s.installChildrenReadGuard(ctx, InstallSubject{RepositoryID: repositoryID, WorkspaceID: workspaceID}, userID))
+	}, s.installChildrenGuard(ctx, "workspace.children.list", InstallSubject{RepositoryID: repositoryID, WorkspaceID: workspaceID}, userID, false))
 	if err != nil {
 		var access *AccessError
 		var api *pkgerrors.APIError
@@ -273,14 +281,32 @@ func workspaceChildFromReceipt(r db.ListWorkspaceChildReceiptsRow) WorkspaceChil
 // its machine; the sweep retries a machine that will not delete. Stopping a
 // stopped child answers its receipt again.
 func (s *WorkspaceService) StopWorkspaceChild(ctx context.Context, parentWorkspaceID, childWorkspaceID string, repositoryID, userID int64) (WorkspaceChild, error) {
+	subject := InstallSubject{RepositoryID: repositoryID, WorkspaceID: parentWorkspaceID, ChildWorkspaceID: childWorkspaceID}
 	if s.installQueries != nil {
-		if _, err := Authorize(ctx, s.installQueries, "workspace.children.stop", InstallSubject{RepositoryID: repositoryID, WorkspaceID: parentWorkspaceID, ChildWorkspaceID: childWorkspaceID}); err != nil {
+		decision, err := Authorize(ctx, s.installQueries, "workspace.children.stop", subject)
+		if err != nil {
 			return WorkspaceChild{}, err
 		}
+		if decision.UserID != userID {
+			return WorkspaceChild{}, confirmationPermission()
+		}
+		ctx = WithInstallAuthorization(ctx, "workspace.children.stop", decision, subject)
 	}
 	if s.transactions == nil || s.sandbox == nil {
 		return WorkspaceChild{}, pkgerrors.Conflict("child workspaces need the sandbox provider")
 	}
+	var result WorkspaceChild
+	err := s.withInstallChildrenAuthority(ctx, "workspace.children.stop", subject, userID, func() error {
+		var err error
+		result, err = s.stopRequestedWorkspaceChild(ctx, subject, userID)
+		return err
+	})
+	return result, err
+}
+
+func (s *WorkspaceService) stopRequestedWorkspaceChild(ctx context.Context, subject InstallSubject, userID int64) (WorkspaceChild, error) {
+	parentWorkspaceID, childWorkspaceID, repositoryID := subject.WorkspaceID, subject.ChildWorkspaceID, subject.RepositoryID
+
 	parent, err := s.loadOwnedWorkspace(ctx, parentWorkspaceID, repositoryID, userID)
 	if err != nil {
 		return WorkspaceChild{}, err
@@ -293,7 +319,7 @@ func (s *WorkspaceService) StopWorkspaceChild(ctx context.Context, parentWorkspa
 		return WorkspaceChild{}, err
 	}
 	if child.StoppedAt == nil {
-		if err := s.stopWorkspaceChild(ctx, child.WorkspaceID, "requested", ""); err != nil {
+		if err := s.stopWorkspaceChild(ctx, child.WorkspaceID, "requested", "", s.installChildStopGuard(ctx, subject)); err != nil {
 			return WorkspaceChild{}, pkgerrors.Internal("stop child workspace").WithCause(err)
 		}
 	}
@@ -620,13 +646,13 @@ func (s *WorkspaceService) reapWorkspaceChildren(ctx context.Context, parentWork
 // stopWorkspaceChild closes the child's receipt once and tombstones its row.
 // Its machine stays owned by the receipt, and counts against the limit, until
 // releaseWorkspaceChildVMs confirms it deleted.
-func (s *WorkspaceService) stopWorkspaceChild(ctx context.Context, workspaceID, reason, failure string) error {
+func (s *WorkspaceService) stopWorkspaceChild(ctx context.Context, workspaceID, reason, failure string, guards ...func(pgx.Tx) error) error {
 	err := s.inWorkspaceChildTx(ctx, func(q *db.Queries) error {
 		return q.StopWorkspaceChild(ctx, db.StopWorkspaceChildParams{
 			WorkspaceID: workspaceID, StopReason: reason,
 			FailureMessage: pgtype.Text{String: failure, Valid: failure != ""},
 		})
-	})
+	}, guards...)
 	if err != nil {
 		return err
 	}
@@ -707,25 +733,102 @@ func (s *WorkspaceService) inWorkspaceChildTx(ctx context.Context, fn func(*db.Q
 	return tx.Commit(ctx)
 }
 
-// Recheck the named publisher and stored parent under the read transaction.
+// Recheck the named publisher and stored parent under the admission transaction.
 // Internal child cleanup never receives this guard: revocation cannot prevent
 // recovery from deleting an already admitted child machine.
-func (s *WorkspaceService) installChildrenReadGuard(ctx context.Context, subject InstallSubject, actor int64) func(pgx.Tx) error {
+func (s *WorkspaceService) installChildrenGuard(ctx context.Context, command string, subject InstallSubject, actor int64, write bool) func(pgx.Tx) error {
 	if s.installQueries == nil {
 		return nil
 	}
 	return func(tx pgx.Tx) error {
-		if err := guardInstallMemberCredential(ctx, tx, subject.RepositoryID, actor, false); err != nil {
+		if err := guardInstallMemberCredential(ctx, tx, subject.RepositoryID, actor, write); err != nil {
 			return err
 		}
+		parentLock := `SELECT 1 FROM workspaces WHERE id=$1 FOR SHARE`
+		if write {
+			parentLock = `SELECT 1 FROM workspaces WHERE id=$1 FOR UPDATE`
+		}
 		var present int
-		if err := tx.QueryRow(ctx, `SELECT 1 FROM workspaces WHERE id=$1 FOR SHARE`, subject.WorkspaceID).Scan(&present); err != nil {
+		if err := tx.QueryRow(ctx, parentLock, subject.WorkspaceID).Scan(&present); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return confirmationPermission()
 			}
 			return err
 		}
-		_, err := authorizeWorkspaceChildren(ctx, db.New(tx), "workspace.children.list", subject)
+		_, err := authorizeWorkspaceChildren(ctx, db.New(tx), command, subject)
+		return err
+	}
+}
+
+func normalizedWorkspaceChildProfile(profile string) string {
+	profile = strings.TrimSpace(profile)
+	if profile == "" {
+		return workspaceChildProfileSmall
+	}
+	return profile
+}
+
+// InstallWorkspaceChildrenSpawnSubject binds the validated requested batch.
+// The plan may shorten the default lifetime, never widen the caller's request.
+func InstallWorkspaceChildrenSpawnSubject(input SpawnWorkspaceChildrenInput) (InstallSubject, error) {
+	if input.Count < 1 || input.Count > MaxWorkspaceChildren {
+		return InstallSubject{}, pkgerrors.BadRequest(fmt.Sprintf("count must be between 1 and %d", MaxWorkspaceChildren))
+	}
+	profile := normalizedWorkspaceChildProfile(input.Profile)
+	if _, ok := workspaceChildSizes[profile]; !ok {
+		return InstallSubject{}, pkgerrors.BadRequest(`profile must be "small" or "build"`)
+	}
+	if input.TTL < 0 {
+		return InstallSubject{}, pkgerrors.BadRequest("ttl must not be negative")
+	}
+	raw, _ := json.Marshal(struct {
+		Count   int
+		Profile string
+		TTL     int64
+	}{input.Count, profile, int64(input.TTL)})
+	digest := sha256.Sum256(raw)
+	return InstallSubject{RepositoryID: input.RepositoryID, WorkspaceID: input.ParentWorkspaceID, PayloadDigest: fmt.Sprintf("%x", digest)}, nil
+}
+
+// Hold credential and parent authority through requested effects. Recovery
+// cleanup deliberately bypasses this fence so revoked publishers cannot leak VMs.
+func (s *WorkspaceService) withInstallChildrenAuthority(ctx context.Context, command string, subject InstallSubject, actor int64, effect func() error) error {
+	if s.installQueries == nil {
+		return effect()
+	}
+	tx, err := s.transactions.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if err := s.installChildrenGuard(ctx, command, subject, actor, false)(tx); err != nil {
+		return err
+	}
+	if command == "workspace.children.spawn" {
+		parent, err := db.New(tx).GetWorkspace(ctx, subject.WorkspaceID)
+		if err != nil {
+			return err
+		}
+		if parent.Status != "running" || strings.TrimSpace(parent.VmID) == "" {
+			return confirmationPermission()
+		}
+	}
+	return effect()
+}
+
+func (s *WorkspaceService) installChildStopGuard(ctx context.Context, subject InstallSubject) func(pgx.Tx) error {
+	if s.installQueries == nil {
+		return nil
+	}
+	return func(tx pgx.Tx) error {
+		var present int
+		if err := tx.QueryRow(ctx, `SELECT 1 FROM workspaces WHERE id=$1 FOR UPDATE`, subject.ChildWorkspaceID).Scan(&present); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return confirmationPermission()
+			}
+			return err
+		}
+		_, err := authorizeWorkspaceChildren(ctx, db.New(tx), "workspace.children.stop", subject)
 		return err
 	}
 }

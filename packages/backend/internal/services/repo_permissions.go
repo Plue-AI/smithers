@@ -777,6 +777,9 @@ func authorizeWorkspaceChildren(ctx context.Context, q *db.Queries, command stri
 	if token.Name != workspaceChildrenTokenName(parent.ID) || !token.SystemIssued || token.UserID != info.User.ID {
 		return deny()
 	}
+	if command == "workspace.children.spawn" && subject.PayloadDigest == "" {
+		return deny()
+	}
 	if command == "workspace.children.stop" {
 		if subject.ChildWorkspaceID == "" {
 			return deny()
