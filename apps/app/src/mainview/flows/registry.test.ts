@@ -651,7 +651,7 @@ describe("command registry bindings", () => {
       name: "commands",
       arguments: JSON.stringify({ action: "execute", name: "nope" })
     })
-    expect(unknown).toBe("failed: this command runs on the conversation host")
+    expect(unknown).toStartWith("unknown-command: nope")
   })
 
   test("the model may spell a command the way the catalog does — /name resolves to name", async () => {
