@@ -17,8 +17,8 @@ it.each([
   ["edit", "stage", "PermissionDenied"],
   ["edit", "mode", "Unknown"],
   ["patch", "stage", "Unknown"],
-  ["patch", "stage", "PermissionDenied"] as const
-])("%s preserves original bytes after %s fails with %s", async (tool, point, reason) => {
+  ["patch", "stage", "PermissionDenied"]
+] as const)("%s preserves original bytes after %s fails with %s", async (tool, point, reason) => {
   let publications = 0
   let cleanups = 0
   let staged = false
@@ -42,9 +42,9 @@ it.each([
     rename: () => Effect.sync(() => { publications++ }),
     remove: () => Effect.sync(() => { cleanups++ })
   })
-  const action = tool === "write" ? Write.run({ path: "/a", content: "new" }) :
-    tool === "edit" ? Edit.run({ path: "/a", oldString: "original", newString: "new" }) :
-    ApplyPatch.run({ input: "*** Begin Patch\n*** Update File: /a\n@@\n-original\n+new\n*** End Patch" })
+  const action = tool === "write" ? Write.run({ path: "/a", content: "new" }).pipe(Effect.asVoid) :
+    tool === "edit" ? Edit.run({ path: "/a", oldString: "original", newString: "new" }).pipe(Effect.asVoid) :
+    ApplyPatch.run({ input: "*** Begin Patch\n*** Update File: /a\n@@\n-original\n+new\n*** End Patch" }).pipe(Effect.asVoid)
   const failure = await Effect.runPromise(action.pipe(
     Effect.provideService(FileSystem.FileSystem, host), Effect.flip, Effect.provide(layer())
   ))
