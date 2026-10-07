@@ -69,13 +69,7 @@ impl Core for NativeCore {
         self.native.restore().map_err(hook)
     }
     fn rebase(&self, _: &mut LockCx, onto: Oid) -> hooks::Result<Oid> {
-        let snapshot = self.native.current().map_err(hook)?.0;
-        let old = self
-            .git
-            .acknowledged()
-            .map_err(hook)?
-            .ok_or_else(hooks::Error::unsupported)?;
-        self.native.rebase_delta(snapshot, old, onto).map_err(hook)
+        self.native.rebase(onto).map_err(hook)
     }
     fn call(&self, cx: &mut LockCx, method: u8, args: &[u8]) -> hooks::Result<Vec<u8>> {
         match method {
@@ -157,6 +151,17 @@ mod tests {
         fn flush_all(&self, _: &mut LockCx) -> hooks::Result<u16> {
             Ok(0)
         }
+        fn reconcile_all(&self, _: &mut LockCx, _: &Actor) -> hooks::Result<()> {
+            Ok(())
+        }
+    }
+    impl hooks::Broker for Flushed {
+        fn freeze(&self, _: std::time::Duration) -> hooks::Result<Option<u32>> {
+            Ok(None)
+        }
+        fn thaw(&self) -> hooks::Result<()> {
+            Ok(())
+        }
     }
     impl Watcher for Flushed {
         fn drain(&self, _: &mut LockCx) -> hooks::Result<()> {
@@ -172,6 +177,7 @@ mod tests {
             core,
             documents: Arc::new(Flushed),
             watcher: Arc::new(Flushed),
+            broker: Arc::new(Flushed),
             ..Default::default()
         });
         rpc::dispatch(
@@ -245,7 +251,7 @@ mod tests {
         let fields = conn::fields("response", &response.payload[1..]).unwrap();
         assert_eq!(fields[1].1, [5, 0, 0, 0, 6, 1, 1, 0, 0, 0, 0]);
         assert_eq!(repository.acknowledged().unwrap(), Some(head));
-        let response = call(core, 5, &[field(1, [255; 20])]);
+        let response = call(core.clone(), 5, &[field(1, [255; 20])]);
         let fields = conn::fields("response", &response.payload[1..]).unwrap();
         assert_eq!(fields[1].1[0], 255);
         assert_eq!(repository.acknowledged().unwrap(), Some(head));
@@ -253,5 +259,102 @@ mod tests {
             fs::read(dir.path().join("workspace/file")).unwrap(),
             b"literal member bytes\n"
         );
+        // Explicit rebase must retain the whole working change even when its
+        // head is already acknowledged (wake reconciliation would lose it).
+        crate::native::tests::child(&native);
+        fs::write(
+            dir.path().join("workspace/file"),
+            b"committed member edit\n",
+        )
+        .unwrap();
+        let member = native.snapshot().unwrap().0;
+        let mut acknowledged = repository.clone();
+        acknowledged.acknowledge_and_sync(member).unwrap();
+        native.move_to(head).unwrap();
+        crate::native::tests::child(&native);
+        fs::write(dir.path().join("workspace/upstream"), b"upstream bytes\n").unwrap();
+        let target = native.snapshot().unwrap().0;
+        native.move_to(member).unwrap();
+        let response = call(
+            core.clone(),
+            11,
+            &[
+                field(1, target),
+                field(
+                    2,
+                    conn::actor_bytes(&Actor::Principal(b"member:1".to_vec())),
+                ),
+            ],
+        );
+        let fields = conn::fields("response", &response.payload[1..]).unwrap();
+        assert_eq!(fields[1].1[0], 11, "{:?}", fields);
+        let result = conn::fields("result11", &fields[1].1[1..]).unwrap();
+        let rebased: Oid = result[0].1.try_into().unwrap();
+        assert_eq!(
+            crate::native::tests::parents(&native, rebased),
+            vec![target]
+        );
+        assert_eq!(
+            fs::read(dir.path().join("workspace/file")).unwrap(),
+            b"committed member edit\n"
+        );
+        assert_eq!(
+            fs::read(dir.path().join("workspace/upstream")).unwrap(),
+            b"upstream bytes\n"
+        );
+        // Unknown targets refuse before capture or checkpoint replacement.
+        let response = call(
+            core.clone(),
+            11,
+            &[
+                field(1, [255; 20]),
+                field(
+                    2,
+                    conn::actor_bytes(&Actor::Principal(b"member:1".to_vec())),
+                ),
+            ],
+        );
+        let fields = conn::fields("response", &response.payload[1..]).unwrap();
+        assert_eq!(fields[1].1[0], 255);
+        assert_eq!(native.current().unwrap().0, rebased);
+
+        native.move_to(target).unwrap();
+        crate::native::tests::child(&native);
+        fs::write(
+            dir.path().join("workspace/file"),
+            b"conflicting upstream edit\n",
+        )
+        .unwrap();
+        let conflict_target = native.snapshot().unwrap().0;
+        native.move_to(rebased).unwrap();
+        let response = call(
+            core.clone(),
+            11,
+            &[
+                field(1, conflict_target),
+                field(
+                    2,
+                    conn::actor_bytes(&Actor::Principal(b"member:1".to_vec())),
+                ),
+            ],
+        );
+        let fields = conn::fields("response", &response.payload[1..]).unwrap();
+        assert_eq!(fields[1].1[0], 11, "{:?}", fields);
+        let result = conn::fields("result11", &fields[1].1[1..]).unwrap();
+        let conflicted: Oid = result[0].1.try_into().unwrap();
+        assert_eq!(native.current().unwrap().0, conflicted);
+        assert!(
+            core.ready().is_ok(),
+            "conflicts do not disable the file provider"
+        );
+        let text = fs::read_to_string(dir.path().join("workspace/file")).unwrap();
+        assert!(text.contains("<<<<<<<"), "{text}");
+        assert!(text.contains("committed member edit"), "{text}");
+        assert!(text.contains("conflicting upstream edit"), "{text}");
+        let response = call(core, 4, &[]);
+        let fields = conn::fields("response", &response.payload[1..]).unwrap();
+        assert_eq!(fields[1].1[0], 4, "{:?}", fields);
+        let result = conn::fields("result4", &fields[1].1[1..]).unwrap();
+        assert_eq!(result[0].1, conflicted);
     }
 }

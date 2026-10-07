@@ -99,13 +99,24 @@ impl Repository {
             .get_wc_commit_id(workspace.workspace_name())
             .ok_or_else(|| invalid("workspace has no working-copy commit"))?;
         let commit = repo.store().get_commit(id).map_err(invalid)?;
+        let head = oid(commit.id().as_bytes())?;
         let tree = commit.tree();
-        let tree_id = tree
-            .tree_ids()
-            .as_resolved()
-            .ok_or_else(|| invalid("working copy has unresolved conflicts"))?
-            .clone();
-        Ok((oid(commit.id().as_bytes())?, oid(tree_id.as_bytes())?))
+        let tree_id = match tree.tree_ids().as_resolved() {
+            Some(id) => oid(id.as_bytes())?,
+            None => {
+                // Git-backed jj retains every side in its physical conflict
+                // tree. Capture must transfer that exact tree, never select one
+                // side or make the daemon unavailable while a person resolves.
+                let backend = repo
+                    .store()
+                    .backend_impl::<jj_lib::git_backend::GitBackend>()
+                    .ok_or_else(|| invalid("requires Git backing store"))?;
+                let git = backend.git_repo();
+                let commit = git.find_commit(head).map_err(invalid)?;
+                oid(commit.tree_id().map_err(invalid)?.as_bytes())?
+            }
+        };
+        Ok((head, tree_id))
     }
     pub fn snapshot(&self) -> io::Result<(Oid, Oid)> {
         flows_jj::ops::snapshot(&self.root, None).map_err(invalid)?;
@@ -199,6 +210,42 @@ impl Repository {
             .map_err(invalid)?;
         Ok(head)
     }
+    /// Rebase the working change itself onto the requested commit. Wake
+    /// reconciliation has different semantics: it transfers only unacknowledged
+    /// edits, while an explicit rebase preserves the working change's full diff.
+    pub fn rebase(&self, onto: Oid) -> io::Result<Oid> {
+        let (mut workspace, repo) = self.load()?;
+        let id = repo
+            .view()
+            .get_wc_commit_id(workspace.workspace_name())
+            .ok_or_else(|| invalid("missing working-copy commit"))?;
+        let current = repo.store().get_commit(id).map_err(invalid)?;
+        let target = Self::commit(&repo, onto)?;
+        let mut tx = repo.start_transaction();
+        let rebased = jj_lib::rewrite::rebase_commit(
+            tx.repo_mut(),
+            current.clone(),
+            vec![target.id().clone()],
+        )
+        .block_on()
+        .map_err(invalid)?;
+        tx.repo_mut()
+            .set_wc_commit(workspace.workspace_name().to_owned(), rebased.id().clone())
+            .map_err(invalid)?;
+        tx.repo_mut()
+            .rebase_descendants()
+            .block_on()
+            .map_err(invalid)?;
+        let updated = tx
+            .commit("machined rebase working change")
+            .block_on()
+            .map_err(invalid)?;
+        workspace
+            .check_out(updated.op_id().clone(), Some(&current.tree()), &rebased)
+            .block_on()
+            .map_err(invalid)?;
+        oid(rebased.id().as_bytes())
+    }
     /// Apply precisely the delta from acknowledged tree to local snapshot on
     /// the new head. Native merge preserves conflicts instead of overwriting.
     pub fn rebase_delta(&self, snapshot: Oid, old: Oid, head: Oid) -> io::Result<Oid> {
@@ -259,6 +306,88 @@ pub(crate) mod tests {
         fs::set_permissions(&state, fs::Permissions::from_mode(0o700)).unwrap();
         let repo = Repository::open(&root, &state).unwrap();
         (dir, repo)
+    }
+    pub(crate) fn child(repo: &Repository) -> Oid {
+        let (mut workspace, loaded) = repo.load().unwrap();
+        let parent = Repository::commit(&loaded, repo.current().unwrap().0).unwrap();
+        let mut tx = loaded.start_transaction();
+        let child = tx
+            .repo_mut()
+            .new_commit(vec![parent.id().clone()], parent.tree())
+            .write()
+            .block_on()
+            .unwrap();
+        tx.repo_mut()
+            .set_wc_commit(workspace.workspace_name().to_owned(), child.id().clone())
+            .unwrap();
+        let next = tx.commit("test child").block_on().unwrap();
+        workspace
+            .check_out(next.op_id().clone(), Some(&parent.tree()), &child)
+            .block_on()
+            .unwrap();
+        oid(child.id().as_bytes()).unwrap()
+    }
+    pub(crate) fn parents(repo: &Repository, head: Oid) -> Vec<Oid> {
+        let (_, loaded) = repo.load().unwrap();
+        Repository::commit(&loaded, head)
+            .unwrap()
+            .parent_ids()
+            .iter()
+            .map(|id| oid(id.as_bytes()).unwrap())
+            .collect()
+    }
+    #[test]
+    fn explicit_rebase_preserves_committed_diff_and_uses_target_as_parent() {
+        let (_dir, repo) = fixture();
+        fs::write(repo.root.join("file"), "base\n").unwrap();
+        let base = repo.snapshot().unwrap().0;
+        child(&repo);
+        fs::write(repo.root.join("file"), "committed member edit\n").unwrap();
+        let member = repo.snapshot().unwrap().0;
+        repo.move_to(base).unwrap();
+        child(&repo);
+        fs::write(repo.root.join("upstream"), "upstream bytes\n").unwrap();
+        let target = repo.snapshot().unwrap().0;
+        repo.move_to(member).unwrap();
+        let result = repo.rebase(target).unwrap();
+        assert_eq!(parents(&repo, result), vec![target]);
+        assert_eq!(repo.current().unwrap().0, result);
+        assert_eq!(
+            fs::read(repo.root.join("file")).unwrap(),
+            b"committed member edit\n"
+        );
+        assert_eq!(
+            fs::read(repo.root.join("upstream")).unwrap(),
+            b"upstream bytes\n"
+        );
+        assert!(repo.rebase([255; 20]).is_err());
+        assert_eq!(repo.current().unwrap().0, result);
+    }
+    #[test]
+    fn explicit_rebase_materializes_conflict_and_checkpoint_restores_original() {
+        let (_dir, repo) = fixture();
+        fs::write(repo.root.join("file"), "base\n").unwrap();
+        let base = repo.snapshot().unwrap().0;
+        child(&repo);
+        fs::write(repo.root.join("file"), "member\n").unwrap();
+        let member = repo.snapshot().unwrap().0;
+        repo.move_to(base).unwrap();
+        child(&repo);
+        fs::write(repo.root.join("file"), "upstream\n").unwrap();
+        let target = repo.snapshot().unwrap().0;
+        repo.move_to(member).unwrap();
+        repo.checkpoint().unwrap();
+        let result = repo.rebase(target).unwrap();
+        assert_eq!(parents(&repo, result), vec![target]);
+        assert_eq!(repo.current().unwrap().0, result);
+        assert_eq!(repo.snapshot().unwrap().0, result);
+        let materialized = fs::read_to_string(repo.root.join("file")).unwrap();
+        assert!(materialized.contains("<<<<<<<"), "{materialized}");
+        assert!(materialized.contains("member"), "{materialized}");
+        assert!(materialized.contains("upstream"), "{materialized}");
+        repo.restore().unwrap();
+        assert_eq!(repo.current().unwrap().0, member);
+        assert_eq!(fs::read(repo.root.join("file")).unwrap(), b"member\n");
     }
     #[test]
     fn snapshot_and_native_recovery_preserve_working_copy_bytes() {
