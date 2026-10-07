@@ -1,3 +1,4 @@
+import { Data } from "effect"
 import { z } from "zod"
 import { randomUuid } from "../../runtime/RandomUuid"
 import type { Session } from "../AppState"
@@ -5,6 +6,9 @@ import type { SeamFetch } from "./SeamContext"
 import type { ControllerContext } from "../controller/context"
 
 type Request = NonNullable<Session["homeBackgroundRequests"]>[number]
+export class HomeBackgroundFailure extends Data.TaggedError("HomeBackgroundFailure")<{
+  readonly sentence: "Run action failed" | "Run status unavailable" | "Run failed" | "Run cancelled"
+}> {}
 const Receipt = z.object({ state: z.string(), run_id: z.number().int().positive() })
 
 /** Persist before acknowledgement; admission and remote settlement keep one toast. */
@@ -49,30 +53,31 @@ export function createHomeBackgroundSeam(options: {
           const response = await options.http(`/api/runs/${encodeURIComponent(row.id)}`, { method: "POST", credentials: "same-origin",
             headers: { "Content-Type": "application/json", "Idempotency-Key": row.key }, body: JSON.stringify({ op: row.op }), signal: abort.signal })
           if (!isCurrent()) return
-          if (!response.ok) throw new Error("Run action failed")
+          if (!response.ok) throw new HomeBackgroundFailure({ sentence: "Run action failed" })
           const receipt = Receipt.parse(await response.json())
           if (row.op === "dismiss") {
-            if (receipt.state !== "dismissed") throw new Error("Run action failed")
+            if (receipt.state !== "dismissed") throw new HomeBackgroundFailure({ sentence: "Run action failed" })
             await update({ ...row, state: "completed" }); return
           }
-          if (receipt.state !== "accepted") throw new Error("Run action failed")
+          if (receipt.state !== "accepted") throw new HomeBackgroundFailure({ sentence: "Run action failed" })
           row = { ...row, state: "running", run_id: receipt.run_id }
           await update(row)
         }
         while (isCurrent()) {
           const response = await options.http(`/api/runs/${row.run_id}/background-status`, { credentials: "same-origin", signal: abort.signal })
           if (!isCurrent()) return
-          if (!response.ok) throw new Error("Run status unavailable")
+          if (!response.ok) throw new HomeBackgroundFailure({ sentence: "Run status unavailable" })
           const receipt = Receipt.parse(await response.json())
-          if (receipt.run_id !== row.run_id) throw new Error("Run status unavailable")
+          if (receipt.run_id !== row.run_id) throw new HomeBackgroundFailure({ sentence: "Run status unavailable" })
           if (receipt.state === "success") { await update({ ...row, state: "completed" }); return }
-          if (receipt.state === "failure" || receipt.state === "cancelled") throw new Error(receipt.state === "failure" ? "Run failed" : "Run cancelled")
-          if (receipt.state !== "queued" && receipt.state !== "running") throw new Error("Run status unavailable")
+          if (receipt.state === "failure" || receipt.state === "cancelled") throw new HomeBackgroundFailure({ sentence: receipt.state === "failure" ? "Run failed" : "Run cancelled" })
+          if (receipt.state !== "queued" && receipt.state !== "running") throw new HomeBackgroundFailure({ sentence: "Run status unavailable" })
           await pause()
         }
       } catch (error) {
         if (!isCurrent()) return
-        const message = error instanceof Error ? error.message : "Run action failed"
+        if (!(error instanceof HomeBackgroundFailure)) options.report(error)
+        const message = error instanceof HomeBackgroundFailure ? error.sentence : "Run action failed"
         await update({ ...row, state: "failed", error: message })
         return message
       }

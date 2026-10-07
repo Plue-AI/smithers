@@ -7,7 +7,7 @@ import { TodoStateSchema } from "@smthrs/rpc/CardPrimitives"
 import { randomUuid } from "../../runtime/RandomUuid"
 import type { SeamFetch } from "./SeamContext"
 
-export class HomeViewFailure extends Data.TaggedError("HomeViewFailure")<{ readonly sentence: "Invalid Home view" | "Invalid Home menu" | `Home view: ${number}` }> {
+export class HomeViewFailure extends Data.TaggedError("HomeViewFailure")<{ readonly sentence: "Invalid Home view" | "Invalid Home menu" | "Invalid Home last look" | `Home view: ${number}` }> {
   override get message() { return this.sentence }
 }
 
@@ -120,7 +120,7 @@ export function createHomeViewSeam(options: {
       if (patch.on_screen) scheduleLook(); else cancelLook()
     }
     if (!("filter" in patch) && !("menu" in patch) && patch.last_seen_seq === undefined) return
-    if (patch.last_seen_seq !== undefined && (!Number.isSafeInteger(patch.last_seen_seq) || patch.last_seen_seq < 0)) throw new Error("Invalid Home last look")
+    if (patch.last_seen_seq !== undefined && (!Number.isSafeInteger(patch.last_seen_seq) || patch.last_seen_seq < 0)) throw new HomeViewFailure({ sentence: "Invalid Home last look" })
     const changes: Record<string, unknown> = {}
     if ("filter" in patch) changes.filter = patch.filter === undefined ? null : TodoStateSchema.parse(patch.filter)
     if ("menu" in patch) {
