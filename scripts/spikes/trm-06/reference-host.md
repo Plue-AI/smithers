@@ -139,3 +139,9 @@ observed installed supervisor bytes, root identity and PATH-only environment,
 then revocation with no Ben process survivors and unchanged outside sentinel.
 This exercises guest installer/init sanitation, not host launcher startup;
 installed host poison/race and unsupported-Landlock controls remain pending.
+
+Each root campaign scenario now owns a separate evidence subdirectory. In
+particular, `positive-after.json` is retained for every startup poison control
+instead of being overwritten by the next VM. The campaign receipt indexes
+completed scenarios and the failing scenario with its evidence path. Per-case
+passes do not change the campaign's incomplete status or reviewer acceptance.

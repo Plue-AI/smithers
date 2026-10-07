@@ -80,8 +80,28 @@ func runRootValidation(ctx context.Context, a *installedAuthority, root, home, o
 		}
 		scenarios = append(scenarios, "environment-all")
 	}
+	type scenarioReceipt struct {
+		Scenario string `json:"scenario"`
+		Evidence string `json:"evidence"`
+		Status   string `json:"status"`
+		Failure  string `json:"failure,omitempty"`
+	}
+	completed := make([]scenarioReceipt, 0, len(scenarios))
 	for _, scenario := range scenarios {
-		if err = validationScenario(ctx, a, runtime, cfg.Root, home, string(fixture), scenario, operation, evidence); err != nil {
+		scenarioEvidence, directoryErr := rootScenarioEvidence(evidence, scenario)
+		if directoryErr != nil {
+			return directoryErr
+		}
+		result := scenarioReceipt{Scenario: scenario, Evidence: scenarioEvidence, Status: "NO"}
+		err = validationScenario(ctx, a, runtime, cfg.Root, home, string(fixture), scenario, operation, scenarioEvidence)
+		if err != nil {
+			result.Failure = err.Error()
+		} else {
+			result.Status = "pass"
+		}
+		completed = append(completed, result)
+		receipt["scenarios"] = completed
+		if err != nil {
 			return err
 		}
 	}
@@ -93,6 +113,20 @@ func runRootValidation(ctx context.Context, a *installedAuthority, root, home, o
 	receipt["pending_controls"] = []string{"installed host launcher/artifact/destination replacement races", "startup environment controls", "cgroup/path replacement races", "unsupported-Landlock real kernel variant"}
 	fmt.Printf("{\"check\":%q,\"status\":\"partial-pass\",\"evidence\":%q}\n", check, evidence)
 	return errors.New("root validation incomplete: pending controls retained in receipt")
+}
+
+// Isolate all samples, including the formerly shared positive-after.json and
+// session/SSH fixture names. A duplicate scenario must refuse, never reuse and
+// overwrite an earlier sample directory.
+func rootScenarioEvidence(evidence, scenario string) (string, error) {
+	if scenario == "" || scenario == "." || scenario == ".." || filepath.Base(scenario) != scenario {
+		return "", errors.New("invalid root scenario evidence name")
+	}
+	path := filepath.Join(evidence, scenario)
+	if err := os.Mkdir(path, 0700); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 // Each poison is exercised independently and together in fresh disposable VMs.

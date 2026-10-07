@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -179,5 +181,39 @@ func TestStartupEnvironmentFixturesAreClosedAndIndependent(t *testing.T) {
 		if _, ok := startupEnvironmentFixture(name); ok {
 			t.Fatalf("unknown environment selector accepted: %q", name)
 		}
+	}
+}
+
+func TestRootScenarioEvidencePreservesEverySample(t *testing.T) {
+	root := t.TempDir()
+	for _, scenario := range []string{"positive", "poison-imports", "environment-PATH", "environment-all"} {
+		directory, err := rootScenarioEvidence(root, scenario)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(filepath.Join(directory, "positive-after.json"), []byte(scenario), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, scenario := range []string{"positive", "poison-imports", "environment-PATH", "environment-all"} {
+		if _, err := rootScenarioEvidence(root, scenario); err == nil {
+			t.Fatal("duplicate evidence directory accepted")
+		}
+		body, err := os.ReadFile(filepath.Join(root, scenario, "positive-after.json"))
+		if err != nil || string(body) != scenario {
+			t.Fatalf("sample overwritten: %q %v", body, err)
+		}
+	}
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.Symlink(outside, filepath.Join(root, "symlink")); err != nil {
+		t.Fatal(err)
+	}
+	for _, scenario := range []string{"", ".", "..", "../outside", outside, "symlink"} {
+		if _, err := rootScenarioEvidence(root, scenario); err == nil {
+			t.Fatalf("invalid/reused directory accepted: %q", scenario)
+		}
+	}
+	if _, err := os.Stat(outside); !os.IsNotExist(err) {
+		t.Fatal("outside evidence path changed")
 	}
 }
