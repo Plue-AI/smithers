@@ -103,7 +103,7 @@ test('a named budget retains only that incomplete check; unknown names refuse', 
 // Provider substitutes exercise orchestration, never qualify a real budget.
 const samples = Array.from({ length: 100 }, (_, i) => ({ i, homeMs: i + 1, todoMs: i + 2, clock: 'fixture monotonic', failed: false }))
 const provider = (measure) => ({ available() {}, measure, fields: { home: 'homeMs', todo: 'todoMs' } })
-const passing = () => ({ status: 'passed', commit: options.commit, origin: options.origin, browser: 'fixture', samples })
+const passing = () => ({ status: 'passed', commit: options.commit, origin: options.origin, browser: 'fixture', backgroundTabs: 3, samples })
 test('enabled budget executes, retains raw samples and is independently checked', async () => temporary(async root => {
   let calls = 0
   const result = await run({ ...options, root, check: 'C-PERF-02', providers: { 'C-PERF-02': provider(async () => { calls++; return passing() }) } })
@@ -113,6 +113,7 @@ test('enabled budget executes, retains raw samples and is independently checked'
   const saved = JSON.parse(await readFile(join(root, '.artifacts/checks/C-PERF-02', options.timestamp, 'summary.json'), 'utf8'))
   assert.deepEqual(saved.budgets[0].samples, samples)
   assert.equal(saved.budgets[0].stats.homeMs.p95, 95)
+  assert.equal(saved.budgets[0].backgroundTabs, 3)
 }))
 test('a partial run executes the enabled budget and names every unavailable budget', async () => temporary(async root => {
   const result = await run({ ...options, root, providers: { 'C-PERF-02': provider(async () => passing()) } })
