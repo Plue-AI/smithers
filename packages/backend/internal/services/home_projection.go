@@ -26,11 +26,11 @@ func HomeModel(repository string, todos []map[string]any, sync *GitHubSyncHealth
 	slots := []any{}
 	for _, todo := range todos {
 		state, _ := todo["state"].(string)
-		if count, ok := counts[state].(int); ok {
-			counts[state] = count + 1
-		}
 		if state == "merged" || state == "dropped" {
 			continue
+		}
+		if count, ok := counts[state].(int); ok {
+			counts[state] = count + 1
 		}
 		n, _ := todo["n"].(float64)
 		args := map[string]any{"n": strconv.FormatInt(int64(n), 10)}
