@@ -1622,6 +1622,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if modelStreamHost != nil {
 		modelStreamHandler = routes.NewModelStreamHandler(modelStreamHost)
 	}
+	installQuiesce := services.NewInstallQuiesce(&services.QuiesceGate{Store: services.InstallQuiesceStore{Pool: pool}, StateDir: cfg.Install.StateDir})
 	var installSetup *services.InstallSetupService
 	var installAddress *services.InstallAddress
 	if config.IsSingleOwner(cfg.Auth) {
@@ -1677,7 +1678,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			return fmt.Errorf("mint setup authority: %w", err)
 		}
 		if stateDir := strings.TrimSpace(os.Getenv("SMITHERS_NATIVE_STATE_DIR")); *setupHandoff == "socket" {
-			closeHandoff, err := startInstallMaintenanceHandoff(ctx, stateDir, pool, authService.InstallSetup.Emit)
+			closeHandoff, err := startInstallMaintenanceHandoff(ctx, stateDir, pool, authService.InstallSetup.Emit, installQuiesce)
 			if err != nil {
 				return fmt.Errorf("start setup handoff: %w", err)
 			}
@@ -1856,7 +1857,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		oauth2Handler,
 		gitHubWebhookHandler,
 		smithersMetrics,
-		routerExtras{InstallScorecard: composeInstallScorecard(cfg, queries, pool), Members: &routes.MembersHandler{Service: authService.Members}, GitHubAppSetup: gitHubAppSetup, CanaryRuns: options.CanaryRuns, Admission: billingPolicy, BillingCapabilities: billingCapabilities, Catalog: publicCatalog, Recommender: recommendationHandler, ModelStream: modelStreamHandler,
+		routerExtras{InstallQuiesce: installQuiesce, InstallScorecard: composeInstallScorecard(cfg, queries, pool), Members: &routes.MembersHandler{Service: authService.Members}, GitHubAppSetup: gitHubAppSetup, CanaryRuns: options.CanaryRuns, Admission: billingPolicy, BillingCapabilities: billingCapabilities, Catalog: publicCatalog, Recommender: recommendationHandler, ModelStream: modelStreamHandler,
 			Mythical: mythicalHandler, UserRefs: userRefHandler, ModelProxy: modelProxyHandler, AdminSystemStatus: adminSystemStatusHandler,
 			AdminSystemHealth: adminSystemHealthHandler, AdminGrant: adminGrantHandler, AdminAnalytics: adminAnalyticsHandler,
 			AdminAgentSessions: &routes.AdminAgentSessionHandler{Service: adminManageService},
