@@ -1834,6 +1834,10 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		cfg.Install.StateDir = strings.TrimSpace(os.Getenv("SMITHERS_NATIVE_STATE_DIR"))
 	}
 	installQuiesce := services.NewInstallQuiesce(&services.QuiesceGate{Store: services.InstallQuiesceStore{Pool: pool}, StateDir: cfg.Install.StateDir})
+	var conversationSummaries *services.ConversationSummaries
+	if config.IsSingleOwner(cfg.Auth) && chatService != nil {
+		conversationSummaries = composeConversationSummaries(pool, commandJobs, chatService.runtime.Handler.Store, modelStreamHost)
+	}
 	var installSetup *services.InstallSetupService
 	if config.IsSingleOwner(cfg.Auth) {
 		// The install's known origins: configuration's, then the Address the
@@ -2295,6 +2299,13 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		launchWorker(func() {
 			if err := modelTests.RunModelTests(workerCtx); err != nil && workerCtx.Err() == nil {
 				slog.Error("model test worker stopped", "error", err)
+			}
+		})
+	}
+	if conversationSummaries != nil {
+		launchWorker(func() {
+			if err := commandJobs.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "conversation-summary-" + uuid.NewString(), Capacity: 1, Lease: time.Minute, PollInterval: 250 * time.Millisecond, Operations: []string{services.ConversationSummaryOperation}}, conversationSummaries.Handle); err != nil && workerCtx.Err() == nil {
+				slog.Error("conversation summary worker stopped", "error", err)
 			}
 		})
 	}
