@@ -399,10 +399,3 @@ type GitHubMainForcePush struct {
 }
 
 func (e *GitHubMainForcePush) Error() string { return fmt.Sprintf("force_push{%s,%s}", e.Old, e.New) }
-
-// ResetToGitHub must not fall back to an unfenced force push. The stack's
-// durable intent/settlement transaction and machine-only consumers are absent;
-// retain the owner's attention rather than performing any ref effect.
-func (s *GitHubMainPullService) ResetToGitHub(ctx context.Context, repositoryID int64, old, new string) error {
-	return githubSyncUnavailable()
-}
