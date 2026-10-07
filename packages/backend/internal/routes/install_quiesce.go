@@ -25,6 +25,17 @@ func (h *InstallQuiesceHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	if !auth.authorize(w, r) {
 		return
 	}
+	h.HandleInstallingOwner(w, r)
+}
+
+// HandleInstallingOwner is mounted only on the installing user's private Unix
+// socket. Never mount this handler on a TCP listener. The socket's user-owned
+// 0700 parents and 0600 mode authenticate the local installing user.
+func (h *InstallQuiesceHandler) HandleInstallingOwner(w http.ResponseWriter, r *http.Request) {
+	if h == nil || h.Owners == nil {
+		pkgerrors.WriteError(w, pkgerrors.Internal("install owner authority unavailable"))
+		return
+	}
 	owner, err := h.Owners.GetSelfHostOwner(r.Context())
 	if err != nil {
 		pkgerrors.WriteError(w, pkgerrors.Internal("install owner unavailable").WithCause(err))
@@ -32,6 +43,18 @@ func (h *InstallQuiesceHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.Service == nil {
 		quiesceResponse(w, errors.New("quiesce unavailable"))
+		return
+	}
+	if r.URL.Path == "/maintenance/check" && r.Method == http.MethodGet {
+		if err := h.Service.Available(); err != nil {
+			quiesceResponse(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodPost && r.Method != http.MethodDelete {
+		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
 	var request struct {
