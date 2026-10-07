@@ -667,6 +667,27 @@ func (s *ApprovalsService) authorizeInstallApprovalRead(ctx context.Context, rep
 	if s.installQueries == nil {
 		return nil
 	}
+	original := middleware.AuthInfoFromContext(ctx)
+	if original == nil || original.User == nil {
+		return &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Sign in again"}
+	}
+	fresh, err := middleware.ReloadCredential(ctx, s.installQueries, middleware.CredentialOf(original), time.Now())
+	if stdErrors.Is(err, middleware.ErrCredentialGone) {
+		return &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Sign in again"}
+	}
+	if err != nil {
+		return err
+	}
+	if !middleware.BindInstallCredential(fresh) || fresh.User.ID != original.User.ID || fresh.RawScopes != original.RawScopes || fresh.CredentialKind() != original.CredentialKind() {
+		return &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"}
+	}
+	live := middleware.ContextWithAuthInfo(ctx, fresh)
+	if err := identity.NewMemberBoundary(s.installQueries).AuthorizeMember(identity.WithMemberRoute(live), fresh.User.ID); err != nil {
+		if err.Code == pkgerrors.CodeForbidden {
+			return &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Sign in again"}
+		}
+		return err
+	}
 	if _, err := Authorize(ctx, s.installQueries, "approvals.list"); err != nil {
 		return err
 	}
