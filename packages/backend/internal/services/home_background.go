@@ -34,17 +34,17 @@ type HomeBackgroundReceipt struct {
 func (s *HomeBackground) Control(ctx context.Context, repo, user, id int64, op, key string) (HomeBackgroundReceipt, error) {
 	empty := HomeBackgroundReceipt{}
 	if s == nil || s.Pool == nil {
-		return empty, flowRunError(503, "background_unavailable", "infra", "Background runs unavailable")
+		return empty, homeBackgroundError(503, "background_unavailable", "infra", "Background runs unavailable")
 	}
 	if op != "retry" && op != "dismiss" {
-		return empty, flowRunError(400, "invalid_run_action", "user", "Invalid run action")
+		return empty, homeBackgroundError(400, "invalid_run_action", "user", "Invalid run action")
 	}
 	if op == "retry" && (key == "" || strings.TrimSpace(key) != key || len(key) > 255) {
-		return empty, flowRunError(400, "invalid_run_action", "user", "Idempotency-Key required")
+		return empty, homeBackgroundError(400, "invalid_run_action", "user", "Idempotency-Key required")
 	}
 	if op == "retry" {
 		if s.Invoker == nil || s.Invoker.dispatcher == nil || s.Billing == nil || s.Machine == nil || s.Machine.Isolation() != workspace.IsolationSandboxed {
-			return empty, flowRunError(503, "background_retry_unavailable", "infra", "Isolated Retry unavailable")
+			return empty, homeBackgroundError(503, "background_retry_unavailable", "infra", "Isolated Retry unavailable")
 		}
 		var receipt HomeBackgroundReceipt
 		err := s.Billing.AuthorizeWorkflowDispatchCommitted(ctx, repo, func(ctx context.Context, tx pgx.Tx) error {
@@ -78,13 +78,13 @@ func (s *HomeBackground) controlTx(ctx context.Context, tx pgx.Tx, repo, user, i
 	var state string
 	err = tx.QueryRow(ctx, `SELECT status FROM workflow_runs WHERE id=$1 AND repository_id=$2 FOR UPDATE`, id, repo).Scan(&state)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return empty, flowRunError(404, "run_not_found", "user", "Run unavailable")
+		return empty, homeBackgroundError(404, "run_not_found", "user", "Run unavailable")
 	}
 	if err != nil {
 		return empty, err
 	}
 	if state != "failure" {
-		return empty, flowRunError(409, "run_not_failed", "conflict", "Run has not failed")
+		return empty, homeBackgroundError(409, "run_not_failed", "conflict", "Run has not failed")
 	}
 	if op == "dismiss" {
 		_, err = tx.Exec(ctx, `UPDATE workflow_runs SET dismissed_by=$3,dismissed_at=NOW() WHERE id=$1 AND repository_id=$2 AND dismissed_at IS NULL`, id, repo, user)
@@ -94,7 +94,7 @@ func (s *HomeBackground) controlTx(ctx context.Context, tx pgx.Tx, repo, user, i
 		return HomeBackgroundReceipt{State: "dismissed", RunID: id}, err
 	}
 	if s.Invoker == nil || s.Invoker.dispatcher == nil || s.Billing == nil || s.Machine == nil || s.Machine.Isolation() != workspace.IsolationSandboxed {
-		return empty, flowRunError(503, "background_retry_unavailable", "infra", "Isolated Retry unavailable")
+		return empty, homeBackgroundError(503, "background_retry_unavailable", "infra", "Isolated Retry unavailable")
 	}
 	// The source row lock serializes keys and duplicate requests across members.
 	var duplicate int64
@@ -114,7 +114,7 @@ func (s *HomeBackground) controlTx(ctx context.Context, tx pgx.Tx, repo, user, i
  JOIN product_job_requests j ON j.id::text=i.operation_id JOIN product_job_dispatches dispatch ON dispatch.operation_id=j.id
  WHERE r.id=$1 AND r.repository_id=$2 AND r.execution_plane='flow' AND j.operation=$3`, id, repo, flowdispatch.OperationLaunch).Scan(&flow, &source, &ref, &input, &payload, &checkpoint)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return empty, flowRunError(409, "run_pin_unavailable", "conflict", "Stored flow version unavailable")
+		return empty, homeBackgroundError(409, "run_pin_unavailable", "conflict", "Stored flow version unavailable")
 	}
 	if err != nil {
 		return empty, err
@@ -144,23 +144,23 @@ func homeBackgroundPin(flow, source string, payload, checkpoint, input []byte) (
 	}
 	var observed flowdispatch.RuntimeCheckpoint
 	if json.Unmarshal(payload, &stored) != nil || (len(checkpoint) > 0 && json.Unmarshal(checkpoint, &observed) != nil) || stored.FlowID != flow {
-		return nil, flowRunError(409, "run_pin_unavailable", "conflict", "Stored flow version unavailable")
+		return nil, homeBackgroundError(409, "run_pin_unavailable", "conflict", "Stored flow version unavailable")
 	}
 	pin := stored.Pin
 	if pin == nil {
 		pin = &flowruntime.Pin{Flow: flow, SourceCommit: source, ExecutionDigest: observed.ExecutionDigest}
 	}
 	if !pin.Valid() || pin.Flow != flow || (source != "" && pin.SourceCommit != source) || (observed.ExecutionDigest != "" && observed.ExecutionDigest != pin.ExecutionDigest) {
-		return nil, flowRunError(409, "run_pin_unavailable", "conflict", "Stored flow version unavailable")
+		return nil, homeBackgroundError(409, "run_pin_unavailable", "conflict", "Stored flow version unavailable")
 	}
 	var original, admitted any
 	if json.Unmarshal(input, &original) != nil || json.Unmarshal(stored.Input, &admitted) != nil {
-		return nil, flowRunError(409, "run_input_unavailable", "conflict", "Stored flow input unavailable")
+		return nil, homeBackgroundError(409, "run_input_unavailable", "conflict", "Stored flow input unavailable")
 	}
 	originalBytes, _ := json.Marshal(original)
 	admittedBytes, _ := json.Marshal(admitted)
 	if string(originalBytes) != string(admittedBytes) {
-		return nil, flowRunError(409, "run_input_unavailable", "conflict", "Stored flow input unavailable")
+		return nil, homeBackgroundError(409, "run_input_unavailable", "conflict", "Stored flow input unavailable")
 	}
 	return pin, nil
 }
@@ -205,12 +205,16 @@ func (s *MythicalService) BackgroundRuns(ctx context.Context, repository int64) 
 
 func (s *HomeBackground) Status(ctx context.Context, repo, id int64) (HomeBackgroundReceipt, error) {
 	if s == nil || s.Pool == nil {
-		return HomeBackgroundReceipt{}, flowRunError(503, "background_unavailable", "infra", "Background runs unavailable")
+		return HomeBackgroundReceipt{}, homeBackgroundError(503, "background_unavailable", "infra", "Background runs unavailable")
 	}
 	var state string
 	err := s.Pool.QueryRow(ctx, `SELECT status FROM workflow_runs WHERE repository_id=$1 AND id=$2 AND execution_plane='flow'`, repo, id).Scan(&state)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return HomeBackgroundReceipt{}, flowRunError(404, "run_not_found", "user", "Run unavailable")
+		return HomeBackgroundReceipt{}, homeBackgroundError(404, "run_not_found", "user", "Run unavailable")
 	}
 	return HomeBackgroundReceipt{State: state, RunID: id}, err
+}
+
+func homeBackgroundError(status int, code, class, message string) error {
+	return &TodoControlError{Status: status, Code: code, Class: class, Message: message}
 }
