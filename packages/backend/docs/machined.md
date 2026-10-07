@@ -184,8 +184,13 @@ references refuse publication; bytes cannot name a member. Exact legacy burst
 replays use their committed payload digest, and split bursts recover authors only
 from matching retained parts. New legacy session/run events and legacy hints
 without historical evidence refuse publication rather than consulting live
-presence. Coding launches, direct writes and document edits still need their
-dependency-owned admission paths migrated to committed references.
+presence. The installed native coding host now commits an actor reference before
+opening its agent broker session, binds the run before spawn, confirms it through
+`register_run`, and requires broker-confirmed termination during cleanup. Direct
+writes still need their dependency-owned admission migration. The document relay binds
+committed member references to current membership, write-share, lane and machine
+authority. Its host remains unmounted by default pending real-machine document
+qualification; component admission tests do not enable installed editing.
 The T-COL-05 moved-off event remains unavailable without its transactional writer.
 
 `POST /api/branches/{b}/files/{path}` accepts the File seam's
