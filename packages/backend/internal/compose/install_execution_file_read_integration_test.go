@@ -84,12 +84,20 @@ func TestInstallExecutionWorkspaceFileReadPostgres(t *testing.T) {
 		require.False(t, reached)
 		require.Equal(t, []string{""}, decisions)
 	})
+	// Exercise the production issuer after its current-run binding landed.
+	// Only guest lifecycle prerequisites use the existing publisher fixture;
+	// SQL issuance, HTTP authentication, subject checks and file bytes are real.
+	issuer := services.NewWorkspaceService(f.q, services.WithWorkspaceInstallAuthorization(f.q), services.WithWorkspaceTransactions(f.pool), services.WithWorkspaceRuntime(&candidatePublisherRuntime{}), services.WithWorkspaceGitBaseURL("http://127.0.0.1:47199"))
+	environment, err := issuer.PrepareBoxHost(f.ctx, "file-read-host", workspaces[0].ID, f.repoID, f.owner.ID)
+	require.NoError(t, err)
+	creds["issued run"] = environment["SMITHERS_JJHUB_TOKEN"]
+	require.NotEmpty(t, creds["issued run"])
 	for _, cell := range []struct {
 		actor     string
 		workspace int
 		status    int
 	}{
-		{"run", 0, 200}, {"machine", 0, 200}, {"run", 1, 403}, {"machine", 1, 403}, {"wrong run", 0, 403}, {"children", 0, 403},
+		{"issued run", 0, 200}, {"issued run", 1, 403}, {"run", 0, 200}, {"machine", 0, 200}, {"run", 1, 403}, {"machine", 1, 403}, {"wrong run", 0, 403}, {"children", 0, 403},
 	} {
 		for _, suffix := range []string{"files/content?path=proof.txt", "files"} {
 			t.Run(fmt.Sprintf("%s/%d/%s", cell.actor, cell.workspace, suffix), func(t *testing.T) {
@@ -116,6 +124,36 @@ func TestInstallExecutionWorkspaceFileReadPostgres(t *testing.T) {
 		}
 	}
 
+	t.Run("production issuer replaces current run", func(t *testing.T) {
+		old := creds["issued run"]
+		_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='replacement-file-run',attempt=2 WHERE repository_id=$1 AND number=1`, f.repoID)
+		require.NoError(t, err)
+		read := func(token string, status int, commands []string) {
+			t.Helper()
+			req := httptest.NewRequest("GET", cfg.Server.PublicURL+"/api/repos/gate-owner/app/workspaces/"+workspaces[0].ID+"/files/content?path=proof.txt", nil)
+			req.Header.Set("Authorization", "Bearer "+token)
+			var decisions []string
+			req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) { decisions = append(decisions, command) }))
+			out := httptest.NewRecorder()
+			router.ServeHTTP(out, req)
+			require.Equal(t, status, out.Code, out.Body.String())
+			require.Equal(t, commands, decisions)
+			if status == 200 {
+				require.Contains(t, out.Body.String(), "execution-0")
+			} else {
+				require.NotContains(t, out.Body.String(), "execution-0")
+			}
+		}
+		read(old, 403, []string{"branch.read"})
+		environment, err := issuer.PrepareBoxHost(f.ctx, "file-read-host", workspaces[0].ID, f.repoID, f.owner.ID)
+		require.NoError(t, err)
+		fresh := environment["SMITHERS_JJHUB_TOKEN"]
+		require.True(t, fresh != "" && fresh != old, "replacement run receives a fresh credential")
+		read(old, 401, nil)
+		read(fresh, 200, []string{"branch.read"})
+		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='file-run-0',attempt=1 WHERE repository_id=$1 AND number=1`, f.repoID)
+		require.NoError(t, err)
+	})
 	for _, actor := range []string{"run", "machine"} {
 		t.Run("direct service/"+actor, func(t *testing.T) {
 			sum := sha256.Sum256([]byte(creds[actor]))
