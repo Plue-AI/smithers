@@ -80,6 +80,15 @@ func (s *MythicalService) AddBranchToStack(ctx context.Context, repository, acto
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
+		// Capture publication locks stack, items, then workspace. Adoption must
+		// take the same order before binding or consuming the scratch snapshot.
+		if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, repository); err != nil {
+			return err
+		}
+		order, err := q.LockMythicalStackOrder(ctx, repository)
+		if err != nil {
+			return err
+		}
 		workspace, err := branchAddWorkspace(ctx, q, repository, branch)
 		if err != nil {
 			return &BranchError{404, "branch_not_found", "user", "Branch not found"}
@@ -142,10 +151,6 @@ func (s *MythicalService) AddBranchToStack(ctx context.Context, repository, acto
 		}
 		seed := &branchSeed{Base: workspace.ForkedFromBase, ForkCommit: workspace.SourceCommit, Head: seedHead, Captured: head, Diff: diff}
 		place := MythicalTodoPlace{Mode: "append"}
-		order, err := q.LockMythicalStackOrder(ctx, repository)
-		if err != nil {
-			return err
-		}
 		after := input.After
 		if after == nil && input.Before == nil && workspace.ForkedFromItem.Valid {
 			source, err := q.GetMythicalItem(ctx, workspace.ForkedFromItem)
