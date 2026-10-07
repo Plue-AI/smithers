@@ -75,7 +75,12 @@ try {
   await say("/todo.new Replay beta")
   await page.getByRole("region", { name: "Draft", exact: true }).getByRole("button", { name: "Commit", exact: true }).click()
   const second = page.getByRole("article", { name: "TODO T2", exact: true })
+  await expect.poll(() => subscriptions.some(subscription => subscription.topic === "todo:2"
+    && frames.some(frame => frame.id === subscription.id && frame.t === "snap"))).toBe(true)
+  await expect(second).toHaveCount(0)
+  expect((await page.request.post(`${origin}/__live_test/admit`)).status()).toBe(204)
   await expect(second).toBeVisible({ timeout: 30000 })
+  console.log("PASS live install: a source model arriving before admission populates its card")
   const beforeReload = subscriptions.length
   const beforeReloadFrames = frames.length
   await page.reload()

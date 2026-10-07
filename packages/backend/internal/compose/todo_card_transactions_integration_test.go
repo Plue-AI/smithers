@@ -130,10 +130,28 @@ func TestTodoCardCommitAndAmendTransactions(t *testing.T) {
 	const commit = `{"title":"Retry webhooks","prompt":"PROMPT-A","acceptance":["A"],"place":{"mode":"append"}}`
 	first := call("POST", "/api/todos", commit, "commit-once", 202)
 	require.Equal(t, first, call("POST", "/api/todos", commit, "commit-once", 202))
+	var sharedDelta json.RawMessage
 	for _, socket := range sockets {
-		snapshot := readFrame(socket)
-		require.Equal(t, "snap", snapshot.T)
-		require.Contains(t, string(snapshot.Data), "Retry webhooks")
+		delta := readFrame(socket)
+		require.Equal(t, "delta", delta.T)
+		require.NotNil(t, delta.Cursor)
+		require.Positive(t, *delta.Cursor)
+		var event struct {
+			Type  string
+			State string
+			Data  struct {
+				Home struct{ Counts map[string]int }
+			}
+		}
+		require.NoError(t, json.Unmarshal(delta.Data, &event))
+		require.Equal(t, "todo.created", event.Type)
+		require.Equal(t, "queued", event.State)
+		require.Equal(t, 1, event.Data.Home.Counts["queued"])
+		require.Contains(t, string(delta.Data), "Retry webhooks")
+		if sharedDelta != nil {
+			require.Equal(t, sharedDelta, delta.Data)
+		}
+		sharedDelta = delta.Data
 	}
 	n := int64(first["n"].(float64))
 	path := fmt.Sprintf("/api/todos/%d", n)

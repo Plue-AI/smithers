@@ -47,6 +47,27 @@ const harness = async (http: SeamContext["http"], storage = memoryStorage(), act
 }
 
 describe("TodoSeam — admission and live completion", () => {
+  test("a live model received before admission populates the new card and settles its Draft", async () => {
+    const admission = deferred<Response>()
+    const h = await harness(() => admission.promise)
+    const leave = h.seam.list.subscribe(() => {})
+    try {
+      await waitFor(() => h.observed.has("todo:12"))
+      const outcomes = [...h.outcomes]
+      const model = fixtures.queued.model
+      await h.seam.newTodo({ title: model.title, text: model.prompt_revisions[0]!.text })
+      await h.seam.newTodo({ cardId: h.draft().id, text: "" })
+      h.observed.get("todo:12")!(model)
+      expect(h.todo()).toBeUndefined()
+      expect(h.draft().payload.committed).toBeUndefined()
+      admission.resolve(json({ state: "accepted", n: 12 }))
+      await waitFor(() => h.draft().payload.committed?.n === 12)
+      expect(h.todo().payload.model).toEqual(model)
+      expect(h.draft().payload.private).toBe(false)
+      expect(h.outcomes).toEqual(outcomes)
+      expect(h.reports).toEqual([])
+    } finally { leave(); h.close() }
+  })
   test("an approved Drop recovers progress without resending the action, and settles only from its TODO", async () => {
     const calls: RequestInit[] = []
     const storage = memoryStorage()

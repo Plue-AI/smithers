@@ -393,6 +393,13 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
           await write({ ...todo, payload: { ...todo.payload, requests: [...todo.payload.requests.filter(r => r.key !== request.key), accepted] } })
         }
         watch(n)
+        // The list may already follow this TODO and receive its committed
+        // model before admission creates the card. Reuse that source fact:
+        // an idle topic will not publish it again just because the card opened.
+        const committed = shared.notableModels.get(n)
+        if (request.operation === "create" && committed && current(login, revision)) {
+          await applyModel(n, committed, [], () => current(login, revision))
+        }
       } else await fail("TODO admission did not name a TODO.")
     })().catch(error => ctx.report?.("todo.request", error)).finally(() => { shared.sending.delete(request.key); shared.aborts.delete(request.key) })
     async function fail(message: string) {

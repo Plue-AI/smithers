@@ -125,6 +125,10 @@ func TestLiveTodoBrowserPostgres(t *testing.T) {
 	var releaseOnce sync.Once
 	unhold := func() { releaseOnce.Do(func() { close(release) }) }
 	defer unhold()
+	admission := make(chan struct{})
+	var admissionOnce sync.Once
+	admit := func() { admissionOnce.Do(func() { close(admission) }) }
+	defer admit()
 	server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Test-only network control around the production handler. A held
 		// request has neither reached admission nor committed a source event.
@@ -141,10 +145,33 @@ func TestLiveTodoBrowserPostgres(t *testing.T) {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		if r.Method == http.MethodPost && r.URL.Path == "/api/todos" && !held.Swap(true) {
-			select {
-			case <-release:
-			case <-r.Context().Done():
+		if r.URL.Path == "/__live_test/admit" {
+			admit()
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/api/todos" {
+			if !held.Swap(true) {
+				select {
+				case <-release:
+				case <-r.Context().Done():
+					return
+				}
+			} else {
+				// Commit through the real handler, but let Live deliver the
+				// source model before the client receives admission.
+				recorder := httptest.NewRecorder()
+				api.ServeHTTP(recorder, r)
+				select {
+				case <-admission:
+				case <-r.Context().Done():
+					return
+				}
+				for name, values := range recorder.Header() {
+					w.Header()[name] = values
+				}
+				w.WriteHeader(recorder.Code)
+				_, _ = w.Write(recorder.Body.Bytes())
 				return
 			}
 		}
@@ -155,7 +182,7 @@ func TestLiveTodoBrowserPostgres(t *testing.T) {
 		}
 	})
 	server.Start()
-	defer func() { unhold(); server.Close() }()
+	defer func() { unhold(); admit(); server.Close() }()
 	_, err = fmt.Fprintln(stdin, "ready")
 	require.NoError(t, err)
 	_ = stdin.Close()
