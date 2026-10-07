@@ -22,6 +22,7 @@ import { postgresSearchColumn, postgresSearchIndex } from "./Fts.ts"
 export const ftsFold = Effect.gen(function*() {
   const sql = yield* SqlClient.SqlClient
   if (!Dialect.isPostgres(sql)) return
+  /* v8 ignore start -- PostgreSQL adapter; covered by //packages/smithers/agent/memory:postgresFts */
   const kinds = yield* sql<{ readonly namespace_kind: Kind }>`SELECT namespace_kind FROM memory_fts_kinds`
   for (const { namespace_kind: kind } of kinds) {
     const table = sql.literal(`memory_fts_${kind}`)
@@ -29,4 +30,5 @@ export const ftsFold = Effect.gen(function*() {
     yield* sql`ALTER TABLE ${table} ADD COLUMN ${postgresSearchColumn(sql)}`
     yield* postgresSearchIndex(sql, kind)
   }
+  /* v8 ignore stop */
 })

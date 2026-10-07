@@ -16212,6 +16212,22 @@
     }
   },
   {
+    "label": "//packages/smithers/agent/memory:adapterPostgresDatabase",
+    "package": "packages/smithers/agent/memory",
+    "name": "adapterPostgresDatabase",
+    "rule": "Docker.Service",
+    "kinds": [
+      "run"
+    ],
+    "cacheable": false,
+    "inputs": [],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "packages/smithers/agent/memory/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//packages/smithers/agent/memory:check",
     "package": "packages/smithers/agent/memory",
     "name": "check",
@@ -16449,6 +16465,46 @@
     ],
     "outputs": [],
     "dependencies": [],
+    "source": {
+      "file": "packages/smithers/agent/memory/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//packages/smithers/agent/memory:postgresFts",
+    "package": "packages/smithers/agent/memory",
+    "name": "postgresFts",
+    "rule": "Shell.Test",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/agent/memory/src/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/memory/test/PostgresFts.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/memory/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/memory/vitest.config.ts"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [
+      "//packages/smithers/agent/memory:adapterPostgresDatabase",
+      "//packages/smithers/agent/memory:lib"
+    ],
+    "hosts": [
+      "linux"
+    ],
     "source": {
       "file": "packages/smithers/agent/memory/PACKAGE.ts"
     }
@@ -38328,6 +38384,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/agent/memory/docs/guides/store-facts.md"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/memory/docs/guides/testing.md"
       },
       {
         "kind": "file",
