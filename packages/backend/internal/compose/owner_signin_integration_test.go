@@ -29,6 +29,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
@@ -79,6 +80,18 @@ func TestOwnerSignInHTTPPostgres(t *testing.T) {
 			response.Body.Close()
 			defer provider.Close()
 			setup := &services.InstallSetupSessions{Pool: pool}
+			jobStore, err := jobs.NewStore(pool)
+			require.NoError(t, err)
+			jobSetup := &services.InstallSetupService{Pool: pool, Jobs: jobStore}
+			require.NoError(t, jobSetup.Initialize(ctx))
+			require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "setup.step.app_manifest", Value: []byte(`{"status":"done"}`)}))
+			setup.Setup = jobSetup
+			workerCtx, cancelWorker := context.WithCancel(ctx)
+			doneWorker := make(chan error, 1)
+			go func() {
+				doneWorker <- jobStore.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "owner-signin", Capacity: 1, Lease: time.Minute, PollInterval: 10 * time.Millisecond, Operations: []string{"install.setup.sign_in"}}, jobSetup.Handle)
+			}()
+			t.Cleanup(func() { cancelWorker(); require.NoError(t, <-doneWorker) })
 			var output bytes.Buffer
 			require.NoError(t, setup.Mint(ctx, []string{origin}, &output))
 			// Exercise the service's real socket authority across the composed
@@ -305,6 +318,11 @@ func TestOwnerSignInHTTPPostgres(t *testing.T) {
 			require.JSONEq(t, `{"error":"setup_closed"}`, readHandoff(401))
 			require.JSONEq(t, `{"error":"setup_closed"}`, readHandoff(401), "claim permanently closes repeated service reads")
 			var afterClaim bytes.Buffer
+			require.Eventually(t, func() bool {
+				var state string
+				err := pool.QueryRow(ctx, `SELECT value->>'status' FROM install_settings WHERE key='setup.step.sign_in' AND value->>'operation_id' IS NOT NULL`).Scan(&state)
+				return err == nil && state == "done"
+			}, 5*time.Second, 20*time.Millisecond)
 			restartedSetup := &services.InstallSetupSessions{Pool: pool}
 			require.NoError(t, restartedSetup.Mint(ctx, []string{origin}, &afterClaim))
 			require.Empty(t, afterClaim.String(), "service restart after claim emits no setup authority")

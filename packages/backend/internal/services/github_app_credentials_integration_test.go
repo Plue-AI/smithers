@@ -673,7 +673,7 @@ func TestGitHubAppManifestConversionEnforcesOwnerAndAcceptsUserAppPostgres(t *te
 
 func TestGitHubAppManifestConversionDatabaseFailuresPostgres(t *testing.T) {
 	t.Parallel()
-	for _, kind := range []string{"closed-pool", "bad-codec", "lock", "consume", "save", "callbacks", "delete", "commit", "reload", "unlock"} {
+	for _, kind := range []string{"closed-pool", "bad-codec", "lock", "consume", "save", "callbacks", "delete", "commit", "reload"} {
 		t.Run(kind, func(t *testing.T) {
 			f := newAppManifestFixture(t)
 			ctx := WithGitHubAppSetupSession(context.Background(), strings.Repeat("s", 64), "http://localhost:4000")
@@ -682,14 +682,8 @@ func TestGitHubAppManifestConversionDatabaseFailuresPostgres(t *testing.T) {
 			} else if kind == "bad-codec" {
 				f.service.store = NewGitHubAppCredentialStore(f.pool, nil)
 			} else {
-				if kind == "lock" || kind == "unlock" {
-					function := "pg_advisory_lock"
-					returns := "void"
-					if kind == "unlock" {
-						function = "pg_advisory_unlock"
-						returns = "boolean"
-					}
-					_, err := f.pool.Exec(ctx, `CREATE FUNCTION public.`+function+`(bigint) RETURNS `+returns+` LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture lock unavailable'; END $$`)
+				if kind == "lock" {
+					_, err := f.pool.Exec(ctx, `CREATE FUNCTION public.pg_advisory_xact_lock(bigint) RETURNS void LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'lock fault'; END $$`)
 					require.NoError(t, err)
 					config := f.pool.Config()
 					config.MaxConns = 1
@@ -698,6 +692,7 @@ func TestGitHubAppManifestConversionDatabaseFailuresPostgres(t *testing.T) {
 					require.NoError(t, err)
 					t.Cleanup(pool.Close)
 					f.service.pool = pool
+
 				} else {
 					if kind == "reload" {
 						_, err := f.pool.Exec(ctx, `CREATE FUNCTION manifest_db_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN NEW.pem_sealed='corrupted-after-insert'; RETURN NEW; END $$`)
@@ -726,16 +721,9 @@ func TestGitHubAppManifestConversionDatabaseFailuresPostgres(t *testing.T) {
 			bounded, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
 			installURL, err := f.service.Convert(bounded, "manifest-code", f.start.State, f.start.State)
-			if kind == "unlock" {
-				require.NoError(t, err)
-				require.NotEmpty(t, installURL)
-				var locks int
-				require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND database=(SELECT oid FROM pg_database WHERE datname=current_database())`).Scan(&locks))
-				require.Zero(t, locks, "a failed unlock must discard the connection and release its session lock")
-			} else {
-				require.Error(t, err)
-				require.Empty(t, installURL)
-			}
+			require.Error(t, err)
+			require.Empty(t, installURL)
+
 			if kind == "closed-pool" || kind == "bad-codec" || kind == "lock" || kind == "consume" {
 				require.Empty(t, f.github.Writes())
 			}
@@ -796,23 +784,23 @@ func TestGitHubAppManifestCorruptCallbackSnapshotNeverExchangesPostgres(t *testi
 	}
 }
 
-func TestGitHubAppManifestConnectionLostAfterExchangePostgres(t *testing.T) {
+func TestGitHubAppManifestDoesNotHoldConnectionAcrossExchangePostgres(t *testing.T) {
 	t.Parallel()
 	f := newAppManifestFixture(t)
 	ctx := WithGitHubAppSetupSession(context.Background(), strings.Repeat("s", 64), "http://localhost:4000")
 	disconnected := make(chan error, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, err := f.pool.Exec(ctx, `SELECT pg_terminate_backend(pid) FROM pg_locks WHERE locktype='advisory' AND database=(SELECT oid FROM pg_database WHERE datname=current_database())`)
+		_, err := f.pool.Exec(ctx, `SELECT 1`)
 		disconnected <- err
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": f.credentials.ID, "slug": f.credentials.Slug, "pem": f.credentials.PEM, "client_id": f.credentials.ClientID, "client_secret": f.credentials.ClientSecret, "webhook_secret": f.credentials.WebhookSecret, "owner": map[string]string{"login": "acme", "type": "Organization"}})
 	}))
 	defer server.Close()
 	f.service.apiBaseURL = server.URL
 	_, err := f.service.Convert(ctx, "code", f.start.State, f.start.State)
-	require.Error(t, err)
+	require.NoError(t, err)
 	require.NoError(t, <-disconnected)
 	_, err = f.store.Load(ctx)
-	require.ErrorIs(t, err, ErrGitHubAppNotConfigured)
+	require.NoError(t, err)
 	var used bool
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT used_at IS NOT NULL FROM github_app_manifest_states WHERE digest=$1`, GitHubAppStateDigest(f.start.State)).Scan(&used))
 	require.True(t, used)
@@ -976,7 +964,7 @@ func TestGitHubAppManifestDurableBeginCASAndAtomicCompletionPostgres(t *testing.
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM install_settings WHERE key IN ('github.callback_urls','github.repository','setup.projection.app_manifest')`).Scan(&count))
 	require.Zero(t, count)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT value->>'status' FROM install_settings WHERE key='setup.step.app_manifest'`).Scan(&status))
-	require.Equal(t, "failed", status)
+	require.Equal(t, "running", status)
 	_, err = service.Convert(ctx, "manifest-code", start.State, start.State)
 	require.Error(t, err)
 	require.Len(t, server.Writes(), 1, "local failure never replays remote conversion")
