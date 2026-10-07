@@ -120,12 +120,55 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 		require.EqualValues(t, 7, item.Generation)
 	})
 
-	t.Run("missing verification provider refuses before capture", func(t *testing.T) {
-		service.SetLauncher(nil)
-		defer service.SetLauncher(dispatcher)
-		before := runtime.calls
-		call(t, token, "candidate", request, 503)
+	for _, provider := range []string{"verify launcher", "source reader", "guest runtime"} {
+		t.Run("missing "+provider+" refuses before capture", func(t *testing.T) {
+			defer service.SetOrchestration(nil, dispatcher, services.NewWorkspaceMythicalLanes(machine))
+			switch provider {
+			case "verify launcher":
+				service.SetLauncher(nil)
+			case "source reader":
+				unavailable := services.NewWorkspaceService(f.q, services.WithWorkspaceTransactions(f.pool), services.WithWorkspaceRuntime(runtime))
+				service.SetOrchestration(nil, dispatcher, services.NewWorkspaceMythicalLanes(unavailable))
+			case "guest runtime":
+				unavailable := services.NewWorkspaceService(f.q, services.WithWorkspaceTransactions(f.pool), services.WithWorkspaceSourceReader(objects))
+				service.SetOrchestration(nil, dispatcher, services.NewWorkspaceMythicalLanes(unavailable))
+			}
+			before, reads := runtime.calls, objects.reads
+			call(t, token, "candidate", request, 503)
+			call(t, token, "candidate", string(raw), 503)
+			require.Equal(t, before, runtime.calls)
+			require.Equal(t, reads, objects.reads)
+		})
+	}
+	t.Run("malformed source refuses before observation", func(t *testing.T) {
+		before, reads := runtime.calls, objects.reads
+		call(t, token, "candidate", strings.Replace(string(raw), tree, "invalid", 1), 400)
 		require.Equal(t, before, runtime.calls)
+		require.Equal(t, reads, objects.reads)
+	})
+	t.Run("consumed old-prefix source cannot become pending again", func(t *testing.T) {
+		sealed := source
+		sealed.CommitID = strings.Repeat("e", 40)
+		body, err := json.Marshal(services.ReservedStackInput{RequestID: input.RequestID, Source: &sealed})
+		require.NoError(t, err)
+		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET integration=jsonb_build_object('kind','captured','head',$2::text) WHERE id=$1`, itemID, sealed.CommitID)
+		require.NoError(t, err)
+		runtime.head, runtime.candidateTree = sealed.CommitID, strings.Repeat("f", 40)
+		defer func() {
+			runtime.head, runtime.candidateTree = head, tree
+			_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET integration=NULL WHERE id=$1`, itemID)
+			require.NoError(t, err)
+		}()
+		before, err := f.q.GetMythicalItemByNumber(f.ctx, f.repoID, 1)
+		require.NoError(t, err)
+		reads := objects.reads
+		call(t, token, "candidate", string(body), 409)
+		after, err := f.q.GetMythicalItemByNumber(f.ctx, f.repoID, 1)
+		require.NoError(t, err)
+		require.Equal(t, before.Version, after.Version)
+		require.Equal(t, before.Generation, after.Generation)
+		require.Equal(t, before.Checks, after.Checks)
+		require.Equal(t, reads, objects.reads)
 	})
 
 	t.Run("first trusted attachment grants only the current host", func(t *testing.T) {
@@ -142,8 +185,18 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 		before := runtime.calls
 		call(t, initial, "candidate", request, 403)
 		projection, _ := json.Marshal(map[string]any{"kind": "mythical-item", "itemId": itemID, "generation": 7, "attempt": 1, "phase": "todo", "flowDigest": strings.Repeat("d", 64), "flowSource": base})
-		err = service.ProjectFlowRuntime(f.ctx, flowdispatch.ProjectionUpdate{State: jobs.StateRunning, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: projection, FlowID: "todo", RunID: "current-run", ExecutionDigest: strings.Repeat("d", 64), Target: flowruntime.Target{WorkspaceID: row.ID, BindingKind: "mythical-item", BindingID: itemID}, Run: &flowruntime.FlowRuntimeRun{RunID: "current-run"}}})
+		attachment := flowdispatch.ProjectionUpdate{State: jobs.StateRunning, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: projection, FlowID: "todo", RunID: "current-run", ExecutionDigest: strings.Repeat("d", 64), Target: flowruntime.Target{WorkspaceID: row.ID, BindingKind: "mythical-item", BindingID: itemID}, Run: &flowruntime.FlowRuntimeRun{RunID: "current-run"}}}
+		for _, mismatch := range []string{"retired", "other target", "other source"} {
+			_, err = f.pool.Exec(f.ctx, `UPDATE flow_runtime_host_bindings SET state=CASE WHEN $2='retired' THEN 'retired' ELSE 'running' END,binding_id=CASE WHEN $2='other target' THEN 'other' ELSE $3 END,source_revision=CASE WHEN $2='other source' THEN repeat('e',40) ELSE $4 END WHERE id=$1`, hostID, mismatch, itemID, base)
+			require.NoError(t, err)
+			require.NoError(t, service.ProjectFlowRuntime(f.ctx, attachment))
+			call(t, initial, "candidate", request, 403)
+			_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='',checks=jsonb_set(checks,'{run_attached}','false') WHERE id=$1`, itemID)
+			require.NoError(t, err)
+		}
+		_, err = f.pool.Exec(f.ctx, `UPDATE flow_runtime_host_bindings SET state='running',binding_id=$2,source_revision=$3 WHERE id=$1`, hostID, itemID, base)
 		require.NoError(t, err)
+		require.NoError(t, service.ProjectFlowRuntime(f.ctx, attachment))
 		require.Equal(t, before, runtime.calls)
 		call(t, initial, "propose", proposal, 200)
 		beforeOlder := runtime.calls
@@ -176,6 +229,46 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 			entries, err := os.ReadDir(directory)
 			require.NoError(t, err)
 			require.Len(t, entries, 1, "proposal never opens or locks the native repository")
+			// Candidate traverses the same production Action and native provider,
+			// sealing real JJ bytes. Only live guest observations and the source
+			// object acknowledgment are fixtures; this is not microVM acceptance.
+			init := exec.CommandContext(t.Context(), "jj", "git", "init", "--colocate")
+			init.Dir = directory
+			initOutput, err := init.CombinedOutput()
+			require.NoError(t, err, string(initOutput))
+			require.NoError(t, os.WriteFile(filepath.Join(directory, "MEMBER.md"), []byte("native candidate bytes\n"), 0600))
+			snapshot := exec.CommandContext(t.Context(), "jj", "status")
+			snapshot.Dir = directory
+			snapshotOutput, err := snapshot.CombinedOutput()
+			require.NoError(t, err, string(snapshotOutput))
+			read := exec.CommandContext(t.Context(), helper, "--local")
+			payload, _ := json.Marshal(map[string]any{"operation": "read", "repositoryPath": directory})
+			read.Stdin = bytes.NewReader(payload)
+			readOutput, err := read.Output()
+			require.NoError(t, err)
+			var observed struct {
+				Head struct {
+					TreeID string `json:"treeId"`
+				} `json:"head"`
+			}
+			require.NoError(t, json.Unmarshal(readOutput, &observed))
+			require.Len(t, observed.Head.TreeID, 40)
+			runtime.tree, runtime.candidateTree = observed.Head.TreeID, observed.Head.TreeID
+			defer func() { runtime.tree, runtime.candidateTree = tree, tree }()
+			for range 2 {
+				capture := exec.CommandContext(t.Context(), "node", "--experimental-strip-types", filepath.Join(root, "flows/test/coding-reserved-install-rehearsal.mjs"))
+				capture.Env = append(cmd.Env, "SMITHERS_STK12_OPERATION=candidate")
+				var stderr bytes.Buffer
+				capture.Stderr = &stderr
+				output, err := capture.Output()
+				require.NoError(t, err, stderr.String())
+				require.JSONEq(t, fmt.Sprintf(`{"generation":7,"base":%q,"head":%q}`, base, head), string(output))
+			}
+			item, err := f.q.GetMythicalItemByNumber(f.ctx, f.repoID, 1)
+			require.NoError(t, err)
+			require.EqualValues(t, 7, item.Generation)
+			require.True(t, item.CandidateVerified)
+			require.Empty(t, item.PendingOp)
 		}
 		retained, _ := json.Marshal(map[string]any{"retain_source": source})
 		req := httptest.NewRequest("POST", fmt.Sprintf("http://example.com/api/repos/gate-owner/app/workspaces/%s/head", row.ID), strings.NewReader(string(retained)))

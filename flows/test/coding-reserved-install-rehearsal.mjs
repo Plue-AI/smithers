@@ -5,18 +5,19 @@ import { NodeCrypto, NodeServices } from "@effect/platform-node"
 import { FlowEngine } from "@smthrs/engine"
 import { Action, Flow, Interpreter } from "@smthrs/flow"
 import { Layer, ManagedRuntime, Redacted, Schema } from "effect"
-import { NativeCodingError, nativeLayer, NativeTransport, StackProposal } from "../coding/native.ts"
+import { NativeCodingError, nativeLayer, NativeTransport, StackCandidate, StackProposal } from "../coding/native.ts"
 import { CodingError } from "../coding/schema.ts"
-import { Propose, stackBaseLayer } from "../coding/stack.ts"
+import { Candidate, Propose, stackBaseLayer } from "../coding/stack.ts"
 
 const token = process.env.SMITHERS_NATIVE_REPOSITORY_TOKEN
 if (!token) throw new Error("Missing rehearsal credential")
 delete process.env.SMITHERS_NATIVE_REPOSITORY_TOKEN
-const Publish = Flow.make("test/installed-stack-proposal", {
+const capture = process.env.SMITHERS_STK12_OPERATION === "candidate"
+const Publish = Flow.make("test/installed-stack-operation", {
   payload: {},
-  success: StackProposal,
+  success: capture ? StackCandidate : StackProposal,
   error: Schema.Union([CodingError, NativeCodingError]),
-  body: () => Propose.call({ generation: 7 })
+  body: () => capture ? Candidate.call({}) : Propose.call({ generation: 7 })
 })
 const native = nativeLayer({
   repositoryPath: process.env.SMITHERS_STK12_REPOSITORY_PATH,
@@ -32,7 +33,7 @@ const runtime = ManagedRuntime.make(
   )
 )
 try {
-  console.log(JSON.stringify(await runtime.runPromise(Publish.execute({}, { executionId: "installed-proposal" }))))
+  console.log(JSON.stringify(await runtime.runPromise(Publish.execute({}, { executionId: "installed-stack-operation" }))))
 } finally {
   await runtime.dispose()
 }

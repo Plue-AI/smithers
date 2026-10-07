@@ -17278,6 +17278,103 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/repos/{owner}/{repo}/workspaces/{id}/stack/{operation}:
+    post:
+      summary: Run a reserved stack operation
+      x-composition: install
+      description: Internal native transport for the current TODO run and machine. Requires an issuer-bound system credential; sessions, delegated credentials and public tokens are denied. Candidate preflight omits source; candidate submission supplies its immutable native source; proposal supplies its generation.
+      operationId: post_api_repos_owner_repo_workspaces_id_stack_operation
+      tags:
+        - Repositories
+      parameters:
+        - name: owner
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: repo
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: operation
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [candidate, propose]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [requestId]
+              properties:
+                requestId:
+                  type: string
+                  format: uuid
+                generation:
+                  type: integer
+                  minimum: 1
+                source:
+                  type: object
+                  additionalProperties: false
+                  required: [change_id, commit_id, tree_id, parent_commit_ids]
+                  properties:
+                    change_id:
+                      type: string
+                      pattern: '^[k-z]{32}$'
+                    commit_id:
+                      type: string
+                      pattern: '^[a-f0-9]{40}$'
+                    tree_id:
+                      type: string
+                      pattern: '^[a-f0-9]{40}$'
+                    parent_commit_ids:
+                      type: array
+                      items:
+                        type: string
+                        pattern: '^[a-f0-9]{40}$'
+      responses:
+        '200':
+          description: Current candidate or published proposal
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [generation, head]
+                properties:
+                  generation:
+                    type: integer
+                    minimum: 1
+                  base:
+                    type: string
+                  head:
+                    type: string
+        '202':
+          description: Pending work owned by the existing stack worker
+        '204':
+          description: Candidate capture admitted
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Candidate, prefix or generation changed
+        '503':
+          description: A required execution provider is unavailable
   /api/repos/{owner}/{repo}/workspaces/{id}/operations/{op_id}/undo:
     post:
       summary: POST /api/repos/{owner}/{repo}/workspaces/{id}/operations/{op_id}/undo

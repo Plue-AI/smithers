@@ -108,12 +108,18 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 	if _, pinned := mythicalPinOf(item); !pinned || !mythicalChecksOf(item).RunAttached {
 		return empty, 0, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "packaged TODO binding unavailable")
 	}
-	if command == "stack.candidate" && input.Source == nil {
-		// Admission must refuse missing plan/runtime before guest capture too.
-		if s.launcher == nil || machine.runtime == nil || machine.runtime.Isolation() != workspaceapi.IsolationSandboxed || len(item.Plan) == 0 {
+	if command == "stack.candidate" {
+		// Both preflight and posted snapshots require every execution provider
+		// before any guest observation or persistence.
+		if s.launcher == nil || machine.sourceReader == nil || machine.runtime == nil || machine.runtime.Isolation() != workspaceapi.IsolationSandboxed || len(item.Plan) == 0 {
 			return empty, 0, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "candidate verification unavailable")
 		}
-		return empty, 204, tx.Commit(live)
+		if input.Source == nil {
+			return empty, 204, tx.Commit(live)
+		}
+		if err := input.Source.Validate(); err != nil {
+			return empty, 0, pkgerrors.BadRequest("invalid candidate source")
+		}
 	}
 	if command == "stack.propose" && (input.Generation != item.Generation || !item.CandidateVerified || item.CandidateBase != prefix) {
 		return empty, 0, pkgerrors.Conflict("candidate changed")
@@ -123,11 +129,23 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 		return empty, 0, err
 	}
 	if command == "stack.candidate" {
-		if err := input.Source.Validate(); err != nil {
-			return empty, 0, pkgerrors.BadRequest("invalid candidate source")
-		}
 		if input.Source.TreeID != tree {
 			return empty, 0, pkgerrors.Conflict("candidate is no longer the live revision")
+		}
+		// A prefix rebase consumed this immutable capture already. Its sealed
+		// invocation cannot put the old-prefix bytes back into pending work.
+		var integration struct {
+			Kind string `json:"kind"`
+			Head string `json:"head"`
+		}
+		if json.Unmarshal(item.Integration, &integration) == nil && integration.Kind == "captured" && integration.Head == input.Source.CommitID && item.CandidateHead != input.Source.CommitID && mythicalChecksOf(item).Capture == nil {
+			previous, err := machine.workspaceCommitTree(live, row, item.CandidateHead)
+			if err != nil {
+				return empty, 0, err
+			}
+			if previous != tree {
+				return empty, 0, pkgerrors.Conflict("candidate prefix changed")
+			}
 		}
 		if _, err := machine.reportRetainedSource(live, row, ReportWorkspaceHeadInput{RetainSource: input.Source}); err != nil {
 			return empty, 0, err
