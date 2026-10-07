@@ -40,7 +40,7 @@ func (s *MythicalService) forkWorkspaceRevision(ctx context.Context, source db.W
 	}
 	from := "main"
 	if strings.HasPrefix(source.TargetBookmark, scratchBranchPrefix) {
-		from = source.TargetBookmark // S1 refuses; S2 must capture before selecting it.
+		from = source.TargetBookmark
 	} else {
 		var number int64
 		err := s.store.QueryRow(ctx, `SELECT i.number FROM mythical_items i
@@ -100,7 +100,7 @@ type branchForkSource struct {
 // asked: the revision is pinned under the new workspace's source ref, the
 // workspace records forked_from, then the branch is published in the
 // install's repository and nowhere else: a scratch branch never reaches
-// GitHub (M-22). Forking a scratch branch waits for stage 2's capture.
+// GitHub (M-22). Awake and scratch sources consume the daemon capture.
 func (s *MythicalService) forkBranch(ctx context.Context, repositoryID, actorID int64, input BranchForkInput, selected *branchForkSource, remember func(branchForkSource) error) (BranchMachineResponse, error) {
 	if s == nil || s.store == nil || s.host == nil {
 		return BranchMachineResponse{}, branchForkUnavailable("fork unavailable")
@@ -116,9 +116,6 @@ func (s *MythicalService) forkBranch(ctx context.Context, repositoryID, actorID 
 	if from == "" {
 		return BranchMachineResponse{}, &BranchError{http.StatusBadRequest, "bad_request", "user", "Choose what to fork: main or a TODO"}
 	}
-	if strings.HasPrefix(from, scratchBranchPrefix) {
-		return BranchMachineResponse{}, &BranchError{http.StatusBadRequest, "scratch_fork_unavailable", "user", "A scratch branch cannot be forked yet"}
-	}
 	q := s.queries()
 	person, err := q.GetUserByID(ctx, actorID)
 	if err != nil {
@@ -126,7 +123,7 @@ func (s *MythicalService) forkBranch(ctx context.Context, repositoryID, actorID 
 	}
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
-		name = "fork-" + strings.ToLower(from)
+		name = "fork-" + strings.ToLower(from[strings.LastIndex(from, "/")+1:])
 	}
 	if len(name) > 48 || !branchForkName.MatchString(name) || strings.HasSuffix(name, ".lock") {
 		return BranchMachineResponse{}, &BranchError{http.StatusBadRequest, "bad_request", "user", "Use lower-case letters, digits, '-', '_' or '.' for the name"}
@@ -160,7 +157,7 @@ func (s *MythicalService) forkBranch(ctx context.Context, repositoryID, actorID 
 	if selected != nil {
 		source = *selected
 	} else {
-		source, err = s.forkSource(ctx, q, repository, from, refs)
+		source, err = s.forkSource(withBranchCaptureContext(ctx), q, repository, from, refs)
 		if err != nil {
 			return BranchMachineResponse{}, err
 		}
@@ -201,6 +198,9 @@ func (s *MythicalService) forkBranch(ctx context.Context, repositoryID, actorID 
 	if source.item.Valid {
 		branchRow.ForkedFrom.Kind, branchRow.ForkedFrom.Item = "item", source.number
 	}
+	if strings.HasPrefix(source.ref, scratchBranchPrefix) {
+		branchRow.ForkedFrom.Kind = "branch"
+	}
 	if branchRow.Head == "" {
 		branchRow.Head = source.commit
 	}
@@ -224,7 +224,12 @@ func (s *MythicalService) ForkBranch(ctx context.Context, repositoryID, actorID 
 	if info == nil || info.User == nil || info.User.ID != actorID {
 		return BranchMachineResponse{}, &BranchError{403, "permission", "permission", "Access denied"}
 	}
+	ctx = withBranchCaptureContext(ctx)
 	if input.Request == "" {
+		if err := s.prepareForkCapture(ctx, repositoryID, actorID, input); err != nil {
+			return BranchMachineResponse{}, err
+		}
+
 		if s == nil || s.store == nil {
 			return BranchMachineResponse{}, branchForkUnavailable("fork unavailable")
 		}
@@ -253,6 +258,15 @@ func (s *MythicalService) ForkBranch(ctx context.Context, repositoryID, actorID 
 	id := uuid.NewSHA1(confirmationNamespace, []byte(scope.TenantID+"\x00"+scope.PrincipalID+"\x00branch.fork\x00"+input.Request)).String()
 	canonical, _ := json.Marshal(input)
 	intentID := uuid.NewSHA1(confirmationNamespace, []byte(id+"\x00intended")).String()
+	var retained bool
+	if err := s.store.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM product_job_events WHERE tenant_id=$1 AND principal_id=$2 AND operation_id IN ($3,$4) AND event_type IN ('branch.fork.completed','branch.fork.intended'))`, scope.TenantID, scope.PrincipalID, id, intentID).Scan(&retained); err != nil {
+		return BranchMachineResponse{}, err
+	}
+	if !retained {
+		if err := s.prepareForkCapture(ctx, repositoryID, actorID, input); err != nil {
+			return BranchMachineResponse{}, err
+		}
+	}
 	var branch BranchMachineResponse
 	err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
 		if err := guardInstallForkWrite(ctx, tx, repositoryID, actorID, input); err != nil {
@@ -334,6 +348,39 @@ func (s *MythicalService) forkSource(ctx context.Context, q *db.Queries, reposit
 		}
 		return branchForkSource{ref: "main", commit: tip, base: tip, pin: mainRef}, nil
 	}
+	if strings.HasPrefix(from, scratchBranchPrefix) {
+		capture, ok := s.lanes.(interface {
+			PrepareCapturedHead(context.Context, string, int64, int64) error
+			CapturedHead(context.Context, string, int64, int64) (string, error)
+		})
+		if !ok {
+			return branchForkSource{}, branchForkUnavailable("Capture unavailable")
+		}
+		row, err := q.GetBranchWorkspace(ctx, db.GetBranchWorkspaceParams{RepositoryID: repository.ID, TargetBookmark: from})
+		if err != nil {
+			return branchForkSource{}, err
+		}
+		actor := middleware.AuthInfoFromContext(ctx).User.ID
+		if err := capture.PrepareCapturedHead(ctx, row.ID, repository.ID, actor); err != nil {
+			return branchForkSource{}, err
+		}
+		head, err := capture.CapturedHead(ctx, row.ID, repository.ID, actor)
+		if err != nil {
+			return branchForkSource{}, err
+		}
+		if !isLowerHexRevision(row.ForkedFromBase) {
+			return branchForkSource{}, branchForkUnavailable("Fork revision unavailable")
+		}
+		source := branchForkSource{ref: from, commit: head, base: row.ForkedFromBase, pin: repohost.BranchHeadRef(row.ID), parent: row.ID, item: row.ForkedFromItem}
+		if source.item.Valid {
+			item, err := q.GetMythicalItem(ctx, source.item)
+			if err != nil {
+				return branchForkSource{}, err
+			}
+			source.number = item.Number.Int64
+		}
+		return source, nil
+	}
 	match := branchForkTodo.FindStringSubmatch(from)
 	if match == nil {
 		return branchForkSource{}, &BranchError{http.StatusBadRequest, "bad_request", "user", "Fork main or a TODO such as T2"}
@@ -349,6 +396,33 @@ func (s *MythicalService) forkSource(ctx context.Context, q *db.Queries, reposit
 	}
 	if mythicalSettledStates[item.State] {
 		return branchForkSource{}, &BranchError{http.StatusConflict, "todo_settled", "conflict", ref + " is " + todoState(item) + "; fork main"}
+	}
+	if item.WorkspaceID != "" {
+		row, err := q.GetWorkspace(ctx, item.WorkspaceID)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return branchForkSource{}, err
+		}
+		if err == nil && row.Status == "running" {
+			capture, ok := s.lanes.(interface {
+				PrepareCapturedHead(context.Context, string, int64, int64) error
+				CapturedHead(context.Context, string, int64, int64) (string, error)
+			})
+			if !ok {
+				return branchForkSource{}, branchForkUnavailable("Capture unavailable")
+			}
+			actor := middleware.AuthInfoFromContext(ctx).User.ID
+			if err := capture.PrepareCapturedHead(ctx, row.ID, repository.ID, actor); err != nil {
+				return branchForkSource{}, err
+			}
+			head, err := capture.CapturedHead(ctx, row.ID, repository.ID, actor)
+			if err != nil {
+				return branchForkSource{}, err
+			}
+			if !isLowerHexRevision(item.CandidateBase) {
+				return branchForkSource{}, branchForkUnavailable("Fork base unavailable")
+			}
+			return branchForkSource{ref: ref, commit: head, base: item.CandidateBase, pin: repohost.BranchHeadRef(row.ID), parent: row.ID, item: item.ID, number: number}, nil
+		}
 	}
 	pin := repohost.MythicalReservedRefNS + "keep/" + item.CandidateHead
 	if !item.CandidateVerified || !isLowerHexRevision(item.CandidateHead) || !isLowerHexRevision(item.CandidateBase) || refs[pin] != item.CandidateHead {
@@ -459,4 +533,65 @@ type branchForkIntent struct {
 
 func (i branchForkIntent) source() branchForkSource {
 	return branchForkSource{ref: i.Ref, commit: i.Commit, base: i.Base, pin: i.Pin, parent: i.Parent, item: i.Item, number: i.Number}
+}
+
+func (s *MythicalService) prepareForkCapture(ctx context.Context, repository, actor int64, input BranchForkInput) error {
+	if s == nil || s.store == nil || s.host == nil {
+		return branchForkUnavailable("Fork unavailable")
+	}
+	from := strings.TrimSpace(input.From)
+	if strings.EqualFold(from, "main") {
+		return nil
+	}
+	var row db.Workspace
+	var err error
+	if strings.HasPrefix(from, scratchBranchPrefix) {
+		row, err = branchAddWorkspace(ctx, s.queries(), repository, from)
+	} else if match := branchForkTodo.FindStringSubmatch(from); match != nil {
+		n, _ := strconv.ParseInt(match[1], 10, 64)
+		item, e := s.queries().GetMythicalItemByNumber(ctx, repository, n)
+		if e != nil {
+			return e
+		}
+		if item.WorkspaceID == "" {
+			return nil
+		}
+		row, err = s.queries().GetWorkspace(ctx, item.WorkspaceID)
+	} else {
+		return nil
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if row.Status != "running" {
+		return nil
+	}
+	forks, ok := s.lanes.(mythicalScratchForks)
+	if !ok {
+		return branchForkUnavailable("Fork unavailable")
+	}
+	person, err := s.queries().GetUserByID(ctx, actor)
+	if err != nil {
+		return err
+	}
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		name = "fork-" + strings.ToLower(from[strings.LastIndex(from, "/")+1:])
+	}
+	if len(name) > 48 || !branchForkName.MatchString(name) || strings.HasSuffix(name, ".lock") {
+		return &BranchError{400, "bad_request", "user", "Invalid fork name"}
+	}
+	if err := forks.CheckScratchFork(ctx, repository, actor, scratchBranchPrefix+strings.ToLower(person.Username)+"/"+name); err != nil {
+		return err
+	}
+	capture, ok := s.lanes.(interface {
+		PrepareCapturedHead(context.Context, string, int64, int64) error
+	})
+	if !ok {
+		return branchForkUnavailable("Capture unavailable")
+	}
+	return capture.PrepareCapturedHead(ctx, row.ID, repository, actor)
 }

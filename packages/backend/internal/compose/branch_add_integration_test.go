@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -30,6 +31,11 @@ import (
 func TestBranchAddComposedInstall(t *testing.T) {
 	for _, remove := range []string{"", "confirm-after", "confirm-default", "confirm-steered-after", "confirm-steered-before", "capture-lock", "membership", "authorize", "lane", "microvm", "identity", "capture", "awake"} {
 		t.Run("provider-"+remove, func(t *testing.T) { runBranchAddComposed(t, remove) })
+	}
+}
+func TestBranchCaptureComposedInstall(t *testing.T) {
+	for _, mode := range []string{"s2-add", "s2-confirm", "s2-fork", "s2-item-fork", "s2-fail", "s2-stale", "s2-missing-membership", "s2-missing-authorize", "s2-missing-lane", "s2-missing-microvm", "s2-missing-identity"} {
+		t.Run(mode, func(t *testing.T) { runBranchAddComposed(t, mode) })
 	}
 }
 func TestFreshForkCreatedThroughInstall(t *testing.T) { runBranchAddComposed(t, "fresh-fork") }
@@ -100,7 +106,7 @@ func runBranchAddComposed(t *testing.T, remove string) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
 	providers := rehearsalBranchMachines(pool)
-	switch remove {
+	switch strings.TrimPrefix(remove, "s2-missing-") {
 	case "membership":
 		providers.Membership = nil
 	case "authorize":
@@ -118,7 +124,14 @@ func runBranchAddComposed(t *testing.T, remove string) {
 		_, err = pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, workspace.ID)
 		require.NoError(t, err)
 	}
-	handler := startSplitProcess(t, Options{Repository: local.Client(), ChatHost: unusedChatHost{}, Workspace: runtime, BranchMachines: providers, FlowHostProductAPIURL: "http://127.0.0.1:4000"})
+	var registry *machined.Registry
+	s2 := strings.HasPrefix(remove, "s2-")
+	if s2 {
+		registry = new(machined.Registry)
+		_, err = pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, workspace.ID)
+		require.NoError(t, err)
+	}
+	handler := startSplitProcess(t, Options{Repository: local.Client(), ChatHost: unusedChatHost{}, Workspace: runtime, BranchMachines: providers, Machined: registry, FlowHostProductAPIURL: "http://127.0.0.1:4000"})
 	call := func(body, key, session string) *httptest.ResponseRecorder {
 		request := httptest.NewRequest("POST", "http://127.0.0.1:4000/api/branches/scratch%2Fben%2Ftry/add-to-stack", strings.NewReader(body))
 		request.RemoteAddr = "127.0.0.1:12345"
@@ -141,6 +154,144 @@ func runBranchAddComposed(t *testing.T, remove string) {
 	scopes = append(scopes, middleware.DelegationScopes(middleware.Delegation{Via: "codex"})...)
 	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "delegated", TokenHash: tokenHash, TokenLastEight: tokenHash[len(tokenHash)-8:], Scopes: strings.Join(scopes, ","), SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
 	require.NoError(t, err)
+	if s2 {
+		require.NoError(t, os.WriteFile(filepath.Join(source, "awake.txt"), []byte("fixed awake capture bytes\n"), 0600))
+		git("-C", source, "add", ".")
+		git("-C", source, "commit", "-m", "awake capture")
+		captured := git("-C", source, "rev-parse", "HEAD")
+		git("-C", store, "fetch", source, captured)
+		tree := git("-C", source, "rev-parse", captured+"^{tree}")
+		if remove == "s2-item-fork" {
+			item, err := q.InsertMythicalTodo(ctx, repo.ID, owner.ID, "Source", "Fixed item", []byte(`[{"text":"Fixed item"}]`), []byte(`{"todo":true}`))
+			require.NoError(t, err)
+			_, err = pool.Exec(ctx, `UPDATE mythical_items SET workspace_id=$2,candidate_head=$3,candidate_base=$4,candidate_verified=true WHERE id=$1`, item.ID, workspace.ID, head, base)
+			require.NoError(t, err)
+			_, err = pool.Exec(ctx, `UPDATE workspaces SET target_bookmark='smithers/source' WHERE id=$1`, workspace.ID)
+			require.NoError(t, err)
+			_, _, err = q.BindMythicalLane(ctx, db.MythicalLane{WorkspaceID: workspace.ID, RepositoryID: repo.ID, ItemID: item.ID, Name: "smithers/source"})
+			require.NoError(t, err)
+			git("-C", store, "update-ref", "refs/heads/smithers/source", head)
+		}
+		calls := branchCapturePeer(t, registry, workspace.ID, head, captured, tree, base, remove)
+		if remove == "s2-fork" || remove == "s2-item-fork" {
+			body := `{"from":"scratch/ben/try","name":"captured-fork"}`
+			if remove == "s2-item-fork" {
+				body = `{"from":"T1","name":"captured-fork"}`
+			}
+			request := httptest.NewRequest("POST", "http://127.0.0.1:4000/api/branches", strings.NewReader(body))
+			request.RemoteAddr = "127.0.0.1:12345"
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Origin", "http://127.0.0.1:4000")
+			request.Header.Set("X-CSRF-Token", "add-csrf")
+			request.AddCookie(&http.Cookie{Name: "__csrf", Value: "add-csrf"})
+			request.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
+			request.Header.Set("Idempotency-Key", "awake-fork")
+			var first string
+			for range 2 {
+				response := httptest.NewRecorder()
+				request.Body = io.NopCloser(strings.NewReader(body))
+				handler.ServeHTTP(response, request)
+				require.Equal(t, 201, response.Code, response.Body.String())
+				if first == "" {
+					first = response.Body.String()
+				} else {
+					require.Equal(t, first, response.Body.String())
+				}
+			}
+			var receipt struct {
+				Name       string
+				ForkedFrom struct{ Kind, Ref, Commit, Base string } `json:"forked_from"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(first), &receipt))
+			require.Equal(t, captured, receipt.ForkedFrom.Commit)
+			require.Equal(t, base, receipt.ForkedFrom.Base)
+			if remove == "s2-item-fork" {
+				require.Equal(t, "item", receipt.ForkedFrom.Kind)
+				require.Equal(t, "T1", receipt.ForkedFrom.Ref)
+				var verified bool
+				require.NoError(t, pool.QueryRow(ctx, `SELECT candidate_verified FROM mythical_items WHERE number=1`).Scan(&verified))
+				require.False(t, verified)
+			} else {
+				require.Equal(t, "branch", receipt.ForkedFrom.Kind)
+				require.Equal(t, "scratch/ben/try", receipt.ForkedFrom.Ref)
+			}
+			require.Equal(t, "fixed awake capture bytes", git("-C", store, "show", receipt.ForkedFrom.Commit+":awake.txt"))
+			// List reads the durable source ref even after the source is renamed.
+			_, err = pool.Exec(ctx, `UPDATE workspaces SET target_bookmark='smithers/renamed-source' WHERE id=$1`, workspace.ID)
+			require.NoError(t, err)
+			list := httptest.NewRequest("GET", "http://127.0.0.1:4000/api/branches", nil)
+			list.RemoteAddr = "127.0.0.1:12345"
+			list.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, list)
+			require.Equal(t, 200, response.Code, response.Body.String())
+			if remove == "s2-item-fork" {
+				require.Contains(t, response.Body.String(), `"ref":"T1"`)
+			} else {
+				require.Contains(t, response.Body.String(), `"ref":"scratch/ben/try"`)
+			}
+		} else if remove == "s2-confirm" {
+			request := httptest.NewRequest("POST", "http://127.0.0.1:4000/api/branches/scratch%2Fben%2Ftry/add-to-stack", strings.NewReader(`{"text":"Keep awake work"}`))
+			request.Header.Set("Authorization", "Bearer "+token)
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Idempotency-Key", "awake-confirm")
+			request.RemoteAddr = "127.0.0.1:12345"
+			pending := httptest.NewRecorder()
+			handler.ServeHTTP(pending, request)
+			require.Equal(t, 202, pending.Code, pending.Body.String())
+			var ask struct {
+				ID string `json:"confirmation"`
+			}
+			require.NoError(t, json.Unmarshal(pending.Body.Bytes(), &ask))
+			var count int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items`).Scan(&count))
+			require.Zero(t, count)
+			press := httptest.NewRequest("POST", "http://127.0.0.1:4000/api/confirmations/"+ask.ID+"/approve", nil)
+			press.Header.Set("Origin", "http://127.0.0.1:4000")
+			press.Header.Set("X-CSRF-Token", "add-csrf")
+			press.RemoteAddr = "127.0.0.1:12345"
+			press.Header.Set("Idempotency-Key", "awake-press")
+			press.AddCookie(&http.Cookie{Name: "__csrf", Value: "add-csrf"})
+			press.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, press)
+			require.Equal(t, 200, response.Code, response.Body.String())
+		} else {
+			response := call(`{"text":"Keep awake work"}`, "awake-add", cookie)
+			if remove == "s2-fail" || remove == "s2-stale" || strings.HasPrefix(remove, "s2-missing-") {
+				require.Equal(t, 503, response.Code, response.Body.String())
+				var count int
+				require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items`).Scan(&count))
+				require.Zero(t, count)
+				require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='branch.added-to-stack'`).Scan(&count))
+				require.Zero(t, count)
+			} else {
+				require.Equal(t, 202, response.Code, response.Body.String())
+				replay := call(`{"text":"Keep awake work"}`, "awake-add", cookie)
+				require.Equal(t, 202, replay.Code, replay.Body.String())
+				require.Equal(t, response.Body.String(), replay.Body.String())
+			}
+		}
+		if remove == "s2-add" || remove == "s2-confirm" {
+			var ws, seed string
+			require.NoError(t, pool.QueryRow(ctx, `SELECT workspace_id,checks->'seed'->>'captured' FROM mythical_items`).Scan(&ws, &seed))
+			require.Equal(t, workspace.ID, ws)
+			require.Equal(t, captured, seed)
+			require.Equal(t, "fixed awake capture bytes", git("-C", store, "show", seed+":awake.txt"))
+		}
+		if strings.HasPrefix(remove, "s2-missing-") {
+			require.Zero(t, calls.Load())
+		} else if remove == "s2-confirm" {
+			require.EqualValues(t, 2, calls.Load())
+		} else {
+			require.EqualValues(t, 1, calls.Load())
+		}
+		row, err := q.GetWorkspace(ctx, workspace.ID)
+		require.NoError(t, err)
+		require.Equal(t, "running", row.Status)
+		require.Equal(t, "asleep-fixture", row.VmID)
+		return
+	}
 	if remove == "fresh-fork" {
 		request := httptest.NewRequest("POST", "http://127.0.0.1:4000/api/branches", strings.NewReader(`{"from":"main","name":"fresh"}`))
 		request.RemoteAddr = "127.0.0.1:12345"

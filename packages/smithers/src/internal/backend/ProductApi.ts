@@ -639,7 +639,7 @@ export type Branch = {
   state: "awake" | "asleep" | "waking" | "provisioning" | "failed" | "closed"
   head?: string
   forked_from?: {
-    kind: "main" | "item"
+    kind: "main" | "item" | "branch"
     ref: string
     commit: string
     base: string

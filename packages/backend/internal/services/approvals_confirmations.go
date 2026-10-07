@@ -193,6 +193,20 @@ func (s *ApprovalsService) RequestConfirmation(ctx context.Context, input Confir
 	if input.Key == "" || len(input.Key) > 256 || len(input.Payload) > MaxApprovalPayloadBytes {
 		return ConfirmationReceipt{}, invalidConfirmation()
 	}
+	ctx = withBranchCaptureContext(ctx)
+	if input.Command == "branch.add-to-stack" && s.confirmationTodos != nil {
+		_, err := Authorize(ctx, db.New(s.confirmationStore), input.Command)
+		var required *ConfirmationRequired
+		if !errors.As(err, &required) {
+			if err == nil {
+				err = confirmationPermission()
+			}
+			return ConfirmationReceipt{}, err
+		}
+		if err := s.confirmationTodos.prepareConfirmationCapture(ctx, input); err != nil {
+			return ConfirmationReceipt{}, err
+		}
+	}
 	var receipt ConfirmationReceipt
 	err := pgx.BeginFunc(ctx, s.confirmationStore, func(tx pgx.Tx) error {
 		bound, repository, err := lockInstallWriteCredential(ctx, tx, info)
@@ -626,6 +640,23 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 	if key == "" || len(key) > 256 || (decision != "approve" && decision != "deny") {
 		return ConfirmationReceipt{}, invalidConfirmation()
 	}
+	ctx = withBranchCaptureContext(ctx)
+	if decision == "approve" && s.confirmationTodos != nil {
+		var command string
+		var subject []byte
+		err := s.confirmationStore.QueryRow(ctx, `SELECT command,subject FROM approvals WHERE id=$1 AND member_id=$2 AND state='pending'`, id, info.User.ID).Scan(&command, &subject)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return ConfirmationReceipt{}, err
+		}
+		if err == nil && command == "branch.add-to-stack" {
+			if _, err := Authorize(ctx, db.New(s.confirmationStore), command); err != nil {
+				return ConfirmationReceipt{}, err
+			}
+			if err := s.confirmationTodos.prepareConfirmationCapture(ctx, ConfirmationInput{Command: command, Subject: subject}); err != nil {
+				return ConfirmationReceipt{}, err
+			}
+		}
+	}
 	var receipt ConfirmationReceipt
 	var refused error
 	err := pgx.BeginFunc(ctx, s.confirmationStore, func(tx pgx.Tx) error {
@@ -707,7 +738,9 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 		readable := json.Unmarshal(payload, &stored) == nil && len(stored.Input) > 0
 		input := ConfirmationInput{Command: command, Subject: subject, Payload: stored.Input, Key: "confirmation:" + id}
 		var prepared preparedConfirmation
-		if s.confirmationTodos != nil && readable {
+		if command == "branch.add-to-stack" && decision == "deny" {
+			prepared.revision = revision
+		} else if s.confirmationTodos != nil && readable {
 			prepared, err = s.confirmationTodos.prepareConfirmation(bound, tx, repository, input, true, authorized.Role)
 			if confirmationSubjectChanged(err) {
 				return expire()
@@ -903,4 +936,32 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 		return ConfirmationReceipt{}, refused
 	}
 	return receipt, nil
+}
+
+// Capture before credential admission takes the stack fence. The consumer
+// later binds this exact durable revision and reauthorizes under its locks.
+func (s *MythicalService) prepareConfirmationCapture(ctx context.Context, input ConfirmationInput) error {
+	var subject struct {
+		Kind string `json:"kind"`
+		Ref  string `json:"ref"`
+	}
+	if confirmationJSON(input.Subject, &subject) != nil || subject.Kind != "branch" || subject.Ref == "" {
+		return invalidConfirmation()
+	}
+	repository, err := InstallRepositoryID(ctx, s.queries())
+	if err != nil {
+		return err
+	}
+	workspace, err := branchAddWorkspace(ctx, s.queries(), repository, subject.Ref)
+	if err != nil {
+		return confirmationResolved()
+	}
+	capture, ok := s.lanes.(interface {
+		PrepareCapturedHead(context.Context, string, int64, int64) error
+	})
+	if !ok {
+		return nil
+	}
+	preview := context.WithValue(ctx, branchConfirmationSnapshotKey{}, workspace.ID)
+	return capture.PrepareCapturedHead(preview, workspace.ID, repository, middleware.AuthInfoFromContext(ctx).User.ID)
 }

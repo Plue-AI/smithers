@@ -107,12 +107,12 @@ export const TodoPlacementSchema = z.object({
 export const TodoNewInputSchema = TodoPlacementSchema.safeExtend({ text: z.string().trim().min(1) })
 
 /**
- * S1 forks accept main or an item; scratch sources require S2 capture.
+ * Forks accept main, an item or a scratch branch; awake sources are captured.
  * @since 1.0.0
  * @category schemas
  */
 export const BranchForkInputSchema = z.strictObject({
-  from: z.union([z.literal("main"), z.string().regex(/^T[1-9][0-9]*$/)]),
+  from: z.union([z.literal("main"), z.string().regex(/^T[1-9][0-9]*$/), z.string().regex(/^scratch\/[a-z0-9][a-z0-9_.-]*\/[a-z0-9][a-z0-9_.-]*$/)]),
   name: z.string().min(1).optional()
 })
 

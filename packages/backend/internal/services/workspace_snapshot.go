@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"path"
@@ -46,7 +47,7 @@ func (s *WorkspaceService) workspaceSnapshotTarget(ctx context.Context, id strin
 	if err := authorizeWorkspaceReadBinding(ctx, row); err != nil {
 		return row, "", "", "", false, err
 	}
-	if row.Status != "suspended" && row.Status != "stopped" {
+	if row.Status != "suspended" && row.Status != "stopped" && (row.HeadCommitID == "" || capturedForOperation(ctx, row.ID) != row.HeadCommitID) {
 		return row, "", "", "", false, nil
 	}
 	unavailable := func() (db.Workspace, string, string, string, bool, error) {
@@ -221,6 +222,9 @@ func (l *workspaceMythicalLanes) CapturedHead(ctx context.Context, id string, re
 	if err != nil {
 		return "", err
 	}
+	if selected := capturedForOperation(ctx, id); selected != "" && selected != head {
+		return "", branchForkUnavailable("Capture changed")
+	}
 	if !asleep {
 		return "", pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch state changed")
 	}
@@ -234,4 +238,82 @@ func (l *workspaceMythicalLanes) AdmitScratch(ctx context.Context, tx pgx.Tx, re
 		return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch unavailable")
 	}
 	return l.workspaces.authorizeBranchMachine(ctx, tx, repository, actor, row.TargetBookmark, row.ID)
+}
+
+// WithBranchCapture binds the installed daemon. It returns only after the
+// authenticated event consumer commits the capture; callers never stop a VM.
+func WithBranchCapture(capture func(context.Context, string) (string, error)) WorkspaceServiceOption {
+	return func(s *WorkspaceService) { s.branchCapture = capture }
+}
+
+type branchCaptureContextKey struct{}
+type branchCaptureContext map[string]string
+
+func withBranchCaptureContext(ctx context.Context) context.Context {
+	if _, ok := ctx.Value(branchCaptureContextKey{}).(branchCaptureContext); ok {
+		return ctx
+	}
+	return context.WithValue(ctx, branchCaptureContextKey{}, branchCaptureContext{})
+}
+func capturedForOperation(ctx context.Context, id string) string {
+	heads, _ := ctx.Value(branchCaptureContextKey{}).(branchCaptureContext)
+	return heads[id]
+}
+
+// PrepareCapturedHead runs before stack/workspace locks. The daemon waits for
+// publication ACK, whose transaction takes those locks in the event consumer.
+// Subsequent reads in this operation verify this exact retained head again.
+func (l *workspaceMythicalLanes) PrepareCapturedHead(ctx context.Context, id string, repository, actor int64) error {
+	if l == nil || l.workspaces == nil {
+		return branchForkUnavailable("Capture unavailable")
+	}
+	s := l.workspaces
+	row, err := s.loadWorkspaceWithAccess(ctx, id, repository, actor, WorkspaceAccessRead)
+	if err != nil {
+		return err
+	}
+	if err := authorizeWorkspaceReadBinding(ctx, row); err != nil {
+		return err
+	}
+	if row.Status == "stopped" || row.Status == "suspended" {
+		return nil
+	}
+	if capturedForOperation(ctx, id) != "" {
+		return nil
+	}
+	heads, ok := ctx.Value(branchCaptureContextKey{}).(branchCaptureContext)
+	if !ok || s.branchCapture == nil || row.Status != "running" {
+		return branchForkUnavailable("Capture unavailable")
+	}
+	if err := s.requireBranchMachineProviders(); err != nil {
+		return err
+	}
+	tx, err := s.transactions.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	err = s.authorizeBranchMachine(ctx, tx, repository, actor, row.TargetBookmark, id)
+	_ = tx.Rollback(context.WithoutCancel(ctx))
+	if err != nil {
+		return err
+	}
+	head, err := s.branchCapture(ctx, id)
+	if err != nil {
+		return branchForkUnavailable("Capture unavailable")
+	}
+	current, err := s.q.GetWorkspace(ctx, id)
+	if err != nil {
+		return err
+	}
+	if len(current.CapturePending) != 0 {
+		var pending MachineCapturePending
+		if json.Unmarshal(current.CapturePending, &pending) != nil || pending.Stale || pending.Conflict || pending.Head != head || pending.Onto != head {
+			return branchForkUnavailable("Capture changed")
+		}
+	}
+	if !mythicalSHA.MatchString(head) || current.HeadCommitID != head || current.VmID != row.VmID || current.TargetBookmark != row.TargetBookmark {
+		return branchForkUnavailable("Capture changed")
+	}
+	heads[id] = head
+	return nil
 }

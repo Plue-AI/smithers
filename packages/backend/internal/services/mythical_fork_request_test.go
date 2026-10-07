@@ -113,12 +113,16 @@ func TestRetainedWorkspaceForkUsesRevisionWriter(t *testing.T) {
 	require.NoError(t, err)
 	f.git(f.hostDir, "update-ref", "refs/smithers/mythical/keep/"+head, head)
 	require.NoError(t, f.host.ImportRefs(ctx, "", ""))
+	_, err = ws.ForkWorkspace(ctx, ForkWorkspaceInput{RepositoryID: f.repoID, UserID: f.userID, WorkspaceID: itemSource.ID, Name: "awake-refused", Request: "awake-refused"})
+	require.ErrorContains(t, err, "Capture unavailable")
+	_, err = pool.Exec(ctx, `UPDATE workspaces SET status='stopped' WHERE id=$1`, itemSource.ID)
+	require.NoError(t, err)
 	itemFork, err := ws.ForkWorkspace(ctx, ForkWorkspaceInput{RepositoryID: f.repoID, UserID: f.userID, WorkspaceID: itemSource.ID, Name: "item-door", Request: "item-fork"})
 	require.NoError(t, err)
-	require.Equal(t, head, itemFork.SourceCommit, "an awake item uses its verified head, not the advanced main")
+	require.Equal(t, head, itemFork.SourceCommit, "an asleep item uses its verified head, not the advanced main")
 	itemRetained, err := q.GetWorkspace(ctx, itemSource.ID)
 	require.NoError(t, err)
-	require.Equal(t, "running", itemRetained.Status)
+	require.Equal(t, "stopped", itemRetained.Status)
 	// A scratch source cannot reach the legacy disk fork even without a runtime.
 	input.WorkspaceID, input.Request, input.Name = first.ID, "scratch-refusal", "scratch-refusal"
 	_, err = ws.ForkWorkspace(ctx, input)

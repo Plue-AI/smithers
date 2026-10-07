@@ -27,11 +27,10 @@ paths:
       x-composition: install
       summary: Fork a scratch branch
       description: >-
-        The stack service forks main's tip or a TODO's last verified head into
-        scratch/<member>/<name> (spec §8.5): it never stops or reads the source
-        machine, records forked_from on the new workspace, and publishes the
-        branch in the install's repository only, never on GitHub (M-22).
-        Forking a scratch branch waits for stage 2.
+        The stack service forks main, a TODO or a scratch branch into
+        scratch/<member>/<name> (spec §8.5). Awake sources are captured by the
+        unprivileged daemon before selecting the revision, without stopping
+        the machine. The branch stays in the install repository (M-22).
       operationId: post_api_branches
       tags:
         - Branches
@@ -52,7 +51,7 @@ paths:
               required: [from]
               properties:
                 from:
-                  description: main, or a TODO such as T2.
+                  description: main, a TODO such as T2, or scratch/member/name.
                   type: string
                 name:
                   description: The scratch branch's last segment; defaults to fork-<from>.
@@ -410,12 +409,12 @@ components:
           properties:
             kind:
               type: string
-              enum: [main, item]
+              enum: [main, item, branch]
             ref:
-              description: main, or the TODO (T2).
+              description: main, the TODO (T2), or the scratch source branch.
               type: string
             commit:
-              description: The revision the fork started from (main's tip or the TODO's verified head).
+              description: The revision the fork started from, captured first for awake sources.
               type: string
             base:
               description: The revision the TODO's change is measured from in that head; main's tip for a fork of main.

@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"strings"
@@ -121,7 +122,7 @@ func (s *WorkspaceService) ListBranches(ctx context.Context, repositoryID, userI
 	}
 	result := make([]BranchMachineResponse, 0, len(rows))
 	for _, row := range rows {
-		branch, err := s.projectBranch(ctx, q, row, s.toWorkspaceResponse(row))
+		branch, err := s.projectBranch(ctx, tx, q, row, s.toWorkspaceResponse(row))
 		if err != nil {
 			return nil, 0, err
 		}
@@ -165,13 +166,13 @@ func (s *WorkspaceService) GetBranch(ctx context.Context, branch string, reposit
 	if err != nil {
 		return BranchMachineResponse{}, err
 	}
-	return s.projectBranch(ctx, q, row, projected)
+	return s.projectBranch(ctx, tx, q, row, projected)
 }
 
 // projectBranch answers row as a branch: a scratch branch's head is its
 // branch ref, which a person's push moves; any other branch's is its
 // machine's reported head.
-func (s *WorkspaceService) projectBranch(ctx context.Context, q *db.Queries, row db.Workspace, machine WorkspaceResponse) (BranchMachineResponse, error) {
+func (s *WorkspaceService) projectBranch(ctx context.Context, tx pgx.Tx, q *db.Queries, row db.Workspace, machine WorkspaceResponse) (BranchMachineResponse, error) {
 	branch := BranchMachineResponse{Name: row.TargetBookmark, Kind: branchKind(row.TargetBookmark), State: branchMachineState(row),
 		Head: row.HeadCommitID, Machine: machine}
 	if branch.Kind == "item" {
@@ -200,6 +201,20 @@ func (s *WorkspaceService) projectBranch(ctx context.Context, q *db.Queries, row
 				return BranchMachineResponse{}, err
 			}
 			from.Kind, from.Item, from.Ref = "item", item.Number.Int64, "T"+strconv.FormatInt(item.Number.Int64, 10)
+		}
+		var raw []byte
+		err := tx.QueryRow(ctx, `SELECT data->'forked_from' FROM product_job_events WHERE tenant_id=$1 AND principal_id=$2 AND operation_id=$3 AND event_type='branch.forked'`, strconv.FormatInt(row.RepositoryID, 10), "branch:"+row.ID, row.ID).Scan(&raw)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return BranchMachineResponse{}, err
+		}
+		var recorded BranchForkedFrom
+		if err == nil {
+			if err := json.Unmarshal(raw, &recorded); err != nil {
+				return BranchMachineResponse{}, err
+			}
+			if strings.HasPrefix(recorded.Ref, scratchBranchPrefix) {
+				from.Kind, from.Ref = "branch", recorded.Ref
+			}
 		}
 		branch.ForkedFrom = from
 	}

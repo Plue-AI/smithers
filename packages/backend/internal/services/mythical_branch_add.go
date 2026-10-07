@@ -59,7 +59,23 @@ func (s *MythicalService) AddBranchToStack(ctx context.Context, repository, acto
 		Branch string         `json:"branch"`
 		Input  BranchAddInput `json:"input"`
 	}{branch, input})
+	ctx = withBranchCaptureContext(ctx)
 	info := middleware.AuthInfoFromContext(ctx)
+	if _, err := s.queries().GetMythicalRequest(ctx, repository, info.SessionHash, input.Request); errors.Is(err, pgx.ErrNoRows) {
+		if capture, ok := s.lanes.(interface {
+			PrepareCapturedHead(context.Context, string, int64, int64) error
+		}); ok {
+			workspace, err := branchAddWorkspace(ctx, s.queries(), repository, branch)
+			if err != nil {
+				return MythicalItemView{}, err
+			}
+			if err := capture.PrepareCapturedHead(ctx, workspace.ID, repository, actor); err != nil {
+				return MythicalItemView{}, err
+			}
+		}
+	} else if err != nil {
+		return MythicalItemView{}, err
+	}
 	var result MythicalItemView
 	err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
 		q := db.New(tx)
