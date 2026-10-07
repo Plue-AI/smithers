@@ -51,9 +51,8 @@ test("C-MCH-03: Captured sleeping files remain readable and only a terminal wake
     writes.push(route.request().postDataJSON())
     awake = true
     for (const send of publish) send()
-    return route.fulfill({ status: 202, json: { id: "terminal-sleep", workspace_id: id } })
+    return route.fulfill({ status: 202, json: { id: "terminal-sleep", workspace_id: id, status: "pending" } })
   })
-  await page.route("**/workspace/sessions/terminal-sleep", route => route.fulfill({ json: { status: "starting" } }))
   await page.goto("/")
   await say(page, `/branch ${branch}`)
   const card = page.getByTestId(`card-branch:${id}`)
