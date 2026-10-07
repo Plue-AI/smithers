@@ -44,6 +44,13 @@ export const HomeItemSchema = TodoCardSchema.pick({
  */
 export type HomeItem = z.infer<typeof HomeItemSchema>
 
+const attentionFields = {
+  text: z.string(),
+  todo: z.number().int().positive().optional(),
+  id: z.string().optional(),
+  actions: z.array(ActionSchema)
+}
+
 /**
  * Home projection fields from spec §14.3 and ui-components.md T-UI-06.
  * @since 1.0.0
@@ -60,14 +67,10 @@ export const HomeCardSchema = z.object({
     retry_at: z.string().optional()
   }),
   attention: z.array(
-    z.object({
-      kind: z.enum(["order", "force_push"]),
-      text: z.string(),
-      todo: z.number().int().positive().optional(),
-      id: z.string().optional(),
-      revision: z.number().int().positive().optional(),
-      actions: z.array(ActionSchema)
-    })
+    z.discriminatedUnion("kind", [
+      z.object({ ...attentionFields, kind: z.literal("order"), revision: z.number().int().positive().optional() }),
+      z.object({ ...attentionFields, kind: z.literal("force_push"), revision: z.string().min(1).optional() })
+    ])
   ),
   items: z.array(HomeItemSchema),
   counts: z.record(TodoStateSchema, z.number().int().nonnegative()),

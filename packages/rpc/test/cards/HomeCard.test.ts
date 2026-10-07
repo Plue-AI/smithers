@@ -156,3 +156,15 @@ describe("Home daily limit (spec §4.1.1, §10.4.1b)", () => {
     expect(HomeCardSchema.safeParse({ ...base, items: [row] }).success).toBe(false)
   })
 })
+
+
+test("order and force-push attention retain their own revision codecs", () => {
+  const rows = [
+    { kind: "order", id: "order-1", revision: 2, text: "Order changed", actions: [{ tag: "order.ok", label: "OK" }] },
+    { kind: "force_push", id: "force-1", revision: "1111111111111111111111111111111111111111", text: "Main moved", actions: [{ tag: "main.reset-to-github", label: "Reset to GitHub main" }] }
+  ]
+  const home = HomeCardSchema.parse({ ...fixtures.fresh.model, attention: rows })
+  expect(home.attention).toEqual(rows)
+  expect(HomeCardSchema.safeParse({ ...fixtures.fresh.model, attention: [{ ...rows[0], revision: "1111111111111111111111111111111111111111" }] }).success).toBe(false)
+  expect(HomeCardSchema.safeParse({ ...fixtures.fresh.model, attention: [{ ...rows[1], revision: 2 }] }).success).toBe(false)
+})
