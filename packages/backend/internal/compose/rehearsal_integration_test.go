@@ -308,7 +308,8 @@ path = "lib.rs"
 	processRuntime, err := process.New(process.Config{Root: processRoot})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, processRuntime.Close()) })
-	var workspace workspaceapi.WorkspaceRuntime = processRuntime
+	admittedRuntime := &rehearsalAdmissionRuntime{Runtime: processRuntime, aliases: map[string]string{}}
+	var workspace workspaceapi.WorkspaceRuntime = admittedRuntime
 	launcher, err := modelhost.NewLocalLauncher(modelhost.LocalConfig{Runtime: workspace, NodeBinary: node, BundlePath: bundle})
 	require.NoError(t, err)
 	resolver, err := modelhost.NewOwnerSecretResolver(func() string { return databaseURL }, func() string { return "rehearsal-encryption-key" })
@@ -333,7 +334,7 @@ path = "lib.rs"
 		// base and publishes the lane's result as a guest's does; any other
 		// stays local-only, and the TODO stops at its base import.
 		if capabilities, err := exec.Command(helper, "--capabilities").Output(); err == nil && bytes.Contains(capabilities, []byte(`"trusted-process-binding/v1"`)) {
-			workspace = bindingProcessRuntime{processRuntime, r.evidence}
+			workspace = bindingProcessRuntime{admittedRuntime, r.evidence}
 		} else {
 			fmt.Println("rehearsal: smithers-jj-export lacks trusted-process-binding (cargo build --release -p smithers-ffi --bin smithers-jj-export --features trusted-process-binding); the TODO cannot import its base")
 		}
@@ -1604,6 +1605,53 @@ func rehearsalBranchMachines(pool *pgxpool.Pool) *services.BranchMachineProvider
 	return &providers
 }
 
+// The assisted journey supervises trusted processes, not production VMs.
+// Its test-only admission adapter supplies the ordered TODO contract without
+// claiming capacity or isolation evidence. Production uses microsandbox's queue.
+type rehearsalAdmissionRuntime struct {
+	*process.Runtime
+	admissionMu sync.Mutex
+	eligible    map[string]bool
+	aliases     map[string]string
+}
+
+func (r *rehearsalAdmissionRuntime) SyncTodoAdmission(scope string, holders []string, limit int) error {
+	r.admissionMu.Lock()
+	defer r.admissionMu.Unlock()
+	if scope == "" {
+		return errors.New("TODO admission scope unavailable")
+	}
+	r.eligible = map[string]bool{}
+	for i, holder := range holders {
+		if target := r.aliases[holder]; target != "" {
+			holder = target
+		}
+		r.eligible[holder] = i < limit
+	}
+	return nil
+}
+
+func (r *rehearsalAdmissionRuntime) TodoAdmissionEligible(holder string) bool {
+	r.admissionMu.Lock()
+	defer r.admissionMu.Unlock()
+	if target := r.aliases[holder]; target != "" {
+		holder = target
+	}
+	return r.eligible[holder]
+}
+
+func (r *rehearsalAdmissionRuntime) TransferTodoAdmission(from, to string) error {
+	r.admissionMu.Lock()
+	defer r.admissionMu.Unlock()
+	if !r.eligible[from] || to == "" || r.aliases[from] != "" {
+		return errors.New("TODO admission handoff unavailable")
+	}
+	r.eligible[to] = true
+	delete(r.eligible, from)
+	r.aliases[from] = to
+	return nil
+}
+
 // bindingProcessRuntime is the trusted-process runtime with the source binding
 // a guest gets (installRuntimeBoxCodingBinding): the binding is written as this
 // user in the checkout's .jj directory, and each coding host the
@@ -1612,7 +1660,7 @@ func rehearsalBranchMachines(pool *pgxpool.Pool) *services.BranchMachineProvider
 // credential is the head publisher's Git cache, as in a guest.
 // A host that exits before it is ready leaves both output streams in the evidence.
 type bindingProcessRuntime struct {
-	*process.Runtime
+	*rehearsalAdmissionRuntime
 	evidence string
 }
 
