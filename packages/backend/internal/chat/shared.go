@@ -119,7 +119,7 @@ func (s *Store) SharedEntries(ctx context.Context, scope Scope, branch string) (
 		}
 		// Reserve a range for this immutable publication and its capped journal.
 		// A turn cannot contain a million frames within the journal's 8 MiB limit.
-		if !externalTurn(turn) && entry.Sequence > 0 && entry.Sequence <= maxSafeInteger/1_000_000 {
+		if entry.Sequence > 0 && entry.Sequence <= maxSafeInteger/1_000_000 {
 			base := entry.Sequence * 1_000_000
 			entry.EntrySequences = map[string]int64{turn.ID + ":prompt": base, turn.ID + ":answer": base + 1}
 		}

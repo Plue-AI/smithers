@@ -455,3 +455,24 @@ func TestBranchConversationSummaryThroughSealedHost(t *testing.T) {
 	}
 	require.True(t, summaryCall)
 }
+
+func TestBranchConversationIndependentToastPreferences(t *testing.T) {
+	f := workingConversation(t)
+	f.call(t, "ben", "PUT", "/api/conversations/main/view-state", `{"toasts_hidden":true,"global_toasts_hidden":false}`, 200)
+	var view map[string]any
+	require.NoError(t, json.Unmarshal(f.call(t, "ben", "GET", "/api/conversations/main/view-state", "", 200), &view))
+	require.Equal(t, true, view["toasts_hidden"])
+	require.Equal(t, false, view["global_toasts_hidden"])
+	require.NoError(t, json.Unmarshal(f.call(t, "alice", "GET", "/api/conversations/main/view-state", "", 200), &view))
+	// Decode into a fresh map: another member has no branch-specific preference.
+	var alice map[string]any
+	require.NoError(t, json.Unmarshal(f.call(t, "alice", "GET", "/api/conversations/main/view-state", "", 200), &alice))
+	require.NotContains(t, alice, "toasts_hidden")
+	require.Equal(t, false, alice["global_toasts_hidden"])
+	f.call(t, "ben", "PUT", "/api/conversations/main/view-state", `{"toasts_hidden":false,"global_toasts_hidden":true}`, 200)
+	var ben map[string]any
+	require.NoError(t, json.Unmarshal(f.call(t, "ben", "GET", "/api/conversations/main/view-state", "", 200), &ben))
+	require.Equal(t, false, ben["toasts_hidden"])
+	require.Equal(t, true, ben["global_toasts_hidden"])
+	f.call(t, "alice", "PUT", "/api/conversations/main/view-state", `{"toasts_hidden":"true"}`, 400)
+}
