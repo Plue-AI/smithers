@@ -125,11 +125,16 @@ func TestTodoInterruptedComposedInstall(t *testing.T) {
 	require.Equal(t, 200, status, card)
 	require.Equal(t, "working", card["state"])
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&afterEvents))
-	require.Equal(t, beforeEvents+1, afterEvents)
+	require.Greater(t, afterEvents, beforeEvents)
+	var attachmentFacts int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.run_updated'`).Scan(&attachmentFacts))
+	require.Equal(t, 1, attachmentFacts)
+	attachedEvents := afterEvents
+
 	// Replayed attachment produces no second lifecycle fact.
 	require.NoError(t, service.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{State: jobs.StateWaiting, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: projection, RunID: "run-1"}}))
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&afterEvents))
-	require.Equal(t, beforeEvents+1, afterEvents)
+	require.Equal(t, attachedEvents, afterEvents)
 	require.NoError(t, service.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{State: jobs.StateUncertain, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: projection, RunID: "run-1"}}))
 	status, card = call("GET", "", "")
 	require.Equal(t, 200, status, card)
@@ -360,7 +365,7 @@ func TestTodoInterruptedComposedInstall(t *testing.T) {
 	t.Run("Attempt evidence keeps each run identity after Retry", func(t *testing.T) {
 		source, digest := strings.Repeat("b", 40), strings.Repeat("c", 64)
 		_, err := pool.Exec(ctx, `UPDATE mythical_items SET state='running',attempt=1,request_run_id='history-run-1',request_outcome='',
-		 pr_state='',pr_number=NULL,pending_op=NULL,paused_at=NULL,flow_digest=$2,
+		 pr_state='',pr_number=NULL,pending_op=NULL,paused_at=NULL,candidate_head='',candidate_base='',flow_digest=$2,
 		 checks=jsonb_build_object('todo',true,'run_launched',true,'run_attached',false,'flowSource',$3::text) WHERE id=$1`, item.ID, digest, source)
 		require.NoError(t, err)
 		stored, err := q.GetMythicalItem(ctx, item.ID)
@@ -419,7 +424,7 @@ func TestTodoInterruptedComposedInstall(t *testing.T) {
 	})
 	t.Run("Attachment retries a concurrent wait version without losing it", func(t *testing.T) {
 		_, err := pool.Exec(ctx, `UPDATE mythical_items SET state='running',attempt=2,request_run_id='race-run',request_outcome='',
-		 flow_digest=NULL,paused_at=NULL,pending_op=NULL,checks='{"todo":true,"run_launched":true,"run_attached":false}' WHERE id=$1`, item.ID)
+		 flow_digest=NULL,paused_at=NULL,pending_op=NULL,candidate_head='',candidate_base='',checks='{"todo":true,"run_launched":true,"run_attached":false}' WHERE id=$1`, item.ID)
 		require.NoError(t, err)
 		before, err := q.GetMythicalItem(ctx, item.ID)
 		require.NoError(t, err)

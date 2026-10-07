@@ -43,6 +43,12 @@ func todoState(item db.MythicalItem) string {
 	if len(todoOpenWaits(item)) > 0 {
 		return "needs_you"
 	}
+	if checks.Pause != nil && checks.Pause.Resuming {
+		if checks.Pause.Delivered {
+			return "starting"
+		}
+		return "queued"
+	}
 	if item.PausedAt.Valid {
 		return "paused"
 	}

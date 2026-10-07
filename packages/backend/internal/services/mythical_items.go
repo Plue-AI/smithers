@@ -576,6 +576,9 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 	if json.Unmarshal(update.Checkpoint.Projection, &kind) == nil && kind.Kind == "mythical-steer" {
 		return s.projectTodoSteerReceipt(ctx, update)
 	}
+	if kind.Kind == "mythical-pause" {
+		return s.projectTodoPauseReceipt(ctx, update)
+	}
 	var projection mythicalProjection
 	if json.Unmarshal(update.Checkpoint.Projection, &projection) != nil {
 		return nil
@@ -691,6 +694,7 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			if !pinMismatch {
 				projectTodoPlan(&next, projection, update)
 				mythicalProjectWaits(&next, projection, update, runID, s.now().UTC())
+				projectTodoPause(&next, projection, update, s.now().UTC())
 				projectTodoWatchdog(&next, update, s.now().UTC())
 				projectTodoThrash(&next, update)
 			}
@@ -4851,6 +4855,8 @@ func mythicalRetried(ctx context.Context, item db.MythicalItem) (db.MythicalItem
 	next := retainTodoAttemptEvidence(item)
 	next.State, next.Reason, next.NextAttemptAt = "queued", "", pgtype.Timestamptz{}
 	retried := mythicalChecksOf(next)
+	retried.Pause = nil
+	next.PausedAt = pgtype.Timestamptz{}
 	retried.Replans, retried.AttemptBase = 0, item.Attempt
 	if person {
 		// A person's retry lifts every bound: they count again from now.
@@ -5311,6 +5317,7 @@ func appliedByMaintainer(applied gitHubLabelApplication, label string) bool {
 // made its issue a TODO and asked for automerge, and the review of its pull
 // request's head.
 type mythicalChecks struct {
+	Pause                 *todoPause                         `json:"pause,omitempty"`
 	Capture               *MachineCapturePending             `json:"capture,omitempty"`
 	MergedVia             *mythicalMergedVia                 `json:"merged_via,omitempty"`
 	Seed                  *branchSeed                        `json:"seed,omitempty"`

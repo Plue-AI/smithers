@@ -209,7 +209,7 @@ func todoSteerReady(item db.MythicalItem) bool {
 		return false
 	}
 	checks := mythicalChecksOf(item)
-	if !checks.RunLaunched || !checks.RunAttached {
+	if !checks.RunLaunched || !checks.RunAttached || checks.Pause != nil && checks.Pause.Requested {
 		return false
 	}
 	switch item.State {

@@ -32,7 +32,7 @@ import { ReceiveFeedback } from "../coding/steering.ts"
 import { TodoDelivery, todoLayers } from "../coding/todo.ts"
 import { InstallDependencyPages } from "../coding/wiki-refresh.ts"
 import { Implement, policyLayers, RunCheck } from "../coding/workflow.ts"
-import { TodoBoundary, TodoPauseRequested } from "../coding/todo-pause.ts"
+import { TodoBoundary, TodoPauseRequested, todoResumeLayer } from "../coding/todo-pause.ts"
 import Todo from "../todo/flow.ts"
 
 const base = {
@@ -231,6 +231,7 @@ for (const scenario of cases) {
     const layers = Layer.mergeAll(
       Interpreter.layer(Todo),
       Interpreter.layer(TodoBoundary),
+      todoResumeLayer,
       WaitFor.layer,
       TodoPauseRequested.toLayer(() => Effect.succeed({ requested: false, pause: "", resume: "" })),
       requestRegistration,

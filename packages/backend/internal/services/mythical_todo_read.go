@@ -181,6 +181,16 @@ func (s *MythicalService) todoCardAtQueuePosition(ctx context.Context, item db.M
 		"owner":            map[string]any{"login": owner.Username, "name": owner.DisplayName, "avatar_url": todoAvatar(owner)},
 		"prompt_revisions": revisions, "steps": todoSteps(item), "waits": waits, "steers": todoSteers(item), "evidence": []any{},
 		"present": []any{}}
+	if pause := mythicalChecksOf(item).Pause; pause != nil && pause.Failure != "" {
+		card["control_failure"] = map[string]any{"op": pause.FailureOp, "message": pause.Failure}
+	}
+	if pause := mythicalChecksOf(item).Pause; pause != nil && pause.Requested {
+		if pause.At != nil {
+			card["pause"] = map[string]any{"reason": "person", "since": pause.At.UTC().Format(time.RFC3339Nano)}
+		} else {
+			card["stop"] = "requested"
+		}
+	}
 	if item.OwnerID.Valid {
 		role, roleErr := InstallRoleOf(ctx, s.queries(), item.OwnerID.Int64)
 		if roleErr != nil {

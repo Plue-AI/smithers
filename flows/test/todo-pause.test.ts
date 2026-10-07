@@ -1,4 +1,5 @@
 import { deliverSignal } from "@smthrs/agent/AgentSession"
+import { ControlRuntime } from "@smthrs/control/ControlRuntime"
 import { Control } from "@smthrs/control/Control"
 import * as ControlExecutor from "@smthrs/control/ControlExecutor"
 import * as ControlLive from "@smthrs/control/ControlLive"
@@ -21,7 +22,7 @@ import * as CacheStore from "../../packages/smithers/flows/step-cache/src/CacheS
 import { Effect, Layer, Option } from "effect"
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { TodoBoundary, TodoPauseRequested } from "../coding/todo-pause.ts"
+import { TodoBoundary, TodoPauseRequested, todoResumeLayer } from "../coding/todo-pause.ts"
 
 const database = Layer.mergeAll(SqlJournal.layer({ capacity: 1024, overflow: "reject" }),
   RunStore.layer, AttemptStore.layer, CacheStore.layer, DurableEngineState.layer).pipe(
@@ -41,7 +42,7 @@ const jj = Jj.make({
 
 for (const generation of [null, 1, 2]) test(`TODO boundary journals pause cycle ${generation}`, async () => {
   let observations = 0
-  const engine = Layer.mergeAll(Interpreter.layer(TodoBoundary), WaitFor.layer,
+  const engine = Layer.mergeAll(Interpreter.layer(TodoBoundary), WaitFor.layer, todoResumeLayer,
     TodoPauseRequested.toLayer(() => Effect.sync(() => { observations++; return { requested: generation !== null, pause: `pause#${generation}`, resume: `resume#${generation}` } }))).pipe(
     Layer.provideMerge(Action.layerImplementations),
     Layer.provideMerge(EngineStore.layer({ owner: { hostId: "todo-pause-test" }, journalSource: "todo-pause-test",
@@ -66,6 +67,13 @@ for (const generation of [null, 1, 2]) test(`TODO boundary journals pause cycle 
         // An engine re-drive cannot release the park or repeat the observation.
         yield* TodoBoundary.resume(run)
         assert.equal(observations, 1)
+        if (name.startsWith("resume")) {
+          const summary = yield* (yield* ControlRuntime).getRun(run)
+          assert.equal(summary.status, "waiting-approval")
+          assert.equal(summary.pendingWaits?.[0]?.reason, "approval")
+          assert.equal(summary.pendingWaits?.[0]?.name, "resume")
+          assert.equal(summary.pendingWaits?.[0]?.attempt, generation)
+        }
         const control = yield* Control
         const receipt: { readonly _tag: string } = yield* control.signal({ runId: run, signal: { name, payload: generation }, idempotencyKey: `${run}/${name}` })
         assert.equal(receipt._tag, "Accepted")
