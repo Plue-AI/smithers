@@ -283,6 +283,10 @@ func TestDelegatedCredentialComposedInstallPostgres(t *testing.T) {
 	var movedPlace int64
 	require.NoError(t, pool.QueryRow(ctx, `SELECT stack_position FROM mythical_items WHERE id=$1`, neighbor.ID).Scan(&movedPlace))
 	require.EqualValues(t, 1, movedPlace)
+	var movedActor []byte
+	require.NoError(t, pool.QueryRow(ctx, `SELECT data->'actor' FROM product_job_events WHERE event_type='todo.moved' ORDER BY recorded_at DESC LIMIT 1`).Scan(&movedActor))
+	require.Contains(t, string(movedActor), `"agent": "claude-code"`)
+	require.Contains(t, string(movedActor), `"login": "owner"`)
 	// Same credential/key/payload replays the move without swapping again.
 	status, body = call("POST", "/api/todos/2", `{"op":"move","direction":"up"}`, raw)
 	require.Equal(t, 202, status, body)
