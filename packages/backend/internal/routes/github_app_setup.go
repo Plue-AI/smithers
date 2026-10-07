@@ -494,47 +494,41 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		writeInstallAPIError(w, pkgerrors.Forbidden("setup origin and CSRF token required"))
 		return
 	}
-	var rawInput struct {
-		Capacity json.RawMessage `json:"capacity"`
-		ChatGPT  json.RawMessage `json:"chatgpt"`
-	}
-	if !decodeStrictJSONBody(w, r, &rawInput) {
-		return
-	}
 	var input struct {
 		Obsidian *struct {
 			Path string `json:"path"`
 		} `json:"wiki_sync.obsidian"`
-		ChatGPT               *bool           `json:"chatgpt"`
-		Capacity              *int            `json:"capacity"`
+		ChatGPT               json.RawMessage `json:"chatgpt"`
+		Capacity              json.RawMessage `json:"capacity"`
 		Parallel              *int            `json:"parallel"`
 		TodoDailyAdmissions   *int64          `json:"todo_daily_admissions"`
 		Bind                  json.RawMessage `json:"bind"`
 		Origins               json.RawMessage `json:"origins"`
 		TodoPreapproveDefault *bool           `json:"todo_preapprove_default"`
 	}
-	if len(rawInput.Capacity) > 0 {
-		if json.Unmarshal(rawInput.Capacity, &input.Capacity) != nil || input.Capacity == nil {
+	if !decodeStrictJSONBody(w, r, &input) {
+		return
+	}
+	var capacity *int
+	var chatgpt *bool
+	if len(input.Capacity) > 0 {
+		if json.Unmarshal(input.Capacity, &capacity) != nil || capacity == nil {
 			writeInstallAPIError(w, pkgerrors.BadRequest("capacity must be an integer"))
 			return
 		}
 	}
-	if len(rawInput.ChatGPT) > 0 {
-		if json.Unmarshal(rawInput.ChatGPT, &input.ChatGPT) != nil || input.ChatGPT == nil {
+	if len(input.ChatGPT) > 0 {
+		if json.Unmarshal(input.ChatGPT, &chatgpt) != nil || chatgpt == nil {
 			writeInstallAPIError(w, pkgerrors.BadRequest("chatgpt must be a boolean"))
 			return
 		}
-	}
-	if input.Capacity == nil && input.ChatGPT == nil {
-		writeInstallAPIError(w, pkgerrors.BadRequest("install setting required"))
-		return
 	}
 	if input.TodoPreapproveDefault != nil {
 		if err := services.MergeCredential(r.Context(), r.Header.Get("Smithers-Via")); err != nil {
 			todoRouteError(w, err)
 			return
 		}
-		if input.Obsidian != nil || input.Parallel != nil || input.TodoDailyAdmissions != nil || input.Capacity != nil || input.ChatGPT != nil || len(input.Bind) != 0 || len(input.Origins) != 0 {
+		if input.Obsidian != nil || input.Parallel != nil || input.TodoDailyAdmissions != nil || capacity != nil || chatgpt != nil || len(input.Bind) != 0 || len(input.Origins) != 0 {
 			writeInstallAPIError(w, pkgerrors.BadRequest("Change one setting at a time"))
 			return
 		}
@@ -550,7 +544,7 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if input.Obsidian != nil {
-		if len(input.Bind) != 0 || len(input.Origins) != 0 || input.Capacity != nil || input.ChatGPT != nil || input.Parallel != nil || input.TodoDailyAdmissions != nil {
+		if len(input.Bind) != 0 || len(input.Origins) != 0 || capacity != nil || chatgpt != nil || input.Parallel != nil || input.TodoDailyAdmissions != nil {
 			writeInstallAPIError(w, pkgerrors.BadRequest("Obsidian must be set separately"))
 			return
 		}
@@ -566,7 +560,7 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if len(input.Bind) != 0 || len(input.Origins) != 0 {
-		if input.Capacity != nil || input.Parallel != nil || input.ChatGPT != nil || input.TodoDailyAdmissions != nil {
+		if capacity != nil || input.Parallel != nil || chatgpt != nil || input.TodoDailyAdmissions != nil {
 			writeInstallAPIError(w, pkgerrors.BadRequest("other settings and address must be set separately"))
 			return
 		}
@@ -604,11 +598,11 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		h.Status(w, r)
 		return
 	}
-	if input.Capacity == nil && input.Parallel == nil && input.ChatGPT == nil && input.TodoDailyAdmissions == nil {
+	if capacity == nil && input.Parallel == nil && chatgpt == nil && input.TodoDailyAdmissions == nil {
 		writeInstallAPIError(w, pkgerrors.BadRequest("install setting required"))
 		return
 	}
-	if h.Setup == nil || ((input.Capacity != nil || input.Parallel != nil) && h.Setup.Capacity == nil) {
+	if h.Setup == nil || ((capacity != nil || input.Parallel != nil) && h.Setup.Capacity == nil) {
 		writeInstallAPIError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "install capacity unavailable"))
 		return
 	}
@@ -628,8 +622,8 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 			return
 		}
 	}
-	if input.Capacity != nil {
-		if err = h.Setup.Capacity.Set(r.Context(), info.User.ID, *input.Capacity); err != nil {
+	if capacity != nil {
+		if err = h.Setup.Capacity.Set(r.Context(), info.User.ID, *capacity); err != nil {
 			var capacity *microsandbox.CapacityError
 			if errors.As(err, &capacity) {
 				pkgerrors.WriteJSON(w, http.StatusUnprocessableEntity, capacity)
@@ -639,8 +633,8 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 			return
 		}
 	}
-	if input.ChatGPT != nil {
-		raw, _ := json.Marshal(*input.ChatGPT)
+	if chatgpt != nil {
+		raw, _ := json.Marshal(*chatgpt)
 		if err = db.New(h.Setup.Pool).UpsertInstallSetting(r.Context(), db.UpsertInstallSettingParams{Key: "models.chatgpt", Value: raw}); err != nil {
 			writeInstallAPIError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "install setting unavailable"))
 			return
