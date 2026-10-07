@@ -351,14 +351,24 @@ func TestExternalImportCommitReplay(t *testing.T) {
 			event.Seq++
 			event.EventID[0]++
 			beforeHistory := call("GET", "/api/conversations/"+branch.ID, "", benCookie, 200)
-			_, err = ingestor.Commit(ctx, connection, branch.ID, event)
-			require.ErrorIs(t, err, chat.ErrCursorConflict)
+			// Drive the refusal through authenticated daemon transport, not a
+			// direct store call. A failed transaction must not acknowledge it.
+			retiredLink, retiredPeer := externalTranscriptLink(t, registry, branch.ID, authority)
+			done := make(chan error, 1)
+			go func() { done <- ingestor.Dispatch(ctx, retiredLink, branch.ID) }()
+			require.NoError(t, retiredPeer.SetDeadline(time.Now().Add(3*time.Second)))
+			require.NoError(t, wire.Write(retiredPeer, transcriptEventFrame(event)))
+			_, err = wire.Read(retiredPeer)
+			require.Error(t, err, "retired source received an acknowledgment")
+			require.ErrorIs(t, <-done, chat.ErrCursorConflict)
 			require.Equal(t, 3, adapter.calls)
 			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts WHERE transcript_checkpoint IS NOT NULL`).Scan(&receipts))
 			require.Equal(t, 4, receipts)
 			require.JSONEq(t, beforeHistory, call("GET", "/api/conversations/"+branch.ID, "", aliceCookie, 200))
 		})
 	}
+	link, peer = externalTranscriptLink(t, registry, branch.ID, authority)
+	connection = link.Connection
 	// Lost acknowledgments of already committed old records remain replayable.
 	record.Generation, record.Start, record.End = 1, 0, 16
 	payload, err = wire.EncodeTranscript(record)
