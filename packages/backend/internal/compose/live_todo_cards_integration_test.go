@@ -16,6 +16,8 @@ import (
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
@@ -232,7 +234,7 @@ func TestLiveTodoCommittedCardsRollbackAndReplay(t *testing.T) {
 		}
 	}
 	require.NoError(t, json.Unmarshal(homeDelta.Data, &firstHome))
-	require.Equal(t, 1, firstHome.Data.Home.Counts["dropped"])
+	require.Zero(t, firstHome.Data.Home.Counts["dropped"], "finished TODOs are absent from Home counts")
 	require.Equal(t, 1, firstHome.Data.Home.Counts["queued"])
 	require.Len(t, firstHome.Data.Home.Items, 1)
 	require.EqualValues(t, 2, firstHome.Data.Home.Items[0].N)
@@ -286,7 +288,7 @@ func TestLiveTodoCommittedCardsRollbackAndReplay(t *testing.T) {
 	retainedHome := read(homeReplay)
 	require.Equal(t, "snap", retainedHome.T)
 	require.EqualValues(t, 2, *retainedHome.Cursor)
-	require.Contains(t, string(retainedHome.Data), `"dropped":2`)
+	require.Contains(t, string(retainedHome.Data), `"dropped":0`)
 	retained := read(replay)
 	require.Equal(t, "snap", retained.T)
 	require.EqualValues(t, 1, *retained.Cursor)
@@ -303,4 +305,88 @@ func TestLiveTodoCommittedCardsRollbackAndReplay(t *testing.T) {
 	unchanged, err := store.Head(ctx, jobs.RepositoryTodosScope(strconv.FormatInt(repo.ID, 10)))
 	require.NoError(t, err)
 	require.EqualValues(t, 2, unchanged)
+	// Seed only the admitted attempt. Every subsequent state is written by
+	// the production runtime projector, never by the socket fixture or SQL.
+	third, err := q.InsertMythicalTodo(ctx, repo.ID, owner.ID, "Runtime transitions", "Use the committed runtime",
+		json.RawMessage(`[{"rev":1,"text":"Use the committed runtime"}]`),
+		json.RawMessage(`{"todo":true,"run_launched":true,"flowSource":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}`))
+	require.NoError(t, err)
+	third.State = "running"
+	third.Attempt = 1
+	third.FlowDigest = pgtype.Text{String: strings.Repeat("a", 64), Valid: true}
+	third, err = q.SaveMythicalItem(ctx, third)
+	require.NoError(t, err)
+	thirdSocket := dial()
+	require.NoError(t, thirdSocket.Write(ctx, websocket.MessageText, []byte(fmt.Sprintf(`{"t":"sub","id":1,"topic":"todo:%d"}`, third.Number.Int64))))
+	admitted := read(thirdSocket)
+	require.Equal(t, "snap", admitted.T)
+	require.Contains(t, string(admitted.Data), `"state":"starting"`)
+	require.EqualValues(t, 0, *admitted.Cursor)
+	// A fresh Home reader includes the seeded attempt before observing deltas.
+	transitionHome := dial()
+	require.NoError(t, transitionHome.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"home"}`)))
+	require.Equal(t, "snap", read(transitionHome).T)
+	projection, err := json.Marshal(map[string]any{"kind": "mythical-item", "itemId": uuid.UUID(third.ID.Bytes).String(),
+		"generation": third.Generation, "attempt": 1, "phase": "todo", "flowDigest": strings.Repeat("a", 64), "flowSource": strings.Repeat("b", 40)})
+	require.NoError(t, err)
+	var recorded, recordedHome []live.Frame
+	for index, expected := range []string{"working", "needs_you", "working"} {
+		var waits []flowruntime.PendingWait
+		if index == 1 {
+			waits = []flowruntime.PendingWait{{RunID: "planning-run", FlowID: "coding/PreparePlan", Reason: "approval", Token: "literal-question",
+				Name: "clarification", CreatedAt: 1, Request: json.RawMessage(`{"task":"human","name":"clarification","kind":"ask","prompt":"Use backoff?","attempt":1,"maxAttempts":3}`)}}
+		}
+		update := flowdispatch.ProjectionUpdate{State: jobs.StateWaiting, Checkpoint: flowdispatch.RuntimeCheckpoint{
+			Projection: projection, FlowID: "todo", ExecutionDigest: strings.Repeat("a", 64), RunID: "live-transition-run",
+			Run: &flowruntime.Run{RunID: "live-transition-run", FlowID: "todo", Status: "running", PendingWaits: waits}}}
+		require.NoError(t, service.ProjectFlowRuntime(ctx, update))
+		frame := read(thirdSocket)
+		require.Equal(t, "delta", frame.T)
+		require.EqualValues(t, index+1, *frame.Cursor)
+		var fact struct {
+			State string
+			Data  struct {
+				Card struct{ State string }
+				Home struct{ Counts map[string]int }
+			}
+		}
+		require.NoError(t, json.Unmarshal(frame.Data, &fact))
+		require.Equal(t, expected, fact.State)
+		require.Equal(t, expected, fact.Data.Card.State)
+		var committedState string
+		var committedData []byte
+		require.NoError(t, pool.QueryRow(ctx, `SELECT state,data FROM product_job_events WHERE tenant_id=$1 AND principal_id=$2 AND sequence=$3`,
+			strconv.FormatInt(repo.ID, 10), "todo:"+uuid.UUID(third.ID.Bytes).String(), index+1).Scan(&committedState, &committedData))
+		require.Equal(t, expected, committedState)
+		var delivered jobs.Event
+		require.NoError(t, json.Unmarshal(frame.Data, &delivered))
+		require.JSONEq(t, string(committedData), string(delivered.Data))
+		homeFrame := read(transitionHome)
+		require.Equal(t, "delta", homeFrame.T)
+		require.EqualValues(t, index+3, *homeFrame.Cursor)
+		require.NoError(t, json.Unmarshal(homeFrame.Data, &fact))
+		require.Equal(t, 1, fact.Data.Home.Counts[expected])
+		recorded = append(recorded, frame)
+		recordedHome = append(recordedHome, homeFrame)
+	}
+	// A reader disconnected through both question transitions receives each
+	// committed historical card, in order, rather than only the newest state.
+	thirdReplay := dial()
+	require.NoError(t, thirdReplay.Write(ctx, websocket.MessageText, []byte(fmt.Sprintf(`{"t":"sub","id":1,"topic":"todo:%d","cursor":1}`, third.Number.Int64))))
+	for _, expected := range recorded[1:] {
+		frame := read(thirdReplay)
+		require.Equal(t, "delta", frame.T)
+		require.Equal(t, *expected.Cursor, *frame.Cursor)
+		require.JSONEq(t, string(expected.Data), string(frame.Data))
+	}
+
+	transitionHomeReplay := dial()
+	require.NoError(t, transitionHomeReplay.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"home","cursor":2}`)))
+	for _, expected := range recordedHome {
+		frame := read(transitionHomeReplay)
+		require.Equal(t, "delta", frame.T)
+		require.Equal(t, *expected.Cursor, *frame.Cursor)
+		require.JSONEq(t, string(expected.Data), string(frame.Data))
+	}
+
 }
