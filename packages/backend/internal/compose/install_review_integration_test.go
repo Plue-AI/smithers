@@ -16,7 +16,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
@@ -61,6 +63,49 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 		&routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil,
 		routerExtras{Mythical: &routes.MythicalHandler{Service: service}},
 	)
+	// Findings already committed by the shared producer must survive reload.
+	// This exercises the production reader, not a new review journal writer.
+	chatStore, err := chat.NewStore(pool)
+	require.NoError(t, err)
+	mountChatPublic(router.(chi.Router), &chat.Runtime{Handler: &chat.Handler{Store: chatStore, ResolveBranch: conversationBranchResolver(services.NewWorkspaceService(q))}}, q, cfg)
+	t.Run("shared conversation retains review findings", func(t *testing.T) {
+		_, err := pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write') ON CONFLICT DO NOTHING`, repo.ID, owner.ID)
+		require.NoError(t, err)
+		scope := chat.Scope{RepositoryID: repo.ID, UserID: owner.ID, Owner: owner.Username}
+		admitted, err := chatStore.Admit(ctx, chat.AdmitInput{Scope: scope, RunID: "shared-review", Journal: chat.JournalRequest{Version: 1, LegID: "review", Token: strings.Repeat("a", 64)}, Request: json.RawMessage(`{"runId":"shared-review","conversationId":"main","sharedConversation":true,"messages":[{"role":"user","content":"/review #50"}]}`)})
+		require.NoError(t, err)
+		grant, err := chatStore.Claim(ctx, scope, admitted.TurnID, time.Minute)
+		require.NoError(t, err)
+		finding := json.RawMessage(`{"runId":"shared-review","type":"card","card":{"id":"review-50","kind":"change","title":"Review","payload":{"repo":"review-owner/app","changeId":"review-50","commitId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","facet":"findings","findings":[{"analyzer":"review","severity":"fix","path":"cache.ts","line":20,"summary":"Off by one"}]}}}`)
+		_, err = chatStore.Commit(ctx, chat.CommitInput{TurnID: grant.TurnID, Generation: grant.Generation, Token: grant.Token, Expected: grant.Cursor, Frames: []json.RawMessage{
+			json.RawMessage(`{"runId":"shared-review","type":"tool_call","call_id":"private","name":"review","arguments":"private-tool-canary"}`),
+			json.RawMessage(`{"runId":"shared-review","type":"card","card":{"kind":"confirm","payload":{"secret":"private-confirm-canary"}}}`),
+			finding, json.RawMessage(`{"runId":"shared-review","type":"done","reason":"stop"}`),
+		}})
+		require.NoError(t, err)
+		private, err := chatStore.Admit(ctx, chat.AdmitInput{Scope: scope, RunID: "private-review", Journal: chat.JournalRequest{Version: 1, LegID: "review", Token: strings.Repeat("b", 64)}, Request: json.RawMessage(`{"runId":"private-review","conversationId":"main","sharedConversation":false,"messages":[{"role":"user","content":"private-review-canary"}]}`)})
+		require.NoError(t, err)
+		privateGrant, err := chatStore.Claim(ctx, scope, private.TurnID, time.Minute)
+		require.NoError(t, err)
+		_, err = chatStore.Commit(ctx, chat.CommitInput{TurnID: privateGrant.TurnID, Generation: privateGrant.Generation, Token: privateGrant.Token, Expected: privateGrant.Cursor, Frames: []json.RawMessage{json.RawMessage(strings.ReplaceAll(string(finding), "shared-review", "private-review")), json.RawMessage(`{"runId":"private-review","type":"done","reason":"stop"}`)}})
+		require.NoError(t, err)
+		for range 2 {
+			req := httptest.NewRequest("GET", "http://localhost:4000/api/conversations/main", nil)
+			req.RemoteAddr = "127.0.0.1:61000"
+			req.AddCookie(&http.Cookie{Name: "session", Value: "review-cookie"})
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, req)
+			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+			var conversation chat.SharedConversation
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &conversation))
+			require.Len(t, conversation.Entries, 1)
+			require.Len(t, conversation.Entries[0].Frames, 2)
+			require.JSONEq(t, string(finding), string(conversation.Entries[0].Frames[0]))
+			require.NotContains(t, response.Body.String(), "private-tool-canary")
+			require.NotContains(t, response.Body.String(), "private-confirm-canary")
+			require.NotContains(t, response.Body.String(), "private-review-canary")
+		}
+	})
 	for _, tc := range []struct {
 		name, body, key string
 		cookie          bool
