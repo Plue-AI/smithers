@@ -951,6 +951,7 @@ export const createAppController = (
   ctx.onDispose(gitHubSyncSeam.dispose)
   const homeView = installHost ? createHomeViewSeam({
     live: services.live,
+    serializeView: sharedConversation?.serializeView,
     http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init),
     owner: () => {
       const identity = store.collections.identitySessions.get("identity")
