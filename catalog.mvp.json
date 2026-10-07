@@ -2666,7 +2666,7 @@
       "cli": null,
       "journey": [],
       "group": "",
-      "visibility": "in-card",
+      "visibility": "hidden",
       "actors": [
         "person",
         "app_agent"
@@ -2741,7 +2741,7 @@
       "cli": null,
       "journey": [],
       "group": "",
-      "visibility": "in-card",
+      "visibility": "hidden",
       "actors": [
         "person",
         "app_agent"
@@ -2784,7 +2784,7 @@
       "cli": null,
       "journey": [],
       "group": "",
-      "visibility": "in-card",
+      "visibility": "hidden",
       "actors": [
         "person",
         "app_agent"
@@ -11230,7 +11230,10 @@
       "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open a terminal on a branch",
-      "http": null,
+      "http": {
+        "method": "POST",
+        "path": "/api/terminals"
+      },
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
