@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,6 +22,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
@@ -36,8 +38,30 @@ type sleepCountRuntime struct {
 	workspace.WorkspaceRuntime
 	workspace.WorkspaceManagedHosts
 	workspace.WorkspaceSourceRevisionResolver
-	starts atomic.Int32
-	reads  atomic.Int32
+	starts      atomic.Int32
+	reads       atomic.Int32
+	stops       atomic.Int32
+	stop        func() error
+	unreachable atomic.Bool
+}
+
+type sleepCaptureFunc func(context.Context, string) (machined.CaptureResult, error)
+
+func (f sleepCaptureFunc) Capture(ctx context.Context, id string) (machined.CaptureResult, error) {
+	return f(ctx, id)
+}
+func (r *sleepCountRuntime) StopWorkspace(context.Context, string) error {
+	r.stops.Add(1)
+	if r.stop != nil {
+		return r.stop()
+	}
+	return nil
+}
+func (r *sleepCountRuntime) InspectWorkspace(_ context.Context, id string) (workspace.Workspace, error) {
+	if r.unreachable.Load() {
+		return workspace.Workspace{}, errors.New("guest disconnected")
+	}
+	return workspace.Workspace{ID: id, State: workspace.WorkspaceRunning}, nil
 }
 
 func (r *sleepCountRuntime) StartWorkspace(ctx context.Context, id string) (workspace.Workspace, error) {
@@ -143,9 +167,17 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
 	counted := &sleepCountRuntime{WorkspaceRuntime: runtime, WorkspaceManagedHosts: runtime, WorkspaceSourceRevisionResolver: runtime}
 	providers := services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), nil)
+	// Test-only runtime qualification; this is not a C-MCH-03 mini receipt.
+	providers.MicroVM = func(context.Context) error { return nil }
+	providers.SessionIdentity = func(context.Context) error { return nil }
+	_, err = q.UpsertWorkspaceShare(ctx, db.UpsertWorkspaceShareParams{WorkspaceID: id, OwnerUserID: machineOwner, GranteeUserID: owner.ID, Level: "write"})
+	require.NoError(t, err)
 	server := httptest.NewUnstartedServer(nil)
 	origin := "http://" + server.Listener.Addr().String()
 	t.Setenv("SMITHERS_PUBLIC_URL", origin)
+	capture := sleepCaptureFunc(func(context.Context, string) (machined.CaptureResult, error) {
+		return machined.CaptureResult{}, errors.New("undrained")
+	})
 	root, err := filepath.Abs("../../../..")
 	require.NoError(t, err)
 	node, err := exec.LookPath("node")
@@ -154,7 +186,7 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 	exporter := rehearsalJJExport(root, os.Getenv("SMITHERS_FFI_LIBRARY_PATH"))
 	require.NotEmpty(t, exporter)
 	t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", exporter)
-	server.Config.Handler = startSplitProcess(t, Options{FlowHostProductAPIURL: origin, Repository: client, Workspace: counted, BranchMachines: &providers, ChatHost: unusedChatHost{}, FlowHostRegistry: &registry, FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}})
+	server.Config.Handler = startSplitProcess(t, Options{FlowHostProductAPIURL: origin, Repository: client, Workspace: counted, BranchCapture: sleepCaptureFunc(func(ctx context.Context, id string) (machined.CaptureResult, error) { return capture(ctx, id) }), BranchMachines: &providers, ChatHost: unusedChatHost{}, FlowHostRegistry: &registry, FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}})
 	server.Start()
 	defer server.Close()
 	credential := ""
@@ -174,6 +206,91 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 		require.Equal(t, status, res.StatusCode, string(raw))
 		return raw
 	}
+	// Exercise the mounted suspend door with a test-only daemon contract. The
+	// host store, database, identity middleware and lifecycle are production.
+	sleep := func(want int) {
+		req, err := http.NewRequest("POST", server.URL+"/api/repos/sleepowner/demo/workspaces/"+id+"/suspend", nil)
+		require.NoError(t, err)
+		req.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
+		req.Header.Set("Origin", origin)
+		req.Header.Set("X-CSRF-Token", "sleep-csrf")
+		req.AddCookie(&http.Cookie{Name: "__csrf", Value: "sleep-csrf"})
+		res, err := server.Client().Do(req)
+		require.NoError(t, err)
+		defer res.Body.Close()
+		raw, err := io.ReadAll(res.Body)
+		require.NoError(t, err)
+		require.Equal(t, want, res.StatusCode, string(raw))
+	}
+	_, err = pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, id)
+	require.NoError(t, err)
+	sleep(503)
+	row, err := q.GetWorkspace(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, "running", row.Status)
+	require.Zero(t, counted.stops.Load())
+	counted.unreachable.Store(true)
+	sleep(503)
+	row, err = q.GetWorkspace(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, "releasing", row.Status, "lost guest is not claimed awake or asleep")
+	require.Equal(t, head, row.HeadCommitID)
+	require.Zero(t, counted.stops.Load())
+	counted.unreachable.Store(false)
+	_, err = pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, id)
+	require.NoError(t, err)
+	for _, fault := range []struct {
+		name   string
+		result machined.CaptureResult
+		err    error
+		stored string
+	}{
+		{name: "timeout", err: context.DeadlineExceeded, stored: head},
+		{name: "unprojected", result: machined.CaptureResult{Head: base, Tree: base}, stored: head},
+		{name: "ref mismatch", result: machined.CaptureResult{Head: base, Tree: base}, stored: base},
+	} {
+		t.Run(fault.name, func(t *testing.T) {
+			_, err := pool.Exec(ctx, `UPDATE workspaces SET head_commit_id=$2 WHERE id=$1`, id, fault.stored)
+			require.NoError(t, err)
+			capture = func(context.Context, string) (machined.CaptureResult, error) { return fault.result, fault.err }
+			sleep(503)
+			row, err := q.GetWorkspace(ctx, id)
+			require.NoError(t, err)
+			require.Equal(t, "running", row.Status)
+			require.Zero(t, counted.stops.Load())
+		})
+	}
+	_, err = pool.Exec(ctx, `UPDATE workspaces SET head_commit_id=$2 WHERE id=$1`, id, head)
+	require.NoError(t, err)
+	capture = func(ctx context.Context, branch string) (machined.CaptureResult, error) {
+		row, err := q.GetWorkspace(ctx, branch)
+		require.NoError(t, err)
+		require.Equal(t, "releasing", row.Status)
+		var projected services.BranchMachineResponse
+		require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id, 200), &projected))
+		require.Equal(t, "releasing", projected.State)
+		return machined.CaptureResult{Head: head, Tree: git("-C", seed, "rev-parse", head+"^{tree}")}, nil
+	}
+	counted.stop = func() error {
+		row, err := q.GetWorkspace(ctx, id)
+		require.NoError(t, err)
+		require.Equal(t, "releasing", row.Status)
+		require.Equal(t, head, row.HeadCommitID)
+		return errors.New("stop refused")
+	}
+	sleep(503)
+	row, err = q.GetWorkspace(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, "running", row.Status)
+	counted.stop = nil
+	sleep(200)
+	row, err = q.GetWorkspace(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, "suspended", row.Status)
+	require.Equal(t, head, row.HeadCommitID)
+	require.EqualValues(t, 2, counted.stops.Load())
+	sleep(200)
+	require.EqualValues(t, 2, counted.stops.Load(), "duplicate sleep must not capture or stop again")
 	assertDiff := func() {
 		var diff services.BranchDiff
 		require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id+"/diff", 200), &diff))
