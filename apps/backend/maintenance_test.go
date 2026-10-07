@@ -46,10 +46,15 @@ func TestHostMaintenanceUnavailableProvidersFailClosed(t *testing.T) {
 	}
 	dir := maintenanceSnapshot(t)
 	state := t.TempDir()
+	if err := os.Chmod(state, 0700); err != nil {
+		t.Fatal(err)
+	}
 	sentinel := filepath.Join(state, "version.env")
 	if err := os.WriteFile(sentinel, []byte("unchanged"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	// Maintenance resolves the installed owner directory independently of DATA_ROOT.
+	t.Setenv("HOME", state)
 	t.Setenv("SMITHERS_DATA_ROOT", state)
 	t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "invalid-must-never-bootstrap")
 	for _, args := range [][]string{{"backup"}, {"upgrade"}, {"restore", dir}} {

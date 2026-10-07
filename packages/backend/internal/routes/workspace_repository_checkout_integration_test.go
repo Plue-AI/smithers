@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
@@ -103,7 +104,26 @@ func newCheckoutHarness(t *testing.T, public, autoInit bool) *checkoutHarness {
 	require.NoError(t, err)
 	commandCodec, err := webhook.NewSecretCodec("checkout-command-secret")
 	require.NoError(t, err)
+	// These checkout tests exercise real HTTP, PostgreSQL, Git and the
+	// process adapter. Runtime qualification is a test-only assumption here;
+	// the install's microVM admission is covered by its separate refusal tests.
+	providers := services.BranchMachineProviders{
+		Membership: func(ctx context.Context, tx pgx.Tx, repositoryID, actorID int64) error {
+			var id int64
+			return tx.QueryRow(ctx, `SELECT u.id FROM users u JOIN repositories r ON r.user_id=u.id WHERE u.id=$1 AND r.id=$2 AND u.is_active AND u.deleted_at IS NULL AND NOT u.prohibit_login FOR SHARE`, actorID, repositoryID).Scan(&id)
+		},
+		Authorize: func(_ context.Context, _ pgx.Tx, _ string, repositoryID int64, _ string, actorID int64) error {
+			if repositoryID != repo.ID || actorID != user.ID {
+				return fmt.Errorf("checkout fixture authority mismatch")
+			}
+			return nil
+		},
+		LaneBinding:     func(context.Context, pgx.Tx, int64, string, string) error { return nil },
+		MicroVM:         func(context.Context) error { return nil },
+		SessionIdentity: func(context.Context) error { return nil },
+	}
 	workspaceService := services.NewWorkspaceService(queries,
+		services.WithWorkspaceTransactions(pool), services.WithBranchMachineProviders(providers),
 		services.WithWorkspaceRuntime(runtime), services.WithWorkspaceGitBaseURL(server.URL), services.WithWorkspaceCommandJobs(commandJobs, commandCodec))
 	workspaceHandler.Service = workspaceService
 	cookie := processWorkspaceCreateSessionCookie(t, queries, user)
