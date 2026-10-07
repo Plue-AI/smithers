@@ -55,7 +55,11 @@ func TestHostMaintenanceUnavailableProvidersFailClosed(t *testing.T) {
 	for _, args := range [][]string{{"backup"}, {"upgrade"}, {"restore", dir}} {
 		t.Run(args[0], func(t *testing.T) {
 			err := run(context.Background(), append([]string{"host-maintenance"}, args...))
-			if err == nil || !strings.HasPrefix(err.Error(), "host_maintenance_unavailable:") {
+			// Backup and upgrade first authenticate the canonical installing-owner
+			// socket. An unsafe socket must refuse before provider availability;
+			// the data-root override must never bypass that authorization.
+			ownerRefusal := err != nil && args[0] != "restore" && err.Error() == "host_owner_required: unsafe installing-owner socket"
+			if err == nil || (!strings.HasPrefix(err.Error(), "host_maintenance_unavailable:") && !ownerRefusal) {
 				t.Fatalf("refusal: %v", err)
 			}
 			entries, err := os.ReadDir(state)

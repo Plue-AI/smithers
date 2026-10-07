@@ -152,6 +152,11 @@ func TestRootLayerInputsValidatedBeforeUse(t *testing.T) {
 		branchCommit := h.pushBranch(t, "r4-attacker", branch)
 		h.reader.reset()
 		from := h.msb.mark()
+		// This public-runtime case records recipe bytes with an uninstalled
+		// msb fixture. It cannot provision installed member helpers; those are
+		// qualified separately against approved bundles. Keep that independent
+		// boundary out of this recipe-selection assertion.
+		h.runtime.BindMemberRoster(nil)
 		created, err := h.runtime.CreateWorkspace(h.ctx(t), workspaceapi.WorkspaceSpec{ID: "r4-attacker-branch",
 			Source: &workspaceapi.WorkspaceSource{Repository: h.slug, Revision: "r4-attacker"}})
 		require.NoError(t, err)
@@ -442,6 +447,7 @@ func rootLayerFixtures() map[string]map[string]string {
 // ---- harness ----
 
 type rootLayerHarness struct {
+	stop       func()
 	t          *testing.T
 	pool       *pgxpool.Pool
 	origin     string
@@ -625,19 +631,23 @@ func startRootLayerHarnessRuntime(t *testing.T, direct bool, coding ...rootLayer
 		t.Fatalf("composition timed out: %s", h.logs.String())
 	}
 	server.Start()
-	t.Cleanup(func() {
-		server.Close()
-		cancel()
-		select {
-		case err := <-done:
-			require.NoError(t, err)
-		case <-time.After(20 * time.Second):
-			t.Error("composition shutdown timed out")
-		}
-		if t.Failed() {
-			t.Logf("backend log tail:\n%s", tailText(h.logs.String(), 6000))
-		}
-	})
+	var stopped sync.Once
+	h.stop = func() {
+		stopped.Do(func() {
+			server.Close()
+			cancel()
+			select {
+			case err := <-done:
+				require.NoError(t, err)
+			case <-time.After(20 * time.Second):
+				t.Error("composition shutdown timed out")
+			}
+			if t.Failed() {
+				t.Logf("backend log tail:\n%s", tailText(h.logs.String(), 6000))
+			}
+		})
+	}
+	t.Cleanup(h.stop)
 	// The composition bound its mirror reader at startup. Wrap the same reader
 	// so the receipt can show which revision each root-relevant path came from.
 	h.reader = &recordingSourceFiles{inner: h.sources}
