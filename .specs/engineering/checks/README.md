@@ -154,6 +154,7 @@ Stage tags match [spec.md §0](../spec.md). M names the dated maintainer release
 | [C-COL-03](C-COL-03.md) | Folded into T-COL-03's tests | integration | S2, S3 | T-COL-03r (FIFO), T-COL-03, T-STK-08, T-COL-05, T-COL-08, T-COL-03a, T-COL-08a |
 | [C-COL-04](C-COL-04.md) | Daemon confinement: no path, symlink swap, special file or forged local actor gets through; HMAC protects connection replacement; the daemon runs unprivileged | integration | S2 | T-COL-03, T-TRM-07, T-MCH-11, T-COL-03a |
 | [C-COL-05](C-COL-05.md) | Folded into T-COL-04's tests | integration | S2 | T-COL-04, T-COL-05, T-COL-04a |
+| [C-COL-06](C-COL-06.md) | The machined wire contract: both codecs match ADR 0004's corpus | integration | S2 | T-COL-03r |
 | **Catalog and cuts** | | | | |
 | [C-CAT-01](C-CAT-01.md) | Folded into T-CAT-01's tests | unit | S1 | T-CAT-01, T-FLW-11 |
 | [C-CAT-02](C-CAT-02.md) | Folded into T-CAT-01's tests | unit | S1 | T-CAT-01 |

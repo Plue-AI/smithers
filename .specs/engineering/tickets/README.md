@@ -146,7 +146,7 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | **Live layer and machine daemon** | | | | | |
 | [T-COL-10](T-COL-10.md) | Every file write carries `base_digest`; a stale write is refused | S1, S2 | M | S1: T-FLW-01 · S2: T-COL-03 | S1: C-COL-01, C-J1-04 |
 | [T-COL-02](T-COL-02.md) | Live channel `/api/live`: topics, cursors, backpressure | S1 | M | T-STK-01, T-ACC-03, T-INS-04, T-FLW-01 | C-COL-02, C-J1-04, C-PERF-02 |
-| [T-COL-03r](T-COL-03r.md) | ADR 0004 wire contract, golden frames, codecs, skeleton, FIFO executor and hooks | S2 | M | — | C-COL-01, C-COL-03 (FIFO) |
+| [T-COL-03r](T-COL-03r.md) | ADR 0004 wire contract, golden frames, codecs, skeleton, FIFO executor and hooks | S2 | M | — | C-COL-06 |
 | [T-COL-03f](T-COL-03f.md) | Fake machined for Go component tests | S2 | S | T-COL-03r |  |
 | [T-COL-03a](T-COL-03a.md) | Rust daemon core, broker, object-stream credit, capture and durable outbox | S2 | L | T-COL-03r | C-COL-01 (object credit), C-COL-03, C-COL-04, C-DUR-04 (K3/K3b/K4/K4b/K5a–c) |
 | [T-COL-03](T-COL-03.md) | Host registry, per-boot credentials, daemon planting, reporter replacement and K6 VM faults | S2 | M | T-MCH-04, T-COL-03a, T-COL-03f, T-COL-03r, T-INS-02, T-ACC-03, T-COL-02, T-STK-12, T-COL-10 (S1 only), T-SEC-01 | C-COL-01, C-COL-03, C-COL-04, C-DUR-04 (K6), C-STK-06, C-PRC-02 |

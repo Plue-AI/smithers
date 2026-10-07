@@ -2,7 +2,7 @@
 
 Stage S2 · Size M · Depends on — · Unblocks T-AGT-02, T-COL-03, T-COL-03a, T-COL-03f, T-COL-04, T-COL-04a, T-COL-05, T-COL-06, T-COL-08a, T-COL-08b, T-STK-08, T-TRM-07 · Issue: [#3626](https://github.com/smithersai/smithers/issues/3626)
 Spec: spec.md §5.3 (`machine`), §7.6.1–7.6.3, §9 (intro), §9.1.1–9.1.4, §9.4.1, §9.5, §9.6.2 · Delta: delta.md §4 (`smithers-machined`, host relay) · Product: mvp.md §6.7, M-27, M-29
-Ready: 2026-10-07 smithers-8a sha256:29d170c30d62
+Ready: 2026-10-07 smithers-8a sha256:6bfbf732853e
 
 Rescoped by the minimal-code synthesis, 2026-10-03 (v1 §3): the wire contract, golden frames and codecs move here from T-COL-10, because this is their first consumer.
 
@@ -42,8 +42,7 @@ New (no daemon wire exists to reuse; the terminal WebSocket in `packages/backend
 
 ## Acceptance
 
-- [C-COL-03](../checks/C-COL-03.md): the daemon-host wire contract (ADR 0004) holds under its fault cases
-- [C-COL-01](../checks/C-COL-01.md), S2 wire component only: the named Tests above pass and ADR 0004 is merged with smithers-8a acceptance and smithers-3f wire/API sign-off. C-COL-01 is folded into ticket tests; this ticket owns the wire assertions, not T-COL-10’s stale-write gate or later integration, durability and journey gates.
+- [C-COL-06](../checks/C-COL-06.md): ADR 0004's golden corpus passes in both codecs, the protocol constants agree, and the skeleton refuses (`//:machinedWire`). This is this ticket's only closing check; C-COL-01 and C-COL-03 close with T-COL-03, T-COL-03a and T-COL-10 (8a, 2026-10-07, #3626).
 
 ## 2026-10-07 amendment (8a; 3f's audit on #3626)
 - "Lands dark" is superseded for the daemon binary: T-TRM-07's 9f52a972e2 made `src/main.rs` a working daemon. It still exits 78 with no subcommand and refuses uids other than 19998 without connecting; `TestMachinedSkeletonDisabled` asserts those two refusals instead of "nonzero exit for every start". Planting and starting in a machine remain T-COL-03's.
