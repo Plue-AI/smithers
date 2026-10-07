@@ -73,7 +73,7 @@ func TestLiveTodoNativeThrash(t *testing.T) {
 	defer routes.SetRevocationSource(nil)
 	service := services.NewMythicalService(pool, nil)
 	monitors := &runMonitors{pool: pool, reader: monitorContractReader{}}
-	topics := &liveTopics{queries: q, todos: service, monitors: monitors}
+	topics := &liveTopics{queries: q, todos: service}
 	store, err := jobs.NewStore(pool)
 	require.NoError(t, err)
 	scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo.ID), PrincipalID: fmt.Sprintf("user:%d", owner.ID)}
@@ -133,9 +133,8 @@ func TestLiveTodoNativeThrash(t *testing.T) {
 	for {
 		f := read()
 		if f.ID == 2 {
-			require.Equal(t, "snap", f.T)
-			require.Contains(t, string(f.Data), `"tone":"thrash"`)
-			require.Contains(t, string(f.Data), fmt.Sprintf(`"todo":%d`, item.Number.Int64))
+			require.Equal(t, "err", f.T)
+			require.Equal(t, live.Unsupported, f.Code, "monitor HTTP composition never replaces the native journal topic")
 			break
 		}
 	}

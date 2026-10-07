@@ -1915,7 +1915,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		topics := &liveTopics{changePool: pool, jobs: commandJobs, secrets: secretService, capacity: installCapacity, presence: presence, queries: queries, todos: mythicalService, sync: gitHubSyncRoute, external: sessions, install: installSetup, members: authService.Members}
 		topics.sources = repositorySourceFiles{client: repoHostClient}
 		if flow != nil {
-			topics.monitors = &runMonitors{pool: pool, reader: flow.dispatcher}
 		}
 
 		if chatService != nil {
