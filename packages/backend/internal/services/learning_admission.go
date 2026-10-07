@@ -20,6 +20,7 @@ const LearningAdmissionOperation = "learning.admission"
 // or an unavailable Learning runtime target. It never reuses a TODO's machine.
 type LearningMachines interface {
 	EnsureLearningMachine(context.Context, int64, int64, string, flowruntime.Pin) (flowruntime.Target, error)
+	RetireLearningMachine(context.Context, flowruntime.Target) error
 }
 
 func (s *MythicalService) EnableLearningAdmission(store *jobs.Store) { s.learningJobs = store }
