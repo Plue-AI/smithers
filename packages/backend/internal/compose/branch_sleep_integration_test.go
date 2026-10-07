@@ -189,7 +189,7 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 	// A Branch answer must bind the question from the TODO read, even when
 	// its activity stream contains no question and no TODO was opened.
 	waits := fmt.Sprintf(`[{"id":"branch-question-1","kind":"question","prompt":"Include cancelled retries?","since":"2026-10-07T00:00:00Z","signal":{"scope":{"TenantID":"repository:%d","PrincipalID":"user:%d"},"target":{"TenantID":"repository:%d","PrincipalID":"user:%d","WorkspaceID":"%s","BindingKind":"mythical-item","BindingID":"%s"},"flow":"todo","run":"branch-question-run","name":"answer:branch-question-1"}}]`, repo.ID, owner.ID, repo.ID, owner.ID, id, fmt.Sprintf("%x-%x-%x-%x-%x", item.ID.Bytes[0:4], item.ID.Bytes[4:6], item.ID.Bytes[6:8], item.ID.Bytes[8:10], item.ID.Bytes[10:16]))
-	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='blocked',checks=jsonb_set(COALESCE(NULLIF(checks,'null'::jsonb),'{}'::jsonb),'{waits}',$2::jsonb) WHERE id=$1`, item.ID, waits)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET source='todo',state='waiting',paused_at=now(),checks=jsonb_set(COALESCE(NULLIF(checks,'null'::jsonb),'{}'::jsonb),'{waits}',$2::jsonb) WHERE id=$1`, item.ID, waits)
 	require.NoError(t, err)
 	var questionProjection struct {
 		State string
@@ -199,6 +199,8 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 	require.Equal(t, "needs_you", questionProjection.State)
 	require.Len(t, questionProjection.Waits, 1)
 	require.Equal(t, "branch-question-1", questionProjection.Waits[0].ID)
+	_, err = q.RequestMythicalBootstrap(ctx, repo.ID, owner.ID, 1, false)
+	require.NoError(t, err)
 	t.Run("app dispatcher and mounted Branch against PostgreSQL", func(t *testing.T) {
 		require.Equal(t, int64(1), item.Number.Int64)
 		script, err := filepath.Abs("../../../../apps/app/e2e/real/branch-card-install.fixture.tsx")
@@ -213,6 +215,13 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT checks->'waits'->0->>'answered_by',checks->'waits'->0->>'answer' FROM mythical_items WHERE id=$1`, item.ID).Scan(&answeredBy, &answer))
 	require.Equal(t, "sleepowner", answeredBy)
 	require.Equal(t, "Include them", answer)
+	var steerText string
+	var steerAuthor int64
+	var steerCount int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT checks->'steers'->0->>'text',(checks->'steers'->0->>'author')::bigint,jsonb_array_length(checks->'steers') FROM mythical_items WHERE id=$1`, item.ID).Scan(&steerText, &steerAuthor, &steerCount))
+	require.Equal(t, "Keep retry backoff bounded", steerText)
+	require.Equal(t, owner.ID, steerAuthor)
+	require.Equal(t, 1, steerCount, "the mounted Steer persists exactly one authored input")
 	var signals int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.signal'`).Scan(&signals))
 	require.Equal(t, 1, signals, "the mounted Answer admits exactly one durable signal")

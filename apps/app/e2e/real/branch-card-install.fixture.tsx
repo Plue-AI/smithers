@@ -82,6 +82,21 @@ try {
   const missingSsh = await controller.runCommandForResult("ssh", "T999")
   assert.equal(missingSsh.status, "failed", "unknown TODO never copies a seed SSH line")
   await waitFor(() => host.querySelector('form[data-flow="todo.answer"]') !== null)
+  const steer = host.querySelector('form[data-flow="todo.steer"]') as HTMLFormElement
+  const steerField = steer.querySelector("input")!
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(steerField, "Keep retry backoff bounded")
+    steerField.dispatchEvent(new Event("input", { bubbles: true }))
+    steerField.dispatchEvent(new Event("change", { bubbles: true }))
+  })
+  await act(async () => steer.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
+  await waitFor(() => requests.some(request => request.method === "POST" && request.path === "/api/todos/1"))
+  const steered = requests.find(request => request.method === "POST" && request.path === "/api/todos/1")!
+  assert.deepEqual(steered.body, { steer: "Keep retry backoff bounded" })
+  assert.equal(steered.status, 202, JSON.stringify(steered))
+  const waiting = await (await fetchImpl(`${origin}/api/todos/1`)).json() as { state: string; waits: Array<{ id: string; answer?: string }> }
+  assert.equal(waiting.state, "needs_you", "Steer leaves the question open")
+  assert.equal(waiting.waits.find(wait => wait.id === "branch-question-1")?.answer, undefined)
   const answer = host.querySelector('form[data-flow="todo.answer"]') as HTMLFormElement
   const field = answer.querySelector("input")!
   await act(async () => {
@@ -114,6 +129,6 @@ try {
   assert.deepEqual(fork.refusal, { class: "infra", code: "branch_machine_unavailable", message: "Branch unavailable" })
   assert.ok(requests.some(request => request.path === "/api/todos/1" && request.status === 200))
   assert.ok(requests.some(request => request.path.endsWith("/files/src/retry.ts") && request.status === 200))
-  assert.ok(requests.filter(request => request.method === "POST").every(request => request.path === "/api/branches" || request.path === "/api/todos/1/answer"), "reads never wake the sleeping branch")
-  console.log("PASS composed Branch slash, mount, bound Answer, SSH TODO/bookmark, item, file and Fork refusal; no wake")
+  assert.ok(requests.filter(request => request.method === "POST").every(request => request.path === "/api/branches" || request.path === "/api/todos/1/answer" || request.path === "/api/todos/1"), "reads never wake the sleeping branch")
+  console.log("PASS composed Branch slash, mount, bound Answer/Steer, SSH TODO/bookmark, item, file and Fork refusal; no wake")
 } finally { await act(async () => root.unmount()); await controller.dispose(); live.dispose() }
