@@ -260,7 +260,8 @@ export class Session {
           const session = this.tokenFile!.split("/").at(-2)
           if (envelope?.version !== 1 || envelope.session_id !== session ||
             this.terminalSession !== session ||
-            envelope.issuer !== origin || envelope.issuer !== this.terminalIssuer ||
+            typeof envelope.issuer !== "string" || normalizeOrigin(envelope.issuer) !== origin ||
+            normalizeOrigin(this.terminalIssuer ?? "") !== origin ||
             envelope.credential_identity !== createHash("sha256").update(token).digest("hex")) throw invalidToken()
         }
         return token
