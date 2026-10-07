@@ -427,6 +427,8 @@ test("unseen completed entries pin below and clear after the durable cursor catc
   expect(edges.below.map(row => row.entry_id)).toEqual(["turn:prompt", "turn:answer"])
   const host = mount(<EdgeMap above={[]} below={edges.below} narrow onAction={() => {}} onView={() => {}} />)
   expect(host.textContent).toContain("↓ 2 new below")
+  const mixed = mount(<EdgeMap above={[]} below={[{ id:"live",entry_id:"live",title:"Working",tone:"live",kind:"progress" }, ...edges.below]} narrow onAction={()=>{}} onView={()=>{}} />)
+  expect(mixed.textContent).toContain("↓ 1 live · 2 new below")
   expect(railEdges([visible, ...sharedRailLines(conversation, { role: "member" }, 14)], ["visible", "visible"]).below).toEqual([])
   expect(sharedRailLines(conversation, { role: "member" }, 13).map(row => row.fresh)).toEqual([false, true])
 })
