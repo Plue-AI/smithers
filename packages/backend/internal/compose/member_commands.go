@@ -28,6 +28,20 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			info := middleware.AuthInfoFromContext(r.Context())
 			command := middleware.InstallMemberCommand(r.Method, r.URL.EscapedPath())
+			if command == "main.reset-to-github" && info != nil && info.User != nil {
+				// Classify the shared typed payload without accepting it. The
+				// selected authorizer still runs before its leaf decodes or acts.
+				var err error
+				command, err = middleware.StackAttentionCommand(w, r)
+				if err != nil {
+					if _, denied := services.Authorize(r.Context(), queries, "main.reset-to-github"); denied != nil {
+						writeConfirmationDispatchError(w, denied)
+						return
+					}
+					writeConfirmationDispatchError(w, &services.AccessError{Status: 400, Class: "user", Code: "invalid_attention", Message: "Invalid attention"})
+					return
+				}
+			}
 			if r.Method == http.MethodPost && strings.HasPrefix(r.URL.EscapedPath(), "/api/branches/") && !strings.Contains(strings.TrimPrefix(r.URL.EscapedPath(), "/api/branches/"), "/") {
 				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
 				var body struct {

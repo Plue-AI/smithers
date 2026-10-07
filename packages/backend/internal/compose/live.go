@@ -36,8 +36,8 @@ type liveSync interface {
 }
 
 // liveTopics resolves the install's shared topics (spec §7.2) for one
-// person: home, todo:<n>, flows and members. Every topic serves shared facts only,
-// so one stream serves every member byte for byte.
+// person: home, todo:<n>, flows and members. Topics serve shared facts,
+// with attention filtered by the person's current role.
 type liveTopics struct {
 	changePool    *pgxpool.Pool
 	queries       *db.Queries

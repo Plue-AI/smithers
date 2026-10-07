@@ -422,7 +422,6 @@ var installMemberRoutes = []struct {
 	method, command string
 	path            *regexp.Regexp
 }{
-	{http.MethodPost, "order.ok", regexp.MustCompile(`^/api/stack/attention/[^/]+$`)},
 	{http.MethodGet, "self", regexp.MustCompile(`^/api/user$`)},
 	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/user/keys(?:/[0-9]+)?$`)},
 	{http.MethodGet, "self", regexp.MustCompile(`^/api/confirmations$`)},

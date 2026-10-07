@@ -1007,7 +1007,6 @@ func buildRouter(
 			r.Post("/todos/{n}", todos.Control)
 			r.Patch("/todos/{n}", todos.Amend)
 			r.Post("/todos/{n}/merge", todos.Merge)
-			r.Post("/stack/attention/{id}", todos.OrderOK)
 			r.Post("/todos/{n}/preapproval", todos.Preapprove)
 			r.Delete("/todos/{n}/preapproval", todos.Unapprove)
 			r.Post("/todos/{n}/answer", todos.Answer)
@@ -1067,7 +1066,13 @@ func buildRouter(
 			sync := &routes.GitHubSyncHandler{Service: extras.GitHubSync}
 			resetService, _ := extras.GitHubSync.(routes.MainResetRouteService)
 			reset := &routes.MainResetHandler{Queries: queries, Service: resetService}
-			r.With(middleware.RequireAuth).Post("/stack/attention/{id}", reset.Reset)
+			var order *routes.TodoHandler
+			if extras.Mythical != nil {
+				service, _ := extras.Mythical.Service.(routes.TodoRouteService)
+				order = &routes.TodoHandler{Queries: queries, Service: service}
+			}
+			attention := &routes.StackAttentionHandler{Order: order, Reset: reset}
+			r.With(middleware.RequireAuth).Post("/stack/attention/{id}", attention.Answer)
 			r.With(middleware.RequireAuth).Get("/github/sync", sync.Status)
 			r.With(middleware.RequireAuth).Post("/github/sync", sync.Retry)
 			// The stack supplies the immutable accepted-prefix diff.
