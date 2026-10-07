@@ -60,8 +60,12 @@ repo = root / 'snapshot-repo'
 subprocess.run([str(root / 'col01-jj'), 'git', 'clone', '--no-colocate', '--depth',
                 '1', '--fetch-tags', 'none', '--branch', 'main',
                 'https://github.com/smithersai/smithers.git', str(repo)], env=env, check=True)
+# An offline frozen install also reads registry metadata; store.sh archives it
+# under cache/ beside the content-addressable v11/ store.
+metadata = ['--cache-dir', str(store / 'cache')] if (store / 'cache').is_dir() else []
 subprocess.run(['node', str(pnpm / 'package/bin/pnpm.cjs'), 'install',
-                '--frozen-lockfile', '--offline', '--store-dir', str(store)], cwd=repo, env=env, check=True)
+                '--frozen-lockfile', '--offline', '--store-dir', str(store)] + metadata,
+               cwd=repo, env=env, check=True)
 receipt = {'repository': 'https://github.com/smithersai/smithers.git',
            'store_archive_sha256': store_digest, 'dependency_install': 'offline',
            'depth': 1, 'branch': 'main', 'pnpm': package['version'],

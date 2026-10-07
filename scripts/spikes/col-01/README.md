@@ -74,10 +74,16 @@ exact one-way network measurement. Per-editor p95 also gates concurrent runs.
 The default also shallow-clones public `main` inside the VM, installs dependencies
 with pinned Node 26.5.0 / pnpm 11.25.0 (dependency installation is offline and
 requires `SPIKE_SNAPSHOT_STORE_ARCHIVE`, an absolute path to a tar archive of
-an already populated pnpm 11 store for Linux ARM64). Create it on a Linux
-ARM64 preparation machine after a frozen install of the measured revision:
-`tar -cf store.tar -C "$(pnpm store path)" .`. Copy that archive to the reference
-host and set the variable before running. The archive is copied into the guest,
+an already populated pnpm 11 store for Linux ARM64). Build it on the reference
+host with `scripts/spikes/col-01/store.sh <main SHA> <absolute dir>`: one
+disposable DefaultImage microVM with public network runs a frozen install of that
+revision and writes `<dir>/store.tar`, then is removed. The archive holds the
+`--store-dir` root without `v11/projects` (symlinks back to the build checkout,
+which the guest's safe extract rejects), so it carries the `v11/` directory pnpm appends,
+plus `cache/` registry metadata, which an offline frozen install also reads;
+`pnpm store path` already ends in `v11`, and an archive of that directory is not
+found by `--store-dir`. Build it from the `main` the guest will clone, then set
+the variable before running. The archive is copied into the guest,
 extracted safely, and passed explicitly as `--store-dir`; its SHA-256 is retained.
 A Mac-only store may omit Linux optional dependencies and is insufficient.
 Missing packages fail closed; no network-heavy install runs on the reference host, and measures jj 0.39.0 snapshots for
@@ -102,6 +108,13 @@ For an exact remote command, set `SPIKE_HTTP_PORT=39041` on the host and use
 `run.sh remote http://<host-LAN-address>:39041 relay` on the second Mac after starting
 `SPIKE_HTTP_PORT=39041 run.sh serve relay` on this host. Use that host's real
 LAN address elsewhere. A busy chosen port fails rather than taking it over.
+On macOS 15+ the second Mac's Local Network privacy can block Homebrew `node`
+and Chromium from LAN peers: `remote` then fails with `EHOSTUNREACH` while
+`curl` works. Grant the terminal Local Network access, or relay the second
+Mac's own LAN address to the host with an Apple-signed `/usr/bin/python3` TCP
+forwarder (TCP_NODELAY both ways) and record that deviation. The `control`
+PostgreSQL fixture needs a valid locale: over a bare `ssh` session set
+`LC_ALL=en_US.UTF-8`, or `postmaster became multithreaded during startup`.
 
 Validation, with build output kept inside the checkout:
 
@@ -116,6 +129,8 @@ export COL01_DOCHOST_BINARY="$CARGO_TARGET_DIR/debug/col01-dochost"
 (cd scripts/spikes/col-01 && go test -race ./... && go vet ./...)
 ```
 
+The 2026-10-06 reference-host run (RTT matrix, second-Mac keystrokes, snapshot table) is recorded in
+[ADR 0003](../../../docs/architecture/0003-live-code-co-editing.md).
 Retain this prototype and its raw evidence as the reproducible T-COL-11 benchmark method; do not port it into product code. Run measurements with `--no-cache`. Declared exclusive targets: `//scripts/spikes/col-01:test`, `:rtt`, `:keystrokes`, `:snapshot`.
 Nothing here becomes product code. See [control/README.md](control/README.md)
 for the current two-exec service versus one-exec rejected-alternative gap.
@@ -126,10 +141,19 @@ It is disposable test scaffolding, not a product package at that path.
 The test target supports Darwin and Linux only when Go, Rust, jj, PostgreSQL
 `initdb`/`pg_ctl`, pnpm and the pinned Yjs package are available.
 
-The bridge 4 KiB idle plateau may be delayed ACK/Nagle interaction: the existing
-guest helper omits TCP_NODELAY. That hypothesis needs a rerun owned by the
-production/decision tickets; these unchanged-helper measurements cannot prove
-an intrinsic bridge transport limitation. ADR 0004 supports both topologies.
+The bridge 4 KiB idle plateau tested as delayed ACK/Nagle: the existing guest
+helper omits TCP_NODELAY. `rtt` therefore also measures `bridge-nodelay`, a
+diagnostic third transport: `echo/bridge_nodelay.py` is the helper's `bridge`
+byte pipe copied with TCP_NODELAY on both sockets, run as a spike service on
+guest port 19003 against the same host listener. It is never chosen; it shows
+what the bridge delivers once T-COL-03 sets the option. The helper is unchanged.
+ADR 0004 supports both topologies.
+
+Host load gates every run and RTT cell. A run starts only when the 1-minute
+load is below 10. Each cell starts below 10 (the guest's own busy workers
+subtracted) and reruns, up to five attempts, if it ends at or above 10; rejected
+attempts stay in `samples-rejected.csv`. Each cell records load and running VMs
+before and after, and `host-load.csv` samples the host every 10 s.
 
 
 Reference-host findings (lead ruling 10-03):

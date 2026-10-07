@@ -115,6 +115,8 @@ CREATE TABLE public.workspaces (
     deleted_at timestamptz,
     created_at timestamptz DEFAULT now() NOT NULL,
     updated_at timestamptz DEFAULT now() NOT NULL,
+    forked_from_item uuid,
+    forked_from_base text DEFAULT ''::text NOT NULL,
     CONSTRAINT workspaces_ahead_check CHECK ((ahead >= 0)),
     CONSTRAINT workspaces_behind_check CHECK ((behind >= 0)),
     CONSTRAINT workspaces_failure_detail_check CHECK (((((status)::text = 'failed'::text) AND (failure_code IS NOT NULL) AND (btrim(failure_code) <> ''::text) AND (failure_message IS NOT NULL) AND (btrim(failure_message) <> ''::text)) OR (((status)::text <> 'failed'::text) AND (failure_code IS NULL) AND (failure_message IS NULL)))),
