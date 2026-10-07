@@ -242,6 +242,10 @@ func (d *Dispatcher) runOne(parent context.Context, candidate Candidate) {
 	if err != nil {
 		// An explicit user cancel has already committed its terminal batch
 		// before interrupting this host, so the store leaves it unchanged.
+		if errors.Is(err, errCommandAPIUnavailable) {
+			d.fail(detached, grant, "credential_issuer_unavailable", err)
+			return
+		}
 		if errors.Is(err, ports.ErrModelCredentialMissing) {
 			d.fail(detached, grant, "credential_missing", err)
 			return
