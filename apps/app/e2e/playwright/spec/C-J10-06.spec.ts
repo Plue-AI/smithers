@@ -17,7 +17,6 @@ test("C-J10-06: sync age and Retry stay honest while Chat remains usable", async
   await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
   await page.route("**/api/todos", route => route.fulfill({ json: [] }))
   const base = Date.parse("2026-10-06T12:00:00Z")
-  await page.clock.install({ time: base })
   await page.clock.setFixedTime(base)
   let health: { state: string; last_success_at: string; cause?: string } = {
     state: "fresh", last_success_at: new Date(base - 40_000).toISOString()
@@ -41,6 +40,8 @@ test("C-J10-06: sync age and Retry stay honest while Chat remains usable", async
     await page.goto("/")
     await say(page, "/help")
     await expect(page.getByText("Commands", { exact: true }).last()).toBeVisible()
+    // Startup acquires a real browser writer lock before timers are virtualized.
+    await page.clock.install({ time: base })
     await say(page, "/github")
     const sync = page.locator(".sync").last()
     await expect(sync).toHaveText("synced 40 s ago")
