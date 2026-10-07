@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/stretchr/testify/require"
@@ -106,13 +105,6 @@ func TestConfirmationsBrowserPostgres(t *testing.T) {
 	require.NotNil(t, vite, "browser fixture did not start")
 	proxy := httputil.NewSingleHostReverseProxy(vite)
 	server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/conversations/") {
-			chatRouter.ServeHTTP(w, r)
-		} else if strings.HasPrefix(r.URL.Path, "/api/") {
-			api.ServeHTTP(w, r)
-		} else {
-			proxy.ServeHTTP(w, r)
-		}
 	})
 	server.Start()
 	defer server.Close()
