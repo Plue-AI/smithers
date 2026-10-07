@@ -1809,6 +1809,31 @@ def setup(user, uid, directories, *, create_home=True):
                         "--shell", "/bin/bash", "--", user], check=True, env=environment)
         entry = pwd.getpwnam(user)
     entry = assigned_identity(user, uid)
+    if uid >= 20000:
+        # Fixed runtime namespace, provisioned from the authenticated roster.
+        # Root creates only this member directory; the owner-uid session writes
+        # delegated files beneath it. Never traverse anything in the directory.
+        parent = safe_directory("/run/smithers", trusted=True)
+        try:
+            created = False
+            try:
+                os.mkdir(str(uid), 0o700, dir_fd=parent)
+                created = True
+            except FileExistsError:
+                pass
+            member = os.open(str(uid), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                             dir_fd=parent)
+            try:
+                info = os.fstat(member)
+                if not created and (info.st_uid != uid or info.st_gid != uid
+                                    or stat.S_IMODE(info.st_mode) != 0o700):
+                    fail(3, "untrusted member token directory")
+                if created:
+                    os.fchown(member, uid, uid)
+            finally:
+                os.close(member)
+        finally:
+            os.close(parent)
     if not create_home:
         return
     parent = safe_directory("/home", trusted=True)

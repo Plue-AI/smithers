@@ -5722,13 +5722,18 @@ export type PostApiTerminalsBody = {
   branch: string
 }
 
+export type PostApiTerminalsResponse = {
+  id: string
+  branch: string
+}
+
 export interface PostApiTerminalsInput {
   readonly body: PostApiTerminalsBody
 }
 
 /** POST /api/terminals: Open a branch terminal */
-export const postApiTerminals = (transport: Transport, input: PostApiTerminalsInput): Promise<void> =>
-  transport.request("POST", `/api/terminals`, input.body).then(() => undefined)
+export const postApiTerminals = (transport: Transport, input: PostApiTerminalsInput): Promise<PostApiTerminalsResponse> =>
+  transport.request("POST", `/api/terminals`, input.body) as Promise<PostApiTerminalsResponse>
 
 export type GetApiStackResponse = HomeCard
 

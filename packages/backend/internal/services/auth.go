@@ -152,6 +152,8 @@ type oauthAccountTokenHealQuerier interface {
 }
 
 type AuthService struct {
+	// TerminalSubject is the install manager's exact live/startup owner binding.
+	TerminalSubject func(int64, int64, string, string) bool
 	Members         *Members
 	InstallSetup    *InstallSetupSessions
 	metrics         AuthMetricsObserver
