@@ -117,7 +117,9 @@ func TestTodoPullLabelApprovalComposedPostgres(t *testing.T) {
 	testTodoMergeComposedRouteBoundaryPostgres(t, false, false, true)
 }
 
-func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, browserJourney, labelApproval bool, delegatedBrowser ...bool) {
+func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, browserJourney, labelApproval bool, options ...bool) {
+	explicitHead := []bool{len(options) > 1 && options[1]}
+	delegatedBrowser := options
 	installBrowser := browserJourney || len(delegatedBrowser) > 0 && delegatedBrowser[0]
 	installation := int64(98300) + confirmationMergeInstallations.Add(1)
 	var pool *pgxpool.Pool
@@ -487,17 +489,27 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		// C-CAT-02: request through the actual source CLI, with a delegated
 		// credential. Discovery, schema parsing and HTTP dispatch all run.
 		invoke := catalogCLIInvoker(t, ctx, origin, pat)
-		argv := []string{"merge", fmt.Sprintf("T%d", filed.Number), "--reviewed_head_sha", pull.Head.SHA, "--idempotencyKey", "confirm-create"}
+		argv := []string{"merge", fmt.Sprintf("T%d", filed.Number)}
+		if len(explicitHead) > 0 && explicitHead[0] {
+			argv = append(argv, "--reviewed_head_sha", pull.Head.SHA)
+		}
+		argv = append(argv, "--idempotencyKey", "confirm-create")
 		code, receipt := invoke(argv...)
 		require.Equal(t, 3, code, receipt)
 		require.Equal(t, "pending", receipt["state"])
 		require.Equal(t, "Waiting for Merge owner to confirm", receipt["message"])
+		require.Len(t, receipt, 3, "the CLI exposes only the receipt and waiting message")
 		id := receipt["confirmation"].(string)
 		if len(delegatedBrowser) > 0 && delegatedBrowser[0] {
 			runMergeConfirmationBrowser(t, cfg, pool, mythical, server, owner, pat, id, filed.Number, pull.Head.SHA, before.ID,
 				&services.Members{Pool: pool, Credentials: credentials, Minter: connections, Budget: services.NewBudgetTracker()})
 			return
 		}
+		boundRow, err := q.GetMemberConfirmation(ctx, id, owner.ID)
+		require.NoError(t, err)
+		require.Equal(t, "review_merge", boundRow.Kind)
+		require.Contains(t, boundRow.Revision, pull.Head.SHA)
+
 		replayCode, replay := invoke(argv...)
 		require.Equal(t, 3, replayCode)
 		require.Equal(t, receipt, replay, "repeated CLI invocation keeps the same private confirmation")
@@ -592,6 +604,21 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		for _, write := range fake.Writes() {
 			require.False(t, write.Method == "PUT" && strings.HasSuffix(write.Path, "/merge"))
 		}
+		// A moved head with the same generation must expire the card too.
+		argv[len(argv)-1] = "confirm-before-head-move"
+		code, receipt = invoke(argv...)
+		require.Equal(t, 3, code, receipt)
+		movedID := receipt["confirmation"].(string)
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET pr_head=$2 WHERE id=$1`, before.ID, strings.Repeat("e", 40))
+		require.NoError(t, err)
+		status, receipt = call("POST", "/api/confirmations/"+movedID+"/approve", "owner-browser-session", "", "moved-head-press", `{}`)
+		require.Equal(t, 409, status, receipt)
+		movedRow, err := q.GetMemberConfirmation(ctx, movedID, owner.ID)
+		require.NoError(t, err)
+		require.Equal(t, "expired", movedRow.State)
+		require.Empty(t, item().PendingOp)
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET pr_head=$2 WHERE id=$1`, before.ID, pull.Head.SHA)
+		require.NoError(t, err)
 		fake.RequireCheck("required/unit")
 		fake.SetCheck("rehearsal-owner/app", pull.Head.SHA, "required/unit", "in_progress", "")
 		fake.SetCheck("rehearsal-owner/app", pull.Head.SHA, "optional/lint", "completed", "failure")
