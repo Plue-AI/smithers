@@ -42,11 +42,26 @@ export function preflightTiming(events, runId) {
   const starts = frames.filter(frame => frame.phase === 'started')
   const completed = frames.filter(frame => frame.phase === 'completed')
   if (!starts.length || !completed.length) throw new Error('T-APP-16: preflight phases unavailable in Inspect')
+  // DurableChatProducer paginates large contexts. Missing or replayed pages
+  // cannot be silently replaced by the first start and last completion.
+  for (const phase of [starts, completed]) {
+    const total = phase[0].page?.total ?? 1
+    if (!Number.isSafeInteger(total) || total < 1 || phase.length !== total) throw new Error('preflight pages missing or duplicated')
+    for (const [index, frame] of phase.entries()) {
+      if (frame.page ? frame.page.index !== index || frame.page.total !== total : total !== 1) throw new Error('preflight page order or identity differs')
+      if (!Number.isFinite(frame.at) || frame.at < 0 || typeof frame.clock !== 'string' || !frame.clock.startsWith('host monotonic:') || frame.clock.length <= 'host monotonic:'.length || frame.clock !== starts[0].clock) throw new Error('T-APP-16: preflight host-clock start/end unavailable')
+      if (index && frame.at < phase[index - 1].at) throw new Error('preflight page clock moved backwards')
+    }
+  }
   const start = starts[0], end = completed.at(-1)
-  if (!Number.isFinite(start.at) || !Number.isFinite(end.at) || end.at < start.at ||
-      typeof start.clock !== 'string' || !start.clock.startsWith('host monotonic:') || start.clock.length <= 'host monotonic:'.length || start.clock !== end.clock) throw new Error('T-APP-16: preflight host-clock start/end unavailable')
-  if (!end.result?.model || !Array.isArray(end.result.context)) throw new Error('preflight model/context missing')
-  return { start: start.at, end: end.at, durationMs: end.at - start.at, model: end.result.model, clock: start.clock, context: end.result.context }
+  if (completed[0].at < starts.at(-1).at || frames.indexOf(completed[0]) < frames.indexOf(starts.at(-1))) throw new Error('preflight completion precedes start')
+  const context = []
+  for (const frame of completed) {
+    if (!frame.result?.model || frame.result.model !== end.result?.model || !Array.isArray(frame.result.context)) throw new Error('preflight model/context missing or inconsistent')
+    context.push(...frame.result.context)
+  }
+  return { start: start.at, end: end.at, durationMs: end.at - start.at, model: end.result.model, clock: start.clock, context }
+
 }
 
 export function wakeCount(metrics) {

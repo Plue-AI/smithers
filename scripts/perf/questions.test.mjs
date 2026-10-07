@@ -182,3 +182,21 @@ test('rebase threshold and cleanup failures retain all completed raw observation
   return true
  })
 })
+
+ test('Inspect retains every context page and refuses missing, replayed or reordered pages', () => {
+  const frame = { type: 'context.preflight', runId: 'run', clock: 'host monotonic:boot-1' }
+  const start = { ...frame, phase: 'started', at: 10, page: { index: 0, total: 1 } }
+  const first = { ...frame, phase: 'completed', at: 20, page: { index: 0, total: 2 }, result: { model: 'fast', context: ['a'] } }
+  const last = { ...first, at: 21, page: { index: 1, total: 2 }, result: { model: 'fast', context: ['b'] } }
+  assert.deepEqual(preflightTiming([start, first, last], 'run').context, ['a', 'b'])
+  assert.equal(preflightTiming([start, first, last], 'run').durationMs, 11)
+  for (const events of [
+    [start, last], [start, first, first], [start, last, first], [first, last, start],
+    [start, first, { ...last, clock: 'host monotonic:other' }],
+    [start, first, { ...last, at: 19 }],
+    [start, first, { ...last, result: { model: 'other', context: ['b'] } }],
+    [start, first, { ...last, page: { index: 1, total: 3 } }],
+    [start, first, { ...last, page: undefined }],
+    [start, { ...first, at: -1 }, last]
+  ]) assert.throws(() => preflightTiming(events, 'run'))
+ })
