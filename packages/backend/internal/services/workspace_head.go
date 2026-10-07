@@ -779,7 +779,8 @@ func (s *WorkspaceService) persistWorkspaceHeadReport(ctx context.Context, works
 	if s.transactions == nil {
 		return s.saveWorkspaceHeadReport(ctx, workspace, input)
 	}
-	return pgx.BeginFunc(ctx, s.transactions, func(tx pgx.Tx) error {
+	staleReport := false
+	err := pgx.BeginFunc(ctx, s.transactions, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, workspace.RepositoryID); err != nil {
 			return err
 		}
@@ -793,22 +794,30 @@ func (s *WorkspaceService) persistWorkspaceHeadReport(ctx context.Context, works
 			if item.WorkspaceID != workspace.ID || !mythicalTodo(item) {
 				continue
 			}
+			if mythicalMergeFenced(item) {
+				return pkgerrors.Conflict("a merge is in flight")
+			}
 			if liveTree == "" {
 				if s.runtime == nil || s.runtime.Isolation() != workspaceapi.IsolationSandboxed || !codingCommitID.MatchString(input.CommitID) || !codingChangeID.MatchString(input.ChangeID) {
 					return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "live candidate observation unavailable")
 				}
 				// Never reuse a cached execution result for a live observation.
 				observed, err := s.runtimeRepositoryCommandOutput(ctx, workspace, workspace.UserID, "head-report-"+uuid.NewString(), workspaceapi.Command{
-					Args: []string{"jj", "--ignore-working-copy", "--no-pager", "log", "--no-graph", "-r", "@", "-T", `commit_id ++ " " ++ change_id`},
+					// Snapshot tracked edits before comparing the report. Ignoring
+					// the working copy would authorize a stale verified tree after
+					// a member edited files without running jj themselves.
+					Args: []string{"jj", "--no-pager", "log", "--no-graph", "-r", "@", "-T", `commit_id ++ " " ++ change_id`},
 				})
 				if err != nil {
 					return err
 				}
-				if observed != input.CommitID+" "+input.ChangeID {
-					return pkgerrors.Conflict("workspace head report is no longer the live revision")
+				ids := strings.Fields(observed)
+				if len(ids) != 2 || !codingCommitID.MatchString(ids[0]) || !codingChangeID.MatchString(ids[1]) {
+					return pkgerrors.Conflict("live revision could not be verified")
 				}
+				staleReport = observed != input.CommitID+" "+input.ChangeID
 				liveTree, err = s.runtimeRepositoryCommandOutput(ctx, workspace, workspace.UserID, "head-tree-"+uuid.NewString(), workspaceapi.Command{
-					Args:        []string{"git", "rev-parse", "--verify", input.CommitID + "^{tree}"},
+					Args:        []string{"git", "rev-parse", "--verify", ids[0] + "^{tree}"},
 					Environment: map[string]string{"GIT_NO_REPLACE_OBJECTS": "1", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"},
 				})
 				if err != nil {
@@ -850,10 +859,22 @@ func (s *WorkspaceService) persistWorkspaceHeadReport(ctx context.Context, works
 				return err
 			}
 		}
+		if staleReport {
+			// Commit invalidation from the authoritative observation, but never
+			// let a delayed report replace the stored head or operation receipts.
+			return nil
+		}
 		bound := *s
 		bound.q = q
 		return bound.saveWorkspaceHeadReport(ctx, workspace, input)
 	})
+	if err != nil {
+		return err
+	}
+	if staleReport {
+		return pkgerrors.Conflict("workspace head report is no longer the live revision")
+	}
+	return nil
 }
 
 func (s *WorkspaceService) saveWorkspaceHeadReport(ctx context.Context, workspace db.Workspace, input ReportWorkspaceHeadInput) error {
