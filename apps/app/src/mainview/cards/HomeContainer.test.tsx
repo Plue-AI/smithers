@@ -316,7 +316,7 @@ test("production props alone keep the seed until the home topic serves data; the
 test("the install Home reads the live seam and disabled title actions never launch a flow", async () => {
   const b = browser(), h = seeded(MAYA, true, "smithersai")
   h.controller.design.dispose()
-  const installed = installFixture(); installed.capacity = 9
+  const installed = installFixture(); installed.capacity = 9; installed.this_mac.capacity = 9
   const installedSnapshot = { model: installed }
   const controller = { ...h.controller, design: createDesignWorld({ enabled: false }),
     installSnapshots: { get: () => installedSnapshot, subscribe: () => () => {} } } as AppController
