@@ -327,13 +327,19 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 		}
 		return source, ""
 	case topic == "flows":
-		return live.Source{Key: topic, Hints: hints, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
+		source := live.Source{Key: topic, Hints: hints, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
 			cards, err := services.RepositoryFlowCatalog(ctx, t.queries, repository, flowProposalReader(t.todos))
 			if err != nil {
 				return nil, err
 			}
 			return json.Marshal(cards)
-		}}, ""
+		}}
+		if t.jobs != nil {
+			source = liveJobSource(source, t.jobs, services.FlowLiveScope(repository))
+			source = liveCardRefresh(source, "card")
+			source.RefreshEvery = liveRefreshEvery
+		}
+		return source, ""
 	case kind == "todo":
 		n, err := strconv.ParseInt(rest, 10, 64)
 		if err != nil || n <= 0 || strconv.FormatInt(n, 10) != rest {
