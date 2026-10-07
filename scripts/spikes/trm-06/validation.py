@@ -191,6 +191,44 @@ def main():
     if operation == "sample":
         print(json.dumps(sample()))
         return
+    if operation == "device-regular":
+        # Main-installed fixture only, in its own disposable VM. Replace a fixed
+        # device with an ordinary writable file; the dropped launch must refuse
+        # before any member argv runs. Preserve the original node for evidence.
+        dev = os.open("/dev", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            info = os.stat("zero", dir_fd=dev, follow_symlinks=False)
+            if info.st_uid != 0 or not stat.S_ISCHR(info.st_mode) or info.st_rdev != os.makedev(1, 5):
+                raise ValueError("unexpected initial zero device")
+            os.rename("zero", "trm06-zero-original", src_dir_fd=dev, dst_dir_fd=dev)
+            fd = os.open("zero", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o666, dir_fd=dev)
+            with os.fdopen(fd, "wb") as output:
+                output.write(b"device-fixture\x00")
+                os.fchmod(output.fileno(), 0o666)
+        finally:
+            os.close(dev)
+        print(json.dumps({"device_replaced": True, "outside": fingerprint()}))
+        return
+    if operation == "cleanup-poison":
+        parent = os.open("/sys/fs/cgroup/smithers/sessions", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.mkdir("trm06-invalid-child", 0o755, dir_fd=parent)
+        finally:
+            os.close(parent)
+        print(json.dumps({"cleanup_poisoned": True, "outside": fingerprint()}))
+        return
+    if operation == "boundary-sample":
+        marker = Path("/workspace/trm06-member-canary")
+        logfd = os.open("/run/smithers/trm06/init.log", os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(logfd, "rb") as log:
+            info = os.fstat(log.fileno())
+            if info.st_uid != 0 or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise ValueError("untrusted init log")
+            data = log.read(1024 * 1024 + 1)
+        if len(data) > 1024 * 1024:
+            raise ValueError("oversized init log")
+        print(json.dumps({"member_canary_exists": marker.exists() or marker.is_symlink(), "init_log": data.decode("utf-8", "strict"), "sample": sample(), "outside": fingerprint()}))
+        return
     if operation == "restart":
         observed = sample()
         if len(observed["supervisors"]) != 1:

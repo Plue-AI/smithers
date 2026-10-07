@@ -66,7 +66,7 @@ func runRootValidation(ctx context.Context, a *installedAuthority, root, home, o
 	}()
 	scenarios := []string{"symlink-opt", "symlink-run", "existing-prototype", "race-parent", "poison-imports", "branch-supervisor", "bad-sha", "positive"}
 	if operation == "check-session" {
-		scenarios = []string{"positive"}
+		scenarios = []string{"positive", "device-regular", "cleanup-poison"}
 	}
 	for _, scenario := range scenarios {
 		if err = validationScenario(ctx, a, runtime, cfg.Root, home, string(fixture), scenario, operation, evidence); err != nil {
@@ -114,7 +114,7 @@ func validationScenario(ctx context.Context, a *installedAuthority, runtime *mic
 		return runGuestFixture(ctx, a, home, metadata.Machine, fixture, mode)
 	}
 	prepare := scenario
-	if scenario == "branch-supervisor" || scenario == "bad-sha" {
+	if scenario == "branch-supervisor" || scenario == "bad-sha" || scenario == "device-regular" || scenario == "cleanup-poison" {
 		prepare = "positive"
 	}
 	before, err := observe(prepare)
@@ -139,7 +139,7 @@ func validationScenario(ctx context.Context, a *installedAuthority, runtime *mic
 		candidate.supervisorSHA = "0000000000000000000000000000000000000000000000000000000000000000"
 	}
 	err = installPrototype(ctx, &candidate, id, home, runtimeRoot, identity)
-	if scenario != "positive" && scenario != "poison-imports" {
+	if scenario != "positive" && scenario != "poison-imports" && scenario != "device-regular" && scenario != "cleanup-poison" {
 		if err == nil {
 			return fmt.Errorf("installed destination fixture %s was accepted", scenario)
 		}
@@ -171,6 +171,9 @@ func validationScenario(ctx context.Context, a *installedAuthority, runtime *mic
 			return ready.Err()
 		case <-time.After(100 * time.Millisecond):
 		}
+	}
+	if scenario == "device-regular" || scenario == "cleanup-poison" {
+		return validateRefusalFixture(ctx, control, observe, scenario, before, evidence)
 	}
 	if operation == "check-session" {
 		if err = validateSessionBoundary(ctx, control, observe, evidence); err != nil {
@@ -215,7 +218,7 @@ func compareOutside(before, after []byte) error {
 	return nil
 }
 func runGuestFixture(ctx context.Context, a *installedAuthority, home, machine, source, mode string) ([]byte, error) {
-	if mode != "positive" && mode != "race-parent" && mode != "poison-imports" && mode != "symlink-opt" && mode != "symlink-run" && mode != "existing-prototype" && mode != "sample" && mode != "fingerprint" && mode != "restart" && mode != "arm" && mode != "drain" {
+	if mode != "positive" && mode != "race-parent" && mode != "poison-imports" && mode != "symlink-opt" && mode != "symlink-run" && mode != "existing-prototype" && mode != "sample" && mode != "fingerprint" && mode != "restart" && mode != "arm" && mode != "drain" && mode != "device-regular" && mode != "cleanup-poison" && mode != "boundary-sample" {
 		return nil, errAuthority
 	}
 	// Set argv in install-controlled source, never concatenate member data or
@@ -464,4 +467,66 @@ func validationRefusal(stream net.Conn, body []byte, length uint32) ([]byte, err
 		return nil, errors.New("invalid envelope lacked an explicit refusal")
 	}
 	return replyBody, nil
+}
+
+func validateRefusalFixture(ctx context.Context, control relayControl, observe func(string) ([]byte, error), scenario string, before []byte, evidence string) error {
+	// Actual authenticated installed relay, never a direct supervisor socket.
+	stream, err := control.connect(ctx)
+	if err != nil {
+		return err
+	}
+	defer stream.Close()
+	if _, err = observe(scenario); err != nil {
+		return err
+	}
+	if scenario == "device-regular" {
+		_, err = controlExchange(stream, map[string]any{"type": "open_session", "kind": "exec", "argv": []string{"/bin/sh", "-c", "printf canary > /workspace/trm06-member-canary"}})
+		if err == nil {
+			return errors.New("replaced fixed device admitted member argv")
+		}
+		// Require a complete typed refusal. A transport timeout is not proof.
+		stream.Close()
+		probe, connectErr := control.connect(ctx)
+		if connectErr != nil {
+			return connectErr
+		}
+		body, refusalErr := validationRefusal(probe, []byte(`{"type":"open_session","kind":"exec","argv":["/bin/sh","-c","printf canary > /workspace/trm06-member-canary"]}`), uint32(len(`{"type":"open_session","kind":"exec","argv":["/bin/sh","-c","printf canary > /workspace/trm06-member-canary"]}`)))
+		probe.Close()
+		if refusalErr != nil || bytes.Equal(body, []byte(`{"transport_closed":true}`)) {
+			return errors.New("device refusal lacked explicit envelope")
+		}
+	} else {
+		if _, err = observe("restart"); err != nil {
+			return err
+		}
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			attempt, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+			probe, connectErr := control.connect(attempt)
+			cancel()
+			if connectErr == nil {
+				probe.Close()
+				return errors.New("cleanup failure admitted authenticated relay")
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	after, err := observe("boundary-sample")
+	if err != nil {
+		return err
+	}
+	if err = os.WriteFile(filepath.Join(evidence, scenario+"-boundary.json"), after, 0600); err != nil {
+		return err
+	}
+	var state struct {
+		MemberCanaryExists *bool  `json:"member_canary_exists"`
+		InitLog            string `json:"init_log"`
+	}
+	if json.Unmarshal(after, &state) != nil || state.MemberCanaryExists == nil || *state.MemberCanaryExists {
+		return errors.New("member canary ran before device/startup validation")
+	}
+	if scenario == "cleanup-poison" && !strings.Contains(state.InitLog, "untrusted session cgroup") {
+		return errors.New("cleanup failure lacked an explicit startup refusal")
+	}
+	return compareOutside(before, after)
 }

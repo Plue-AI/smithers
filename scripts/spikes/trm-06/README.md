@@ -172,8 +172,7 @@ This observer remains unrun on real cgroups; missing observations remain NO. `la
 `run.sh root-prototype-install-validation` and
 `run.sh root-session-input-validation` run disposable real-VM fixture subsets.
 They deliberately return incomplete (78), preserve partial receipts, and never
-issue PASS: installed artifact replacement/races, unsupported Landlock/device
-replacement, cleanup-failure admission, independent restart ordering, and the
+issue PASS: installed artifact replacement/races, unsupported Landlock, installed cgroup/path races and independent restart ordering, and the
 full malformed-input/cgroup-race matrix still need executable controls and real
 execution. They use the same five-check approval gate, with no validation bypass;
 initial validation authorization needs security-owner resolution.
@@ -210,3 +209,10 @@ observations. The restart measurement now arms held old-cgroup observers before
 SIGKILL and requires raw populated-zero samples within two seconds before its
 replacement session opens. Reference-host execution and first-admission ordering
 under concurrent VS Code reconnect remain pending.
+
+The session-root campaign now also runs fresh disposable fixtures replacing
+`/dev/zero` with an ordinary file and inserting an invalid child in the session
+cgroup parent before init restart. It requires an explicit device-envelope or
+startup-log refusal and unchanged outside/member-canary samples. These controls
+are implemented but unrun; they do not supply accepted root receipts. Unsupported
+Landlock and the complete artifact/cgroup race matrix remain unfinished.
