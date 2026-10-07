@@ -17,6 +17,7 @@ export const CloudWikiState = z.object({
   branchId: z.string(),
   phase: z.enum(["cached", "live", "offline", "deleted"]),
   error: z.string().nullable(),
+  live: z.object({ epoch: z.string().optional(), clientId: z.number().int().positive(), pending: z.array(z.string()) }).optional(),
   pending: z.array(z.object({
     updateId: z.string().uuid(),
     update: z.string(),
