@@ -16,6 +16,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostserver"
+	"github.com/smithersai/smithers/packages/backend/repository"
 	"github.com/stretchr/testify/require"
 )
 
@@ -178,4 +179,30 @@ func TestMachineObjectsProductionBinding(t *testing.T) {
 	_, err = wire.Read(peer2)
 	require.Error(t, err, "shutdown must not certify stored bytes on an old link")
 	require.Equal(t, base, git("-C", store, "rev-parse", "refs/heads/main"))
+}
+
+func TestInstallMachineObjectsResolveHostBranch(t *testing.T) {
+	f := presenceInstall(t)
+	client := repository.NewRemoteClient(nil, "test")
+	_, err := f.pool.Exec(t.Context(), `UPDATE workspaces SET vm_id='fixture-machine' WHERE id=$1`, f.row.ID)
+	require.NoError(t, err)
+	objects := machineObjects(f.pool, client)
+	// A remote client cannot silently grant local filesystem access.
+	_, err = objects.VerifyCapture(t.Context(), f.row.ID, wire.Captured{})
+	require.Error(t, err)
+	visits := 0
+	client.BindMachineRepository(func(ctx context.Context, owner, repo string, visit func(string) error) error {
+		require.NotEmpty(t, owner)
+		require.NotEmpty(t, repo)
+		visits++
+		return visit(t.TempDir())
+	})
+	_, err = objects.VerifyCapture(t.Context(), f.row.ID, wire.Captured{Head: "--all", Tree: strings.Repeat("a", 40), Base: strings.Repeat("b", 40)})
+	require.ErrorIs(t, err, wire.BadValue)
+	require.Equal(t, 1, visits)
+	_, err = objects.VerifyCapture(t.Context(), "11111111-1111-4111-8111-111111111111", wire.Captured{})
+	require.Error(t, err)
+	require.Equal(t, 1, visits, "unknown branches cannot select a host repository")
+	_, err = machineObjects(nil, client).VerifyCapture(t.Context(), f.row.ID, wire.Captured{})
+	require.ErrorIs(t, err, machined.ErrNotReady)
 }

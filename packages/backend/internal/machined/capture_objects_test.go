@@ -22,7 +22,16 @@ func TestGitCaptureObjects(t *testing.T) {
 		}
 		return repo, nil
 	}
-	store := GitCaptureObjects{Resolve: resolve}
+	visits := 0
+	store := HostObjects{Visit: func(ctx context.Context, id string, visit func(string) error) error {
+		path, err := resolve(ctx, id)
+		if err != nil {
+			return err
+		}
+		visits++
+		return visit(path)
+	}}
+	defer func() { require.Greater(t, visits, 10) }()
 	git := func(args ...string) string {
 		out, err := hostexec.Git(t.Context(), append([]string{"-C", repo}, args...)...).CombinedOutput()
 		require.NoError(t, err, "%s", out)
@@ -37,7 +46,7 @@ func TestGitCaptureObjects(t *testing.T) {
 	file, err := os.Open(bundle)
 	require.NoError(t, err)
 	defer file.Close()
-	require.NoError(t, GitBundleImporter(resolve)(t.Context(), branch, file))
+	require.NoError(t, store.Import(t.Context(), branch, file))
 	_, err = store.VerifyCapture(t.Context(), branch, capture)
 	require.ErrorIs(t, err, wire.BadValue, "claimed tree must match the commit")
 	capture.Tree = git("rev-parse", head+"^{tree}")

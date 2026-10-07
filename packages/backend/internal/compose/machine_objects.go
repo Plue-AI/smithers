@@ -20,10 +20,6 @@ func machineObjectImporter(lifetime context.Context, pool *pgxpool.Pool, host *r
 		if pool == nil || host == nil || file == nil {
 			return machined.ErrNotReady
 		}
-		id, err := uuid.Parse(branch)
-		if err != nil || id.String() != branch {
-			return machined.ErrUnauthorized
-		}
 		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		stop := context.AfterFunc(lifetime, cancel)
@@ -31,23 +27,10 @@ func machineObjectImporter(lifetime context.Context, pool *pgxpool.Pool, host *r
 		if lifetime.Err() != nil {
 			return lifetime.Err()
 		}
-		tx, err := pool.Begin(ctx)
-		if err != nil {
-			return err
-		}
-		defer func() {
-			cleanup, done := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
-			defer done()
-			_ = tx.Rollback(cleanup)
-		}()
-		err = withMachineRepositoryTx(ctx, tx, branch, host, func(path string) error {
+		return machineObjects(pool, host).Visit(ctx, branch, func(path string) error {
 			importer := machined.GitBundleImporter(func(context.Context, string) (string, error) { return path, nil })
 			return importer(ctx, branch, file)
 		})
-		if err != nil {
-			return err
-		}
-		return tx.Commit(ctx)
 	}
 }
 
@@ -102,4 +85,34 @@ func bindMachineObjects(ctx context.Context, registry *machined.Registry, pool *
 	registry.BindObjectImporter(machineObjectImporter(ctx, pool, host))
 	registry.BindObjectExporter(machineObjectExporter(ctx, pool, host))
 	return func() { cancel(); registry.BindObjectImporter(nil); registry.BindObjectExporter(nil) }
+}
+
+// Resolve every local machine object operation under the same host authority and
+// repository exclusion. Stream imports and capture/head verification share it.
+func machineObjects(pool *pgxpool.Pool, host *repohost.Client) machined.HostObjects {
+	return machined.HostObjects{Visit: func(ctx context.Context, branch string, visit func(string) error) error {
+		if pool == nil || host == nil || visit == nil {
+			return machined.ErrNotReady
+		}
+		id, err := uuid.Parse(branch)
+		if err != nil || id.String() != branch {
+			return machined.ErrUnauthorized
+		}
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			cleanup, done := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+			defer done()
+			_ = tx.Rollback(cleanup)
+		}()
+		err = withMachineRepositoryTx(ctx, tx, branch, host, visit)
+		if err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	}}
 }
