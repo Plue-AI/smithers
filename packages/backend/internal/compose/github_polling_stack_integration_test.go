@@ -102,7 +102,8 @@ func TestInstallPollingTenPullsThroughStackWorker(t *testing.T) {
 		f.upstream.SetCheck("acme/app", head, "ci", "completed", "success")
 		item, _, err := f.q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: f.repository, State: "proposed", Checks: json.RawMessage(fmt.Sprintf(`{"todo":true,"branch":"smithers/%d"}`, i))})
 		require.NoError(t, err)
-		_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET source='todo',number=$2,owner_id=$3,title=$4,attempt=1,pr_number=$2,pr_state='open',pr_url=$5,pr_head=$6,candidate_head=$6,candidate_verified=true WHERE id=$1`, item.ID, i, f.user.ID, fmt.Sprintf("Polling TODO %d", i), fmt.Sprintf("https://github.com/acme/app/pull/%d", i), head)
+		// The worker clock is frozen; database wall time may advance during setup.
+		_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET source='todo',number=$2,owner_id=$3,title=$4,attempt=1,pr_number=$2,pr_state='open',pr_url=$5,pr_head=$6,candidate_head=$6,candidate_verified=true,next_attempt_at=$7 WHERE id=$1`, item.ID, i, f.user.ID, fmt.Sprintf("Polling TODO %d", i), fmt.Sprintf("https://github.com/acme/app/pull/%d", i), head, time.Unix(f.clock.Load(), 0).UTC())
 		require.NoError(t, err)
 	}
 	for i := 0; i < 100; i++ {
