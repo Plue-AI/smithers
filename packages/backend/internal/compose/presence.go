@@ -114,6 +114,7 @@ func (p *branchPresence) session(r *http.Request, repository int64) live.Presenc
 			Path     string `json:"path"`
 			Line     *int64 `json:"line"`
 			Terminal string `json:"terminal"`
+			Watching string `json:"watching"`
 			Run      string `json:"run"`
 			Step     string `json:"step"`
 		}
@@ -126,7 +127,7 @@ func (p *branchPresence) session(r *http.Request, repository int64) live.Presenc
 		}
 		// Browser heartbeats cannot claim a run or foreign terminal. Those sources
 		// require their authenticated session adapters, not user-controlled IDs.
-		if where.Terminal != "" || where.Run != "" || where.Step != "" {
+		if where.Terminal != "" || where.Watching != "" || where.Run != "" || where.Step != "" {
 			return live.Unsupported
 		}
 		location := map[string]any{"kind": "branch"}

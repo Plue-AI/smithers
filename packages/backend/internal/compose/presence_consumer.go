@@ -10,7 +10,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 func (p *branchPresence) sessionResolver(link *machined.Link) presenceSessionResolver {
@@ -23,7 +27,7 @@ func (p *branchPresence) sessionResolver(link *machined.Link) presenceSessionRes
 			if run == "" {
 				return presenceSessionBinding{}, machined.ErrUnauthorized
 			}
-			return presenceSessionBinding{Participant: "run:" + run, Name: "Agent", Kind: "agent", AgentKind: "external", Run: run, Via: via}, nil
+			return p.agentSessionBinding(ctx, branch, run, via)
 		}
 		row, err := p.queries.GetWorkspace(ctx, branch)
 		if err != nil {
@@ -144,4 +148,51 @@ func (p *branchPresence) leaveDaemon(ctx context.Context, branch, prefix string)
 			p.visits.leave(branch, member, lease.SessionID)
 		}
 	}
+}
+
+func (p *branchPresence) agentSessionBinding(ctx context.Context, branch, run, via string) (presenceSessionBinding, error) {
+	binding := presenceSessionBinding{Participant: "run:" + run, Name: "Agent", Kind: "agent", AgentKind: "external", Run: run, Via: via}
+	raw, state, err := p.queries.PresenceRunCheckpoint(ctx, branch, run)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return binding, nil
+	}
+	if err != nil {
+		return presenceSessionBinding{}, err
+	}
+	var checkpoint flowdispatch.RuntimeCheckpoint
+	if json.Unmarshal(raw, &checkpoint) != nil || checkpoint.Version != 1 || checkpoint.RunID != run || checkpoint.Target.WorkspaceID != branch || checkpoint.Run == nil || checkpoint.Run.RunID != run {
+		return presenceSessionBinding{}, machined.ErrUnauthorized
+	}
+	if jobs.State(state).Terminal() || checkpoint.Run.Status != "running" {
+		return presenceSessionBinding{Skip: true}, nil
+	}
+	if checkpoint.Target.BindingKind != "agent-session" && checkpoint.Target.BindingKind != "mythical-item" {
+		return presenceSessionBinding{}, machined.ErrUnauthorized
+	}
+	member, err := strconv.ParseInt(strings.TrimPrefix(checkpoint.Target.PrincipalID, "user:"), 10, 64)
+	if err != nil || !strings.HasPrefix(checkpoint.Target.PrincipalID, "user:") || member <= 0 {
+		return presenceSessionBinding{}, machined.ErrUnauthorized
+	}
+	binding.Member = member
+	binding.AgentKind = "coding"
+	if strings.Contains(strings.ToLower(checkpoint.FlowID), "review") {
+		binding.AgentKind = "reviewer"
+	}
+	binding.Name = binding.AgentKind
+	if checkpoint.Target.BindingKind == "agent-session" {
+		session, err := p.queries.GetAgentSession(ctx, checkpoint.Target.BindingID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return presenceSessionBinding{Skip: true}, nil
+		}
+		if err != nil {
+			return presenceSessionBinding{}, err
+		}
+		if services.UUIDString(session.WorkspaceID) != branch {
+			return presenceSessionBinding{}, machined.ErrUnauthorized
+		}
+		if session.UserID != member || session.Status != "active" || session.DeletedAt.Valid {
+			return presenceSessionBinding{Skip: true}, nil
+		}
+	}
+	return binding, nil
 }

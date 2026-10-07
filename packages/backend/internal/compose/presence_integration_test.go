@@ -237,7 +237,7 @@ func TestPresenceSessionBinding(t *testing.T) {
 func TestPresenceUnavailableFailsClosed(t *testing.T) {
 	f := presenceInstall(t)
 	conn := f.dial(t)
-	for _, where := range []string{`{"branch":"foreign","path":"retry.ts"}`, fmt.Sprintf(`{"branch":%q,"path":"../secret"}`, f.row.ID), fmt.Sprintf(`{"branch":%q,"terminal":"foreign"}`, f.row.ID), fmt.Sprintf(`{"branch":%q,"run":"finished","step":"review"}`, f.row.ID)} {
+	for _, where := range []string{`{"branch":"foreign","path":"retry.ts"}`, fmt.Sprintf(`{"branch":%q,"path":"../secret"}`, f.row.ID), fmt.Sprintf(`{"branch":%q,"terminal":"foreign"}`, f.row.ID), fmt.Sprintf(`{"branch":%q,"watching":"foreign"}`, f.row.ID), fmt.Sprintf(`{"branch":%q,"run":"finished","step":"review"}`, f.row.ID)} {
 		sendPresenceFrame(t, conn, `{"t":"presence","id":8,"where":`+where+`}`)
 		frame := readPresenceFrame(t, conn)
 		require.Equal(t, "err", frame.T)

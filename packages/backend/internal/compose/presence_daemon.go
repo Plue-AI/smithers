@@ -15,6 +15,7 @@ import (
 // session. The daemon snapshot supplies only the session number and last path.
 // Missing registry/session attribution leaves the operation unavailable.
 type presenceSessionBinding struct {
+	Skip                                                   bool
 	Member                                                 int64
 	Participant, Name, Kind, AgentKind, Run, Via, Terminal string
 }
@@ -47,6 +48,10 @@ func (p *branchPresence) daemonSnapshot(ctx context.Context, connection *machine
 		if err != nil {
 			return err
 		}
+		if binding.Skip {
+			bindings[i] = binding
+			continue
+		}
 		if !validPresenceBinding(binding) {
 			return machined.ErrUnauthorized
 		}
@@ -74,6 +79,9 @@ func (p *branchPresence) daemonSnapshot(ctx context.Context, connection *machine
 	keep := map[string]bool{}
 	for i, location := range locations {
 		binding := bindings[i]
+		if binding.Skip {
+			continue
+		}
 		session := prefix + strconv.FormatUint(uint64(location.Session), 10)
 		keep[session] = true
 		if err := connection.RequireReady(branch); err != nil {

@@ -2,6 +2,7 @@ package compose
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
@@ -52,7 +54,7 @@ func (p *branchPresence) ProjectFlowRuntime(ctx context.Context, update flowdisp
 		return nil
 	}
 	active := sessionActive && !update.State.Terminal() && checkpoint.Run != nil && checkpoint.Run.Status == "running"
-	if err := p.runHeartbeat(ctx, repository, member, target.WorkspaceID, checkpoint.RunID, kind, active); err != nil {
+	if err := p.runHeartbeat(ctx, repository, member, target.WorkspaceID, checkpoint.RunID, kind, active, scheduledPresenceStep(update.Events)); err != nil {
 		// Presence is advisory; a missing bridge must not retry a completed effect.
 		// The roster's source-readiness gate remains unknown on missing providers.
 		slog.Warn("runtime presence unavailable", "run", checkpoint.RunID, "error", err)
@@ -60,7 +62,7 @@ func (p *branchPresence) ProjectFlowRuntime(ctx context.Context, update flowdisp
 	return nil
 }
 
-func (p *branchPresence) runHeartbeat(ctx context.Context, repository, member int64, branch, run, kind string, active bool) error {
+func (p *branchPresence) runHeartbeat(ctx context.Context, repository, member int64, branch, run, kind string, active bool, step ...string) error {
 	if p == nil || p.dispatcher == nil || p.branches == nil || p.queries == nil {
 		return errors.New("presence source unavailable")
 	}
@@ -94,6 +96,27 @@ func (p *branchPresence) runHeartbeat(ctx context.Context, repository, member in
 		fields["for_member"] = "member:" + strconv.FormatInt(member, 10)
 		fields["cursor"] = nil
 		fields["where"] = map[string]any{"kind": "branch"}
+		if len(step) > 0 && step[0] != "" {
+			fields["where"] = map[string]any{"kind": "step", "label": step[0]}
+		} else {
+			// A lease renewal must retain this run's most recent step or file.
+			// The admitted daemon and runtime use the same participant identity.
+			raw, err := p.call(ctx, row, slug, "Branch.Roster", map[string]any{})
+			if err != nil {
+				return err
+			}
+			var leases []leaseParticipant
+			if err := json.Unmarshal(raw, &leases); err != nil {
+				return err
+			}
+			var newest int64
+			for _, lease := range leases {
+				if lease.Kind == "agent" && lease.ParticipantID == "run:"+run && lease.RunID == run && len(lease.Where) > 0 && lease.LeaseExpiresAtMs > newest {
+					fields["where"] = lease.Where
+					newest = lease.LeaseExpiresAtMs
+				}
+			}
+		}
 	}
 	_, err = p.call(ctx, row, slug, procedure, fields)
 	return err
@@ -135,3 +158,30 @@ func (p *branchPresence) duringTurn(ctx context.Context, repository, member int6
 }
 
 var _ flowdispatch.Projector = (*branchPresence)(nil)
+
+// Native node scheduling is the runtime's own declaration of what starts work.
+// Keep its action tag as display data; control lifecycle and transcript messages
+// cannot invent a step. Parallel schedules retain the last ordered observation.
+func scheduledPresenceStep(events []flowruntime.Event) string {
+	label := ""
+	for _, event := range events {
+		if event.Kind != "control.engine.event" {
+			continue
+		}
+		var envelope struct {
+			Version     int    `json:"version"`
+			EventType   string `json:"eventType"`
+			ExecutionID string `json:"executionId"`
+			Payload     struct {
+				NodeID  string `json:"nodeId"`
+				Action  string `json:"action"`
+				Attempt int    `json:"attempt"`
+			} `json:"payload"`
+		}
+		if json.Unmarshal(event.Payload, &envelope) != nil || envelope.Version != 1 || envelope.EventType != "flows.engine.node-scheduled" || envelope.ExecutionID == "" || envelope.Payload.NodeID == "" || envelope.Payload.Attempt < 1 || strings.TrimSpace(envelope.Payload.Action) == "" || strings.ContainsAny(envelope.Payload.Action, "\x00\r\n") || len(envelope.Payload.Action) > 1024 {
+			continue
+		}
+		label = envelope.Payload.Action
+	}
+	return label
+}

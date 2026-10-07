@@ -7,8 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/stretchr/testify/require"
 )
 
@@ -110,15 +113,47 @@ func TestPresenceProductionSessionConsumerThroughInstall(t *testing.T) {
 		}
 	}
 	require.True(t, foundAgent)
-	exchange(wire.CloseSession, nil, func() error { return sessions.CloseSession(t.Context(), 2) })
-	_, err = resolver(t.Context(), f.row.ID, 2)
-	require.ErrorIs(t, err, machined.ErrUnauthorized)
-	locations = append(wire.U16(1), wire.Struct(wire.Field(1, wire.U32(1)), wire.Field(2, wire.String("retry.ts")))...)
+
+	// The admitted runtime checkpoint supplies role and sponsor. A finished run
+	// never remains working presence merely because its broker session lingers.
+	store, err := jobs.NewStore(f.pool)
+	require.NoError(t, err)
+	scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", f.row.RepositoryID), PrincipalID: fmt.Sprintf("user:%d", f.user.ID)}
+	_, err = store.Admit(t.Context(), jobs.Admission{Scope: scope, Operation: flowdispatch.OperationLaunch, RequestID: "presence-runtime", Payload: json.RawMessage(`{}`), AuthorizationContext: json.RawMessage(`{"role":"owner"}`), EffectPolicy: jobs.EffectIdempotent, EffectKey: "presence-runtime"})
+	require.NoError(t, err)
+	claim, err := store.ClaimForOperations(t.Context(), "presence", time.Minute, []string{flowdispatch.OperationLaunch})
+	require.NoError(t, err)
+	checkpoint := flowdispatch.RuntimeCheckpoint{Version: 1, RunID: "external-run", FlowID: "todo", Target: flowruntime.Target{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID, WorkspaceID: f.row.ID, BindingKind: "mythical-item"}, Run: &flowruntime.Run{RunID: "external-run", FlowID: "todo", Status: "running"}}
+	raw, err := json.Marshal(checkpoint)
+	require.NoError(t, err)
+	_, err = store.Checkpoint(t.Context(), claim, raw)
+	require.NoError(t, err)
+	binding, err = resolver(t.Context(), f.row.ID, 2)
+	require.NoError(t, err)
+	require.Equal(t, "coding", binding.AgentKind)
+	require.Equal(t, f.user.ID, binding.Member)
+	require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Presence, Payload: wire.Union(1, wire.Field(1, locations))}))
+	frame = readPresenceFrame(t, reader)
+	require.NoError(t, json.Unmarshal(frame.Data, &card))
+	require.Len(t, card.Presence, 2)
+	for _, actor := range card.Presence {
+		if actor.Actor["kind"] == "agent" {
+			require.Equal(t, "coding", actor.Actor["agent"])
+			require.Equal(t, "presence-owner", actor.Actor["for_member"].(map[string]any)["login"])
+		}
+	}
+	require.NoError(t, store.Complete(t.Context(), claim, json.RawMessage(`{"kind":"runtime-terminal"}`)))
+	binding, err = resolver(t.Context(), f.row.ID, 2)
+	require.NoError(t, err)
+	require.True(t, binding.Skip)
 	require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Presence, Payload: wire.Union(1, wire.Field(1, locations))}))
 	frame = readPresenceFrame(t, reader)
 	require.NoError(t, json.Unmarshal(frame.Data, &card))
 	require.Len(t, card.Presence, 1)
 	require.Equal(t, "person", card.Presence[0].Actor["kind"])
+	exchange(wire.CloseSession, nil, func() error { return sessions.CloseSession(t.Context(), 2) })
+	_, err = resolver(t.Context(), f.row.ID, 2)
+	require.ErrorIs(t, err, machined.ErrUnauthorized)
 	require.NoError(t, guest.Close())
 	frame = readPresenceFrame(t, reader)
 	require.NoError(t, json.Unmarshal(frame.Data, &card))
