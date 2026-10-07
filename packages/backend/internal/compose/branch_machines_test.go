@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/coder/websocket"
 	"github.com/jackc/pgx/v5"
@@ -25,6 +26,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -519,6 +521,56 @@ esac
 	require.NoError(t, err)
 	require.NoError(t, recoveryService.ReconstructMachineAdmission(ctx))
 	require.Empty(t, recorder.rows)
+
+	// An unavailable safety authority must leave a person's HTTP request
+	// queued, rather than turn a full host into a failed terminal launch.
+	// The dependency contract is test-only until final-capture sleep lands.
+	var safetyReads atomic.Int32
+	freeDisk := func(context.Context) (int64, error) { return 40 << 30, nil }
+	svc.EnableMachineAdmission(freeDisk)
+	require.NoError(t, runtime.SetAdmissionIdleProviders(microsandbox.AdmissionIdleProviders{
+		Now: func() time.Time { return time.Now().Add(time.Minute) }, FreeDisk: freeDisk,
+		Safety: func(context.Context) ([]microsandbox.AdmissionSafety, error) {
+			safetyReads.Add(1)
+			return nil, errors.New("presence authority unavailable")
+		},
+		Prepare: func(context.Context, string) error { t.Error("unknown safety must not capture"); return nil },
+		Stop:    func(context.Context, string) error { t.Error("unknown safety must not stop"); return nil },
+	}))
+	_, err = q.UpdateWorkspaceStatus(ctx, db.UpdateWorkspaceStatusParams{ID: row.ID, Status: "suspended"})
+	require.NoError(t, err)
+	open := httptest.NewRequest("POST", origin+"/api/repos/admissionowner/fixture/workspace/sessions", strings.NewReader(fmt.Sprintf(`{"workspace_id":%q}`, row.ID)))
+	open.RemoteAddr = "127.0.0.1:1234"
+	open.Header.Set("Content-Type", "application/json")
+	open.Header.Set("Origin", origin)
+	open.Header.Set("X-CSRF-Token", "csrf")
+	open.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
+	open.AddCookie(&http.Cookie{Name: "smithers_session", Value: token})
+	opened := httptest.NewRecorder()
+	router.ServeHTTP(opened, open)
+	require.Equal(t, http.StatusCreated, opened.Code, opened.Body.String())
+	var waiting services.WorkspaceSessionResponse
+	require.NoError(t, json.Unmarshal(opened.Body.Bytes(), &waiting))
+	require.Equal(t, "pending", waiting.Status)
+	require.Positive(t, safetyReads.Load(), "exercise the unavailable safety provider")
+	read(1)
+	stored, err := q.GetWorkspaceSession(ctx, waiting.ID)
+	require.NoError(t, err)
+	require.Equal(t, "pending", stored.Status)
+	closeWaiting := httptest.NewRequest("POST", origin+"/api/repos/admissionowner/fixture/workspace/sessions/"+waiting.ID+"/destroy", nil)
+	closeWaiting.RemoteAddr = "127.0.0.1:1234"
+	closeWaiting.Header.Set("Origin", origin)
+	closeWaiting.Header.Set("X-CSRF-Token", "csrf")
+	closeWaiting.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
+	closeWaiting.AddCookie(&http.Cookie{Name: "smithers_session", Value: token})
+	closed := httptest.NewRecorder()
+	router.ServeHTTP(closed, closeWaiting)
+	require.Equal(t, http.StatusNoContent, closed.Code, closed.Body.String())
+	read(0)
+	drainCtx, stopDrain := context.WithTimeout(ctx, 5*time.Second)
+	defer stopDrain()
+	require.NoError(t, svc.WaitForProvisioning(drainCtx))
+	require.Zero(t, runtime.InUse())
 }
 
 type admissionDemandRecorder struct {

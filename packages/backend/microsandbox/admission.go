@@ -729,10 +729,9 @@ func (r *Runtime) WaitAdmission(ctx context.Context, p AdmissionProviders, class
 		if r.admissionGranted(holder, actor) {
 			return WithAdmissionHolder(ctx, holder), nil
 		}
-		if err := r.reconcileConfiguredAdmissionIdle(ctx, time.Now()); err != nil {
-			r.abandonAdmission(holder, actor)
-			return ctx, err
-		}
+		// Unknown safety or failed capture prevents release, not admission
+		// demand. Keep the caller queued until capacity or its authority changes.
+		_ = r.reconcileConfiguredAdmissionIdle(ctx, time.Now())
 		select {
 		case <-ctx.Done():
 		case <-changed:

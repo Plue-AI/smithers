@@ -1331,6 +1331,86 @@ func TestAdmissionConfiguredIdleReleaseWakesWaitingPerson(t *testing.T) {
 	require.Equal(t, "granted", r.AdmissionSnapshot()[1].State)
 }
 
+func TestAdmissionIdleFailurePreservesWaitingDemand(t *testing.T) {
+	for _, failure := range []string{"safety", "capture", "stop"} {
+		t.Run(failure, func(t *testing.T) {
+			r, p := admissionFixture()
+			_, err := r.WaitAdmission(t.Context(), p, "todo", "A", "T1", "run")
+			require.NoError(t, err)
+			require.NoError(t, r.BindAdmissionMachine("A", "vm-A"))
+			observed := make(chan struct{}, 1)
+			failed := func() error {
+				select {
+				case observed <- struct{}{}:
+				default:
+				}
+				return errors.New("safety or capture unavailable")
+			}
+			require.NoError(t, r.SetAdmissionIdleProviders(AdmissionIdleProviders{
+				FreeDisk: p.FreeDisk,
+				Safety: func(context.Context) ([]AdmissionSafety, error) {
+					if failure == "safety" {
+						return nil, failed()
+					}
+					return []AdmissionSafety{{Holder: "A", IdleSince: time.Now().Add(-time.Hour), PresenceKnown: true, SessionsKnown: true, RunKnown: true}}, nil
+				},
+				Prepare: func(context.Context, string) error {
+					if failure == "capture" {
+						return failed()
+					}
+					return nil
+				},
+				Stop: func(context.Context, string) error { return failed() },
+			}))
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			result := make(chan error, 1)
+			go func() { _, err := r.WaitAdmission(ctx, p, "person", "B", "Alice", "terminal"); result <- err }()
+			select {
+			case <-observed:
+			case <-time.After(2 * time.Second):
+				t.Fatal("idle failure was not exercised")
+			}
+			select {
+			case err := <-result:
+				t.Fatalf("idle failure ended the waiting request: %v", err)
+			default:
+			}
+			rows := r.AdmissionSnapshot()
+			require.Equal(t, "waiting", rows[1].State)
+			require.Equal(t, 1, rows[1].Position)
+			require.Equal(t, 1, r.InUse())
+			r.ConfirmAdmissionStop("A", false)
+			select {
+			case err := <-result:
+				require.NoError(t, err)
+			case <-time.After(2 * time.Second):
+				t.Fatal("confirmed stop did not grant the original request")
+			}
+			require.Equal(t, "granted", r.AdmissionSnapshot()[1].State)
+		})
+	}
+}
+
+func TestAdmissionIdleConfiguredClockPreservesStartupGrace(t *testing.T) {
+	r, p := admissionFixture()
+	start := time.Now()
+	r.admissionStarted = start
+	now := start.Add(29900 * time.Millisecond)
+	reads := 0
+	require.NoError(t, r.SetAdmissionIdleProviders(AdmissionIdleProviders{
+		Now: func() time.Time { return now }, FreeDisk: p.FreeDisk,
+		Safety:  func(context.Context) ([]AdmissionSafety, error) { reads++; return nil, nil },
+		Prepare: func(context.Context, string) error { t.Fatal("no machine to prepare"); return nil },
+		Stop:    func(context.Context, string) error { t.Fatal("no machine to stop"); return nil },
+	}))
+	require.NoError(t, r.reconcileConfiguredAdmissionIdle(t.Context(), time.Now()))
+	require.Zero(t, reads)
+	now = start.Add(30 * time.Second)
+	require.NoError(t, r.reconcileConfiguredAdmissionIdle(t.Context(), time.Now()))
+	require.Equal(t, 1, reads)
+}
+
 func TestAdmissionIdleConcurrentPreparationDoesNotBlockCancellation(t *testing.T) {
 	r, p := admissionFixture()
 	now := time.Now()
