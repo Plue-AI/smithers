@@ -122,7 +122,7 @@ The daemon always speaks first, whichever side connected. The relay secret never
 | step | sender | message (`kind 0x00`, union variant) | fields |
 | --- | --- | --- | --- |
 | 1 | daemon | `1 Challenge` | `1 magic: u32 = 0x534D4D44` ("SMMD"), `2 protocol: u16`, `3 boot_id: id128`, `4 nonce: digest` (32 random bytes) |
-| 2 | host | `2 HostProof` | `1 protocol: u16`, `2 mac: digest` = HMAC-SHA256(relay secret, `"smithers-machined/v1 host"` ‖ boot_id ‖ nonce) |
+| 2 | host | `2 HostProof` | `1 protocol: u16`, `2 mac: digest` = HMAC-SHA256(relay secret, `"smithers-machined host"` ‖ protocol (u16, big-endian, the HostProof's field 1) ‖ boot_id ‖ nonce) |
 | 3 | daemon | `3 MachineHello` | `1 credential: bytes` (≤ 1,024; the per-boot `machine` token), `2 instance: id128` (this daemon process), `3 next_seq: u64` (lowest unacknowledged seq, or the next seq), `4 sessions: list<u32>` (live sessions open for re-attach) |
 | 4 | host | `4 Welcome` | empty |
 | any | either | `5 Goodbye` | `1 code: u8` (`ProtocolError`), `2 detail: str` optional |
@@ -458,3 +458,10 @@ equal a new actor's hexadecimal key. Host writes allocate a current client
 instead of extending a retired clock. The metadata survives save and reopen. This does not by itself bind the production
 SQL authorizer, activate the document subsystem, or complete the coding-launcher
 and other producer migrations.
+
+### Wire review rulings (8a, 2026-10-07, #3626; 3f's independent review)
+
+1. **The version is authenticated.** The HostProof MAC covers `protocol` (row 2 above), so a relay cannot rewrite it unseen. The daemon checks `protocol` equality first (`version_mismatch`), then the MAC (`auth_failed`). The corpus carries one committed vector (secret, boot_id, nonce, protocol 5, mac) and a wrong-mac frame expecting `auth_failed`; both codecs must compute that exact mac.
+2. **Durable event variant 5 (transcripts) stays reserved in this contract.** Its payload belongs to T-AGT-02, which amends this ADR with the struct and adds its own frames when it lands. Until then, the `ev_transcript`, `ev_transcript_bad_utf8`, `ev_transcript_partial` and `ev_reserved_transcript` frames leave this manifest; the partial frame's `bad_utf8` expectation on valid UTF-8 was a fixture bug and is not carried over.
+3. **One rule for reserved variants:** a reserved union variant is refused with `bad_value` (a forbidden variant) whatever its body, before the body is decoded. Event variants 5 and 6 behave the same; document `msg` bytes keep their own §documents rule until T-COL-08b defines them.
+4. **Sequences that span connections** name each connection: every sequence step carries `conn` (`a`, `b`, …; default `a`). `seq_newer_boot` is: `a` completes its handshake; `b` (newer boot, same machine) completes its handshake and is accepted; `a` receives `Goodbye{superseded}`; a third connection `c` presenting the older boot's credential receives `auth_failed`.
