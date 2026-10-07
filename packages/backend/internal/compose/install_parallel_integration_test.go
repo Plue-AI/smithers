@@ -93,9 +93,9 @@ func testParallelInstallBoundary(t *testing.T, card bool) {
 	cfg.Install.StateDir = t.TempDir()
 	cfg.Server.PublicURL = "http://localhost:4000"
 	cfg.Server.AllowedOrigins = []string{"http://localhost:4000"}
-	capacity := &services.InstallCapacityService{AuthorizeParallel: func(ctx context.Context) error { _, err := services.Authorize(ctx, q, "settings.parallel"); return err }, Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: 400 << 30, MacOSVersion: "15.6", Hypervisor: true}}
+	capacity := &services.InstallCapacityService{AuthorizeParallel: func(ctx context.Context) error { _, err := services.Authorize(ctx, q, "settings.parallel"); return err }, Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 64 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: 400 << 30, MacOSVersion: "15.6", Hypervisor: true}}
 	setupSessions := &services.InstallSetupSessions{Pool: pool}
-	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{Sessions: setupSessions, Owners: q, Origins: middleware.FixedOrigins("http://localhost:4000"), Setup: &services.InstallSetupService{Pool: pool, Capacity: capacity}}, &routes.UserHandler{ProfileService: services.NewUserService(q)})
+	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{Sessions: setupSessions, Owners: q, Origins: middleware.FixedOrigins("http://localhost:4000"), Setup: &services.InstallSetupService{Pool: pool, Capacity: capacity}}, &routes.UserHandler{ProfileService: services.NewUserService(q)}, &routes.WorkspaceHandler{Service: services.NewWorkspaceService(q)})
 	request := func(method, path, token, body string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, "http://localhost:4000"+path, strings.NewReader(body))
 		r.RemoteAddr = "127.0.0.1:1234"
@@ -136,7 +136,7 @@ func testParallelInstallBoundary(t *testing.T, card bool) {
 	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, owner.ID)
 	require.NoError(t, err)
 
-	require.NoError(t, capacity.Set(ctx, owner.ID, 2))
+	require.NoError(t, capacity.Set(ctx, owner.ID, 3))
 	if card {
 		require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "parallel", Value: []byte(`2`)}))
 		server := httptest.NewServer(router)
@@ -151,7 +151,7 @@ func testParallelInstallBoundary(t *testing.T, card bool) {
 		t.Log(string(output))
 		saved, err := q.GetInstallParallel(ctx)
 		require.NoError(t, err)
-		require.JSONEq(t, `3`, string(saved))
+		require.JSONEq(t, `1`, string(saved))
 		return
 	}
 
@@ -186,6 +186,40 @@ func testParallelInstallBoundary(t *testing.T, card bool) {
 		require.True(t, runtime.AdmissionHeld("workspace:T1"))
 		require.False(t, runtime.AdmissionHeld("workspace:T2"))
 		require.Equal(t, 1, runtime.InUse())
+
+		// Raising the persisted request allows stack-ordered grants only up to
+		// current capacity. Subsequent disk pressure retains every reservation.
+		response := request("PUT", "/api/install", "quiesceowner-session", `{"parallel":8}`)
+		require.Equal(t, 200, response.Code, response.Body.String())
+		require.NoError(t, runtime.SyncTodoAdmission("fixture", []string{"workspace:T1", "workspace:T2", "workspace:T6", "workspace:T3", "workspace:T4", "workspace:T5"}, 3))
+		providers.Ready = func(context.Context, microsandbox.AdmissionRequest) error { return nil }
+		for _, holder := range []string{"workspace:T2", "workspace:T6"} {
+			grant, err := runtime.GrantNext(ctx, providers)
+			require.NoError(t, err)
+			require.Equal(t, holder, grant.Holder)
+		}
+		require.Equal(t, 3, runtime.InUse())
+		for _, disk := range []struct {
+			free      int64
+			effective int
+		}{{104 << 30, 2}, {60 << 30, 0}} {
+			capacity.FreeDisk = func(context.Context) (int64, error) { return disk.free, nil }
+			providers.FreeDisk = capacity.FreeDisk
+			setting, err := capacity.Parallel(ctx)
+			require.NoError(t, err)
+			require.Equal(t, services.InstallParallel{Requested: 8, Effective: disk.effective}, setting)
+			grant, err := runtime.GrantNext(ctx, providers)
+			require.NoError(t, err)
+			require.Empty(t, grant.Holder)
+			require.Equal(t, 3, runtime.InUse())
+			for _, holder := range []string{"workspace:T1", "workspace:T2", "workspace:T6"} {
+				require.True(t, runtime.AdmissionHeld(holder))
+			}
+			saved := request("GET", "/api/install", "quiesceowner-session", "")
+			require.Equal(t, 200, saved.Code, saved.Body.String())
+			require.Contains(t, saved.Body.String(), `"parallel":8`)
+		}
+		capacity.FreeDisk = nil
 	})
 	// Every credential goes through the composed authentication chain. Refusal
 	// must preserve the requested value, including when the bearer belongs to
@@ -261,7 +295,7 @@ func testParallelInstallBoundary(t *testing.T, card bool) {
 		saved, err := q.GetInstallParallel(ctx)
 		require.NoError(t, err)
 		require.JSONEq(t, `8`, string(saved))
-		require.EqualValues(t, 32<<30, capacity.Profile.MemoryBytes)
+		require.EqualValues(t, 64<<30, capacity.Profile.MemoryBytes)
 		require.Equal(t, 10, capacity.Profile.PerfCores)
 	}
 	capacity.FreeDisk = func(context.Context) (int64, error) { return 60 << 30, nil }
