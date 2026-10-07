@@ -97,7 +97,7 @@ describe("the generated product API client", () => {
     // including the mounted Add-to-stack operation (#3525).
     // Exact parity above and the literal resource inventory below remain independent.
     // Includes the revision-bound order acknowledgment and run-bound Learning evidence.
-    expect(expected).toHaveLength(539)
+    expect(expected).toHaveLength(541)
     expect(spec.paths["/api/agents/{name}"]).toHaveProperty("get.operationId", "get_api_agents_name")
     expect(spec.paths["/api/model/test/receipt"]).toHaveProperty("get.operationId", "get_api_model_test_receipt")
     expect(spec.paths["/api/stack/attention/{id}"]).toHaveProperty("post.operationId", "post_api_stack_attention_id")

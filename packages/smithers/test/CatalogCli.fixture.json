@@ -256,9 +256,8 @@
         "Ship retries"
       ],
       "method": "POST",
-      "path": "/api/branches/retry-webhooks",
+      "path": "/api/branches/retry-webhooks/add-to-stack",
       "body": {
-        "op": "add-to-stack",
         "text": "Ship retries"
       }
     },
@@ -651,6 +650,21 @@
       "body": {
         "request": "Explain briefly",
         "diff": "+Be brief"
+      }
+    },
+    {
+      "argv": [
+        "review",
+        "50",
+        "--repo",
+        "owner/repo"
+      ],
+      "method": "POST",
+      "path": "/api/reviews",
+      "body": {
+        "number": 50,
+        "repo": "owner/repo",
+        "conversation": "main"
       }
     }
   ],
