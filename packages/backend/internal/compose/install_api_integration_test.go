@@ -110,6 +110,7 @@ func TestInstallAPIHostUsesPublicRouterAndRevokesBearer(t *testing.T) {
 		_, err = local.pool.Exec(ctx, `UPDATE mythical_items SET stack_position=number WHERE repository_id=$1`, local.repoID)
 		require.NoError(t, err)
 		cfg := testConfigAllFlagsOn()
+		cfg.Server.PublicURL = "http://localhost:4000"
 		cfg.Auth.Mode = "selfhost"
 		cfg.Auth.SessionCookieName = "session"
 		auth := services.NewAuthService(q, cfg.Auth, nil, nil)
@@ -178,8 +179,8 @@ func TestInstallAPIHostUsesPublicRouterAndRevokesBearer(t *testing.T) {
 	req, err := http.NewRequest("POST", origin+"/api/conversations/main/prompt", strings.NewReader(`{"prompt":"List the stack","idempotencyKey":"host-api"}`))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
-	req.Host = "127.0.0.1:4000"
-	req.Header.Set("Origin", "http://127.0.0.1:4000")
+	req.Host = "localhost:4000"
+	req.Header.Set("Origin", "http://localhost:4000")
 	req.Header.Set("X-CSRF-Token", "csrf")
 	req.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "csrf"})
 	req.AddCookie(&http.Cookie{Name: "session", Value: "host-api-session"})
@@ -266,7 +267,7 @@ func TestInstallAPIHostUsesPublicRouterAndRevokesBearer(t *testing.T) {
 	dead, err := http.NewRequest("GET", origin+"/api/user", nil)
 	require.NoError(t, err)
 	dead.Header.Set("Authorization", "Bearer "+token)
-	dead.Host = "127.0.0.1:4000"
+	dead.Host = "localhost:4000"
 	response, err = local.client.Do(dead)
 	require.NoError(t, err)
 	response.Body.Close()

@@ -1615,8 +1615,9 @@ describe("the approvals inbox — list, open, and the row decision", () => {
 
     // Chat and unrelated acts stay usable while both waits are held.
     expect((await controller.commands.run("theme")).status).toBe("executed")
-    controller.send("still chatting")
-    await waitFor(() => [...store.collections.messages.values()].some((row) => row.role === "user" && row.text === "still chatting"))
+    controller.changeDraft("still chatting")
+    await store.settled?.()
+    expect(store.session().draft).toBe("still chatting")
 
     releaseProvision()
     await waitFor(() => started.read === 1)

@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,6 +22,8 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/ports"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture/seed"
 	"github.com/stretchr/testify/require"
@@ -311,17 +314,32 @@ func TestSharedPromptThroughPackagedHostSelectsAndPersistsContext(t *testing.T) 
 	host, err := NewHTTPChatHost(fixture.origin, nil, "deterministic-host-token")
 	require.NoError(t, err)
 	entered, release := make(chan struct{}), make(chan struct{})
-	provider := f.handler.ContextRepository
+	var enteredOnce sync.Once
 	f.handler.ContextRepository = func(ctx context.Context, credential middleware.Credential, userID, repoID int64, branch string) (json.RawMessage, error) {
-		close(entered)
+		enteredOnce.Do(func() { close(entered) })
 		select {
 		case <-release:
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
-		return provider(ctx, credential, userID, repoID, branch)
+		// Once issued, repository callbacks use the generation-bound delegated
+		// credential, not the original browser session.
+		info, err := middleware.ReloadCredential(ctx, db.New(f.handler.Store.pool), credential, time.Now().UTC())
+		if err != nil || credential.TokenHash == "" || !info.ReadsRepositoriesForTurn() || info.User.ID != userID || userID != f.scope.UserID || repoID != f.scope.RepositoryID || branch != "main" {
+			return nil, ErrForbidden
+		}
+		return json.RawMessage(repositoryContext), nil
 	}
-	runtime, err := NewRuntime(f.handler.Store.pool, host, f.server.URL, RuntimeOptions{QueueSize: 8, Concurrency: 1, Lease: time.Minute, ContextRepository: f.handler.ContextRepository})
+	// Shared admission requires a real delegated issuer even when this test's
+	// model makes no catalog calls. Keep credential issuance and cleanup real.
+	auth := services.NewAuthService(db.New(f.handler.Store.pool), config.AuthConfig{Mode: "selfhost"}, nil, nil)
+	auth.Members = &services.Members{Pool: f.handler.Store.pool}
+	issuer := services.InstallAPI{Auth: auth}
+	api := fixtureTurnAPI{begin: func(ctx context.Context, credential middleware.Credential, user int64, turn string, generation int64) (ports.ChatTurnAPI, error) {
+		grant, err := issuer.Begin(ctx, credential, user, turn, generation)
+		return ports.ChatTurnAPI{Author: grant.Author, Token: grant.Token, TokenID: grant.TokenID}, err
+	}, end: issuer.End}
+	runtime, err := NewRuntime(f.handler.Store.pool, host, f.server.URL, RuntimeOptions{QueueSize: 8, Concurrency: 1, Lease: time.Minute, ContextRepository: f.handler.ContextRepository, API: api})
 	require.NoError(t, err)
 	runtime.Handler.ResolveBranch = f.handler.ResolveBranch
 	*f.handler = *runtime.Handler

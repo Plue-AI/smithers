@@ -1471,6 +1471,9 @@ func (s *Store) stopProducerWith(ctx context.Context, grant ProducerGrant, code 
 	}
 	state := StateFailed
 	frame := errorFrame(turn.RunID, "The model host stopped before completing the turn.")
+	if code == "credential_issuer_unavailable" {
+		frame, _ = json.Marshal(map[string]any{"runId": turn.RunID, "type": "done", "code": code, "error": "Conversation unavailable"})
+	}
 	if code == "credential_missing" {
 		frame, _ = json.Marshal(map[string]any{"runId": turn.RunID, "type": "done", "code": "credential_missing", "error": "Model credential missing."})
 	}

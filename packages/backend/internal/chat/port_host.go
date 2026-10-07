@@ -13,6 +13,8 @@ import (
 	"github.com/smithersai/smithers/packages/backend/ports"
 )
 
+var errCommandAPIUnavailable = errors.New("conversation credential issuer unavailable")
+
 type PortHost struct {
 	Host            ports.ChatHost
 	ProducerBaseURL string
@@ -29,6 +31,15 @@ type PortHost struct {
 }
 
 func (h PortHost) RunTurn(ctx context.Context, grant ProducerGrant) (result error) {
+	// A recovered shared prompt must remain fail-closed if this process lost
+	// its issuer configuration. Admission alone cannot guarantee host wiring.
+	var request struct {
+		SharedConversation bool `json:"sharedConversation"`
+	}
+	_ = json.Unmarshal(grant.Request, &request)
+	if request.SharedConversation && h.API == nil {
+		return errCommandAPIUnavailable
+	}
 	grant.ProducerBaseURL = h.ProducerBaseURL
 	grant.InstallOrigin = ""
 	if h.InstallOrigin != nil {
@@ -39,10 +50,6 @@ func (h PortHost) RunTurn(ctx context.Context, grant ProducerGrant) (result erro
 	if h.API != nil {
 		api, err := h.API.Begin(ctx, credential, grant.OwnerID, grant.TurnID, grant.Generation)
 		if err != nil {
-			var request struct {
-				SharedConversation bool `json:"sharedConversation"`
-			}
-			_ = json.Unmarshal(grant.Request, &request)
 			// A shared turn must never spend on a model without its author-bound
 			// credential. The dispatcher can retry a pre-provider infrastructure fault.
 			if request.SharedConversation || !errors.Is(err, ports.ErrAPIForbidden) {
