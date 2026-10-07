@@ -63,7 +63,7 @@ for (const path of paths) {
             displays.push(host.textContent)
           }
           expect(onAction).toHaveBeenCalledTimes(0)
-          expect(onView).toHaveBeenCalledTimes(0)
+          expect(onView).toHaveBeenCalledTimes(host.querySelectorAll(".flow-version").length)
         }
         for (const text of story.expect) {
           if (story.name.startsWith("actor-")) {
@@ -1368,7 +1368,23 @@ for (const [id, fixture] of Object.entries(flows)) test(`Flow ${id}`, () => {
   }
   for (const text of fixture.expect) expect(displays.join("\n")).toContain(text)
 })
-test("Flow version selection stays local and marks only supplied added true", () => {
+test("Flow selection follows supplied member state on the same mounted view", () => {
+  const onAction = mock(() => {}), onView = mock((_patch: Partial<FlowViewProps["view"]>) => {})
+  const host = render(<FlowView {...flows.proposed} onAction={onAction} onView={onView} />)
+  const proposed = host.querySelector<HTMLButtonElement>('[data-state="proposed"]')!
+  act(() => proposed.click())
+  expect(onView.mock.calls).toEqual([[{ tab: "v4" }]])
+  expect(onAction).not.toHaveBeenCalled()
+  expect(host.querySelector('[aria-pressed="true"]')?.textContent).toBe("Active")
+  act(() => root!.render(<FlowView {...flows.proposed} view={{ maximized: true, tab: "v4" }} onAction={onAction} onView={onView} />))
+  expect(host.querySelector('[data-state="proposed"]')).toBe(proposed)
+  expect(proposed.getAttribute("aria-pressed")).toBe("true")
+  expect(host.textContent).toContain("Update docs")
+  act(() => root!.render(<FlowView {...flows.proposed} view={{ maximized: false, tab: "v3" }} onAction={onAction} onView={onView} />))
+  expect(host.querySelector('[aria-pressed="true"]')?.textContent).toBe("Active")
+  expect(onView).toHaveBeenCalledTimes(1)
+})
+test("Flow version selection calls its state owner and marks only supplied added true", () => {
   const calls = mock((..._args: unknown[]) => {})
   const host = render(<ControlledFlowView {...flows.proposed} onAction={calls} onView={calls} />)
   expect(host.querySelector('[aria-pressed="true"]')?.textContent).toContain("Active")
@@ -1376,7 +1392,7 @@ test("Flow version selection stays local and marks only supplied added true", ()
   expect(host.textContent).toContain("Update docs")
   expect(host.querySelectorAll('[data-added="true"]').length).toBe(1)
   expect(host.querySelector('[data-added="true"]')?.textContent).toContain("Update docs")
-  expect(calls.mock.calls).toEqual([])
+  expect(calls.mock.calls).toEqual([[{ tab: "v4" }]])
   act(() => root!.render(<ControlledFlowView {...flows.proposed} model={{ ...flows.proposed.model, versions: [{ id: "v4", state: "proposed", steps: [{ id: "docs", label: "Update docs", added: false }, { id: "other", label: "Other" }] }] }} onAction={calls} onView={calls} />))
   expect(host.querySelectorAll("[data-added]").length).toBe(0)
 })
@@ -1452,7 +1468,7 @@ test("Flow without supplied actions keeps versions usable and matches its sole s
   act(() => host.querySelector<HTMLButtonElement>('.flow-version[data-state="proposed"]')!.click())
   expect(host.querySelector('.flow-steps [data-added="true"]')?.textContent).toContain("Update docs")
   expect(host.querySelector('.flow-path')?.textContent).toBe("Built-in")
-  expect(calls.mock.calls).toEqual([])
+  expect(calls.mock.calls).toEqual([[{ tab: "v4" }]])
   const css = readFileSync(new URL("../../styles/cards.css", import.meta.url), "utf8")
   for (const node of host.querySelectorAll('[class]')) for (const name of node.classList) {
     if (name.startsWith("flow-")) expect(css).toContain(`.${name}`)

@@ -1,4 +1,3 @@
-import { useState } from "react"
 import { Check, GitPullRequest, Hourglass, Loader, TriangleAlert } from "lucide-react"
 import type { FlowViewProps } from "@smthrs/rpc/FlowCard"
 import { failureDetail } from "@smthrs/rpc/UserFailure"
@@ -9,11 +8,10 @@ const words = {
   active: "Active", proposed: "Proposed", "merged-syncing": "Merged · active after sync",
   "merged-failed": "Merged · not active", previous: "Previous"
 }
-export function FlowView({ model, actions, gestures, onAction, view }: FlowViewProps) {
-  const [versionId, setVersionId] = useState(view.tab)
+export function FlowView({ model, actions, gestures, onAction, view, onView }: FlowViewProps) {
   const agent = gestures?.agent
-  const choose = (event: React.MouseEvent<HTMLButtonElement>) => setVersionId(event.currentTarget.dataset.version)
-  const selected = model.versions.find(version => version.id === versionId) ?? model.versions.find(version => version.state === "active") ?? model.versions[0]
+  const choose = (event: React.MouseEvent<HTMLButtonElement>) => onView({ tab: event.currentTarget.dataset.version })
+  const selected = model.versions.find(version => version.id === view.tab) ?? model.versions.find(version => version.state === "active") ?? model.versions[0]
   return <section className="smithers-card flow-view" data-kind="flow" data-keyboard-pane="Flow" aria-label={`${model.name === "todo" ? "TODO" : model.name} flow`}>
     <header className="smithers-card-header"><h2 className="smithers-card-title">{model.name === "todo" ? "TODO" : model.name} flow</h2></header>
     <div className="smithers-card-body">

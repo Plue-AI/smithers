@@ -9,5 +9,5 @@ const actions: readonly Action[] = [
 ]
 export const stories: ViewStory[] = actions.map((action, index) => ({
   name: String(index), expect: [action.label], actions: [action],
-  render: callbacks => <FlowActionView action={action} onAction={callbacks.onAction} />
+  render: (callbacks, supplied = [action]) => <>{(supplied as readonly Action[]).map((item, key) => <FlowActionView key={key} action={item} onAction={callbacks.onAction} />)}</>
 }))
