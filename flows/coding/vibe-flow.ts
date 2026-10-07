@@ -2,10 +2,10 @@
 import { Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Schema } from "effect"
-import { AdmitVibe } from "../vibe-admission.ts"
-import { CleanVibeHistory } from "../vibe-cleanup.ts"
-import { LandVibe, LandVibeError } from "../vibe-landing.ts"
-import { VibeDelivered, VibeInput } from "../vibe-schema.ts"
+import { AdmitVibe } from "./vibe-admission.ts"
+import { CleanVibeHistory } from "./vibe-cleanup.ts"
+import { LandVibe, LandVibeError } from "./vibe-landing.ts"
+import { VibeDelivered, VibeInput } from "./vibe-schema.ts"
 
 export const VibeError = Schema.Union([...CleanVibeHistory.errorSchema.members, ...LandVibeError.members])
 

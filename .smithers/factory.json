@@ -669,20 +669,6 @@
       "flows": []
     },
     {
-      "id": "coding/request",
-      "description": "Plan from current repository source and native history, then implement Changes with required checks and bounded owner correction.",
-      "summary": null,
-      "featured": false,
-      "kind": "ts",
-      "path": "flows/coding/request/flow.ts",
-      "capabilities": [
-        "*"
-      ],
-      "model": null,
-      "modelInvocable": true,
-      "flows": []
-    },
-    {
       "id": "coding/verify",
       "description": "Run the project's required checks on one retained commit of the repository's mythical stack.",
       "summary": null,
@@ -693,21 +679,7 @@
         "*"
       ],
       "model": null,
-      "modelInvocable": true,
-      "flows": []
-    },
-    {
-      "id": "coding/vibe",
-      "description": "Clean and revalidate the validated native history, then deliver one commit: through the backend's landing policy (appended to main, or a GitHub pull request when the repository sends changes upstream), or, on a host without the backend, by fast-forwarding main to the verified candidate or opening its GitHub pull request.",
-      "summary": null,
-      "featured": false,
-      "kind": "ts",
-      "path": "flows/coding/vibe/flow.ts",
-      "capabilities": [
-        "*"
-      ],
-      "model": null,
-      "modelInvocable": true,
+      "modelInvocable": false,
       "flows": []
     },
     {
@@ -1241,7 +1213,7 @@
         "fs:read:**"
       ],
       "model": "coding/review",
-      "modelInvocable": true,
+      "modelInvocable": false,
       "inputSchema": {
         "dialect": "draft-2020-12",
         "schema": {
