@@ -176,7 +176,7 @@ func (s *attachedStream) restore(old net.Conn) error {
 		}
 		connection, err := s.dial()
 		if err == nil {
-			reply, err := controlExchange(connection, map[string]any{"type": "attach_session", "id": id, "received": output})
+			reply, err := controlExchangeUntil(connection, map[string]any{"type": "attach_session", "id": id, "received": output}, minTime(until, time.Now().Add(10*time.Second)))
 			if err != nil {
 				connection.Close()
 				return err
@@ -233,4 +233,11 @@ func (s *attachedStream) restore(old net.Conn) error {
 		time.Sleep(backoff)
 		backoff = min(backoff*2, 5*time.Second)
 	}
+}
+
+func minTime(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return a
+	}
+	return b
 }
