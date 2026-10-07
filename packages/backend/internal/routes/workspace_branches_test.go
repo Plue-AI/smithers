@@ -184,3 +184,18 @@ func TestBranchRebaseTypedRequests(t *testing.T) {
 	}
 	require.Equal(t, 4, f.calls)
 }
+
+func TestBranchMachineCommandUsesSharedDecoder(t *testing.T) {
+	for _, op := range []string{"sleep", "wake"} {
+		body, command, err := DecodeBranchCommand(strings.NewReader(`{"op":"` + op + `"}`))
+		require.NoError(t, err)
+		require.Equal(t, op, body.Op)
+		require.Equal(t, "branch."+op, command)
+		for _, extra := range []string{`,"id":"wait"`, `,"revision":"head"`, `,"rebase":true`, `,"conflict_change":"change","onto_revision":"head"`, `,"conflict_change":null`, `,"unknown":true`} {
+			_, _, err := DecodeBranchCommand(strings.NewReader(`{"op":"` + op + `"` + extra + `}`))
+			require.Error(t, err, extra)
+		}
+		_, _, err = DecodeBranchCommand(strings.NewReader(`{"op":"` + op + `"} {}`))
+		require.Error(t, err)
+	}
+}

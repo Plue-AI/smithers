@@ -249,6 +249,12 @@ func DecodeBranchCommand(reader io.Reader) (BranchCommandInput, string, error) {
 		}
 		return body, "branch.rebase", nil
 	}
+	if body.Op == "sleep" || body.Op == "wake" {
+		if body.ID != "" || body.Revision != "" {
+			return invalid()
+		}
+		return body, "branch." + body.Op, nil
+	}
 	if body.Op != "bring-in" && body.Op != "discard-foreign" {
 		return invalid()
 	}
