@@ -146,7 +146,7 @@ func exerciseMemberRevocation(t *testing.T, pool *pgxpool.Pool, origin string, w
 		require.NoError(t, blocker.Commit(ctx))
 		select {
 		case status := <-result:
-			require.Equal(t, 403, status, "cached admission cannot authorize an actor revoked while queued")
+			require.Equal(t, 401, status, "a revoked credential is dead before the queued write, rather than a live policy refusal")
 		case <-time.After(5 * time.Second):
 			t.Fatal("queued request did not finish")
 		}
