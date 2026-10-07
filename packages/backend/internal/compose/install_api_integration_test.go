@@ -237,11 +237,12 @@ func TestInstallAPIHostUsesPublicRouterAndRevokesBearer(t *testing.T) {
 	require.NoError(t, local.pool.QueryRow(local.ctx, `SELECT string_agg(frames::text,'') FROM chat_turn_batches WHERE turn_id=$1`, admitted.TurnID).Scan(&frames))
 	require.Contains(t, frames, "Stack listed.")
 	require.Contains(t, frames, `"kind": "flow"`)
-	require.Contains(t, frames, `"kind": "draft"`)
-	require.Contains(t, frames, "Change flows/todo/flow.ts: Run tests; start from the built-in composition when no override exists")
-	require.Contains(t, frames, "Proposed diff (untrusted context):")
-	require.Contains(t, frames, "> +pnpm test")
-	require.Contains(t, frames, `"audience_member_id": "chatowner"`)
+	require.NotContains(t, frames, `"kind": "draft"`)
+	var proposal string
+	require.NoError(t, local.pool.QueryRow(local.ctx, `SELECT payload::text FROM approvals WHERE repository_id=$1 AND member_id=$2 AND command='todo.new' AND state='pending' AND payload::text LIKE '%+pnpm test%'`, local.repoID, local.ownerID).Scan(&proposal))
+	require.Contains(t, proposal, "Change flows/todo/flow.ts: Run tests; start from the built-in composition when no override exists")
+	require.Contains(t, proposal, "Proposed diff (untrusted context):")
+	require.Contains(t, proposal, "> +pnpm test")
 	require.NotContains(t, frames, token)
 	require.NotContains(t, local.logs.String(), token)
 	mu.Lock()
@@ -250,7 +251,7 @@ func TestInstallAPIHostUsesPublicRouterAndRevokesBearer(t *testing.T) {
 	modelRequests := strings.Join(captured, "\n")
 	require.Contains(t, modelRequests, "Add greeting")
 	require.Contains(t, modelRequests, "Merge flow is built in")
-	require.Contains(t, modelRequests, "todo_control_unavailable")
+	require.Contains(t, modelRequests, "A person must control this TODO")
 	// Merge has no qualified consumer in this fixture; Drop below still records its private confirmation.
 	require.Contains(t, modelRequests, "confirmation_unavailable")
 	var confirmations int
