@@ -25,6 +25,7 @@ const managedArtifactLimit = 64 << 20
 const (
 	managedArtifactDepth = 8
 	managedArtifactMode  = 0o755
+	terminalSkillPath    = "share/skills/smithers/SKILL.md"
 )
 
 // msb and the guest kernel library it loads are the bundle files that
@@ -114,7 +115,7 @@ func (r *Runtime) bundleArtifact(program string) (relative string, ok bool) {
 	return r.config.Bundle.Member(program)
 }
 
-// plantable returns the bytes of one declared mode-0755 file that a guest may
+// plantable returns executable bytes or the non-executable generated skill a guest may
 // plant, only when they match the pinned manifest's digest and mode.
 func plantable(bundle *installbundle.Bundle, relative string) ([]byte, string, error) {
 	entry, ok := bundle.Entry(relative)
@@ -122,8 +123,8 @@ func plantable(bundle *installbundle.Bundle, relative string) ([]byte, string, e
 	switch {
 	case !ok:
 		return nil, "", fmt.Errorf("%w: %s is not declared by the bundle manifest", ErrUnapprovedArtifact, relative)
-	case entry.Mode != managedArtifactMode:
-		return nil, "", fmt.Errorf("%w: %s is not a mode 0755 executable", ErrUnapprovedArtifact, relative)
+	case entry.Mode != managedArtifactMode && !(relative == terminalSkillPath && entry.Mode == 0o644):
+		return nil, "", fmt.Errorf("%w: %s has no approved guest artifact mode", ErrUnapprovedArtifact, relative)
 	case len(parts) > managedArtifactDepth:
 		return nil, "", fmt.Errorf("%w: %s is deeper than %d segments", ErrUnapprovedArtifact, relative, managedArtifactDepth)
 	}
