@@ -17,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
@@ -29,6 +30,10 @@ import (
 func TestConfirmLearningConsumerInstall(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	q, ctx := db.New(pool), t.Context()
+	bus := revocation.NewBus(pool, q)
+	require.NoError(t, bus.Start(ctx))
+	routes.SetRevocationSource(bus)
+	t.Cleanup(func() { routes.SetRevocationSource(nil) })
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "ben", LowerUsername: "ben", DisplayName: "Ben"})
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, owner.ID)

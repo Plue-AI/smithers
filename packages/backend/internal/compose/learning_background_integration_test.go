@@ -33,6 +33,7 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 	ctx := t.Context()
 	q := db.New(pool)
 	bus := revocation.NewBus(pool, q)
+	require.NoError(t, bus.Start(ctx))
 	routes.SetRevocationSource(bus)
 	t.Cleanup(func() { routes.SetRevocationSource(nil) })
 	digest := sha256.Sum256([]byte("fixture-person"))
