@@ -181,8 +181,10 @@ type Options struct {
 	InstallRunSummary          ports.InstallRunSummary
 	// Machined is the shared host link registry, owned by the install runtime.
 	Machined *machined.Registry
-	// DocumentRelay is the authenticated document seam; nil refuses document subscriptions.
-	DocumentRelay *live.DocRelay
+	// CodeDocuments supplies the document host after real-machine activation
+	// checks. Composition owns member authorization and the daemon connection.
+	// Nil refuses subscriptions until those checks pass.
+	CodeDocuments *live.CodeDocuments
 	HostProfile   *microsandbox.HostProfile
 	// GitHubImportGitRunner reuses the importer transport seam for integration fixtures.
 	GitHubImportGitRunner func(context.Context, []string, ...string) (string, error)
@@ -1829,7 +1831,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			topics.viewState = conversationLiveViewState(queries, chatService.runtime.Handler.Store, workspaceService)
 		}
 
-		topics.documents = options.DocumentRelay
+		topics.documents = composeCodeDocumentRelay(options.CodeDocuments, workspaceService, options.Machined)
 		ffiPath, ffiErr := repohostserver.FFILibraryPath()
 		if ffiErr != nil {
 			return fmt.Errorf("wiki native library configuration: %w", ffiErr)

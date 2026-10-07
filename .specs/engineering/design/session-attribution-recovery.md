@@ -42,8 +42,12 @@ Protocol 5 makes document author maps and awareness use lossless hexadecimal
 keys for opaque principal bytes. The host sends the admitting actor on open and
 synchronization, preserves each subscriber's actor on edits, and discards cached
 unreceipted edits when the authenticated boot changes. Stored author maps remain
-readable. The installed Rust document service exists, but Go still has no default
-production document authorizer/relay. These cross-language component receipts
+readable. The installed Rust document service exists. Go composition now binds
+its document host to committed member attribution, current write-share/lane
+authority and the authenticated machine registry. The former injectable relay
+authorizer/connection is removed. The host stays unmounted by default until the
+real-machine document activation checks pass; component tests are not activation
+evidence. These cross-language component receipts
 do not complete that wiring or prove installed save/restart behavior.
 
 ## Required behavior
