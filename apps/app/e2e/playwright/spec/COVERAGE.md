@@ -91,7 +91,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-UI-02 | [C-UI-02.spec.ts](C-UI-02.spec.ts) | passing | T-CAT-01 |
 | C-UI-03 | [notifications.spec.ts](../notifications.spec.ts) | passing: Chromium + WebKit, loopback/plain HTTP, live owned TODOs, gesture, hidden/visible, dedupe, click/focus, no console errors; Notification API recorded | T-APP-18 |
 | C-UI-04 | [C-UI-04.spec.ts](C-UI-04.spec.ts) | partial: served TODO rail keyboard Retry, Answer with bound TODO and Resolve with bound branch, approval/conflict notices and owner merge notice/Hide covered; shared-history actor lines and keyboard jump covered; saved conversation and global preference hiding covered; independent writes covered by PostgreSQL HTTP tests; combined live-summary journey remains fixme | T-APP-07 |
-| C-UI-05 | [C-UI-05.spec.ts](C-UI-05.spec.ts) | passing browser held admission, independent chat, reload and duplicate retry within 100 ms with held response; machine/reference-host evidence pending | T-COL-02 |
+| C-UI-05 | [C-UI-05.spec.ts](C-UI-05.spec.ts) | passing browser contract fixtures for held admission, independent chat, reload and duplicate retry within 100 ms with held response; [composed install](../../real/live-todo.browser.ts) proves real TODO commands, queued cards and reload; full model/machine failure, retry and isolated-write qualification pending | T-COL-02 |
 
 | C-UI-06 | [C-UI-06.spec.ts](C-UI-06.spec.ts) | passed: two install identities, live shared entries, author-only theme and independent card view reload; real-host acceptance separate | T-APP-16 |
 | C-UI-07 | [C-UI-07.spec.ts](C-UI-07.spec.ts), [durable Context/Inspect projection](../context-inspect.spec.ts) | browser shared-seam composer, four-kind card opening, Inspect and reload pass; composed PostgreSQL packaged-host native snapshot, routing/fallback, provider refusal and confinement checks pass on Linux; unified browser-to-host and Mac release receipts remain required | T-APP-17 |
@@ -119,7 +119,7 @@ View; full reachability and remaining fixtures await their wiring tickets.
 
 | C-AGT-02 | [C-AGT-02.spec.ts](C-AGT-02.spec.ts) | mounted-install contract fake: canonical messages and backend journal projection, light/dark × 1280/390; real sessions and broker qualification pending T-AGT-02/Mac mini | T-AGT-02, T-AGT-03 |
 | C-COL-01 | [C-COL-01.spec.ts](C-COL-01.spec.ts) | fixme-before-implementation | T-COL-10, T-COL-03r, T-COL-08a, T-COL-08b, T-APP-14a |
-| C-COL-02 | [C-COL-02.spec.ts](C-COL-02.spec.ts) | passing TODO replay after 10 s outage with usable composer, Home replay/gap/reload; PostgreSQL runtime transitions, upgrade, bearer revocation, rollback and retention; reference-host evidence pending | T-COL-02 |
+| C-COL-02 | [C-COL-02.spec.ts](C-COL-02.spec.ts) | contract fixtures plus [composed install browser](../../real/live-todo.browser.ts): real TODO commands/cards, 10 s outage, cursor replay and reload without API mocks; PostgreSQL upgrade, bearer revocation, rollback and retention; run journal contract replay; native runtime/reference-host evidence pending | T-COL-02 |
 | C-COL-03 | [C-COL-03.spec.ts](C-COL-03.spec.ts) | fixme-before-implementation | T-COL-03r, T-COL-03a, T-COL-03, T-STK-08, T-APP-14a |
 | C-COL-04 | [C-COL-04.spec.ts](C-COL-04.spec.ts) | fixme-before-implementation | T-COL-03, T-TRM-07, T-MCH-11, T-COL-03a |
 | C-COL-05 | [C-COL-05.spec.ts](C-COL-05.spec.ts) | fixme-before-implementation | T-COL-04, T-COL-04a, T-APP-10, T-APP-11 |
