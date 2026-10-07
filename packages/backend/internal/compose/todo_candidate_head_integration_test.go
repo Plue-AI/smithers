@@ -29,9 +29,13 @@ type candidateHeadRuntime struct {
 	operations                                   map[string]bool
 	fail                                         bool
 	calls                                        int
+	host                                         bool
 }
 
 func (r *candidateHeadRuntime) Isolation() workspaceapi.IsolationLevel {
+	if r.host {
+		return workspaceapi.IsolationTrustedProcess
+	}
 	return workspaceapi.IsolationSandboxed
 }
 
@@ -125,6 +129,11 @@ func TestCandidateHeadReportComposedInstall(t *testing.T) {
 	denied := report(runtime.head, false)
 	require.Equal(t, 404, denied.Code, denied.Body.String())
 	require.Zero(t, runtime.calls)
+	runtime.host = true
+	refused := report(runtime.head, true)
+	require.Equal(t, 503, refused.Code, refused.Body.String())
+	require.Zero(t, runtime.calls, "a TODO head report cannot execute repository tools on the host")
+	runtime.host = false
 	response := report(runtime.head, true)
 	require.Equal(t, 200, response.Code, response.Body.String())
 	verified, version, head := state()

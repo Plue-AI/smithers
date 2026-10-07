@@ -794,7 +794,7 @@ func (s *WorkspaceService) persistWorkspaceHeadReport(ctx context.Context, works
 				continue
 			}
 			if liveTree == "" {
-				if s.runtime == nil || !codingCommitID.MatchString(input.CommitID) || !codingChangeID.MatchString(input.ChangeID) {
+				if s.runtime == nil || s.runtime.Isolation() != workspaceapi.IsolationSandboxed || !codingCommitID.MatchString(input.CommitID) || !codingChangeID.MatchString(input.ChangeID) {
 					return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "live candidate observation unavailable")
 				}
 				// Never reuse a cached execution result for a live observation.
