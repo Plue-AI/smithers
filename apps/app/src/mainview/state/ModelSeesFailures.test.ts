@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test"
-import type { AgentRuntimeContext } from "@smthrs/rpc/AgentContext"
 import type { StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { cloudCapabilities } from "@smthrs/rpc/HostCapabilities"
 import { scopedControllers } from "./ControllerTestScope"
@@ -98,7 +97,7 @@ describe("a failed flow reaches the model as a failure", () => {
     const { controller } = await ready()
     const result = await execute(controller, "env.set", "NOT_AN_ASSIGNMENT will/nope")
     expect(result).toStartWith("failed:")
-    expect(result).toContain("NAME=value")
+    expect(result).toContain("user-only")
   })
 
   test("a name that is not registered says nothing ran", async () => {
@@ -118,67 +117,25 @@ describe("a failed flow reaches the model as a failure", () => {
 })
 
 describe("the model is told the numbers it is asked about", () => {
-  test("hosted billing.balance hands the figure back instead of void", async () => {
+  test("hosted billing reads refuse browser agent execution", async () => {
     const { controller } = await ready({ bootstrap: hostedBalance })
     const result = await execute(controller, "billing.balance")
-    expect(result).not.toStartWith("failed:")
-    expect(result).toContain("$519")
-    expect(result).toContain("1722")
+    expect(result).toContain("user-only")
   })
 
-  test("the runtime context carries the balance, and the repositories BY NAME, before any tool call", async () => {
+  test("the browser never hands private runtime context to a native model turn", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const requests: StartAgentTurnRequest[] = []
-    const controller = createAppController(
-      store,
-      {
-        available: true,
-        startTurn: async (request) => {
-          requests.push(request)
-          return { status: "error", message: "Recorded." }
-        },
-        cancelTurn: async () => {},
-        subscribe: () => () => {}
-      },
-      {
-        ...backend(),
-        bootstrap: hostedBalance
-      }
-    )
-    store.dispatch({
-      type: "identity.session.loaded",
-      actor: "system",
-      state: "signed-in",
-      login: "codeplanesmithers",
-      admin: false,
-      scopesPlain: null
-    })
-    await settled()
-    store.dispatch({
-      type: "repositories.loaded",
-      actor: "system",
-      repositories: ["codeplanesmithers/canary-sandbox", "codeplanesmithers/demo-calendar"].map((fullName) => ({
-        id: fullName,
-        org: fullName.split("/")[0] ?? "",
-        ownerKind: "user",
-        name: fullName.split("/")[1] ?? "",
-        head: null
-      }))
-    })
-    await settled()
+    const controller = createAppController(store, {
+      ...unavailableAgent, available: true,
+      startTurn: async request => { requests.push(request); return { status: "started" } }
+    }, { ...backend(), bootstrap: hostedBalance })
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "codeplanesmithers", admin: false, scopesPlain: null }).isPersisted.promise
     await controller.refreshBalance()
-    await settled()
-
     controller.send("what is my balance right now?")
     await settled()
-    const context = requests[0]?.context as AgentRuntimeContext | undefined
-    expect(context?.billing?.totalUsd).toBe("519")
-    expect(context?.billing?.state).toBe("ok")
-    expect(context?.github.repositories).toBe(2)
-    expect(context?.github.repositoryNames).toEqual([
-      "codeplanesmithers/canary-sandbox",
-      "codeplanesmithers/demo-calendar"
-    ])
+    expect(requests).toEqual([])
+    expect(store.collections.billingAccounts.get("billing")?.totalUsd).toBe("519")
   })
 
   test("a hosted billing service that did not answer states that, and names no figure", async () => {

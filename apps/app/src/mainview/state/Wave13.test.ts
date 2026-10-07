@@ -50,12 +50,6 @@ const signIn = async (
   await settle(2)
 }
 
-const transcript = (store: Awaited<ReturnType<typeof webStore>>): string =>
-  [...store.collections.messages.values()]
-    .sort((left, right) => left.ordinal - right.ordinal)
-    .map((message) => message.text)
-    .join("\n")
-
 describe("wave 13 §F — the capability section is generated from the live catalog", () => {
   test("the section lists the disclosed commands it is handed, counts the rest, and states the can't-yet rule", () => {
     const catalog = [
@@ -166,34 +160,16 @@ describe("wave 13 §F — the capability section is generated from the live cata
     expect(prompt).toContain("Local repositories connected: flows")
   })
 
-  test("the turn's instructions carry the agent's live catalog — never user-only chrome", async () => {
+  test("the browser catalog excludes user-only chrome without launching a model", async () => {
     const store = await webStore()
-    const { agent, requests } = scriptedToolAgent([
-      () => [
-        { type: "delta" as const, kind: "text" as const, text: "hi" },
-        { type: "done" as const, reason: "stop" as const }
-      ]
-    ])
+    const { agent, requests } = scriptedToolAgent([() => []])
     const controller = createAppController(store, agent)
     await signIn(store)
-    controller.send("hello")
-    await settle()
-    expect(requests.length).toBeGreaterThan(0)
-    const instructions = requests[0]?.instructions ?? ""
-    // The generated section reflects THIS session's truth.
-    expect(instructions).toMatch(/Commands for this conversation \(\d+ exist;/)
     const catalog = JSON.parse(await executeAgentToolCall(controller.commands, { name: "commands", arguments: JSON.stringify({ action: "list" }) }))
     const names = catalog.commands.map((command: { name: string }) => command.name)
     expect(names).toContain("flow.new")
-    // flow.new is named by the standing instructions, so it is pinned and listed in full.
-    expect(instructions).toMatch(/^- \/flow\.new\b.* — /m)
     for (const name of ["chat.send", "chat.open", "chat.dictate", "sign-in"]) expect(names).not.toContain(name)
-    expect(instructions).toContain("GitHub is connected as codeplanesmithers, 1 repositories loaded")
-    expect(instructions).toContain("Everything the catalog lacks is a can't-yet")
-    // User-only browser mechanics are not the agent's to offer.
-    expect(instructions).not.toContain("/theme")
-    expect(instructions).not.toContain("/send")
-    expect(instructions).not.toContain("/surfaces")
+    expect(requests).toEqual([])
   })
 })
 
@@ -293,90 +269,16 @@ describe("wave 13 §F — capability theater in a launch turn is caught determin
     expect(offersImpossibleCapability("I can not email your team.")).toBe(false)
   })
 
-  test("the F-1 offer replayed through a launch turn does not render", async () => {
-    const store = await webStore()
-    const { agent } = scriptedToolAgent([
-      () => [
-        {
-          type: "tool_call" as const,
-          call_id: "call_1",
-          name: "commands",
-          arguments: JSON.stringify({ action: "execute", name: "flow.new", args: "email my team" })
-        },
-        { type: "done" as const, reason: "tool_call" as const }
-      ],
-      () => [
-        { type: "delta" as const, kind: "text" as const, text: F1_THEATER },
-        { type: "done" as const, reason: "stop" as const }
-      ]
-    ])
-    const controller = createAppController(store, agent, {
-      workflowPollMs: 1,
-      toastDebounceMs: 0,
-      toastAutoDismissMs: 10_000,
-      fetchImpl: async (input) => {
-        const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
-        const pathname = new URL(url, "https://app.test").pathname
-        if (pathname === "/api/workflow/provision") {
-          return new Response(
-            JSON.stringify({ status: "ready", repo: "codeplanesmithers/smithers-demo", gatewayId: "gw-1" }),
-            {
-              status: 200,
-              headers: { "content-type": "application/json" }
-            }
-          )
-        }
-        if (pathname === "/api/workflow/rpc") {
-          // One double for the whole launch: `Plan` names the plan, `Run`
-          // names the run, and every read answers an empty projection.
-          return new Response(
-            JSON.stringify({
-              ok: true,
-              payload: {
-                planId: "plan-1",
-                digest: "digest-1",
-                envelope: { capabilities: [], flows: [], budget: {} },
-                _tag: "Accepted",
-                runId: "run-w13",
-                cursor: { projection: "run-summary", runId: "run-w13", value: 0 },
-                rows: []
-              }
-            }),
-            { status: 200, headers: { "content-type": "application/json" } }
-          )
-        }
-        return new Response(JSON.stringify({ status: "error" }), { status: 404 })
-      }
-    })
-    await signIn(store)
-    controller.send("Send an email to my team summarizing this week's progress.")
-    await settle(30)
-    const rendered = transcript(store)
-    expect(rendered).not.toContain("emails")
-    expect(rendered).not.toContain("Shall I create the workflow")
-    expect(rendered).toContain("It runs when you confirm.")
-    expect(rendered).not.toContain("Run requested.")
-  })
+  // The browser tool loop was removed. The pure rendered-output cases above
+  // retain historical capability-theater decoding; shared answers now arrive
+  // through the host projection exercised in SharedConversationApp.test.tsx.
 
   test("a launch turn's honest can't-yet renders untouched", () => {
     const honest = "I can't send email yet — no email connector exists."
     expect(renderedRunTurnText("flow.run", honest)).toBe(honest)
   })
 
-  test("a turn that launched NOTHING is never censored — general conversation stands", async () => {
-    const store = await webStore()
-    const { agent } = scriptedToolAgent([
-      () => [
-        { type: "delta" as const, kind: "text" as const, text: "I can email your team the summary." },
-        { type: "done" as const, reason: "stop" as const }
-      ]
-    ])
-    const controller = createAppController(store, agent)
-    await signIn(store)
-    controller.send("what would you do about email?")
-    await settle()
-    expect(transcript(store)).toContain("I can email your team the summary.")
-  })
+
 })
 
 test("retired composer menus are absent from both command doors", async () => {
