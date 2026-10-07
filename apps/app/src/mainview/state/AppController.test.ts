@@ -164,6 +164,7 @@ describe("the controller's command surface", () => {
       .map((line) => /^\s{4}(?:readonly )?([A-Za-z_$][\w$]*)\b/.exec(line)?.[1])
       .filter((key): key is string => key !== undefined)
     const compositionRoot = [
+      "observeReviewConfirmation",
       "contextLine",
       "store",
       "stackSnapshots",
