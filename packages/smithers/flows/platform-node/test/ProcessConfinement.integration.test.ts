@@ -60,6 +60,23 @@ afterEach(() => {
 })
 
 describe.skipIf(!available)("native ProcessConfinement enforcement", () => {
+  it("mounts the actual external executable while keeping adjacent files private", async () => {
+    const f = fixture()
+    const tools = NodeFs.mkdtempSync(NodePath.join(NodeOs.tmpdir(), "confined-tool-"))
+    fixtures.push(tools)
+    const executable = NodePath.join(tools, "cat")
+    NodeFs.copyFileSync("/bin/cat", executable)
+    NodeFs.writeFileSync(NodePath.join(tools, "secret"), "outside-secret")
+    NodeFs.writeFileSync(NodePath.join(f.workspaceRoot, "input"), "allowed-input")
+    const profile: Profile = { workspaceRoot: f.workspaceRoot, reads: ["input"], writes: [], readOnly: [], network: "none" }
+    const good = await f.execute(ChildProcess.make(executable, ["input"], { cwd: f.workspaceRoot }), profile)
+    expect(good.code).toBe(0)
+    expect(good.stdout).toBe("allowed-input")
+    const refused = await f.execute(ChildProcess.make(executable, [NodePath.join(tools, "secret")], { cwd: f.workspaceRoot }), profile)
+    expect(refused.code).not.toBe(0)
+    expect(refused.stdout).not.toContain("outside-secret")
+  })
+
   it.skipIf(process.platform !== "linux")(
     "denies datagram and raw socketpair access to host abstract Unix endpoints",
     async () => {

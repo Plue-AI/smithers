@@ -294,10 +294,19 @@ export const make = (options: Options = {}): KernelProcessConfinement.Service =>
       },
       catch: (cause) => failure("PermissionDenied", command, messageOf(cause), cause)
     })
-    const targetArgv = ["/usr/bin/env", "-i", "/bin/sh", script, ...argvOf(command)]
+    // Resolve the actual program before wrapping it in the environment shell.
+    // Otherwise the sandbox sees only /usr/bin/env and omits a native helper
+    // installed outside its ordinary runtime paths.
+    const originalArgv = argvOf(command)
+    const launch = ProcessSandbox.launcher(
+      originalArgv[0]!, targetEnvironment.PATH,
+      [...confinement.reads, ...confinement.writes, ...confinement.externalReads],
+      confinement.workspaceRoot, hostFacts
+    )
+    const targetArgv = ["/usr/bin/env", "-i", "/bin/sh", script, launch.program, ...originalArgv.slice(1)]
     const wrapped = yield* Effect.try({
       try: () =>
-        ProcessSandbox.wrap({ ...confinement, externalReads: [script] }, targetArgv, targetEnvironment, hostFacts),
+        ProcessSandbox.wrap({ ...confinement, externalReads: [...confinement.externalReads, ...launch.reads, script] }, targetArgv, targetEnvironment, hostFacts),
       catch: (cause) => failure("Unknown", command, `could not render the confinement: ${messageOf(cause)}`, cause)
     })
     let [executable, ...args] = wrapped.argv
