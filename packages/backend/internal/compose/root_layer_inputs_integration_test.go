@@ -157,8 +157,10 @@ func TestRootLayerInputsValidatedBeforeUse(t *testing.T) {
 		workspaceID := uuid.NewString()
 		created, err := h.runtime.CreateWorkspace(h.ctx(t), workspaceapi.WorkspaceSpec{ID: workspaceID,
 			Source: &workspaceapi.WorkspaceSource{Repository: h.slug, Revision: "r4-attacker"}})
-		require.NoError(t, err)
-		require.Equal(t, workspaceapi.WorkspaceRunning, created.State)
+		// This recording harness has no approved installed bundle. Root recipe
+		// inspection remains useful, but member provisioning must refuse.
+		require.ErrorContains(t, err, "member provisioning requires an approved installed bundle")
+		require.Empty(t, created.ID)
 		calls := h.msb.since(from)
 		toolchain := rootRecipes(calls, "toolchain")
 		require.Len(t, toolchain, 1, "the branch's node 26 builds its own toolchain layer")

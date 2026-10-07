@@ -125,6 +125,7 @@ func newCheckoutHarness(t *testing.T, public, autoInit bool) *checkoutHarness {
 	workspaceService := services.NewWorkspaceService(queries,
 		services.WithWorkspaceTransactions(pool), services.WithBranchMachineProviders(providers),
 		services.WithWorkspaceRuntime(runtime), services.WithWorkspaceGitBaseURL(server.URL), services.WithWorkspaceCommandJobs(commandJobs, commandCodec))
+
 	workspaceHandler.Service = workspaceService
 	cookie := processWorkspaceCreateSessionCookie(t, queries, user)
 	return &checkoutHarness{
