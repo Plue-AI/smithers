@@ -53,10 +53,11 @@ func TestCreateUserRefWorkspaceRefusals(t *testing.T) {
 	_, err = newWorkspaceServiceForTests(stack, WithWorkspaceUserRefs(host)).createUserRefWorkspace(ctx, input, "main", workspaceCreateMetadata{})
 	requireAPICode(t, err, pkgerrors.CodeInternal)
 	stack.stackErr = pgx.ErrNoRows
+	retainedBeforeQuota := len(host.retained)
 	mock.countActiveWorkspacesByUserFn = func(context.Context, int64) (int64, error) { return MaxActiveWorkspacesPerUser, nil }
 	_, err = newWorkspaceServiceForTests(stack, WithWorkspaceUserRefs(host)).createUserRefWorkspace(ctx, input, "main", workspaceCreateMetadata{})
 	requireAPICode(t, err, pkgerrors.CodeQuotaExceeded)
-	require.Empty(t, host.retained, "quota is checked before the ref is pinned")
+	require.Len(t, host.retained, retainedBeforeQuota, "quota must not add a pinned ref")
 	mock.countActiveWorkspacesByUserFn = nil
 
 	// A host answer that is not the requested workspace's pin is refused.
@@ -70,17 +71,13 @@ func TestCreateUserRefWorkspaceRefusals(t *testing.T) {
 	}
 	require.Zero(t, created)
 
-	// The row carries the pinned commit and the requested workspace ID.
-	var params db.CreateWorkspaceParams
-	mock.createWorkspaceFn = func(_ context.Context, arg db.CreateWorkspaceParams) (db.Workspace, error) {
-		params = arg
-		return db.Workspace{}, errors.New("insert failed")
-	}
+	// A valid retained pin still cannot bypass canonical machine admission.
+	// Creation with real providers is covered at the composed install boundary.
+	beforeValid := len(host.retained)
 	_, err = newWorkspaceServiceForTests(stack, WithWorkspaceUserRefs(host)).createUserRefWorkspace(ctx, input, "", workspaceCreateMetadata{})
 	requireAPICode(t, err, pkgerrors.CodeInternal)
-	require.Equal(t, commit, params.SourceCommit)
-	require.True(t, params.ID.Valid)
-	require.Equal(t, "main", params.TargetBookmark)
-	require.True(t, params.IsFork)
-	require.Equal(t, UUIDString(params.ID), host.retained[0].WorkspaceID)
+	require.Contains(t, err.Error(), "branch machine providers unavailable")
+	require.Len(t, host.retained, beforeValid+1)
+	require.NotEmpty(t, host.retained[len(host.retained)-1].WorkspaceID)
+	require.Zero(t, created)
 }

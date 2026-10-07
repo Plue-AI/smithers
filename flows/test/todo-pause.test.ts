@@ -170,3 +170,80 @@ test("TODO pause survives a cold SQLite host restart without repeating finished 
     assert.equal(finished, 1)
   } finally { release(); releaseSecond(); await host.dispose(); await rm(directory, { recursive: true, force: true }) }
 })
+
+// Linux qualification of the production SQLite engine/control boundary. Machine
+// grant, guest attachment and reference-host timings remain separate proofs.
+test("fifty TODO waits survive cold restart and staggered Resume without replaying work", { timeout: 60_000 }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "todo-fifty-cold-"))
+  const before = new Map<number, number>(), after = new Map<number, number>()
+  const First = Action.make("test/fifty-first", { payload: { id: Schema.Number }, success: Schema.Void })
+  const Second = Action.make("test/fifty-second", { payload: { id: Schema.Number }, success: Schema.Void })
+  const Last = Action.make("test/fifty-last", { payload: { id: Schema.Number }, success: Schema.Void })
+  const second = new Map<number, number>()
+  const Todo = Flow.make("todo", { payload: { id: Schema.Number }, success: Schema.Void,
+    error: TodoBoundary.errorSchema,
+    body: (input) => First.call(input).pipe(Node.andThen(Second.call(input)),
+      Node.andThen(TodoBoundary.call({})), Node.andThen(Last.call(input))) })
+  const record = (counts: Map<number, number>, id: number) => Effect.sync(() => { counts.set(id, (counts.get(id) ?? 0) + 1) })
+  const open = () => {
+    const sqlite = DurableWriter.layer().pipe(Layer.provideMerge(NodeDatabase.layer({ filename: join(directory, "engine.db") })))
+    const persistence = Layer.mergeAll(SqlJournal.layer({ capacity: 1024, overflow: "reject" }),
+      RunStore.layer, AttemptStore.layer, CacheStore.layer, DurableEngineState.layer).pipe(
+      Layer.provideMerge(Layer.effectDiscard(Migrations.run)), Layer.provideMerge(Layer.merge(sqlite, NodeCrypto.layer)))
+    const engine = Layer.mergeAll(Interpreter.layer(Todo), Interpreter.layer(TodoBoundary), WaitFor.layer, todoResumeLayer,
+      TodoPauseRequested.toLayer(() => Effect.succeed({ requested: true, pause: "pause#1", resume: "resume#1" })),
+      First.toLayer(({ id }) => record(before, id)), Second.toLayer(({ id }) => record(second, id)), Last.toLayer(({ id }) => record(after, id))).pipe(
+      Layer.provideMerge(Action.layerImplementations),
+      Layer.provideMerge(EngineStore.layer({ owner: { hostId: "fifty-host" }, journalSource: "fifty-host", isAlive: () => Effect.succeed(false) })),
+      Layer.provideMerge(Layer.mergeAll(StepBoundary.layerTest(), Layer.succeed(Jj.Jj, jj), OwnerIdentity.layer)),
+      Layer.provideMerge(persistence))
+    return ManagedRuntime.make(Layer.merge(engine, plane).pipe(Layer.provideMerge(engine), Layer.provide(Layer.effect(Scope.Scope)(Effect.scope))))
+  }
+  const run = (id: number) => `fifty-todo-${id}`
+  const parked = (id: number) => Effect.gen(function*() {
+    const summary = yield* (yield* ControlRuntime).getRun(run(id))
+    return summary.pendingWaits?.some(wait => wait.name === "resume" && wait.attempt === 1) === true
+  })
+  const signal = (id: number, name: string) => Effect.gen(function*() {
+    return yield* (yield* Control).signal({ runId: run(id), signal: { name, payload: 1 }, idempotencyKey: `${run(id)}/${name}` })
+  })
+  let host = open()
+  try {
+    for (let id = 0; id < 50; id++) {
+      await host.runPromise(Todo.execute({ id }, { executionId: run(id), discard: true }))
+      await host.runPromise(TestDatabase.until(Effect.gen(function*() {
+        const waiting = yield* (yield* DurableEngineState.DurableEngineState).waiting(run(id))
+        return Option.isSome(waiting) && waiting.value.token !== null
+      })))
+      await host.runPromise(signal(id, "pause#1"))
+      await host.runPromise(TestDatabase.until(parked(id)))
+    }
+    assert.equal(before.size, 50); assert.equal(second.size, 50); assert.equal(after.size, 0)
+    await host.dispose()
+    const ready = performance.now()
+    host = open()
+    for (let id = 0; id < 50; id++) {
+      assert.equal(await host.runPromise(parked(id)), true)
+      await host.runPromise(Todo.resume(run(id)))
+    }
+    const restored = performance.now() - ready
+    assert.ok(restored < 60_000)
+    assert.equal(after.size, 0)
+    // Ten grants at a time: no input may release another run's wait.
+    for (let start = 0; start < 50; start += 10) {
+      for (let id = start; id < start + 10; id++) {
+        await host.runPromise(signal(id, "resume#1"))
+        await host.runPromise(signal(id, "resume#1"))
+        await host.runPromise(TestDatabase.until(Effect.gen(function*() {
+          return (yield* (yield* RunStore.RunStore).get(run(id))).status === "completed"
+        })))
+      }
+      assert.equal(after.size, start + 10)
+      for (let id = start + 10; id < 50; id++) assert.equal(await host.runPromise(parked(id)), true)
+    }
+    for (let id = 0; id < 50; id++) {
+      assert.equal(before.get(id), 1); assert.equal(second.get(id), 1); assert.equal(after.get(id), 1)
+    }
+    console.log(`fifty SQLite waits restored in ${restored.toFixed(1)}ms; no machine timing claimed`)
+  } finally { await host.dispose(); await rm(directory, { recursive: true, force: true }) }
+})

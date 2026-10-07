@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	processruntime "github.com/smithersai/smithers/packages/backend/process"
 )
 
@@ -128,45 +129,25 @@ func TestRuntimeWorkspaceInitializesRepositoryBeforeRunningAndReusesReceipt(t *t
 	require.NoError(t, err)
 	require.Equal(t, "keep me\n", string(preserved))
 
-	// Agent workspaces use the same runtime create/start/repository transition
-	// when no sandbox client is configured.
-	mock.createWorkspaceFn = func(_ context.Context, arg db.CreateWorkspaceParams) (db.Workspace, error) {
-		current = sampleDBWorkspace("runtime-agent-repository")
-		current.RepositoryID = arg.RepositoryID
-		current.UserID = arg.UserID
-		current.TargetBookmark = arg.TargetBookmark
-		current.Kind = arg.Kind
-		current.Status = "starting"
-		current.VmID = ""
-		return current, nil
+	// Repository initialization alone cannot authorize a TODO machine. The
+	// composed install supplies its canonical branch providers; this isolated
+	// legacy fixture must refuse before creating or linking another machine.
+	mock.createWorkspaceFn = func(context.Context, db.CreateWorkspaceParams) (db.Workspace, error) {
+		t.Fatal("missing branch authority must refuse before workspace creation")
+		return db.Workspace{}, nil
 	}
-	linked := 0
-	queries.linkAgentWorkspaceFn = func(ctx context.Context, input db.SetAgentSessionWorkspaceParams) error {
-		require.Equal(t, "running", current.Status, "the Flow target must not see a workspace during repository setup")
-		revision, err := runtime.ResolveWorkspaceSourceRevision(ctx, current.ID)
-		require.NoError(t, err)
-		require.True(t, isLowerHexRevision(revision))
-		require.Equal(t, "12345678-1234-1234-1234-123456789abc", input.ID)
-		linked++
+	queries.linkAgentWorkspaceFn = func(context.Context, db.SetAgentSessionWorkspaceParams) error {
+		t.Fatal("missing branch authority must not attach a run")
 		return nil
 	}
-	agent, err := service.CreateAgentWorkspace(context.Background(), CreateAgentWorkspaceInput{
-		RepositoryID:   row.RepositoryID,
-		UserID:         row.UserID,
-		SessionID:      "12345678-1234-1234-1234-123456789abc",
-		RepoOwner:      owner,
-		RepoName:       repo,
-		SourceBookmark: "main",
+	_, err = service.CreateAgentWorkspace(context.Background(), CreateAgentWorkspaceInput{
+		RepositoryID: row.RepositoryID, UserID: row.UserID,
+		SessionID: "12345678-1234-1234-1234-123456789abc",
+		RepoOwner: owner, RepoName: repo, SourceBookmark: "main",
 	})
-	require.NoError(t, err)
-	require.Equal(t, "runtime-agent-repository", agent.WorkspaceID)
-	require.Empty(t, agent.VMID)
-	require.Equal(t, 1, linked)
-	require.Equal(t, 2, issued)
-	require.Equal(t, 2, revoked)
-	agentReadme, err := runtime.ReadFile(context.Background(), agent.WorkspaceID, "README.md")
-	require.NoError(t, err)
-	require.Equal(t, "runtime repository fixture\n", string(agentReadme))
+	requireAPICode(t, err, pkgerrors.CodeServiceUnavailable)
+	require.Equal(t, 1, issued)
+	require.Equal(t, 1, revoked)
 }
 
 func requireExecutable(t *testing.T, name string) {
