@@ -71,6 +71,11 @@ The composed install metrics route reuses the in-process Prometheus registry,
 reports actual live socket count and the existing host profile/derived limits.
 Missing latency producers are absent, never fabricated zero measurements.
 
+Single-owner composition registers the workspace runtime's existing queue and
+wake collector even before the first admission or daemon connection. Queue
+depth and zero boot counts are defined then; wake duration remains absent until
+the runtime observes a real boot. Conflicting collectors refuse startup.
+
 Chat's existing collectors now include `smithers_chat_durable_latency_seconds`
 for durable admission to first text and a completed answer with file/wiki
 references. These process-monotonic observations include preflight and queue

@@ -79,7 +79,7 @@ func TestInstallMetricsOwnerBoundary(t *testing.T) {
 	metrics.RequestDurationSeconds().WithLabelValues("POST", "/api/todos/{n}").Observe(.125)
 	metrics.SetLandingQueueDepth(3)
 	runtime := new(microsandbox.Runtime)
-	metrics.MustRegister(runtime.MachineMetrics())
+	require.NoError(t, registerInstallMachineMetrics(metrics, runtime))
 	_, err = runtime.Request("todo", "workspace:A", "todo:5", "machine")
 	require.NoError(t, err)
 	_, err = runtime.Request("person", "workspace:A", "Alice", "terminal")

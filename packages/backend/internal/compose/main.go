@@ -539,6 +539,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	revocationChecker = revocationBus
 	// The install runtime owns the registry used by all guest links. Resolve
 	// it from that runtime rather than creating an isolated second registry.
+	if config.IsSingleOwner(cfg.Auth) {
+		if err := registerInstallMachineMetrics(smithersMetrics, options.Workspace); err != nil {
+			return fmt.Errorf("register install machine metrics: %w", err)
+		}
+	}
 	if options.Machined == nil {
 		if host, ok := options.Workspace.(interface{ MachinedRegistry() *machined.Registry }); ok {
 			options.Machined = host.MachinedRegistry()
