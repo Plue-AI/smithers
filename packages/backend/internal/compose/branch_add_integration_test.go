@@ -77,7 +77,11 @@ func runBranchAddComposed(t *testing.T, remove string) {
 	t.Cleanup(func() { require.NoError(t, local.Shutdown(context.Background())) })
 	source, store := filepath.Join(root, "source"), storage.GitBackendPath("ben", "demo")
 	git := func(args ...string) string {
-		out, err := hostexec.Git(ctx, append([]string{"-c", "user.name=Test", "-c", "user.email=test@example.test", "-c", "core.hooksPath=/dev/null"}, args...)...).CombinedOutput()
+		command := hostexec.Git(ctx, append([]string{"-c", "user.name=Test", "-c", "user.email=test@example.test", "-c", "core.hooksPath=/dev/null"}, args...)...)
+		// Native repository operations may temporarily change the process cwd.
+		// Every fixture repository is absolute; never inherit that changing cwd.
+		command.Dir = string(os.PathSeparator)
+		out, err := command.CombinedOutput()
 		require.NoError(t, err, "%s", out)
 		return strings.TrimSpace(string(out))
 	}

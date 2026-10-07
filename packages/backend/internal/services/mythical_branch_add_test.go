@@ -132,6 +132,12 @@ func TestDropFoldsSourceIntoAdoptedScratch(t *testing.T) {
 			require.NoError(t, err)
 			f.commit("Scratch", "scratch.txt", "scratch bytes\n")
 			head := f.publish()
+			// Keep the mirror at main and advertise the verified source and
+			// scratch heads on their own branches, as production publication does.
+			f.git(f.hostDir, "update-ref", "refs/heads/main", base)
+			f.git(f.hostDir, "update-ref", "refs/heads/smithers/source", original)
+			f.git(f.hostDir, "update-ref", "refs/heads/scratch/ben/fold", head)
+			require.NoError(t, f.host.ImportRefs(ctx, "", ""))
 			workspace, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: f.userID, TargetBookmark: "scratch/ben/fold", Status: "stopped"})
 			require.NoError(t, err)
 			_, err = pool.Exec(ctx, `UPDATE workspaces SET is_fork=true,forked_from_item=$1,forked_from_base=$2,source_commit=$3,head_commit_id=$4 WHERE id=$5`, source.ID, base, original, head, workspace.ID)
@@ -145,6 +151,9 @@ func TestDropFoldsSourceIntoAdoptedScratch(t *testing.T) {
 			require.NoError(t, err)
 			child, err := q.GetMythicalItemByNumber(ctx, f.repoID, added.Number)
 			require.NoError(t, err)
+			// Adoption replaces the scratch revision with its one-change seed.
+			// Capture must answer that retained head after the branch rename.
+			f.service.lanes = addCaptureFixture{head: mythicalChecksOf(child).Seed.Head}
 			if scenario == "moved-before" {
 				require.EqualValues(t, 1, child.StackPosition.Int64)
 			} else {
