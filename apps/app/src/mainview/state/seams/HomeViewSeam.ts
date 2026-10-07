@@ -12,9 +12,10 @@ export function createHomeViewSeam(options: {
   readonly report: (error: unknown) => void
 }) {
   type Row = { id: string; view: HomeViewProps["view"] }
+  const emptyView: HomeViewProps["view"] = { maximized: false }
   const rows = createCollection(localOnlyCollectionOptions<Row, string>({
     id: `home-view-${randomUuid()}`, getKey: row => row.id,
-    initialData: [{ id: "main", view: { maximized: false } }]
+    initialData: [{ id: "main", view: emptyView }]
   }))
   rows.preload()
   let disposed = false
@@ -25,7 +26,9 @@ export function createHomeViewSeam(options: {
   let timer: ReturnType<typeof setTimeout> | undefined
   let stopOwner: (() => void) | undefined
   const listeners = new Set<() => void>()
-  const get = () => rows.get("main")!.view
+  // React may read once more while the previous controller is unmounting.
+  // Return a stable empty snapshot after its collection has been cleaned up.
+  const get = () => disposed ? emptyView : rows.get("main")?.view ?? emptyView
   const publish = (view: HomeViewProps["view"]) => {
     rows.update("main", draft => { draft.view = view })
     for (const notify of listeners) notify()
@@ -65,6 +68,7 @@ export function createHomeViewSeam(options: {
     void read()
   }
   const subscribe = (notify: () => void) => {
+    if (disposed) return () => {}
     listeners.add(notify)
     if (listeners.size === 1 && !disposed) {
       stopOwner = options.subscribeOwner(changeOwner)
@@ -80,6 +84,7 @@ export function createHomeViewSeam(options: {
     }
   }
   const onView: HomeViewProps["onView"] = patch => {
+    if (disposed) return
     // Visibility is tab-local. Persist preferences only after the server commits them.
     if (patch.on_screen !== undefined) publish({ ...get(), on_screen: patch.on_screen })
     if (!("filter" in patch) && !("menu" in patch)) return
@@ -104,8 +109,10 @@ export function createHomeViewSeam(options: {
     }).catch(error => { if (valid(revision, principal)) options.report(error) })
   }
   const dispose = () => {
-    disposed = true; ++generation; stopOwner?.()
+    if (disposed) return
+    disposed = true; ++generation; stopOwner?.(); stopOwner = undefined
     if (timer !== undefined) clearTimeout(timer)
+    timer = undefined
     listeners.clear(); rows.cleanup()
   }
   return { get, subscribe, onView, read, dispose }
