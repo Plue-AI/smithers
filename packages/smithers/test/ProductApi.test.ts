@@ -97,6 +97,10 @@ describe("the generated product API client", () => {
     // Exact parity above and the literal resource inventory below remain independent.
     expect(expected).toHaveLength(532)
     expect(spec.paths["/api/flows/{name}"]).toHaveProperty("get.operationId", "get_api_flows_name")
+    for (const path of ["/api/agent/turn/cancel", "/api/agent/turn/retire", "/api/chat/turn", "/api/chat/cancel"]) {
+      expect(spec.paths).not.toHaveProperty(path)
+    }
+    expect(Object.keys(spec.paths).filter(path => path.startsWith("/api/app-timelines"))).toEqual([])
     expect(spec.paths).not.toHaveProperty("/api/repository-setup/{operation}")
     expect(
       operations.filter(({ path }) => path.startsWith("/api/install")).map(({ path, method }) =>
