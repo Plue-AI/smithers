@@ -45,11 +45,8 @@ impl crate::capture::Repository for Capture<'_> {
         self.0.events.queued(head).map_err(hook)
     }
 }
-impl Core for NativeCore {
-    fn ready(&self) -> hooks::Result<()> {
-        self.native.current().map(|_| ()).map_err(hook)
-    }
-    fn validate_rebase(&self, onto: Oid) -> hooks::Result<()> {
+impl NativeCore {
+    fn validate_head(&self, onto: Oid) -> hooks::Result<()> {
         if self.native.contains(onto).map_err(hook)? {
             Ok(())
         } else {
@@ -60,6 +57,15 @@ impl Core for NativeCore {
             })
         }
     }
+}
+impl Core for NativeCore {
+    fn ready(&self) -> hooks::Result<()> {
+        self.native.current().map(|_| ()).map_err(hook)
+    }
+    fn validate_rebase(&self, onto: Oid) -> hooks::Result<()> {
+        self.validate_head(onto)?;
+        self.native.validate_rebase(onto).map_err(hook)
+    }
     fn capture_local(&self, cx: &mut LockCx) -> hooks::Result<()> {
         crate::capture::local(cx, &mut Capture(self))?;
         self.native.settled().map_err(hook)?;
@@ -69,14 +75,9 @@ impl Core for NativeCore {
         self.native.restore().map_err(hook)
     }
     fn rebase(&self, _: &mut LockCx, onto: Oid) -> hooks::Result<Oid> {
-        let snapshot = self.native.current().map_err(hook)?.0;
-        let old = self
-            .git
-            .acknowledged()
-            .map_err(hook)?
-            .ok_or_else(hooks::Error::unsupported)?;
-        self.native.rebase_delta(snapshot, old, onto).map_err(hook)
+        self.native.rebase(onto).map_err(hook)
     }
+
     fn call(&self, cx: &mut LockCx, method: u8, args: &[u8]) -> hooks::Result<Vec<u8>> {
         match method {
             1 => {
@@ -103,7 +104,7 @@ impl Core for NativeCore {
             5 => {
                 let f = conn::fields("args5", args).map_err(|_| hooks::Error::unsupported())?;
                 let head: Oid = f[0].1.try_into().map_err(|_| hooks::Error::unsupported())?;
-                self.validate_rebase(head)?;
+                self.validate_head(head)?;
                 if cx.rewrite_pending {
                     crate::freeze::restore(cx, &Actor::Outside)?;
                 }
@@ -146,7 +147,7 @@ mod tests {
     use super::*;
     use crate::{
         conn::Frame,
-        hooks::{Disabled, Documents, Hooks, Watcher},
+        hooks::{Broker, Disabled, Documents, Hooks, Watcher},
         rpc,
     };
     use std::{fs, os::unix::fs::PermissionsExt};
@@ -156,6 +157,17 @@ mod tests {
     impl Documents for Flushed {
         fn flush_all(&self, _: &mut LockCx) -> hooks::Result<u16> {
             Ok(0)
+        }
+        fn reconcile_all(&self, _: &mut LockCx, _: &Actor) -> hooks::Result<()> {
+            Ok(())
+        }
+    }
+    impl Broker for Flushed {
+        fn freeze(&self, _: std::time::Duration) -> hooks::Result<Option<u32>> {
+            Ok(None)
+        }
+        fn thaw(&self) -> hooks::Result<()> {
+            Ok(())
         }
     }
     impl Watcher for Flushed {
@@ -172,6 +184,7 @@ mod tests {
             core,
             documents: Arc::new(Flushed),
             watcher: Arc::new(Flushed),
+            broker: Arc::new(Flushed),
             ..Default::default()
         });
         rpc::dispatch(
@@ -190,8 +203,7 @@ mod tests {
         )
         .unwrap()
     }
-    #[test]
-    fn dispatcher_native_capture_status_and_first_reconcile_use_durable_repository() {
+    fn fixture() -> (tempfile::TempDir, Arc<NativeCore>) {
         let (dir, native) = crate::native::tests::fixture();
         let state = dir.path().join("state");
         for name in ["spool", "outbox"] {
@@ -223,6 +235,14 @@ mod tests {
             events: events.clone(),
             sessions: Arc::new(Disabled),
         });
+        (dir, core)
+    }
+    #[test]
+    fn dispatcher_native_capture_status_and_first_reconcile_use_durable_repository() {
+        let (dir, core) = fixture();
+        let native = &core.native;
+        let repository = &core.git;
+        let events = &core.events;
         fs::write(dir.path().join("workspace/file"), b"literal member bytes\n").unwrap();
         let response = call(core.clone(), 4, &[]);
         let fields = conn::fields("response", &response.payload[1..]).unwrap();
@@ -245,7 +265,7 @@ mod tests {
         let fields = conn::fields("response", &response.payload[1..]).unwrap();
         assert_eq!(fields[1].1, [5, 0, 0, 0, 6, 1, 1, 0, 0, 0, 0]);
         assert_eq!(repository.acknowledged().unwrap(), Some(head));
-        let response = call(core, 5, &[field(1, [255; 20])]);
+        let response = call(core.clone(), 5, &[field(1, [255; 20])]);
         let fields = conn::fields("response", &response.payload[1..]).unwrap();
         assert_eq!(fields[1].1[0], 255);
         assert_eq!(repository.acknowledged().unwrap(), Some(head));
@@ -253,5 +273,146 @@ mod tests {
             fs::read(dir.path().join("workspace/file")).unwrap(),
             b"literal member bytes\n"
         );
+    }
+    #[test]
+    fn rebase_rpc_preserves_acknowledged_item_and_uncaptured_work() {
+        let (dir, core) = fixture();
+        let root = dir.path().join("workspace");
+        fs::write(root.join("base"), b"base bytes\n").unwrap();
+        let base = core.native.snapshot().unwrap().0;
+        crate::native::tests::child(&core.native, base, "item change");
+        fs::write(root.join("item"), b"already captured item bytes\n").unwrap();
+        let item = core.native.snapshot().unwrap().0;
+        crate::native::tests::child(&core.native, base, "upstream change");
+        fs::write(root.join("upstream"), b"new main bytes\n").unwrap();
+        let onto = core.native.snapshot().unwrap().0;
+        core.native.move_to(item).unwrap();
+        let mut git = core.git.clone();
+        git.acknowledge_and_sync(item).unwrap();
+        fs::write(root.join("later"), b"not captured yet\n").unwrap();
+        let response = call(
+            core.clone(),
+            11,
+            &[
+                field(1, onto),
+                field(2, conn::actor_bytes(&Actor::Principal(b"person".to_vec()))),
+            ],
+        );
+        let fields = conn::fields("response", &response.payload[1..]).unwrap();
+        assert_eq!(fields[1].1[0], 11, "{:?}", fields);
+        let fields = conn::fields("result11", &fields[1].1[1..]).unwrap();
+        let result: Oid = fields[0].1.try_into().unwrap();
+        assert_eq!(
+            fs::read(root.join("item")).unwrap(),
+            b"already captured item bytes\n"
+        );
+        assert_eq!(fs::read(root.join("later")).unwrap(), b"not captured yet\n");
+        assert_eq!(
+            fs::read(root.join("upstream")).unwrap(),
+            b"new main bytes\n"
+        );
+        assert_eq!(fs::read(root.join("base")).unwrap(), b"base bytes\n");
+        crate::native::tests::assert_rebase(&core.native, result, onto, item, false);
+        assert_eq!(
+            core.git.acknowledged().unwrap(),
+            Some(item),
+            "a local rewrite cannot invent a host acknowledgement"
+        );
+    }
+    fn rebase(core: &Arc<NativeCore>, onto: Oid) -> Frame {
+        call(
+            core.clone(),
+            11,
+            &[
+                field(1, onto),
+                field(2, conn::actor_bytes(&Actor::Principal(b"person".to_vec()))),
+            ],
+        )
+    }
+    fn rebased_head(response: &Frame) -> Oid {
+        let fields = conn::fields("response", &response.payload[1..]).unwrap();
+        assert_eq!(fields[1].1[0], 11, "{:?}", fields);
+        conn::fields("result11", &fields[1].1[1..]).unwrap()[0]
+            .1
+            .try_into()
+            .unwrap()
+    }
+    #[test]
+    fn rebase_rpc_before_first_ack_keeps_change_and_retries_without_rewriting() {
+        let (dir, core) = fixture();
+        let root = dir.path().join("workspace");
+        fs::write(root.join("base"), b"base\n").unwrap();
+        let base = core.native.snapshot().unwrap().0;
+        crate::native::tests::child(&core.native, base, "item before first acknowledgement");
+        fs::write(root.join("item"), b"item\n").unwrap();
+        let item = core.native.snapshot().unwrap().0;
+        crate::native::tests::child(&core.native, base, "main advanced");
+        fs::write(root.join("upstream"), b"main\n").unwrap();
+        let onto = core.native.snapshot().unwrap().0;
+        core.native.move_to(item).unwrap();
+        let head = rebased_head(&rebase(&core, onto));
+        crate::native::tests::assert_rebase(&core.native, head, onto, item, false);
+        assert_eq!(fs::read(root.join("item")).unwrap(), b"item\n");
+        assert_eq!(fs::read(root.join("upstream")).unwrap(), b"main\n");
+        assert_eq!(core.git.acknowledged().unwrap(), None);
+        assert_eq!(
+            rebased_head(&rebase(&core, onto)),
+            head,
+            "retry must not create another revision"
+        );
+    }
+    #[test]
+    fn rebase_rpc_retains_conflict_and_can_restore_exact_pre_rebase_change() {
+        let (dir, core) = fixture();
+        let root = dir.path().join("workspace");
+        fs::write(root.join("conflict"), b"original\n").unwrap();
+        let base = core.native.snapshot().unwrap().0;
+        crate::native::tests::child(&core.native, base, "item conflicting edit");
+        fs::write(root.join("conflict"), b"item version\n").unwrap();
+        let item = core.native.snapshot().unwrap().0;
+        crate::native::tests::child(&core.native, base, "main conflicting edit");
+        fs::write(root.join("conflict"), b"main version\n").unwrap();
+        let onto = core.native.snapshot().unwrap().0;
+        core.native.move_to(item).unwrap();
+        let mut git = core.git.clone();
+        git.acknowledge_and_sync(item).unwrap();
+        let head = rebased_head(&rebase(&core, onto));
+        crate::native::tests::assert_rebase(&core.native, head, onto, item, true);
+        let markers = fs::read_to_string(root.join("conflict")).unwrap();
+        assert!(markers.contains("<<<<<<<"), "{markers}");
+        assert!(markers.contains("item version"), "{markers}");
+        assert!(markers.contains("main version"), "{markers}");
+        // Neither a second rebase nor a conflicted target overwrites the retained
+        // conflict. The operation checkpoint also restores the original change.
+        assert!(core.validate_rebase(onto).is_err());
+        assert_eq!(fs::read_to_string(root.join("conflict")).unwrap(), markers);
+        core.native.restore().unwrap();
+        assert_eq!(core.native.current().unwrap().0, item);
+        assert_eq!(fs::read(root.join("conflict")).unwrap(), b"item version\n");
+        assert!(core.validate_rebase(head).is_err());
+        assert_eq!(core.native.current().unwrap().0, item);
+        core.native.settled().unwrap();
+    }
+    #[test]
+    fn rebase_rpc_refuses_missing_self_and_descendant_before_capture() {
+        let (dir, core) = fixture();
+        let root = dir.path().join("workspace");
+        fs::write(root.join("item"), b"keep these bytes\n").unwrap();
+        let item = core.native.snapshot().unwrap().0;
+        let descendant = crate::native::tests::child(&core.native, item, "descendant");
+        core.native.move_to(item).unwrap();
+        for onto in [item, descendant, [255; 20]] {
+            let response = rebase(&core, onto);
+            let fields = conn::fields("response", &response.payload[1..]).unwrap();
+            assert_eq!(fields[1].1[0], 255);
+            assert_eq!(core.native.current().unwrap().0, item);
+            assert_eq!(fs::read(root.join("item")).unwrap(), b"keep these bytes\n");
+            assert!(!dir.path().join("state/rewrite.operation").exists());
+            assert_eq!(
+                core.events.depth().unwrap(),
+                0,
+                "refusal must precede capture"
+            );
+        }
     }
 }

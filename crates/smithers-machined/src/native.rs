@@ -11,6 +11,7 @@ use jj_lib::{
     merged_tree::MergedTree,
     object_id::ObjectId,
     repo::{ReadonlyRepo, Repo},
+    rewrite::rebase_commit,
     settings::UserSettings,
     workspace::Workspace,
 };
@@ -199,6 +200,68 @@ impl Repository {
             .map_err(invalid)?;
         Ok(head)
     }
+    fn rebase_commits(
+        workspace: &Workspace,
+        repo: &ReadonlyRepo,
+        onto: Oid,
+    ) -> io::Result<(Commit, Commit)> {
+        let current_id = repo
+            .view()
+            .get_wc_commit_id(workspace.workspace_name())
+            .ok_or_else(|| invalid("missing working-copy commit"))?;
+        let current = repo.store().get_commit(current_id).map_err(invalid)?;
+        let onto = Self::commit(repo, onto)?;
+        if current.tree().has_conflict() || onto.tree().has_conflict() {
+            return Err(invalid("resolve existing conflicts before rebase"));
+        }
+        if repo
+            .index()
+            .is_ancestor(current.id(), onto.id())
+            .block_on()
+            .map_err(invalid)?
+        {
+            return Err(invalid(
+                "cannot rebase an item onto itself or its descendant",
+            ));
+        }
+        Ok((current, onto))
+    }
+    /// Validate before the RPC freezes writers. The mutation path checks again
+    /// after capture, against the snapshot taken under the shared lock.
+    pub fn validate_rebase(&self, onto: Oid) -> io::Result<()> {
+        let (workspace, repo) = self.load()?;
+        Self::rebase_commits(&workspace, &repo, onto).map(|_| ())
+    }
+    /// Rebase the item change, including already-captured work, onto its new
+    /// prefix. An acknowledged capture is a transport checkpoint, not the
+    /// item's old parent. Wake reconciliation alone applies that local delta.
+    pub fn rebase(&self, onto: Oid) -> io::Result<Oid> {
+        let (mut workspace, repo) = self.load()?;
+        let (current, onto) = Self::rebase_commits(&workspace, &repo, onto)?;
+        if current.parent_ids() == [onto.id().clone()] {
+            return oid(current.id().as_bytes());
+        }
+        let mut tx = repo.start_transaction();
+        let rebased = rebase_commit(tx.repo_mut(), current.clone(), vec![onto.id().clone()])
+            .block_on()
+            .map_err(invalid)?;
+        tx.repo_mut()
+            .set_wc_commit(workspace.workspace_name().to_owned(), rebased.id().clone())
+            .map_err(invalid)?;
+        tx.repo_mut()
+            .rebase_descendants()
+            .block_on()
+            .map_err(invalid)?;
+        let updated = tx
+            .commit("machined rebase item")
+            .block_on()
+            .map_err(invalid)?;
+        workspace
+            .check_out(updated.op_id().clone(), Some(&current.tree()), &rebased)
+            .block_on()
+            .map_err(invalid)?;
+        oid(rebased.id().as_bytes())
+    }
     /// Apply precisely the delta from acknowledged tree to local snapshot on
     /// the new head. Native merge preserves conflicts instead of overwriting.
     pub fn rebase_delta(&self, snapshot: Oid, old: Oid, head: Oid) -> io::Result<Oid> {
@@ -259,6 +322,49 @@ pub(crate) mod tests {
         fs::set_permissions(&state, fs::Permissions::from_mode(0o700)).unwrap();
         let repo = Repository::open(&root, &state).unwrap();
         (dir, repo)
+    }
+    pub(crate) fn child(repo: &Repository, parent: Oid, description: &str) -> Oid {
+        repo.move_to(parent).unwrap();
+        let (mut workspace, current_repo) = repo.load().unwrap();
+        let parent = Repository::commit(&current_repo, parent).unwrap();
+        let mut tx = current_repo.start_transaction();
+        let child = tx
+            .repo_mut()
+            .new_commit(vec![parent.id().clone()], parent.tree())
+            .set_description(description)
+            .write()
+            .block_on()
+            .unwrap();
+        tx.repo_mut()
+            .set_wc_commit(workspace.workspace_name().to_owned(), child.id().clone())
+            .unwrap();
+        let updated = tx.commit("test branch change").block_on().unwrap();
+        workspace
+            .check_out(updated.op_id().clone(), Some(&parent.tree()), &child)
+            .block_on()
+            .unwrap();
+        oid(child.id().as_bytes()).unwrap()
+    }
+    pub(crate) fn assert_rebase(
+        repo: &Repository,
+        result: Oid,
+        onto: Oid,
+        prior: Oid,
+        conflict: bool,
+    ) {
+        let (workspace, current_repo) = repo.load().unwrap();
+        let result = Repository::commit(&current_repo, result).unwrap();
+        assert_eq!(
+            current_repo
+                .view()
+                .get_wc_commit_id(workspace.workspace_name()),
+            Some(result.id())
+        );
+        let prior = Repository::commit(&current_repo, prior).unwrap();
+        assert_eq!(result.parent_ids(), &[CommitId::new(onto.to_vec())]);
+        assert_eq!(result.change_id(), prior.change_id());
+        assert_eq!(result.description(), prior.description());
+        assert_eq!(result.tree().has_conflict(), conflict);
     }
     #[test]
     fn snapshot_and_native_recovery_preserve_working_copy_bytes() {
