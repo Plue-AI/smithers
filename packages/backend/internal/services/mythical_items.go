@@ -530,7 +530,7 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			boundAttempt := mythicalTodo(item) && item.Attempt > 0 && projection.Attempt == item.Attempt &&
 				(projection.Phase == "todo" || projection.Phase == "request") && item.RequestRunID != "" &&
 				update.Checkpoint.RunID == item.RequestRunID
-			if (item.Generation != projection.Generation && !boundAttempt) || (projection.Attempt != 0 && item.Attempt != projection.Attempt) || (item.Source == "todo" && (item.Attempt <= 0 || projection.Attempt <= 0)) {
+			if (item.Generation != projection.Generation && !boundAttempt) || (projection.Attempt != 0 && item.Attempt != projection.Attempt) || (mythicalTodo(item) && (item.Attempt <= 0 || projection.Attempt <= 0)) {
 				return nil
 			}
 			// Review retries share the candidate generation. The dispatcher's
@@ -559,7 +559,7 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			// A TODO's runs are bound by run ID. Only its composition's launch
 			// may end without one: refused before any run existed.
 			unstarted := (projection.Phase == "todo" || projection.Phase == "request") && runID == "" && update.State.Terminal()
-			if item.Source == "todo" && ((runID == "" && !unstarted) || (update.Checkpoint.Run != nil && update.Checkpoint.Run.RunID != runID)) {
+			if mythicalTodo(item) && ((runID == "" && !unstarted) || (update.Checkpoint.Run != nil && update.Checkpoint.Run.RunID != runID)) {
 				return nil
 			}
 			// The composition's phase is the todo flow whatever the checkpoint
@@ -2267,7 +2267,7 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 		next.State, next.Reason = "blocked", "a chat result that no longer applies to the tip must be requested again"
 		return &next, false, nil
 	}
-	if item.Source == "todo" && s != nil && (item.FlowDigest.Valid || (s.todoFlow != nil && item.Attempt == 0)) {
+	if mythicalTodo(item) && s != nil && (item.FlowDigest.Valid || (s.todoFlow != nil && item.Attempt == 0)) {
 		return st.startPinned(ctx, item)
 	}
 	if s == nil || r == nil || s.launcher == nil || s.lanes == nil || !r.row.ActorUserID.Valid || !s.todoAdmission {
@@ -2445,15 +2445,15 @@ func (s *MythicalService) activeTodoPin(ctx context.Context, q *db.Queries, repo
 	return pin, nil
 }
 
-// startPinned opens a lane for a fresh attempt of an owner's TODO and launches the
+// startPinned opens a lane for a fresh TODO attempt and launches the
 // todo composition on it, pinned to one Active todo flow digest: the TODO is
 // starting until its host accepts the run (ProjectFlowRuntime). The first
 // attempt pins the Active digest; Retry and Resume keep that pin. Admission
 // refuses before placement, capture or launch while any provider is missing,
-// and GitHub-issue TODOs stay hidden until the maintainer release.
+// including TODOs admitted through Make TODO and the GitHub label door.
 func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
 	s, r := st.s, st.r
-	if item.Source != "todo" || s == nil || r == nil || s.todoFlow == nil || s.launcher == nil || s.lanes == nil || !r.row.ActorUserID.Valid {
+	if !mythicalTodo(item) || s == nil || r == nil || s.todoFlow == nil || s.launcher == nil || s.lanes == nil || !r.row.ActorUserID.Valid {
 		return todoAdmissionUnavailable(item, "", st.now), false, nil
 	}
 	// Outage recovery and the very-hard continuation decrement Attempt before

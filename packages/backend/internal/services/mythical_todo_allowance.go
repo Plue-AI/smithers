@@ -43,7 +43,7 @@ func todoDailyAllowance(ctx context.Context, store db.DBTX, now time.Time) error
 	day := now.UTC().Format("2006-01-02")
 	var count int64
 	if err := store.QueryRow(ctx, `SELECT count(*) FROM mythical_items
-		WHERE source='todo' AND checks->>'admissionDay'=$1`, day).Scan(&count); err != nil {
+		WHERE source IN ('todo','issue') AND checks->>'admissionDay'=$1`, day).Scan(&count); err != nil {
 		return err
 	}
 	if count >= limit {
