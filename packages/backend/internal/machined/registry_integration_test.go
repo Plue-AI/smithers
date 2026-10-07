@@ -35,6 +35,37 @@ func machineReceiptDatabase(t *testing.T) (*pgxpool.Pool, string, string) {
 func capturedEvent(seq uint64, id [16]byte) Event {
 	return Event{Seq: seq, EventID: id, Payload: wire.Union(2, wire.Field(1, make([]byte, 20)), wire.Field(2, make([]byte, 20)), wire.Field(3, make([]byte, 20)))}
 }
+
+func TestMachinedDispatchFailureRevokesReady(t *testing.T) {
+	pool, branch, _ := machineReceiptDatabase(t)
+	r := new(Registry)
+	authority, err := r.MintBoot(branch, "vm")
+	require.NoError(t, err)
+	link, daemon := connectTest(t, r, branch, authority)
+	require.NoError(t, link.Reconciled())
+	failure := errors.New("capture projection unavailable")
+	ingestor := &Ingestor{Pool: pool, Write: func(context.Context, pgx.Tx, string, Event) (Acknowledgement, error) {
+		return Acknowledgement{}, failure
+	}}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- ingestor.Dispatch(ctx, link, branch) }()
+	event := capturedEvent(1, authority.ID)
+	require.NoError(t, wire.Write(daemon, wire.Frame{Kind: wire.Events, Payload: wire.Union(1,
+		wire.Field(1, wire.U64(event.Seq)), wire.Field(2, event.EventID[:]), wire.Field(3, event.Payload))}))
+	require.ErrorIs(t, <-done, failure)
+	_, err = r.Current(branch)
+	require.ErrorIs(t, err, ErrNotReady)
+	require.Error(t, link.RequireReady(branch))
+	var count int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts`).Scan(&count))
+	require.Zero(t, count)
+	// An outbox entry remains unacknowledged and retryable after reconnection.
+	_, err = wire.Read(daemon)
+	require.Error(t, err)
+}
+
 func TestRegistryIntegration(t *testing.T) {
 	pool, a, b := machineReceiptDatabase(t)
 	r := new(Registry)

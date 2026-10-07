@@ -117,6 +117,19 @@ func (i *Ingestor) Commit(ctx context.Context, connection *Connection, branch st
 // link when acknowledging an older event: doing so could release a new boot's
 // outbox entry with the same sequence number.
 func (i *Ingestor) Dispatch(ctx context.Context, link *Link, branch string) error {
+	if link == nil {
+		return ErrNotReady
+	}
+	if link.Connection == nil || link.Connection.registry == nil {
+		return ErrUnauthorized
+	}
+	// Admission cannot survive loss of the durable consumer. Close this lease
+	// on every exit so awake RPCs refuse until a new connection reconciles and
+	// replays the outbox. Link.Close fences only this boot's connection.
+	defer link.Close()
+	if i == nil || i.Pool == nil || i.Write == nil {
+		return ErrNotReady
+	}
 	for {
 		event, err := link.Receive(ctx)
 		if err != nil {

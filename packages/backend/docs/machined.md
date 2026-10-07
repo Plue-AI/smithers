@@ -62,6 +62,13 @@ Unit tests cover registry
 leases, revocation, reconnect admission and concurrent replacement; they are
 not C-COL-01, C-COL-04 or C-DUR-04 acceptance receipts.
 
+The durable event dispatcher owns its authenticated lease. Every exit closes
+that lease, including cancellation, persistence failure and missing writer or
+database composition. Awake operations then refuse until a new connection
+reconciles and replays the outbox. An exiting old dispatcher cannot evict a
+replacement connection. Receipts commit before acknowledgements; projection
+failures leave unacknowledged events retryable.
+
 The shared reporter, public head route and helper file commands must be removed
 in the same change that migrates every supported provisioning caller to real
 capture ingest. That cutover also moves pending-work detection into the
