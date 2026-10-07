@@ -14,6 +14,8 @@ export const GitHubSyncHealthSchema = z.object({
   retry_at: z.string().optional()
 })
 export type GitHubSyncHealth = z.infer<typeof GitHubSyncHealthSchema>
+export interface MainResetBinding { readonly id: string; readonly old: string; readonly new: string }
+
 export interface GitHubSyncSnapshots {
   readonly get: () => GitHubSyncHealth | undefined
   readonly subscribe: (listener: () => void) => () => void
@@ -81,11 +83,25 @@ export function createGitHubSyncSeam(options: GitHubSyncSeamOptions) {
     pendingRetry = request()
     try { return await pendingRetry } finally { pendingRetry = undefined }
   }
+  // The owner confirms the stored attention binding; never derive tips here.
+  const reset = async (binding: MainResetBinding, idempotencyKey = randomUuid()): Promise<string | { readonly value: string } | undefined> => {
+    if (disposed || !options.http || health === undefined) return undefined
+    try {
+      const response = await options.http(`/api/stack/attention/${encodeURIComponent(binding.id)}`, { method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ old: binding.old, new: binding.new }) })
+      const body = await response.json().catch(() => undefined) as { code?: string; state?: string } | undefined
+      if (!response.ok || response.status !== 200 || body?.state !== "settled") {
+        return body?.code === "stale_attention" ? "Main changed" : "Main reset failed"
+      }
+      void read()
+      return { value: "Reset requested" }
+    } catch { return "Main reset failed" }
+  }
   const dispose = () => {
     disposed = true; ++generation
     if (timer !== undefined) clearTimeout(timer)
     timer = undefined; listeners.clear()
   }
-  return { snapshots, read, retry, dispose }
+  return { snapshots, read, retry, reset, dispose }
 }
 export type GitHubSyncSeam = ReturnType<typeof createGitHubSyncSeam>

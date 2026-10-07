@@ -85,7 +85,7 @@ func (g *resetGitFixture) Reset(ctx context.Context, dir, bridge, old, new, ref 
 }
 
 func TestMainResetFencedTransferAndRecovery(t *testing.T) {
-	for _, failure := range []string{"", "prepare", "fence", "settle", "lost_reply", "stale_tip", "third_tip"} {
+	for _, failure := range []string{"", "prepare", "fence", "settle", "lost_reply", "stale_tip", "third_tip", "upstream_race"} {
 		t.Run(failure, func(t *testing.T) {
 			h := newPullHarness(t)
 			h.service.UseInstallPolicy()
@@ -99,12 +99,20 @@ func TestMainResetFencedTransferAndRecovery(t *testing.T) {
 			if failure == "third_tip" {
 				h.host.bookmarks["main"] = "3333333333333333333333333333333333333333"
 			}
+			if failure == "upstream_race" {
+				h.host.locked = func() { h.github = "3333333333333333333333333333333333333333" }
+			}
 			err := h.service.ResetMainAttention(t.Context(), 19, "force-19", pullOld, pullNew)
 			if failure == "" {
 				require.NoError(t, err)
 				require.Equal(t, 1, f.settled)
 			} else {
 				require.Error(t, err)
+				if failure == "upstream_race" {
+					var refused *TodoControlError
+					require.ErrorAs(t, err, &refused)
+					require.Equal(t, "stale_attention", refused.Code)
+				}
 			}
 			switch failure {
 			case "", "settle", "lost_reply":
