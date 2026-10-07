@@ -52,6 +52,8 @@ func TestReviewedTodoMainMoveSchedulesRebuild(t *testing.T) {
 			checks := mythicalChecksOf(before)
 			checks.Land = &mythicalLand{Head: head, Generation: before.Generation}
 			before.Checks = checks.encode()
+			before, err = h.q.SaveMythicalItem(t.Context(), before)
+			require.NoError(t, err)
 			writes := len(h.writes())
 			after, err := step.follow(t.Context(), before)
 			require.NoError(t, err)
@@ -86,6 +88,9 @@ func TestReviewedTodoMainMoveSchedulesRebuild(t *testing.T) {
 					case "same base":
 						input.CandidateBase = main
 					}
+					input.Version = h.item(n).Version
+					input, err = h.q.SaveMythicalItem(t.Context(), input)
+					require.NoError(t, err)
 					next, err := step.follow(t.Context(), input)
 					require.NoError(t, err)
 					require.NotNil(t, next)
