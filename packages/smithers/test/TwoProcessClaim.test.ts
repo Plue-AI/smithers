@@ -25,7 +25,7 @@
  * process is told about the outcome, and that is what a written row states
  * exactly.
  */
-import { type ChildProcess, spawn, spawnSync } from "node:child_process"
+import { type ChildProcess, execFileSync, spawn, spawnSync } from "node:child_process"
 import { mkdtempSync, realpathSync, rmSync } from "node:fs"
 import { hostname, tmpdir } from "node:os"
 import { join } from "node:path"
@@ -50,6 +50,7 @@ afterEach(() => {
 const project = (): string => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "smithers-two-process-")))
   staged.push(root)
+  execFileSync("git", ["init", "--quiet", root])
   return root
 }
 
@@ -57,8 +58,7 @@ const smithers = (cwd: string, args: ReadonlyArray<string>) =>
   spawnSync(process.execPath, ["--no-warnings", "--import", scriptedHost, executable, ...args], {
     cwd,
     encoding: "utf8",
-    timeout: 180_000,
-    env: { ...process.env, HOME: cwd }
+    timeout: 180_000
   })
 
 /** A process that outlives the case, standing in for the peer that holds the run. */

@@ -189,7 +189,7 @@ describe("local diagnostics off the registry snapshot", () => {
     it("passes the registry check when the helper answers", async () => {
       const root = project()
       const report = await withHelper(
-        undefined,
+        process.env["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"],
         () => run(root, [descriptor("review", "Review the working copy")], [])
       )
       expect(check(report, "registry")).toMatchObject({ level: "ok", detail: "1 flows discovered" })

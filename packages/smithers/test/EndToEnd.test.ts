@@ -22,7 +22,7 @@
 import * as ControlRuntime from "@smthrs/control/ControlRuntime"
 import * as UnsupportedBackend from "@smthrs/database/UnsupportedBackend"
 import { Effect } from "effect"
-import { spawnSync } from "node:child_process"
+import { execFileSync, spawnSync } from "node:child_process"
 import {
   copyFileSync,
   existsSync,
@@ -54,6 +54,7 @@ const project = realpathSync(mkdtempSync(join(tmpdir(), "smithers-cli-e2e-")))
 // This fixture owns local SQLite stores. The package's PostgreSQL test
 // settings and a developer's remote selection must not redirect its commands.
 beforeAll(() => {
+  execFileSync("git", ["init", "--quiet", project])
   vi.stubEnv("SMITHERS_BACKEND", "sqlite")
   vi.stubEnv("SMITHERS_REMOTE", "")
   vi.stubEnv("XDG_CONFIG_HOME", join(project, "config"))
