@@ -415,3 +415,52 @@ fn maximum_partial_record_checkpoint_crosses_socketpair_and_restarts() {
         1
     );
 }
+
+#[test]
+fn trickling_peer_cannot_extend_poll_deadline_or_persist_partial_ipc() {
+    let fixture = Fixture::new();
+    let (socket, mut peer) = UnixStream::pair().unwrap();
+    let worker = std::thread::spawn(move || {
+        let mut header = [0; 5];
+        peer.read_exact(&mut header).unwrap();
+        let mut startup = vec![0; u32::from_be_bytes(header[1..].try_into().unwrap()) as usize];
+        peer.read_exact(&mut startup).unwrap();
+        peer.write_all(&[4, 0, 0, 0, 0]).unwrap();
+        peer.read_exact(&mut header).unwrap();
+        assert_eq!(header, [1, 0, 0, 0, 0]);
+        // An EVENT header plus an incomplete body: none of these bytes may be
+        // acknowledged. Each byte arrives well within the syscall timeout.
+        peer.write_all(&[2, 0, 0, 0, 100]).unwrap();
+        for _ in 0..20 {
+            if peer.write_all(&[b'x']).is_err() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    });
+    let mut reader = Reader::connect(socket, &fixture.startup()).unwrap();
+    let start = std::time::Instant::now();
+    let error = reader
+        .poll(
+            || Ok(()),
+            |_| panic!("partial event persisted"),
+            |_| panic!("partial checkpoint persisted"),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(
+            error.kind(),
+            io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+        ),
+        "{error}"
+    );
+    assert!(start.elapsed() < Duration::from_secs(3));
+    assert!(reader
+        .poll(
+            || panic!("poisoned reader checked registry"),
+            |_| Ok(()),
+            |_| Ok(())
+        )
+        .is_err());
+    worker.join().unwrap();
+}

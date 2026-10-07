@@ -162,6 +162,38 @@ pub fn run() -> io::Result<()> {
     serve(io::stdin().lock(), io::stdout().lock())
 }
 
+// One wall-clock deadline for the whole IPC exchange. A per-syscall socket
+// timeout alone lets a hostile peer retain the broker indefinitely by trickling
+// one byte before each timeout, delaying registry revocation and reconciliation.
+struct DeadlineSocket<'a> {
+    socket: &'a mut UnixStream,
+    deadline: Instant,
+}
+impl DeadlineSocket<'_> {
+    fn remaining(&self) -> io::Result<Duration> {
+        self.deadline
+            .checked_duration_since(Instant::now())
+            .filter(|remaining| !remaining.is_zero())
+            .ok_or_else(|| io::ErrorKind::TimedOut.into())
+    }
+}
+impl Read for DeadlineSocket<'_> {
+    fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+        self.socket.set_read_timeout(Some(self.remaining()?))?;
+        self.socket.read(bytes)
+    }
+}
+impl Write for DeadlineSocket<'_> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.socket.set_write_timeout(Some(self.remaining()?))?;
+        self.socket.write(bytes)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.remaining()?;
+        self.socket.flush()
+    }
+}
+
 pub struct Reader {
     socket: UnixStream,
     source: Source,
@@ -169,11 +201,13 @@ pub struct Reader {
 }
 impl Reader {
     pub fn connect(mut socket: UnixStream, startup: &Startup) -> io::Result<Self> {
-        socket.set_read_timeout(Some(Duration::from_secs(2)))?;
-        socket.set_write_timeout(Some(Duration::from_secs(2)))?;
         let bytes = serde_json::to_vec(startup).map_err(|_| invalid())?;
-        send(&mut socket, 0, &bytes)?;
-        let (tag, bytes) = receive(&mut socket)?;
+        let mut connection = DeadlineSocket {
+            socket: &mut socket,
+            deadline: Instant::now() + Duration::from_secs(2),
+        };
+        send(&mut connection, 0, &bytes)?;
+        let (tag, bytes) = receive(&mut connection)?;
         if tag != DONE || !bytes.is_empty() {
             return Err(invalid());
         }
@@ -209,13 +243,17 @@ impl Reader {
             return Err(invalid());
         }
         self.failed = true;
+        let mut connection = DeadlineSocket {
+            socket: &mut self.socket,
+            deadline: Instant::now() + Duration::from_secs(2),
+        };
         live()?;
-        send(&mut self.socket, POLL, &[])?;
+        send(&mut connection, POLL, &[])?;
         let mut events = 0;
         let mut record_bytes = 0u64;
         let mut checkpoint = false;
         loop {
-            let (tag, bytes) = receive(&mut self.socket)?;
+            let (tag, bytes) = receive(&mut connection)?;
             live()?;
             match tag {
                 EVENT if !checkpoint => {
@@ -231,7 +269,7 @@ impl Reader {
                     }
                     persist(&bytes)?;
                     events += 1;
-                    send(&mut self.socket, ACK, &[])?;
+                    send(&mut connection, ACK, &[])?;
                 }
                 CHECKPOINT if !checkpoint => {
                     if bytes.is_empty() {
@@ -239,7 +277,7 @@ impl Reader {
                     }
                     save(&bytes)?;
                     checkpoint = true;
-                    send(&mut self.socket, ACK, &[])?;
+                    send(&mut connection, ACK, &[])?;
                 }
                 DONE if checkpoint && bytes.len() == 4 => {
                     if u32::from_be_bytes(bytes.try_into().unwrap()) as usize != events {
