@@ -497,7 +497,10 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 		case "cli", "terminal", "claude-code", "codex":
 			actor = "external_agent"
 		default:
-			return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Unknown delegated actor"}
+			if !ValidExternalAgent(delegation.Via) {
+				return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Unknown delegated actor"}
+			}
+			actor = "external_agent"
 		}
 	}
 	if policy.Agent == "never" {

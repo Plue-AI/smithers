@@ -575,7 +575,7 @@ if(settled.status!==200) throw Error(await settled.text());
 	root := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "../../../.."))
 	cliCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
-	command := exec.CommandContext(cliCtx, node, filepath.Join(root, "packages/smithers/bin/smithers.mjs"), "login", origin, "--agent", "claude-code", "--format", "json")
+	command := exec.CommandContext(cliCtx, node, filepath.Join(root, "packages/smithers/bin/smithers.mjs"), "login", origin, "--agent", "build-bot-7", "--format", "json")
 	command.Dir = root
 	command.Env = append(os.Environ(), "HOME="+home, "XDG_CONFIG_HOME="+home, "XDG_DATA_HOME="+home, "SMITHERS_AUTH_FILE="+filepath.Join(home, "auth.json"), "SMITHERS_DISABLE_SYSTEM_KEYRING=1", "SMITHERS_API_ORIGIN="+origin, "SMITHERS_TOKEN=", "SMITHERS_TOKEN_FILE=", "BROWSER="+browser)
 	output, err := command.CombinedOutput()
@@ -589,12 +589,21 @@ if(settled.status!==200) throw Error(await settled.text());
 		Token string `json:"token"`
 	}
 	require.NoError(t, json.Unmarshal(saved, &credential))
-	require.Equal(t, "claude-code", credential.Via)
+	require.Equal(t, "build-bot-7", credential.Via)
 	require.Equal(t, "delegated", credential.Kind)
 	require.NotEmpty(t, credential.Token)
 	require.NotContains(t, string(output), credential.Token)
 	status, body = call("GET", "/api/user", "", credential.Token)
 	require.Equal(t, 200, status, body)
+	require.Contains(t, body, `"via":"build-bot-7"`, "forged codex hint must retain the issuer's custom agent")
+	status, body = call("GET", "/api/todos/1", "", credential.Token)
+	require.Equal(t, 200, status, body)
+	status, body = call("POST", "/api/members", `{"login":"outsider","role":"member"}`, credential.Token)
+	require.Equal(t, 403, status, body)
+	require.Contains(t, body, `"code":"never"`, "custom names remain delegated at person-only commands")
+	var customVia string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT metadata->>'via' FROM audit_log WHERE event_type='delegated.request' AND metadata->>'via'='build-bot-7' ORDER BY id DESC LIMIT 1`).Scan(&customVia))
+	require.Equal(t, "build-bot-7", customVia)
 	plainHome := t.TempDir()
 	plainCommand := exec.CommandContext(cliCtx, node, filepath.Join(root, "packages/smithers/bin/smithers.mjs"), "login", origin, "--format", "json")
 	plainCommand.Dir = root

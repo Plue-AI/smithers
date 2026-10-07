@@ -178,9 +178,9 @@ func TestInstallCommandCatalogScopes(t *testing.T) {
 	}
 }
 
-func TestUnknownDelegatedActorCannotRequestPersonAuthority(t *testing.T) {
+func TestMalformedDelegatedActorCannotRequestPersonAuthority(t *testing.T) {
 	for _, command := range []string{"members.write", "secrets.write", "todo.new", "todo.read"} {
-		info := &middleware.AuthInfo{User: &db.User{ID: 7}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "write:repository,via:unknown-tool", Scopes: middleware.ParseTokenScopes("write:repository")}
+		info := &middleware.AuthInfo{User: &db.User{ID: 7}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "write:repository,via:unknown_tool", Scopes: middleware.ParseTokenScopes("write:repository")}
 		_, err := Authorize(middleware.ContextWithAuthInfo(context.Background(), info), nil, command)
 		var access *AccessError
 		assert.ErrorAs(t, err, &access)
