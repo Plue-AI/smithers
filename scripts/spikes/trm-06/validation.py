@@ -4,6 +4,7 @@ No caller path, code, user or signal selector. The signed installed provider
 selects one of these literal fixture operations in its own fresh disposable VM.
 """
 import hashlib
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -85,6 +86,9 @@ def arm_observer():
     if not handles:
         raise ValueError("no live cgroups to observe")
     output = os.open(OBSERVER, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    # Keep readers out until the detached writer has flushed the entire receipt.
+    # The inherited open-file description retains this lock across fork.
+    fcntl.flock(output, fcntl.LOCK_EX)
     read_ready, write_ready = os.pipe()
     pid = os.fork()
     if pid:
@@ -140,7 +144,12 @@ def arm_observer():
                 break
             time.sleep(.002)
         body = json.dumps({"zero": zero, "groups": list(handles), "samples": rows}).encode()
-        os.write(output, body)
+        view = memoryview(body)
+        while view:
+            written = os.write(output, view)
+            if written <= 0:
+                raise ValueError("observer receipt write stalled")
+            view = view[written:]
         os.fsync(output)
     finally:
         os.close(output)
@@ -155,6 +164,11 @@ def observed_drain():
     for _ in range(300):
         fd = os.open(OBSERVER, os.O_RDONLY | os.O_NOFOLLOW)
         with os.fdopen(fd, 'rb') as source:
+            try:
+                fcntl.flock(source.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except BlockingIOError:
+                time.sleep(.02)
+                continue
             info = os.fstat(source.fileno())
             if info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1 or not stat.S_ISREG(info.st_mode):
                 raise ValueError("untrusted observer output")
@@ -276,9 +290,13 @@ def main():
         pid = observed["supervisors"][0]
         # This is the provider's own disposable supervisor, never an arbitrary
         # PID or member-selected process. Validate its exact installed executable.
-        if os.readlink(f"/proc/{pid}/exe") != "/opt/smithers/prototype/supervisor":
-            raise ValueError("supervisor executable mismatch")
-        os.kill(pid, signal.SIGKILL)
+        process = os.pidfd_open(pid, 0)
+        try:
+            if os.readlink(f"/proc/{pid}/exe") != "/opt/smithers/prototype/supervisor":
+                raise ValueError("supervisor executable mismatch")
+            signal.pidfd_send_signal(process, signal.SIGKILL)
+        finally:
+            os.close(process)
         print(json.dumps({"killed": pid, "before": observed}))
         return
     if operation not in ("positive", "race-parent", "poison-imports", "symlink-opt", "symlink-run", "existing-prototype"):
