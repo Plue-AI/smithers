@@ -87,7 +87,11 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 }
 
 func TestConfirmationMergeAdmissionComposedPostgres(t *testing.T) {
-	testTodoMergeComposedRouteBoundaryPostgres(t, true, false, false)
+	for _, explicit := range []bool{false, true} {
+		t.Run(fmt.Sprintf("explicit-head-%t", explicit), func(t *testing.T) {
+			testTodoMergeComposedRouteBoundaryPostgres(t, true, false, false, false, explicit)
+		})
+	}
 }
 
 func TestConfirmationMergeBrowserComposedPostgres(t *testing.T) {
