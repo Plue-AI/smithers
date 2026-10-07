@@ -23,6 +23,10 @@ import type { ProducerError } from "./ModelHostError.ts"
 import { runModelTurn } from "./ModelTurnHost.ts"
 import type { ModelTurnOptions } from "./ModelTurnHost.ts"
 
+// performance.now() belongs to this host process. A distinct identity prevents
+// comparing receipts from a producer restart as though they shared a clock.
+const preflightClock = `host monotonic:${crypto.randomUUID()}`
+
 /**
  * One short-lived capability for an already accepted chat turn.
  *
@@ -132,12 +136,15 @@ export class DurableChatProducer {
     result: ContextPreflightResult
   ): Effect.Effect<void, ProducerError | ModelError> {
     return Effect.gen({ self: this }, function*() {
+      const at = performance.now()
       const pages: Array<ContextPreflightResult> = []
       let current: ContextPreflightResult = { ...result, candidates: [], context: [] }
       const frame: ContextPreflightFrame = {
         runId: this.grant.runId,
         type: "context.preflight",
         phase,
+        at,
+        clock: preflightClock,
         page: { index: Number.MAX_SAFE_INTEGER - 1, total: Number.MAX_SAFE_INTEGER },
         result: current
       }
@@ -185,6 +192,8 @@ export class DurableChatProducer {
           runId: this.grant.runId,
           type: "context.preflight",
           phase,
+          at,
+          clock: preflightClock,
           page: { index, total: pages.length },
           result: value
         })

@@ -98,8 +98,12 @@ export const ContextPreflightFrameSchema = z.object({
   type: z.literal("context.preflight"),
   phase: z.enum(["started", "completed"]).optional(),
   page: ContextPreflightPageSchema.optional(),
+  // Optional for replay of frames recorded before host timing was available.
+  at: z.number().finite().nonnegative().optional(),
+  clock: z.string().regex(/^host monotonic:.+$/).optional(),
   result: ContextPreflightResultSchema
 }).refine((frame) => frame.page === undefined || frame.phase !== undefined)
+  .refine((frame) => (frame.at === undefined) === (frame.clock === undefined))
 /**
  * Replay progress is persisted with the existing HTTP turn projection.
  *

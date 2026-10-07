@@ -262,6 +262,12 @@ test("wiki-only preflight journals and supplies only the chosen pinned page", as
     phase: "completed",
     result: { candidates: [wiki.item], context: [{ ...wiki.item, reason: "Policy" }] }
   })
+  const timing = frames.filter((frame) => frame.type === "context.preflight")
+  expect(timing).toHaveLength(2)
+  expect(timing[0]!.at).toBeGreaterThanOrEqual(0)
+  expect(timing[1]!.at).toBeGreaterThanOrEqual(timing[0]!.at!)
+  expect(timing[0]!.clock).toMatch(/^host monotonic:.+$/)
+  expect(timing[1]!.clock).toBe(timing[0]!.clock)
   expect(requests).toHaveLength(1)
   expect(JSON.stringify(requests)).toContain("Retry three times")
   expect(JSON.stringify(requests)).not.toContain("unselected-file-canary")

@@ -360,6 +360,8 @@ func testLocalSharedPreflight(t *testing.T, browser bool) {
           WHERE b.turn_id=$1 AND frame->>'type'='context.preflight'`, admitted.TurnID).Scan(&journal))
 		var steps []struct {
 			Phase  string                     `json:"phase"`
+			At     float64                    `json:"at"`
+			Clock  string                     `json:"clock"`
 			Page   struct{ Index, Total int } `json:"page"`
 			Result struct {
 				Model string `json:"model"`
@@ -367,6 +369,12 @@ func testLocalSharedPreflight(t *testing.T, browser bool) {
 		}
 		require.NoError(t, json.Unmarshal(journal, &steps))
 		require.Greater(t, len(steps), 2, "large catalog must span bounded journal pages")
+		require.Positive(t, steps[0].At)
+		require.Contains(t, steps[0].Clock, "host monotonic:")
+		for _, step := range steps {
+			require.Equal(t, steps[0].Clock, step.Clock)
+			require.GreaterOrEqual(t, step.At, steps[0].At)
+		}
 		for _, phase := range []string{"started", "completed"} {
 			next, total := 0, 0
 			for _, step := range steps {

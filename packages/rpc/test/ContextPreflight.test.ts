@@ -4,6 +4,7 @@ import type { AgentRuntimeContext } from "../src/AgentContext.ts"
 import { ContextLineCardSchema } from "../src/ContextLineCard.ts"
 import {
   ContextCandidateSchema,
+  ContextPreflightFrameSchema,
   ContextPreflightInputSchema,
   ContextPreflightRejected,
   SelectedContextItemSchema
@@ -104,4 +105,28 @@ test("paged preflight survives serialization and publishes only complete phases"
     preflightPhase: "completed",
     preflightPage: undefined
   })
+})
+
+test("preflight host timings survive decoding while historical frames remain readable", () => {
+  const frame = {
+    runId: "run",
+    type: "context.preflight",
+    phase: "started",
+    result: { model: "fast", durationMs: 0, candidates: [], context: [] }
+  }
+  expect(ContextPreflightFrameSchema.parse(frame)).toEqual(frame)
+  const timed = { ...frame, at: 12.5, clock: "host monotonic:producer-a" }
+  expect(ContextPreflightFrameSchema.parse(timed)).toEqual(timed)
+  for (
+    const timing of [
+      { at: 1 },
+      { clock: "host monotonic:producer-a" },
+      { at: -1, clock: timed.clock },
+      { at: Infinity, clock: timed.clock },
+      { at: 1, clock: "browser" },
+      { at: 1, clock: "host monotonic:" }
+    ]
+  ) {
+    expect(ContextPreflightFrameSchema.safeParse({ ...frame, ...timing }).success).toBe(false)
+  }
 })
