@@ -5,18 +5,14 @@
  * handed. bundled.ts hands it the build's files; the test suites hand it the
  * same files read from disk (DiskPages.ts).
  */
+import type { DocsPage } from "@smthrs/rpc/DocsPages"
 import { resolveMarkdownLink } from "../mainview/cards/MarkdownLinks"
 import { TOC, type DocsSection } from "./toc"
 
 export type { DocsSection } from "./toc"
 
 /** One page: its slug (the file name without `.md`), its frontmatter, and the Markdown after it. */
-export interface DocsPage {
-  readonly slug: string
-  readonly title: string
-  readonly summary: string
-  readonly markdown: string
-}
+export type { DocsPage }
 
 /** Every page, in toc order, beside the sections that order them. */
 export interface Docs {
@@ -97,10 +93,6 @@ export const loadDocs = (files: Readonly<Record<string, string>>, toc: ReadonlyA
 /** The page with this slug, or undefined. */
 export const docsPage = (docs: Docs, slug: string): DocsPage | undefined =>
   docs.pages.find((page) => page.slug === slug)
-
-/** The refusal for a slug no page answers: it names every page there is. */
-export const unknownDocsPage = (docs: Docs, slug: string): string =>
-  `There is no docs page named ${slug}. Pages: ${docs.pages.map((page) => page.slug).join(", ")}.`
 
 /**
  * Where a link inside a docs page goes. Pages link to each other as sibling

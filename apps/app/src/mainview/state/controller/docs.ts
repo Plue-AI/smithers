@@ -1,14 +1,15 @@
+import { docsCard, readDocsPage as readPage } from "@smthrs/rpc/DocsPages"
 import { headingLine } from "../../cards/MarkdownLinks"
 import type { Docs } from "../../../docs/Docs"
-import { docsPage, unknownDocsPage } from "../../../docs/Docs"
-import type { Card } from "../AppState"
+import { docsPage } from "../../../docs/Docs"
 import type { ControllerContext } from "./context"
 
 /*
  * The in-app docs (M-35). `docs [page]` embeds one page as a read-only
  * Markdown card for either actor, the way `wiki.open` embeds a note;
  * `docs {mode:"read", page}` hands the agent the same page as data. A slug no page
- * answers opens the first page with a not-found state.
+ * answers opens the first page with a not-found state. The card and the read
+ * are @smthrs/rpc/DocsPages, which the model host binds for the app agent too.
  */
 export interface DocsController {
   /** `docs [page]`: embed the page (the toc's first when none is named) and tell the agent what was embedded. */
@@ -25,36 +26,16 @@ export const createDocsController = (
 ): DocsController => {
   const openDocsPage = (page?: string): string | { readonly value: string } => {
     if (!deps.available()) return "Docs catalog is unavailable"
-    const docs = deps.docs()
-    const wanted = page?.trim() || docs.pages[0]!.slug
-    const [pageSlug, anchor] = wanted.split("#", 2)
-    const slug = pageSlug || docs.pages[0]!.slug
-    const requested = docsPage(docs, slug!)
-    const found = requested ?? docs.pages[0]!
-    const id = `docs-${found.slug}`
-    const existing = ctx.store.collections.cards.get(id)
-    const card: Extract<Card, { kind: "docs" }> = {
-      id,
-      kind: "docs",
-      title: found.title,
-      status: "active",
-      createdAt: existing?.createdAt ?? Date.now(),
-      ordinal: deps.nextOrdinal(),
-      payload: { page: found.slug, markdown: found.markdown, summary: found.summary,
-        toc: docs.pages.map(({ slug, title }) => ({ slug, title })),
-        ...(requested && anchor ? { anchor } : {}),
-        ...(requested ? {} : { not_found: slug }) }
-    }
-    ctx.store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card })
-    return { value: `Embedded the ${found.title} docs page.` }
+    const { card, value } = docsCard(deps.docs().pages, page, deps.nextOrdinal(), Date.now())
+    const existing = ctx.store.collections.cards.get(card.id)
+    ctx.store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card: { ...card, createdAt: existing?.createdAt ?? card.createdAt } })
+    return { value }
   }
 
   const readDocsPage = (page: string): string | { readonly value: string } => {
     if (!deps.available()) return "Docs catalog is unavailable"
-    const docs = deps.docs()
-    const found = docsPage(docs, page.trim())
-    if (found === undefined) return unknownDocsPage(docs, page.trim())
-    return { value: JSON.stringify({ title: found.title, summary: found.summary, markdown: found.markdown }) }
+    const read = readPage(deps.docs().pages, page)
+    return "error" in read ? read.error : read
   }
 
   const docsTargetAvailable = (target: string) => {
