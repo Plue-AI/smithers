@@ -67,11 +67,13 @@ export const compileCommonJs = async (src, cjs, esm) => {
     )
   }
   // JSON imported by source modules (including the generated command catalog)
-  // must accompany the unbundled CommonJS modules just as it does tsc's ESM.
+  // must accompany both module formats; the release compiler can omit ESM data.
   for (const file of sourceFiles.filter((file) => file.endsWith(".json"))) {
-    const target = join(cjs, relative(src, file))
-    mkdirSync(dirname(target), { recursive: true })
-    cpSync(file, target)
+    for (const output of [cjs, esm]) {
+      const target = join(output, relative(src, file))
+      mkdirSync(dirname(target), { recursive: true })
+      cpSync(file, target)
+    }
   }
   copyCommonJsDeclarations(dirname(src))
   await buildPrivateEffectAdapters(dirname(src))

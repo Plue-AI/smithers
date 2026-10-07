@@ -87,6 +87,9 @@ it("authenticates only the issuer's session file and freezes the bridge origin",
     SMITHERS_AUTH_FILE: auth, SMITHERS_DISABLE_SYSTEM_KEYRING: "1" } }).response("POST", "/probe", {}))
     .rejects.toMatchObject({ code: "token_file_unavailable" })
   expect(f.calls()).toBe(1)
+  expect((await new Client({ environment: { ...f.environment, SMITHERS_URL: f.issuer + "/" } })
+    .response("GET", "/probe")).status).toBe(200)
+  expect(f.calls()).toBe(2)
 })
 it.each(["session", "issuer", "identity", "version", "missing", "writable", "link", "invalid-json", "oversized"])("refuses a %s envelope before HTTP admission", async kind => {
   const f = await fixture()

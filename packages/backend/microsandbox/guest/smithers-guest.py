@@ -2053,18 +2053,22 @@ def managed_artifact_request(relative, digest):
     return parts
 
 
+def artifact_limit(relative):
+    return 256 * 1024 * 1024 if relative == "share/cli/linux-arm64.tar.gz" else MANAGED_ARTIFACT_LIMIT
+
+
 def managed_artifact_mode(relative):
     return 0o644 if relative in ("share/skills/smithers/SKILL.md", "share/cli/linux-arm64.tar.gz") else 0o755
 
 
 def managed_artifact_current(relative, digest):
     parts = managed_artifact_request(relative, digest)
-    return protected_file_current(MANAGED_ARTIFACT_ROOT + tuple(parts[:-1]), parts[-1], digest, MANAGED_ARTIFACT_LIMIT, managed_artifact_mode(relative))
+    return protected_file_current(MANAGED_ARTIFACT_ROOT + tuple(parts[:-1]), parts[-1], digest, artifact_limit(relative), managed_artifact_mode(relative))
 
 
 def install_managed_artifact(relative, digest, body):
     parts = managed_artifact_request(relative, digest)
-    install_protected_file(MANAGED_ARTIFACT_ROOT + tuple(parts[:-1]), parts[-1], digest, body, MANAGED_ARTIFACT_LIMIT, managed_artifact_mode(relative))
+    install_protected_file(MANAGED_ARTIFACT_ROOT + tuple(parts[:-1]), parts[-1], digest, body, artifact_limit(relative), managed_artifact_mode(relative))
 
 
 def protected_directory(names, create):
@@ -2360,7 +2364,7 @@ def install_terminal_cli(entry):
     with os.fdopen(fd, "rb") as handle:
         info = os.fstat(handle.fileno())
         if (not stat.S_ISREG(info.st_mode) or info.st_uid != ROOT_UID or
-                stat.S_IMODE(info.st_mode) != 0o644 or info.st_nlink != 1 or info.st_size > MANAGED_ARTIFACT_LIMIT):
+                stat.S_IMODE(info.st_mode) != 0o644 or info.st_nlink != 1 or info.st_size > artifact_limit("share/cli/linux-arm64.tar.gz")):
             fail(3, "untrusted terminal CLI archive")
         digest = hashlib.file_digest(handle, "sha256").hexdigest()
         handle.seek(0)
@@ -2609,7 +2613,8 @@ def main(args):
         print("current" if managed_artifact_current(args[1], args[2]) else "replace")
         return
     if command == "managed-artifact" and len(args) == 3:
-        install_managed_artifact(args[1], args[2], sys.stdin.buffer.read(MANAGED_ARTIFACT_LIMIT + 1))
+        managed_artifact_request(args[1], args[2])
+        install_managed_artifact(args[1], args[2], sys.stdin.buffer.read(artifact_limit(args[1]) + 1))
         return
     if command == "coding-binding" and len(args) == 1:
         body = sys.stdin.buffer.read(65537)
