@@ -10,18 +10,18 @@ try {
     let values
     try {
       values = parseArgs({ args, strict: true, allowPositionals: false, options: {
-        bundle: { type: "string" }, bind: { type: "string" }, origin: { type: "string", multiple: true }
+        bundle: { type: "string" }, bind: { type: "string" }, origin: { type: "string", multiple: true }, json: { type: "boolean" }
       } }).values
     } catch { throw new Error("Use smthrs host start [--bundle <dir>] [--bind <address>] [--origin <url>]") }
     const result = await HostService.start(values.bundle ?? dirname(dirname(process.execPath)), {
       ...(values.bind === undefined ? {} : { bind: values.bind }),
       ...(values.origin === undefined ? {} : { origins: values.origin })
     })
-    console.log(JSON.stringify(result.setup_urls ? { setup_urls: result.setup_urls } : { message: result.message }))
+    console.log(values.json ? JSON.stringify(result) : HostService.startText(result))
     process.exitCode = result.exitCode
-  } else if (command === "stop" && args.length === 0) {
+  } else if (command === "stop" && (args.length === 0 || args.length === 1 && args[0] === "--json")) {
     console.log(JSON.stringify(HostService.stop(HostService.launchd())))
-  } else if (command === "status" && args.length === 0) {
+  } else if (command === "status" && (args.length === 0 || args.length === 1 && args[0] === "--json")) {
     console.log(JSON.stringify(await HostService.status()))
   } else throw new Error("Use smthrs host start [--bundle <dir>]|stop|status")
 } catch (error) {

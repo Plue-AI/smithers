@@ -171,10 +171,7 @@ export const mount = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime) => {
       (name.startsWith("auth ") && !name.endsWith(" status") && name !== "auth token") ||
       ["workspace shell", "workspace ssh"].includes(name)
     const human = name === "host start"
-      ? (value: unknown) => {
-        const row = object(value)
-        return Array.isArray(row.setup_urls) ? [...row.setup_urls, ...(row.warning ? [row.warning] : [])].join("\n") : String(row.message ?? "")
-      }
+      ? HostService.startText
       : name === "host status"
       ? (value: unknown) => {
         const row = object(value)
