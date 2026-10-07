@@ -1728,6 +1728,82 @@
       }
     },
     {
+      "name": "branch.sleep",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "member",
+      "credentialScope": "write:repository",
+      "agent": "never",
+      "summary": "Sleep branch",
+      "http": {
+        "method": "POST",
+        "path": "/api/branches/{branch}",
+        "defaults": {
+          "op": "sleep"
+        }
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "branch": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "branch"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "branch.wake",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "member",
+      "credentialScope": "write:repository",
+      "agent": "never",
+      "summary": "Wake branch",
+      "http": {
+        "method": "POST",
+        "path": "/api/branches/{branch}",
+        "defaults": {
+          "op": "wake"
+        }
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "branch": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "branch"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "branches",
       "slash": "/branches",
       "cli": [
