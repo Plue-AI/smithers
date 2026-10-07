@@ -175,3 +175,47 @@ test("locator key shortcuts refuse before moving focus to an unreachable control
     expect(() => keys.finish()).toThrow("refused input")
   } finally { await browser.close(); server.stop(true) }
 }, 30_000)
+
+// The production View makes the output a region and the read-only slot inert.
+// This HTTP/browser regression covers the physical input target; mounted
+// TerminalCard tests cover the real emulator/seam. Neither is a release receipt.
+test("terminal journey reaches the input rather than its region and refuses watching or frozen slots", async () => {
+  const { renderToStaticMarkup } = await import("react-dom/server")
+  const { createElement } = await import("react")
+  const { TerminalView } = await import("../../../src/mainview/cards/views/TerminalView")
+  const { journeyTerminalInput } = await import("./keyboard-journey-input")
+  const markup = (owned: boolean, frozen: boolean) => renderToStaticMarkup(createElement(TerminalView, {
+    model: { id: "reference-terminal", title: "Ben's terminal", branch: "smithers/retry-webhooks",
+      owner: { kind: "person", login: "ben", name: "Ben", avatar_url: "", color_index: 0 }, agents: [], watchers: [],
+      viewer_is_owner: owned, frozen },
+    view: { maximized: false }, actions: [], gestures: {}, onAction: () => {}, onView: () => {},
+    terminal: createElement("textarea", { className: "xterm-helper-textarea", "aria-label": "Terminal input" })
+  }))
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: request => {
+    const mode = new URL(request.url).pathname
+    return new Response(`<style>:root{--ring-border:rgb(12,34,56)}:focus-visible{outline:2px solid var(--ring-border)}</style>
+      ${markup(mode !== "/watching", mode === "/frozen")}<input aria-label="Chat">`, { headers: { "Content-Type": "text/html" } })
+  } })
+  const browser = await chromium.launch()
+  try {
+    const page = await browser.newPage(), origin = `http://127.0.0.1:${server.port}`
+    const keys = registerKeyboardJourney(page, origin)
+    await page.goto(origin)
+    const card = page.locator(".terminal-view")
+    expect(await card.getByRole("region").getAttribute("tabindex")).toBeNull()
+    await journeyTerminalInput(card)
+    expect(await page.getByLabel("Terminal input").evaluate(field => field === document.activeElement)).toBe(true)
+    await page.keyboard.type("claude")
+    expect(await page.getByLabel("Terminal input").inputValue()).toBe("claude")
+    expect(await page.getByLabel("Chat").inputValue()).toBe("")
+    for (const mode of ["watching", "frozen"]) {
+      await page.goto(`${origin}/${mode}`)
+      const before = keys.snapshot().inputs.length
+      await expect(journeyTerminalInput(card)).rejects.toThrow("watching or frozen")
+      expect(keys.snapshot().inputs).toHaveLength(before)
+      expect(await page.getByLabel("Terminal input").inputValue()).toBe("")
+      expect(await page.getByLabel("Chat").inputValue()).toBe("")
+    }
+    keys.finish()
+  } finally { await browser.close(); server.stop(true) }
+}, 30_000)

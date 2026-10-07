@@ -80,6 +80,12 @@ J3–J7, J10 and J11 steps still require real-install keyboard coverage and
 reference-host execution. No Mac recording, live credential soak, microVM proof
 or approved check receipt is produced by supplemental browser tests.
 
+The prepared keyboard continuation reaches the terminal emulator input, rather
+than the non-focusable output region. Watching and frozen slots refuse before
+any harness input, and the actual input must retain a visible focus ring. The
+HTTP-served production View regression and mounted terminal seam tests are
+supplemental; they do not qualify J3/J6 or the live-terminal transport contract.
+
 `duplicate-launch.spec.ts` is the exclusive §21 duplicate-launch recording.
 `home.spec.ts` is the exclusive prepared J4 read/filter recording slice. Supply
 distinct `SMITHERS_JOURNEY_HOME_F1` and `SMITHERS_JOURNEY_HOME_F2` failed run IDs,

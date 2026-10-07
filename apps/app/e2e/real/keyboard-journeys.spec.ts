@@ -11,7 +11,7 @@ test("C-J1-04 first TODO keyboard", scenario("journey.j1-keyboard", {
 // evidence; this pass exercises the person-facing keyboard doors, without seeds.
 import { test as referenceTest } from "./support"
 import { withReference, required, runSlash, expect, todoCard } from "./todo/reference"
-import { journeyActivate, journeyEnter, journeyReach } from "./support/keyboard-journey-input"
+import { journeyActivate, journeyEnter, journeyReach, journeyTerminalInput } from "./support/keyboard-journey-input"
 
 referenceTest("C-UI-01 prepared install branch, stack, flow and monitor keyboard doors", scenario("journey.keyboard-continuation", {
   capabilities: [], coverage: ["host:local", "host:production", "path:success", "door:slash", "door:button", "dimension:keyboard", "surface:todo", "surface:wiki"]
@@ -38,8 +38,7 @@ referenceTest("C-UI-01 prepared install branch, stack, flow and monitor keyboard
     await expect(file).toContainText("// keyboard journey edit")
     await runSlash(page, "/branch smithers/retry-webhooks")
     await journeyActivate(branch.getByRole("button", { name: "New terminal", exact: true }))
-    const terminal = page.getByRole("region", { name: /terminal output/ }).last()
-    await journeyReach(terminal)
+    await journeyTerminalInput(page.locator(".terminal-view").last())
     // J6: live independent subscription; no scripted model or host execution.
     await page.keyboard.type("claude")
     await page.keyboard.press("Enter")

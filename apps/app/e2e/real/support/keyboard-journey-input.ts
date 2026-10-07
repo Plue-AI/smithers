@@ -95,6 +95,15 @@ export async function journeyReach(target: Locator): Promise<void> {
   if (input) await input.reach(target)
   else await pointerDoor(target, () => target.focus())
 }
+
+/** The output region is not a Tab stop. Reach the emulator's actual input,
+ * refusing read-only slots before entering a harness command. */
+export async function journeyTerminalInput(card: Locator): Promise<void> {
+  const slot = card.locator(".terminal-output > div")
+  if (await slot.getAttribute("inert") !== null) throw new Error("Journey terminal is watching or frozen")
+  await journeyReach(slot.locator(".xterm-helper-textarea"))
+  await keyboardInputFor(card.page())?.observe()
+}
 export async function journeyEnter(target: Locator, text: string): Promise<void> {
   const input = keyboardInputFor(target.page())
   if (input) await input.enter(target, text)
