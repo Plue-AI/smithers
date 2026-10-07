@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
 	"io"
 	"math/big"
@@ -15,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -121,6 +123,44 @@ func TestCSEC02GitHubProxyUsesVerifiedTLSAndRefusesOtherAuthorities(t *testing.T
 	require.NoError(t, response.Body.Close())
 	require.Equal(t, 200, response.StatusCode)
 	require.Contains(t, string(body), "isolation-owner")
+
+	// Exercise the actual fixture surfaces consumed by the bundled claim,
+	// including refusal controls. A TLS listener alone is not an OAuth fixture.
+	post := func(path, form string, expected int) []byte {
+		t.Helper()
+		response, err := client.Post("https://github.com"+path, "application/x-www-form-urlencoded", strings.NewReader(form))
+		require.NoError(t, err)
+		defer response.Body.Close()
+		data, err := io.ReadAll(response.Body)
+		require.NoError(t, err)
+		require.Equal(t, expected, response.StatusCode)
+		return data
+	}
+	post("/app-manifests/wrong-code/conversions", "", 404)
+	conversion := post("/app-manifests/manifest-code/conversions", "", 201)
+	var app struct {
+		ClientID string `json:"client_id"`
+	}
+	require.NoError(t, json.Unmarshal(conversion, &app))
+	require.Equal(t, "client", app.ClientID)
+	post("/login/oauth/access_token", "client_id=client&client_secret=wrong&code=owner-code&redirect_uri=http%3A%2F%2Flocalhost%3A4000%2Fapi%2Fauth%2Fgithub%2Fcallback", 401)
+	credentials := post("/login/oauth/access_token", "client_id=client&client_secret=secret&code=owner-code&redirect_uri=http%3A%2F%2Flocalhost%3A4000%2Fapi%2Fauth%2Fgithub%2Fcallback", 200)
+	var token struct {
+		AccessToken string `json:"access_token"`
+	}
+	require.NoError(t, json.Unmarshal(credentials, &token))
+	require.NotEmpty(t, token.AccessToken)
+	request, err := http.NewRequest("GET", "https://api.github.com/user", nil)
+	require.NoError(t, err)
+	request.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	identity, err := client.Do(request)
+	require.NoError(t, err)
+	require.Equal(t, 200, identity.StatusCode)
+	var user struct{ Login string }
+	require.NoError(t, json.NewDecoder(identity.Body).Decode(&user))
+	require.NoError(t, identity.Body.Close())
+	require.Equal(t, "isolation-owner", user.Login)
+	post("/login/oauth/access_token", "client_id=client&client_secret=secret&code=owner-code&redirect_uri=http%3A%2F%2Flocalhost%3A4000%2Fapi%2Fauth%2Fgithub%2Fcallback", 401)
 	_, err = client.Get("https://example.com/")
 	require.ErrorContains(t, err, "Forbidden")
 	untrusted := &http.Transport{Proxy: http.ProxyURL(proxyURL)}
