@@ -43,6 +43,7 @@ const run = async ({ page, request }: { page: Page; request: APIRequestContext }
   const send = keys ? keys.command : (text: string) => command(page, text)
   const activate = keys ? keys.activate : (target: import("@playwright/test").Locator) => target.click()
   const enter = keys ? keys.enter : (target: import("@playwright/test").Locator, text: string) => target.fill(text)
+  try {
   const publicInput = { ...input, setupURL: new URL(input.setupURL).origin + new URL(input.setupURL).pathname }
   const end = Date.parse(input.t0) - input.clockOffsetStartMs + 3_600_000
   const remaining = () => {
@@ -218,7 +219,10 @@ const run = async ({ page, request }: { page: Page; request: APIRequestContext }
     mergeCommit: merged!.merge_commit_sha, github: merged, checks: { Land: land }
   }, null, 2))
   await info.attach("activation", { path: info.outputPath("activation.json"), contentType: "application/json" })
-  if (keys) await info.attach("keyboard", { body: JSON.stringify(keys.finish()), contentType: "application/json" })
+  if (keys) keys.finish()
+  } finally {
+    if (keys) await info.attach("keyboard", { body: JSON.stringify(keys.snapshot()), contentType: "application/json" })
+  }
 }
 
 // Preserve reviewed full-run evidence on success and failure. Never publish the
