@@ -134,5 +134,49 @@
       "PASS",
       "ok  \tgithub.com/smithersai/smithers/packages/backend/internal/compose\t29.697s"
     ]
+  },
+  "post_landing_verification": {
+    "tested_main_commit": "48c2cbb32befa3ac9ae015afbb9df340476c2afa",
+    "checks": [
+      {
+        "command": "export LANE=fr7-t-col-08b; source ~/lanes/env.sh; export SMITHERS_TEST_DATABASE_URL='postgres://smithers@127.0.0.1:55440/postgres?sslmode=disable'; export SMITHERS_FFI_LIBRARY_PATH=/home/lane/.cache/cargo-target-gate/debug/libsmithers_ffi.so; go test ./internal/compose -run '^TestDocRelay' -count=1 -v",
+        "passed": 13,
+        "failed": 0,
+        "skipped": 0,
+        "output": [
+          "--- PASS: TestDocRelayWireContract (1.72s)",
+          "--- PASS: TestDocRelayAuthorization (3.05s)",
+          "    --- PASS: TestDocRelayAuthorization/foreign_client (1.61s)",
+          "    --- PASS: TestDocRelayAuthorization/authors_map (1.44s)",
+          "--- PASS: TestDocRelayMirrorRecovery (1.50s)",
+          "--- PASS: TestDocRelayDarkLanding (7.31s)",
+          "    --- PASS: TestDocRelayDarkLanding/host (1.42s)",
+          "    --- PASS: TestDocRelayDarkLanding/authorizer (1.39s)",
+          "    --- PASS: TestDocRelayDarkLanding/connection (1.90s)",
+          "    --- PASS: TestDocRelayDarkLanding/daemon (1.40s)",
+          "    --- PASS: TestDocRelayDarkLanding/wiki (1.20s)",
+          "--- PASS: TestDocRelayDataOnly (1.67s)",
+          "--- PASS: TestDocRelayRevocation (2.99s)",
+          "    --- PASS: TestDocRelayRevocation/startup (1.51s)",
+          "    --- PASS: TestDocRelayRevocation/admitted (1.48s)",
+          "--- PASS: TestDocRelayBackpressure (2.05s)",
+          "--- PASS: TestDocRelaySharedMirror (1.52s)",
+          "--- PASS: TestDocRelayRebuildBarrier (1.46s)",
+          "--- PASS: TestDocRelayReconnectUnreceipted (2.73s)",
+          "--- PASS: TestDocRelayAuthorizationAwareness (1.36s)",
+          "--- PASS: TestDocRelayEpochResync (1.66s)",
+          "--- PASS: TestDocRelayReplacementBootDiscardsOldActorCache (3.77s)",
+          "PASS",
+          "ok  \tgithub.com/smithersai/smithers/packages/backend/internal/compose\t34.526s"
+        ]
+      },
+      {
+        "command": "export LANE=fr7-t-col-08b; source ~/lanes/env.sh; pnpm exec vitest run test/LiveDoc.test.ts",
+        "passed": 8,
+        "failed": 0,
+        "skipped": 0
+      }
+    ],
+    "rust_golden": "Rust golden codec and fixture inputs are unchanged from the initial tested main revision."
   }
 }
