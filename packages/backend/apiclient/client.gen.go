@@ -5836,8 +5836,10 @@ func (c *Client) DeleteAPIRepoConnection(ctx context.Context) error {
 }
 
 // PostAPIReviews calls POST /api/reviews.
-func (c *Client) PostAPIReviews(ctx context.Context, idempotencyKey string) error {
-	return c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/reviews", nil, nil, nil)
+func (c *Client) PostAPIReviews(ctx context.Context, idempotencyKey string) (json.RawMessage, error) {
+	var out json.RawMessage
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/reviews", nil, nil, &out)
+	return out, err
 }
 
 // GetAPIReviewsID calls GET /api/reviews/{id}.
