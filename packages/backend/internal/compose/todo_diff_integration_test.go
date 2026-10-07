@@ -54,6 +54,11 @@ func TestTODOAcceptedDiffComposedInstall(t *testing.T) {
 	require.Len(t, response.Files[0].Hunks, 1)
 	require.Equal(t, "+", response.Files[0].Hunks[0].Lines[0].Op)
 	require.Equal(t, "this item", response.Files[0].Hunks[0].Lines[0].Text)
+	for _, selector := range []string{"entry=burst-1", "snapshot_before=before&snapshot_after=after"} {
+		data, err := r.expect("GET", "/api/branches/smithers%2Fdiff-fixture/diff?"+selector, "", 400)
+		require.NoError(t, err)
+		require.JSONEq(t, `{"code":"bad_request","class":"user","message":"Unsupported diff selector"}`, string(data))
+	}
 	_, err = r.pool.Exec(r.ctx, `UPDATE mythical_items SET candidate_verified=false WHERE repository_id=$1 AND issue_title='Diff fixture'`, repository)
 	require.NoError(t, err)
 	_, err = r.expect("GET", "/api/branches/smithers%2Fdiff-fixture/diff", "", 503)
