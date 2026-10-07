@@ -47,7 +47,17 @@ test("both system rebase doors encode the typed branch POST without a caller-sel
     expect(row.agent).toBe("run")
     expect(row.minimumRole).toBe("member")
     expect(catalogRequest(row, { branch: "scratch/ben/work" })).toEqual({
-      method: "POST", path: "/api/branches/scratch%2Fben%2Fwork", body: { rebase: true }
+      method: "POST", path: "/api/branches/scratch%2Fben%2Fwork", body: name === "branch.rebase" ? { op: "rebase" } : { rebase: true }
     })
   }
+})
+
+
+test("scratch Done preserves the retained binding through the catalog command", async () => {
+  const { catalogRequest } = await import("../../src/CatalogRequest")
+  const row = generateCatalog().find(row => row.name === "branch.rebase")!
+  expect(catalogRequest(row, { branch: "scratch/ben/work", conflict_change: "retained-change", onto_revision: "retained-onto" })).toEqual({
+    method: "POST", path: "/api/branches/scratch%2Fben%2Fwork",
+    body: { op: "rebase", conflict_change: "retained-change", onto_revision: "retained-onto" }
+  })
 })
