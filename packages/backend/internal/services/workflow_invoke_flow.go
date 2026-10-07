@@ -82,6 +82,8 @@ func (s *InvokedFlowService) SetFlowSourceReader(host repositorySourceHost) {
 type invokedFlowProjection struct {
 	Kind          string `json:"kind"`
 	WorkflowRunID int64  `json:"workflowRunId"`
+	RetryOf       int64  `json:"retryOf,omitempty"`
+	RetryKey      string `json:"retryKey,omitempty"`
 }
 
 // InvokedFlowLaunch is one validated invocation.
@@ -91,6 +93,9 @@ type InvokedFlowLaunch struct {
 	FlowID       string
 	Input        json.RawMessage
 	TriggerRef   string
+	Pin          *flowruntime.Pin
+	RetryOf      int64
+	RetryKey     string
 }
 
 func invokedFlowRequestID(runID int64) string {
@@ -195,7 +200,7 @@ func (s *InvokedFlowService) insertInvocation(ctx context.Context, tx pgx.Tx, la
 	if err != nil {
 		return db.WorkflowRun{}, db.WorkflowDefinition{}, pkgerrors.Internal("failed to create workflow step").WithCause(err)
 	}
-	projection, _ := json.Marshal(invokedFlowProjection{Kind: invokedFlowBinding, WorkflowRunID: run.ID})
+	projection, _ := json.Marshal(invokedFlowProjection{Kind: invokedFlowBinding, WorkflowRunID: run.ID, RetryOf: launch.RetryOf, RetryKey: launch.RetryKey})
 	authorization, _ := json.Marshal(map[string]any{
 		"repositoryId": launch.RepositoryID, "userId": launch.UserID, "workflowRunId": run.ID,
 	})
@@ -203,7 +208,7 @@ func (s *InvokedFlowService) insertInvocation(ctx context.Context, tx pgx.Tx, la
 		Scope:     repositoryJobFlowScope(launch.RepositoryID, launch.UserID),
 		RequestID: invokedFlowRequestID(run.ID),
 		Target:    flowruntime.Target{BindingKind: invokedFlowBinding, BindingID: strconv.FormatInt(run.ID, 10)},
-		FlowID:    launch.FlowID, Payload: input, Projection: projection,
+		FlowID:    launch.FlowID, Payload: input, Projection: projection, Pin: launch.Pin,
 		AuthorizationContext: authorization,
 		// The person who invoked the flow is its approval.
 		ApprovalPolicy: flowdispatch.ApprovalAuto,
