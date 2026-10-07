@@ -123,6 +123,7 @@ func openAPIConformanceRouter(cfg *config.Config) chi.Router {
 
 // Shared production-router fixture: host HTTP tests use real PostgreSQL queries.
 type conformanceServices struct {
+	mythical *routes.MythicalHandler
 	pool     *pgxpool.Pool
 	billing  *routes.BillingHandler
 	jobs     *routes.RepositoryJobHandler
@@ -135,6 +136,9 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *s
 	deps := conformanceServices{billing: &routes.BillingHandler{}, jobs: &routes.RepositoryJobHandler{}, live: &routes.LiveHandler{}}
 	if len(supplied) > 0 {
 		deps = supplied[0]
+	}
+	if deps.mythical == nil {
+		deps.mythical = &routes.MythicalHandler{}
 	}
 	if deps.live == nil {
 		deps.live = &routes.LiveHandler{}
@@ -165,7 +169,7 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *s
 		routerExtras{
 			InstallScorecard:    &routes.InstallScorecardHandler{Authorize: func(*http.Request) error { return nil }, Service: &services.ScorecardService{}},
 			BillingCapabilities: conformanceBillingCapabilities(cfg),
-			Recommender:         &routes.RecommendationHandler{}, ModelStream: &routes.ModelStreamHandler{}, Mythical: &routes.MythicalHandler{},
+			Recommender:         &routes.RecommendationHandler{}, ModelStream: &routes.ModelStreamHandler{}, Mythical: deps.mythical,
 			UserRefs: &routes.UserRefHandler{}, AdminSystemStatus: &routes.AdminSystemStatusHandler{}, AdminSystemHealth: &routes.AdminSystemHealthHandler{}, AdminGrant: &routes.AdminGrantHandler{},
 			AdminAnalytics: &routes.AdminAnalyticsHandler{}, AdminAgentSessions: &routes.AdminAgentSessionHandler{},
 			AdminWorkspaces: &routes.AdminWorkspaceHandler{}, AdminTokens: &routes.AdminTokenHandler{}, ModelProxy: http.NotFoundHandler(),
