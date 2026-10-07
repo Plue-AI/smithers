@@ -2715,6 +2715,7 @@ describe("HomeView", () => {
       await act(async () => (document.activeElement as HTMLButtonElement).click())
       expect(h.onAction.mock.calls).toEqual([["wiki.page", { n: "8", direction: "up" }]])
       expect(h.host.querySelector('[role="menu"]')).toBeNull()
+      expect(document.activeElement).toBe(trigger)
       await act(async () => trigger.click())
       await key("Escape")
       expect(document.activeElement).toBe(trigger)

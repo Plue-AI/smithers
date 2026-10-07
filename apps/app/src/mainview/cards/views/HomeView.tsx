@@ -9,9 +9,9 @@ import { LessonsCount } from "./ProposalView"
 import { StateWord } from "./StateWord"
 
 /** Supplied actions preserve their order, arguments and disabled reason. */
-function HomeAction({ action, onAction, menu }: { action: Action; onAction: HomeViewProps["onAction"]; menu?: boolean }) {
+function HomeAction({ action, onAction, onView, menu }: { action: Action; onAction: HomeViewProps["onAction"]; onView?: HomeViewProps["onView"]; menu?: boolean }) {
   return <span className="home-action"><button role={menu ? "menuitem" : undefined} type="button" data-flow={action.tag} disabled={!!action.disabled}
-    onClick={() => onAction(action.tag, action.args ?? {})}>{action.label}</button>
+    onClick={() => { try { onAction(action.tag, action.args ?? {}) } finally { onView?.({ menu: undefined }) } }}>{action.label}</button>
     {action.disabled ? <span className="meta">{action.disabled.reason}</span> : null}</span>
 }
 
@@ -40,7 +40,7 @@ function HomeRow({ item, onAction, now, view, onView }: { item: HomeItem; now: n
   const actionControls = []
   for (const [index, action] of actions.entries()) actionControls.push(<HomeAction key={index} action={action} onAction={onAction} />)
   const menuControls = []
-  for (const [index, action] of menu.entries()) menuControls.push(<HomeAction key={index} action={action} onAction={(tag, args) => { setOpen(false); trigger.current?.focus(); onAction(tag, args) }} menu />)
+  for (const [index, action] of menu.entries()) menuControls.push(<HomeAction key={index} action={action} onAction={onAction} onView={(next) => { onView(next); trigger.current?.focus() }} menu />)
   return <li className="stack-row" data-state={item.state}>
     <span className="stack-node">{item.place}</span>
     <div className="stack-main"><div className="stack-title"><span className="ref">T{item.n}</span>{title ? <><button type="button" className="link" data-flow={title.tag} disabled={!!title.disabled} onClick={() => onAction(title.tag, title.args ?? {})}>{item.title}</button>{title.disabled ? <span className="meta">{title.disabled.reason}</span> : null}</> : <span>{item.title}</span>}{item.amendments > 0 ? <span className="count-chip">+{item.amendments}</span> : null}</div>
