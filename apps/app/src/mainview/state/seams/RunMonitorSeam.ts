@@ -49,7 +49,7 @@ export function createRunMonitorSeam(options: {
       if (!value) return
       if (value.error) { authorized.delete(id); revisions.set(id, (revisions.get(id) ?? 0) + 1); publish(id, { error: unavailable }); return }
       const source = RunTopicSchema.safeParse(value.data)
-      if (source.success && source.data.summary.runId === id.split(":").at(-1)) {
+      if (source.success && (source.data.summary.runId === id || source.data.summary.runId === id.slice(id.indexOf(":") + 1))) {
         authorized.set(id, owner)
         void trace(id, options.view?.(id)?.at).then(error => {
           if (error) publish(id, { error }, owner)

@@ -162,3 +162,18 @@ test("native run-topic journal updates read the canonical monitor before mountin
   expect(await h.seam.trace("native-run")).toBe("Run unavailable")
   stop(); h.seam.dispose()
 })
+
+test("workspace-qualified monitor identities retain colons in the opaque native run ID", async () => {
+  const id = "box:native:run"
+  const model = { ...run, id, journal: [] }
+  const requests: string[] = []
+  const seam = createRunMonitorSeam({ live: {
+    subscribe: (topic) => { expect(topic).toBe("run:box:native:run"); return () => {} },
+    getSnapshot: () => ({ topic: `run:${id}`, data: { summary: { runId: "native:run", flowId: "todo" }, steps: [], events: [] } })
+  }, http: async path => { requests.push(path); return Response.json(model) } })
+  const stop = seam.snapshots.subscribe(id, () => {})
+  expect(await seam.trace(id)).toBeUndefined()
+  expect(seam.snapshots.get(id).model?.id).toBe(id)
+  expect(requests).toEqual(["/api/runs/box%3Anative%3Arun/trace"])
+  stop(); seam.dispose()
+})
