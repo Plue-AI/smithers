@@ -10,9 +10,9 @@ import { ignoredJourneys } from "./e2e/real/journeys"
 // The direct Playwright door must enforce the same admission as run-real-e2e.
 // Otherwise selecting activation directly can start a development host before
 // the test fixture checks whether a fresh reference install was supplied.
-const activationSelected = process.env.SMITHERS_JOURNEY === "j1-activation.spec.ts" ||
+const activationSelected = ["j1-activation.spec.ts", "j1.spec.ts", "keyboard-journeys.spec.ts"].includes(process.env.SMITHERS_JOURNEY ?? "") ||
   process.env.SMITHERS_J1_ACTIVATION === "1" ||
-  process.argv.some(arg => /(?:^|\/)j1-activation\.spec\.ts$/.test(arg))
+  process.argv.some(arg => /(?:^|\/)(?:j1-activation|j1|keyboard-journeys)\.spec\.ts$/.test(arg))
 if (activationSelected) requireJ1Preconditions()
 const setupSelected = process.env.SMITHERS_JOURNEY === "setup.spec.ts" ||
   process.argv.some(arg => /(?:^|\/)setup\.spec\.ts$/.test(arg))

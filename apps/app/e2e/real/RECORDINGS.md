@@ -42,3 +42,21 @@ card/live update settles. Finalize both logs with `assertKeyboardOnly` and
 contain only UTC time, element tag and computed ring properties, never field
 values, labels or setup URLs. The focus helper's Chromium/WebKit DOM regression
 tests are supplemental coverage; they do not complete C-UI-01 or any journey.
+
+The exclusive `j1.spec.ts` entry runs the released tap install and per-user
+`smthrs host start` on a non-root Apple Silicon Mac, then uses the same rendered
+activation path. Declare the configured origin and candidate in the operator
+preconditions before starting; the one-time setup URL is taken from launcher
+stdout in memory. An existing formula, wrong version, wrong origin or ambiguous
+launcher URL refuses the run. No launcher output is retained.
+
+`keyboard-journeys.spec.ts` currently reuses the first-TODO/merge slice with
+Tab traversal, physical key input, and focus observations after actions and
+settled updates. It is **partial C-UI-01 coverage**: remaining J1 steps and
+J2–J8/J10/J11, overlay restoration and both-browser reference recordings still
+need completion on the real install. It cannot supply a whole-check receipt.
+Setup credential entry remains independently operated; automatic secret-bearing
+traces and video remain disabled. Both-theme per-card sanitized capture and
+reviewed per-step traces/videos are still release requirements, not supplied by
+these entries. Missing host, credentials, human review or approved mapping must
+never be replaced with fixture evidence.
