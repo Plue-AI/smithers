@@ -76,8 +76,8 @@ func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 	for i := range workspaces {
 		workspaces[i], err = q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: users[0].ID, Name: fmt.Sprintf("ledger-%d", i), TargetBookmark: "main", Kind: "container", Status: "running"})
 		require.NoError(t, err)
-		_, err = pool.Exec(ctx, `INSERT INTO mythical_items(repository_id,source,state,number,stack_position,title,workspace_id,request_run_id,owner_id,created_by,revisions,checks)
- VALUES($1,'todo','running',$2,$2,'Bound execution',$3,$4,$5,$5,'[{"private":"never-return-person-card"}]','{"private":"never-return-confirmation"}')`, repo.ID, i+1, workspaces[i].ID, fmt.Sprintf("ledger-run-%d", i), users[0].ID)
+		_, err = pool.Exec(ctx, `INSERT INTO mythical_items(repository_id,source,state,number,stack_position,title,workspace_id,request_run_id,owner_id,created_by,revisions,checks,attempt)
+ VALUES($1,'todo','running',$2,$2,'Bound execution',$3,$4,$5,$5,'[{"private":"never-return-person-card"}]','{"private":"never-return-confirmation"}',1)`, repo.ID, i+1, workspaces[i].ID, fmt.Sprintf("ledger-run-%d", i), users[0].ID)
 		require.NoError(t, err)
 	}
 	infos := map[string]*middleware.AuthInfo{}
@@ -119,7 +119,7 @@ func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 			if label[0] == 'M' {
 				info.RawScopes += "," + middleware.WorkspaceRestrictionScope(workspaces[subjectIndex].ID)
 			} else {
-				info.RawScopes += "," + middleware.LandingWorkspaceScope(workspaces[subjectIndex].ID)
+				info.RawScopes += "," + middleware.LandingWorkspaceScope(workspaces[subjectIndex].ID) + "," + middleware.AgentSessionRestrictionScope(fmt.Sprintf("ledger-run-%d", subjectIndex))
 			}
 			info.Scopes = middleware.ParseTokenScopes(info.RawScopes)
 			tokens[label] = fmt.Sprintf("smithers_%040x", len(infos)+12000)

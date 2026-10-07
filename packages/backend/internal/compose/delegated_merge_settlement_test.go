@@ -156,11 +156,10 @@ func TestDelegatedMergeSettlementNativeInstall(t *testing.T) {
 	var approved int
 	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM approvals WHERE member_id=$1 AND state='approved'`, owner.ID).Scan(&approved))
 	require.Equal(t, 1, approved)
-	// This process runtime lacks ordered TODO admission. An approved Merge
-	// may settle, but its queued neighbor must never acquire a machine/run.
+	// Machine readiness has not been completed. An approved Merge may settle,
+	// but its queued neighbor must never acquire a machine/run.
 	queued, err := q.GetMythicalItemByNumber(r.ctx, repository, waiting.Number)
 	require.NoError(t, err)
-	require.Contains(t, r.logs.String(), "ordered TODO admission unavailable")
 	require.Equal(t, "queued", queued.State)
 	require.Zero(t, queued.Attempt)
 	require.Empty(t, queued.WorkspaceID)
