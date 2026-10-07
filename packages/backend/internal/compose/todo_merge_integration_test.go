@@ -227,7 +227,6 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 	issuer := &outboundProxyIssuer{}
 	server.Config.Handler = todoMergeComposeRouter(cfg, q, pool, &routes.MythicalHandler{Service: mythical}, &routes.GitHubProxyHandler{Service: services.NewGitHubProxyService(issuer)})
 	if browserJourney {
-		t.Setenv("SMITHERS_AUTH_SESSION_COOKIE_NAME", "session")
 		encrypted, err := smitherscrypto.Encrypt(smitherscrypto.DeriveKey("split-process-session-secret"), []byte("ghu_githubfake_owner"))
 		require.NoError(t, err)
 		_, err = pool.Exec(ctx, `UPDATE oauth_accounts SET access_token_encrypted=$1 WHERE user_id=$2`, encrypted, owner.ID)
