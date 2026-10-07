@@ -99,8 +99,17 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 			if command == "todo.read" && services.InstallExecutionCredential(r.Context()) {
 				parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 				subject := services.InstallSubject{}
-				if len(parts) == 3 && parts[1] == "todos" {
+				if (len(parts) == 3 || len(parts) == 7 && parts[3] == "attempts" && parts[5] == "logs") && parts[1] == "todos" {
 					subject.TodoNumber, _ = strconv.ParseInt(parts[2], 10, 64)
+					if len(parts) == 7 {
+						attempt, err := strconv.ParseInt(parts[4], 10, 32)
+						if err != nil || attempt <= 0 {
+							writeConfirmationDispatchError(w, &services.AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"})
+							return
+						}
+						subject.Attempt = int32(attempt)
+						subject.PayloadDigest = parts[6]
+					}
 					var err error
 					subject.RepositoryID, err = services.InstallRepositoryID(r.Context(), queries)
 					if err != nil {

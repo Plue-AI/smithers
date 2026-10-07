@@ -49,9 +49,8 @@ type AuthLoaderQuerier interface {
 	GetUserByID(ctx context.Context, id int64) (db.User, error)
 }
 
-// workspaceHeadReportPath matches the one API route a workspace-restricted
-// token may call: POST /api/repos/{owner}/{repo}/workspaces/{id}/head.
-var numberedTodoReadPath = regexp.MustCompile(`^/api/todos/[0-9]+$`)
+// numberedTodoReadPath admits subject resolution, never a collection or private events.
+var numberedTodoReadPath = regexp.MustCompile(`^/api/todos/[0-9]+(?:/attempts/[0-9]+/logs/[0-9a-f]{64})?$`)
 
 var workspaceHeadReportPath = regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/([^/]+)/head$`)
 
@@ -85,7 +84,7 @@ func allowWorkspaceRestrictedToken(w http.ResponseWriter, r *http.Request, info 
 		return m != nil && strings.EqualFold(m[1], workspaceID)
 	}
 	// The shared authorizer resolves the numbered TODO to this stored workspace.
-	// Collection, events and log routes remain outside this narrow read grant.
+	// Current-attempt logs are checked there too; collection and private events stay denied.
 	if len(install) > 0 && install[0] && r.Method == http.MethodGet && numberedTodoReadPath.MatchString(r.URL.Path) {
 		return true
 	}

@@ -341,6 +341,7 @@ type InstallSubject struct {
 	WorkspaceID      string
 	ChildWorkspaceID string
 	TodoNumber       int64
+	Attempt          int32
 	RunID            string
 	Generation       int64
 	Base             string
@@ -908,7 +909,7 @@ func authorizeExecutionTodoRead(ctx context.Context, q *db.Queries, subject Inst
 	if err != nil {
 		return InstallAuthorization{}, err
 	}
-	if item.WorkspaceID != workspace.ID || !executionTodoSponsorMatches(info, item) {
+	if item.WorkspaceID != workspace.ID || !executionTodoSponsorMatches(info, item) || subject.Attempt != 0 && item.Attempt != subject.Attempt {
 		return deny()
 	}
 	repository, err := InstallRepositoryID(ctx, q)

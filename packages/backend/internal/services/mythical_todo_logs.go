@@ -12,6 +12,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/blob"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 )
 
 const todoLogLimit = 10 << 20
@@ -60,12 +61,27 @@ func (s *MythicalService) TodoLog(ctx context.Context, repository, number int64,
 	if err != nil || len(decoded) != sha256.Size || digest != strings.ToLower(digest) || attempt <= 0 {
 		return nil, missing
 	}
+	if InstallExecutionCredential(ctx) {
+		if _, err := Authorize(ctx, s.queries(), "todo.read", InstallSubject{RepositoryID: repository, TodoNumber: number, Attempt: attempt, PayloadDigest: digest}); err != nil {
+			return nil, err
+		}
+	}
 	item, err := s.queries().GetMythicalItemByNumber(ctx, repository, number)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, missing
 	}
 	if err != nil {
 		return nil, err
+	}
+	if InstallExecutionCredential(ctx) {
+		info := middleware.AuthInfoFromContext(ctx)
+		workspace := info.WorkspaceRestriction()
+		if info.CredentialKind() == middleware.CredentialAgentRun {
+			workspace = middleware.ParseTokenLandingWorkspace(info.RawScopes)
+		}
+		if item.WorkspaceID != workspace || item.RequestRunID == "" || item.Attempt != attempt {
+			return nil, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Credential cannot read this log"}
+		}
 	}
 	allowed := false
 	references := func(items []map[string]any) bool {

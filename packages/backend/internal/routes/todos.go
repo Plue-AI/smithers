@@ -107,7 +107,12 @@ func authorizeInstallRepository(w http.ResponseWriter, r *http.Request, queries 
 			todoRouteError(w, err)
 			return 0, 0, false
 		}
-		subjects = []services.InstallSubject{{RepositoryID: repository, TodoNumber: number}}
+		subject := services.InstallSubject{RepositoryID: repository, TodoNumber: number}
+		if chi.URLParam(r, "digest") != "" {
+			attempt, _ := strconv.ParseInt(chi.URLParam(r, "a"), 10, 32)
+			subject.Attempt, subject.PayloadDigest = int32(attempt), chi.URLParam(r, "digest")
+		}
+		subjects = []services.InstallSubject{subject}
 	}
 	decision, err := services.Authorize(r.Context(), queries, command, subjects...)
 	if err != nil {
