@@ -32,12 +32,14 @@ export type Reference = {
   sql: (query: string) => any[]
 }
 
-/** SQL is observation only. psql connects to the reference install, never the
- * VM's fixture database; every query runs in a read-only transaction. */
-export const observe = (query: string): any[] => JSON.parse(execFileSync("psql", [
-  required("SMITHERS_JOURNEY_DATABASE_URL"), "-XAt", "-v", "ON_ERROR_STOP=1", "-c",
-  `BEGIN READ ONLY; SELECT coalesce(json_agg(observation), '[]'::json) FROM (${query}) observation; COMMIT;`
+/** SQL is observation only: every query runs in a read-only transaction.
+ * jsonb_agg prints one line; json_agg breaks lines between rows. */
+export const observeAt = (database: string, query: string): any[] => JSON.parse(execFileSync("psql", [
+  database, "-XAt", "-v", "ON_ERROR_STOP=1", "-c",
+  `BEGIN READ ONLY; SELECT coalesce(jsonb_agg(observation), '[]'::jsonb) FROM (${query}) observation; COMMIT;`
 ], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).split("\n").find(line => line.startsWith("[")) ?? "null")
+/** psql connects to the reference install, never the VM's fixture database. */
+export const observe = (query: string): any[] => observeAt(required("SMITHERS_JOURNEY_DATABASE_URL"), query)
 
 export const withReference = async (browser: Browser, info: TestInfo, body: (fixture: Reference) => Promise<void>): Promise<void> => {
   const origin = referenceOrigin()
@@ -139,7 +141,7 @@ export const seedIssueSeven = async (f: Reference): Promise<void> => {
     await f.github("Ben", "POST", "/issues/7/comments", { body })
   }
 }
-export const todoCard = (page: Page, n: number) => page.locator('.smithers-card[data-kind="todo"]').filter({ hasText: new RegExp(`\bT${n}\b`) }).last()
+export const todoCard = (page: Page, n: number) => page.locator('.smithers-card[data-kind="todo"]').filter({ hasText: new RegExp(`\\bT${n}\\b`) }).last()
 export const home = (page: Page) => page.locator('.smithers-card.home').last()
 export const openTodo = async (page: Page, n: number): Promise<void> => { await runSlash(page, `/todo ${n}`); await expect(todoCard(page, n)).toBeVisible() }
 export const createTodo = async (page: Page, prompt: string): Promise<void> => {
