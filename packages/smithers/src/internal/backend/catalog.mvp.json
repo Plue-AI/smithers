@@ -62,7 +62,7 @@
       "minimumRole": "member",
       "credentialScope": "write:repository",
       "agent": "never",
-      "summary": "Start a fresh conversation (dev tooling \u2014 nothing is kept)",
+      "summary": "Start a fresh conversation (dev tooling — nothing is kept)",
       "http": null,
       "payload": {
         "dialect": "draft-2020-12",
@@ -2202,7 +2202,7 @@
       "minimumRole": "member",
       "credentialScope": "write:repository",
       "agent": "run",
-      "summary": "Pin a change card's diff between two revisions (parent|<rev> \u2192 <rev>|current)",
+      "summary": "Pin a change card's diff between two revisions (parent|<rev> → <rev>|current)",
       "http": null,
       "payload": {
         "dialect": "draft-2020-12",
@@ -2391,7 +2391,7 @@
       "minimumRole": "member",
       "credentialScope": "write:repository",
       "agent": "never",
-      "summary": "Start or stop dictation into the chat draft (\u2318D)",
+      "summary": "Start or stop dictation into the chat draft (⌘D)",
       "http": null,
       "payload": {
         "dialect": "draft-2020-12",
@@ -2974,7 +2974,7 @@
       "minimumRole": "member",
       "credentialScope": "write:repository",
       "agent": "run",
-      "summary": "Inspect an answer\u2019s stored context",
+      "summary": "Inspect an answer’s stored context",
       "http": null,
       "payload": {
         "dialect": "draft-2020-12",

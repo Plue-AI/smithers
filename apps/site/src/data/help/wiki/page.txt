@@ -6,7 +6,8 @@ Arguments:
   name
 
 Options:
-  --verbose  Show redacted diagnostic details
+  --revision <value>
+  --verbose           Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

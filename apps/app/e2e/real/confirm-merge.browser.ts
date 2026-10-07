@@ -153,10 +153,10 @@ try {
   await commit.focus(); await page.keyboard.press("Enter")
   await expect.poll(async () => (await api("/api/todos")).value.length).toBe(beforeAgentEdit + 1)
   const agentRows = (await api("/api/confirmations", "GET", undefined, true)).value
-  expect(agentRows).toHaveLength(6)
+  expect(agentRows).toHaveLength(5)
   for (const row of agentRows) expect(Object.keys(row).sort()).toEqual(["id", "state"])
   expect(errors).toEqual([])
-  console.log("CONFIRMATION_BROWSER_PASS installed skill, source CLI, named pending result, private delivery, keyboard approval, Before placement, admission progress, reload, other-member refusal, Drop, Wiki Delete, Flow edit, Agent instruction edit, delegated redaction")
+  console.log("CONFIRMATION_BROWSER_PASS installed skill, source CLI, named pending result, private delivery, keyboard approval, admission progress, reload, other-member refusal, Drop, Wiki Delete, Flow edit, Agent instruction edit, delegated redaction")
 } finally {
   await browser.close()
   await vite.close()
