@@ -35,7 +35,36 @@ func (monitorContractReader) Monitor(_ context.Context, target flowruntime.Targe
 	if target.WorkspaceID != "monitor-box" || run != "thrash-run" {
 		return nil, fmt.Errorf("foreign binding")
 	}
-	return json.RawMessage(`{"id":"thrash-run","flow":"todo","version":"","title":"todo","state":"running","attempts":[{"n":1,"run_id":"thrash-run","graph":[],"steps":[],"phases":[{"id":"phase:checks","step":"checks#1","title":"Ran checks","tone":"fail","took_s":0,"cells":[]}]}],"waits":[],"tokens":0,"time_s":0,"cost_usd":0,"engine":[]}`), nil
+	raw := json.RawMessage(`{"id":"thrash-run","flow":"todo","version":"","title":"todo","state":"running","attempts":[{"n":1,"run_id":"thrash-run","graph":[],"steps":[],"phases":[{"id":"phase:checks","step":"checks#1","title":"Ran checks","tone":"fail","took_s":0,"cells":[]}]}],"waits":[],"tokens":0,"time_s":0,"cost_usd":0,"engine":[]}`)
+	if at == nil {
+		return raw, nil
+	}
+	var value map[string]any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return nil, err
+	}
+	journal := []map[string]any{}
+	for sequence := int64(1); sequence <= 4 && sequence <= *at; sequence++ {
+		action, receipt := "coding/check-command", `{"checkId":"unit","status":"failed","findings":[{"message":"failed src/retry.ts:42"}]}`
+		if sequence == 4 {
+			action, receipt = "coding/edit-atom", `{"writes":["src/retry.ts"]}`
+		}
+		preview, _ := json.Marshal(receipt)
+		text := fmt.Sprintf(`{"version":1,"executionId":"native-%d","eventType":"flows.engine.node-settled","payload":{"nodeId":"step","action":%q,"outcome":"built","result":{"preview":%s,"truncated":false}}}`, sequence, action, preview)
+		journal = append(journal, map[string]any{"seq": sequence, "at": fmt.Sprintf("2026-10-07T00:00:0%dZ", sequence), "type": "control.engine.event", "text": text})
+	}
+	if *at == 5 {
+		journal = append(journal, map[string]any{"seq": 5, "type": "control.engine.event", "text": "repo-only-secret{"})
+	}
+	if *at == 6 {
+		journal = append(journal, map[string]any{"seq": 7, "type": "control.engine.event", "text": `{}`})
+	}
+	value["journal"] = journal
+	if *at == 3 {
+		attempt := value["attempts"].([]any)[0].(map[string]any)
+		attempt["phases"].([]any)[0].(map[string]any)["title"] = "Ran checks · 1 failed"
+	}
+	return json.Marshal(value)
 }
 
 func TestLiveTodoNativeThrash(t *testing.T) {
@@ -170,6 +199,22 @@ func TestLiveTodoNativeThrash(t *testing.T) {
 	code, raw = httpRead("/api/runs/thrash-run/trace?at=0", true)
 	require.Equal(t, 200, code)
 	require.NotContains(t, string(raw), `"tone":"thrash"`, "historical replay never overlays current detector state")
+	code, raw = httpRead("/api/runs/thrash-run/trace?at=2", true)
+	require.Equal(t, 200, code)
+	require.NotContains(t, string(raw), `"tone":"thrash"`)
+	code, raw = httpRead("/api/runs/thrash-run/trace?at=3", true)
+	require.Equal(t, 200, code)
+	require.Contains(t, string(raw), `"indicator":"Thrashing: unit failed 3×"`)
+	require.Contains(t, string(raw), `"title":"Ran checks · 1 failed"`)
+	code, raw = httpRead("/api/runs/thrash-run/trace?at=4", true)
+	require.Equal(t, 200, code)
+	require.NotContains(t, string(raw), `"tone":"thrash"`, "a recorded edit clears historical thrash")
+	for _, position := range []string{"5", "6"} {
+		code, raw = httpRead("/api/runs/thrash-run/trace?at="+position, true)
+		require.Equal(t, 503, code, "malformed or future replay evidence must fail closed")
+		require.Contains(t, string(raw), "run_unavailable")
+		require.NotContains(t, string(raw), "repo-only-secret")
+	}
 
 	preview, _ := json.Marshal(`{"writes":["src/retry.ts"]}`)
 	update.Events = []flowruntime.Event{{RunID: "thrash-run", Sequence: 4, Kind: "control.engine.event", Payload: json.RawMessage(fmt.Sprintf(`{"version":1,"executionId":"edit","eventType":"flows.engine.node-settled","payload":{"nodeId":"edit","action":"coding/edit-atom","outcome":"built","result":{"preview":%s,"truncated":false}}}`, preview))}}

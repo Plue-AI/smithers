@@ -106,8 +106,32 @@ func projectTodoThrash(item *db.MythicalItem, update flowdispatch.ProjectionUpda
 	if d.Cursors == nil {
 		d.Cursors = map[string]flowruntime.EventCursor{}
 	}
-	for _, event := range update.Events {
-		if event.RunID != update.Checkpoint.RunID {
+	d.foldEvents(update.Checkpoint.RunID, update.Events)
+
+	checks.Thrash = d
+	item.Checks = checks.encode()
+}
+
+// RunThrashChecks replays the existing host detector over one authenticated
+// run's recorded events. It writes nothing and never reads the current TODO.
+func RunThrashChecks(runID string, events []flowruntime.Event) []string {
+	if runID == "" {
+		return []string{}
+	}
+	d := &runThrash{Cursors: map[string]flowruntime.EventCursor{}}
+	d.foldEvents(runID, events)
+	checks := []string{}
+	for _, failure := range d.Failures {
+		if failure.Count >= 3 {
+			checks = append(checks, failure.Check)
+		}
+	}
+	return checks
+}
+
+func (d *runThrash) foldEvents(runID string, events []flowruntime.Event) {
+	for _, event := range events {
+		if event.RunID != runID {
 			continue
 		}
 		cursor := flowruntime.EventCursor{Sequence: event.Sequence}
@@ -143,8 +167,6 @@ func projectTodoThrash(item *db.MythicalItem, update flowdispatch.ProjectionUpda
 			d.edit(edit.Writes)
 		}
 	}
-	checks.Thrash = d
-	item.Checks = checks.encode()
 }
 
 // Count executed leaf nodes, never their wrapper flow's duplicate result or

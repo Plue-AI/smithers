@@ -157,3 +157,19 @@ func FuzzRunThrashDeterministic(f *testing.F) {
 		require.Equal(t, fold(), fold())
 	})
 }
+
+func TestRunThrashChecksHistoricalPrefix(t *testing.T) {
+	failure := `{"checkId":"unit","status":"failed","findings":[{"message":"bad src/retry.ts:12"}]}`
+	events := []flowruntime.Event{
+		thrashNativeEvent("run", 1, "coding/check-command", failure),
+		thrashNativeEvent("run", 2, "coding/check-command", failure),
+		thrashNativeEvent("run", 3, "coding/check-command", failure),
+		thrashNativeEvent("run", 4, "coding/edit-atom", `{"writes":["src/retry.ts"]}`),
+	}
+	require.Empty(t, RunThrashChecks("run", events[:2]))
+	require.Equal(t, []string{"unit"}, RunThrashChecks("run", events[:3]))
+	require.Empty(t, RunThrashChecks("run", events))
+	require.Empty(t, RunThrashChecks("foreign", events))
+	require.Empty(t, RunThrashChecks("", events))
+	require.Equal(t, []string{"unit"}, RunThrashChecks("run", events[:3]), "replay does not mutate events")
+}
