@@ -203,7 +203,8 @@ describe("published README", () => {
     }
     const shipped = new Set(
       manifest.files.flatMap((pattern) =>
-        Fs.globSync(pattern, { cwd: packageRoot }).map((path) => path.split(NodePath.sep).join("/"))
+        Fs.globSync(pattern.endsWith("/") ? `${pattern}**/*` : pattern, { cwd: packageRoot })
+          .map((path) => path.split(NodePath.sep).join("/"))
       )
     )
     const readme = Fs.readFileSync(NodePath.join(packageRoot, "README.md"), "utf8")
