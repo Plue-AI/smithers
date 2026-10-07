@@ -145,6 +145,16 @@ printf '%s' "$*" > installed
         "tsconfig.json": JSON.stringify({ compilerOptions: { noCheck: true, strict: false } })
       })
       const none = await tree("none", { "README.md": "No flows here.\n" })
+      const prompted = await tree("prompted", {
+        "flows/prompted/flow.ts": `import { Flow } from "@smthrs/flow"
+import { Schema } from "effect"
+export default Flow.make("prompted", {
+  description: "Teach from a prompt.", capabilities: [],
+  payload: { text: Schema.String }, success: Schema.String,
+  prompt: ({ text }) => { throw new Error("prompt rendered during load: " + text) }
+})
+`
+      })
 
       const output = join(temporary, "host.mjs")
       await bundle(fileURLToPath(new URL("./fixtures/coding-host-flow-load-entry.ts", import.meta.url)), output)
@@ -170,7 +180,8 @@ printf '%s' "$*" > installed
         rejectedAgain,
         semantic,
         helperTypeError,
-        semanticCanary
+        semanticCanary,
+        prompted
       ], {
         env: {
           ...process.env,
@@ -200,19 +211,39 @@ printf '%s' "$*" > installed
         atRejectedAgain,
         atSemantic,
         atHelperTypeError,
-        atSemanticCanary
+        atSemanticCanary,
+        atPrompted
       ] = lines
+
+      assert.equal(atPrompted[0].status, "loaded", atPrompted[0].error)
+      assert.deepEqual(atPrompted[0].inspection.diagnostics, [])
+      assert.match(atPrompted[0].inspection.prompt, /prompt rendered during load/)
+      assert.deepEqual(atPrompted[0].steps, [{ id: "root.flow", label: "prompted/prompt" }])
 
       // Project provenance and its dependency set distinguish the copy from the shipped default.
       assert.equal(atCopy[0].name, "merge")
       assert.equal(atCopy[0].status, "failed")
       assert.match(atCopy[0].error, /reserved_name/)
-      assert.deepEqual(atCopy.slice(1), [{
-        name: "todo",
-        path: "flows/todo/flow.ts",
-        digest: projectDigest,
-        status: "loaded"
-      }])
+      assert.deepEqual(
+        atCopy.slice(1).map(({ name, path, digest, status }: FlowVersion) => ({ name, path, digest, status })),
+        [{
+          name: "todo",
+          path: "flows/todo/flow.ts",
+          digest: projectDigest,
+          status: "loaded"
+        }]
+      )
+      assert.deepEqual(atCopy[1].steps, [
+        { id: "root.flow.andThen.andThen", label: "coding/Request" },
+        { id: "root.flow.andThen.then", label: "coding/todo-delivery" },
+        { id: "root.flow.then", label: "coding/Vibe" }
+      ])
+      assert.deepEqual(atCopy[1].inspection?.diagnostics, [])
+      assert.ok(atCopy[1].inspection!.edges.length > 0)
+      // Input-dependent prompt construction is still a runnable declaration;
+      // symbolic inspection refuses it rather than rendering invented input.
+      assert.equal(atEdited[0].inspection?.diagnostics[0]?.code, "declaration_requires_input")
+      assert.equal(atEdited[0].steps, undefined)
       // The edit loads as a new version.
       assert.equal(atEdited.length, 1)
       assert.equal(atEdited[0].status, "loaded")
