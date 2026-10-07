@@ -464,3 +464,103 @@ fn trickling_peer_cannot_extend_poll_deadline_or_persist_partial_ipc() {
         .is_err());
     worker.join().unwrap();
 }
+
+#[test]
+fn parent_refuses_foreign_or_malformed_checkpoints_before_save_and_ack() {
+    let fixture = Fixture::new();
+    let mut startup = fixture.startup();
+    let (socket, _child) = spawn();
+    let mut reader = Reader::connect(socket, &startup).unwrap();
+    let mut checkpoint = Vec::new();
+    reader
+        .poll(
+            || Ok(()),
+            |_| Ok(()),
+            |bytes| {
+                checkpoint = bytes.to_vec();
+                Ok(())
+            },
+        )
+        .unwrap();
+    drop(reader);
+    startup.checkpoint = Some(String::from_utf8(checkpoint.clone()).unwrap());
+    for fault in 0..11 {
+        let mut state: serde_json::Value = serde_json::from_slice(&checkpoint).unwrap();
+        match fault {
+            0 => state["owner"] = 0.into(),
+            1 => state["owner"] = (startup.uid + 1).into(),
+            2 => state["path"] = "unrelated.jsonl".into(),
+            3 => state["source"]["session"] = 2.into(),
+            4 => state["source"]["profile"] = "codex-rollout/0.160".into(),
+            5 => state["source"] = serde_json::Value::Null,
+            6 => state["version"] = 2.into(),
+            7 => state["framer"]["pending"] = serde_json::json!([10]),
+            8 => state["framer"]["generation"] = 0.into(),
+            9 => state["framer"]["failed"] = true.into(),
+            _ => state["root"] = serde_json::json!([1, 2]),
+        }
+        let body = serde_json::to_vec(&state).unwrap();
+        let (socket, mut peer) = UnixStream::pair().unwrap();
+        let worker = std::thread::spawn(move || {
+            let mut header = [0; 5];
+            peer.read_exact(&mut header).unwrap();
+            let mut request = vec![0; u32::from_be_bytes(header[1..].try_into().unwrap()) as usize];
+            peer.read_exact(&mut request).unwrap();
+            peer.write_all(&[4, 0, 0, 0, 0]).unwrap();
+            peer.read_exact(&mut header).unwrap();
+            assert_eq!(header, [1, 0, 0, 0, 0]);
+            peer.write_all(&[3]).unwrap();
+            peer.write_all(&(body.len() as u32).to_be_bytes()).unwrap();
+            peer.write_all(&body).unwrap();
+            let mut byte = [0];
+            assert_eq!(
+                peer.read(&mut byte).unwrap(),
+                0,
+                "forged checkpoint acknowledged"
+            );
+        });
+        let mut reader = Reader::connect(socket, &startup).unwrap();
+        assert!(
+            reader
+                .poll(
+                    || Ok(()),
+                    |_| panic!("unexpected event"),
+                    |_| panic!("forged checkpoint saved")
+                )
+                .is_err(),
+            "fault {fault}"
+        );
+        assert!(reader
+            .poll(|| panic!("poisoned reader reused"), |_| Ok(()), |_| Ok(()))
+            .is_err());
+        worker.join().unwrap();
+    }
+}
+
+#[test]
+fn restarted_child_refuses_checkpoint_for_another_process_source_at_startup() {
+    let fixture = Fixture::new();
+    let mut startup = fixture.startup();
+    let (socket, _child) = spawn();
+    let mut reader = Reader::connect(socket, &startup).unwrap();
+    let mut checkpoint = Vec::new();
+    reader
+        .poll(
+            || Ok(()),
+            |_| Ok(()),
+            |bytes| {
+                checkpoint = bytes.to_vec();
+                Ok(())
+            },
+        )
+        .unwrap();
+    drop(reader);
+    startup.checkpoint = Some(String::from_utf8(checkpoint).unwrap());
+    startup.source.lifetime = [9; 16];
+    let (socket, _restarted) = spawn();
+    assert!(Reader::connect(socket, &startup).is_err());
+    assert_eq!(
+        fs::read(fixture.root.join("session.jsonl")).unwrap(),
+        b"{\"a\":1}\npartial"
+    );
+}

@@ -19,7 +19,7 @@ const DONE: u8 = 4;
 const ACK: u8 = 5;
 const ERROR: u8 = 6;
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Startup {
     pub uid: u32,
@@ -113,6 +113,9 @@ pub fn serve(mut input: impl Read, mut output: impl Write) -> io::Result<()> {
             text: "x".into(),
         })
         .map_err(|_| invalid())?;
+    if let Some(bytes) = startup.checkpoint.as_ref() {
+        super::linux::validate_reader_checkpoint(bytes.as_bytes(), &startup)?;
+    }
     let root: File = rustix::fs::openat2(
         File::open("/")?,
         startup.root.trim_start_matches('/'),
@@ -196,7 +199,7 @@ impl Write for DeadlineSocket<'_> {
 
 pub struct Reader {
     socket: UnixStream,
-    source: Source,
+    startup: Startup,
     failed: bool,
 }
 impl Reader {
@@ -213,7 +216,7 @@ impl Reader {
         }
         Ok(Self {
             socket,
-            source: startup.source.clone(),
+            startup: startup.clone(),
             failed: false,
         })
     }
@@ -258,7 +261,7 @@ impl Reader {
             match tag {
                 EVENT if !checkpoint => {
                     let (source, record) = Source::decode(&bytes).map_err(|_| invalid())?;
-                    if source != self.source {
+                    if source != self.startup.source {
                         return Err(invalid());
                     }
                     record_bytes += record.end - record.start;
@@ -272,10 +275,10 @@ impl Reader {
                     send(&mut connection, ACK, &[])?;
                 }
                 CHECKPOINT if !checkpoint => {
-                    if bytes.is_empty() {
-                        return Err(invalid());
-                    }
+                    super::linux::validate_reader_checkpoint(&bytes, &self.startup)?;
                     save(&bytes)?;
+                    self.startup.checkpoint =
+                        Some(String::from_utf8(bytes).map_err(|_| invalid())?);
                     checkpoint = true;
                     send(&mut connection, ACK, &[])?;
                 }

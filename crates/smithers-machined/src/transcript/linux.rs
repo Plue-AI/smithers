@@ -50,6 +50,51 @@ struct SavedFramer {
     failed: bool,
 }
 
+// The daemon validates opaque child state without opening an owner home.
+// Identity and framing checks are shared with recovery, so IPC cannot persist
+// a checkpoint which the next reader would reject or bind to another source.
+fn decode_checkpoint(bytes: &[u8]) -> io::Result<Checkpoint> {
+    if bytes.len() > super::MAX_RECORD_BYTES * 4 + 32768 {
+        return Err(invalid("oversized transcript checkpoint"));
+    }
+    let state: Checkpoint =
+        serde_json::from_slice(bytes).map_err(|_| invalid("invalid transcript checkpoint"))?;
+    if state.version != 1
+        || state.owner == 0
+        || state.framer.generation == 0
+        || state.framer.pending.len() > super::MAX_RECORD_BYTES
+        || state.framer.pending.len() as u64 > state.framer.offset
+        || state.framer.pending.contains(&b'\n')
+        || state.anchor.len() > 64
+        || state.anchor.len() as u64 > state.framer.offset
+        || (state.inode.is_none() && state.framer.offset != 0)
+        || (state.framer.failed && !state.stopped)
+    {
+        return Err(invalid("transcript checkpoint binding mismatch"));
+    }
+    Ok(state)
+}
+
+pub(super) fn validate_reader_checkpoint(
+    bytes: &[u8],
+    startup: &super::reader::Startup,
+) -> io::Result<()> {
+    let state = decode_checkpoint(bytes)?;
+    if state.owner != startup.uid
+        || state.path != startup.path
+        || state.source.as_ref() != Some(&startup.source)
+    {
+        return Err(invalid("transcript checkpoint source mismatch"));
+    }
+    if let Some(previous) = startup.checkpoint.as_ref() {
+        let previous = decode_checkpoint(previous.as_bytes())?;
+        if state.root != previous.root {
+            return Err(invalid("transcript checkpoint root changed"));
+        }
+    }
+    Ok(())
+}
+
 /// One checkpoint per broker-bound source lifetime in the existing daemon
 /// state directory. All operations use a held descriptor, never a home path.
 pub struct CheckpointStore {
@@ -180,26 +225,10 @@ impl Tail {
     /// Bind recovered state to the same held owner root and linked source.
     /// Never accept a checkpoint as permission to choose another owner/path.
     pub fn resume(root: File, path: &str, owner: u32, bytes: &[u8]) -> io::Result<Self> {
-        if bytes.len() > super::MAX_RECORD_BYTES * 4 + 32768 {
-            return Err(invalid("oversized transcript checkpoint"));
-        }
-        let state: Checkpoint =
-            serde_json::from_slice(bytes).map_err(|_| invalid("invalid transcript checkpoint"))?;
+        let state = decode_checkpoint(bytes)?;
         let mut tail = Self::new(root, path, owner)?;
         let meta = tail.root.metadata()?;
-        if state.version != 1
-            || state.root != (meta.dev(), meta.ino())
-            || state.path != path
-            || state.owner != owner
-            || state.framer.generation == 0
-            || state.framer.pending.len() > super::MAX_RECORD_BYTES
-            || state.framer.pending.len() as u64 > state.framer.offset
-            || state.framer.pending.contains(&b'\n')
-            || state.anchor.len() > 64
-            || state.anchor.len() as u64 > state.framer.offset
-            || (state.inode.is_none() && state.framer.offset != 0)
-            || (state.framer.failed && !state.stopped)
-        {
+        if state.root != (meta.dev(), meta.ino()) || state.path != path || state.owner != owner {
             return Err(invalid("transcript checkpoint binding mismatch"));
         }
         tail.inode = state.inode;
