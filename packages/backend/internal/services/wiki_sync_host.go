@@ -79,18 +79,20 @@ func RunWikiFolderSync(ctx context.Context, service *WikiService, folders []Wiki
 }
 
 func runWikiFolderSync(ctx context.Context, pass func(context.Context) map[WikiFolderSync]error, interval time.Duration) {
+	// Keep the configured cadence independent of reconciliation duration.
+	// Ticks coalesce during a slow pass; reconciliations never overlap.
+	ticker := time.NewTicker(max(interval, time.Nanosecond))
+	defer ticker.Stop()
 	for ctx.Err() == nil {
 		for folder, err := range pass(ctx) {
 			if ctx.Err() == nil {
 				slog.WarnContext(ctx, "wiki folder sync failed", "owner", folder.Owner, "repo", folder.Repo, "visibility", folder.Visibility, "connection", folder.Connection, "error", err)
 			}
 		}
-		timer := time.NewTimer(interval)
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			return
-		case <-timer.C:
+		case <-ticker.C:
 		}
 	}
 }
