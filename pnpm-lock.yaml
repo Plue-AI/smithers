@@ -388,6 +388,9 @@ importers:
 
   apps/model-host:
     dependencies:
+      '@smthrs/harness':
+        specifier: workspace:*
+        version: link:../../packages/smithers/agent/harness
       '@smthrs/model-host':
         specifier: workspace:*
         version: link:../../packages/smithers/agent/model-host

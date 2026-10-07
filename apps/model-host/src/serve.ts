@@ -9,6 +9,7 @@ import { MODEL_TEST_BODY_MAX_BYTES, ModelTestRequestSchema } from "@smthrs/rpc/C
 import { createServer } from "node:http"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { parseArgs } from "node:util"
+import { normalizeTranscript } from "./transcript.ts"
 
 const parsed = parseArgs({
   args: process.argv.slice(2),
@@ -73,6 +74,14 @@ const testModel = async (request: Request): Promise<Response> => {
   if (!parsed.success) return Response.json({ code: "request_invalid" }, { status: 400 })
   return Response.json(await modelProbe.test(parsed.data.model, parsed.data.input))
 }
+const normalize = async (request: Request): Promise<Response> => {
+  if (!authorized(request)) return Response.json({ code: "unauthorized" }, { status: 401 })
+  try {
+    return Response.json(normalizeTranscript(await request.json()))
+  } catch {
+    return Response.json({ code: "transcript_invalid" }, { status: 422 })
+  }
+}
 const MAX_BODY_BYTES = 2 * 1024 * 1024
 const refuse = (outgoing: ServerResponse, status: number, code: string): void => {
   if (!outgoing.headersSent) outgoing.writeHead(status, { "content-type": "application/json", connection: "close" })
@@ -125,6 +134,8 @@ const server = createServer({
     })
     const response = new URL(request.url).pathname === "/v1/model/test" && method === "POST"
       ? await testModel(request)
+      : new URL(request.url).pathname === "/v1/transcript/normalize" && method === "POST"
+      ? await normalize(request)
       : await handle(request)
     outgoing.writeHead(response.status, Object.fromEntries(response.headers.entries()))
     outgoing.end(Buffer.from(await response.arrayBuffer()))

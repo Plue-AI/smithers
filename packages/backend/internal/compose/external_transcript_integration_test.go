@@ -23,6 +23,10 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -317,6 +321,90 @@ func TestExternalImportCommitReplay(t *testing.T) {
 	require.ErrorIs(t, err, chat.ErrConflict)
 	require.Equal(t, 2, adapter.calls)
 
+	// Invoke the actual install-shipped TS adapters over the same bearer boundary
+	// as production. Only discovery/registration remains a test provider until
+	// the privileged registry contract and reference-host qualification exist.
+	writer.Host = packagedTranscriptHost(t)
+	for index, fixture := range []struct {
+		directory, file, profile string
+		count                    int
+	}{
+		{"codex-0.160", "rollout.jsonl", "codex/0.160.0", 32},
+		{"claude-code-2.1", "session.jsonl", "claude-code/2.1.0", 36},
+	} {
+		_, sourceFile, _, ok := goruntime.Caller(0)
+		require.True(t, ok)
+		root := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "../../../.."))
+		data, err := os.ReadFile(filepath.Join(root, "packages/smithers/agent/harness/test/fixtures/external", fixture.directory, fixture.file))
+		require.NoError(t, err)
+		sessionBinding.Source = [16]byte{byte(8 + index)}
+		sessionBinding.Profile = fixture.profile
+		var offset uint64
+		for _, line := range strings.Split(strings.TrimSuffix(string(data), "\n"), "\n") {
+			end := offset + uint64(len(line)) + 1
+			record := wire.Transcript{Version: 1, Session: 1, Participant: participant, Source: sessionBinding.Source, Profile: fixture.profile, Generation: 1, Start: offset, End: end, Record: line}
+			payload, err := wire.EncodeTranscript(record)
+			require.NoError(t, err)
+			event.Seq++
+			event.EventID = [16]byte{byte(event.Seq), byte(event.Seq >> 8), 9}
+			event.Payload = payload
+			_, err = ingestor.Commit(ctx, connection, branch.ID, event)
+			require.NoError(t, err)
+			// A new envelope for the same source range uses the committed adapter
+			// checkpoint and produces no duplicate entries.
+			event.EventID[15] = 1
+			_, err = ingestor.Commit(ctx, connection, branch.ID, event)
+			require.NoError(t, err)
+			offset = end
+		}
+		var imported int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM chat_turns WHERE request_payload->'external'->>'source_format_version'=$1`, fixture.profile).Scan(&imported))
+		if index == 1 {
+			imported--
+		} // The earlier literal assistant fixture.
+		require.Equal(t, fixture.count, imported)
+	}
+	for _, cookie := range []string{benCookie, aliceCookie} {
+		history := call("GET", "/api/conversations/"+branch.ID, "", cookie, 200)
+		require.Contains(t, history, "How do I use ultrafast")
+		require.Contains(t, history, "exec-72424bde-7b89-43fe-9962-8fe21e4a3d4b")
+		require.Contains(t, history, "toolu_01JD3dL8cHy7FW7iBubC6yjY")
+		require.Contains(t, history, `"read_only":true`)
+	}
+}
+
+func packagedTranscriptHost(t *testing.T) *chat.HTTPChatHost {
+	t.Helper()
+	node, err := exec.LookPath("node")
+	require.NoError(t, err)
+	_, source, _, ok := goruntime.Caller(0)
+	require.True(t, ok)
+	root := filepath.Clean(filepath.Join(filepath.Dir(source), "../../../.."))
+	bundle := filepath.Join(t.TempDir(), "transcript-host.mjs")
+	build := exec.CommandContext(t.Context(), node, filepath.Join(root, "apps/model-host/build.mjs"), bundle)
+	build.Dir = root
+	output, err := build.CombinedOutput()
+	require.NoError(t, err, string(output))
+	ctx, cancel := context.WithCancel(t.Context())
+	command := exec.CommandContext(ctx, node, bundle, "serve", "--port", "0")
+	for _, value := range os.Environ() {
+		if !strings.HasPrefix(value, "SMITHERS_") {
+			command.Env = append(command.Env, value)
+		}
+	}
+	command.Env = append(command.Env, "SMITHERS_CHAT_HOST_TOKEN=transcript-integration", "SMITHERS_CHAT_CALLBACK_URL=http://127.0.0.1:9", "SMITHERS_CHAT_MODEL={}")
+	stdout, err := command.StdoutPipe()
+	require.NoError(t, err)
+	require.NoError(t, command.Start())
+	t.Cleanup(func() { cancel(); _ = command.Wait() })
+	var ready struct {
+		Port int `json:"port"`
+	}
+	require.NoError(t, json.NewDecoder(stdout).Decode(&ready))
+	require.Positive(t, ready.Port)
+	host, err := chat.NewHTTPChatHost(fmt.Sprintf("http://127.0.0.1:%d", ready.Port), &http.Client{Timeout: 5 * time.Second}, "transcript-integration")
+	require.NoError(t, err)
+	return host
 }
 
 // Test-only adapter provider. Packaged HTTP tests exercise the real TS decoder;

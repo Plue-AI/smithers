@@ -2512,6 +2512,7 @@
     ],
     "outputs": [],
     "dependencies": [
+      "//packages/smithers/agent/harness:lib",
       "//packages/smithers/agent/model-host:lib"
     ],
     "source": {
@@ -2540,6 +2541,7 @@
     ],
     "outputs": [],
     "dependencies": [
+      "//packages/smithers/agent/harness:lib",
       "//packages/smithers/agent/model-host:lib"
     ],
     "source": {
@@ -2635,6 +2637,10 @@
         "path": "apps/model-host/test/serve.test.mjs"
       },
       {
+        "kind": "file",
+        "path": "apps/model-host/test/transcript.test.mjs"
+      },
+      {
         "kind": "glob",
         "pattern": "apps/model-host/src/**/*.ts",
         "exclude": []
@@ -2646,10 +2652,19 @@
       {
         "kind": "file",
         "path": "apps/model-host/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/harness/test/fixtures/external/codex-0.160/rollout.jsonl"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/harness/test/fixtures/external/claude-code-2.1/session.jsonl"
       }
     ],
     "outputs": [],
     "dependencies": [
+      "//packages/smithers/agent/harness:lib",
       "//packages/smithers/agent/model-host:lib"
     ],
     "source": {
