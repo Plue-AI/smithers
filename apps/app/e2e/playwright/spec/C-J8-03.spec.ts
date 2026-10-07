@@ -32,7 +32,8 @@ test("C-J8-03: owner changes the folder and sees sync status and refusals", asyn
   await expect(folder).toHaveValue("/Users/owner/Notes")
   await folder.fill("/state")
   await folder.locator("xpath=ancestor::form").getByRole("button", { name: "Change", exact: true }).press("Enter")
-  await expect(card.getByRole("alert")).toContainText("Obsidian folder refused")
+  await expect(card.getByRole("alert")).toHaveText("Sync failed")
+  await expect(card.locator("details").filter({ hasText: "Obsidian folder refused" })).toHaveCount(1)
   await expect(page.getByTestId("composer-input")).toBeEditable()
 })
 
