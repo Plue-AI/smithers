@@ -9,7 +9,7 @@ export interface BranchControlOptions {
 }
 export interface BranchControls {
   readonly available: (operation: BranchControl) => boolean
-  readonly request: (operation: BranchControl, branch: string, input?: { text?: string }) => Promise<CommandResult>
+  readonly request: (operation: BranchControl, branch: string, input?: { text?: string; conflict_change?: string; onto_revision?: string }) => Promise<CommandResult>
 }
 
 /** Spec §6.3 branch commands, with no cloud or host execution fallback. */
@@ -17,6 +17,7 @@ export function createBranchControlsSeam(ctx: SeamContext, options: BranchContro
   const available = (operation: BranchControl) => !ctx.isDisposed?.() && options.ready(operation)
   return { available, request: async (operation, branch, input = {}) => {
     if (!available(operation)) return "Branch unavailable"
+    if ((input.conflict_change === undefined) !== (input.onto_revision === undefined)) return "Branch unavailable"
     if (!branch.trim() || /[\u0000\\]/.test(branch)) return "Choose a branch"
     try {
       // Moved-off controls carry a TODO number; resolve its current branch before writing.
