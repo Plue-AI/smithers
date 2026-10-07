@@ -177,6 +177,8 @@ func TestLiveProviderChatPersistsAndReplays(t *testing.T) {
 }
 
 type localChat struct {
+	nodeBinary   string
+	hostBundle   string
 	api          func(*chat.Runtime) http.Handler
 	ctx          context.Context
 	pool         *pgxpool.Pool
@@ -240,7 +242,7 @@ func startConfiguredLocalChat(t *testing.T, configure func(*localChat, *chat.Run
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	t.Cleanup(cancel)
 	pool, databaseURL := postgresfixture.NewProductDatabase(t)
-	local := &localChat{ctx: ctx, pool: pool, logs: &lockedBuffer{}, client: &http.Client{Timeout: 60 * time.Second}}
+	local := &localChat{nodeBinary: node, hostBundle: bundle, ctx: ctx, pool: pool, logs: &lockedBuffer{}, client: &http.Client{Timeout: 60 * time.Second}}
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users (username,lower_username) VALUES ('chatowner','chatowner') RETURNING id`).Scan(&local.ownerID))
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories (user_id,name,lower_name) VALUES ($1,'chatrepo','chatrepo') RETURNING id`, local.ownerID).Scan(&local.repoID))
 	local.actor = &db.User{ID: local.ownerID, Username: "chatowner"}

@@ -99,6 +99,14 @@ func TestPortHostRefusesSharedLaunchWhenIssuerFails(t *testing.T) {
 	require.ErrorIs(t, host.RunTurn(t.Context(), ProducerGrant{Request: []byte(`{"sharedConversation":true}`)}), failure)
 }
 
+func TestPortHostRefusesSharedLaunchWithoutIssuer(t *testing.T) {
+	host := PortHost{Host: turnHostFunc(func(context.Context, ports.ChatTurnGrant) error {
+		t.Fatal("model launched without an issuer")
+		return nil
+	})}
+	require.ErrorIs(t, host.RunTurn(t.Context(), ProducerGrant{Request: []byte(`{"sharedConversation":true}`)}), errCommandAPIUnavailable)
+}
+
 func TestProducerCredentialCleanupPreservesReplacement(t *testing.T) {
 	credentials := newTurnCredentials()
 	key := turnKey{userID: 7, runID: "run", legID: "leg"}
