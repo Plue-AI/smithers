@@ -213,10 +213,10 @@ func TestSecret_Z_DirectPermissionHelpers(t *testing.T) {
 	_, err = svc.requireOrgOwner(ctx, &db.User{ID: 99, IsAdmin: true}, "acme")
 	require.NoError(t, err)
 
-	err = svc.requireAdminAccess(ctx, repo, nil)
+	err = svc.requireAdminAccess(ctx, repo, nil, "secrets.set")
 	require.Error(t, err)
 	assert.Equal(t, 401, apiStatus(t, err))
-	err = svc.requireAdminAccess(ctx, otherRepo, &db.User{ID: 2})
+	err = svc.requireAdminAccess(ctx, otherRepo, &db.User{ID: 2}, "secrets.set")
 	require.Error(t, err)
 	assert.Equal(t, 403, apiStatus(t, err))
 
