@@ -407,6 +407,16 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 	if observe, ok := ctx.Value(authorizationObserverKey{}).(func(string)); ok && observe != nil {
 		observe(command)
 	}
+	if info := middleware.AuthInfoFromContext(ctx); info != nil && info.User != nil && info.IsTokenAuth {
+		// New or historical kind/profile names grant no install authority.
+		for _, entry := range strings.Split(info.RawScopes, ",") {
+			entry = strings.ToLower(strings.TrimSpace(entry))
+			if strings.HasPrefix(entry, "credential:") && entry != middleware.SyncCredentialScope() && entry != middleware.WorkspaceChildrenCredentialScope() ||
+				strings.HasPrefix(entry, "profile:") && entry != "profile:"+middleware.TerminalProfileS1 && entry != "profile:"+middleware.CodingFileProfileS1 {
+				return InstallAuthorization{}, confirmationPermission()
+			}
+		}
+	}
 	if command == "workspace.children.list" || command == "workspace.children.spawn" || command == "workspace.children.stop" {
 		return authorizeWorkspaceChildren(ctx, q, command, subject)
 	}
@@ -535,7 +545,7 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 			return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "A terminal's credential cannot do this"}
 		}
 	} else if !fullDelegated && (info.IsTokenAuth || info.IsAgent() || info.SessionHash == "") &&
-		!(command == "branch.read" && info.CredentialKind() == middleware.CredentialDelegated) {
+		!(command == "branch.read" && info.CredentialKind() == middleware.CredentialDelegated && delegation.Profile == "") {
 		message := "Sign in with a browser session"
 		if command == "merge" {
 			message = mythicalMergeForbidden().Message
@@ -904,6 +914,14 @@ func authorizeExecutionTodoRead(ctx context.Context, q *db.Queries, subject Inst
 	}
 	if middleware.ParseTokenWorkspaceChildrenCredential(info.RawScopes) || !info.Scopes.Has(middleware.ScopeReadRepository) || subject.RepositoryID <= 0 || subject.TodoNumber <= 0 || info.RepositoryRestriction() != subject.RepositoryID {
 		return deny()
+	}
+	// Read grants cover the issuer's ordinary run/machine identities only.
+	// Legacy or future kind/profile markers cannot inherit an own-TODO grant.
+	for _, entry := range strings.Split(info.RawScopes, ",") {
+		entry = strings.ToLower(strings.TrimSpace(entry))
+		if strings.HasPrefix(entry, "credential:") || strings.HasPrefix(entry, "profile:") {
+			return deny()
+		}
 	}
 	workspaceID := info.WorkspaceRestriction()
 	if info.CredentialKind() == middleware.CredentialAgentRun {
