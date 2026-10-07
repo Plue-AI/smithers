@@ -145,6 +145,21 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 	position(3, 4)
 	position(4, 5)
 	position(5, 6)
+	// The aggregate door must use the same install admission positions, with
+	// Ben ahead of the TODOs, rather than counting only queued stack items.
+	request := httptest.NewRequest("GET", cfg.Server.PublicURL+"/api/todos", nil)
+	request.RemoteAddr = "127.0.0.1:51900"
+	request.AddCookie(&http.Cookie{Name: cfg.Auth.SessionCookieName, Value: browserCookie})
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	require.Equal(t, 200, response.Code, response.Body.String())
+	var cards []map[string]any
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &cards))
+	require.Len(t, cards, 5)
+	for index, card := range cards {
+		require.Equal(t, float64(index+1), card["n"])
+		require.Equal(t, map[string]any{"reason": "machine", "position": float64(index + 2)}, card["queue"])
+	}
 	// The mounted live endpoint must publish all changed positions together.
 	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/api/live", &websocket.DialOptions{
 		Subprotocols: []string{live.Protocol}, HTTPHeader: http.Header{"Cookie": {"smithers_session=placement-session"}, "Origin": {cfg.Server.PublicURL}}, Host: "127.0.0.1:4000"})
