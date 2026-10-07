@@ -136,7 +136,7 @@ func TestLiveTodoCommittedCardsRollbackAndReplay(t *testing.T) {
 	privateView := read(memberSocket)
 	require.Equal(t, "snap", privateView.T)
 	require.EqualValues(t, 2, privateView.ID)
-	require.JSONEq(t, `{"last_seen_seq":9,"toasts_hidden":true}`, string(privateView.Data))
+	require.JSONEq(t, `{"last_seen_seq":9,"toasts_hidden":false,"global_toasts_hidden":true}`, string(privateView.Data))
 	require.NoError(t, homeSocket.Write(ctx, websocket.MessageText, []byte(fmt.Sprintf(`{"t":"sub","id":2,"topic":%q}`, memberViewTopic))))
 	forbidden := read(homeSocket)
 	require.Equal(t, "err", forbidden.T)
