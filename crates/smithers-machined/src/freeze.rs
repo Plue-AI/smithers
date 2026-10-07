@@ -84,6 +84,9 @@ fn freeze_for<T>(
         }
     };
     hooks.documents.reconcile_all(cx, actor)?;
+    if returning {
+        hooks.core.returned_by(actor)?;
+    }
     hooks.broker.thaw()?;
     cx.settle_rewrite()?;
     Ok(output)

@@ -187,21 +187,15 @@ impl NativeCore {
             .or(prior.as_ref())
             .ok_or_else(hooks::Error::unsupported)?;
         let target = parse_oid(&fact.pre_move_commit)?;
-        let returned_actor = if next.is_none() && !fact.by.is_empty() {
-            Actor::Principal(
-                fact.by
-                    .as_bytes()
-                    .chunks_exact(2)
-                    .map(|pair| {
-                        u8::from_str_radix(
-                            std::str::from_utf8(pair).map_err(|_| hooks::Error::unsupported())?,
-                            16,
-                        )
-                        .map_err(|_| hooks::Error::unsupported())
-                    })
-                    .collect::<hooks::Result<Vec<_>>>()?,
-            )
+        let returned_actor = if next.is_none() {
+            self.native
+                .return_actor(target)
+                .map_err(hook)?
+                .map(Actor::Principal)
+                .unwrap_or_else(|| actor.clone())
         } else {
+            // Clear before publishing a new move, including one to the same target.
+            self.native.clear_return_actor().map_err(hook)?;
             actor.clone()
         };
         let mut fields = vec![
@@ -267,17 +261,17 @@ impl Core for NativeCore {
         self.validate_head(onto)?;
         self.native.validate_rebase(onto).map_err(hook)
     }
-    fn returned_by(&self, actor: &Actor) {
-        if let Actor::Principal(login) = actor {
-            if let Some(fact) = self
-                .moved
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .as_mut()
-            {
-                fact.by = login.iter().map(|byte| format!("{byte:02x}")).collect();
-            }
-        }
+    fn returned_by(&self, actor: &Actor) -> hooks::Result<()> {
+        let Actor::Principal(reference) = actor else {
+            return Err(hooks::Error::unsupported());
+        };
+        let mut moved = self.moved.lock().unwrap_or_else(|e| e.into_inner());
+        let fact = moved.as_mut().ok_or_else(hooks::Error::unsupported)?;
+        self.native
+            .record_return_actor(parse_oid(&fact.pre_move_commit)?, reference)
+            .map_err(hook)?;
+        fact.by = reference.iter().map(|byte| format!("{byte:02x}")).collect();
+        Ok(())
     }
     fn validate_return_to_item(&self) -> hooks::Result<()> {
         self.ready()?;
@@ -327,14 +321,28 @@ impl Core for NativeCore {
             .pending()
             .map_err(hook)?
         {
-            // The native mutation and its immutable result already committed.
-            // Finish its identity/acknowledgement, keeping even post-thaw edits.
-            self.finish_wake(&settlement)
+            self.finish_wake(&settlement)?;
         } else {
             self.native
                 .restore_with_ack(self.git.acknowledged().map_err(hook)?)
-                .map_err(hook)
+                .map_err(hook)?;
         }
+        // The process-local rewrite kind is lost on restart. Only a successful
+        // native restore back off the item withdraws pending Return attribution.
+        if let Some(item) = self.item.as_ref().filter(|item| item.number > 0) {
+            if !self.native.descends_from_item(&item.change).map_err(hook)? {
+                self.native.clear_return_actor().map_err(hook)?;
+                if let Some(fact) = self
+                    .moved
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .as_mut()
+                {
+                    fact.by.clear();
+                }
+            }
+        }
+        Ok(())
     }
     fn rebase(&self, _: &mut LockCx, onto: Oid) -> hooks::Result<Oid> {
         self.native.rebase(onto).map_err(hook)
@@ -592,9 +600,87 @@ pub(crate) mod tests {
         );
         // Return does not release coding writes before metadata observes it.
         assert_eq!(core.validate_coding_write().unwrap_err().code, 10);
+        let core = reopened_core(&core, dir.path());
+        core.moved.lock().unwrap().as_mut().unwrap().by.clear(); // protected boot restores target, not the process cache
         core.observe_moved_off(&Actor::Outside).unwrap();
         assert!(core.moved.lock().unwrap().is_none());
         assert!(core.validate_coding_write().is_ok());
+        let owner = rustix::process::geteuid().as_raw();
+        let store =
+            crate::outbox_store::Store::open(&dir.path().join("state/outbox"), owner).unwrap();
+        let returned = store
+            .sequences()
+            .map(|seq| conn::Durable::decode(&store.read(seq, owner).unwrap()).unwrap())
+            .filter(|event| event.event[0] == 4)
+            .last()
+            .unwrap();
+        let fields = conn::fields("moved_off", &returned.event[1..]).unwrap();
+        assert_eq!(
+            fields[0].1,
+            conn::actor_bytes(&Actor::Principal(vec![0xff; 16]))
+        );
+        assert_eq!(fields.last().unwrap().1, [1]);
+    }
+    #[test]
+    fn failed_return_restart_restore_does_not_attribute_a_later_manual_return_to_the_failed_choice()
+    {
+        let (dir, mut core) = fixture();
+        fs::write(dir.path().join("workspace/base"), b"base\n").unwrap();
+        let base = core.native.snapshot().unwrap().0;
+        let target = crate::native::tests::child(&core.native, base, "item");
+        let change = crate::native::tests::change(&core.native, target);
+        Arc::get_mut(&mut core).unwrap().item =
+            Some(crate::boot::ItemBinding { number: 2, change });
+        core.git.clone().acknowledge_and_sync(target).unwrap();
+        crate::native::tests::child(&core.native, base, "off item");
+        core.observe_moved_off(&Actor::Outside).unwrap();
+        let journal = || crate::rewrite_journal::Journal::open(&dir.path().join("state")).unwrap();
+        let mut cx = LockCx::recovering(
+            recovery_hooks(core.clone(), Arc::new(Flushed), Arc::new(ThawFails)),
+            journal(),
+        )
+        .unwrap();
+        assert!(
+            crate::freeze::freeze_return(&mut cx, &Actor::Principal(vec![0xff; 16]), |cx| core
+                .return_to_item(cx))
+            .is_err()
+        );
+        assert!(cx.rewrite_pending);
+        assert_eq!(
+            core.native.return_actor(target).unwrap(),
+            Some(vec![0xff; 16])
+        );
+        drop(cx);
+        let core = reopened_core(&core, dir.path());
+        core.moved.lock().unwrap().as_mut().unwrap().by.clear();
+        let mut cx = LockCx::recovering(
+            recovery_hooks(core.clone(), Arc::new(Flushed), Arc::new(Flushed)),
+            journal(),
+        )
+        .unwrap();
+        assert!(!cx.last_rewrite_was_return);
+        crate::freeze::restore(&mut cx, &Actor::Outside).unwrap();
+        assert_eq!(core.native.return_actor(target).unwrap(), None);
+        assert!(!core
+            .native
+            .descends_from_item(&core.item.as_ref().unwrap().change)
+            .unwrap());
+        core.native.move_to(target).unwrap();
+        core.observe_moved_off(&Actor::Principal(vec![7; 16]))
+            .unwrap();
+        let owner = rustix::process::geteuid().as_raw();
+        let store =
+            crate::outbox_store::Store::open(&dir.path().join("state/outbox"), owner).unwrap();
+        let event = store
+            .sequences()
+            .map(|seq| conn::Durable::decode(&store.read(seq, owner).unwrap()).unwrap())
+            .filter(|event| event.event[0] == 4)
+            .last()
+            .unwrap();
+        assert_eq!(
+            conn::fields("moved_off", &event.event[1..]).unwrap()[0].1,
+            conn::actor_bytes(&Actor::Principal(vec![7; 16]))
+        );
     }
     #[test]
     fn metadata_detector_uses_native_item_ancestry_for_git_and_jj_moves() {

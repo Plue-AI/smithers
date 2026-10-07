@@ -291,9 +291,10 @@ pub trait Core: Send + Sync {
         Err(Error::unsupported())
     }
 
-    /// Preserve the authenticated person for the metadata return event only
-    /// after the complete rewrite sequence succeeded.
-    fn returned_by(&self, _actor: &Actor) {}
+    /// Persist Return attribution before thaw. Failure retains the rewrite barrier.
+    fn returned_by(&self, _actor: &Actor) -> Result<()> {
+        Ok(())
+    }
 
     /// Snapshot, pin and enqueue locally while holding the mutation lock.
     /// Unlike capture RPC, this must never wait for host acknowledgement.

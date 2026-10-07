@@ -327,8 +327,8 @@ impl Core for Files {
     fn validate_return_to_item(&self) -> hooks::Result<()> {
         self.next.validate_return_to_item()
     }
-    fn returned_by(&self, actor: &hooks::Actor) {
-        self.next.returned_by(actor);
+    fn returned_by(&self, actor: &hooks::Actor) -> hooks::Result<()> {
+        self.next.returned_by(actor)
     }
     fn return_to_item(&self, cx: &mut LockCx) -> hooks::Result<hooks::Oid> {
         self.next.return_to_item(cx)

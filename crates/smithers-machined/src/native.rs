@@ -337,6 +337,65 @@ impl Repository {
         Ok(Self::commit(&repo, left)?.tree().tree_ids()
             == Self::commit(&repo, right)?.tree().tree_ids())
     }
+    // Host-selected attribution belongs in the daemon's protected state, not
+    // repository metadata that a member can edit. Persist it before thaw.
+    pub(crate) fn record_return_actor(&self, target: Oid, actor: &[u8]) -> io::Result<()> {
+        if actor.is_empty() || actor.len() > 1024 {
+            return Err(invalid("invalid Return actor"));
+        }
+        let temporary = self.state.join("moved-return.actor.tmp");
+        match fs::remove_file(&temporary) {
+            Ok(()) => (),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => (),
+            Err(e) => return Err(e),
+        }
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temporary)?;
+        file.write_all(b"MR01")?;
+        file.write_all(&target)?;
+        file.write_all(actor)?;
+        file.sync_all()?;
+        fs::rename(temporary, self.state.join("moved-return.actor"))?;
+        File::open(&self.state)?.sync_all()
+    }
+    pub(crate) fn return_actor(&self, target: Oid) -> io::Result<Option<Vec<u8>>> {
+        let file = match OpenOptions::new()
+            .read(true)
+            .custom_flags(
+                (rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::NONBLOCK).bits() as i32,
+            )
+            .open(self.state.join("moved-return.actor"))
+        {
+            Ok(file) => file,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        let metadata = file.metadata()?;
+        if !metadata.is_file()
+            || metadata.nlink() != 1
+            || metadata.uid() != rustix::process::geteuid().as_raw()
+            || metadata.mode() & 0o7777 != 0o600
+            || !(25..=1048).contains(&metadata.len())
+        {
+            return Err(invalid("invalid Return attribution file"));
+        }
+        let mut bytes = Vec::new();
+        file.take(1049).read_to_end(&mut bytes)?;
+        if !(25..=1048).contains(&bytes.len()) || &bytes[..4] != b"MR01" || bytes[4..24] != target {
+            return Err(invalid("Return attribution target differs"));
+        }
+        Ok(Some(bytes[24..].to_vec()))
+    }
+    pub(crate) fn clear_return_actor(&self) -> io::Result<()> {
+        match fs::remove_file(self.state.join("moved-return.actor")) {
+            Ok(()) => File::open(&self.state)?.sync_all(),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
     pub fn conflict_paths(&self, head: Oid) -> io::Result<Vec<String>> {
         let (_, repo) = self.load()?;
         Self::commit(&repo, head)?
@@ -626,6 +685,38 @@ pub(crate) mod tests {
         assert!(!native
             .descends_from_item("kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk")
             .unwrap());
+    }
+    #[test]
+    fn return_attribution_survives_reopen_and_refuses_untrusted_artifacts() {
+        let (_dir, native) = fixture();
+        let target = native.current().unwrap().0;
+        let actor = [0xff; 16];
+        assert_eq!(native.return_actor(target).unwrap(), None);
+        assert!(native.record_return_actor(target, &[]).is_err());
+        assert!(native.record_return_actor(target, &[1; 1025]).is_err());
+        native.record_return_actor(target, &actor).unwrap();
+        let reopened = Repository::open(&native.root, &native.state).unwrap();
+        assert_eq!(reopened.return_actor(target).unwrap(), Some(actor.to_vec()));
+        assert!(reopened.return_actor([0; 20]).is_err());
+        let path = native.state.join("moved-return.actor");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(reopened.return_actor(target).is_err());
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let linked = native.state.join("actor-link");
+        fs::hard_link(&path, &linked).unwrap();
+        assert!(reopened.return_actor(target).is_err());
+        fs::remove_file(linked).unwrap();
+        fs::write(&path, [0; 1049]).unwrap();
+        assert!(reopened.return_actor(target).is_err());
+        fs::remove_file(&path).unwrap();
+        let sentinel = native.state.join("outside");
+        fs::write(&sentinel, b"untouched").unwrap();
+        std::os::unix::fs::symlink(&sentinel, &path).unwrap();
+        assert!(reopened.return_actor(target).is_err());
+        reopened.clear_return_actor().unwrap();
+        reopened.clear_return_actor().unwrap();
+        assert_eq!(fs::read(sentinel).unwrap(), b"untouched");
+        assert_eq!(reopened.return_actor(target).unwrap(), None);
     }
     pub(crate) fn fixture() -> (tempfile::TempDir, Repository) {
         let dir = tempfile::tempdir().unwrap();
