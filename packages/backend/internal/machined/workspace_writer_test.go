@@ -41,10 +41,15 @@ func TestWorkspaceWriterAuthenticatedRPC(t *testing.T) {
 			require.NoError(t, err)
 			id, method, args, err := frame.Request()
 			require.NoError(t, err)
-			require.Equal(t, byte(wire.WriteFile), method)
-			fields, err := wire.Fields("args3", args)
+			require.Equal(t, byte(wire.WriteFiles), method)
+			batch, err := wire.Fields("args17", args)
 			require.NoError(t, err)
-			require.Equal(t, principal([]byte("9")), fields[4])
+			require.Equal(t, principal([]byte("9")), batch[2])
+			changes, err := wire.List("local_mutation", batch[1])
+			require.NoError(t, err)
+			require.Len(t, changes, 1)
+			fields, err := wire.Fields("local_mutation", changes[0])
+			require.NoError(t, err)
 			require.Equal(t, wire.String("hello"), fields[1])
 			d, _ := hex.DecodeString(digest)
 			wantBase := wire.Union(2)
@@ -52,16 +57,21 @@ func TestWorkspaceWriterAuthenticatedRPC(t *testing.T) {
 				wantBase = wire.Union(1, wire.Field(1, d))
 			}
 			require.Equal(t, wantBase, fields[2])
-			response := wire.Union(byte(wire.WriteFile), wire.Field(1, d))
+			writeFields := [][]byte{wire.Field(1, wire.Union(1, wire.Field(1, d)))}
+			resultFields := [][]byte{}
 			if scenario == "stale" || scenario == "absent-stale" {
 				fs := [][]byte{wire.Field(1, []byte{byte(wire.Stale)}), wire.Field(2, wire.String("hello"))}
 				if scenario == "stale" {
 					fs = append(fs, wire.Field(3, d))
 				}
-				response = wire.Union(255, fs...)
+				resultFields = append(resultFields, wire.Field(1, wire.U16(0)), wire.Field(2, wire.Struct(wire.Field(1, wire.U16(0)), wire.Field(2, []byte{1}), wire.Field(3, wire.Struct(fs...)))))
 			} else if scenario == "raced" {
-				response = wire.Union(byte(wire.WriteFile), wire.Field(1, d), wire.Field(2, wire.Struct(wire.Field(1, wire.String("hello")), wire.Field(2, d))))
+				writeFields = append(writeFields, wire.Field(2, wire.Struct(wire.Field(1, wire.String("hello")), wire.Field(2, d))))
 			}
+			if len(resultFields) == 0 {
+				resultFields = append(resultFields, wire.Field(1, append(wire.U16(1), wire.Struct(writeFields...)...)))
+			}
+			response := wire.Union(byte(wire.WriteFiles), resultFields...)
 			require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, response))}))
 			got := <-done
 			require.Equal(t, 1, readyCalls)

@@ -40,7 +40,7 @@ const stale = (path: string, base: string, current: string) =>
 
 /** ADR 0004's installed client owns the codec and kernel-derived run identity.
  * Never send the model-facing ledger's session string as authentication. The
- * current wire settles one file only; batches/deletions refuse before spawning.
+ * installed local client settles one file; batches/deletions refuse before spawning.
  */
 const daemonProvider = (
   spawner: ChildProcessSpawner.ChildProcessSpawner["Service"]

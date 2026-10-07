@@ -11,10 +11,10 @@ import (
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
-// WorkspaceWriter adapts the authenticated daemon's single-file RPC to the
-// workspace mutation boundary. ADR 0004 currently has no atomic batch or
-// deletion request. Refuse those before sending anything, rather than expose
-// WriteFiles' ordered, partially applied semantics as a transaction.
+// WorkspaceWriter accepts only singleton settlements at the workspace mutation
+// boundary. ADR 0004's compared mutation batch can partially apply on I/O
+// failure. Refuse multi-file and deletion requests before dispatch rather than
+// expose that batch as a whole-patch transaction.
 type WorkspaceWriter struct {
 	// EnsureReady starts/adopts the installed daemon only after admission and
 	// complete request validation. Runtime composition supplies its lifecycle.
