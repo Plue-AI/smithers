@@ -130,7 +130,20 @@ func TestTodoReadsDecodeTheCard(t *testing.T) {
 	client, _ = server(t, http.StatusOK, "application/json", card)
 	one, err := client.GetAPITodosN(context.Background(), 1)
 	require.NoError(t, err)
-	assert.Equal(t, "One", one.Title)
+	var decoded apiclient.TodoCard
+	require.NoError(t, json.Unmarshal(one, &decoded))
+	assert.Equal(t, "One", decoded.Title)
+}
+
+func TestTodoReadDecodesCredentialBoundFields(t *testing.T) {
+	body := `{"n":1,"title":"One","state":"running","attempt":2,"generation":3,"workspace":"w1","run":"r1","base":"abc"}`
+	client, requests := server(t, http.StatusOK, "application/json", body)
+	out, err := client.GetAPITodosN(context.Background(), 1)
+	require.NoError(t, err)
+	var decoded apiclient.TodoSystemRead
+	require.NoError(t, json.Unmarshal(out, &decoded))
+	assert.Equal(t, apiclient.TodoSystemRead{N: 1, Title: "One", State: "running", Attempt: 2, Generation: 3, Workspace: "w1", Run: "r1", Base: "abc"}, decoded)
+	assert.Equal(t, "/api/todos/1", (*requests)[0].RawPath)
 }
 
 func TestUntypedBodyIsOptional(t *testing.T) {
