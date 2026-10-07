@@ -78,3 +78,23 @@ func TestInstallCredentialAdministrationCatalogRefusalsPostgres(t *testing.T) {
 	require.Contains(t, out.Body.String(), `"code":"permission"`)
 	require.Equal(t, []string{"box.terminal"}, decisions)
 }
+
+func TestInstallOwnAccountReadRouteBindings(t *testing.T) {
+	expected := map[string]bool{
+		"/api/user/tokens": false, "/api/user/sessions": false,
+		"/api/user/emails":          false,
+		"/api/user/settings/signup": false, "/api/user/settings/notifications": false,
+		"/api/user/connections": false, "/api/notifications/list": false,
+		"/api/notifications/preferences": false, "/api/notifications/events": false,
+		"/api/notifications/events/stream": false,
+	}
+	for _, route := range servedCompositionRoutes(t, config.AuthModeSelfHosted) {
+		if _, ok := expected[route.path]; ok && route.method == "get" {
+			require.Equal(t, "self.read", middleware.InstallMemberCommand(http.MethodGet, route.path), route.key())
+			expected[route.path] = true
+		}
+	}
+	for path, served := range expected {
+		require.True(t, served, path)
+	}
+}

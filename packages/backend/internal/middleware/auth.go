@@ -465,6 +465,11 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "box.resume", regexp.MustCompile(`^/api/workflow/provision$`)},
 	{http.MethodPost, "order.ok", regexp.MustCompile(`^/api/stack/attention/[^/]+$`)},
 	{http.MethodGet, "self", regexp.MustCompile(`^/api/user$`)},
+	// Own-account read aliases resolve the catalog's scoped read command.
+	// They expose no execution-credential or owner fallback.
+	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/user/(?:tokens|sessions|emails|settings/(?:signup|notifications)|connections)$`)},
+	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/notifications/(?:list|preferences|events(?:/stream)?)$`)},
+
 	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/user/keys(?:/[0-9]+)?$`)},
 	{http.MethodGet, "self", regexp.MustCompile(`^/api/confirmations$`)},
 	{http.MethodPost, "self", regexp.MustCompile(`^/api/confirmations(?:/[^/]+/(?:approve|deny))?$`)},
@@ -612,7 +617,7 @@ var installMemberRoutes = []struct {
 }
 
 // InstallMemberCommand is the command a roster member's request to method
-// and path runs, or "" for a route only the install owner may call.
+// and path runs, or "" when no command binding is declared.
 func InstallMemberCommand(method, path string) string {
 	for _, route := range installMemberRoutes {
 		if route.method == method && route.path.MatchString(path) {
