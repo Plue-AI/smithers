@@ -428,7 +428,7 @@ live host and root broker refuse unattributed host launches.
 The broker reserves the reference and run before spawn, retains them through
 close and failed cleanup, and uses that reference for observed-write events.
 A local PTY inherits the parent's entire binding. Local requests carrying
-admission fields are refused. `register_run` may confirm an already admitted
+admission fields decode, and the daemon answers them with `Error{unauthorized}` (control error 11) without acting (8a, 2026-10-07). `register_run` may confirm an already admitted
 run, but cannot bind or replace one after execution starts. Older actor variants
 remain decodable; they do not authorize reconstructing identity from a reused
 session number. See the [recovery contract](../../.specs/engineering/design/session-attribution-recovery.md)
@@ -478,9 +478,15 @@ and other producer migrations.
 ### Wire review rulings (8a, 2026-10-07, #3626; 3f's independent review)
 
 1. **The version is authenticated.** The HostProof MAC covers `protocol` (row 2 above), so a relay cannot rewrite it unseen. The daemon checks `protocol` equality first (`version_mismatch`), then the MAC (`auth_failed`). The corpus carries committed vectors (secret, boot_id, nonce, protocol 7, mac), the two vectors introduced at bc7887554b regenerated for protocol 7, and a wrong-mac frame expecting `auth_failed`; both codecs must compute each exact mac.
-2. **Durable event variant 5 (transcripts) is defined, not reserved** (superseding this ruling's first version: #3622 ships it, in both codecs). `5 transcript` payload: `1 version: u16` (must be 1), `2 session: u32` (1..=0x7FFFFFFF), `3 participant: id128` (non-zero), `4 source: id128` (non-zero; survives reconnects), `5 profile: str` (non-empty; names the pinned host adapter), `6 generation: u64` (≥ 1; changes only when the identified source is replaced or truncated), `7 start: u64`, `8 end: u64` (end > start, and end − start = length of record + 1, the omitted newline), `9 record: bytes` (length-prefixed bytes, as #3622 encodes it; one transcript record without its newline; its length is the `end − start − 1` bound). Any violated bound is `bad_value`; no path, home, uid or executable crosses this event. The transcript frames stay in the manifest under these bounds; an expectation of `bad_utf8` on valid UTF-8 is a fixture bug.
+2. **Durable event variant 5 (transcripts) is defined, not reserved** (superseding this ruling's first version: #3622 ships it, in both codecs). `5 transcript` payload: `1 version: u16` (must be 1), `2 session: u32` (1..=0x7FFFFFFF), `3 participant: id128` (non-zero), `4 source: id128` (non-zero; survives reconnects), `5 profile: str` (non-empty; names the pinned host adapter), `6 generation: u64` (≥ 1; changes only when the identified source is replaced or truncated), `7 start: u64`, `8 end: u64` (end > start, and end − start = length of record + 1, the omitted newline), `9 record: bytes` (length-prefixed, as #3622 encodes it: one transcript record without its newline. It must be UTF-8 without NUL, else `bad_utf8`; contain no newline, else `bad_value`; and be 1 byte to 1 MiB long, else `bad_value`, so an empty record is refused. Its length is `end − start − 1`). Any violated bound is `bad_value`; no path, home, uid or executable crosses this event. The transcript frames stay in the manifest under these bounds; an expectation of `bad_utf8` on valid UTF-8 is a fixture bug.
 3. **One rule for reserved variants:** a reserved union variant is refused with `bad_value` (a forbidden variant) whatever its body, before the body is decoded. Event variant 6 follows it (variant 5 is defined, ruling 2); document `msg` bytes keep their own §documents rule until T-COL-08b defines them.
 4. **Sequences that span connections** name each connection: every sequence step carries `conn` (`a`, `b`, …; default `a`). `seq_newer_boot` is: `a` completes its handshake; `b` (newer boot, same machine) completes its handshake and is accepted; `a` receives `Goodbye{superseded}`; a third connection `c` presenting the older boot's credential receives `auth_failed`.
+
+5. **Named bounds** the contract had left silent (8a, 2026-10-07):
+   - an object-stream `data` frame with a non-zero fd, and an `exit` with a form other than 0 (code) or 1 (signal): `bad_value`;
+   - a `signal` or `exit` message on an object stream: `bad_value` (a forbidden variant for that stream kind);
+   - an unknown `msg` byte on a session or object stream: `unknown_message`, in both codecs;
+   - a session `window` grant of 0 or above 262,144 bytes: `bad_value` (credit is 1..=262,144 per grant, and a side's outstanding credit never exceeds 262,144).
 
 ### Compared text batches (connection protocol 6, 2026-10-07)
 
@@ -535,11 +541,6 @@ retains it and reports `raced`, even when the requested file is also empty.
 Creating an empty file is an attributed mutation. This is a disk-only migration;
 the connection protocol remains 6. Delete/move support and the public mutation
 provider still require their own implementation and installed qualification.
-5. **Named bounds** the contract had left silent (8a, 2026-10-07):
-   - an object-stream `data` frame with a non-zero fd, and an `exit` with a form other than 0 (code) or 1 (signal): `bad_value`;
-   - a `signal` or `exit` message on an object stream: `bad_value` (a forbidden variant for that stream kind);
-   - an unknown `msg` byte on a session or object stream: `unknown_message`, in both codecs;
-   - a session `window` grant of 0 or above 262,144 bytes: `bad_value` (credit is 1..=262,144 per grant, and a side's outstanding credit never exceeds 262,144).
 
 
 ### Delete and move batches (connection protocol 7, disk record 4, 2026-10-07)
