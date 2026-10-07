@@ -4970,7 +4970,7 @@ func appliedByMaintainer(applied gitHubLabelApplication, label string) bool {
 // made its issue a TODO and asked for automerge, and the review of its pull
 // request's head.
 type mythicalChecks struct {
-	Seed *branchSeed `json:"seed,omitempty"`
+	Seed                  *branchSeed                        `json:"seed,omitempty"`
 	MissingTool           *flowdispatch.CertifiedMissingTool `json:"missing_tool,omitempty"`
 	PlanReceipt           *todoRequestReceipt                `json:"planReceipt,omitempty"`
 	RouteReceipt          *todoRequestReceipt                `json:"routeReceipt,omitempty"`
