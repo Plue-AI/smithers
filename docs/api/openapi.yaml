@@ -938,44 +938,6 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
-  /api/agent/turn/cancel:
-    post:
-      summary: POST /api/agent/turn/cancel
-      operationId: post_api_agent_turn_cancel
-      tags:
-        - Agent
-      parameters: []
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AnyJSON'
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
   /api/agent/turn/erase:
     post:
       summary: POST /api/agent/turn/erase
@@ -1014,44 +976,6 @@ paths:
     post:
       summary: POST /api/agent/turn/replay
       operationId: post_api_agent_turn_replay
-      tags:
-        - Agent
-      parameters: []
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AnyJSON'
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /api/agent/turn/retire:
-    post:
-      summary: POST /api/agent/turn/retire
-      operationId: post_api_agent_turn_retire
       tags:
         - Agent
       parameters: []
@@ -1647,331 +1571,6 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}
-  /api/app-timelines/{id}/members/{userId}:
-    delete:
-      summary: DELETE /api/app-timelines/{id}/members/{userId}
-      operationId: delete_api_app_timelines_id_members_user_d
-      tags:
-        - App Timelines
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: userId
-          in: path
-          required: true
-          schema:
-            type: string
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /api/app-timelines/{id}:
-    get:
-      summary: GET /api/app-timelines/{id}
-      operationId: get_api_app_timelines_id
-      tags:
-        - App Timelines
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /api/app-timelines/{id}/members:
-    get:
-      summary: GET /api/app-timelines/{id}/members
-      operationId: get_api_app_timelines_id_members
-      tags:
-        - App Timelines
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
-    post:
-      summary: POST /api/app-timelines/{id}/members
-      operationId: post_api_app_timelines_id_members
-      tags:
-        - App Timelines
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AnyJSON'
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /api/app-timelines:
-    post:
-      summary: POST /api/app-timelines
-      operationId: post_api_app_timelines
-      tags:
-        - App Timelines
-      parameters: []
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AnyJSON'
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /api/app-timelines/{id}/events:
-    post:
-      summary: POST /api/app-timelines/{id}/events
-      operationId: post_api_app_timelines_id_events
-      tags:
-        - App Timelines
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AnyJSON'
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /api/app-timelines/{id}/snapshots:
-    put:
-      summary: PUT /api/app-timelines/{id}/snapshots
-      operationId: put_api_app_timelines_id_snapshots
-      tags:
-        - App Timelines
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AnyJSON'
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /api/app-timelines/{id}/state:
-    put:
-      summary: PUT /api/app-timelines/{id}/state
-      operationId: put_api_app_timelines_id_state
-      tags:
-        - App Timelines
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AnyJSON'
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
   /api/auth/auth0/authorize:
     get:
       summary: GET /api/auth/auth0/authorize
@@ -2938,6 +2537,52 @@ paths:
           description: File or branch not found
         '503':
           description: Source or authority unavailable
+    post:
+      x-composition: install
+      summary: Restore a file version
+      operationId: post_api_branch_file
+      tags:
+        - Branches
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: b
+          in: path
+          required: true
+          schema: {type: string}
+        - name: path
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [action, version, base_digest]
+              properties:
+                action: {type: string, enum: [restore, restore-deleted]}
+                version: {type: string}
+                base_digest: {type: string}
+      responses:
+        '200':
+          description: Restored file
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        '400':
+          description: Invalid restore request
+        '401':
+          description: Not signed in
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404':
+          description: File or branch not found
+        '409':
+          description: File changed since this version
+        '503':
+          description: Restore unavailable
   /api/branches/{b}/files:
     get:
       x-composition: install
@@ -2975,6 +2620,43 @@ paths:
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/ssh:
+    get:
+      x-composition: install
+      summary: Read branch SSH connection
+      operationId: get_api_ssh
+      tags:
+        - Branches
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      parameters:
+        - name: branch
+          in: query
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Branch connection
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [branch, host, port, value]
+                properties:
+                  branch: {type: string}
+                  host: {type: string}
+                  port: {type: integer}
+                  value: {type: string}
+        '400':
+          description: Invalid branch
+        '401':
+          description: Not signed in
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404':
+          description: Branch not found
+        '503':
+          description: Branch unavailable
   /api/build-cache/healthz:
     get:
       summary: GET /api/build-cache/healthz
@@ -17795,6 +17477,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/repos/{owner}/{repo}/landings/{number}/land:
     put:
+      x-composition: plue
       summary: PUT /api/repos/{owner}/{repo}/landings/{number}/land
       operationId: put_api_repos_owner_repo_landings_number_land
       tags:
@@ -20188,6 +19871,33 @@ paths:
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: Review runtime unavailable; no launch
+  /api/reviews/{id}:
+    get:
+      x-composition: install
+      summary: Read review status
+      operationId: get_api_reviews_id
+      tags:
+        - Reviews
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Review status
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        '401':
+          description: Not signed in
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404':
+          description: Review not found
+        '503':
+          description: Review unavailable
   /api/search/code:
     get:
       summary: GET /api/search/code

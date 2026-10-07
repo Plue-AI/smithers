@@ -635,6 +635,16 @@ func TestCutBackendHTTPPostgres(t *testing.T) {
 					want = tc.plue
 				}
 				require.Equal(t, want, rec.Code, "%s %s: %s", tc.method, tc.path, rec.Body.String())
+				if want == http.StatusNotFound {
+					for _, credential := range []string{"", "token invalid"} {
+						request := httptest.NewRequest(tc.method, config.PublicOrigin(cfg)+tc.path, strings.NewReader(`{}`))
+						request.Header.Set("Authorization", credential)
+						request.Header.Set("Content-Type", "application/json")
+						response := httptest.NewRecorder()
+						router.ServeHTTP(response, request)
+						require.Equal(t, http.StatusNotFound, response.Code, "%s %s with %q: %s", tc.method, tc.path, credential, response.Body.String())
+					}
+				}
 				if tc.path == "/api/health" {
 					require.Equal(t, "ok", rec.Body.String())
 				}

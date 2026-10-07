@@ -244,6 +244,52 @@ paths:
           description: File or branch not found
         '503':
           description: Source or authority unavailable
+    post:
+      x-composition: install
+      summary: Restore a file version
+      operationId: post_api_branch_file
+      tags:
+        - Branches
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: b
+          in: path
+          required: true
+          schema: {type: string}
+        - name: path
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [action, version, base_digest]
+              properties:
+                action: {type: string, enum: [restore, restore-deleted]}
+                version: {type: string}
+                base_digest: {type: string}
+      responses:
+        '200':
+          description: Restored file
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        '400':
+          description: Invalid restore request
+        '401':
+          description: Not signed in
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404':
+          description: File or branch not found
+        '409':
+          description: File changed since this version
+        '503':
+          description: Restore unavailable
   /api/branches/{b}/files:
     get:
       x-composition: install
@@ -281,6 +327,43 @@ paths:
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/ssh:
+    get:
+      x-composition: install
+      summary: Read branch SSH connection
+      operationId: get_api_ssh
+      tags:
+        - Branches
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      parameters:
+        - name: branch
+          in: query
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Branch connection
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [branch, host, port, value]
+                properties:
+                  branch: {type: string}
+                  host: {type: string}
+                  port: {type: integer}
+                  value: {type: string}
+        '400':
+          description: Invalid branch
+        '401':
+          description: Not signed in
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404':
+          description: Branch not found
+        '503':
+          description: Branch unavailable
 components:
   schemas:
     Branch:

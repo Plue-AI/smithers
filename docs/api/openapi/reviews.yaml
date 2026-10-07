@@ -43,3 +43,30 @@ paths:
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: Review runtime unavailable; no launch
+  /api/reviews/{id}:
+    get:
+      x-composition: install
+      summary: Read review status
+      operationId: get_api_reviews_id
+      tags:
+        - Reviews
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Review status
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        '401':
+          description: Not signed in
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404':
+          description: Review not found
+        '503':
+          description: Review unavailable
