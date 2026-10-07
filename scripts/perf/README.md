@@ -246,3 +246,36 @@ it never resubscribes to turn missing delivery into a passing sample. Metadata
 snapshots may retain the current source cursor; a snapshot advancing it fails.
 The runner writes raw samples through the existing artifact writer. A Linux
 run cannot qualify the reference-host check.
+
+`node scripts/perf/warm-wake.mjs` is the C-PERF-05 reference-Mac workload.
+It opens 100 terminals through `POST /api/terminals`, observes an `awake`
+Branch delta, closes each session through the retained session-destroy route,
+and waits for `asleep` before the next sample. Set `SMITHERS_PERF_ORIGIN`,
+`SMITHERS_PERF_BRANCH` (the Branch topic ID), `SMITHERS_PERF_REPOSITORY`
+(`owner/repo`), `SMITHERS_PERF_OWNER_COOKIE` (including `__csrf`), and
+`SMITHERS_PERF_INSTALL_VERSION`. The selected TODO must be in review, with a
+previously booted and finally captured machine, no other work, and spare
+capacity. `SMITHERS_PERF_SLEEP_SECONDS` records the configured idle policy
+(default 120); it does not alter the install. The driver never discards cold,
+failed, recovered-stream or mismatched-head samples.
+
+`SMITHERS_PERF_HOST_WAKE_LOG` must identify a local JSONL export from the
+install's host observer. Each complete record has `requestId` (the submitted
+`X-Request-ID`), `branch`, `bootId`, `kind: "warm"`, `failed: false`,
+`acceptedNs` and `awakeWrittenNs` (decimal strings from the same host monotonic
+clock), and `workingHead` (independently observed in the machine after wake).
+Acceptance must be measured before admission. The driver matches records by
+request, rejects duplicate or cross-boot evidence and verifies the working head
+against the preceding final capture. It reports nearest-rank host and client
+p95 separately, and requires host p95 strictly below 5000 ms. Raw observations,
+host sizing, commit, version, sleep policy and failures are written through the
+shared artifact writer to both performance and C-PERF-05 check directories.
+Credentials are excluded. Failed runs attempt to close their last terminal;
+an unsuccessful cleanup records the remaining session ID.
+
+This driver is not a passing receipt. The current S2 terminal route refuses
+startup, its successful session-ID response still needs integration with
+T-TRM-01, and the acceptance/state-write host observer export is not yet
+implemented. Those must be supplied before a reference-host run can pass;
+a client stopwatch or wake histogram cannot substitute for the host log.
+Run offline validation with `node --test scripts/perf/warm-wake.test.mjs`.
