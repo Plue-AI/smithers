@@ -16,6 +16,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
@@ -89,6 +90,15 @@ func (s *MythicalService) AuthorizeFlowSteer(ctx context.Context, request flowdi
 		if matched < 0 {
 			return refused
 		}
+		if checks.Steers[matched].GitHubAuthor == 0 {
+			active, err := currentTodoSteerCredential(ctx, tx, checks.Steers[matched])
+			if err != nil {
+				return mythicalFlowFailure{code: "steer_authorization_unavailable", retryable: true}
+			}
+			if !active {
+				return mythicalFlowFailure{code: "steer_author_revoked"}
+			}
+		}
 		stack, err := q.GetMythicalStack(ctx, item.RepositoryID)
 		if err != nil {
 			return mythicalFlowFailure{code: "steer_authorization_unavailable", retryable: true}
@@ -146,6 +156,49 @@ func (s *MythicalService) AuthorizeFlowSteer(ctx context.Context, request flowdi
 		return mythicalFlowFailure{code: "steer_authorization_unavailable", retryable: true}
 	}
 	return err
+}
+
+// Resolve the admitting credential again, rather than treating continued
+// membership as permission to use a revoked session or delegated token.
+// Credential is the existing durable replay identity, not caller attribution.
+func currentTodoSteerCredential(ctx context.Context, tx pgx.Tx, feedback todoSteer) (bool, error) {
+	credential := middleware.Credential{SessionHash: feedback.Credential}
+	if len(feedback.Credential) > 0 && feedback.Credential[0] == '[' {
+		var identity []json.RawMessage
+		var kind string
+		var token, actor int64
+		if json.Unmarshal([]byte(feedback.Credential), &identity) != nil || len(identity) < 3 ||
+			json.Unmarshal(identity[0], &kind) != nil || kind != "delegated" ||
+			json.Unmarshal(identity[1], &token) != nil || token <= 0 ||
+			json.Unmarshal(identity[2], &actor) != nil || actor != feedback.Author {
+			return false, nil
+		}
+		credential = middleware.Credential{}
+		if err := tx.QueryRow(ctx, `SELECT token_hash FROM access_tokens WHERE id=$1 FOR SHARE`, token).Scan(&credential.TokenHash); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return false, nil
+			}
+			return false, err
+		}
+	} else if _, err := tx.Exec(ctx, `SELECT 1 FROM auth_sessions WHERE session_key=$1 FOR SHARE`, feedback.Credential); err != nil {
+		return false, err
+	}
+	fresh, err := middleware.ReloadCredential(ctx, db.New(tx), credential, time.Now())
+	if errors.Is(err, middleware.ErrCredentialGone) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !middleware.BindInstallCredential(fresh) || fresh.User.ID != feedback.Author {
+		return false, nil
+	}
+	identity, err := todoRequestCredential(middleware.ContextWithAuthInfo(ctx, fresh), feedback.Author)
+	if err != nil || identity != feedback.Credential {
+		return false, nil
+	}
+	role, err := InstallRoleOf(ctx, db.New(tx), feedback.Author)
+	return role != "", err
 }
 
 // todoSteerReady reads lifecycle facts, not the card's state: an open question
