@@ -16,7 +16,9 @@ reaches it only through `msb exec`. It holds no credentials. Subcommands:
   bridge PORT HOST
                   listen on guest 127.0.0.1:PORT and forward to HOST:PORT
   setup USER UID  create the workspace user and adapter directories
-  put-env         atomically replace the literal tmpfs team environment
+  put-env         atomically replace the literal tmpfs team environment and
+                  the declared secret files in each home and under
+                  /run/smithers/files; the request is {"env":{},"files":{}}
   coding-binding  atomically install the fixed root-owned source binding
   coding-helper DIGEST
                   atomically install the packaged Linux arm64 helper; the
@@ -60,6 +62,17 @@ EXIT_TRAILER = b"\x00SMITHERS-EXIT %d\x00"
 ENV_FILE = "/opt/smithers/env.json"
 SECRET_ENV_DIR = "/run/smithers"
 SECRET_ENV_LIMIT = 1 << 20
+# Declared secret files (spec 8.8.1a): `~/...` in each home, written as that
+# home's user, or under SECRET_FILES_ROOT as root:team. SECRET_FILES_MANIFEST
+# (root-only, on the machine's disk like the homes) records the delivered
+# paths, so a secret removed while the machine slept loses its files too.
+SECRET_FILES_ROOT = "/run/smithers/files"
+SECRET_FILES_STATE = ("var", "lib", "smithers")
+SECRET_FILES_MANIFEST = "secret-files.json"
+SECRET_FILES_MAX = 100
+SECRET_FILE_LIMIT = 64 * 1024
+SECRET_PATH_LIMIT = 512
+SECRET_PATH_PARTS = 16
 REQUEST_DIR = "/run/smithers/requests"
 # A signed-in terminal's delegated credential: SESSION_TOKEN_DIR/<session>/token
 # (T-TRM-02, spec section 5.3.2), owned by the guest's single user, mode 0600.
@@ -114,8 +127,7 @@ def base_environment():
         return {"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
 
 
-def secret_environment(body):
-    """Bounded literal JSON, never shell input; also used by the session loader."""
+def unique_secret_json(body):
     def unique(pairs):
         result = {}
         for name, value in pairs:
@@ -126,15 +138,56 @@ def secret_environment(body):
     if len(body) > SECRET_ENV_LIMIT:
         fail(3, "secret environment exceeds limit")
     try:
-        loaded = json.loads(body, object_pairs_hook=unique)
+        return json.loads(body, object_pairs_hook=unique)
     except (ValueError, UnicodeError):
         fail(3, "invalid secret environment JSON")
+
+
+def valid_secret_environment(loaded):
     if not isinstance(loaded, dict) or len(loaded) > 1000:
         fail(3, "invalid secret environment")
     for name, value in loaded.items():
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) or not isinstance(value, str) or "\x00" in value:
             fail(3, "invalid secret environment entry")
     return loaded
+
+
+def secret_environment(body):
+    """Bounded literal JSON, never shell input; also used by the session loader."""
+    return valid_secret_environment(unique_secret_json(body))
+
+
+def secret_path(path):
+    """A declared secret file path as ("home"|"files", parts); the host's
+    NormalizeSecretPath grammar, checked again before any filesystem work."""
+    if not isinstance(path, str) or not 0 < len(path) <= SECRET_PATH_LIMIT:
+        fail(3, "invalid secret file path")
+    if path.startswith("~/"):
+        kind, relative = "home", path[2:]
+    elif path.startswith(SECRET_FILES_ROOT + "/"):
+        kind, relative = "files", path[len(SECRET_FILES_ROOT) + 1:]
+    else:
+        fail(3, "invalid secret file path")
+    parts = relative.split("/")
+    if len(parts) > SECRET_PATH_PARTS or any(
+            part in ("", ".", "..") or not re.fullmatch(r"[A-Za-z0-9._@+=-]{1,255}", part) for part in parts):
+        fail(3, "invalid secret file path")
+    return kind, parts
+
+
+def secret_delivery(body):
+    """put-env's literal request: the team environment and declared files."""
+    loaded = unique_secret_json(body)
+    if not isinstance(loaded, dict) or set(loaded) != {"env", "files"}:
+        fail(3, "invalid secret delivery")
+    files = loaded["files"]
+    if not isinstance(files, dict) or len(files) > SECRET_FILES_MAX:
+        fail(3, "invalid secret files")
+    for path, value in files.items():
+        secret_path(path)
+        if not isinstance(value, str) or len(value.encode("utf-8")) > SECRET_FILE_LIMIT:
+            fail(3, "invalid secret file")
+    return valid_secret_environment(loaded["env"]), files
 
 
 def require_secret_tmpfs(fd):
@@ -156,10 +209,18 @@ def secret_team():
 
 
 def put_secret_environment(body):
-    """The only env writer, dormant until an authenticated installed caller exists."""
+    """The only env and secret-file writer, dormant until an authenticated
+    installed caller exists."""
     if os.geteuid() != 0:
         fail(3, "secret environment writer requires broker")
-    secret_environment(body)  # validate all data before privileged filesystem work
+    environment, files = secret_delivery(body)  # validate all data before privileged filesystem work
+    write_secret_environment(json.dumps(environment, sort_keys=True, separators=(",", ":")).encode("ascii"))
+    refused = deliver_secret_files(files)
+    if refused:
+        print(json.dumps({"refused": refused}, sort_keys=True))
+
+
+def write_secret_environment(body):
     gid = secret_team()
     run = safe_directory("/run", trusted=True, create=False)
     try:
@@ -191,6 +252,231 @@ def put_secret_environment(body):
     finally:
         if created:
             os.unlink(temporary, dir_fd=parent)
+        os.close(parent)
+
+
+def secret_homes():
+    """Each existing home a declared `~/...` file reaches: the agent's and
+    every provisioned member's. A home is never created here."""
+    try:
+        parent = safe_directory("/home", trusted=True, create=False)
+    except FileNotFoundError:
+        return []
+    try:
+        homes = []
+        for name in sorted(os.listdir(parent)):
+            if not re.fullmatch(r"[a-z0-9_-]{1,32}", name) or name in ("root", "machined"):
+                continue
+            try:
+                entry = pwd.getpwnam(name)
+            except KeyError:
+                continue
+            if entry.pw_dir != "/home/" + name or not (entry.pw_uid == 19999 if name == "agent" else entry.pw_uid >= 20000):
+                continue
+            info = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            if stat.S_ISDIR(info.st_mode) and info.st_uid == entry.pw_uid:
+                homes.append(entry)
+        return homes
+    finally:
+        os.close(parent)
+
+
+def secret_file_parent(root, parts, create, mode, owner=None):
+    """Walk parts from root one directory at a time, never following a
+    symlink (O_NOFOLLOW on every component). Missing directories are created
+    only when asked, with mode (and owner, for root's tree)."""
+    fd = os.dup(root)
+    try:
+        for part in parts:
+            if create:
+                try:
+                    os.mkdir(part, mode, dir_fd=fd)
+                    if owner is not None:
+                        os.chown(part, owner[0], owner[1], dir_fd=fd, follow_symlinks=False)
+                except FileExistsError:
+                    pass
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def replace_secret_file(parent, leaf, value, mode, owner=None):
+    """Atomically replace leaf with value. Anything but a regular file at
+    leaf (a symlink, a directory, a FIFO) is refused, never followed."""
+    try:
+        info = os.stat(leaf, dir_fd=parent, follow_symlinks=False)
+    except FileNotFoundError:
+        pass
+    else:
+        if not stat.S_ISREG(info.st_mode):
+            fail(4, "secret file target is not a regular file")
+    temporary = ".smithers-secret-" + secrets.token_hex(16)
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            if owner is not None:
+                os.fchown(handle.fileno(), owner[0], owner[1])
+            os.fchmod(handle.fileno(), mode)
+            handle.write(value.encode("utf-8"))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, leaf, src_dir_fd=parent, dst_dir_fd=parent)
+        temporary = None
+    finally:
+        if temporary is not None:
+            os.unlink(temporary, dir_fd=parent)
+
+
+def remove_secret_file(parent, leaf):
+    try:
+        info = os.stat(leaf, dir_fd=parent, follow_symlinks=False)
+    except FileNotFoundError:
+        return
+    if stat.S_ISREG(info.st_mode):
+        os.unlink(leaf, dir_fd=parent)
+
+
+def home_secret_file(entry, parts, value):
+    """Runs in a child that has dropped to the home's user: writes (value)
+    or removes (None) one declared file. Returns the child's success."""
+    pid = os.fork()
+    if pid == 0:
+        code = 1
+        try:
+            drop_to(entry.pw_name, entry.pw_uid)
+            home = os.open(entry.pw_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                if os.fstat(home).st_uid != entry.pw_uid:
+                    fail(4, "untrusted home")
+                parent = secret_file_parent(home, parts[:-1], value is not None, 0o700)
+                try:
+                    if value is None:
+                        remove_secret_file(parent, parts[-1])
+                    else:
+                        replace_secret_file(parent, parts[-1], value, 0o600)
+                finally:
+                    os.close(parent)
+            finally:
+                os.close(home)
+            code = 0
+        except FileNotFoundError:
+            code = 0 if value is None else 1
+        except BaseException:
+            code = 1
+        finally:
+            os._exit(code)
+    _, status = os.waitpid(pid, 0)
+    return os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0
+
+
+def secret_files_directory(gid, create):
+    parent = safe_directory(SECRET_ENV_DIR, trusted=True)
+    try:
+        if create:
+            try:
+                os.mkdir("files", 0o750, dir_fd=parent)
+                os.chown("files", 0, gid, dir_fd=parent, follow_symlinks=False)
+            except FileExistsError:
+                pass
+        root = os.open("files", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+    finally:
+        os.close(parent)
+    info = os.fstat(root)
+    if info.st_uid != 0 or info.st_mode & 0o022:
+        os.close(root)
+        fail(3, "untrusted secret files directory")
+    return root
+
+
+def root_secret_file(gid, parts, value):
+    """root:team 0640 below SECRET_FILES_ROOT (directories 0750), on tmpfs."""
+    try:
+        root = secret_files_directory(gid, value is not None)
+    except FileNotFoundError:
+        return value is None
+    try:
+        require_secret_tmpfs(root)
+        parent = secret_file_parent(root, parts[:-1], value is not None, 0o750, (0, gid))
+        try:
+            if value is None:
+                remove_secret_file(parent, parts[-1])
+            else:
+                replace_secret_file(parent, parts[-1], value, 0o640, (0, gid))
+        finally:
+            os.close(parent)
+        return True
+    except FileNotFoundError:
+        return value is None
+    except (OSError, SystemExit):
+        return False
+    finally:
+        os.close(root)
+
+
+def secret_files_manifest(parent):
+    try:
+        fd = os.open(SECRET_FILES_MANIFEST, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+    except FileNotFoundError:
+        return []
+    with os.fdopen(fd, "rb") as handle:
+        info = os.fstat(handle.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1:
+            fail(3, "untrusted secret files manifest")
+        loaded = json.loads(handle.read(SECRET_ENV_LIMIT))
+    if not isinstance(loaded, list) or len(loaded) > SECRET_FILES_MAX:
+        fail(3, "invalid secret files manifest")
+    for path in loaded:
+        secret_path(path)
+    return loaded
+
+
+def save_secret_files_manifest(parent, paths):
+    temporary = ".manifest-" + secrets.token_hex(16)
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            os.fchown(handle.fileno(), 0, 0)
+            os.fchmod(handle.fileno(), 0o600)
+            handle.write(json.dumps(sorted(paths)).encode("ascii"))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, SECRET_FILES_MANIFEST, src_dir_fd=parent, dst_dir_fd=parent)
+        temporary = None
+    finally:
+        if temporary is not None:
+            os.unlink(temporary, dir_fd=parent)
+
+
+def deliver_secret_files(files):
+    """Write every declared file, delete the files of secrets no longer
+    declared, and return the refused paths (a symlink, a foreign directory)
+    without stopping the others. Values are never reported."""
+    gid = secret_team()
+    parent = protected_directory(SECRET_FILES_STATE, create=True)
+    try:
+        previous = secret_files_manifest(parent)
+        homes = secret_homes()
+        refused, kept = set(), set(files)
+        changes = [(path, value) for path, value in sorted(files.items())]
+        changes += [(path, None) for path in sorted(set(previous) - set(files))]
+        for path, value in changes:
+            kind, parts = secret_path(path)
+            targets = [None] if kind == "files" else homes
+            for entry in targets:
+                done = root_secret_file(gid, parts, value) if entry is None else home_secret_file(entry, parts, value)
+                if not done:
+                    refused.add(path if entry is None else "%s in %s" % (path, entry.pw_name))
+                    # A file that could not be deleted is retried next time.
+                    if value is None:
+                        kept.add(path)
+        save_secret_files_manifest(parent, kept)
+        os.fsync(parent)
+        return sorted(refused)
+    finally:
         os.close(parent)
 
 
@@ -2308,7 +2594,7 @@ def start_machined(digest, body):
             try:
                 info = os.stat("env", dir_fd=env_parent, follow_symlinks=False)
             except FileNotFoundError:
-                put_secret_environment(b"{}")
+                write_secret_environment(b"{}")
             else:
                 if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 20000
                         or stat.S_IMODE(info.st_mode) != 0o640 or info.st_nlink != 1):

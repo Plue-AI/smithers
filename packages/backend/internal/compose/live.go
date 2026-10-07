@@ -266,7 +266,11 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 				if hosts == nil {
 					hosts = []string{}
 				}
-				secrets = append(secrets, map[string]any{"name": row.Name, "scope": scope, "hosts": hosts, "actions": []any{}})
+				secret := map[string]any{"name": row.Name, "scope": scope, "hosts": hosts, "actions": []any{}}
+				if row.Path != "" {
+					secret["path"] = row.Path
+				}
+				secrets = append(secrets, secret)
 			}
 			return json.Marshal(map[string]any{"secrets": secrets})
 		}}, ""
@@ -452,18 +456,6 @@ func (t *liveTopics) home(ctx context.Context, repository int64, slug string) (j
 		runs, err := provider.LearningBackgroundRuns(ctx, repository)
 		if err != nil {
 			return nil, err
-		}
-		model["background_runs"] = runs
-	}
-	if provider, ok := t.todos.(interface {
-		WikiBackgroundRuns(context.Context, int64) ([]map[string]any, error)
-	}); ok {
-		runs, err := provider.WikiBackgroundRuns(ctx, repository)
-		if err != nil {
-			return nil, err
-		}
-		if existing, ok := model["background_runs"].([]map[string]any); ok {
-			runs = append(existing, runs...)
 		}
 		model["background_runs"] = runs
 	}

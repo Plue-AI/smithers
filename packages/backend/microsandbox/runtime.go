@@ -149,7 +149,11 @@ type workspace struct {
 	daemonBoot              *machined.BootAuthority
 	secretEnvironmentDigest *[32]byte
 	secretEnvironmentLink   *machined.Link
-	sessionMu               sync.Mutex // serializes sealed admission with its broker spawn
+	// relayDigest and relayEnvironment are the bound secrets' live egress
+	// relay binding and the route it gives sessions (machineEnvironment).
+	relayDigest      *[32]byte
+	relayEnvironment map[string]string
+	sessionMu        sync.Mutex // serializes sealed admission with its broker spawn
 	metadata
 	recovering bool // retained VM awaits reattachment after durable-demand reconstruction
 	booting    bool // guarded by Runtime.mu; an in-flight launcher can still create a VM
@@ -165,7 +169,7 @@ type Runtime struct {
 	machinedItem           func(context.Context, string) (machined.ItemBinding, error)
 	machinedAgentAdmission func(context.Context, string, string, func(context.Context) error) error
 	machinedHead           func(context.Context, string) (string, error)
-	secretEnvironment      func(context.Context, string) (map[string]string, error)
+	secretEnvironment      func(context.Context, string) (MachineSecrets, error)
 	memberRoster           MemberRoster
 	memberActor            MemberActor
 	machinedAgentActor     func(context.Context, string, string, string) ([]byte, error)
@@ -776,6 +780,7 @@ func (r *Runtime) prepareGuest(ctx context.Context, ws *workspace) error {
 	ws.daemonMu.Lock()
 	ws.daemonBoot = nil
 	ws.secretEnvironmentDigest = nil
+	ws.relayDigest, ws.relayEnvironment = nil, nil
 	if link, err := r.machined.Current(ws.ID); err == nil {
 		_ = link.Close()
 	}

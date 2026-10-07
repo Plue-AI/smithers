@@ -29,7 +29,7 @@ func (s secretsCovService) UpdateSecret(_ context.Context, _ *db.User, _, _, nam
 	return services.SecretResponse{Name: name, MainOnly: mainOnly != nil && *mainOnly}, nil
 }
 
-func (s secretsCovService) SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string, _ *bool, _ *services.SecretBinding) (services.SecretResponse, error) {
+func (s secretsCovService) SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string, _ *bool, _ *services.SecretBinding, _ *string) (services.SecretResponse, error) {
 	if s.setSecretFn != nil {
 		return s.setSecretFn(ctx, actor, owner, repo, name, value)
 	}

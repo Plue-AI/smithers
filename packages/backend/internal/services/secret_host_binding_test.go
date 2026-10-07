@@ -38,16 +38,16 @@ func TestWorkflowSecretHostBindingsPostgres(t *testing.T) {
 	service := NewSecretService(db.New(pool), codec)
 
 	npm := &SecretBinding{Hosts: []string{" Registry.NPMJS.org ", "registry.npmjs.org"}, MatchHeaders: []string{"Authorization"}}
-	created, err := service.SetSecret(ctx, owner, orgName, repoName, "NPM_TOKEN", "npm-1", nil, npm)
+	created, err := service.SetSecret(ctx, owner, orgName, repoName, "NPM_TOKEN", "npm-1", nil, npm, nil)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"registry.npmjs.org"}, created.Hosts, "hosts are normalised and deduplicated")
 	assert.Equal(t, []string{"authorization"}, created.MatchHeaders)
 
-	rotated, err := service.SetSecret(ctx, owner, orgName, repoName, "NPM_TOKEN", "npm-2", nil, nil)
+	rotated, err := service.SetSecret(ctx, owner, orgName, repoName, "NPM_TOKEN", "npm-2", nil, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"registry.npmjs.org"}, rotated.Hosts, "a rotation keeps the binding")
 
-	_, err = service.SetSecret(ctx, owner, orgName, repoName, "PLAIN", "plain-value", nil, nil)
+	_, err = service.SetSecret(ctx, owner, orgName, repoName, "PLAIN", "plain-value", nil, nil, nil)
 	require.NoError(t, err)
 	listed, err := service.ListSecrets(ctx, owner, orgName, repoName)
 	require.NoError(t, err)
@@ -65,7 +65,7 @@ func TestWorkflowSecretHostBindingsPostgres(t *testing.T) {
 	} {
 		_, err := service.SetSecretBinding(ctx, owner, orgName, repoName, "PLAIN", bad)
 		assert.Equal(t, http.StatusBadRequest, apiStatus(t, err), "%+v", bad)
-		_, err = service.SetSecret(ctx, owner, orgName, repoName, "PLAIN", "plain-value", nil, &bad)
+		_, err = service.SetSecret(ctx, owner, orgName, repoName, "PLAIN", "plain-value", nil, &bad, nil)
 		assert.Equal(t, http.StatusBadRequest, apiStatus(t, err), "%+v", bad)
 	}
 	// A wildcard or address range would let the proxy swap the value into
@@ -75,7 +75,7 @@ func TestWorkflowSecretHostBindingsPostgres(t *testing.T) {
 		mentions := strings.ToLower(strings.TrimSpace(host))
 		_, err := service.SetSecretBinding(ctx, owner, orgName, repoName, "PLAIN", broad)
 		assertSecretHostNotExact(t, err, mentions)
-		_, err = service.SetSecret(ctx, owner, orgName, repoName, "BROAD", "broad-value", nil, &broad)
+		_, err = service.SetSecret(ctx, owner, orgName, repoName, "BROAD", "broad-value", nil, &broad, nil)
 		assertSecretHostNotExact(t, err, mentions)
 		_, err = service.SetOrgSecret(ctx, owner, orgName, "BROAD", "broad-value", &broad)
 		assertSecretHostNotExact(t, err, mentions)
@@ -122,7 +122,7 @@ func TestWorkflowSecretHostBindingsPostgres(t *testing.T) {
 
 	// A repository secret overrides the organization's of the same name,
 	// binding and all; unbinding hands it back to the plain environment.
-	_, err = service.SetSecret(ctx, owner, orgName, repoName, "ORG_DEPLOY_KEY", "repo-deploy", nil, nil)
+	_, err = service.SetSecret(ctx, owner, orgName, repoName, "ORG_DEPLOY_KEY", "repo-deploy", nil, nil, nil)
 	require.NoError(t, err)
 	unbound, err := service.SetSecretBinding(ctx, owner, orgName, repoName, "NPM_TOKEN", SecretBinding{})
 	require.NoError(t, err)

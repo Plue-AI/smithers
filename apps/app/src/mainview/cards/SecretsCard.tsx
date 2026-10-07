@@ -12,6 +12,12 @@ import { secretsReadAvailable, secretsWriteAvailable } from "../state/seams/Secr
 
 type StoredSecrets = Extract<Card, { kind: "secrets" }>
 
+/* Model keys stay on the host: a known key name is bound to its provider (§8.8.1b). */
+const providerBindings: Readonly<Record<string, { readonly hosts: string; readonly headers: string }>> = {
+  ANTHROPIC_API_KEY: { hosts: "api.anthropic.com", headers: "x-api-key" },
+  OPENAI_API_KEY: { hosts: "api.openai.com", headers: "authorization" }
+}
+
 export const SecretsCardBody = ({ card, dispatch, role = "member", View = SecretsView, confirm = message => window.confirm(message) }: {
   readonly card: StoredSecrets
   readonly dispatch: CardCommandDispatch
@@ -25,13 +31,17 @@ export const SecretsCardBody = ({ card, dispatch, role = "member", View = Secret
       input: [{ name: "name", label: "NAME", kind: "text", required: true },
         { name: "value", label: "Value", kind: "secret", required: true },
         { name: "scope", label: "Scope", kind: "choice", choices: ["all_branches", "main_only"], required: true },
-        { name: "hosts", label: "Hosts", kind: "text", required: false }],
-      resolve_input: input => ({ name: input.name ?? "", value: input.value ?? "", scope: input.scope === "main_only" ? "main_only" : "all_branches", hosts: input.hosts }) })
+        { name: "hosts", label: "Hosts", kind: "text", required: false },
+        { name: "path", label: "Path", kind: "text", required: false }],
+      resolve_input: input => ({ name: input.name ?? "", value: input.value ?? "", scope: input.scope === "main_only" ? "main_only" : "all_branches", hosts: input.hosts, ...(input.path ? { path: input.path } : {}) }) })
     for (const secret of card.payload.secrets) {
       definitions.push({ tag: "secrets.set", label: "Replace", args: { name: secret.name }, command_input: { name: secret.name, value: "" },
         input: [{ name: "value", label: "Value", kind: "secret", required: true },
-          { name: "hosts", label: "Hosts", kind: "text", required: false }],
-        resolve_input: input => ({ name: secret.name, value: input.value ?? "", ...(input.hosts ? { hosts: input.hosts } : {}) }) },
+          { name: "hosts", label: "Hosts", kind: "text", required: false },
+          { name: "path", label: "Path", kind: "text", required: false, ...(secret.path ? { value: secret.path } : {}) }],
+        /* The field starts at the stored path; clearing it removes the file. */
+        resolve_input: input => ({ name: secret.name, value: input.value ?? "", ...(input.hosts ? { hosts: input.hosts } : {}),
+          ...(input.path || (secret.path && input.path === "") ? { path: input.path } : {}) }) },
         { tag: "secrets.scope", label: secret.mainOnly ? "all branches" : "main only", args: { name: secret.name },
           command_input: { name: secret.name, scope: secret.mainOnly ? "all_branches" : "main_only" } },
         { tag: "secrets.delete", label: "Delete", args: { name: secret.name }, command_input: { name: secret.name } })
@@ -43,7 +53,7 @@ export const SecretsCardBody = ({ card, dispatch, role = "member", View = Secret
     return dispatch(tag, input)
   }, definitions)
   return <View model={{ secrets: card.payload.secrets.map(secret => ({ name: secret.name,
-    scope: secret.mainOnly ? "main_only" : "all_branches", hosts: secret.hosts,
+    scope: secret.mainOnly ? "main_only" : "all_branches", hosts: secret.hosts, ...(secret.path ? { path: secret.path } : {}),
     actions: bindings.actions.filter(action => action.args?.name === secret.name) })) }}
     {...bindings} actions={bindings.actions.filter(action => !action.args?.name)} view={{ maximized: false }} onView={() => {}} />
 }
@@ -59,17 +69,26 @@ const SecretsBody = ({ card }: { card: StoredSecrets }) => {
   const unavailable = install && !secretsWriteAvailable(providers)
   const projected = topic?.error || (topic?.data !== undefined && !parsed?.success) ? { ...card, payload: { ...card.payload, secrets: [] } }
     : parsed?.success ? { ...card, payload: { ...card.payload, secrets: parsed.data.secrets.map(secret => ({
-      name: secret.name, mainOnly: secret.scope === "main_only", hosts: secret.hosts ?? [], matchHeaders: [], updatedAt: null
+      name: secret.name, mainOnly: secret.scope === "main_only", hosts: secret.hosts ?? [], matchHeaders: [], updatedAt: null,
+      ...(secret.path ? { path: secret.path } : {})
     })) } } : card
   const role = install ? providers?.authority?.() ?? "member" : controller.membersRole()
   return <SecretsCardBody card={projected} View={install ? providers?.View : SecretsView} role={unavailable ? "member" : role} dispatch={(name, input) => {
     const payload: Record<string, unknown> = { ...(input ?? {}), repo: card.payload.repo || undefined }
     if (name === "secrets.scope") payload.scope = payload.scope === "main_only" ? "main-only" : "all"
     const gesture = name === "secrets.set" ? writeOnlyGesture(name, { value: String(payload.value ?? "") }) : undefined
-    if (payload.hosts) payload.headers = "authorization"
+    Object.assign(payload, secretsBinding(name, payload))
     delete payload.value
     return controller.commands.submit({ name, payload, actor: "user", gesture })
   }} />
+}
+
+/** A save's hosts and headers: a known model key defaults to its provider; other hosts send Authorization. */
+export const secretsBinding = (tag: string, payload: Readonly<Record<string, unknown>>): Record<string, string> => {
+  if (tag !== "secrets.set") return {}
+  const known = providerBindings[String(payload.name ?? "")]
+  const hosts = typeof payload.hosts === "string" && payload.hosts.trim() !== "" ? payload.hosts : known?.hosts
+  return hosts ? { hosts, headers: known?.headers ?? "authorization" } : {}
 }
 
 export const secretsCardFamily: CardFamily<"secrets"> = {

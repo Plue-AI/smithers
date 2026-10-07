@@ -30,7 +30,7 @@ func TestUpdateSecretChangesScopeAndBindingTogetherPostgres(t *testing.T) {
 	require.NoError(t, err)
 	service := NewSecretService(db.New(pool), codec)
 	npm := &SecretBinding{Hosts: []string{"registry.npmjs.org"}, MatchHeaders: []string{"authorization"}}
-	_, err = service.SetSecret(ctx, owner, owner.Username, repoName, "NPM_TOKEN", "npm-1", nil, npm)
+	_, err = service.SetSecret(ctx, owner, owner.Username, repoName, "NPM_TOKEN", "npm-1", nil, npm, nil)
 	require.NoError(t, err)
 
 	yes := true
@@ -59,7 +59,7 @@ func TestUpdateSecretChangesScopeAndBindingTogetherPostgres(t *testing.T) {
 	} {
 		_, err := service.UpdateSecret(ctx, owner, owner.Username, repoName, "NPM_TOKEN", nil, &blank)
 		assert.Equal(t, http.StatusBadRequest, apiStatus(t, err), "%+v", blank)
-		_, err = service.SetSecret(ctx, owner, owner.Username, repoName, "NPM_TOKEN", "npm-2", nil, &blank)
+		_, err = service.SetSecret(ctx, owner, owner.Username, repoName, "NPM_TOKEN", "npm-2", nil, &blank, nil)
 		assert.Equal(t, http.StatusBadRequest, apiStatus(t, err), "%+v", blank)
 	}
 	_, err = service.UpdateSecret(ctx, owner, owner.Username, repoName, "NPM_TOKEN", nil, nil)

@@ -52,9 +52,9 @@ func TestLocalChatComposedModelTurn(t *testing.T) {
 	receivedKey := make(chan string, 1)
 	provider := localChatProvider(receivedKey)
 	defer provider.Close()
-	_, err := secretService.SetSecret(ctx, local.actor, "chatowner", "chatrepo", "TEST_PROVIDER", providerKey, nil, nil)
+	_, err := secretService.SetSecret(ctx, local.actor, "chatowner", "chatrepo", "TEST_PROVIDER", providerKey, nil, nil, nil)
 	require.NoError(t, err)
-	_, err = secretService.SetSecret(ctx, local.actor, "chatowner", "chatrepo", "TEST_PROVIDER_ORIGIN", provider.URL, nil, nil)
+	_, err = secretService.SetSecret(ctx, local.actor, "chatowner", "chatrepo", "TEST_PROVIDER_ORIGIN", provider.URL, nil, nil, nil)
 	require.NoError(t, err)
 	foreignRequest, err := json.Marshal(map[string]any{"repositoryId": repoID, "model": map[string]string{
 		"protocol": "openai-chat", "modelId": "test-model", "credential": "TEST_PROVIDER", "baseUrl": provider.URL,

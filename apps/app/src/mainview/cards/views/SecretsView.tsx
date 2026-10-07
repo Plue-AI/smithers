@@ -43,7 +43,7 @@ export function SecretsView({ model, actions, onAction }: SecretsViewProps) {
     <h2>Secrets</h2>
     <ul className="secrets-list">
       {model.secrets.map(secret => <li key={secret.name}>
-        <div className="secret-row"><KeyRound size={14} aria-hidden="true" /><code>{secret.name}</code><span className="secret-scope">{scopeWords[secret.scope]}</span>{secret.hosts?.length ? <span>{secret.hosts.join(", ")}</span> : null}</div>
+        <div className="secret-row"><KeyRound size={14} aria-hidden="true" /><code>{secret.name}</code><span className="secret-scope">{scopeWords[secret.scope]}</span>{secret.hosts?.length ? <span>{secret.hosts.join(", ")}</span> : null}{secret.path ? <code className="secret-path">{secret.path}</code> : null}</div>
         <div className="secret-actions">{secret.actions.map((action, index) => control(action, index, true))}</div>
       </li>)}
     </ul>

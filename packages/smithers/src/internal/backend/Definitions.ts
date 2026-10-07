@@ -1025,6 +1025,7 @@ export const definitions = {
       "header": z.array(z.string()).describe("Request header the value goes in (repeatable, with --host)").default([]),
       "host": z.array(z.string()).describe("Host the secret may be sent to (repeatable, with --header)").default([]),
       "main-only": z.boolean().describe("Only trusted runs on the default bookmark receive it").default(false),
+      "path": z.string().describe("Also write it as a file on every branch machine: ~/... or /run/smithers/files/...; empty removes it").optional(),
       "repo": z.string().describe("Repository (OWNER/REPO)").optional()
     })
   },

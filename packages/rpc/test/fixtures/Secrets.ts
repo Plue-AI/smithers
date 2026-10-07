@@ -47,6 +47,11 @@ export const fixtures = {
     { actions: [add], expect: ["NPM_TOKEN", "RELEASE_TOKEN"] }
   ),
   disabled: story("Secret change unavailable", { secrets: [{ name: "DEPLOY_TOKEN", scope: "main_only", actions: [{ tag: "secrets.delete", label: "Delete", args: { name: "DEPLOY_TOKEN" }, disabled: { reason: "Change pending" } }] }] }, { expect: ["DEPLOY_TOKEN", "Change pending"] }),
+  file_path: story(
+    "A model key delivered as a file",
+    { secrets: [{ ...secret("ANTHROPIC_API_KEY", "all_branches", ["api.anthropic.com"]), path: "~/.config/anthropic/key" }] },
+    { actions: [add], expect: ["ANTHROPIC_API_KEY", "~/.config/anthropic/key"] }
+  ),
   long_name: story("Long secret name", { secrets: [secret("PRODUCTION_RELEASE_REGISTRY_AUTHENTICATION_TOKEN", "all_branches")] }, { actions: [add], expect: ["PRODUCTION_RELEASE_REGISTRY_AUTHENTICATION_TOKEN"] }),
   member_view: story(
     "Secret names as a member sees them",

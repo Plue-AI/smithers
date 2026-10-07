@@ -48,7 +48,7 @@ func TestNixCIStreamEncryptedMultilineSecretsReachOnlyRedactedReplay(t *testing.
 					return logs
 				}
 				secret := "fixture-private-key-first-line" + newline.value + "fixture-private-key-second-line"
-				_, err = NewSecretService(q, codec, WithSecretOwnershipGuard(NewRepoOwnershipFence(pool))).SetSecret(ctx, &owner, owner.Username, repository.Name, "PRIVATE_KEY", secret, nil, nil)
+				_, err = NewSecretService(q, codec, WithSecretOwnershipGuard(NewRepoOwnershipFence(pool))).SetSecret(ctx, &owner, owner.Username, repository.Name, "PRIVATE_KEY", secret, nil, nil, nil)
 				require.NoError(t, err)
 				encrypted, err := q.GetSecretValueByName(ctx, db.GetSecretValueByNameParams{RepositoryID: repositoryID, Name: "PRIVATE_KEY"})
 				require.NoError(t, err)

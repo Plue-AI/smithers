@@ -96,6 +96,9 @@ func (r *Runtime) EnsureMember(ctx context.Context, workspaceID string, member M
 	if err := r.prepareMembers(ctx, ws, &member); err != nil {
 		return SessionIdentity{}, err
 	}
+	// The member's home may be new: the next sync writes its declared secret
+	// files before the session is admitted (EnsureMachined).
+	ws.forgetSecretDelivery()
 	return identity, nil
 }
 

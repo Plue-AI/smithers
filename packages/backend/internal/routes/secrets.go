@@ -11,7 +11,7 @@ import (
 )
 
 type SecretRouteService interface {
-	SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string, mainOnly *bool, binding *services.SecretBinding) (services.SecretResponse, error)
+	SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string, mainOnly *bool, binding *services.SecretBinding, path *string) (services.SecretResponse, error)
 	UpdateSecret(ctx context.Context, actor *db.User, owner, repo, name string, mainOnly *bool, binding *services.SecretBinding) (services.SecretResponse, error)
 	ListSecrets(ctx context.Context, actor *db.User, owner, repo string) ([]services.SecretResponse, error)
 	DeleteSecret(ctx context.Context, actor *db.User, owner, repo, name string) error
@@ -32,6 +32,10 @@ type setSecretRequest struct {
 	// MainOnly limits the secret to trusted runs on the default bookmark;
 	// omitted keeps a replaced secret's scope.
 	MainOnly *bool `json:"main_only"`
+	// Path also delivers the secret as a file on every branch machine
+	// (services.NormalizeSecretPath); omitted keeps a replaced secret's path
+	// and "" removes it. Organization secrets have no path.
+	Path *string `json:"path"`
 	secretBindingRequest
 }
 
@@ -110,7 +114,7 @@ func (h *SecretHandler) SetSecret(w http.ResponseWriter, r *http.Request) {
 		errors.WriteError(w, apiErr)
 		return
 	}
-	secret, err := h.Service.SetSecret(r.Context(), actor, owner, repo, req.Name, req.Value, req.MainOnly, binding)
+	secret, err := h.Service.SetSecret(r.Context(), actor, owner, repo, req.Name, req.Value, req.MainOnly, binding, req.Path)
 	if err != nil {
 		writeRouteError(w, r, err)
 		return

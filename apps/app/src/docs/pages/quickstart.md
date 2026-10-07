@@ -53,6 +53,8 @@ Open `/members` and add teammates by GitHub username. They need write access or 
 
 Open the Secrets card to set the values your checks need. Choose all branches or main only for each secret. Keep credentials out of prompts, flow source and committed files.
 
+Every branch machine gets an all-branches secret as an environment variable. Set **Path** to also get it as a file, such as `~/.config/anthropic/key` in each home or a path under `/run/smithers/files/`. To give coding tools a model login without signing in on each machine, add the provider's API key, such as `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`. The card binds a known key to its provider's host, so the machine holds only a placeholder and the install sends the real key to that host. A personal ChatGPT or Claude sign-in is never copied to a machine; it stays in your own terminal.
+
 ## Connect an editor
 
 On a branch, use its SSH connection details. Replace the branch and install host below:

@@ -43,6 +43,8 @@ export interface SecretInput {
   /** Comma- or space-separated; both blank keeps an existing secret's binding. */
   readonly hosts?: string
   readonly headers?: string
+  /** A declared file path every branch machine also gets (§8.8.1a); omitted keeps a replaced secret's, "" removes it. */
+  readonly path?: string
   readonly repo?: string
 }
 
@@ -108,6 +110,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
         hosts: [...secret.hosts],
         matchHeaders: [...secret.matchHeaders],
         updatedAt: secret.updatedAt,
+        ...(secret.path ? { path: secret.path } : {}),
         ...(secret.reconnect ? { reconnect: true } : {})
       }))
     }
@@ -145,7 +148,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
       const parsed = options.providers!.decoder!.safeParse(snapshot.data)
       if (!parsed.success) return "Secrets unavailable"
       return parsed.data.secrets.map(secret => ({ name: secret.name, mainOnly: secret.scope === "main_only",
-        hosts: secret.hosts ?? [], matchHeaders: [], updatedAt: null, reconnect: false }))
+        hosts: secret.hosts ?? [], matchHeaders: [], updatedAt: null, reconnect: false, ...(secret.path ? { path: secret.path } : {}) }))
     }
     const update = () => {
       if (!secretsReadAvailable(options.providers)) return
@@ -289,7 +292,8 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
             return "Secrets unavailable"
           }
           // An omitted binding keeps a replaced secret's stored one.
-          const body = JSON.stringify({ name, value: sending, ...(input.scope ? { main_only: input.scope === "main_only" } : {}), ...(hosts.length === 0 ? {} : { hosts, match_headers: headers }) })
+          const body = JSON.stringify({ name, value: sending, ...(input.scope ? { main_only: input.scope === "main_only" } : {}), ...(hosts.length === 0 ? {} : { hosts, match_headers: headers }),
+            ...(input.path === undefined ? {} : { path: input.path.trim() }) })
           sending = undefined
           const response = await write(secretUrl(row.repo), { method: options.install ? "PUT" : "POST", headers: { "content-type": "application/json", "Idempotency-Key": row.id }, body })
           if (!current()) return TOAST_SUPERSEDED

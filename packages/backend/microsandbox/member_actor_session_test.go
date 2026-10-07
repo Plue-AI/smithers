@@ -36,7 +36,7 @@ sys.stdin.buffer.read()
 	member := MemberIdentity{"ben", 20001, true}
 	r := &Runtime{config: Config{Bundle: pinned(t, bundle)}, cli: &cli{binary: binary, home: dir}, workspaces: map[string]*workspace{"branch-a": {metadata: metadata{ID: "branch-a", Machine: "machine-a", State: "running"}}}}
 	registry := &r.machined
-	r.BindSecretEnvironment(func(context.Context, string) (map[string]string, error) { return map[string]string{}, nil })
+	r.BindSecretEnvironment(func(context.Context, string) (MachineSecrets, error) { return MachineSecrets{}, nil })
 	r.BindMachinedHost(func(context.Context, string) (string, error) { return "1111111111111111111111111111111111111111", nil })
 	stop, consumeErr := registry.ConsumeEvents(t.Context(), func(context.Context, *machined.Link, string, machined.Event) (machined.Acknowledgement, error) {
 		return machined.Acknowledgement{}, machined.ErrNotReady

@@ -102,7 +102,7 @@ func testSecretsComposed(t *testing.T, install bool) {
 		_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: who.ID, Username: who.Username, SessionKey: directKey, ExpiresAt: time.Now().Add(time.Hour)})
 		require.NoError(t, err)
 		directCtx := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &who, SessionHash: directKey})
-		_, directErr := service.SetSecret(directCtx, &who, "owner", "app", "DIRECT_KEY", "value", nil, nil)
+		_, directErr := service.SetSecret(directCtx, &who, "owner", "app", "DIRECT_KEY", "value", nil, nil, nil)
 		if who.ID == writer.ID {
 			var access *services.AccessError
 			require.ErrorAs(t, directErr, &access)
@@ -113,7 +113,7 @@ func testSecretsComposed(t *testing.T, install bool) {
 		}
 	}
 	delegatedCtx := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "write:repository,via:cli", Scopes: middleware.ScopeSet{middleware.ScopeWriteRepository: {}}})
-	_, directErr := service.SetSecret(delegatedCtx, &owner, "owner", "app", "DENIED_KEY", "value", nil, nil)
+	_, directErr := service.SetSecret(delegatedCtx, &owner, "owner", "app", "DENIED_KEY", "value", nil, nil, nil)
 	var access *services.AccessError
 	require.ErrorAs(t, directErr, &access)
 	require.Equal(t, "never", access.Code)
@@ -122,7 +122,7 @@ func testSecretsComposed(t *testing.T, install bool) {
 	require.NoError(t, err)
 	ownerHash := sha256.Sum256([]byte("direct-" + owner.Username))
 	ownerCtx := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: hex.EncodeToString(ownerHash[:])})
-	_, directErr = service.SetSecret(ownerCtx, &owner, "owner", "other", "CROSS_KEY", "value", nil, nil)
+	_, directErr = service.SetSecret(ownerCtx, &owner, "owner", "other", "CROSS_KEY", "value", nil, nil, nil)
 	require.ErrorAs(t, directErr, &access)
 	require.Equal(t, "permission", access.Code)
 	var otherSecrets int
@@ -136,10 +136,10 @@ func testSecretsComposed(t *testing.T, install bool) {
 	require.NoError(t, err)
 	boundCtx := services.WithInstallAuthorization(maintCtx, "secrets.write", boundDecision)
 	require.NoError(t, members.ChangeRole(ownerCtx, maintainer.Username, "member"))
-	_, err = service.SetSecret(boundCtx, &maintainer, "owner", "app", "BOUND_DOWNGRADE", "value", nil, nil)
+	_, err = service.SetSecret(boundCtx, &maintainer, "owner", "app", "BOUND_DOWNGRADE", "value", nil, nil, nil)
 	require.NoError(t, err)
 	require.NoError(t, service.DeleteSecret(boundCtx, &maintainer, "owner", "app", "BOUND_DOWNGRADE"))
-	_, err = service.SetSecret(maintCtx, &maintainer, "owner", "app", "FRESH_DENIED", "value", nil, nil)
+	_, err = service.SetSecret(maintCtx, &maintainer, "owner", "app", "FRESH_DENIED", "value", nil, nil, nil)
 	require.ErrorAs(t, err, &access)
 	require.Equal(t, "permission", access.Code)
 	require.NoError(t, members.ChangeRole(ownerCtx, maintainer.Username, "maintainer"))
@@ -148,7 +148,7 @@ func testSecretsComposed(t *testing.T, install bool) {
 	boundCtx = services.WithInstallAuthorization(maintCtx, "secrets.write", boundDecision)
 	_, err = pool.Exec(ctx, `DELETE FROM auth_sessions WHERE session_key=$1`, maintKey)
 	require.NoError(t, err)
-	_, err = service.SetSecret(boundCtx, &maintainer, "owner", "app", "LOGOUT_SECRET", "value", nil, nil)
+	_, err = service.SetSecret(boundCtx, &maintainer, "owner", "app", "LOGOUT_SECRET", "value", nil, nil, nil)
 	require.ErrorAs(t, err, &access)
 	require.Equal(t, 401, access.Status)
 	require.Equal(t, "unauthenticated", access.Code)

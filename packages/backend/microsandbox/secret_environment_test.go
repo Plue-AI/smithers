@@ -73,7 +73,10 @@ with open(%q,'a') as f:f.write(json.dumps([sys.argv[1:],sys.stdin.buffer.read().
 	t.Cleanup(stopEvents)
 	env := map[string]string{"SECRET": "$(touch /tmp/never) `literal`\nnext"}
 	var failure error
-	r.BindSecretEnvironment(func(context.Context, string) (map[string]string, error) { return env, failure })
+	files := map[string]string{"~/.config/tool/key": "file-literal"}
+	r.BindSecretEnvironment(func(context.Context, string) (MachineSecrets, error) {
+		return MachineSecrets{Env: env, Files: files}, failure
+	})
 	require.True(t, r.SecretEnvironmentAvailable())
 	link, _ := environmentLink(t, &r.machined)
 	require.ErrorIs(t, r.syncSecretEnvironment(t.Context(), ws, link), machined.ErrNotReady)
@@ -85,6 +88,7 @@ with open(%q,'a') as f:f.write(json.dumps([sys.argv[1:],sys.stdin.buffer.read().
 	require.NoError(t, err)
 	require.Contains(t, string(first), "put-env")
 	require.Contains(t, string(first), "literal")
+	require.Contains(t, string(first), `\"files\":{\"~/.config/tool/key\":\"file-literal\"}`)
 	require.NoError(t, r.syncSecretEnvironment(t.Context(), ws, link))
 	same, err := os.ReadFile(log)
 	require.NoError(t, err)
@@ -100,11 +104,18 @@ with open(%q,'a') as f:f.write(json.dumps([sys.argv[1:],sys.stdin.buffer.read().
 	second, err := os.ReadFile(log)
 	require.NoError(t, err)
 	require.Contains(t, string(second), "replacement")
-	env = nil
+	env, files = nil, nil
 	require.NoError(t, r.syncSecretEnvironment(t.Context(), ws, link))
 	third, err := os.ReadFile(log)
 	require.NoError(t, err)
-	require.Contains(t, string(third), `"{}"`)
+	require.Contains(t, string(third), `"{\"env\":{},\"files\":{}}"`)
+	// A new home forgets the delivery, so the next sync writes its files.
+	ws.forgetSecretDelivery()
+	require.NoError(t, r.syncSecretEnvironment(t.Context(), ws, link))
+	fourth, err := os.ReadFile(log)
+	require.NoError(t, err)
+	require.Greater(t, len(fourth), len(third))
+	third = fourth
 	r.BindMemberRoster(nil)
 	require.False(t, r.SecretEnvironmentAvailable())
 	require.ErrorIs(t, r.syncSecretEnvironment(t.Context(), ws, link), ErrUnavailable)

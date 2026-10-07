@@ -9,8 +9,8 @@ import type { CardCallbacks, CardProps } from "./CardAction.ts"
 
 /**
  * Secrets projection fields from spec §14.3 and ui-components.md v0.4 (T-UI-18): names, scope ("all branches",
- * "main only", §8.8), optional egress-bound hosts (§8.8.0) and each row's Replace and Delete. Values are
- * write-only and never part of the model.
+ * "main only", §8.8), optional egress-bound hosts (§8.8.0), an optional declared file path (§8.8.1a) and each
+ * row's Replace and Delete. Values are write-only and never part of the model.
  * @since 1.0.0
  * @category schemas
  */
@@ -20,6 +20,8 @@ export const SecretsCardSchema = z.object({
       name: z.string(),
       scope: z.enum(["all_branches", "main_only"]),
       hosts: z.array(z.string()).optional(),
+      /** The declared file path each branch machine also gets (§8.8.1a, M-42). */
+      path: z.string().optional(),
       actions: z.array(ActionSchema)
     })
   )

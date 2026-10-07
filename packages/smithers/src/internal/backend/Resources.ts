@@ -143,6 +143,7 @@ add("secret set", async (c, a, o) => {
     name: a.name,
     value,
     ...(o["main-only"] ? { main_only: true } : {}),
+    ...(typeof o.path === "string" ? { path: o.path } : {}),
     ...(list(o.host).length > 0 || list(o.header).length > 0
       ? { hosts: list(o.host), match_headers: list(o.header) }
       : {})

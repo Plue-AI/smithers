@@ -35,6 +35,7 @@ refusals={'parent-link': ('NotADirectoryError', None),
  'not-map': ('SystemExit', 'invalid secret environment'),
  'non-string': ('SystemExit', 'invalid secret environment entry'),
  'too-many': ('SystemExit', 'invalid secret environment'),
+ 'flat-env': ('SystemExit', 'invalid secret delivery'),
  'disk': ('SystemExit', 'not tmpfs'),
  'group': ('SystemExit', 'no team')}
 with tempfile.TemporaryDirectory() as root:
@@ -48,7 +49,9 @@ with tempfile.TemporaryDirectory() as root:
  os.fchown=lambda *a:None
  g.secret_team=lambda:20000
  g.require_secret_tmpfs=lambda fd:None
- body=b'{"CANARY_TOKEN":"$(touch /root/canary)\\nquote\\\"literal","PATH":"/hostile","PYTHONPATH":"/hostile","LD_PRELOAD":"/hostile"}'
+ env={"CANARY_TOKEN":"$(touch /root/canary)\nquote\"literal","PATH":"/hostile","PYTHONPATH":"/hostile","LD_PRELOAD":"/hostile"}
+ delivery=lambda env:g.json.dumps({"env":env,"files":{}}).encode()
+ body=delivery(env)
  target=parent+"/env"
  if scenario=="parent-link": os.rmdir(parent); os.symlink(root,parent)
  if scenario=="leaf-link": os.symlink(outside,target)
@@ -57,12 +60,13 @@ with tempfile.TemporaryDirectory() as root:
  if scenario=="temporary-link":
   g.secrets.token_hex=lambda n:"0"*32; os.symlink(outside,parent+"/.env-"+"0"*32)
  if scenario=="oversized": body=b"x"*(g.SECRET_ENV_LIMIT+1)
- if scenario=="nul": body=b'{"A":"\\u0000"}'
- if scenario=="duplicate": body=b'{"A":"a","A":"b"}'
- if scenario=="invalid-name": body=b'{"A=B":"x"}'
- if scenario=="not-map": body=b'[]'
- if scenario=="non-string": body=b'{"A":3}'
- if scenario=="too-many": body=g.json.dumps({"A"+str(i):"x" for i in range(1001)}).encode()
+ if scenario=="nul": body=b'{"env":{"A":"\\u0000"},"files":{}}'
+ if scenario=="duplicate": body=b'{"env":{"A":"a","A":"b"},"files":{}}'
+ if scenario=="invalid-name": body=b'{"env":{"A=B":"x"},"files":{}}'
+ if scenario=="not-map": body=b'{"env":[],"files":{}}'
+ if scenario=="non-string": body=b'{"env":{"A":3},"files":{}}'
+ if scenario=="too-many": body=delivery({"A"+str(i):"x" for i in range(1001)})
+ if scenario=="flat-env": body=b'{"CANARY_TOKEN":"x"}'
  if scenario=="disk": g.require_secret_tmpfs=lambda fd:g.fail(3,"not tmpfs")
  if scenario=="group": g.secret_team=lambda:g.fail(3,"no team")
  refused=None
@@ -76,18 +80,19 @@ with tempfile.TemporaryDirectory() as root:
   else: assert refused.errno==({"NotADirectoryError":errno.ENOTDIR,"FileExistsError":errno.EEXIST,"OSError":errno.ELOOP}[kind]),(scenario,refused)
  else:
   assert refused is None
-  assert open(target,"rb").read()==body
+  written=g.json.dumps(env,sort_keys=True,separators=(",",":")).encode()
+  assert open(target,"rb").read()==written
   assert stat.S_IMODE(real_stat(target).st_mode)==0o640
   old=open(target,"rb")
-  g.put_secret_environment(b'{"CANARY_TOKEN":"new"}')
-  assert old.read()==body; old.close()
+  g.put_secret_environment(delivery({"CANARY_TOKEN":"new"}))
+  assert old.read()==written; old.close()
   assert open(target,"rb").read()==b'{"CANARY_TOKEN":"new"}'
   assert not any(n.startswith(".env-") for n in os.listdir(parent))
   os.geteuid=lambda:19999
   os.getgroups=lambda:[20000]
   assert g.load_secret_environment()=={"CANARY_TOKEN":"new"}
 `
-	for _, scenario := range []string{"valid", "parent-link", "leaf-link", "fifo", "writable-parent", "temporary-link", "oversized", "nul", "duplicate", "invalid-name", "not-map", "non-string", "too-many", "disk", "group"} {
+	for _, scenario := range []string{"valid", "parent-link", "leaf-link", "fifo", "writable-parent", "temporary-link", "oversized", "nul", "duplicate", "invalid-name", "not-map", "non-string", "too-many", "flat-env", "disk", "group"} {
 		t.Run(scenario, func(t *testing.T) {
 			output, err := exec.Command(python, "-B", "-c", script, filepath.Join("guest", "smithers-guest.py"), scenario).CombinedOutput()
 			require.NoError(t, err, string(output))

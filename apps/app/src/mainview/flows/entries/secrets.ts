@@ -75,22 +75,24 @@ export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     requires: ["signed-in"],
     input: Schema.Struct({
       name: Schema.String, value: Schema.optional(Schema.String),
-      scope: Schema.optional(Schema.Literals(["all_branches", "main_only"])), hosts: Schema.optional(Schema.String), headers: Schema.optional(Schema.String), repo: Schema.optional(Schema.String)
+      scope: Schema.optional(Schema.Literals(["all_branches", "main_only"])), hosts: Schema.optional(Schema.String), headers: Schema.optional(Schema.String),
+      path: Schema.optional(Schema.String), repo: Schema.optional(Schema.String)
     }),
     form: {
       submitLabel: "Save",
-      args: payload => JSON.stringify(Object.fromEntries(["name", "hosts", "headers", "repo"].flatMap(key =>
+      args: payload => JSON.stringify(Object.fromEntries(["name", "hosts", "headers", "path", "repo"].flatMap(key =>
         typeof payload[key] === "string" && payload[key] !== "" ? [[key, payload[key]]] : []))),
       fields: {
         name: { label: "Name", placeholder: "API_TOKEN", kind: "text" },
         value: { label: "Value", kind: "write-only", required: true },
         hosts: { label: "Hosts", placeholder: "api.example.com", kind: "text" },
         headers: { label: "Headers", placeholder: "authorization", kind: "text" },
+        path: { label: "Path", placeholder: "~/.config/tool/key", kind: "text" },
         /* Shown so a slash-opened form names where the save goes; the card's doors fill it. */
         repo: { label: "Repository", optionsFrom: "cloud-repos", kind: "text" }
       }
     },
-    handler: ({ name, scope, hosts, headers, repo }, _signal, _call, gesture) => actions.setSecret({ name, scope, hosts, headers, repo }, gesture)
+    handler: ({ name, scope, hosts, headers, path, repo }, _signal, _call, gesture) => actions.setSecret({ name, scope, hosts, headers, path, repo }, gesture)
   }),
   flow({
     name: "secrets.delete", agent: "never", minimumRole: "maintainer", actors: ["person"], visibility: "in-card",

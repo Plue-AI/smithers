@@ -637,6 +637,47 @@ test("install /secrets reads only its live topic and acknowledges a write before
   } finally { reply.resolve(json(503, {})); await controller.dispose(); live.dispose() }
 })
 
+test("install /secrets shows a declared file path and sends a typed one with the write", async () => {
+  const { LiveChannel } = await import("../../runtime/LiveChannel")
+  const { writeOnlyGesture } = await import("../../flows/CommandGesture")
+  const live = new LiveChannel({ socket: () => {
+    const socket: import("../../runtime/LiveChannel").LiveSocket = { readyState: 1, onopen: null, onclose: null, onmessage: null, close() {}, send(raw) {
+      const frame = JSON.parse(String(raw))
+      if (frame.t === "sub" && frame.topic === "secrets") queueMicrotask(() => socket.onmessage?.({ data: JSON.stringify({ t: "snap", id: frame.id, cursor: 1,
+        data: { secrets: [{ name: "ANTHROPIC_API_KEY", scope: "all_branches", hosts: ["api.anthropic.com"], path: "~/.config/anthropic/key", actions: [] }] } }) }))
+    } }
+    queueMicrotask(() => socket.onopen?.()); return socket
+  } })
+  const bodies: unknown[] = []
+  const { store, controller, signupReads } = await heldController({ live,
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["identity", "cloud", "install"], authFlow: "credentials", sandbox: null },
+    fetchImpl: async (input, init) => {
+      const url = String(input)
+      if (url.endsWith("/api/members")) return json(200, ownerRoster)
+      if (!url.includes("/api/secrets")) return json(404, {})
+      bodies.push(JSON.parse(String(init?.body))); return json(201, {})
+    }
+  })
+  try {
+    await heldReady(store, signupReads)
+    await bounded(controller.commands.run("secrets"))
+    await checkpoint()
+    expect(secretsCard(store)?.payload.secrets).toEqual([{ name: "ANTHROPIC_API_KEY", mainOnly: false, hosts: ["api.anthropic.com"], matchHeaders: [], updatedAt: null, path: "~/.config/anthropic/key" }])
+    const set = (payload: Record<string, string>, value: string) => bounded(controller.commands.submit({ name: "secrets.set", actor: "user",
+      payload: { repo: "will/flows", ...payload }, gesture: writeOnlyGesture("secrets.set", { value }) }))
+    expect(await set({ name: "NPM_TOKEN", path: " ~/.npmrc " }, "PRIVATE_NPM")).toMatchObject({ status: "executed", value: "Requested" })
+    expect(await set({ name: "ANTHROPIC_API_KEY", path: "" }, "PRIVATE_KEY")).toMatchObject({ status: "executed", value: "Requested" })
+    expect(await set({ name: "OTHER" }, "PRIVATE_OTHER")).toMatchObject({ status: "executed", value: "Requested" })
+    await bounded(Promise.allSettled([...pending]))
+    for (let i = 0; i < 10 && bodies.length < 3; i++) await checkpoint()
+    expect(bodies).toEqual([
+      { name: "NPM_TOKEN", value: "PRIVATE_NPM", path: "~/.npmrc" },
+      { name: "ANTHROPIC_API_KEY", value: "PRIVATE_KEY", path: "" },
+      { name: "OTHER", value: "PRIVATE_OTHER" }
+    ])
+  } finally { await controller.dispose(); live.dispose() }
+})
+
 test("an install without the live provider refuses /secrets and write gestures without polling", async () => {
   const { writeOnlyGesture } = await import("../../flows/CommandGesture")
   const hits: string[] = []

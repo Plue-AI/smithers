@@ -60,6 +60,20 @@ describe("resource mutations", () => {
     await resources["secret scope"]!(c, { name: "KEY", scope: "all" }, options)
     expect(request).toHaveBeenLastCalledWith("PATCH", "/api/repos/owner/repo/secrets/KEY", { main_only: false })
   })
+  it("declares, keeps and removes a secret's file path on set", async () => {
+    const { c, request } = await fixture()
+    vi.spyOn(c, "stdin").mockResolvedValue("private-value")
+    await resources["secret set"]!(c, { name: "ANTHROPIC_API_KEY" }, { ...options, "body-stdin": true, path: "~/.config/anthropic/key" })
+    expect(request).toHaveBeenLastCalledWith("POST", "/api/repos/owner/repo/secrets", {
+      name: "ANTHROPIC_API_KEY",
+      value: "private-value",
+      path: "~/.config/anthropic/key"
+    })
+    await resources["secret set"]!(c, { name: "ANTHROPIC_API_KEY" }, { ...options, "body-stdin": true, path: "" })
+    expect(request).toHaveBeenLastCalledWith("POST", "/api/repos/owner/repo/secrets", { name: "ANTHROPIC_API_KEY", value: "private-value", path: "" })
+    await resources["secret set"]!(c, { name: "ANTHROPIC_API_KEY" }, { ...options, "body-stdin": true })
+    expect(request).toHaveBeenLastCalledWith("POST", "/api/repos/owner/repo/secrets", { name: "ANTHROPIC_API_KEY", value: "private-value" })
+  })
   it("binds a secret to hosts and headers on set or on its own", async () => {
     const { c, request } = await fixture()
     vi.spyOn(c, "stdin").mockResolvedValue("private-value")

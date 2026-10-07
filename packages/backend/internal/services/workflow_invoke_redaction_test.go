@@ -32,7 +32,7 @@ func TestInvokedFlowLogRedactsBeforeTruncation(t *testing.T) {
 func TestInvokedFlowProjectionRedactsAcrossTruncationBoundary(t *testing.T) {
 	f := newInvokedFlowTestFixture(t)
 	secret := "secret-boundary-tail"
-	_, err := NewSecretService(db.New(f.pool), f.codec).SetSecret(context.Background(), f.owner, f.owner.Username, f.repository, "API_KEY", secret, nil, nil)
+	_, err := NewSecretService(db.New(f.pool), f.codec).SetSecret(context.Background(), f.owner, f.owner.Username, f.repository, "API_KEY", secret, nil, nil, nil)
 	require.NoError(t, err)
 	payload, err := json.Marshal(map[string]string{"text": strings.Repeat("x", invokedFlowLogEntryLimit-32) + secret + strings.Repeat("z", 100)})
 	require.NoError(t, err)
@@ -57,7 +57,7 @@ func TestInvokedFlowLogRedactsJSONEncodedMultilineSecret(t *testing.T) {
 func TestInvokedFlowProjectionRedactsJSONEncodedMultilineSecret(t *testing.T) {
 	f := newInvokedFlowTestFixture(t)
 	secret := "-----BEGIN KEY-----\nprivate-value\n-----END KEY-----"
-	_, err := NewSecretService(db.New(f.pool), f.codec).SetSecret(context.Background(), f.owner, f.owner.Username, f.repository, "PRIVATE_KEY", secret, nil, nil)
+	_, err := NewSecretService(db.New(f.pool), f.codec).SetSecret(context.Background(), f.owner, f.owner.Username, f.repository, "PRIVATE_KEY", secret, nil, nil, nil)
 	require.NoError(t, err)
 	payload, err := json.Marshal(map[string]string{"text": secret})
 	require.NoError(t, err)
@@ -154,15 +154,15 @@ func TestInvokedFlowLogRedactsLaunchSecretsAfterRotation(t *testing.T) {
 	f := newInvokedFlowTestFixture(t)
 	ctx := context.Background()
 	secrets := NewSecretService(db.New(f.pool), f.codec)
-	_, err := secrets.SetSecret(ctx, f.owner, f.owner.Username, f.repository, "API_KEY", "value-A-rotated", nil, nil)
+	_, err := secrets.SetSecret(ctx, f.owner, f.owner.Username, f.repository, "API_KEY", "value-A-rotated", nil, nil, nil)
 	require.NoError(t, err)
-	_, err = secrets.SetSecret(ctx, f.owner, f.owner.Username, f.repository, "GONE", "value-gone-deleted", nil, nil)
+	_, err = secrets.SetSecret(ctx, f.owner, f.owner.Username, f.repository, "GONE", "value-gone-deleted", nil, nil, nil)
 	require.NoError(t, err)
 	environment, err := f.invoked.FlowHostEnvironment(ctx, launchAuthority(t, f))
 	require.NoError(t, err)
 	require.Equal(t, "value-A-rotated", environment["API_KEY"])
 
-	_, err = secrets.SetSecret(ctx, f.owner, f.owner.Username, f.repository, "API_KEY", "value-B-current", nil, nil)
+	_, err = secrets.SetSecret(ctx, f.owner, f.owner.Username, f.repository, "API_KEY", "value-B-current", nil, nil, nil)
 	require.NoError(t, err)
 	_, err = f.pool.Exec(ctx, `DELETE FROM repository_secrets WHERE repository_id=$1 AND name='GONE'`, f.repositoryID)
 	require.NoError(t, err)
@@ -184,11 +184,11 @@ func TestInvokedFlowLogRedactsLaunchSecretsAfterRotation(t *testing.T) {
 	require.Contains(t, logs[0].Entry, redactedSecretValue)
 
 	// A second launch of the run keeps the first launch's values.
-	_, err = secrets.SetSecret(ctx, f.owner, f.owner.Username, f.repository, "API_KEY", "value-C-relaunch", nil, nil)
+	_, err = secrets.SetSecret(ctx, f.owner, f.owner.Username, f.repository, "API_KEY", "value-C-relaunch", nil, nil, nil)
 	require.NoError(t, err)
 	_, err = f.invoked.FlowHostEnvironment(ctx, launchAuthority(t, f))
 	require.NoError(t, err)
-	_, err = secrets.SetSecret(ctx, f.owner, f.owner.Username, f.repository, "API_KEY", "value-D-later", nil, nil)
+	_, err = secrets.SetSecret(ctx, f.owner, f.owner.Username, f.repository, "API_KEY", "value-D-later", nil, nil, nil)
 	require.NoError(t, err)
 	payload, err = json.Marshal(map[string]string{"text": "value-A-rotated value-C-relaunch"})
 	require.NoError(t, err)
@@ -204,7 +204,7 @@ func TestInvokedFlowLogRedactsLaunchSecretsAfterRotation(t *testing.T) {
 func TestInvokedFlowLaunchRedactionIsDeletedWithTheRun(t *testing.T) {
 	f := newInvokedFlowTestFixture(t)
 	ctx := context.Background()
-	_, err := NewSecretService(db.New(f.pool), f.codec).SetSecret(ctx, f.owner, f.owner.Username, f.repository, "API_KEY", "value-A", nil, nil)
+	_, err := NewSecretService(db.New(f.pool), f.codec).SetSecret(ctx, f.owner, f.owner.Username, f.repository, "API_KEY", "value-A", nil, nil, nil)
 	require.NoError(t, err)
 	_, err = f.invoked.FlowHostEnvironment(ctx, launchAuthority(t, f))
 	require.NoError(t, err)

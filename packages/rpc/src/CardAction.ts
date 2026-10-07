@@ -249,6 +249,7 @@ export interface CardCommandInput {
     readonly value: string
     readonly scope?: "all_branches" | "main_only"
     readonly hosts?: string
+    readonly path?: string
   }
   readonly "secrets.delete": { readonly name: string }
   readonly "secrets.scope": { readonly name: string; readonly scope: "all_branches" | "main_only" }

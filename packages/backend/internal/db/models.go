@@ -2313,6 +2313,7 @@ type RepositorySecret struct {
 	MainOnly                   bool               `json:"main_only"`
 	Hosts                      []string           `json:"hosts"`
 	MatchHeaders               []string           `json:"match_headers"`
+	Path                       string             `json:"path"`
 }
 
 type RepositorySetupRequest struct {

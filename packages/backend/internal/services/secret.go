@@ -115,6 +115,10 @@ type SecretResponse struct {
 	// those hosts, in those headers. An unbound secret has neither.
 	Hosts        []string `json:"hosts"`
 	MatchHeaders []string `json:"match_headers"`
+	// Path is where every branch machine also gets the secret as a file
+	// (NormalizeSecretPath); empty means none. A host-bound secret's file
+	// holds its placeholder, never its value.
+	Path string `json:"path,omitempty"`
 }
 
 // SecretBinding is a secret's egress binding: the hosts and request headers
@@ -142,8 +146,9 @@ func (b SecretBinding) normalize() (SecretBinding, error) {
 
 // SetSecret stores a repository secret. mainOnly nil keeps a replaced
 // secret's scope (a new one reaches every run); binding nil keeps a replaced
-// secret's egress binding (a new one is unbound).
-func (s *SecretService) SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string, mainOnly *bool, binding *SecretBinding) (SecretResponse, error) {
+// secret's egress binding (a new one is unbound); path nil keeps a replaced
+// secret's file path and "" removes it (a new one has none).
+func (s *SecretService) SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string, mainOnly *bool, binding *SecretBinding, path *string) (SecretResponse, error) {
 	if actor == nil {
 		return SecretResponse{}, pkgerrors.Unauthorized("authentication required")
 	}
@@ -175,6 +180,14 @@ func (s *SecretService) SetSecret(ctx context.Context, actor *db.User, owner, re
 		}
 		stored = &normalized
 	}
+	var storedPath *string
+	if path != nil {
+		normalized, err := NormalizeSecretPath(*path)
+		if err != nil {
+			return SecretResponse{}, err
+		}
+		storedPath = &normalized
+	}
 
 	repository, err := s.resolveRepoByOwnerAndName(ctx, owner, repo)
 	if err != nil {
@@ -184,7 +197,7 @@ func (s *SecretService) SetSecret(ctx context.Context, actor *db.User, owner, re
 		return SecretResponse{}, err
 	}
 
-	if err := s.enforceSecretQuota(ctx, repository.ID, trimmedName); err != nil {
+	if err := s.enforceSecretQuota(ctx, repository.ID, trimmedName, storedPath); err != nil {
 		return SecretResponse{}, err
 	}
 
@@ -208,9 +221,15 @@ func (s *SecretService) SetSecret(ctx context.Context, actor *db.User, owner, re
 		if stored != nil {
 			params.Hosts, params.MatchHeaders = stored.Hosts, stored.MatchHeaders
 		}
+		if storedPath != nil {
+			params.Path = pgtype.Text{String: *storedPath, Valid: true}
+		}
 		created, werr = queries.CreateOrUpdateSecret(ctx, params)
 		if isSecretCapViolation(werr, "repository_secrets_repo_cap") {
 			return repoSecretQuotaExceeded()
+		}
+		if isSecretPathTaken(werr) {
+			return secretPathTaken()
 		}
 		if werr != nil {
 			return pkgerrors.Internal("failed to set secret").WithCause(werr)
@@ -230,6 +249,7 @@ func repositorySecretResponse(secret db.RepositorySecret) SecretResponse {
 		UpdatedAt: secret.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 		MainOnly:  secret.MainOnly,
 		Hosts:     nonNilStrings(secret.Hosts), MatchHeaders: nonNilStrings(secret.MatchHeaders),
+		Path: secret.Path,
 	}
 }
 
@@ -317,6 +337,7 @@ func (s *SecretService) ListSecrets(ctx context.Context, actor *db.User, owner, 
 			MainOnly:          row.MainOnly,
 			Hosts:             nonNilStrings(row.Hosts),
 			MatchHeaders:      nonNilStrings(row.MatchHeaders),
+			Path:              row.Path,
 		}
 	}
 	return result, nil
@@ -491,19 +512,23 @@ func (s *SecretService) DeleteOrgSecret(ctx context.Context, actor *db.User, org
 }
 
 // enforceSecretQuota rejects a write that would create a new secret beyond
-// maxSecretsPerRepo. Updates to an already-existing name are always allowed.
-// It is the friendly pre-check; the cap trigger catches writers that race it.
-func (s *SecretService) enforceSecretQuota(ctx context.Context, repositoryID int64, name string) error {
+// maxSecretsPerRepo, or declare a file path another secret holds. Updates to
+// an already-existing name are always within the cap. It is the friendly
+// pre-check; the cap trigger and the path index catch writers that race it.
+func (s *SecretService) enforceSecretQuota(ctx context.Context, repositoryID int64, name string, path *string) error {
 	rows, err := s.queries.ListSecrets(ctx, repositoryID)
 	if err != nil {
 		return pkgerrors.Internal("failed to set secret").WithCause(err)
 	}
+	exists := false
 	for _, row := range rows {
 		if row.Name == name {
-			return nil
+			exists = true
+		} else if path != nil && *path != "" && row.Path == *path {
+			return secretPathTaken()
 		}
 	}
-	if len(rows) >= maxSecretsPerRepo {
+	if !exists && len(rows) >= maxSecretsPerRepo {
 		return repoSecretQuotaExceeded()
 	}
 	return nil

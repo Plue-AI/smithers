@@ -98,17 +98,17 @@ func TestSecret_Cov_RepoSecretsSuccessAndFailures(t *testing.T) {
 			return db.RepositorySecret{Name: arg.Name, CreatedAt: now, UpdatedAt: now}, nil
 		},
 	}, secretCovCodec{})
-	resp, err := svc.SetSecret(context.Background(), &db.User{ID: 1}, "alice", "demo", " TOKEN ", "value", nil, nil)
+	resp, err := svc.SetSecret(context.Background(), &db.User{ID: 1}, "alice", "demo", " TOKEN ", "value", nil, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "TOKEN", resp.Name)
 	assert.Equal(t, []byte("enc:value"), stored.ValueEncrypted)
 
 	svc = NewSecretService(&mockSecretQuerier{}, secretCovCodec{encryptErr: errors.New("encrypt failed")})
-	_, err = svc.SetSecret(context.Background(), &db.User{ID: 1}, "alice", "demo", "KEY", "value", nil, nil)
+	_, err = svc.SetSecret(context.Background(), &db.User{ID: 1}, "alice", "demo", "KEY", "value", nil, nil, nil)
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 
-	_, err = NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{}).SetSecret(context.Background(), &db.User{ID: 1}, "alice", "demo", string(make([]byte, 256)), "value", nil, nil)
+	_, err = NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{}).SetSecret(context.Background(), &db.User{ID: 1}, "alice", "demo", string(make([]byte, 256)), "value", nil, nil, nil)
 	require.Error(t, err)
 	assert.Equal(t, 422, apiStatus(t, err))
 

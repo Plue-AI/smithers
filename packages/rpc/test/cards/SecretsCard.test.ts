@@ -27,6 +27,10 @@ describe("Secrets", () => {
       "files.stripe.com"
     ])
   })
+  test("keeps a declared file path", () => {
+    expect(SecretsCardSchema.parse(fixtures.file_path.model).secrets[0]!.path).toBe("~/.config/anthropic/key")
+    expect(SecretsCardSchema.parse({ secrets: [row] }).secrets[0]).not.toHaveProperty("path")
+  })
   test("never carries a secret value", () => {
     const parsed = SecretsCardSchema.parse({ secrets: [{ ...row, value: "hunter2" }] })
     expect(parsed.secrets[0]).not.toHaveProperty("value")

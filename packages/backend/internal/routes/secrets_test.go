@@ -23,6 +23,7 @@ type mockSecretRouteService struct {
 	mainOnly       *bool
 	binding        *services.SecretBinding
 	orgBinding     *services.SecretBinding
+	path           *string
 }
 
 func (m *mockSecretRouteService) UpdateSecret(_ context.Context, _ *db.User, _, _, name string, mainOnly *bool, binding *services.SecretBinding) (services.SecretResponse, error) {
@@ -37,9 +38,10 @@ func (m *mockSecretRouteService) UpdateSecret(_ context.Context, _ *db.User, _, 
 	return response, nil
 }
 
-func (m *mockSecretRouteService) SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string, mainOnly *bool, binding *services.SecretBinding) (services.SecretResponse, error) {
+func (m *mockSecretRouteService) SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string, mainOnly *bool, binding *services.SecretBinding, path *string) (services.SecretResponse, error) {
 	m.mainOnly = mainOnly
 	m.binding = binding
+	m.path = path
 	if m.setSecretFn != nil {
 		return m.setSecretFn(ctx, actor, owner, repo, name, value)
 	}

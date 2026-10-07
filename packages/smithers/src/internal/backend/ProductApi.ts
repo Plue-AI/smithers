@@ -486,14 +486,18 @@ export type SecretBindingHosts = Array<string>
 /** Request headers the secret may be sent in. Goes with `hosts`; both empty unbinds the secret. */
 export type SecretBindingMatchHeaders = Array<string>
 
-/** Sets a repository secret. `hosts` and `match_headers` go together, both or neither. An omitted `main_only` or binding keeps a replaced secret's scope or binding. */
+/** Sets a repository secret. `hosts` and `match_headers` go together, both or neither. An omitted `main_only`, binding or `path` keeps a replaced secret's scope, binding or path. */
 export type SetRepositorySecretRequest = {
   name: string
   value: string
   main_only?: boolean
   hosts?: SecretBindingHosts
   match_headers?: SecretBindingMatchHeaders
+  path?: SecretFilePath
 }
+
+/** Also delivers the secret as a file on every branch machine: `~/…` in each home, or under `/run/smithers/files/`. A secret bound to hosts is written as its placeholder. An empty string removes the file. A path in the working copy, outside its folder or through a link is refused with class `user`. */
+export type SecretFilePath = string
 
 /** Sets an organization secret. `hosts` and `match_headers` go together, both or neither. An omitted binding keeps a replaced secret's binding. */
 export type SetOrganizationSecretRequest = {
@@ -519,6 +523,7 @@ export type SecretMetadata = {
   main_only: boolean
   hosts: Array<string>
   match_headers: Array<string>
+  path?: string
 }
 
 export type AuthorizationRefusal = {
@@ -1815,6 +1820,35 @@ export interface GetApiBranchesBFilesInput {
 /** GET /api/branches/{b}/files: List branch files */
 export const getApiBranchesBFiles = (transport: Transport, input: GetApiBranchesBFilesInput): Promise<GetApiBranchesBFilesResponse> =>
   transport.request("GET", `/api/branches/${segment(input.path.b)}/files${search({ path: input.query?.path })}`) as Promise<GetApiBranchesBFilesResponse>
+
+export type PostApiBranchesBLspBody = {
+  language: "typescript"
+}
+
+export type PostApiBranchesBLspResponse = {
+  id: string
+  kind: "exec"
+  language: string
+  branch: string
+}
+
+export interface PostApiBranchesBLspInput {
+  readonly path: { readonly b: string }
+  readonly body: PostApiBranchesBLspBody
+}
+
+/** POST /api/branches/{b}/lsp: Admit a File card code-intelligence session */
+export const postApiBranchesBLsp = (transport: Transport, input: PostApiBranchesBLspInput): Promise<PostApiBranchesBLspResponse> =>
+  transport.request("POST", `/api/branches/${segment(input.path.b)}/lsp`, input.body) as Promise<PostApiBranchesBLspResponse>
+
+export interface GetApiBranchesBLspIdInput {
+  readonly path: { readonly b: string; readonly id: string }
+  readonly query?: { readonly language?: string; readonly ticket?: string }
+}
+
+/** GET /api/branches/{b}/lsp/{id}: Relay a File card language server */
+export const getApiBranchesBLspId = (transport: Transport, input: GetApiBranchesBLspIdInput): Promise<void> =>
+  transport.request("GET", `/api/branches/${segment(input.path.b)}/lsp/${segment(input.path.id)}${search({ language: input.query?.language, ticket: input.query?.ticket })}`).then(() => undefined)
 
 export type PostApiBranchesBArchiveResponse = Branch
 
@@ -4552,16 +4586,6 @@ export interface GetApiReposOwnerRepoWorkspaceSessionsIdInput {
 /** GET /api/repos/{owner}/{repo}/workspace/sessions/{id} */
 export const getApiReposOwnerRepoWorkspaceSessionsId = (transport: Transport, input: GetApiReposOwnerRepoWorkspaceSessionsIdInput): Promise<GetApiReposOwnerRepoWorkspaceSessionsIdResponse> =>
   transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspace/sessions/${segment(input.path.id)}`) as Promise<GetApiReposOwnerRepoWorkspaceSessionsIdResponse>
-
-export type GetApiReposOwnerRepoWorkspaceSessionsIdLspResponse = AnyJSON
-
-export interface GetApiReposOwnerRepoWorkspaceSessionsIdLspInput {
-  readonly path: { readonly owner: string; readonly repo: string; readonly id: string }
-}
-
-/** GET /api/repos/{owner}/{repo}/workspace/sessions/{id}/lsp */
-export const getApiReposOwnerRepoWorkspaceSessionsIdLsp = (transport: Transport, input: GetApiReposOwnerRepoWorkspaceSessionsIdLspInput): Promise<GetApiReposOwnerRepoWorkspaceSessionsIdLspResponse> =>
-  transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspace/sessions/${segment(input.path.id)}/lsp`) as Promise<GetApiReposOwnerRepoWorkspaceSessionsIdLspResponse>
 
 export type GetApiReposOwnerRepoWorkspaceSessionsIdSshResponse = AnyJSON
 

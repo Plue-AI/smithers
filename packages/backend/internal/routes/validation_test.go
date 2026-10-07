@@ -184,7 +184,7 @@ func (m *mockSecretService) UpdateSecret(_ context.Context, _ *db.User, _, _, na
 	return services.SecretResponse{Name: name, MainOnly: mainOnly != nil && *mainOnly}, nil
 }
 
-func (m *mockSecretService) SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string, _ *bool, _ *services.SecretBinding) (services.SecretResponse, error) {
+func (m *mockSecretService) SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string, _ *bool, _ *services.SecretBinding, _ *string) (services.SecretResponse, error) {
 	if m.setSecretFn != nil {
 		return m.setSecretFn(ctx, actor, owner, repo, name, value)
 	}

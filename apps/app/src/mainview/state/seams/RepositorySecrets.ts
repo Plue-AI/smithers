@@ -16,6 +16,8 @@ export interface RepositorySecret {
   readonly updatedAt: string | null
   /** The platform found a subscription token in it and refuses to use it. */
   readonly reconnect: boolean
+  /** The declared file path every branch machine also gets, when one is set. */
+  readonly path?: string
 }
 
 /** The secrets collection URL, or one secret's when a name is given. */
@@ -34,7 +36,7 @@ const parseSecrets = (wire: unknown): RepositorySecret[] | null => {
   if (!Array.isArray(wire)) return null
   const out: RepositorySecret[] = []
   for (const entry of wire) {
-    const row = entry as { name?: unknown; main_only?: unknown; hosts?: unknown; match_headers?: unknown; updated_at?: unknown; reconnect_required?: unknown } | null
+    const row = entry as { name?: unknown; main_only?: unknown; hosts?: unknown; match_headers?: unknown; updated_at?: unknown; reconnect_required?: unknown; path?: unknown } | null
     if (typeof row !== "object" || row === null || typeof row.name !== "string" || row.name === "") return null
     const hosts = strings(row.hosts)
     const matchHeaders = strings(row.match_headers)
@@ -45,7 +47,8 @@ const parseSecrets = (wire: unknown): RepositorySecret[] | null => {
       hosts,
       matchHeaders,
       updatedAt: typeof row.updated_at === "string" && row.updated_at !== "" ? row.updated_at : null,
-      reconnect: row.reconnect_required === true
+      reconnect: row.reconnect_required === true,
+      ...(typeof row.path === "string" && row.path !== "" ? { path: row.path } : {})
     })
   }
   return out

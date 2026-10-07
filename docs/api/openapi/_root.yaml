@@ -1434,7 +1434,7 @@ components:
         type: string
     SetRepositorySecretRequest:
       type: object
-      description: Sets a repository secret. `hosts` and `match_headers` go together, both or neither. An omitted `main_only` or binding keeps a replaced secret's scope or binding.
+      description: Sets a repository secret. `hosts` and `match_headers` go together, both or neither. An omitted `main_only`, binding or `path` keeps a replaced secret's scope, binding or path.
       required: [name, value]
       properties:
         name:
@@ -1448,6 +1448,12 @@ components:
           $ref: '#/components/schemas/SecretBindingHosts'
         match_headers:
           $ref: '#/components/schemas/SecretBindingMatchHeaders'
+        path:
+          $ref: '#/components/schemas/SecretFilePath'
+    SecretFilePath:
+      type: string
+      maxLength: 512
+      description: 'Also delivers the secret as a file on every branch machine: `~/…` in each home, or under `/run/smithers/files/`. A secret bound to hosts is written as its placeholder. An empty string removes the file. A path in the working copy, outside its folder or through a link is refused with class `user`.'
     SetOrganizationSecretRequest:
       type: object
       description: Sets an organization secret. `hosts` and `match_headers` go together, both or neither. An omitted binding keeps a replaced secret's binding.
@@ -1497,6 +1503,9 @@ components:
           type: array
           items:
             type: string
+        path:
+          type: string
+          description: The declared file path, when the secret has one.
     AuthorizationRefusal:
       oneOf:
         - type: object

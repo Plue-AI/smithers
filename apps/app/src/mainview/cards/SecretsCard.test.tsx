@@ -57,3 +57,35 @@ test("Secrets card action copy uses product words", async () => {
     if (action.disabled) expect(lintText(action.disabled.reason)).toEqual([])
   }
 })
+
+test("a declared file path shows on its row and travels with Add and Replace", () => {
+  const filed: typeof card = { ...card, payload: { ...card.payload, secrets: [
+    { name: "ANTHROPIC_API_KEY", mainOnly: false, hosts: ["api.anthropic.com"], matchHeaders: ["x-api-key"], updatedAt: null, path: "~/.config/anthropic/key" },
+    { name: "OPEN", mainOnly: false, hosts: [], matchHeaders: [], updatedAt: null }
+  ] } }
+  expect(renderToStaticMarkup(<SecretsCardBody card={filed} role="maintainer" dispatch={() => {}} />)).toContain("~/.config/anthropic/key")
+  let props!: SecretsViewProps
+  const calls: unknown[] = []
+  renderToStaticMarkup(<SecretsCardBody card={filed} role="maintainer" dispatch={(tag, input) => calls.push({ tag, input })} View={value => { props = value; return null }} />)
+  expect(props.model.secrets[0]?.path).toBe("~/.config/anthropic/key")
+  const replace = props.model.secrets[0]!.actions.find(action => action.label === "Replace")!
+  expect(replace.input?.find(field => field.name === "path")?.value).toBe("~/.config/anthropic/key")
+  props.onAction("secrets.set", { door: "add", name: "NPM_TOKEN", value: "v", scope: "all_branches", hosts: "", path: "~/.npmrc" })
+  props.onAction("secrets.set", { name: "ANTHROPIC_API_KEY", value: "v", hosts: "", path: "" })
+  props.onAction("secrets.set", { name: "OPEN", value: "v", hosts: "", path: "" })
+  expect(calls).toEqual([
+    { tag: "secrets.set", input: { name: "NPM_TOKEN", value: "v", scope: "all_branches", hosts: "", path: "~/.npmrc" } },
+    { tag: "secrets.set", input: { name: "ANTHROPIC_API_KEY", value: "v", path: "" } },
+    { tag: "secrets.set", input: { name: "OPEN", value: "v" } }
+  ])
+})
+
+test("a known model key defaults to its provider host and header", async () => {
+  const { secretsBinding } = await import("./SecretsCard")
+  expect(secretsBinding("secrets.set", { name: "ANTHROPIC_API_KEY" })).toEqual({ hosts: "api.anthropic.com", headers: "x-api-key" })
+  expect(secretsBinding("secrets.set", { name: "OPENAI_API_KEY", hosts: "" })).toEqual({ hosts: "api.openai.com", headers: "authorization" })
+  expect(secretsBinding("secrets.set", { name: "ANTHROPIC_API_KEY", hosts: "proxy.example.com" })).toEqual({ hosts: "proxy.example.com", headers: "x-api-key" })
+  expect(secretsBinding("secrets.set", { name: "NPM_TOKEN", hosts: "registry.npmjs.org" })).toEqual({ hosts: "registry.npmjs.org", headers: "authorization" })
+  expect(secretsBinding("secrets.set", { name: "NPM_TOKEN" })).toEqual({})
+  expect(secretsBinding("secrets.delete", { name: "ANTHROPIC_API_KEY" })).toEqual({})
+})

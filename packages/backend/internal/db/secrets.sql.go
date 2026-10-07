@@ -56,16 +56,18 @@ func (q *Queries) CreateOrUpdateOrgSecret(ctx context.Context, arg CreateOrUpdat
 }
 
 const createOrUpdateSecret = `-- name: CreateOrUpdateSecret :one
-INSERT INTO repository_secrets (repository_id, name, value_encrypted, main_only, hosts, match_headers)
+INSERT INTO repository_secrets (repository_id, name, value_encrypted, main_only, hosts, match_headers, path)
 VALUES ($1, $2, $3, COALESCE($4::boolean, false),
-    COALESCE($5::text[], '{}'::text[]), COALESCE($6::text[], '{}'::text[]))
+    COALESCE($5::text[], '{}'::text[]), COALESCE($6::text[], '{}'::text[]),
+    COALESCE($7::text, ''))
 ON CONFLICT (repository_id, name)
 DO UPDATE SET value_encrypted = EXCLUDED.value_encrypted, subscription_token_flagged_at = NULL,
     main_only = COALESCE($4::boolean, repository_secrets.main_only),
     hosts = COALESCE($5::text[], repository_secrets.hosts),
     match_headers = COALESCE($6::text[], repository_secrets.match_headers),
+    path = COALESCE($7::text, repository_secrets.path),
     updated_at = NOW()
-RETURNING id, repository_id, name, value_encrypted, created_at, updated_at, subscription_token_flagged_at, main_only, hosts, match_headers
+RETURNING id, repository_id, name, value_encrypted, created_at, updated_at, subscription_token_flagged_at, main_only, hosts, match_headers, path
 `
 
 type CreateOrUpdateSecretParams struct {
@@ -75,10 +77,11 @@ type CreateOrUpdateSecretParams struct {
 	MainOnly       pgtype.Bool `json:"main_only"`
 	Hosts          []string    `json:"hosts"`
 	MatchHeaders   []string    `json:"match_headers"`
+	Path           pgtype.Text `json:"path"`
 }
 
 // A new secret is main-only only when asked; replacing a value keeps its
-// scope and its host binding unless the write names them.
+// scope, its host binding and its file path unless the write names them.
 func (q *Queries) CreateOrUpdateSecret(ctx context.Context, arg CreateOrUpdateSecretParams) (RepositorySecret, error) {
 	row := q.db.QueryRow(ctx, createOrUpdateSecret,
 		arg.RepositoryID,
@@ -87,6 +90,7 @@ func (q *Queries) CreateOrUpdateSecret(ctx context.Context, arg CreateOrUpdateSe
 		arg.MainOnly,
 		arg.Hosts,
 		arg.MatchHeaders,
+		arg.Path,
 	)
 	var i RepositorySecret
 	err := row.Scan(
@@ -100,6 +104,7 @@ func (q *Queries) CreateOrUpdateSecret(ctx context.Context, arg CreateOrUpdateSe
 		&i.MainOnly,
 		&i.Hosts,
 		&i.MatchHeaders,
+		&i.Path,
 	)
 	return i, err
 }
@@ -240,7 +245,7 @@ func (q *Queries) ListOrgSecrets(ctx context.Context, organizationID int64) ([]L
 }
 
 const listSecretValues = `-- name: ListSecretValues :many
-SELECT name, value_encrypted, main_only, hosts, match_headers
+SELECT name, value_encrypted, main_only, hosts, match_headers, path
 FROM repository_secrets
 WHERE repository_id = $1
 ORDER BY name
@@ -252,6 +257,7 @@ type ListSecretValuesRow struct {
 	MainOnly       bool     `json:"main_only"`
 	Hosts          []string `json:"hosts"`
 	MatchHeaders   []string `json:"match_headers"`
+	Path           string   `json:"path"`
 }
 
 func (q *Queries) ListSecretValues(ctx context.Context, repositoryID int64) ([]ListSecretValuesRow, error) {
@@ -269,6 +275,7 @@ func (q *Queries) ListSecretValues(ctx context.Context, repositoryID int64) ([]L
 			&i.MainOnly,
 			&i.Hosts,
 			&i.MatchHeaders,
+			&i.Path,
 		); err != nil {
 			return nil, err
 		}
@@ -317,7 +324,7 @@ func (q *Queries) ListSecretValuesForRepo(ctx context.Context, repositoryID int6
 }
 
 const listSecrets = `-- name: ListSecrets :many
-SELECT id, repository_id, name, created_at, updated_at, subscription_token_flagged_at, main_only, hosts, match_headers
+SELECT id, repository_id, name, created_at, updated_at, subscription_token_flagged_at, main_only, hosts, match_headers, path
 FROM repository_secrets
 WHERE repository_id = $1
 ORDER BY name
@@ -333,6 +340,7 @@ type ListSecretsRow struct {
 	MainOnly                   bool               `json:"main_only"`
 	Hosts                      []string           `json:"hosts"`
 	MatchHeaders               []string           `json:"match_headers"`
+	Path                       string             `json:"path"`
 }
 
 func (q *Queries) ListSecrets(ctx context.Context, repositoryID int64) ([]ListSecretsRow, error) {
@@ -354,6 +362,7 @@ func (q *Queries) ListSecrets(ctx context.Context, repositoryID int64) ([]ListSe
 			&i.MainOnly,
 			&i.Hosts,
 			&i.MatchHeaders,
+			&i.Path,
 		); err != nil {
 			return nil, err
 		}
@@ -372,7 +381,7 @@ SET main_only = COALESCE($1::boolean, main_only),
     match_headers = COALESCE($3::text[], match_headers),
     updated_at = NOW()
 WHERE repository_id = $4 AND name = $5
-RETURNING id, repository_id, name, value_encrypted, created_at, updated_at, subscription_token_flagged_at, main_only, hosts, match_headers
+RETURNING id, repository_id, name, value_encrypted, created_at, updated_at, subscription_token_flagged_at, main_only, hosts, match_headers, path
 `
 
 type UpdateSecretSettingsParams struct {
@@ -405,6 +414,7 @@ func (q *Queries) UpdateSecretSettings(ctx context.Context, arg UpdateSecretSett
 		&i.MainOnly,
 		&i.Hosts,
 		&i.MatchHeaders,
+		&i.Path,
 	)
 	return i, err
 }

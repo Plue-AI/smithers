@@ -9966,6 +9966,16 @@
                 }
               ]
             },
+            "path": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "repo": {
               "anyOf": [
                 {

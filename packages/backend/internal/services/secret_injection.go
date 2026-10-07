@@ -104,6 +104,9 @@ type RepositorySecretSnapshot struct {
 	// Bound holds the secrets bound to hosts, with their values, sorted by
 	// name. Only an egress proxy may carry them into a guest.
 	Bound []sandbox.EgressProxySecret
+	// Files maps each declared path (spec §8.8.1a) to an unbound secret's
+	// value or a bound secret's placeholder, never a bound value.
+	Files map[string]string
 }
 
 // RepositorySecrets loads one coherent repository/org snapshot and derives
@@ -131,12 +134,17 @@ func (s *SecretInjector) RepositorySecrets(ctx context.Context, repositoryID int
 	env := map[string]string{}
 	secrets := map[string]string{}
 	bound := map[string]sandbox.EgressProxySecret{}
-	// keep records one decrypted secret under the binding it carries.
-	keep := func(kind, name, value string, hosts, matchHeaders []string) error {
+	files := map[string]string{}
+	// keep records one decrypted secret under the binding it carries, and its
+	// file at path when one is declared.
+	keep := func(kind, name, value string, hosts, matchHeaders []string, path string) error {
 		if len(hosts) == 0 && len(matchHeaders) == 0 {
 			delete(bound, name)
 			env[name] = value
 			secrets[name] = value
+			if path != "" {
+				files[path] = value
+			}
 			return nil
 		}
 		secret := sandbox.EgressProxySecret{
@@ -149,6 +157,9 @@ func (s *SecretInjector) RepositorySecrets(ctx context.Context, repositoryID int
 		delete(env, name)
 		delete(secrets, name)
 		bound[name] = secret
+		if path != "" {
+			files[path] = sandbox.EgressProxyPlaceholder(name)
+		}
 		return nil
 	}
 
@@ -214,7 +225,7 @@ func (s *SecretInjector) RepositorySecrets(ctx context.Context, repositoryID int
 			if value == "" {
 				continue
 			}
-			if err := keep("organization secret", name, value, row.Hosts, row.MatchHeaders); err != nil {
+			if err := keep("organization secret", name, value, row.Hosts, row.MatchHeaders, ""); err != nil {
 				return RepositorySecretSnapshot{}, err
 			}
 		}
@@ -244,7 +255,7 @@ func (s *SecretInjector) RepositorySecrets(ctx context.Context, repositoryID int
 		if value == "" {
 			continue
 		}
-		if err := keep("repository secret", name, value, row.Hosts, row.MatchHeaders); err != nil {
+		if err := keep("repository secret", name, value, row.Hosts, row.MatchHeaders, row.Path); err != nil {
 			return RepositorySecretSnapshot{}, err
 		}
 	}
@@ -253,7 +264,7 @@ func (s *SecretInjector) RepositorySecrets(ctx context.Context, repositoryID int
 	for name, value := range env {
 		budget[name] = value
 	}
-	snapshot := RepositorySecretSnapshot{Env: env, Secrets: secrets}
+	snapshot := RepositorySecretSnapshot{Env: env, Secrets: secrets, Files: files}
 	for name, secret := range bound {
 		budget[name] = secret.Value
 		snapshot.Bound = append(snapshot.Bound, secret)
