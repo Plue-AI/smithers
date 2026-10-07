@@ -484,6 +484,10 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/user/repos$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/mythical(/events|/items/[^/]+)?$`)},
 	{http.MethodGet, "wiki.read", wikiReadPath},
+	{http.MethodPost, "wiki.create", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/wiki$`)},
+	{http.MethodPatch, "wiki.edit", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/wiki/[^/]+$`)},
+	{http.MethodPut, "wiki.edit", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/wiki/attachments/[^/]+$`)},
+	{http.MethodDelete, "wiki.delete", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/wiki/[^/]+$`)},
 	// Retained PR history uses the catalog view commands.
 	{http.MethodGet, "prs.list", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/landings$`)},
 	{http.MethodGet, "prs.view", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/landings/[0-9]+(?:/(?:changes|comments|conflicts|reviews))?$`)},

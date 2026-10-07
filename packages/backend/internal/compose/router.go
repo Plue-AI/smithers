@@ -975,6 +975,9 @@ func buildRouter(
 			r.Use(browserCORS(apiCORS, config.IsSingleOwner(cfg.Auth)))
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(apiCSRFMiddleware)
+			if config.IsSingleOwner(cfg.Auth) {
+				r.Use(memberCommands(queries, confirmations))
+			}
 			r.Use(middleware.GlobalAPIRateLimit(queries))
 			if queries != nil {
 				r.Use(middleware.LoadRepoContext(queries))
