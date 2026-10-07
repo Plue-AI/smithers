@@ -28,6 +28,40 @@ func TestTodoSteerDeliveryAuthorizer(t *testing.T) {
 	}
 }
 
+func TestTodoHeldSteerRechecksCredentialBeforeLaunch(t *testing.T) {
+	o, session := newTodoAdmission(t)
+	ctx := t.Context()
+	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
+	o.service.EnableTodoSteering()
+	pool, _ := o.runDispatcher(t, flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+		t.Fatal("held input must not resolve a runtime before launch")
+		return nil, nil
+	}))
+	item := o.fileTodo(session, "held-credential")
+	text := "Keep the existing cancellation helper"
+	_, err := o.service.ControlTodo(session, item.Number.Int64, TodoControlInput{Repository: o.repoID, Actor: o.userID, Request: "held-steer", Steer: &text})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE auth_sessions SET expires_at=NOW()-interval '1 minute' WHERE session_key=$1`, middleware.AuthInfoFromContext(session).SessionHash)
+	require.NoError(t, err)
+	o.wake()
+	var count int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.launch' AND payload->>'flowId'='todo'`).Scan(&count))
+	require.Zero(t, count, "revoked held input cannot reach a launch payload")
+	held := mythicalChecksOf(o.byID(uuidString(item.ID))).Steers
+	require.Len(t, held, 1)
+	require.True(t, held[0].ReleasePending)
+	require.Equal(t, text, held[0].Text)
+	_, err = pool.Exec(ctx, `UPDATE auth_sessions SET expires_at=NOW()+interval '1 hour' WHERE session_key=$1`, middleware.AuthInfoFromContext(session).SessionHash)
+	require.NoError(t, err)
+	o.wake()
+	var payload json.RawMessage
+	require.NoError(t, pool.QueryRow(ctx, `SELECT payload FROM product_job_requests WHERE operation='flow.runtime.launch' AND payload->>'flowId'='todo'`).Scan(&payload))
+	var request flowdispatch.LaunchRequest
+	require.NoError(t, json.Unmarshal(payload, &request))
+	require.Contains(t, string(request.Payload), text)
+	require.False(t, mythicalChecksOf(o.byID(uuidString(item.ID))).Steers[0].ReleasePending)
+}
+
 func testTodoSteerDeliveryAuthorizer(t *testing.T, delegated bool) {
 	t.Helper()
 	o, ownerSession := newTodoAdmission(t)
@@ -49,8 +83,7 @@ func testTodoSteerDeliveryAuthorizer(t *testing.T, delegated bool) {
 	item := o.fileTodo(ownerSession, "member-steering")
 	ready, input, _ := steerFixture()
 	item.State, item.Attempt, item.RequestRunID = ready.State, ready.Attempt, ready.RequestRunID
-	item.WorkspaceID, item.FlowDigest, item.Checks = ready.WorkspaceID, ready.FlowDigest, ready.Checks
-	item.WorkspaceID = "7e110000-0000-4000-8000-000000000002"
+	item.WorkspaceID, item.FlowDigest, item.Checks = "7e110000-0000-4000-8000-000000000002", ready.FlowDigest, ready.Checks
 	item, err = q.SaveMythicalItem(ctx, item)
 	require.NoError(t, err)
 	input.Repository, input.Actor = o.repoID, member.ID
@@ -192,7 +225,7 @@ func TestTodoSteerWorkerHoldsAcrossLifecycleChanges(t *testing.T) {
 				item := o.fileTodo(session, "held-steer")
 				ready, input, _ := steerFixture()
 				item.State, item.Attempt, item.RequestRunID = ready.State, ready.Attempt, ready.RequestRunID
-				item.WorkspaceID, item.FlowDigest, item.Checks = ready.WorkspaceID, ready.FlowDigest, ready.Checks
+				item.WorkspaceID, item.FlowDigest, item.Checks = "7e110000-0000-4000-8000-000000000002", ready.FlowDigest, ready.Checks
 				var err error
 				item, err = q.SaveMythicalItem(ctx, item)
 				require.NoError(t, err)
@@ -285,7 +318,7 @@ func TestTodoSteerInitiallyHeldRelease(t *testing.T) {
 			item := o.fileTodo(session, "initially-held")
 			ready, input, _ := steerFixture()
 			item.State, item.Attempt, item.RequestRunID = "proposed", ready.Attempt, ready.RequestRunID
-			item.WorkspaceID, item.FlowDigest, item.Checks = ready.WorkspaceID, ready.FlowDigest, ready.Checks
+			item.WorkspaceID, item.FlowDigest, item.Checks = "7e110000-0000-4000-8000-000000000002", ready.FlowDigest, ready.Checks
 			item.CandidateVerified, item.CandidateHead = true, strings.Repeat("c", 40)
 			checks := mythicalChecksOf(item)
 			checks.Waits = []TodoWait{{ID: "question-1", Kind: "question", Prompt: "Which behavior?", Signal: &TodoWaitSignal{Run: "same-run", Name: "answer"}}}
@@ -431,7 +464,7 @@ func TestTodoSteerAdmissionTransaction(t *testing.T) {
 	item := o.fileTodo(session, "steering")
 	ready, input, _ := steerFixture()
 	item.State, item.Attempt, item.RequestRunID = ready.State, ready.Attempt, ready.RequestRunID
-	item.WorkspaceID, item.FlowDigest, item.Checks = ready.WorkspaceID, ready.FlowDigest, ready.Checks
+	item.WorkspaceID, item.FlowDigest, item.Checks = "7e110000-0000-4000-8000-000000000002", ready.FlowDigest, ready.Checks
 	item, err := q.SaveMythicalItem(ctx, item)
 	require.NoError(t, err)
 	input.Repository, input.Actor = o.repoID, o.userID
@@ -494,7 +527,7 @@ func TestTodoFeedbackCredentialIdempotencyPostgres(t *testing.T) {
 	other := o.fileTodo(session, "created-second")
 	ready, _, _ := steerFixture()
 	item.State, item.Attempt, item.RequestRunID = ready.State, ready.Attempt, ready.RequestRunID
-	item.WorkspaceID, item.FlowDigest, item.Checks = ready.WorkspaceID, ready.FlowDigest, ready.Checks
+	item.WorkspaceID, item.FlowDigest, item.Checks = "7e110000-0000-4000-8000-000000000002", ready.FlowDigest, ready.Checks
 	var err error
 	item, err = q.SaveMythicalItem(ctx, item)
 	require.NoError(t, err)

@@ -343,5 +343,68 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 		require.Equal(t, []string{pair.first, pair.second}, receiver.order[len(receiver.order)-2:])
 		receiver.mu.Unlock()
 	}
-
+	// Removing the pinned-flow provider after admission holds the input;
+	// restoring it releases the same identity once through the real worker.
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET paused_at=NOW() WHERE id=$1`, item.ID)
+	require.NoError(t, err)
+	call("POST", `{"steer":"Retain while provider is absent"}`, "provider-held")
+	service.SetTodoFlow(nil)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET paused_at=NULL WHERE id=$1`, item.ID)
+	require.NoError(t, err)
+	seen := func(text string) int {
+		receiver.mu.Lock()
+		defer receiver.mu.Unlock()
+		count := 0
+		for _, message := range receiver.messages {
+			if message.Body == text {
+				count++
+			}
+		}
+		return count
+	}
+	require.Never(t, func() bool { return seen("Retain while provider is absent") > 0 }, 200*time.Millisecond, 10*time.Millisecond)
+	service.SetTodoFlow(func(ctx context.Context, repositoryID int64, sourceCommit string) (string, error) {
+		return services.ActiveFlowDigest(ctx, q, repositoryID, "todo")
+	})
+	require.Eventually(t, func() bool { return seen("Retain while provider is absent") == 1 }, 5*time.Second, 10*time.Millisecond)
+	call("POST", `{"steer":"Retain while provider is absent"}`, "provider-held")
+	require.Equal(t, 1, seen("Retain while provider is absent"))
+	// A held input cannot borrow the runtime owner's authority after its
+	// admitting browser session or delegated token expires. Enter through the
+	// install HTTP doors and let the real worker recheck the stored credential.
+	for _, delegated := range []bool{false, true} {
+		text := fmt.Sprintf("Expired credential %t", delegated)
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET paused_at=NOW() WHERE id=$1`, item.ID)
+		require.NoError(t, err)
+		body, err := json.Marshal(map[string]string{"steer": text})
+		require.NoError(t, err)
+		confirmationCall("POST", "/api/todos/1", string(body), text, delegated, 202)
+		if delegated {
+			_, err = pool.Exec(ctx, `UPDATE access_tokens SET expires_at=NOW()-interval '1 minute' WHERE token_hash=$1`, tokenHash)
+		} else {
+			_, err = pool.Exec(ctx, `UPDATE auth_sessions SET expires_at=NOW()-interval '1 minute' WHERE session_key=$1`, hex.EncodeToString(hash[:]))
+		}
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET paused_at=NULL WHERE id=$1`, item.ID)
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			var failed int
+			err := pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer' AND payload->>'body'=$1 AND state='failed'`, text).Scan(&failed)
+			return err == nil && failed == 1
+		}, 5*time.Second, 10*time.Millisecond)
+		receiver.mu.Lock()
+		for _, message := range receiver.messages {
+			require.NotEqual(t, text, message.Body, "expired credential must not deliver to the host")
+		}
+		receiver.mu.Unlock()
+		var retained int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items, jsonb_array_elements(checks->'steers') input WHERE mythical_items.id=$1 AND input->>'text'=$2`, item.ID, text).Scan(&retained))
+		require.Equal(t, 1, retained, "refusal preserves the admitted input")
+		if delegated {
+			_, err = pool.Exec(ctx, `UPDATE access_tokens SET expires_at=NOW()+interval '1 hour' WHERE token_hash=$1`, tokenHash)
+		} else {
+			_, err = pool.Exec(ctx, `UPDATE auth_sessions SET expires_at=NOW()+interval '1 hour' WHERE session_key=$1`, hex.EncodeToString(hash[:]))
+		}
+		require.NoError(t, err)
+	}
 }
