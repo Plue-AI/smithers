@@ -154,10 +154,14 @@ The CI declaration has several deliberate operational constraints:
   requires byte-for-byte equality with the committed artifact. Its Linux host
   triple is part of that reproducibility contract; `build-wasm.mjs` refuses a
   different host explicitly rather than producing a misleading byte diff.
-- The fault-injection matrix is the packages that declare a `faults` target
-  with `Smithers.FaultSuite`, and the required `e2e-faults` job is
-  `test '//packages/...:faults' --jobs 1` over all of them. A case injects a
-  real fault into a real process and reads the result out of durable state: it
+- The fault-injection matrix selects packages that declare a `faults` target
+  with `Smithers.FaultSuite`. The nightly reliability workflow runs
+  `test '//packages/...:faults' --jobs 1`; ordinary push/PR CI does not run it.
+  Release retains its fault gate. The reference-host selection refuses until
+  its check mappings, main-built bundle and host provenance are approved; see
+  [the durability inventory](packages/smithers/test/faults/README.md).
+  A case injects a real fault into a real process and reads the result out of
+  durable state: it
   may not stub the engine, the journal, the control plane, or a provider,
   because a suite that passes against a stub proves nothing about the product
   and this tier exists precisely to catch what unit suites cannot. Crash cases
