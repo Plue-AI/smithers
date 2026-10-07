@@ -9,8 +9,8 @@ import { Effect } from "effect"
 // packaged host shares (build.mjs serves the modules the bundle runs).
 import "../../coding/host.ts"
 import { share } from "../../coding/host-modules.ts"
-import Request from "../../coding/request/flow.ts"
-import Vibe from "../../coding/vibe/flow.ts"
+import Request from "../../coding/request-flow.ts"
+import Vibe from "../../coding/vibe-flow.ts"
 
 // A packaged host discovers a repository's `flows/todo/flow.ts`, measures its
 // digest and loads it with its own loader, as flow-load will (spec §11.3.1).

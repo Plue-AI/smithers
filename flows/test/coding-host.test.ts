@@ -38,21 +38,17 @@ test("the repository default and a landing binding select the coding routes", as
   const planning = await Effect.runPromise(loadProject(root, undefined).pipe(Effect.provide(NodeServices.layer)))
   assert.ok(planning)
   assert.deepEqual(configuredCodingRoutes({ planning, landing }), [
-    { name: "coding/request", capability: "coding-request/v1" },
-    { name: "coding/vibe", capability: "coding-vibe/v1" },
     { name: "coding/verify", capability: "coding-verify/v1" },
     { name: "coding/wiki", capability: "coding-wiki/v1" },
     { name: "flow-load", capability: "flow-load/v1" }
   ])
   assert.deepEqual(configuredCodingRoutes({ planning }), [
-    { name: "coding/request", capability: "coding-request/v1" },
     { name: "coding/verify", capability: "coding-verify/v1" },
     { name: "coding/wiki", capability: "coding-wiki/v1" },
     { name: "flow-load", capability: "flow-load/v1" }
   ])
   // A project without a wiki registers no wiki route.
   assert.deepEqual(configuredCodingRoutes({ planning: { ...planning, wiki: false } }).map((route) => route.name), [
-    "coding/request",
     "coding/verify",
     "flow-load"
   ])
@@ -61,12 +57,12 @@ test("the repository default and a landing binding select the coding routes", as
   for (const lander of ["fast-forward", "pull-request"] as const) {
     assert.deepEqual(
       configuredCodingRoutes({ planning: { ...planning, wiki: false, landing: lander } }).map((route) => route.name),
-      ["coding/request", "coding/vibe", "coding/verify", "flow-load"]
+      ["coding/verify", "flow-load"]
     )
   }
 })
 
-test("a project lander configures coding/vibe without a backend binding", () => {
+test("a project lander configures internal delivery without a backend binding", () => {
   const options = {
     repositoryPath: "/unused",
     systemFlows,
@@ -135,9 +131,7 @@ test("coding deployment requires an explicit model and owning gateway before ope
     })
   )
   // A landing binding alone is a supported deployment: repository automation
-  // consumes Landing without the prompt route. `coding/vibe` stays out of the
-  // catalog until the project configuration is present too, so this configures
-  // rather than refuses (b1aebc1a19a6; flows/coding/finalization.md).
+  // consumes Landing without a public prompt route.
   assert.doesNotThrow(() =>
     layer({ ...platform, evaluator: makeHostJudge().layer }, {
       ...options,

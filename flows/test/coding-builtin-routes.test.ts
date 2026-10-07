@@ -35,6 +35,10 @@ import { RunTrigger } from "../repository/triggers.ts"
 import Todo from "../todo/flow.ts"
 import { systemFlows } from "./fixtures/system-flows.ts"
 
+import * as Command from "../../packages/smithers/agent/fs/src/Command.ts"
+import * as FileRouter from "../../packages/smithers/agent/fs/src/FileRouter.ts"
+import * as FlowInvoker from "../../packages/smithers/agent/fs/src/FlowInvoker.ts"
+
 const platform = process.versions.bun ? (await import("@effect/platform-bun/BunServices")).layer : NodeServices.layer
 const policy = "a".repeat(64)
 // Configuration never builds the adapter; only its presence selects `coding/vibe`.
@@ -118,34 +122,32 @@ test("a repository with no flows of its own serves the stack's review on the cod
 test("without the built-in routes the same repository fails the host's startup check", async (t) => {
   const { repositoryPath, stateRoot } = await workspace(t)
   assert.deepEqual((await startup(repositoryPath, stateRoot, "defaults")).missing, [
-    "coding/request",
-    "coding/vibe",
     "coding/verify",
     "coding/wiki",
     "flow-load"
   ])
 })
 
-test("a route the host stops serving is no longer discoverable under the same policy", async (t) => {
+test("retired routes stay absent with or without a landing binding", async (t) => {
   const { repositoryPath, stateRoot } = await workspace(t)
   const bound = await startup(repositoryPath, stateRoot, "host")
-  assert.ok(bound.listed.includes("coding/vibe"))
+  assert.equal(bound.listed.includes("coding/vibe"), false)
   const unbound = await startup(repositoryPath, stateRoot, "host", false)
   assert.deepEqual(unbound.missing, [])
   assert.equal(unbound.listed.includes("coding/vibe"), false)
-  assert.ok(unbound.listed.includes("coding/request"))
+  assert.equal(unbound.listed.includes("coding/request"), false)
   // The TODO composition is never a host route: only stack admission of a
   // pinned attempt may start it, and no host can tell such a launch apart.
   assert.equal(bound.listed.includes("todo") || unbound.listed.includes("todo"), false)
 })
 
 // 2026-09-29, production: in a workspace of smithersai/smithers the repository's
-// own flows/coding/request/flow.ts (the source of the built-in) shadowed the
+// own flows/coding/request/flow.ts (the former built-in source) shadowed the
 // bundled route and could not load on the host ("runs code this host cannot
 // pin"), so every coding host exited with "Required coding executable
 // coding/request is unavailable". An older copy of flows/coding.mdx in another
 // repository failed the same way.
-test("a repository's own coding route never replaces the one the host requires", async (t) => {
+test("a stale repository request entry cannot restore the retired route", async (t) => {
   const { repositoryPath, stateRoot } = await workspace(t)
   await mkdir(join(repositoryPath, "flows", "coding", "request"), { recursive: true })
   // Discovered, then refused at load (a prompt body needs the "agent"
@@ -156,7 +158,7 @@ test("a repository's own coding route never replaces the one the host requires",
   )
   const started = await startup(repositoryPath, stateRoot, "host")
   assert.deepEqual(started.missing, [])
-  assert.equal(started.listed.filter((name) => name === "coding/request").length, 1)
+  assert.equal(started.listed.filter((name) => name === "coding/request").length, 0)
 })
 
 const moduleSource = (name: string, description: string, topLevel = "") => `
@@ -445,14 +447,46 @@ test("an admitted pin loads the packaged default TODO without a repository overr
 
 test("legacy coding doors and engine verification/review are absent from model commands", async (t) => {
   const names = ["coding/request", "coding/vibe", "coding/verify", "review/change"]
-  const { catalog } = await boundary(t, names, names)
-  const { registry } = await catalog()
+  const { catalog, write } = await boundary(t, names, names)
+  for (const name of ["coding/request", "coding/vibe"]) {
+    await write(name, "throw new Error(\"retired modules must never import\")")
+  }
+  const { registry, built } = await catalog()
+  for (const name of ["coding/request", "coding/vibe"]) {
+    assert.equal(built.executables.some((entry) => entry.descriptor.name === name), false)
+    assert.equal((await Effect.runPromise(registry.getOption(name)))._tag, "None")
+    assert.equal((await Effect.runPromise(registry.loadBody(name).pipe(Effect.result)))._tag, "Failure")
+  }
   const visible = await Effect.runPromise(registry.visible())
   assert.deepEqual(visible.filter((entry) => names.includes(entry.name)), [])
   // Retained engine execution still resolves the packaged implementation.
-  for (const name of names) {
+  for (const name of ["coding/verify", "review/change"]) {
     const entry = await Effect.runPromise(registry.get(name))
     assert.equal(entry.name, name)
     assert.equal(entry.modelInvocable, false)
   }
+})
+
+test("filesystem commands cannot start the retired request or delivery entries", async () => {
+  await Effect.gen(function*() {
+    const { routes } = yield* FileRouter.scan({ root: fileURLToPath(new URL("../", import.meta.url)) })
+    assert.equal(routes.some((route) => ["coding/request", "coding/vibe"].includes(route.name)), false)
+    for (const name of ["coding/verify", "review/change"]) {
+      assert.equal(routes.find((route) => route.name === name)?.modelInvocable, false)
+    }
+    const commands = yield* Command.make(routes)
+    for (const command of ["coding request", "coding vibe", "coding verify", "review change"]) {
+      const result = yield* commands.execute(command).pipe(Effect.result)
+      assert.equal(result._tag, "Failure")
+    }
+  }).pipe(
+    Effect.provideService(
+      FlowInvoker.FlowInvoker,
+      FlowInvoker.make({
+        invoke: () => Effect.die("A retired command must never dispatch")
+      })
+    ),
+    Effect.provide(platform),
+    Effect.runPromise
+  )
 })
