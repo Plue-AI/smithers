@@ -22,6 +22,44 @@ type BootAuthority struct {
 	Credential string
 }
 
+// ItemBinding is read from the host workspace/lane binding, never from guest
+// requests. Zero explicitly names a scratch workspace; omission is unknown.
+type ItemBinding struct {
+	Number        uint64
+	Change        string
+	PreMoveCommit string
+}
+
+func (a BootAuthority) FileForItem(bridgePort uint16, item ItemBinding) ([]byte, error) {
+	if item.Number == 0 {
+		if item.Change != "" || item.PreMoveCommit != "" {
+			return nil, ErrUnauthorized
+		}
+		return append(a.File(bridgePort), []byte("item_number=0\n")...), nil
+	}
+	if len(item.Change) != 32 {
+		return nil, ErrNotReady
+	}
+	for _, c := range item.Change {
+		if c < 'k' || c > 'z' {
+			return nil, ErrNotReady
+		}
+	}
+	file := append(a.File(bridgePort), []byte(fmt.Sprintf("item_number=%d\nitem_change=%s\n", item.Number, item.Change))...)
+	if item.PreMoveCommit != "" {
+		if len(item.PreMoveCommit) != 40 {
+			return nil, ErrNotReady
+		}
+		for _, c := range item.PreMoveCommit {
+			if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+				return nil, ErrNotReady
+			}
+		}
+		file = append(file, []byte("moved_off="+item.PreMoveCommit+"\n")...)
+	}
+	return file, nil
+}
+
 // MintBoot fences the previous boot before returning data to the installer.
 func (r *Registry) MintBoot(branch, machine string) (BootAuthority, error) {
 	var a BootAuthority

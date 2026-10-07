@@ -238,16 +238,14 @@ mod tests {
             ("SMITHERS_URL", "OTHER_URL"),
             ("696e66", "FFFF66"),
         ] {
-            assert!(
-                Binding::parse(
-                    String::from_utf8(source())
-                        .unwrap()
-                        .replace(from, to)
-                        .as_bytes(),
-                    &user
-                )
-                .is_err()
-            );
+            assert!(Binding::parse(
+                String::from_utf8(source())
+                    .unwrap()
+                    .replace(from, to)
+                    .as_bytes(),
+                &user
+            )
+            .is_err());
         }
         assert!(Binding::parse(&vec![b' '; LIMIT + 1], &user).is_err());
         assert!(environment(br#"{"1INVALID":"x"}"#).is_err());
@@ -271,14 +269,12 @@ mod tests {
             "/run/smithers/20002/token/sessions/terminal-a/token",
             "/run/smithers/20001/token/sessions/terminal-b/token",
         ] {
-            assert!(
-                Binding::parse(
-                    text.replace("/run/smithers/20001/token/sessions/terminal-a/token", path)
-                        .as_bytes(),
-                    &member
-                )
-                .is_err()
-            );
+            assert!(Binding::parse(
+                text.replace("/run/smithers/20001/token/sessions/terminal-a/token", path)
+                    .as_bytes(),
+                &member
+            )
+            .is_err());
         }
         let agent = text
             .replace("\"ben\"", "\"agent\"")
@@ -292,18 +288,16 @@ mod tests {
             uid: 19999,
         };
         assert!(Binding::parse(agent.as_bytes(), &user).is_ok());
-        assert!(
-            Binding::parse(
-                agent
-                    .replace(
-                        "/run/smithers/sessions",
-                        "/run/smithers/20001/token/sessions"
-                    )
-                    .as_bytes(),
-                &user
-            )
-            .is_err()
-        );
+        assert!(Binding::parse(
+            agent
+                .replace(
+                    "/run/smithers/sessions",
+                    "/run/smithers/20001/token/sessions"
+                )
+                .as_bytes(),
+            &user
+        )
+        .is_err());
     }
     #[test]
     fn token_digest_and_framing_are_exact() {

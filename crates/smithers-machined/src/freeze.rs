@@ -29,6 +29,21 @@ pub fn freeze_then<T>(
     actor: &Actor,
     rewrite: impl FnOnce(&mut LockCx) -> Result<T>,
 ) -> Result<T> {
+    freeze_for(cx, actor, false, rewrite)
+}
+pub fn freeze_return<T>(
+    cx: &mut LockCx,
+    actor: &Actor,
+    rewrite: impl FnOnce(&mut LockCx) -> Result<T>,
+) -> Result<T> {
+    freeze_for(cx, actor, true, rewrite)
+}
+fn freeze_for<T>(
+    cx: &mut LockCx,
+    actor: &Actor,
+    returning: bool,
+    rewrite: impl FnOnce(&mut LockCx) -> Result<T>,
+) -> Result<T> {
     if cx.rewrite_pending {
         return Err(pending_error());
     }
@@ -60,7 +75,7 @@ pub fn freeze_then<T>(
     }
     // Set before calling native code: the executor catches panics, but must
     // never admit another mutation or thaw a possibly half-applied tree.
-    cx.begin_rewrite()?;
+    cx.begin_rewrite_for(returning)?;
     let output = match rewrite(cx) {
         Ok(output) => output,
         Err(error) => {

@@ -351,3 +351,35 @@ it.each(["edit", "patch"] as const)("%s computes from its captured base during a
     )
   })
 })
+
+// T-COL-10's daemon provider is substituted here. These assertions prove the
+// public standard tools propagate its moved_off refusal without another writer;
+// real cgroup dispatch and guest exclusion remain reference-host evidence.
+it.each(["write", "edit", "patch"] as const)("moved_off refuses %s through the prepared provider without disk or diagnostics", async (tool) => {
+  await fixture(async root => {
+    await Effect.runPromise(Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      let commits = 0, diagnostics = 0
+      const refusal = new StdError({ code: "moved_off", message: "Branch moved off its TODO" })
+      const versioned = guarded(fs, {
+        record: () => Effect.void, validate: () => Effect.void,
+        prepare: () => Effect.succeed({
+          read: () => Effect.succeed(new TextEncoder().encode("original\n")),
+          commit: () => Effect.sync(() => { commits++ }).pipe(Effect.andThen(Effect.fail(refusal)))
+        })
+      })
+      const action = tool === "write" ? Write.run({ path: join(root, "a"), content: "mine" }).pipe(Effect.asVoid)
+        : tool === "edit" ? Edit.run({ path: join(root, "a"), oldString: "original", newString: "mine" }).pipe(Effect.asVoid)
+        : ApplyPatch.run({ input: patch(root) }).pipe(Effect.asVoid)
+      const error = yield* Effect.flip(action.pipe(
+        Effect.provideService(FileSystem.FileSystem, versioned),
+        Effect.provideService(LanguageServer.LanguageServer, { ...LanguageServer.makeNoop(), sync: () => Effect.sync(() => { diagnostics++ }), close: () => Effect.sync(() => { diagnostics++ }) })
+      ))
+      expect(error).toBe(refusal)
+      expect(commits).toBe(1)
+      expect(diagnostics).toBe(0)
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped))
+    expect((await readdir(root)).sort()).toEqual(["a", "b", "delete", "move"])
+    for (const name of ["a", "b", "delete", "move"]) expect(await readFile(join(root, name), "utf8")).toBe("original\n")
+  })
+})

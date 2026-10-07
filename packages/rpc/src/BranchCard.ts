@@ -114,7 +114,8 @@ export const BranchActivityEntry = z.strictObject({
     before_blob: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/).optional(),
     after_blob: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/).optional()
   })),
-  versions: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/).optional()
+  versions: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/).optional(),
+  text: z.string().optional()
 })
 /** @since 1.0.0 @category models */
 export type BranchActivityEntry = z.infer<typeof BranchActivityEntry>

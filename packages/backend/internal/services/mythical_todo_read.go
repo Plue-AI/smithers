@@ -144,6 +144,12 @@ func (s *MythicalService) todoCardAtQueuePosition(ctx context.Context, item db.M
 			actions = append(actions, map[string]any{"tag": "todo.answer", "label": "Answer",
 				"input": []any{map[string]any{"name": "answer", "label": "Answer", "kind": "text", "required": true}}})
 		}
+		if wait.Kind == "moved_off" && wait.AnsweredBy == "" && mythicalSHA.MatchString(wait.SHA) {
+			if s.movedReturn != nil {
+				actions = append(actions, map[string]any{"tag": "todo.return-to-item", "label": fmt.Sprintf("Return to T%d", item.Number.Int64)})
+			}
+			actions = append(actions, map[string]any{"tag": "todo.keep-moved", "label": "Keep for now"})
+		}
 		// Only offer the composed person-decision door for the retained head.
 		// Bring in still requires the machine checkpoint provider.
 		if wait.Kind == "foreign_push" && wait.ID != "" && mythicalSHA.MatchString(wait.SHA) && strings.Trim(wait.SHA, "0") != "" &&
@@ -151,6 +157,16 @@ func (s *MythicalService) todoCardAtQueuePosition(ctx context.Context, item db.M
 			actions = append(actions, map[string]any{"tag": "branch.discard-foreign", "label": "Discard"})
 		}
 		projected := map[string]any{"id": wait.ID, "kind": wait.Kind, "prompt": wait.Prompt, "since": wait.Since, "actions": actions}
+		if wait.Return != nil && wait.Return.Error != "" {
+			projected["return_error"] = wait.Return.Error
+			if s.movedReturn != nil {
+				projected["actions"] = []any{map[string]any{"tag": "todo.return-to-item", "label": fmt.Sprintf("Return to T%d", item.Number.Int64)}}
+			}
+		}
+		if wait.AnsweredBy != "" {
+			projected["answered_by"] = wait.AnsweredBy
+			projected["answer"] = wait.Answer
+		}
 		if wait.SHA != "" {
 			projected["sha"] = wait.SHA
 		}

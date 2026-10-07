@@ -217,8 +217,8 @@ export interface CardCommandInput {
   readonly "docs": { readonly page?: string }
   readonly "debug-api": undefined
   readonly "debug.api": { readonly operationId?: string; readonly intent?: "open" | "send" | "confirm"; readonly values?: Record<string, string>; readonly confirmation?: string }
-  readonly "todo.return-to-item": { readonly n: number }
-  readonly "todo.keep-moved": { readonly n: number }
+  readonly "todo.return-to-item": { readonly n: number; readonly id?: string }
+  readonly "todo.keep-moved": { readonly n: number; readonly id?: string }
   readonly "branch.bring-in": z.infer<typeof BranchForeignAnswerInputSchema>
   readonly "branch.discard-foreign": z.infer<typeof BranchForeignAnswerInputSchema>
   readonly "file.restore": { readonly path: string; readonly revision: string; readonly post_digest?: string }

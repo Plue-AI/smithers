@@ -63,7 +63,7 @@ export const todoActionDefinitions = (model: TodoCard, role: TodoContainerProps[
           if ((action.tag !== "branch.discard-foreign" || role !== "member") && wait.kind === "foreign_push" && wait.id && wait.sha && model.branch) definitions.push({ ...action, tag: action.tag, args: { ...action.args, wait: wait.id }, command_input: { branch: model.branch.name, id: wait.id, revision: wait.sha } })
           break
         case "todo.return-to-item": case "todo.keep-moved":
-          definitions.push({ ...action, tag: action.tag, args: { ...action.args, wait: wait.id }, command_input: { n } }); break
+          definitions.push({ ...action, tag: action.tag, args: { ...action.args, wait: wait.id }, command_input: { n, id: wait.id } }); break
       }
     }
   }

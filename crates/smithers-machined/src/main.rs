@@ -8,7 +8,9 @@ fn main() {
         #[cfg(target_os = "linux")]
         Some("daemon") => smithers_machined::installed::run().map(|()| true),
         #[cfg(target_os = "linux")]
-        Some("transcript-reader") if args.len() == 1 => smithers_machined::transcript::reader::run().map(|()| true),
+        Some("transcript-reader") if args.len() == 1 => {
+            smithers_machined::transcript::reader::run().map(|()| true)
+        }
         #[cfg(target_os = "linux")]
         Some("broker") => smithers_machined::broker::process::run().map(|()| true),
         #[cfg(target_os = "linux")]

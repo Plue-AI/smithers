@@ -2,6 +2,8 @@ package compose
 
 import (
 	"context"
+	"encoding/json"
+	"strconv"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -10,6 +12,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
 type machineBurstStore struct{ host *repohost.Client }
@@ -34,7 +37,7 @@ func machineBurstObservations(metrics *routes.SmithersMetrics, registry *machine
 	return bursts.Inc
 }
 
-func bindMachineEvents(ctx context.Context, registry *machined.Registry, pool *pgxpool.Pool, host *repohost.Client, observeCommitted func()) (func(), error) {
+func bindMachineEvents(ctx context.Context, registry *machined.Registry, pool *pgxpool.Pool, host *repohost.Client, observeCommitted func(), moved ...*services.MythicalService) (func(), error) {
 	if registry == nil {
 		return func() {}, nil
 	}
@@ -45,7 +48,23 @@ func bindMachineEvents(ctx context.Context, registry *machined.Registry, pool *p
 	// can establish an earlier actor after close, revocation or counter reuse.
 	burst := &machined.BurstIngest{Pool: pool, Objects: machineBurstStore{host}, ObserveCommitted: observeCommitted}
 	return registry.ConsumeEvents(ctx, func(ctx context.Context, link *machined.Link, branch string, event machined.Event) (machined.Acknowledgement, error) {
+		colors := map[string]int{}
+		if len(event.Payload) > 0 && event.Payload[0] == 4 && len(moved) > 0 && moved[0] != nil {
+			roster, err := (&services.Members{Pool: pool}).SharedRoster(ctx)
+			if err != nil {
+				return machined.Acknowledgement{}, err
+			}
+			for _, member := range roster.Members {
+				colors[member.Login] = member.ColorIndex
+			}
+		}
+
 		ingest := &machined.Ingestor{Pool: pool, Bursts: burst, Prepare: func(ctx context.Context, tx pgx.Tx, branch string, event machined.Event) (machined.EventWriter, error) {
+			if len(event.Payload) > 0 && event.Payload[0] == 4 && len(moved) > 0 && moved[0] != nil {
+				return moved[0].PrepareStoredMovedOffEvent(link.Machine(), func(ctx context.Context, tx pgx.Tx, raw json.RawMessage) (json.RawMessage, error) {
+					return machineMovedActor(ctx, tx, raw, colors)
+				})(ctx, tx, branch, event)
+			}
 			if len(event.Payload) == 0 || (event.Payload[0] != 2 && event.Payload[0] != 3) {
 				return nil, machined.ErrNotReady
 			}
@@ -93,4 +112,48 @@ func machineBranchHead(pool *pgxpool.Pool, host *repohost.Client) func(context.C
 		})
 		return head, err
 	}
+}
+
+// Reuse the same public actor renderers as branch activity, without acquiring a
+// second pool connection while the event transaction holds the registry fence.
+func machineMovedActor(ctx context.Context, tx pgx.Tx, raw json.RawMessage, colors map[string]int) (json.RawMessage, error) {
+	var actor struct {
+		Kind    string `json:"kind"`
+		ID      string `json:"id"`
+		Member  string `json:"member_id"`
+		Via     string `json:"via"`
+		Agent   string `json:"agent_kind"`
+		Run     string `json:"run_id"`
+		Sponsor string `json:"for_member"`
+	}
+	if err := json.Unmarshal(raw, &actor); err != nil {
+		return nil, err
+	}
+	if actor.Kind == "outside" {
+		return raw, nil
+	}
+	member := actor.Member
+	if actor.Kind == "agent" {
+		member = actor.Sponsor
+	}
+	id, err := strconv.ParseInt(member, 10, 64)
+	if err != nil {
+		return nil, err
+	}
+	person, err := db.New(tx).GetUserByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	var result map[string]any
+	if actor.Kind == "person" {
+		result = branchPersonActor(person, colors[person.Username])
+		if actor.Via == "ssh" || actor.Via == "terminal" || actor.Via == "cli" {
+			result["via"] = actor.Via
+		}
+	} else if actor.Kind == "agent" {
+		result = branchAgentActor(actor.ID, leaseParticipant{AgentKind: actor.Agent, RunID: actor.Run, DisplayName: actor.Agent}, &person, colors[person.Username])
+	} else {
+		return nil, machined.ErrUnauthorized
+	}
+	return json.Marshal(result)
 }

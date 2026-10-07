@@ -1338,6 +1338,9 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		s.logger.Warn("mythical.items_failed", "repository_id", r.row.RepositoryID, "error", err)
 		return
 	}
+	for _, item := range items {
+		s.advanceMovedReturn(ctx, item)
+	}
 	if s.installGitHubPolling {
 		pulls, err := q.ListMythicalOpenPullItems(ctx, r.row.RepositoryID, s.now())
 		if err != nil {
@@ -1507,6 +1510,13 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		// the previous proposal's regular poll is still scheduled in the future.
 		// That read fences queued pre-Drop snapshots before reopening is admitted.
 		needsDropRead := item.State == "cancelled" && mythicalReopenFollowed(item, step.now) && mythicalChecksOf(item).GitHubDropRead == nil
+		// A moved branch keeps its attempt and captured change. The Return
+		// worker above may resolve the branch; metadata settlement, rather
+		// than its launch acknowledgement, releases ordinary advancement.
+		if !needsDropRead && slices.ContainsFunc(todoOpenWaits(item), func(wait TodoWait) bool { return wait.Kind == "moved_off" }) {
+			r.dueAt(step.now.Add(time.Second))
+			continue
+		}
 		if !needsDropRead && item.NextAttemptAt.Valid && item.NextAttemptAt.Time.After(step.now) {
 			if retryAt, err := s.fetchInstallPullHint(ctx, item); !retryAt.IsZero() {
 				r.dueAt(retryAt)

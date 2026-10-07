@@ -1511,6 +1511,13 @@
       "expected": "ok",
       "local": false,
       "sha256": "272c46c9eaf68e42d55c587417d878c12a9cf8261496b6981647490ad52584b3"
+    },
+    {
+      "name": "ev_moved_off_returned",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "295a138387fe2874b341d9cc139ded79ef6e5b3ca2e421a62bd87463f6aa93a4"
     }
   ],
   "sequences": {

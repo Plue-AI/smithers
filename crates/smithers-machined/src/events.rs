@@ -119,12 +119,16 @@ pub trait Provider<A>: Objects {
     ) -> io::Result<()>;
     fn where_file(&mut self, session: u32, path: &str) -> io::Result<()>;
     fn moved_off(&mut self) -> io::Result<()>;
+    fn moved_off_attributed(&mut self, _actor: Option<&A>) -> io::Result<()> {
+        self.moved_off()
+    }
     fn snapshot(&mut self) -> io::Result<()>;
 }
 pub struct Changes<A, B> {
     pub state: Checkpoint<A, B>,
     own: BTreeMap<String, Option<[u8; 32]>>,
     metadata_at: Option<u64>,
+    metadata_window: Option<Window<A>>,
     blocked: bool,
     resync_required: bool,
     poisoned: bool,
@@ -145,6 +149,7 @@ impl<A: Eq + Clone, B: Eq + Clone> Changes<A, B> {
             state,
             own,
             metadata_at: None,
+            metadata_window: None,
             blocked: true,
             resync_required: true,
             poisoned: false,
@@ -174,6 +179,9 @@ impl<A: Eq + Clone, B: Eq + Clone> Changes<A, B> {
         self.healthy()?;
         match p.samples() {
             Ok(samples) => {
+                if let Some(window) = &mut self.metadata_window {
+                    window.observe(&samples);
+                }
                 for (_, _, w) in &mut self.state.identities {
                     if let Some(w) = w {
                         w.observe(&samples);
@@ -305,13 +313,26 @@ impl<A: Eq + Clone, B: Eq + Clone> Changes<A, B> {
                 .is_some_and(|t| now.saturating_sub(t) >= 200)
         {
             self.blocked = true;
-            p.moved_off()?;
+            let actor = self
+                .metadata_window
+                .as_ref()
+                .and_then(Window::actor)
+                .map(|(_, actor)| actor);
+            p.moved_off_attributed(actor.as_ref())?;
             self.metadata_at = None;
+            self.metadata_window = None;
             self.blocked = false;
         }
         Ok(())
     }
     pub fn metadata(&mut self, now: u64) {
+        if self.metadata_window.is_none() {
+            self.metadata_window = Some(Window::new(if self.previous_samples.is_empty() {
+                &self.samples
+            } else {
+                &self.previous_samples
+            }));
+        }
         self.metadata_at = Some(now);
         self.blocked = true;
     }
@@ -515,8 +536,9 @@ impl<A: Eq + Clone, B: Eq + Clone> Changes<A, B> {
             .reset_clock(now)
             .map_err(io::Error::other)?;
         self.save(p)?;
-        p.moved_off()?;
+        p.moved_off_attributed(None)?;
         self.metadata_at = None;
+        self.metadata_window = None;
         self.resync_required = false;
         self.blocked = false;
         Ok(())

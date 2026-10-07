@@ -51,6 +51,8 @@ var todoControls = map[string]func(*MythicalService, context.Context, int64, Tod
 	"drop":               (*MythicalService).dropTodo,
 	"move":               (*MythicalService).moveTodo,
 	"takeover":           (*MythicalService).takeoverTodo,
+	"keep-moved":         (*MythicalService).keepMovedTodo,
+	"return-to-item":     (*MythicalService).returnMovedTodo,
 }
 
 // TodoControlCommand resolves the concrete body operation before authorization.
@@ -70,6 +72,10 @@ func TodoControlCommand(op string) (string, bool) {
 		return "todo.stop", true
 	case "resume":
 		return "todo.resume", true
+	case "keep-moved":
+		return "todo.keep-moved", true
+	case "return-to-item":
+		return "todo.return-to-item", true
 	default:
 		return "", false
 	}
@@ -113,6 +119,10 @@ func (input TodoControlInput) validate() error {
 		return &TodoControlError{http.StatusBadRequest, "invalid_control", "user", "Only a move takes a direction"}
 	}
 	switch input.Op {
+	case "keep-moved", "return-to-item":
+		if input.Steer != nil || input.Wait == "" || len(input.Wait) > 256 {
+			return &TodoControlError{http.StatusBadRequest, "invalid_control", "user", "Choose the open wait"}
+		}
 	case "move":
 		if input.Steer != nil {
 			return &TodoControlError{http.StatusBadRequest, "invalid_control", "user", "This control does not accept a steer"}

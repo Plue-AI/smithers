@@ -20,7 +20,8 @@ export const pendingControlFlows = (actions: CommandActions) => bind(pendingCont
   Object.fromEntries(pendingControls.map(operation => [operation.name, operation.name === "todo.preapprove" || operation.name === "todo.unapprove" ? (input: { n: number }) => actions.preapproveTodo(input.n, operation.name === "todo.preapprove")
     : operation.name === "todo.takeover" ? (input: { n: number }) => actions.controlTodo(input.n, "takeover")
     : operation.name === "branch.rebase-now" ? (input: { branch: string }) => actions.branchControls?.request("rebase", input.branch) ?? { refusal: unavailable }
-    : operation.name === "todo.return-to-item" || operation.name === "todo.keep-moved" ? (input: { n: number }) => actions.branchControls?.request(operation.name === "todo.return-to-item" ? "return-to-item" : "keep-moved", `T${input.n}`) ?? { refusal: unavailable }
+    : operation.name === "todo.keep-moved" ? (input: { n: number; id?: string }) => actions.controlTodo(input.n, "keep-moved", undefined, input.id)
+    : operation.name === "todo.return-to-item" ? (input: { n: number; id?: string }) => actions.controlTodo(input.n, "return-to-item", undefined, input.id)
     : operation.name === "branch.bring-in" ? (input: { branch: string; id: string; revision: string }) => actions.bringIn(input.branch, input.id, input.revision)
     : operation.name === "branch.discard-foreign" ? (input: { branch: string; id: string; revision: string }) => actions.discardForeign(input.branch, input.id, input.revision)
     : operation.name === "order.ok" ? (input: { id: string; revision: number }) => actions.orderOK(input.id, input.revision)

@@ -183,7 +183,8 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       if (toasted && !before.has(id) && live()) ctx.dispatch({ type: "toast.shown", actor: "system", key: needsYouKey(n, id), title: `T${n} needs you`,
         sourceCard: `todo:${n}`, audience: { member: owner()!, entryId: needsYouKey(n, id), kind,
           actorLabel: wait.by ? actorName(wait.by) : actorLabel,
-          target: { flow: "todo", n } }, action: { flow: "todo", args: `T${n}`, label: wait.kind === "question" ? "Answer" : "Open" } })
+          target: wait.kind === "moved_off" ? { flow: "branch", branch: `T${n}` } : { flow: "todo", n } },
+        action: { flow: wait.kind === "moved_off" ? "branch" : "todo", args: `T${n}`, label: wait.kind === "moved_off" ? "Resolve" : wait.kind === "question" ? "Answer" : "Open" } })
     }
     // The served owner and attempt identify these events; ordinary work receipts are not audience facts.
     if (model.owner.login === owner() && live() && (model.state === "in_review" || model.state === "failed")
@@ -234,6 +235,13 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         ? [] : [{ key: request.key, outcome: { status: "ok" as const, detail: request.operation === "bring-in" ? "Brought in" : "Discarded" } }]
       if (request.operation === "takeover") return model.owner.login === request.owner
         ? [{ key: request.key, outcome: { status: "ok" as const, detail: "Taken over" } }] : []
+      if (request.operation === "return-to-item") {
+        const wait = model.waits.find(wait => wait.id === request.body.id)
+        return wait?.return_error ? [{ key: request.key, outcome: { status: "failed" as const, detail: wait.return_error } }]
+          : wait ? [] : [{ key: request.key, outcome: { status: "ok" as const, detail: "Returned" } }]
+      }
+      if (request.operation === "keep-moved") return model.waits.some(wait => wait.id === request.body.id && wait.answer === "keep-moved" && wait.answered_by === request.owner)
+        ? [{ key: request.key, outcome: { status: "ok" as const, detail: "Kept" } }] : []
       // Admission is not a pause receipt. Branch waits rank above Paused, so
       // the durable pause projection, rather than only the state word, settles Stop.
       if (request.operation === "stop" || request.operation === "resume") {
@@ -268,7 +276,14 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     })
     receipts = [...receipts, ...observed]
     await write({ ...card, title: model.title, payload: { ...card.payload, model,
-      requests: card.payload.requests.filter(request => !receipts.some(receipt => receipt.key === request.key && receipt.outcome)),
+      requests: card.payload.requests.flatMap(request => {
+        const receipt = receipts.find(receipt => receipt.key === request.key && receipt.outcome)
+        if (!receipt) return [request]
+        // Retain the winning Return key for a retry. A new key would be a second
+        // answer to the same durable choice, which the host correctly refuses.
+        return request.operation === "return-to-item" && receipt.outcome?.status === "failed"
+          ? [{ ...request, state: "failed" as const, error: receipt.outcome.detail }] : []
+      }),
       ...(receipts.some(receipt => receipt.outcome?.status === "ok" && card.payload.requests.some(request => request.key === receipt.key && request.operation === "steer"))
         ? { answerDraft: undefined, answeredBy: undefined } : {})
     } }, "system")
@@ -313,7 +328,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const title = row?.title ?? "TODO"
     showNotice(request, title)
     // An answer has its own route (POST /api/todos/{n}/answer); the other controls share the TODO's.
-    const control = ["steer", "stop", "resume", "retry", "retry-current-flow", "drop", "move", "takeover"].includes(request.operation)
+    const control = ["steer", "stop", "resume", "retry", "retry-current-flow", "drop", "move", "takeover", "keep-moved", "return-to-item"].includes(request.operation)
     const route = ["discard-foreign", "bring-in"].includes(request.operation) ? `/api/branches/${encodeURIComponent(String(request.body.branch))}`
       : request.operation === "create" ? TODOS_PATH
       : ["preapprove", "unapprove"].includes(request.operation) ? `${todoPath(request.n!)}/preapproval`
@@ -331,6 +346,16 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
           if (!current(login, revision)) return
           if (!parsed.success || parsed.data.n !== request.n || !parsed.data.run) { await fail("Could not open the TODO."); return }
           request = { ...request, attempt: parsed.data.run.attempt }
+          await updateRequest(cardId, request)
+        }
+        if (["keep-moved", "return-to-item"].includes(request.operation) && request.body.id === undefined) {
+          const snapshot = await ctx.http(`${ctx.baseUrl}${todoPath(request.n!)}`, { credentials: "include", signal: abort.signal })
+          if (!current(login, revision)) return
+          const parsed = TodoCardSchema.safeParse(snapshot.ok ? await snapshot.json().catch(() => null) : null)
+          if (!current(login, revision)) return
+          const wait = parsed.success && parsed.data.n === request.n ? parsed.data.waits.find(wait => wait.kind === "moved_off" && (!wait.answered_by || wait.return_error !== undefined)) : undefined
+          if (!wait) { await fail("Wait is settled."); return }
+          request = { ...request, body: { ...request.body, id: wait.id } }
           await updateRequest(cardId, request)
         }
         // Drafts (including restored requests) also retain creation metadata.
@@ -842,7 +867,13 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       return request(n, "answer", { answer, wait: id })
     },
     steerTodo: (n: number, text: string) => request(n, "steer", { text }),
-    controlTodo: (n: number, operation: "stop" | "resume" | "retry" | "retry-current-flow" | "drop" | "takeover", text?: string) => request(n, operation, text ? { steer: text } : {}),
+    controlTodo: (n: number, operation: "stop" | "resume" | "retry" | "retry-current-flow" | "drop" | "takeover" | "keep-moved" | "return-to-item", text?: string, waitId?: string) => {
+      if (operation === "keep-moved" || operation === "return-to-item") {
+        const wait = entry(n)?.payload.model?.waits.find(wait => wait.kind === "moved_off" && (!wait.answered_by || wait.return_error !== undefined))
+        return request(n, operation, waitId ? { id: waitId } : wait ? { id: wait.id } : {})
+      }
+      return request(n, operation, text ? { steer: text } : {})
+    },
     /** Move up or Move down (POST /api/todos/{n} {op: move, direction}); a press while the last is pending is that press. */
     moveTodo: (n: number, direction: "up" | "down") => request(n, "move", { direction }),
     disposeTodos: stop }

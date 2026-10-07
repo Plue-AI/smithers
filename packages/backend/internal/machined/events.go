@@ -122,7 +122,7 @@ func (s *BurstIngest) Apply(ctx context.Context, connection *Connection, scope j
 		}
 	}
 	if actor == nil && !legacyReplay {
-		actor, err = resolveStoredEventActor(ctx, tx, branch, connection.boot.machine, b.Actor)
+		actor, err = ResolveStoredEventActor(ctx, tx, branch, connection.boot.machine, b.Actor)
 		if err != nil {
 			return ack, err
 		}
@@ -461,7 +461,7 @@ func (s *BurstIngest) Hint(ctx context.Context, connection *Connection, branch s
 	}
 	defer rollbackActorEvent(ctx, tx)
 	if actor == nil {
-		actor, err = resolveStoredEventActor(ctx, tx, branch, connection.boot.machine, hint.Actor)
+		actor, err = ResolveStoredEventActor(ctx, tx, branch, connection.boot.machine, hint.Actor)
 		if err != nil {
 			return err
 		}
@@ -512,7 +512,7 @@ func (s *BurstIngest) resolveLegacyActor(ctx context.Context, branch string, act
 // An authenticated machine can only resolve its own committed references.
 // Unknown references never fall back to a live session, roster or outside actor.
 // Stored data uses the shared branch actor renderer's historical representation.
-func resolveStoredEventActor(ctx context.Context, tx pgx.Tx, branch, machine string, actor wire.Actor) (json.RawMessage, error) {
+func ResolveStoredEventActor(ctx context.Context, tx pgx.Tx, branch, machine string, actor wire.Actor) (json.RawMessage, error) {
 	switch actor.Kind {
 	case 1:
 		identity, err := ResolveActorInTx(ctx, tx, branch, machine, actor.Principal)

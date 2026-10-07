@@ -620,6 +620,8 @@ const TodoRequestSchema = z.object({
     "merge",
     "move",
     "takeover",
+    "keep-moved",
+    "return-to-item",
     "discard-foreign",
     "bring-in",
     "preapprove",

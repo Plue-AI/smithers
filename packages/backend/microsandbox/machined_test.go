@@ -18,6 +18,13 @@ func TestInstalledMachinedRequiresPinnedHostProvidersBeforeGuestEffects(t *testi
 	require.False(t, reached)
 	bundle, _ := approvedBundleFixture(t)
 	r.config.Bundle = pinned(t, bundle)
+	// A bound item identity is required before artifact checks or guest effects.
+	require.ErrorIs(t, r.EnsureMachined(t.Context(), "a"), ErrUnavailable)
+	require.False(t, reached)
+	r.BindMachinedItem(func(context.Context, string) (machined.ItemBinding, error) {
+		reached = true
+		return machined.ItemBinding{}, nil
+	})
 	stop, err := r.machined.ConsumeEvents(t.Context(), func(context.Context, *machined.Link, string, machined.Event) (machined.Acknowledgement, error) {
 		return machined.Acknowledgement{}, machined.ErrNotReady
 	})

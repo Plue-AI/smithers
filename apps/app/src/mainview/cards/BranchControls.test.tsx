@@ -5,16 +5,58 @@ import { ControllerTestProvider } from "../ControllerContext"
 import { CARD_RENDERERS } from "./CardRenderers"
 import { createAppController } from "../state/AppController"
 import { createAppStore } from "../state/AppStore"
-import { memoryStorage, signupProfileFetch, unavailableAgent } from "../state/TestFixtures"
+import { memoryStorage, signupProfileFetch, unavailableAgent, waitFor } from "../state/TestFixtures"
 import type { BranchControl } from "../state/seams/BranchControlsSeam"
+import { fixtures as todos } from "../../../../../packages/rpc/test/fixtures/Todo"
 
 const actions = { onDecideApproval: () => {}, onConnectGitHub: () => {}, onRunWorkflow: () => {}, onStopRun: () => {}, onRetryRun: () => {}, onChooseWorkflowRepo: () => {}, worldDocuments: [], onChangeWorldDocument: () => {}, onRunCommand: () => {} }
 const cases = [
   ["sleep", "box.suspend", "awake"], ["wake", "box.resume", "asleep"],
   ["rebase", "branch.rebase-now", "awake"],
-  ["return-to-item", "todo.return-to-item", "awake"], ["keep-moved", "todo.keep-moved", "awake"],
   ["wake", "box.resume", "failed"], ["rebase", "branch.rebase", "awake"]
 ] as const
+
+for (const [flow, operation] of [["todo.return-to-item", "return-to-item"], ["todo.keep-moved", "keep-moved"]] as const)
+for (const ready of [false, true]) test(`mounted ${flow} uses the served wait's control and identity (${ready})`, async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const writes: Array<{ path: string; body: unknown }> = []
+  const todo = { ...todos.working.model, n: 2, state: "needs_you", waits: [{ id: "moved-original", kind: "moved_off", prompt: "Ben moved this branch off T2", since: "2026-10-07T00:00:00Z", actions: ready ? [{ tag: flow, label: operation === "keep-moved" ? "Keep for now" : "Return to T2" }] : [] }] }
+  let resolve!: (response: Response) => void
+  const launch = new Promise<Response>(done => { resolve = done })
+  const profile = signupProfileFetch(async (input, init) => {
+    const path = new URL(String(input), "https://install.test").pathname
+    if (init?.method === "POST") { writes.push({ path, body: JSON.parse(String(init.body)) }); return launch }
+    if (path === "/api/todos") return Response.json([todo])
+    if (path === "/api/todos/2") return Response.json(todo)
+    if (path === "/api/branches/scratch%2Fben%2Ftry") return Response.json({ name: "scratch/ben/try", machine: { id: "b-contract" } })
+    return new Response("{}", { status: 404 })
+  })
+  const actor = { kind: "person", login: "ben", name: "Ben", avatar_url: "https://example.test/ben.png", color_index: 1 }
+  const movedSnapshots = new Map([
+    ["branch:b-contract", { topic: "branch:b-contract", data: { id: "b-contract", name: "scratch/ben/try", machine: { state: "awake" }, item: { n: 2, title: "Item", state: "needs_you", place: 1 }, moved_off: { by: actor, item: 2 }, presence: [], terminals: [], ssh_line: "ssh branch@localhost" } }],
+    ["branch:b-contract:activity", { topic: "branch:b-contract:activity", data: [] }], ["branch:b-contract:files", { topic: "branch:b-contract:files", data: [] }]
+  ])
+  const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl,
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null },
+    live: { subscribe: () => () => {}, getSnapshot: topic => movedSnapshots.get(topic) } })
+  const host = document.createElement("div"), root = createRoot(host)
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    await controller.runCommandForResult("branch", "scratch/ben/try")
+    const card = store.collections.cards.get("branch:b-contract")!
+    if (card.kind !== "branch") throw new Error("Expected branch")
+    await act(async () => { root.render(<ControllerTestProvider controller={controller}>{CARD_RENDERERS.branch.render(card, actions)}</ControllerTestProvider>); await new Promise(done => setTimeout(done, 30)) })
+    await act(async () => { await waitFor(() => controller.todoList.get().todos?.length === 1) })
+    expect(controller.todoList.get().todos).toHaveLength(1)
+    const button = host.querySelector<HTMLButtonElement>(`[data-flow="${flow}"]`)
+    if (!ready) { expect(button).toBeNull(); expect(writes).toEqual([]); return }
+    expect(button).not.toBeNull()
+    await act(async () => { button!.click(); await new Promise(done => setTimeout(done, 30)) })
+    expect(writes).toEqual([{ path: "/api/todos/2", body: { op: operation, id: "moved-original" } }])
+    expect(store.collections.cards.get("todo:2")?.kind).toBe("todo")
+    resolve(Response.json({ state: "accepted", n: 2 }, { status: 202 }))
+  } finally { resolve(Response.json({ state: "accepted", n: 2 }, { status: 202 })); await act(async () => root.unmount()); await controller.dispose() }
+})
 
 // Contract fakes qualify dark bindings only; they are not install acceptance receipts.
 for (const [operation, flow, state] of cases) for (const ready of [false, true]) test(`mounted ${flow} binds only its ${operation} provider (${ready})`, async () => {

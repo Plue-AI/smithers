@@ -28,6 +28,7 @@ struct Fixture {
     where_file: Vec<(u32, String)>,
     order: Vec<&'static str>,
     moved_ok: bool,
+    moved_actor: Option<String>,
     append_ok: bool,
 }
 impl Fixture {
@@ -57,6 +58,7 @@ impl Fixture {
             where_file: vec![],
             order: vec![],
             moved_ok: true,
+            moved_actor: None,
             append_ok: true,
         };
         f.git(&["config", "user.name", "Fixture"], None).unwrap();
@@ -250,6 +252,10 @@ impl Provider<String> for Fixture {
         } else {
             Err(io::Error::other("moved-off unavailable"))
         }
+    }
+    fn moved_off_attributed(&mut self, actor: Option<&String>) -> io::Result<()> {
+        self.moved_actor = actor.cloned();
+        self.moved_off()
     }
     fn snapshot(&mut self) -> io::Result<()> {
         self.order.push("snapshot");
@@ -503,6 +509,7 @@ fn overflow_scan_delete_snapshot_and_moved_off_before_writes() {
     assert!(!w.changes.writes_blocked());
     assert_eq!(f.events.len(), 1);
     assert!(f.events[0].actor.is_none());
+    assert!(f.moved_actor.is_none());
     assert!(f.events[0].files["deleted"].after.is_none());
     assert_eq!(
         f.bytes(&f.events[0].files["new/x"].after.as_ref().unwrap().blob),
@@ -567,6 +574,7 @@ fn fault_child() {
         where_file: vec![],
         order: vec![],
         moved_ok: true,
+        moved_actor: None,
         append_ok: true,
     };
     f.checkpoint = Some(load_checkpoint(&f.state));
@@ -800,6 +808,24 @@ fn metadata_debounce_never_emits_file_activity() {
     w.changes.tick(&mut f, 300).unwrap();
     assert_eq!(f.order, ["moved"]);
     assert!(!w.changes.writes_blocked());
+}
+#[test]
+fn metadata_window_attributes_one_member_and_refuses_ambiguous_activity() {
+    for (cpu, expected) in [
+        ([1, 0, 0], Some("maya")),
+        ([1, 1, 0], None),
+        ([0, 0, 0], None),
+    ] {
+        let mut f = Fixture::new();
+        let mut w = f.watcher();
+        f.cpu = cpu;
+        f.write(".git/HEAD", b"ref: refs/heads/moved\n");
+        poll_until(&mut f, &mut w, 100, |_, w| w.changes.writes_blocked());
+        w.changes.tick(&mut f, 300).unwrap();
+        assert_eq!(f.moved_actor.as_deref(), expected);
+        assert_eq!(f.order, ["moved"]);
+        assert!(f.events.is_empty());
+    }
 }
 #[test]
 fn all_hints_carry_literal_sha256_post_digest() {

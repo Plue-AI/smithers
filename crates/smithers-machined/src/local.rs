@@ -19,6 +19,57 @@ fn unauthorized() -> Error {
         ..Error::unsupported()
     }
 }
+pub(crate) fn write_response(
+    cx: &mut crate::lock::LockCx,
+    files: &Files,
+    id: u32,
+    args: conn::WriteArgs,
+    admitted_epoch: u64,
+) -> Frame {
+    if cx.epoch.load(std::sync::atomic::Ordering::SeqCst) != admitted_epoch {
+        return daemon::refused(
+            id,
+            Error {
+                code: if admitted_epoch < cx.return_epoch {
+                    10
+                } else {
+                    4
+                },
+                ..Error::unsupported()
+            },
+        );
+    }
+    match files.write(cx, args) {
+        Ok(body) => daemon::response(id, 3, body),
+        Err(error) => daemon::refused(id, error),
+    }
+}
+pub(crate) fn batch_response(
+    cx: &mut crate::lock::LockCx,
+    files: &Files,
+    id: u32,
+    changes: Vec<crate::hooks::FileWrite>,
+    actor: crate::hooks::Actor,
+    admitted_epoch: u64,
+) -> Frame {
+    if cx.epoch.load(std::sync::atomic::Ordering::SeqCst) != admitted_epoch {
+        return daemon::refused(
+            id,
+            Error {
+                code: if admitted_epoch < cx.return_epoch {
+                    10
+                } else {
+                    4
+                },
+                ..Error::unsupported()
+            },
+        );
+    }
+    match files.write_batch(cx, changes, actor) {
+        Ok(body) => daemon::response(id, 17, body),
+        Err(error) => daemon::refused(id, error),
+    }
+}
 pub fn admission_for_peer(
     uid: u32,
     cgroups: &str,
@@ -78,6 +129,7 @@ pub fn serve(
         .read_to_string(&mut groups)?;
     let run = admission_for_peer(peer.uid.as_raw(), &groups, sessions)
         .map_err(|_| io::ErrorKind::PermissionDenied)?;
+    let admitted_epoch = lock.epoch();
     let frame = Frame::read_envelope(&mut socket).map_err(io::Error::other)?;
     if let Err(e) = frame.validate(true) {
         return crate::rpc::malformed_response(&frame, e)
@@ -115,19 +167,36 @@ pub fn serve(
                 return Ok(daemon::refused(id, unauthorized()));
             }
             if cx.rewrite_pending && matches!(method, 3 | 17) {
-                return Ok(daemon::refused(id, crate::freeze::pending_error()));
+                return Ok(daemon::refused(
+                    id,
+                    if cx.last_rewrite_was_return {
+                        Error {
+                            code: 10,
+                            ..Error::unsupported()
+                        }
+                    } else {
+                        crate::freeze::pending_error()
+                    },
+                ));
             }
             match method {
-                3 => Ok(match files.write(cx, write.unwrap()) {
-                    Ok(body) => daemon::response(id, 3, body),
-                    Err(e) => daemon::refused(id, e),
-                }),
+                3 => Ok(write_response(
+                    cx,
+                    &files,
+                    id,
+                    write.unwrap(),
+                    admitted_epoch,
+                )),
                 17 => {
                     let (changes, actor) = batch.unwrap();
-                    Ok(match files.write_batch(cx, changes, actor) {
-                        Ok(body) => daemon::response(id, 17, body),
-                        Err(e) => daemon::refused(id, e),
-                    })
+                    Ok(batch_response(
+                        cx,
+                        &files,
+                        id,
+                        changes,
+                        actor,
+                        admitted_epoch,
+                    ))
                 }
                 6 => {
                     if cx.rewrite_pending {

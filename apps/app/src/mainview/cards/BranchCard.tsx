@@ -45,7 +45,7 @@ export const branchActionDefinitions = (world: DesignWorldRows, branch: DesignBr
 }
 
 /** Only composed providers bind live presses; topic payloads carry no command authority. */
-export const liveBranchActionDefinitions = (model: BranchModel, providers: ReadonlySet<CatalogTag>, questionWait?: string): Definition[] => {
+export const liveBranchActionDefinitions = (model: BranchModel, providers: ReadonlySet<CatalogTag>, questionWait?: string, movedWait?: string): Definition[] => {
   const definitions: Definition[] = []
   if (model.terminals.length) definitions.push({ tag: "terminal.watch", label: "Watch", gesture: "terminal",
     command_input: { id: "" }, resolve_input: input => ({ id: input.id ?? "" }) })
@@ -65,8 +65,8 @@ export const liveBranchActionDefinitions = (model: BranchModel, providers: Reado
     if (model.machine.state === "failed") definitions.push({ tag: "box.resume", label: "Retry", command_input: { branch: model.name } })
     if (model.machine.state === "asleep") definitions.push({ tag: "box.resume", label: "Wake", command_input: { branch: model.name } })
     if (model.moved_off) definitions.push(
-      { tag: "todo.return-to-item", label: `Return to T${model.moved_off.item}`, command_input: { n: model.moved_off.item } },
-      { tag: "todo.keep-moved", label: "Keep for now", command_input: { n: model.moved_off.item } }
+      { tag: "todo.return-to-item", label: `Return to T${model.moved_off.item}`, command_input: { n: model.moved_off.item, ...(movedWait ? { id: movedWait } : {}) } },
+      { tag: "todo.keep-moved", label: "Keep for now", command_input: { n: model.moved_off.item, ...(movedWait ? { id: movedWait } : {}) } }
     )
     if (model.scratch && model.rebase?.state === "conflict") {
       for (const path of model.rebase.paths) definitions.push({
@@ -152,6 +152,7 @@ export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branc
     controller.todoList?.get ?? (() => undefined), controller.todoList?.get ?? (() => undefined))
   const questionWait = todos?.todos?.find(todo => todo.n === model?.item?.n)?.waits
     .find(wait => wait.kind === "question" && wait.actions.some(action => action.tag === "todo.answer"))?.id
+  const movedWait = todos?.todos?.find(todo => todo.n === model?.moved_off?.item)?.waits.find(wait => wait.kind === "moved_off")
   useBranchPresence(card.payload.id, controller.live)
   // Outside an install, an unanswered or absent provider keeps the existing seed visible.
   if (branchSeedAvailable(controller) && branch?.data === undefined
@@ -166,15 +167,14 @@ export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branc
   if (controls?.available("sleep")) providers.add("box.suspend")
   if (controls?.available("wake")) providers.add("box.resume")
   if (controls?.available("rebase")) { providers.add("branch.rebase-now"); providers.add("branch.rebase") }
-  if (controls?.available("return-to-item")) providers.add("todo.return-to-item")
-  if (controls?.available("keep-moved")) providers.add("todo.keep-moved")
+  for (const action of movedWait?.actions ?? []) if (action.tag === "todo.return-to-item" || action.tag === "todo.keep-moved") providers.add(action.tag)
   if (controller.addBranchToStack) providers.add("branch.add-to-stack")
   if (typeof controller.answerTodo === "function" && questionWait !== undefined) providers.add("todo.answer")
   if (typeof controller.steerTodo === "function") providers.add("todo.steer")
   const dispatch: CardCommandDispatch = (tag, input) => controller.commands.submit({
     name: tag, payload: { branch: model?.name ?? card.payload.id, ...(input ?? {}) }, actor: "user", originCardId: card.id
   })
-  const bindings = cardActions<Gesture>(dispatch, model ? liveBranchActionDefinitions(model, providers, questionWait) : [])
+  const bindings = cardActions<Gesture>(dispatch, model ? liveBranchActionDefinitions(model, providers, questionWait, movedWait?.id) : [])
   if (!model) return branchSeedAvailable(controller) ? <DesignBranchBody card={card} actions={actions} /> : null
   return <BranchView model={model} actions={bindings.actions} gestures={bindings.gestures}
     onAction={bindings.onAction} view={{ maximized: actions.presentation === "maximized", tab: card.payload.tab }}

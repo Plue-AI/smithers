@@ -80,7 +80,7 @@ func (t *liveTopics) branchActivityPage(ctx context.Context, repository int64, b
 		cursor = *after
 		if cursor > 0 {
 			var exists bool
-			if err := t.changePool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM product_job_events WHERE tenant_id=$1 AND principal_id=$2 AND sequence=$3 AND event_type='branch.burst')`, tenant, principal, cursor).Scan(&exists); err != nil {
+			if err := t.changePool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM product_job_events WHERE tenant_id=$1 AND principal_id=$2 AND sequence=$3 AND event_type IN ('branch.burst','branch.moved-off'))`, tenant, principal, cursor).Scan(&exists); err != nil {
 				return live.LogPage{}, err
 			}
 			if !exists {
@@ -96,7 +96,7 @@ func (t *liveTopics) branchActivityPage(ctx context.Context, repository int64, b
 		selector = " AND sequence>$3"
 		args = append(args, cursor)
 	}
-	rows, err := t.changePool.Query(ctx, `SELECT sequence,recorded_at,jsonb_build_object('id',data->>'id','kind',data->>'kind','actor',data->'actor','files',COALESCE((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object('path',f.path,'change',f.change,'before_blob',f.before_blob,'after_blob',f.after_blob)) ORDER BY f.path) FROM burst_files f WHERE f.event_id=e.event_id),'[]'::jsonb),'versions',data->>'versions') FROM product_job_events e WHERE tenant_id=$1 AND principal_id=$2 AND event_type='branch.burst'`+selector+` ORDER BY sequence `+order, args...)
+	rows, err := t.changePool.Query(ctx, `SELECT sequence,recorded_at,jsonb_strip_nulls(jsonb_build_object('id',data->>'id','kind',data->>'kind','actor',data->'actor','files',COALESCE((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object('path',f.path,'change',f.change,'before_blob',f.before_blob,'after_blob',f.after_blob)) ORDER BY f.path) FROM burst_files f WHERE f.event_id=e.event_id),'[]'::jsonb),'versions',data->>'versions','text',data->>'text')) FROM product_job_events e WHERE tenant_id=$1 AND principal_id=$2 AND event_type IN ('branch.burst','branch.moved-off')`+selector+` ORDER BY sequence `+order, args...)
 	if err != nil {
 		return live.LogPage{}, err
 	}

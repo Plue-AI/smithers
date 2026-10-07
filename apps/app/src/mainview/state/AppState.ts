@@ -688,7 +688,8 @@ export const ToastAudienceSchema = z.object({
   actorLabel: z.string(),
   target: z.discriminatedUnion("flow", [
     z.object({ flow: z.literal("todo"), n: z.number().int().positive() }),
-    z.object({ flow: z.literal("run"), id: z.string().min(1) })
+    z.object({ flow: z.literal("run"), id: z.string().min(1) }),
+    z.object({ flow: z.literal("branch"), branch: z.string().min(1) })
   ])
 })
 

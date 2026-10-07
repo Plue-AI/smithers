@@ -11,6 +11,12 @@ import (
 const machinedBundlePath = "bin/linux-arm64/smithers-machined"
 const sftpBundlePath = "bin/linux-arm64/smithers-sftp"
 
+func (r *Runtime) BindMachinedItem(resolve func(context.Context, string) (machined.ItemBinding, error)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.machinedItem = resolve
+}
+
 // BindMachinedHost supplies the composed host's authoritative branch head.
 // The registry owns event consumption; neither comes from guest metadata.
 func (r *Runtime) BindMachinedHost(head func(context.Context, string) (string, error)) {
@@ -59,8 +65,9 @@ func (r *Runtime) EnsureMachined(ctx context.Context, id string) error {
 	}
 	r.mu.Lock()
 	headReader := r.machinedHead
+	itemReader := r.machinedItem
 	r.mu.Unlock()
-	if r.config.Bundle == nil || headReader == nil || !r.machined.EventConsumerReady() {
+	if r.config.Bundle == nil || headReader == nil || itemReader == nil || !r.machined.EventConsumerReady() {
 		return fmt.Errorf("%w: installed machine host providers unavailable", ErrUnavailable)
 	}
 	data, digest, err := linuxArm64From(r.config.Bundle, machinedBundlePath, "packaged machine broker")
@@ -77,6 +84,10 @@ func (r *Runtime) EnsureMachined(ctx context.Context, id string) error {
 	}
 	if !lowerHex(head, 40) {
 		return fmt.Errorf("%w: authoritative branch head unavailable", ErrUnavailable)
+	}
+	item, err := itemReader(ctx, id)
+	if err != nil {
+		return err
 	}
 	currentSFTP, err := r.guest(ctx, ws.Machine, nil, "managed-artifact-check", sftpBundlePath, sftpDigest)
 	if err != nil {
@@ -111,7 +122,11 @@ func (r *Runtime) EnsureMachined(ctx context.Context, id string) error {
 		}
 		ws.daemonBoot = &authority
 	}
-	state, err := r.guest(ctx, ws.Machine, ws.daemonBoot.File(0), "machined-start", digest)
+	bootFile, err := ws.daemonBoot.FileForItem(0, item)
+	if err != nil {
+		return err
+	}
+	state, err := r.guest(ctx, ws.Machine, bootFile, "machined-start", digest)
 	if err != nil {
 		return err
 	}

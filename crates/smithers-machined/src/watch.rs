@@ -432,6 +432,9 @@ impl<P: crate::events::Provider<crate::hooks::Actor>> crate::events::Provider<cr
     fn moved_off(&mut self) -> io::Result<()> {
         self.provider.moved_off()
     }
+    fn moved_off_attributed(&mut self, actor: Option<&crate::hooks::Actor>) -> io::Result<()> {
+        self.provider.moved_off_attributed(actor)
+    }
     fn snapshot(&mut self) -> io::Result<()> {
         self.provider.snapshot()
     }

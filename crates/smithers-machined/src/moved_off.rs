@@ -26,6 +26,34 @@ fn change_id(value: &str) -> bool {
 fn commit_id(value: &str) -> bool {
     value.len() == 40 && value.bytes().all(|c| c.is_ascii_hexdigit())
 }
+
+/// One detection policy for native repository queries and the CLI fixtures.
+/// Resolving history is deferred: repeated delivery cannot move the target.
+pub fn detect_position(
+    item: &str,
+    by: &str,
+    on_item: bool,
+    prior: Option<&Fact>,
+    previous: impl FnOnce() -> io::Result<String>,
+) -> io::Result<Option<Fact>> {
+    if item.is_empty() || on_item {
+        return Ok(None);
+    }
+    if let Some(fact) = prior {
+        if fact.item == item && commit_id(&fact.pre_move_commit) {
+            return Ok(Some(fact.clone()));
+        }
+    }
+    let commit = previous()?;
+    if !commit_id(&commit) {
+        return Err(invalid("invalid pre-move commit"));
+    }
+    Ok(Some(Fact {
+        by: by.into(),
+        item: item.into(),
+        pre_move_commit: commit,
+    }))
+}
 fn revisions<Q: Query>(
     q: &mut Q,
     operation: Option<&str>,
@@ -81,16 +109,12 @@ pub fn detect<Q: Query>(
         return Err(invalid("invalid item change id"));
     }
     let present = format!("present({change})");
-    if !revisions(q, None, &present)?.is_empty()
-        && !revisions(q, None, &format!("{present}::@"))?.is_empty()
-    {
-        return Ok(None);
-    }
-    if let Some(fact) = prior {
-        if fact.item == item && commit_id(&fact.pre_move_commit) {
-            return Ok(Some(fact.clone()));
-        }
-    }
+    let on_item = !revisions(q, None, &present)?.is_empty()
+        && !revisions(q, None, &format!("{present}::@"))?.is_empty();
+    detect_position(item, by, on_item, prior, || previous_commit(q, &present))
+}
+
+fn previous_commit<Q: Query>(q: &mut Q, present: &str) -> io::Result<String> {
     let operations = q.jj(&[
         "--ignore-working-copy".into(),
         "op".into(),
@@ -114,11 +138,7 @@ pub fn detect<Q: Query>(
             if commits.len() != 1 {
                 return Err(invalid("ambiguous working-copy commit"));
             }
-            return Ok(Some(Fact {
-                by: by.into(),
-                item: item.into(),
-                pre_move_commit: commits[0].clone(),
-            }));
+            return Ok(commits[0].clone());
         }
     }
     Err(invalid("pre-move history unavailable"))

@@ -35,6 +35,9 @@ export const TodoWaitSchema = z.object({
   ssh_line: z.string().optional(),
   by: ActorSchema.optional(),
   sha: z.string().optional(),
+  answered_by: z.string().optional(),
+  answer: z.string().optional(),
+  return_error: z.string().optional(),
   actions: z.array(ActionSchema)
 })
 

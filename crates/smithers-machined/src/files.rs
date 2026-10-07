@@ -17,6 +17,143 @@ pub struct Files {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};
+    #[test]
+    fn queued_coding_writes_admitted_before_and_during_return_refuse_after_thaw() {
+        struct Allowed;
+        impl Core for Allowed {
+            fn validate_coding_write(&self) -> hooks::Result<()> {
+                Ok(())
+            }
+        }
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("file"), b"preserved bytes\n").unwrap();
+        let files = Arc::new(Files {
+            workspace: File::open(root.path()).unwrap(),
+            next: Arc::new(Allowed),
+        });
+        let executor = crate::lock::Executor::start(Default::default()).unwrap();
+        let lock = executor.lock.clone();
+        let before = lock.epoch();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (finish_tx, finish_rx) = std::sync::mpsc::channel();
+        let rewrite = lock
+            .enqueue("return", move |cx| {
+                cx.begin_rewrite_for(true).unwrap();
+                started_tx.send(()).unwrap();
+                finish_rx.recv().unwrap();
+                cx.settle_rewrite().unwrap();
+            })
+            .unwrap();
+        started_rx.recv().unwrap();
+        let during = lock.epoch();
+        assert_ne!(before, during);
+        // A later non-Return rewrite must not erase why these queued writes
+        // lost their original branch. The admission epoch identifies the move.
+        lock.enqueue("later_rebase", |cx| {
+            cx.begin_rewrite_for(false).unwrap();
+            cx.settle_rewrite().unwrap();
+        })
+        .unwrap();
+        let mut writes = vec![];
+        for admitted in [before, during] {
+            let files = files.clone();
+            writes.push(
+                lock.enqueue("coding_write", move |cx| {
+                    let args = conn::local_write_args(
+                        &conn::structure_bytes(&[
+                            conn::field(1, [0, 4, b'f', b'i', b'l', b'e']),
+                            conn::field(2, conn::tagged(2, &[])),
+                            conn::field(3, [0, 0, 0, 3, b'n', b'e', b'w']),
+                        ]),
+                        [7; 16],
+                    )
+                    .unwrap();
+                    crate::local::write_response(cx, &files, 73, args, admitted)
+                })
+                .unwrap(),
+            );
+        }
+        finish_tx.send(()).unwrap();
+        rewrite.wait().unwrap();
+        for write in writes {
+            let frame = write.wait().unwrap();
+            let value = conn::fields("response", &frame.payload[1..]).unwrap()[1].1;
+            assert_eq!(value[0], 255);
+            assert_eq!(conn::fields("error", &value[1..]).unwrap()[0].1, [10]);
+        }
+        assert_eq!(
+            std::fs::read(root.path().join("file")).unwrap(),
+            b"preserved bytes\n"
+        );
+        drop(lock);
+        executor.shutdown().unwrap();
+    }
+    #[test]
+    fn coding_refusal_precedes_documents_and_disk_at_local_wire_dispatch() {
+        struct Guard(u8);
+        impl Core for Guard {
+            fn validate_coding_write(&self) -> hooks::Result<()> {
+                Err(error(self.0))
+            }
+        }
+        struct NoWrite;
+        impl hooks::Documents for NoWrite {
+            fn write_through(
+                &self,
+                _: &mut LockCx,
+                _: &str,
+                _: &hooks::Base,
+                _: &[u8],
+                _: &hooks::Actor,
+            ) -> Option<hooks::Result<hooks::DocumentWrite>> {
+                panic!("a refused coding write reached the document provider")
+            }
+        }
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("file"), b"preserved bytes\n").unwrap();
+        for code in [2, 10] {
+            let files = Files {
+                workspace: File::open(root.path()).unwrap(),
+                next: Arc::new(Guard(code)),
+            };
+            let mut cx = LockCx::new(hooks::Hooks {
+                documents: Arc::new(NoWrite),
+                ..Default::default()
+            });
+            let frame = conn::Frame {
+                kind: 1,
+                stream: 0,
+                payload: conn::tagged(
+                    1,
+                    &[
+                        conn::field(1, 73u32.to_be_bytes()),
+                        conn::field(
+                            2,
+                            conn::tagged(
+                                3,
+                                &[
+                                    conn::field(1, [0, 4, b'f', b'i', b'l', b'e']),
+                                    conn::field(2, conn::tagged(2, &[])),
+                                    conn::field(3, [0, 0, 0, 3, b'n', b'e', b'w']),
+                                ],
+                            ),
+                        ),
+                    ],
+                ),
+            };
+            frame.validate(true).unwrap();
+            let (id, _, args) = frame.request().unwrap();
+            let args = conn::local_write_args(args, [7; 16]).unwrap();
+            let response = crate::local::write_response(&mut cx, &files, id, args, 0);
+            let response = conn::fields("response", &response.payload[1..]).unwrap()[1].1;
+            assert_eq!(response[0], 255);
+            assert_eq!(conn::fields("error", &response[1..]).unwrap()[0].1, &[code]);
+            assert_eq!(
+                std::fs::read(root.path().join("file")).unwrap(),
+                b"preserved bytes\n"
+            );
+        }
+    }
     struct Restorer(AtomicBool);
     impl Core for Restorer {
         fn restore_rewrite(&self, _: &mut LockCx) -> hooks::Result<()> {
@@ -54,6 +191,10 @@ fn io_error(e: std::io::Error) -> Error {
     }
 }
 impl Files {
+    #[cfg(test)]
+    pub(crate) fn fixture(workspace: File, next: Arc<dyn Core>) -> Self {
+        Self { workspace, next }
+    }
     pub fn new(workspace: File, next: Arc<dyn Core>) -> std::io::Result<Self> {
         if rustix::process::geteuid().as_raw() != 19998 || !workspace.metadata()?.is_dir() {
             return Err(std::io::ErrorKind::PermissionDenied.into());
@@ -79,6 +220,12 @@ impl Files {
         Ok((bytes, metadata.mode() & 0o7777))
     }
     pub fn write(&self, cx: &mut LockCx, args: WriteArgs) -> hooks::Result<Vec<u8>> {
+        if matches!(
+            args.actor,
+            hooks::Actor::Run(_) | hooks::Actor::Principal(_)
+        ) {
+            self.next.validate_coding_write()?;
+        }
         if !crate::doc::disk::valid_path(&args.path) {
             return Err(error(6));
         }
@@ -105,6 +252,9 @@ impl Files {
         changes: Vec<hooks::FileWrite>,
         actor: hooks::Actor,
     ) -> hooks::Result<Vec<u8>> {
+        if matches!(actor, hooks::Actor::Run(_) | hooks::Actor::Principal(_)) {
+            self.next.validate_coding_write()?;
+        }
         let documents = cx.hooks.documents.clone();
         let result = documents.write_batch(cx, &changes, &actor)?;
         let mut writes = (result.writes.len() as u16).to_be_bytes().to_vec();
@@ -139,6 +289,9 @@ impl Files {
     }
 }
 impl Core for Files {
+    fn validate_coding_write(&self) -> hooks::Result<()> {
+        self.next.validate_coding_write()
+    }
     fn ready(&self) -> hooks::Result<()> {
         self.next.ready()
     }
@@ -173,6 +326,9 @@ impl Core for Files {
     }
     fn validate_return_to_item(&self) -> hooks::Result<()> {
         self.next.validate_return_to_item()
+    }
+    fn returned_by(&self, actor: &hooks::Actor) {
+        self.next.returned_by(actor);
     }
     fn return_to_item(&self, cx: &mut LockCx) -> hooks::Result<hooks::Oid> {
         self.next.return_to_item(cx)

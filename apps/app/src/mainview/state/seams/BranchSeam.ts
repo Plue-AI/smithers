@@ -56,7 +56,7 @@ function activityRows(value: unknown, context: ActorContext): unknown {
     const actor = participantActor(entry.data.actor, context)
     return { id: entry.data.id, at: entry.data.at, actor,
       kind: entry.data.kind === "rebase" ? "rebase" : "change",
-      text: actor.kind === "outside" ? "changed outside Smithers" : `changed ${entry.data.files.length} ${entry.data.files.length === 1 ? "file" : "files"}`,
+      text: entry.data.text ?? (actor.kind === "outside" ? "changed outside Smithers" : `changed ${entry.data.files.length} ${entry.data.files.length === 1 ? "file" : "files"}`),
       files: entry.data.files.length }
   })
 }

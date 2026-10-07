@@ -15,6 +15,13 @@ pub enum Topology {
 pub struct Boot {
     pub identity: Identity,
     pub topology: Topology,
+    pub item: Option<ItemBinding>,
+    pub moved_off: Option<String>,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ItemBinding {
+    pub number: u64,
+    pub change: String,
 }
 fn invalid() -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, "invalid boot authority")
@@ -44,7 +51,14 @@ impl Boot {
             let (key, value) = line.split_once('=').ok_or_else(invalid)?;
             if !matches!(
                 key,
-                "boot_id" | "relay_secret" | "credential" | "topology" | "bridge_port"
+                "boot_id"
+                    | "relay_secret"
+                    | "credential"
+                    | "topology"
+                    | "bridge_port"
+                    | "item_number"
+                    | "item_change"
+                    | "moved_off"
             ) || value.is_empty()
                 || values.insert(key, value).is_some()
             {
@@ -73,12 +87,46 @@ impl Boot {
             .ok_or_else(invalid)?
             .as_bytes()
             .to_vec();
+        let item = match (values.remove("item_number"), values.remove("item_change")) {
+            (None, None) => None,
+            (Some("0"), None) => Some(ItemBinding {
+                number: 0,
+                change: String::new(),
+            }),
+            (Some(number), Some(change))
+                if number.bytes().all(|b| b.is_ascii_digit())
+                    && change.len() == 32
+                    && change.bytes().all(|b| (b'k'..=b'z').contains(&b)) =>
+            {
+                let number = number.parse::<u64>().map_err(|_| invalid())?;
+                if number == 0 {
+                    return Err(invalid());
+                }
+                Some(ItemBinding {
+                    number,
+                    change: change.into(),
+                })
+            }
+            _ => return Err(invalid()),
+        };
+        let moved_off = values
+            .remove("moved_off")
+            .map(|value| {
+                if item.as_ref().map(|item| item.number).unwrap_or(0) == 0 {
+                    return Err(invalid());
+                }
+                hex::<20>(value)?;
+                Ok(value.to_owned())
+            })
+            .transpose()?;
         if !values.is_empty() {
             return Err(invalid());
         }
         Ok(Self {
             identity: Identity::new(boot, secret, credential)?,
             topology,
+            item,
+            moved_off,
         })
     }
     /// Validate the descriptor, then read a bounded amount. This can also be
@@ -114,6 +162,57 @@ impl Boot {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn host_item_binding_is_paired_bounded_and_not_repository_selected() {
+        let source = fixture();
+        let binding = "item_number=2\nitem_change=zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\n";
+        assert_eq!(
+            Boot::parse(format!("{source}{binding}").as_bytes())
+                .unwrap()
+                .item,
+            Some(ItemBinding {
+                number: 2,
+                change: "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz".into()
+            })
+        );
+        let recovered = Boot::parse(
+            format!("{source}{binding}moved_off=1234567890abcdef1234567890abcdef12345678\n")
+                .as_bytes(),
+        )
+        .unwrap();
+        assert_eq!(
+            recovered.moved_off.as_deref(),
+            Some("1234567890abcdef1234567890abcdef12345678")
+        );
+        for invalid in [
+            format!("{source}moved_off=1234567890abcdef1234567890abcdef12345678\n"),
+            format!("{source}{binding}moved_off=main\n"),
+        ] {
+            assert!(Boot::parse(invalid.as_bytes()).is_err());
+        }
+        assert!(Boot::parse(source.as_bytes()).unwrap().item.is_none());
+        assert_eq!(
+            Boot::parse(format!("{source}item_number=0\n").as_bytes())
+                .unwrap()
+                .item,
+            Some(ItemBinding {
+                number: 0,
+                change: String::new()
+            })
+        );
+        for invalid in [
+            "item_number=2\n",
+            "item_change=zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\n",
+            "item_number=0\nitem_change=zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\n",
+            "item_number=2\nitem_change=main\n",
+            "item_number=18446744073709551616\nitem_change=zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\n",
+        ] {
+            assert!(
+                Boot::parse(format!("{source}{invalid}").as_bytes()).is_err(),
+                "{invalid}"
+            );
+        }
+    }
     fn fixture() -> String {
         format!(
             "boot_id={}\nrelay_secret={}\ncredential=fixture=token\ntopology=relay\n",

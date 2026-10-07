@@ -65,7 +65,7 @@ fn structure(name: &str) -> Option<&'static [(u8,bool,&'static str)]> { Some(mat
 "ack" => &[(1,true,"u64"),(2,true,"ack_outcome"),(3,false,"list:oid"),(4,false,"error"),(5,false,"list:oid")],
 "burst" => &[(1,true,"id128"),(2,true,"actor"),(3,true,"list:burst_file"),(4,true,"oid"),(5,false,"u16"),(6,false,"u16")],
 "burst_file" => &[(1,true,"str"),(2,true,"change"),(3,false,"str"),(4,false,"oid"),(5,false,"oid"),(6,false,"digest")],
-"moved_off" => &[(1,true,"actor"),(2,true,"u64"),(3,true,"oid")],
+"moved_off" => &[(1,true,"actor"),(2,true,"u64"),(3,true,"oid"),(4,false,"bool")],
 "captured" => &[(1,true,"oid"),(2,true,"oid"),(3,true,"oid")],
 "reconciled" => &[(1,true,"oid"),(2,true,"oid"),(3,true,"reconcile_outcome"),(4,false,"list:str")],
 "written" => &[(1,true,"str"),(2,true,"actor"),(3,false,"digest")],

@@ -121,10 +121,15 @@ fn failed_wake_retains_restart_barrier_and_success_removes_it() {
     std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o700)).unwrap();
     for dirty in [false, true] {
         let mut cx = LockCx::recovering(Hooks::default(), Journal::open(&state).unwrap()).unwrap();
-        let mut r = Repo { dirty, fail: true, ..repo() };
+        let mut r = Repo {
+            dirty,
+            fail: true,
+            ..repo()
+        };
         assert!(reconcile::wake(&mut cx, &mut r, [3; 20]).is_err());
         drop(cx);
-        let mut restarted = LockCx::recovering(Hooks::default(), Journal::open(&state).unwrap()).unwrap();
+        let mut restarted =
+            LockCx::recovering(Hooks::default(), Journal::open(&state).unwrap()).unwrap();
         assert!(restarted.rewrite_pending);
         let mut next = repo();
         assert!(reconcile::wake(&mut restarted, &mut next, [3; 20]).is_err());
@@ -132,7 +137,8 @@ fn failed_wake_retains_restart_barrier_and_success_removes_it() {
         // The native restore owner settles the retained checkpoint.
         restarted.settle_rewrite().unwrap();
         Journal::open(&state).unwrap().settled().unwrap();
-        let mut successful = LockCx::recovering(Hooks::default(), Journal::open(&state).unwrap()).unwrap();
+        let mut successful =
+            LockCx::recovering(Hooks::default(), Journal::open(&state).unwrap()).unwrap();
         assert!(reconcile::wake(&mut successful, &mut next, [3; 20]).is_ok());
         assert!(!Journal::open(&state).unwrap().pending().unwrap());
     }

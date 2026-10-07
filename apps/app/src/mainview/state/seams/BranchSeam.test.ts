@@ -100,3 +100,12 @@ test("File sleep scope accepts only the matching branch and a captured commit", 
   expect(branchFileMachineScope({ ...branch, head, machine: { state: "awake" } }, "b1")).toEqual({ sleeping: false })
   expect(branchFileMachineScope({ ...branch, machine: { state: "magic" } }, "b1")).toBeUndefined()
 })
+
+test("moved-off activity retains the served text and actor without a versions commit", () => {
+  const actor = { kind: "person", login: "maya", name: "Maya", avatar_url: "https://github.com/maya.png", color_index: 1 } as const
+  const events = [{ id: "moved-1", at: "2026-10-07T08:00:00Z", kind: "moved_off", actor, text: "moved this branch off T2", files: [] },
+    { id: "returned-1", at: "2026-10-07T08:01:00Z", kind: "moved_off", actor, text: "returned to T2", files: [] }]
+  const model = branchModel({ ...branch, moved_off: { by: actor, item: 2 } }, events, [], "b1")!
+  expect(model.moved_off).toEqual({ by: actor, item: 2 })
+  expect(model.activity.map(entry => ({ actor: entry.actor, text: entry.text, actions: entry.actions }))).toEqual(events.map(entry => ({ actor, text: entry.text, actions: [] })))
+})

@@ -369,7 +369,13 @@ fn transcript_bounds(schema: &[(u8, bool, &str)], body: &[u8]) -> Result<(), Pro
     while !c.0.is_empty() {
         let tag = c.number(1)? as usize;
         let start = c.0;
-        c.value(schema.iter().find(|f| f.0 as usize == tag).ok_or(UnknownField)?.2)?;
+        c.value(
+            schema
+                .iter()
+                .find(|f| f.0 as usize == tag)
+                .ok_or(UnknownField)?
+                .2,
+        )?;
         v[tag] = &start[..start.len() - c.0.len()];
     }
     let n = |b: &[u8]| b.iter().fold(0u64, |a, x| (a << 8) | u64::from(*x));
@@ -382,7 +388,11 @@ fn transcript_bounds(schema: &[(u8, bool, &str)], body: &[u8]) -> Result<(), Pro
         && n(v[6]) >= 1
         && end > start
         && end - start == (v[9].len() as u64 - 4) + 1;
-    if ok { Ok(()) } else { Err(BadValue) }
+    if ok {
+        Ok(())
+    } else {
+        Err(BadValue)
+    }
 }
 pub fn field(tag: u8, value: impl AsRef<[u8]>) -> Vec<u8> {
     let mut b = vec![tag];

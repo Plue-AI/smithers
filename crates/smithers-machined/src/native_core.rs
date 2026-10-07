@@ -1,11 +1,14 @@
 //! Native repository operations mounted on the existing daemon RPC dispatcher.
 use crate::{
-    conn::{self, field, structure_bytes},
-    hooks::{self, Actor, Core, Oid},
+    conn::{self, field, structure_bytes, tagged},
+    hooks::{self, Actor, Core, EventSink, Oid},
     lock::LockCx,
     outbox::Refs,
 };
-use std::{io, sync::Arc};
+use std::{
+    io,
+    sync::{Arc, Mutex},
+};
 type Events = crate::event_service::Events<crate::git::Repository, crate::git::Repository>;
 fn hook(e: io::Error) -> hooks::Error {
     hooks::Error {
@@ -19,7 +22,20 @@ fn bytes(value: &str) -> Vec<u8> {
     b.extend(value.as_bytes());
     b
 }
+fn parse_oid(value: &str) -> hooks::Result<Oid> {
+    if value.len() != 40 || !value.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(hooks::Error::unsupported());
+    }
+    let mut oid = [0; 20];
+    for (index, byte) in oid.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16)
+            .map_err(|_| hooks::Error::unsupported())?;
+    }
+    Ok(oid)
+}
 pub struct NativeCore {
+    pub item: Option<crate::boot::ItemBinding>,
+    pub moved: Mutex<Option<crate::moved_off::Fact>>,
     pub native: Arc<crate::native::Repository>,
     pub git: crate::git::Repository,
     pub events: Arc<Events>,
@@ -28,7 +44,41 @@ pub struct NativeCore {
 struct Capture<'a>(&'a NativeCore);
 impl crate::capture::Repository for Capture<'_> {
     fn snapshot(&mut self) -> hooks::Result<(Oid, Oid)> {
-        self.0.native.snapshot().map_err(hook)
+        let snapshot = self.0.native.snapshot().map_err(hook)?;
+        let item = self.0.item.as_ref().ok_or_else(hooks::Error::unsupported)?;
+        // A capture may run before the metadata debounce finishes. It must
+        // never publish that off-item working copy as the item's head.
+        let off_item = item.number != 0
+            && !self
+                .0
+                .native
+                .descends_from_item(&item.change)
+                .map_err(hook)?;
+        if off_item
+            || self
+                .0
+                .moved
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_some()
+        {
+            let head = self
+                .0
+                .git
+                .acknowledged()
+                .map_err(hook)?
+                .ok_or_else(hooks::Error::unsupported)?;
+            if !self
+                .0
+                .native
+                .captured_item_head(head, &item.change)
+                .map_err(hook)?
+            {
+                return Err(hooks::Error::unsupported());
+            }
+            return Ok((head, self.0.native.tree(head).map_err(hook)?));
+        }
+        Ok(snapshot)
     }
     fn base(&mut self) -> hooks::Result<Oid> {
         Ok(self
@@ -110,6 +160,62 @@ impl NativeCore {
         }
         Ok(())
     }
+    pub fn observe_moved_off(&self, actor: &Actor) -> hooks::Result<()> {
+        let item = self.item.as_ref().ok_or_else(hooks::Error::unsupported)?;
+        self.native.snapshot().map_err(hook)?;
+        if item.number == 0 {
+            return Ok(());
+        }
+        let mut prior = self.moved.lock().unwrap_or_else(|e| e.into_inner());
+        let next = crate::moved_off::detect_position(
+            &format!("T{}", item.number),
+            "",
+            self.native.descends_from_item(&item.change).map_err(hook)?,
+            prior.as_ref(),
+            || {
+                self.native
+                    .latest_on_item(&item.change)
+                    .map(|oid| oid.iter().map(|b| format!("{b:02x}")).collect())
+            },
+        )
+        .map_err(hook)?;
+        if next == *prior {
+            return Ok(());
+        }
+        let fact = next
+            .as_ref()
+            .or(prior.as_ref())
+            .ok_or_else(hooks::Error::unsupported)?;
+        let target = parse_oid(&fact.pre_move_commit)?;
+        let returned_actor = if next.is_none() && !fact.by.is_empty() {
+            Actor::Principal(
+                fact.by
+                    .as_bytes()
+                    .chunks_exact(2)
+                    .map(|pair| {
+                        u8::from_str_radix(
+                            std::str::from_utf8(pair).map_err(|_| hooks::Error::unsupported())?,
+                            16,
+                        )
+                        .map_err(|_| hooks::Error::unsupported())
+                    })
+                    .collect::<hooks::Result<Vec<_>>>()?,
+            )
+        } else {
+            actor.clone()
+        };
+        let mut fields = vec![
+            field(1, conn::actor_bytes(&returned_actor)),
+            field(2, item.number.to_be_bytes()),
+            field(3, target),
+        ];
+        if next.is_none() {
+            fields.push(field(4, [1]));
+        }
+        self.events.append(&tagged(4, &fields), Some(target))?;
+        *prior = next;
+        Ok(())
+    }
     fn validate_head(&self, onto: Oid) -> hooks::Result<()> {
         if self.native.contains(onto).map_err(hook)? {
             Ok(())
@@ -123,13 +229,87 @@ impl NativeCore {
     }
 }
 impl Core for NativeCore {
+    fn validate_coding_write(&self) -> hooks::Result<()> {
+        let item = self.item.as_ref().ok_or_else(hooks::Error::unsupported)?;
+        if item.number == 0 {
+            // Explicit, host-bound scratch workspace; an omitted binding is
+            // still unavailable and must not be mistaken for a scratch branch.
+            return self.ready();
+        }
+        if self
+            .moved
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some()
+        {
+            return Err(hooks::Error {
+                code: 10,
+                ..hooks::Error::unsupported()
+            });
+        }
+        // Import colocated Git moves before checking the item's change. This
+        // snapshot is native and runs as machined inside the existing lock.
+        self.native.snapshot().map_err(hook)?;
+        if !self.native.descends_from_item(&item.change).map_err(hook)? {
+            return Err(hooks::Error {
+                code: 10,
+                ..hooks::Error::unsupported()
+            });
+        }
+        Ok(())
+    }
     fn ready(&self) -> hooks::Result<()> {
+        self.item.as_ref().ok_or_else(hooks::Error::unsupported)?;
         self.native.current().map(|_| ()).map_err(hook)
     }
     fn validate_rebase(&self, onto: Oid) -> hooks::Result<()> {
         self.require_settled_wake()?;
         self.validate_head(onto)?;
         self.native.validate_rebase(onto).map_err(hook)
+    }
+    fn returned_by(&self, actor: &Actor) {
+        if let Actor::Principal(login) = actor {
+            if let Some(fact) = self
+                .moved
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_mut()
+            {
+                fact.by = login.iter().map(|byte| format!("{byte:02x}")).collect();
+            }
+        }
+    }
+    fn validate_return_to_item(&self) -> hooks::Result<()> {
+        self.ready()?;
+        let moved = self.moved.lock().unwrap_or_else(|e| e.into_inner());
+        let fact = moved.as_ref().ok_or_else(hooks::Error::unsupported)?;
+        let target = parse_oid(&fact.pre_move_commit)?;
+        self.validate_head(target)?;
+        let item = self.item.as_ref().ok_or_else(hooks::Error::unsupported)?;
+        if item.number == 0
+            || !self
+                .native
+                .captured_item_head(target, &item.change)
+                .map_err(hook)?
+        {
+            return Err(hooks::Error::unsupported());
+        }
+        self.git
+            .acknowledged()
+            .map_err(hook)?
+            .ok_or_else(hooks::Error::unsupported)?;
+        Ok(())
+    }
+    fn return_to_item(&self, _: &mut LockCx) -> hooks::Result<Oid> {
+        let moved = self.moved.lock().unwrap_or_else(|e| e.into_inner());
+        let fact = moved.as_ref().ok_or_else(hooks::Error::unsupported)?;
+        // capture_local retained the post-move snapshot and operation. Only
+        // the later metadata observation clears this daemon branch fact.
+        let head = self
+            .native
+            .move_to(parse_oid(&fact.pre_move_commit)?)
+            .map_err(hook)?;
+        Ok(head)
     }
     fn capture_local(&self, cx: &mut LockCx) -> hooks::Result<()> {
         self.require_settled_wake()?;
@@ -299,6 +479,313 @@ pub(crate) mod tests {
         rpc,
     };
     use std::{fs, os::unix::fs::PermissionsExt};
+    #[test]
+    fn return_rpc_pins_item_capture_and_preserves_post_move_commit() {
+        let (dir, mut core) = fixture();
+        let root = dir.path().join("workspace");
+        fs::write(root.join("base"), b"base\n").unwrap();
+        let base = core.native.snapshot().unwrap().0;
+        crate::native::tests::child(&core.native, base, "item");
+        fs::write(root.join("item"), b"item bytes before move\n").unwrap();
+        let before = core.native.snapshot().unwrap().0;
+        let before_git = std::process::Command::new("git")
+            .args(["-C", root.to_str().unwrap(), "rev-parse", "HEAD"])
+            .output()
+            .unwrap();
+        assert!(before_git.status.success());
+        let main_ref = || {
+            std::process::Command::new("git")
+                .args(["-C", root.to_str().unwrap(), "rev-parse", "refs/heads/main"])
+                .output()
+                .unwrap()
+        };
+        let base_hex: String = base.iter().map(|b| format!("{b:02x}")).collect();
+        assert!(std::process::Command::new("git")
+            .args([
+                "-C",
+                root.to_str().unwrap(),
+                "update-ref",
+                "refs/heads/main",
+                &base_hex
+            ])
+            .status()
+            .unwrap()
+            .success());
+        let main_before = main_ref();
+        assert!(main_before.status.success());
+        let change = crate::native::tests::change(&core.native, before);
+        Arc::get_mut(&mut core).unwrap().item =
+            Some(crate::boot::ItemBinding { number: 2, change });
+        let mut git = core.git.clone();
+        git.acknowledge_and_sync(before).unwrap();
+        crate::native::tests::child(&core.native, base, "off item");
+        fs::write(root.join("notes.txt"), b"recoverable after move\n").unwrap();
+        let before_debounce = call(core.clone(), 4, &[]);
+        let pinned = conn::fields("response", &before_debounce.payload[1..]).unwrap()[1].1;
+        assert_eq!(conn::fields("result4", &pinned[1..]).unwrap()[0].1, before);
+        assert!(core.moved.lock().unwrap().is_none());
+        core.observe_moved_off(&Actor::Session(7)).unwrap();
+        let post_move = core.native.current().unwrap().0;
+        let before_hex: String = before.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(
+            core.moved.lock().unwrap().as_ref().unwrap().pre_move_commit,
+            before_hex
+        );
+        assert_eq!(core.validate_coding_write().unwrap_err().code, 10);
+        let capture = call(core.clone(), 4, &[]);
+        let value = conn::fields("response", &capture.payload[1..]).unwrap()[1].1;
+        assert_eq!(conn::fields("result4", &value[1..]).unwrap()[0].1, before);
+        git.acknowledge_and_sync(base).unwrap();
+        let refused = call(core.clone(), 4, &[]);
+        let error = conn::fields("response", &refused.payload[1..]).unwrap()[1].1;
+        assert_eq!(
+            error[0], 255,
+            "an off-item acknowledged head cannot become the item's capture"
+        );
+        assert_eq!(conn::fields("error", &error[1..]).unwrap()[0].1, [2]);
+        git.acknowledge_and_sync(before).unwrap();
+        let response = call(
+            core.clone(),
+            12,
+            &[field(
+                1,
+                conn::actor_bytes(&Actor::Principal(vec![0xff; 16])),
+            )],
+        );
+        let value = conn::fields("response", &response.payload[1..]).unwrap()[1].1;
+        assert_eq!(value[0], 12, "{:?}", value);
+        assert_eq!(conn::fields("result12", &value[1..]).unwrap()[0].1, before);
+        assert_eq!(core.native.current().unwrap().0, before);
+        let after_git = std::process::Command::new("git")
+            .args(["-C", root.to_str().unwrap(), "rev-parse", "HEAD"])
+            .output()
+            .unwrap();
+        assert!(after_git.status.success());
+        assert_eq!(after_git.stdout, before_git.stdout);
+        let main_after = main_ref();
+        assert_eq!(main_after.status.code(), main_before.status.code());
+        assert_eq!(
+            main_after.stdout, main_before.stdout,
+            "Return must not move mirrored main"
+        );
+        assert_eq!(
+            fs::read(root.join("item")).unwrap(),
+            b"item bytes before move\n"
+        );
+        assert!(!root.join("notes.txt").exists());
+        let post_hex: String = post_move.iter().map(|b| format!("{b:02x}")).collect();
+        let recovered = std::process::Command::new("git")
+            .args([
+                "-C",
+                root.to_str().unwrap(),
+                "show",
+                &format!("{post_hex}:notes.txt"),
+            ])
+            .output()
+            .unwrap();
+        assert!(recovered.status.success());
+        assert_eq!(recovered.stdout, b"recoverable after move\n");
+        assert_eq!(
+            core.moved.lock().unwrap().as_ref().unwrap().by,
+            "ffffffffffffffffffffffffffffffff",
+            "the metadata return activity belongs to the person who pressed Return"
+        );
+        // Return does not release coding writes before metadata observes it.
+        assert_eq!(core.validate_coding_write().unwrap_err().code, 10);
+        core.observe_moved_off(&Actor::Outside).unwrap();
+        assert!(core.moved.lock().unwrap().is_none());
+        assert!(core.validate_coding_write().is_ok());
+    }
+    #[test]
+    fn metadata_detector_uses_native_item_ancestry_for_git_and_jj_moves() {
+        for (case, moved) in [
+            ("git checkout", true),
+            ("jj edit", true),
+            ("jj new main", true),
+            ("jj abandon", true),
+            ("git commit", false),
+            ("jj new item", false),
+            ("git same head", false),
+        ] {
+            let (dir, mut core) = fixture();
+            let root = dir.path().join("workspace");
+            fs::write(root.join("base"), b"base\n").unwrap();
+            let base = core.native.snapshot().unwrap().0;
+            crate::native::tests::child(&core.native, base, "item");
+            fs::write(root.join("item"), b"item\n").unwrap();
+            let before = core.native.snapshot().unwrap().0;
+            let change = crate::native::tests::change(&core.native, before);
+            crate::native::tests::child(&core.native, before, "working copy on item");
+            let before = core.native.current().unwrap().0;
+
+            Arc::get_mut(&mut core).unwrap().item =
+                Some(crate::boot::ItemBinding { number: 2, change });
+            let mut git = core.git.clone();
+            git.acknowledge_and_sync(before).unwrap();
+            let oid = |id: [u8; 20]| id.iter().map(|b| format!("{b:02x}")).collect::<String>();
+            let run = |program: &str, args: &[&str]| {
+                let output = std::process::Command::new(program)
+                    .current_dir(&root)
+                    .args(args)
+                    .output()
+                    .unwrap();
+                assert!(
+                    output.status.success(),
+                    "{case}: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            };
+            match case {
+                "git checkout" => run("git", &["checkout", "--detach", &oid(base)]),
+                "jj edit" => run("jj", &["edit", &oid(base)]),
+                "jj new main" => run("jj", &["new", &oid(base)]),
+                "jj abandon" => run("jj", &["abandon", &core.item.as_ref().unwrap().change]),
+                "git commit" => {
+                    fs::write(root.join("later"), b"later\n").unwrap();
+                    run("git", &["add", "."]);
+                    run(
+                        "git",
+                        &[
+                            "-c",
+                            "user.name=Fixture",
+                            "-c",
+                            "user.email=fixture@example.com",
+                            "-c",
+                            "core.hooksPath=/dev/null",
+                            "commit",
+                            "-m",
+                            "on item",
+                        ],
+                    );
+                }
+                "jj new item" => run("jj", &["new"]),
+                "git same head" => run("git", &["checkout", "-b", "same-head"]),
+                _ => unreachable!(),
+            }
+            core.observe_moved_off(&Actor::Session(7)).unwrap();
+            let fact = core.moved.lock().unwrap();
+            assert_eq!(fact.is_some(), moved, "{case}");
+            if let Some(fact) = fact.as_ref() {
+                assert_eq!(fact.pre_move_commit, oid(before), "{case}");
+            }
+            drop(fact);
+            assert_eq!(core.validate_coding_write().is_err(), moved, "{case}");
+        }
+    }
+    #[test]
+    fn coding_write_guard_requires_binding_and_refuses_off_item_after_snapshot() {
+        let (dir, mut core) = fixture();
+        Arc::get_mut(&mut core).unwrap().item = None;
+        assert_eq!(core.validate_coding_write().unwrap_err().code, 2);
+        assert_eq!(core.ready().unwrap_err().code, 2);
+        fs::write(dir.path().join("workspace/base"), b"base\n").unwrap();
+        let base = core.native.snapshot().unwrap().0;
+        let item = crate::native::tests::child(&core.native, base, "bound item");
+        let change = crate::native::tests::change(&core.native, item);
+        Arc::get_mut(&mut core).unwrap().item =
+            Some(crate::boot::ItemBinding { number: 2, change });
+        assert!(core.ready().is_ok());
+        assert!(core.validate_coding_write().is_ok());
+        crate::native::tests::child(&core.native, item, "descendant");
+        assert!(core.validate_coding_write().is_ok());
+        crate::native::tests::child(&core.native, base, "off item");
+        assert_eq!(core.validate_coding_write().unwrap_err().code, 10);
+        assert_eq!(
+            fs::read(dir.path().join("workspace/base")).unwrap(),
+            b"base\n"
+        );
+    }
+    #[test]
+    fn moved_off_agent_dispatch_refuses_before_metadata_debounce_and_disk_effects() {
+        // The kernel's UID/cgroup admission is a separate reference-host check.
+        // This exercises its production queued write dispatcher and real native
+        // repository guard with an already registered run identity.
+        let (dir, mut core) = fixture();
+        let root = dir.path().join("workspace");
+        fs::write(root.join("base"), b"base\n").unwrap();
+        let base = core.native.snapshot().unwrap().0;
+        let item = crate::native::tests::child(&core.native, base, "item");
+        let change = crate::native::tests::change(&core.native, item);
+        Arc::get_mut(&mut core).unwrap().item =
+            Some(crate::boot::ItemBinding { number: 2, change });
+        crate::native::tests::child(&core.native, base, "off item");
+        fs::write(root.join("notes.txt"), b"keep after move\n").unwrap();
+        let files = Arc::new(crate::files::Files::fixture(
+            std::fs::File::open(&root).unwrap(),
+            core.clone(),
+        ));
+        let executor = crate::lock::Executor::start(Hooks {
+            core: core.clone(),
+            ..Default::default()
+        })
+        .unwrap();
+        let admitted = executor.lock.epoch();
+        let response = executor
+            .lock
+            .run_blocking("coding_write", move |cx| {
+                let mut content = 9u32.to_be_bytes().to_vec();
+                content.extend(b"overwrite");
+                let args = conn::local_write_args(
+                    &structure_bytes(&[
+                        field(1, bytes("notes.txt")),
+                        field(
+                            2,
+                            tagged(
+                                1,
+                                &[field(1, crate::doc::state::digest(b"keep after move\n"))],
+                            ),
+                        ),
+                        field(3, content),
+                    ]),
+                    [7; 16],
+                )
+                .unwrap();
+                crate::local::write_response(cx, &files, 73, args, admitted)
+            })
+            .unwrap();
+        let error = conn::fields("response", &response.payload[1..]).unwrap()[1].1;
+        assert_eq!(error[0], 255);
+        assert_eq!(conn::fields("error", &error[1..]).unwrap()[0].1, [10]);
+        assert!(
+            core.moved.lock().unwrap().is_none(),
+            "write refusal cannot wait for the metadata debounce"
+        );
+        assert_eq!(
+            fs::read(root.join("notes.txt")).unwrap(),
+            b"keep after move\n"
+        );
+        let batch_files = Arc::new(crate::files::Files::fixture(
+            std::fs::File::open(&root).unwrap(),
+            core.clone(),
+        ));
+        let batch_response = executor
+            .lock
+            .run_blocking("coding_batch", move |cx| {
+                crate::local::batch_response(
+                    cx,
+                    &batch_files,
+                    74,
+                    vec![crate::hooks::FileWrite {
+                        path: "notes.txt".into(),
+                        base: crate::hooks::Base::Digest(crate::doc::state::digest(
+                            b"keep after move\n",
+                        )),
+                        content: Some(b"overwrite".to_vec()),
+                    }],
+                    Actor::Principal(vec![7; 16]),
+                    admitted,
+                )
+            })
+            .unwrap();
+        let batch_error = conn::fields("response", &batch_response.payload[1..]).unwrap()[1].1;
+        assert_eq!(batch_error[0], 255);
+        assert_eq!(conn::fields("error", &batch_error[1..]).unwrap()[0].1, [10]);
+        assert_eq!(
+            fs::read(root.join("notes.txt")).unwrap(),
+            b"keep after move\n"
+        );
+        executor.shutdown().unwrap();
+    }
     // These collaborators isolate native core behavior; production composition
     // uses the real document/watcher/broker providers in installed.rs.
     struct Flushed;
@@ -393,6 +880,11 @@ pub(crate) mod tests {
         );
         let native = Arc::new(native);
         let core = Arc::new(NativeCore {
+            item: Some(crate::boot::ItemBinding {
+                number: 0,
+                change: String::new(),
+            }),
+            moved: Mutex::new(None),
             native: native.clone(),
             git: repository.clone(),
             events: events.clone(),
@@ -580,6 +1072,8 @@ pub(crate) mod tests {
         )
         .unwrap();
         Arc::new(NativeCore {
+            item: core.item.clone(),
+            moved: Mutex::new(core.moved.lock().unwrap().clone()),
             native: core.native.clone(),
             git: core.git.clone(),
             events: Arc::new(Events::new(outbox, core.git.clone(), || Ok(1)).unwrap()),
@@ -704,6 +1198,11 @@ pub(crate) mod tests {
             }
             assert!(git.clone().pending().unwrap().is_empty());
             Arc::new(NativeCore {
+                item: Some(crate::boot::ItemBinding {
+                    number: 0,
+                    change: String::new(),
+                }),
+                moved: Mutex::new(None),
                 native,
                 git: git.clone(),
                 events: Arc::new(Events::new(outbox, git, || Ok(1)).unwrap()),

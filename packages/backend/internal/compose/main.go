@@ -550,6 +550,14 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		}
 	}
 	if config.IsSingleOwner(cfg.Auth) && options.Machined != nil {
+		if runtime, ok := options.Workspace.(interface {
+			BindMachinedItem(func(context.Context, string) (machined.ItemBinding, error))
+		}); ok {
+			runtime.BindMachinedItem(func(ctx context.Context, branch string) (machined.ItemBinding, error) {
+				return machineItemBinding(ctx, pool, branch)
+			})
+			defer runtime.BindMachinedItem(nil)
+		}
 		roster := &machineRoster{pool: pool, client: options.Machined, branches: options.Machined.ConnectedBranches}
 		if runtime, ok := options.Workspace.(interface {
 			BindMemberRoster(microsandbox.MemberRoster)
@@ -1201,6 +1209,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	// The mythical stack folds every main the pull brings in, admits every
 	// issue, works it on lane workspaces and proposes it to GitHub.
 	mythicalService := services.NewMythicalService(pool, repoHostClient, services.WithMythicalInstallAuthorization(config.IsSingleOwner(cfg.Auth)))
+	if config.IsSingleOwner(cfg.Auth) && options.Machined != nil {
+		mythicalService.SetMovedOffReturn(machineReturn{registry: options.Machined, pool: pool})
+	}
 	mythicalService.SetTodoLogStore(blobStore)
 	if config.IsSingleOwner(cfg.Auth) {
 		mythicalService.SetInstallParallel(installCapacity)
@@ -1904,7 +1915,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			presence.dispatcher = flow.dispatcher
 			presence.hosts = flow.bindings
 		}
-		stopEvents, err := bindMachineEvents(ctx, options.Machined, pool, repoHostClient, machineBurstObservations(smithersMetrics, options.Machined))
+		stopEvents, err := bindMachineEvents(ctx, options.Machined, pool, repoHostClient, machineBurstObservations(smithersMetrics, options.Machined), mythicalService)
 		if err != nil {
 			return fmt.Errorf("bind machine events: %w", err)
 		}

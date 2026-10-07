@@ -277,6 +277,13 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 			}
 			model["terminals"] = terminals
 		}
+		moved, err := p.queries.WorkspaceMovedOff(ctx, current.ID)
+		if err != nil {
+			return nil, err
+		}
+		if len(moved) != 0 {
+			model["moved_off"] = moved
+		}
 		if position, waiting := p.branches.MachinePlace(current); waiting {
 			model["machine"] = map[string]any{"state": "waiting", "position": position}
 		}

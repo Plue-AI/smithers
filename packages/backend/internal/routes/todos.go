@@ -449,6 +449,7 @@ func DecodeTodoControl(reader io.Reader) (services.TodoControlInput, string, err
 		Steer     *string `json:"steer,omitempty"`
 		Text      *string `json:"text,omitempty"`
 		Direction string  `json:"direction,omitempty"`
+		Wait      string  `json:"id,omitempty"`
 	}
 	invalid := &services.TodoControlError{Status: 400, Code: "invalid_control", Class: "user", Message: "Invalid TODO control"}
 	decoder := json.NewDecoder(reader)
@@ -456,7 +457,10 @@ func DecodeTodoControl(reader io.Reader) (services.TodoControlInput, string, err
 	if err := decodeSingleJSONDocument(decoder, &body); err != nil {
 		return services.TodoControlInput{}, "", invalid
 	}
-	input := services.TodoControlInput{Op: body.Op, Steer: body.Steer, Direction: body.Direction}
+	input := services.TodoControlInput{Op: body.Op, Steer: body.Steer, Direction: body.Direction, Wait: body.Wait}
+	if body.Wait != "" && body.Op != "keep-moved" && body.Op != "return-to-item" {
+		return services.TodoControlInput{}, "", invalid
+	}
 	switch {
 	case body.Op == "steer" && body.Steer == nil:
 		input = services.TodoControlInput{Steer: body.Text, Direction: body.Direction}

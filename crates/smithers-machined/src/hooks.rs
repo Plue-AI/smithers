@@ -265,6 +265,12 @@ pub trait EventSink: Send + Sync {
     }
 }
 pub trait Core: Send + Sync {
+    /// Runs on the mutation thread, after authenticating the coding run and
+    /// before consulting a document or touching disk. Missing item authority
+    /// cannot grant coding writes.
+    fn validate_coding_write(&self) -> Result<()> {
+        Err(Error::unsupported())
+    }
     /// Report readiness only after this provider's real dependencies are ready.
     /// Implementing an operation alone must not activate a partial daemon.
     fn ready(&self) -> Result<()> {
@@ -284,6 +290,10 @@ pub trait Core: Send + Sync {
     fn return_to_item(&self, _cx: &mut LockCx) -> Result<Oid> {
         Err(Error::unsupported())
     }
+
+    /// Preserve the authenticated person for the metadata return event only
+    /// after the complete rewrite sequence succeeded.
+    fn returned_by(&self, _actor: &Actor) {}
 
     /// Snapshot, pin and enqueue locally while holding the mutation lock.
     /// Unlike capture RPC, this must never wait for host acknowledgement.

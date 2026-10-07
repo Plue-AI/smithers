@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
-import { authenticatedTest as test } from "./auth-permissions/profile"
+import { authenticatedTest as test, launchAuthenticatedProfile } from "./auth-permissions/profile"
 import { scenario } from "./coverage/types"
 import { awaitBoot, command, expect, realApi } from "./support/test"
 
@@ -68,4 +68,60 @@ test("C-J3-09 reference: Return restores the item; Keep holds Needs you", scenar
   await expect.poll(async () => (await todo()).state).toBe("working")
   expect(await record()).toEqual(before)
   await info.attach("after", { body: JSON.stringify(await record()), contentType: "application/json" })
+})
+
+// A second authenticated member must be provisioned by the reference lane.
+// The actual served cards, sessions and first-answer transaction are exercised.
+test("C-J3-09 reference: both members see the move and only one choice wins", scenario("branch.moved-off-members", {
+  capabilities: ["install", "ssh", "multiplayer"],
+  coverage: ["action:todo.return-to-item", "action:todo.keep-moved", "path:success", "path:permission", "door:button", "evidence:moved-off-first-answer", "host:local"]
+}), async ({ page, request, playwright, baseURL }, info) => {
+  test.setTimeout(120_000)
+  if (!baseURL) throw new Error("Reference install URL required")
+  const member = await launchAuthenticatedProfile(playwright, baseURL, "SMITHERS_MOVED_OFF_MEMBER_PROFILE")
+  try {
+    await page.goto("/"); await awaitBoot(page)
+    await awaitBoot(member.page)
+    await command(page, "/branch T2")
+    await command(member.page, "/branch T2")
+    const before = await record()
+    const initial = await realApi(page, request, "GET", "/api/todos/2")
+    expect(initial.status()).toBe(200)
+    const owner = (await initial.json()).owner.login
+    expect(member.session.login).not.toBe(owner)
+    await ssh("git checkout main")
+    await expect(page.getByRole("button", { name: "Return to T2", exact: true }).last()).toBeVisible()
+    await expect(member.page.getByRole("button", { name: "Keep for now", exact: true }).last()).toBeVisible()
+    await expect(page.getByText("T2 needs you", { exact: true }).last()).toBeVisible()
+    await expect(member.page.getByText("T2 needs you", { exact: true }).last()).toBeVisible()
+    const current = await realApi(page, request, "GET", "/api/todos/2")
+    const wait = (await current.json()).waits.find((wait: { kind: string }) => wait.kind === "moved_off")
+    expect(wait?.id).toBeTruthy()
+    const post = async (target: typeof page, op: string) => {
+      const origin = new URL(process.env.SMITHERS_REAL_API_ORIGIN ?? baseURL).origin
+      const csrf = (await target.context().cookies(origin)).find(cookie => cookie.name === "__csrf")?.value
+      if (!csrf) throw new Error("Member CSRF cookie required")
+      return target.context().request.post(new URL("/api/todos/2", origin).toString(), {
+        headers: { Origin: origin, "X-CSRF-Token": csrf, "Idempotency-Key": `moved-race-${wait.id}-${op}` },
+        data: { op, id: wait.id }
+      })
+    }
+    const responses = await Promise.all([post(page, "return-to-item"), post(member.page, "keep-moved")])
+    expect(responses.map(response => response.status()).sort()).toEqual([202, 409])
+    const refusal = await responses.find(response => response.status() === 409)!.json()
+    expect([owner, member.session.login]).toContain(refusal.answered_by)
+    await info.attach("first-answer", { body: JSON.stringify({ statuses: responses.map(response => response.status()), answered_by: refusal.answered_by, wait: wait.id }), contentType: "application/json" })
+    if (responses[1]!.status() === 202) {
+      // The winning Keep leaves the move and both live cards visible.
+      await expect(page.getByText(wait.prompt, { exact: true }).last()).toBeVisible()
+      await expect(member.page.getByText(wait.prompt, { exact: true }).last()).toBeVisible()
+      await ssh(`jj edit ${before.commit}`)
+    }
+    await expect.poll(async () => {
+      const response = await realApi(page, request, "GET", "/api/todos/2")
+      expect(response.status()).toBe(200)
+      return (await response.json()).waits.some((row: { id: string }) => row.id === wait.id)
+    }).toBe(false)
+    expect(await record()).toEqual(before)
+  } finally { await member.close() }
 })

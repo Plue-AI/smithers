@@ -162,6 +162,7 @@ type workspace struct {
 
 // Runtime owns every microVM it creates and the metadata that names them.
 type Runtime struct {
+	machinedItem           func(context.Context, string) (machined.ItemBinding, error)
 	machinedAgentAdmission func(context.Context, string, string, func(context.Context) error) error
 	machinedHead           func(context.Context, string) (string, error)
 	secretEnvironment      func(context.Context, string) (map[string]string, error)

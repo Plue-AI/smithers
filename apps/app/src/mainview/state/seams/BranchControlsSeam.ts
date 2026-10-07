@@ -3,7 +3,7 @@ import { refusalOf } from "@smthrs/rpc/Refusal"
 import type { CommandResult } from "../../flows/entries/Declare"
 import type { SeamContext } from "./SeamContext"
 
-export type BranchControl = "sleep" | "wake" | "rebase" | "return-to-item" | "keep-moved"
+export type BranchControl = "sleep" | "wake" | "rebase"
 export interface BranchControlOptions {
   /** Each owning provider supplies its production activation receipt independently. */
   readonly ready: (operation: BranchControl) => boolean
@@ -21,7 +21,7 @@ export function createBranchControlsSeam(ctx: SeamContext, options: BranchContro
     if ((input.conflict_change === undefined) !== (input.onto_revision === undefined)) return "Branch unavailable"
     if (!branch.trim() || /[\u0000\\]/.test(branch)) return "Choose a branch"
     try {
-      // Moved-off controls carry a TODO number; resolve its current branch before writing.
+      // Resolve an item reference to its current branch before writing.
       if (/^T[1-9][0-9]*$/.test(branch)) {
         const response = await ctx.http(`${ctx.baseUrl}/api/todos/${branch.slice(1)}`, { credentials: "same-origin" })
         const body = await response.json() as { branch?: { name?: unknown }; message?: string }

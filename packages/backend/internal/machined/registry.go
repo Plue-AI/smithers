@@ -245,3 +245,6 @@ func (c *Connection) RequireMachine(branch, machine string) error {
 	}
 	return nil
 }
+
+// Machine returns the immutable host-admitted machine scope.
+func (c *Connection) Machine() string { return c.boot.machine }

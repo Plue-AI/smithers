@@ -10,7 +10,7 @@ use jj_lib::{
     default_backend_factories::{default_backend_factories, default_working_copy_factories},
     merge::Merge,
     merged_tree::MergedTree,
-    object_id::ObjectId,
+    object_id::{HexPrefix, ObjectId, PrefixResolution},
     repo::{MutableRepo, ReadonlyRepo, Repo},
     rewrite::{rebase_commit, CommitRewriter},
     settings::UserSettings,
@@ -181,9 +181,136 @@ impl Repository {
         Ok((oid(commit.id().as_bytes())?, oid(tree.as_bytes())?))
     }
     pub fn snapshot(&self) -> io::Result<(Oid, Oid)> {
-        flows_jj::ops::snapshot(&self.root, None)
-            .map_err(|e| invalid(format!("native snapshot: {e}")))?;
+        // Colocated Git commands update HEAD and files without advancing jj's
+        // operation. Import that movement before snapshotting the working copy,
+        // otherwise checkout would look like an edit of the item's change.
+        let (mut workspace, repo) = self.load()?;
+        let mut tx = repo.start_transaction();
+        jj_lib::git::import_head(tx.repo_mut())
+            .block_on()
+            .map_err(invalid)?;
+        if tx.repo().has_changes() {
+            let head = tx.repo().view().git_head().as_normal().cloned();
+            if let Some(head) = head {
+                let commit = tx.repo().store().get_commit(&head).map_err(invalid)?;
+                let wc = tx
+                    .repo_mut()
+                    .check_out(workspace.workspace_name().to_owned(), &commit)
+                    .block_on()
+                    .map_err(invalid)?;
+                let mut locked = workspace
+                    .start_working_copy_mutation()
+                    .block_on()
+                    .map_err(invalid)?;
+                locked.locked_wc().reset(&wc).block_on().map_err(invalid)?;
+                tx.repo_mut()
+                    .rebase_descendants()
+                    .block_on()
+                    .map_err(invalid)?;
+                let updated = tx
+                    .commit("import colocated Git head")
+                    .block_on()
+                    .map_err(invalid)?;
+                locked
+                    .finish(updated.op_id().clone())
+                    .block_on()
+                    .map_err(invalid)?;
+            } else {
+                tx.repo_mut()
+                    .rebase_descendants()
+                    .block_on()
+                    .map_err(invalid)?;
+                tx.commit("import removed Git head")
+                    .block_on()
+                    .map_err(invalid)?;
+            }
+        }
+        flows_jj::ops::snapshot(&self.root, None).map_err(invalid)?;
         self.current()
+    }
+    /// Resolve the host-bound item by change identity, including rewritten
+    /// revisions. Tree equality and bookmark names confer no write authority.
+    pub fn descends_from_item(&self, change: &str) -> io::Result<bool> {
+        let (workspace, repo) = self.load()?;
+        Self::descends_in(&workspace, &repo, change)
+    }
+    fn descends_in(
+        workspace: &Workspace,
+        repo: &Arc<ReadonlyRepo>,
+        change: &str,
+    ) -> io::Result<bool> {
+        if change.len() != 32 || !change.bytes().all(|c| (b'k'..=b'z').contains(&c)) {
+            return Err(invalid("invalid item change identity"));
+        }
+        let prefix = HexPrefix::try_from_reverse_hex(change)
+            .ok_or_else(|| invalid("invalid item change identity"))?;
+        let current = repo
+            .view()
+            .get_wc_commit_id(workspace.workspace_name())
+            .ok_or_else(|| invalid("missing working-copy commit"))?;
+        match repo.resolve_change_id_prefix(&prefix).map_err(invalid)? {
+            PrefixResolution::NoMatch => Ok(false),
+            PrefixResolution::AmbiguousMatch => Err(invalid("ambiguous item change identity")),
+            PrefixResolution::SingleMatch(targets) => {
+                for (_, id) in targets.visible_with_offsets() {
+                    if repo
+                        .index()
+                        .is_ancestor(id, current)
+                        .block_on()
+                        .map_err(invalid)?
+                    {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            }
+        }
+    }
+    /// A last acknowledged capture may precede a rewrite or abandonment of
+    /// the item's visible revision. Verify its immutable ancestry by change
+    /// identity instead of trusting an arbitrary host head or today's visibility.
+    pub fn captured_item_head(&self, head: Oid, change: &str) -> io::Result<bool> {
+        let (_, repo) = self.load()?;
+        let mut pending = vec![CommitId::new(head.to_vec())];
+        let mut seen = std::collections::HashSet::new();
+        while let Some(id) = pending.pop() {
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+            if seen.len() > 128_000 {
+                return Err(invalid("captured item ancestry too large"));
+            }
+            let commit = repo.store().get_commit(&id).map_err(invalid)?;
+            if commit.change_id().reverse_hex() == change {
+                return Ok(true);
+            }
+            pending.extend(commit.parent_ids().iter().cloned());
+        }
+        Ok(false)
+    }
+    /// Newest operation whose working copy still descends from the item's
+    /// change. Repository operations remain in the unprivileged daemon.
+    pub fn latest_on_item(&self, change: &str) -> io::Result<Oid> {
+        use futures::TryStreamExt;
+        let (workspace, repo) = self.load()?;
+        let mut operations = Box::pin(jj_lib::op_walk::walk_ancestors(&[repo.operation().clone()]));
+        for _ in 0..128_000 {
+            let Some(operation) = operations.try_next().block_on().map_err(invalid)? else {
+                return Err(invalid("pre-move history unavailable"));
+            };
+            if operation.id().as_bytes().iter().all(|b| *b == 0) {
+                continue;
+            }
+            let historical = repo.reload_at(&operation).block_on().map_err(invalid)?;
+            if Self::descends_in(&workspace, &historical, change)? {
+                let head = historical
+                    .view()
+                    .get_wc_commit_id(workspace.workspace_name())
+                    .ok_or_else(|| invalid("missing historical working-copy commit"))?;
+                return oid(head.as_bytes());
+            }
+        }
+        Err(invalid("pre-move history too large"))
     }
     pub fn contains(&self, head: Oid) -> io::Result<bool> {
         let (_, repo) = self.load()?;
@@ -303,7 +430,21 @@ impl Repository {
     }
     fn restore_operation(&self, operation: &str) -> io::Result<()> {
         flows_jj::ops::op_restore(&self.root, operation)
-            .map_err(|e| invalid(format!("native restore: {e}")))
+            .map_err(|e| invalid(format!("native restore: {e}")))?;
+        let (workspace, repo) = self.load()?;
+        let current_id = repo
+            .view()
+            .get_wc_commit_id(workspace.workspace_name())
+            .ok_or_else(|| invalid("missing restored working-copy commit"))?;
+        let current = repo.store().get_commit(current_id).map_err(invalid)?;
+        let mut tx = repo.start_transaction();
+        jj_lib::git::reset_head(tx.repo_mut(), &current)
+            .block_on()
+            .map_err(invalid)?;
+        tx.commit("machined restore Git HEAD")
+            .block_on()
+            .map_err(invalid)?;
+        Ok(())
     }
     pub(crate) fn wake_journal(&self) -> io::Result<crate::wake_journal::Journal> {
         crate::wake_journal::Journal::open(&self.state)
@@ -326,6 +467,9 @@ impl Repository {
             .get_wc_commit_id(workspace.workspace_name())
             .ok_or_else(|| invalid("missing working-copy commit"))?;
         let current = repo.store().get_commit(current_id).map_err(invalid)?;
+        if current.id() == target.id() {
+            return Ok(head);
+        }
         let mut tx = repo.start_transaction();
         tx.repo_mut()
             .edit(workspace.workspace_name().to_owned(), &target)
@@ -335,6 +479,9 @@ impl Repository {
         // bookkeeping before publishing, including heads imported from a host.
         tx.repo_mut()
             .rebase_descendants()
+            .block_on()
+            .map_err(invalid)?;
+        jj_lib::git::reset_head(tx.repo_mut(), &target)
             .block_on()
             .map_err(invalid)?;
         let updated = tx
@@ -453,6 +600,33 @@ impl Repository {
 pub(crate) mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+    pub(crate) fn change(native: &Repository, head: Oid) -> String {
+        let (_, repo) = native.load().unwrap();
+        Repository::commit(&repo, head)
+            .unwrap()
+            .change_id()
+            .reverse_hex()
+    }
+    #[test]
+    fn item_identity_requires_a_visible_ancestor_even_for_identical_trees() {
+        let (_dir, native) = fixture();
+        let base = native.current().unwrap().0;
+        let item = child(&native, base, "item");
+        let (_, repo) = native.load().unwrap();
+        let change = Repository::commit(&repo, item)
+            .unwrap()
+            .change_id()
+            .reverse_hex();
+        assert!(native.descends_from_item(&change).unwrap());
+        child(&native, item, "on top of the item");
+        assert!(native.descends_from_item(&change).unwrap());
+        child(&native, base, "off the item with identical bytes");
+        assert!(!native.descends_from_item(&change).unwrap());
+        assert!(native.descends_from_item("main").is_err());
+        assert!(!native
+            .descends_from_item("kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk")
+            .unwrap());
+    }
     pub(crate) fn fixture() -> (tempfile::TempDir, Repository) {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("workspace");
@@ -526,6 +700,9 @@ pub(crate) mod tests {
             .unwrap();
         tx.repo_mut()
             .set_wc_commit(workspace.workspace_name().to_owned(), child.id().clone())
+            .unwrap();
+        jj_lib::git::reset_head(tx.repo_mut(), &child)
+            .block_on()
             .unwrap();
         let updated = tx.commit("test branch change").block_on().unwrap();
         workspace

@@ -23,7 +23,7 @@ use std::{
         unix::fs::{MetadataExt, PermissionsExt},
     },
     path::Path,
-    sync::{Arc, OnceLock},
+    sync::{Arc, Mutex, OnceLock},
 };
 type Events = crate::event_service::Events<crate::git::Repository, crate::git::Repository>;
 type Watcher = crate::watch::InotifyWatcher<crate::ignore::GitIgnore, Ports>;
@@ -51,6 +51,7 @@ fn private(path: &Path) -> io::Result<File> {
 struct Ports {
     git: crate::git::Repository,
     native: Arc<crate::native::Repository>,
+    core: Arc<crate::native_core::NativeCore>,
     events: Arc<Events>,
     broker: Arc<SocketpairBroker>,
     store: crate::watcher_store::Store,
@@ -180,7 +181,12 @@ impl Provider<Actor> for Ports {
             .map_err(crate::watch::provider_error)
     }
     fn moved_off(&mut self) -> io::Result<()> {
-        self.native.current().map(|_| ())
+        self.moved_off_attributed(None)
+    }
+    fn moved_off_attributed(&mut self, actor: Option<&Actor>) -> io::Result<()> {
+        self.core
+            .observe_moved_off(actor.unwrap_or(&Actor::Outside))
+            .map_err(crate::watch::provider_error)
     }
     fn snapshot(&mut self) -> io::Result<()> {
         self.native.snapshot().map(|_| ())
@@ -305,12 +311,21 @@ pub fn run() -> io::Result<()> {
         Events::new(outbox, git.clone(), move || allocator.allocate_stream())?
             .with_incoming(Arc::new(git.clone())),
     );
-    let core = Arc::new(crate::native_core::NativeCore {
-        native: native.clone(),
-        git: git.clone(),
-        events: events.clone(),
-        sessions: broker.clone(),
-    });
+    let core =
+        Arc::new(crate::native_core::NativeCore {
+            item: boot.item.clone(),
+            moved: Mutex::new(boot.moved_off.as_ref().map(|pre_move_commit| {
+                crate::moved_off::Fact {
+                    by: String::new(),
+                    item: format!("T{}", boot.item.as_ref().unwrap().number),
+                    pre_move_commit: pre_move_commit.clone(),
+                }
+            })),
+            native: native.clone(),
+            git: git.clone(),
+            events: events.clone(),
+            sessions: broker.clone(),
+        });
     let workspace = File::open("/workspace")?;
     crate::confine::probe(&workspace)?;
     let documents_dir = private(&state.join("documents"))?;
@@ -351,7 +366,10 @@ pub fn run() -> io::Result<()> {
         ),
         Arc::new(hooks::SystemClock),
     ));
-    let files = Arc::new(crate::files::Files::new(workspace.try_clone()?, core)?);
+    let files = Arc::new(crate::files::Files::new(
+        workspace.try_clone()?,
+        core.clone(),
+    )?);
     let mut hooks = Hooks {
         core: files.clone(),
         documents,
@@ -374,6 +392,7 @@ pub fn run() -> io::Result<()> {
             Ports {
                 git,
                 native,
+                core,
                 events: events.clone(),
                 broker,
                 store,

@@ -43,8 +43,11 @@ pub fn dispatch(frame: &Frame, cx: &mut LockCx) -> Result<Frame, ProtocolError> 
             12 => {
                 let actor = conn::return_to_item_actor(args)?;
                 hooks.core.validate_return_to_item().and_then(|()| {
-                    crate::freeze::freeze_then(cx, &actor, |cx| hooks.core.return_to_item(cx))
-                        .map(|head| conn::structure_bytes(&[conn::field(1, head)]))
+                    crate::freeze::freeze_return(cx, &actor, |cx| hooks.core.return_to_item(cx))
+                        .map(|head| {
+                            hooks.core.returned_by(&actor);
+                            conn::structure_bytes(&[conn::field(1, head)])
+                        })
                 })
             }
 

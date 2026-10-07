@@ -11,6 +11,7 @@ type MovedOffEvent struct {
 	Actor         Actor
 	Item          uint64
 	PreMoveCommit string
+	Returned      bool
 }
 
 func DecodeMovedOff(payload []byte) (MovedOffEvent, error) {
@@ -26,6 +27,9 @@ func DecodeMovedOff(payload []byte) (MovedOffEvent, error) {
 	}
 	f := fields(payload[1:], "moved_off")
 	m := MovedOffEvent{Actor: decodeActor(f[1]), Item: binary.BigEndian.Uint64(f[2]), PreMoveCommit: hex.EncodeToString(f[3])}
+	if returned := f[4]; len(returned) != 0 {
+		m.Returned = returned[0] == 1
+	}
 	if m.Item == 0 {
 		return MovedOffEvent{}, BadValue
 	}

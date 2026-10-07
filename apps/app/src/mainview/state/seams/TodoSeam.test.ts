@@ -68,6 +68,77 @@ describe("TodoSeam — admission and live completion", () => {
       expect(h.reports).toEqual([])
     } finally { leave(); h.close() }
   })
+  test("Keep persists before unresolved launch, deduplicates and settles from the retained wait", async () => {
+    const launch = deferred<Response>()
+    const reads = deferred<Response>()
+    const calls: Array<{ url: string; init: RequestInit }> = []
+    const model: TodoCard = { ...fixtures.working.model, state: "needs_you", waits: [{ id: "moved-1", kind: "moved_off", prompt: "Maya moved this branch off T12", since: "2026-10-07T00:00:00Z", actions: [{ tag: "todo.keep-moved", label: "Keep for now" }] }] }
+    const h = await harness(async (url, init) => { if (!init?.method) return reads.promise; calls.push({ url, init }); return launch.promise })
+    try {
+      expect(await h.seam.controlTodo(12, "keep-moved")).toEqual({ value: "Requested" })
+      expect(await h.seam.controlTodo(12, "keep-moved")).toEqual({ value: "Requested" })
+      expect(h.todo().payload.requests).toHaveLength(1)
+      expect(calls).toEqual([])
+      reads.resolve(json(model, 200))
+      await waitFor(() => calls.length === 1)
+      expect(calls[0]!.url).toBe("https://install.test/api/todos/12")
+      expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ op: "keep-moved", id: "moved-1" })
+      expect(h.outcomes).toEqual([])
+      launch.resolve(json({ state: "accepted", n: 12 }))
+      await waitFor(() => h.todo().payload.requests[0]?.state === "accepted")
+      expect(h.outcomes).toEqual([])
+      await h.seam.applyTodoProjection(12, { ...model, waits: [{ ...model.waits[0]!, answered_by: "ben", answer: "keep-moved", actions: [] }] })
+      await waitFor(() => h.outcomes.length === 1)
+      expect(h.outcomes[0]).toMatchObject({ status: "ok", detail: "Kept" })
+      expect(h.todo().payload.model?.state).toBe("needs_you")
+      expect(h.todo().payload.model?.waits[0]?.kind).toBe("moved_off")
+    } finally { h.close() }
+  })
+  test("Return holds progress through launch and thaw until its metadata wait disappears", async () => {
+    const launch = deferred<Response>()
+    const calls: RequestInit[] = []
+    const independent = { id: "question", kind: "question" as const, prompt: "Which?", since: "2026-10-07T00:00:00Z", actions: [] }
+    const moved = { id: "moved-old", kind: "moved_off" as const, prompt: "Maya moved this branch off T12", since: "2026-10-07T00:00:00Z", actions: [{ tag: "todo.return-to-item" as const, label: "Return to T12" }] }
+    const model: TodoCard = { ...fixtures.working.model, state: "needs_you", waits: [moved, independent] }
+    const h = await harness(async (_url, init) => { if (!init?.method) return json(model, 200); calls.push(init); return launch.promise })
+    try {
+      await h.seam.applyTodoProjection(12, model)
+      expect(await h.seam.controlTodo(12, "return-to-item", undefined, "moved-old")).toEqual({ value: "Requested" })
+      expect(await h.seam.controlTodo(12, "return-to-item", undefined, "moved-old")).toEqual({ value: "Requested" })
+      await waitFor(() => calls.length === 1)
+      expect(JSON.parse(String(calls[0]!.body))).toEqual({ op: "return-to-item", id: "moved-old" })
+      expect(h.outcomes).toEqual([])
+      launch.resolve(json({ state: "accepted", n: 12 }))
+      await waitFor(() => h.todo().payload.requests[0]?.state === "accepted")
+      await h.seam.applyTodoProjection(12, { ...model, waits: [{ ...moved, answer: "return-to-item", answered_by: "ben", actions: [] }, independent] })
+      expect(h.outcomes).toEqual([])
+      await h.seam.applyTodoProjection(12, { ...model, waits: [independent] })
+      await waitFor(() => h.outcomes.some(outcome => typeof outcome === "object" && outcome !== null && "key" in outcome && String(outcome.key).startsWith("todo.request.")))
+      expect(h.outcomes.at(-1)).toMatchObject({ status: "ok", detail: "Returned" })
+      expect(h.todo().payload.model?.waits).toEqual([independent])
+      expect(h.todo().payload.model?.state).toBe("needs_you")
+    } finally { h.close() }
+  })
+  test("Return failures remain visible and a stale card carries its original wait", async () => {
+    const calls: RequestInit[] = []
+    const moved = { id: "moved-new", kind: "moved_off" as const, prompt: "Outside moved this branch off T12", since: "2026-10-07T00:00:00Z", actions: [] }
+    const h = await harness(async (_url, init) => { if (init?.method) calls.push(init); return json({ state: "accepted", n: 12 }) })
+    try {
+      await h.seam.applyTodoProjection(12, { ...fixtures.working.model, state: "needs_you", waits: [moved] })
+      await h.seam.controlTodo(12, "return-to-item", undefined, "moved-original")
+      await waitFor(() => calls.length === 1)
+      expect(JSON.parse(String(calls[0]!.body))).toEqual({ op: "return-to-item", id: "moved-original" })
+      await waitFor(() => h.todo().payload.requests[0]?.state === "accepted")
+      await h.seam.applyTodoProjection(12, { ...fixtures.working.model, state: "needs_you", waits: [{ ...moved, id: "moved-original", answered_by: "ben", answer: "return-to-item", return_error: "Return failed." }] })
+      await waitFor(() => h.outcomes.some(outcome => typeof outcome === "object" && outcome !== null && "key" in outcome && String(outcome.key).startsWith("todo.request.")))
+      expect(h.outcomes.at(-1)).toMatchObject({ status: "failed", detail: "Return failed." })
+      expect(h.todo().payload.model?.state).toBe("needs_you")
+      expect(h.todo().payload.requests[0]?.state).toBe("failed")
+      await h.seam.controlTodo(12, "return-to-item", undefined, "moved-original")
+      await waitFor(() => calls.length === 2)
+      expect(new Headers(calls[1]!.headers).get("Idempotency-Key")).toBe(new Headers(calls[0]!.headers).get("Idempotency-Key"))
+    } finally { h.close() }
+  })
   test("an approved Drop recovers progress without resending the action, and settles only from its TODO", async () => {
     const calls: RequestInit[] = []
     const storage = memoryStorage()
@@ -557,6 +628,23 @@ test("Needs you toasts anyone on the branch, but not a member who neither owns t
     await h.seam.applyTodoProjection(12, { ...fixtures.needs_you.model, owner: maya, waits: [asked] })
     expect(needsYou().map(toast => toast.key)).toEqual(["todo.needs-you.12.wait-question-2"])
   } finally { h.close() }
+})
+
+test("moved-off notices resolve to the branch for the owner and present members only", async () => {
+  for (const audience of ["owner", "present", "other"] as const) {
+    const h = await harness(async () => json({ state: "accepted" }))
+    try {
+      const maya = { login: "maya", name: "Maya", avatar_url: fixtures.needs_you.model.owner.avatar_url }
+      const moved = { id: "moved-notice", kind: "moved_off" as const, prompt: "Maya moved this branch off T12", since: "2026-10-07T00:00:00Z", actions: [] }
+      const model = { ...fixtures.needs_you.model, owner: audience === "owner" ? fixtures.needs_you.model.owner : maya,
+        present: audience === "present" ? fixtures.needs_you.model.present : [], waits: [moved] }
+      await h.seam.applyTodoProjection(12, model)
+      await h.seam.applyTodoProjection(12, model)
+      const notices = [...h.store.collections.toasts.values()].filter(toast => toast.key.startsWith("todo.needs-you."))
+      expect(notices).toHaveLength(audience === "other" ? 0 : 1)
+      if (audience !== "other") expect(notices[0]).toMatchObject({ status: "running", action: { flow: "branch", args: "T12", label: "Resolve" }, audience: { member: "ben", target: { flow: "branch", branch: "T12" } } })
+    } finally { h.close() }
+  }
 })
 
 // Recorded attribution crosses the real seam transport and persistence boundary; credential issuance is T-ACC-04.

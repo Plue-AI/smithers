@@ -37,3 +37,19 @@ test("Bring in requires the displayed wait and head on the shared branch route",
   expect(decode(input)).toEqual(input)
   expect(() => decode({ branch: input.branch, revision: input.revision })).toThrow()
 })
+
+test("Return and Keep share the numbered TODO door and retain person/agent policy", async () => {
+  const { pendingControls } = await import("../src/app-operations/controls")
+  const { Schema } = await import("effect")
+  const rows = generateCatalog()
+  for (const [name, op, agent, actors] of [["todo.return-to-item", "return-to-item", "run", ["person", "app_agent"]], ["todo.keep-moved", "keep-moved", "never", ["person"]]] as const) {
+    const row = rows.find(row => row.name === name)!
+    expect(row).toMatchObject({ agent, actors, minimumRole: "member", visibility: "in-card", cli: null, slash: null, http: { method: "POST", path: "/api/todos/{n}", defaults: { op } } })
+    const declaration = pendingControls.find(row => row.name === name)!
+    const decode = Schema.decodeUnknownSync(declaration.input)
+    expect(decode({ n: 2, id: "moved-original" })).toEqual({ n: 2, id: "moved-original" })
+    expect(decode({ n: 2 })).toEqual({ n: 2 })
+    expect(() => decode({ n: 0, id: "moved-original" })).toThrow()
+    expect(() => decode({ n: 2, id: "" })).toThrow()
+  }
+})

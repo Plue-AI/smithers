@@ -133,7 +133,7 @@ export const createFailureController = (ctx: ControllerContext): FailureControll
           if (ctx.disposed || ctx.accountOwner() !== member) return
           window.focus()
           void ctx.commands.submit({ name: audience.target.flow, actor: "user",
-            payload: audience.target.flow === "todo" ? { n: audience.target.n } : { id: audience.target.id } })
+            payload: audience.target.flow === "todo" ? { n: audience.target.n } : audience.target.flow === "branch" ? { branch: audience.target.branch } : { id: audience.target.id } })
         }
       } catch { /* Denied or unavailable browser APIs never interrupt ordinary toasts. */ }
     }
