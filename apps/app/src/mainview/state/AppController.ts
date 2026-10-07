@@ -947,6 +947,7 @@ export const createAppController = (
   const gitHubSyncRetry = createGitHubSyncRetry(ctx, gitHubSyncSeam)
   ctx.onDispose(gitHubSyncSeam.dispose)
   const homeView = installHost ? createHomeViewSeam({
+    live: services.live,
     http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init),
     owner: () => {
       const identity = store.collections.identitySessions.get("identity")
