@@ -212,8 +212,13 @@ func TestHomeBackgroundRetryIdempotent(t *testing.T) {
 		_, err = pool.Exec(ctx, `INSERT INTO mythical_items(repository_id,source,state,title,number,stack_position,base_commit,candidate_head)
         SELECT $1,'chat','queued','Queued TODO ' || n,n,n,'main-' || n,'candidate-' || n FROM generate_series(1,200) n`, repo)
 		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET attention=
+          '[{"id":"order-1","kind":"order","revision":3,"text":"Order changed","entries":[],"actions":[{"tag":"order.ok","label":"OK"}]},
+            {"id":"force-1","kind":"force_push","revision":"github-main-2","text":"Main changed","actions":[{"tag":"main.reset","label":"Reset to GitHub main"}]},
+            {"id":"old-order","kind":"order","revision":1,"text":"Settled","settled_at":"2026-10-01T00:00:00Z","actions":[]}]' WHERE repository_id=$1`, repo)
+		require.NoError(t, err)
 		var sharedHome json.RawMessage
-		for _, token := range []string{"home-owner", "home-member"} {
+		for _, token := range []string{"home-member", "home-owner"} {
 			readCtx, done := context.WithTimeout(ctx, 10*time.Second)
 			conn, _, err := websocket.Dial(readCtx, "ws"+strings.TrimPrefix(origin, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{"smithers.live.v1"}, HTTPHeader: http.Header{"Origin": {origin}, "Cookie": {"smithers_session=" + token}}})
 			require.NoError(t, err)
@@ -240,9 +245,18 @@ func TestHomeBackgroundRetryIdempotent(t *testing.T) {
 						N     int    `json:"n"`
 						Title string `json:"title"`
 					} `json:"items"`
-					Counts map[string]int `json:"counts"`
+					Counts    map[string]int `json:"counts"`
+					Attention []struct {
+						ID   string `json:"id"`
+						Kind string `json:"kind"`
+					} `json:"attention"`
 				}
 				require.NoError(t, json.Unmarshal(frame.Data, &home))
+				require.Len(t, home.Attention, 2)
+				require.Equal(t, "order-1", home.Attention[0].ID)
+				require.Equal(t, "order", home.Attention[0].Kind)
+				require.Equal(t, "force-1", home.Attention[1].ID)
+				require.Equal(t, "force_push", home.Attention[1].Kind)
 				require.Len(t, home.Items, 200)
 				require.Equal(t, 200, home.Counts["queued"])
 				for index, item := range home.Items {

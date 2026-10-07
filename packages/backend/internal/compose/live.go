@@ -330,7 +330,7 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 			}
 		}
 		source := live.Source{Key: fmt.Sprintf("home:%d:member:%d:role:%s", repository, member, role), Hints: hints, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
-			return t.home(ctx, repository, slug, member)
+			return t.home(ctx, repository, slug)
 		}}
 		if t.jobs != nil {
 			source = liveRepositoryTodosSource(source, t.jobs, repository)
@@ -416,11 +416,7 @@ func (t *liveTopics) externalSession(ctx context.Context, topic, rest string) (l
 // every state counted, a machine per TODO branch that is awake or waking,
 // and main's row from the install's GitHub sync. Last look and role filter
 // stay in the browser (§7.2.2).
-func (t *liveTopics) home(ctx context.Context, repository int64, slug string, members ...int64) (json.RawMessage, error) {
-	var member int64
-	if len(members) > 0 {
-		member = members[0]
-	}
+func (t *liveTopics) home(ctx context.Context, repository int64, slug string) (json.RawMessage, error) {
 	todos, err := t.todos.Todos(ctx, repository)
 	if err != nil {
 		return nil, err
@@ -442,9 +438,9 @@ func (t *liveTopics) home(ctx context.Context, repository int64, slug string, me
 	}
 	model := homeModel(slug, cards, sync)
 	if provider, ok := t.todos.(interface {
-		StackAttention(context.Context, int64, int64) ([]services.OrderAttention, error)
+		HomeAttention(context.Context, int64) ([]services.OrderAttention, error)
 	}); ok {
-		attention, err := provider.StackAttention(ctx, repository, member)
+		attention, err := provider.HomeAttention(ctx, repository)
 		if err != nil {
 			return nil, err
 		}

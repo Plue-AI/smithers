@@ -141,13 +141,29 @@ func (s *MythicalService) StackAttention(ctx context.Context, repository, member
 	if role != InstallOwner && role != InstallMaintainer {
 		return []OrderAttention{}, nil
 	}
+	rows, err := s.HomeAttention(ctx, repository)
+	if err != nil {
+		return nil, err
+	}
+	open := []OrderAttention{}
+	for _, row := range rows {
+		if row.Kind == "order" || role == InstallOwner {
+			open = append(open, row)
+		}
+	}
+	return open, nil
+}
+
+// HomeAttention is shared repository data. Home filters controls in the member's
+// client; write commands independently authorize the current person.
+func (s *MythicalService) HomeAttention(ctx context.Context, repository int64) ([]OrderAttention, error) {
 	rows, err := readStackAttention(ctx, s.store, repository)
 	if err != nil {
 		return nil, err
 	}
 	open := []OrderAttention{}
 	for _, row := range rows {
-		if row.SettledAt == nil && (row.Kind == "order" || role == InstallOwner && row.Kind == "force_push") {
+		if row.SettledAt == nil && (row.Kind == "order" || row.Kind == "force_push") {
 			open = append(open, row)
 		}
 	}
