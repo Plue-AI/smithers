@@ -69,3 +69,21 @@ test("both executed reference boundaries are required for the machine receipt", 
     { Action: "pass", Test: machine }
   ), machine, ["machine-mid-command", "machine-mid-todo"])).not.toThrow()
 })
+
+
+test("a composed host fault qualifies its kill child separately from setup", () => {
+  const parent = "TestTodoHostKillThroughInstall"
+  const fault = `${parent}/host-keyless-crossing`
+  const transcript = log(
+    { Action: "pass", Test: `${parent}/Install through Machine ready` },
+    { Action: "output", Test: fault, Output: "CRASH-POINT host-keyless-crossing subject todo\n" },
+    { Action: "pass", Test: fault },
+    { Action: "pass", Test: parent }
+  )
+  expect(() => requireReachedGoFault(transcript, fault, ["host-keyless-crossing"])).not.toThrow()
+  expect(() => requireReachedGoFault(transcript, parent, ["host-keyless-crossing"])).toThrow("logged no kill marker")
+  expect(() => requireReachedGoFault(log(
+    { Action: "pass", Test: `${parent}/Install through Machine ready` },
+    { Action: "pass", Test: parent }
+  ), fault, ["host-keyless-crossing"])).toThrow("did not pass")
+})
