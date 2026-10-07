@@ -189,6 +189,7 @@ export interface CardCommandInput {
   readonly "issue.comment": { readonly number: number; readonly body: string }
   readonly "wiki": undefined
   readonly "wiki.page": { readonly name: string; readonly revision?: number }
+  readonly "wiki.delete": { readonly documentId: string; readonly owner?: string; readonly repo?: string; readonly visibility?: "public" | "private" }
   readonly "wiki.save": { readonly name?: string; readonly text?: string }
   readonly "flows": undefined
   readonly "flow": { readonly name: string }
