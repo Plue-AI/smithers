@@ -155,7 +155,16 @@ func TestInstallPollingTenPullsThroughStackWorker(t *testing.T) {
 	var snapshots int
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM github_synced_issues WHERE resource='pulls' AND related_facts ? 'checks' AND related_facts ? 'reviews'`).Scan(&snapshots))
 	require.Equal(t, 10, snapshots)
-	var missingConsumers int
-	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE principal_id IN ('checks','reviews') AND state<>'completed'`).Scan(&missingConsumers))
-	require.Equal(t, 20, missingConsumers, "unregistered downstream owners retain their exact snapshots")
+	// The stack now owns check delivery; review delivery still has no consumer.
+	// Wait for the asynchronous check worker without counting consumed snapshots
+	// as missing deliveries or weakening the independent review retention check.
+	require.Eventually(t, func() bool {
+		var completed int
+		return f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE principal_id='checks' AND state='completed'`).Scan(&completed) == nil && completed == 10
+	}, 10*time.Second, 20*time.Millisecond)
+	var retainedReviews, admitted int
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE principal_id='reviews' AND state<>'completed'`).Scan(&retainedReviews))
+	require.Equal(t, 10, retainedReviews, "unregistered review owner retains every snapshot")
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE principal_id IN ('checks','reviews')`).Scan(&admitted))
+	require.Equal(t, 20, admitted, "check consumption preserves both streams' durable receipts")
 }
