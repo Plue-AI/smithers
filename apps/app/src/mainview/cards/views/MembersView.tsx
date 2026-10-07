@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent, type FormEvent } from "react"
+import { useRef, useState, type ChangeEvent, type FormEvent } from "react"
 import type { Action } from "@smthrs/rpc/CardAction"
 import { ExternalLink } from "lucide-react"
 import type { MembersViewProps } from "@smthrs/rpc/MembersCard"
@@ -39,6 +39,8 @@ export function MembersView({ model, actions, onAction }: MembersViewProps) {
 
 // Inputs and available choices are supplied by the Container, never role policy here.
 function MemberAction({ action, onAction }: { action: Action; onAction: MembersViewProps["onAction"] }) {
+  const removeButton = useRef<HTMLButtonElement>(null)
+  const [confirming, setConfirming] = useState(false)
   const signature = JSON.stringify([action.tag, action.args, action.input])
   const [draft, setDraft] = useState<{ signature: string; values: Record<string, string> }>({ signature, values: {} })
   const values = draft.signature === signature ? draft.values : {}
@@ -48,9 +50,10 @@ function MemberAction({ action, onAction }: { action: Action; onAction: MembersV
   const change = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setDraft({ signature, values: { ...values, [event.currentTarget.name]: event.currentTarget.value } })
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    if (action.tag === "members.remove" && !window.confirm(`Remove @${action.args?.login}?`)) return
     onAction(action.tag, input)
-    if (action.tag === "members.role") setDraft({ signature, values: {} })
+    setDraft({ signature, values: action.tag === "members.role" ? {} : values })
+    setConfirming(false)
+    removeButton.current?.focus()
   }
   return <span className="member-action">
     <form data-flow={action.tag} onSubmit={submit}>
@@ -59,7 +62,14 @@ function MemberAction({ action, onAction }: { action: Action; onAction: MembersV
           {field.choices?.map(choice => <option key={choice} value={choice}>{roleWords[choice] ?? choice}</option>)}
         </select>
         : <input key={field.name} name={field.name} aria-label={field.label} placeholder={field.label} type={field.kind === "secret" ? "password" : "text"} required={field.required} disabled={!!action.disabled} value={values[field.name] ?? initial(field)} onChange={change} />)}
-      <button data-flow={action.tag} type="submit" disabled={!!action.disabled}>{action.label}</button>
+      {action.tag === "members.remove" ? <>
+        <button ref={removeButton} data-flow={action.tag} type="button" disabled={!!action.disabled} onClick={() => setConfirming(true)}>{action.label}</button>
+        {confirming ? <span role="alertdialog" aria-label={`Remove @${action.args?.login}?`} onKeyDown={event => { if (event.key === "Escape") { setConfirming(false); removeButton.current?.focus() } }}>
+          <span>Remove @{action.args?.login}?</span>
+          <button autoFocus data-flow={action.tag} type="submit" disabled={!!action.disabled}>OK</button>
+          <button type="button" onClick={() => { setConfirming(false); removeButton.current?.focus() }}>Cancel</button>
+        </span> : null}
+      </> : <button data-flow={action.tag} type="submit" disabled={!!action.disabled}>{action.label}</button>}
     </form>
     {action.disabled ? <span className="member-reason">{action.disabled.reason}</span> : null}
   </span>

@@ -206,7 +206,13 @@ for (const path of paths) {
           const confirmation = action.tag === "members.remove" ? spyOn(window, "confirm").mockReturnValue(true) : undefined
           try {
             await act(async () => control.click())
-            if (confirmation && !action.disabled) expect(confirmation).toHaveBeenCalledWith(`Remove @${action.args?.login}?`)
+            if (confirmation && !action.disabled) {
+              expect(onAction).toHaveBeenCalledTimes(0)
+              const dialog = host.querySelector('[role="alertdialog"]')!
+              expect(dialog.getAttribute("aria-label")).toBe(`Remove @${action.args?.login}?`)
+              await act(async () => dialog.querySelector<HTMLButtonElement>('button[type="submit"]')!.click())
+            }
+            if (confirmation && !action.disabled) expect(confirmation).not.toHaveBeenCalled()
           } finally { confirmation?.mockRestore() }
           expect(onView).toHaveBeenCalledTimes(0)
           if (action.disabled) expect(onAction).toHaveBeenCalledTimes(0)
@@ -1445,7 +1451,7 @@ test("Flow without supplied actions keeps versions usable and matches its sole s
   act(() => host.querySelector<HTMLButtonElement>('.flow-version[data-state="proposed"]')!.click())
   expect(host.querySelector('.flow-steps [data-added="true"]')?.textContent).toContain("Update docs")
   expect(host.querySelector('.flow-path')?.textContent).toBe("Built-in")
-  expect(calls.mock.calls).toEqual([[{ tab: "v4" }]])
+  expect(calls.mock.calls).toEqual([])
   const css = readFileSync(new URL("../../styles/cards.css", import.meta.url), "utf8")
   for (const node of host.querySelectorAll('[class]')) for (const name of node.classList) {
     if (name.startsWith("flow-")) expect(css).toContain(`.${name}`)
@@ -3359,4 +3365,29 @@ for (const expanded of [false, true]) for (const [count, items] of [
     expect(context.onAction.mock.calls).toEqual([])
     expect(context.onView.mock.calls).toEqual([])
   } finally { await context.close() }
+})
+
+
+test("Members removal cancels without dispatch and confirms once", async () => {
+  const { MembersView } = await import("./MembersView")
+  const { fixtures } = await import("@smthrs/rpc/fixtures/Members")
+  const calls = mock((..._args: unknown[]) => {})
+  const host = render(<MembersView {...fixtures.empty} model={{ members: [] }} actions={[{ tag: "members.remove", label: "Remove", args: { login: "ben", revision: "7" } }]} onAction={calls} onView={() => { throw new Error("Unexpected presentation patch") }} />)
+  const remove = host.querySelector<HTMLButtonElement>('button[data-flow="members.remove"]')!
+  act(() => remove.click())
+  expect(calls).toHaveBeenCalledTimes(0)
+  expect(host.querySelector('[role="alertdialog"]')?.getAttribute("aria-label")).toBe("Remove @ben?")
+  act(() => host.querySelector<HTMLButtonElement>('[role="alertdialog"] button:last-child')!.click())
+  expect(host.querySelector('[role="alertdialog"]')).toBeNull()
+  expect(document.activeElement).toBe(remove)
+  expect(calls).toHaveBeenCalledTimes(0)
+  act(() => remove.click())
+  act(() => host.querySelector('[role="alertdialog"]')!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })))
+  expect(host.querySelector('[role="alertdialog"]')).toBeNull()
+  expect(calls).toHaveBeenCalledTimes(0)
+  act(() => remove.click())
+  act(() => host.querySelector<HTMLButtonElement>('[role="alertdialog"] button[type="submit"]')!.click())
+  expect(calls.mock.calls).toEqual([["members.remove", { login: "ben", revision: "7" }]])
+  expect(host.querySelector('[role="alertdialog"]')).toBeNull()
+  expect(document.activeElement).toBe(remove)
 })

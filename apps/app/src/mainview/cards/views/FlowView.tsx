@@ -9,6 +9,7 @@ const words = {
   "merged-failed": "Merged · not active", previous: "Previous"
 }
 export function FlowView({ model, actions, gestures, onAction, view, onView }: FlowViewProps) {
+  const agent = gestures?.agent
   const choose = (event: React.MouseEvent<HTMLButtonElement>) => onView({ tab: event.currentTarget.dataset.version })
   const selected = model.versions.find(version => version.id === view.tab) ?? model.versions.find(version => version.state === "active") ?? model.versions[0]
   return <section className="smithers-card flow-view" data-kind="flow" data-keyboard-pane="Flow" aria-label={`${model.name === "todo" ? "TODO" : model.name} flow`}>
@@ -24,7 +25,7 @@ export function FlowView({ model, actions, gestures, onAction, view, onView }: F
         <span className="flow-signals">{step.signals.map((signal, i) => <span className="flow-signal" key={i}>{signal.on} <span aria-hidden="true">↺</span> {signal.to}</span>)}</span>
       </li> : <li key={step.id} data-added={step.added === true || undefined} data-agent={step.agent === undefined ? undefined : true}>
         <span className="flow-n">{index + 1}</span><span className="flow-title">{step.label}</span>
-        {step.agent === undefined ? null : !gestures?.agent ? <span className="flow-agent">{step.agent}</span> : <button type="button" className="flow-agent" data-flow={gestures?.agent?.tag} onClick={() => gestures?.agent && onAction(gestures.agent.tag, { name: step.agent! })}>{step.agent}</button>}
+        {step.agent === undefined ? null : !agent ? <span className="flow-agent">{step.agent}</span> : <button type="button" className="flow-agent" data-flow={agent.tag} disabled={!!agent.disabled} onClick={() => onAction(agent.tag, { ...agent.args, name: step.agent! })}>{step.agent}</button>}
         {step.detail === undefined ? null : <span className="flow-detail">{step.detail}</span>}
       </li>)}</ol>
       {selected?.state === "merged-failed" ? <div className="flow-failure"><TriangleAlert size={14} aria-hidden="true" /><b>Load failed</b><FailureDetails detail={failureDetail(selected.error ?? "")} /></div> : null}
