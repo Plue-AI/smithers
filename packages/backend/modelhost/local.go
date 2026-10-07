@@ -172,6 +172,22 @@ func credentialEnvironment(binding Binding) (map[string]string, error) {
 		}
 	}
 	environment := map[string]string{envName: binding.CredentialValue}
+	if len(binding.Fallbacks) > 0 {
+		models := make([]json.RawMessage, 0, len(binding.Fallbacks))
+		for _, fallback := range binding.Fallbacks {
+			env, err := credentialEnvironment(fallback)
+			if err != nil {
+				return nil, err
+			}
+			for k, v := range env {
+				environment[k] = v
+			}
+			models = append(models, fallback.Model)
+		}
+		raw, _ := json.Marshal(models)
+		environment["SMITHERS_FAST_FALLBACK_MODELS"] = string(raw)
+	}
+
 	if !builtin {
 		environment[envName+"_ORIGIN"] = binding.CredentialOrigin
 	}

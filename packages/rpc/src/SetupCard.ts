@@ -83,7 +83,12 @@ export type ModelRole = z.infer<typeof ModelRoleSchema>
  * @since 1.0.0
  * @category schemas
  */
+export const FastModelStatusSchema = z.object({
+ signed_in: z.boolean(), source: z.string(), cause: z.enum(["capacity", "unreachable", "refused"]).optional(),
+ remaining: z.number().int().nonnegative().optional(), reset_at: z.string().optional()
+})
 export const SetupCardSchema = z.object({
+ fast_model: FastModelStatusSchema.optional(),
   address: z.object({ listen: z.enum(["mac", "network"]), bind: z.string(), origins: z.array(HttpUrlSchema) }),
   steps: z.array(SetupStepSchema).refine(
     (steps) => steps.map((step) => step.id).join() === SETUP_STEP_IDS.join(),

@@ -148,6 +148,7 @@ export interface CardCommandInput {
   readonly "settings.capacity": { readonly capacity: number }
   readonly "settings.obsidian": { readonly path: string }
   readonly "settings.parallel": { readonly parallel: number }
+  readonly "settings.fast-model": { readonly action: "sign-in" | "sign-out" }
   readonly "settings.model-key": { readonly role: ModelRoleId; readonly provider: string; readonly model?: string; readonly action?: "remove" }
   readonly "settings.setup": { readonly step: SetupStepId; readonly owner?: string; readonly repository?: string; readonly bind?: string; readonly origins?: readonly string[] }
 

@@ -4,12 +4,14 @@
  * @since 1.0.0-rc.0
  */
 
+import * as KernelHttpClient from "@smthrs/kernel/HttpClient"
 import * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import { hostModelCredentials, modelCredentialEnvName, planModelBinding } from "@smthrs/rpc/ConfiguredModel"
 import type { ModelCredentialEnv } from "@smthrs/rpc/ConfiguredModel"
 import { Effect, Layer, Redacted } from "effect"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import { toModel } from "./ConfiguredModelRoute.ts"
+import { fastModelFallback } from "./FastModelFallback.ts"
 import type { ModelTurnResolver } from "./HostServer.ts"
 import { readContextStream } from "./internal/ContextStream.ts"
 import { ResolveFailed } from "./ModelHostError.ts"
@@ -78,12 +80,71 @@ export const environmentModelResolver = (options: EnvironmentModelResolverOption
   const transport = FetchHttpClient.layer.pipe(
     Layer.provide(Layer.succeed(FetchHttpClient.Fetch, refusingRedirects(options.fetchImpl ?? globalThis.fetch)))
   )
+  const fastExecutor = Layer.effect(
+    RequestExecutor.RequestExecutor,
+    Effect.flatMap(
+      KernelHttpClient.HttpClient,
+      (http) => RequestExecutor.makeWith(RequestExecutor.fixed(http), { maxRetries: 0, responseStartMs: 9000 })
+    )
+  )
+  const executorFor = (plan: import("@smthrs/rpc/ConfiguredModel").ModelPlan) =>
+    plan.credential === "SMITHERS_FAST_PROXY" ? fastExecutor : RequestExecutor.layer
   return toModel(planned.plan, Redacted.make(credential)).pipe(
-    Effect.provide(RequestExecutor.layer.pipe(Layer.provide(transport))),
+    Effect.provide(executorFor(planned.plan).pipe(Layer.provide(transport))),
     Effect.flatMap((model) =>
       Effect.gen(function*() {
+        const withFallback = (
+          primary: import("@smthrs/model/Model").Model,
+          plan: import("@smthrs/rpc/ConfiguredModel").ModelPlan
+        ) =>
+          Effect.gen(function*() {
+            if (plan.credential !== "SMITHERS_FAST_PROXY") return primary
+            let bindings: unknown
+            try {
+              bindings = JSON.parse(options.env.SMITHERS_FAST_FALLBACK_MODELS ?? "[]")
+            } catch {
+              return yield* Effect.fail(new ResolveFailed({ message: "fast-model fallback unavailable" }))
+            }
+            if (!Array.isArray(bindings)) {
+              return yield* Effect.fail(new ResolveFailed({ message: "fast-model fallback unavailable" }))
+            }
+            const sources: Array<
+              { model: import("@smthrs/model/Model").Model; modelId: string; outputTokenLimitSupported?: boolean }
+            > = [{ model: primary, modelId: plan.modelId }]
+            for (const binding of bindings) {
+              const fallback = planModelBinding(binding, credentials, { kind: "generation" })
+              if (!fallback.ok) {
+                return yield* Effect.fail(new ResolveFailed({ message: "fast-model fallback unavailable" }))
+              }
+              const key = options.env[modelCredentialEnvName(fallback.plan.credential)]?.trim()
+              if (!key) return yield* Effect.fail(new ResolveFailed({ message: "fast-model fallback unavailable" }))
+              const model = yield* toModel(fallback.plan, Redacted.make(key)).pipe(
+                Effect.provide(fastExecutor.pipe(Layer.provide(transport)))
+              )
+              sources.push({
+                model,
+                modelId: fallback.plan.modelId,
+                outputTokenLimitSupported: fallback.plan.protocol !== "openai-responses-chatgpt"
+              })
+            }
+            return fastModelFallback(sources, (index) =>
+              Effect.tryPromise({
+                try: async (signal) => {
+                  const endpoint = new URL(plan.baseUrl)
+                  endpoint.pathname = endpoint.pathname.replace(/\/fast$/, "/fast/selected")
+                  await refusingRedirects(options.fetchImpl ?? globalThis.fetch)(endpoint, {
+                    method: "POST",
+                    headers: { "content-type": "application/json", authorization: `Bearer ${credential}` },
+                    body: JSON.stringify({ index }),
+                    signal
+                  })
+                },
+                catch: () => undefined
+              }).pipe(Effect.ignore))
+          })
+        const routedModel = yield* withFallback(model, planned.plan)
         const resolved = {
-          model,
+          model: routedModel,
           options: {
             modelId: planned.plan.modelId,
             ...(planned.plan.protocol === "openai-responses-chatgpt" ? { outputTokenLimitSupported: false } : {}),
@@ -123,13 +184,14 @@ export const environmentModelResolver = (options: EnvironmentModelResolverOption
           return yield* Effect.fail(new ResolveFailed({ message: "preflight model credential is unavailable" }))
         }
         const fastModel = yield* toModel(fast.plan, Redacted.make(fastCredential)).pipe(
-          Effect.provide(RequestExecutor.layer.pipe(Layer.provide(transport)))
+          Effect.provide(executorFor(fast.plan).pipe(Layer.provide(transport)))
         )
+        const routedFast = yield* withFallback(fastModel, fast.plan)
         return {
           ...resolved,
           preflight: {
             input,
-            model: fastModel,
+            model: routedFast,
             options: {
               modelId: fast.plan.modelId,
               ...(fast.plan.protocol === "openai-responses-chatgpt" ? { outputTokenLimitSupported: false } : {}),

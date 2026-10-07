@@ -10161,6 +10161,42 @@
       }
     },
     {
+      "name": "settings.fast-model",
+      "slash": "/settings.fast-model",
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "in-card",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "credentialScope": "write:repository",
+      "agent": "never",
+      "summary": "Smithers fast-model sign-in",
+      "http": null,
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "sign-in",
+                "sign-out"
+              ]
+            }
+          },
+          "required": [
+            "action"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "settings.model-key",
       "slash": null,
       "cli": null,
@@ -10195,6 +10231,19 @@
               "anyOf": [
                 {
                   "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "action": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "remove"
+                  ]
                 },
                 {
                   "type": "null"

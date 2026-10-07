@@ -221,6 +221,7 @@ export const stubCommandActions = (overrides: Partial<CommandActions> = {}): Com
   setInstallObsidian: unexpected,
   setInstallParallel: unexpected,
   saveInstallModelKey: unexpected,
+ fastModelAccess: unexpected,
   importRepository: unexpected,
   retryImport: unexpected,
   listBookmarks: unexpected,

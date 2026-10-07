@@ -18,6 +18,7 @@ export interface InstallSnapshots {
   readonly subscribe: (listener: () => void) => () => void
 }
 export interface InstallSeamOptions {
+  readonly fastModelHandoff?: (url: string) => void
   readonly handoff?: (receipt: InstallManifest) => void
   readonly topic?: InstallTopic
   readonly present?: (kind: "setup" | "settings") => void | Promise<void>
@@ -61,10 +62,11 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
   const shared = actorSharedState(ctx, "install", () => ({
     snapshot: {} as InstallSnapshot, authoritative: undefined as InstallModel | undefined, listeners: new Set<() => void>(), pending: new Map<string, Promise<unknown>>(),
     stop: undefined as (() => void) | undefined, disposed: false, generation: 0, installPoll: undefined as ReturnType<typeof setTimeout> | undefined,
-    cancel: new Set<() => void>(), tail: Promise.resolve() as Promise<unknown>, subscribing: false
+    fastGeneration: 0, cancel: new Set<() => void>(), tail: Promise.resolve() as Promise<unknown>, subscribing: false
   }))
   type SetupRequest = NonNullable<ReturnType<typeof ctx.store.session>["installRequests"]>[number]
-  const requests = () => (ctx.store.session().installRequests ?? []).filter(row => row.origin === ctx.baseUrl)
+  const requests = () => (ctx.store.session().installRequests ?? []).filter(row => row.origin === ctx.baseUrl && row.body.fast_model === undefined)
+  const fastRequests = () => (ctx.store.session().installRequests ?? []).filter(row => row.origin === ctx.baseUrl && row.body.fast_model !== undefined)
   const saveRequest = (row: SetupRequest) => ctx.dispatch({ type: "install.requests.changed", actor: ctx.actor(),
     requests: [...(ctx.store.session().installRequests ?? []).filter(each => each.id !== row.id), row].slice(-32) }).isPersisted.promise
   /** An App request whose lease has run out: its handoff would reach GitHub with a state the host no longer accepts. */
@@ -190,6 +192,11 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
       publish({ error: permission }); return serviceFailureSentence(permission)
     }
     await options.present?.(kind)
+    for (const row of fastRequests().filter(row => row.state === "requested" || row.state === "running")) {
+      if (row.body.fast_model === "sign-in" && shared.snapshot.model.fast_model?.signed_in) await saveRequest({...row,state:"completed"})
+      else if (!(Date.parse(row.expires_at ?? "") > Date.now())) await saveRequest({...row,state:"failed"})
+      else fastModelAccess(row.body.fast_model === "sign-out" ? "sign-out" : "sign-in",row)
+    }
     // Recovery restores state and never navigates: the GitHub handoff runs only on a person's press (setupStep).
     for (const row of requests().filter(row => row.state === "requested" || row.state === "running")) {
       const served = shared.authoritative?.steps.find(step => step.id === row.step)?.state
@@ -433,8 +440,62 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
       finally { value = undefined }
     })
   }
-  return {
-    snapshots, readInstall, showSetup: () => open("setup"), showSettings: () => open("settings"),
+  const fastModelAccess = (action: "sign-in" | "sign-out", recovered?: SetupRequest) => {
+    if (!shared.snapshot.model?.github.signed_in) return permission.message
+    const key = `fast-model:${action}`
+    const existing = recovered ?? fastRequests().filter(row => row.body.fast_model === action && row.state === "running" && Date.parse(row.expires_at ?? "") > Date.now()).at(-1)
+    const handoff = (url: string) => (options.fastModelHandoff ?? (url => window.location.assign(url)))(url)
+    if (shared.pending.has(key)) {
+      if (!recovered && typeof existing?.body.url === "string") handoff(existing.body.url)
+      return { value: "Requested" }
+    }
+    const row: SetupRequest = existing ?? {id:randomUuid(),origin:ctx.baseUrl,step:"models",body:{fast_model:action},state:"requested",expires_at:new Date(Date.now()+APP_LEASE_MS).toISOString()}
+    const superseded = fastRequests().filter(each => each.body.fast_model !== action && (each.state === "requested" || each.state === "running"))
+    const saved = Promise.all([...superseded.map(each => saveRequest({...each,state:"failed"})), saveRequest(row)])
+    const generation = ++shared.fastGeneration
+    const active = () => current() && generation === shared.fastGeneration
+    return background(key, "Fast model", async () => {
+      try {
+        await saved
+        if (!active()) return false
+        let target = typeof row.body.url === "string" ? row.body.url : undefined
+        if (!target || action === "sign-out") {
+          const response = await ctx.http(`${ctx.baseUrl.replace(/\/$/, "")}/api/model/fast${action === "sign-in" ? "/sign-in" : ""}`, {
+            method: action === "sign-in" ? "POST" : "DELETE", credentials:"same-origin", headers:{"Content-Type":"application/json","Idempotency-Key":row.id}
+          })
+          if (!active()) return false
+          const data: unknown = await response.json().catch(() => undefined)
+          if (!response.ok || typeof data !== "object" || data === null) throw new Error("refused")
+          if (action === "sign-in") {
+            if (!("url" in data) || typeof data.url !== "string") throw new Error("refused")
+            const url = new URL(data.url)
+            if (url.protocol !== "https:" && !(url.protocol === "http:" && ["127.0.0.1","localhost"].includes(url.hostname))) throw new Error("refused")
+            target = url.href
+            await saveRequest({...row,state:"running",body:{...row.body,url:target}})
+          } else if (!("ok" in data) || data.ok !== true) throw new Error("refused")
+        }
+        if (action === "sign-in") {
+          if (!recovered) handoff(target!)
+          while (active() && !shared.snapshot.model?.fast_model?.signed_in) {
+            if (!(Date.parse(row.expires_at ?? "") > Date.now())) throw new Error("expired")
+            await new Promise(resolve => setTimeout(resolve,1000))
+            if (!active()) return false
+            const failure = await readInstall(); if (failure) throw new Error("unreachable")
+          }
+        } else { const failure = await readInstall(); if (failure) throw new Error("unreachable") }
+        if (!active()) return false
+        await saveRequest({...row,state:"completed"})
+        return true
+      } catch {
+        if (!active()) return false
+        await saveRequest({...row,state:"failed"})
+        return "Smithers sign-in unavailable"
+      }
+    })
+  }
+
+ return {
+    fastModelAccess, snapshots, readInstall, showSetup: () => open("setup"), showSettings: () => open("settings"),
     setupStep, setInstallAddress: (input: InstallAddress) => write("address", "/install", { bind: input.bind, origins: input.origins }),
     setInstallPreapproveDefault: (todo_preapprove_default: boolean) => write("todo_preapprove_default", "/install", { todo_preapprove_default }),
     setInstallCapacity, setInstallDailyAdmissions, setInstallParallel, setInstallObsidian, saveInstallModelKey,

@@ -1,3 +1,4 @@
+import { FastModelAccess } from "./FastModelAccess"
 import { failureDetail } from "@smthrs/rpc/UserFailure"
 import { FailureDetails } from "../../FailureDetails"
 import type { SetupViewProps } from "@smthrs/rpc/SetupCard"
@@ -37,7 +38,7 @@ export function SetupView({ model, actions, onAction }: SetupViewProps) {
   const rows = []
   for (const [index, step] of model.steps.entries()) {
     const { message: stepDiagnostic } = step.error ?? {}
-    const own = actions.filter(action => action.args?.step === step.id && !(step.id === "models" && roleKeyAction(actions, action.args?.role ?? "") === action))
+    const own = actions.filter(action => action.tag !== "settings.fast-model" && action.args?.step === step.id && !(step.id === "models" && roleKeyAction(actions, action.args?.role ?? "") === action))
     const controls = <SetupActions actions={own} onAction={onAction} />
     rows.push(<li key={step.id} data-step={step.id} data-state={step.state}>
       <span className="setup-mark" data-tone={step.state === "running" ? "live" : step.state === "blocked" ? "attention" : step.state === "failed" ? "failed" : step.state === "done" ? "done" : "quiet"} aria-label={step.state}>{step.state === "done" ? "✓" : step.state === "failed" ? "×" : index + 1}</span>
@@ -46,7 +47,7 @@ export function SetupView({ model, actions, onAction }: SetupViewProps) {
         {step.id === "app_manifest" && model.github.owner && <span>{model.github.owner}</span>}
         {step.id === "sign_in" && model.github.signed_in && <span className="setup-muted">Signed in with GitHub</span>}
         {step.id === "repository" && model.repository && <><code>{model.repository.owner}/{model.repository.name}</code>{model.github.squash_allowed === true && <span className="setup-muted">✓ Squash merging on GitHub</span>}</>}
-        {step.id === "models" && <div className="setup-models">{model.models.map(role => <ModelRole key={role.role} role={role} chatgpt={model.chatgpt} action={roleKeyAction(actions, role.role)} onAction={onAction} />)}</div>}
+        {step.id === "models" && <div className="setup-models"><FastModelAccess status={model.fast_model} actions={actions} onAction={onAction} />{model.models.map(role => <ModelRole key={role.role} role={role} chatgpt={model.chatgpt} action={roleKeyAction(actions, role.role)} onAction={onAction} />)}</div>}
         {(step.id === "source" || step.id === "machine") && <><span className="setup-muted">{step.state === "done" ? `${titles[step.id]} ready` : step.state === "pending" ? "Waiting" : step.state === "running" ? `${step.pct ?? 0}%` : null}</span>{step.pct !== undefined && <progress max={100} value={step.pct} aria-label={titles[step.id]} />}</>}
         {step.blocked && <a className="setup-blocked" data-tone="attention" href={step.blocked.fix_url} target="_blank" rel="noreferrer">{step.blocked.line}</a>}
         {step.error && <><span className="setup-error" role="alert">{step.error.class}</span><FailureDetails detail={failureDetail(stepDiagnostic)} /></>}
@@ -57,6 +58,6 @@ export function SetupView({ model, actions, onAction }: SetupViewProps) {
   return <section className="setup-view" data-kind="setup" data-keyboard-pane="Setup" aria-label="Set up Smithers">
     <h2>Set up Smithers</h2><ThisMac model={model} onAction={onAction} />
     <ol className="setup-steps">{rows}</ol>
-    <SetupActions actions={actions.filter(action => !model.steps.some(step => step.id === action.args?.step) && roleKeyAction(actions, action.args?.role ?? "") !== action)} onAction={onAction} />
+    <SetupActions actions={actions.filter(action => action.tag !== "settings.fast-model" && !model.steps.some(step => step.id === action.args?.step) && roleKeyAction(actions, action.args?.role ?? "") !== action)} onAction={onAction} />
   </section>
 }

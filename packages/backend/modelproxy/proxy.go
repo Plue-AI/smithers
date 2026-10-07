@@ -44,6 +44,7 @@ type FactorySeat struct {
 
 // Handler serves POST {Path}/{provider}/{inference path}.
 type Handler struct {
+	Fast    *InstallFastSource
 	Meter   Meter
 	Keys    Keys
 	Callers Callers
@@ -74,6 +75,10 @@ var defaultClient = &http.Client{
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if h.Fast != nil && (r.URL.Path == FastPath || r.URL.Path == Path+"/fast/selected") {
+		h.serveFast(w, r)
+		return
+	}
 	if r.URL.Path == Path+"/factory-seat" && r.Method == http.MethodGet {
 		caller, err := h.Callers.ResolveModelCaller(r)
 		if err != nil || caller.FactoryRole == "" {

@@ -1,6 +1,7 @@
 package modelhost
 
 import (
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"net/http"
 	"os"
@@ -17,11 +18,14 @@ func (s OwnerModels) FastModelSignIn(w http.ResponseWriter, r *http.Request) {
 	}
 	// Redirect authority is configured by the install, never supplied by the browser.
 	redirect := s.FastModelCallback
+	if origin, ok := middleware.EffectiveOriginFromContext(r.Context()); ok {
+		redirect = origin + "/api/model/fast/return"
+	}
 	if redirect == "" {
 		modelJSON(w, 503, map[string]string{"code": "sign_in_unavailable"})
 		return
 	}
-	target, err := s.fastAccess().Begin(r.Context(), owner, redirect)
+	target, err := s.fastAccess().Begin(r.Context(), owner, redirect, r.Header.Get("Idempotency-Key"))
 	if err != nil {
 		modelJSON(w, 503, map[string]string{"code": "storage_failed"})
 		return

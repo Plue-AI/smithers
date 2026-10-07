@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { SetupCardSchema, ModelRoleSchema, SetupStepIdSchema, SETUP_STEP_IDS, type SetupStepId, type SetupCard } from "@smthrs/rpc/SetupCard"
+import { SetupCardSchema, FastModelStatusSchema, ModelRoleSchema, SetupStepIdSchema, SETUP_STEP_IDS, type SetupStepId, type SetupCard } from "@smthrs/rpc/SetupCard"
 import { SettingsCardSchema, type SettingsCard } from "@smthrs/rpc/SettingsCard"
 import { HttpUrlSchema } from "@smthrs/rpc/WebUrl"
 
@@ -13,6 +13,7 @@ export type InstallStepId = SetupStepId
 const state = z.enum(["pending", "running", "done", "blocked", "failed"])
 const role = ModelRoleSchema
 export const InstallModelSchema = z.object({
+ fast_model: FastModelStatusSchema.optional(),
   callback_fixes: SettingsCardSchema.shape.callback_fixes,
   can_assign_models: z.boolean().optional(),
   address: z.object({ listen: z.enum(["mac", "network"]), bind: z.string(), origins: z.array(HttpUrlSchema),

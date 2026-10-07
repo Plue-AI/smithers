@@ -330,3 +330,21 @@ test("a host that fits a machine shows no limit on Settings (#3658)", () => {
   expect(() => h.settings()!.onAction("settings", {})).not.toThrow()
   expect(h.commands).toEqual([])
 })
+
+test("C-FM-01 Setup and Settings bind Smithers source controls and retain the team key",()=>{
+ const model=installFixture();model.fast_model={signed_in:false,source:"team key"};model.steps[4]={id:"models",state:"pending"}
+ const h=harness({model});h.renderSetup();h.renderSettings()
+ const setup=h.setup()!,settings=h.settings()!
+ expect(setup.model.fast_model).toEqual(model.fast_model);expect(settings.model.fast_model).toEqual(model.fast_model)
+ expect(setup.actions.filter(action=>action.tag==="settings.fast-model")).toEqual([expect.objectContaining({label:"Sign in to Smithers",args:{step:"models",role:"fast"}})])
+ setup.onAction("settings.fast-model",{step:"models",role:"fast"})
+ expect(h.commands.at(-1)).toEqual({tag:"settings.fast-model",input:{action:"sign-in"}})
+ expect(setup.actions.some(action=>action.tag==="settings.model-key"&&action.args?.role==="fast")).toBe(true)
+ model.fast_model={signed_in:true,source:"team key",cause:"capacity",remaining:0,reset_at:"2026-10-08T00:00:00Z"};h.renderSettings()
+ h.settings()!.onAction("settings.fast-model",{role:"fast"})
+ expect(h.commands.at(-1)).toEqual({tag:"settings.fast-model",input:{action:"sign-out"}})
+ const html=renderToStaticMarkup(renderSetupCard({install:h.install,dispatch:h.dispatch,allowed:true,view:h.view,onView:h.onView}))
+ expect(html).toContain("daily Smithers quota used; using team key until 00:00 UTC");expect(html).toContain("Smithers keeps token counts only")
+ expect(html.match(/>Sign out</g)).toHaveLength(1)
+ expect(html).not.toMatch(/credit card|billing/i)
+})

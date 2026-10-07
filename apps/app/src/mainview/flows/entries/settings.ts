@@ -27,6 +27,9 @@ const key: Grammar = args => {
 /* The inputs each setup step needs (InstallSeam.setupStep's bodies); THE FORM LAW asks for the missing ones. */
 const SETUP_REQUIRES: Readonly<Record<string, ReadonlyArray<string>>> = { address: ["bind", "origins"], app_manifest: ["owner"], repository: ["repository"] }
 export const settingsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
+ flow({ name: "settings.fast-model", slash:"/settings.fast-model", agent: "never", minimumRole: "owner", actors:["person"], visibility:"in-card", summary:"Smithers fast-model sign-in", agentReason:"Browser sign-in and sign-out require the owner's person session",
+ grammar: object, input: Schema.Struct({action:Schema.Literals(["sign-in","sign-out"])}),
+ handler: ({action}) => actions.fastModelAccess(action) }),
   flow({ name: "settings",   slash: "/settings", cli: null, journey: ["J1"], group: "Account and settings", visibility: "core", actors: ["person"], minimumRole: "owner", http: null, summary: "Model access, machines, GitHub (owner)", agentReason: "Install status requires the owner’s person session", agent: "never", input: NoPayload,
     /* MOCK SEAM (DesignWorld/settings.ts designInstall): the card shows the seeded install now; the live read replaces it once /api/install serves a model. */
     handler: async () => { await actions.presentCard("settings", "Settings"); return actions.showSettings() } }),

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 
@@ -64,11 +65,9 @@ func NewOwnerSecretResolver(databaseURL, secretKey func() string, options ...Own
 }
 
 func (resolver *OwnerSecretResolver) ResolveChatModel(ctx context.Context, ownerID, repositoryID int64, request json.RawMessage) (Binding, error) {
-	return resolver.resolveChatModel(ctx, ownerID, repositoryID, request, nil)
+	return resolver.resolveChatModel(ctx, ownerID, repositoryID, request, nil, true)
 }
-
-// resolveChatModel accepts an internal role binding only for the preflight model.
-func (resolver *OwnerSecretResolver) resolveChatModel(ctx context.Context, ownerID, repositoryID int64, request json.RawMessage, selected json.RawMessage) (Binding, error) {
+func (resolver *OwnerSecretResolver) resolveChatModel(ctx context.Context, ownerID, repositoryID int64, request json.RawMessage, selected json.RawMessage, allowGateway bool) (Binding, error) {
 	var input struct {
 		SharedConversation bool            `json:"sharedConversation"`
 		ContextSelection   json.RawMessage `json:"contextSelection"`
@@ -114,6 +113,35 @@ func (resolver *OwnerSecretResolver) resolveChatModel(ctx context.Context, owner
 		ownerID = installOwner
 	case !errors.Is(err, pgx.ErrNoRows):
 		return Binding{}, fmt.Errorf("read install member: %w", err)
+	}
+	// An owner-assigned app model keeps its own route. Smithers supplies the
+	// inherited fast role, including preflight, rather than overriding it.
+	var assignedApp bool
+	if allowGateway {
+		if err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM install_settings WHERE key='agent:app')`).Scan(&assignedApp); err != nil {
+			return Binding{}, err
+		}
+	}
+	if allowGateway && !assignedApp && (len(selected) == 0 || string(selected) == "null") {
+		var claimedOwner int64
+		if err := pool.QueryRow(ctx, `SELECT user_id FROM self_host_owners WHERE user_id=$1`, ownerID).Scan(&claimedOwner); err == nil {
+			access := services.InstallFastModelAccess{Pool: pool, Codec: codec, Gateway: os.Getenv("SMITHERS_FAST_MODEL_GATEWAY")}
+			status, err := access.Status(ctx)
+			if err != nil {
+				return Binding{}, err
+			}
+			if status.SignedIn {
+				binding, err := resolver.fastBinding(ctx, ownerID, input.RepositoryID, access)
+				if err != nil {
+					return Binding{}, err
+				}
+				if input.SharedConversation || len(input.ContextSelection) > 0 && string(input.ContextSelection) != "null" {
+					preflight := binding
+					binding.Preflight = &preflight
+				}
+				return binding, nil
+			}
+		}
 	}
 	if len(selected) == 0 || string(selected) == "null" {
 		// A turn that names no model is the app agent's. On an install it runs
@@ -234,7 +262,11 @@ func (resolver *OwnerSecretResolver) resolveChatModel(ctx context.Context, owner
 		if err != nil {
 			return Binding{}, fmt.Errorf("read preflight model: %w", err)
 		}
-		preflight, err := resolver.resolveChatModel(ctx, ownerID, input.RepositoryID, json.RawMessage(`{}`), fast)
+		preflight, err := resolver.resolveChatModel(ctx, ownerID, input.RepositoryID, json.RawMessage(`{}`), fast, false)
+		access := services.InstallFastModelAccess{Pool: pool, Codec: codec, Gateway: os.Getenv("SMITHERS_FAST_MODEL_GATEWAY")}
+		if status, statusErr := access.Status(ctx); statusErr == nil && status.SignedIn {
+			preflight, err = resolver.fastBinding(ctx, ownerID, input.RepositoryID, access)
+		}
 		if err != nil {
 			return Binding{}, fmt.Errorf("resolve preflight model: %w", err)
 		}
@@ -310,7 +342,7 @@ func (keys OwnerGatewayKeys) PlatformModelKey(ctx context.Context, provider stri
 	if json.Unmarshal(model, &binding) != nil || binding.Credential != "AI_GATEWAY_API_KEY" {
 		return "", ports.ErrModelCredentialMissing
 	}
-	result, err := resolver.resolveChatModel(ctx, owner, 0, json.RawMessage(`{}`), model)
+	result, err := resolver.resolveChatModel(ctx, owner, 0, json.RawMessage(`{}`), model, false)
 	if err != nil {
 		return "", err
 	}

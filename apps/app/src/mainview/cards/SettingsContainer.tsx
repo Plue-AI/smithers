@@ -12,7 +12,7 @@ import { cardActions, type CardActionDefinition } from "../flows/cardActions"
 import { installKeyAction, type InstallCardDispatch } from "./installKeyAction"
 import { limitFix, plainHttpOffLoopback, settingsCardModel, type InstallModel } from "../state/seams/InstallModel"
 import type { InstallSnapshots } from "../state/seams/InstallSeam"
-import { addressPort as port, parseOrigins as origins, roleKeyActions } from "./SetupCard"
+import { addressPort as port, parseOrigins as origins, roleKeyActions, fastModelAction } from "./SetupCard"
 
 export interface SettingsContainerProps {
   readonly View: ComponentType<SettingsViewProps>
@@ -85,7 +85,8 @@ export const SettingsContainer = ({ View, install, dispatch, owner, origin, view
       command_input: { path: model.wiki_sync.obsidian?.path ?? "" },
       input: [{ name: "path", label: "Obsidian folder", kind: "text" as const, required: true, value: model.wiki_sync.obsidian?.path ?? "" }],
       resolve_input: (input: Record<string, string>) => ({ path: input.path ?? model.wiki_sync?.obsidian?.path ?? "" }) }]),
-    ...roleKeyActions(key!.definition, model, { field: "key" }, !snapshot.seed),
+    ...fastModelAction(model),
+ ...roleKeyActions(key!.definition, model, { field: "key" }, !snapshot.seed),
     ...(!snapshot.seed ? model.models.map(role => ({ tag: "settings.model.set" as const, label: "Save", args: { role: role.role }, command_input: { role: role.role, model: role.model ?? "" },
       input: [{ name: "model", label: "Model", kind: "text" as const, required: true }],
       resolve_input: (input: Record<string, string>) => ({ role: role.role, model: input.model ?? "" }) })) : [])

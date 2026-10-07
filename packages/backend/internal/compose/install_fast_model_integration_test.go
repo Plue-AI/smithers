@@ -90,6 +90,9 @@ func TestInstallFastModelSignInPostgres(t *testing.T) {
 	require.Equal(t, "S256", target.Query().Get("code_challenge_method"))
 	require.Equal(t, "http://example.com/api/model/fast/return", target.Query().Get("redirect_uri"))
 	state := target.Query().Get("state")
+	duplicate := call("POST", "/api/model/fast/sign-in", owner, "")
+	require.Equal(t, 200, duplicate.Code)
+	require.JSONEq(t, res.Body.String(), duplicate.Body.String())
 	require.Equal(t, 400, call("GET", "/api/model/fast/return?code=one-time-code&state=wrong", owner, "").Code)
 	res = call("GET", "/api/model/fast/return?code=one-time-code&state="+state, owner, "")
 	require.Equal(t, 303, res.Code, res.Body.String())
@@ -115,6 +118,12 @@ func TestInstallFastModelSignInPostgres(t *testing.T) {
 	require.Equal(t, 200, res.Code)
 	require.NotContains(t, res.Body.String(), "install-private-credential")
 	require.NotContains(t, res.Body.String(), services.FastModelCredentialKey)
+	for _, token := range []string{f.token(f.owner, "read-machine", "write:user,write:repository", true), f.token(f.owner, "read-flow", "write:user,write:repository,via:codex", true)} {
+		for _, path := range []string{"/api/install", "/api/model/catalog", "/api/model/fast/credential"} {
+			out := call("GET", path, "", token)
+			require.NotContains(t, out.Body.String(), "install-private-credential")
+		}
+	}
 	for _, path := range []string{"/api/model/fast/credential", "/api/install/settings/" + services.FastModelCredentialKey} {
 		res = call("GET", path, owner, "")
 		require.NotContains(t, res.Body.String(), "install-private-credential")

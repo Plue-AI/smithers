@@ -17,7 +17,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
+	"github.com/smithersai/smithers/packages/backend/modelproxy"
 )
 
 const FastModelCredentialKey = "models.smithers.credential"
@@ -28,11 +30,11 @@ const FastModelDisclosure = "App prompts, preflight and summaries go to Smithers
 // FastModelStatus contains only public source and quota facts. The credential
 // is a separate sealed setting, never a model binding or a catalog credential.
 type FastModelStatus struct {
-	SignedIn  bool   `json:"signed_in"`
-	Source    string `json:"source"`
-	Cause     string `json:"cause,omitempty"`
-	Remaining *int64 `json:"remaining,omitempty"`
-	ResetAt   string `json:"reset_at,omitempty"`
+	SignedIn  bool                 `json:"signed_in"`
+	Source    string               `json:"source"`
+	Cause     modelproxy.FastCause `json:"cause,omitempty"`
+	Remaining *int64               `json:"remaining,omitempty"`
+	ResetAt   string               `json:"reset_at,omitempty"`
 }
 
 type InstallFastModelAccess struct {
@@ -92,7 +94,13 @@ func (s InstallFastModelAccess) Credential(ctx context.Context) (string, error) 
 	return credential, err
 }
 func (s InstallFastModelAccess) Status(ctx context.Context) (FastModelStatus, error) {
-	status := FastModelStatus{Source: "team key or coding model"}
+	status := FastModelStatus{Source: "coding model"}
+	fast, fastErr := db.New(s.Pool).EffectiveInstallAgentModel(ctx, "fast")
+	coding, codingErr := db.New(s.Pool).EffectiveInstallAgentModel(ctx, "coding")
+	if fastErr == nil && codingErr == nil && string(fast) != string(coding) {
+		status.Source = "team key"
+	}
+	fallbackSource := status.Source
 	var signed bool
 	err := s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM install_settings WHERE key=$1 AND sealed)`, FastModelCredentialKey).Scan(&signed)
 	if err != nil {
@@ -108,6 +116,9 @@ func (s InstallFastModelAccess) Status(ctx context.Context) (FastModelStatus, er
 			return status, err
 		}
 	}
+	if !signed {
+		return FastModelStatus{Source: fallbackSource}, nil
+	}
 	status.SignedIn = signed
 	if signed && status.Cause == "" {
 		status.Source = "Smithers"
@@ -119,7 +130,7 @@ func (s InstallFastModelAccess) Record(ctx context.Context, status FastModelStat
 	if err != nil {
 		return err
 	}
-	_, err = s.Pool.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=now()`, FastModelStatusKey, raw)
+	_, err = s.Pool.Exec(ctx, `INSERT INTO install_settings(key,value) SELECT $1,$2 FROM (SELECT key FROM install_settings WHERE key='models.smithers.credential' AND sealed FOR SHARE) active ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=now()`, FastModelStatusKey, raw)
 	return err
 }
 
@@ -130,6 +141,7 @@ type fastModelPending struct {
 	Owner      int64     `json:"owner"`
 	Expires    time.Time `json:"expires"`
 	Exchanging bool      `json:"exchanging"`
+	Request    string    `json:"request"`
 }
 
 func FastModelBearer() (string, error) {
@@ -139,20 +151,7 @@ func FastModelBearer() (string, error) {
 }
 
 // Begin stores a PKCE lease before returning the browser's sign-in URL.
-func (s InstallFastModelAccess) Begin(ctx context.Context, owner int64, redirect string) (string, error) {
-	// Keep one identity across sign-out and sign-in so daily quota cannot reset.
-	_, err := s.Pool.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES('models.smithers.install_id',to_jsonb($1::text)) ON CONFLICT(key) DO NOTHING`, uuid.NewString())
-	if err != nil {
-		return "", err
-	}
-	var install string
-	if err = s.Pool.QueryRow(ctx, `SELECT value #>> '{}' FROM install_settings WHERE key='models.smithers.install_id' AND NOT sealed`).Scan(&install); err != nil {
-		return "", err
-	}
-	if _, err = uuid.Parse(install); err != nil {
-		return "", errors.New("install identity unavailable")
-	}
-
+func (s InstallFastModelAccess) Begin(ctx context.Context, owner int64, redirect string, requests ...string) (string, error) {
 	state, err := FastModelBearer()
 	if err != nil {
 		return "", err
@@ -162,11 +161,30 @@ func (s InstallFastModelAccess) Begin(ctx context.Context, owner int64, redirect
 		return "", err
 	}
 	pending := fastModelPending{State: state, Verifier: verifier, Redirect: redirect, Owner: owner, Expires: time.Now().Add(10 * time.Minute)}
+	if len(requests) > 0 {
+		pending.Request = requests[0]
+		var raw []byte
+		if s.Pool.QueryRow(ctx, `SELECT value FROM install_settings WHERE key=$1 AND sealed`, fastModelPendingKey).Scan(&raw) == nil {
+			var sealed string
+			var prior fastModelPending
+			if json.Unmarshal(raw, &sealed) == nil {
+				if plain, err := s.Codec.DecryptString(sealed); err == nil && json.Unmarshal([]byte(plain), &prior) == nil && prior.Owner == owner && prior.Request == pending.Request && !prior.Exchanging && time.Now().Before(prior.Expires) {
+					pending = prior
+					state = prior.State
+					verifier = prior.Verifier
+				}
+			}
+		}
+	}
 	if err = s.seal(ctx, fastModelPendingKey, pending, owner); err != nil {
 		return "", err
 	}
 	challenge := sha256.Sum256([]byte(verifier))
-	query := url.Values{"install_id": {install}, "state": {state}, "redirect_uri": {redirect}, "code_challenge": {base64.RawURLEncoding.EncodeToString(challenge[:])}, "code_challenge_method": {"S256"}}
+	installID, err := s.InstallID(ctx)
+	if err != nil {
+		return "", err
+	}
+	query := url.Values{"install_id": {installID}, "state": {state}, "redirect_uri": {redirect}, "code_challenge": {base64.RawURLEncoding.EncodeToString(challenge[:])}, "code_challenge_method": {"S256"}}
 	return s.gateway() + "/api/fast-model/sign-in?" + query.Encode(), nil
 }
 
@@ -255,9 +273,40 @@ func (s InstallFastModelAccess) Complete(ctx context.Context, owner int64, state
 	return final.Commit(ctx)
 }
 func (s InstallFastModelAccess) SignOut(ctx context.Context) error {
-	_, err := s.Pool.Exec(ctx, `DELETE FROM install_settings WHERE key=ANY($1::text[])`, []string{FastModelCredentialKey, fastModelPendingKey, FastModelStatusKey})
-	return err
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	keys := []string{FastModelCredentialKey, fastModelPendingKey, FastModelStatusKey}
+	rows, err := tx.Query(ctx, `SELECT key FROM install_settings WHERE key=ANY($1::text[]) ORDER BY key DESC FOR UPDATE`, keys)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `DELETE FROM install_settings WHERE key=ANY($1::text[])`, keys)
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 func (s InstallFastModelAccess) InferenceURL() string {
-	return fmt.Sprintf("%s/api/fast-model/v1/chat/completions", s.gateway())
+	return fmt.Sprintf("%s%s/v1/chat/completions", s.gateway(), modelproxy.FastGatewayPath)
+}
+
+// InstallID survives sign-out, so reconnecting retains the same gateway quota.
+func (s InstallFastModelAccess) InstallID(ctx context.Context) (string, error) {
+	raw, _ := json.Marshal(uuid.NewString())
+	_, err := s.Pool.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES('models.smithers.install_id',$1) ON CONFLICT(key) DO NOTHING`, raw)
+	if err != nil {
+		return "", err
+	}
+	err = s.Pool.QueryRow(ctx, `SELECT value#>>'{}' FROM install_settings WHERE key='models.smithers.install_id'`).Scan(&raw)
+	return string(raw), err
 }

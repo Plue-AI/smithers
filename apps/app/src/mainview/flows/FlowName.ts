@@ -100,6 +100,7 @@ export const FLOW_NAMES = [
   "settings.daily-admissions",
   "settings.obsidian",
   "settings.model-key",
+  "settings.fast-model",
   "settings.setup",
   "members",
   "members.add",

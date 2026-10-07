@@ -19,6 +19,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/chat/turncredential"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/modelproxy"
 	"github.com/smithersai/smithers/packages/backend/ports"
 )
 
@@ -26,6 +27,8 @@ import (
 // the canonical TypeScript ModelBinding; TypeScript remains the sole authority
 // for provider routing, credential origin, and model policy.
 type Binding struct {
+	Fast      *modelproxy.InstallFastSource
+	Fallbacks []Binding
 	// Preflight is the install owner's fast role, resolved separately from
 	// an explicit app-agent model. Its credential stays in launch memory too.
 	Preflight        *Binding
@@ -119,6 +122,11 @@ func (host *Host) RunChatTurn(ctx context.Context, grant ports.ChatTurnGrant) (r
 	}
 	// The binding names the key, so a provider's refusal names its provider.
 	provider := services.ModelProviderNames[binding.CredentialName]
+	binding, stopFast, err := prepareFast(binding)
+	if err != nil {
+		return err
+	}
+	defer stopFast()
 	if binding, grant.Request, err = host.standIn.route(binding, grant.Request); err != nil {
 		return fmt.Errorf("resolve owner model: %w", err)
 	}
@@ -178,6 +186,11 @@ func (host *Host) RunModelStream(ctx context.Context, grant ports.ModelStreamGra
 	if binding.Managed {
 		return nil, fmt.Errorf("model stream has no chat turn to meter managed credit: %w", ports.ErrModelCredentialMissing)
 	}
+	binding, stopFast, err := prepareFast(binding)
+	if err != nil {
+		return nil, err
+	}
+	defer stopFast()
 	if binding, requestBody, err = host.standIn.route(binding, requestBody); err != nil {
 		return nil, fmt.Errorf("resolve owner model: %w", err)
 	}
@@ -257,6 +270,11 @@ func (host *Host) SelectContext(ctx context.Context, grant ports.ContextSelectio
 	if binding.Managed || binding.Preflight != nil && binding.Preflight.Managed {
 		return nil, fmt.Errorf("context selection has no chat turn to meter managed credit: %w", ports.ErrModelCredentialMissing)
 	}
+	binding, stopFast, err := prepareFast(binding)
+	if err != nil {
+		return nil, err
+	}
+	defer stopFast()
 	if binding, requestBody, err = host.standIn.route(binding, requestBody); err != nil {
 		return nil, fmt.Errorf("resolve owner model: %w", err)
 	}

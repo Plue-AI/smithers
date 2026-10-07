@@ -826,3 +826,44 @@ describe("Settings key removal", () => {
   h.seam.dispose()
  })
 })
+
+describe("C-FM-01 fast-model access", () => {
+ test("sign-in persists and acknowledges before launch; handoff does not settle progress", async () => {
+  const launch=deferred<Response>();const handoffs:string[]=[];const model=installFixture();model.fast_model={signed_in:false,source:"team key"}
+  const h=await harness((path)=>path.endsWith("/sign-in")?launch.promise:Response.json(model),{fastModelHandoff:url=>handoffs.push(url)})
+  await h.seam.readInstall()
+  expect(h.seam.fastModelAccess("sign-in")).toEqual({value:"Requested"})
+  expect(h.seam.fastModelAccess("sign-in")).toEqual({value:"Requested"})
+  await tick();expect(h.requests.filter(row=>row.path.endsWith("/sign-in"))).toHaveLength(1)
+  expect(h.store.session().installRequests?.at(-1)?.state).toBe("requested")
+  expect(h.toasts.at(-1)?.outcome).toBeUndefined()
+  launch.resolve(Response.json({url:"https://smithers.example/api/fast-model/sign-in?state=public-state"}));await tick();await tick()
+  expect(handoffs).toEqual(["https://smithers.example/api/fast-model/sign-in?state=public-state"])
+  expect(h.toasts.at(-1)?.outcome).toBeUndefined();expect(h.store.session().installRequests?.at(-1)?.state).toBe("running")
+  // Chat state remains writable while the remote browser sign-in is pending.
+  h.store.dispatch({type:"composer.changed",draft:"keep chatting",actor:"user"})
+  model.fast_model={signed_in:true,source:"Smithers",remaining:123,reset_at:"2026-10-08T00:00:00Z"}
+  await h.seam.readInstall();await h.idle()
+  expect(h.toasts.at(-1)?.outcome).toBe(true);expect(h.store.session().installRequests?.at(-1)?.state).toBe("completed")
+  h.seam.dispose()
+ })
+ test("sign-out fences an earlier launch response and remains retryable on refusal",async()=>{
+  const launch=deferred<Response>();const handoffs:string[]=[];const model=installFixture();model.fast_model={signed_in:false,source:"coding model"}
+  const h=await harness((path,init)=>path.endsWith("/sign-in")?launch.promise:init?.method==="DELETE"?Response.json({ok:true}):Response.json(model),{fastModelHandoff:url=>handoffs.push(url)})
+  await h.seam.readInstall();h.seam.fastModelAccess("sign-in");await tick();h.seam.fastModelAccess("sign-out");await tick();launch.resolve(Response.json({url:"https://smithers.example/sign-in"}));await h.idle()
+  expect(handoffs).toEqual([]);expect(h.store.session().installRequests?.find(row=>row.body.fast_model==="sign-in")?.state).toBe("failed");expect(h.seam.snapshots.get().model?.fast_model?.signed_in).toBe(false);expect(h.requests.some(row=>row.init?.method==="DELETE")).toBe(true)
+  h.seam.dispose()
+  const failed=await harness((path)=>path.endsWith("/sign-in")?Response.json({code:"refused"},{status:503}):Response.json(model))
+  await failed.seam.readInstall();failed.seam.fastModelAccess("sign-in");await failed.idle();expect(failed.toasts.at(-1)?.outcome).toBe("Smithers sign-in unavailable");expect(failed.store.session().installRequests?.at(-1)?.state).toBe("failed")
+  failed.seam.fastModelAccess("sign-in");await failed.idle();expect(failed.requests.filter(row=>row.path.endsWith("/sign-in"))).toHaveLength(2);failed.seam.dispose()
+ })
+ test("reload reconciles a completed sign-in without another launch or handoff",async()=>{
+  const storage=memoryStorage();const handoffs:string[]=[];const before=installFixture();before.fast_model={signed_in:false,source:"coding model"}
+  const first=await harness(()=>Response.json(before),{},storage);await first.seam.readInstall()
+  await first.store.dispatch({type:"install.requests.changed",actor:"user",requests:[{id:"request-id",origin:"",step:"models",body:{fast_model:"sign-in",url:"https://smithers.example/sign-in"},state:"running",expires_at:new Date(Date.now()+60000).toISOString()}]}).isPersisted.promise
+  first.seam.dispose()
+  const after={...before,fast_model:{signed_in:true,source:"Smithers"}}
+  const next=await harness(()=>Response.json(after),{fastModelHandoff:url=>handoffs.push(url)},storage);next.seam.showSettings();await next.idle()
+  expect(next.store.session().installRequests?.at(-1)?.state).toBe("completed");expect(handoffs).toEqual([]);expect(next.requests.every(row=>row.init?.method!=="POST")).toBe(true);next.seam.dispose()
+ })
+})

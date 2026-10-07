@@ -609,6 +609,7 @@ export interface AppController extends IssueFlowsController {
   readonly setInstallPreapproveDefault: InstallSeam["setInstallPreapproveDefault"]
   readonly setInstallDailyAdmissions: InstallSeam["setInstallDailyAdmissions"]
   readonly setInstallParallel: InstallSeam["setInstallParallel"]
+  readonly fastModelAccess: InstallSeam["fastModelAccess"]
   readonly saveInstallModelKey: InstallSeam["saveInstallModelKey"]
   readonly stackSnapshots: StackSeam["snapshots"]
   readonly importRepository: RepoImportSeam["importRepository"]
@@ -2164,6 +2165,7 @@ export const createAppController = (
     setInstallDailyAdmissions: value => installSeam.setInstallDailyAdmissions(value),
     setInstallParallel: parallel => !installHost && installSeam.snapshots.get().model === undefined ? designSettings(design).parallel(parallel) : installSeam.setInstallParallel(parallel),
     saveInstallModelKey: installSeam.saveInstallModelKey,
+ fastModelAccess: installSeam.fastModelAccess,
     showMembers,
     changeMembers,
     flowCards,

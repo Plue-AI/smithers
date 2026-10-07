@@ -12,6 +12,7 @@ export const CATALOG_TAGS = [
   "settings.capacity",
   "settings.obsidian",
   "settings.parallel",
+  "settings.fast-model",
   "settings.model-key",
   "settings.setup",
   "form.set",
