@@ -2,6 +2,7 @@ package compose
 
 import (
 	"context"
+	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -23,6 +24,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/process"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
+	"io/fs"
 )
 
 type restoreVersionFixture struct {
@@ -32,10 +34,13 @@ type restoreVersionFixture struct {
 
 func (f *restoreVersionFixture) GetFileAtCommit(_ context.Context, owner, repo, commit, path string) (repohost.FileContent, error) {
 	f.calls++
-	if owner != "presence-owner" || repo != "app" || commit != strings.Repeat("a", 40) || path != "a/src/a.ts" {
+	if owner != "presence-owner" || repo != "app" || commit != strings.Repeat("a", 40) || (path != "a/src/a.ts" && path != "b/src/a.ts") {
 		return repohost.FileContent{}, fmt.Errorf("unexpected version selection")
 	}
 	text := "before\n"
+	if path == "b/src/a.ts" {
+		text = "after\n"
+	}
 	if f.corrupt {
 		text = "corrupt"
 	}
@@ -50,7 +55,13 @@ type restoreRuntimeFixture struct {
 	actor            string
 }
 
-func (f *restoreRuntimeFixture) ReadFile(_ context.Context, id, _ string) ([]byte, error) {
+func (f *restoreRuntimeFixture) ReadFile(_ context.Context, id, path string) ([]byte, error) {
+	if bytes, ok := f.files[path]; ok {
+		return append([]byte{}, bytes...), nil
+	}
+	if path != ".smithers/workspace.json" && strings.HasPrefix(path, "src/") {
+		return nil, fs.ErrNotExist
+	}
 	return json.Marshal(map[string]any{"version": 1, "workspace_id": id, "repository_id": f.repo, "clone_url": f.clone, "source_bookmark": f.bookmark, "source_revision": strings.Repeat("a", 40), "initialized_at": "2026-10-06T12:00:00Z"})
 }
 func (f *restoreRuntimeFixture) CompareWriteFiles(ctx context.Context, id string, changes []workspaceapi.FileMutation) (*workspaceapi.FileWriteResult, error) {
@@ -101,7 +112,7 @@ func TestFileRestoreCommandBoundary(t *testing.T) {
 		tx, err := f.pool.Begin(ctx)
 		require.NoError(t, err)
 		defer tx.Rollback(ctx)
-		fact, err := jobs.RecordFactInTx(ctx, tx, jobs.Scope{TenantID: fmt.Sprint(f.row.RepositoryID), PrincipalID: "branch:" + f.row.ID}, uuid.NewString(), "branch.burst", "completed", json.RawMessage(`{"versions":"`+strings.Repeat("a", 40)+`"}`))
+		fact, err := jobs.RecordFactInTx(ctx, tx, jobs.Scope{TenantID: fmt.Sprint(f.row.RepositoryID), PrincipalID: "branch:" + f.row.ID}, uuid.NewString(), "branch.burst", "completed", json.RawMessage(`{"actor":{"kind":"person","id":"`+fmt.Sprint(f.user.ID)+`","via":"ssh"},"versions":"`+strings.Repeat("a", 40)+`"}`))
 		require.NoError(t, err)
 		_, err = tx.Exec(ctx, `INSERT INTO burst_files(event_id,path,change,before_blob,post_digest) VALUES($1,'src/a.ts',$2,'90be1f3056c4f471f977a28497b8d4b392c55a02',NULLIF($3,''))`, fact.EventID, change, post)
 		require.NoError(t, err)
@@ -109,6 +120,38 @@ func TestFileRestoreCommandBoundary(t *testing.T) {
 	}
 	const post = "7b9a72466d3960eb2aacccfc848939453490db0678bd4725def3f789b891c919"
 	seed("modified", post)
+	afterBlob := fmt.Sprintf("%x", sha1.Sum([]byte("blob 6\x00after\n")))
+	_, err = f.pool.Exec(ctx, `UPDATE burst_files SET after_blob=$1 WHERE path='src/a.ts' AND change='modified'`, afterBlob)
+	require.NoError(t, err)
+
+	read := func(selector string, status int) {
+		t.Helper()
+		req := httptest.NewRequest("GET", f.origin+"/api/branches/"+f.row.ID+"/files/src/a.ts"+selector, nil)
+		req.AddCookie(&http.Cookie{Name: "session", Value: f.cookie})
+		req.RemoteAddr = "127.0.0.1:61000"
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		require.Equal(t, status, rec.Code, rec.Body.String())
+		if status == 200 {
+			var result map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+			require.Equal(t, post, result["digest"])
+			require.Equal(t, map[string]any{"kind": "text", "text": "after\n"}, result["content"])
+		}
+	}
+	read("", 200)
+	read("?digest="+post, 200)
+	read("?digest="+strings.Repeat("b", 64), 409)
+	compareReq := httptest.NewRequest("GET", f.origin+"/api/branches/"+f.row.ID+"/files/src/a.ts?compare="+strings.Repeat("a", 40), nil)
+	compareReq.AddCookie(&http.Cookie{Name: "session", Value: f.cookie})
+	compareReq.RemoteAddr = "127.0.0.1:61000"
+	compareRec := httptest.NewRecorder()
+	router.ServeHTTP(compareRec, compareReq)
+	require.Equal(t, 200, compareRec.Code, compareRec.Body.String())
+	require.JSONEq(t, `{"text":"before\n"}`, compareRec.Body.String())
+
+	require.Zero(t, provider.writes)
+
 	var responseBody string
 	call := func(path, body, cookie string, bearer ...string) int {
 		t.Helper()
@@ -140,6 +183,7 @@ func TestFileRestoreCommandBoundary(t *testing.T) {
 	require.Equal(t, []byte("untouched\n"), provider.files["src/b.ts"])
 	require.Equal(t, fmt.Sprint(f.user.ID), provider.actor)
 	require.Equal(t, 1, provider.writes)
+	read("?digest="+post, 200)
 	require.Equal(t, 409, call("src/a.ts", body, f.cookie))
 	require.Equal(t, 1, provider.writes)
 	versions.corrupt = true
@@ -148,12 +192,43 @@ func TestFileRestoreCommandBoundary(t *testing.T) {
 	versions.corrupt = false
 	seed("deleted", "")
 	delete(provider.files, "src/a.ts")
+	goneReq := httptest.NewRequest("GET", f.origin+"/api/branches/"+f.row.ID+"/files/src/a.ts?digest=absent", nil)
+	goneReq.AddCookie(&http.Cookie{Name: "session", Value: f.cookie})
+	goneReq.RemoteAddr = "127.0.0.1:61000"
+	goneRec := httptest.NewRecorder()
+	router.ServeHTTP(goneRec, goneReq)
+	require.Equal(t, 200, goneRec.Code, goneRec.Body.String())
+	var gone map[string]any
+	require.NoError(t, json.Unmarshal(goneRec.Body.Bytes(), &gone))
+	require.Equal(t, "deleted", gone["gone"].(map[string]any)["kind"])
+	require.Equal(t, "ssh", gone["last_writer"].(map[string]any)["via"])
+
 	deleted := `{"action":"restore-deleted","version":"` + strings.Repeat("a", 40) + `","base_digest":"absent"}`
 	require.Equal(t, 200, call("src/a.ts", deleted, f.cookie))
 	require.Equal(t, []byte("before\n"), provider.files["src/a.ts"])
 	require.Equal(t, 2, provider.writes)
 	require.Equal(t, 409, call("src/a.ts", deleted, f.cookie))
+
 	require.Equal(t, 2, provider.writes)
+	seed("renamed", "")
+	_, err = f.pool.Exec(ctx, `UPDATE burst_files SET renamed_to='src/deliver.ts' WHERE path='src/a.ts' AND change='renamed'`)
+	require.NoError(t, err)
+	delete(provider.files, "src/a.ts")
+	goneRec = httptest.NewRecorder()
+	router.ServeHTTP(goneRec, goneReq)
+	require.Equal(t, 200, goneRec.Code, goneRec.Body.String())
+	require.NoError(t, json.Unmarshal(goneRec.Body.Bytes(), &gone))
+	require.Equal(t, "renamed", gone["gone"].(map[string]any)["kind"])
+	require.Equal(t, "src/deliver.ts", gone["gone"].(map[string]any)["to"])
+	require.Equal(t, 2, provider.writes)
+
+	_, err = f.pool.Exec(ctx, `UPDATE workspaces SET status='suspended' WHERE id=$1`, f.row.ID)
+	require.NoError(t, err)
+	require.Equal(t, 409, call("src/a.ts", deleted, f.cookie))
+	require.Equal(t, 2, provider.writes)
+	var sleepState string
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT status FROM workspaces WHERE id=$1`, f.row.ID).Scan(&sleepState))
+	require.Equal(t, "suspended", sleepState)
 	// A member removed after opening a version cannot restore it.
 	member, err := q.CreateUser(ctx, db.CreateUserParams{Username: "w6-member", LowerUsername: "w6-member"})
 	require.NoError(t, err)
