@@ -1,0 +1,355 @@
+{
+  "source": "T-ACC-03 Tests SG-01/04/06/07/08/09 literal rulings",
+  "authorization_cells": 52,
+  "retired_cells": 6,
+  "cells": [
+    {
+      "group": "SG-01",
+      "command": "install.setup-step",
+      "credential": "DO",
+      "expected": "never"
+    },
+    {
+      "group": "SG-04",
+      "command": "box.terminal",
+      "credential": "RO",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-04",
+      "command": "flow.source-coedit",
+      "credential": "RO",
+      "expected": "allow"
+    },
+    {
+      "group": "SG-04",
+      "command": "branch.fork",
+      "credential": "RO",
+      "expected": "allow"
+    },
+    {
+      "group": "SG-04",
+      "command": "flow.run",
+      "credential": "RO",
+      "expected": "allow"
+    },
+    {
+      "group": "SG-04",
+      "command": "branch.rebase",
+      "credential": "RO",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-04",
+      "command": "branch.rebase-now",
+      "credential": "RO",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-04",
+      "command": "branch.sleep",
+      "credential": "RO",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-04",
+      "command": "branch.wake",
+      "credential": "RO",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-04",
+      "command": "branch.add-to-stack",
+      "credential": "RO",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-04",
+      "command": "branch.add-to-stack",
+      "credential": "RX",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-06",
+      "command": "install.read",
+      "credential": "DO",
+      "expected": "never"
+    },
+    {
+      "group": "SG-06",
+      "command": "install.read",
+      "credential": "DM",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-06",
+      "command": "install.read",
+      "credential": "DE",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-06",
+      "command": "members.list",
+      "credential": "SE",
+      "expected": "allow"
+    },
+    {
+      "group": "SG-06",
+      "command": "members.list",
+      "credential": "DO",
+      "expected": "never"
+    },
+    {
+      "group": "SG-06",
+      "command": "members.list",
+      "credential": "DM",
+      "expected": "never"
+    },
+    {
+      "group": "SG-06",
+      "command": "members.list",
+      "credential": "DE",
+      "expected": "never"
+    },
+    {
+      "group": "SG-06",
+      "command": "members.list",
+      "credential": "RO",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-06",
+      "command": "members.list",
+      "credential": "RX",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-06",
+      "command": "secrets.names",
+      "credential": "SE",
+      "expected": "allow"
+    },
+    {
+      "group": "SG-06",
+      "command": "secrets.names",
+      "credential": "DO",
+      "expected": "never"
+    },
+    {
+      "group": "SG-06",
+      "command": "secrets.names",
+      "credential": "DM",
+      "expected": "never"
+    },
+    {
+      "group": "SG-06",
+      "command": "secrets.names",
+      "credential": "DE",
+      "expected": "never"
+    },
+    {
+      "group": "SG-06",
+      "command": "secrets.names",
+      "credential": "RO",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-06",
+      "command": "secrets.names",
+      "credential": "RX",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-06",
+      "command": "ssh.copy",
+      "credential": "DO",
+      "expected": "never"
+    },
+    {
+      "group": "SG-06",
+      "command": "ssh.copy",
+      "credential": "DM",
+      "expected": "never"
+    },
+    {
+      "group": "SG-06",
+      "command": "ssh.copy",
+      "credential": "DE",
+      "expected": "never"
+    },
+    {
+      "group": "SG-06",
+      "command": "ssh.copy",
+      "credential": "RO",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-07",
+      "command": "todo.read",
+      "credential": "RO",
+      "expected": "allow"
+    },
+    {
+      "group": "SG-07",
+      "command": "todo.read",
+      "credential": "MO",
+      "expected": "allow"
+    },
+    {
+      "group": "SG-07",
+      "command": "todo.read",
+      "credential": "RX",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-07",
+      "command": "todo.read",
+      "credential": "MX",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-07",
+      "command": "agents.read",
+      "credential": "RO",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-07",
+      "command": "agents.read",
+      "credential": "RX",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-07",
+      "command": "agents.read",
+      "credential": "MO",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-07",
+      "command": "agents.read",
+      "credential": "MX",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-08",
+      "command": "confirmation.create(todo.new)",
+      "credential": "SO",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-08",
+      "command": "confirmation.create(todo.new)",
+      "credential": "SM",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-08",
+      "command": "confirmation.create(todo.new)",
+      "credential": "SE",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-08",
+      "command": "confirmation.create(todo.new)",
+      "credential": "DO",
+      "expected": "confirm"
+    },
+    {
+      "group": "SG-08",
+      "command": "confirmation.create(todo.new)",
+      "credential": "DM",
+      "expected": "confirm"
+    },
+    {
+      "group": "SG-08",
+      "command": "confirmation.create(todo.new)",
+      "credential": "DE",
+      "expected": "confirm"
+    },
+    {
+      "group": "SG-08",
+      "command": "confirmation.create(todo.new)",
+      "credential": "RO",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-08",
+      "command": "confirmation.create(todo.new)",
+      "credential": "RX",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-08",
+      "command": "confirmation.create(todo.new)",
+      "credential": "MO",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-08",
+      "command": "confirmation.create(todo.new)",
+      "credential": "MX",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-08",
+      "command": "confirmation.list",
+      "credential": "RO",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-08",
+      "command": "confirmation.list",
+      "credential": "RX",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-08",
+      "command": "confirmation.list",
+      "credential": "MO",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-08",
+      "command": "confirmation.list",
+      "credential": "MX",
+      "expected": "permission"
+    },
+    {
+      "group": "SG-09",
+      "command": "triggers.manage",
+      "credential": "SO",
+      "expected": "not-served-404"
+    },
+    {
+      "group": "SG-09",
+      "command": "triggers.manage",
+      "credential": "SM",
+      "expected": "not-served-404"
+    },
+    {
+      "group": "SG-09",
+      "command": "triggers.manage",
+      "credential": "SE",
+      "expected": "not-served-404"
+    },
+    {
+      "group": "SG-09",
+      "command": "triggers.manage",
+      "credential": "DO",
+      "expected": "not-served-404"
+    },
+    {
+      "group": "SG-09",
+      "command": "triggers.manage",
+      "credential": "DM",
+      "expected": "not-served-404"
+    },
+    {
+      "group": "SG-09",
+      "command": "triggers.manage",
+      "credential": "DE",
+      "expected": "not-served-404"
+    }
+  ]
+}
