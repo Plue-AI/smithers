@@ -308,6 +308,21 @@ func InstallBranchAuthorizer(queries *db.Queries) func(*http.Request, string) (i
 			}
 		}
 
+		if command == "branch.archive" {
+			repository, err := services.InstallRepositoryID(r.Context(), queries)
+			if err != nil {
+				return 0, 0, err
+			}
+			selector, err := url.PathUnescape(chi.URLParam(r, "b"))
+			if err != nil {
+				return 0, 0, pkgerrors.BadRequest("invalid branch")
+			}
+			var lookup error
+			subject, _, lookup = services.InstallScratchArchiveSubject(r.Context(), queries, repository, selector)
+			if lookup != nil {
+				return 0, 0, lookup
+			}
+		}
 		if command == "branch.fork" && services.InstallExecutionCredential(r.Context()) {
 			raw, err := io.ReadAll(io.LimitReader(r.Body, (64<<10)+1))
 			if err != nil || len(raw) > 64<<10 {
@@ -340,7 +355,7 @@ func InstallBranchAuthorizer(queries *db.Queries) func(*http.Request, string) (i
 		if err != nil {
 			return 0, 0, err
 		}
-		if command == "file.restore" || command == "file.restore-deleted" {
+		if command == "file.restore" || command == "file.restore-deleted" || command == "branch.archive" {
 			*r = *r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, subject))
 		}
 		return repository, decision.UserID, nil

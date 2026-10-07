@@ -61,6 +61,36 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				r.Body = io.NopCloser(bytes.NewReader(raw))
 			}
 
+			if command == "branch.archive" {
+				delegation, delegated := info.Delegation()
+				if len(confirmations) > 0 && confirmations[0] != nil && delegated && delegation.Profile == "" && delegation.Branch == "" && info.CredentialKind() == middleware.CredentialDelegated {
+					if dispatchConfirmation(w, r, command, confirmations[0]) {
+						return
+					}
+				}
+				repository, err := services.InstallRepositoryID(r.Context(), queries)
+				if err != nil {
+					writeConfirmationDispatchError(w, err)
+					return
+				}
+				selector, err := url.PathUnescape(strings.TrimSuffix(strings.TrimPrefix(r.URL.EscapedPath(), "/api/branches/"), "/archive"))
+				if err != nil {
+					writeConfirmationDispatchError(w, pkgerrors.BadRequest("invalid branch"))
+					return
+				}
+				subject, _, lookup := services.InstallScratchArchiveSubject(r.Context(), queries, repository, selector)
+				decision, err := services.Authorize(r.Context(), queries, command, subject)
+				if err != nil {
+					writeConfirmationDispatchError(w, err)
+					return
+				}
+				if lookup != nil {
+					writeConfirmationDispatchError(w, lookup)
+					return
+				}
+				next.ServeHTTP(w, r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, subject)))
+				return
+			}
 			if command == "repo.read" && services.InstallExecutionCredential(r.Context()) {
 				parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 				if len(parts) == 5 && parts[1] == "repos" && parts[4] == "mythical" {
@@ -486,8 +516,9 @@ func dispatchConfirmation(w http.ResponseWriter, r *http.Request, command string
 		}
 		input.Subject, _ = json.Marshal(map[string]string{"kind": "todo", "ref": "T" + strconv.FormatInt(n, 10)})
 	}
-	if command == "branch.add-to-stack" {
-		part := strings.TrimSuffix(strings.TrimPrefix(r.URL.EscapedPath(), "/api/branches/"), "/add-to-stack")
+	if command == "branch.add-to-stack" || command == "branch.archive" {
+		suffix := "/" + strings.TrimPrefix(command, "branch.")
+		part := strings.TrimSuffix(strings.TrimPrefix(r.URL.EscapedPath(), "/api/branches/"), suffix)
 		branch, err := url.PathUnescape(part)
 		if err != nil || branch == "" {
 			writeConfirmationDispatchError(w, &services.AccessError{Status: 400, Class: "user", Code: "invalid_confirmation", Message: "Invalid branch"})

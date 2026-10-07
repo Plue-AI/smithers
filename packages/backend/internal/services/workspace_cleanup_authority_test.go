@@ -431,57 +431,79 @@ func (a *archiveResolutionTx) Rollback(ctx context.Context) error {
 	return err
 }
 func TestScratchArchiveRechecksMembershipAfterRuntimeWait(t *testing.T) {
-	pool := newProductTestPool(t)
-	person, repo := setupTestUserAndRepo(t, pool)
-	ctx := t.Context()
-	q := db.New(pool)
-	_, err := pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, person)
-	require.NoError(t, err)
-	owner, err := q.GetBranchMachineOwner(ctx)
-	require.NoError(t, err)
-	row, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo, UserID: owner, TargetBookmark: "scratch/member/archive-race", Kind: "container", Status: "suspended"})
-	require.NoError(t, err)
-	transactions := &archiveResolutionTransactions{RepositoryJobTransactions: pool, resolved: make(chan struct{})}
-	svc := NewWorkspaceService(q, WithWorkspaceTransactions(transactions), WithBranchMachineProviders(InstallBranchMachineProviders(nil, nil)))
-	info := &middleware.AuthInfo{User: &db.User{ID: person}, SessionHash: "archive-race"}
-	callCtx := WithInstallAuthorization(middleware.ContextWithAuthInfo(ctx, info), "branch.archive", InstallAuthorization{UserID: person, Role: InstallOwner})
-	unlock := svc.lockRuntimeWorkspace(row.ID)
-	locked := true
-	defer func() {
-		if locked {
+	for _, revoked := range []string{"member", "session"} {
+		t.Run(revoked, func(t *testing.T) {
+			pool := newProductTestPool(t)
+			person, repo := setupTestUserAndRepo(t, pool)
+			ctx := t.Context()
+			q := db.New(pool)
+			_, err := pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, person)
+			require.NoError(t, err)
+			owner, err := q.GetBranchMachineOwner(ctx)
+			require.NoError(t, err)
+			row, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo, UserID: owner, TargetBookmark: "scratch/member/archive-race", Kind: "container", Status: "suspended"})
+			require.NoError(t, err)
+			transactions := &archiveResolutionTransactions{RepositoryJobTransactions: pool, resolved: make(chan struct{})}
+			svc := NewWorkspaceService(q, WithWorkspaceTransactions(transactions), WithBranchMachineProviders(InstallBranchMachineProviders(nil, nil)))
+			user, err := q.GetUserByID(ctx, person)
+			require.NoError(t, err)
+			repository, err := q.GetRepoByID(ctx, repo)
+			require.NoError(t, err)
+			binding, err := json.Marshal(map[string]any{"owner_login": user.Username, "repository_name": repository.Name, "repository_id": repo, "last_access_check_at": time.Now().UTC().Format(time.RFC3339)})
+			require.NoError(t, err)
+			for _, key := range []string{"github.repository", "owner.access"} {
+				require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: key, Value: binding}))
+			}
+			_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: person, Username: user.Username, SessionKey: "archive-race", ExpiresAt: time.Now().Add(time.Hour)})
+			require.NoError(t, err)
+			info := &middleware.AuthInfo{User: &user, SessionHash: "archive-race"}
+			callCtx := WithInstallAuthorization(middleware.ContextWithAuthInfo(ctx, info), "branch.archive", InstallAuthorization{UserID: person, Role: InstallOwner}, scratchArchiveSubject(row))
+			unlock := svc.lockRuntimeWorkspace(row.ID)
+			locked := true
+			defer func() {
+				if locked {
+					unlock()
+				}
+			}()
+			result := make(chan error, 1)
+			go func() { _, err := svc.ArchiveScratchBranch(callCtx, row.ID, repo, person); result <- err }()
+			select {
+			case <-transactions.resolved:
+			case <-time.After(5 * time.Second):
+				unlock()
+				locked = false
+				<-result
+				t.Fatal("archive held membership locks while waiting for runtime admission")
+			}
+			revocation, err := pool.Begin(ctx)
+			require.NoError(t, err)
+			defer func() { _ = revocation.Rollback(context.WithoutCancel(ctx)) }()
+			var id int64
+			require.NoError(t, revocation.QueryRow(ctx, `SELECT user_id FROM self_host_owners WHERE singleton FOR UPDATE NOWAIT`).Scan(&id))
+			require.Equal(t, person, id)
+			if revoked == "member" {
+				_, err = revocation.Exec(ctx, `UPDATE users SET is_active=false WHERE id=$1`, person)
+			} else {
+				_, err = revocation.Exec(ctx, `UPDATE auth_sessions SET expires_at=now()-interval '1 second' WHERE session_key='archive-race'`)
+			}
+			require.NoError(t, err)
+			require.NoError(t, revocation.Commit(ctx))
 			unlock()
-		}
-	}()
-	result := make(chan error, 1)
-	go func() { _, err := svc.ArchiveScratchBranch(callCtx, row.ID, repo, person); result <- err }()
-	select {
-	case <-transactions.resolved:
-	case <-time.After(5 * time.Second):
-		unlock()
-		locked = false
-		<-result
-		t.Fatal("archive held membership locks while waiting for runtime admission")
+			locked = false
+			select {
+			case err := <-result:
+				var refusal *AccessError
+				require.ErrorAs(t, err, &refusal)
+				require.Equal(t, 401, refusal.Status)
+				require.Equal(t, "unauthenticated", refusal.Code)
+			case <-time.After(5 * time.Second):
+				t.Fatal("archive did not reconsider revoked membership")
+			}
+			stored, err := q.GetWorkspace(ctx, row.ID)
+			require.NoError(t, err)
+			require.False(t, stored.BranchArchivedAt.Valid)
+			require.False(t, stored.DeletedAt.Valid)
+			require.Equal(t, "suspended", stored.Status)
+		})
 	}
-	revocation, err := pool.Begin(ctx)
-	require.NoError(t, err)
-	defer func() { _ = revocation.Rollback(context.WithoutCancel(ctx)) }()
-	var id int64
-	require.NoError(t, revocation.QueryRow(ctx, `SELECT user_id FROM self_host_owners WHERE singleton FOR UPDATE NOWAIT`).Scan(&id))
-	require.Equal(t, person, id)
-	_, err = revocation.Exec(ctx, `UPDATE users SET is_active=false WHERE id=$1`, person)
-	require.NoError(t, err)
-	require.NoError(t, revocation.Commit(ctx))
-	unlock()
-	locked = false
-	select {
-	case err := <-result:
-		require.ErrorContains(t, err, "not a member of this install")
-	case <-time.After(5 * time.Second):
-		t.Fatal("archive did not reconsider revoked membership")
-	}
-	stored, err := q.GetWorkspace(ctx, row.ID)
-	require.NoError(t, err)
-	require.False(t, stored.BranchArchivedAt.Valid)
-	require.False(t, stored.DeletedAt.Valid)
-	require.Equal(t, "suspended", stored.Status)
 }

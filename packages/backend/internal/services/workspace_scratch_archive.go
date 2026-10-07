@@ -24,27 +24,23 @@ func (s *WorkspaceService) ArchiveScratchBranch(ctx context.Context, id string, 
 		return BranchMachineResponse{}, err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
-	authorization, err := Authorize(ctx, db.New(tx), "branch.archive")
-	if err != nil {
-		return BranchMachineResponse{}, err
-	}
-	if authorization.UserID != userID {
-		return BranchMachineResponse{}, pkgerrors.Forbidden("not a member of this install")
-	}
-	if err := s.branchMachineProviders.Membership(ctx, tx, repositoryID, userID); err != nil {
+	if err := guardInstallMemberCredential(ctx, tx, repositoryID, userID, false); err != nil {
 		return BranchMachineResponse{}, err
 	}
 	q := db.New(tx)
-	var initial db.Workspace
-	if _, parseErr := uuid.Parse(id); parseErr == nil {
-		initial, err = q.GetWorkspaceByRepo(ctx, db.GetWorkspaceByRepoParams{ID: id, RepositoryID: repositoryID})
-	} else {
-		initial, err = q.GetBranchWorkspace(ctx, db.GetBranchWorkspaceParams{RepositoryID: repositoryID, TargetBookmark: id})
-	}
-	if errors.Is(err, pgx.ErrNoRows) {
-		return BranchMachineResponse{}, pkgerrors.NotFound("branch not found")
-	}
+	subject, initial, lookup := InstallScratchArchiveSubject(ctx, q, repositoryID, id)
+	authorization, err := Authorize(ctx, q, "branch.archive", subject)
 	if err != nil {
+		return BranchMachineResponse{}, err
+	}
+	if lookup != nil {
+		return BranchMachineResponse{}, lookup
+	}
+	if authorization.UserID != userID {
+		return BranchMachineResponse{}, confirmationPermission()
+	}
+	ctx = WithInstallAuthorization(ctx, "branch.archive", authorization, subject)
+	if err := s.branchMachineProviders.Membership(ctx, tx, repositoryID, userID); err != nil {
 		return BranchMachineResponse{}, err
 	}
 	if err := tx.Rollback(ctx); err != nil {
@@ -58,12 +54,15 @@ func (s *WorkspaceService) ArchiveScratchBranch(ctx context.Context, id string, 
 		return BranchMachineResponse{}, err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
-	authorization, err = Authorize(ctx, db.New(tx), "branch.archive")
+	authorization, err = Authorize(ctx, db.New(tx), "branch.archive", subject)
 	if err != nil {
 		return BranchMachineResponse{}, err
 	}
 	if authorization.UserID != userID {
 		return BranchMachineResponse{}, pkgerrors.Forbidden("not a member of this install")
+	}
+	if err := guardInstallMemberCredential(ctx, tx, repositoryID, userID, false); err != nil {
+		return BranchMachineResponse{}, err
 	}
 	if err := s.branchMachineProviders.Membership(ctx, tx, repositoryID, userID); err != nil {
 		return BranchMachineResponse{}, err
@@ -79,6 +78,9 @@ func (s *WorkspaceService) ArchiveScratchBranch(ctx context.Context, id string, 
 	}
 	row, err := q.GetWorkspace(ctx, id)
 	if err != nil {
+		return BranchMachineResponse{}, err
+	}
+	if _, err := Authorize(ctx, q, "branch.archive", scratchArchiveSubject(row)); err != nil {
 		return BranchMachineResponse{}, err
 	}
 	owner, err := q.GetBranchMachineOwner(ctx)
@@ -105,4 +107,27 @@ func (s *WorkspaceService) ArchiveScratchBranch(ctx context.Context, id string, 
 		return BranchMachineResponse{}, err
 	}
 	return projected, nil
+}
+
+// InstallScratchArchiveSubject resolves either branch selector before the one
+// command decision. Retention time is omitted so repeats remain idempotent.
+func InstallScratchArchiveSubject(ctx context.Context, q *db.Queries, repository int64, selector string) (InstallSubject, db.Workspace, error) {
+	var row db.Workspace
+	var err error
+	if _, parseErr := uuid.Parse(selector); parseErr == nil {
+		row, err = q.GetWorkspaceByRepo(ctx, db.GetWorkspaceByRepoParams{ID: selector, RepositoryID: repository})
+	} else {
+		row, err = q.GetBranchWorkspace(ctx, db.GetBranchWorkspaceParams{RepositoryID: repository, TargetBookmark: selector})
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = pkgerrors.NotFound("branch not found")
+	}
+	if err != nil {
+		return InstallSubject{RepositoryID: repository}, row, err
+	}
+	return scratchArchiveSubject(row), row, nil
+}
+
+func scratchArchiveSubject(row db.Workspace) InstallSubject {
+	return InstallSubject{RepositoryID: row.RepositoryID, WorkspaceID: row.ID, Source: row.TargetBookmark, Resource: "archive"}
 }

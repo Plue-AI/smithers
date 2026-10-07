@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
@@ -28,7 +29,8 @@ func TestInstallMemberScratchArchivePostgres(t *testing.T) {
 	// Archive writes the retention decision, never starts or destroys a VM.
 	// Compose the real membership provider and SQL service without a runtime.
 	svc := services.NewWorkspaceService(f.q, services.WithWorkspaceTransactions(f.pool), services.WithBranchMachineProviders(services.InstallBranchMachineProviders(identity.NewMemberBoundary(f.q), nil)))
-	router := buildRouterCompat(cfg, f.q, f.pool, &routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{Service: svc}, nil, nil, nil, nil, nil, nil)
+	boundary := &archiveSubstitutionService{WorkspaceService: svc}
+	router := buildRouterCompat(cfg, f.q, f.pool, &routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{Service: boundary}, nil, nil, nil, nil, nil, nil)
 	cookie := "archive-member"
 	digest := sha256.Sum256([]byte(cookie))
 	_, err := f.q.CreateAuthSession(f.ctx, db.CreateAuthSessionParams{UserID: f.other.ID, Username: f.other.Username, SessionKey: hex.EncodeToString(digest[:]), ExpiresAt: time.Now().Add(time.Hour)})
@@ -45,11 +47,18 @@ func TestInstallMemberScratchArchivePostgres(t *testing.T) {
 		status      int
 		code        string
 	}{
-		{"member-id", "", 200, ""}, {"member-name", "", 200, ""}, {"external", external, 503, "confirmation_unavailable"}, {"app", app, 503, "confirmation_unavailable"}, {"run", run, 403, "permission"}, {"machine", machine, 403, "permission"}, {"scope", limited, 403, "permission"},
+		{"member-id", "", 200, ""}, {"member-name", "", 200, ""}, {"external", external, 503, "confirmation_unavailable"}, {"app", app, 503, "confirmation_unavailable"}, {"run", run, 403, "permission"}, {"machine", machine, 403, "permission"}, {"scope", limited, 403, "permission"}, {"substituted", "", 403, "permission"},
 	} {
 		t.Run(actor.name, func(t *testing.T) {
 			row, err := f.q.CreateWorkspace(f.ctx, db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: owner, Name: actor.name, TargetBookmark: "scratch/member/" + actor.name, Kind: "container", Status: "suspended"})
 			require.NoError(t, err)
+			boundary.replace = ""
+			var alternate db.Workspace
+			if actor.name == "substituted" {
+				alternate, err = f.q.CreateWorkspace(f.ctx, db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: owner, Name: "substituted-other", TargetBookmark: "scratch/member/substituted-other", Kind: "container", Status: "suspended"})
+				require.NoError(t, err)
+				boundary.replace = alternate.ID
+			}
 			selector := row.ID
 			if actor.name == "member-name" {
 				selector = url.PathEscape(row.TargetBookmark)
@@ -75,6 +84,11 @@ func TestInstallMemberScratchArchivePostgres(t *testing.T) {
 				return out
 			}
 			out := call()
+			if alternate.ID != "" {
+				refused, err := f.q.GetWorkspace(f.ctx, alternate.ID)
+				require.NoError(t, err)
+				require.False(t, refused.BranchArchivedAt.Valid)
+			}
 			stored, err := f.q.GetWorkspace(f.ctx, row.ID)
 			require.NoError(t, err)
 			require.False(t, stored.DeletedAt.Valid)
@@ -93,4 +107,35 @@ func TestInstallMemberScratchArchivePostgres(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("direct entry binds once", func(t *testing.T) {
+		row, err := f.q.CreateWorkspace(f.ctx, db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: owner, Name: "direct", TargetBookmark: "scratch/member/direct", Kind: "container", Status: "suspended"})
+		require.NoError(t, err)
+		ctx := middleware.ContextWithAuthInfo(f.ctx, &middleware.AuthInfo{User: &f.other, SessionHash: hex.EncodeToString(digest[:])})
+		var commands []string
+		ctx = services.WithAuthorizationObserver(ctx, func(command string) { commands = append(commands, command) })
+		_, err = svc.ArchiveScratchBranch(ctx, row.ID, f.repoID, f.other.ID)
+		require.NoError(t, err)
+		require.Equal(t, []string{"branch.archive"}, commands)
+		_, err = f.pool.Exec(f.ctx, `UPDATE auth_sessions SET expires_at=now()-interval '1 second' WHERE user_id=$1`, f.other.ID)
+		require.NoError(t, err)
+		commands = nil
+		_, err = svc.ArchiveScratchBranch(ctx, "unknown", f.repoID, f.other.ID)
+		var refusal *services.AccessError
+		require.ErrorAs(t, err, &refusal)
+		require.Equal(t, 401, refusal.Status)
+		require.Empty(t, commands, "dead direct credentials fail before policy and subject disclosure")
+	})
+}
+
+type archiveSubstitutionService struct {
+	*services.WorkspaceService
+	replace string
+}
+
+func (s *archiveSubstitutionService) ArchiveScratchBranch(ctx context.Context, branch string, repository, actor int64) (services.BranchMachineResponse, error) {
+	if s.replace != "" {
+		branch = s.replace
+	}
+	return s.WorkspaceService.ArchiveScratchBranch(ctx, branch, repository, actor)
 }
