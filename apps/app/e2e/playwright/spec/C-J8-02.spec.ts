@@ -14,10 +14,11 @@ test("C-J8-02: wiki edits converge across members and survive offline reload", a
   test.setTimeout(240_000)
   if (!process.env.SMITHERS_FFI_LIBRARY_PATH || !process.env.SMITHERS_TEST_DATABASE_URL) throw new Error("Native FFI and PostgreSQL are required for the wiki tracer")
   const dir = await mkdtemp(join(tmpdir(), "smithers-wiki-browser-")), config = join(dir, "host.json")
+  const lane = (process.env.LANE ?? "wiki-browser").replace(/[^a-zA-Z0-9_-]/g, "_")
   const binary = process.env.SMITHERS_WIKI_TEST_BINARY
   const backend = spawn(binary ?? "go", binary ? ["-test.run=^TestWikiHostCommittedReceiptsAndRestart$", "-test.count=1"] : ["test", "./internal/compose", "-run", "^TestWikiHostCommittedReceiptsAndRestart$", "-count=1"], {
-    cwd: resolve("../../packages/backend"), env: { ...process.env, LANE: process.env.LANE ?? "fr3-wt-w13-r2",
-      SMITHERS_TEST_DATABASE_NAMESPACE: "fr3_wt_w13_r2", SMITHERS_WIKI_BROWSER_HARNESS: config, SMITHERS_WIKI_SPA_DIR: resolve("dist") }, stdio: ["ignore", "pipe", "pipe"]
+    cwd: resolve("../../packages/backend"), env: { ...process.env, LANE: lane,
+      SMITHERS_TEST_DATABASE_NAMESPACE: process.env.SMITHERS_TEST_DATABASE_NAMESPACE ?? lane.replace(/-/g, "_"), SMITHERS_WIKI_BROWSER_HARNESS: config, SMITHERS_WIKI_SPA_DIR: resolve("dist") }, stdio: ["ignore", "pipe", "pipe"]
   })
   let logs = ""; backend.stdout.on("data", bytes => { logs += String(bytes) }); backend.stderr.on("data", bytes => { logs += String(bytes) })
   const exited = new Promise<number | null>(done => backend.on("exit", done))
@@ -108,9 +109,9 @@ test("C-J8-02: wiki edits converge across members and survive offline reload", a
       expect(response.status()).toBe(404)
     }
   } finally {
-    await writeFile("/tmp/fr3-wt-w13-r2-browser-wire.log", wire.join("\n"))
-    await writeFile("/tmp/fr3-wt-w13-r2-browser-store.json", await other.evaluate(() => localStorage.getItem("smithers-mvp.store") ?? "{}").catch(() => "{}"))
-    await writeFile("/tmp/fr3-wt-w13-r2-browser-host.log", logs)
+    await writeFile(join(tmpdir(), `${lane}-browser-wire.log`), wire.join("\n"))
+    await writeFile(join(tmpdir(), `${lane}-browser-store.json`), await other.evaluate(() => localStorage.getItem("smithers-mvp.store") ?? "{}").catch(() => "{}"))
+    await writeFile(join(tmpdir(), `${lane}-browser-host.log`), logs)
     await alice.close()
     await writeFile(config + ".stop", "stop")
     const code = await exited
