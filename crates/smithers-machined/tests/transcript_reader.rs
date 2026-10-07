@@ -105,14 +105,13 @@ fn child_socketpair_outbox_checkpoint_restart_and_revoke() {
                 || Ok(()),
                 |event| {
                     outbox.append(|seq| {
-                        smithers_machined::conn::Durable {
+                        Ok(smithers_machined::conn::Durable {
                             seq,
                             id: [3; 16],
                             event: event.to_vec(),
                         }
                         .frame()
-                        .encode()
-                        .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))
+                        .payload)
                     })?;
                     events.push(event.to_vec());
                     Ok(())
@@ -125,6 +124,12 @@ fn child_socketpair_outbox_checkpoint_restart_and_revoke() {
             .unwrap(),
         1
     );
+    drop(outbox);
+    let outbox = smithers_machined::outbox_store::Store::open(&outbox_dir, startup.uid).unwrap();
+    let stored =
+        smithers_machined::conn::Durable::decode(&outbox.read(1, startup.uid).unwrap()).unwrap();
+    assert_eq!(stored.seq, 1);
+    assert_eq!(stored.event, events[0]);
     let (_, record) = Source::decode(&events[0]).unwrap();
     assert_eq!(
         (record.start, record.end, record.text.as_str()),
