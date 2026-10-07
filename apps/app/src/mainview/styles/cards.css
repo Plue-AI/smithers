@@ -898,21 +898,6 @@
 	margin-top: 0.125rem;
 }
 
-/* The steer row: the house control look, filling the card — the raw
-   browser-default input and select had shipped under hook-only classes. */
-.flow-run-steer {
-	display: grid;
-	gap: 0.5rem;
-	margin-top: 0.5rem;
-}
-.flow-run-steer .flow-run-actions {
-	margin-top: 0;
-}
-.flow-run-steer-input {
-	flex: 1;
-	min-width: 0;
-}
-
 /* Service health: status rows, not a bulleted list. */
 
 /* The card header at narrow widths (§7.3). The status pill is the most
@@ -1063,12 +1048,6 @@
 	float: right;
 	margin-left: 0.75rem;
 }
-/* The secrets card (Secrets L1): the scope line and the metadata table; values never exist on the wire. */
-.secrets-scope {
-	margin: 0;
-	font-size: var(--fs-small);
-	color: var(--muted-foreground);
-}
 .secrets-table {
 	width: 100%;
 	border-collapse: collapse;
@@ -1085,19 +1064,6 @@
 	padding: 0.25rem 0.5rem 0.25rem 0;
 	border-top: 1px solid var(--border);
 	vertical-align: top;
-}
-
-/* The Accounts card: provider groups of rows, header adds, and a pending Codex code. */
-.provider-accounts-actions {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 0.5rem;
-}
-.provider-accounts-pending {
-	margin: 0;
-	display: flex;
-	align-items: center;
-	gap: 0.5rem;
 }
 [data-kind="provider-accounts"] .world-card-row {
 	flex-wrap: wrap;
@@ -1786,17 +1752,6 @@
 .coding-poc { overflow-wrap: anywhere; }
 .coding-poc .run-trace-code { max-height: 10rem; }
 .coding-poc .run-trace-code:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
-
-/* The commits list (commit-list) and one commit (commit): GitHub's Commits page
-   in the app's tokens, so every palette and dark mode follow. */
-.commit-list-head { margin: 0 0 0.5rem; color: var(--text-muted); font-size: var(--fs-small); }
-.commit-day + .commit-day { margin-top: 0.75rem; }
-.commit-day-label {
-	margin: 0 0 0.375rem;
-	font-size: var(--fs-small);
-	font-weight: 600;
-	color: var(--text-muted);
-}
 .commit-rows {
 	list-style: none;
 	margin: 0;
@@ -1847,88 +1802,8 @@
 
 .commit-row + .commit-row { border-top: 1px solid var(--border-strong); }
 .commit-row:hover, .commit-row:focus-within { background: var(--hover-subtle); }
-.commit-row-main { display: flex; flex-direction: column; gap: 0.125rem; min-width: 0; flex: 1; }
-.commit-row-open {
-	all: unset;
-	cursor: pointer;
-	font-weight: 600;
-	color: var(--text);
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	border-radius: 4px;
-}
-.commit-row-open:hover { color: var(--brand); text-decoration: underline; }
-.commit-row-open:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
-.commit-row-meta {
-	display: flex;
-	align-items: center;
-	gap: 0.375rem;
-	font-size: var(--fs-small);
-	color: var(--text-muted);
-	min-width: 0;
-	flex-wrap: wrap;
-}
-.commit-row-author { font-weight: 600; color: var(--text); }
-.commit-row-side { display: inline-flex; align-items: center; gap: 0.5rem; flex: none; }
-.commit-sha {
-	all: unset;
-	cursor: pointer;
-	font-family: var(--font-mono);
-	font-size: var(--fs-small);
-	color: var(--text-muted);
-	padding: 0.0625rem 0.375rem;
-	border: 1px solid var(--border-strong);
-	border-radius: 6px;
-	background: var(--inline-code-bg);
-}
-.commit-sha:hover { color: var(--brand); border-color: var(--brand-border); }
-.commit-sha:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 1px; }
-.commit-sha code { background: none; padding: 0; font-size: inherit; color: inherit; }
-.commit-status { font-size: var(--fs-small); font-weight: 700; line-height: 1; }
-.commit-status[data-status="success"] { color: var(--success); }
-.commit-status[data-status="failure"] { color: var(--danger); }
-.commit-status[data-status="pending"] { color: var(--warning); }
-.commit-verified {
-	font-size: var(--fs-caption);
-	font-weight: 600;
-	color: var(--success);
-	border: 1px solid var(--success-border);
-	border-radius: var(--r-full);
-	padding: 0 0.375rem;
-}
-.commit-detail { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
-.commit-email { color: var(--text-muted); font-size: var(--fs-small); overflow-wrap: anywhere; }
-.commit-parents { display: inline-flex; align-items: center; gap: 0.375rem; flex-wrap: wrap; }
-.commit-diff { border: 1px solid var(--border-strong); border-radius: var(--r-sm); overflow: hidden; min-width: 0; }
-.commit-diff-path {
-	margin: 0;
-	padding: 0.375rem 0.75rem;
-	font-size: var(--fs-small);
-	font-weight: 600;
-	background: var(--hover-subtle);
-	border-bottom: 1px solid var(--border-strong);
-	overflow-wrap: anywhere;
-}
-.commit-diff-stat { color: var(--text-muted); font-weight: 400; }
-.commit-diff > :not(.commit-diff-path) { overflow-x: auto; }
-.branches-row-open {
-	all: unset;
-	cursor: pointer;
-	display: flex;
-	align-items: center;
-	gap: 0.5rem;
-	flex: 1;
-	min-width: 0;
-	padding: 0.25rem 0.375rem;
-	border-radius: 6px;
-}
-.branches-row-open:hover { background: var(--hover-subtle); }
-.branches-row-open:hover .world-card-title { color: var(--brand); text-decoration: underline; }
-.branches-row-open:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 1px; }
 @media (max-width: 480px) {
-	.commit-row { flex-wrap: wrap; gap: 0.375rem; }
-	.commit-row-side { width: 100%; justify-content: flex-end; }}
+	.commit-row { flex-wrap: wrap; gap: 0.375rem; }}
 
 .card-local-history { display: flex; gap: 4px; flex-shrink: 0; }
 .card-local-history button { display: grid; place-items: center; min-width: 32px; min-height: 32px; border-radius: 6px; }
@@ -3155,9 +3030,9 @@ from main down to the last item. */
 .design-subject .mvp-row-meta { flex: none; color: var(--text-faint); font-size: var(--fs-caption); }
 
 /* File notices */
-.design-subject .mvp-file-notice { display: flex; align-items: center; gap: var(--sp-2); padding: 6px 6px 6px 10px; border: 1px solid var(--border-strong); border-radius: var(--r-1); background: var(--attention-wash); color: var(--attention-text); font-size: var(--fs-small); font-weight: 500; }
-.design-subject .mvp-file-notice code { padding: 0 4px; border-radius: 4px; background: var(--inline-code-bg); font-family: var(--font-mono); font-size: 12px; }
-.design-subject .mvp-file-notice[data-tone="outside"] { background: var(--surface-2); color: var(--text); }
+.design-subject .code-file-notice { display: flex; align-items: center; gap: var(--sp-2); padding: 6px 6px 6px 10px; border: 1px solid var(--border-strong); border-radius: var(--r-1); background: var(--attention-wash); color: var(--attention-text); font-size: var(--fs-small); font-weight: 500; }
+.design-subject .code-file-notice code { padding: 0 4px; border-radius: 4px; background: var(--inline-code-bg); font-family: var(--font-mono); font-size: 12px; }
+.design-subject .code-file-notice[data-tone="outside"] { background: var(--surface-2); color: var(--text); }
 .design-subject .mvp-saved { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: var(--fs-caption); }
 .design-subject .mvp-saving-mark { width: 8px; height: 8px; border-radius: 50%; background: var(--text-faint); }
 
