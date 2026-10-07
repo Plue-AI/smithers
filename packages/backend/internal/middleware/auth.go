@@ -127,7 +127,7 @@ var terminalProfileRoutes = []struct {
 	{http.MethodGet, wikiReadPath},
 	{http.MethodGet, regexp.MustCompile(`^/api/branches/[^/]+/files(/.*)?$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/branches/[^/]+$`)},
-	{http.MethodGet, regexp.MustCompile(`^/api/branches/[^/]+/diff$`)},
+	{http.MethodGet, regexp.MustCompile(`^/api/branches/[^/]+/(diff|activity)$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/files(/content)?$`)},
 }
 
@@ -571,7 +571,7 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+$`)},
 	// The body resolves bring-in or discard-foreign before the shared decision.
 	{http.MethodPost, "branch.control", regexp.MustCompile(`^/api/branches/[^/]+$`)},
-	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/diff$`)},
+	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/(diff|activity)$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/files$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/files(/content)?$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+$`)},
