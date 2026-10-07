@@ -999,7 +999,10 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 			Attention []json.RawMessage `json:"attention"`
 		}
 		require.NoError(t, json.Unmarshal(memberHome, &memberProjection))
-		require.Empty(t, memberProjection.Attention)
+		// Home carries shared facts; the app derives each viewer's controls.
+		// The member's forbidden OK press is checked through HTTP below.
+		require.Len(t, memberProjection.Attention, 1)
+		require.JSONEq(t, attention, "["+string(memberProjection.Attention[0])+"]")
 		for _, tc := range []struct {
 			cookie   string
 			via      bool
