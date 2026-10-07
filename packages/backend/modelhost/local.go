@@ -211,7 +211,6 @@ func (launcher *LocalLauncher) LaunchChatHost(ctx context.Context, grant ports.C
 		return nil, fmt.Errorf("create private model host token: %w", err)
 	}
 	token := hex.EncodeToString(tokenBytes)
-	environment["SMITHERS_CHAT_PARENT_PID"] = strconv.Itoa(os.Getpid())
 	environment["SMITHERS_CHAT_HOST_TOKEN"] = token
 	environment["SMITHERS_CHAT_CALLBACK_URL"] = grant.ProducerBaseURL
 	environment["SMITHERS_CHAT_MODEL"] = string(binding.Model)

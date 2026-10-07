@@ -362,3 +362,23 @@ func TestChangeIntegrationLandsDark(t *testing.T) {
 		require.Zero(t, count, table)
 	}
 }
+
+func TestBurstAttributionDoesNotHoldSpawnReceiptLock(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	registry := &Registry{}
+	boot, err := registry.MintBoot("a", "vm")
+	require.NoError(t, err)
+	link, _ := connectTest(t, registry, "a", boot)
+	ingest := &BurstIngest{Pool: pool, Objects: &burstObjectFixture{}, ResolveActor: func(ctx context.Context, _ string, _ wire.Actor) (json.RawMessage, error) {
+		acquired := make(chan struct{})
+		go func() { registry.mu.Lock(); registry.mu.Unlock(); close(acquired) }()
+		select {
+		case <-acquired:
+			return nil, ErrNotReady
+		case <-time.After(time.Second):
+			return nil, errors.New("spawn receipt lock held during attribution")
+		}
+	}}
+	_, err = ingest.Apply(t.Context(), link.Connection, jobs.Scope{}, Event{Seq: 1, EventID: [16]byte{1}, Payload: burstPayload([16]byte{2}, "file")})
+	require.ErrorIs(t, err, ErrNotReady)
+}
