@@ -71,7 +71,7 @@ Validation uses a local fake upstream and real PostgreSQL:
 
 ```sh
 cd packages/backend
-go test ./app ./modelproxy ./internal/compose -run '^TestFastGateway' -count=1
+go test ./credits ./app ./modelproxy ./internal/compose -run '^TestFastQuota|^TestFastGateway' -count=1
 ```
 
 This public composition contract does not prove deployment of Plue's private

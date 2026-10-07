@@ -2,6 +2,10 @@ package compose
 
 import (
 	"encoding/json"
+	"errors"
+	"github.com/smithersai/smithers/packages/backend/credits"
+	apierrors "github.com/smithersai/smithers/packages/backend/errors"
+	"io"
 	"net/http"
 	"time"
 
@@ -25,19 +29,21 @@ func mountFastGateway(r chi.Router, queries *db.Queries, cfg *config.Config, g *
 			// Browser cookies and delegated run/agent credentials cannot issue one.
 			info := middleware.AuthInfoFromContext(r.Context())
 			if info == nil || !info.IsTokenAuth || info.IsAgent() || info.TokenSystemIssued || info.ActingVia() != "" || r.Header.Get("Origin") != "" {
-				modelproxy.WriteError(w, "", 403, "permission_error", "Host sign-in required.")
+				apierrors.WriteError(w, apierrors.Forbidden("Host sign-in required."))
 				return
 			}
 			var payload struct {
 				Install string `json:"install_id"`
 			}
-			if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&payload) != nil {
-				modelproxy.WriteError(w, "", 400, "invalid_request_error", "Invalid install.")
+			decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+			decoder.DisallowUnknownFields()
+			if decoder.Decode(&payload) != nil || decoder.Decode(new(any)) != io.EOF {
+				apierrors.WriteError(w, apierrors.BadRequest("Invalid install."))
 				return
 			}
 			token, err := g.Quota.Issue(r.Context(), middleware.UserFromContext(r.Context()).ID, payload.Install)
 			if err != nil {
-				modelproxy.WriteError(w, "", 403, "permission_error", "Install credential unavailable.")
+				writeFastCredentialError(w, err)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -45,7 +51,7 @@ func mountFastGateway(r chi.Router, queries *db.Queries, cfg *config.Config, g *
 		})
 		r.With(middleware.RequireScope(middleware.ScopeWriteUser)).Delete("/api/fast-model/installs/{install}", func(w http.ResponseWriter, r *http.Request) {
 			if err := g.Quota.Revoke(r.Context(), middleware.UserFromContext(r.Context()).ID, chi.URLParam(r, "install")); err != nil {
-				modelproxy.WriteError(w, "", 403, "permission_error", "Install credential unavailable.")
+				writeFastCredentialError(w, err)
 				return
 			}
 			w.WriteHeader(http.StatusNoContent)
@@ -54,12 +60,12 @@ func mountFastGateway(r chi.Router, queries *db.Queries, cfg *config.Config, g *
 			from, e1 := time.Parse("2006-01-02", r.URL.Query().Get("from"))
 			until, e2 := time.Parse("2006-01-02", r.URL.Query().Get("until"))
 			if e1 != nil || e2 != nil || !until.After(from) || until.Sub(from) > 366*24*time.Hour {
-				modelproxy.WriteError(w, "", 400, "invalid_request_error", "Invalid UTC date range.")
+				apierrors.WriteError(w, apierrors.BadRequest("Invalid UTC date range."))
 				return
 			}
 			totals, err := g.Quota.DailyTotals(r.Context(), from, until)
 			if err != nil {
-				modelproxy.WriteError(w, "", 503, "api_error", "Totals unavailable.")
+				apierrors.WriteError(w, apierrors.New(apierrors.CodeServiceUnavailable, "Totals unavailable."))
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -67,4 +73,12 @@ func mountFastGateway(r chi.Router, queries *db.Queries, cfg *config.Config, g *
 			_ = json.NewEncoder(w).Encode(totals)
 		})
 	})
+}
+
+func writeFastCredentialError(w http.ResponseWriter, err error) {
+	if errors.Is(err, credits.ErrInstallCredential) {
+		apierrors.WriteError(w, apierrors.Forbidden("Install credential unavailable."))
+		return
+	}
+	apierrors.WriteError(w, apierrors.New(apierrors.CodeServiceUnavailable, "Install credential unavailable."))
 }

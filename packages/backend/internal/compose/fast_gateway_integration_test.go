@@ -151,6 +151,17 @@ func TestFastGatewayComposedAuthQuotaCountsAndKeyConfinementPostgres(t *testing.
 		status, raw = request(0, "POST", modelproxy.FastGatewayPath+"/v1/chat/completions", body, bad.id, bad.token)
 		require.Equal(t, 401, status, raw)
 	}
+	for _, invalid := range []string{`{`, `{"model":"coding-model","messages":[]}`, `{"model":"gpt-oss-120b","max_completion_tokens":-1,"messages":[]}`} {
+		status, raw = request(0, "POST", modelproxy.FastGatewayPath+"/v1/chat/completions", invalid, install, token)
+		require.Equal(t, 400, status, raw)
+	}
+	status, raw = request(0, "POST", modelproxy.FastGatewayPath+"/v1/responses", body, install, token)
+	require.Equal(t, 404, status, raw)
+	status, raw = request(owner.ID, "GET", "/api/admin/fast-model/daily-totals?from=invalid&until=2026-10-08", "", "", "")
+	require.Equal(t, 400, status, raw)
+	require.Contains(t, raw, `"code":"bad_request"`)
+	status, raw = request(owner.ID, "POST", "/api/fast-model/installs", `{"install_id":"`+install+`"} {}`, "", "")
+	require.Equal(t, 400, status, raw)
 	require.Zero(t, calls.Load())
 	for i := 0; i < 100; i++ {
 		status, raw = request(0, "POST", modelproxy.FastGatewayPath+"/v1/chat/completions", body, install, token)
@@ -158,6 +169,9 @@ func TestFastGatewayComposedAuthQuotaCountsAndKeyConfinementPostgres(t *testing.
 		require.Contains(t, raw, completion)
 	}
 	require.EqualValues(t, 100, calls.Load())
+	var columns []string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT array_agg(column_name::text ORDER BY ordinal_position) FROM information_schema.columns WHERE table_schema='public' AND table_name='fast_model_counts'`).Scan(&columns))
+	require.Equal(t, []string{"id", "install_id", "tokens", "created_at", "settled"}, columns)
 	var stored string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT jsonb_agg(to_jsonb(c))::text FROM fast_model_counts c`).Scan(&stored))
 	for _, secret := range []string{prompt, completion, platformKey, token} {
@@ -204,4 +218,143 @@ func TestFastGatewayComposedAuthQuotaCountsAndKeyConfinementPostgres(t *testing.
 	require.NotEqual(t, token, rotated)
 	status, raw = request(0, "GET", modelproxy.FastGatewayPath+"/quota", "", install, token)
 	require.Equal(t, 401, status, raw)
+}
+
+func TestFastGatewayComposedConcurrentStreamingAdmissionPostgres(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	ctx := t.Context()
+	var owner int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username,lower_username) VALUES('stream-owner','stream-owner') RETURNING id`).Scan(&owner))
+	quota := credits.FastQuota{DB: pool, DailyTokens: 5000}
+	install := uuid.NewString()
+	token, err := quota.Issue(ctx, owner, install)
+	require.NoError(t, err)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var calls atomic.Int64
+	const key = "stream-provider-key-confinement-fixture"
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		close(entered)
+		<-release
+		w.Header().Set("Content-Type", "text/event-stream")
+		// The provider echoes the key split across network writes.
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"" + key[:12]))
+		w.(http.Flusher).Flush()
+		_, _ = w.Write([]byte(key[12:] + "\"}}]}\n\ndata: {\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":2}}\n\ndata: [DONE]\n\n"))
+	}))
+	defer upstream.Close()
+	gateway := &modelproxy.FastGateway{Quota: quota, Keys: modelproxy.StaticKeys{modelproxy.ProviderCerebras: key}, Upstream: upstream.URL}
+	cfg := testConfigAllFlagsOn()
+	router := githubAppSetupComposeRouter(cfg, pool, nil, routerExtras{FastGateway: gateway})
+	body := `{"model":"gpt-oss-120b","stream":true,"max_completion_tokens":10,"messages":[{"role":"user","content":"hello"}]}`
+	call := func() *httptest.ResponseRecorder {
+		request := httptest.NewRequest("POST", modelproxy.FastGatewayPath+"/v1/chat/completions", strings.NewReader(body))
+		request.Header.Set("Authorization", "Bearer "+token)
+		request.Header.Set(modelproxy.InstallHeader, install)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		return response
+	}
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() { done <- call() }()
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("upstream did not start")
+	}
+	refused := call()
+	require.Equal(t, 429, refused.Code, refused.Body.String())
+	require.Contains(t, refused.Body.String(), `"type":"capacity"`)
+	require.EqualValues(t, 1, calls.Load())
+	left, err := quota.Remaining(ctx, install, token)
+	require.NoError(t, err)
+	require.Less(t, left, int64(1000))
+	close(release)
+	var response *httptest.ResponseRecorder
+	select {
+	case response = <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("stream did not finish")
+	}
+	require.Equal(t, 200, response.Code)
+	require.Contains(t, response.Body.String(), "data: [DONE]")
+	require.Contains(t, response.Body.String(), "[redacted]")
+	require.NotContains(t, response.Body.String(), key)
+	left, err = quota.Remaining(ctx, install, token)
+	require.NoError(t, err)
+	require.EqualValues(t, 4990, left)
+}
+
+func TestFastGatewayComposedRedirectMissingUsageAndUnavailableKeyPostgres(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	ctx := t.Context()
+	var owner int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username,lower_username) VALUES('failure-owner','failure-owner') RETURNING id`).Scan(&owner))
+	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+	quota := credits.FastQuota{DB: pool, DailyTokens: 5000, Now: func() time.Time { return now }}
+	install := uuid.NewString()
+	token, err := quota.Issue(ctx, owner, install)
+	require.NoError(t, err)
+	var redirected, upstreamCalls atomic.Int64
+	var mode atomic.Int64
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { redirected.Add(1); w.WriteHeader(200) }))
+	defer target.Close()
+	const key = "private-redirect-and-failure-provider-key"
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls.Add(1)
+		switch mode.Load() {
+		case 0:
+			w.Header().Set("Location", target.URL)
+			w.WriteHeader(307)
+			_, _ = w.Write([]byte(key))
+		case 1:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"` + key + `"}}]}`))
+		case 2:
+			w.WriteHeader(401)
+			_, _ = w.Write([]byte(key))
+		}
+	}))
+	defer upstream.Close()
+	gateway := &modelproxy.FastGateway{Quota: quota, Keys: modelproxy.StaticKeys{modelproxy.ProviderCerebras: key}, Upstream: upstream.URL, Client: &http.Client{}}
+	router := githubAppSetupComposeRouter(testConfigAllFlagsOn(), pool, nil, routerExtras{FastGateway: gateway})
+	call := func() *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", modelproxy.FastGatewayPath+"/v1/chat/completions", strings.NewReader(`{"model":"gpt-oss-120b","max_completion_tokens":10,"messages":[{"role":"user","content":"hello"}]}`))
+		r.Header.Set(modelproxy.InstallHeader, install)
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		require.NotContains(t, w.Body.String(), key)
+		return w
+	}
+	response := call()
+	require.Equal(t, 307, response.Code)
+	require.Zero(t, redirected.Load(), "custom clients cannot follow redirects with the platform key")
+	left, err := quota.Remaining(ctx, install, token)
+	require.NoError(t, err)
+	require.EqualValues(t, 5000, left)
+	mode.Store(1)
+	response = call()
+	require.Equal(t, 200, response.Code)
+	left, err = quota.Remaining(ctx, install, token)
+	require.NoError(t, err)
+	require.Less(t, left, int64(1000))
+	response = call()
+	require.Equal(t, 429, response.Code)
+	require.EqualValues(t, 2, upstreamCalls.Load())
+	now = now.Add(24 * time.Hour)
+	mode.Store(2)
+	response = call()
+	require.Equal(t, 502, response.Code)
+	left, err = quota.Remaining(ctx, install, token)
+	require.NoError(t, err)
+	require.EqualValues(t, 5000, left)
+	gateway.Keys = nil
+	response = call()
+	require.Equal(t, 503, response.Code)
+	require.EqualValues(t, 3, upstreamCalls.Load())
+	left, err = quota.Remaining(ctx, install, token)
+	require.NoError(t, err)
+	require.EqualValues(t, 5000, left)
 }
