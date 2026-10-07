@@ -701,7 +701,7 @@ export const ToastSchema = z.object({
   title: z.string(),
   status: z.enum(["running", "ok", "failed", "cancelled"]),
   detail: z.string(),
-  action: MessageActionSchema.extend({ flow: z.enum(FLOW_NAMES) }).optional(),
+  action: MessageActionSchema.extend({ flow: z.string().transform(currentFlowName).refine(flow => z.enum(FLOW_NAMES).safeParse(flow).success) }).optional(),
   answeredAction: AnsweredActionSchema.optional(),
   createdAt: z.number(),
   updatedAt: z.number()

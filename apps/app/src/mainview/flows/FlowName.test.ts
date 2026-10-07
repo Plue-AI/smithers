@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { readdirSync, readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { FLOW_NAMES } from "./FlowName"
+import { httpProjections } from "../../../../../packages/smithers/ui/src/app-operations/http"
 
 /*
  * The FlowName union is the card seam's vocabulary, so it has to stay the
@@ -58,6 +59,8 @@ const declaredNames = (): ReadonlyArray<string> => {
   names.push("file.compare", "file.restore-deleted", "file.follow-rename", "file.reapply")
   const shared = fileURLToPath(new URL(".", import.meta.resolve("@smthrs/ui/app-operations")))
   for (const file of readdirSync(shared).sort()) {
+    // Transport authorization descriptors do not register browser flows.
+    if (file === "http.ts") continue
     for (const match of readFileSync(`${shared}${file}`, "utf8").matchAll(/\bname:\s*"([^"]+)"/g)) {
       // The public Wiki library retains its operation; the app binds only MVP doors.
       if (file === "wiki.ts" && match[1] === "wiki.ask") continue
@@ -81,6 +84,11 @@ const declaredNames = (): ReadonlyArray<string> => {
 }
 
 describe("FlowName — the union is the registry's own vocabulary", () => {
+  test("HTTP authorization projections have no browser flow door", () => {
+    const transport = new Set<string>(httpProjections.map(row => row.name))
+    expect(FLOW_NAMES.filter(name => transport.has(name))).toEqual([])
+    expect([...transport]).toEqual(expect.arrayContaining(["agent.turn", "telemetry.report", "sync.retry"]))
+  })
   test("every declared flow is in the union", () => {
     const union = new Set<string>(FLOW_NAMES)
     const missing = declaredNames().filter((name) => !union.has(name))

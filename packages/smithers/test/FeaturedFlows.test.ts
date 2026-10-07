@@ -115,12 +115,12 @@ describe("FeaturedFlows.apps", () => {
     const home = JSON.stringify({
       blocks: [
         { type: "prompt", title: "What should we work on?" },
-        { type: "app", flow: "issue.implement", title: "Fix an issue", picture: "issue" },
+        { type: "app", flow: "todo.from-issue", title: "Fix an issue", picture: "issue" },
         { type: "app", flow: "review", title: "Review a PR", picture: "review" }
       ]
     })
     expect(FeaturedFlows.apps(withHome(project(), home))).toEqual([
-      { flow: "issue.implement", title: "Fix an issue", picture: "issue" },
+      { flow: "todo.from-issue", title: "Fix an issue", picture: "issue" },
       { flow: "review", title: "Review a PR", picture: "review" }
     ])
     expect(FeaturedFlows.apps(project())).toEqual([])
@@ -139,17 +139,17 @@ describe("FeaturedFlows.apps", () => {
   })
 
   it("lists the apps after the flows, one line each", () => {
-    const apps = [{ flow: "issue.implement", title: "Fix an issue", picture: "issue" }, {
+    const apps = [{ flow: "todo.from-issue", title: "Fix an issue", picture: "issue" }, {
       flow: "review",
       title: "Review a PR",
       picture: "review"
     }]
     expect(FeaturedFlows.human(items, apps)).toBe(
-      "  alpha   Describes alpha.\n  lint    Describes lint.\n  review  Describes review.\napps:\n  Fix an issue  issue.implement\n  Review a PR   review\n"
+      "  alpha   Describes alpha.\n  lint    Describes lint.\n  review  Describes review.\napps:\n  Fix an issue  todo.from-issue\n  Review a PR   review\n"
     )
     expect(FeaturedFlows.human(items, [])).toBe(FeaturedFlows.human(items))
     expect(FeaturedFlows.human([], apps)).toBe(
-      "No flows discovered under flows/.\napps:\n  Fix an issue  issue.implement\n  Review a PR   review\n"
+      "No flows discovered under flows/.\napps:\n  Fix an issue  todo.from-issue\n  Review a PR   review\n"
     )
   })
 })

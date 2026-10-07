@@ -70,8 +70,7 @@ export interface OperationMetadata<Capability extends string = string, Host exte
    */
   readonly hosts?: ReadonlyArray<Host>
   /**
-   * The repository flow this door launches (`issue.implement` runs
-   * `coding/request`; a repository leaf names itself).
+   * The repository flow this door launches; a repository leaf names itself.
    */
   readonly workflow?: string
   /**

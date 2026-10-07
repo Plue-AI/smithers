@@ -82,12 +82,14 @@ const boot = async (withIssue = false) => {
   const agents: Array<AgentRole> = [...AGENT_ROLES]
   const puts: Array<{ id: string; body: Record<string, unknown> }> = []
   const issueReads: string[] = []
+  const writes: string[] = []
   const controller = createAppController(store, unavailableAgent, {
     bootstrap: EVERYTHING,
     fetchImpl: async (input, init) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
       const path = new URL(url, "http://local.test").pathname
       const method = init?.method ?? "GET"
+      if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) writes.push(`${method} ${path}`)
       if (withIssue && path === "/api/issues/212" && method === "GET") {
         issueReads.push(path)
         return json(200, { make_todo_allowed: true, issue_digest: "a".repeat(64),
@@ -115,7 +117,7 @@ const boot = async (withIssue = false) => {
   store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: true, scopesPlain: null })
   store.dispatch({ type: "card.upsert", actor: "system", card: { id: "card-1", kind: "status", title: "Status", status: "active", createdAt: 1, ordinal: 0, payload: { progress: 0.5 } } })
   await settle()
-  return { store, controller, puts, issueReads }
+  return { store, controller, puts, issueReads, writes }
 }
 
 /** The production agent door (turns.ts continueToolLeg): one tool call, run as actor smithers. */
@@ -210,8 +212,8 @@ describe("THE FORM LAW — the slash door and the button door", () => {
     expect((await controller.commands.run("flow.run", "7 8 9")).status).toBe("form")
     expect(formOf(store, "flow.run")?.payload.draft).toEqual({ name: "7", repo: "8", input: "9" })
     expect(formOf(store, "flow.run")?.payload.error).toBe("Flow input must be a JSON object.")
-    expect((await controller.commands.run("issue.implement", "0")).status).toBe("form")
-    expect(formOf(store, "issue.implement")?.payload.error).toBe("An issue number is required")
+    expect((await controller.commands.run("todo.from-issue", "0")).status).toBe("form")
+    expect(formOf(store, "todo.from-issue")?.payload.fields.filter(field => field.required).map(field => field.name)).toEqual(["number"])
     expect((await controller.commands.run("issues.list", "one")).status).toBe("form")
     expect(formOf(store, "issues.list")?.payload.error).toBe("issues.list takes open, closed, or all")
     await controller.dispose()
@@ -284,7 +286,7 @@ describe("THE FORM LAW — filling and submitting", () => {
   })
 
   test("person-only commands refuse before opening agent forms; issue drafting opens the person's private Draft (#3457)", async () => {
-    const { store, controller, puts, issueReads } = await boot(true)
+    const { store, controller, puts, issueReads, writes } = await boot(true)
     await loadBox(store, "will/flows")
     await store.dispatch({ type: "repo.selected", actor: "user", id: `will/flows#workspace:${TEST_BOX}` }).isPersisted.promise
     await store.dispatch({ type: "card.upsert", actor: "system", card: {
@@ -294,6 +296,7 @@ describe("THE FORM LAW — filling and submitting", () => {
     // #3457 (8394b4550c, 7202ae1903): an agent's issue-drafting request opens the
     // person's private Draft form; the person confirms, so the agent mutates nothing.
     expect(await execute(controller, "todo.from-issue", undefined)).toStartWith("rendered a form")
+    expect(formOf(store, "todo.from-issue")?.payload.fields.filter(field => field.required).map(field => field.name)).toEqual(["number"])
     expect(await execute(controller, "todo.from-issue", "212")).toStartWith('asked the user to confirm "/todo.from-issue 212"')
     expect(formOf(store, "todo.from-issue")).toBeDefined()
     for (const args of [undefined, "nightly will/flows"]) {
@@ -307,6 +310,7 @@ describe("THE FORM LAW — filling and submitting", () => {
     // Preparing the Draft reads only the selected issue's synced projection.
     expect(new Set(issueReads)).toEqual(new Set(["/api/issues/212"]))
     expect(puts).toEqual([])
+    expect(writes).toEqual([])
     await controller.dispose()
   })
 })
@@ -340,7 +344,7 @@ describe("THE FORM LAW — every flow's form round-trips through its own grammar
       if (missingFields(publicFields, draft).length > 0) failures.push(`${name}: the sample left ${missingFields(publicFields, draft).join(", ")} missing`)
       // Carried controls and the owner checkbox accept named JSON, while
       // ordinary slash forms retain their declared display grammar.
-      const namedJson = ["branch.bring-in", "branch.discard-foreign", "run.view", "settings.preapprove-default"].includes(name)
+      const namedJson = ["branch.bring-in", "branch.discard-foreign", "run.view", "order.ok", "settings.preapprove-default"].includes(name)
       const args = namedJson ? JSON.stringify(submissionOf(entry, sample)) : assembleArgs(fields, entry.metadata.form, { ...draft })
       const parsed = payloadFor(name, args === "" ? undefined : args, entry.metadata.grammar)
       if ("error" in parsed) failures.push(`${name}: "${args}" → ${parsed.error}`)

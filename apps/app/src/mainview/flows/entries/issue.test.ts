@@ -4,6 +4,7 @@ import { createAppStore } from "../../state/AppStore"
 import { memoryStorage, signupProfileFetch } from "../../state/TestFixtures"
 import { modelInvocable } from "../registry"
 import { flowArgs } from "../FlowArgs"
+import { MessageSchema, ToastSchema } from "../../state/AppState"
 
 test("Make TODO uses one handler for slash, button, agent and recorded cards", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
@@ -21,7 +22,13 @@ test("Make TODO uses one handler for slash, button, agent and recorded cards", a
     expect(modelInvocable(make)).toBe(true)
     expect(make.metadata.confirm).toBe("make a TODO from the issue")
     expect(make.metadata.workflow).toBeUndefined()
-    expect(controller.commands.find("issue.implement")?.metadata.hidden).toBe(true)
+    expect(controller.commands.find("issue.implement")).toBeUndefined()
+    expect(await controller.runCommandForResult("issue.implement", "7 owner/repo")).toMatchObject({ status: "unknown-command" })
+    const saved = MessageSchema.shape.action.parse({ flow: "issue.implement", args: "7 owner/repo", label: "Make TODO" })!
+    expect(saved).toEqual({ flow: "todo.from-issue", args: "7 owner/repo", label: "Make TODO" })
+    expect(ToastSchema.shape.action.parse({ flow: "issue.implement", args: "7 owner/repo", label: "Make TODO" })).toEqual(saved)
+    expect(ToastSchema.shape.action.safeParse({ flow: "invented", label: "Unknown" }).success).toBe(false)
+    expect(await controller.runCommandForResult(saved.flow, saved.args)).toEqual({ status: "failed", error: "Open the issue again to check permission to make a TODO." })
     expect(flowArgs("todo.from-issue", { number: 7, repo: "owner/repo" })).toBe("7 owner/repo")
     for (const name of ["todo.from-issue"]) {
       // No GitHub issue card is open, so there is nothing to draft from.
