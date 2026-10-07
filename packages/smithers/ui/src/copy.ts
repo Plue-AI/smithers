@@ -1,1 +1,1 @@
-export { copyText, type CopyResult, type CopyFailureCode } from "./internal/copyToClipboard";
+export { copyText, canCopyText, reserveCopyText, type CopyResult, type CopyFailureCode } from "./internal/copyToClipboard";
