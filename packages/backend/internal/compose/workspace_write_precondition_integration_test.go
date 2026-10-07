@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -50,7 +51,17 @@ func TestWorkspaceWritePreconditionsInstall(t *testing.T) {
 	server := httptest.NewUnstartedServer(nil)
 	origin := "http://" + server.Listener.Addr().String()
 	t.Setenv("SMITHERS_PUBLIC_URL", origin)
-	server.Config.Handler = startSplitProcess(t, Options{FlowHostProductAPIURL: origin, Workspace: runtime, ChatHost: unusedChatHost{}})
+	install := startSplitProcess(t, Options{FlowHostProductAPIURL: origin, Workspace: runtime, ChatHost: unusedChatHost{}})
+	var decisionMu sync.Mutex
+	var decisions []string
+	server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := services.WithAuthorizationObserver(r.Context(), func(command string) {
+			decisionMu.Lock()
+			defer decisionMu.Unlock()
+			decisions = append(decisions, command)
+		})
+		install.ServeHTTP(w, r.WithContext(ctx))
+	})
 	server.Start()
 	defer server.Close()
 	for _, item := range []struct {
@@ -150,7 +161,18 @@ func TestWorkspaceWritePreconditionsInstall(t *testing.T) {
 		{"GET", "/api/user", "", 403},
 		{"POST", issuerPath, subject, 401},
 	} {
+		decisionMu.Lock()
+		decisions = nil
+		decisionMu.Unlock()
 		status, data = call(attempt.method, attempt.path, grant.Token, attempt.body)
+		decisionMu.Lock()
+		observed := append([]string(nil), decisions...)
+		decisionMu.Unlock()
+		if attempt.want == 503 {
+			require.Equal(t, []string{"branch.join"}, observed, "exact batch obtains one decision before provider admission")
+		} else {
+			require.Empty(t, observed, "credential/body refusals precede command admission")
+		}
 		require.Equal(t, attempt.want, status, string(data))
 		require.NotContains(t, string(data), grant.Token)
 	}

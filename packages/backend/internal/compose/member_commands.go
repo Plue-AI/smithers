@@ -290,12 +290,14 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				next.ServeHTTP(w, r)
 				return
 			}
-			// AuthLoader has already confined this issuer-owned credential to its
-			// exact file PUT body. The workspace service rechecks membership,
-			// write authority and the live token/host fence through the mutation.
-			// It does not authorize the generic branch-join command.
-			if binding, ok := middleware.CodingFileCredential(info); ok && command == "branch.join" && middleware.CodingFileBatchVerified(info, binding.BatchDigest) {
-				next.ServeHTTP(w, r)
+			if binding, ok := middleware.CodingFileCredential(info); ok && command == "branch.join" {
+				subject := services.InstallSubject{RepositoryID: binding.RepositoryID, WorkspaceID: binding.WorkspaceID, RunID: binding.RunID, PayloadDigest: binding.BatchDigest}
+				decision, err := services.Authorize(r.Context(), queries, command, subject)
+				if err != nil {
+					writeConfirmationDispatchError(w, err)
+					return
+				}
+				next.ServeHTTP(w, r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, subject)))
 				return
 			}
 			if command == "approval.decide" {

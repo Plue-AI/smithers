@@ -132,6 +132,36 @@ func (s *CodingFileCredentials) Revoke(ctx context.Context, hostID string, token
 	return nil
 }
 
+// authorizeCodingFileWrite admits only the issuer's exact verified batch.
+// The mutation retains its serialized token and host fence below; this command
+// decision cannot be reused for another body, workspace or run.
+func authorizeCodingFileWrite(ctx context.Context, q *db.Queries, subject InstallSubject) (InstallAuthorization, error) {
+	info := middleware.AuthInfoFromContext(ctx)
+	binding, valid := middleware.CodingFileCredential(info)
+	if q == nil || !valid || info.User == nil || !middleware.CodingFileBatchVerified(info, binding.BatchDigest) ||
+		subject != (InstallSubject{RepositoryID: binding.RepositoryID, WorkspaceID: binding.WorkspaceID, RunID: binding.RunID, PayloadDigest: binding.BatchDigest}) {
+		return InstallAuthorization{}, confirmationPermission()
+	}
+	token, err := q.GetAccessTokenByID(ctx, info.TokenID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return InstallAuthorization{}, confirmationPermission()
+	}
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if !token.SystemIssued || token.UserID != info.User.ID || token.TokenHash != info.TokenHash || token.Scopes != info.RawScopes || !token.ExpiresAt.Valid || !token.ExpiresAt.Time.After(time.Now()) {
+		return InstallAuthorization{}, confirmationPermission()
+	}
+	role, err := InstallRoleOf(ctx, q, info.User.ID)
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if role.rank() < InstallMember.rank() {
+		return InstallAuthorization{}, confirmationPermission()
+	}
+	return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
+}
+
 // withCodingFileMutationAuthority rechecks and locks both stored token and host
 // fence until the complete provider call settles. Revocation/rotation waits for
 // an admitted batch; a later request cannot use a revoked or superseded grant.
@@ -141,6 +171,11 @@ func (s *WorkspaceService) withCodingFileMutationAuthority(ctx context.Context, 
 		return fn(ctx)
 	}
 	binding, valid := middleware.CodingFileCredential(info)
+	if s.installQueries != nil {
+		if _, err := Authorize(ctx, s.installQueries, "branch.join", InstallSubject{RepositoryID: binding.RepositoryID, WorkspaceID: binding.WorkspaceID, RunID: binding.RunID, PayloadDigest: binding.BatchDigest}); err != nil {
+			return err
+		}
+	}
 	if !valid || !middleware.CodingFileBatchVerified(info, binding.BatchDigest) || binding.WorkspaceID != workspaceID ||
 		binding.RepositoryID != repositoryID || info.User == nil || info.User.ID != userID || info.TokenID <= 0 || info.TokenHash == "" {
 		return pkgerrors.Forbidden("coding file grant refused")

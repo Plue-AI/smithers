@@ -417,6 +417,9 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 			}
 		}
 	}
+	if command == "branch.join" && middleware.IsCodingFileCredential(middleware.AuthInfoFromContext(ctx)) {
+		return authorizeCodingFileWrite(ctx, q, subject)
+	}
 	if command == "workspace.children.list" || command == "workspace.children.spawn" || command == "workspace.children.stop" {
 		return authorizeWorkspaceChildren(ctx, q, command, subject)
 	}

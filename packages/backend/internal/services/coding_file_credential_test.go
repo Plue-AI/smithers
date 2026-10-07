@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -185,4 +186,51 @@ func TestCodingFileGrantRefusesInvalidAndInactiveSubjects(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.issuer.Mint(t.Context(), f.host, f.credential, CodingFileGrantInput{RunID: "run", BatchDigest: strings.Repeat("a", 64)})
 	require.Error(t, err)
+}
+
+func TestCodingFileGrantSingleDecisionPostgres(t *testing.T) {
+	f := newCodingGrantFixture(t)
+	q := db.New(f.pool)
+	f.workspaces.installQueries = q
+	grant := f.mint(t)
+	for _, bound := range []bool{false, true} {
+		t.Run(fmt.Sprintf("bound=%v", bound), func(t *testing.T) {
+			var decisions []string
+			effects := 0
+			request := httptest.NewRequest("PUT", "/api/repos/owner/repo/workspaces/"+f.workspace+"/files/content", strings.NewReader(codingGrantBody))
+			request.Header.Set("Authorization", "Bearer "+grant.Token)
+			request = request.WithContext(WithAuthorizationObserver(request.Context(), func(command string) { decisions = append(decisions, command) }))
+			out := httptest.NewRecorder()
+			middleware.AuthLoader(q, config.AuthConfig{})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				ctx := r.Context()
+				binding, valid := middleware.CodingFileCredential(middleware.AuthInfoFromContext(ctx))
+				require.True(t, valid)
+				subject := InstallSubject{RepositoryID: binding.RepositoryID, WorkspaceID: binding.WorkspaceID, RunID: binding.RunID, PayloadDigest: binding.BatchDigest}
+				if bound {
+					decision, err := Authorize(ctx, q, "branch.join", subject)
+					require.NoError(t, err)
+					ctx = WithInstallAuthorization(ctx, "branch.join", decision, subject)
+				}
+				require.NoError(t, f.workspaces.withCodingFileMutationAuthority(ctx, f.workspace, f.repo, f.user, func(context.Context) error { effects++; return nil }))
+				require.Equal(t, []string{"branch.join"}, decisions)
+				require.Equal(t, 1, effects)
+				// Reusing an admission for any changed subject is a fresh refusal.
+				for _, changed := range []InstallSubject{
+					{RepositoryID: f.repo, WorkspaceID: f.workspace, RunID: "other", PayloadDigest: binding.BatchDigest},
+					{RepositoryID: f.repo, WorkspaceID: f.workspace, RunID: binding.RunID, PayloadDigest: strings.Repeat("0", 64)},
+					{RepositoryID: f.repo, WorkspaceID: "other", RunID: binding.RunID, PayloadDigest: binding.BatchDigest},
+					{RepositoryID: f.repo + 1, WorkspaceID: f.workspace, RunID: binding.RunID, PayloadDigest: binding.BatchDigest},
+				} {
+					_, err := Authorize(ctx, q, "branch.join", changed)
+					require.Error(t, err)
+					var refused *AccessError
+					require.ErrorAs(t, err, &refused)
+					require.Equal(t, 403, refused.Status)
+					require.Equal(t, "permission", refused.Code)
+				}
+				w.WriteHeader(204)
+			})).ServeHTTP(out, request)
+			require.Equal(t, 204, out.Code)
+		})
+	}
 }
