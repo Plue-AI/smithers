@@ -16,9 +16,8 @@ func TestTodoLabelInstallRosterBoundary(t *testing.T) {
 	if !r.install("Install ready") {
 		return
 	}
-	r.fake.SetCollaborator(208, "ben", "write")
 	r.fake.SetCollaborator(209, "carol", "write")
-	if _, err := r.expect("POST", "/api/members", `{"login":"ben"}`, 204); err != nil {
+	if _, err := r.member("ben", 208, "write"); err != nil {
 		t.Fatal(err)
 	}
 	team := r.fake.OpenIssue(repo, "ben", "Member label", "Freeze this body.")
