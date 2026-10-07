@@ -17,13 +17,13 @@ test("canonical probe requires real routes, auth refusal and valid same-run outp
       expect(body.prompt).toBe("Say the word ok and nothing else.")
       expect(body.idempotencyKey).toMatch(/^canary-seam-/)
       turnId = body.idempotencyKey
-      return Response.json({ turnId }, { status: 202 })
+      return Response.json({ turnId, runId: "host-run" }, { status: 202 })
     }
     if (path === "/api/conversations/main") {
       expect(request.headers.get("x-csrf-token")).toBe("proof")
-      return Response.json({ entries: [
-        { id: "another-turn", state: "completed" },
-        { id: turnId, state: mode === "error" ? "failed" : mode === "cancelled" ? "cancelled" : mode === "foreign" ? "uncertain" : "completed" }
+      return Response.json({ id: "main", entries: [
+        { id: "another-turn", runId: "another-run", state: "completed", frames: [] },
+        { id: turnId, runId: "host-run", frames: [{ runId: mode === "foreign" ? "foreign" : "host-run", type: "done", reason: "stop" }], state: mode === "error" ? "failed" : mode === "cancelled" ? "cancelled" : mode === "foreign" ? "uncertain" : "completed" }
       ] })
     }
 

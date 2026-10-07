@@ -357,10 +357,10 @@ describe("D-4 (at $0, chat keeps working and non-complimentary work pauses)", ()
       const body = JSON.parse(String(init?.body)) as { idempotencyKey: string; prompt: string }
       expect(body.prompt).toBe("Say the word ok and nothing else.")
       expect(body.idempotencyKey).toMatch(/^launch-checklist-d4-/)
-      return jsonResponse({ turnId: "zero-balance-turn" }, 202)
+      return jsonResponse({ turnId: "zero-balance-turn", runId: "host-run" }, 202)
     }
     expect(url).toBe("https://example.test/api/conversations/main")
-    return jsonResponse({ entries: [{ id: "zero-balance-turn", state: "completed" }] })
+    return jsonResponse({ id: "main", entries: [{ id: "zero-balance-turn", runId: "host-run", state: "completed", frames: [{ runId: "host-run", type: "done", reason: "stop" }] }] })
   }
   const evaluate = (expression: string): unknown => (expression.includes("textarea") ? true : null)
   const env = { CHECKLIST_ZERO_BALANCE_BEARER: "smithers_session=zero" }

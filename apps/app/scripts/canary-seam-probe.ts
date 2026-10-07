@@ -35,13 +35,13 @@ export async function probeCanonicalSeams(origin: string, cookie?: string): Prom
   }
   if (!cookie) {
     const turn = await request(PROMPT_PATH, { method: "POST", headers: { "content-type": "application/json" }, body: promptBody(runId) })
-    check("anonymous turn", turn.status === 401)
+    check("anonymous prompt", turn.status === 401)
     await turn.body?.cancel()
   } else {
     try {
       const turn = await conversationProbe({ origin, key: runId, headers: { cookie, ...csrfHeaders(cookie) }, signal: AbortSignal.timeout(90_000), fetch, sleep: ms => Bun.sleep(ms) })
-      check("completed turn", turn.status === 202 && turn.state === "completed" && turn.frames.some(frame => frame.type === "done"))
-    } catch { check("completed turn", false) }
+      check("completed host turn", turn.status === 202 && turn.state === "completed" && turn.frames.some(frame => frame.type === "done"))
+    } catch { check("completed host turn", false) }
   }
   const spa = await request("/")
   check("SPA", spa.status === 200 && (spa.headers.get("content-type") ?? "").includes("text/html"))
