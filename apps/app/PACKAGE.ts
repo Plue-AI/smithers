@@ -274,7 +274,7 @@ const journeyTodoMerge = Smithers.NodeTest({
  * The evidence flow (EVIDENCE-CONTRACT.md): proofRecord drives the real bundle
  * through every journey's proof spec (e2e/proof) with real models and records
  * screenshots, videos and Playwright JSON under test-results/proof; proofPage
- * turns that run, .specs/product/features.json and the mock's captions into one
+ * turns that run, an explicit feature manifest and the mock's captions into one
  * self-contained page that plays like the design mock.
  *
  * proofRecord is never cached (Shell.Build replays nothing): it mutates an
@@ -291,9 +291,9 @@ const proofRecord = Smithers.Shell.Build({
   timeout: "120m"
 })
 
-/** Regenerates the proof page from the newest recorded run; fails when features.json disagrees with it. */
+/** Regenerates the proof page using SMITHERS_PROOF_FEATURES; fails when the manifest disagrees with the run. */
 const proofPage = Smithers.Shell.Build({
-  shell: "bun apps/app/proof/page.ts --out apps/app/test-results/proof-page",
+  shell: 'bun apps/app/proof/page.ts --features "${SMITHERS_PROOF_FEATURES:?Set SMITHERS_PROOF_FEATURES to the feature manifest}" --out apps/app/test-results/proof-page',
   data: [proofSources, Smithers.glob("//.specs/product/**/*"),
     Smithers.glob("//.specs/design/mock/src/**/*")],
   outDirs: ["//apps/app/test-results/proof-page"],
