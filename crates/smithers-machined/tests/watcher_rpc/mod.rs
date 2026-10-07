@@ -152,8 +152,8 @@ impl Provider<Actor> for Ports {
         let h = conn::file_written(p, a.unwrap_or(&Actor::Outside), d).map_err(io::Error::other)?;
         self.0.sink.hint(&h).map_err(|_| io::Error::other("hint"))
     }
-    fn where_file(&mut self, s: u32, p: &str) -> io::Result<()> {
-        self.0.f.lock().unwrap().where_file(s, p)
+    fn where_file(&mut self, _: u32, _: &str) -> io::Result<()> {
+        panic!("watcher must use its authenticated session sink")
     }
     fn moved_off(&mut self) -> io::Result<()> {
         if let Some(code) = *self.0.moved_error.lock().unwrap() {
@@ -255,6 +255,30 @@ impl Core for CoreFixture {
     }
 }
 impl SessionHook for CoreFixture {
+    fn ready(&self) -> hooks::Result<()> {
+        Ok(())
+    }
+    fn where_file(&self, session: u32, path: &str) -> hooks::Result<()> {
+        if !self
+            .0
+            .sessions
+            .lock()
+            .unwrap()
+            .entries()
+            .any(|entry| entry.id == session)
+        {
+            let mut error = hooks::Error::unsupported();
+            error.code = 11;
+            return Err(error);
+        }
+        self.0
+            .f
+            .lock()
+            .unwrap()
+            .where_file(session, path)
+            .map_err(|_| hooks::Error::unsupported())
+    }
+
     fn call(&self, method: u8, args: &[u8]) -> hooks::Result<Vec<u8>> {
         if method != 10 {
             return Err(hooks::Error::unsupported());
@@ -290,13 +314,28 @@ fn setup() -> (Arc<Shared>, Executor) {
     });
     let mut sessions = Sessions::new(Control);
     sessions
+        .set_roster(
+            &[
+                User {
+                    login: "ben".into(),
+                    uid: 20000,
+                },
+                User {
+                    login: "maya".into(),
+                    uid: 20001,
+                },
+            ],
+            std::time::Instant::now(),
+        )
+        .unwrap();
+    sessions
         .insert(
             1,
             User {
                 login: "agent".into(),
                 uid: 19999,
             },
-            Kind::Exec,
+            Kind::Pty,
         )
         .unwrap();
     sessions
@@ -334,6 +373,7 @@ fn setup() -> (Arc<Shared>, Executor) {
     });
     let mut cx = LockCx::new(Hooks {
         events: sink,
+        sessions: Arc::new(CoreFixture(shared.clone())),
         ..Hooks::default()
     });
     let watcher = Arc::new(
@@ -628,6 +668,16 @@ fn activation_checks_every_required_provider_even_on_empty_workspace() {
         "moved-off",
     ] {
         *shared.unavailable.lock().unwrap() = Some(missing);
+        assert_eq!(
+            executor
+                .lock
+                .run_blocking("ready", |cx| cx.hooks.watcher.ready())
+                .unwrap()
+                .unwrap_err()
+                .code,
+            2,
+            "{missing}"
+        );
         let root = shared.f.lock().unwrap().root.clone();
         let watch = Inotify::new(
             File::open(&root).unwrap(),
@@ -905,11 +955,18 @@ fn encoded_actor_switch_and_overlapping_files_keep_exact_before_after_bytes() {
 #[test]
 fn pending_external_close_is_durable_before_encoded_rpc_write() {
     let (shared, executor) = setup();
-    {
-        let mut f = shared.f.lock().unwrap();
-        f.write("a", b"abc");
-        f.cpu[1] = 100;
-    }
+    let state = shared.clone();
+    executor
+        .lock
+        .run_blocking("external write", move |cx| {
+            state.f.lock().unwrap().write("a", b"abc");
+            let watcher = cx.hooks.watcher.clone();
+            watcher.drain(cx)?;
+            state.f.lock().unwrap().cpu[1] = 100;
+            watcher.drain(cx)
+        })
+        .unwrap()
+        .unwrap();
     let abc = hex("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
         .try_into()
         .unwrap();
@@ -947,12 +1004,18 @@ fn registered_run_external_write_uses_run_actor_and_presence_hook() {
         ))
         .unwrap(),
     );
-    {
-        let mut f = shared.f.lock().unwrap();
-        f.write("a", b"run bytes");
-        f.cpu[0] = 100;
-    }
-    close(&executor);
+    let state = shared.clone();
+    executor
+        .lock
+        .run_blocking("attributed write", move |cx| {
+            state.f.lock().unwrap().write("a", b"run bytes");
+            let watcher = cx.hooks.watcher.clone();
+            watcher.drain(cx)?;
+            state.f.lock().unwrap().cpu[0] = 100;
+            watcher.close_bursts(cx)
+        })
+        .unwrap()
+        .unwrap();
     let commits = burst_commits(&shared);
     assert_eq!(commits.len(), 1);
     assert!(commits[0].1.windows(5).any(|b| b == b"run-1"));
@@ -980,5 +1043,34 @@ fn late_jj_metadata_blocks_rpc_until_debounced_moved_off_check() {
     let response = request(&executor, write_request("b", None, b"def", b"ben"));
     assert_eq!(Frame::decode(&response).unwrap().payload[11], 255);
     assert!(!root.join("b").exists());
+    executor.shutdown().unwrap();
+}
+
+#[test]
+fn watcher_presence_requires_session_sink_before_activation() {
+    let (shared, executor) = setup();
+    let root = shared.f.lock().unwrap().root.clone();
+    let watch = Inotify::new(
+        File::open(&root).unwrap(),
+        GitIgnore::new(root, "/usr/bin/git".into(), vec![]).unwrap(),
+    )
+    .unwrap()
+    .0;
+    shared.f.lock().unwrap().order.clear();
+    let state = shared.clone();
+    let result = executor
+        .lock
+        .run_blocking("activate", move |cx| {
+            let previous = cx.hooks.sessions.clone();
+            cx.hooks.sessions = Arc::new(hooks::Disabled);
+            let result =
+                InotifyWatcher::fixture(watch, Ports(state), Checkpoint::default(), cx).map(|_| ());
+            cx.hooks.sessions = previous;
+            result
+        })
+        .unwrap();
+    assert_eq!(result.unwrap_err().code, 2);
+    assert!(shared.f.lock().unwrap().order.is_empty());
+    assert!(shared.sink.frames.lock().unwrap().is_empty());
     executor.shutdown().unwrap();
 }
