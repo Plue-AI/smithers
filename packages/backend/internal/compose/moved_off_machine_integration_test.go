@@ -132,6 +132,27 @@ func TestMovedOffMachineConsumerThroughInstallHTTP(t *testing.T) {
 	unconsumed := new(machined.Registry)
 	unconsumedLink, _ := presenceTestLink(t, unconsumed, f.row.ID)
 	require.NoError(t, unconsumedLink.Reconciled())
+	// Keep the durable consumer mounted while independently removing each
+	// branch transport prerequisite. These registries never replace the live
+	// source connection, so the same wait must remain answerable afterward.
+	transportRegistry := func() *machined.Registry {
+		t.Helper()
+		r := new(machined.Registry)
+		stop, err := bindMachineEvents(ctx, r, pool, repohost.NewLocalClient(http.NotFoundHandler(), "fixture"), nil, nil, service)
+		require.NoError(t, err)
+		t.Cleanup(stop)
+		t.Cleanup(func() { require.NoError(t, r.Close()) })
+		return r
+	}
+	unbound := transportRegistry()
+	unreconciled := transportRegistry()
+	presenceTestLink(t, unreconciled, f.row.ID)
+	disconnected := transportRegistry()
+	disconnectedLink, _ := presenceTestLink(t, disconnected, f.row.ID)
+	require.NoError(t, disconnectedLink.Reconciled())
+	require.NoError(t, disconnectedLink.Close())
+	var referencesBefore int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_actor_references WHERE workspace_id=$1`, f.row.ID).Scan(&referencesBefore))
 	for _, missing := range []struct {
 		name     string
 		provider machineReturn
@@ -139,6 +160,9 @@ func TestMovedOffMachineConsumerThroughInstallHTTP(t *testing.T) {
 		{"database", machineReturn{registry: registry}},
 		{"registry", machineReturn{pool: pool}},
 		{"event-consumer", machineReturn{registry: unconsumed, pool: pool}},
+		{"branch-binding", machineReturn{registry: unbound, pool: pool}},
+		{"wake-reconciliation", machineReturn{registry: unreconciled, pool: pool}},
+		{"authenticated-connection", machineReturn{registry: disconnected, pool: pool}},
 	} {
 		t.Run("unavailable-"+missing.name, func(t *testing.T) {
 			service.SetMovedOffReturn(missing.provider)
@@ -149,6 +173,11 @@ func TestMovedOffMachineConsumerThroughInstallHTTP(t *testing.T) {
 			result, err := missing.provider.ReturnToItem(ctx, f.row.ID, []byte(f.user.Username))
 			require.ErrorIs(t, err, machined.ErrNotReady)
 			require.Empty(t, result.Head)
+			var referencesAfter int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_actor_references WHERE workspace_id=$1`, f.row.ID).Scan(&referencesAfter))
+			require.Equal(t, referencesBefore, referencesAfter)
+			require.NoError(t, pool.QueryRow(ctx, `SELECT moved_off FROM workspaces WHERE id=$1`, f.row.ID).Scan(&fact))
+			require.NotEmpty(t, fact)
 		})
 	}
 	service.SetMovedOffReturn(adapter)
