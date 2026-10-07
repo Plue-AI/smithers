@@ -20281,6 +20281,35 @@ paths:
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: Stack projection unavailable
+  /api/stack/attention/{id}:
+    post:
+      x-composition: install
+      summary: Answer the displayed stack attention
+      operationId: post_api_stack_attention_id
+      tags:
+        - Todos
+      security: [{sessionCookie: []}]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [revision]
+              properties:
+                revision: {type: integer, minimum: 1}
+      responses:
+        '204': {description: Order attention settled by the current maintainer; same-person same-revision replay is idempotent}
+        '400': {description: Invalid revision}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '409': {description: conflict/stale_attention; a newer entry remains open}
+        '503': {description: Install repository unavailable}
   /api/todos:
     get:
       x-composition: install

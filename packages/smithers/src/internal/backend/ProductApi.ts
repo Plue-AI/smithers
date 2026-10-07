@@ -5699,6 +5699,19 @@ export type GetApiStackResponse = HomeCard
 export const getApiStack = (transport: Transport): Promise<GetApiStackResponse> =>
   transport.request("GET", `/api/stack`) as Promise<GetApiStackResponse>
 
+export type PostApiStackAttentionIdBody = {
+  revision: number
+}
+
+export interface PostApiStackAttentionIdInput {
+  readonly path: { readonly id: string }
+  readonly body: PostApiStackAttentionIdBody
+}
+
+/** POST /api/stack/attention/{id}: Answer the displayed stack attention */
+export const postApiStackAttentionId = (transport: Transport, input: PostApiStackAttentionIdInput): Promise<void> =>
+  transport.request("POST", `/api/stack/attention/${segment(input.path.id)}`, input.body).then(() => undefined)
+
 export type GetApiTodosResponse = Array<TodoCard>
 
 /** GET /api/todos: Read the install repository TODOs */

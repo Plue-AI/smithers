@@ -175,7 +175,7 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 							return nil, err
 						}
 						data, _ := json.Marshal(map[string]any{"item": contained.ID, "n": contained.Number, "pr": earlier.PRNumber.Int64, "reason": folded.Reason, "merged_via": foldChecks.MergedVia, "source": "github", "version": fetched.Version})
-						if _, err := s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.github_merged", todoState(saved), data); err != nil {
+						if _, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.github_merged", todoState(saved), data); err != nil {
 							return nil, err
 						}
 						changed++
