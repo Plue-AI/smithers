@@ -119,6 +119,8 @@ smthrs host upgrade
 
 These commands currently refuse with `host_maintenance_unavailable` until the install's recovery providers are composed. A refusal is not a completed backup or upgrade.
 
+Completed backups belong in `$STATE/backups/<version>-<UTC ts>/`; `$STATE` is `~/Library/Application Support/Smithers` on the install's Mac. Use a completed backup directory for restore, never a `.partial-` directory.
+
 Before restoring a backup on another Mac, stop the original install first:
 
 ```sh
@@ -126,7 +128,7 @@ smthrs host stop
 smthrs host restore /Users/will/Backups/smithers
 ```
 
-Replace `/Users/will/Backups/smithers` with the directory printed by a successful backup. Restore currently has the same maintenance refusal. Do not restart the original install while the restored install is running.
+Stop the destination install too before running restore. Replace `/Users/will/Backups/smithers` with the directory printed by a successful backup. Restore currently has the same maintenance refusal. Do not restart the original install while the restored install is running.
 
 Two running installs would both act on the same repository. Keep backup directories private: they contain the install key and member data. Restore requires a stopped install, verified backup hashes and a compatible installed version. Interrupted work resumes or offers Retry after recovery.
 

@@ -131,4 +131,7 @@ test("recovery examples name the backup directory and report provider refusal ho
   expect(quickstart).toContain("host_maintenance_unavailable")
   expect(quickstart).toContain("A refusal is not a completed backup or upgrade")
   expect(quickstart).toContain("directory printed by a successful backup")
+  expect(quickstart).toContain("$STATE/backups/<version>-<UTC ts>/")
+  expect(quickstart).toContain("never a `.partial-` directory")
+  expect(quickstart).toContain("Stop the destination install too before running restore")
 })
