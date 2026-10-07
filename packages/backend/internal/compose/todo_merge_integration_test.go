@@ -640,8 +640,8 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations bool
 
 	// The owner default is exercised through PUT /api/install and TODO creation
 	// through POST /api/todos; no existing item is rewritten.
-	putDefault := func(enabled bool, credential func(*http.Request)) int {
-		request, err := http.NewRequest(http.MethodPut, origin+"/api/install", strings.NewReader(fmt.Sprintf(`{"todo_preapprove_default":%t}`, enabled)))
+	putSetting := func(body string, credential func(*http.Request)) int {
+		request, err := http.NewRequest(http.MethodPut, origin+"/api/install", strings.NewReader(body))
 		require.NoError(t, err)
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Origin", origin)
@@ -650,6 +650,12 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations bool
 		require.NoError(t, err)
 		require.NoError(t, response.Body.Close())
 		return response.StatusCode
+	}
+	putDefault := func(enabled bool, credential func(*http.Request)) int {
+		return putSetting(fmt.Sprintf(`{"todo_preapprove_default":%t}`, enabled), credential)
+	}
+	for _, body := range []string{`{}`, `{"todo_preapprove_default":"true"}`, `{"todo_preapprove_default":true,"capacity":2}`, `{"todo_preapprove_default":true,"unknown":true}`} {
+		require.Equal(t, 400, putSetting(body, browser("owner-browser-session", true, "invalid-default")))
 	}
 	for _, credential := range []func(*http.Request){browser("member-browser-session", true, "default-member"), func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+pat) }} {
 		require.Equal(t, 403, putDefault(true, credential))
