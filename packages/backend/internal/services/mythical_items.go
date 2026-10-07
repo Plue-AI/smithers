@@ -584,6 +584,9 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			if mythicalRunOutcome(projection.Phase, update) == mythicalInterrupted && mythicalTodo(item) && (todoState(item) == "starting" || todoState(item) == "working") {
 				next = *mythicalStop(next, mythicalFault{Class: "interrupted", Tag: "interrupted", Kind: mythicalFailRuntime}, "interrupted")
 			}
+			if !pinMismatch && update.Checkpoint.FailureMissingTool != nil && update.State == jobs.StateFailed && (projection.Phase == "todo" || projection.Phase == "request") {
+				next = *mythicalStop(next, mythicalFault{Class: "user", Tag: "missing_machine_tool", Kind: mythicalFailStopped}, "missing_machine_tool")
+			}
 			// Only the attempt's bound run opens or withdraws its questions.
 			if !pinMismatch {
 				projectTodoPlan(&next, projection, update)
@@ -691,6 +694,12 @@ func mythicalProjectRun(next *db.MythicalItem, item db.MythicalItem, projection 
 		return false
 	}
 	outcome := mythicalRunOutcome(projection.Phase, update)
+	if outcome != "" && update.Checkpoint.FailureMissingTool != nil {
+		checks := mythicalChecksOf(*next)
+		checks.MissingTool = update.Checkpoint.FailureMissingTool
+		next.Checks = checks.encode()
+		item.Checks = next.Checks
+	}
 	switch projection.Phase {
 	case "todo":
 		// The composition's one run: bound once its host accepts it
@@ -892,6 +901,9 @@ const mythicalInterrupted = "stopped: interrupted: interrupted"
 // refused, and a failure no registered error names are outages that spend
 // none; user, policy and bug faults stop the item for a person.
 func mythicalFailedOutcome(update flowdispatch.ProjectionUpdate) string {
+	if update.Checkpoint.FailureMissingTool != nil {
+		return mythicalStopped + "user: missing_machine_tool"
+	}
 	if run := update.Checkpoint.Run; run != nil && (run.Status == "interrupted" || run.Status == "uncertain" || run.FailureTag == "@smthrs/flow/IrreversibleRetryRequiresIdempotencyKey") {
 		return mythicalInterrupted
 	}
@@ -4922,18 +4934,19 @@ func appliedByMaintainer(applied gitHubLabelApplication, label string) bool {
 // made its issue a TODO and asked for automerge, and the review of its pull
 // request's head.
 type mythicalChecks struct {
-	PlanReceipt           *todoRequestReceipt   `json:"planReceipt,omitempty"`
-	RouteReceipt          *todoRequestReceipt   `json:"routeReceipt,omitempty"`
-	Watchdog              *todoWatchdog         `json:"watchdog,omitempty"`
-	AdmissionDay          string                `json:"admissionDay,omitempty"`
-	IssueContext          json.RawMessage       `json:"issue_context,omitempty"`
-	GitHubInputs          []todoGitHubInput     `json:"githubInputs,omitempty"`
-	PRBodyDeclined        string                `json:"prBodyDeclined,omitempty"`
-	GitHubReopenedAttempt int32                 `json:"githubReopenedAttempt,omitempty"`
-	GitHubClosedPosition  int64                 `json:"githubClosedPosition,omitempty"`
-	GitHubClosedAt        *time.Time            `json:"githubClosedAt,omitempty"`
-	GitHubDropRead        *mythicalDropRead     `json:"githubDropRead,omitempty"`
-	Attempts              []todoAttemptEvidence `json:"attempts,omitempty"`
+	MissingTool           *flowdispatch.CertifiedMissingTool `json:"missing_tool,omitempty"`
+	PlanReceipt           *todoRequestReceipt                `json:"planReceipt,omitempty"`
+	RouteReceipt          *todoRequestReceipt                `json:"routeReceipt,omitempty"`
+	Watchdog              *todoWatchdog                      `json:"watchdog,omitempty"`
+	AdmissionDay          string                             `json:"admissionDay,omitempty"`
+	IssueContext          json.RawMessage                    `json:"issue_context,omitempty"`
+	GitHubInputs          []todoGitHubInput                  `json:"githubInputs,omitempty"`
+	PRBodyDeclined        string                             `json:"prBodyDeclined,omitempty"`
+	GitHubReopenedAttempt int32                              `json:"githubReopenedAttempt,omitempty"`
+	GitHubClosedPosition  int64                              `json:"githubClosedPosition,omitempty"`
+	GitHubClosedAt        *time.Time                         `json:"githubClosedAt,omitempty"`
+	GitHubDropRead        *mythicalDropRead                  `json:"githubDropRead,omitempty"`
+	Attempts              []todoAttemptEvidence              `json:"attempts,omitempty"`
 	// Steers are the TODO's steers in order, each held for an attempt
 	// (todoFeedback); Retries are the Retry presses by Idempotency-Key, so a
 	// press sent again starts nothing more (retryTodo).
@@ -5122,6 +5135,7 @@ func (c mythicalChecks) bounded() bool {
 // bound counts from the launches it has made so far.
 func (c *mythicalChecks) resume() {
 	c.LaunchBase, c.Outages, c.GitHubOutages, c.VeryHard, c.Fault = c.Launches, 0, 0, false, nil
+	c.MissingTool = nil
 }
 
 // mythicalNotice is one issue comment the stack owes, keyed so it is posted
