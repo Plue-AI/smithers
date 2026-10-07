@@ -18,12 +18,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/ports"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
@@ -64,7 +67,6 @@ func TestConfirmationsBrowserPostgres(t *testing.T) {
 	hash := hex.EncodeToString(sum[:])
 	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "browser-test-codex", TokenHash: hash, TokenLastEight: hash[len(hash)-8:], Scopes: "read:repository,write:repository,via:codex", SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
 	require.NoError(t, err)
-	token := credential.Token
 	wikiToken := "smithers_" + strings.Repeat("d", 40)
 	wikiSum := sha256.Sum256([]byte(wikiToken))
 	wikiHash := hex.EncodeToString(wikiSum[:])
@@ -84,6 +86,11 @@ func TestConfirmationsBrowserPostgres(t *testing.T) {
 		&routes.UserHandler{ProfileService: services.NewUserService(q)},
 		&routes.ApprovalsHandler{Service: services.NewApprovalsService(q, services.WithConfirmationTodos(pool, todos))},
 		routerExtras{Mythical: &routes.MythicalHandler{Service: todos}, Live: liveHandler})
+	conversation, err := chat.NewRuntime(pool, revokedAuthorHost{started: make(chan ports.ChatTurnGrant, 8), stopped: make(chan string, 8)}, origin, chat.RuntimeOptions{})
+	require.NoError(t, err)
+	conversation.Handler.ResolveBranch = conversationBranchResolver(services.NewWorkspaceService(q))
+	chatRouter := chi.NewRouter()
+	mountChatPublic(chatRouter, conversation, q, cfg)
 	api := withAppBootstrap(router, newAppBootstrap(bootstrapFeatures{install: true, identity: true, redirectAuth: true}), cors.Options{})
 	app, err := filepath.Abs("../../../../apps/app")
 	require.NoError(t, err)
@@ -111,7 +118,9 @@ func TestConfirmationsBrowserPostgres(t *testing.T) {
 	require.NotNil(t, vite, "browser fixture did not start")
 	proxy := httputil.NewSingleHostReverseProxy(vite)
 	server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") {
+		if strings.HasPrefix(r.URL.Path, "/api/conversations/") {
+			chatRouter.ServeHTTP(w, r)
+		} else if strings.HasPrefix(r.URL.Path, "/api/") {
 			api.ServeHTTP(w, r)
 		} else {
 			proxy.ServeHTTP(w, r)
@@ -131,5 +140,5 @@ func TestConfirmationsBrowserPostgres(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT jsonb_build_object('approved',count(*) FILTER (WHERE state='approved'),'pending',count(*) FILTER (WHERE state='pending')) FROM approvals`).Scan(&result))
 	var counts map[string]int
 	require.NoError(t, json.Unmarshal(result, &counts))
-	require.Equal(t, map[string]int{"approved": 6, "pending": 0}, counts)
+	require.Equal(t, map[string]int{"approved": 5, "pending": 0}, counts)
 }

@@ -163,8 +163,8 @@ func testConfirmTodoConsumerInstall(t *testing.T, wantTitle, wantPrompt string, 
 	require.Equal(t, 1, count)
 	var title, prompt, state string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT title,revisions->0->>'text' FROM mythical_items WHERE source='todo'`).Scan(&title, &prompt))
-	require.Equal(t, "Keep the greeting", title)
-	require.Equal(t, "Keep the exact greeting.", prompt)
+	require.Equal(t, wantTitle, title)
+	require.Equal(t, wantPrompt, prompt)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT state FROM approvals WHERE id=$1`, receipt.ID).Scan(&state))
 	require.Equal(t, "approved", state)
 	// A person's direct create uses the same writer and appends behind the
