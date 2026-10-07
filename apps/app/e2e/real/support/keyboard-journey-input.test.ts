@@ -125,3 +125,24 @@ test("headed operator pointer input is blocked even through a pre-guard mouse re
     expect(JSON.stringify(keys.snapshot())).not.toContain("Commit")
   } finally { await browser.close(); server.stop(true) }
 }, 30_000)
+
+// Locator.press focuses its target internally. It cannot prove Tab reachability.
+test("locator key shortcuts refuse before moving focus to an unreachable control", async () => {
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(`
+    <style>:root{--ring-border:rgb(12,34,56)}:focus-visible{outline:2px solid var(--ring-border)}</style>
+    <input aria-label="Chat"><button tabindex="-1" onclick="document.querySelector('output').textContent='1'">Hidden door</button><output>0</output>
+  `, { headers: { "Content-Type": "text/html" } }) })
+  const browser = await chromium.launch()
+  try {
+    const page = await browser.newPage(), origin = `http://127.0.0.1:${server.port}`
+    await page.goto(origin)
+    const keys = registerKeyboardJourney(page, origin)
+    await journeyEnter(page.getByLabel("Chat"), "Keep focus")
+    const target = page.getByRole("button", { name: "Hidden door" })
+    expect(() => target.press("Enter")).toThrow("keyboard guard refused")
+    expect(() => target.pressSequentially("Bypass")).toThrow("keyboard guard refused")
+    expect(await page.getByLabel("Chat").evaluate(element => element === document.activeElement)).toBe(true)
+    expect(await page.locator("output").textContent()).toBe("0")
+    expect(() => keys.finish()).toThrow("refused input")
+  } finally { await browser.close(); server.stop(true) }
+}, 30_000)

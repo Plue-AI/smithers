@@ -35,7 +35,7 @@ function fixture() {
   return { page, context, locator, calls, log, navigate: (next: string) => { url = next }, popup: () => { const popup = newPage(); onPage(popup); return popup } }
 }
 
-for (const name of ["click", "dblclick", "hover", "tap", "dragTo", "check", "uncheck", "setChecked", "fill", "selectOption", "focus", "dispatchEvent", "setInputFiles"] as const) {
+for (const name of ["click", "dblclick", "hover", "tap", "dragTo", "check", "uncheck", "setChecked", "fill", "selectOption", "focus", "dispatchEvent", "setInputFiles", "press", "pressSequentially"] as const) {
   test(`refuses ${name} before input through chained locators`, () => {
     const f = fixture()
     const target = f.page.getByRole().filter().first()
@@ -53,11 +53,9 @@ test("allows physical keyboard methods and readback, recording no text", async (
   await f.page.keyboard.type("secret text")
   await f.page.keyboard.down("Shift")
   await f.page.keyboard.up("Shift")
-  await f.page.locator().press("Enter")
-  await f.page.locator().pressSequentially("secret text")
   expect(await f.page.locator().count()).toBe(1)
-  expect(f.calls).toHaveLength(6)
-  expect(f.log.map(input => input.result)).toEqual(Array(6).fill("allowed"))
+  expect(f.calls).toHaveLength(4)
+  expect(f.log.map(input => input.result)).toEqual(Array(4).fill("allowed"))
   expect(JSON.stringify(f.log)).not.toContain("secret")
 })
 for (const name of ["click", "move", "wheel", "down", "up"] as const) {

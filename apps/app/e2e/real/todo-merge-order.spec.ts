@@ -1,3 +1,4 @@
+import { journeyActivate } from "./support/keyboard-journey-input"
 import { readFileSync } from "node:fs"
 import type { Locator } from "@playwright/test"
 import { test } from "./support"
@@ -77,7 +78,7 @@ test("C-J4-03 only the next item merges; later items say Merges after Tn", scena
     // Ben presses Merge on T1's card; the press binds the head it displays.
     await openTodo(ben, 1)
     const sent = ben.waitForRequest(r => r.method() === "POST" && new URL(r.url()).pathname === "/api/todos/1/merge")
-    await mergeButton(todoCard(ben, 1)).click()
+    await journeyActivate(mergeButton(todoCard(ben, 1)))
     expect((await sent).postDataJSON().reviewed_head_sha).toBe(heads[1])
     let first: any
     await expect.poll(async () => {
@@ -119,7 +120,7 @@ test("C-J4-03 only the next item merges; later items say Merges after Tn", scena
     await protect(1)
     try {
       await openTodo(ben, 2)
-      await mergeButton(todoCard(ben, 2)).click()
+      await journeyActivate(mergeButton(todoCard(ben, 2)))
       await expect(todoCard(ben, 2)).toContainText(sentence, { timeout: 300_000 })
       await info.attach("step-10-refusal", { body: await ben.screenshot(), contentType: "image/png" })
       expect((await f.read("Ben", "/api/todos/2")).state).toBe("in_review")

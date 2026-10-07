@@ -48,7 +48,7 @@ export function installKeyboardOnly(context: BrowserContext, origin: string, log
           // GitHub App/OAuth pages are the check's only browser exclusions.
           // Unknown origins and unopened pages fail closed, rather than quietly escaping the guard.
           const excluded = observed === "https://github.com"
-          const blocked = forbidden.has(name) || device === "mouse" || device === "touchscreen" || name === "insertText"
+          const blocked = forbidden.has(name) || device === "mouse" || device === "touchscreen" || name === "insertText" || (keyboard.has(name) && device !== "keyboard")
           const result = excluded ? "excluded" : observed !== target.origin || blocked ? "refused" : "allowed"
           log.push({ at: new Date().toISOString(), method: `${device ?? "surface"}.${name}`, origin: observed, result })
           if (result === "refused") throw new Error(`C-UI-01 keyboard guard refused ${device ?? "surface"}.${name} at ${observed}`)
