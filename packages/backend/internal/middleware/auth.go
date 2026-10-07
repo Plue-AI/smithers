@@ -429,6 +429,9 @@ var installMemberRoutes = []struct {
 	method, command string
 	path            *regexp.Regexp
 }{
+	{http.MethodPatch, "account.profile.update", regexp.MustCompile(`^/api/user$`)},
+	{http.MethodPut, "account.notifications.update", regexp.MustCompile(`^/api/user/settings/notifications$`)},
+	{http.MethodDelete, "account.connection.delete", regexp.MustCompile(`^/api/user/connections/[^/]+$`)},
 	{http.MethodGet, "github.account-read", regexp.MustCompile(`^/api/user/github(?:/repos|-repos(?:/[^/]+/[^/]+(?:/(?:issues(?:/[0-9]+/comments)?|pulls(?:/[0-9]+(?:/diff)?)?))?)?|-access/[^/]+/[^/]+|-app/installations(?:/[0-9]+)?)$`)},
 	{http.MethodPost, "branch.archive", regexp.MustCompile(`^/api/branches/[^/]+/archive$`)},
 	{http.MethodPost, "labels.create", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/labels$`)},

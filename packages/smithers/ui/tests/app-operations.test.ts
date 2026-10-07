@@ -37,22 +37,25 @@ describe("wiki operations", () => {
     for (const name of names) expect(name === "wiki" || name.startsWith("wiki.")).toBe(true)
   })
 
-  test("every user-only operation states why robots may not invoke it", () => {
-    const userOnly = all.filter((declared) => declared.userOnly === true)
+  test("person-only operations declare their actor boundary and reason", () => {
+    const userOnly = all.filter((declared) => declared.agent === "never")
     expect(userOnly.map((declared) => declared.name).sort()).toEqual([
       "wiki.ask", "wiki.attach", "wiki.delete.cancel", "wiki.delete.confirm", "wiki.heading", "wiki.pane"
     ])
-    for (const declared of userOnly) expect(declared.userOnlyReason?.length ?? 0).toBeGreaterThan(0)
+    for (const declared of userOnly) {
+      expect(declared.agentReason?.length ?? 0).toBeGreaterThan(0)
+      expect(declared.actors).toEqual(["person"])
+    }
   })
 
   test("consequential operations confirm instead of becoming user-only", () => {
     expect(named("wiki.cloud.delete").confirm).toBe("delete the Wiki page")
-    expect(named("wiki.cloud.delete").userOnly).toBeUndefined()
+    expect(named("wiki.cloud.delete").agent).toBe("confirm")
   })
 
   test("summaries use the product name", () => {
     expect(WIKI_DISPLAY_NAME).toBe("Wiki")
-    expect(named("wiki").summary).toBe("See what Smithers understands (Wiki)")
+    expect(named("wiki").summary).toBe("Open the wiki")
     expect(named("wiki.pane").summary).toBe("Open the Wiki beside the chat")
   })
 
@@ -123,8 +126,12 @@ describe("operation", () => {
     }
   })
 
-  test("keeps the declaration's literal shape for host binding", () => {
+  test("keeps the typed declaration and explicit default policy for host binding", () => {
     const declared = operation({ name: "demo.run", summary: "Run the demo", input: Schema.Struct({ id: Schema.String }), requires: ["signed-in"] })
-    expect(declared).toEqual({ name: "demo.run", summary: "Run the demo", input: declared.input, requires: ["signed-in"] })
+    expect(declared).toEqual({
+      name: "demo.run", summary: "Run the demo", input: declared.input, requires: ["signed-in"],
+      slash: null, cli: null, http: null, journey: [], group: "", visibility: "in-card",
+      actors: ["person", "app_agent"], minimumRole: "member", credentialScope: "write:repository", agent: "run"
+    })
   })
 })

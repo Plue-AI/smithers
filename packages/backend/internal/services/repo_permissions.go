@@ -542,7 +542,7 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 	}
 	if info.IsTokenAuth && !terminalProfile && (info.CredentialKind() == middleware.CredentialDelegated || info.CredentialKind() == middleware.CredentialPerson) {
 		scope := middleware.TokenScope(policy.CredentialScope)
-		if scope != middleware.ScopeWriteRepository && scope != middleware.ScopeReadRepository && scope != middleware.ScopeReadUser {
+		if scope != middleware.ScopeWriteRepository && scope != middleware.ScopeReadRepository && scope != middleware.ScopeReadUser && scope != middleware.ScopeWriteUser {
 			return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Unknown credential scope"}
 		}
 		if !info.Scopes.Has(scope) {

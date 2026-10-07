@@ -69,6 +69,10 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				r.Body = io.NopCloser(bytes.NewReader(raw))
 			}
 
+			if command == "account.profile.update" || command == "account.notifications.update" || command == "account.connection.delete" {
+				admitInstallAccountMutation(w, r, queries, command, next)
+				return
+			}
 			if strings.HasPrefix(command, "labels.") || strings.HasPrefix(command, "protected-bookmarks.") || strings.HasPrefix(command, "variables.") {
 				admitInstallRepositoryAdmin(w, r, queries, command, next)
 				return

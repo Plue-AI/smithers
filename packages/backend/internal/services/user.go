@@ -66,7 +66,9 @@ type UserProfileService interface {
 }
 
 type UserService struct {
-	queries UserQuerier
+	queries         UserQuerier
+	install         *installAccountMutationStore
+	installAdmitted bool
 }
 
 type UpdateUserRequest struct {
@@ -205,8 +207,12 @@ type ConnectedAccountResponse struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
-func NewUserService(q UserQuerier) *UserService {
-	return &UserService{queries: q}
+func NewUserService(q UserQuerier, options ...UserServiceOption) *UserService {
+	s := &UserService{queries: q}
+	for _, option := range options {
+		option(s)
+	}
+	return s
 }
 
 func (s *UserService) GetAuthenticatedUser(ctx context.Context, userID int64) (UserProfile, error) {
@@ -246,6 +252,15 @@ func (s *UserService) GetUserByUsername(ctx context.Context, username string) (P
 const maxUserDisplayNameLength = 255
 
 func (s *UserService) UpdateAuthenticatedUser(ctx context.Context, userID int64, req UpdateUserRequest) (UserProfile, error) {
+	if s.install != nil && !s.installAdmitted {
+		return withInstallAccountMutation(s.install, ctx, userID, "account.profile.update", 0, req, func(ctx context.Context, q *db.Queries) (UserProfile, error) {
+			scoped := *s
+			scoped.queries = q
+			scoped.installAdmitted = true
+			return scoped.UpdateAuthenticatedUser(ctx, userID, req)
+		})
+	}
+
 	current, err := s.queries.GetUserByID(ctx, userID)
 	if err != nil {
 		if stdErrors.Is(err, pgx.ErrNoRows) {
@@ -545,6 +560,15 @@ func (s *UserService) GetNotificationPreferences(ctx context.Context, userID int
 }
 
 func (s *UserService) UpdateNotificationPreferences(ctx context.Context, userID int64, req UpdateNotificationPreferencesRequest) (NotificationPreferences, error) {
+	if s.install != nil && !s.installAdmitted {
+		return withInstallAccountMutation(s.install, ctx, userID, "account.notifications.update", 0, req, func(ctx context.Context, q *db.Queries) (NotificationPreferences, error) {
+			scoped := *s
+			scoped.queries = q
+			scoped.installAdmitted = true
+			return scoped.UpdateNotificationPreferences(ctx, userID, req)
+		})
+	}
+
 	current, err := s.queries.GetUserNotificationPreferences(ctx, userID)
 	if err != nil {
 		if stdErrors.Is(err, pgx.ErrNoRows) {
@@ -590,6 +614,16 @@ func (s *UserService) ListConnectedAccounts(ctx context.Context, userID int64) (
 }
 
 func (s *UserService) DeleteConnectedAccount(ctx context.Context, userID, accountID int64) error {
+	if s.install != nil && !s.installAdmitted {
+		_, err := withInstallAccountMutation(s.install, ctx, userID, "account.connection.delete", accountID, struct{}{}, func(ctx context.Context, q *db.Queries) (struct{}, error) {
+			scoped := *s
+			scoped.queries = q
+			scoped.installAdmitted = true
+			return struct{}{}, scoped.DeleteConnectedAccount(ctx, userID, accountID)
+		})
+		return err
+	}
+
 	if accountID <= 0 {
 		return pkgerrors.BadRequest("invalid account id")
 	}

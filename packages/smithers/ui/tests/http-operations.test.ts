@@ -164,3 +164,24 @@ test("GitHub account metadata retains its owner person read boundary", () => {
     http: { method: "GET", path: "/api/user/github-repos" }
   })
 })
+
+
+test("retained account writes use the user scope and an owner person", async () => {
+  const { Schema } = await import("effect")
+  const rows = generateCatalog()
+  for (const [name, method, path] of [
+    ["account.profile.update", "PATCH", "/api/user"],
+    ["account.notifications.update", "PUT", "/api/user/settings/notifications"],
+    ["account.connection.delete", "DELETE", "/api/user/connections/{id}"],
+  ]) {
+    expect(rows.find(row => row.name === name)).toMatchObject({
+      minimumRole: "owner", agent: "never", actors: ["person"], credentialScope: "write:user",
+      visibility: "hidden", cli: null, slash: null, http: { method, path }
+    })
+  }
+  const profile = httpProjections.find(row => row.name === "account.profile.update")!
+  const preferences = httpProjections.find(row => row.name === "account.notifications.update")!
+  expect(Schema.decodeUnknownSync(profile.input)({ bio: null, display_name: "Alice" })).toEqual({ bio: null, display_name: "Alice" })
+  expect(Schema.decodeUnknownSync(preferences.input)({ email_notifications_enabled: false })).toEqual({ email_notifications_enabled: false })
+  expect(Schema.decodeUnknownSync(preferences.input)({ email_notifications_enabled: null })).toEqual({ email_notifications_enabled: null })
+})

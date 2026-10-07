@@ -678,6 +678,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		authService.SetAuth0Client(auth0Client)
 	}
 	userService := services.NewUserService(queries)
+	if config.IsSingleOwner(cfg.Auth) {
+		services.WithUserInstallAuthorization(pool)(userService)
+	}
 	userDeviceService := services.NewUserDeviceService(queries)
 
 	// Initialize email transport from config.

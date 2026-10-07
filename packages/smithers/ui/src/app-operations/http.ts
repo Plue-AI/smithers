@@ -29,7 +29,15 @@ const repositoryAdmin = (name: string, method: "GET" | "POST" | "PATCH" | "DELET
   operation({ name, input, summary: name, hidden: true, visibility: "hidden", slash: null, cli: null,
     http: { method, path }, minimumRole: "owner", agent: "never", credentialScope, actors: ["person"] })
 
+const accountWrite = (name: string, method: "PATCH" | "PUT" | "DELETE", path: string, input: OperationPayload) =>
+  operation({ name, input, summary: name, hidden: true, visibility: "hidden", slash: null, cli: null,
+    http: { method, path }, minimumRole: "owner", agent: "never", credentialScope: "write:user", actors: ["person"] })
+const optionalText = Schema.optional(Schema.Union([Schema.String, Schema.Null]))
+
 export const httpProjections = [
+  accountWrite("account.profile.update", "PATCH", "/api/user", Schema.Struct({ display_name: optionalText, bio: optionalText, avatar_url: optionalText, email: optionalText })),
+  accountWrite("account.notifications.update", "PUT", "/api/user/settings/notifications", Schema.Struct({ email_notifications_enabled: Schema.optional(Schema.Union([Schema.Boolean, Schema.Null])) })),
+  accountWrite("account.connection.delete", "DELETE", "/api/user/connections/{id}", NoInput),
   read("github.account-read", "/api/user/github-repos", "never", "owner"),
   // Values retain the existing write-scope requirement even on reads.
   repositoryAdmin("variables.read", "GET", "/api/repos/{owner}/{repo}/variables", NoInput, "write:repository"),
