@@ -16,7 +16,7 @@ import * as Flow from "../src/Flow.ts"
 import type * as FlowCatalog from "../src/FlowCatalog.ts"
 import * as Home from "../src/Home.ts"
 import { Smithers } from "../src/index.ts"
-import type * as Input from "../src/Input.ts"
+import * as Input from "../src/Input.ts"
 import * as Reference from "../src/Reference.ts"
 import * as Target from "../src/Target.ts"
 import { plannedCalls } from "./plan.ts"
@@ -421,6 +421,15 @@ describe("Smithers.Factory", () => {
 })
 
 describe("FactoryProjection target", () => {
+  it("declares explicit discovery entries without package-crossing globs", () => {
+    const metadata = Target.metadata(Factory.FactoryProjection({
+      entries: [Input.file("//flows/todo/flow.ts"), Input.file("//flows/todo/SKILL.md")]
+    }))
+    expect(metadata.inputs.map(describeInput)).toEqual([
+      "//flows/todo/flow.ts", "//flows/todo/SKILL.md",
+      "//.smithers/FACTORY.ts", "//.smithers/factory.json", "//.smithers/home.json"
+    ])
+  })
   const factory = Factory.Factory({ summary: "S.", flows: [review] })
   const home = Home.Home({
     blocks: [Home.Prompt({ placeholder: "Change it…" }), Home.Flows(), Home.Markdown({ path: "README.md" })]

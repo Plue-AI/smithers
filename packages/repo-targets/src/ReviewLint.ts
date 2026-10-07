@@ -81,18 +81,18 @@ type EngineOptions =
 interface BaseOptions {
   readonly cwd: string
   /**
-   * The changed paths this review covers. Patterns are package-relative unless
+   * The changed files or globs this review covers. Paths are package-relative unless
    * they carry the `//` workspace-root prefix. Each macro documents its own
    * default.
    */
-  readonly include?: ReadonlyArray<Input.Glob> | undefined
+  readonly include?: ReadonlyArray<Input.Glob | Input.File> | undefined
   /**
    * Files read into every batch prompt whether or not they changed. Patterns
    * resolve the same way `include` does, but execution crosses package boundaries.
    * A nonempty declaration must match at least one file and fit LlmLint's
    * 512-file and 2 MiB aggregate context limits.
    */
-  readonly context?: ReadonlyArray<Input.Glob> | undefined
+  readonly context?: ReadonlyArray<Input.Glob | Input.File> | undefined
   /** @default [] */
   readonly deps?: ReadonlyArray<Target.AnyTarget> | undefined
   /** @default "origin/main" */
@@ -110,9 +110,9 @@ interface BaseOptions {
  */
 export type ReviewLint = ReturnType<typeof LlmLint>
 
-/** Re-roots one declared glob so it matches the paths `git diff` lists. */
-const anchor = (cwd: string, declaration: Input.Glob): Input.Glob =>
-  Input.Glob.make({
+/** Re-roots a declared file or glob so it matches the paths `git diff` lists. */
+const anchor = (cwd: string, declaration: Input.Glob | Input.File): Input.Glob | Input.File =>
+  declaration._tag === "File" ? Input.file(`//${Input.resolvePath(cwd, declaration.path)}`) : Input.Glob.make({
     pattern: `//${Input.resolvePath(cwd, declaration.pattern)}`,
     exclude: declaration.exclude.map((entry) => `//${Input.resolvePath(cwd, entry)}`)
   })
@@ -128,8 +128,8 @@ export interface Rubric {
   readonly rubric: string
   readonly batchSize: number
   readonly failOn: "error" | "warning"
-  readonly include: ReadonlyArray<Input.Glob>
-  readonly context: ReadonlyArray<Input.Glob>
+  readonly include: ReadonlyArray<Input.Glob | Input.File>
+  readonly context: ReadonlyArray<Input.Glob | Input.File>
 }
 
 /**
@@ -153,7 +153,7 @@ export const review = (options: Options, rubric: Rubric): ReviewLint => {
     // filters the reviewed set with.
     changes: Input.gitDiff({
       base: options.base ?? defaultBase,
-      paths: include.map((entry) => entry.pattern.slice(2))
+      paths: include.map((entry) => (entry._tag === "File" ? entry.path : entry.pattern).slice(2))
     }),
     include,
     context,

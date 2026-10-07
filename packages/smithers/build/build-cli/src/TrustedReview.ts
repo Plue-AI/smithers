@@ -10,7 +10,7 @@ import * as LlmLint from "@smthrs/targets/LlmLint"
 import * as SecurityReview from "@smthrs/targets/SecurityReview"
 import * as TargetIndex from "@smthrs/targets/TargetIndex"
 import { Data, Effect, Schema } from "effect"
-import { minimatch } from "minimatch"
+import { escape, minimatch } from "minimatch"
 import * as Fs from "node:fs/promises"
 import * as NodePath from "node:path"
 import * as ContainedProcess from "./internal/ContainedProcess.ts"
@@ -69,8 +69,8 @@ const matches = (path: string, globs: ReadonlyArray<Input.Glob>): boolean =>
 
 const payloadOf = (attrs: LlmLint.Attrs, base: string): LlmLint.Payload => ({
   base,
-  include: attrs.include,
-  context: attrs.context,
+  include: attrs.include.map((input) => input._tag === "File" ? Input.glob(escape(input.path, { windowsPathsNoEscape: true })) : input),
+  context: attrs.context.map((input) => input._tag === "File" ? Input.glob(escape(input.path, { windowsPathsNoEscape: true })) : input),
   prompt: attrs.prompt,
   rubric: attrs.rubric,
   engine: attrs.engine,
