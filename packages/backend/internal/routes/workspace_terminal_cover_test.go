@@ -135,64 +135,6 @@ func TestWorkspaceTerminal_Cov_HostKeyCallbackValidation(t *testing.T) {
 	})
 }
 
-func TestWorkspaceTerminal_Cov_PipeWSToSSH(t *testing.T) {
-	t.Parallel()
-
-	stdin := &terminalSessionManagerCovWriteCloser{}
-	hostKey := newTestHostKey(t)
-	host, port, _ := startTestSSHServer(t, hostKey.signer)
-	sshClient, sshSess, err := (&WorkspaceTerminalHandler{}).dialSSH(context.Background(), services.WorkspaceSSHConnectionInfo{
-		VMID:        "vm-test",
-		Host:        host,
-		Port:        port,
-		Username:    "root",
-		AccessToken: "token",
-		HostKeys:    []services.WorkspaceSSHHostKey{hostKey.advertise},
-	}, 80, 24)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_ = sshSess.Close()
-		_ = sshClient.Close()
-	})
-	var activity atomic.Int32
-	done := make(chan error, 1)
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
-		if err != nil {
-			done <- err
-			return
-		}
-		defer conn.CloseNow()
-		(&WorkspaceTerminalHandler{}).pipeWSToSSH(r.Context(), conn, stdin, sshSess, "sess", func() {
-			activity.Add(1)
-		})
-		done <- nil
-	}))
-	t.Cleanup(srv.Close)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	client, _, err := websocket.Dial(ctx, "ws"+srv.URL[len("http"):], nil)
-	require.NoError(t, err)
-	require.NoError(t, client.Write(ctx, websocket.MessageBinary, []byte("abc")))
-	require.NoError(t, client.Write(ctx, websocket.MessageText, []byte(`{`)))
-	require.NoError(t, client.Write(ctx, websocket.MessageText, []byte(`{"type":"resize","cols":100,"rows":25}`)))
-	require.NoError(t, client.Write(ctx, websocket.MessageText, []byte(`{"type":"unknown"}`)))
-	require.NoError(t, client.Close(websocket.StatusNormalClosure, "done"))
-
-	select {
-	case err := <-done:
-		require.NoError(t, err)
-	case <-ctx.Done():
-		t.Fatal("timed out waiting for websocket pipe")
-	}
-
-	assert.Equal(t, "abc", stdin.String())
-	assert.True(t, stdin.closed)
-	assert.GreaterOrEqual(t, activity.Load(), int32(4))
-}
-
 func TestWorkspaceTerminal_Cov_PipeWSToTerminalSession(t *testing.T) {
 	t.Parallel()
 

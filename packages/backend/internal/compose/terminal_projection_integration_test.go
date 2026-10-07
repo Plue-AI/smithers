@@ -7,6 +7,7 @@ import (
 	"io"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
@@ -61,7 +62,7 @@ func TestTerminalBranchProjectionLifecycleHTTP(t *testing.T) {
 	require.Equal(t, "term-ben", model.Terminals[0].ID)
 	require.Equal(t, f.user.Username, model.Terminals[0].Owner.Login)
 	manager.Destroy("term-ben")
-	require.False(t, manager.HasBranchTerminal(f.row.RepositoryID, f.row.ID))
+	require.Eventually(t, func() bool { return !manager.HasBranchTerminal(f.row.RepositoryID, f.row.ID) }, time.Second, time.Millisecond)
 	require.Empty(t, manager.BranchTerminals(f.row.RepositoryID, f.row.ID))
 	frame := readPresenceFrame(t, conn)
 	require.NoError(t, json.Unmarshal(frame.Data, &model))

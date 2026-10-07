@@ -20151,7 +20151,7 @@ paths:
     post:
       x-composition: install
       summary: Open a branch terminal
-      description: Refuses without the owner-uid machine session providers. No host or shared-user fallback.
+      description: Opens a signed-in terminal as the authenticated member on the branch. Retained terminal WebSocket attachments authorize branch.join; only the owner types. Refuses without owner-uid machine session providers.
       operationId: post_api_terminals
       tags:
         - Terminals
@@ -20164,10 +20164,27 @@ paths:
             schema:
               type: object
               required: [branch]
+              additionalProperties: false
               properties:
                 branch:
                   type: string
       responses:
+        '201':
+          description: Owner terminal opened. Attach through the retained repository terminal WebSocket using id.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, branch]
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  branch:
+                    type: string
+                    format: uuid
+        '400':
+          description: Invalid terminal request
         '401':
           description: Authentication required
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}

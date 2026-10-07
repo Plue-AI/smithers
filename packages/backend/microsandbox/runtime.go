@@ -159,6 +159,8 @@ type workspace struct {
 
 // Runtime owns every microVM it creates and the metadata that names them.
 type Runtime struct {
+	// terminalHold reads the install's in-process terminal manager.
+	terminalHold func(string) bool
 	machinedHead     func(context.Context, string) (string, error)
 	machinedDispatch func(context.Context, *machined.Link, string) error
 	memberRoster     MemberRoster
