@@ -102,6 +102,8 @@ const boundary = bundle === undefined ? test.skip : test
 // no copied runner, repository, branch helper or root script is supplied.
 // This is a base-boot receipt, not backend readiness or C-SEC-02 acceptance.
 boundary("bundled runtime boots its pinned installed base image offline", () => {
+  const receipt = process.env.SMITHERS_OFFLINE_BASE_RECEIPT
+  if (receipt) rmSync(receipt, { force: true })
   const metadataPath = "share/microsandbox/base-image.json"
   const metadata = JSON.parse(readFileSync(join(bundle!, metadataPath), "utf8"))
   expect(metadata.version).toBe(1)
@@ -135,9 +137,10 @@ boundary("bundled runtime boots its pinned installed base image offline", () => 
   } finally {
     run(["remove", "--force", name])
   }
-  const receipt = process.env.SMITHERS_OFFLINE_BASE_RECEIPT
   if (receipt) writeFileSync(receipt, JSON.stringify({ scope: "installed offline base boot only", passed: true,
-    image: metadata.image, receipts, completedAt: new Date().toISOString() }, null, 2) + "\n", { mode: 0o600 })
+    image: metadata.image, manifestRevision: manifest.revision,
+    manifestSha256: createHash("sha256").update(readFileSync(join(bundle!, "manifest.json"))).digest("hex"),
+    receipts, completedAt: new Date().toISOString() }, null, 2) + "\n", { mode: 0o600 })
 }, 150_000)
 for (const fault of [
   { path: "bin/msb", refusal: "Bundled microVM runtime is unavailable" },

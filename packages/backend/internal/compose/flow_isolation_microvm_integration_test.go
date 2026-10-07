@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/installbundle"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
@@ -28,12 +29,19 @@ func TestRepositoryFlowImportsStayInsideRealMicroVM(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	msbName := os.Getenv("SMITHERS_MICROSANDBOX_BIN")
-	if msbName == "" {
-		msbName = "msb"
-	}
-	msb, err := exec.LookPath(msbName)
+	installed, err := installbundle.Open(os.Getenv("SMITHERS_CHECK_BUNDLE"))
 	require.NoError(t, err)
+	msb := installed.Program("bin/msb")
+	require.NoError(t, msb.Check())
+	metadata, _, err := installed.Read("share/microsandbox/base-image.json", 64*1024)
+	require.NoError(t, err)
+	var image struct {
+		Version int    `json:"version"`
+		Image   string `json:"image"`
+	}
+	require.NoError(t, json.Unmarshal(metadata, &image))
+	require.Equal(t, 1, image.Version)
+	require.Regexp(t, `^node@sha256:[0-9a-f]{64}$`, image.Image)
 	node, err := exec.LookPath("node")
 	require.NoError(t, err)
 	root, err := filepath.Abs("../../../..")
@@ -55,7 +63,7 @@ func TestRepositoryFlowImportsStayInsideRealMicroVM(t *testing.T) {
 		require.NoError(t, err, "%s %v: %s", filepath.Base(binary), args, output)
 		return output
 	}
-	writeEvidence("msb-version.txt", run(msb, "--version"))
+	writeEvidence("msb-version.txt", run(msb.Path(), "--version"))
 	work := t.TempDir()
 	bundle := filepath.Join(work, "canary.mjs")
 	fixture := filepath.Join(root, "flows/test/fixtures/flow-isolation-canary.ts")
@@ -73,6 +81,7 @@ await bundle(entry, output);`,
 	fixtureAfter, err := os.ReadFile(fixture)
 	require.NoError(t, err)
 	require.Equal(t, fixtureBefore, fixtureAfter, "bundling must never mutate the entry source")
+	require.NoError(t, os.Chmod(bundle, 0644))
 	nonce := strings.ReplaceAll(uuid.NewString(), "-", "")
 	markerName := ".smithers-canary-" + nonce
 	home, err := os.UserHomeDir()
@@ -101,7 +110,7 @@ await bundle(entry, output);`,
 	repository := filepath.Join(work, "repository")
 	for _, name := range []string{"todo", "canary", "merge"} {
 		directory := filepath.Join(repository, "flows", name)
-		require.NoError(t, os.MkdirAll(directory, 0700))
+		require.NoError(t, os.MkdirAll(directory, 0755))
 		source := fmt.Sprintf(`import { Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Schema } from "effect"
@@ -116,7 +125,7 @@ beacon.setTimeout(250, () => beacon.destroy())
 export default Flow.make(%q, { description: "Isolation canary", capabilities: [],
 payload: {}, success: Schema.String, body: () => Node.succeed(%q) })
 `, markerName, nonce, port, nonce, name, "guest-"+name)
-		require.NoError(t, os.WriteFile(filepath.Join(directory, "flow.ts"), []byte(source), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(directory, "flow.ts"), []byte(source), 0644))
 	}
 	names, err := json.Marshal(services.SystemFlows)
 	require.NoError(t, err)
@@ -127,15 +136,28 @@ payload: {}, success: Schema.String, body: () => Node.succeed(%q) })
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cleanupCancel()
-		output, err := exec.CommandContext(cleanupCtx, msb, "remove", "--force", vm).CombinedOutput()
+		output, err := exec.CommandContext(cleanupCtx, msb.Path(), "remove", "--force", vm).CombinedOutput()
 		writeEvidence("msb-cleanup.txt", append(output, []byte(fmt.Sprintf("\nerror=%v\n", err))...))
 		require.NoError(t, err, "cleanup %s: %s", vm, output)
 	})
-	run(msb, "create", "node:26-bookworm", "--pull", "never", "--name", vm,
+	require.NoError(t, msb.Check())
+	run(msb.Path(), "create", image.Image, "--pull", "never", "--name", vm,
 		"--memory", "1G", "--cpus", "1", "--root-disk", "2G", "--no-net",
 		"--copy-file", bundle+":/runner.mjs", "--copy-dir", repository+":/repository")
-	writeEvidence("msb-status.txt", run(msb, "status", vm))
-	output := run(msb, "exec", "--stream", "--env", "HOME=/root", "--env", "SMITHERS_SYSTEM_FLOWS="+string(names), vm, "--", "node", "/runner.mjs", "/repository")
+	writeEvidence("msb-status.txt", run(msb.Path(), "status", vm))
+	// The installed image owns this account and interpreter. The branch-built
+	// runner and repository imports run only after msb drops to that account;
+	// no root setup script or current checkout helper is supplied to the VM.
+	identity := run(msb.Path(), "exec", "--stream", "--user", "node", vm, "--", "/usr/bin/id", "-u")
+	require.Equal(t, "1000", strings.TrimSpace(string(identity)))
+	writeEvidence("guest-uid.txt", identity)
+	group := run(msb.Path(), "exec", "--stream", "--user", "node", vm, "--", "/usr/bin/id", "-g")
+	require.Equal(t, "1000", strings.TrimSpace(string(group)))
+	writeEvidence("guest-gid.txt", group)
+	// The source snapshot loader writes beside its module. Copy the readable
+	// fixture as node so that workspace is owned by the unprivileged user too.
+	run(msb.Path(), "exec", "--stream", "--user", "node", vm, "--", "/bin/cp", "-R", "/repository", "/home/node/repository")
+	output := run(msb.Path(), "exec", "--stream", "--user", "node", "--env", "HOME=/home/node", "--env", "SMITHERS_SYSTEM_FLOWS="+string(names), vm, "--", "node", "/runner.mjs", "/home/node/repository")
 	writeEvidence("guest-run-output.txt", output)
 	var receipt struct {
 		Receipt string `json:"receipt"`
@@ -158,7 +180,7 @@ payload: {}, success: Schema.String, body: () => Node.succeed(%q) })
 	require.NotEmpty(t, receiptLine, "guest did not return a canary receipt: %s", output)
 	require.NoError(t, json.Unmarshal(receiptLine, &receipt))
 	require.Equal(t, "flow-isolation-canary", receipt.Receipt)
-	require.Equal(t, "/root", receipt.Home)
+	require.Equal(t, "/home/node", receipt.Home)
 	require.Len(t, receipt.Planned, 2)
 	require.Equal(t, "todo", receipt.Planned[0].Name)
 	require.Contains(t, receipt.Planned[0].Values, "guest-todo")
@@ -170,7 +192,7 @@ payload: {}, success: Schema.String, body: () => Node.succeed(%q) })
 	require.Equal(t, "todo", receipt.Refused[1].Flow)
 	require.Equal(t, "missing_service", receipt.Refused[1].Code)
 	writeEvidence("guest-receipt.json", append(receiptLine, '\n'))
-	guestMarker := run(msb, "exec", "--stream", vm, "--", "cat", "/root/"+markerName)
+	guestMarker := run(msb.Path(), "exec", "--stream", "--user", "node", vm, "--", "cat", "/home/node/"+markerName)
 	require.Equal(t, nonce, strings.TrimSpace(string(guestMarker)))
 	writeEvidence("guest-marker.txt", guestMarker)
 	_, err = os.Stat(hostMarker)
