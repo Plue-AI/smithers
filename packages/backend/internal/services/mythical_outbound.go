@@ -303,6 +303,11 @@ func (st *mythicalItemStep) settleOutbound(ctx context.Context, item db.Mythical
 		if err != nil {
 			return err
 		}
+		if saved.State == "landed" && item.State != "landed" {
+			if err = st.s.admitLearningInTx(ctx, tx, saved); err != nil {
+				return err
+			}
+		}
 		data, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "operation": op, "from": todoState(item), "to": todoState(saved), "merge_commit": saved.PRMergeCommit})
 		if _, err = st.s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.github_operation_settled", todoState(saved), data); err != nil {
 			return err

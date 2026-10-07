@@ -18,6 +18,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/blob"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 // The mythical stack service is the only writer of a repository's
@@ -85,6 +86,8 @@ type MythicalService struct {
 	lanes                mythicalLanes
 	wikiStore            mythicalWikiStore
 	learningWiki         *WikiService
+	learningJobs         *jobs.Store
+	learningMachines     LearningMachines
 	reconcileFactory     func(context.Context, int64, string, FactoryProjection) error
 	// policy reads the default bookmark's committed factory policy
 	// (maintainers, todoSince, dailyTokens); stackPolicy.
