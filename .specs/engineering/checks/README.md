@@ -165,6 +165,7 @@ Stage tags match [spec.md §0](../spec.md). M names the dated maintainer release
 | [C-DUR-02](C-DUR-02.md) | Killing a machine mid-run resumes the run or shows it interrupted with Retry | fault | S2 | T-FLW-09, T-REL-04 |
 | [C-DUR-03](C-DUR-03.md) | Killing the host during a GitHub write or push reconciles it without duplication | fault | S1, S2 | T-GH-09, T-FLW-09, T-REL-04 |
 | [C-DUR-04](C-DUR-04.md) | No acknowledged write lost: 04a owns K1/K2, 03a K3/K3b/K4/K4b/K5a–c, 03 K6, 04 full S2 matrix; stale captures preserve host rewrites | fault | S2, S3 | T-COL-03, T-COL-08, T-COL-09, T-REL-04, T-COL-03a, T-COL-04a, T-COL-04, T-COL-08a, T-COL-08b |
+| [C-DUR-05](C-DUR-05.md) | Folded into T-COL-13's tests | integration | R | T-COL-13 |
 | **Performance (reference host, p95)** | | | | |
 | [C-PERF-01](C-PERF-01.md) | App agent first token < 1.5 s from submit (preflight included, reported separately); answer with cards < 8 s | perf | R | T-REL-01 |
 | [C-PERF-02](C-PERF-02.md) | Projection delta to subscribers < 1 s | perf | S1 | T-COL-02, T-REL-01 |

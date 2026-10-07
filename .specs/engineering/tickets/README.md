@@ -155,6 +155,7 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | [T-COL-05](T-COL-05.md) | Moved off the item: detect; Return to Tn; Keep for now | S2 | M | T-COL-04, T-COL-03, T-COL-03a, T-COL-03r, T-STK-01, T-MCH-04, T-COL-10 (S2), T-CAT-01, T-COL-02, T-TRM-07 | C-COL-03, C-COL-05, C-J3-09, C-UI-13 |
 | [T-COL-06](T-COL-06.md) | Presence on the existing `BranchPresence` lease roster | S2 | M | T-COL-02, T-COL-04, T-COL-03r, T-COL-03, T-ACC-02, T-ACC-03 | C-COL-01, C-J3-01, C-J3-06 |
 | [T-COL-07](T-COL-07.md) | Merged into T-COL-10 | — | — | — | — |
+| [T-COL-13](T-COL-13.md) | Versioned on-disk outbox format: read or migrate the previous release, refuse the unknown | R | S | T-COL-03a | C-DUR-05 |
 | [T-COL-08b](T-COL-08b.md) | Backend document relay and optional host mirror | S3 | M | T-COL-03r, T-COL-02, T-COL-03f | C-DUR-04, C-J3-04, C-PERF-03 |
 | [T-COL-08a](T-COL-08a.md) | Daemon Yrs documents and durable disk reconciliation | S3 | L | T-COL-03r, T-COL-08b | C-COL-03, C-DUR-04, C-J3-04, C-PERF-03 |
 | [T-COL-08](T-COL-08.md) | Live code document integration, fault recovery and reference-host p95 | S3 | M | T-COL-04, T-COL-08a, T-COL-08b, T-APP-14a, T-COL-11, T-COL-10, T-UI-19, T-MCH-07, T-COL-05, T-STK-08 (S2), T-TRM-03, T-TRM-05 | C-COL-03, C-COL-04, C-DUR-04, C-J3-04, C-PERF-03 |

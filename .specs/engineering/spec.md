@@ -761,6 +761,8 @@ A static Rust binary (linux-arm64, musl) that starts inside every machine before
 
 After a reconnect, a daemon restart or a VM restart, the daemon resends every unacknowledged entry in order. `capture()` returns only when the outbox is empty, so sleep (§8.4.3) and cleanup (§8.12) never drop an event.
 
+9.1.4a [R] **Outbox format version.** The on-disk outbox (`/var/lib/smithers-machined/outbox`) records its own format version, independent of the wire protocol (ADR 0004). An upgraded daemon reads every outbox format written by the previous release, or migrates it in place before sending, preserving order, `seq`, `event_id` and pending refs. It refuses an unknown or newer format: it stops sending, keeps the file untouched, and reports `outbox_format_unsupported` through `status()`, so a machine that slept through an upgrade never misreads or drops events (mvp.md §12, in-place upgrade). Check: C-DUR-05.
+
 ### 9.2 Live code documents [S3]
 
 Stage 2 has no co-editing. An open File card is read-only to everyone except through SSH, the terminal and the agent, and it reloads within 1 s of a change event (§9.3.4) that touches its path. Stage 3 adds everything below. It all runs in the daemon under either ADR 0003 topology (§7.4.2): with a host mirror, the daemon keeps its own replica of each document, saves and acknowledges it, and the mirror is one more client (§7.4.6).
