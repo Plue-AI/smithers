@@ -180,10 +180,27 @@ func TestInstallSetupCookieBoundaryPostgres(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, services.InstallRunning, steps[2].Status)
 	require.Equal(t, signIn.OperationID, steps[2].OperationID)
+	cancel()
+	require.NoError(t, <-done)
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "sign-in-owner", LowerUsername: "sign-in-owner"})
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, owner.ID)
 	require.NoError(t, err)
+	sessionHash := sha256.Sum256([]byte("sign-in-boundary-owner-session"))
+	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{SessionKey: hex.EncodeToString(sessionHash[:]), UserID: owner.ID, Username: owner.Username, ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
+	// Claiming the owner is not the leased setup job's completion receipt.
+	// The card must keep waiting until Repository admission can proceed.
+	signedInAPI := &apiclient.Client{BaseURL: origin, Header: http.Header{"Cookie": {"smithers_session=sign-in-boundary-owner-session"}}}
+	status, err = signedInAPI.GetAPIInstall(ctx)
+	require.NoError(t, err)
+	require.NotEqual(t, "done", status.Steps[2].State)
+	workerCtx, cancel = context.WithCancel(ctx)
+	defer cancel()
+	done = make(chan error, 1)
+	go func() {
+		done <- store.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "sign-in-recovery-worker", Capacity: 1, Lease: time.Second, PollInterval: 10 * time.Millisecond, Operations: []string{"install.setup.sign_in"}}, setup.Handle)
+	}()
 	require.Eventually(t, func() bool {
 		steps, err := setup.Steps(ctx)
 		return err == nil && steps[2].Status == services.InstallReady && steps[2].OperationID == signIn.OperationID

@@ -869,7 +869,6 @@ func (s *InstallSetupService) Status(ctx context.Context) (map[string]any, error
 	github := map[string]any{"signed_in": ownerErr == nil, "app_installed": false}
 	if ownerErr == nil {
 		github["owner"] = owner.Username
-		projected[2]["state"] = InstallReady
 	}
 	app, appErr := q.GetGithubApp(ctx)
 	if appErr == nil {
