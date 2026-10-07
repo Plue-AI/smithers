@@ -207,9 +207,12 @@ func (s *workflowLogStreamStore) ListWorkflowLogsSince(_ context.Context, runID,
 // client stream for run 42.
 func openWorkflowLogStream(t *testing.T, store *workflowLogStreamStore, lastEventID string) (*pgxpool.Pool, *bufio.Reader, *http.Response) {
 	t.Helper()
+	// Database provisioning has its own deadline. Start the unchanged stream
+	// deadline only after that prerequisite completes on the shared host.
+	database := testdb.New(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	t.Cleanup(cancel)
-	pool, err := pgxpool.New(ctx, testdb.New(t).URL)
+	pool, err := pgxpool.New(ctx, database.URL)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 	broker := sse.NewBroker(pool)
