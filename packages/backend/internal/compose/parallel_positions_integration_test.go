@@ -20,6 +20,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
@@ -58,7 +59,9 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 	service := services.NewMythicalService(pool, nil)
 	service.SetInstallParallel(&services.InstallCapacityService{Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, DiskFreeBytes: 400 << 30}})
 	service.SetOrchestration(nil, nil, services.NewWorkspaceMythicalLanes(services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime))))
-	topics := &liveTopics{queries: q, todos: service}
+	store, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	topics := &liveTopics{queries: q, todos: service, jobs: store}
 	liveContext, stopLive := context.WithCancel(ctx)
 	defer stopLive()
 	bus := revocation.NewBus(pool, q)
@@ -163,6 +166,36 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 		}
 	}
 	readHome("snap", map[int]int{1: 2, 2: 3, 3: 4, 4: 5, 5: 6})
+	// The install uses the durable TODO source. Runtime-only changes must also
+	// reach an already subscribed card when no TODO journal event is appended.
+	todoConn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/api/live", &websocket.DialOptions{
+		Subprotocols: []string{live.Protocol}, HTTPHeader: http.Header{"Cookie": {"smithers_session=placement-session"}, "Origin": {cfg.Server.PublicURL}}, Host: "127.0.0.1:4000"})
+	require.NoError(t, err)
+	defer todoConn.CloseNow()
+	require.NoError(t, todoConn.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"todo:5"}`)))
+	readTodo := func(expected int) int64 {
+		t.Helper()
+		readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		_, raw, err := todoConn.Read(readCtx)
+		require.NoError(t, err)
+		var frame live.Frame
+		require.NoError(t, json.Unmarshal(raw, &frame))
+		require.Equal(t, "snap", frame.T, string(raw))
+		var card struct {
+			Queue struct {
+				Reason   string `json:"reason"`
+				Position int    `json:"position"`
+			} `json:"queue"`
+		}
+		require.NoError(t, json.Unmarshal(frame.Data, &card))
+		require.Equal(t, "machine", card.Queue.Reason)
+		require.Equal(t, expected, card.Queue.Position)
+		require.NotNil(t, frame.Cursor)
+		return *frame.Cursor
+	}
+	todoCursor := readTodo(6)
+
 	code, body := call("POST", "/api/todos/2", `{"op":"move","direction":"up"}`, "move-T2")
 	require.Equal(t, 202, code, body)
 	position(2, 2)
@@ -175,6 +208,7 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 	position(4, 4)
 	position(5, 5)
 	readHome("snap", map[int]int{1: 2, 2: 1, 3: 3, 4: 4, 5: 5})
+	require.Equal(t, todoCursor, readTodo(5), "person cancellation must refresh the card without inventing a TODO journal event")
 	code, body = call("POST", "/api/todos/3", `{"op":"drop"}`, "drop-T3")
 	require.Equal(t, 202, code, body)
 	position(4, 3)

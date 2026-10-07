@@ -459,7 +459,9 @@ including people waiting ahead of TODOs. TODO reads use the same ordered
 waiting set. Runtime-confirmed reservations and releases wake the existing
 stack worker. Waiting work remains scheduled for setting and capacity changes.
 The composed live endpoint refreshes Home positions together after reorder or
-runtime-only person cancellation, using its existing snapshot protocol.
+runtime-only person cancellation, using its existing snapshot protocol. The
+durable TODO source refreshes queue positions at the same journal cursor when
+no TODO event was appended.
 The runtime rechecks the saved parallel setting at each grant.
 
 Production safe-idle observation providers and the complete C-STK-02 journey
