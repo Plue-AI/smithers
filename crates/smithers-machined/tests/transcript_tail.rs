@@ -389,3 +389,303 @@ fn truncate_and_regrow_before_poll_starts_new_generation() {
         }]
     );
 }
+
+#[derive(Default)]
+struct TranscriptRefs;
+impl smithers_machined::outbox::Refs for TranscriptRefs {
+    fn pin_and_sync(&mut self, _: [u8; 16], _: smithers_machined::hooks::Oid) -> io::Result<()> {
+        panic!("transcripts never pin repository objects")
+    }
+    fn acknowledge_and_sync(&mut self, _: smithers_machined::hooks::Oid) -> io::Result<()> {
+        panic!("transcripts never move a repository head")
+    }
+    fn unpin(&mut self, _: [u8; 16]) -> io::Result<()> {
+        panic!("transcripts never unpin repository objects")
+    }
+    fn pending(&mut self) -> io::Result<Vec<[u8; 16]>> {
+        Ok(vec![])
+    }
+}
+fn source() -> smithers_machined::transcript::wire::Source {
+    smithers_machined::transcript::wire::Source {
+        session: 1,
+        participant: [0x44; 16],
+        lifetime: [0x33; 16],
+        profile: "claude-code/2.1.0".into(),
+    }
+}
+fn durable(
+    f: &Fixture,
+) -> (
+    smithers_machined::transcript::CheckpointStore,
+    smithers_machined::outbox::Outbox<TranscriptRefs>,
+) {
+    use std::os::unix::fs::PermissionsExt;
+    let state = f.0.join("state");
+    fs::create_dir_all(state.join("outbox")).unwrap();
+    for path in [&state, &state.join("outbox")] {
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let checkpoints = smithers_machined::transcript::CheckpointStore::new(
+        File::open(&state).unwrap(),
+        source().lifetime,
+    )
+    .unwrap();
+    let outbox = smithers_machined::outbox::Outbox::open(
+        smithers_machined::outbox_store::Store::open(
+            &state.join("outbox"),
+            rustix::process::geteuid().as_raw(),
+        )
+        .unwrap(),
+        rustix::process::geteuid().as_raw(),
+        TranscriptRefs,
+    )
+    .unwrap();
+    (checkpoints, outbox)
+}
+fn recover(f: &Fixture, checkpoint: &[u8]) -> io::Result<Tail> {
+    Tail::resume(
+        File::open(&f.0).unwrap(),
+        "session.jsonl",
+        rustix::process::getuid().as_raw(),
+        checkpoint,
+    )
+}
+#[test]
+fn durable_restart_preserves_partial_and_replacement_generation() {
+    let f = Fixture::new();
+    f.write("session.jsonl", b"{}\npar");
+    let (checkpoints, mut outbox) = durable(&f);
+    let mut tail = f.tail("session.jsonl").unwrap();
+    assert_eq!(
+        tail.poll_durable(
+            Instant::now(),
+            &source(),
+            |event| outbox.append(event, None).map(|_| ()),
+            |state| checkpoints.save(state)
+        )
+        .unwrap(),
+        1
+    );
+    let original = outbox.front().unwrap().unwrap();
+    drop(tail);
+    drop(outbox);
+    let (_, mut outbox) = durable(&f);
+    let recovered = outbox.front().unwrap().unwrap();
+    assert_eq!(
+        (recovered.seq, recovered.id, recovered.event),
+        (original.seq, original.id, original.event)
+    );
+    let mut tail = recover(&f, &checkpoints.load().unwrap().unwrap()).unwrap();
+    f.append(b"tial\n");
+    let mut actual = vec![];
+    assert_eq!(
+        tail.poll(Instant::now(), |record| {
+            actual.push(record.clone());
+            Ok(())
+        })
+        .unwrap(),
+        1
+    );
+    assert_eq!(
+        actual,
+        vec![Record {
+            generation: 1,
+            start: 3,
+            end: 11,
+            text: "partial".into()
+        }]
+    );
+    f.write("new", b"new\n");
+    fs::rename(f.0.join("new"), f.0.join("session.jsonl")).unwrap();
+    assert_eq!(
+        tail.poll_durable(
+            Instant::now() + Duration::from_secs(1),
+            &source(),
+            |event| outbox.append(event, None).map(|_| ()),
+            |state| checkpoints.save(state)
+        )
+        .unwrap(),
+        1
+    );
+    let mut tail = recover(&f, &checkpoints.load().unwrap().unwrap()).unwrap();
+    f.append(b"next\n");
+    actual.clear();
+    assert_eq!(
+        tail.poll(Instant::now(), |record| {
+            actual.push(record.clone());
+            Ok(())
+        })
+        .unwrap(),
+        1
+    );
+    assert_eq!(
+        actual,
+        vec![Record {
+            generation: 2,
+            start: 4,
+            end: 9,
+            text: "next".into()
+        }]
+    );
+}
+#[test]
+fn checkpoint_failure_replays_outbox_range_without_advancing_reader() {
+    let f = Fixture::new();
+    f.write("session.jsonl", b"{}\n");
+    let (checkpoints, mut outbox) = durable(&f);
+    let mut tail = f.tail("session.jsonl").unwrap();
+    let previous = tail.checkpoint().unwrap();
+    assert!(tail
+        .poll_durable(
+            Instant::now(),
+            &source(),
+            |event| outbox.append(event, None).map(|_| ()),
+            |_| Err(io::Error::other("disk full"))
+        )
+        .is_err());
+    assert!(checkpoints.load().unwrap().is_none());
+    let first = outbox.front().unwrap().unwrap();
+    assert_eq!(first.seq, 1);
+    assert_eq!(
+        tail.poll_durable(
+            Instant::now(),
+            &source(),
+            |event| outbox.append(event, None).map(|_| ()),
+            |state| checkpoints.save(state)
+        )
+        .unwrap(),
+        1
+    );
+    let mut replay = recover(&f, &previous).unwrap();
+    let mut actual = vec![];
+    replay
+        .poll(Instant::now(), |r| {
+            actual.push(r.clone());
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(
+        actual,
+        vec![Record {
+            generation: 1,
+            start: 0,
+            end: 3,
+            text: "{}".into()
+        }]
+    );
+    let (_, persisted) = smithers_machined::transcript::wire::Source::decode(&first.event).unwrap();
+    assert_eq!(persisted, actual.remove(0));
+    let mut resumed = recover(&f, &checkpoints.load().unwrap().unwrap()).unwrap();
+    assert_eq!(
+        resumed
+            .poll_durable(
+                Instant::now(),
+                &source(),
+                |event| outbox.append(event, None).map(|_| ()),
+                |_| Ok(())
+            )
+            .unwrap(),
+        0
+    );
+}
+#[test]
+fn checkpoint_confines_root_path_source_and_corrupt_state() {
+    let f = Fixture::new();
+    f.write("session.jsonl", b"{}\n");
+    let other = Fixture::new();
+    other.write("session.jsonl", b"sentinel\n");
+    let (store, mut outbox) = durable(&f);
+    let mut tail = f.tail("session.jsonl").unwrap();
+    tail.poll_durable(
+        Instant::now(),
+        &source(),
+        |event| outbox.append(event, None).map(|_| ()),
+        |state| store.save(state),
+    )
+    .unwrap();
+    let state = store.load().unwrap().unwrap();
+    assert!(recover(&other, &state).is_err());
+    assert!(Tail::resume(
+        File::open(&f.0).unwrap(),
+        "another.jsonl",
+        rustix::process::getuid().as_raw(),
+        &state
+    )
+    .is_err());
+    for field in ["version", "owner", "root", "framer"] {
+        let mut bad: serde_json::Value = serde_json::from_slice(&state).unwrap();
+        bad[field] = serde_json::json!(0);
+        assert!(recover(&f, &serde_json::to_vec(&bad).unwrap()).is_err());
+    }
+    for bytes in [b"null".as_slice(), b"{}", b"{"] {
+        assert!(recover(&f, bytes).is_err());
+    }
+    let mut resumed = recover(&f, &state).unwrap();
+    let mut impostor = source();
+    impostor.lifetime[0] += 1;
+    assert!(resumed
+        .poll_durable(
+            Instant::now(),
+            &impostor,
+            |event| outbox.append(event, None).map(|_| ()),
+            |_| panic!("must refuse before saving")
+        )
+        .is_err());
+    assert_eq!(
+        fs::read(other.0.join("session.jsonl")).unwrap(),
+        b"sentinel\n"
+    );
+}
+#[test]
+fn durable_checkpoint_remains_on_held_directory_and_refuses_links() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = Fixture::new();
+    let (store, _) = durable(&f);
+    assert!(store.load().unwrap().is_none());
+    store.save(b"first").unwrap();
+    let name = "33333333333333333333333333333333.tail";
+    fs::rename(f.0.join("state"), f.0.join("held")).unwrap();
+    fs::create_dir(f.0.join("state")).unwrap();
+    fs::set_permissions(f.0.join("state"), fs::Permissions::from_mode(0o700)).unwrap();
+    f.write("state/sentinel", b"sentinel");
+    symlink("sentinel", f.0.join("state").join(name)).unwrap();
+    store.save(b"second").unwrap();
+    assert_eq!(store.load().unwrap().unwrap(), b"second");
+    assert_eq!(fs::read(f.0.join("state/sentinel")).unwrap(), b"sentinel");
+    let forged = smithers_machined::transcript::CheckpointStore::new(
+        File::open(f.0.join("state")).unwrap(),
+        source().lifetime,
+    )
+    .unwrap();
+    assert!(forged.load().is_err());
+    fs::remove_file(f.0.join("state").join(name)).unwrap();
+    fs::hard_link(f.0.join("state/sentinel"), f.0.join("state").join(name)).unwrap();
+    assert!(forged.load().is_err());
+}
+#[test]
+fn checkpoint_preserves_malformed_and_revoked_refusals_after_restart() {
+    let f = Fixture::new();
+    f.write("session.jsonl", b"{}\n\0\nignored trailing bytes\n");
+    let (store, mut outbox) = durable(&f);
+    let mut tail = f.tail("session.jsonl").unwrap();
+    assert!(tail
+        .poll_durable(
+            Instant::now(),
+            &source(),
+            |event| outbox.append(event, None).map(|_| ()),
+            |state| store.save(state)
+        )
+        .is_err());
+    assert!(outbox.front().unwrap().is_some()); // valid preceding record survives
+    let mut restored = recover(&f, &store.load().unwrap().unwrap()).unwrap();
+    assert!(restored
+        .poll(Instant::now(), |_| panic!("stopped reader"))
+        .is_err());
+    let mut tail = f.tail("session.jsonl").unwrap();
+    tail.revoke();
+    let mut restored = recover(&f, &tail.checkpoint().unwrap()).unwrap();
+    assert!(restored
+        .poll(Instant::now(), |_| panic!("revoked reader"))
+        .is_err());
+}

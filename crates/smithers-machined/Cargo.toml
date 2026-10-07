@@ -20,6 +20,8 @@ similar = "=2.7.0"
 tokio = { version = "1", features = ["sync", "rt", "macros"] }
 hmac = "0.12"
 getrandom = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 rustix = { version = "=1.1.4", features = ["fs", "net", "process", "pty", "termios", "thread", "mount", "rand"] }
 [dev-dependencies]
 gix = "0.85"
