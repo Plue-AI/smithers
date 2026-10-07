@@ -2,11 +2,14 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -805,6 +808,15 @@ func (s *WorkspaceService) ReportWorkspaceHead(ctx context.Context, input Report
 	if s.installQueries == nil {
 		return s.reportWorkspaceHead(ctx, input)
 	}
+	input.CodingOperations = slices.Clone(input.CodingOperations)
+	for i := range input.CodingOperations {
+		input.CodingOperations[i].ChangeIDs = slices.Clone(input.CodingOperations[i].ChangeIDs)
+	}
+	if input.RetainSource != nil {
+		source := *input.RetainSource
+		source.ParentCommitIDs = slices.Clone(source.ParentCommitIDs)
+		input.RetainSource = &source
+	}
 	subject := InstallSubject{RepositoryID: input.RepositoryID, WorkspaceID: strings.TrimSpace(input.WorkspaceID)}
 	command := "workspace.head"
 	if info := middleware.AuthInfoFromContext(ctx); input.RetainSource != nil && info != nil && info.CredentialKind() == middleware.CredentialAgentRun {
@@ -816,9 +828,19 @@ func (s *WorkspaceService) ReportWorkspaceHead(ctx context.Context, input Report
 		command = "stack.candidate"
 		input.TokenWorkspaceID = subject.WorkspaceID
 	}
-	if _, err := Authorize(ctx, s.installQueries, command, subject); err != nil {
+	payload, err := InstallWorkspaceHeadSubject(input)
+	if err != nil {
 		return WorkspaceResponse{}, err
 	}
+	subject.PayloadDigest = payload.PayloadDigest
+	decision, err := Authorize(ctx, s.installQueries, command, subject)
+	if err != nil {
+		return WorkspaceResponse{}, err
+	}
+	if decision.UserID != input.UserID {
+		return WorkspaceResponse{}, confirmationPermission()
+	}
+	ctx = WithInstallAuthorization(ctx, command, decision, subject)
 	if s.transactions == nil {
 		return WorkspaceResponse{}, pkgerrors.Internal("workspace authorization store unavailable")
 	}
@@ -1122,4 +1144,22 @@ func (s *WorkspaceService) workspaceCommitTree(ctx context.Context, workspace db
 		return "", pkgerrors.Conflict("live tree could not be verified")
 	}
 	return tree, nil
+}
+
+// InstallWorkspaceHeadSubject binds a decoded report, including retained source
+// and coding projections, to the workspace publication decision.
+func InstallWorkspaceHeadSubject(input ReportWorkspaceHeadInput) (InstallSubject, error) {
+	if input.RetainSource != nil {
+		if err := input.RetainSource.Validate(); err != nil {
+			return InstallSubject{}, pkgerrors.BadRequest("invalid retained source")
+		}
+	} else if err := validateCodingProjections(input.CodingOperations); err != nil {
+		return InstallSubject{}, err
+	}
+	raw, err := json.Marshal(input)
+	if err != nil {
+		return InstallSubject{}, pkgerrors.BadRequest("invalid workspace head report")
+	}
+	digest := sha256.Sum256(raw)
+	return InstallSubject{RepositoryID: input.RepositoryID, WorkspaceID: strings.TrimSpace(input.WorkspaceID), PayloadDigest: hex.EncodeToString(digest[:])}, nil
 }

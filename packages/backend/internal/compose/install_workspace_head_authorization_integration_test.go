@@ -104,14 +104,24 @@ func TestInstallWorkspaceHeadCommandPostgres(t *testing.T) {
 		ctx := middleware.ContextWithAuthInfo(f.ctx, info)
 		var decisions []string
 		ctx = services.WithAuthorizationObserver(ctx, func(command string) { decisions = append(decisions, command) })
-		subject := services.InstallSubject{RepositoryID: f.repoID, WorkspaceID: own.ID}
+		input := services.ReportWorkspaceHeadInput{WorkspaceID: own.ID, RepositoryID: f.repoID, UserID: f.owner.ID, TokenWorkspaceID: own.ID, ChangeID: "direct-change", CommitID: "direct-commit"}
+		subject, err := services.InstallWorkspaceHeadSubject(input)
+		require.NoError(t, err)
 		decision, err := services.Authorize(ctx, f.q, "workspace.head", subject)
 		require.NoError(t, err)
 		ctx = services.WithInstallAuthorization(ctx, "workspace.head", decision, subject)
-		input := services.ReportWorkspaceHeadInput{WorkspaceID: own.ID, RepositoryID: f.repoID, UserID: f.owner.ID, TokenWorkspaceID: own.ID, ChangeID: "direct-change", CommitID: "direct-commit"}
 		_, err = service.ReportWorkspaceHead(ctx, input)
 		require.NoError(t, err)
 		require.Equal(t, []string{"workspace.head"}, decisions, "direct service reuses the admitted subject")
+		changed := input
+		changed.CommitID = "substituted-commit"
+		_, err = service.ReportWorkspaceHead(ctx, changed)
+		var payloadRefusal *services.AccessError
+		require.ErrorAs(t, err, &payloadRefusal)
+		require.Equal(t, 403, payloadRefusal.Status)
+		current, err := f.q.GetWorkspace(f.ctx, own.ID)
+		require.NoError(t, err)
+		require.Equal(t, "direct-commit", current.HeadCommitID)
 		input.WorkspaceID = other.ID
 		_, err = service.ReportWorkspaceHead(ctx, input)
 		var refusal *services.AccessError
@@ -136,7 +146,9 @@ func TestInstallWorkspaceHeadCommandPostgres(t *testing.T) {
 			ctx := middleware.ContextWithAuthInfo(f.ctx, info)
 			count := 0
 			ctx = services.WithAuthorizationObserver(ctx, func(string) { count++ })
-			subject := services.InstallSubject{RepositoryID: f.repoID, WorkspaceID: own.ID}
+			input := services.ReportWorkspaceHeadInput{WorkspaceID: own.ID, RepositoryID: f.repoID, UserID: f.owner.ID, TokenWorkspaceID: own.ID, ChangeID: "stale", CommitID: "stale"}
+			subject, err := services.InstallWorkspaceHeadSubject(input)
+			require.NoError(t, err)
 			decision, err := services.Authorize(ctx, f.q, "workspace.head", subject)
 			require.NoError(t, err)
 			ctx = services.WithInstallAuthorization(ctx, "workspace.head", decision, subject)
@@ -156,7 +168,7 @@ func TestInstallWorkspaceHeadCommandPostgres(t *testing.T) {
 				}()
 			}
 			require.NoError(t, err)
-			_, err = service.ReportWorkspaceHead(ctx, services.ReportWorkspaceHeadInput{WorkspaceID: own.ID, RepositoryID: f.repoID, UserID: f.owner.ID, TokenWorkspaceID: own.ID, ChangeID: "stale", CommitID: "stale"})
+			_, err = service.ReportWorkspaceHead(ctx, input)
 			var refusal *services.AccessError
 			require.ErrorAs(t, err, &refusal)
 			require.Equal(t, testCase.status, refusal.Status)
@@ -171,7 +183,9 @@ func TestInstallWorkspaceHeadCommandPostgres(t *testing.T) {
 		ctx := middleware.ContextWithAuthInfo(f.ctx, info)
 		count := 0
 		ctx = services.WithAuthorizationObserver(ctx, func(string) { count++ })
-		subject := services.InstallSubject{RepositoryID: f.repoID, WorkspaceID: own.ID}
+		input := services.ReportWorkspaceHeadInput{WorkspaceID: own.ID, RepositoryID: f.repoID, UserID: f.owner.ID, TokenWorkspaceID: own.ID, ChangeID: "revoked", CommitID: "revoked"}
+		subject, err := services.InstallWorkspaceHeadSubject(input)
+		require.NoError(t, err)
 		decision, err := services.Authorize(ctx, f.q, "workspace.head", subject)
 		require.NoError(t, err)
 		ctx = services.WithInstallAuthorization(ctx, "workspace.head", decision, subject)
@@ -179,7 +193,7 @@ func TestInstallWorkspaceHeadCommandPostgres(t *testing.T) {
 		require.NoError(t, err)
 		_, err = f.pool.Exec(f.ctx, `DELETE FROM access_tokens WHERE id=$1`, stored.TokenID)
 		require.NoError(t, err)
-		_, err = service.ReportWorkspaceHead(ctx, services.ReportWorkspaceHeadInput{WorkspaceID: own.ID, RepositoryID: f.repoID, UserID: f.owner.ID, TokenWorkspaceID: own.ID, ChangeID: "revoked", CommitID: "revoked"})
+		_, err = service.ReportWorkspaceHead(ctx, input)
 		var refusal *services.AccessError
 		require.ErrorAs(t, err, &refusal)
 		require.Equal(t, 401, refusal.Status)
