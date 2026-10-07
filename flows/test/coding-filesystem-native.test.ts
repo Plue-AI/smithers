@@ -5,7 +5,7 @@ import * as Edit from "@smthrs/std/Edit"
 import * as Read from "@smthrs/std/Read"
 import { StdError } from "@smthrs/std/StdError"
 import * as Write from "@smthrs/std/Write"
-import { Effect, FileSystem } from "effect"
+import { Effect, FileSystem, Sink, Stream } from "effect"
 import { ChildProcessSpawner } from "effect/unstable/process"
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
@@ -222,6 +222,120 @@ test("whole patch later-stale and exchange refusals leave earlier bytes and ledg
       assert.equal(yield* fs.readFileString(join(root, "moved")), "moved\n")
       yield* call(Write.run({ path: join(root, "moved"), content: "own move" }))
       yield* call(Write.run({ path: join(root, "b"), content: "own deletion" }))
+    }).pipe(Effect.provide(NodeServices.layer))
+  )
+})
+
+// Test-only client transport; kernel cgroup admission still needs the reference host.
+test("installed coding std tools use the daemon client and refuse unsupported settlements", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "coding-daemon-client-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const hello = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+  const world = "486ea46224d1bb4fb680f34f7c9ad96a8f24ec88be73ea8e5a6c65260e9cb8a7"
+  const path = join(root, "a")
+  await writeFile(path, "hello")
+  const calls: Array<ReadonlyArray<string>> = []
+  let mode: "success" | "stale" | "reply" = "success"
+  let reply = "", status = 0
+  const spawner = ChildProcessSpawner.make((command) =>
+    Effect.gen(function*() {
+      assert.equal(command._tag, "StandardCommand")
+      if (command._tag !== "StandardCommand") return yield* Effect.die("unexpected pipe")
+      assert.equal(command.command, "/opt/smithers/bin/smithers-machined")
+      assert.equal(command.options.cwd, "/workspace")
+      assert.equal(command.args[0], "client")
+      assert.equal(command.args[1], "write-file")
+      assert.equal(command.args[3], "--base")
+      assert.equal(command.args.length, 5, "the client derives the run; no actor is sent")
+      assert.ok(Stream.isStream(command.options.stdin))
+      const content = yield* Stream.mkString(Stream.decodeText(command.options.stdin as Stream.Stream<Uint8Array>))
+      calls.push(command.args)
+      let output = reply, exit = status
+      if (mode === "success") {
+        assert.ok(content === "hello" || content === "world")
+        yield* Effect.promise(() => writeFile(join(root, command.args[2]!), content))
+        output = JSON.stringify({ post_digest: content === "hello" ? hello : world })
+        exit = 0
+      } else if (mode === "stale") {
+        yield* Effect.promise(() => writeFile(path, "world"))
+        output = JSON.stringify({ error: { code: "stale", current_digest: world } })
+        exit = 1
+      }
+      return ChildProcessSpawner.makeHandle({
+        pid: ChildProcessSpawner.ProcessId(1),
+        exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(exit)),
+        isRunning: Effect.succeed(false),
+        kill: () => Effect.void,
+        stdin: Sink.drain,
+        stdout: Stream.make(new TextEncoder().encode(output)),
+        stderr: Stream.empty,
+        all: Stream.empty,
+        getInputFd: () => Sink.drain,
+        getOutputFd: () => Stream.empty,
+        unref: Effect.succeed(Effect.void)
+      })
+    })
+  )
+  await Effect.runPromise(
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const coding = CodingFileSystem.make({ repositoryPath: root }, fs, spawner, "/workspace")
+      const call = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+        effect.pipe(
+          Effect.provideService(FileSystem.FileSystem, coding),
+          Effect.provideService(Read.ReadSession, "model-ledger-id")
+        )
+      assert.equal((yield* Effect.flip(call(Write.run({ path, content: "world" })))).code, "stale_read")
+      assert.equal(calls.length, 0)
+      yield* call(Read.run({ path }))
+      yield* call(Write.run({ path, content: "world" }))
+      assert.equal(calls[0]![4], hello)
+      yield* call(Edit.run({ path, oldString: "world", newString: "hello" }))
+      assert.equal(calls[1]![4], world, "successful own write advances the ledger")
+      mode = "stale"
+      const refused = yield* Effect.flip(call(Write.run({ path, content: "hello" })))
+      assert.equal(refused.code, "stale_read")
+      assert.equal(refused.base_digest, hello)
+      assert.equal(refused.current_digest, world)
+      assert.equal(yield* fs.readFileString(path), "world")
+      yield* call(Read.run({ path }))
+      mode = "reply"
+      for (
+        const [body, code] of [
+          ["not json", 0],
+          ["null", 0],
+          ["[]", 0],
+          ["x".repeat(65537), 0],
+          [JSON.stringify({ post_digest: hello }), 1],
+          [JSON.stringify({ post_digest: world }), 0],
+          [JSON.stringify({ error: { code: "unauthorized" } }), 1],
+          [JSON.stringify({ error: { code: "stale", current_digest: "invalid" } }), 1],
+          [JSON.stringify({ error: { code: "stale", current_digest: world } }), 0]
+        ] as const
+      ) {
+        reply = body
+        status = code
+        assert.equal((yield* Effect.flip(call(Write.run({ path, content: "hello" })))).code, "provider_unavailable")
+        assert.equal(calls.at(-1)![4], world, "bad receipts never advance the ledger")
+        assert.equal(yield* fs.readFileString(path), "world")
+      }
+      reply = JSON.stringify({ error: { code: "stale" } })
+      status = 1
+      assert.equal((yield* Effect.flip(call(Write.run({ path, content: "hello" })))).current_digest, "absent")
+      mode = "success"
+      const added = join(root, "b")
+      yield* call(Write.run({ path: added, content: "hello" }))
+      assert.equal(calls.at(-1)![4], "absent")
+      const before = calls.length
+      for (
+        const patch of [
+          `*** Begin Patch\n*** Update File: ${path}\n@@\n-world\n+hello\n*** Update File: ${added}\n@@\n-hello\n+world\n*** End Patch`,
+          `*** Begin Patch\n*** Delete File: ${added}\n*** End Patch`
+        ]
+      ) assert.equal((yield* Effect.flip(call(ApplyPatch.run({ input: patch })))).code, "provider_unavailable")
+      assert.equal(calls.length, before, "no partial patch reaches the daemon")
+      assert.equal(yield* fs.readFileString(path), "world")
+      assert.equal(yield* fs.readFileString(added), "hello")
     }).pipe(Effect.provide(NodeServices.layer))
   )
 })
