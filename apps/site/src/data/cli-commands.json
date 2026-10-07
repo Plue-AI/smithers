@@ -26,6 +26,55 @@
       }
     },
     {
+      "name": "agent edit",
+      "description": "Propose an instruction change; waits for the person's confirmation",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "enum": [
+                "planner",
+                "implementer",
+                "reviewer",
+                "app"
+              ]
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "request": {
+              "type": "string",
+              "minLength": 1
+            },
+            "diff": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "request",
+            "verbose"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
       "name": "agents",
       "description": "The factory's agents",
       "schema": {

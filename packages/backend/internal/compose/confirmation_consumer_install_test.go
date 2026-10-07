@@ -39,6 +39,19 @@ func TestConfirmFlowEditConsumerInstall(t *testing.T) {
 	}
 }
 
+func TestConfirmAgentEditConsumerInstall(t *testing.T) {
+	for _, tc := range []struct{ role, title, prompt string }{
+		{"app", "Change the App agent: Be brief", "Change instructions for the App agent in .smithers/instructions/app.md: Be brief; keep current instructions until the TODO merges"},
+		{"planner", "Change the Planner agent: Be brief", "Change instructions for the Planner agent in flows/todo/flow.ts: Be brief; keep current instructions until the TODO merges"},
+		{"implementer", "Change the Implementer agent: Be brief", "Change instructions for the Implementer agent in flows/todo/flow.ts: Be brief; keep current instructions until the TODO merges"},
+		{"reviewer", "Change the Reviewer agent: Be brief", "Change instructions for the Reviewer agent in flows/todo/flow.ts: Be brief; keep current instructions until the TODO merges"},
+	} {
+		t.Run(tc.role, func(t *testing.T) {
+			testConfirmTodoConsumerInstall(t, tc.title, tc.prompt, "codex", `{"request":"Be brief"}`, "/api/agents/"+tc.role+"/edit")
+		})
+	}
+}
+
 func testConfirmTodoConsumerInstall(t *testing.T, wantTitle, wantPrompt, via string, flowBody ...string) {
 	t.Helper()
 	_, _, pool := splitProcessDatabase(t)
@@ -117,6 +130,9 @@ func testConfirmTodoConsumerInstall(t *testing.T, wantTitle, wantPrompt, via str
 	endpoint := "/api/todos"
 	if len(flowBody) > 0 {
 		input, endpoint = flowBody[0], "/api/flows/todo/edit"
+		if len(flowBody) > 1 {
+			endpoint = flowBody[1]
+		}
 		refused := call("POST", "/api/flows/merge/edit", `{"request":"Change merge"}`, "builtin-edit", true)
 		require.Equal(t, 409, refused.Code, refused.Body.String())
 		require.Contains(t, refused.Body.String(), `"code":"flow_builtin"`)
@@ -139,11 +155,15 @@ func testConfirmTodoConsumerInstall(t *testing.T, wantTitle, wantPrompt, via str
 	require.Contains(t, changed.Body.String(), `"code":"idempotency_mismatch"`)
 	expectedApprovals := 1
 	if len(flowBody) > 0 {
-		// A newly Active flow version invalidates the proposal before filing.
-		_, err = q.InsertFlowVersion(ctx, repo.ID, "todo", "flows/todo/flow.ts", strings.Repeat("a", 40), strings.Repeat("b", 64), "loaded", "", []byte(`{"steps":[]}`))
-		require.NoError(t, err)
-		_, err = q.ActivateFlowVersion(ctx, repo.ID, "todo", strings.Repeat("b", 64))
-		require.NoError(t, err)
+		// A newly Active source version invalidates the proposal before filing.
+		if endpoint == "/api/agents/app/edit" {
+			require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: fmt.Sprintf("agent.instructions.main:%d", repo.ID), Value: []byte(`"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"`)}))
+		} else {
+			_, err = q.InsertFlowVersion(ctx, repo.ID, "todo", "flows/todo/flow.ts", strings.Repeat("a", 40), strings.Repeat("b", 64), "loaded", "", []byte(`{"steps":[]}`))
+			require.NoError(t, err)
+			_, err = q.ActivateFlowVersion(ctx, repo.ID, "todo", strings.Repeat("b", 64))
+			require.NoError(t, err)
+		}
 		stale := call("POST", "/api/confirmations/"+receipt.ID+"/approve", `{}`, "stale-flow-press", false)
 		require.Equal(t, 409, stale.Code, stale.Body.String())
 		var staleState string
