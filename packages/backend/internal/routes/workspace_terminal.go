@@ -70,9 +70,12 @@ type workspaceRuntimeTerminalService interface {
 
 // WorkspaceTerminalHandler handles the WebSocket terminal endpoint for workspace sessions.
 type WorkspaceTerminalHandler struct {
-	Service        WorkspaceTerminalService
-	Metrics        *SmithersMetrics
-	AllowedOrigins []string
+	TerminalTokenLookup middleware.TerminalTokenLookup
+	OwnerTerminals      OwnerTerminalProvider
+	OwnerOnly           bool
+	Service             WorkspaceTerminalService
+	Metrics             *SmithersMetrics
+	AllowedOrigins      []string
 	// SessionCookieName identifies the browser session cookie. An empty value
 	// uses the default cookie name used by the auth middleware.
 	SessionCookieName string
@@ -172,6 +175,10 @@ func (h *WorkspaceTerminalHandler) hasSessionCookie(r *http.Request) bool {
 //
 //	{"type": "resize", "cols": 120, "rows": 40}
 func (h *WorkspaceTerminalHandler) TerminalWebSocket(w http.ResponseWriter, r *http.Request) {
+	if h.OwnerOnly {
+		h.ownerTerminalWebSocket(w, r)
+		return
+	}
 	requestCtx := r.Context()
 	guard := watchWorkspaceSocket(r)
 	defer guard.close()
@@ -643,55 +650,6 @@ func (h *WorkspaceTerminalHandler) pipeSSHToWS(ctx context.Context, ws *websocke
 				slog.Debug("ssh read error", "error", err, "session_id", sessionID)
 			}
 			return
-		}
-	}
-}
-
-// pipeWSToSSH reads from WebSocket and writes to SSH stdin. Text messages are parsed as
-// control commands (e.g. resize). Binary messages are raw terminal input.
-// notifyActivity is called on every received message so the caller can refresh idle timers.
-func (h *WorkspaceTerminalHandler) pipeWSToSSH(ctx context.Context, ws *websocket.Conn, stdin io.WriteCloser, sshSess *gossh.Session, sessionID string, notifyActivity func()) {
-	defer func() { _ = stdin.Close() }()
-
-	for {
-		msgType, data, err := ws.Read(ctx)
-		if err != nil {
-			if websocket.CloseStatus(err) != -1 {
-				slog.Debug("websocket closed by client", "session_id", sessionID)
-			} else {
-				slog.Debug("websocket read error", "error", err, "session_id", sessionID)
-			}
-			return
-		}
-
-		notifyActivity()
-
-		switch msgType {
-		case websocket.MessageBinary:
-			// Raw terminal input -> SSH stdin.
-			if _, writeErr := stdin.Write(data); writeErr != nil {
-				slog.Debug("ssh stdin write error", "error", writeErr, "session_id", sessionID)
-				return
-			}
-
-		case websocket.MessageText:
-			// Parse as JSON control message.
-			var msg terminalResizeMsg
-			if jsonErr := json.Unmarshal(data, &msg); jsonErr != nil {
-				slog.Debug("invalid terminal control message", "error", jsonErr, "session_id", sessionID)
-				continue
-			}
-
-			switch msg.Type {
-			case "resize":
-				if msg.Cols > 0 && msg.Rows > 0 {
-					if err := sshSess.WindowChange(int(msg.Rows), int(msg.Cols)); err != nil {
-						slog.Debug("ssh window change failed", "error", err, "session_id", sessionID)
-					}
-				}
-			default:
-				slog.Debug("unknown terminal control message type", "type", msg.Type, "session_id", sessionID)
-			}
 		}
 	}
 }

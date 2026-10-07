@@ -580,6 +580,9 @@ func (r *Runtime) admissionIdleCandidateLocked(now time.Time, observations []Adm
 		if h == nil || !h.held || !h.releasing.IsZero() || h.idlePreparing || s.IdleSince.IsZero() || s.IdleSince.After(now) {
 			continue
 		}
+		if r.terminalHold != nil && r.terminalHold(s.Holder) {
+			continue
+		}
 		if !s.PresenceKnown || !s.SessionsKnown || !s.RunKnown || s.Presence || s.Terminal || s.SSH || s.RunningStep {
 			continue
 		}
@@ -818,4 +821,12 @@ func (r *Runtime) notifyAdmissionOwnershipLocked() {
 		close(r.admissionOwnershipChanged)
 	}
 	r.admissionOwnershipChanged = make(chan struct{})
+}
+
+// SetTerminalHoldSource supplements (never replaces) presence/session/run
+// observations. The callback is memory-only and must not call the runtime.
+func (r *Runtime) SetTerminalHoldSource(held func(string) bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.terminalHold = held
 }

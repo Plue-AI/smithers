@@ -463,6 +463,8 @@ var installMemberRoutes = []struct {
 	// The relay resolves its body command before workspace lookup or dispatch.
 	{http.MethodPost, "flow.relay", regexp.MustCompile(`^/api/workflow/rpc$`)},
 	{http.MethodPost, "box.resume", regexp.MustCompile(`^/api/workflow/provision$`)},
+	{http.MethodPost, "terminal", regexp.MustCompile(`^/api/terminals$`)},
+	{http.MethodGet, "terminal.watch", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspace/sessions/[^/]+/terminal$`)},
 	{http.MethodGet, "self", regexp.MustCompile(`^/api/user$`)},
 	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/user/keys(?:/[0-9]+)?$`)},
 	{http.MethodGet, "self", regexp.MustCompile(`^/api/confirmations$`)},
@@ -756,6 +758,12 @@ func loadTokenAuthByHash(ctx context.Context, queries AuthLoaderQuerier, tokenHa
 	if err != nil {
 		if !stdErrors.Is(err, pgx.ErrNoRows) {
 			return nil, err
+		}
+		if lookup, ok := ctx.Value(terminalTokenLookupKey{}).(TerminalTokenLookup); ok && lookup != nil {
+			info, err := lookup(ctx, tokenHash)
+			if err != nil || info != nil {
+				return info, err
+			}
 		}
 		return loadOAuth2TokenAuth(ctx, queries, tokenHash)
 	}

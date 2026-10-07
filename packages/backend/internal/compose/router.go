@@ -178,6 +178,9 @@ func buildRouter(
 		extras.Catalog = routes.NewPublicRepositoryCatalog(queries)
 	}
 	r := chi.NewRouter()
+	if workspaceTerminalHandler != nil && workspaceTerminalHandler.TerminalTokenLookup != nil {
+		r.Use(middleware.WithTerminalTokenLookup(workspaceTerminalHandler.TerminalTokenLookup))
+	}
 	// Retired browser builds must fail before any install-authority fallback.
 	// There is no handler, credential issuance or model admission behind these addresses.
 	r.Use(func(next http.Handler) http.Handler {
@@ -962,7 +965,7 @@ func buildRouter(
 					rateLimitRejectObserver,
 				),
 			)
-			r.With(writeTerminal...).Get("/api/repos/{owner}/{repo}/workspace/sessions/{id}/terminal", workspaceTerminalHandler.TerminalWebSocket)
+			r.With(append(writeTerminal, memberCommands(queries))...).Get("/api/repos/{owner}/{repo}/workspace/sessions/{id}/terminal", workspaceTerminalHandler.TerminalWebSocket)
 			// LSP relay (#505): the same chain, open-rate limiter, and active cap
 			// as the terminal; the handler checks the session kind.
 			r.With(writeTerminal...).Get("/api/repos/{owner}/{repo}/workspace/sessions/{id}/lsp", workspaceTerminalHandler.LSPWebSocket)
@@ -1023,7 +1026,7 @@ func buildRouter(
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)).Get("/stack", extras.Live.Stack)
 		}
 		if config.IsSingleOwner(cfg.Auth) && workspaceTerminalHandler != nil {
-			r.With(middleware.RequireAuth).Post("/terminals", workspaceTerminalHandler.OpenTerminal)
+			r.With(middleware.RequireAuth, middleware.WorkspaceTerminalOpenRateLimitWithObserver(queries, cfg.RateLimit.TerminalOpenPerMin, rateLimitRejectObserver)).Post("/terminals", workspaceTerminalHandler.OpenTerminal)
 		}
 		if config.IsSingleOwner(cfg.Auth) && extras.Mythical != nil {
 			service, _ := extras.Mythical.Service.(routes.TodoRouteService)
