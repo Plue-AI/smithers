@@ -283,25 +283,30 @@ describe("THE FORM LAW — filling and submitting", () => {
     expect(messages(store).find((message) => message.action?.flow === "runs.resume")?.action?.args).toBe("run-9")
   })
 
-  test("host-owned and person-only commands refuse before opening agent forms", async () => {
-    const { store, controller, issueReads } = await boot(true)
+  test("person-only commands refuse before opening agent forms; issue drafting opens the person's private Draft (#3457)", async () => {
+    const { store, controller, puts, issueReads } = await boot(true)
     await loadBox(store, "will/flows")
     await store.dispatch({ type: "repo.selected", actor: "user", id: `will/flows#workspace:${TEST_BOX}` }).isPersisted.promise
     await store.dispatch({ type: "card.upsert", actor: "system", card: {
       id: "issue-github-will/flows-212", kind: "issue", title: "Fix the form", status: "active", createdAt: 1, ordinal: store.nextOrdinal(),
       payload: { number: 212, repo: "will/flows", source: "github", title: "Fix the form", state: "open", author: "will", issueBody: "Keep the values", labels: [], comments: [] }
     } }).isPersisted.promise
-    for (const args of [undefined, "212"]) {
-      expect(await execute(controller, "todo.from-issue", args)).toBe("failed: this command runs on the conversation host")
-    }
+    // #3457 (8394b4550c, 7202ae1903): an agent's issue-drafting request opens the
+    // person's private Draft form; the person confirms, so the agent mutates nothing.
+    expect(await execute(controller, "todo.from-issue", undefined)).toStartWith("rendered a form")
+    expect(await execute(controller, "todo.from-issue", "212")).toStartWith('asked the user to confirm "/todo.from-issue 212"')
+    expect(formOf(store, "todo.from-issue")).toBeDefined()
     for (const args of [undefined, "nightly will/flows"]) {
       expect(await execute(controller, "triggers.pause", args)).toStartWith("failed: /triggers.pause is user-only")
     }
-    for (const flow of ["todo.from-issue", "triggers.pause"]) {
-      expect(formOf(store, flow)).toBeUndefined()
-      expect(messages(store).filter(message => message.action?.flow === flow)).toEqual([])
-    }
-    expect(issueReads).toEqual([])
+    expect(formOf(store, "triggers.pause")).toBeUndefined()
+    expect(messages(store).filter(message => message.action?.flow === "triggers.pause")).toEqual([])
+    // The only issue-drafting trace is the pending confirmation the person answers.
+    expect(messages(store).filter(message => message.action?.flow === "todo.from-issue").map(message => message.text))
+      .toEqual(["Smithers wants to make a TODO from the issue (212). It runs when you confirm."])
+    // Preparing the Draft reads only the selected issue's synced projection.
+    expect(new Set(issueReads)).toEqual(new Set(["/api/issues/212"]))
+    expect(puts).toEqual([])
     await controller.dispose()
   })
 })
