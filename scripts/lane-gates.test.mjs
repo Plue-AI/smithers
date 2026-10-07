@@ -24,6 +24,9 @@ for (const [label, output, baseline, allowed] of [
   ['bun', '(fail) some test [1.20ms]', 'some test', true],
   ['vitest FAIL', ' FAIL  some test', 'some test', true],
   ['vitest cross', ' × some test', 'some test', true],
+  ['vitest timed cross', ' × some test 124ms', 'some test', true],
+  ['vitest decimal duration', ' × some test 1.25s', 'some test', true],
+  ['vitest new timed failure', ' × new test 124ms', 'some test', false],
   ['ANSI node', '\x1b[31m✖ some test (1ms)\x1b[0m', 'some test', true],
   ['missing tool baseline', 'Error: compiler unavailable', 'other test', false]
 ]) test(label, t => {

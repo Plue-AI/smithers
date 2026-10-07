@@ -6,7 +6,7 @@
 # Rule: no new failing names. Only name-free tool failures may use a tool-failure baseline.
 set -u
 # Failing names: Node spec/TAP, Go tests and subtests (TestX, TestX/sub), bun "(fail) name", vitest "FAIL|× name".
-extract() { local esc=$'\033'; sed -E "s/${esc}\\[[0-9;]*[mK]//g" | sed -n -E '/^ *✖ failing tests:$/d; s/^ *--- FAIL: ([^ ]+).*/\1/p; s/^\(fail\) (.*) \[[0-9.]+m?s\]$/\1/p; s/^ *(FAIL|×) +(.*)$/\2/p; s/^ *✖ +(.*)$/\1/p; s/^ *not ok [0-9]+ - (.*)$/\1/p' | sed -E 's/ \([0-9.]+m?s\)$//; s/ # (TODO|SKIP).*//' | sort -u; }
+extract() { local esc=$'\033'; sed -E "s/${esc}\\[[0-9;]*[mK]//g" | sed -n -E '/^ *✖ failing tests:$/d; s/^ *--- FAIL: ([^ ]+).*/\1/p; s/^\(fail\) (.*) \[[0-9.]+m?s\]$/\1/p; s/^ *(FAIL|×) +(.*)$/\2/p; s/^ *✖ +(.*)$/\1/p; s/^ *not ok [0-9]+ - (.*)$/\1/p' | sed -E 's/ \([0-9.]+m?s\)$//; s/ [0-9.]+m?s$//; s/ # (TODO|SKIP).*//' | sort -u; }
 check() {
   local name=$1 cmd=$2 out rc names n
   echo "== $name: $cmd" >> "$log"
