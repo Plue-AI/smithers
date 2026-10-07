@@ -81,6 +81,11 @@ it("authenticates only the issuer's session file and freezes the bridge origin",
     .rejects.toMatchObject({ code: "token_file_unavailable" })
   await expect(new Client({ environment: { ...f.environment, SMITHERS_TERMINAL_SESSION: undefined } })
     .response("POST", "/probe", {})).rejects.toMatchObject({ code: "token_file_unavailable" })
+  const auth = join(f.directory, "saved-login.json")
+  await writeFile(auth, JSON.stringify({ api_url: f.issuer, token: f.token }))
+  await expect(new Client({ environment: { ...f.environment, SMITHERS_TOKEN_FILE: undefined,
+    SMITHERS_AUTH_FILE: auth, SMITHERS_DISABLE_SYSTEM_KEYRING: "1" } }).response("POST", "/probe", {}))
+    .rejects.toMatchObject({ code: "token_file_unavailable" })
   expect(f.calls()).toBe(1)
 })
 it.each(["session", "issuer", "identity", "version", "missing", "writable", "link", "invalid-json", "oversized"])("refuses a %s envelope before HTTP admission", async kind => {
