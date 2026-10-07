@@ -86,7 +86,7 @@ func TestOutsideNotesMachineEventsProductionLiveBinding(t *testing.T) {
 		t.Cleanup(func() {
 			var count int
 			require.NoError(t, f.pool.QueryRow(context.Background(), `SELECT count(*) FROM product_job_requests WHERE operation=$1`, flowdispatch.OperationSignal).Scan(&count))
-			require.Equal(t, 4, count, "four committed bursts; the transport replay admits none")
+			require.Equal(t, 5, count, "five committed bursts, including a host actor reference; the transport replay admits none")
 			var raw []byte
 			require.NoError(t, f.pool.QueryRow(context.Background(), `SELECT payload FROM product_job_requests WHERE request_id=$1`, "outside-change:"+f.row.ID+":01000000-0000-0000-0000-000000000000").Scan(&raw))
 			var saved struct {
@@ -102,6 +102,11 @@ func TestOutsideNotesMachineEventsProductionLiveBinding(t *testing.T) {
 			require.Equal(t, "ssh", saved.Payload.Actor["via"])
 			require.Equal(t, "Alice", saved.Payload.Actor["name"])
 			require.Equal(t, []string{"a.ts"}, saved.Payload.Files)
+			require.NoError(t, f.pool.QueryRow(context.Background(), `SELECT payload FROM product_job_requests WHERE request_id=$1`, "outside-change:"+f.row.ID+":07000000-0000-0000-0000-000000000000").Scan(&raw))
+			require.NoError(t, json.Unmarshal(raw, &saved))
+			require.Equal(t, "pinned-notes-run", saved.RunID)
+			require.Equal(t, "agent", saved.Payload.Actor["kind"])
+			require.Equal(t, "run:retained-attempt", saved.Payload.Actor["id"])
 		})
 		return &machined.OutsideChangeNotes{Runs: &machined.PinnedCodingNoteRuns{Host: noteHostContractFixture{}}, Dispatcher: dispatcher}
 	})
