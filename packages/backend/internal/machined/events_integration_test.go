@@ -63,7 +63,8 @@ func TestBurstIngestProductionBoundary(t *testing.T) {
 	link, daemon := connectTest(t, registry, branch, authority)
 	connection := link.Connection
 	objects := &burstObjectFixture{}
-	s := &BurstIngest{Pool: pool, Objects: objects, ResolveActor: func(_ context.Context, b string, a wire.Actor) (json.RawMessage, error) {
+	observations := 0
+	s := &BurstIngest{Pool: pool, Objects: objects, ObserveCommitted: func() { observations++ }, ResolveActor: func(_ context.Context, b string, a wire.Actor) (json.RawMessage, error) {
 		require.Equal(t, branch, b)
 		require.Equal(t, uint32(1), a.Session)
 		return json.RawMessage(`{"id":"member:1","kind":"person","member_id":"1","via":"ssh"}`), nil
@@ -72,6 +73,7 @@ func TestBurstIngestProductionBoundary(t *testing.T) {
 	event := Event{Seq: 1, EventID: [16]byte{2}, Payload: burstPayload([16]byte{3}, "a.ts", "b.ts")}
 	counts := func(events, files, receipts int) {
 		t.Helper()
+		require.Equal(t, events, observations, "only committed logical bursts are observed")
 		for table, want := range map[string]int{"product_job_events": events, "burst_files": files, "machine_event_receipts": receipts} {
 			var got int
 			require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&got))
@@ -188,8 +190,9 @@ func TestBurstMultipartProductionBoundary(t *testing.T) {
 	require.NoError(t, err)
 	link, daemon := connectTest(t, registry, branch, authority)
 	objects := &burstObjectFixture{}
+	observations := 0
 	service := func() *BurstIngest {
-		return &BurstIngest{Pool: pool, Objects: objects, ResolveActor: func(context.Context, string, wire.Actor) (json.RawMessage, error) {
+		return &BurstIngest{Pool: pool, Objects: objects, ObserveCommitted: func() { observations++ }, ResolveActor: func(context.Context, string, wire.Actor) (json.RawMessage, error) {
 			return json.RawMessage(`{"id":"member:1","kind":"person","member_id":"1","via":"terminal"}`), nil
 		}}
 	}
@@ -204,6 +207,7 @@ func TestBurstMultipartProductionBoundary(t *testing.T) {
 	second := Event{Seq: 2, EventID: [16]byte{90}, Payload: payload(2, "b.ts")}
 	counts := func(entries, files, receipts int) {
 		t.Helper()
+		require.Equal(t, entries, observations, "staging and replay must not inflate burst rate")
 		for table, want := range map[string]int{"product_job_events": entries, "burst_files": files, "machine_event_receipts": receipts} {
 			var n int
 			require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&n))

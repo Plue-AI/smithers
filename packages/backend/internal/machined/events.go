@@ -46,6 +46,10 @@ type BurstIngest struct {
 	// the event transaction. Session/run variants still need the coordinated
 	// admission protocol migration for historical attribution after restart.
 	ResolveActor func(context.Context, string, wire.Actor) (json.RawMessage, error)
+	// ObserveCommitted records one successfully committed logical burst, never
+	// staging, duplicates or refusals. It runs under the connection fence and
+	// must not call back into the registry.
+	ObserveCommitted func()
 }
 
 func validBurstPath(p string) bool {
@@ -158,6 +162,9 @@ func (s *BurstIngest) Apply(ctx context.Context, connection *Connection, scope j
 		ack, applyErr = commitBurst(ctx, tx, objects, branch, scope, event, b, actor, multipart)
 		return applyErr
 	})
+	if err == nil && ack.Outcome == AckApplied && s.ObserveCommitted != nil {
+		s.ObserveCommitted()
+	}
 	return ack, err
 }
 

@@ -56,9 +56,8 @@ are not copied into artifacts. A driver is not reference-host evidence: no
 passing real-stack run has been recorded yet. The operator must ensure this
 runner is the second Mac and the selected install is the reference Mac mini.
 
-Outstanding: production timing/action bindings for agent-first-token, warm-wake
-and rebase-hold,
-browser and SSH fixtures, remaining §20.3 latency/wake/burst producers,
+Outstanding: production Inspect, warm-wake and rebase-hold bindings,
+reference-host browser/SSH fixture qualification and remaining §20.3 latency observations,
 qualified network/machine security evidence,
 real raw-sample artifacts, second-Mac runs, and
 C-PERF-01–06 results. Receipt approval remains with `scripts/check-run.mjs`;
@@ -81,6 +80,13 @@ Only admissions observed in the same process are timed. The observer retains
 at most 4096 open spans for one hour and counts capacity/expiry omissions in
 `smithers_chat_latency_observations_omitted_total`; recovered admissions without
 a local start have no timing. Browser samples remain the passing values.
+
+An install with an authenticated daemon event pump also exports
+`smithers_machine_bursts_total`. Its cumulative process-local counter supports
+rate cross-checks: one completed logical burst counts after commit and native
+object retention; staged parts, duplicate delivery and refusals do not count.
+An install without that producer omits the family. It is not a file-reload
+latency measurement or a microVM lifecycle qualification receipt.
 
 The standalone keystroke driver uses the same artifact writer as the full runner,
 including symlink checks for evidence directories and refusal to overwrite runs.

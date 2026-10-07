@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/hostexec"
@@ -26,6 +28,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostserver"
+	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/stretchr/testify/require"
 )
@@ -82,7 +85,44 @@ func TestMachineEventsProductionLiveBinding(t *testing.T) {
 	_, err = machineBranchHead(pool, client)(ctx, "invalid")
 	require.ErrorIs(t, err, machined.ErrUnauthorized)
 	registry := new(machined.Registry)
-	stop, err := bindMachineEvents(ctx, registry, pool, client, f.p)
+	metrics := routes.NewSmithersMetrics()
+	cfgHTTP := testConfigAllFlagsOn()
+	cfgHTTP.Auth.Mode = "selfhost"
+	cfgHTTP.Auth.SessionCookieName = "session"
+	metricServer := httptest.NewUnstartedServer(nil)
+	metricOrigin := "http://" + metricServer.Listener.Addr().String()
+	cfgHTTP.Server.PublicURL = metricOrigin
+	cfgHTTP.Server.AllowedOrigins = []string{metricOrigin}
+	metricServer.Config.Handler = githubAppSetupComposeRouter(cfgHTTP, f.pool, nil, metrics)
+	metricServer.Start()
+	t.Cleanup(metricServer.Close)
+	readBursts := func(want *float64) {
+		t.Helper()
+		request, err := http.NewRequestWithContext(ctx, "GET", metricServer.URL+"/api/install/metrics", nil)
+		require.NoError(t, err)
+		request.AddCookie(&http.Cookie{Name: "session", Value: f.cookie})
+		response, err := http.DefaultClient.Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+		require.Equal(t, 200, response.StatusCode)
+		var result struct{ Metrics []*dto.MetricFamily }
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&result))
+		for _, family := range result.Metrics {
+			if family.GetName() == "smithers_machine_bursts_total" {
+				require.NotNil(t, want, "absent producer must remain absent")
+				require.Len(t, family.Metric, 1)
+				require.Equal(t, *want, family.Metric[0].GetCounter().GetValue())
+				return
+			}
+		}
+		require.Nil(t, want, "burst producer missing from the owner endpoint")
+	}
+	require.Nil(t, machineBurstObservations(metrics, nil))
+	readBursts(nil)
+	observeBurst := machineBurstObservations(metrics, registry)
+	zero, one, four, five := 0.0, 1.0, 4.0, 5.0
+	readBursts(&zero)
+	stop, err := bindMachineEvents(ctx, registry, pool, client, f.p, observeBurst)
 	require.NoError(t, err)
 	t.Cleanup(stop)
 	require.True(t, registry.EventConsumerReady())
@@ -139,7 +179,9 @@ func TestMachineEventsProductionLiveBinding(t *testing.T) {
 	}
 	first := event(1, 1, wire.Union(2, wire.Field(1, wire.U32(1))))
 	send(first, machined.AckApplied)
+	readBursts(&one)
 	send(first, machined.AckDuplicate)
+	readBursts(&one)
 	send(event(2, 2, wire.Union(4)), machined.AckApplied)
 	runActor := wire.Union(3, wire.Field(1, wire.String("event-run")))
 	send(event(3, 3, runActor), machined.AckApplied)
@@ -156,6 +198,7 @@ func TestMachineEventsProductionLiveBinding(t *testing.T) {
 	_, err = jobsStore.Checkpoint(ctx, claim, checkpointBytes)
 	require.NoError(t, err)
 	send(event(4, 4, runActor), machined.AckApplied)
+	readBursts(&four)
 
 	// The installed consumer also resolves a host reference whose original run
 	// and live session are absent. Its sponsor and role come only from admission.
@@ -215,6 +258,7 @@ func TestMachineEventsProductionLiveBinding(t *testing.T) {
 	require.NoError(t, wire.Write(guest, transcriptEventFrame(event(6, 5, wire.Union(1, wire.Field(1, wire.Bytes([]byte("member:2"))))))))
 	_, err = guest.Read(unexpected[:])
 	require.ErrorIs(t, err, io.EOF)
+	readBursts(&five)
 	// A new authenticated connection is consumed too. An unavailable moved-off
 	// provider closes it without acknowledging or swallowing the durable event.
 	_, guest = presenceTestLink(t, registry, f.row.ID)

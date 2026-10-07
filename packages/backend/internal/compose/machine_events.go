@@ -7,9 +7,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
+	"github.com/smithersai/smithers/packages/backend/internal/routes"
 )
 
 type machineBurstStore struct{ host *repohost.Client }
@@ -62,7 +64,21 @@ func machineEventActor(ctx context.Context, presence *branchPresence, link *mach
 	return json.Marshal(value)
 }
 
-func bindMachineEvents(ctx context.Context, registry *machined.Registry, pool *pgxpool.Pool, host *repohost.Client, presence *branchPresence) (func(), error) {
+// A cumulative counter supplies burst rate to the existing metrics collector.
+// An install without a daemon producer does not fabricate zero observations.
+func machineBurstObservations(metrics *routes.SmithersMetrics, registry *machined.Registry) func() {
+	if registry == nil {
+		return nil
+	}
+	bursts := prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "smithers_machine_bursts_total",
+		Help: "Logical machine bursts committed by this process; staging, replay and failed ingestion are excluded.",
+	})
+	metrics.MustRegister(bursts)
+	return bursts.Inc
+}
+
+func bindMachineEvents(ctx context.Context, registry *machined.Registry, pool *pgxpool.Pool, host *repohost.Client, presence *branchPresence, observeCommitted func()) (func(), error) {
 	if registry == nil {
 		return func() {}, nil
 	}
@@ -70,13 +86,13 @@ func bindMachineEvents(ctx context.Context, registry *machined.Registry, pool *p
 		return nil, machined.ErrNotReady
 	}
 	burst := func(link *machined.Link) *machined.BurstIngest {
-		return &machined.BurstIngest{Pool: pool, Objects: machineBurstStore{host}, ResolveActor: func(ctx context.Context, branch string, actor wire.Actor) (json.RawMessage, error) {
+		return &machined.BurstIngest{Pool: pool, Objects: machineBurstStore{host}, ObserveCommitted: observeCommitted, ResolveActor: func(ctx context.Context, branch string, actor wire.Actor) (json.RawMessage, error) {
 			return machineEventActor(ctx, presence, link, branch, actor)
 		}}
 	}
 	return registry.ConsumeEvents(ctx, func(ctx context.Context, link *machined.Link, branch string, event machined.Event) (machined.Acknowledgement, error) {
 		ingest := &machined.Ingestor{Pool: pool, Bursts: burst(link), Prepare: func(ctx context.Context, tx pgx.Tx, branch string, event machined.Event) (machined.EventWriter, error) {
-			if len(event.Payload) == 0 || event.Payload[0] != 2 {
+			if len(event.Payload) == 0 || (event.Payload[0] != 2 && event.Payload[0] != 3) {
 				return nil, machined.ErrNotReady
 			}
 			return prepareMachineCaptureWriter(host)(ctx, tx, branch, event)
