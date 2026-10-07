@@ -16,17 +16,19 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
 type branchPresence struct {
-	hosts        *flowhost.Store
-	queries      *db.Queries
-	branches     *services.WorkspaceService
-	dispatcher   browserFlowDispatcher
-	members      *services.Members
-	visits       *presenceVisits
-	publicOrigin func() string
+	hosts           *flowhost.Store
+	terminalManager *routes.TerminalSessionManager
+	queries         *db.Queries
+	branches        *services.WorkspaceService
+	dispatcher      browserFlowDispatcher
+	members         *services.Members
+	visits          *presenceVisits
+	publicOrigin    func() string
 	// Composed registry, attribution and revocation providers must all report
 	// ready. A missing callback keeps safe-idle and rebases unknown.
 	sourcesReady func(context.Context, db.Workspace) bool
@@ -345,6 +347,9 @@ func (p *branchPresence) rebasePresence(ctx context.Context, repository int64, w
 	}
 	// The TS host can survive a Go host restart; its older startup clock must
 	// never shorten this host's own reconstruction window.
+	if p.terminalManager.HasBranchTerminal(repository, workspace) {
+		return services.RebasePresencePeople, nil
+	}
 	if p.startupUnknown() {
 		return services.RebasePresenceUnknown, nil
 	}

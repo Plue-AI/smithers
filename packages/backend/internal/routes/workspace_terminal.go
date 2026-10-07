@@ -770,3 +770,8 @@ var _ WorkspaceTerminalService = (*services.WorkspaceService)(nil)
 func (h *WorkspaceTerminalHandler) TerminalPresence(id string) TerminalPresence {
 	return h.terminalSessionManager().Presence(id)
 }
+
+// SharedTerminalSessions exposes the one manager to install projections.
+func (h *WorkspaceTerminalHandler) SharedTerminalSessions() *TerminalSessionManager {
+	return h.terminalSessionManager()
+}
