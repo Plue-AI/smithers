@@ -1,8 +1,13 @@
+import { NodeCrypto, NodeServices } from "@effect/platform-node"
+import { FlowEngine } from "@smthrs/engine"
+import { Action, Interpreter } from "@smthrs/flow"
 import * as Evaluator from "@smthrs/model/Evaluator"
-import { Effect, Exit, Schema } from "effect"
+import { Effect, Exit, Layer, ManagedRuntime, Schema } from "effect"
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { evidence, learn, Output, type Snapshot } from "../learning/flow.ts"
+import { createServer } from "node:http"
+import { once } from "node:events"
+import Learning, { Binding, evidence, learn, layer as learningLayer, machineBinding, Output, type Snapshot } from "../learning/flow.ts"
 
 const text = "Run lint before review to catch unused imports."
 const snapshot: Snapshot = {
@@ -57,4 +62,60 @@ test("typed learning output retains an optional proposed diff as data", () => {
     proposals: [{ signature: "check:lint@review", title: "Run lint", evidence: ["3 of the last 5 failed lint at review"], todos: [3, 5, 7],
       prompt: "Run lint before review", diff: "+$(touch /root/learning-canary)" }] })
   assert.equal(output.proposals[0]!.diff, "+$(touch /root/learning-canary)")
+})
+
+
+test("guest Binding reads only its runtime run, refuses mismatches and cancels unresolved reads", async () => {
+  let status = 200, body = JSON.stringify(snapshot), calls = 0, hold = false
+  const server = createServer((request, response) => {
+    calls++
+    assert.equal(request.url, "/api/gateways/learning-host/learning/learning-7/evidence")
+    assert.equal(request.headers.authorization, "Bearer host-secret")
+    if (hold) return
+    response.writeHead(status, { "Content-Type": "application/json" })
+    response.end(body)
+  })
+  server.listen(0, "127.0.0.1")
+  await once(server, "listening")
+  const address = server.address()
+  assert.ok(address && typeof address !== "string")
+  const options = { origin: `http://127.0.0.1:${address.port}`, host: "learning-host", credential: "host-secret" }
+  const read = (configured = options) => Effect.gen(function*() {
+    return yield* (yield* Binding).read(7, "learning-7")
+  }).pipe(Effect.provide(machineBinding(configured)))
+  try {
+    assert.deepEqual(await Effect.runPromise(read()), snapshot)
+    const runtime = ManagedRuntime.make(Layer.mergeAll(
+      Interpreter.layer(Learning),
+      learningLayer.pipe(Layer.provide(Layer.merge(machineBinding(options), evaluator)))
+    ).pipe(Layer.provideMerge(Action.layerImplementations), Layer.provideMerge(FlowEngine.layerMemory),
+      Layer.provideMerge(NodeCrypto.layer), Layer.provideMerge(NodeServices.layer)))
+    try {
+      const learned = await runtime.runPromise(Learning.execute({ todo: 7 }, { executionId: "learning-7" }))
+      assert.equal(learned.pages[0]!.title, "T7 decisions")
+      assert.equal(learned.proposals[0]!.signature, "check:lint@review")
+      assert.ok(learned.pages[0]!.body.includes("because it already backs off"))
+      const beforeReplay = calls
+      assert.deepEqual(await runtime.runPromise(Learning.execute({ todo: 7 }, { executionId: "learning-7" })), learned)
+      assert.equal(calls, beforeReplay)
+    } finally { await runtime.dispose() }
+
+    for (const invalid of [{ ...snapshot, todo: 8 }, { ...snapshot, run: "another-run" }, { ...snapshot, state: "working" }]) {
+      body = JSON.stringify(invalid)
+      assert.ok(Exit.isFailure(await Effect.runPromiseExit(read())))
+    }
+    status = 403
+    assert.ok(Exit.isFailure(await Effect.runPromiseExit(read())))
+    status = 200; body = "x".repeat(2 * 1024 * 1024 + 1)
+    assert.ok(Exit.isFailure(await Effect.runPromiseExit(read())))
+    const before = calls
+    assert.ok(Exit.isFailure(await Effect.runPromiseExit(read({ ...options, credential: "" }))))
+    assert.ok(Exit.isFailure(await Effect.runPromiseExit(read({ ...options, origin: "file:///tmp/learning" }))))
+    assert.equal(calls, before)
+    hold = true
+    assert.ok(Exit.isFailure(await Effect.runPromiseExit(read().pipe(Effect.timeout("100 millis")))))
+  } finally {
+    server.closeAllConnections()
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+  }
 })

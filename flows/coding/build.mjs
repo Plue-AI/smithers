@@ -102,10 +102,10 @@ export const bundle = async (entryPoint, outfile) => {
   // review task alone keeps prior reviews (#1971).
   const policyTexts = new Map()
   for (const source of policySources) policyTexts.set(source, await readFile(resolve(root, source), "utf8"))
-  const todoSource = await readFile(resolve(root, "flows/todo/flow.ts"), "utf8")
+  const defaults = Object.fromEntries(await Promise.all(["todo", "learning"].map(async name => [name, await readFile(resolve(root, `flows/${name}/flow.ts`), "utf8")])));
   const flowTypes = await typecheckInputs(root, alias)
   const compiled = result.outputFiles[0].text.replace(/^(#![^\n]*\n)/,
-    (banner) => `${banner}const __SMITHERS_FLOW_TYPES__ = ${JSON.stringify(flowTypes)};\nconst __SMITHERS_CREATE_FLOW_PACK__ = ${JSON.stringify(pack)};\nconst __SMITHERS_CODING_WIKI_POLICY__ = ${JSON.stringify(wikiPolicyIdentity(policyTexts))};\nconst __SMITHERS_BUILTIN_TODO__ = ${JSON.stringify(todoSource)};\n`)
+    (banner) => `${banner}const __SMITHERS_FLOW_TYPES__ = ${JSON.stringify(flowTypes)};\nconst __SMITHERS_CREATE_FLOW_PACK__ = ${JSON.stringify(pack)};\nconst __SMITHERS_CODING_WIKI_POLICY__ = ${JSON.stringify(wikiPolicyIdentity(policyTexts))};\nconst __SMITHERS_BUILTIN_DEFAULTS__ = ${JSON.stringify(defaults)};\n`)
   if (compiled === result.outputFiles[0].text) throw new Error("Coding artifact has no executable banner")
   const digest = createHash("sha256").update(compiled).digest("hex")
   // Hash the exact compiled artifact before inserting its own identity. This
