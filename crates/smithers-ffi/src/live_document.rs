@@ -114,6 +114,10 @@ fn restore(root: &'static str, state: &[u8]) -> Result<Doc> {
 }
 
 /// kind 0 = code/content, 1 = wiki/markdown. Zero means open failed.
+///
+/// # Safety
+/// - `state` may be NULL only when `len` is zero; otherwise it must point to
+///   `len` readable bytes that stay valid and unmodified for the call.
 #[no_mangle]
 pub unsafe extern "C" fn ld_open(kind: u32, state: *const u8, len: usize) -> u64 {
     catch_unwind(AssertUnwindSafe(|| -> Result<u64> {
@@ -139,6 +143,12 @@ pub unsafe extern "C" fn ld_open(kind: u32, state: *const u8, len: usize) -> u64
 
 /// Accept only the authenticated subscriber's new structs; known foreign structs
 /// in a reconnect are allowed. The returned bytes are the broadcast update.
+///
+/// # Safety
+/// - `data` may be NULL only when `len` is zero; otherwise it must point to
+///   `len` readable bytes that stay valid and unmodified for the call.
+/// - A successful result is owned by the caller and must be released with
+///   [`ld_free`] exactly once.
 #[no_mangle]
 pub unsafe extern "C" fn ld_apply(h: u64, client: u64, data: *const u8, len: usize) -> LdResult {
     boundary(|| {
@@ -201,6 +211,12 @@ pub unsafe extern "C" fn ld_apply(h: u64, client: u64, data: *const u8, len: usi
 }
 /// Only the authenticated daemon peer may call this entry. Browser updates
 /// must use ld_apply; the peer owns epochs and durable authors metadata.
+///
+/// # Safety
+/// - `data` may be NULL only when `len` is zero; otherwise it must point to
+///   `len` readable bytes that stay valid and unmodified for the call.
+/// - A successful result is owned by the caller and must be released with
+///   [`ld_free`] exactly once.
 #[no_mangle]
 pub unsafe extern "C" fn ld_peer(h: u64, data: *const u8, len: usize) -> LdResult {
     boundary(|| {
@@ -221,6 +237,11 @@ pub unsafe extern "C" fn ld_peer(h: u64, data: *const u8, len: usize) -> LdResul
 pub extern "C" fn ld_sync1(h: u64) -> LdResult {
     boundary(|| with(h, |e| Ok(e.doc.transact().state_vector().encode_v1())))
 }
+/// # Safety
+/// - `data` may be NULL only when `len` is zero; otherwise it must point to
+///   `len` readable bytes that stay valid and unmodified for the call.
+/// - A successful result is owned by the caller and must be released with
+///   [`ld_free`] exactly once.
 #[no_mangle]
 pub unsafe extern "C" fn ld_sync2(h: u64, data: *const u8, len: usize) -> LdResult {
     boundary(|| {
@@ -233,6 +254,12 @@ pub unsafe extern "C" fn ld_sync2(h: u64, data: *const u8, len: usize) -> LdResu
 /// Awareness is transient. The authenticated host must stamp actor/colour and
 /// restrict client ids before calling; this ABI deliberately has no socket identity.
 /// Decode and canonicalize without storing awareness in durable document state.
+///
+/// # Safety
+/// - `data` may be NULL only when `len` is zero; otherwise it must point to
+///   `len` readable bytes that stay valid and unmodified for the call.
+/// - A successful result is owned by the caller and must be released with
+///   [`ld_free`] exactly once.
 #[no_mangle]
 pub unsafe extern "C" fn ld_awareness(h: u64, data: *const u8, len: usize) -> LdResult {
     boundary(|| {
@@ -254,6 +281,12 @@ pub unsafe extern "C" fn ld_awareness(h: u64, data: *const u8, len: usize) -> Ld
     })
 }
 /// Trusted host only. Returns the authors delta for broadcast to all peers.
+///
+/// # Safety
+/// - `data` may be NULL only when `len` is zero; otherwise it must point to
+///   `len` readable bytes that stay valid and unmodified for the call.
+/// - A successful result is owned by the caller and must be released with
+///   [`ld_free`] exactly once.
 #[no_mangle]
 pub unsafe extern "C" fn ld_set_author(
     h: u64,
@@ -301,6 +334,11 @@ pub unsafe extern "C" fn ld_set_author(
 pub extern "C" fn ld_state(h: u64) -> LdResult {
     boundary(|| with(h, |e| Ok(core::state(&e.doc))))
 }
+/// # Safety
+/// - `data` may be NULL only when `len` is zero; otherwise it must point to
+///   `len` readable bytes that stay valid and unmodified for the call.
+/// - A successful result is owned by the caller and must be released with
+///   [`ld_free`] exactly once.
 #[no_mangle]
 pub unsafe extern "C" fn ld_text(h: u64, data: *const u8, len: usize) -> LdResult {
     boundary(|| {
@@ -327,6 +365,10 @@ pub extern "C" fn ld_close(h: u64) -> LdResult {
     })
 }
 /// Free exactly once, with the unchanged successful result returned by this ABI.
+///
+/// # Safety
+/// `result` must be the unchanged value a successful call of this ABI returned,
+/// and it must not have been passed to `ld_free` before.
 #[no_mangle]
 pub unsafe extern "C" fn ld_free(result: LdResult) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
