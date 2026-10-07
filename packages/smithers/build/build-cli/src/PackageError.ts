@@ -153,18 +153,59 @@ export class DeclaredInputMissing extends Data.TaggedError("smithers-build/Decla
 }> {
   constructor(missing: ReadonlyArray<MissingInput>) {
     const lines = missing.map((entry) =>
-      `  ${entry.path} declared by ${entry.label}${
-        entry.sourceFile === undefined ? "" : ` in ${entry.sourceFile}`
-      }`
+      `  ${entry.path} declared by ${entry.label}${entry.sourceFile === undefined ? "" : ` in ${entry.sourceFile}`}`
     )
     super({
       missing,
       message: [
-        `declared_input_missing: ${missing.length} declared input${
-          missing.length === 1 ? " does" : "s do"
-        } not exist`,
+        `declared_input_missing: ${missing.length} declared input${missing.length === 1 ? " does" : "s do"} not exist`,
         ...lines
       ].join("\n")
     })
   }
 }
+
+/**
+ * A declared glob whose files belong to other packages.
+ * @category models
+ * @since 1.0.0
+ */
+export interface CrossingInput extends MissingInput {
+  readonly packages: ReadonlyArray<string>
+}
+
+/**
+ * Refuses unreviewed globs that contribute no package-scoped cache material.
+ * @category errors
+ * @since 1.0.0
+ */
+export class DeclaredInputCrossesPackage extends Data.TaggedError("smithers-build/DeclaredInputCrossesPackage")<{
+  readonly crossing: ReadonlyArray<CrossingInput>
+  readonly message: string
+}> {
+  constructor(crossing: ReadonlyArray<CrossingInput>) {
+    super({
+      crossing,
+      message: [
+        `declared_input_crosses_package: ${crossing.length} declared globs cross package boundaries; depend on the owning package's label`,
+        ...crossing.map((entry) =>
+          `  ${entry.path} declared by ${entry.label} in ${entry.sourceFile ?? "PACKAGE.ts"}; packages: ${
+            entry.packages.join(", ")
+          }`
+        )
+      ].join("\n")
+    })
+  }
+}
+
+/**
+ * Refuses unreadable reviewed lists and entries whose crossing was repaired.
+ * @category errors
+ * @since 1.0.0
+ */
+export class CrossPackageGlobReviewInvalid extends Data.TaggedError("smithers-build/CrossPackageGlobReviewInvalid")<{
+  readonly reason: "unreadable" | "stale"
+  readonly entries: ReadonlyArray<{ readonly label: string; readonly path: string }>
+  readonly cause?: unknown
+  readonly message: string
+}> {}

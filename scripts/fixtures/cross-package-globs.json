@@ -1,0 +1,398 @@
+[
+  {
+    "label": "//:backendAccessTests",
+    "path": "packages/backend/internal/compose/*_test.go"
+  },
+  {
+    "label": "//:backendAccessTests",
+    "path": "packages/backend/internal/identity/*_test.go"
+  },
+  {
+    "label": "//:backendAccessTests",
+    "path": "packages/backend/internal/middleware/*_test.go"
+  },
+  {
+    "label": "//:backendAccessTests",
+    "path": "packages/backend/internal/services/*_test.go"
+  },
+  {
+    "label": "//:backendGoAccess",
+    "path": "packages/backend/internal/compose/*_test.go"
+  },
+  {
+    "label": "//:backendGoAccess",
+    "path": "packages/backend/internal/identity/*_test.go"
+  },
+  {
+    "label": "//:backendGoAccess",
+    "path": "packages/backend/internal/middleware/*_test.go"
+  },
+  {
+    "label": "//:backendGoAccess",
+    "path": "packages/backend/internal/services/*_test.go"
+  },
+  {
+    "label": "//:factoryProjection",
+    "path": "flows/**/flow.mdx"
+  },
+  {
+    "label": "//:factoryProjection",
+    "path": "flows/**/flow.ts"
+  },
+  {
+    "label": "//:jsdocTree",
+    "path": "packages/*/*/*/src/**/*.ts"
+  },
+  {
+    "label": "//:jsdocTree",
+    "path": "packages/*/*/src/**/*.ts"
+  },
+  {
+    "label": "//:jsdocTree",
+    "path": "packages/*/src/**/*.ts"
+  },
+  {
+    "label": "//:reviewDocsAgainstCode",
+    "path": "apps/site/src/content/docs/docs/installation.mdx"
+  },
+  {
+    "label": "//:reviewDocsAgainstCode",
+    "path": "apps/site/src/content/docs/docs/reference/api/build-cli.mdx"
+  },
+  {
+    "label": "//:reviewDocsAgainstCode",
+    "path": "apps/site/src/content/docs/docs/reference/api/build.mdx"
+  },
+  {
+    "label": "//:reviewDocsAgainstCode",
+    "path": "apps/site/src/content/docs/docs/reference/api/flow.mdx"
+  },
+  {
+    "label": "//:reviewDocsAgainstCode",
+    "path": "apps/site/src/content/docs/docs/reference/api/flows.mdx"
+  },
+  {
+    "label": "//:reviewDocsAgainstCode",
+    "path": "apps/site/src/content/docs/docs/reference/api/journal.mdx"
+  },
+  {
+    "label": "//:reviewDocsAgainstCode",
+    "path": "apps/site/src/content/docs/docs/reference/api/plan.mdx"
+  },
+  {
+    "label": "//:reviewDocsAgainstCode",
+    "path": "apps/site/src/content/docs/docs/reference/api/targets.mdx"
+  },
+  {
+    "label": "//:reviewDocsAgainstCode",
+    "path": "packages/*/*/*/README.md"
+  },
+  {
+    "label": "//:reviewDocsAgainstCode",
+    "path": "packages/*/*/*/src/**"
+  },
+  {
+    "label": "//:reviewDocsAgainstCode",
+    "path": "packages/*/*/README.md"
+  },
+  {
+    "label": "//:reviewDocsAgainstCode",
+    "path": "packages/*/*/src/**"
+  },
+  {
+    "label": "//:reviewDocsAgainstCode",
+    "path": "packages/*/README.md"
+  },
+  {
+    "label": "//:reviewDocsAgainstCode",
+    "path": "packages/*/src/**"
+  },
+  {
+    "label": "//:reviewJsdocAgainstCode",
+    "path": "packages/*/*/*/src/**/*.ts"
+  },
+  {
+    "label": "//:reviewJsdocAgainstCode",
+    "path": "packages/*/*/src/**/*.ts"
+  },
+  {
+    "label": "//:reviewJsdocAgainstCode",
+    "path": "packages/*/src/**/*.ts"
+  },
+  {
+    "label": "//:security",
+    "path": "flows/**/flow.{ts,mdx}"
+  },
+  {
+    "label": "//:securityAudit",
+    "path": "flows/**/flow.{ts,mdx}"
+  },
+  {
+    "label": "//apps/app:proofPage",
+    "path": ".specs/design/mock/src/**/*"
+  },
+  {
+    "label": "//apps/app:proofPage",
+    "path": ".specs/product/**/*"
+  },
+  {
+    "label": "//apps/app:proofRecord",
+    "path": ".specs/product/**/*"
+  },
+  {
+    "label": "//apps/server:security",
+    "path": "packages/backend/flowdispatch/service.go"
+  },
+  {
+    "label": "//apps/server:security",
+    "path": "packages/backend/flowhost/resolver.go"
+  },
+  {
+    "label": "//apps/server:security",
+    "path": "packages/backend/flowhost/store.go"
+  },
+  {
+    "label": "//apps/server:security",
+    "path": "packages/backend/internal/compose/browser_flow_target.go"
+  },
+  {
+    "label": "//apps/server:security",
+    "path": "packages/backend/internal/compose/browser_flow.go"
+  },
+  {
+    "label": "//apps/server:security",
+    "path": "packages/backend/internal/compose/main.go"
+  },
+  {
+    "label": "//apps/server:security",
+    "path": "packages/backend/internal/compose/router.go"
+  },
+  {
+    "label": "//apps/server:security",
+    "path": "packages/backend/internal/compose/runtime_helpers.go"
+  },
+  {
+    "label": "//apps/server:security",
+    "path": "packages/backend/internal/db/workflows.sql.go"
+  },
+  {
+    "label": "//apps/server:security",
+    "path": "packages/backend/internal/db/workspace.sql.go"
+  },
+  {
+    "label": "//apps/server:security",
+    "path": "packages/backend/internal/middleware/auth_loader_failures.go"
+  },
+  {
+    "label": "//apps/server:security",
+    "path": "packages/backend/internal/middleware/auth.go"
+  },
+  {
+    "label": "//apps/server:security",
+    "path": "packages/backend/internal/middleware/csrf.go"
+  },
+  {
+    "label": "//apps/server:security",
+    "path": "packages/backend/internal/middleware/repo_context.go"
+  },
+  {
+    "label": "//apps/server:security",
+    "path": "packages/backend/internal/middleware/revocation_guard.go"
+  },
+  {
+    "label": "//apps/server:security",
+    "path": "packages/backend/internal/middleware/run_credential.go"
+  },
+  {
+    "label": "//apps/server:security",
+    "path": "packages/backend/internal/middleware/scope.go"
+  },
+  {
+    "label": "//apps/server:security",
+    "path": "packages/backend/internal/routes/workflow_invoke.go"
+  },
+  {
+    "label": "//apps/server:security",
+    "path": "packages/backend/internal/services/repo_permissions.go"
+  },
+  {
+    "label": "//apps/server:security",
+    "path": "packages/backend/internal/services/repo.go"
+  },
+  {
+    "label": "//apps/server:security",
+    "path": "packages/backend/internal/services/workflow_invoke_flow.go"
+  },
+  {
+    "label": "//apps/server:security",
+    "path": "packages/backend/internal/services/workflow_invoke.go"
+  },
+  {
+    "label": "//apps/server:securityAudit",
+    "path": "packages/backend/flowdispatch/service.go"
+  },
+  {
+    "label": "//apps/server:securityAudit",
+    "path": "packages/backend/flowhost/resolver.go"
+  },
+  {
+    "label": "//apps/server:securityAudit",
+    "path": "packages/backend/flowhost/store.go"
+  },
+  {
+    "label": "//apps/server:securityAudit",
+    "path": "packages/backend/internal/compose/browser_flow_target.go"
+  },
+  {
+    "label": "//apps/server:securityAudit",
+    "path": "packages/backend/internal/compose/browser_flow.go"
+  },
+  {
+    "label": "//apps/server:securityAudit",
+    "path": "packages/backend/internal/compose/main.go"
+  },
+  {
+    "label": "//apps/server:securityAudit",
+    "path": "packages/backend/internal/compose/router.go"
+  },
+  {
+    "label": "//apps/server:securityAudit",
+    "path": "packages/backend/internal/compose/runtime_helpers.go"
+  },
+  {
+    "label": "//apps/server:securityAudit",
+    "path": "packages/backend/internal/db/workflows.sql.go"
+  },
+  {
+    "label": "//apps/server:securityAudit",
+    "path": "packages/backend/internal/db/workspace.sql.go"
+  },
+  {
+    "label": "//apps/server:securityAudit",
+    "path": "packages/backend/internal/middleware/auth_loader_failures.go"
+  },
+  {
+    "label": "//apps/server:securityAudit",
+    "path": "packages/backend/internal/middleware/auth.go"
+  },
+  {
+    "label": "//apps/server:securityAudit",
+    "path": "packages/backend/internal/middleware/csrf.go"
+  },
+  {
+    "label": "//apps/server:securityAudit",
+    "path": "packages/backend/internal/middleware/repo_context.go"
+  },
+  {
+    "label": "//apps/server:securityAudit",
+    "path": "packages/backend/internal/middleware/revocation_guard.go"
+  },
+  {
+    "label": "//apps/server:securityAudit",
+    "path": "packages/backend/internal/middleware/run_credential.go"
+  },
+  {
+    "label": "//apps/server:securityAudit",
+    "path": "packages/backend/internal/middleware/scope.go"
+  },
+  {
+    "label": "//apps/server:securityAudit",
+    "path": "packages/backend/internal/routes/workflow_invoke.go"
+  },
+  {
+    "label": "//apps/server:securityAudit",
+    "path": "packages/backend/internal/services/repo_permissions.go"
+  },
+  {
+    "label": "//apps/server:securityAudit",
+    "path": "packages/backend/internal/services/repo.go"
+  },
+  {
+    "label": "//apps/server:securityAudit",
+    "path": "packages/backend/internal/services/workflow_invoke_flow.go"
+  },
+  {
+    "label": "//apps/server:securityAudit",
+    "path": "packages/backend/internal/services/workflow_invoke.go"
+  },
+  {
+    "label": "//crates/flows-jj:security",
+    "path": "Cargo.toml"
+  },
+  {
+    "label": "//crates/flows-jj:securityAudit",
+    "path": "Cargo.toml"
+  },
+  {
+    "label": "//packages/smithers/flows/sandbox:security",
+    "path": "packages/smithers/flows/src/internal/SandboxedFlowGuest.ts"
+  },
+  {
+    "label": "//packages/smithers/flows/sandbox:security",
+    "path": "packages/smithers/flows/src/SandboxedFlow.ts"
+  },
+  {
+    "label": "//packages/smithers/flows/sandbox:securityAudit",
+    "path": "packages/smithers/flows/src/internal/SandboxedFlowGuest.ts"
+  },
+  {
+    "label": "//packages/smithers/flows/sandbox:securityAudit",
+    "path": "packages/smithers/flows/src/SandboxedFlow.ts"
+  },
+  {
+    "label": "//packages/smithers/gateway:security",
+    "path": "packages/smithers/control/src/ApprovalAuthority.ts"
+  },
+  {
+    "label": "//packages/smithers/gateway:security",
+    "path": "packages/smithers/control/src/ControlExecutor.ts"
+  },
+  {
+    "label": "//packages/smithers/gateway:security",
+    "path": "packages/smithers/control/src/ControlLive.ts"
+  },
+  {
+    "label": "//packages/smithers/gateway:security",
+    "path": "packages/smithers/control/src/ControlRpcs.ts"
+  },
+  {
+    "label": "//packages/smithers/gateway:security",
+    "path": "packages/smithers/control/src/ControlRuntime.ts"
+  },
+  {
+    "label": "//packages/smithers/gateway:security",
+    "path": "packages/smithers/control/src/ControlServer.ts"
+  },
+  {
+    "label": "//packages/smithers/gateway:security",
+    "path": "packages/smithers/control/src/SqlControlRuntime.ts"
+  },
+  {
+    "label": "//packages/smithers/gateway:securityAudit",
+    "path": "packages/smithers/control/src/ApprovalAuthority.ts"
+  },
+  {
+    "label": "//packages/smithers/gateway:securityAudit",
+    "path": "packages/smithers/control/src/ControlExecutor.ts"
+  },
+  {
+    "label": "//packages/smithers/gateway:securityAudit",
+    "path": "packages/smithers/control/src/ControlLive.ts"
+  },
+  {
+    "label": "//packages/smithers/gateway:securityAudit",
+    "path": "packages/smithers/control/src/ControlRpcs.ts"
+  },
+  {
+    "label": "//packages/smithers/gateway:securityAudit",
+    "path": "packages/smithers/control/src/ControlRuntime.ts"
+  },
+  {
+    "label": "//packages/smithers/gateway:securityAudit",
+    "path": "packages/smithers/control/src/ControlServer.ts"
+  },
+  {
+    "label": "//packages/smithers/gateway:securityAudit",
+    "path": "packages/smithers/control/src/SqlControlRuntime.ts"
+  }
+]

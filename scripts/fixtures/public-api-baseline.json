@@ -1116,7 +1116,7 @@
         "OverlayExec.d.ts": "d8ac9afcdbbbe9d149bfac56d3b12c030e38062a60da1107841d5debaa9cd2f3",
         "Owners.d.ts": "57495a95735be8ada4167e27d04c1ea3b2bb44e33f6b63170a4c943fe3ce33b3",
         "PackageDiscovery.d.ts": "4ddae4675bf20f45445f277f7d3f8189715b231973f77b91305f48c21400ab9d",
-        "PackageError.d.ts": "658a8969806a809230a75406a6ece4d1bce7f85faa8c9da3fd4a32cdfbfe92d3",
+        "PackageError.d.ts": "447694da7efcf78637212f38dad4611831f6201ae0fb0fb90df22bbe5bac9ea0",
         "PackageExec.d.ts": "f9075c3acaee4705ab07387b80d069e8d2e4a77fc48d8437dc8f8e75e2621081",
         "PackageIndex.d.ts": "a79a07d6d9e0b95600486152d3a2fe9e43500328f6169180d9710c2df0876e5a",
         "PackageLoader.d.ts": "2af2d1ed02df73b6c0e4df9228078dc93344f8f75c2f5459b9723f7ecb426a1f",

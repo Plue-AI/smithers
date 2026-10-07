@@ -47,8 +47,14 @@ import * as Label from "../Label.ts"
 import * as NixExec from "../NixExec.ts"
 import * as OverlayExec from "../OverlayExec.ts"
 import * as OwnersResolution from "../Owners.ts"
+import {
+  type CrossingInput,
+  CrossPackageGlobReviewInvalid,
+  DeclaredInputCrossesPackage,
+  DeclaredInputMissing,
+  type MissingInput
+} from "../PackageError.ts"
 import type * as PackageIndexModule from "../PackageIndex.ts"
-import { DeclaredInputMissing, type MissingInput } from "../PackageError.ts"
 import * as PackageTree from "../PackageTree.ts"
 import * as Planner from "../Planner.ts"
 import * as RepoResolution from "../RepoResolution.ts"
@@ -3286,6 +3292,79 @@ const absentInputsOf = async (
   return missing
 }
 
+/** Compare the same declarations with and without the cache-key package boundary. */
+const crossingInputsOf = async (context: PlanContext, pattern: string): Promise<ReadonlyArray<CrossingInput>> => {
+  const crossing = new Map<string, CrossingInput>()
+  const repositoryBoundaries = Object.values(context.index.workspace.repos ?? {}).map((repo) => repo.path)
+  const packages = [...context.index.packages()].sort((a, b) => b.length - a.length)
+  for (const row of context.index.resolve(pattern)) {
+    const metadata = Target.metadata(row.target)
+    const packagePath = inputPackage(metadata, row.packagePath)
+    for (const declaration of metadata.inputs) {
+      if (declaration._tag !== "Glob") continue
+      const options = { cacheDirectory: context.cacheDirectory, repositoryBoundaries, signal: context.signal }
+      if ((await Input.expandGlob(context.root, packagePath, declaration, options)).length > 0) continue
+      const files = await Input.expandGlob(context.root, packagePath, declaration, { ...options, packageScoped: false })
+      if (files.length === 0) continue
+      const path = Input.resolvePath(packagePath, declaration.pattern)
+      const sourceFile = metadata.sourceFile === undefined
+        ? undefined
+        : Path.containedRelative(context.root, metadata.sourceFile)
+      crossing.set(JSON.stringify([row.label, path]), {
+        path,
+        label: row.label,
+        sourceFile: sourceFile === undefined ? undefined : posix(sourceFile),
+        packages: [...new Set(files.map((file) => packages.find((dir) => dir === "" || file.startsWith(`${dir}/`))!))]
+          .sort()
+      })
+    }
+  }
+  return [...crossing.values()].sort((a, b) => a.label.localeCompare(b.label) || a.path.localeCompare(b.path))
+}
+
+const reviewedCrossPackageGlobs = Schema.fromJsonString(
+  Schema.Array(Schema.Struct({ label: Schema.String, path: Schema.String }))
+)
+
+/** Exact reviewed membership: new crossings fail, and repaired entries must be removed. */
+const checkCrossPackageGlobs = async (context: PlanContext, pattern: string): Promise<void> => {
+  const crossing = await crossingInputsOf(context, pattern)
+  const reviewFile = NodePath.join(context.root, "scripts/fixtures/cross-package-globs.json")
+  let reviewed: ReadonlyArray<{ readonly label: string; readonly path: string }> = []
+  try {
+    const text = await Fs.readFile(reviewFile, "utf8")
+    reviewed = Schema.decodeUnknownSync(reviewedCrossPackageGlobs)(text)
+  } catch (cause) {
+    if (!(typeof cause === "object" && cause !== null && "code" in cause && cause.code === "ENOENT")) {
+      throw new CrossPackageGlobReviewInvalid({
+        reason: "unreadable",
+        entries: [],
+        cause,
+        message: "cross_package_glob_review_invalid: cannot read scripts/fixtures/cross-package-globs.json"
+      })
+    }
+  }
+  const key = (entry: { readonly label: string; readonly path: string }) => JSON.stringify([entry.label, entry.path])
+  const actual = new Set(crossing.map(key))
+  const selected = new Set(context.index.resolve(pattern).map((row) => row.label))
+  const stale = reviewed.filter((entry) =>
+    (pattern === "//..." || selected.has(entry.label)) && !actual.has(key(entry))
+  )
+  if (stale.length > 0) {
+    throw new CrossPackageGlobReviewInvalid({
+      reason: "stale",
+      entries: stale,
+      message: [
+        "cross_package_glob_review_stale: remove repaired entries",
+        ...stale.map((entry) => `  ${entry.path} declared by ${entry.label}`)
+      ].join("\n")
+    })
+  }
+  const allowed = new Set(reviewed.map(key))
+  const unreviewed = crossing.filter((entry) => !allowed.has(key(entry)))
+  if (unreviewed.length > 0) throw new DeclaredInputCrossesPackage(unreviewed)
+}
+
 /**
  * The target index carries the rows the planner built from the loaded
  * declarations, never ones a `PACKAGE.ts` wrote: they ride in the attrs so
@@ -3311,6 +3390,7 @@ const withTargetIndex = async (
   const listing = await TargetIndex.build(resolver.index, pattern, resolver.environment, context.signal)
   const missing = await absentInputsOf(context, pattern, listing)
   if (missing.length > 0) throw new DeclaredInputMissing(missing)
+  await checkCrossPackageGlobs(context, pattern)
   return { ...attrs, targets: listing.targets }
 }
 

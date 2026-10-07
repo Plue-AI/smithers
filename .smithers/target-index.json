@@ -39175,6 +39175,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/build/build-cli/docs/cross-package-globs.md"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/build/build-cli/docs/guides/embed-the-cli.md"
       },
       {
