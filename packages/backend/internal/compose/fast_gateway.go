@@ -19,6 +19,7 @@ import (
 // mountFastGateway is shared by the single-owner and hosted compositions.
 // Sign-in authenticates issuance; only install credentials reach inference.
 func mountFastGateway(r chi.Router, queries *db.Queries, cfg *config.Config, g *modelproxy.FastGateway, csrf func(http.Handler) http.Handler) {
+	mountFastGatewaySignIn(r, queries, cfg, g)
 	r.Get(modelproxy.FastGatewayPath+"/quota", g.ServeHTTP)
 	r.Post(modelproxy.FastGatewayPath+"/v1/chat/completions", g.ServeHTTP)
 	r.Group(func(r chi.Router) {

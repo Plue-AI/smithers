@@ -897,6 +897,43 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/admin/fast-model/daily-totals:
+    x-composition: plue
+    get:
+      summary: Export UTC per-install token totals
+      operationId: get_api_admin_fast_model_daily_totals
+      tags:
+        - Admin
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: until
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FastModelDailyTotals'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/agent/turn/erase:
     post:
       summary: POST /api/agent/turn/erase
@@ -3192,6 +3229,236 @@ paths:
                 $ref: '#/components/schemas/AccessError'
         '503':
           description: Agent sessions are unavailable
+  /api/fast-model/installs:
+    x-composition: plue
+    post:
+      summary: Issue a host-only install credential
+      operationId: post_api_fast_model_installs
+      tags:
+        - Fast Model
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FastModelInstallIdentity'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FastModelIssuedCredential'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/fast-model/installs/{install}:
+    x-composition: plue
+    delete:
+      summary: Revoke an owned install credential
+      operationId: delete_api_fast_model_installs_install
+      tags:
+        - Fast Model
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: install
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Credential revoked
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/fast-model/quota:
+    x-composition: plue
+    get:
+      summary: Read the install daily fast-model quota
+      operationId: get_api_fast_model_quota
+      tags:
+        - Fast Model
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FastModelQuota'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/fast-model/v1/chat/completions:
+    x-composition: plue
+    post:
+      summary: Complete using the install fast-model quota
+      operationId: post_api_fast_model_v1_chat_completions
+      tags:
+        - Fast Model
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnyJSON'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '429':
+          description: Daily token capacity used
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FastModelCapacity'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/fast-model/sign-in:
+    x-composition: plue
+    get:
+      summary: Confirm Smithers fast-model sign-in
+      operationId: get_api_fast_model_sign_in
+      tags:
+        - Fast Model
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: install_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: redirect_uri
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: code_challenge
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: code_challenge_method
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Browser sign-in confirmation
+          content:
+            text/html:
+              schema:
+                type: string
+        '303':
+          description: Browser redirect
+          headers:
+            Location:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    post:
+      summary: Confirm Smithers fast-model sign-in
+      operationId: post_api_fast_model_sign_in
+      tags:
+        - Fast Model
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FastModelConsent'
+      responses:
+        '303':
+          description: Browser redirect
+          headers:
+            Location:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/fast-model/exchange:
+    x-composition: plue
+    post:
+      summary: Exchange the host PKCE proof for an install credential
+      operationId: post_api_fast_model_exchange
+      tags:
+        - Fast Model
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FastModelExchange'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FastModelExchangeCredential'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/feature-flags:
     get:
       summary: GET /api/feature-flags
@@ -5658,7 +5925,7 @@ paths:
   /api/model/fast:
     x-composition: install
     delete:
-      summary: Sign out of owner fast-model access
+      summary: Sign out of the Smithers fast model
       operationId: delete_api_model_fast
       tags:
         - Model
@@ -5670,33 +5937,19 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - ok
-                properties:
-                  ok:
-                    type: boolean
+                $ref: '#/components/schemas/FastModelSignOut'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
-        '429':
-          $ref: '#/components/responses/RateLimited'
         '503':
-          description: Sign-in or storage unavailable
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - code
-                properties:
-                  code:
-                    type: string
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/model/fast/sign-in:
     x-composition: install
     post:
-      summary: Start owner fast-model sign-in
+      summary: Smithers fast-model sign-in
       operationId: post_api_model_fast_sign_in
       tags:
         - Model
@@ -5708,69 +5961,50 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - url
-                properties:
-                  url:
-                    type: string
+                $ref: '#/components/schemas/FastModelSignInURL'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
-        '429':
-          $ref: '#/components/responses/RateLimited'
         '503':
-          description: Sign-in or storage unavailable
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - code
-                properties:
-                  code:
-                    type: string
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/model/fast/return:
     x-composition: install
     get:
-      summary: Complete owner fast-model sign-in
+      summary: Smithers fast-model sign-in
       operationId: get_api_model_fast_return
       tags:
         - Model
       security:
         - sessionCookie: []
       parameters:
-        - name: state
+        - name: code
           in: query
           required: true
           schema:
             type: string
-        - name: code
+        - name: state
           in: query
           required: true
           schema:
             type: string
       responses:
         '303':
-          description: Redirect to the install
+          description: Browser redirect
+          headers:
+            Location:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '400':
-          description: Sign-in refused
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - code
-                properties:
-                  code:
-                    type: string
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/notifications:
     get:
       summary: GET /api/notifications
@@ -25901,6 +26135,136 @@ components:
         eof:
           description: The read reached the end of the file; a line the agent is still writing waits for its newline
           type: boolean
+    FastModelInstallIdentity:
+      type: object
+      additionalProperties: false
+      required: [install_id]
+      properties:
+        install_id:
+          type: string
+          format: uuid
+    FastModelIssuedCredential:
+      type: object
+      required: [install_id, credential, daily_tokens, reset_at]
+      properties:
+        install_id:
+          type: string
+          format: uuid
+        credential:
+          type: string
+          description: Host-only secret; seal in the install database
+        daily_tokens:
+          type: integer
+          format: int64
+        reset_at:
+          type: string
+          format: date-time
+    FastModelQuota:
+      type: object
+      required: [remaining_tokens, daily_tokens, reset_at]
+      properties:
+        remaining_tokens:
+          type: integer
+          format: int64
+        daily_tokens:
+          type: integer
+          format: int64
+        reset_at:
+          type: string
+          format: date-time
+    FastModelCapacity:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [type, code, message, reset_at]
+          properties:
+            type:
+              type: string
+              enum: [capacity]
+            code:
+              type: string
+              enum: [capacity]
+            message:
+              type: string
+            reset_at:
+              type: string
+              format: date-time
+    FastModelConsent:
+      type: object
+      required: [install_id, state, redirect_uri, code_challenge, code_challenge_method, csrf_token]
+      properties:
+        install_id:
+          type: string
+          format: uuid
+        state:
+          type: string
+        redirect_uri:
+          type: string
+        code_challenge:
+          type: string
+        code_challenge_method:
+          type: string
+          enum: [S256]
+        csrf_token:
+          type: string
+    FastModelExchange:
+      type: object
+      additionalProperties: false
+      required: [code, code_verifier, redirect_uri]
+      properties:
+        code:
+          type: string
+        code_verifier:
+          type: string
+          minLength: 43
+          maxLength: 128
+        redirect_uri:
+          type: string
+    FastModelExchangeCredential:
+      type: object
+      required: [credential, install_id, remaining, reset_at]
+      properties:
+        credential:
+          type: string
+          description: Host-only secret; seal in the install database
+        install_id:
+          type: string
+          format: uuid
+        remaining:
+          type: integer
+          format: int64
+        reset_at:
+          type: string
+          format: date-time
+    FastModelSignInURL:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+    FastModelSignOut:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+    FastModelDailyTotals:
+      type: array
+      items:
+        type: object
+        required: [install, day, tokens]
+        properties:
+          install:
+            type: string
+            format: uuid
+          day:
+            type: string
+            format: date
+          tokens:
+            type: integer
+            format: int64
     NamedFlowRunRequest:
       type: object
       additionalProperties: false

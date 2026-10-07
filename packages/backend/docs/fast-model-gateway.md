@@ -31,14 +31,29 @@ or delegated agent credentials cannot issue an install credential.
 The install seals the returned credential server-side; browser sign-in must
 hand it to the host, never expose it to machines or flows. Reissuing rotates
 the credential. Only its issuing owner may rotate or revoke it, using
-`DELETE /api/fast-model/installs/<UUID>`. Signing out must revoke it and delete
-the local sealed value. The gateway stores only the SHA-256 credential digest.
+`DELETE /api/fast-model/installs/<UUID>`. Signing out deletes the local sealed value; the owner may revoke a gateway
+credential independently. The gateway stores only the SHA-256 credential digest.
 
-The host sends `Authorization: Bearer <credential>` and
-`X-Smithers-Install-ID: <UUID>` to:
+The install's existing PKCE sign-in now reaches the composed gateway:
+`GET /api/fast-model/sign-in` requires the install ID, S256 challenge,
+callback and state. It uses the existing Smithers browser login and an explicit
+CSRF-bound **Sign in** confirmation. Only an authorization code returns through
+the browser. The host posts `code`, `code_verifier` and `redirect_uri` to
+`/api/fast-model/exchange` and seals the returned credential. Exchanges carrying
+an Origin are refused. Grants reuse the existing OAuth code table, PKCE
+verifier and atomic consume query, under a fixed internal fast-model client
+which the ordinary OAuth token endpoint refuses. No user access token is issued.
 
-- `POST /fast-model/v1/chat/completions`, the Cerebras chat-completions protocol.
-- `GET /fast-model/quota`, returning `remaining_tokens`, `daily_tokens`, `reset_at`.
+The install retains `models.smithers.install_id` across sign-out so signing
+back in rotates its credential without resetting spent daily tokens. The
+install's browser callback stays `/api/model/fast/return`.
+
+The host sends `Authorization: Bearer <credential>` to the following routes.
+`X-Smithers-Install-ID` is optional; when supplied it must match the credential's
+install. The gateway otherwise resolves the install from the stored digest:
+
+- `POST /api/fast-model/v1/chat/completions`, the Cerebras chat-completions protocol.
+- `GET /api/fast-model/quota`, returning `remaining_tokens`, `daily_tokens`, `reset_at`.
 
 The gateway serves only configured fast model IDs, defaulting to
 `gpt-oss-120b`. Coding and Decisions provider routes are absent. It reuses
@@ -71,9 +86,10 @@ Validation uses a local fake upstream and real PostgreSQL:
 
 ```sh
 cd packages/backend
-go test ./credits ./app ./modelproxy ./internal/compose -run '^TestFastQuota|^TestFastGateway' -count=1
+go test ./credits ./app ./modelproxy ./internal/compose -run '^TestFastQuota|^TestFastGateway|^TestInstallFastModelSignIn' -count=1
 ```
 
 This public composition contract does not prove deployment of Plue's private
-hosting adapter, delivery of the browser sign-in credential to the install,
-or real Cerebras usage. The install sign-in and fallback UI belong to T-FM-01.
+hosting adapter, real Cerebras usage or routing every fast-model caller through the install
+source. The composed PKCE test does prove that the host receives and seals
+a credential and gets a metered completion from a fake upstream. The install sign-in and fallback UI belong to T-FM-01.

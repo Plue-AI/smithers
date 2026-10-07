@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX fast_model_install_credential_hash ON fast_model_installs(credential_hash);

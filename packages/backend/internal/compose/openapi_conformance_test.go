@@ -33,6 +33,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/modelhost"
+	"github.com/smithersai/smithers/packages/backend/modelproxy"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 )
 
@@ -163,6 +164,10 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *s
 	if wiki == nil {
 		wiki = services.NewWikiService(nil, nil, services.WithWikiCollaboration(nil, nil), services.WithWikiContent(nil))
 	}
+	var fastGateway *modelproxy.FastGateway
+	if config.IsMultitenant(cfg.Auth) {
+		fastGateway = &modelproxy.FastGateway{}
+	}
 	router := buildRouter(cfg, queries, deps.pool,
 		&routes.RepoHandler{}, &routes.GitMirrorSyncHandler{}, authHandler, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.DeployKeyHandler{}, &routes.LabelHandler{},
 		&routes.OrgHandler{}, &routes.LandingHandler{}, &routes.BuildCacheHandler{}, &routes.StackHandler{}, &routes.SearchHandler{}, &routes.IssueHandler{},
@@ -181,7 +186,7 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *s
 			Recommender:         &routes.RecommendationHandler{}, ModelStream: &routes.ModelStreamHandler{}, Mythical: deps.mythical,
 			UserRefs: &routes.UserRefHandler{}, AdminSystemStatus: &routes.AdminSystemStatusHandler{}, AdminSystemHealth: &routes.AdminSystemHealthHandler{DB: deps.pool}, AdminGrant: &routes.AdminGrantHandler{},
 			AdminAnalytics: &routes.AdminAnalyticsHandler{}, AdminAgentSessions: &routes.AdminAgentSessionHandler{},
-			AdminWorkspaces: &routes.AdminWorkspaceHandler{}, AdminTokens: &routes.AdminTokenHandler{}, ModelProxy: http.NotFoundHandler(),
+			AdminWorkspaces: &routes.AdminWorkspaceHandler{}, AdminTokens: &routes.AdminTokenHandler{}, ModelProxy: http.NotFoundHandler(), FastGateway: fastGateway,
 			EgressPolicy:     &routes.RepositoryEgressPolicyHandler{},
 			GitHubAppSetup:   &routes.GitHubAppSetupHandler{Owners: queries, Setup: &services.InstallSetupService{Capacity: host}, Origins: deps.live.Origins},
 			Members:          deps.members,

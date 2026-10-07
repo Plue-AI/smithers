@@ -3,6 +3,7 @@
 //
 // Not generated (the request body is not JSON):
 //   post_api_auth_github_cli_consent (application/x-www-form-urlencoded)
+//   post_api_fast_model_sign_in (application/x-www-form-urlencoded)
 
 /** What one request adds to the transport's own: the operation's required headers. */
 export interface RequestOptions {
@@ -748,6 +749,68 @@ export type ExternalSessionRead = {
   eof: boolean
 }
 
+export type FastModelInstallIdentity = {
+  install_id: string
+}
+
+export type FastModelIssuedCredential = {
+  install_id: string
+  credential: string
+  daily_tokens: number
+  reset_at: string
+}
+
+export type FastModelQuota = {
+  remaining_tokens: number
+  daily_tokens: number
+  reset_at: string
+}
+
+export type FastModelCapacity = {
+  error: {
+    type: "capacity"
+    code: "capacity"
+    message: string
+    reset_at: string
+  }
+}
+
+export type FastModelConsent = {
+  install_id: string
+  state: string
+  redirect_uri: string
+  code_challenge: string
+  code_challenge_method: "S256"
+  csrf_token: string
+}
+
+export type FastModelExchange = {
+  code: string
+  code_verifier: string
+  redirect_uri: string
+}
+
+export type FastModelExchangeCredential = {
+  credential: string
+  install_id: string
+  remaining: number
+  reset_at: string
+}
+
+export type FastModelSignInURL = {
+  url: string
+}
+
+export type FastModelSignOut = {
+  ok: boolean
+}
+
+export type FastModelDailyTotals = Array<{
+  install: string
+  day: string
+  tokens: number
+}>
+
 export type NamedFlowRunRequest = {
   name?: string
   workspaceId: string
@@ -1343,6 +1406,16 @@ export interface PostApiAdminWorkspacesIdSuspendInput {
 /** POST /api/admin/workspaces/{id}/suspend */
 export const postApiAdminWorkspacesIdSuspend = (transport: Transport, input: PostApiAdminWorkspacesIdSuspendInput): Promise<PostApiAdminWorkspacesIdSuspendResponse> =>
   transport.request("POST", `/api/admin/workspaces/${segment(input.path.id)}/suspend`) as Promise<PostApiAdminWorkspacesIdSuspendResponse>
+
+export type GetApiAdminFastModelDailyTotalsResponse = FastModelDailyTotals
+
+export interface GetApiAdminFastModelDailyTotalsInput {
+  readonly query: { readonly from: string; readonly until: string }
+}
+
+/** GET /api/admin/fast-model/daily-totals: Export UTC per-install token totals */
+export const getApiAdminFastModelDailyTotals = (transport: Transport, input: GetApiAdminFastModelDailyTotalsInput): Promise<GetApiAdminFastModelDailyTotalsResponse> =>
+  transport.request("GET", `/api/admin/fast-model/daily-totals${search({ from: input.query.from, until: input.query.until })}`) as Promise<GetApiAdminFastModelDailyTotalsResponse>
 
 export type PostApiAgentTurnEraseBody = AnyJSON
 
@@ -1947,6 +2020,64 @@ export interface GetApiExternalSessionsInput {
 /** GET /api/external/sessions: Read the owner's Codex or Claude Code session as raw JSONL */
 export const getApiExternalSessions = (transport: Transport, input: GetApiExternalSessionsInput): Promise<GetApiExternalSessionsResponse> =>
   transport.request("GET", `/api/external/sessions${search({ agent: input.query.agent, session: input.query.session, offset: input.query.offset })}`) as Promise<GetApiExternalSessionsResponse>
+
+export type PostApiFastModelInstallsBody = FastModelInstallIdentity
+
+export type PostApiFastModelInstallsResponse = FastModelIssuedCredential
+
+export interface PostApiFastModelInstallsInput {
+  readonly body: PostApiFastModelInstallsBody
+}
+
+/** POST /api/fast-model/installs: Issue a host-only install credential */
+export const postApiFastModelInstalls = (transport: Transport, input: PostApiFastModelInstallsInput): Promise<PostApiFastModelInstallsResponse> =>
+  transport.request("POST", `/api/fast-model/installs`, input.body) as Promise<PostApiFastModelInstallsResponse>
+
+export interface DeleteApiFastModelInstallsInstallInput {
+  readonly path: { readonly install: string }
+}
+
+/** DELETE /api/fast-model/installs/{install}: Revoke an owned install credential */
+export const deleteApiFastModelInstallsInstall = (transport: Transport, input: DeleteApiFastModelInstallsInstallInput): Promise<void> =>
+  transport.request("DELETE", `/api/fast-model/installs/${segment(input.path.install)}`).then(() => undefined)
+
+export type GetApiFastModelQuotaResponse = FastModelQuota
+
+/** GET /api/fast-model/quota: Read the install daily fast-model quota */
+export const getApiFastModelQuota = (transport: Transport): Promise<GetApiFastModelQuotaResponse> =>
+  transport.request("GET", `/api/fast-model/quota`) as Promise<GetApiFastModelQuotaResponse>
+
+export type PostApiFastModelV1ChatCompletionsBody = AnyJSON
+
+export type PostApiFastModelV1ChatCompletionsResponse = AnyJSON
+
+export interface PostApiFastModelV1ChatCompletionsInput {
+  readonly body: PostApiFastModelV1ChatCompletionsBody
+}
+
+/** POST /api/fast-model/v1/chat/completions: Complete using the install fast-model quota */
+export const postApiFastModelV1ChatCompletions = (transport: Transport, input: PostApiFastModelV1ChatCompletionsInput): Promise<PostApiFastModelV1ChatCompletionsResponse> =>
+  transport.request("POST", `/api/fast-model/v1/chat/completions`, input.body) as Promise<PostApiFastModelV1ChatCompletionsResponse>
+
+export interface GetApiFastModelSignInInput {
+  readonly query: { readonly install_id: string; readonly state: string; readonly redirect_uri: string; readonly code_challenge: string; readonly code_challenge_method: string }
+}
+
+/** GET /api/fast-model/sign-in: Confirm Smithers fast-model sign-in */
+export const getApiFastModelSignIn = (transport: Transport, input: GetApiFastModelSignInInput): Promise<Response> =>
+  transport.response("GET", `/api/fast-model/sign-in${search({ install_id: input.query.install_id, state: input.query.state, redirect_uri: input.query.redirect_uri, code_challenge: input.query.code_challenge, code_challenge_method: input.query.code_challenge_method })}`)
+
+export type PostApiFastModelExchangeBody = FastModelExchange
+
+export type PostApiFastModelExchangeResponse = FastModelExchangeCredential
+
+export interface PostApiFastModelExchangeInput {
+  readonly body: PostApiFastModelExchangeBody
+}
+
+/** POST /api/fast-model/exchange: Exchange the host PKCE proof for an install credential */
+export const postApiFastModelExchange = (transport: Transport, input: PostApiFastModelExchangeInput): Promise<PostApiFastModelExchangeResponse> =>
+  transport.request("POST", `/api/fast-model/exchange`, input.body) as Promise<PostApiFastModelExchangeResponse>
 
 export type GetApiFeatureFlagsResponse = AnyJSON
 
@@ -2615,29 +2746,25 @@ export interface PostApiModelVercelPathInput {
 export const postApiModelVercelPath = (transport: Transport, input: PostApiModelVercelPathInput): Promise<PostApiModelVercelPathResponse> =>
   transport.request("POST", `/api/model/vercel/${segment(input.path.path)}`, input.body) as Promise<PostApiModelVercelPathResponse>
 
-export type DeleteApiModelFastResponse = {
-  ok: boolean
-}
+export type DeleteApiModelFastResponse = FastModelSignOut
 
-/** DELETE /api/model/fast: Sign out of owner fast-model access */
+/** DELETE /api/model/fast: Sign out of the Smithers fast model */
 export const deleteApiModelFast = (transport: Transport): Promise<DeleteApiModelFastResponse> =>
   transport.request("DELETE", `/api/model/fast`) as Promise<DeleteApiModelFastResponse>
 
-export type PostApiModelFastSignInResponse = {
-  url: string
-}
+export type PostApiModelFastSignInResponse = FastModelSignInURL
 
-/** POST /api/model/fast/sign-in: Start owner fast-model sign-in */
+/** POST /api/model/fast/sign-in: Smithers fast-model sign-in */
 export const postApiModelFastSignIn = (transport: Transport): Promise<PostApiModelFastSignInResponse> =>
   transport.request("POST", `/api/model/fast/sign-in`) as Promise<PostApiModelFastSignInResponse>
 
 export interface GetApiModelFastReturnInput {
-  readonly query: { readonly state: string; readonly code: string }
+  readonly query: { readonly code: string; readonly state: string }
 }
 
-/** GET /api/model/fast/return: Complete owner fast-model sign-in */
+/** GET /api/model/fast/return: Smithers fast-model sign-in */
 export const getApiModelFastReturn = (transport: Transport, input: GetApiModelFastReturnInput): Promise<void> =>
-  transport.request("GET", `/api/model/fast/return${search({ state: input.query.state, code: input.query.code })}`).then(() => undefined)
+  transport.request("GET", `/api/model/fast/return${search({ code: input.query.code, state: input.query.state })}`).then(() => undefined)
 
 export type GetApiNotificationsResponse = AnyJSON
 

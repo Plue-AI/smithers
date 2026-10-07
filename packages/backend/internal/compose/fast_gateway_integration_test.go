@@ -156,7 +156,8 @@ func TestFastGatewayComposedAuthQuotaCountsAndKeyConfinementPostgres(t *testing.
 		require.Equal(t, 400, status, raw)
 	}
 	status, raw = request(0, "POST", modelproxy.FastGatewayPath+"/v1/responses", body, install, token)
-	require.Equal(t, 404, status, raw)
+	// Install credentials cannot authenticate an unoffered product API route.
+	require.Equal(t, 401, status, raw)
 	status, raw = request(owner.ID, "GET", "/api/admin/fast-model/daily-totals?from=invalid&until=2026-10-08", "", "", "")
 	require.Equal(t, 400, status, raw)
 	require.Contains(t, raw, `"code":"bad_request"`)

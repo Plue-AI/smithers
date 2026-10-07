@@ -484,7 +484,7 @@ paths:
   /api/model/fast:
     x-composition: install
     delete:
-      summary: Sign out of owner fast-model access
+      summary: Sign out of the Smithers fast model
       operationId: delete_api_model_fast
       tags:
         - Model
@@ -496,33 +496,19 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - ok
-                properties:
-                  ok:
-                    type: boolean
+                $ref: '#/components/schemas/FastModelSignOut'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
-        '429':
-          $ref: '#/components/responses/RateLimited'
         '503':
-          description: Sign-in or storage unavailable
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - code
-                properties:
-                  code:
-                    type: string
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/model/fast/sign-in:
     x-composition: install
     post:
-      summary: Start owner fast-model sign-in
+      summary: Smithers fast-model sign-in
       operationId: post_api_model_fast_sign_in
       tags:
         - Model
@@ -534,66 +520,47 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - url
-                properties:
-                  url:
-                    type: string
+                $ref: '#/components/schemas/FastModelSignInURL'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
-        '429':
-          $ref: '#/components/responses/RateLimited'
         '503':
-          description: Sign-in or storage unavailable
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - code
-                properties:
-                  code:
-                    type: string
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/model/fast/return:
     x-composition: install
     get:
-      summary: Complete owner fast-model sign-in
+      summary: Smithers fast-model sign-in
       operationId: get_api_model_fast_return
       tags:
         - Model
       security:
         - sessionCookie: []
       parameters:
-        - name: state
+        - name: code
           in: query
           required: true
           schema:
             type: string
-        - name: code
+        - name: state
           in: query
           required: true
           schema:
             type: string
       responses:
         '303':
-          description: Redirect to the install
+          description: Browser redirect
+          headers:
+            Location:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '400':
-          description: Sign-in refused
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - code
-                properties:
-                  code:
-                    type: string
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'

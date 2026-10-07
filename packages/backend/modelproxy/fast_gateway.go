@@ -13,7 +13,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/modelprice"
 )
 
-const FastGatewayPath = "/fast-model"
+const FastGatewayPath = "/api/fast-model"
 const InstallHeader = "X-Smithers-Install-ID"
 
 // FastGateway is the hosted, card-free Cerebras path. It never admits coding
@@ -34,6 +34,18 @@ func (g *FastGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		WriteError(w, ProviderCerebras, 401, "authentication_error", "Invalid install credential.")
 		return
+	}
+	if install == "" {
+		var err error
+		install, err = g.Quota.ResolveInstall(r.Context(), token)
+		if err != nil {
+			if errors.Is(err, credits.ErrInstallCredential) {
+				WriteError(w, ProviderCerebras, 401, "authentication_error", "Invalid install credential.")
+			} else {
+				WriteError(w, ProviderCerebras, 503, "api_error", "Fast model unavailable.")
+			}
+			return
+		}
 	}
 	if err := g.Quota.Verify(r.Context(), install, token); err != nil {
 		if errors.Is(err, credits.ErrInstallCredential) {

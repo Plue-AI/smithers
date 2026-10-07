@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
@@ -139,6 +140,19 @@ func FastModelBearer() (string, error) {
 
 // Begin stores a PKCE lease before returning the browser's sign-in URL.
 func (s InstallFastModelAccess) Begin(ctx context.Context, owner int64, redirect string) (string, error) {
+	// Keep one identity across sign-out and sign-in so daily quota cannot reset.
+	_, err := s.Pool.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES('models.smithers.install_id',to_jsonb($1::text)) ON CONFLICT(key) DO NOTHING`, uuid.NewString())
+	if err != nil {
+		return "", err
+	}
+	var install string
+	if err = s.Pool.QueryRow(ctx, `SELECT value #>> '{}' FROM install_settings WHERE key='models.smithers.install_id' AND NOT sealed`).Scan(&install); err != nil {
+		return "", err
+	}
+	if _, err = uuid.Parse(install); err != nil {
+		return "", errors.New("install identity unavailable")
+	}
+
 	state, err := FastModelBearer()
 	if err != nil {
 		return "", err
@@ -152,7 +166,7 @@ func (s InstallFastModelAccess) Begin(ctx context.Context, owner int64, redirect
 		return "", err
 	}
 	challenge := sha256.Sum256([]byte(verifier))
-	query := url.Values{"state": {state}, "redirect_uri": {redirect}, "code_challenge": {base64.RawURLEncoding.EncodeToString(challenge[:])}, "code_challenge_method": {"S256"}}
+	query := url.Values{"install_id": {install}, "state": {state}, "redirect_uri": {redirect}, "code_challenge": {base64.RawURLEncoding.EncodeToString(challenge[:])}, "code_challenge_method": {"S256"}}
 	return s.gateway() + "/api/fast-model/sign-in?" + query.Encode(), nil
 }
 

@@ -3,6 +3,7 @@
 //
 // Not generated (the request body is not JSON):
 //   post_api_auth_github_cli_consent (application/x-www-form-urlencoded)
+//   post_api_fast_model_sign_in (application/x-www-form-urlencoded)
 
 // Package apiclient is the typed Go client of the Smithers product API.
 package apiclient
@@ -1276,6 +1277,84 @@ type ExternalSessionReadOwner struct {
 	Name  string `json:"name"`
 }
 
+// FastModelInstallIdentity is generated from docs/api/openapi.yaml.
+type FastModelInstallIdentity struct {
+	InstallID string `json:"install_id"`
+}
+
+// FastModelIssuedCredential is generated from docs/api/openapi.yaml.
+type FastModelIssuedCredential struct {
+	InstallID   string    `json:"install_id"`
+	Credential  string    `json:"credential"`
+	DailyTokens int64     `json:"daily_tokens"`
+	ResetAt     time.Time `json:"reset_at"`
+}
+
+// FastModelQuota is generated from docs/api/openapi.yaml.
+type FastModelQuota struct {
+	RemainingTokens int64     `json:"remaining_tokens"`
+	DailyTokens     int64     `json:"daily_tokens"`
+	ResetAt         time.Time `json:"reset_at"`
+}
+
+// FastModelCapacity is generated from docs/api/openapi.yaml.
+type FastModelCapacity struct {
+	Error FastModelCapacityError `json:"error"`
+}
+
+// FastModelCapacityError is generated from docs/api/openapi.yaml.
+type FastModelCapacityError struct {
+	Type    string    `json:"type"`
+	Code    string    `json:"code"`
+	Message string    `json:"message"`
+	ResetAt time.Time `json:"reset_at"`
+}
+
+// FastModelConsent is generated from docs/api/openapi.yaml.
+type FastModelConsent struct {
+	InstallID           string `json:"install_id"`
+	State               string `json:"state"`
+	RedirectURI         string `json:"redirect_uri"`
+	CodeChallenge       string `json:"code_challenge"`
+	CodeChallengeMethod string `json:"code_challenge_method"`
+	CsrfToken           string `json:"csrf_token"`
+}
+
+// FastModelExchange is generated from docs/api/openapi.yaml.
+type FastModelExchange struct {
+	Code         string `json:"code"`
+	CodeVerifier string `json:"code_verifier"`
+	RedirectURI  string `json:"redirect_uri"`
+}
+
+// FastModelExchangeCredential is generated from docs/api/openapi.yaml.
+type FastModelExchangeCredential struct {
+	Credential string    `json:"credential"`
+	InstallID  string    `json:"install_id"`
+	Remaining  int64     `json:"remaining"`
+	ResetAt    time.Time `json:"reset_at"`
+}
+
+// FastModelSignInURL is generated from docs/api/openapi.yaml.
+type FastModelSignInURL struct {
+	URL string `json:"url"`
+}
+
+// FastModelSignOut is generated from docs/api/openapi.yaml.
+type FastModelSignOut struct {
+	Ok bool `json:"ok"`
+}
+
+// FastModelDailyTotals is generated from docs/api/openapi.yaml.
+type FastModelDailyTotals = []FastModelDailyTotalsValueItem
+
+// FastModelDailyTotalsValueItem is generated from docs/api/openapi.yaml.
+type FastModelDailyTotalsValueItem struct {
+	Install string `json:"install"`
+	Day     string `json:"day"`
+	Tokens  int64  `json:"tokens"`
+}
+
 // NamedFlowRunRequest is generated from docs/api/openapi.yaml.
 type NamedFlowRunRequest struct {
 	Name        *string                    `json:"name,omitempty"`
@@ -1836,6 +1915,12 @@ type PostAPIAdminUsersUsernameEraseResponse struct {
 	Workspaces    *int64  `json:"workspaces,omitempty"`
 }
 
+// GetAPIAdminFastModelDailyTotalsParams is the query of GET /api/admin/fast-model/daily-totals.
+type GetAPIAdminFastModelDailyTotalsParams struct {
+	From  string
+	Until string
+}
+
 // GetAPIAgentConversationsParams is the query of GET /api/agent/conversations.
 type GetAPIAgentConversationsParams struct {
 	After *string
@@ -2038,6 +2123,15 @@ type GetAPIExternalSessionsParams struct {
 	Offset  *int64
 }
 
+// GetAPIFastModelSignInParams is the query of GET /api/fast-model/sign-in.
+type GetAPIFastModelSignInParams struct {
+	InstallID           string
+	State               string
+	RedirectURI         string
+	CodeChallenge       string
+	CodeChallengeMethod string
+}
+
 // PostAPIFlowsNameEditBody is generated from docs/api/openapi.yaml.
 type PostAPIFlowsNameEditBody struct {
 	Name    *string `json:"name,omitempty"`
@@ -2174,20 +2268,10 @@ type GetAPIModelTestReceiptParams struct {
 	RequestID string
 }
 
-// DeleteAPIModelFastResponse is generated from docs/api/openapi.yaml.
-type DeleteAPIModelFastResponse struct {
-	Ok bool `json:"ok"`
-}
-
-// PostAPIModelFastSignInResponse is generated from docs/api/openapi.yaml.
-type PostAPIModelFastSignInResponse struct {
-	URL string `json:"url"`
-}
-
 // GetAPIModelFastReturnParams is the query of GET /api/model/fast/return.
 type GetAPIModelFastReturnParams struct {
-	State string
 	Code  string
+	State string
 }
 
 // GetAPINotificationsEventsParams is the query of GET /api/notifications/events.
@@ -2876,6 +2960,16 @@ func (c *Client) PostAPIAdminWorkspacesIDSuspend(ctx context.Context, id string)
 	return out, err
 }
 
+// GetAPIAdminFastModelDailyTotals calls GET /api/admin/fast-model/daily-totals.
+func (c *Client) GetAPIAdminFastModelDailyTotals(ctx context.Context, params GetAPIAdminFastModelDailyTotalsParams) (FastModelDailyTotals, error) {
+	query := url.Values{}
+	query.Set("from", params.From)
+	query.Set("until", params.Until)
+	var out FastModelDailyTotals
+	err := c.do(ctx, "GET", "/api/admin/fast-model/daily-totals", query, nil, &out)
+	return out, err
+}
+
 // PostAPIAgentTurnErase calls POST /api/agent/turn/erase.
 func (c *Client) PostAPIAgentTurnErase(ctx context.Context, body any) (AnyJSON, error) {
 	var out AnyJSON
@@ -3313,6 +3407,50 @@ func (c *Client) GetAPIExternalSessions(ctx context.Context, params GetAPIExtern
 	return out, err
 }
 
+// PostAPIFastModelInstalls calls POST /api/fast-model/installs.
+func (c *Client) PostAPIFastModelInstalls(ctx context.Context, body FastModelInstallIdentity) (FastModelIssuedCredential, error) {
+	var out FastModelIssuedCredential
+	err := c.do(ctx, "POST", "/api/fast-model/installs", nil, body, &out)
+	return out, err
+}
+
+// DeleteAPIFastModelInstallsInstall calls DELETE /api/fast-model/installs/{install}.
+func (c *Client) DeleteAPIFastModelInstallsInstall(ctx context.Context, install string) error {
+	return c.do(ctx, "DELETE", "/api/fast-model/installs/"+url.PathEscape(install), nil, nil, nil)
+}
+
+// GetAPIFastModelQuota calls GET /api/fast-model/quota.
+func (c *Client) GetAPIFastModelQuota(ctx context.Context) (FastModelQuota, error) {
+	var out FastModelQuota
+	err := c.do(ctx, "GET", "/api/fast-model/quota", nil, nil, &out)
+	return out, err
+}
+
+// PostAPIFastModelV1ChatCompletions calls POST /api/fast-model/v1/chat/completions.
+func (c *Client) PostAPIFastModelV1ChatCompletions(ctx context.Context, body any) (AnyJSON, error) {
+	var out AnyJSON
+	err := c.do(ctx, "POST", "/api/fast-model/v1/chat/completions", nil, body, &out)
+	return out, err
+}
+
+// GetAPIFastModelSignIn calls GET /api/fast-model/sign-in. The caller closes the response body.
+func (c *Client) GetAPIFastModelSignIn(ctx context.Context, params GetAPIFastModelSignInParams) (*http.Response, error) {
+	query := url.Values{}
+	query.Set("install_id", params.InstallID)
+	query.Set("state", params.State)
+	query.Set("redirect_uri", params.RedirectURI)
+	query.Set("code_challenge", params.CodeChallenge)
+	query.Set("code_challenge_method", params.CodeChallengeMethod)
+	return c.raw(ctx, "GET", "/api/fast-model/sign-in", query, nil, "text/html")
+}
+
+// PostAPIFastModelExchange calls POST /api/fast-model/exchange.
+func (c *Client) PostAPIFastModelExchange(ctx context.Context, body FastModelExchange) (FastModelExchangeCredential, error) {
+	var out FastModelExchangeCredential
+	err := c.do(ctx, "POST", "/api/fast-model/exchange", nil, body, &out)
+	return out, err
+}
+
 // GetAPIFeatureFlags calls GET /api/feature-flags.
 func (c *Client) GetAPIFeatureFlags(ctx context.Context) (AnyJSON, error) {
 	var out AnyJSON
@@ -3732,15 +3870,15 @@ func (c *Client) PostAPIModelVercelPath(ctx context.Context, pathParam string, b
 }
 
 // DeleteAPIModelFast calls DELETE /api/model/fast.
-func (c *Client) DeleteAPIModelFast(ctx context.Context) (DeleteAPIModelFastResponse, error) {
-	var out DeleteAPIModelFastResponse
+func (c *Client) DeleteAPIModelFast(ctx context.Context) (FastModelSignOut, error) {
+	var out FastModelSignOut
 	err := c.do(ctx, "DELETE", "/api/model/fast", nil, nil, &out)
 	return out, err
 }
 
 // PostAPIModelFastSignIn calls POST /api/model/fast/sign-in.
-func (c *Client) PostAPIModelFastSignIn(ctx context.Context) (PostAPIModelFastSignInResponse, error) {
-	var out PostAPIModelFastSignInResponse
+func (c *Client) PostAPIModelFastSignIn(ctx context.Context) (FastModelSignInURL, error) {
+	var out FastModelSignInURL
 	err := c.do(ctx, "POST", "/api/model/fast/sign-in", nil, nil, &out)
 	return out, err
 }
@@ -3748,8 +3886,8 @@ func (c *Client) PostAPIModelFastSignIn(ctx context.Context) (PostAPIModelFastSi
 // GetAPIModelFastReturn calls GET /api/model/fast/return.
 func (c *Client) GetAPIModelFastReturn(ctx context.Context, params GetAPIModelFastReturnParams) error {
 	query := url.Values{}
-	query.Set("state", params.State)
 	query.Set("code", params.Code)
+	query.Set("state", params.State)
 	return c.do(ctx, "GET", "/api/model/fast/return", query, nil, nil)
 }
 

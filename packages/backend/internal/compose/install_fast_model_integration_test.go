@@ -133,7 +133,7 @@ func TestInstallFastModelSignInPostgres(t *testing.T) {
 	require.Equal(t, 200, res.Code)
 	require.Equal(t, 200, call("DELETE", "/api/model/fast", owner, "").Code)
 	var n int
-	require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM install_settings WHERE key LIKE 'models.smithers.%'`).Scan(&n))
+	require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM install_settings WHERE key IN ('models.smithers.credential','models.smithers.pending','models.smithers.status')`).Scan(&n))
 	require.Zero(t, n)
 	require.False(t, strings.Contains(stored, state))
 }

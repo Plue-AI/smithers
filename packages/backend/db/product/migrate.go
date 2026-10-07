@@ -187,6 +187,7 @@ var migrationRegistry = []migrationSpec{
 	{149, "migrations/0149_conversation_entry_sequence.sql"},
 	{150, "migrations/0150_conversation_summaries.sql"},
 	{151, "migrations/0151_run_summaries.sql"},
+	{152, "migrations/0152_fast_model_credential_lookup.sql"},
 }
 
 type migration struct {

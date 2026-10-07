@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -44,6 +45,19 @@ func (q FastQuota) Limit() int64 {
 
 // Issue binds a credential to a signed-in owner; another owner cannot rotate it.
 func (q FastQuota) Issue(ctx context.Context, owner int64, install string) (string, error) {
+	return q.issue(ctx, q.DB, owner, install)
+}
+
+// IssueInTransaction lets the sign-in grant and credential commit together.
+func (q FastQuota) IssueInTransaction(ctx context.Context, tx pgx.Tx, owner int64, install string) (string, error) {
+	return q.issue(ctx, tx, owner, install)
+}
+
+type fastCredentialWriter interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}
+
+func (q FastQuota) issue(ctx context.Context, writer fastCredentialWriter, owner int64, install string) (string, error) {
 	if _, err := uuid.Parse(install); err != nil || owner <= 0 {
 		return "", ErrInstallCredential
 	}
@@ -53,7 +67,7 @@ func (q FastQuota) Issue(ctx context.Context, owner int64, install string) (stri
 	}
 	token := "smf_" + base64.RawURLEncoding.EncodeToString(raw)
 	hash := sha256.Sum256([]byte(token))
-	tag, err := q.DB.Exec(ctx, `INSERT INTO fast_model_installs(install_id,owner_id,credential_hash) VALUES($1,$2,$3)
+	tag, err := writer.Exec(ctx, `INSERT INTO fast_model_installs(install_id,owner_id,credential_hash) VALUES($1,$2,$3)
  ON CONFLICT(install_id) DO UPDATE SET credential_hash=EXCLUDED.credential_hash, revoked=false
  WHERE fast_model_installs.owner_id=EXCLUDED.owner_id`, install, owner, hash[:])
 	if err != nil {
@@ -176,4 +190,22 @@ func (q FastQuota) Remaining(ctx context.Context, install, token string) (int64,
 		left = 0
 	}
 	return left, err
+}
+
+// ResolveInstall identifies an install from its host-only credential. An
+// explicit install header remains supported and must match the same digest.
+func (q FastQuota) ResolveInstall(ctx context.Context, token string) (string, error) {
+	if q.DB == nil {
+		return "", errors.New("fast quota unavailable")
+	}
+	if token == "" {
+		return "", ErrInstallCredential
+	}
+	hash := sha256.Sum256([]byte(token))
+	var install string
+	err := q.DB.QueryRow(ctx, `SELECT install_id::text FROM fast_model_installs WHERE credential_hash=$1 AND NOT revoked`, hash[:]).Scan(&install)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrInstallCredential
+	}
+	return install, err
 }
