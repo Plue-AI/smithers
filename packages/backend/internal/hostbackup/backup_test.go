@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -120,4 +121,23 @@ func TestBackupSpaceRefusalPrecedesFreeze(t *testing.T) {
 	_, err := Backup(t.Context(), BackupConfig{State: t.TempDir(), Version: Version{"1.2.3", 2, 18}, Authority: a, Cloner: backupCopyFixture{}})
 	require.ErrorContains(t, err, "insufficient_space")
 	require.Equal(t, []string{"check", "size"}, a.calls)
+}
+
+func TestBackupPreservesRunFilesWithoutTransientOwnerSocket(t *testing.T) {
+	state := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(state, "run"), 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(state, "run/request.json"), []byte("persisted request"), 0600))
+	listener, err := net.Listen("unix", filepath.Join(state, "run/host.sock"))
+	require.NoError(t, err)
+	defer listener.Close()
+	a := &backupAuthorityFixture{at: time.Date(2026, 10, 7, 1, 2, 3, 0, time.UTC)}
+	dir, err := Backup(t.Context(), BackupConfig{State: state, Version: Version{"1.2.3", 2, 18}, Authority: a, Cloner: backupCopyFixture{}})
+	require.NoError(t, err)
+	manifest, err := VerifySnapshot(dir)
+	require.NoError(t, err)
+	require.Len(t, manifest.Files, 2)
+	require.NoFileExists(t, filepath.Join(dir, "state/run/host.sock"))
+	bytes, err := os.ReadFile(filepath.Join(dir, "state/run/request.json"))
+	require.NoError(t, err)
+	require.Equal(t, "persisted request", string(bytes))
 }
