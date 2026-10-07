@@ -64,7 +64,6 @@ export const liveBranchActionDefinitions = (model: BranchModel, providers: Reado
     if (model.machine.state === "awake") definitions.push({ tag: "box.suspend", label: "Sleep", command_input: { branch: model.name } })
     if (model.machine.state === "failed") definitions.push({ tag: "box.resume", label: "Retry", command_input: { branch: model.name } })
     if (model.machine.state === "asleep") definitions.push({ tag: "box.resume", label: "Wake", command_input: { branch: model.name } })
-    if (model.scratch) definitions.push({ tag: "branch.add-to-stack", label: "Add to stack", command_input: { text: model.name } })
     if (model.moved_off) definitions.push(
       { tag: "todo.return-to-item", label: `Return to T${model.moved_off.item}`, command_input: { n: model.moved_off.item } },
       { tag: "todo.keep-moved", label: "Keep for now", command_input: { n: model.moved_off.item } }
