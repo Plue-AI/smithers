@@ -795,6 +795,13 @@ const FIXTURES: Record<
     | "history"
     | "experimental"
     | "request-queue"
+    // Retired by 263c41d3; their tombstone decoding is in fixtures/LegacyCards.ts.
+    | "account"
+    | "registration"
+    | "provider-accounts"
+    | "repo-import"
+    | "connector-setup"
+    | "env"
   >,
   KindFixtures
 > = {
