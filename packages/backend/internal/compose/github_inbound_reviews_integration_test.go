@@ -76,6 +76,12 @@ func TestGitHubCommentSteerRevokedBeforeWake(t *testing.T) {
 	}
 }
 
+func TestGitHubCommentSteerCommitRecovery(t *testing.T) {
+	for _, checkpoint := range []string{"before-commit", "after-commit"} {
+		t.Run(checkpoint, func(t *testing.T) { testGitHubCommentSteerThroughComposedInstall(t, checkpoint) })
+	}
+}
+
 type reviewWakeUnavailable struct{}
 
 func (reviewWakeUnavailable) Error() string              { return "review runtime unavailable" }
@@ -135,7 +141,7 @@ func testGitHubCommentSteerThroughComposedInstall(t *testing.T, revocation strin
 	require.NoError(t, err)
 	var wakeAvailable atomic.Bool
 	var wakeCalls atomic.Int64
-	wakeAvailable.Store(revocation == "")
+	wakeAvailable.Store(revocation == "" || revocation == "before-commit")
 	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
 		wakeCalls.Add(1)
 		if !wakeAvailable.Load() {
@@ -157,6 +163,10 @@ func testGitHubCommentSteerThroughComposedInstall(t *testing.T, revocation strin
 	issue := upstream.OpenIssue("owner/app", "owner", "PR conversation fixture", "")
 	require.EqualValues(t, 1, issue)
 	comment := upstream.CommentIssue("owner/app", issue, "owner", "Use the existing backoff helper")
+	if revocation == "before-commit" {
+		_, err = pool.Exec(ctx, `CREATE FUNCTION refuse_review_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_type='todo.github_input' THEN RAISE EXCEPTION 'crash before review commit'; END IF; RETURN NEW; END $$; CREATE TRIGGER refuse_review_commit BEFORE INSERT ON product_job_events FOR EACH ROW EXECUTE FUNCTION refuse_review_commit()`)
+		require.NoError(t, err)
+	}
 	workerCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() { defer close(done); assembled.synced.StartReconciler(workerCtx) }()
@@ -195,7 +205,29 @@ func testGitHubCommentSteerThroughComposedInstall(t *testing.T, revocation strin
 	t0 := time.Now()
 	hint()
 	hint()
-	if revocation != "" {
+	if revocation == "before-commit" {
+		require.Eventually(t, func() bool {
+			var count int
+			err := pool.QueryRow(ctx, `SELECT count(*) FROM product_job_dispatches WHERE last_error LIKE '%crash before review commit%'`).Scan(&count)
+			return err == nil && count > 0
+		}, 10*time.Second, 10*time.Millisecond)
+		var intents, events, completed int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer'`).Scan(&intents))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_input'`).Scan(&events))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND state='completed'`).Scan(&completed))
+		require.Zero(t, intents)
+		require.Zero(t, events)
+		require.Zero(t, completed)
+		unchanged, readErr := q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, readErr)
+		require.Equal(t, "proposed", unchanged.State)
+		require.NotContains(t, string(unchanged.Checks), "github_inputs")
+		require.Zero(t, wakeCalls.Load())
+		_, err = pool.Exec(ctx, `DROP TRIGGER refuse_review_commit ON product_job_events`)
+		require.NoError(t, err)
+		hint()
+	}
+	if revocation != "" && revocation != "before-commit" {
 
 		// Admission and the unavailable-runtime checkpoint are committed before
 		// revocation. The real dispatcher must recheck authority before retrying wake.
@@ -207,7 +239,7 @@ func testGitHubCommentSteerThroughComposedInstall(t *testing.T, revocation strin
 		receiver.mu.Lock()
 		require.Empty(t, receiver.messages, "missing runtime cannot fall back to host execution")
 		receiver.mu.Unlock()
-		if revocation == "runtime-restored" {
+		if revocation == "runtime-restored" || revocation == "after-commit" {
 			wakeAvailable.Store(true)
 		} else {
 			switch revocation {
