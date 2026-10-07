@@ -66,7 +66,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J8-06 | [C-J8-06.spec.ts](C-J8-06.spec.ts) | fixme-before-implementation | T-FLW-02, T-APP-01, T-REL-02 |
 | C-J11-01 | [C-J11-01.spec.ts](C-J11-01.spec.ts) | fixme-before-implementation | T-FLW-07, T-APP-07, T-REL-02 |
 | C-J11-02 | [C-J11-02.spec.ts](C-J11-02.spec.ts) | fixme-before-implementation | T-APP-05, T-FLW-04, T-FLW-05, T-FLW-07 |
-| C-J11-03 | [C-J11-03.spec.ts](C-J11-03.spec.ts) | passing Chromium: owner assignment, reload, durable model probe reconnect while Chat remains usable, model records, read-only instruction File card and actual recent-run models; composed Active-main prompt test passes; merged TODO/ongoing TODO journey pending | T-FLW-08 |
+| C-J11-03 | [C-J11-03.spec.ts](C-J11-03.spec.ts) | passing Chromium: owner assignment, reload, durable model probe reconnect and unresolved Agent refresh while Chat remains usable, model records, read-only instruction File card and actual recent-run models; composed Active-main prompt test passes; merged TODO/ongoing TODO journey pending | T-FLW-08 |
 | C-J11-04 | [C-J11-04.spec.ts](C-J11-04.spec.ts) | fixme-before-implementation | T-FLW-07, T-REL-02 |
 | C-APP-01 | [C-APP-01.spec.ts](C-APP-01.spec.ts) | browser-pass (Take over; PostgreSQL role/idempotency receipt; live toast qualification pending) | T-APP-02 |
 | C-APP-02 | [C-APP-02.spec.ts](C-APP-02.spec.ts) | browser-pass (Edit, deduplication, reload, person Drop confirm, working step, daily admission limit, budget pause owner, outside-push Discard binding/deduplication/role gate; planner/multiplayer pending) | T-APP-02 |

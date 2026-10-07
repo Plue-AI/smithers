@@ -105,12 +105,15 @@ export const createModelsController = (ctx: ControllerContext, deps: { readonly 
   const epoch = ctx.accountEpoch
   shared.pending.set(id, epoch)
   const request = recovered ?? { requestId: crypto.randomUUID(), model: recordOf(model) }
-  await deps.listAgents()
-  await markTest(id, true, undefined, request)
+  try { await markTest(id, true, undefined, request) }
+  catch (error) { shared.pending.delete(id); throw error }
   void ctx.withToast(`model.test.${id}`, "Testing model", "Model tested", async () => {
    let error: string | undefined
    let finished = false
    try {
+    await deps.listAgents()
+    if (ctx.disposed || epoch !== ctx.accountEpoch) return true
+    await markTest(id, true, undefined, request)
     if (!await authorize() || epoch !== ctx.accountEpoch) throw new Error("Owner access required")
     const response = await ctx.http(`${ctx.baseUrl.replace(/\/$/, "")}/api/model/test`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requestId: request.requestId, model: request.model }) })
     if (!response.ok) throw new Error(await ctx.errorMessageOf(response, "Could not test model"))
