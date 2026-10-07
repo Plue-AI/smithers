@@ -83,7 +83,7 @@ func TestInstallArtifactReadsPostgres(t *testing.T) {
 					out := httptest.NewRecorder()
 					router.ServeHTTP(out, req)
 					require.Equal(t, actor.status, out.Code, out.Body.String())
-					require.Equal(t, []string{"run.view"}, decisions)
+					require.Equal(t, []string{"runs.open"}, decisions)
 					if actor.status != 200 {
 						require.Contains(t, out.Body.String(), `"code":"permission"`)
 						require.NotContains(t, out.Body.String(), artifact.Name)

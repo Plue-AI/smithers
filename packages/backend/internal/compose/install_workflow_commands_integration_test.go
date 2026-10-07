@@ -137,7 +137,7 @@ func TestInstallWorkflowCommandsPostgres(t *testing.T) {
 		{"workflows", "flows.read"}, {fmt.Sprintf("workflows/%d", definition), "flows.read"},
 		{"runs", "runs.list"}, {"workflows/runs", "runs.list"}, {"actions/runs", "runs.list"},
 		{fmt.Sprintf("workflows/%d/runs", definition), "runs.list"},
-		{fmt.Sprintf("runs/%d", runID), "run.view"}, {fmt.Sprintf("actions/runs/%d", runID), "run.view"}, {fmt.Sprintf("workflows/runs/%d", runID), "run.view"},
+		{fmt.Sprintf("runs/%d", runID), "runs.open"}, {fmt.Sprintf("actions/runs/%d", runID), "runs.open"}, {fmt.Sprintf("workflows/runs/%d", runID), "runs.open"},
 		{fmt.Sprintf("runs/%d/steps", runID), "runs.steps"}, {fmt.Sprintf("actions/runs/%d/steps", runID), "runs.steps"},
 	} {
 		for _, credential := range []struct {
@@ -174,7 +174,7 @@ func TestInstallWorkflowCommandsPostgres(t *testing.T) {
 	// Stream aliases sit outside the JSON route group but share its policy.
 	for _, route := range []struct{ suffix, command string }{
 		{"runs/%d/logs", "runs.logs"}, {"runs/%d/events", "runs.events"},
-		{"workflows/runs/%d/events", "runs.events"}, {"runs/%d/status/stream", "run.view"},
+		{"workflows/runs/%d/events", "runs.events"}, {"runs/%d/status/stream", "runs.open"},
 	} {
 		for _, credential := range []struct{ name, token string }{{"external", external.Token}, {"run", run}} {
 			t.Run(credential.name+"/stream/"+route.suffix, func(t *testing.T) {

@@ -688,7 +688,7 @@ func (s *ApprovalsService) authorizeInstallApprovalRead(ctx context.Context, rep
 		}
 		return err
 	}
-	if _, err := Authorize(ctx, s.installQueries, "approvals.list"); err != nil {
+	if _, err := Authorize(ctx, s.installQueries, "runs.list"); err != nil {
 		return err
 	}
 	installed, err := InstallRepositoryID(ctx, s.installQueries)
