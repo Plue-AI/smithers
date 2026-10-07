@@ -244,4 +244,42 @@ func TestRunSummariesContractDurabilityAndFences(t *testing.T) {
 	retryCancel()
 	require.NoError(t, <-retryDone)
 
+	// Revoking access after admission must allow same-revision backfill on return.
+	source.change(func(run *services.SummaryRun) { run.Revision = 5; run.Phases[0].Live = false })
+	admit(true)
+	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=clock_timestamp() WHERE repository_id=$1 AND user_id=$2`, repo.ID, owner)
+	require.NoError(t, err)
+	var resumedCalls atomic.Int64
+	summaries.Model = func(context.Context, int64, int64, json.RawMessage) (io.ReadCloser, error) {
+		resumedCalls.Add(1)
+		return io.NopCloser(strings.NewReader("{\"type\":\"delta\",\"kind\":\"text\",\"text\":\"{\\\"phase:0\\\":\\\"Resumed checks\\\"}\"}\n{\"type\":\"done\"}\n")), nil
+	}
+	runUntil := func(worker string, done func() bool) {
+		workerCtx, stop := context.WithCancel(ctx)
+		defer stop()
+		finished := make(chan error, 1)
+		go func() {
+			finished <- restarted.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: worker, Capacity: 1, Lease: time.Minute, PollInterval: time.Millisecond, Operations: []string{services.RunSummaryOperation}}, summaries.Handle)
+		}()
+		require.Eventually(t, done, 5*time.Second, 10*time.Millisecond)
+		stop()
+		require.NoError(t, <-finished)
+	}
+	runUntil("run-summary-suspended", func() bool {
+		var pending int
+		err := pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE payload->>'Revision'='5' AND state<>'completed'`).Scan(&pending)
+		return err == nil && pending == 0
+	})
+	require.Zero(t, resumedCalls.Load())
+	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=NULL WHERE repository_id=$1 AND user_id=$2`, repo.ID, owner)
+	require.NoError(t, err)
+	admit(true)
+	var requests int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE payload->>'Revision'='5'`).Scan(&requests))
+	require.Equal(t, 2, requests, "restoring access must admit a fresh backfill")
+	runUntil("run-summary-restored", func() bool {
+		err := pool.QueryRow(ctx, `SELECT text,rev FROM run_summaries WHERE target='phase:0'`).Scan(&text, &revision)
+		return err == nil && text == "Resumed checks" && revision == 5
+	})
+	require.Equal(t, int64(1), resumedCalls.Load())
 }
