@@ -25,6 +25,33 @@ const notification = (
 } as Notification)
 
 describe("NotificationState", () => {
+  it("promotes all committed outside changes at the cutoff while ordinary queue items wait", () => {
+    let state = NotificationState.empty(8)
+    const burst = (id: string, lineage = "run/root"): Notification => ({
+      ...notification(id, "system-event", id, undefined, lineage),
+      payload: { kind: "outside_change", id, actor: { kind: "outside" }, files: ["retry.ts"] }
+    })
+    for (
+      const [seq, item] of [
+        [1, burst("one")],
+        [2, burst("two")],
+        [3, burst("later")],
+        [1, burst("other", "other-run")],
+        [1, notification("queued", "human-followup")],
+        [1, notification("ordinary-event", "system-event")]
+      ] as const
+    ) state = NotificationState.admit(state, item, seq).state
+    const promoted = NotificationState.promoteSteers(state, 2, "run/root")
+    expect(promoted.promoted.map((item) => item.notification.id)).toEqual(["one", "two"])
+    expect(promoted.state.items.map((item) => item.notification.id)).toEqual([
+      "later",
+      "other",
+      "queued",
+      "ordinary-event"
+    ])
+    expect(NotificationState.promoteSteers(promoted.state, 2, "run/root").promoted).toEqual([])
+  })
+
   it("preserves FIFO order and promotes one queued item at a time", () => {
     let state = NotificationState.empty(4)
     state = NotificationState.admit(state, notification("first", "human-followup"), 1).state

@@ -242,7 +242,12 @@ export const promoteSteers = (state: State, cutoffSeq: number, targetLineageId?:
   const remaining: Array<Pending> = []
   for (const item of state.items) {
     if (
-      admissionClass(item.notification) === "steer" &&
+      (admissionClass(item.notification) === "steer" || (
+        item.notification._tag === "system-event" &&
+        typeof item.notification.payload === "object" && item.notification.payload !== null &&
+        !Array.isArray(item.notification.payload) &&
+        (item.notification.payload as Readonly<Record<string, unknown>>).kind === "outside_change"
+      )) &&
       item.seq <= cutoffSeq &&
       (targetLineageId === undefined || item.notification.targetLineageId === targetLineageId)
     ) {
