@@ -2,12 +2,14 @@ package compose
 
 import (
 	"bufio"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/pkg/sftp"
 	"github.com/smithersai/smithers/packages/backend/flowmanifest"
@@ -111,6 +113,43 @@ func TestInstalledMemberTerminalAndSSHChain(t *testing.T) {
 	_, err = term.run(`printf 'TRM''UID=%s\n' "$(id -u)"`, regexp.MustCompile(fmt.Sprintf(`TRMUID=%d`, uid)), 30*time.Second)
 	require.NoError(t, err)
 	_, err = term.run(`test -r "$SMITHERS_TOKEN_FILE" && test "${SMITHERS_TOKEN-unset}" = unset && test "$(stat -c %a "$SMITHERS_TOKEN_FILE")" = 600 && printf 'TRM''TOKEN=private\n'`, regexp.MustCompile(`TRMTOKEN=private`), 30*time.Second)
+	require.NoError(t, err)
+	// Fixed guest contracts, observed through the retained production socket.
+	// These execute only on the approved microVM, never a host shell fixture.
+	_, err = term.run(`test "$(pwd)" = /workspace && test "$(umask)" = 0002 && test "$HOME" = "/home/$(id -un)" && test "$(id -g)" = "$(id -u)" && test "$(awk '/^Groups:/ {if (NF == 2) print $2}' /proc/$$/status)" = 20000 && printf 'TRM''IDENTITY=confined\n'`, regexp.MustCompile(`TRMIDENTITY=confined`), 30*time.Second)
+	require.NoError(t, err)
+	expectedToken := fmt.Sprintf("/run/smithers/%d/token/sessions/%s/token", uid, receipt.ID)
+	_, err = term.run(fmt.Sprintf(`test "$SMITHERS_TOKEN_FILE" = %q && test "$(stat -c %%u "$SMITHERS_TOKEN_FILE")" = "$(id -u)" && test "$(stat -c %%a /run/smithers/$(id -u)/token)" = 700 && printf 'TRM''BINDING=private\n'`, expectedToken), regexp.MustCompile(`TRMBINDING=private`), 30*time.Second)
+	require.NoError(t, err)
+
+	// A second live session must have a distinct credential file. Closing the
+	// first shell revokes only its file, without breaking the second terminal.
+	secondKey := uuid.NewString()
+	code, raw = h.request("POST", "/api/terminals", `{"branch":"`+branch+`"}`, secondKey)
+	require.Equal(t, 202, code, string(raw))
+	var second services.WorkspaceSessionResponse
+	require.NoError(t, json.Unmarshal(raw, &second))
+	require.NotEqual(t, receipt.ID, second.ID)
+	require.Eventually(t, func() bool {
+		status, raw := h.request("POST", "/api/terminals", `{"branch":"`+branch+`"}`, secondKey)
+		var current services.WorkspaceSessionResponse
+		return status == 202 && json.Unmarshal(raw, &current) == nil && current.ID == second.ID && current.Status == "running"
+	}, 2*time.Minute, 100*time.Millisecond)
+	other, err := r.openTerminal(second.ID)
+	require.NoError(t, err)
+	defer other.close()
+	secondToken := fmt.Sprintf("/run/smithers/%d/token/sessions/%s/token", uid, second.ID)
+	_, err = other.run(fmt.Sprintf(`test "$SMITHERS_TOKEN_FILE" = %q && test -r %q && test -r "$SMITHERS_TOKEN_FILE" && ! cmp -s %q "$SMITHERS_TOKEN_FILE" && printf 'TRM''SESSIONS=separate\n'`, secondToken, expectedToken, expectedToken), regexp.MustCompile(`TRMSESSIONS=separate`), 30*time.Second)
+	require.NoError(t, err)
+	closeCtx, closeCancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer closeCancel()
+	require.NoError(t, term.conn.Write(closeCtx, websocket.MessageText, []byte(`{"type":"close"}`)))
+	select {
+	case <-term.closed:
+	case <-closeCtx.Done():
+		t.Fatal("owner close did not end the first terminal")
+	}
+	_, err = other.run(fmt.Sprintf(`for i in $(seq 1 50); do test ! -e %q && break; sleep .1; done; test ! -e %q && test -r "$SMITHERS_TOKEN_FILE" && printf 'TRM''SURVIVOR=private\n'`, expectedToken, expectedToken), regexp.MustCompile(`TRMSURVIVOR=private`), 30*time.Second)
 	require.NoError(t, err)
 	_, private, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)

@@ -101,11 +101,12 @@ func (r *terminalMemberRuntime) OpenTerminal(_ context.Context, branch, id, dige
 }
 
 type echoOwnerTerminal struct {
-	reader  *io.PipeReader
-	writer  *io.PipeWriter
-	mu      sync.Mutex
-	input   bytes.Buffer
-	resizes int
+	reader     *io.PipeReader
+	writer     *io.PipeWriter
+	mu         sync.Mutex
+	input      bytes.Buffer
+	resizes    int
+	rows, cols uint16
 }
 
 func (p *echoOwnerTerminal) Read(b []byte) (int, error) { return p.reader.Read(b) }
@@ -116,10 +117,11 @@ func (p *echoOwnerTerminal) Write(b []byte) (int, error) {
 	return p.writer.Write(b)
 }
 func (p *echoOwnerTerminal) Close() error { _ = p.writer.Close(); return p.reader.Close() }
-func (p *echoOwnerTerminal) Resize(context.Context, uint16, uint16) error {
+func (p *echoOwnerTerminal) Resize(_ context.Context, cols, rows uint16) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.resizes++
+	p.rows, p.cols = rows, cols
 	return nil
 }
 
@@ -266,6 +268,20 @@ func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
 	require.Zero(t, count, "owner-uid terminals grant no legacy shared-user access")
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM workspace_sessions`).Scan(&count))
 	require.Zero(t, count)
+	type socketMessage struct {
+		kind websocket.MessageType
+		data []byte
+		err  error
+	}
+	messages := make(map[*websocket.Conn]chan socketMessage)
+	read := func(socket *websocket.Conn, ctx context.Context) (websocket.MessageType, []byte, error) {
+		select {
+		case message := <-messages[socket]:
+			return message.kind, message.data, message.err
+		case <-ctx.Done():
+			return 0, nil, ctx.Err()
+		}
+	}
 	dial := func(cookie string) *websocket.Conn {
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 		defer cancel()
@@ -278,6 +294,22 @@ func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
 			require.NoError(t, err)
 		}
 		t.Cleanup(func() { socket.CloseNow() })
+		stream := make(chan socketMessage, 16)
+		messages[socket] = stream
+		// Keep reading control frames while Ping waits for its pong.
+		go func() {
+			for {
+				kind, data, err := socket.Read(t.Context())
+				select {
+				case stream <- socketMessage{kind, data, err}:
+				case <-t.Context().Done():
+					return
+				}
+				if err != nil {
+					return
+				}
+			}
+		}()
 		return socket
 	}
 	provider.registry = nil
@@ -289,32 +321,66 @@ func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
 	owner, watcher := dial(f.cookie), dial("alice-terminal-cookie")
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	_, _, err = owner.Read(ctx)
+	_, _, err = read(owner, ctx)
 	require.NoError(t, err)
-	_, _, err = watcher.Read(ctx)
+	_, _, err = read(watcher, ctx)
 	require.NoError(t, err)
-	require.NoError(t, watcher.Write(ctx, websocket.MessageBinary, []byte("forbidden")))
+	for i := 0; i < 1000; i++ {
+		require.NoError(t, watcher.Write(ctx, websocket.MessageBinary, []byte("forbidden")))
+	}
+	// A control frame cannot confer ownership or carry input on a watcher.
+	require.NoError(t, watcher.Write(ctx, websocket.MessageText, []byte(fmt.Sprintf(`{"type":"input","owner":%d,"data":"forged"}`, f.user.ID))))
 	require.NoError(t, watcher.Write(ctx, websocket.MessageText, []byte(`{"type":"resize","rows":40,"cols":100}`)))
 	require.NoError(t, watcher.Write(ctx, websocket.MessageText, []byte(`{"type":"close"}`)))
+	// Ping is a same-socket barrier: all preceding watcher frames have been
+	// consumed before checking the guest effect, even on a slow machine.
+	require.NoError(t, watcher.Ping(ctx))
 	require.NoError(t, owner.Write(ctx, websocket.MessageBinary, []byte("owner echo")))
-	_, output, err := watcher.Read(ctx)
+	_, output, err := read(watcher, ctx)
 	require.NoError(t, err)
 	require.Equal(t, "owner echo", string(output))
-	_, _, err = owner.Read(ctx)
+	_, _, err = read(owner, ctx)
 	require.NoError(t, err)
 	terminal.mu.Lock()
 	require.Equal(t, "owner echo", terminal.input.String())
 	require.Zero(t, terminal.resizes)
+	terminal.mu.Unlock()
+	// Invalid owner dimensions must never reach the PTY; the retained socket
+	// stays usable and accepts both edges of the unsigned 16-bit range.
+	for _, frame := range []string{
+		`{"type":"resize","rows":0,"cols":80}`,
+		`{"type":"resize","rows":24,"cols":0}`,
+		`{"type":"resize","rows":65536,"cols":80}`,
+		`{"type":"resize","rows":24,"cols":65536}`,
+		`{"type":"resize","rows":-1,"cols":80}`,
+		`{"type":"resize","rows":24,"cols":1.5}`,
+	} {
+		require.NoError(t, owner.Write(ctx, websocket.MessageText, []byte(frame)))
+	}
+	require.NoError(t, owner.Ping(ctx))
+	terminal.mu.Lock()
+	require.Zero(t, terminal.resizes)
+	terminal.mu.Unlock()
+	for _, size := range []uint16{1, 65535} {
+		require.NoError(t, owner.Write(ctx, websocket.MessageText, []byte(fmt.Sprintf(`{"type":"resize","rows":%d,"cols":%d}`, size, size))))
+		require.NoError(t, owner.Ping(ctx))
+		terminal.mu.Lock()
+		require.Equal(t, size, terminal.rows)
+		require.Equal(t, size, terminal.cols)
+		terminal.mu.Unlock()
+	}
+	terminal.mu.Lock()
+	require.Equal(t, 2, terminal.resizes)
 	terminal.mu.Unlock()
 	facts := manager.BranchTerminals(f.row.RepositoryID, f.row.ID)
 	require.Len(t, facts, 1)
 	require.Equal(t, []int64{alice.ID}, facts[0].Watchers)
 	require.NoError(t, owner.Close(websocket.StatusNormalClosure, "reload"))
 	owner = dial(f.cookie)
-	_, output, err = owner.Read(ctx)
+	_, output, err = read(owner, ctx)
 	require.NoError(t, err)
 	require.Equal(t, "owner echo", string(output))
-	_, _, err = owner.Read(ctx)
+	_, _, err = read(owner, ctx)
 	require.NoError(t, err)
 	remove, err := http.NewRequest(http.MethodDelete, server.URL+"/api/members/alice", nil)
 	require.NoError(t, err)
@@ -327,15 +393,15 @@ func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
 	removedBody, err := io.ReadAll(removed.Body)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusNoContent, removed.StatusCode, string(removedBody))
-	_, _, err = watcher.Read(ctx)
+	_, _, err = read(watcher, ctx)
 	require.Equal(t, websocket.StatusPolicyViolation, websocket.CloseStatus(err))
 	require.True(t, manager.HasBranchTerminal(f.row.RepositoryID, f.row.ID))
 	require.NoError(t, owner.Write(ctx, websocket.MessageBinary, []byte("still owner")))
-	_, output, err = owner.Read(ctx)
+	_, output, err = read(owner, ctx)
 	require.NoError(t, err)
 	require.Equal(t, "still owner", string(output))
 	require.NoError(t, owner.Write(ctx, websocket.MessageText, []byte(`{"type":"close"}`)))
-	_, _, err = owner.Read(ctx)
+	_, _, err = read(owner, ctx)
 	require.Equal(t, websocket.StatusNormalClosure, websocket.CloseStatus(err))
 	require.Eventually(t, func() bool { return !manager.HasBranchTerminal(f.row.RepositoryID, f.row.ID) }, time.Second, time.Millisecond)
 
@@ -362,7 +428,7 @@ func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
 	attachCtx, attachCancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer attachCancel()
 	for _, socket := range []*websocket.Conn{carolSocket, benWatcher} {
-		messageType, marker, err := socket.Read(attachCtx)
+		messageType, marker, err := read(socket, attachCtx)
 		require.NoError(t, err)
 		require.Equal(t, websocket.MessageText, messageType)
 		require.JSONEq(t, `{"type":"replay-complete"}`, string(marker))
@@ -380,9 +446,9 @@ func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, removed.StatusCode, string(removedBody))
 	revokedCtx, revokedCancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer revokedCancel()
-	_, _, err = carolSocket.Read(revokedCtx)
+	_, _, err = read(carolSocket, revokedCtx)
 	require.Equal(t, websocket.StatusPolicyViolation, websocket.CloseStatus(err))
-	_, _, err = benWatcher.Read(revokedCtx)
+	_, _, err = read(benWatcher, revokedCtx)
 	require.Equal(t, websocket.StatusPolicyViolation, websocket.CloseStatus(err))
 	require.Eventually(t, func() bool { return !manager.HasBranchTerminal(f.row.RepositoryID, f.row.ID) }, time.Second, time.Millisecond)
 	require.Empty(t, manager.BranchTerminals(f.row.RepositoryID, f.row.ID))
