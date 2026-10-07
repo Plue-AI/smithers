@@ -17,7 +17,8 @@ real_uid,real_gid=os.getuid(),os.getgid();assert real_uid!=0
 g.os.geteuid=lambda:0
 entry=types.SimpleNamespace(pw_uid=real_uid)
 g.mutation_account=lambda:(entry,real_gid)
-g.MUTATION_TIMEOUT=2
+# Keep the production deadline: these real child processes share the host
+# scheduler, and their ordering assertions must not depend on a two-second slice.
 real_directory=g.safe_directory
 def directory(path,**kwargs):
  if path=='/workspace':return os.open(workspace,os.O_RDONLY|os.O_DIRECTORY)
