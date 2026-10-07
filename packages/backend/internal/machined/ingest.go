@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 // EventWriter verifies already transferred objects and writes the head/activity
@@ -23,11 +24,14 @@ type EventWriter func(context.Context, pgx.Tx, string, Event) (Acknowledgement, 
 type Ingestor struct {
 	Pool  *pgxpool.Pool
 	Write EventWriter
+	// Bursts shares this pump and its authenticated lease. Split bursts own
+	// their staging transaction; all other durable events use Write below.
+	Bursts *BurstIngest
 }
 
 func (i *Ingestor) Commit(ctx context.Context, connection *Connection, branch string, event Event) (Acknowledgement, error) {
 	ack := Acknowledgement{Seq: event.Seq}
-	if i == nil || i.Pool == nil || i.Write == nil {
+	if i == nil || i.Pool == nil || (i.Write == nil && i.Bursts == nil) {
 		return ack, ErrNotReady
 	}
 	if connection == nil || connection.registry == nil {
@@ -44,6 +48,24 @@ func (i *Ingestor) Commit(ctx context.Context, connection *Connection, branch st
 		wire.Field(3, event.Payload))}
 	if _, err := wire.Encode(f); err != nil {
 		return ack, err
+	}
+	if event.Payload[0] == 1 {
+		if i.Bursts == nil || i.Bursts.Pool != i.Pool {
+			return ack, ErrNotReady
+		}
+		// Scope comes from the host row; neither caller nor daemon chooses a
+		// repository stream. Apply fences this exact lease through commit.
+		if connection.boot == nil || connection.boot.branch != branch {
+			return ack, ErrUnauthorized
+		}
+		var repository int64
+		if err := i.Pool.QueryRow(ctx, `SELECT repository_id FROM workspaces WHERE id=$1`, branch).Scan(&repository); err != nil {
+			return ack, err
+		}
+		return i.Bursts.Apply(ctx, connection, jobs.Scope{TenantID: fmt.Sprint(repository), PrincipalID: "branch:" + branch}, event)
+	}
+	if i.Write == nil {
+		return ack, ErrNotReady
 	}
 	id := event.EventID
 	// Fence replacement through commit, including a newer boot arriving while
@@ -127,7 +149,7 @@ func (i *Ingestor) Dispatch(ctx context.Context, link *Link, branch string) erro
 	// on every exit so awake RPCs refuse until a new connection reconciles and
 	// replays the outbox. Link.Close fences only this boot's connection.
 	defer link.Close()
-	if i == nil || i.Pool == nil || i.Write == nil {
+	if i == nil || i.Pool == nil || (i.Write == nil && i.Bursts == nil) {
 		return ErrNotReady
 	}
 	for {
