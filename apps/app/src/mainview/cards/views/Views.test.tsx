@@ -63,7 +63,7 @@ for (const path of paths) {
             displays.push(host.textContent)
           }
           expect(onAction).toHaveBeenCalledTimes(0)
-          expect(onView).toHaveBeenCalledTimes(host.querySelectorAll(".flow-version").length)
+          expect(onView).toHaveBeenCalledTimes(0)
         }
         for (const text of story.expect) {
           if (story.name.startsWith("actor-")) {
@@ -240,6 +240,7 @@ for (const path of paths) {
               ? new KeyboardEvent("keydown", { key: interaction.key, ctrlKey: interaction.gesture === "hover", bubbles: true })
               : new Event(interaction.event ?? "click", { bubbles: true }))
           })
+          if (path === "FlowView.stories.tsx") expect(control!.getAttribute("aria-pressed")).toBe("true")
           expect(onAction).toHaveBeenCalledTimes(expectedAction ? 1 : 0)
           expect(onView).toHaveBeenCalledTimes(interaction.patch ? 1 : 0)
           if (expectedAction) expect(onAction.mock.calls[0]).toEqual([expectedAction.tag, expectedAction.args])
@@ -1367,7 +1368,7 @@ for (const [id, fixture] of Object.entries(flows)) test(`Flow ${id}`, () => {
   }
   for (const text of fixture.expect) expect(displays.join("\n")).toContain(text)
 })
-test("Flow version selection patches its member view and marks only supplied added true", () => {
+test("Flow version selection stays local and marks only supplied added true", () => {
   const calls = mock((..._args: unknown[]) => {})
   const host = render(<ControlledFlowView {...flows.proposed} onAction={calls} onView={calls} />)
   expect(host.querySelector('[aria-pressed="true"]')?.textContent).toContain("Active")
@@ -1375,7 +1376,7 @@ test("Flow version selection patches its member view and marks only supplied add
   expect(host.textContent).toContain("Update docs")
   expect(host.querySelectorAll('[data-added="true"]').length).toBe(1)
   expect(host.querySelector('[data-added="true"]')?.textContent).toContain("Update docs")
-  expect(calls.mock.calls).toEqual([[{ tab: "v4" }]])
+  expect(calls.mock.calls).toEqual([])
   act(() => root!.render(<ControlledFlowView {...flows.proposed} model={{ ...flows.proposed.model, versions: [{ id: "v4", state: "proposed", steps: [{ id: "docs", label: "Update docs", added: false }, { id: "other", label: "Other" }] }] }} onAction={calls} onView={calls} />))
   expect(host.querySelectorAll("[data-added]").length).toBe(0)
 })
@@ -3372,7 +3373,7 @@ test("Members removal cancels without dispatch and confirms once", async () => {
   const { MembersView } = await import("./MembersView")
   const { fixtures } = await import("@smthrs/rpc/fixtures/Members")
   const calls = mock((..._args: unknown[]) => {})
-  const host = render(<MembersView {...fixtures.empty} model={{ members: [] }} actions={[{ tag: "members.remove", label: "Remove", args: { login: "ben", revision: "7" } }]} onAction={calls} onView={() => { throw new Error("Unexpected presentation patch") }} />)
+  const host = render(<MembersView {...fixtures.empty} model={{ ...fixtures.empty.model, members: [] }} actions={[{ tag: "members.remove", label: "Remove", args: { login: "ben", revision: "7" } }]} onAction={calls} onView={() => { throw new Error("Unexpected presentation patch") }} />)
   const remove = host.querySelector<HTMLButtonElement>('button[data-flow="members.remove"]')!
   act(() => remove.click())
   expect(calls).toHaveBeenCalledTimes(0)
