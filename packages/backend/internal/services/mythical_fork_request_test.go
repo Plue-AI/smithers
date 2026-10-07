@@ -137,6 +137,10 @@ type interruptedScratchFork struct {
 	interrupt bool
 }
 
+func (f *interruptedScratchFork) CheckScratchFork(ctx context.Context, repository, actor int64, branch string) error {
+	return f.forks.CheckScratchFork(ctx, repository, actor, branch)
+}
+
 func (f *interruptedScratchFork) ForkScratch(ctx context.Context, input ScratchFork) (BranchMachineResponse, error) {
 	branch, err := f.forks.ForkScratch(ctx, input)
 	if err == nil && f.interrupt {
@@ -194,4 +198,102 @@ func TestInterruptedForkRetainsOriginalRevision(t *testing.T) {
 	var count int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workspaces WHERE repository_id=$1`, f.repoID).Scan(&count))
 	require.Equal(t, 1, count)
+}
+
+func TestForkActivityFailureDoesNotCompleteRequest(t *testing.T) {
+	f := newMythicalServiceFixture(t)
+	pool := f.pool.(*pgxpool.Pool)
+	installBranchOwner(t, pool, f.userID)
+	f.commit("Fixed revision", "retry.ts", "export const retry = 2;\n")
+	head := f.publish()
+	ws := installLaneService(t, pool, f.userID)
+	f.service.lanes = NewWorkspaceMythicalLanes(ws)
+	person, err := db.New(pool).GetUserByID(t.Context(), f.userID)
+	require.NoError(t, err)
+	ctx := middleware.ContextWithAuthInfo(t.Context(), &middleware.AuthInfo{User: &person, SessionHash: "activity-fork-session"})
+	ctx = registerTestInstallCredential(t, pool, ctx, f.repoID)
+	_, err = pool.Exec(ctx, `CREATE FUNCTION refuse_fork_activity() RETURNS trigger LANGUAGE plpgsql AS $$
+ BEGIN IF NEW.event_type='branch.forked' THEN RAISE EXCEPTION 'activity storage unavailable'; END IF; RETURN NEW; END $$;
+ CREATE TRIGGER refuse_fork_activity BEFORE INSERT ON product_job_events FOR EACH ROW EXECUTE FUNCTION refuse_fork_activity()`)
+	require.NoError(t, err)
+	input := BranchForkInput{From: "main", Name: "activity-retry", Request: "activity-fork"}
+	_, err = f.service.ForkBranch(ctx, f.repoID, f.userID, input)
+	require.ErrorContains(t, err, "activity storage unavailable")
+	var original string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT id::text FROM workspaces WHERE repository_id=$1`, f.repoID).Scan(&original))
+	var count int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='branch.fork.completed'`).Scan(&count))
+	require.Zero(t, count)
+	require.NoError(t, ws.WaitForProvisioning(ctx))
+	_, err = pool.Exec(ctx, `DROP TRIGGER refuse_fork_activity ON product_job_events; DROP FUNCTION refuse_fork_activity()`)
+	require.NoError(t, err)
+	for range 2 {
+		branch, err := f.service.ForkBranch(ctx, f.repoID, f.userID, input)
+		require.NoError(t, err)
+		require.Equal(t, original, branch.Machine.ID)
+		require.Equal(t, head, branch.Head)
+	}
+	for _, event := range []string{"branch.fork.intended", "branch.forked", "branch.fork.completed"} {
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type=$1`, event).Scan(&count))
+		require.Equal(t, 1, count, event)
+	}
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workspaces WHERE repository_id=$1`, f.repoID).Scan(&count))
+	require.Equal(t, 1, count)
+}
+
+func TestForkUnavailableStoreRefuses(t *testing.T) {
+	for _, service := range []*MythicalService{nil, {}} {
+		_, err := service.ForkBranch(t.Context(), 1, 1, BranchForkInput{From: "main"})
+		var refusal *BranchError
+		require.ErrorAs(t, err, &refusal)
+		require.Equal(t, 503, refusal.Status)
+		require.Equal(t, "infra", refusal.Class)
+	}
+}
+
+func TestFreshForkRefusesMissingProvidersBeforeRetention(t *testing.T) {
+	f := newMythicalServiceFixture(t)
+	pool := f.pool.(*pgxpool.Pool)
+	installBranchOwner(t, pool, f.userID)
+	f.commit("Fixed revision", "retry.ts", "export const retry = 2;\n")
+	head := f.publish()
+	ws := installLaneService(t, pool, f.userID)
+	f.service.lanes = NewWorkspaceMythicalLanes(ws)
+	person, err := db.New(pool).GetUserByID(t.Context(), f.userID)
+	require.NoError(t, err)
+	ctx := middleware.ContextWithAuthInfo(t.Context(), &middleware.AuthInfo{User: &person, SessionHash: "provider-fork-session"})
+	ctx = registerTestInstallCredential(t, pool, ctx, f.repoID)
+	complete := ws.branchMachineProviders
+	transactions := ws.transactions
+	for _, missing := range []string{"membership", "authorization", "lane", "microvm", "identity", "transaction", "runtime-refusal"} {
+		t.Run(missing, func(t *testing.T) {
+			ws.branchMachineProviders, ws.transactions = complete, transactions
+			switch missing {
+			case "membership":
+				ws.branchMachineProviders.Membership = nil
+			case "authorization":
+				ws.branchMachineProviders.Authorize = nil
+			case "lane":
+				ws.branchMachineProviders.LaneBinding = nil
+			case "microvm":
+				ws.branchMachineProviders.MicroVM = nil
+			case "identity":
+				ws.branchMachineProviders.SessionIdentity = nil
+			case "transaction":
+				ws.transactions = nil
+			case "runtime-refusal":
+				ws.branchMachineProviders.MicroVM = func(context.Context) error { return branchForkUnavailable("runtime not qualified") }
+			}
+			_, err := f.service.ForkBranch(ctx, f.repoID, f.userID, BranchForkInput{From: "main", Name: "refusal", Request: "missing-" + missing})
+			require.Error(t, err)
+			var count int
+			for _, table := range []string{"workspaces", "product_job_events"} {
+				require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&count))
+				require.Zero(t, count, table)
+			}
+			require.Empty(t, f.hostRef("refs/heads/scratch/"+strings.ToLower(person.Username)+"/refusal"))
+			require.Empty(t, f.hostRef("refs/smithers/keep/"+head))
+		})
+	}
+	ws.branchMachineProviders, ws.transactions = complete, transactions
 }

@@ -36,6 +36,7 @@ type MythicalTodoInput struct {
 	IssueDigest string            `json:"issue_digest,omitempty"`
 	Fixes       *bool             `json:"fixes,omitempty"`
 	Request     string            `json:"-"`
+	seed        *branchSeed
 }
 
 // MythicalTodoPlace is where a new TODO goes on the stack: the Draft's place
@@ -78,6 +79,9 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 		return MythicalItemView{}, issueTodoUnavailable()
 	}
 	command := "todo.new"
+	if input.seed != nil {
+		command = "branch.add-to-stack"
+	}
 	if input.Issue != nil {
 		command = "todo.from-issue"
 	}
@@ -168,6 +172,10 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 		first := map[string]any{"text": input.Prompt, "acceptance": input.Acceptance, "by": map[string]any{"kind": "person", "login": person.Username, "name": person.DisplayName, "avatar_url": todoAvatar(person), "color_index": 0}, "at": s.now().UTC().Format(time.RFC3339Nano)}
 		if issue != nil {
 			first["reason"], first["issue_digest"] = "from-issue", issue.Digest
+		}
+		if input.seed != nil {
+			first["seed"] = input.seed
+			first["reason"] = "add-to-stack"
 		}
 		revision, _ := json.Marshal([]map[string]any{first})
 		checks := mythicalChecks{Todo: true, FiledRequest: input.Request, CreationSession: info.SessionHash, CreationPayload: string(canonical)}

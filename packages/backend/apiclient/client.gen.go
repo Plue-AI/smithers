@@ -1111,6 +1111,7 @@ type SavedConversationProblem struct {
 
 // Branch is generated from docs/api/openapi.yaml.
 type Branch struct {
+	TodoID     *string           `json:"todo_id,omitempty"`
 	Name       string            `json:"name"`
 	Kind       string            `json:"kind"`
 	State      string            `json:"state"`
@@ -1863,6 +1864,23 @@ type PostAPIBillingCheckoutBody struct {
 type PostAPIBranchesBody struct {
 	From string  `json:"from"`
 	Name *string `json:"name,omitempty"`
+}
+
+// PostAPIBranchesBAddToStackBody is generated from docs/api/openapi.yaml.
+type PostAPIBranchesBAddToStackBody struct {
+	Text       *string  `json:"text,omitempty"`
+	Title      *string  `json:"title,omitempty"`
+	Acceptance []string `json:"acceptance,omitempty"`
+	After      *int64   `json:"after,omitempty"`
+	Before     *int64   `json:"before,omitempty"`
+}
+
+// PostAPIBranchesBAddToStackResponse is generated from docs/api/openapi.yaml.
+type PostAPIBranchesBAddToStackResponse struct {
+	State        string  `json:"state"`
+	N            *int64  `json:"n,omitempty"`
+	Rev          *int64  `json:"rev,omitempty"`
+	Confirmation *string `json:"confirmation,omitempty"`
 }
 
 // PostAPIBranchesBBody is generated from docs/api/openapi.yaml.
@@ -2897,6 +2915,13 @@ func (c *Client) GetAPIBranches(ctx context.Context) ([]Branch, error) {
 func (c *Client) PostAPIBranches(ctx context.Context, body PostAPIBranchesBody) (Branch, error) {
 	var out Branch
 	err := c.do(ctx, "POST", "/api/branches", nil, body, &out)
+	return out, err
+}
+
+// PostAPIBranchesBAddToStack calls POST /api/branches/{b}/add-to-stack.
+func (c *Client) PostAPIBranchesBAddToStack(ctx context.Context, b string, idempotencyKey string, body PostAPIBranchesBAddToStackBody) (PostAPIBranchesBAddToStackResponse, error) {
+	var out PostAPIBranchesBAddToStackResponse
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/branches/"+url.PathEscape(b)+"/add-to-stack", nil, body, &out)
 	return out, err
 }
 

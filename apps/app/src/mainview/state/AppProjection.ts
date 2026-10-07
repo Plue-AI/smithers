@@ -225,6 +225,8 @@ export const APP_TRANSITION_TYPES = {
   "signup.changed": true,
   "librarian.launches.changed": true,
   "issue.todo.requests.changed": true,
+  "branch.requests.changed": true,
+
   "coding.provider.requests.changed": true,
   "stack.wiki.requests.changed": true,
   "github.sync.request.changed": true,
@@ -2135,6 +2137,11 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           collections.sessions.update(SESSION_ID, draft => { draft.issueTodoRequests = transition.requests })
           break
         }
+        case "branch.requests.changed": {
+          collections.sessions.update(SESSION_ID, draft => { draft.branchRequests = transition.requests })
+          break
+        }
+
         case "coding.provider.requests.changed": {
           collections.sessions.update(SESSION_ID, draft => { draft.codingProviderRequests = transition.requests })
           break

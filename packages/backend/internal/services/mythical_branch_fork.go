@@ -73,6 +73,7 @@ func (e *BranchError) Error() string { return e.Message }
 // (workspaceMythicalLanes.ForkScratch): it answers the new branch with its
 // machine.
 type mythicalScratchForks interface {
+	CheckScratchFork(context.Context, int64, int64, string) error
 	ForkScratch(ctx context.Context, fork ScratchFork) (BranchMachineResponse, error)
 }
 
@@ -131,6 +132,10 @@ func (s *MythicalService) forkBranch(ctx context.Context, repositoryID, actorID 
 		return BranchMachineResponse{}, &BranchError{http.StatusBadRequest, "bad_request", "user", "Use lower-case letters, digits, '-', '_' or '.' for the name"}
 	}
 	branch := scratchBranchPrefix + strings.ToLower(person.Username) + "/" + name
+	// Qualify machine admission before retaining a revision or persisting intent.
+	if err := forks.CheckScratchFork(ctx, repositoryID, actorID, branch); err != nil {
+		return BranchMachineResponse{}, err
+	}
 	repository, owner, err := s.repository(ctx, repositoryID)
 	if err != nil {
 		return BranchMachineResponse{}, err
@@ -189,7 +194,9 @@ func (s *MythicalService) forkBranch(ctx context.Context, repositoryID, actorID 
 	if err != nil {
 		return BranchMachineResponse{}, err
 	}
-	s.recordFork(ctx, repositoryID, branchRow, person, source)
+	if err := s.recordFork(ctx, repositoryID, branchRow, person, source); err != nil {
+		return BranchMachineResponse{}, err
+	}
 	branchRow.ForkedFrom = &BranchForkedFrom{Kind: "main", Ref: source.ref, Commit: source.commit, Base: source.base}
 	if source.item.Valid {
 		branchRow.ForkedFrom.Kind, branchRow.ForkedFrom.Item = "item", source.number
@@ -205,6 +212,9 @@ func (s *MythicalService) forkBranch(ctx context.Context, repositoryID, actorID 
 // a different payload cannot reuse its key. Authorization still runs on every
 // HTTP request before this receipt is read.
 func (s *MythicalService) ForkBranch(ctx context.Context, repositoryID, actorID int64, input BranchForkInput) (BranchMachineResponse, error) {
+	if s == nil || s.store == nil {
+		return BranchMachineResponse{}, branchForkUnavailable("fork unavailable")
+	}
 	decision, err := Authorize(ctx, s.queries(), "branch.fork")
 	if err != nil {
 		return BranchMachineResponse{}, err
@@ -408,21 +418,19 @@ func (s *MythicalService) publishScratch(ctx context.Context, r *mythicalRun, br
 }
 
 // recordFork appends the fork to the new branch's activity: Smithers, for the
-// person (M-32). The branch exists either way; a lost entry is logged.
-func (s *MythicalService) recordFork(ctx context.Context, repositoryID int64, branch BranchMachineResponse, person db.User, source branchForkSource) {
+// person (M-32). Completion requires this durable attribution; a retry
+// recovers the same workspace and records the missing entry before completing.
+func (s *MythicalService) recordFork(ctx context.Context, repositoryID int64, branch BranchMachineResponse, person db.User, source branchForkSource) error {
 	fact, _ := json.Marshal(map[string]any{
 		"actor":  map[string]any{"kind": "system", "login": "smithers"},
 		"for":    map[string]any{"kind": "person", "id": person.ID, "login": person.Username},
 		"branch": branch.Name, "workspace": branch.Machine.ID,
 		"forked_from": map[string]any{"ref": source.ref, "commit": source.commit, "base": source.base, "item": source.number}})
 	scope := jobs.Scope{TenantID: strconv.FormatInt(repositoryID, 10), PrincipalID: "branch:" + branch.Machine.ID}
-	err := pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+	return pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
 		_, err := jobs.RecordFactInTx(ctx, tx, scope, branch.Machine.ID, "branch.forked", "scratch", fact)
 		return err
 	})
-	if err != nil {
-		s.logger.Warn("branch.fork_activity_failed", "workspace", branch.Machine.ID, "error", err)
-	}
 }
 
 func mythicalDefaultBranch(repository db.Repository) string {
