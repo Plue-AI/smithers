@@ -169,15 +169,19 @@ their socket writes already have exact attribution. Missing counters, unknown
 actors, changed bindings and overlapping participants remain outside changes.
 The wire actor remains a session reference for host resolution, not a grant.
 
-The W3 event pump calls `BurstIngest.Apply` with its admitted connection. Its
+The shared `Ingestor` event pump routes bursts to `BurstIngest.Apply` with its
+admitted connection and a scope derived from the host workspace row. Its
 object provider must verify the parentless versions commit, indexed blobs,
 `a/` and `b/` paths and post-digests. Missing objects produce no receipt.
 The existing product event writer, file rows and machine receipt commit in one
 transaction; post-commit notifications rebuild `:activity` and `:files` through
 the shared live broker. Burst identity and payload fingerprints reject divergent
-replays. Retaining the branch-scoped burst ref precedes acknowledgement, and
-replay repairs a failed ref publication. Split bursts are refused until their
-complete assembly is supplied; no partial activity is acknowledged as complete.
+replays. Retaining the branch-scoped burst ref precedes the SQL commit and
+acknowledgement. A ref failure rolls back all projected rows; a later SQL failure
+leaves a safe immutable pin that replay reuses. Split parts stage in the existing
+receipt table, bounded to 32 MiB and 4,096 parts. Staging acknowledges durable
+receipt only; no activity is visible until the complete burst verifies and
+commits. Reconnect recovers staging from PostgreSQL.
 
 Activity uses persisted stream cursors on `/api/live`: a fresh subscription gets
 the last 200 entries, reconnect gets subsequent deltas, and a missing cursor or
