@@ -939,7 +939,10 @@ func authorizeExecutionTodoRead(ctx context.Context, q *db.Queries, subject Inst
 func authorizeStackCandidate(ctx context.Context, q *db.Queries, subject InstallSubject) (InstallAuthorization, error) {
 	deny := func() (InstallAuthorization, error) { return InstallAuthorization{}, confirmationPermission() }
 	info := middleware.AuthInfoFromContext(ctx)
-	if !InstallExecutionCredential(ctx) || info == nil || !info.Scopes.Has(middleware.ScopeWriteRepository) || subject.RunID == "" || subject.WorkspaceID == "" {
+	// A machine identity names a workspace, not the attempt running in it.
+	// Require the issuer's run restriction too: a retained machine bearer
+	// must not select a replacement attempt by copying its run into the body.
+	if !InstallExecutionCredential(ctx) || info == nil || !info.Scopes.Has(middleware.ScopeWriteRepository) || subject.RunID == "" || subject.WorkspaceID == "" || middleware.ParseTokenAgentSessionRestriction(info.RawScopes) != subject.RunID {
 		return deny()
 	}
 	decision, err := authorizeExecutionTodoRead(ctx, q, subject)

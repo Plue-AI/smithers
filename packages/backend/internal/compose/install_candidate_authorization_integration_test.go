@@ -164,6 +164,26 @@ func TestInstallCandidateAuthorizationPostgres(t *testing.T) {
 		call(run, input, 202)
 		afterReplay = reads.Load()
 	})
+	t.Run("machine credential also binds the current run", func(t *testing.T) {
+		machineScopes := "write:repository," + middleware.RepositoryRestrictionScope(f.repoID) + ",workspace:" + workspace.ID
+		unboundMachine := f.token(f.owner, "candidate-machine-unbound", machineScopes, true)
+		staleMachine := f.token(f.owner, "candidate-machine-stale", machineScopes+","+middleware.AgentSessionRestrictionScope("previous-run"), true)
+		currentMachine := f.token(f.owner, "candidate-machine-current", machineScopes+","+middleware.AgentSessionRestrictionScope("current-run"), true)
+		before := reads.Load()
+		call(unboundMachine, input, 403)
+		call(staleMachine, input, 403)
+		require.Equal(t, before, reads.Load(), "machine refusal precedes retained-object reads")
+		call(currentMachine, input, 202)
+		afterReplay = reads.Load()
+		_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='replacement-run',generation=generation+1 WHERE id=$1`, itemID)
+		require.NoError(t, err)
+		replacement := input
+		replacement.RequestRunID = "replacement-run"
+		call(currentMachine, replacement, 403)
+		require.Equal(t, afterReplay, reads.Load(), "old machine cannot select a replacement run in the body")
+		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='current-run',generation=7 WHERE id=$1`, itemID)
+		require.NoError(t, err)
+	})
 	call(run, stale, 403)
 	require.Equal(t, afterReplay, reads.Load(), "stale replay is refused before ref reads or receipt disclosure")
 	_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='replacement-run',generation=generation+1 WHERE id=$1`, itemID)
