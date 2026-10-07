@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { scopedControllers } from "./ControllerTestScope"
 import type { AppServices } from "./AppController"
 import { createAppStore } from "./AppStore"
-import { addWorldNote, json, memoryStorage, scriptedToolAgent, settled, silentAgent } from "./TestFixtures"
+import { addWorldNote, json, memoryStorage, settled, silentAgent } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 
@@ -53,80 +53,26 @@ const signIn = async (store: Awaited<ReturnType<typeof webStore>>): Promise<void
 
 /** A scripted tool-loop agent (the ToolLoop.test.ts pattern). */
 describe("wave 10 — the embed law's in-app half (§2c″)", () => {
-  test("'what is in world?' through the tool double: the answer + an embedded card; the surface NEVER changes", async () => {
+  test("the person opens Wiki embedded while browser agent execution refuses", async () => {
     const store = await webStore()
     await addWorldNote(store)
-    const { agent } = scriptedToolAgent([
-      () => [
-        {
-          type: "tool_call" as const,
-          call_id: "call_1",
-          name: "commands",
-          arguments: JSON.stringify({ action: "execute", name: "wiki" })
-        },
-        { type: "done" as const, reason: "tool_call" as const }
-      ],
-      () => [
-        { type: "delta" as const, kind: "text" as const, text: "World holds 1 note: World." },
-        { type: "done" as const }
-      ]
-    ])
-    const controller = createAppController(store, agent, { bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "credentials", sandbox: null } })
-    controller.send("what is in world?")
-    await settled()
-    await settled()
-
-    // The surface never left the chat — a takeover is structurally unavailable to the agent.
+    const controller = createAppController(store, silentAgent)
+    const result = await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "wiki" }) })
+    expect(result).toBe("failed: this command runs on the conversation host")
+    expect((await controller.commands.run("wiki")).status).toBe("executed")
     expect(store.session().surface).toBe("chat")
-    // The embedded world card rendered in the transcript.
-    const card = store.collections.cards.get("world-embedded")
-    expect(card?.kind).toBe("world")
-    if (card?.kind === "world") {
-      expect(card.payload.documents.map((document) => document.path)).toContain("World.md")
-    }
-    // The answer text arrived beside it, and the act line is one compact line.
-    const texts = [...store.collections.messages.values()].map((message) => message.text)
-    expect(texts.some((text) => text.includes("World holds 1 note"))).toBe(true)
-    expect(texts).toContain("Smithers ran /wiki")
+    expect([...store.collections.cards.values()].some(card => card.kind === "world")).toBe(true)
   })
 })
 
 describe("wave 10 — transcript hygiene (§2b)", () => {
-  test("a tool act is one compact line; a raw JSON payload can never reach transcript text", async () => {
+  test("catalog discovery returns data without a browser turn or raw transcript payload", async () => {
     const store = await webStore()
-    const { agent } = scriptedToolAgent([
-      () => [
-        {
-          type: "tool_call" as const,
-          call_id: "call_1",
-          name: "commands",
-          arguments: JSON.stringify({ action: "list" })
-        },
-        { type: "done" as const, reason: "tool_call" as const }
-      ],
-      () => [
-        { type: "delta" as const, kind: "text" as const, text: "Here is what I can do." },
-        { type: "done" as const }
-      ]
-    ])
-    const controller = createAppController(store, agent)
-    controller.send("what can you do?")
-    await settled()
-    await settled()
-
-    const texts = [...store.collections.messages.values()].map((message) => message.text)
-    expect(texts).toContain("Smithers checked what it can do here")
-    for (const text of texts) {
-      expect(text).not.toContain("{\"state\"")
-      expect(text).not.toContain("\"commands\":[")
-    }
-    // The act line's actor is smithers, never the user.
-    const act = [...store.collections.messages.values()].find((message) => message.act !== undefined)
-    expect(act?.role).toBe("smithers")
-    // The full-fidelity record lives in the tool-call stream for the admin panel.
-    const records = [...store.collections.toolCalls.values()]
-    expect(records).toHaveLength(1)
-    expect(records[0]?.result).toContain("\"state\"")
+    const controller = createAppController(store, silentAgent)
+    const before = [...store.collections.messages.values()].map(row => row.text)
+    const result = await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "list" }) })
+    expect(JSON.parse(result).commands.length).toBeGreaterThan(0)
+    expect([...store.collections.messages.values()].map(row => row.text)).toEqual(before)
   })
 })
 
@@ -183,45 +129,15 @@ describe("wave 10 — the browser tool (§2d)", () => {
     }
   })
 
-  test("the browser act line names the host, never the payload", async () => {
+  test("a browser read requested by a model refuses before any browser network act", async () => {
     const store = await webStore()
-    const { agent } = scriptedToolAgent([
-      () => [
-        {
-          type: "tool_call" as const,
-          call_id: "call_1",
-          name: "commands",
-          arguments: JSON.stringify({ action: "execute", name: "browser.open", args: "https://example.com/" })
-        },
-        { type: "done" as const, reason: "tool_call" as const }
-      ],
-      () => [
-        { type: "delta" as const, kind: "text" as const, text: "The page says: Example Domain." },
-        { type: "done" as const }
-      ]
-    ])
-    const controller = createAppController(store, agent, {
-      ...backend({
-        "/api/tools/browser-fetch": json(200, {
-          status: 200,
-          finalUrl: "https://example.com/",
-          contentType: "text/html",
-          text: "Example Domain",
-          frameable: true,
-          blockReason: null
-        })
-      })
-    })
-    controller.send("read https://example.com for me")
-    await settled()
-    await settled()
-    await settled()
-
-    const texts = [...store.collections.messages.values()].map((message) => message.text)
-    expect(texts).toContain("Smithers read example.com")
-    for (const text of texts) {
-      expect(text).not.toContain("Example Domain —")
-    }
+    const calls: Array<{ path: string; method: string; body: unknown }> = []
+    const controller = createAppController(store, silentAgent, backend({}, calls))
+    const before = calls.length
+    const result = await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "browser", args: "https://example.com/private" }) })
+    expect(result).toStartWith("unknown-command: browser")
+    expect(calls).toHaveLength(before)
+    expect([...store.collections.messages.values()].some(row => row.text.includes("https://example.com/private"))).toBe(false)
   })
 })
 
@@ -234,29 +150,12 @@ describe("wave 10 — sign-in IS the GitHub connector (§2a′)", () => {
     expect(controller.commands.state().hasConnectors).toBe(true)
   })
 
-  test("the agent answering from the debug reads (admin) — snapshot/events contracts", async () => {
+  test("retired debug names cannot start browser tools", async () => {
     const store = await webStore()
     const controller = createAppController(store, silentAgent)
-    store.dispatch({
-      type: "identity.session.loaded",
-      actor: "system",
-      state: "signed-in",
-      login: "will",
-      admin: true,
-      scopesPlain: null
-    })
-    await settled()
-    const snapshot = await controller.commands.executeForAgent({
-      name: "commands",
-      arguments: JSON.stringify({ action: "execute", name: "debug.snapshot" })
-    })
-    const parsed = JSON.parse(snapshot) as { surface: string; identity: { login: string } }
-    expect(parsed.surface).toBe("chat")
-    expect(parsed.identity.login).toBe("will")
-    const events = await controller.commands.executeForAgent({
-      name: "commands",
-      arguments: JSON.stringify({ action: "execute", name: "debug.events" })
-    })
-    expect(JSON.parse(events)).toBeInstanceOf(Array)
+    await signIn(store)
+    for (const name of ["debug.snapshot", "debug.events"]) {
+      expect(await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name }) })).toStartWith("unknown-command:")
+    }
   })
 })
