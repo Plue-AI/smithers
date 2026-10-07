@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { configuration, markers, verifySample, verifyActivity, activityEntries } from './disk-write.mjs'
-const env = { SMITHERS_PERF_ORIGIN: 'https://mini.example', SMITHERS_PERF_PAGE: '/repo', SMITHERS_PERF_MEMBER_A: '/tmp/a.json', SMITHERS_PERF_OWNER_COOKIE: 'fixture', SMITHERS_PERF_INSTALL_VERSION: 'fixture', SMITHERS_PERF_SSH_MEMBER: 'C', SMITHERS_PERF_SSH_DESTINATION: 'T2@mini.lan', SMITHERS_PERF_BRANCH: 'b2' }
+const env = { SMITHERS_PERF_SSH_IDENTITY: '/tmp/member-key', SMITHERS_PERF_ORIGIN: 'https://mini.example', SMITHERS_PERF_PAGE: '/repo', SMITHERS_PERF_MEMBER_A: '/tmp/a.json', SMITHERS_PERF_MEMBER_C: '/tmp/c.json', SMITHERS_PERF_OWNER_COOKIE: 'fixture', SMITHERS_PERF_INSTALL_VERSION: 'fixture', SMITHERS_PERF_SSH_MEMBER: 'C', SMITHERS_PERF_SSH_DESTINATION: 'T2@mini.lan', SMITHERS_PERF_BRANCH: 'b2' }
 test('scratch branch configuration refuses host programs, SSH options, foreign pages and absent identity', () => {
   assert.equal(configuration(env).branch, 'b2')
   for (const destination of ['-oProxyCommand=x', 'T2@host;whoami', 'T2@host/path', '']) assert.throws(() => configuration({ ...env, SMITHERS_PERF_SSH_DESTINATION: destination }))

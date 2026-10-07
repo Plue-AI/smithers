@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -171,6 +172,64 @@ func TestInstallMetricsOwnerBoundary(t *testing.T) {
 			}
 		})
 	}
+	t.Run("SSHBenchmarkIdentity", func(t *testing.T) {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		cfg.Server.AllowedOrigins = []string{"http://" + listener.Addr().String()}
+		for i := range args {
+			if args[i].Type() == reflect.TypeOf(metrics) {
+				args[i] = reflect.ValueOf(routes.NewSmithersMetrics())
+			}
+			if args[i].Type() == reflect.TypeOf((*routes.SSHKeyHandler)(nil)) {
+				args[i] = reflect.ValueOf(&routes.SSHKeyHandler{Service: services.NewSSHKeyService(q)})
+			}
+		}
+		server := httptest.NewUnstartedServer(fn.CallSlice(args)[0].Interface().(http.Handler))
+		require.NoError(t, server.Listener.Close())
+		server.Listener = listener
+		server.Start()
+		defer server.Close()
+		identity := filepath.Join(t.TempDir(), "member_key")
+		keygen := exec.CommandContext(t.Context(), "/usr/bin/ssh-keygen", "-t", "ed25519", "-N", "", "-f", identity)
+		bytes, err := keygen.CombinedOutput()
+		require.NoError(t, err, string(bytes))
+		publicKey, err := os.ReadFile(identity + ".pub")
+		require.NoError(t, err)
+		// Derive the expected fingerprint independently with OpenSSH.
+		bytes, err = exec.CommandContext(t.Context(), "/usr/bin/ssh-keygen", "-l", "-f", identity+".pub").Output()
+		require.NoError(t, err)
+		fields := strings.Fields(string(bytes))
+		require.GreaterOrEqual(t, len(fields), 2)
+		_, err = q.CreateSSHKey(ctx, db.CreateSSHKeyParams{UserID: users[0].ID, Name: "benchmark", PublicKey: string(publicKey), Fingerprint: fields[1], KeyType: "ssh-ed25519"})
+		require.NoError(t, err)
+		root, err := filepath.Abs("../../../..")
+		require.NoError(t, err)
+		for i, credential := range []string{"session=" + cookies[0], "session=" + cookies[1], ""} {
+			command := exec.CommandContext(t.Context(), "node", "--input-type=module", "-e", `
+import { authenticatedSSHKey } from './scripts/perf/lib/ssh-member.mjs'
+const context = { request: { get: async (url, options) => {
+  const response = await fetch(url, { headers: { Cookie: process.env.PERF_FIXTURE_COOKIE }, redirect: 'manual', signal: AbortSignal.timeout(options.timeout) })
+  return { status: () => response.status, json: () => response.json() }
+} } }
+try { console.log(await authenticatedSSHKey(context, process.env.PERF_FIXTURE_ORIGIN, process.env.PERF_FIXTURE_IDENTITY)) }
+catch (error) { console.log(error.message); process.exitCode = 1 }
+`)
+			command.Dir = root
+			command.Env = append(os.Environ(), "PERF_FIXTURE_COOKIE="+credential, "PERF_FIXTURE_ORIGIN="+server.URL, "PERF_FIXTURE_IDENTITY="+identity)
+			bytes, err = command.CombinedOutput()
+			if i == 0 {
+				require.NoError(t, err, string(bytes))
+				require.Equal(t, fields[1], strings.TrimSpace(string(bytes)))
+			} else {
+				require.Error(t, err, string(bytes))
+				if i == 1 {
+					require.Contains(t, string(bytes), "not registered")
+				} else {
+					require.Contains(t, string(bytes), "returned 401")
+				}
+			}
+		}
+	})
 	t.Run("TestPerfRunnerMissingProvider", func(t *testing.T) {
 		// Real TCP, session storage, owner authorization and install composition.
 		// Only the detected capacity is fixed; no measurement provider is faked.

@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { publicOrigin, readHost } from './lib/host.mjs'
 import { authenticatedMember, distinctMembers } from './lib/member.mjs'
+import { authenticatedSSHKey, identityPath } from './lib/ssh-member.mjs'
 import { summarize } from './lib/stats.mjs'
 import { writeRun } from './lib/artifact.mjs'
 
@@ -38,7 +39,8 @@ export function configuration(env) {
       argv[9] !== 'cat -- src/target.ts') {
     throw new Error('machine read must use pinned batch SSH on port 2222 with cat -- src/target.ts')
   }
-  return { origin, page: page.href, argv }
+  const identity = identityPath(env)
+  return { origin, page: page.href, identity, argv: [argv[0], '-i', identity, '-o', 'IdentitiesOnly=yes', '-o', 'IdentityAgent=none', ...argv.slice(1)] }
 }
 
 async function fullText(page) {
@@ -67,6 +69,7 @@ export async function run(env = process.env) {
     const contexts = await Promise.all([env.SMITHERS_PERF_MEMBER_A, env.SMITHERS_PERF_MEMBER_C].map(storageState => browser.newContext({ storageState, permissions: ['clipboard-read', 'clipboard-write'] })))
     result.members = await Promise.all(contexts.map(context => authenticatedMember(context, config.origin)))
     distinctMembers(result.members)
+    result.sshFingerprint = await authenticatedSSHKey(contexts[1], config.origin, config.identity)
     const [a, c] = await Promise.all(contexts.map(context => context.newPage()))
     for (const page of [a, c]) {
       await page.goto(config.page)

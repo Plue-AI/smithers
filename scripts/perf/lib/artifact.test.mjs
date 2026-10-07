@@ -155,3 +155,24 @@ test('origin or provider refusal prevents mutation; execution errors fail the fu
     assert.match(result.summary.budgets[1].reason, /socket disconnected/)
   })
 })
+
+ test('agent provider retains model, preflight and wake cross-checks in the unified evidence', async () => temporary(async root => {
+  const samples = Array.from({ length: 100 }, (_, i) => ({ i, firstTokenMs: 10, answerWithCardsMs: 20, clock: 'browser monotonic', failed: false }))
+  const value = { status: 'passed', commit: options.commit, origin: options.origin, samples,
+    models: [{ role: 'fast', provider: 'configured', model: 'configured-model' }],
+    preflightSummary: { durationMs: { p95: 5 } }, wakesBefore: 0, wakesAfter: 0,
+    metricsCrossCheck: [], browser: 'Chromium', token: 'must-not-be-recorded' }
+  const result = await run({ ...options, root, check: 'C-PERF-01', providers: { 'C-PERF-01': {
+    available() {}, measure: async () => value,
+    fields: { firstToken: 'firstTokenMs', answerWithCards: 'answerWithCardsMs' }
+  } } })
+  assert.equal(result.exit, 0)
+  const bytes = await readFile(join(result.directory, 'agent-first-token.json'), 'utf8')
+  const budget = JSON.parse(bytes).budgets[0]
+  assert.deepEqual(budget.models, value.models)
+  assert.deepEqual(budget.preflightSummary, value.preflightSummary)
+  assert.equal(budget.wakesBefore, 0)
+  assert.equal(budget.wakesAfter, 0)
+  assert.equal(budget.samples.length, 100)
+  assert.equal(bytes.includes(value.token), false)
+}))

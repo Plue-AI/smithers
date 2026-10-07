@@ -1,6 +1,6 @@
 # Installed-product performance evidence (#3592)
 
-`node scripts/perf/run.mjs` runs configured projection measurements on macOS
+`node scripts/perf/run.mjs` runs configured first-token and projection measurements on macOS
 and names unavailable budgets. Exit 0 means all selected budgets passed; exit 1
 means a launched workload failed; exit 2 means the run is incomplete.
 Set `SMITHERS_PERF_ORIGIN` to the configured LAN/HTTPS origin and
@@ -14,6 +14,9 @@ operator-supplied metadata, not verified release/browser identities.
 
 Fresh `.artifacts/perf/<UTC timestamp>/summary.json` records each selected budget,
 its raw samples or skip reason, required tickets and activation preconditions.
+C-PERF-01 activates when its public page, owner session, member state and install
+version are configured on the second Mac. Its actual workload refuses missing
+Inspect host-clock receipts; missing timings never become passing samples.
 C-PERF-02 activates when its origin, owner session, member state, TODO and install
 version are configured on the network Mac. The driver refuses missing live
 publishers before submitting its move workload. The runner independently checks
@@ -187,3 +190,19 @@ logs, T-APP-14's edits, an acknowledgement-delay fixture and lifecycle qualifica
 Invoking it uses the shared runner and reports incomplete (exit 2). Contract tests
 emit no performance artifacts or passing check receipts. Browser C-PERF fixmes
 remain. The existing upstream warm-wake implementation is retained in full.
+
+Browser and SSH fixtures are checked through authenticated public reads before
+scratch channels open. C-PERF-03 and C-PERF-04 require
+`SMITHERS_PERF_SSH_IDENTITY`, an absolute path to member C's unencrypted SSH
+private identity. OpenSSH derives its public fingerprint; the authenticated
+member C session must list that fingerprint at `/api/user/keys`. SSH uses only
+that identity with agent selection disabled. C-PERF-04 also requires member C's
+storage state and verifies `SMITHERS_PERF_SSH_MEMBER` against its server identity.
+The composed PostgreSQL router test covers a registered owner identity, a
+foreign member identity and anonymous refusal. No real guest lifecycle is
+qualified by those fixture checks.
+
+The unified runner retains driver models, preflight summaries, wake counters,
+and metric cross-checks alongside raw samples, including failed measurements.
+The warm-wake driver and its tests were restored from upstream commit
+3cd38de598; terminal startup and host observer export remain dependencies.

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { configuration, markers, verifyTexts } from './keystroke.mjs'
 
-const env = { SMITHERS_PERF_ORIGIN: 'https://factory.example', SMITHERS_PERF_PAGE: '/team/repo', SMITHERS_PERF_READ_ARGV: '["/usr/bin/ssh","-p","2222","-o","BatchMode=yes","-o","StrictHostKeyChecking=yes","--","T2@mini.lan","cat -- src/target.ts"]', SMITHERS_PERF_MEMBER_A: '/tmp/a.json', SMITHERS_PERF_MEMBER_C: '/tmp/c.json', SMITHERS_PERF_OWNER_COOKIE: 'session=fixture', SMITHERS_PERF_INSTALL_VERSION: 'fixture' }
+const env = { SMITHERS_PERF_SSH_IDENTITY: '/tmp/member-key', SMITHERS_PERF_ORIGIN: 'https://factory.example', SMITHERS_PERF_PAGE: '/team/repo', SMITHERS_PERF_READ_ARGV: '["/usr/bin/ssh","-p","2222","-o","BatchMode=yes","-o","StrictHostKeyChecking=yes","--","T2@mini.lan","cat -- src/target.ts"]', SMITHERS_PERF_MEMBER_A: '/tmp/a.json', SMITHERS_PERF_MEMBER_C: '/tmp/c.json', SMITHERS_PERF_OWNER_COOKIE: 'session=fixture', SMITHERS_PERF_INSTALL_VERSION: 'fixture' }
 test('requires a remote origin, separate members and an explicit machine read', () => {
   assert.equal(configuration(env).page, 'https://factory.example/team/repo')
   for (const origin of ['http://localhost:47400', 'http://127.0.0.1', 'https://[::1]']) assert.throws(() => configuration({ ...env, SMITHERS_PERF_ORIGIN: origin }))

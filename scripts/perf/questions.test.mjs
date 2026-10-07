@@ -126,3 +126,19 @@ test('first-token CLI refusal retains commit and explicit unknown metadata witho
   assert.match(saved.error, /T-INS-04/)
  } finally { await rm(root, { recursive: true, force: true }) }
 })
+
+test('projection CLI refusal copies failed evidence into its check directory', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'projection-refusal-'))
+  try {
+    const output = spawnSync(process.execPath, ['scripts/perf/projection-delta.mjs'], { cwd: process.cwd(), env: { ...process.env, SMITHERS_PERF_ARTIFACT_ROOT: root, SMITHERS_PERF_ORIGIN: '' }, encoding: 'utf8' })
+    assert.equal(output.status, 1)
+    const result = JSON.parse(output.stdout)
+    const saved = JSON.parse(await readFile(join(result.directory, 'projection-delta.json'), 'utf8'))
+    assert.equal(saved.status, 'failed')
+    assert.match(saved.commit, /^[a-f0-9]{40}$/)
+    assert.equal(saved.budgets[0].status, 'failed')
+    assert.deepEqual(saved.budgets[0].samples, [])
+    const check = JSON.parse(await readFile(join(root, '.artifacts/checks/C-PERF-02', saved.timestamp, 'summary.json'), 'utf8'))
+    assert.deepEqual(check, saved)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})

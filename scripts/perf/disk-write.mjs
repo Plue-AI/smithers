@@ -7,7 +7,8 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createHash } from 'node:crypto'
 import { publicOrigin, readHost } from './lib/host.mjs'
-import { authenticatedMember } from './lib/member.mjs'
+import { authenticatedMember, distinctMembers } from './lib/member.mjs'
+import { authenticatedSSHKey, identityPath } from './lib/ssh-member.mjs'
 import { summarize } from './lib/stats.mjs'
 import { writeRun } from './lib/artifact.mjs'
 
@@ -17,12 +18,13 @@ export function configuration(env) {
   const origin = publicOrigin(env.SMITHERS_PERF_ORIGIN)
   const page = new URL(env.SMITHERS_PERF_PAGE, origin)
   if (!env.SMITHERS_PERF_PAGE || page.origin !== origin) throw new Error('same-origin repository page required')
-  for (const key of ['SMITHERS_PERF_MEMBER_A', 'SMITHERS_PERF_OWNER_COOKIE', 'SMITHERS_PERF_INSTALL_VERSION', 'SMITHERS_PERF_SSH_MEMBER']) {
+  for (const key of ['SMITHERS_PERF_MEMBER_A', 'SMITHERS_PERF_MEMBER_C', 'SMITHERS_PERF_OWNER_COOKIE', 'SMITHERS_PERF_INSTALL_VERSION', 'SMITHERS_PERF_SSH_MEMBER']) {
     if (!env[key]) throw new Error(`${key} required`)
   }
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*@[A-Za-z0-9][A-Za-z0-9.-]*$/.test(env.SMITHERS_PERF_SSH_DESTINATION ?? '')) throw new Error('branch SSH destination required')
   if (!/^[^:\s/\\]+$/.test(env.SMITHERS_PERF_BRANCH ?? '')) throw new Error('branch id required')
-  return { origin, page: page.href, destination: env.SMITHERS_PERF_SSH_DESTINATION, branch: env.SMITHERS_PERF_BRANCH }
+  const identity = identityPath(env)
+  return { identity, origin, page: page.href, destination: env.SMITHERS_PERF_SSH_DESTINATION, branch: env.SMITHERS_PERF_BRANCH }
 }
 export function verifySample(text, expected, hint, member) {
   if (text !== expected) throw new Error('card and independently read machine bytes differ')
@@ -64,7 +66,11 @@ export async function run(env = process.env) {
     result.browser = browser.version()
     const context = await browser.newContext({ storageState: env.SMITHERS_PERF_MEMBER_A, permissions: ['clipboard-read', 'clipboard-write'] })
     result.member = await authenticatedMember(context, config.origin)
-    if (String(result.member.id) === env.SMITHERS_PERF_SSH_MEMBER) throw new Error('distinct browser and SSH members required')
+    const sshContext = await browser.newContext({ storageState: env.SMITHERS_PERF_MEMBER_C })
+    result.sshMember = await authenticatedMember(sshContext, config.origin)
+    distinctMembers([result.member, result.sshMember])
+    if (String(result.sshMember.id) !== env.SMITHERS_PERF_SSH_MEMBER) throw new Error('SSH member differs from authenticated fixture')
+    result.sshFingerprint = await authenticatedSSHKey(sshContext, config.origin, config.identity)
     const page = await context.newPage()
     let arrival, resolveArrival
     await page.exposeBinding('__diskArrival', (_, text) => { resolveArrival?.({ text, t1: performance.now() }) })
@@ -99,7 +105,7 @@ export async function run(env = process.env) {
     const baseline = new Set(activity.map(entry => entry.id))
     directory = await mkdtemp(join(tmpdir(), 'smthrs-disk-'))
     const control = join(directory, 'ssh')
-    ssh = ['-p', '2222', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ControlMaster=no', '-S', control]
+    ssh = ['-i', config.identity, '-o', 'IdentitiesOnly=yes', '-o', 'IdentityAgent=none', '-p', '2222', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ControlMaster=no', '-S', control]
     await execute('/usr/bin/ssh', [...ssh, '-o', 'ControlMaster=yes', '-o', 'ControlPersist=10m', '-MNf', '--', config.destination], { timeout: 15000 })
     masterStarted = true
     // If the master disappears, refuse instead of opening a measured handshake.

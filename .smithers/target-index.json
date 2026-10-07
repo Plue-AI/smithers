@@ -41665,6 +41665,18 @@
       },
       {
         "kind": "file",
+        "path": "scripts/perf/questions.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/perf/warm-wake.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/perf/lib/ssh-member.test.mjs"
+      },
+      {
+        "kind": "file",
         "path": "scripts/perf/lib/stats.test.mjs"
       },
       {

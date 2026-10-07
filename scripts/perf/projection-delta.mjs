@@ -40,6 +40,8 @@ export async function run(env = process.env, { persist = true } = {}) {
   const sockets = []
   let browser
   try {
+    result.commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+    result.installVersion = env.SMITHERS_PERF_INSTALL_VERSION ?? null
     if (process.platform !== 'darwin') throw new Error('C-PERF-02 requires the second Mac on the reference-host network')
     const config = configuration(env)
     result.origin = config.origin
@@ -103,12 +105,12 @@ export async function run(env = process.env, { persist = true } = {}) {
     await new Promise(resolveDrain => setTimeout(resolveDrain, 1000))
     for (const stream of streams) if (stream.failure) throw stream.failure
     const stats = summarize(result.samples, ['homeMs', 'todoMs'], 200)
-    result.budgets = [{ check: 'C-PERF-02', name: 'projection-delta', stats }]
+    result.summary = stats
     if (stats.homeMs.p95 >= 1000 || stats.todoMs.p95 >= 1000) throw new Error('projection p95 exceeds 1 s')
     result.status = 'passed'
   } catch (error) { result.error = error.message }
   finally { for (const socket of sockets) socket.terminate(); await browser?.close() }
-  const directory = persist ? await writeRun(resolve('.'), result) : undefined
+  const directory = persist ? await writeRun(env.SMITHERS_PERF_ARTIFACT_ROOT ?? resolve('.'), { ...result, budgets: [{ ...result, name: 'projection-delta' }] }) : undefined
   return { result, directory }
 }
 
