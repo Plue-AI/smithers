@@ -14,10 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestMaintenancePreflightPrivateSocket(t *testing.T) {
-	if os.Getuid() == 0 {
-		t.Skip("installing user required")
-	}
+func maintenanceSocketState(t *testing.T) string {
+	t.Helper()
 	// Darwin limits Unix socket paths to 104 bytes; t.TempDir includes the
 	// full test name. Keep this socket fixture short without moving all tests
 	// under an unprotected global TMPDIR.
@@ -25,6 +23,14 @@ func TestMaintenancePreflightPrivateSocket(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, os.RemoveAll(state)) })
 	require.NoError(t, os.Chmod(state, 0700))
+	return state
+}
+
+func TestMaintenancePreflightPrivateSocket(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("installing user required")
+	}
+	state := maintenanceSocketState(t)
 	var method, path string
 	closeServer, err := services.StartInstallSetupHandoff(t.Context(), state, func(context.Context, io.Writer) error { return nil }, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		method, path = r.Method, r.URL.Path
@@ -46,7 +52,7 @@ func TestMaintenancePreflightPrivateSocket(t *testing.T) {
 }
 
 func TestMaintenancePreflightRejectsSocketLinks(t *testing.T) {
-	state := t.TempDir()
+	state := maintenanceSocketState(t)
 	require.NoError(t, os.Chmod(state, 0700))
 	require.NoError(t, os.Mkdir(filepath.Join(state, "run"), 0700))
 	require.NoError(t, os.Symlink("/outside", filepath.Join(state, "run/host.sock")))
@@ -78,7 +84,7 @@ func TestMaintenanceDatabaseClient(t *testing.T) {
 		{name: "aborted dump", body: "PGDMP-partial", content: "application/octet-stream", status: 200, abort: true, refusal: "unexpected EOF"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			state := t.TempDir()
+			state := maintenanceSocketState(t)
 			require.NoError(t, os.Chmod(state, 0700))
 			op := "backup-export"
 			if tc.name == "escaped operation" {
@@ -134,7 +140,7 @@ func TestMaintenanceDatabaseClient(t *testing.T) {
 	require.ErrorContains(t, MaintenanceDump(t.Context(), "/missing", "backup", nil), "operation and destination required")
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	state := t.TempDir()
+	state := maintenanceSocketState(t)
 	require.NoError(t, os.Chmod(state, 0700))
 	closeSocket, err := services.StartInstallSetupHandoff(t.Context(), state, func(context.Context, io.Writer) error { return nil }, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("cancelled request reached server") }))
 	require.NoError(t, err)
