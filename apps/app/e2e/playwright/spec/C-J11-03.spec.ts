@@ -250,3 +250,46 @@ test("C-J11-03: the owner removes the fast key in Settings without blocking Chat
  await expect(remove).toHaveCount(0)
  expect(requests).toHaveLength(2)
 })
+
+
+test("C-J11-03: a refused owner switch keeps the model and retries through the same picker", async ({ page }) => {
+ await installCloudFixture(page, { capabilities: ["agent", "identity", "install"] })
+ await page.route("**/api/public/repos", route => route.fulfill({ json: { repos: [] } }))
+ await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
+ let model = "model-a"
+ const snapshot = () => ({ native: false, canAssign: true, agents: [
+  { id: "reviewer", label: "Reviewer agent", purpose: "", model: { id: model, label: model, provider: "openai-responses" }, binding: { protocol: "openai-responses", modelId: model, credential: "OPENAI_API_KEY" }, builtin: true, available: false, account: "", reason: "", source: "owner", instructions: "flows/todo/flow.ts", runs: [] }
+ ] })
+ await page.route("**/api/agents", route => route.fulfill({ json: snapshot() }))
+ const requests: unknown[] = []
+ await page.route("**/api/agents/reviewer/model", route => {
+  const body = route.request().postDataJSON()
+  requests.push(body)
+  if (requests.length === 1) return route.fulfill({ status: 503, json: { code: "settings_unavailable", class: "infra", message: "Assignment refused" } })
+  model = body.model.modelId
+  return route.fulfill({ json: snapshot() })
+ })
+ await page.goto("/smithersai/smithers")
+ await say(page, "/agents")
+ const choose = async () => {
+  await page.getByTestId("agent-model-reviewer").press("Enter")
+  await page.getByLabel("Model", { exact: true }).last().fill("model-b")
+  await expect(page.getByRole("button", { name: "Save", exact: true }).last()).toBeEnabled()
+  await page.getByRole("button", { name: "Save", exact: true }).last().press("Enter")
+ }
+ await choose()
+ await expect.poll(() => requests.length).toBe(1)
+ await expect(page.locator('[data-agent="reviewer"]')).toContainText("model-a")
+ await say(page, "/help")
+ await expect(page.getByTestId("composer-input")).toBeEnabled()
+ await say(page, "/agents")
+ await choose()
+ await expect(page.locator('[data-agent="reviewer"]')).toContainText("model-b")
+ expect(requests).toEqual([
+  { model: { protocol: "openai-responses", modelId: "model-b", credential: "OPENAI_API_KEY" } },
+  { model: { protocol: "openai-responses", modelId: "model-b", credential: "OPENAI_API_KEY" } }
+ ])
+ await page.reload()
+ await say(page, "/agents")
+ await expect(page.locator('[data-agent="reviewer"]')).toContainText("model-b")
+})

@@ -74,6 +74,7 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
   const modelA = required("SMITHERS_AGENT_MODEL_A")
   const modelB = required("SMITHERS_AGENT_MODEL_B")
   const modelF = required("SMITHERS_AGENT_MODEL_F")
+  const modelJ = required("SMITHERS_AGENT_MODEL_J")
   await runSlash(page, "/agents")
   for (const [id, label, model] of [
    ["planner", "Planner agent", modelA], ["implementer", "Implementer agent", modelA],
@@ -83,6 +84,7 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
    await expect(row).toContainText(label!)
    await expect(row).toContainText(model!)
    await expect(row.locator('[data-flow="files.read"]')).toBeVisible()
+   await expect(page.getByTestId(`agent-source-${id}`)).toHaveText("owner")
   }
   // Bind the answer and model receipt to this newly admitted turn, rather
   // than accepting any historical app run with the expected model.
@@ -115,7 +117,13 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
   await runSlash(page, "/settings")
   for (const label of ["Fast model", "Coding model", "Decisions"])
    await expect(page.getByText(label, { exact: true }).last()).toBeVisible()
+  for (const [role, model] of [["fast", modelF], ["coding", modelA], ["jev", modelJ]]) {
+   expect(install.models.find((row: any) => row.role === role).model).toBe(model)
+   await expect(page.getByTestId(`settings-model-${role}`)).toHaveText(model!)
+  }
+  await info.attach("owner-settings-roles", { body: await page.locator('[data-kind="settings"]').last().screenshot(), contentType: "image/png" })
   await runSlash(page, "/agents")
+  await info.attach("owner-agent-card-before-switch", { body: await agentsCard(page).screenshot(), contentType: "image/png" })
   const before = await f.read("Will", "/api/todos")
   const priorAgents = await f.read("Will", "/api/agents")
   const priorReviewerRuns = priorAgents.agents.find((row: any) => row.id === "reviewer").runs
@@ -127,7 +135,14 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
   await attachJson(info, "ongoing-todo-bindings-before-switch", bindingsBefore)
   await page.getByTestId("agent-model-reviewer").press("Enter")
   await page.getByLabel("Model", { exact: true }).last().fill(modelB)
+  await expect(page.getByRole("button", { name: "Save", exact: true }).last()).toBeEnabled()
+  const switchReceipt = page.waitForResponse(response =>
+   new URL(response.url()).pathname === "/api/agents/reviewer/model" && response.request().method() === "PUT")
   await page.getByRole("button", { name: "Save", exact: true }).last().press("Enter")
+  const switchedResponse = await switchReceipt
+  expect(switchedResponse.status()).toBe(200)
+  expect(switchedResponse.request().postDataJSON().model.modelId).toBe(modelB)
+  await attachJson(info, "owner-switch-receipt", { observedAt: new Date().toISOString(), response: await switchedResponse.json() })
   await expect(page.locator('[data-agent="reviewer"]')).toContainText(modelB)
   expect((await f.read("Will", "/api/todos")).map((row: any) => row.n ?? row.number)).toEqual(before.map((row: any) => row.n ?? row.number))
   const settings = f.sql("SELECT key,value FROM install_settings WHERE key='agent:reviewer'")
@@ -231,8 +246,13 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
   expect((await readInstructions()).content.text).toBe(original.content.text)
   await info.attach("instruction-proposal-before-confirmation", { body: await proposal.innerText(), contentType: "text/plain" })
   await proposal.getByRole("button", { name: "Commit", exact: true }).press("Enter")
-  await expect.poll(async () => (await f.read("Will", "/api/todos")).filter((row: any) =>
-   !beforeInstructions.some((old: any) => old.n === row.n)).length, { timeout: 30_000 }).toBe(1)
+  let instructionTodos: any[] = []
+  await expect.poll(async () => {
+   instructionTodos = (await f.read("Will", "/api/todos")).filter((row: any) =>
+    !beforeInstructions.some((old: any) => old.n === row.n))
+   return instructionTodos.length
+  }, { timeout: 30_000 }).toBe(1)
+  await attachJson(info, "confirmed-instruction-todo", instructionTodos[0])
   await attachJson(info, "instruction-todo-after-confirmation", await f.read("Will", "/api/todos"))
   expect((await ask(modelA)).trim()).not.toMatch(/\bDONE[.!]?$/)
   // A person merges the instruction PR; the observer never grants merge authority.
