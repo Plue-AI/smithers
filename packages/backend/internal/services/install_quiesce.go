@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync/atomic"
 	"time"
 
@@ -202,38 +203,31 @@ func (s *InstallQuiesce) resume(ctx context.Context) error {
 	// Persisted leases can outlive the process which stopped these providers.
 	// Clearing one without every resume authority would report a live install
 	// while some of its workers remain stopped.
-	if s.Host == nil {
+	if missingQuiesceProvider(s.Host) {
 		return &QuiesceDependencyError{"T-FLW-01"}
 	}
-	if s.Admission == nil {
+	if missingQuiesceProvider(s.Admission) {
 		return &QuiesceDependencyError{"T-MCH-06"}
 	}
 	for _, ticket := range quiesceBarrierTickets {
-		if s.Barriers[ticket] == nil {
+		if missingQuiesceProvider(s.Barriers[ticket]) {
 			return &QuiesceDependencyError{ticket}
 		}
 	}
 	// Runtime first; admission resumes last, while the gate still fences writes.
-	if s.Host != nil {
-		if err := s.Host.Resume(ctx); err != nil {
+	if err := s.Host.Resume(ctx); err != nil {
+		return err
+	}
+	for i := len(quiesceBarrierTickets) - 1; i >= 0; i-- {
+		if err := s.Barriers[quiesceBarrierTickets[i]].Resume(ctx); err != nil {
 			return err
 		}
 	}
-	for i := len(quiesceBarrierTickets) - 1; i >= 0; i-- {
-		if p := s.Barriers[quiesceBarrierTickets[i]]; p != nil {
-			if err := p.Resume(ctx); err != nil {
-				return err
-			}
-		}
-	}
-	if s.Admission != nil {
-		return s.Admission.Resume(ctx)
-	}
-	return nil
+	return s.Admission.Resume(ctx)
 }
 
 func (s *InstallQuiesce) Reopen(ctx context.Context, op string) error {
-	if s == nil || s.Gate == nil || s.Gate.Store == nil {
+	if s == nil || s.Gate == nil || missingQuiesceProvider(s.Gate.Store) {
 		return errors.New("quiesce authority unavailable")
 	}
 	return s.Gate.Store.Update(ctx, func(row *QuiesceFreeze) (*QuiesceFreeze, error) {
@@ -260,22 +254,25 @@ func (s *InstallQuiesce) Reopen(ctx context.Context, op string) error {
 func (s *InstallQuiesce) Available() error {
 	// Check composition before writing the durable freeze. An unavailable
 	// provider is not an empty queue, and must not briefly close admissions.
-	if s == nil || s.Gate == nil || s.Gate.Store == nil {
+	if s == nil || s.Gate == nil || missingQuiesceProvider(s.Gate.Store) {
 		return errors.New("quiesce authority unavailable")
 	}
 	machines := s.Machines
+	if missingQuiesceProvider(machines) {
+		return &QuiesceDependencyError{"T-MCH-07"}
+	}
 	switch machines.(type) {
 	case nil, UnavailableMachineQuiescer, *UnavailableMachineQuiescer:
 		return &QuiesceDependencyError{"T-MCH-07"}
 	}
-	if s.Admission == nil {
+	if missingQuiesceProvider(s.Admission) {
 		return &QuiesceDependencyError{"T-MCH-06"}
 	}
-	if s.Host == nil {
+	if missingQuiesceProvider(s.Host) {
 		return &QuiesceDependencyError{"T-FLW-01"}
 	}
 	for _, ticket := range quiesceBarrierTickets {
-		if s.Barriers[ticket] == nil {
+		if missingQuiesceProvider(s.Barriers[ticket]) {
 			return &QuiesceDependencyError{ticket}
 		}
 	}
@@ -305,7 +302,17 @@ func (s *InstallQuiesce) Check(ctx context.Context) error {
 
 // Freeze renews an existing ready operation. Callers POST the same op every 10s,
 // including while the initial drain request is outstanding.
-func (s *InstallQuiesce) Freeze(ctx context.Context, op string, by int64) (freeze *QuiesceFreeze, err error) {
+func (s *InstallQuiesce) Freeze(ctx context.Context, op string, by int64) (*QuiesceFreeze, error) {
+	return s.freeze(ctx, op, by, false)
+}
+
+// Renew cannot turn an expired operation into a new capture/drain. The native
+// owner bridge uses it while the initial Freeze request is still outstanding.
+func (s *InstallQuiesce) Renew(ctx context.Context, op string, by int64) (*QuiesceFreeze, error) {
+	return s.freeze(ctx, op, by, true)
+}
+
+func (s *InstallQuiesce) freeze(ctx context.Context, op string, by int64, renewalOnly bool) (freeze *QuiesceFreeze, err error) {
 	if op == "" {
 		return nil, errors.New("quiesce op required")
 	}
@@ -314,7 +321,7 @@ func (s *InstallQuiesce) Freeze(ctx context.Context, op string, by int64) (freez
 	}
 	machines := s.Machines
 	s.Gate.resume.Store(s.resume)
-	fresh := false
+	fresh, lostRenewal := false, false
 	err = s.Gate.Store.Update(ctx, func(row *QuiesceFreeze) (*QuiesceFreeze, error) {
 		row, e := s.Gate.expire(ctx, row)
 		if e != nil {
@@ -325,6 +332,10 @@ func (s *InstallQuiesce) Freeze(ctx context.Context, op string, by int64) (freez
 				return row, &InstallQuiescedError{row.LeaseUntil}
 			}
 		} else {
+			if renewalOnly {
+				lostRenewal = true
+				return nil, nil // Commit expiry/reopen before reporting the lost lease.
+			}
 			row = &QuiesceFreeze{Op: op, By: by, Since: time.Now()}
 			fresh = true
 		}
@@ -333,6 +344,9 @@ func (s *InstallQuiesce) Freeze(ctx context.Context, op string, by int64) (freez
 		freeze = &copy
 		return freeze, nil
 	})
+	if err == nil && lostRenewal {
+		return nil, errors.New("quiesce lease lost")
+	}
 	if err == nil {
 		// Each renewal schedules its own expiry check. Durable admission reads
 		// also recover expiry after a host restart.
@@ -418,4 +432,19 @@ func (s *InstallQuiesce) RequireReady(ctx context.Context, op string, by int64) 
 		}
 		return row, nil
 	})
+}
+
+// Interface values may contain an absent pointer or function. They must not
+// cross the freeze or recovery boundary as an apparently composed provider.
+func missingQuiesceProvider(provider any) bool {
+	if provider == nil {
+		return true
+	}
+	value := reflect.ValueOf(provider)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
 }

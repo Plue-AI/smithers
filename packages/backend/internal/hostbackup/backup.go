@@ -226,7 +226,7 @@ func backup(ctx context.Context, cfg BackupConfig, retainFreeze bool) (directory
 	if err := context.Cause(work); err != nil {
 		return "", err
 	}
-	if err := writeManifestRoot(backups, filepath.Base(partial), manifest); err != nil {
+	if err := writeManifestRoot(work, backups, filepath.Base(partial), manifest); err != nil {
 		return "", err
 	}
 	directory = filepath.Join(cfg.State, "backups", backupName(manifest))

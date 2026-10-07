@@ -116,14 +116,20 @@ func (h *InstallQuiesceHandler) HandleInstallingOwner(w http.ResponseWriter, r *
 		return
 	}
 	var request struct {
-		Op string `json:"op"`
+		Op    string `json:"op"`
+		Renew bool   `json:"renew"`
 	}
 	if r.Method == http.MethodPost {
 		if err = json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&request); err != nil || request.Op == "" {
 			pkgerrors.WriteError(w, pkgerrors.BadRequest("quiesce op required"))
 			return
 		}
-		row, err := h.Service.Freeze(r.Context(), request.Op, owner.ID)
+		var row *services.QuiesceFreeze
+		if request.Renew && r.URL.Path == "/maintenance/quiesce" {
+			row, err = h.Service.Renew(r.Context(), request.Op, owner.ID)
+		} else {
+			row, err = h.Service.Freeze(r.Context(), request.Op, owner.ID)
+		}
 		if err != nil {
 			quiesceResponse(w, err)
 			return

@@ -35,12 +35,15 @@ type RestoreConfig struct {
 // aside. On failure the retained live trees are never deleted and the recovery
 // marker keeps ordinary startup closed until an owner restores again.
 func Restore(ctx context.Context, cfg RestoreConfig) (at time.Time, err error) {
+	if err = ctx.Err(); err != nil {
+		return at, err
+	}
 	snapshot, err := openSnapshot(cfg.Backup)
 	if err != nil {
 		return at, err
 	}
 	defer snapshot.Close()
-	manifest, err := verifyPinnedManifest(snapshot, filepath.Base(cfg.Backup), &cfg.Version)
+	manifest, err := verifyPinnedManifest(ctx, snapshot, filepath.Base(cfg.Backup), &cfg.Version)
 	if err != nil {
 		return at, err
 	}
@@ -53,10 +56,13 @@ func Restore(ctx context.Context, cfg RestoreConfig) (at time.Time, err error) {
 	if err = cfg.Authority.CheckRetainedIsolation(ctx, manifest); err != nil {
 		return at, err
 	}
+	if err = ctx.Err(); err != nil {
+		return at, err
+	}
 	if !filepath.IsAbs(cfg.State) {
 		return at, &Error{Code: UnsafePath, Path: cfg.State}
 	}
-	root, err := openSnapshot(cfg.State)
+	root, err := openRestoreState(cfg.State)
 	if err != nil {
 		return at, err
 	}
@@ -113,7 +119,7 @@ func Restore(ctx context.Context, cfg RestoreConfig) (at time.Time, err error) {
 	}
 	// Check the cloned bytes against the pre-operation manifest before any live
 	// tree is moved. This also rejects a substituted source after verification.
-	files, err := inventoryRoot(stage)
+	files, err := inventoryRootContext(ctx, stage)
 	if err != nil {
 		return at, err
 	}
@@ -152,7 +158,7 @@ func Restore(ctx context.Context, cfg RestoreConfig) (at time.Time, err error) {
 		if err != nil {
 			return at, err
 		}
-		if err = verifyRestoredBundle(stage, manifest); err != nil {
+		if err = verifyRestoredBundle(ctx, stage, manifest); err != nil {
 			return at, err
 		}
 		bundle = filepath.Join(cfg.State, "bundle")
@@ -170,7 +176,7 @@ func Restore(ctx context.Context, cfg RestoreConfig) (at time.Time, err error) {
 	}
 	// Revalidate the pinned source after loading: a source modified during the
 	// database import cannot become an authority for this restore.
-	if _, err = verifyPinnedManifest(snapshot, filepath.Base(cfg.Backup), &cfg.Version); err != nil {
+	if _, err = verifyPinnedManifest(ctx, snapshot, filepath.Base(cfg.Backup), &cfg.Version); err != nil {
 		return at, err
 	}
 	if err = ctx.Err(); err != nil {
@@ -247,13 +253,13 @@ func Restore(ctx context.Context, cfg RestoreConfig) (at time.Time, err error) {
 	return manifest.QuiesceTime, nil
 }
 
-func verifyRestoredBundle(stage *os.Root, manifest Manifest) error {
+func verifyRestoredBundle(ctx context.Context, stage *os.Root, manifest Manifest) error {
 	root, err := stage.OpenRoot("bundle")
 	if err != nil {
 		return err
 	}
 	defer root.Close()
-	files, err := inventoryRoot(root)
+	files, err := inventoryRootContext(ctx, root)
 	if err != nil {
 		return err
 	}
@@ -274,4 +280,40 @@ func verifyRestoredBundle(stage *os.Root, manifest Manifest) error {
 		return &Error{Code: MissingFile, Path: "bundle"}
 	}
 	return nil
+}
+
+// A fresh account has no state tree. Create only the last component through a
+// pinned parent after all authority checks; never follow a substituted link or
+// recursively create an unvalidated ancestor. Existing installs keep their tree.
+func openRestoreState(state string) (*os.Root, error) {
+	root, err := openSnapshot(state)
+	if !os.IsNotExist(err) {
+		return root, err
+	}
+	parent, err := openSnapshot(filepath.Dir(state))
+	if err != nil {
+		return nil, err
+	}
+	defer parent.Close()
+	name := filepath.Base(state)
+	if err := parent.Mkdir(name, 0700); err != nil {
+		return nil, err
+	}
+	info, err := parent.Lstat(name)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() || info.Mode().Perm() != 0700 {
+		return nil, &Error{Code: UnsafePath, Path: state}
+	}
+	root, err = parent.OpenRoot(name)
+	if err != nil {
+		return nil, err
+	}
+	pinned, err := root.Stat(".")
+	if err != nil || !os.SameFile(info, pinned) {
+		root.Close()
+		return nil, &Error{Code: UnsafePath, Path: state}
+	}
+	return root, nil
 }

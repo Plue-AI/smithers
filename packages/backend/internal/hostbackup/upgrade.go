@@ -74,7 +74,7 @@ func Upgrade(ctx context.Context, cfg UpgradeConfig) (directory string, err erro
 	}()
 	work, stopRenewal := renewLease(ctx, cfg.Upgrade, lease.op)
 	defer stopRenewal()
-	if _, err = VerifySnapshot(directory); err != nil {
+	if _, err = VerifySnapshotContext(work, directory); err != nil {
 		return directory, err
 	}
 	if err = context.Cause(work); err != nil {
@@ -170,7 +170,7 @@ func ContinueUpgrade(ctx context.Context, cfg UpgradeContinuationConfig) (err er
 		return err
 	}
 	defer snapshot.Close()
-	manifest, err := verifyPinnedManifest(snapshot, filepath.Base(cfg.Backup), &cfg.Version)
+	manifest, err := verifyPinnedManifest(ctx, snapshot, filepath.Base(cfg.Backup), &cfg.Version)
 	if err != nil {
 		return err
 	}

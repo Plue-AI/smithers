@@ -171,6 +171,69 @@ func TestInstallQuiesceRouteGate(t *testing.T) {
 					bytes, err := os.ReadFile(filepath.Join(state, "sentinel"))
 					require.NoError(t, err)
 					require.Equal(t, "live-state", string(bytes))
+					if tc.status == 204 {
+						client := &http.Client{Transport: transport}
+						post := func(body string) (int, []byte) {
+							response, err := client.Post("http://install/maintenance/quiesce", "application/json", strings.NewReader(body))
+							require.NoError(t, err)
+							bytes, err := io.ReadAll(response.Body)
+							require.NoError(t, err)
+							require.NoError(t, response.Body.Close())
+							return response.StatusCode, bytes
+						}
+						status, body := post(`{"op":"backup-renew","renew":true}`)
+						require.Equal(t, 503, status)
+						require.Contains(t, string(body), `"message":"quiesce lease lost"`)
+						require.NotContains(t, calls, "capture")
+						status, body = post(`{"op":"backup-renew"}`)
+						require.Equal(t, 200, status)
+						require.Contains(t, string(body), `"ready":true`)
+						status, _ = post(`{"op":"backup-renew","renew":true}`)
+						require.Equal(t, 200, status)
+						_, err = pool.Exec(ctx, `UPDATE install_settings SET value=jsonb_set(value,'{lease_until}','"2026-01-01T00:00:30Z"'::jsonb) WHERE key='quiesce'`)
+						require.NoError(t, err)
+						status, body = post(`{"op":"backup-renew","renew":true}`)
+						require.Equal(t, 503, status)
+						require.Contains(t, string(body), `"message":"quiesce lease lost"`)
+						require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM install_settings WHERE key='quiesce'`).Scan(&freezes))
+						require.Zero(t, freezes)
+						captures := 0
+						for _, call := range calls {
+							if call == "capture" {
+								captures++
+							}
+						}
+						require.Equal(t, 1, captures)
+						for _, missing := range []string{"machines", "admission", "host", "T-STK-04", "T-COL-08", "T-COL-09", "T-GH-09", "T-TRM-07", "T-SEC-01"} {
+							before := len(calls)
+							var absent *installMaintenancePreflightFixture
+							want := missing
+							switch missing {
+							case "machines":
+								service.Machines = absent
+								want = "T-MCH-07"
+							case "admission":
+								service.Admission = absent
+								want = "T-MCH-06"
+							case "host":
+								service.Host = absent
+								want = "T-FLW-01"
+							default:
+								service.Barriers[missing] = absent
+							}
+							status, body = post(`{"op":"missing-provider"}`)
+							require.Equal(t, 503, status, missing)
+							require.Contains(t, string(body), "quiesce unavailable: "+want+" required")
+							require.Equal(t, before, len(calls))
+							require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM install_settings WHERE key='quiesce'`).Scan(&freezes))
+							require.Zero(t, freezes)
+							service.Machines, service.Admission, service.Host = steps, steps, steps
+							service.Barriers[missing] = steps
+							if missing == "machines" || missing == "admission" || missing == "host" {
+								delete(service.Barriers, missing)
+							}
+						}
+					}
 				})
 			}
 		})

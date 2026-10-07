@@ -140,3 +140,52 @@ func TestRestoreKeepsGuardUntilReadyAndUsesContainedBackupBundle(t *testing.T) {
 	require.NoFileExists(t, filepath.Join(state, ".upgrade-incomplete"))
 	require.Equal(t, Version{"1.2.3", 2, 18}, a.version)
 }
+
+func TestRestoreFreshAccountState(t *testing.T) {
+	backup := restoreFixture(t)
+	parent := t.TempDir()
+	state := filepath.Join(parent, "Smithers")
+	a := &restoreAuthorityFixture{}
+	at, err := Restore(t.Context(), RestoreConfig{State: state, Backup: backup, Version: Version{"1.3.0", 3, 18}, Authority: a, Cloner: backupCopyFixture{}})
+	require.NoError(t, err)
+	require.Equal(t, time.Date(2026, 10, 7, 1, 2, 3, 0, time.UTC), at)
+	info, err := os.Stat(state)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0700), info.Mode().Perm())
+	bytes, err := os.ReadFile(filepath.Join(state, "secret"))
+	require.NoError(t, err)
+	require.Equal(t, "backup secret", string(bytes))
+	require.Equal(t, []string{"stopped", "isolation", "database", "start"}, a.calls)
+	require.NoFileExists(t, filepath.Join(state, ".upgrade-incomplete"))
+}
+
+func TestRestoreFreshStateRefusesBeforeCreating(t *testing.T) {
+	for _, fail := range []string{"stopped", "isolation"} {
+		t.Run(fail, func(t *testing.T) {
+			state := filepath.Join(t.TempDir(), "Smithers")
+			_, err := Restore(t.Context(), RestoreConfig{State: state, Backup: restoreFixture(t), Version: Version{"1.3.0", 3, 18}, Authority: &restoreAuthorityFixture{fail: fail}, Cloner: backupCopyFixture{}})
+			require.EqualError(t, err, fail)
+			require.NoDirExists(t, state)
+		})
+	}
+}
+
+func TestRestoreFreshStateRejectsLinkedParent(t *testing.T) {
+	parent, outside := t.TempDir(), t.TempDir()
+	link := filepath.Join(parent, "linked")
+	require.NoError(t, os.Symlink(outside, link))
+	_, err := Restore(t.Context(), RestoreConfig{State: filepath.Join(link, "Smithers"), Backup: restoreFixture(t), Version: Version{"1.3.0", 3, 18}, Authority: &restoreAuthorityFixture{}, Cloner: backupCopyFixture{}})
+	require.ErrorContains(t, err, "unsafe_path")
+	require.NoDirExists(t, filepath.Join(outside, "Smithers"))
+}
+
+func TestRestoreCanceledFreshStateDoesNotCreate(t *testing.T) {
+	state := filepath.Join(t.TempDir(), "Smithers")
+	a := &restoreAuthorityFixture{}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err := Restore(ctx, RestoreConfig{State: state, Backup: restoreFixture(t), Version: Version{"1.3.0", 3, 18}, Authority: a, Cloner: backupCopyFixture{}})
+	require.ErrorIs(t, err, context.Canceled)
+	require.Empty(t, a.calls)
+	require.NoDirExists(t, state)
+}

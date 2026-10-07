@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -91,4 +93,67 @@ func TestMaintenanceAuthorityOwnerProtocol(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	require.ErrorIs(t, a.Renew(ctx, "backup /?&"), context.Canceled)
+}
+
+func TestMaintenanceAuthorityPinsFreezeAcrossRenewal(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("installing user required")
+	}
+	for _, tc := range []struct {
+		name           string
+		renewed        string
+		firstReady     bool
+		initialPending bool
+		refusal        bool
+	}{
+		{"ready lease expires", "2026-10-07T01:03:03Z", true, false, true},
+		{"initial drain renewal", "2026-10-07T01:02:03Z", false, true, false},
+		{"expiry during initial drain", "2026-10-07T01:03:03Z", false, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			state := maintenanceSocketState(t)
+			entered, release := make(chan struct{}), make(chan struct{})
+			var calls atomic.Int64
+			closeSocket, err := services.StartInstallSetupHandoff(t.Context(), state, func(context.Context, io.Writer) error { return nil }, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "/maintenance/quiesce", r.URL.Path)
+				assert.Equal(t, "POST", r.Method)
+				if calls.Add(1) == 1 {
+					close(entered)
+					if tc.initialPending {
+						select {
+						case <-release:
+						case <-r.Context().Done():
+							return
+						}
+					}
+					io.WriteString(w, `{"op":"backup-pin","since":"2026-10-07T01:02:03Z","ready":true}`)
+					return
+				}
+				fmt.Fprintf(w, `{"op":"backup-pin","since":%q,"ready":%t}`, tc.renewed, tc.firstReady)
+			}))
+			require.NoError(t, err)
+			defer closeSocket()
+			a := &maintenanceAuthority{state: state}
+			if tc.initialPending {
+				done := make(chan error, 1)
+				go func() { _, err := a.Freeze(t.Context(), "backup-pin"); done <- err }()
+				<-entered
+				require.NoError(t, a.Renew(t.Context(), "backup-pin"))
+				close(release)
+				err = <-done
+			} else {
+				_, err = a.Freeze(t.Context(), "backup-pin")
+				require.NoError(t, err)
+				err = a.Renew(t.Context(), "backup-pin")
+			}
+			if tc.refusal {
+				require.EqualError(t, err, "host_maintenance_unavailable: owner quiesce lease changed")
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, int64(2), calls.Load())
+			require.NoDirExists(t, filepath.Join(state, "backups"))
+			require.NoFileExists(t, filepath.Join(state, ".upgrade-incomplete"))
+		})
+	}
 }

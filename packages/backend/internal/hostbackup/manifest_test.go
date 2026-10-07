@@ -1,8 +1,10 @@
 package hostbackup
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -306,4 +308,66 @@ func TestOpenedPayloadRejectsLinksAndSpecialFiles(t *testing.T) {
 	f, err := openRegular(root, "payload")
 	must(t, err)
 	must(t, f.Close())
+}
+
+func TestCanceledManifestIsNotPublished(t *testing.T) {
+	dir, manifest := fixture(t)
+	parent, err := openSnapshot(filepath.Dir(dir))
+	must(t, err)
+	defer parent.Close()
+	ctx, cancel := context.WithCancelCause(t.Context())
+	lost := errors.New("owner quiesce lease changed")
+	cancel(lost)
+	if err := writeManifestRoot(ctx, parent, filepath.Base(dir), manifest); !errors.Is(err, lost) {
+		t.Fatal(err)
+	}
+	for _, path := range []string{filepath.Join(dir, "MANIFEST.json"), filepath.Join(filepath.Dir(dir), "1.2.3-20261003T220000.000000000Z")} {
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Fatalf("published %s: %v", path, err)
+		}
+	}
+	bytes, err := os.ReadFile(filepath.Join(dir, "trees/disk"))
+	must(t, err)
+	if string(bytes) != "disk" {
+		t.Fatal(string(bytes))
+	}
+}
+
+type cancelingSnapshotReader struct {
+	cancel func()
+	calls  int
+}
+
+func (r *cancelingSnapshotReader) Read(bytes []byte) (int, error) {
+	r.calls++
+	r.cancel()
+	return copy(bytes, "disk"), nil
+}
+func TestSnapshotHashStopsAfterLostLease(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(t.Context())
+	lost := errors.New("owner quiesce lease changed")
+	source := &cancelingSnapshotReader{cancel: func() { cancel(lost) }}
+	n, err := io.Copy(io.Discard, snapshotReader{ctx: ctx, source: source})
+	if n != 4 || !errors.Is(err, lost) || source.calls != 1 {
+		t.Fatalf("read %d bytes, %d reads, %v", n, source.calls, err)
+	}
+}
+
+func TestVerifySnapshotCancellationPreservesBackup(t *testing.T) {
+	dir := completed(t)
+	before, err := os.ReadFile(filepath.Join(dir, "MANIFEST.json"))
+	must(t, err)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := VerifySnapshotContext(ctx, dir); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(filepath.Join(dir, "MANIFEST.json"))
+	must(t, err)
+	if string(before) != string(after) {
+		t.Fatal("verification changed manifest")
+	}
+	if _, err := VerifySnapshot(dir); err != nil {
+		t.Fatal(err)
+	}
 }

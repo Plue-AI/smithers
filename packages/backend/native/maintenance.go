@@ -42,7 +42,7 @@ func DispatchMaintenance(ctx context.Context, args []string) (bool, error) {
 		// Only the canonical JSON format is accepted on the Mac command boundary.
 		// Inspect every byte before checking availability or moving live state.
 		if compose.BuildVersion == "dev" {
-			if _, err := hostbackup.VerifySnapshot(filepath.Clean(args[2])); err != nil {
+			if _, err := hostbackup.VerifySnapshotContext(ctx, filepath.Clean(args[2])); err != nil {
 				return true, err
 			}
 			return true, errors.New("host_maintenance_unavailable: restore requires a versioned release binary and composed recovery providers")

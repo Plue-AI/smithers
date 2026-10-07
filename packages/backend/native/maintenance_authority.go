@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/hostbackup"
@@ -22,6 +23,8 @@ type maintenanceAuthority struct {
 	version     hostbackup.Version
 	op          string
 	checkVolume func(string) error
+	leaseMu     sync.Mutex
+	leaseSince  map[string]time.Time
 }
 
 func (a *maintenanceAuthority) request(ctx context.Context, method, path string, body io.Reader, timeout time.Duration) (*http.Response, error) {
@@ -64,10 +67,11 @@ func (a *maintenanceAuthority) Check(ctx context.Context) error {
 func (a *maintenanceAuthority) DatabaseSize(ctx context.Context) (uint64, error) {
 	return MaintenanceDatabaseSize(ctx, a.state)
 }
-func (a *maintenanceAuthority) freeze(ctx context.Context, op string) (time.Time, bool, error) {
+func (a *maintenanceAuthority) freeze(ctx context.Context, op string, renewalOnly bool) (time.Time, bool, error) {
 	body, err := json.Marshal(struct {
-		Op string `json:"op"`
-	}{op})
+		Op    string `json:"op"`
+		Renew bool   `json:"renew,omitempty"`
+	}{op, renewalOnly})
 	if err != nil {
 		return time.Time{}, false, err
 	}
@@ -87,11 +91,23 @@ func (a *maintenanceAuthority) freeze(ctx context.Context, op string) (time.Time
 	if err := json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&row); err != nil || row.Op != op || row.Since.IsZero() {
 		return time.Time{}, false, errors.New("host_maintenance_unavailable: invalid owner freeze response")
 	}
+	// The same operation ID can be presented after an expired lease reopens.
+	// Pin the first response, including an initial-drain renewal, so neither
+	// response ordering nor reacquisition can join two different snapshots.
+	a.leaseMu.Lock()
+	defer a.leaseMu.Unlock()
+	if a.leaseSince == nil {
+		a.leaseSince = make(map[string]time.Time)
+	}
+	if since, exists := a.leaseSince[op]; exists && !since.Equal(row.Since) {
+		return time.Time{}, false, errors.New("host_maintenance_unavailable: owner quiesce lease changed")
+	}
+	a.leaseSince[op] = row.Since
 	return row.Since, row.Ready, nil
 }
 func (a *maintenanceAuthority) Freeze(ctx context.Context, op string) (time.Time, error) {
 	a.op = op
-	since, ready, err := a.freeze(ctx, op)
+	since, ready, err := a.freeze(ctx, op, false)
 	if err == nil && !ready {
 		err = errors.New("host_maintenance_unavailable: owner quiesce drain incomplete")
 	}
@@ -99,7 +115,7 @@ func (a *maintenanceAuthority) Freeze(ctx context.Context, op string) (time.Time
 }
 func (a *maintenanceAuthority) Renew(ctx context.Context, op string) error {
 	// Initial-drain renewals can observe ready=false; they must not recapture.
-	_, _, err := a.freeze(ctx, op)
+	_, _, err := a.freeze(ctx, op, true)
 	return err
 }
 func (a *maintenanceAuthority) Dump(ctx context.Context, target io.Writer) error {

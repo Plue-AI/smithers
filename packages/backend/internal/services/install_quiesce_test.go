@@ -386,3 +386,99 @@ func TestQuiesceRecoveryMissingProvidersPreservesFreeze(t *testing.T) {
 		})
 	}
 }
+
+func TestQuiesceRenewCannotAcquire(t *testing.T) {
+	for _, name := range []string{"missing", "expired", "draining", "ready", "marker", "wrong owner", "wrong op"} {
+		t.Run(name, func(t *testing.T) {
+			state := t.TempDir()
+			calls := []string{}
+			steps := quiesceSteps{calls: &calls}
+			store := &memoryFreeze{}
+			gate := &QuiesceGate{Store: store, StateDir: state}
+			service := &InstallQuiesce{Gate: gate, Machines: steps, Admission: steps, Host: steps, Barriers: barrierFixtures(&calls, "")}
+			since := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+			if name != "missing" {
+				store.row = &QuiesceFreeze{Op: "backup", By: 7, Since: since, Ready: name != "draining", LeaseUntil: time.Now().Add(time.Minute)}
+			}
+			if name == "expired" || name == "marker" {
+				store.row.LeaseUntil = time.Now().Add(-time.Second)
+			}
+			if name == "marker" {
+				if err := os.WriteFile(filepath.Join(state, ".upgrade-incomplete"), []byte("backup"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			by, op := int64(7), "backup"
+			if name == "wrong owner" {
+				by = 8
+			}
+			if name == "wrong op" {
+				op = "another"
+			}
+			row, err := service.Renew(t.Context(), op, by)
+			if name == "missing" || name == "expired" {
+				if err == nil || err.Error() != "quiesce lease lost" || row != nil || store.row != nil {
+					t.Fatalf("reacquired: %v %v %v", row, store.row, err)
+				}
+			} else if name == "wrong owner" || name == "wrong op" {
+				var frozen *InstallQuiescedError
+				if !errors.As(err, &frozen) || store.row.By != 7 || store.row.Op != "backup" {
+					t.Fatalf("wrong authority: %v %v", store.row, err)
+				}
+			} else if err != nil || row == nil || !row.Since.Equal(since) || row.Ready != (name != "draining") || !time.Now().Before(row.LeaseUntil) {
+				t.Fatalf("renew: %v %v", row, err)
+			}
+			for _, call := range calls {
+				if call == "capture" || call == "drain" || call == "stop" {
+					t.Fatalf("renew ran %s: %v", call, calls)
+				}
+			}
+		})
+	}
+}
+
+func TestQuiesceTypedNilProvidersFailBeforeFreeze(t *testing.T) {
+	for _, missing := range []string{"machines", "admission", "host", "T-STK-04", "T-COL-08", "T-COL-09", "T-GH-09", "T-TRM-07", "T-SEC-01"} {
+		t.Run(missing, func(t *testing.T) {
+			store := &memoryFreeze{}
+			calls := []string{}
+			steps := quiesceSteps{calls: &calls}
+			service := &InstallQuiesce{Gate: &QuiesceGate{Store: store, StateDir: t.TempDir()}, Machines: steps, Admission: steps, Host: steps, Barriers: barrierFixtures(&calls, "")}
+			var absent *quiesceSteps
+			want := missing
+			switch missing {
+			case "machines":
+				service.Machines = absent
+				want = "T-MCH-07"
+			case "admission":
+				service.Admission = absent
+				want = "T-MCH-06"
+			case "host":
+				service.Host = absent
+				want = "T-FLW-01"
+			default:
+				var barrier *quiesceBarrierFixture
+				service.Barriers[missing] = barrier
+			}
+			_, err := service.Freeze(t.Context(), "backup", 7)
+			if err == nil || err.Error() != "quiesce unavailable: "+want+" required" || store.updates != 0 || len(calls) != 0 {
+				t.Fatalf("provider %s: %v, writes %d, calls %v", missing, err, store.updates, calls)
+			}
+		})
+	}
+}
+
+func TestQuiesceTypedNilRecoveryRetainsFreeze(t *testing.T) {
+	store := &memoryFreeze{row: &QuiesceFreeze{Op: "backup", By: 7, LeaseUntil: time.Now().Add(-time.Second)}}
+	calls := []string{}
+	gate := &QuiesceGate{Store: store, StateDir: t.TempDir()}
+	service := NewInstallQuiesce(gate)
+	var absent *quiesceSteps
+	service.Host = absent
+	service.Admission = quiesceSteps{calls: &calls}
+	service.Barriers = barrierFixtures(&calls, "")
+	err := gate.Admit(t.Context(), "POST")
+	if err == nil || err.Error() != "quiesce unavailable: T-FLW-01 required" || store.row == nil || len(calls) != 0 {
+		t.Fatalf("lost recovery authority: %v, row %v, calls %v", err, store.row, calls)
+	}
+}

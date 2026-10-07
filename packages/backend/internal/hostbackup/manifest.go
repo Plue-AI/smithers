@@ -3,6 +3,7 @@
 package hostbackup
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -76,10 +77,13 @@ func WriteManifest(dir string, m Manifest) error {
 		return err
 	}
 	defer parent.Close()
-	return writeManifestRoot(parent, filepath.Base(dir), m)
+	return writeManifestRoot(context.Background(), parent, filepath.Base(dir), m)
 }
 
-func writeManifestRoot(parent *os.Root, name string, m Manifest) error {
+func writeManifestRoot(ctx context.Context, parent *os.Root, name string, m Manifest) (err error) {
+	if err = context.Cause(ctx); err != nil {
+		return err
+	}
 	if !strings.HasPrefix(name, ".partial-") || !safePath(name) {
 		return &Error{Code: Partial, Path: name}
 	}
@@ -102,7 +106,7 @@ func writeManifestRoot(parent *os.Root, name string, m Manifest) error {
 	if err != nil || !os.SameFile(info, pinned) {
 		return &Error{Code: UnsafePath, Path: name}
 	}
-	files, err := inventoryRoot(root)
+	files, err := inventoryRootContext(ctx, root)
 	if err != nil {
 		return err
 	}
@@ -129,10 +133,19 @@ func writeManifestRoot(parent *os.Root, name string, m Manifest) error {
 	if err = directory.Chmod(0700); err != nil {
 		return err
 	}
+	if err = context.Cause(ctx); err != nil {
+		return err
+	}
 	f, err := root.OpenFile("MANIFEST.json", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		return err
 	}
+	published := false
+	defer func() {
+		if !published {
+			err = errors.Join(err, root.Remove("MANIFEST.json"), directory.Sync())
+		}
+	}()
 	_, err = f.Write(data)
 	err = errors.Join(err, f.Sync(), f.Close())
 	if err != nil {
@@ -141,9 +154,13 @@ func writeManifestRoot(parent *os.Root, name string, m Manifest) error {
 	if err = directory.Sync(); err != nil {
 		return err
 	}
+	if err = context.Cause(ctx); err != nil {
+		return err
+	}
 	if err = parent.Rename(name, final); err != nil {
 		return err
 	}
+	published = true
 	ancestor, err := parent.Open(".")
 	if err != nil {
 		return err
@@ -287,8 +304,15 @@ func inventory(dir string) ([]File, error) {
 }
 
 func inventoryRoot(root *os.Root) ([]File, error) {
+	return inventoryRootContext(context.Background(), root)
+}
+
+func inventoryRootContext(ctx context.Context, root *os.Root) ([]File, error) {
 	var files []File
 	err := fs.WalkDir(root.FS(), ".", func(path string, d fs.DirEntry, walkErr error) error {
+		if err := context.Cause(ctx); err != nil {
+			return err
+		}
 		if walkErr != nil {
 			return walkErr
 		}
@@ -313,7 +337,7 @@ func inventoryRoot(root *os.Root) ([]File, error) {
 			return err
 		}
 		hash := sha256.New()
-		size, err := io.Copy(hash, f)
+		size, err := io.Copy(hash, snapshotReader{ctx: ctx, source: f})
 		closeErr := f.Close()
 		if err != nil {
 			return err
@@ -363,7 +387,12 @@ func readManifestRoot(root *os.Root) (Manifest, error) {
 // VerifySnapshot validates the recorded version and all bytes without asserting
 // installed compatibility. Native upgrade uses it to bind a pre-upgrade backup.
 func VerifySnapshot(dir string) (Manifest, error) {
-	return verifiedManifest(dir, nil)
+	return VerifySnapshotContext(context.Background(), dir)
+}
+
+// VerifySnapshotContext stops disk hashing when the owner cancels maintenance.
+func VerifySnapshotContext(ctx context.Context, dir string) (Manifest, error) {
+	return verifiedManifest(ctx, dir, nil)
 }
 
 // VerifyManifest accepts newer installed releases, but never a downgrade or a
@@ -375,11 +404,14 @@ func VerifyManifest(dir string, installed Version) error {
 
 // VerifiedManifest returns the validated metadata for restore and upgrade.
 func VerifiedManifest(dir string, installed Version) (Manifest, error) {
-	return verifiedManifest(dir, &installed)
+	return verifiedManifest(context.Background(), dir, &installed)
 }
 
-func verifiedManifest(dir string, installed *Version) (Manifest, error) {
+func verifiedManifest(ctx context.Context, dir string, installed *Version) (Manifest, error) {
 	var m Manifest
+	if err := context.Cause(ctx); err != nil {
+		return m, err
+	}
 	if strings.HasPrefix(filepath.Base(dir), ".partial-") {
 		return m, &Error{Code: Partial, Path: dir}
 	}
@@ -388,10 +420,10 @@ func verifiedManifest(dir string, installed *Version) (Manifest, error) {
 		return m, err
 	}
 	defer root.Close()
-	return verifyPinnedManifest(root, filepath.Base(dir), installed)
+	return verifyPinnedManifest(ctx, root, filepath.Base(dir), installed)
 }
 
-func verifyPinnedManifest(root *os.Root, name string, installed *Version) (Manifest, error) {
+func verifyPinnedManifest(ctx context.Context, root *os.Root, name string, installed *Version) (Manifest, error) {
 	m, err := readManifestRoot(root)
 	if err != nil {
 		return m, err
@@ -434,7 +466,7 @@ func verifyPinnedManifest(root *os.Root, name string, installed *Version) (Manif
 	if _, err = root.Lstat("postgres.dump"); os.IsNotExist(err) {
 		return m, &Error{Code: MissingDump, Path: "postgres.dump"}
 	}
-	actual, err := inventoryRoot(root)
+	actual, err := inventoryRootContext(ctx, root)
 	if err != nil {
 		return m, err
 	}
@@ -555,4 +587,18 @@ type DirectoryCloner interface {
 
 func (RefusingCloner) CloneAt(*os.File, string, *os.File, string) error {
 	return &Error{Code: CloneUnavailable}
+}
+
+// Disk hashing must observe a lost freeze before another chunk is consumed.
+// Keep one inventory implementation for offline verification and live backup.
+type snapshotReader struct {
+	ctx    context.Context
+	source io.Reader
+}
+
+func (r snapshotReader) Read(bytes []byte) (int, error) {
+	if err := context.Cause(r.ctx); err != nil {
+		return 0, err
+	}
+	return r.source.Read(bytes)
 }
