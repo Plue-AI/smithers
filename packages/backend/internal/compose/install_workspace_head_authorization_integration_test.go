@@ -117,7 +117,7 @@ func TestInstallWorkspaceHeadCommandPostgres(t *testing.T) {
 		var refusal *services.AccessError
 		require.ErrorAs(t, err, &refusal)
 		require.Equal(t, 403, refusal.Status)
-		require.Equal(t, []string{"workspace.head", "workspace.head"}, decisions, "another subject needs a fresh decision")
+		require.Equal(t, []string{"workspace.head"}, decisions, "a changed subject refuses the original binding")
 		untouched, err := f.q.GetWorkspace(f.ctx, other.ID)
 		require.NoError(t, err)
 		require.Empty(t, untouched.HeadCommitID)
