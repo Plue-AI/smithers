@@ -41,6 +41,8 @@ export type CommandActions =
     | "formFocus"
     // The mounted guide reports host visibility independently of command admission.
     | "observeGuideVisibility"
+    // Private confirmation observation belongs to composition, never command dispatch.
+    | "observeReviewConfirmation"
     | "storageRecoveryState"
     | "privacyNotices"
     | "nativeAgentAvailable"
