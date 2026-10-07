@@ -69,8 +69,12 @@ const matches = (path: string, globs: ReadonlyArray<Input.Glob>): boolean =>
 
 const payloadOf = (attrs: LlmLint.Attrs, base: string): LlmLint.Payload => ({
   base,
-  include: attrs.include.map((input) => input._tag === "File" ? Input.glob(escape(input.path, { windowsPathsNoEscape: true })) : input),
-  context: attrs.context.map((input) => input._tag === "File" ? Input.glob(escape(input.path, { windowsPathsNoEscape: true })) : input),
+  include: attrs.include.map((input) =>
+    input._tag === "File" ? Input.glob(escape(input.path, { windowsPathsNoEscape: true })) : input
+  ),
+  context: attrs.context.map((input) =>
+    input._tag === "File" ? Input.glob(escape(input.path, { windowsPathsNoEscape: true })) : input
+  ),
   prompt: attrs.prompt,
   rubric: attrs.rubric,
   engine: attrs.engine,

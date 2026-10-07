@@ -120,14 +120,22 @@ export const Package = S.Package({ targets: {} })
 
   it("accepts explicit cross-package review files and rejects their removal", async () => {
     const root = await fixture()
-    await write(root, "child/PACKAGE.ts", `import { Smithers as S } from "@smthrs/targets"
-export const Package = S.Package({ targets: {} })\n`)
+    await write(
+      root,
+      "child/PACKAGE.ts",
+      `import { Smithers as S } from "@smthrs/targets"
+export const Package = S.Package({ targets: {} })\n`
+    )
     await write(root, "child/auth.ts", "export const authorize = true\n")
-    await write(root, "PACKAGE.ts", packageModule(`const later = S.LlmLint({
+    await write(
+      root,
+      "PACKAGE.ts",
+      packageModule(`const later = S.LlmLint({
       changes: S.gitDiff("HEAD"), include: [S.file("//child/auth.ts")],
       context: [S.file("//child/auth.ts")], deps: [], prompt: "Review authorization",
       rubric: "Reject unauthenticated writes", model: "claude-opus-5", batchSize: 1
-    })`))
+    })`)
+    )
     expect((await serve(root, ["target", "//:targetIndex", "--write"])).exitCode).toBe(0)
     const valid = await serve(root, ["lint", "//:targetIndex"])
     expect(valid.exitCode, valid.logs + valid.output).toBe(0)

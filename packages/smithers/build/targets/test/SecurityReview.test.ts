@@ -197,18 +197,22 @@ describe("SecurityReview trust boundaries", () => {
     ]
     for (const target of [targets.security, targets.securityAudit]) {
       const attrs = attrsOf(target)
-      expect(attrs.include.map((glob) => (glob._tag === "File" ? glob.path : glob.pattern))).toHaveLength(expected.length)
+      expect(attrs.include.map((glob) => (glob._tag === "File" ? glob.path : glob.pattern))).toHaveLength(
+        expected.length
+      )
       expect(attrs.include.map((glob) => (glob._tag === "File" ? glob.path : glob.pattern))).toEqual(
         expect.arrayContaining(expected.map((path) => `//${path}`))
       )
       expect(attrs.context.map((glob) => (glob._tag === "File" ? glob.path : glob.pattern))).toHaveLength(5)
-      expect(attrs.context.map((glob) => (glob._tag === "File" ? glob.path : glob.pattern))).toEqual(expect.arrayContaining([
-        "//packages/example/README.md",
-        "//packages/example/src/client/**",
-        "//shared/auth/**",
-        "//packages/example/src/upload/**",
-        "//shared/storage/**"
-      ]))
+      expect(attrs.context.map((glob) => (glob._tag === "File" ? glob.path : glob.pattern))).toEqual(
+        expect.arrayContaining([
+          "//packages/example/README.md",
+          "//packages/example/src/client/**",
+          "//shared/auth/**",
+          "//packages/example/src/upload/**",
+          "//shared/storage/**"
+        ])
+      )
       expect(attrs.changes.paths).toHaveLength(expected.length)
       expect(attrs.changes.paths).toEqual(expect.arrayContaining(expected))
     }

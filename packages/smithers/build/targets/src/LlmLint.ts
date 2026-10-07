@@ -3468,8 +3468,12 @@ export const LlmLint = Target.make("LlmLint", {
   implementation: (attrs) =>
     LlmReview.call({
       base: attrs.changes.base,
-      include: attrs.include.map((input) => input._tag === "File" ? Input.glob(escape(input.path, { windowsPathsNoEscape: true })) : input),
-      context: attrs.context.map((input) => input._tag === "File" ? Input.glob(escape(input.path, { windowsPathsNoEscape: true })) : input),
+      include: attrs.include.map((input) =>
+        input._tag === "File" ? Input.glob(escape(input.path, { windowsPathsNoEscape: true })) : input
+      ),
+      context: attrs.context.map((input) =>
+        input._tag === "File" ? Input.glob(escape(input.path, { windowsPathsNoEscape: true })) : input
+      ),
       prompt: attrs.prompt,
       rubric: attrs.rubric,
       engine: attrs.engine,

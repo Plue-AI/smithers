@@ -1,12 +1,12 @@
-import { escape } from "minimatch"
-import * as Input from "../src/Input.ts"
 import * as Effect from "effect/Effect"
+import { escape } from "minimatch"
 import { execFile } from "node:child_process"
 import * as Fs from "node:fs/promises"
 import * as Os from "node:os"
 import * as NodePath from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Smithers } from "../src/index.ts"
+import * as Input from "../src/Input.ts"
 import * as LlmLint from "../src/LlmLint.ts"
 import * as SecurityReview from "../src/SecurityReview.ts"
 import * as Target from "../src/Target.ts"
@@ -104,8 +104,12 @@ describe("SecurityReview boundary execution", () => {
     const attrs = Target.metadata(target).attrs as LlmLint.Attrs
     const reviewPayload: LlmLint.Payload = {
       base: attrs.changes.base,
-      include: attrs.include.map((input) => input._tag === "File" ? Input.glob(escape(input.path, { windowsPathsNoEscape: true })) : input),
-      context: attrs.context.map((input) => input._tag === "File" ? Input.glob(escape(input.path, { windowsPathsNoEscape: true })) : input),
+      include: attrs.include.map((input) =>
+        input._tag === "File" ? Input.glob(escape(input.path, { windowsPathsNoEscape: true })) : input
+      ),
+      context: attrs.context.map((input) =>
+        input._tag === "File" ? Input.glob(escape(input.path, { windowsPathsNoEscape: true })) : input
+      ),
       prompt: attrs.prompt,
       rubric: attrs.rubric,
       engine: attrs.engine,

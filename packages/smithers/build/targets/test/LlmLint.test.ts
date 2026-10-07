@@ -1,5 +1,5 @@
-import { escape } from "minimatch"
 import * as Effect from "effect/Effect"
+import { escape } from "minimatch"
 import { execFile, spawnSync } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import * as Fs from "node:fs/promises"
@@ -331,8 +331,12 @@ describe("SecurityReview boundary execution", () => {
     const attrs = Target.metadata(target).attrs as LlmLint.Attrs
     const reviewPayload: LlmLint.Payload = {
       base: attrs.changes.base,
-      include: attrs.include.map((input) => input._tag === "File" ? Input.glob(escape(input.path, { windowsPathsNoEscape: true })) : input),
-      context: attrs.context.map((input) => input._tag === "File" ? Input.glob(escape(input.path, { windowsPathsNoEscape: true })) : input),
+      include: attrs.include.map((input) =>
+        input._tag === "File" ? Input.glob(escape(input.path, { windowsPathsNoEscape: true })) : input
+      ),
+      context: attrs.context.map((input) =>
+        input._tag === "File" ? Input.glob(escape(input.path, { windowsPathsNoEscape: true })) : input
+      ),
       prompt: attrs.prompt,
       rubric: attrs.rubric,
       engine: attrs.engine,
@@ -433,7 +437,11 @@ describe("LlmLint key material", () => {
       changes: Input.gitDiff("HEAD"),
       include: [Input.file("//child/[auth].ts")],
       context: [Input.file("//child/[auth].ts")],
-      deps: [], prompt: "Review", rubric: "Authorize", model: "claude-opus-5", batchSize: 1
+      deps: [],
+      prompt: "Review",
+      rubric: "Authorize",
+      model: "claude-opus-5",
+      batchSize: 1
     })
     expect(Target.metadata(target).inputs).toContainEqual(Input.file("//child/[auth].ts"))
     const payload = plannedCalls(target)[0]!.payload as LlmLint.Payload

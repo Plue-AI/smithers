@@ -235,6 +235,9 @@ your Vitest configuration controls test scheduling.
 Use `LlmLint` with explicit instructions, files, model, and failure threshold.
 Keep repository review rubrics and documentation paths in your own configuration.
 
+`Factory` discovery and `LlmLint.include` and `LlmLint.context` accept `S.file`
+entries alongside globs. File paths are literal; existing glob matching is unchanged.
+
 `LlmLint.scope` selects what a review reads: `changed` (the default) reads the
 included files that differ from `changes.base`, and `all` reads every included
 file. `LlmLint.manual` keeps a review out of bare wildcard selections; a label or
@@ -242,7 +245,7 @@ a named pattern such as `//pkg/...:name` still selects it.
 [`SecurityReview`](./guides/security-review.md) builds both modes from one
 declaration of a package's security checks.
 
-`LlmLint.context` accepts workspace-relative reference globs, with an optional
+`LlmLint.context` accepts workspace-relative reference files or globs, with an optional
 `//` prefix. Execution expands them across nested `PACKAGE.ts` boundaries and
 reads them into every batch, whether or not they changed. Workspace confinement,
 ignore rules, and symlink rejection still apply. A nonempty context declaration

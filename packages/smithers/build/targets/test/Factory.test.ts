@@ -426,8 +426,11 @@ describe("FactoryProjection target", () => {
       entries: [Input.file("//flows/todo/flow.ts"), Input.file("//flows/todo/SKILL.md")]
     }))
     expect(metadata.inputs.map(describeInput)).toEqual([
-      "//flows/todo/flow.ts", "//flows/todo/SKILL.md",
-      "//.smithers/FACTORY.ts", "//.smithers/factory.json", "//.smithers/home.json"
+      "//flows/todo/flow.ts",
+      "//flows/todo/SKILL.md",
+      "//.smithers/FACTORY.ts",
+      "//.smithers/factory.json",
+      "//.smithers/home.json"
     ])
   })
   const factory = Factory.Factory({ summary: "S.", flows: [review] })
