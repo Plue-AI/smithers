@@ -42,6 +42,7 @@ import { RunTrigger, triggerLayers } from "../repository/triggers.ts"
 import { ReviewPage } from "../wiki/workflow.ts"
 import { atomOperations, EditAtom } from "./atoms.ts"
 import { repositoryCheckEnvironment } from "./check-environment.ts"
+import * as HostRegistry from "./host-registry.ts"
 import { checkDelegate, checkLayers } from "./checks.ts"
 import { correctionLayers, SelectRepair } from "./correction.ts"
 import { dispatchModels } from "./dispatch.ts"
@@ -705,7 +706,10 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
               options.todoExecutionDigest,
               options.draftVersion
             ))
-        ).pipe(Layer.provide(native.layerRegistry(options.flowSourceRoot ?? options.repositoryPath)))
+        ).pipe(Layer.provide(HostRegistry.layer(options.flowSourceRoot ?? options.repositoryPath, stateRoot,
+          native.layerGuardedPlatform(options.flowSourceRoot ?? options.repositoryPath)).pipe(
+          Layer.provide(Layer.merge(native.layerHostPlatform, platform.crypto))
+        )))
         const request = options.planning === undefined ? Layer.empty : Layer.mergeAll(
           memoryLayer({
             ...options.planning,

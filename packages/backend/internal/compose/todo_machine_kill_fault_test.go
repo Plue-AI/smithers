@@ -124,7 +124,9 @@ func TestTodoMachineKillThroughInstall(t *testing.T) {
 	require.Equal(t, "completed\nkeyless\n", crossings)
 	_, err = os.Lstat(marker)
 	require.True(t, os.IsNotExist(err), "branch payload must never run on the host")
-	_, d2 := activateWatchdogOverride(t, r, strings.Replace(source, "Machine fault D1", "Machine fault D2", 1))
+	changed := strings.Replace(source, "Machine fault D1", "Machine fault D2", 1)
+	changed = strings.Replace(changed, `"completed\n"`, `"D2-completed\n"`, 1)
+	_, d2 := activateWatchdogOverride(t, r, changed)
 	require.NotEqual(t, d1, d2)
 	for range 2 {
 		status, receipt, err := r.keyed("POST", fmt.Sprintf("/api/todos/%d", number), `{"op":"retry"}`, "machine-kill-retry")
@@ -149,6 +151,13 @@ func TestTodoMachineKillThroughInstall(t *testing.T) {
 	require.NotNil(t, retried.FlowVersion)
 	require.Equal(t, d1, retried.FlowVersion.Digest)
 	require.NotEmpty(t, retried.Evidence)
+	preserved := false
+	for _, evidence := range retried.Evidence {
+		if evidence.Attempt == int32(before.Run.Attempt) && evidence.FlowDigest == d1 && evidence.SourceCommit == before.FlowVersion.SourceCommit {
+			preserved = true
+		}
+	}
+	require.True(t, preserved, "Retry must retain the original attempt's pin and source evidence")
 	require.NoError(t, r.drop(number))
 	fmt.Println(`CRASH-OBSERVATION {"point":"machine-mid-todo","subject":"todo","stepsReRun":0,"automaticKeylessRepeats":0,"retryAttempts":1,"hostCanaryAbsent":true}`)
 }

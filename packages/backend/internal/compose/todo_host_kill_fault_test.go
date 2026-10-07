@@ -88,7 +88,9 @@ export default Flow.make("todo", {
 		require.Equal(t, "interrupted", card["failure"].(map[string]any)["class"])
 		// Activate D2 before Retry. Admission must still use D1, and reconnecting
 		// the same press must not create a third attempt.
-		_, d2 := activateWatchdogOverride(t, r, strings.Replace(source, "Hold a keyless crossing", "Changed active description", 1))
+		changed := strings.Replace(source, "Hold a keyless crossing", "Changed active description", 1)
+		changed = strings.Replace(changed, `"completed\n"`, `"D2-completed\n"`, 1)
+		_, d2 := activateWatchdogOverride(t, r, changed)
 		require.NotEqual(t, digest, d2)
 		path := fmt.Sprintf("/api/todos/%d", number)
 		for range 2 {
@@ -104,6 +106,13 @@ export default Flow.make("todo", {
 		require.NotEqual(t, before.Run.ID, retried.Run.ID)
 		require.Equal(t, digest, retried.FlowVersion.Digest)
 		require.NotEmpty(t, retried.Evidence, "the prior attempt must remain visible")
+		preserved := false
+		for _, evidence := range retried.Evidence {
+			if evidence.Attempt == int32(before.Run.Attempt) && evidence.FlowDigest == digest && evidence.SourceCommit == before.FlowVersion.SourceCommit {
+				preserved = true
+			}
+		}
+		require.True(t, preserved, "Retry must retain the original attempt's pin and source evidence")
 		require.NoError(t, r.drop(number))
 		fmt.Println(`CRASH-OBSERVATION {"point":"host-keyless-crossing","subject":"todo","stepsReRun":0,"automaticKeylessRepeats":0,"retryAttempts":1}`)
 	})
