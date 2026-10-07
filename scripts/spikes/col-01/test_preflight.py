@@ -1,6 +1,7 @@
 """Launch-boundary checks: a refusal precedes any build or VM command."""
 from pathlib import Path
 import shutil
+import platform
 import subprocess
 import tempfile
 import unittest
@@ -9,7 +10,9 @@ from unittest.mock import patch
 
 class PreflightTests(unittest.TestCase):
     def test_launch_refuses_unapproved_inputs_before_toolchain(self):
-        for mutation in ['changed', 'extra', 'missing', 'symlink', 'missing-main', 'host-code', 'image', 'toolchain', 'plist', 'root-helper', 'backend-source', 'build-manifest']:
+        for mutation in ['changed', 'extra', 'missing', 'symlink', 'missing-main', 'host-code', 'image', 'toolchain', 'plist', 'root-helper', 'backend-source', 'build-manifest', 'no-isolation']:
+            if mutation == 'no-isolation' and platform.system() == 'Darwin' and platform.machine() == 'arm64':
+                continue  # This host supplies the reference architecture.
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
                 spike = root / 'scripts/spikes/col-01'
@@ -60,6 +63,8 @@ class PreflightTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 2, result.stderr)
                     self.assertIn('SPIKE SECURITY BLOCKED:', result.stderr)
                     self.assertFalse((root / '.artifacts').exists())
+                    if mutation == 'no-isolation':
+                        self.assertIn('no host fallback', result.stderr)
 
     def test_approved_inventory_is_bound_to_main(self):
         import preflight
