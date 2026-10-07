@@ -113,7 +113,7 @@ func (s *MythicalService) launchFlowLoad(ctx context.Context, r *mythicalRun, ro
 	bumped := row
 	bumped.Generation, bumped.CommitID, bumped.Syncing = row.Generation+1, main, syncing
 	bumped.CommitTree, _ = json.Marshal(tree)
-	saved, err := q.SaveFlowLoad(ctx, bumped)
+	saved, err := s.saveFlowLoadFact(ctx, bumped)
 	if err != nil {
 		return err
 	}
@@ -331,6 +331,9 @@ func (s *MythicalService) admitFlowLoad(ctx context.Context, r *mythicalRun, nex
 	}); err != nil {
 		return err
 	}
+	if err := s.recordFlowFact(ctx, tx, r.row.RepositoryID); err != nil {
+		return err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		if persisted, readErr := s.queries().GetFlowLoad(context.WithoutCancel(ctx), r.row.RepositoryID); readErr == nil && persisted.Version == saved.Version {
 			s.notify(ctx, s.queries(), r.row.RepositoryID, r.row.Generation, "flows", "")
@@ -367,7 +370,7 @@ func (s *MythicalService) settleFlowLoad(ctx context.Context, r *mythicalRun, ro
 	next.State, next.Outcome, next.Result = "idle", "", nil
 	next.NextAttemptAt = now.Add(mythicalWikiBackoff(row.Attempt))
 	s.wakeWikiAt(r.row.RepositoryID, next.NextAttemptAt)
-	failed, err := s.queries().SaveFlowLoad(ctx, next)
+	failed, err := s.saveFlowLoadFact(ctx, next)
 	if errors.Is(err, pgx.ErrNoRows) {
 		s.MainMoved(ctx, r.row.RepositoryID)
 		return nil
@@ -433,6 +436,9 @@ func (s *MythicalService) persistFlowLoad(ctx context.Context, r *mythicalRun, r
 			return err
 		}
 	}
+	if err := s.recordFlowFact(ctx, tx, r.row.RepositoryID); err != nil {
+		return err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
@@ -458,7 +464,7 @@ func (s *MythicalService) retireFlowLoadWorkspace(ctx context.Context, r *mythic
 }
 
 func (s *MythicalService) saveFlowLoad(ctx context.Context, r *mythicalRun, next db.FlowLoad) error {
-	if _, err := s.queries().SaveFlowLoad(ctx, next); err != nil {
+	if _, err := s.saveFlowLoadFact(ctx, next); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			// A projection saved first; the next pass sees it.
 			s.MainMoved(ctx, r.row.RepositoryID)
@@ -507,7 +513,7 @@ func (s *MythicalService) projectFlowLoad(ctx context.Context, update flowdispat
 		if next.RunID == row.RunID && next.Outcome == row.Outcome {
 			return nil
 		}
-		if _, err := q.SaveFlowLoad(ctx, next); errors.Is(err, pgx.ErrNoRows) {
+		if _, err := s.saveFlowLoadFact(ctx, next); errors.Is(err, pgx.ErrNoRows) {
 			continue
 		} else if err != nil {
 			return err
