@@ -91,6 +91,7 @@ export const withReference = async (browser: Browser, info: TestInfo, body: (fix
       await context.tracing.start({ screenshots: true, snapshots: true })
       const page = await context.newPage()
       if (process.env.SMITHERS_JOURNEY_KEYBOARD === "1") keyboard.set(actor, registerKeyboardJourney(page, origin, () => captureCards(actor)))
+      await keyboard.get(actor)?.ready()
       await page.goto(`${origin}/${repo}`)
       await awaitBoot(page)
       members[actor] = { context, page }

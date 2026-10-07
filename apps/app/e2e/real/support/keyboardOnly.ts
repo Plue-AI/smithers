@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import type { BrowserContext, Page } from "@playwright/test"
 
 export type KeyboardInput = {
@@ -67,6 +68,42 @@ export function installKeyboardOnly(context: BrowserContext, origin: string, log
   patch(context, () => "unopened")
   for (const page of context.pages()) watchPage(page)
   context.on("page", watchPage)
+}
+
+/** Observe an independent headed operator as well as automation. No key,
+ * coordinate, field value or query parameter enters the input log. */
+export async function installNativeKeyboardOnly(context: BrowserContext, origin: string, log: KeyboardInput[]): Promise<void> {
+  const target = new URL(origin)
+  if (!/^https?:$/.test(target.protocol) || target.origin !== origin) throw new Error("Keyboard guard requires an HTTP(S) origin")
+  const name = `__cui_${randomUUID().replaceAll("-", "")}`
+  const kinds = new Set(["keydown", "pointerdown", "pointermove", "wheel", "touchstart", "dblclick", "click"])
+  await context.exposeBinding(name, (source, input: { kind?: unknown }) => {
+    const kind = typeof input?.kind === "string" && kinds.has(input.kind) ? input.kind : "invalid"
+    let observed = "unopened"
+    try { observed = new URL(source.frame.url()).origin } catch { /* refuse unknown pages */ }
+    const result = kind === "invalid" ? "refused" : observed === "https://github.com" ? "excluded"
+      : observed === target.origin && kind === "keydown" ? "allowed" : "refused"
+    log.push({ at: new Date().toISOString(), method: `dom.${kind}`, origin: observed, result })
+  })
+  const attach = ({ binding, expected }: { binding: string; expected: string }) => {
+    const send = (window as unknown as Record<string, (input: { kind: string }) => Promise<void>>)[binding]!
+    const listen = (event: Event) => {
+      // Enter/Space generate a zero-detail click. That is a keyboard activation.
+      if (event.type === "click" && (event as MouseEvent).detail === 0) return
+      const excluded = location.origin === "https://github.com"
+      if (!excluded && (location.origin !== expected || event.type !== "keydown")) {
+        event.preventDefault(); event.stopImmediatePropagation()
+      }
+      void send({ kind: event.type }).catch(() => {})
+    }
+    for (const kind of ["keydown", "pointerdown", "pointermove", "wheel", "touchstart", "dblclick", "click"]) {
+      window.addEventListener(kind, listen, { capture: true, passive: false })
+    }
+  }
+  const args = { binding: name, expected: origin }
+  await context.addInitScript(attach, args)
+  // Helpers can also attach to a page that has already reached the install.
+  for (const page of context.pages()) for (const frame of page.frames()) await frame.evaluate(attach, args)
 }
 
 /** Call before accepting keyboard evidence, even if a helper caught an input error. */

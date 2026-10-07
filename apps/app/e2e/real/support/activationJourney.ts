@@ -70,6 +70,7 @@ const run = async ({ page, request }: { page: Page; request: APIRequestContext }
     await writeFile(info.outputPath("timestamps.json"), JSON.stringify(timestamps, null, 2))
   }
   await info.attach("preconditions", { body: JSON.stringify(publicInput), contentType: "application/json" })
+  if (keys) await keys.ready()
   await page.goto(input.setupURL)
   // Verify the installed candidate before the operator enters any credentials.
   // Self-hosted installs classify as local; that must not skip build pinning.

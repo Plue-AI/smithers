@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import type { BrowserContext } from "@playwright/test"
-import { assertKeyboardOnly, installKeyboardOnly, type KeyboardInput } from "./keyboardOnly"
+import { assertKeyboardOnly, installKeyboardOnly, installNativeKeyboardOnly, type KeyboardInput } from "./keyboardOnly"
 
 // Structural Playwright doubles test interception only, never journey qualification.
 function fixture() {
@@ -119,4 +119,37 @@ test("empty or GitHub-only input cannot produce accepted keyboard evidence", asy
   f.navigate("https://github.com/")
   await f.page.keyboard.press("Enter")
   expect(() => assertKeyboardOnly(f.log)).toThrow("no app keyboard input")
+})
+
+
+test("native binding uses observed frame origin and retains no supplied secrets", async () => {
+  const log: KeyboardInput[] = []
+  let emit!: (source: { frame: { url: () => string } }, input: unknown) => void
+  let installed = false
+  const context = {
+    exposeBinding: async (_name: string, callback: typeof emit) => { emit = callback },
+    addInitScript: async () => { installed = true },
+    pages: () => []
+  } as unknown as BrowserContext
+  await installNativeKeyboardOnly(context, "http://mini.local:4000", log)
+  expect(installed).toBe(true)
+  const frame = (url: string) => ({ frame: { url: () => url } })
+  emit(frame("http://mini.local:4000/setup?token=secret"), { kind: "keydown", key: "secret" })
+  emit(frame("http://mini.local:4000/"), { kind: "pointerdown" })
+  emit(frame("https://github.com/login?token=secret"), { kind: "pointerdown" })
+  emit(frame("https://outside.test/"), { kind: "keydown" })
+  emit(frame("about:blank"), { kind: "keydown" })
+  emit(frame("http://mini.local:4000/"), { kind: "secret", origin: "https://github.com" })
+  emit({ frame: { url: () => { throw new Error("detached") } } }, null)
+  expect(log.map(input => input.result)).toEqual(["allowed", "refused", "excluded", "refused", "refused", "refused", "refused"])
+  expect(log.at(-1)?.origin).toBe("unopened")
+  expect(log.at(-2)?.method).toBe("dom.invalid")
+  expect(JSON.stringify(log)).not.toContain("secret")
+  expect(() => assertKeyboardOnly(log)).toThrow("refused input")
+})
+
+test("native guard refuses an invalid origin before attaching a binding", async () => {
+  for (const origin of ["data:text/html,secret", "http://mini.local:4000/path", "http://mini.local:4000/"]) {
+    await expect(installNativeKeyboardOnly({} as BrowserContext, origin, [])).rejects.toThrow("requires an HTTP(S) origin")
+  }
 })

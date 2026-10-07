@@ -115,3 +115,10 @@ before activation, then again after input. This retains transient cards that
 are dismissed before HTTP readback. Unchanged card markup is deduplicated;
 readback and completion still capture settled changes. The pre-input capture
 starts only after theme selection, never during setup credential entry.
+
+The keyboard helper now awaits a native event guard before setup/navigation.
+It observes the independent headed operator as well as Playwright, blocks
+pointer/wheel/touch activation in the app, and preserves each refusal in the
+same final log. GitHub remains the explicit exclusion. Keyboard-generated
+zero-detail clicks remain enabled. Native logs contain event kind, UTC time and
+origin only; never key names, coordinates, text or setup-token queries.

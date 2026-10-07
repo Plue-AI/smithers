@@ -99,3 +99,29 @@ test("capture sees a transient card before activation dismisses it", async () =>
     keys.finish()
   } finally { await browser.close(); server.stop(true) }
 }, 30_000)
+
+test("headed operator pointer input is blocked even through a pre-guard mouse reference", async () => {
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(`
+    <style>:root{--ring-border:rgb(12,34,56)}:focus-visible{outline:2px solid var(--ring-border)}</style>
+    <button onclick="document.querySelector('output').textContent='1'">Commit</button><output>0</output>
+  `, { headers: { "Content-Type": "text/html" } }) })
+  const browser = await chromium.launch()
+  try {
+    const page = await browser.newPage()
+    await page.goto(`http://127.0.0.1:${server.port}`)
+    // This bypasses only the automation wrapper, just as physical OS input does.
+    const nativeClick = page.mouse.click.bind(page.mouse)
+    const keys = registerKeyboardJourney(page, `http://127.0.0.1:${server.port}`)
+    await keys.ready()
+    const button = page.getByRole("button", { name: "Commit" })
+    const box = await button.boundingBox()
+    await nativeClick(box!.x + box!.width / 2, box!.y + box!.height / 2)
+    expect(await page.locator("output").textContent()).toBe("0")
+    await journeyActivate(button)
+    expect(await page.locator("output").textContent()).toBe("1")
+    expect(keys.snapshot().inputs.some(input => input.method === "dom.pointerdown" && input.result === "refused")).toBe(true)
+    expect(keys.snapshot().inputs.some(input => input.method === "dom.keydown" && input.result === "allowed")).toBe(true)
+    expect(() => keys.finish()).toThrow("refused input")
+    expect(JSON.stringify(keys.snapshot())).not.toContain("Commit")
+  } finally { await browser.close(); server.stop(true) }
+}, 30_000)

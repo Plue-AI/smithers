@@ -1,13 +1,16 @@
 import type { Locator, Page } from "@playwright/test"
-import { assertKeyboardFocus, assertKeyboardOnly, installKeyboardOnly, recordKeyboardFocus, type KeyboardFocus, type KeyboardInput } from "./keyboardOnly"
+import { assertKeyboardFocus, assertKeyboardOnly, installKeyboardOnly, installNativeKeyboardOnly, recordKeyboardFocus, type KeyboardFocus, type KeyboardInput } from "./keyboardOnly"
 
 /** Reach controls through actual Tab input; locator evaluation only observes focus. */
 export function keyboardJourneyInput(page: Page, origin: string, capture?: () => Promise<void>) {
   const inputs: KeyboardInput[] = []
   const focus: KeyboardFocus[] = []
   installKeyboardOnly(page.context(), origin, inputs)
-  const observe = async () => { await recordKeyboardFocus(page, focus); await capture?.() }
+  let nativeReady: Promise<void> | undefined
+  const ready = () => nativeReady ??= installNativeKeyboardOnly(page.context(), origin, inputs)
+  const observe = async () => { await ready(); await recordKeyboardFocus(page, focus); await capture?.() }
   const reach = async (target: Locator) => {
+    await ready()
     await target.waitFor({ state: "visible" })
     for (let count = 0; count < 200; count++) {
       if (await target.evaluate(element => element === document.activeElement)) { await capture?.(); return }
@@ -45,7 +48,7 @@ export function keyboardJourneyInput(page: Page, origin: string, capture?: () =>
     await page.keyboard.press("Enter")
     await observe()
   }
-  return { command, activate, enter, select, reach, observe, snapshot: () => ({ inputs, focus }), finish: () => {
+  return { command, activate, enter, select, reach, observe, ready, snapshot: () => ({ inputs, focus }), finish: () => {
     assertKeyboardOnly(inputs)
     assertKeyboardFocus(focus)
     return { inputs, focus }
