@@ -109,9 +109,10 @@ def base_environment():
         for name in HOME_LINKS:
             if name in loaded and (not loaded[name].startswith(("/var/cache/smithers/", "/opt/smithers/")) or ".." in loaded[name].split("/")):
                 fail(3, "invalid cache target")
+        loaded["PATH"] = "/opt/smithers/bundle/bin/linux-arm64:" + loaded.get("PATH", "/usr/local/bin:/usr/bin:/bin")
         return loaded
     except FileNotFoundError:
-        return {"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+        return {"PATH": "/opt/smithers/bundle/bin/linux-arm64:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
 
 
 def secret_environment(body):
@@ -254,9 +255,29 @@ def session_token_parent(session, expected, create):
         os.close(parent)
 
 
-def put_session_token(session, body, expected):
+def session_issuer_envelope(directory, session, expected):
+    fd = os.open("issuer.json", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+    with os.fdopen(fd, "rb") as handle:
+        info = os.fstat(handle.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or
+                stat.S_IMODE(info.st_mode) != 0o644 or info.st_nlink != 1 or info.st_size > 1024):
+            fail(3, "untrusted session issuer envelope")
+        try:
+            value = json.loads(handle.read(1025))
+        except (ValueError, UnicodeError):
+            fail(3, "invalid session issuer envelope")
+        if (not isinstance(value, dict) or value.get("version") != 1 or
+                value.get("session_id") != session or value.get("credential_identity") != expected):
+            fail(3, "session issuer envelope differs")
+
+
+def put_session_token(session, body, expected, issuer):
     """Compare and atomically replace one session's delegated credential."""
     body = session_token_body(body)
+    if not isinstance(issuer, str) or not re.fullmatch(r"http://127\.0\.0\.1:([1-9][0-9]{0,4})", issuer) or int(issuer.rsplit(":", 1)[1]) > 65535:
+        fail(3, "invalid session credential issuer")
+    envelope = {"version": 1, "session_id": session, "issuer": issuer,
+                "credential_identity": hashlib.sha256(body).hexdigest()}
     entry = assigned_identity("agent")
     with session_token_parent(session, expected, True) as parent:
         if expected == "absent":
@@ -272,7 +293,7 @@ def put_session_token(session, body, expected):
             if info.st_uid != 0 or info.st_mode & 0o022:
                 fail(3, "untrusted session token directory")
             session_token_identity(directory, expected, entry)
-            if os.listdir(directory) != ([] if expected == "absent" else ["token"]):
+            if sorted(os.listdir(directory)) != ([] if expected == "absent" else ["issuer.json", "token"]):
                 fail(3, "unexpected session credential entries")
             fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
             created = True
@@ -282,7 +303,28 @@ def put_session_token(session, body, expected):
                 handle.write(body + b"\n")
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(temporary, "token", src_dir_fd=directory, dst_dir_fd=directory)
+            # The issuer envelope is authenticated by a root-owned file in
+            # this protected directory. Guest processes can change their bearer
+            # bytes, but cannot bless another bearer, session or backend.
+            if expected != "absent":
+                session_issuer_envelope(directory, session, expected)
+            envelope_temp = ".issuer-" + secrets.token_hex(16)
+            envelope_created = False
+            try:
+                fd = os.open(envelope_temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                             0o600, dir_fd=directory)
+                envelope_created = True
+                with os.fdopen(fd, "wb") as handle:
+                    os.fchmod(handle.fileno(), 0o644)
+                    handle.write(json.dumps(envelope, separators=(",", ":")).encode("ascii"))
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(envelope_temp, "issuer.json", src_dir_fd=directory, dst_dir_fd=directory)
+                envelope_created = False
+                os.replace(temporary, "token", src_dir_fd=directory, dst_dir_fd=directory)
+            finally:
+                if envelope_created:
+                    os.unlink(envelope_temp, dir_fd=directory)
             created = False
             os.fsync(directory)
         finally:
@@ -305,9 +347,11 @@ def delete_session_token(session, expected):
             if info.st_uid != 0 or info.st_mode & 0o022:
                 fail(3, "untrusted session token directory")
             session_token_identity(directory, expected, assigned_identity("agent"))
-            if os.listdir(directory) != ["token"]:
+            session_issuer_envelope(directory, session, expected)
+            if sorted(os.listdir(directory)) != ["issuer.json", "token"]:
                 fail(3, "unexpected session credential entries")
             os.unlink("token", dir_fd=directory)
+            os.unlink("issuer.json", dir_fd=directory)
         finally:
             os.close(directory)
         os.rmdir(session, dir_fd=parent)
@@ -1925,7 +1969,7 @@ def managed_artifact_request(relative, digest):
 
 
 def managed_artifact_mode(relative):
-    return 0o644 if relative == "share/skills/smithers/SKILL.md" else 0o755
+    return 0o644 if relative in ("share/skills/smithers/SKILL.md", "share/cli/linux-arm64.tar.gz") else 0o755
 
 
 def managed_artifact_current(relative, digest):
@@ -2060,6 +2104,81 @@ HOME_LINKS = {
 GO_SETTINGS = ("GOTOOLCHAIN", "GOPROXY", "GOFLAGS", "GOMODCACHE", "GOCACHE")
 
 
+TERMINAL_CLI_ARCHIVE = ("share", "cli", "linux-arm64.tar.gz")
+
+
+def install_terminal_cli(entry):
+    # Archive interpretation and package discovery run only after the uid drop.
+    if os.geteuid() != entry.pw_uid or os.geteuid() == 0:
+        fail(3, "terminal CLI requires session user")
+    try:
+        parent = protected_directory(MANAGED_ARTIFACT_ROOT + TERMINAL_CLI_ARCHIVE[:-1], False)
+    except FileNotFoundError:
+        return
+    try:
+        fd = os.open(TERMINAL_CLI_ARCHIVE[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+    finally:
+        os.close(parent)
+    with os.fdopen(fd, "rb") as handle:
+        info = os.fstat(handle.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != ROOT_UID or
+                stat.S_IMODE(info.st_mode) != 0o644 or info.st_nlink != 1 or info.st_size > MANAGED_ARTIFACT_LIMIT):
+            fail(3, "untrusted terminal CLI archive")
+        digest = hashlib.file_digest(handle, "sha256").hexdigest()
+        handle.seek(0)
+        import tarfile
+        import shutil
+        base = os.path.join(entry.pw_dir, ".local", "share", "smithers", "cli")
+        directory = safe_directory(base)
+        lock = None
+        try:
+            lock = os.open(".install-lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
+                           0o600, dir_fd=directory)
+            info = os.fstat(lock)
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != entry.pw_uid or
+                    stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1):
+                fail(3, "untrusted terminal CLI installation lock")
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            target = os.path.join(base, digest)
+            try:
+                os.mkdir(digest, 0o700, dir_fd=directory)
+            except FileExistsError:
+                current = os.open(digest, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+                os.close(current)
+            else:
+                try:
+                    with tarfile.open(fileobj=handle, mode="r:gz") as archive:
+                        members = []
+                        size = 0
+                        for member in archive:
+                            size += member.size
+                            if len(members) >= 200000 or size > 2 * 1024 * 1024 * 1024:
+                                fail(3, "terminal CLI archive exceeds extraction limits")
+                            members.append(member)
+                        archive.extractall(target, members=members, filter="data")
+                    if not os.path.isfile(os.path.join(target, "node_modules", "@smthrs", "cli", "bin", "smithers.mjs")):
+                        fail(3, "terminal CLI archive has no CLI")
+                    with open(os.path.join(target, "guest-platform.json"), "rb") as marker:
+                        if json.load(marker) != {"platform": "linux-arm64", "runtime": "node26"}:
+                            fail(3, "terminal CLI archive has wrong architecture")
+                except BaseException:
+                    shutil.rmtree(target)
+                    raise
+            temporary = ".current-" + secrets.token_hex(16)
+            os.symlink(digest, temporary, dir_fd=directory)
+            try:
+                os.replace(temporary, "current", src_dir_fd=directory, dst_dir_fd=directory)
+            finally:
+                try:
+                    os.unlink(temporary, dir_fd=directory)
+                except FileNotFoundError:
+                    pass
+        finally:
+            if lock is not None:
+                os.close(lock)
+            os.close(directory)
+
+
 TERMINAL_SKILL_DIR = "/opt/smithers/bundle/share/skills/smithers"
 
 
@@ -2092,6 +2211,7 @@ def home_defaults(entry):
             os.close(fd)
         except FileNotFoundError:
             pass
+    install_terminal_cli(entry)
     skill = TERMINAL_SKILL_DIR
     if os.path.isfile(skill + "/SKILL.md"):
         home = safe_directory(entry.pw_dir)
@@ -2212,8 +2332,8 @@ def main(args):
     if command == "put-env" and len(args) == 1:
         put_secret_environment(sys.stdin.buffer.read(SECRET_ENV_LIMIT + 1))
         return
-    if command == "put-token" and len(args) == 3:
-        put_session_token(args[1], sys.stdin.buffer.read(SESSION_TOKEN_LIMIT + 1), args[2])
+    if command == "put-token" and len(args) == 4:
+        put_session_token(args[1], sys.stdin.buffer.read(SESSION_TOKEN_LIMIT + 1), args[2], args[3])
         return
     if command == "delete-token" and len(args) == 3:
         delete_session_token(args[1], args[2])
