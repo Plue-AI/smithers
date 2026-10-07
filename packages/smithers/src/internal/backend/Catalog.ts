@@ -73,8 +73,7 @@ export const dispatchCatalog = async (
       message: "Only a person can do this in the app"
     })
   }
-  if (row.name === "todo.from-issue") return draftFromIssue(client, supplied)
-  if (row.http === null) {
+  if (row.http === null && row.client === undefined) {
     throw new Refused({ fault: "infra", code: "not_available", message: "Not available yet" })
   }
   const input = Object.fromEntries(
@@ -87,9 +86,10 @@ export const dispatchCatalog = async (
     throw new UsageError({ message: "An answer is required" })
   }
   const requestId = typeof payload.idempotencyKey === "string" ? payload.idempotencyKey : randomUUID()
+  const prepared = row.client?.kind === "issue-draft" ? await draftFromIssue(client, payload, client.runtime.signal) : payload
   let request: ReturnType<typeof catalogRequest>
   try {
-    request = catalogRequest(row, payload)
+    request = catalogRequest({ http: row.client?.http ?? row.http }, prepared)
   } catch (error) {
     throw new UsageError({ message: error instanceof Error ? error.message : "Invalid command request" })
   }
