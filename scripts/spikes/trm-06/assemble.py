@@ -73,7 +73,6 @@ def validate_base(base, revision):
 
 
 def add_artifact(root, manifest, relative, source, mode):
-    regular(source)
     parts = relative.split("/")
     if relative.startswith("/") or any(part in ("", ".", "..") for part in parts):
         raise ValueError("invalid overlay artifact path")
@@ -87,8 +86,17 @@ def add_artifact(root, manifest, relative, source, mode):
             child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
             os.close(parent)
             parent = child
-        fd = os.open(parts[-1], os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode, dir_fd=parent)
-        with source.open("rb") as input_file, os.fdopen(fd, "wb") as output:
+        source_fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        source_info = os.fstat(source_fd)
+        if not stat.S_ISREG(source_info.st_mode) or source_info.st_nlink != 1:
+            os.close(source_fd)
+            raise ValueError("not a single-link regular artifact")
+        try:
+            fd = os.open(parts[-1], os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode, dir_fd=parent)
+        except BaseException:
+            os.close(source_fd)
+            raise
+        with os.fdopen(source_fd, "rb") as input_file, os.fdopen(fd, "wb") as output:
             hash_value = hashlib.sha256()
             while chunk := input_file.read(1024 * 1024):
                 output.write(chunk)
@@ -123,7 +131,7 @@ def validate_supervisor(path):
                 raise ValueError("supervisor must not use a guest dynamic interpreter")
 
 
-def supervisor_build_environment():
+def supervisor_build_environment(target):
     sysroot = Path(subprocess.check_output(["rustc", "--print", "sysroot"], text=True).strip())
     metadata = subprocess.check_output(["rustc", "-vV"], text=True)
     hosts = [line.removeprefix("host: ") for line in metadata.splitlines() if line.startswith("host: ")]
@@ -131,7 +139,7 @@ def supervisor_build_environment():
         raise ValueError("invalid Rust host triple")
     linker = sysroot / "lib/rustlib" / hosts[0] / "bin/rust-lld"
     regular(linker)
-    return dict(os.environ, CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=str(linker))
+    return dict(os.environ, CARGO_TARGET_DIR=str(target), CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=str(linker))
 
 
 def assemble(repo, base, output, review_key):
@@ -157,14 +165,15 @@ def assemble(repo, base, output, review_key):
         environment = dict(os.environ, GOOS="darwin", GOARCH="arm64", CGO_ENABLED="0")
         gateway = build / "trm06-gateway"
         subprocess.run(["go", "build", "-trimpath", "-o", str(gateway), "./scripts/spikes/trm-06/gateway"], cwd=source, env=environment, check=True)
-        subprocess.run(["cargo", "build", "--locked", "--release", "--target", "aarch64-unknown-linux-musl", "--manifest-path", str(source / SPIKE / "supervisor/Cargo.toml")], cwd=source, env=supervisor_build_environment(), check=True)
+        subprocess.run(["cargo", "build", "--locked", "--release", "--target", "aarch64-unknown-linux-musl", "--manifest-path", str(source / SPIKE / "supervisor/Cargo.toml")], cwd=source, env=supervisor_build_environment(build / "cargo-target"), check=True)
         # Cargo hardlinks its top-level executable to deps. Stage a private
         # single-link copy before applying the release artifact invariant.
         supervisor = build / "trm06-supervisor"
-        shutil.copyfile(source / SPIKE / "supervisor/target/aarch64-unknown-linux-musl/release/trm06-supervisor", supervisor)
+        shutil.copyfile(build / "cargo-target/aarch64-unknown-linux-musl/release/trm06-supervisor", supervisor)
         validate_supervisor(supervisor)
         shutil.copytree(base, output, symlinks=True)
         try:
+            manifest = validate_base(output, revision)
             add_artifact(output, manifest, "bin/trm06-gateway", gateway, 0o755)
             add_artifact(output, manifest, "libexec/trm06-supervisor", supervisor, 0o755)
             for name, mode in FILES.items():

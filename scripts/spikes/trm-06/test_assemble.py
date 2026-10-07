@@ -8,6 +8,7 @@ import struct
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("trm06_assemble", Path(__file__).with_name("assemble.py"))
 assemble = importlib.util.module_from_spec(spec)
@@ -26,6 +27,18 @@ class BundleAssembly(unittest.TestCase):
                     "files": [{"path": "bin/smithers-backend", "sha256": assemble.digest(backend), "mode": 0o755, "stage": "backend"}]}
         (base / "manifest.json").write_text(json.dumps(manifest))
         return base, manifest
+
+    def test_build_target_does_not_inherit_shared_cache_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            linker = root / "lib/rustlib/aarch64-apple-darwin/bin/rust-lld"
+            linker.parent.mkdir(parents=True)
+            linker.write_bytes(b"linker")
+            target = root / "private-target"
+            with patch.dict(os.environ, {"CARGO_TARGET_DIR": "/shared/cache"}), patch.object(subprocess, "check_output", side_effect=[str(root) + "\n", "host: aarch64-apple-darwin\n"]):
+                environment = assemble.supervisor_build_environment(target)
+            self.assertEqual(environment["CARGO_TARGET_DIR"], str(target))
+            self.assertEqual(environment["CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER"], str(linker))
 
     def test_supervisor_requires_static_arm64_elf(self):
         for mode in ("valid", "x86", "interpreter", "truncated", "table", "endian", "no-headers"):
@@ -81,6 +94,23 @@ class BundleAssembly(unittest.TestCase):
                 if mode == "hardlink": os.link(backend, Path(temporary) / "outside-link")
                 (base / "manifest.json").write_text(json.dumps(manifest))
                 with self.assertRaises(ValueError): assemble.validate_base(base, REVISION)
+
+    def test_overlay_replaced_source_refuses_before_destination_creation(self):
+        for mode in ("symlink", "hardlink", "directory", "fifo"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
+                base, manifest = self.base(temporary)
+                outside = Path(temporary) / "outside"
+                outside.write_bytes(b"outside-fixture")
+                source = Path(temporary) / "source"
+                if mode == "symlink": source.symlink_to(outside)
+                elif mode == "hardlink": os.link(outside, source)
+                elif mode == "directory": source.mkdir()
+                else: os.mkfifo(source)
+                with self.assertRaises((ValueError, OSError)):
+                    assemble.add_artifact(base, manifest, "libexec/trm06-supervisor", source, 0o755)
+                self.assertFalse((base / "libexec/trm06-supervisor").exists())
+                self.assertEqual(outside.read_bytes(), b"outside-fixture")
+                self.assertEqual(len(manifest["files"]), 1)
 
     def test_overlay_symlink_cannot_write_outside(self):
         with tempfile.TemporaryDirectory() as temporary:
