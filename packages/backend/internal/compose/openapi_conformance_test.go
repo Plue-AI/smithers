@@ -124,13 +124,13 @@ func openAPIConformanceRouter(cfg *config.Config) chi.Router {
 
 // Shared production-router fixture: host HTTP tests use real PostgreSQL queries.
 type conformanceServices struct {
-	mythical *routes.MythicalHandler
-	pool     *pgxpool.Pool
-	billing  *routes.BillingHandler
-	jobs     *routes.RepositoryJobHandler
-	terminal *routes.WorkspaceTerminalHandler
-	live     *routes.LiveHandler
-	wiki     *services.WikiService
+	mythical  *routes.MythicalHandler
+	pool      *pgxpool.Pool
+	billing   *routes.BillingHandler
+	jobs      *routes.RepositoryJobHandler
+	terminal  *routes.WorkspaceTerminalHandler
+	live      *routes.LiveHandler
+	wiki      *services.WikiService
 	workspace *routes.WorkspaceHandler
 }
 
