@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
@@ -730,11 +731,53 @@ type ReportWorkspaceHeadInput struct {
 // ReportWorkspaceHead stores the head and emits it on the workspace status
 // stream as {"status", "head", "ahead", "behind"}.
 func (s *WorkspaceService) ReportWorkspaceHead(ctx context.Context, input ReportWorkspaceHeadInput) (WorkspaceResponse, error) {
-	if s.installQueries != nil {
-		if _, err := Authorize(ctx, s.installQueries, "workspace.head", InstallSubject{RepositoryID: input.RepositoryID, WorkspaceID: strings.TrimSpace(input.WorkspaceID)}); err != nil {
-			return WorkspaceResponse{}, err
-		}
+	if s.installQueries == nil {
+		return s.reportWorkspaceHead(ctx, input)
 	}
+	subject := InstallSubject{RepositoryID: input.RepositoryID, WorkspaceID: strings.TrimSpace(input.WorkspaceID)}
+	if _, err := Authorize(ctx, s.installQueries, "workspace.head", subject); err != nil {
+		return WorkspaceResponse{}, err
+	}
+	if s.transactions == nil {
+		return WorkspaceResponse{}, pkgerrors.Internal("workspace authorization store unavailable")
+	}
+	tx, err := s.transactions.Begin(ctx)
+	if err != nil {
+		return WorkspaceResponse{}, err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	live, repository, err := lockInstallWriteCredential(ctx, tx, middleware.AuthInfoFromContext(ctx))
+	if err != nil {
+		return WorkspaceResponse{}, err
+	}
+	if repository != subject.RepositoryID {
+		return WorkspaceResponse{}, confirmationPermission()
+	}
+	// Rotation/deletion of the recorded publisher and the report serialize on
+	// the workspace row. This is a live subject fence, not a second decision.
+	if _, err := tx.Exec(live, `SELECT 1 FROM workspaces WHERE id=$1 FOR UPDATE`, subject.WorkspaceID); err != nil {
+		return WorkspaceResponse{}, err
+	}
+	q := db.New(tx)
+	if refusal := identity.NewMemberBoundary(q).AuthorizeMember(identity.WithMemberRoute(live), middleware.UserFromContext(live).ID); refusal != nil {
+		return WorkspaceResponse{}, refusal
+	}
+	if _, err := authorizeWorkspaceHead(live, q, subject); err != nil {
+		return WorkspaceResponse{}, err
+	}
+	scoped := *s
+	scoped.q = q
+	result, err := scoped.reportWorkspaceHead(live, input)
+	if err != nil {
+		return WorkspaceResponse{}, err
+	}
+	if err := tx.Commit(live); err != nil {
+		return WorkspaceResponse{}, err
+	}
+	return result, nil
+}
+
+func (s *WorkspaceService) reportWorkspaceHead(ctx context.Context, input ReportWorkspaceHeadInput) (WorkspaceResponse, error) {
 
 	if s.q == nil {
 		return WorkspaceResponse{}, pkgerrors.Internal("workspace store unavailable")

@@ -24,7 +24,7 @@ func TestInstallWorkspaceHeadCommandPostgres(t *testing.T) {
 	cfg.Auth.SessionCookieName = "session"
 	cfg.Server.PublicURL = "http://example.com"
 	cfg.Server.AllowedOrigins = []string{"http://example.com"}
-	service := services.NewWorkspaceService(f.q, services.WithWorkspaceInstallAuthorization(f.q))
+	service := services.NewWorkspaceService(f.q, services.WithWorkspaceInstallAuthorization(f.q), services.WithWorkspaceTransactions(f.pool))
 	router := githubAppSetupComposeRouter(cfg, f.pool, nil, &routes.WorkspaceHandler{Service: service})
 	workspace := func(name string) db.Workspace {
 		row, err := f.q.CreateWorkspace(f.ctx, db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: f.owner.ID, Name: name, TargetBookmark: "main", Kind: "container", EnvironmentSource: ".smithers/environment.nix", Status: "running"})
@@ -94,7 +94,7 @@ func TestInstallWorkspaceHeadCommandPostgres(t *testing.T) {
 		})
 	}
 	t.Run("direct entry binds the stored subject", func(t *testing.T) {
-		info := &middleware.AuthInfo{User: &f.owner, IsTokenAuth: true, TokenSystemIssued: true, TokenID: stored.TokenID, RawScopes: scopes, Scopes: middleware.ParseTokenScopes(scopes)}
+		info := &middleware.AuthInfo{User: &f.owner, IsTokenAuth: true, TokenSystemIssued: true, TokenID: stored.TokenID, TokenHash: hex.EncodeToString(sum[:]), RawScopes: scopes, Scopes: middleware.ParseTokenScopes(scopes)}
 		ctx := middleware.ContextWithAuthInfo(f.ctx, info)
 		var decisions []string
 		ctx = services.WithAuthorizationObserver(ctx, func(command string) { decisions = append(decisions, command) })
@@ -115,6 +115,73 @@ func TestInstallWorkspaceHeadCommandPostgres(t *testing.T) {
 		untouched, err := f.q.GetWorkspace(f.ctx, other.ID)
 		require.NoError(t, err)
 		require.Empty(t, untouched.HeadCommitID)
+	})
+
+	for _, testCase := range []struct {
+		name      string
+		suspended bool
+		status    int
+	}{
+		{"publisher rotated after decision", false, 403},
+		{"sponsor suspended after decision", true, 401},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			info := &middleware.AuthInfo{User: &f.owner, IsTokenAuth: true, TokenSystemIssued: true, TokenID: stored.TokenID, TokenHash: hex.EncodeToString(sum[:]), RawScopes: scopes, Scopes: middleware.ParseTokenScopes(scopes)}
+			ctx := middleware.ContextWithAuthInfo(f.ctx, info)
+			count := 0
+			ctx = services.WithAuthorizationObserver(ctx, func(string) { count++ })
+			subject := services.InstallSubject{RepositoryID: f.repoID, WorkspaceID: own.ID}
+			decision, err := services.Authorize(ctx, f.q, "workspace.head", subject)
+			require.NoError(t, err)
+			ctx = services.WithInstallAuthorization(ctx, "workspace.head", decision, subject)
+			before, err := f.q.GetWorkspace(f.ctx, own.ID)
+			require.NoError(t, err)
+			if testCase.suspended {
+				_, err = f.pool.Exec(f.ctx, `UPDATE users SET prohibit_login=true WHERE id=$1`, f.owner.ID)
+				defer func() {
+					_, err := f.pool.Exec(f.ctx, `UPDATE users SET prohibit_login=false WHERE id=$1`, f.owner.ID)
+					require.NoError(t, err)
+				}()
+			} else {
+				_, err = f.pool.Exec(f.ctx, `UPDATE workspaces SET head_push_token_id=NULL WHERE id=$1`, own.ID)
+				defer func() {
+					_, err := f.pool.Exec(f.ctx, `UPDATE workspaces SET head_push_token_id=$2 WHERE id=$1`, own.ID, stored.TokenID)
+					require.NoError(t, err)
+				}()
+			}
+			require.NoError(t, err)
+			_, err = service.ReportWorkspaceHead(ctx, services.ReportWorkspaceHeadInput{WorkspaceID: own.ID, RepositoryID: f.repoID, UserID: f.owner.ID, TokenWorkspaceID: own.ID, ChangeID: "stale", CommitID: "stale"})
+			var refusal *services.AccessError
+			require.ErrorAs(t, err, &refusal)
+			require.Equal(t, testCase.status, refusal.Status)
+			require.Equal(t, 1, count)
+			after, err := f.q.GetWorkspace(f.ctx, own.ID)
+			require.NoError(t, err)
+			require.Equal(t, before.HeadCommitID, after.HeadCommitID)
+		})
+	}
+	t.Run("revoked after decision", func(t *testing.T) {
+		info := &middleware.AuthInfo{User: &f.owner, IsTokenAuth: true, TokenSystemIssued: true, TokenID: stored.TokenID, TokenHash: hex.EncodeToString(sum[:]), RawScopes: scopes, Scopes: middleware.ParseTokenScopes(scopes)}
+		ctx := middleware.ContextWithAuthInfo(f.ctx, info)
+		count := 0
+		ctx = services.WithAuthorizationObserver(ctx, func(string) { count++ })
+		subject := services.InstallSubject{RepositoryID: f.repoID, WorkspaceID: own.ID}
+		decision, err := services.Authorize(ctx, f.q, "workspace.head", subject)
+		require.NoError(t, err)
+		ctx = services.WithInstallAuthorization(ctx, "workspace.head", decision, subject)
+		before, err := f.q.GetWorkspace(f.ctx, own.ID)
+		require.NoError(t, err)
+		_, err = f.pool.Exec(f.ctx, `DELETE FROM access_tokens WHERE id=$1`, stored.TokenID)
+		require.NoError(t, err)
+		_, err = service.ReportWorkspaceHead(ctx, services.ReportWorkspaceHeadInput{WorkspaceID: own.ID, RepositoryID: f.repoID, UserID: f.owner.ID, TokenWorkspaceID: own.ID, ChangeID: "revoked", CommitID: "revoked"})
+		var refusal *services.AccessError
+		require.ErrorAs(t, err, &refusal)
+		require.Equal(t, 401, refusal.Status)
+		require.Equal(t, "unauthenticated", refusal.Code)
+		require.Equal(t, 1, count)
+		after, err := f.q.GetWorkspace(f.ctx, own.ID)
+		require.NoError(t, err)
+		require.Equal(t, before.HeadCommitID, after.HeadCommitID)
 	})
 
 }
