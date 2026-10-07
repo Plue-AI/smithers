@@ -118,7 +118,8 @@ describe("the generated product API client", () => {
     // Includes order acknowledgment, owner main reset, run-bound Learning evidence,
     // the mounted native stack candidate/proposal transport (#3533),
     // and durable install flow admission, launch and receipt reads (#3438).
-    expect(expected).toHaveLength(547)
+    // Includes the revision-bound flow and agent edit confirmation doors (#3498).
+    expect(expected).toHaveLength(549)
     expect(spec.paths["/api/repos/{owner}/{repo}/workspaces/{id}/stack/{operation}"]).toHaveProperty("post.parameters.3.schema.enum", ["candidate", "propose"])
     // Retained branch activity is served without waking its machine (#3568).
     expect(spec.paths["/api/branches/{b}/activity"]).toHaveProperty("get.operationId", "get_api_branches_activity")
