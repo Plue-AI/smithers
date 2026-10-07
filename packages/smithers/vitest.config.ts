@@ -36,7 +36,10 @@ export default defineConfig({
       XDG_DATA_HOME: join(tmpdir(), "smithers-cli-test-data-home")
     },
     coverage: {
-      enabled: true,
+      // Related-file fast gates exercise only the changed behavior; applying
+      // whole-package coverage thresholds to that subset always fails.
+      // The full suite retains its measured coverage gate and thresholds.
+      enabled: !process.argv.includes("related"),
       provider: "v8",
       // Per-process report directory so concurrent vitest runs do not destroy
       // each other's coverage scratch state (issues #115/#121).
