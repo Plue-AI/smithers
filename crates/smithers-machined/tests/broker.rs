@@ -29,9 +29,40 @@ fn packet(variant: u8, fields: &[Vec<u8>]) -> Vec<u8> {
     bytes.extend(conn::tagged(variant, fields));
     bytes
 }
+#[cfg(target_os = "linux")]
 #[test]
 fn broker_root_inputs_refused_before_privileged_side_effects() {
-    let mut kernel = Kernel::default();
+    use rustix::net::{
+        recv, send, socketpair, AddressFamily, RecvFlags, SendFlags, SocketFlags, SocketType,
+    };
+    let (parent, child) = socketpair(
+        AddressFamily::UNIX,
+        SocketType::SEQPACKET,
+        SocketFlags::CLOEXEC,
+        None,
+    )
+    .unwrap();
+    let worker = std::thread::spawn(move || {
+        let mut kernel = Kernel::default();
+        control::serve(&parent, &mut kernel).unwrap();
+        kernel.calls
+    });
+    rustix::net::sockopt::set_socket_timeout(
+        &child,
+        rustix::net::sockopt::Timeout::Recv,
+        Some(Duration::from_secs(2)),
+    )
+    .unwrap();
+    let exchange = |bytes: &[u8]| {
+        assert_eq!(
+            send(&child, bytes, SendFlags::empty()).unwrap(),
+            bytes.len()
+        );
+        let mut response = vec![0; 65536];
+        let (length, _) = recv(&child, &mut response, RecvFlags::empty()).unwrap();
+        response.truncate(length);
+        response
+    };
     for bytes in [
         packet(1, &[conn::field(1, 0u32.to_be_bytes())]),
         packet(1, &[conn::field(1, 1001u32.to_be_bytes())]),
@@ -41,20 +72,19 @@ fn broker_root_inputs_refused_before_privileged_side_effects() {
         packet(7, &[conn::field(1, 0u32.to_be_bytes())]),
         packet(8, &[conn::field(1, b"LD_PRELOAD=evil")]),
     ] {
-        let response = control::handle(&bytes, &mut kernel).unwrap();
+        let response = exchange(&bytes);
         assert_eq!(&response[..4], &9u32.to_be_bytes());
         assert_eq!(response[4], 255);
     }
+    // Length validation remains a unit assertion; the authority inputs above
+    // traverse the same seqpacket server used by the installed root broker.
+    let mut kernel = Kernel::default();
     assert!(control::handle(&vec![0; 65537], &mut kernel).is_err());
     for n in 0..9 {
         assert!(control::handle(&vec![0; n], &mut kernel).is_err());
     }
     assert!(kernel.calls.is_empty());
-    let response = control::handle(
-        &packet(1, &[conn::field(1, 1000u32.to_be_bytes())]),
-        &mut kernel,
-    )
-    .unwrap();
+    let response = exchange(&packet(1, &[conn::field(1, 1000u32.to_be_bytes())]));
     assert_eq!(
         response,
         packet(
@@ -62,7 +92,8 @@ fn broker_root_inputs_refused_before_privileged_side_effects() {
             &[conn::field(1, [0]), conn::field(2, 7u32.to_be_bytes())]
         )
     );
-    assert_eq!(kernel.calls, ["freeze"]);
+    drop(child);
+    assert_eq!(worker.join().unwrap(), ["freeze"]);
     assert!(conn::fields("broker_frozen", &response[5..]).is_ok());
     assert!(conn::fields(
         "broker_frozen",

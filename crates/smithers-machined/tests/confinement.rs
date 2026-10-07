@@ -219,7 +219,10 @@ fn boot_descriptor_requires_private_single_link_regular_authority() {
 
 #[test]
 fn production_broker_and_daemon_refuse_branch_supplied_bootstrap_before_io() {
+    use std::io::{Read, Write};
+    use std::os::fd::{AsRawFd, OwnedFd};
     use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::{net::UnixStream, process::CommandExt};
     let fixture = Fixture::new();
     // The installed identities are essential, not environment-selected flags.
     assert_ne!(rustix::process::geteuid().as_raw(), 19998);
@@ -239,8 +242,22 @@ fn production_broker_and_daemon_refuse_branch_supplied_bootstrap_before_io() {
     fs::write(fixture.0.join("sentinel"), b"unchanged").unwrap();
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
-    for entry in ["broker", "daemon"] {
-        let output = Command::new(env!("CARGO_BIN_EXE_smithers-machined"))
+    for (entry, inherited) in [
+        ("broker", false),
+        ("daemon", false),
+        ("broker", true),
+        ("daemon", true),
+    ] {
+        // A caller can supply descriptors as well as environment variables.
+        // Neither substitutes for the installed kernel identity. Queue literal
+        // hostile bytes and observe that the executable never answers them.
+        let (socket, mut peer) = UnixStream::pair().unwrap();
+        peer.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        let source: OwnedFd = rustix::io::fcntl_dupfd_cloexec(&socket, 10).unwrap();
+        drop(socket);
+        peer.write_all(b"branch-controlled broker request").unwrap();
+        let mut command = Command::new(env!("CARGO_BIN_EXE_smithers-machined"));
+        command
             .arg(entry)
             .current_dir(&fixture.0)
             .env("PATH", &fixture.0)
@@ -250,9 +267,33 @@ fn production_broker_and_daemon_refuse_branch_supplied_bootstrap_before_io() {
                 "SMITHERS_MACHINED_HOST",
                 listener.local_addr().unwrap().to_string(),
             )
-            .env("SMITHERS_MACHINED_UID", "19998")
-            .output()
-            .unwrap();
+            .env("SMITHERS_MACHINED_UID", "19998");
+        if inherited {
+            let fd = source.as_raw_fd();
+            // SAFETY: the child only duplicates a held descriptor before exec.
+            // The parent keeps it alive until spawn and wait have completed.
+            unsafe {
+                command.pre_exec(move || {
+                    for destination in [3, 4, 5] {
+                        if libc::dup2(fd, destination) < 0 {
+                            return Err(std::io::Error::last_os_error());
+                        }
+                    }
+                    Ok(())
+                });
+            }
+        }
+        let output = command.output().unwrap();
+        drop(command);
+        drop(source);
+        let mut response = [0; 1];
+        // Linux reports unread queued input as reset on close; either reset or
+        // EOF is valid, but a response byte would expose premature dispatch.
+        match peer.read(&mut response) {
+            Ok(0) => (),
+            Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => (),
+            result => panic!("unexpected pre-identity socket response: {result:?}"),
+        }
         assert_eq!(output.status.code(), Some(1), "{entry}");
         assert_eq!(
             output.stderr, b"{\"error\":{\"code\":\"unavailable\"}}\n",
