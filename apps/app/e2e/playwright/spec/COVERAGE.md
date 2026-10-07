@@ -17,6 +17,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 
 | id | spec file | status | ticket |
 | --- | --- | --- | --- |
+| C-DUR-05 | [C-DUR-05.spec.ts](C-DUR-05.spec.ts) | fixme-before-implementation | T-COL-13 |
 | C-UI-12 · Setup/Settings | [C-UI-12.spec.ts](C-UI-12.spec.ts) | Empty/supplied model slot, zero dispatch, keyboard; 390px capacity line passed | T-UI-02 |
 | C-FM-01 | [C-FM-01.spec.ts](C-FM-01.spec.ts) | fixme-before-implementation | T-FM-01 |
 | C-FM-02 | [C-FM-02.spec.ts](C-FM-02.spec.ts) | fixme-before-implementation | T-FM-02 |
