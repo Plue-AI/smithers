@@ -164,7 +164,9 @@ all sessions of a member share `Person(uid)`, and registered agent PTY commands
 share `Run(run_id)`. Agent exec hosts are excluded from CPU-window candidates;
 their socket writes already have exact attribution. Missing counters, unknown
 actors, changed bindings and overlapping participants remain outside changes.
-The wire actor remains a session reference for host resolution, not a grant.
+The installed sampler emits the immutable host actor reference admitted before
+spawn. Numeric session and run actors still decode for historical recovery;
+neither representation grants authorization.
 
 The shared `Ingestor` event pump routes bursts to `BurstIngest.Apply` with its
 admitted connection and a scope derived from the host workspace row. Its
@@ -199,10 +201,15 @@ before guest effects; it does not start a second event reader. Burst verificatio
 and ref retention share the event transaction and repository maintenance lock,
 including with a one-connection writer pool.
 
-Person/session and registered-run attribution reuse successful host SessionRPC
-bindings. Unknown, ended or replayed sessions without an admitted binding refuse
-publication. Opaque host-principal attribution remains unavailable until the
-write/document doors supply its admission registry; bytes cannot name a member.
+Person and agent attribution resolve committed host references within the event
+transaction, scoped to the branch and machine. Session close, member revocation
+and reused session counters do not change an earlier admitted author. Unknown
+references refuse publication; bytes cannot name a member. Exact legacy burst
+replays use their committed payload digest, and split bursts recover authors only
+from matching retained parts. New legacy session/run events and legacy hints
+without historical evidence refuse publication rather than consulting live
+presence. Coding launches, direct writes and document edits still need their
+dependency-owned admission paths migrated to committed references.
 The T-COL-05 moved-off event remains unavailable without its transactional writer.
 
 `POST /api/branches/{b}/files/{path}` accepts the File seam's
