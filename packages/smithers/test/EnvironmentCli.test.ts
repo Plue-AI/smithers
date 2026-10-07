@@ -46,7 +46,9 @@ describe("environment CLI process boundary", () => {
     expect(denied.status).toBe(1)
     expect(denied.stdout).toContain("environment_command_permission_denied")
     expect(denied.stdout).toContain(plain)
-  })
+    // Five source CLI processes each have a 20 s limit; coverage can make
+    // their combined startup exceed the package's 30 s default.
+  }, 120_000)
 
   it("adds, views, lists and removes a local environment across processes", async () => {
     const { root, cli } = await fixture()
