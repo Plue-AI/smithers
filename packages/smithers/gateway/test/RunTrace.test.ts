@@ -1556,3 +1556,21 @@ test("historical monitor lifecycle retains waits and interruption without today'
   ])
   expect(monitorFromJournal(current, records).state).toBe("done")
 })
+
+
+test("monitor collapses bookkeeping graph nodes while retaining visible dependency order", () => {
+  const nodes = [
+    { id: "read", kind: "action", tier: "sealed", dependsOn: [], action: "agent/opening-instructions" },
+    { id: "seal", kind: "action", tier: "sealed", dependsOn: ["read"], action: "<seal-step>" },
+    { id: "boundary", kind: "action", tier: "sealed", dependsOn: ["seal", "read"], action: "<boundary:ready>" },
+    { id: "cycle", kind: "action", tier: "sealed", dependsOn: ["cycle"], action: "<quota-park>/session" },
+    { id: "edit", kind: "action", tier: "sealed", dependsOn: ["boundary", "cycle"], action: "coding/edit-atom" }
+  ]
+  const records: JournalRecord[] = [{ sequence: 1, kind: "control.engine.event", occurredAt: 1,
+    payload: { version: 1, executionId: "collapsed", generation: 0, sequence: 1, eventId: "graph", sourceId: "engine", sourceSequence: 1,
+      emittedAtMs: 1, eventType: "flows.engine.plan-recorded", payload: { graph: { nodes } }, meta: {} } }]
+  expect(monitorFromJournal(RUN, records).attempts[0]!.graph).toEqual([
+    { id: "engine-node:collapsed%3A0:read", label: "Read the instructions", state: "next", deps: [] },
+    { id: "engine-node:collapsed%3A0:edit", label: "Edited the files", state: "next", deps: ["engine-node:collapsed%3A0:read"] }
+  ])
+})

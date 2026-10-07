@@ -2292,7 +2292,8 @@ export const monitorFromJournal = (run: TraceRun, records: ReadonlyArray<Journal
     : value === "cancelled" || value === "interrupted" ? "interrupted" : value === "held" ? "held"
     : value === "waiting" || value === "waiting-approval" || value === "paused" || value === "suspended" ? "waiting" : "running"
   const trace = traceFromJournal({ ...run, status }, journal)
-  const bookkeeping = (row: TraceSpan) => ACTION_RENDERINGS[row.label] === null || /^<(?:boundary:|quota-park>|structured-output-count>)/.test(row.label)
+  const engineLabel = (label: string) => ACTION_RENDERINGS[label] === null || /^<(?:boundary:|quota-park>|structured-output-count>)/.test(label)
+  const bookkeeping = (row: TraceSpan) => engineLabel(row.label)
   const calls = trace.rows.filter(row => row.kind === "call" && !bookkeeping(row))
   const steps = calls.map(row => ({
     ...(() => { const matched = /^(engine-node:.*)#(\d+)$/.exec(row.id); const id = matched?.[1] ?? row.id; const k = Number(matched?.[2] ?? 1); return { key: `${id}#${k}`, id, k } })(), label: row.label, state: row.status,
@@ -2312,14 +2313,24 @@ export const monitorFromJournal = (run: TraceRun, records: ReadonlyArray<Journal
   }))
   const declaredGraph = engineExecutionEvidence(journal).filter(execution => execution.coherent).flatMap(execution => {
     const prefix = `engine-node:${encodeURIComponent(`${encodeURIComponent(execution.executionId)}:${execution.generation}`)}:`
-    return (execution.graph?.nodes ?? []).map(node => {
+    const nodes = execution.graph?.nodes ?? []
+    const hidden = new Map(nodes.filter(node => engineLabel(node.action ?? node.id)).map(node => [node.id, node]))
+    // Engine bookkeeping stays in the Engine row. Its dependency edges still
+    // order the visible steps, including across several hidden boundaries.
+    const visibleDeps = (id: string, seen: ReadonlySet<string>): string[] => {
+      const node = hidden.get(id)
+      if (node === undefined) return [prefix + encodeURIComponent(id)]
+      if (seen.has(id)) return []
+      return node.dependsOn.flatMap(dependency => visibleDeps(dependency, new Set([...seen, id])))
+    }
+    return nodes.filter(node => !hidden.has(node.id)).map(node => {
       const id = prefix + encodeURIComponent(node.id)
       const instances = calls.filter(row => row.id.startsWith(`${id}#`))
       const current = instances.at(-1)
       return { id, label: inspectLabel(node.action ?? node.id),
         state: current === undefined ? "next" as const : current.status === "completed" ? "done" as const
           : current.status === "failed" ? "failed" as const : current.status === "waiting" ? "waiting" as const : "current" as const,
-        deps: node.dependsOn.map(dependency => prefix + encodeURIComponent(dependency)) }
+        deps: [...new Set(node.dependsOn.flatMap(dependency => visibleDeps(dependency, new Set([node.id]))))] }
     })
   })
   const approvalWaits = trace.rows.filter(row => row.kind === "approval").map(row => ({

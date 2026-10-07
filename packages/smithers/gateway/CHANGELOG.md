@@ -21,6 +21,9 @@
 
 ### Changed
 
+- Monitor graphs collapse Engine bookkeeping nodes while retaining visible
+  dependency order through nested boundaries.
+
 - The `workspace-runs` and `approvals` projections fold the newest 500 runs
   instead of the oldest 500, and a followed workspace admits a run created
   after its oldest followed run by displacing that run. Before, a workspace

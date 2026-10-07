@@ -1336,7 +1336,8 @@ describe("the assembled gateway over a real loopback bind", () => {
       const records = [
         { eventType: "flows.engine.plan-recorded", payload: { flow: "system/test", generation: 0, nodes: 2, graph: { nodes: [
           { id: "edit", kind: "action", tier: "sealed", dependsOn: [], action: "coding/edit-atom" },
-          { id: "check", kind: "action", tier: "sealed", dependsOn: ["edit"], action: "coding/check-command" }
+          { id: "boundary", kind: "action", tier: "sealed", dependsOn: ["edit"], action: "<boundary:edited>" },
+          { id: "check", kind: "action", tier: "sealed", dependsOn: ["boundary"], action: "coding/check-command" }
         ] } } },
         { eventType: "flows.engine.node-scheduled", payload: { nodeId: "edit", kind: "action", attempt: 1, action: "coding/edit-atom" } },
         { eventType: "flows.engine.node-settled", payload: { nodeId: "edit", outcome: "built", attempts: 1,
