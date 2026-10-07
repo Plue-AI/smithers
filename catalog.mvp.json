@@ -10319,7 +10319,8 @@
                     "daily-admissions",
                     "obsidian",
                     "model-key",
-                    "setup"
+                    "setup",
+                    "fast-model"
                   ]
                 },
                 {
@@ -10490,7 +10491,9 @@
                 {
                   "type": "string",
                   "enum": [
-                    "remove"
+                    "remove",
+                    "sign-in",
+                    "sign-out"
                   ]
                 },
                 {
@@ -10548,42 +10551,6 @@
               ]
             }
           },
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "settings.fast-model",
-      "slash": "/settings.fast-model",
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person"
-      ],
-      "minimumRole": "owner",
-      "credentialScope": "write:repository",
-      "agent": "never",
-      "summary": "Smithers fast-model sign-in",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "action": {
-              "type": "string",
-              "enum": [
-                "sign-in",
-                "sign-out"
-              ]
-            }
-          },
-          "required": [
-            "action"
-          ],
           "additionalProperties": true
         },
         "definitions": {}

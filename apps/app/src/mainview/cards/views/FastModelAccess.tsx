@@ -15,7 +15,7 @@ export function FastModelAccess({ status, actions, onAction }: { readonly status
   <span>{status.source}</span>
   {status.remaining !== undefined && <span>{status.remaining} tokens left{status.reset_at ? ` · ${resetTime(status.reset_at)}` : ""}</span>}
   {status.cause && <span role="status">Fast model: {cause}; using {status.source}{status.reset_at ? ` until ${resetTime(status.reset_at)}` : ""}</span>}
-  <SetupActions inline actions={actions.filter(action => action.tag === "settings.fast-model")} onAction={onAction} />
+  <SetupActions inline actions={actions.filter(action => action.tag === "settings" && action.args?.operation === "fast-model")} onAction={onAction} />
   <small>{FAST_MODEL_DISCLOSURE}</small>
  </div>
 }

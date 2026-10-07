@@ -6,7 +6,6 @@ import { z } from "zod"
 export const CATALOG_TAGS = [
   "approval.approve",
   "approval.deny",
-  "settings.fast-model",
   "form.set",
   "card.dismiss",
   "chat.send",

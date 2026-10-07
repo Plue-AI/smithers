@@ -375,7 +375,7 @@ test("recorded Settings writes keep their operation and discard a persisted mode
     ["address", { listen: "network", bind: "0.0.0.0:4000", origins: ["https://team.test"] }],
     ["capacity", { capacity: 2 }], ["parallel", { parallel: 3 }],
     ["preapprove-default", { todo_preapprove_default: true }], ["daily-admissions", { todo_daily_admissions: 12 }],
-    ["obsidian", { path: "/Vault" }], ["setup", { step: "repository", repository: "owner/repo" }]
+    ["fast-model", { action: "sign-out" }], ["obsidian", { path: "/Vault" }], ["setup", { step: "repository", repository: "owner/repo" }]
   ] as const) {
     const old = { flow: `settings.${operation}`, label: "Save", args: JSON.stringify(input) }
     const action = MessageSchema.shape.action.parse(old)!
@@ -386,4 +386,21 @@ test("recorded Settings writes keep their operation and discard a persisted mode
   const key = MessageSchema.shape.action.parse({ flow: "settings.model-key", label: "Save", args: JSON.stringify({ role: "fast", provider: "Cerebras", value: "retired-private-value", key: "retired-private-key", token: "retired-private-token" }) })!
   expect(JSON.parse(key.args!)).toEqual({ operation: "model-key", role: "fast", provider: "Cerebras" })
   expect(JSON.stringify(key)).not.toContain("retired-private-value")
+})
+
+
+test("saved Smithers sign-in controls decode without exposing a retired executable", async () => {
+  const h = await harness()
+  try {
+    expect(h.controller.commands.find("settings.fast-model")).toBeUndefined()
+    expect((await h.controller.commands.run("settings.fast-model", "sign-in")).status).toBe("unknown-command")
+    for (const action of ["sign-in", "sign-out"]) {
+      const saved = MessageSchema.shape.action.parse({ flow: "settings.fast-model", label: "Continue", args: action })!
+      expect(saved.flow).toBe("settings")
+      expect(JSON.parse(saved.args!)).toEqual({ operation: "fast-model", action })
+      expect(ToastSchema.shape.action.parse({ flow: "settings.fast-model", label: "Continue", args: action })).toEqual(saved)
+    }
+    expect((await h.controller.commands.submit({ name: "settings", payload: { operation: "fast-model", action: "sign-out" }, actor: "agent" })).status).toBe("failed")
+    expect(h.requests).toEqual([])
+  } finally { await h.controller.dispose() }
 })

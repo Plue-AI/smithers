@@ -38,7 +38,7 @@ export function SetupView({ model, actions, onAction }: SetupViewProps) {
   const rows = []
   for (const [index, step] of model.steps.entries()) {
     const { message: stepDiagnostic } = step.error ?? {}
-    const own = actions.filter(action => action.tag !== "settings.fast-model" && action.args?.step === step.id && !(step.id === "models" && roleKeyAction(actions, action.args?.role ?? "") === action))
+    const own = actions.filter(action => !(action.tag === "settings" && action.args?.operation === "fast-model") && action.args?.step === step.id && !(step.id === "models" && roleKeyAction(actions, action.args?.role ?? "") === action))
     const controls = <SetupActions actions={own} onAction={onAction} />
     rows.push(<li key={step.id} data-step={step.id} data-state={step.state}>
       <span className="setup-mark" data-tone={step.state === "running" ? "live" : step.state === "blocked" ? "attention" : step.state === "failed" ? "failed" : step.state === "done" ? "done" : "quiet"} aria-label={step.state}>{step.state === "done" ? "✓" : step.state === "failed" ? "×" : index + 1}</span>
@@ -58,6 +58,6 @@ export function SetupView({ model, actions, onAction }: SetupViewProps) {
   return <section className="setup-view" data-kind="setup" data-keyboard-pane="Setup" aria-label="Set up Smithers">
     <h2>Set up Smithers</h2><ThisMac model={model} onAction={onAction} />
     <ol className="setup-steps">{rows}</ol>
-    <SetupActions actions={actions.filter(action => action.tag !== "settings.fast-model" && !model.steps.some(step => step.id === action.args?.step) && roleKeyAction(actions, action.args?.role ?? "") !== action)} onAction={onAction} />
+    <SetupActions actions={actions.filter(action => !(action.tag === "settings" && action.args?.operation === "fast-model") && !model.steps.some(step => step.id === action.args?.step) && roleKeyAction(actions, action.args?.role ?? "") !== action)} onAction={onAction} />
   </section>
 }

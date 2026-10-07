@@ -570,6 +570,7 @@ const savedSettings = (flow: string, args?: string): string => {
     if (count && Number.isFinite(Number(args))) payload[count] = Number(args)
     else if (operation === "obsidian") payload.path = args
     else if (operation === "setup") payload.step = args
+    else if (operation === "fast-model" && ["sign-in", "sign-out"].includes(args.trim())) payload.action = args.trim()
   }
   return JSON.stringify(publicSettingsInput({ ...payload, operation }))
 }

@@ -13,7 +13,7 @@ export type SettingsViewProps = SettingsCardProps & { readonly modelSlot?: React
 
 export function SettingsView({ model, actions: suppliedActions, onAction, view, onView, modelSlot }: SettingsViewProps) {
   const preapprove = suppliedActions.find(action => (action.tag === "settings" && action.args?.operation === "preapprove-default"))
-  const actions = suppliedActions.filter(action => action.tag !== "settings.fast-model" && !(action.tag === "settings" && action.args?.operation === "preapprove-default") && action.tag !== "settings.model.set" && !(action.tag === "settings" && action.args?.operation === "model-key"))
+  const actions = suppliedActions.filter(action => !(action.tag === "settings" && action.args?.operation === "fast-model") && !(action.tag === "settings" && action.args?.operation === "preapprove-default") && action.tag !== "settings.model.set" && !(action.tag === "settings" && action.args?.operation === "model-key"))
   const repositoryBlocker = model.steps.find(step => step.id === "repository")?.blocked
   const addressStep = model.steps.find(step => step.id === "address")
   const { message: addressDiagnostic } = addressStep?.error ?? {}

@@ -47,7 +47,7 @@ export type FormField = z.infer<typeof FormFieldSchema>
  * @since 1.0.0
  * @category schemas
  */
-const historicalSettings = ["settings.address", "settings.capacity", "settings.parallel", "settings.preapprove-default", "settings.daily-admissions", "settings.obsidian", "settings.model-key", "settings.setup"] as const
+const historicalSettings = ["settings.address", "settings.capacity", "settings.parallel", "settings.preapprove-default", "settings.daily-admissions", "settings.obsidian", "settings.model-key", "settings.setup", "settings.fast-model"] as const
 export const ActionSchema = z.object({
   tag: z.union([CatalogTagSchema, z.enum(historicalSettings)]),
   label: z.string(),
@@ -154,7 +154,6 @@ export type CardCommandInput = CurrentCardCommandInput & { readonly [Tag in type
 interface CurrentCardCommandInput {
   readonly "approval.approve": { readonly cardId: string }
   readonly "approval.deny": { readonly cardId: string }
-  readonly "settings.fast-model": { readonly action: "sign-in" | "sign-out" }
 
   readonly "form.set": { readonly cardId: string; readonly field: string; readonly value: string }
   readonly "card.dismiss": { readonly cardId: string }
@@ -215,10 +214,10 @@ interface CurrentCardCommandInput {
   readonly "agents": undefined
   readonly "agent": { readonly name: string }
   readonly "settings": undefined | {
-    readonly operation?: "address" | "capacity" | "parallel" | "preapprove-default" | "daily-admissions" | "obsidian" | "model-key" | "setup"
+    readonly operation?: "address" | "capacity" | "parallel" | "preapprove-default" | "daily-admissions" | "obsidian" | "model-key" | "setup" | "fast-model"
     readonly listen?: "mac" | "network"; readonly bind?: string; readonly origins?: readonly string[]
     readonly capacity?: number; readonly parallel?: number; readonly todo_preapprove_default?: boolean; readonly todo_daily_admissions?: number
-    readonly path?: string; readonly role?: ModelRoleId; readonly provider?: string; readonly model?: string; readonly action?: "remove"
+    readonly path?: string; readonly role?: ModelRoleId; readonly provider?: string; readonly model?: string; readonly action?: "remove" | "sign-in" | "sign-out"
     readonly step?: SetupStepId; readonly owner?: string; readonly repository?: string
   }
   readonly "secrets": undefined

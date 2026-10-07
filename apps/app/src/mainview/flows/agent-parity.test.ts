@@ -35,7 +35,6 @@ import { WIKI_ATTACH_USER_ONLY_REASON, WIKI_HEADING_USER_ONLY_REASON } from "@sm
  * no longer user-only fails it too.
  */
 const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
-  "settings.fast-model": "Browser sign-in and sign-out require the owner's person session",
   "auth.email": "sign-in is the human's browser gesture; the agent renders the step with auth.prompt",
   "account.show": "Install status requires the owner’s person session",
   "repo.choose": "Install setup requires the owner’s person session",

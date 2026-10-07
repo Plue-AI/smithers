@@ -28,9 +28,9 @@ const CODING_PROVIDERS = ["OpenAI", "Anthropic", "OpenRouter", "AI Gateway"] as 
  * One key control per model role (mvp.md J1 2.4, §6.5), each bound to its role so the View puts it on that role's row.
  * The role id stays in `args`; the only visible names are the role's row and its provider's key.
  */
-export const fastModelAction = (model: InstallModel, args: Readonly<Record<string,string>> = {}): CardActionDefinition<"settings.fast-model">[] => model.fast_model === undefined ? [] : [{
- tag:"settings.fast-model", label:model.fast_model.signed_in ? "Sign out" : "Sign in to Smithers", args:{...args,role:"fast"}, command_input:{action:model.fast_model.signed_in ? "sign-out" : "sign-in"}
-}]
+export const fastModelAction = (model: InstallModel, args: Readonly<Record<string,string>> = {}): CardActionDefinition<"settings">[] => model.fast_model === undefined ? [] : [settingsControl("fast-model", {
+ tag:"settings", label:model.fast_model.signed_in ? "Sign out" : "Sign in to Smithers", args:{...args,role:"fast"}, command_input:{action:model.fast_model.signed_in ? "sign-out" : "sign-in"}
+})]
 export const roleKeyActions = (definition: CardActionDefinition<"settings">, model: InstallModel,
   args: Readonly<Record<string, string>>, chooseModel = true): CardActionDefinition<"settings">[] => model.models.map(role => settingsControl("model-key", {
   ...definition, label: "Save", args: { ...args, role: role.role }, command_input: { role: role.role, provider: role.provider },
