@@ -497,6 +497,18 @@ var installMemberRoutes = []struct {
 	{http.MethodPut, "branch.join", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/files/content$`)},
 	{http.MethodPost, "branch.fork", regexp.MustCompile(`^/api/branches$`)},
 	{http.MethodPost, "branch.join", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces$`)},
+	// All retained workflow aliases resolve the same concrete catalog action.
+	{http.MethodGet, "flows.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workflows(?:/[0-9]+)?$`)},
+	{http.MethodGet, "runs.list", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:workflows/[0-9]+/runs|(?:workflows/|actions/)?runs)$`)},
+	{http.MethodGet, "run.view", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:workflows/|actions/)?runs/[0-9]+(?:/status(?:/stream)?)?$`)},
+	{http.MethodGet, "runs.steps", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:workflows/|actions/)?runs/[0-9]+/(?:steps|nodes/[^/]+)$`)},
+	{http.MethodGet, "runs.events", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:workflows/)?runs/[0-9]+/events$`)},
+	{http.MethodGet, "runs.logs", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/runs/[0-9]+/logs$`)},
+
+	{http.MethodPost, "flow.run", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(invoke|workflows/[^/]+/dispatch(?:es)?)$`)},
+	{http.MethodPost, "flow.run.stop", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:workflows/|actions/)?runs/[0-9]+/cancel$`)},
+	{http.MethodPost, "runs.rerun", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:workflows/|actions/)?runs/[0-9]+/rerun$`)},
+	{http.MethodPost, "runs.resume", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:workflows/)?runs/[0-9]+/resume$`)},
 	// Retained review doors use their literal catalog actions; the service
 	// consumes the same bound decision when entered from this router.
 	{http.MethodPost, "review.ack", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/landings/[0-9]+/threads/[0-9]+/ack$`)},

@@ -559,6 +559,9 @@ func buildRouter(
 			r.Use(browserCORS(apiCORS, config.IsSingleOwner(cfg.Auth)))
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(sseTicketAuth)
+			if config.IsSingleOwner(cfg.Auth) {
+				r.Use(memberCommands(queries))
+			}
 			if queries != nil {
 				r.Use(middleware.LoadRepoContext(queries))
 			}
@@ -1538,10 +1541,12 @@ func buildRouter(
 				if workflowHandler != nil {
 					// Ticket 0153: dedicated per-user limiter on manual dispatch
 					// endpoints (both canonical ID and legacy name routes).
-					// Starting, rerunning, resuming and cancelling require a person:
-					// an agent would otherwise run the default bookmark's
-					// workflows with inputs it chooses, or cancel a person's run.
-					workflowPersonRepo := append(append([]func(http.Handler) http.Handler{}, workflowWriteRepo...), middleware.RefuseRunCredentials)
+					// Install callers already have the concrete catalog decision.
+					// Plue retains its person-only run controls.
+					workflowPersonRepo := append([]func(http.Handler) http.Handler{}, workflowWriteRepo...)
+					if !config.IsSingleOwner(cfg.Auth) {
+						workflowPersonRepo = append(workflowPersonRepo, middleware.RefuseRunCredentials)
+					}
 					workflowDispatchWriteRepo := append([]func(http.Handler) http.Handler{}, workflowPersonRepo...)
 					workflowDispatchWriteRepo = append(
 						workflowDispatchWriteRepo,
