@@ -46,7 +46,9 @@ export type SecretsViewProps = CardProps<SecretsCard>
  */
 export type SecretsCardCallbacks = CardCallbacks<"secrets" | "secrets.set" | "secrets.delete" | "secrets.scope">
 
-/** Read-only decoder for pinned repository rows recorded before the Secrets View. */
+/** Read-only decoder for pinned repository rows recorded before the Secrets View.
+ * @since 1.0.0
+ */
 export const LegacySecretMetadataSchema = SecretsCardSchema.shape.secrets.element.omit({ scope: true, actions: true }).extend({
   hosts: z.array(z.string()),
   matchHeaders: z.array(z.string()),

@@ -1,8 +1,13 @@
-/** Reviewed image additions, shared by Settings and failed TODOs. */
+/** Reviewed image additions, shared by Settings and failed TODOs.
+ * @since 1.0.0
+ */
 export const MACHINE_JSON_PATH = ".smithers/machine.json"
+/** @since 1.0.0 */
 export const IMAGE_PACKAGE_PATTERN = /^[a-z0-9][a-z0-9+.-]{0,127}$/
 
-/** Preserve package order and produce a proposal affecting only machine.json. */
+/** Preserve package order and produce a proposal affecting only machine.json.
+ * @since 1.0.0
+ */
 export const addImagePackage = (current: string | null | undefined, name: string): { readonly next: string; readonly diff: string } => {
   if (!IMAGE_PACKAGE_PATTERN.test(name)) throw new Error("Invalid Debian package name")
   const value: unknown = current == null ? { packages: [] } : JSON.parse(current)

@@ -8,6 +8,7 @@ import { StatusRollupSchema } from "./Health.ts"
 import { PLUE_FAULTS } from "./PlueFailureCodes.ts"
 
 export { MonitorCardSchema, RunViewStateSchema } from "./MonitorCard.ts"
+/** @since 1.0.0 */
 export type { MonitorCard, RunViewProps } from "./MonitorCard.ts"
 
 /**
@@ -19,6 +20,7 @@ export type { MonitorCard, RunViewProps } from "./MonitorCard.ts"
  * payload is written to disk by the persistence backend, so the card holds the
  * node's address, its key, its edges, its tier and the action it dispatches,
  * and nothing else.
+ * @since 1.0.0
  */
 export const PlanCardNodeSchema = z.object({
   id: z.string(),
@@ -45,6 +47,7 @@ export const PlanCardNodeSchema = z.object({
  *
  * The plan door's card and the snapshot a launch writes onto the run it
  * started carry the same shape, because it is the same answer.
+ * @since 1.0.0
  */
 export const PlanCardGraphSchema = z.object({
   edges: z.array(
@@ -86,6 +89,7 @@ const GraphDrawerTabSchema = z.enum(["in", "declaration", "code", "output", "eve
  *
  * Reader state lives on the card like every other view state, so a reload
  * restores the drawer a person left open and no component owns it.
+ * @since 1.0.0
  */
 export const GraphDrawerSchema = z.object({
   node: z.string().optional(),
