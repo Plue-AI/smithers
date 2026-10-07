@@ -1,5 +1,7 @@
 """Refuse branch-produced runtime inputs before building or starting a VM."""
 import json
+import os
+import platform
 from pathlib import Path
 import subprocess
 import sys
@@ -15,6 +17,14 @@ def verify(root):
 
     # No caller-selected manifest or revision can bless its own root inputs.
     approved = git('rev-parse', '--verify', 'origin/main^{commit}').decode().strip()
+    forbidden = {'SPIKE_MSB_BIN', 'SPIKE_IMAGE', 'SPIKE_TOOLCHAIN',
+                 'SPIKE_ROOT_HELPER', 'SPIKE_PLIST', 'PYTHONPATH', 'PYTHONHOME',
+                 'GOFLAGS', 'GOENV', 'RUSTC_WRAPPER', 'RUSTUP_TOOLCHAIN'}
+    overrides = sorted(forbidden.intersection(os.environ))
+    if overrides:
+        raise ValueError('unreviewed root/toolchain input: ' + ', '.join(overrides))
+    if os.geteuid() == 0:
+        raise ValueError('host measurement must run as non-root')
     directory = 'packages/backend/microsandbox'
     entries = git('ls-tree', '-r', '-z', approved, '--', directory).split(b'\0')
     expected = {}
@@ -41,12 +51,39 @@ def verify(root):
         name = path.relative_to(root).as_posix()
         if not measurement_only(name) and name not in expected:
             raise ValueError('unreviewed extra runtime input: ' + name)
-    return {'main_pinned_runtime_commit': approved, 'runtime_inputs': expected}
+    # Host code must itself be reviewed main, including build recipes and probes.
+    harness = 'scripts/spikes/col-01'
+    for entry in filter(None, git('ls-tree', '-r', '-z', approved, '--', harness).split(b'\0')):
+        metadata, raw_name = entry.split(b'\t', 1)
+        name = raw_name.decode()
+        if measurement_only(name) or name.endswith('.py') and '/test_' in name:
+            continue
+        mode, kind, blob = metadata.decode().split()
+        path = root / name
+        if mode not in ['100644', '100755'] or kind != 'blob' or path.is_symlink() or not path.is_file():
+            raise ValueError('unreviewed host measurement input: ' + name)
+        if path.read_bytes() != git('cat-file', 'blob', blob):
+            raise ValueError('branch-produced host measurement input: ' + name)
+        expected[name] = blob
+    for path in (root / harness).rglob('*'):
+        if path.is_dir() and not path.is_symlink():
+            continue
+        name = path.relative_to(root).as_posix()
+        if any(part in ['node_modules', '__pycache__'] for part in path.parts):
+            continue
+        if not measurement_only(name) and not path.name.startswith('test_') and name not in expected:
+            raise ValueError('unreviewed extra host measurement input: ' + name)
+    return {'main_pinned_runtime_commit': approved, 'runtime_inputs': expected,
+            'host_uid': os.geteuid()}
+
 
 
 if __name__ == '__main__':
     try:
-        print(json.dumps(verify(Path(sys.argv[1]).resolve()), sort_keys=True))
+        inventory = verify(Path(sys.argv[1]).resolve())
+        if platform.system() != 'Darwin' or platform.machine() != 'arm64':
+            raise ValueError('reference Apple Silicon host isolation unavailable; no host fallback')
+        print(json.dumps(inventory, sort_keys=True))
     except (ValueError, OSError, subprocess.CalledProcessError) as error:
         print('SPIKE SECURITY BLOCKED: ' + str(error), file=sys.stderr)
         sys.exit(2)
