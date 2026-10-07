@@ -7,6 +7,15 @@ for (const optionalStreams of ["served", "unsupported"] as const) test(`install 
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
   const posts: unknown[] = []
   const presence: unknown[] = []
+  const fileReads: string[] = []
+  const capturedHead = "1111111111111111111111111111111111111111"
+  await page.route("**/api/branches/smithers%2Fretry-webhooks/files/retry.ts*", route => {
+    fileReads.push(route.request().url().split("/api/")[1]!)
+    expect(route.request().method()).toBe("GET")
+    return route.fulfill({ json: { path: "retry.ts", branch: "smithers/retry-webhooks", language: "typescript",
+      digest: "sha256:captured", content: { kind: "text", text: "export const retry = 2;\n" },
+      mode: "read_only", diagnostics: [], authors: [], editors: [] } })
+  })
   const writer = { id: "member:2", member_id: "2", kind: "person", login: "presence-owner", name: "Alice", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 0, via: "ssh" }
   await page.route("**/api/todos/2", route => route.fulfill({ json: { branch: { name: "smithers/retry-webhooks" } } }))
   await page.route("**/api/branches/smithers%2Fretry-webhooks", route => route.fulfill({ json: { name: "smithers/retry-webhooks", machine: { id: "b-live" } } }))
@@ -19,8 +28,8 @@ for (const optionalStreams of ["served", "unsupported"] as const) test(`install 
     const frame = JSON.parse(raw)
     if (frame.t === "presence") { presence.push(frame.where); return }
     if (frame.t !== "sub") return
-    const data = frame.topic === "branch:b-live" ? {
-      id: "b-live", name: "smithers/retry-webhooks", machine: { state: "asleep" },
+    const data = frame.topic === "branch:b-live" || frame.topic === "branch:smithers/retry-webhooks" ? {
+      id: "b-live", name: "smithers/retry-webhooks", head: capturedHead, machine: { state: "asleep" },
       item: { n: 2, title: "Retry webhooks", state: "working", place: 2 },
       rebase: { state: "pending", onto: "main" },
       presence: [{ actor: { kind: "person", login: "maya", name: "Maya", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 1, via: "ssh" }, where: { kind: "file", path: "retry.ts", line: 12 } }],
@@ -43,8 +52,19 @@ for (const optionalStreams of ["served", "unsupported"] as const) test(`install 
     await expect(card.getByRole("tabpanel")).toContainText("Alice via SSH")
     await card.getByRole("tab", { name: /Files\s*1/ }).press("Enter")
     await expect(card.getByRole("tabpanel")).toContainText("retry.ts")
+    await card.getByRole("tabpanel").getByRole("button", { name: "retry.ts", exact: true }).press("Enter")
+    const file = page.getByTestId("card-file-branch-smithers/retry-webhooks-retry.ts")
+    await expect(file).toContainText("export const retry = 2;")
+    await expect.poll(() => fileReads).toEqual([
+      `branches/smithers%2Fretry-webhooks/files/retry.ts?at=${capturedHead}`
+    ])
     expect(posts).toEqual([])
     await card.getByRole("tab", { name: "Activity", exact: true }).press("Enter")
+    await card.getByRole("button", { name: "retry.ts:12", exact: true }).press("Enter")
+    await expect.poll(() => fileReads.length).toBe(2)
+    expect(fileReads[1]).toBe(`branches/smithers%2Fretry-webhooks/files/retry.ts?at=${capturedHead}`)
+    await expect(file).toBeVisible()
+    await expect(page.getByTestId("composer-input")).toBeEnabled()
   }
   await expect(card).toContainText("Maya via SSH")
   await expect(card).toContainText("retry.ts:12")

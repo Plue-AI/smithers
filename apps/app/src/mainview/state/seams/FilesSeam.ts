@@ -507,12 +507,13 @@ const branchFileOperations = (ctx: SeamContext, options?: BranchFileOptions): Br
     const cardId = id ?? `file-branch-${model.branch}-${model.path}`
     const previous = ctx.store.collections.cards.get(cardId)
     const text = model.content.kind === "binary" ? "" : model.content.text
+    const scope = options?.scope(model.branch)
     await ctx.dispatch({ type: "card.upsert", actor, card: {
       id: cardId, kind: "file", title: model.path, status: "active",
       createdAt: previous?.createdAt ?? Date.now(), ordinal: previous?.ordinal ?? ctx.nextOrdinal(),
       payload: { ...(previous?.kind === "file" ? previous.payload : {}), repo: model.branch, path: model.path,
         content: text, truncated: false, binary: model.content.kind === "binary", digest: model.digest,
-        file: { ...model, ...(line === undefined ? {} : { reveal: { line } }) }, ref: options?.scope()?.sleeping ? options.scope()?.capturedHead : undefined, compare: false, comparison: undefined, ...(line === undefined ? {} : { line }) }
+        file: { ...model, ...(line === undefined ? {} : { reveal: { line } }) }, ref: scope?.sleeping ? scope.capturedHead : undefined, compare: false, comparison: undefined, ...(line === undefined ? {} : { line }) }
     } }).isPersisted.promise
     return readResult(text)
   }

@@ -874,3 +874,37 @@ test.each([ ["files", "../other"], ["files.list", "../secret b12"] ] as const)("
     expect([...store.collections.cards.values()].some(card => card.kind === "file-list")).toBe(false)
   } finally { await controller.dispose() }
 })
+
+
+test.each([true, false])("/file pins the opened branch capture independently of the selected branch (%s)", async sleeping => {
+  const branch = "scratch/maya/retry"
+  const capture = "1111111111111111111111111111111111111111"
+  const requests: string[] = []
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const controller = createAppController(store, unavailableAgent, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "redirect", sandbox: null },
+    branchOptions: { ready: () => true, scope: requested => ({
+      branch: requested ?? "main", member: "will", revision: 1,
+      sleeping: requested === branch ? sleeping : !sleeping,
+      capturedHead: requested === branch ? capture : "2222222222222222222222222222222222222222"
+    }) },
+    fetchImpl: async (input, init) => {
+      const url = String(input)
+      if (url === "/api/members") return json(200, INSTALL_MEMBERS)
+      if (url.includes("/files/src/retry.ts")) {
+        requests.push(`${init?.method ?? "GET"} ${url}`)
+        return json(200, { path: "src/retry.ts", branch, language: "typescript", digest: "sha256:captured",
+          content: { kind: "text", text: "export const retry = 2;\n" }, mode: "read_only", diagnostics: [], authors: [], editors: [] })
+      }
+      return json(404, { message: "not found" })
+    }
+  })
+  try {
+    await ready(store)
+    expect((await controller.commands.submit({ name: "file", payload: { path: "src/retry.ts", branch, line: 12 }, actor: "user" })).status).toBe("executed")
+    const card = store.collections.cards.get(`file-branch-${branch}-src/retry.ts`)
+    expect(card?.payload).toMatchObject({ content: "export const retry = 2;\n", file: { branch, reveal: { line: 12 }, mode: "read_only" } })
+    expect(card?.kind === "file" ? card.payload.ref : null).toBe(sleeping ? capture : undefined)
+    expect(requests).toEqual([`GET /api/branches/scratch%2Fmaya%2Fretry/files/src/retry.ts${sleeping ? `?at=${capture}` : ""}`])
+  } finally { await controller.dispose() }
+})
