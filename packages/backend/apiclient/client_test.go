@@ -130,7 +130,9 @@ func TestTodoReadsDecodeTheCard(t *testing.T) {
 	client, _ = server(t, http.StatusOK, "application/json", card)
 	one, err := client.GetAPITodosN(context.Background(), 1)
 	require.NoError(t, err)
-	assert.Equal(t, "One", one.Title)
+	var decoded apiclient.TodoCard
+	require.NoError(t, json.Unmarshal(one, &decoded))
+	assert.Equal(t, "One", decoded.Title)
 }
 
 func TestUntypedBodyIsOptional(t *testing.T) {
@@ -242,4 +244,16 @@ func TestUndeclaredMembersSurviveARoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(`{"id":1,"origin":"app"}`), &plain))
 	assert.Nil(t, plain.AdditionalProperties)
 	require.Error(t, json.Unmarshal([]byte(`{"id":"one"}`), &plain))
+}
+
+func TestBoundTodoReadDecodesCodingProjection(t *testing.T) {
+	body := `{"n":1,"title":"One","state":"working","attempt":2,"generation":3,"workspace":"box","run":"run","base":"abc"}`
+	client, _ := server(t, http.StatusOK, "application/json", body)
+	raw, err := client.GetAPITodosN(context.Background(), 1)
+	require.NoError(t, err)
+	var decoded apiclient.TodoSystemRead
+	require.NoError(t, json.Unmarshal(raw, &decoded))
+	assert.Equal(t, int64(3), decoded.Generation)
+	assert.Equal(t, "box", decoded.Workspace)
+	assert.JSONEq(t, body, string(raw))
 }
