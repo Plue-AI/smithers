@@ -37,7 +37,8 @@ func (s *MythicalService) validateConflictDone(ctx context.Context, item db.Myth
 		checks.Rebase == nil || checks.Rebase.Onto != wait.OntoRevision {
 		return &TodoControlError{409, "stale_conflict", "conflict", "The conflict target changed"}
 	}
-	if s.conflictValidator == nil || item.WorkspaceID == "" || item.FlowDigest.String == "" || wait.Signal == nil || wait.Signal.Run != item.RequestRunID {
+	pin, pinned := mythicalPinOf(item)
+	if s.conflictValidator == nil || item.WorkspaceID == "" || !pinned || item.RequestRunID == "" || wait.Signal == nil || wait.Signal.Run != item.RequestRunID || wait.Signal.Flow != pin.Flow || wait.Signal.Name == "" {
 		return &TodoControlError{503, "conflict_validation_unavailable", "infra", "Conflict validation unavailable"}
 	}
 	paths, err := s.conflictValidator.UnresolvedPaths(ctx, ConflictValidation{Workspace: item.WorkspaceID, Change: wait.ConflictChange,
