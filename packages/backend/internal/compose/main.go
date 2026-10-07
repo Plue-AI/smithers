@@ -749,6 +749,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	repoOwnershipFence := services.NewRepoOwnershipFence(pool)
 	sshKeyService := services.NewSSHKeyService(queries)
 	deployKeyService := services.NewDeployKeyService(queries)
+	if config.IsSingleOwner(cfg.Auth) {
+		services.WithDeployKeyInstallAuthorization(pool)(deployKeyService)
+	}
 	labelService := services.NewLabelService(queries)
 	if config.IsSingleOwner(cfg.Auth) {
 		services.WithLabelInstallAuthorization(queries, pool)(labelService)

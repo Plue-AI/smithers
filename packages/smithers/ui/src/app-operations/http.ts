@@ -35,6 +35,9 @@ const accountWrite = (name: string, method: "POST" | "PATCH" | "PUT" | "DELETE",
 const optionalText = Schema.optional(Schema.Union([Schema.String, Schema.Null]))
 
 export const httpProjections = [
+ repositoryAdmin("deploy-keys.read","GET","/api/repos/{owner}/{repo}/keys",NoInput),
+ repositoryAdmin("deploy-keys.create","POST","/api/repos/{owner}/{repo}/keys",Schema.Struct({ title:Schema.String,key:Schema.String,read_only:Schema.optional(Schema.Boolean) })),
+ repositoryAdmin("deploy-keys.delete","DELETE","/api/repos/{owner}/{repo}/keys/{id}",NoInput),
  accountWrite("account.inbox.read", "PATCH", "/api/notifications/{id}", NoInput),
  accountWrite("account.inbox.read-all", "PUT", "/api/notifications/mark-read", NoInput),
  accountWrite("account.inbox.preferences", "PUT", "/api/notifications/preferences", Schema.Struct({

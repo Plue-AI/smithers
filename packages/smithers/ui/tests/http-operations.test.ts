@@ -200,3 +200,17 @@ test("retained account writes use the user scope and an owner person", async () 
   expect(Schema.decodeUnknownSync(preferences.input)({ email_notifications_enabled: false })).toEqual({ email_notifications_enabled: false })
   expect(Schema.decodeUnknownSync(preferences.input)({ email_notifications_enabled: null })).toEqual({ email_notifications_enabled: null })
 })
+
+test("deploy key management keeps its owner person boundary", () => {
+  const rows = generateCatalog()
+  for (const [name, method, path, credentialScope] of [
+    ["deploy-keys.read", "GET", "/api/repos/{owner}/{repo}/keys", "read:repository"],
+    ["deploy-keys.create", "POST", "/api/repos/{owner}/{repo}/keys", "write:repository"],
+    ["deploy-keys.delete", "DELETE", "/api/repos/{owner}/{repo}/keys/{id}", "write:repository"],
+  ]) {
+    expect(rows.find(row => row.name === name)).toMatchObject({
+      minimumRole: "owner", agent: "never", actors: ["person"], credentialScope,
+      visibility: "hidden", cli: null, slash: null, http: { method, path }
+    })
+  }
+})

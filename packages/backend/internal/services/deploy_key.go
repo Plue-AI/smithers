@@ -24,8 +24,10 @@ type DeployKeyQuerier interface {
 }
 
 type DeployKeyService struct {
-	queries     DeployKeyQuerier
-	revocations revocation.Publisher
+	install         *installDeployKeyStore
+	installAdmitted bool
+	queries         DeployKeyQuerier
+	revocations     revocation.Publisher
 }
 
 type CreateDeployKeyRequest struct {
@@ -45,11 +47,20 @@ type DeployKeyResponse struct {
 	CreatedAt      time.Time  `json:"created_at"`
 }
 
-func NewDeployKeyService(q DeployKeyQuerier) *DeployKeyService {
-	return &DeployKeyService{queries: q}
+func NewDeployKeyService(q DeployKeyQuerier, options ...DeployKeyServiceOption) *DeployKeyService {
+	s := &DeployKeyService{queries: q}
+	for _, option := range options {
+		option(s)
+	}
+	return s
 }
 
 func (s *DeployKeyService) ListDeployKeys(ctx context.Context, owner, repo string) ([]DeployKeyResponse, error) {
+	if s.install != nil && !s.installAdmitted {
+		return withInstallDeployKey(s, ctx, owner, repo, "deploy-keys.read", 0, struct{}{}, func(scoped *DeployKeyService, ctx context.Context) ([]DeployKeyResponse, error) {
+			return scoped.ListDeployKeys(ctx, owner, repo)
+		})
+	}
 	repository, err := s.loadRepository(ctx, owner, repo)
 	if err != nil {
 		return nil, err
@@ -68,6 +79,11 @@ func (s *DeployKeyService) ListDeployKeys(ctx context.Context, owner, repo strin
 }
 
 func (s *DeployKeyService) CreateDeployKey(ctx context.Context, owner, repo string, req CreateDeployKeyRequest) (DeployKeyResponse, error) {
+	if s.install != nil && !s.installAdmitted {
+		return withInstallDeployKey(s, ctx, owner, repo, "deploy-keys.create", 0, req, func(scoped *DeployKeyService, ctx context.Context) (DeployKeyResponse, error) {
+			return scoped.CreateDeployKey(ctx, owner, repo, req)
+		})
+	}
 	repository, err := s.loadRepository(ctx, owner, repo)
 	if err != nil {
 		return DeployKeyResponse{}, err
@@ -122,6 +138,12 @@ func (s *DeployKeyService) CreateDeployKey(ctx context.Context, owner, repo stri
 }
 
 func (s *DeployKeyService) DeleteDeployKey(ctx context.Context, owner, repo string, keyID int64) error {
+	if s.install != nil && !s.installAdmitted {
+		_, err := withInstallDeployKey(s, ctx, owner, repo, "deploy-keys.delete", keyID, struct{}{}, func(scoped *DeployKeyService, ctx context.Context) (struct{}, error) {
+			return struct{}{}, scoped.DeleteDeployKey(ctx, owner, repo, keyID)
+		})
+		return err
+	}
 	if keyID <= 0 {
 		return pkgerrors.BadRequest("invalid deploy key id")
 	}
@@ -147,12 +169,16 @@ func (s *DeployKeyService) DeleteDeployKey(ctx context.Context, owner, repo stri
 	}
 
 	// End every live SSH git session this deploy key authenticated.
-	revocation.PublishBestEffort(ctx, s.revocations, revocation.Event{
+	event := revocation.Event{
 		Kind:           revocation.KindSSHKeyRevoked,
 		RepositoryID:   repository.ID,
 		KeyFingerprint: key.KeyFingerprint,
 		Reason:         "deploy key deleted",
-	})
+	}
+	if s.installAdmitted {
+		return s.revocations.Publish(ctx, event)
+	}
+	revocation.PublishBestEffort(ctx, s.revocations, event)
 	return nil
 }
 

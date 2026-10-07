@@ -59,7 +59,7 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 	subject.RepositoryID = repository.ID
 	var id int64
 	var selector string
-	if len(parts) == 6 && strings.HasPrefix(command, "labels.") {
+	if len(parts) == 6 && (strings.HasPrefix(command, "labels.") || strings.HasPrefix(command, "deploy-keys.")) {
 		id, err = strconv.ParseInt(parts[5], 10, 64)
 		if err != nil {
 			refuse(pkgerrors.BadRequest("invalid label id"))
@@ -87,7 +87,7 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 		selector = strings.TrimSpace(selector)
 	}
 	var input any = struct{}{}
-	if command == "labels.create" || command == "labels.update" || command == "protected-bookmarks.upsert" || command == "variables.set" {
+	if command == "labels.create" || command == "labels.update" || command == "protected-bookmarks.upsert" || command == "variables.set" || command == "deploy-keys.create" {
 		raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, middleware.MaxRequestBodySize))
 		if err != nil {
 			refuse(pkgerrors.BadRequest("invalid configuration body"))
@@ -95,8 +95,14 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 		}
 		r.Body = io.NopCloser(bytes.NewReader(raw))
 		decoder := json.NewDecoder(bytes.NewReader(raw))
-		decoder.DisallowUnknownFields()
+		if command != "deploy-keys.create" {
+			decoder.DisallowUnknownFields()
+		}
 		switch command {
+		case "deploy-keys.create":
+			var value services.CreateDeployKeyRequest
+			err = decoder.Decode(&value)
+			input = value
 		case "labels.create":
 			var value services.CreateLabelInput
 			err = decoder.Decode(&value)
@@ -128,7 +134,9 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 			return
 		}
 	}
-	if strings.HasPrefix(command, "labels.") {
+	if strings.HasPrefix(command, "deploy-keys.") {
+		subject, err = services.InstallDeployKeySubject(repository.ID, command, id, input)
+	} else if strings.HasPrefix(command, "labels.") {
 		subject, err = services.InstallLabelMutationSubject(repository.ID, command, id, input)
 	} else if strings.HasPrefix(command, "variables.") {
 		subject, err = services.InstallVariableSubject(repository.ID, command, selector, input)
