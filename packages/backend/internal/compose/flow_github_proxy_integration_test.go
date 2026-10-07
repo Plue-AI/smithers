@@ -30,10 +30,17 @@ import (
 // from this fixture can reach the public network.
 func isolationGitHubProxy(t *testing.T, root string) (proxyURL, caFile string) {
 	t.Helper()
+	return isolationGitHubProxyFor(t, root, "", nil)
+}
+
+// isolationGitHubProxyFor also hosts the installations' repositories, whose
+// Git objects live under gitRoot as <owner>/<repo>.git.
+func isolationGitHubProxyFor(t *testing.T, root, gitRoot string, installations []githubfake.Installation) (proxyURL, caFile string) {
+	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 	privateKey := string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))
-	fake, err := githubfake.New(githubfake.Config{AppID: 42, Slug: "isolation-check", OwnerLogin: "isolation-owner", OwnerKind: "user", ClientID: "client", ClientSecret: "secret", WebhookSecret: "webhook", PrivateKeyPEM: privateKey, ConversionCode: "manifest-code", OAuthCode: "owner-code"})
+	fake, err := githubfake.New(githubfake.Config{AppID: 42, Slug: "isolation-check", OwnerLogin: "isolation-owner", OwnerKind: "user", ClientID: "client", ClientSecret: "secret", WebhookSecret: "webhook", PrivateKeyPEM: privateKey, ConversionCode: "manifest-code", OAuthCode: "owner-code", GitRoot: gitRoot, Installations: installations})
 	require.NoError(t, err)
 	t.Cleanup(fake.Close)
 	cert := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "C-SEC-02 fixture"}, DNSNames: []string{"github.com", "api.github.com"}, NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}

@@ -134,21 +134,11 @@ func TestCSEC02BundledInstallIsolation(t *testing.T) {
 	if err != nil || !strings.Contains(string(version), "0.6.16") {
 		t.Fatal("prerequisite: environment: msb: version 0.6.16 required")
 	}
-	database := os.Getenv("SMITHERS_TEST_DATABASE_URL")
-	if database == "" {
-		t.Fatal("prerequisite: environment: PG18: allocated database required")
-	}
-	// psql expands a connection URI passed through -d; PGDATABASE does not.
-	command := exec.CommandContext(ctx, "psql", "--dbname", database, "-XAtqc", "SHOW server_version_num")
-	version, err = command.CombinedOutput()
-	if err != nil || !strings.HasPrefix(strings.TrimSpace(string(version)), "18") {
-		t.Fatal("prerequisite: environment: PG18: server version 18 required")
-	}
-	// Served claim is qualified separately through the shipped CLI/launchd by
-	// TestCSEC02LaunchdServedClaim. The owned abrupt-stop control in
-	// TestTodoMachineKillThroughInstall uses the composed setup harness, so it
-	// does not establish this bundled launcher's complete lifecycle.
-	t.Fatal("prerequisite: dependency: bundled-install lifecycle fixture: TODO/canary execution and owned guest interruption are not wired; steps 1-5 and 7 unexecuted")
+	// The install runs its own bundled PostgreSQL; the lifecycle asserts major
+	// 18 there. Steps 1-5 and 7 run through the shipped CLI and launchd. Step 6 is
+	// TestCSEC02BundledLauncherRuntimeRefusals; step 8 is
+	// TestCSEC02BundledLauncherSetupRotation and TestCSEC02LaunchdServedClaim.
+	csec02BundledLifecycle(t, approved)
 }
 
 // The production bundled launcher must refuse damaged runtime inputs before
