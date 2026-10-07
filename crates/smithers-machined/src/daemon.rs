@@ -125,13 +125,15 @@ impl Daemon {
                             return Ok((vec![], false));
                         }
                         let mut frames = cx.hooks.documents.clone().poll(cx)?;
-                        let mut drained = false;
+                        // Authentication authorizes recovery delivery; readiness
+                        // authorizes sessions. A conflict or pending rewrite must
+                        // still deliver its durable event and accept the receipt.
+                        frames.extend(cx.hooks.events.poll()?);
                         if reconciled.load(Ordering::Acquire) && roster.load(Ordering::Acquire) {
-                            frames.extend(cx.hooks.events.poll()?);
                             cx.hooks.sessions.ready()?;
                             frames.extend(cx.hooks.sessions.poll()?);
-                            drained = waiting && cx.hooks.events.drained()?;
                         }
+                        let drained = waiting && cx.hooks.events.drained()?;
                         Ok((frames, drained))
                     },
                 ) {
@@ -179,22 +181,22 @@ impl Daemon {
                         return Err(ProtocolError::HandshakeOrder);
                     }
                     if frame.kind != 1 {
-                        if !(state.load(Ordering::Acquire) && roster.load(Ordering::Acquire)) {
-                            if matches!(frame.kind, 2 | 6) {
-                                return Err(ProtocolError::HandshakeOrder);
-                            }
-                            return Ok(Some(Frame {
-                                kind: frame.kind,
-                                stream: frame.stream,
-                                payload: conn::tagged(255, &not_ready().fields()),
-                            }));
-                        }
+                        // The delivery state validates the active stream and
+                        // sequence. Do not gate its ACK/credit behind the state
+                        // whose recovery depends on draining that same outbox.
                         if matches!(frame.kind, 2 | 6) {
                             return cx
                                 .hooks
                                 .events
                                 .frame(&frame)
                                 .map_err(|_| ProtocolError::BadValue);
+                        }
+                        if !(state.load(Ordering::Acquire) && roster.load(Ordering::Acquire)) {
+                            return Ok(Some(Frame {
+                                kind: frame.kind,
+                                stream: frame.stream,
+                                payload: conn::tagged(255, &not_ready().fields()),
+                            }));
                         }
                         return rpc::dispatch_input(&frame, cx);
                     }

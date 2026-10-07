@@ -1,3 +1,5 @@
+#[path = "link/recovery.rs"]
+mod recovery;
 use smithers_machined::{
     conn::{self, Frame, ProtocolError},
     link::{self, Identity, Live},
@@ -816,11 +818,11 @@ fn capture_delivery_case(mode: &str) {
             Ok(vec![])
         }
     }
-    struct Bundle;
+    struct Bundle(usize);
     impl Bundles for Bundle {
         type Source = io::Cursor<Vec<u8>>;
         fn export(&mut self, _: &conn::Durable, _: &[Oid]) -> io::Result<Self::Source> {
-            Ok(io::Cursor::new(b"fixture bundle".to_vec()))
+            Ok(io::Cursor::new(vec![b'x'; self.0]))
         }
     }
     struct CaptureCore(Arc<dyn EventSink>);
@@ -856,11 +858,30 @@ fn capture_delivery_case(mode: &str) {
         Outbox::open(Store::open(dir.path(), owner).unwrap(), owner, refs.clone()).unwrap();
     let streams = AtomicU32::new(1);
     let events = Arc::new(
-        Events::new(outbox, Bundle, move || {
-            Ok(streams.fetch_add(1, Ordering::SeqCst))
-        })
+        Events::new(
+            outbox,
+            Bundle(if mode.starts_with("recovery-") {
+                300_000
+            } else {
+                13
+            }),
+            move || Ok(streams.fetch_add(1, Ordering::SeqCst)),
+        )
         .unwrap(),
     );
+    if let Some(mode) = mode.strip_prefix("recovery-") {
+        recovery::run(events.clone(), mode);
+        assert_eq!(events.depth().unwrap(), 0);
+        assert_eq!(
+            *refs.0.lock().unwrap(),
+            if mode == "conflict" {
+                None
+            } else {
+                Some([10; 20])
+            }
+        );
+        return;
+    }
     events
         .append(
             &smithers_machined::outbox::captured([10; 20], [9; 20], [8; 20]),
@@ -889,8 +910,14 @@ fn capture_delivery_case(mode: &str) {
     });
     let mut stream = TcpStream::connect(address).unwrap();
     host(&mut stream, &[9; 32], true);
-    call(&mut stream, 1, 5, &[conn::field(1, [8; 20])]);
-    call(&mut stream, 2, 16, &[conn::field(1, 0u16.to_be_bytes())]);
+    // Replay may start immediately after authentication. Queue control requests
+    // and receive them through the same multiplexed pump as the older capture.
+    recovery::request(1, 5, &[conn::field(1, [8; 20])])
+        .write(&mut stream)
+        .unwrap();
+    recovery::request(2, 16, &[conn::field(1, 0u16.to_be_bytes())])
+        .write(&mut stream)
+        .unwrap();
     let request = |id: u32, method: u8| Frame {
         kind: 1,
         stream: 0,
@@ -1023,6 +1050,14 @@ fn capture_delivery_case(mode: &str) {
             }
             1 => {
                 let f = conn::fields("response", &frame.payload[1..]).unwrap();
+                if f[0].1 == 1u32.to_be_bytes() {
+                    assert_eq!(f[1].1[0], 5);
+                    continue;
+                }
+                if f[0].1 == 2u32.to_be_bytes() {
+                    assert_eq!(f[1].1[0], 16);
+                    continue;
+                }
                 if f[0].1 == 4u32.to_be_bytes() {
                     status = true;
                     continue;
