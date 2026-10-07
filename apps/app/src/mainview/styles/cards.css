@@ -2765,6 +2765,12 @@
 .code-file-view { min-width: 0; box-sizing: border-box; }
 .code-file-view .smithers-card-title { font-family: var(--font-mono); overflow-wrap: anywhere; min-width: 0; }
 .code-file-view .code-file-editor { min-width: 0; max-width: 100%; }
+/* Keep both read-only versions within the embedded File card. */
+.code-file-view .code-compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2); }
+.code-file-view .code-file-current, .code-file-view .code-file-outside { min-width: 0; }
+.code-file-view .code-compare-cap { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; color: var(--text-muted); font-size: var(--fs-caption); }
+.code-file-view .code-compare-cap code { overflow-wrap: anywhere; }
+@media (max-width: 640px) { .code-file-view .code-compare { grid-template-columns: minmax(0, 1fr); } }
 /* CodeSurface (T-UI-16): live file notices, snapshots and outside comparison. */
 .code-file-view .code-file-state { display: inline-flex; align-items: center; gap: 5px; color: var(--attention-text); font-size: var(--fs-caption); font-weight: 600; white-space: nowrap; }
 .code-file-view .code-file-notice { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); padding: 6px 6px 6px 10px; border: 1px solid color-mix(in srgb, var(--attention) 40%, transparent); border-radius: var(--r-1); background: var(--attention-wash); color: var(--attention-text); font-size: var(--fs-small); font-weight: 500; }
