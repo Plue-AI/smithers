@@ -31,7 +31,25 @@ export const FlowVersion = Schema.Struct({
   status: Schema.Literals(["loaded", "failed"]),
   error: Schema.optionalKey(Schema.String),
   dependencies: Schema.optionalKey(Schema.Array(Schema.String)),
-  /** Payload-independent guest metadata; omitted until the declaration can publish it. */
+  inspection: Schema.optionalKey(Schema.Struct({
+    nodes: Schema.Array(Schema.Struct({
+      id: Schema.String,
+      kind: Schema.String,
+      label: Schema.optionalKey(Schema.String),
+      dependencies: Schema.Array(Schema.String)
+    })),
+    edges: Schema.Array(
+      Schema.Struct({
+        from: Schema.String,
+        to: Schema.String,
+        reason: Schema.Literals(["value", "continuation", "failure"])
+      })
+    ),
+    steps: Schema.Array(Schema.Struct({ id: Schema.String, label: Schema.String })),
+    diagnostics: Schema.Array(Schema.Struct({ code: Schema.String, message: Schema.String })),
+    prompt: Schema.optionalKey(Schema.String)
+  })),
+  /** Steps inspected inside the guest without selecting an execution payload. */
   steps: Schema.optionalKey(Schema.Array(Schema.Struct({
     id: Schema.String,
     label: Schema.optionalKey(Schema.String),
@@ -182,7 +200,14 @@ export const loadRepositoryFlows = (
       const dependencies = imported.map((entry) =>
         path.relative(repositoryPath, path.resolve(path.dirname(descriptor.path), entry.path)).split(path.sep).join("/")
       )
-      const metadata = dependencies.length === 0 ? {} : { dependencies }
+      const inspection = built?.executables.find((entry) => entry.descriptor.name === descriptor.name)?.inspect?.()
+      const metadata = {
+        ...(dependencies.length === 0 ? {} : { dependencies }),
+        ...(inspection === undefined ? {} : { inspection }),
+        // An input-dependent declaration remains runnable. Never publish an
+        // invented path through it or erase the historical display on refusal.
+        ...(inspection === undefined || inspection.diagnostics.length > 0 ? {} : { steps: inspection.steps })
+      }
       versions.push(
         dependenciesReady._tag === "Failure" ?
           {

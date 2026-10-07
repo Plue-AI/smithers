@@ -22,13 +22,14 @@ import (
 // FlowLoadVersion is one flow version as flow-load measured it at one commit
 // (FlowVersion in flows/coding/flow-load.ts).
 type FlowLoadVersion struct {
-	Name         string     `json:"name"`
-	Path         string     `json:"path"`
-	Digest       string     `json:"digest"`
-	Status       string     `json:"status"`
-	Error        string     `json:"error,omitempty"`
-	Dependencies []string   `json:"dependencies,omitempty"`
-	Steps        []FlowStep `json:"steps"`
+	Name         string          `json:"name"`
+	Path         string          `json:"path"`
+	Digest       string          `json:"digest"`
+	Status       string          `json:"status"`
+	Error        string          `json:"error,omitempty"`
+	Dependencies []string        `json:"dependencies,omitempty"`
+	Steps        []FlowStep      `json:"steps"`
+	Inspection   json.RawMessage `json:"inspection,omitempty"`
 }
 
 // FlowLoadResult is a flow-load run's output (FlowLoadResult in
@@ -78,7 +79,11 @@ func flowVersionConfig(version FlowLoadVersion) json.RawMessage {
 	if steps == nil {
 		steps = []FlowStep{}
 	}
-	config, _ := json.Marshal(map[string]any{"steps": steps})
+	metadata := map[string]any{"steps": steps}
+	if len(version.Inspection) > 0 {
+		metadata["inspection"] = version.Inspection
+	}
+	config, _ := json.Marshal(metadata)
 	return config
 }
 
