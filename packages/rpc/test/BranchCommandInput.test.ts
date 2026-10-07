@@ -2,14 +2,14 @@ import { describe, expect, test } from "vitest"
 import { BranchForeignAnswerInputSchema, BranchAddToStackInputSchema, BranchForkInputSchema, TodoNewInputSchema } from "../src/CardAction.ts"
 
 describe("branch command payloads", () => {
-  test.each(["main", "T2", "T123"])("forks %s with a required source", (from) => {
+  test.each(["main", "T2", "T123", "scratch/ben/retry"])("forks %s with a required source", (from) => {
     expect(BranchForkInputSchema.parse({ from })).toEqual({ from })
     expect(BranchForkInputSchema.parse({ from, name: "try-retry" })).toEqual({ from, name: "try-retry" })
   })
 
-  test.each([{}, { name: "retry" }, { from: "scratch/ben/retry" }, { from: "T0" }, { from: "T02" },
+  test.each([{}, { name: "retry" }, { from: "scratch/ben" }, { from: "T0" }, { from: "T02" },
     { from: "T-2" }, { from: "t2" }, { from: "T2\n" }, { from: "main", name: "" },
-    { from: "main", commit: "a".repeat(40) }])("rejects invalid S1 fork %j", (input) => {
+    { from: "main", commit: "a".repeat(40) }])("rejects invalid fork %j", (input) => {
     expect(BranchForkInputSchema.safeParse(input).success).toBe(false)
   })
 
