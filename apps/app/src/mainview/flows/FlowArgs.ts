@@ -53,7 +53,7 @@ export interface FlowInput {
   readonly "flow.run.stop-all": { readonly sourceCard: string; readonly repo: string }
   readonly "box.facet": { readonly workspaceId: string; readonly facet: string }
   /** Carried as JSON: the form opens with these and asks for the value. */
-  readonly "secrets.set": { readonly name?: string; readonly repo: string }
+  readonly "secrets.set": { readonly name?: string; readonly hosts?: string; readonly headers?: string; readonly path?: string; readonly repo: string }
   readonly "secrets.delete": { readonly name: string; readonly repo: string }
   readonly "secrets.scope": { readonly name: string; readonly scope: "main-only" | "all"; readonly repo: string }
   /** Carried as JSON: the form opens with the name and asks for the hosts and headers. */

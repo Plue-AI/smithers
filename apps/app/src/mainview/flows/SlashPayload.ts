@@ -746,7 +746,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "secrets": (args) => repoOnly("secrets", args),
   "secrets.bind": (args, known) => structuredFields("secrets.bind", args, ["name", "hosts", "headers", "repo"]) ?? secretName("secrets.bind", args, known, false),
   /* The value is never on a line: it arrives only through the form's write-only field. */
-  "secrets.set": (args, known) => structuredFields("secrets.set", args, ["name", "hosts", "headers", "repo"]) ?? secretName("secrets.set", args, known, false),
+  "secrets.set": (args, known) => structuredFields("secrets.set", args, ["name", "hosts", "headers", "path", "repo"]) ?? secretName("secrets.set", args, known, false),
   "secrets.delete": (args, known) => secretName("secrets.delete", args, known, true),
   /*
    * The palette flows (Search and Command Palette Spec 2026-09-07 §6): the
