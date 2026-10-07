@@ -193,7 +193,10 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 			machine["error"] = map[string]any{"class": "infra", "message": workspace.FailureMessage.String}
 		}
 		// Once published, the branch is the pull request's head branch.
-		name := workspace.Name
+		name := workspace.TargetBookmark
+		if name == "" || name == "mythical" {
+			name = workspace.Name
+		}
 		if published := mythicalChecksOf(item).Branch; published != "" {
 			name = published
 		}
