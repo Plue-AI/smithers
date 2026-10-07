@@ -162,7 +162,7 @@ func TestBranchConversationMemberViewStateInstall(t *testing.T) {
 	require.JSONEq(t, benState, call("GET", path, "", benCookie, 200))
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, alice.ID)
 	require.NoError(t, err)
-	call("PUT", path, `{}`, aliceCookie, 403)
+	call("PUT", path, `{}`, aliceCookie, 401)
 }
 
 // The model seam deliberately holds Alice's turn; admission, membership
