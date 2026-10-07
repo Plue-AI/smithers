@@ -139,8 +139,21 @@ const isolatedTestPaths = (text: string): string[] => {
       !(ts.isCallExpression(testCall) && testCall.expression.getText(source) === "test.each")) continue
     if (ts.isCallExpression(testCall) && !tableRows(testCall.arguments[0])?.elements.length) continue
     const args = call.arguments[1]
-    if (!args || !ts.isArrayLiteralExpression(args) || args.elements.length !== 2) continue
-    const [mode, child] = args.elements
+    if (!args || !ts.isArrayLiteralExpression(args) || ![2, 4].includes(args.elements.length)) continue
+    // The optional config isolates the child's JUnit output. Accept only the
+    // declared empty fixture config, never arbitrary flags that could skip tests.
+    if (args.elements.length === 4) {
+      const flag = args.elements[1], config = args.elements[2]
+      if (!flag || !ts.isStringLiteral(flag) || flag.text !== "--config" || !config || !ts.isIdentifier(config)) continue
+      const declaration = declarations.find(node => ts.isIdentifier(node.name) && node.name.text === config.text && !enclosingFunction(node))
+      const initializer = declaration?.initializer
+      if (!initializer || !ts.isCallExpression(initializer) || initializer.expression.getText(source) !== "fileURLToPath" || initializer.arguments.length !== 1) continue
+      const url = initializer.arguments[0]!
+      if (!ts.isNewExpression(url) || url.expression.getText(source) !== "URL" || url.arguments?.length !== 2 ||
+        !ts.isStringLiteral(url.arguments[0]!) || url.arguments[0]!.text !== "../../e2e/fixtures/unit-entrypoints/child.bunfig.toml" ||
+        url.arguments[1]!.getText(source) !== "import.meta.url") continue
+    }
+    const mode = args.elements[0], child = args.elements[args.elements.length - 1]
     if (!mode || !ts.isStringLiteral(mode) || mode.text !== "test" || !child || !ts.isIdentifier(child)) continue
     for (const declaration of declarations) {
       if (!ts.isIdentifier(declaration.name) || declaration.name.text !== child.text || !declaration.initializer) continue
@@ -179,7 +192,7 @@ interface ExclusiveRunner {
   readonly runner: { readonly name: string; readonly entry: { readonly path: string }; readonly args: readonly string[] }
 }
 const exclusiveRunners: ExclusiveRunner[] = inspectTarget(`console.log(JSON.stringify([
-  Package.viewStories, Package.journeyJ1Activation, Package.journeySetup, Package.journeyWikiObsidian, Package.journeyTodoFromIssue,
+  Package.viewStories, Package.journeyJ1Activation, Package.journeyJ1Release, Package.journeyKeyboard, Package.journeyFreshRepository, Package.journeyWikiGeneratedRefresh, Package.journeyWikiCoedit, Package.journeySetup, Package.journeyWikiObsidian, Package.journeyTodoFromIssue,
   Package.journeyTodoNeedsYou, Package.journeyTodoEvidence, Package.journeyTodoMerge, Package.journeyAskRepository
 ].map(target => metadata(target).attrs)))`)
 
@@ -235,7 +248,7 @@ const exclusiveOwns = (path: string, target: ExclusiveRunner, source: string): b
     target.runner.args.length === 0 && path === "e2e/playwright/view-stories.spec.ts" &&
     runsStep(spawnArgv(source, undefined), ["pnpm", "exec", "playwright", "test", "--config", "playwright.config.ts", path])
   if (entry === "scripts/run-real-e2e.ts") return target.runner.args.length === 1 &&
-    ["j1-activation.spec.ts", "setup.spec.ts", "wiki-obsidian.spec.ts"].includes(target.runner.args[0]!) && target.env.SMITHERS_JOURNEY === target.runner.args[0] &&
+    ["j1-activation.spec.ts", "setup.spec.ts", "wiki-obsidian.spec.ts", "j1.spec.ts", "keyboard-journeys.spec.ts", "fresh-repository.spec.ts", "wiki-generated-refresh.spec.ts", "wiki-coedit.spec.ts"].includes(target.runner.args[0]!) && target.env.SMITHERS_JOURNEY === target.runner.args[0] &&
     path === `e2e/real/${target.runner.args[0]}` && invokesRealPlaywright(source) &&
     runnerEvidence(source).forwarding
   if (entry === "scripts/run-journey-j2.ts") return target.runner.args.length === 1 &&
@@ -267,6 +280,7 @@ const owners = (path: string): string[] => {
 
 test("exclusive browser ownership requires the exported target and executable selection", () => {
   const paths = ["e2e/playwright/view-stories.spec.ts", "e2e/real/j1-activation.spec.ts",
+    "e2e/real/j1.spec.ts", "e2e/real/keyboard-journeys.spec.ts", "e2e/real/fresh-repository.spec.ts", "e2e/real/wiki-generated-refresh.spec.ts", "e2e/real/wiki-coedit.spec.ts",
     "e2e/real/setup.spec.ts", "e2e/real/wiki-obsidian.spec.ts",
     "e2e/real/todo-from-issue.spec.ts", "e2e/real/todo-needs-you.spec.ts",
     "e2e/real/todo-evidence.spec.ts", "e2e/real/todo-merge.spec.ts", "e2e/real/ask-repository.spec.ts"]
@@ -327,7 +341,10 @@ test("isolated child ownership follows executable selected wrappers", () => {
     const source = read(wrapper)
     expect(owners(child)).toEqual(["isolated unit child"])
     expect(isolatedUnitOwns(child, "e2e/unselected.test.ts", source)).toBe(false)
-    expect(isolatedUnitOwns(child, wrapper, source.replaceAll("['test', child]", "['run', child]"))).toBe(false)
+    expect(isolatedUnitOwns(child, wrapper, source.replaceAll("['test',", "['run',"))).toBe(false)
+    expect(isolatedUnitOwns(child, wrapper, source.replaceAll("'--config'", "'--test-name-pattern'"))).toBe(false)
+    expect(isolatedUnitOwns(child, wrapper, source.replaceAll("child.bunfig.toml", "other.bunfig.toml"))).toBe(false)
+    expect(isolatedUnitOwns(child, wrapper, source.replaceAll("'--config', childConfig", "'--config', unknownConfig"))).toBe(false)
     const name = child.slice(child.lastIndexOf("/") + 1)
     expect(isolatedUnitOwns(child, wrapper, source.replaceAll(name, "Unregistered.child.test.ts"))).toBe(false)
     expect(isolatedUnitOwns(child, wrapper, `// ${source.replaceAll("\n", "\n// ")}`)).toBe(false)
@@ -337,6 +354,7 @@ test("isolated child ownership follows executable selected wrappers", () => {
     expect(isolatedUnitOwns(child, wrapper, source.replaceAll("test.each(cases)", "test.each([])")
       .replace("test.each([['visible'], ['hidden']] as const)", "test.each([])"))).toBe(false)
   }
+  expect(read("e2e/fixtures/unit-entrypoints/child.bunfig.toml").replace(/^\s*#.*$/gm, "").trim()).toBe("")
   expect(owners("e2e/fixtures/unit-entrypoints/Unregistered.child.test.ts")).toEqual([])
 })
 

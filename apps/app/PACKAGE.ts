@@ -267,6 +267,66 @@ const journeyWikiObsidian = Smithers.NodeTest({
   deps: [], exclusive: true, cwd
 })
 
+/** Reference-install qualification; omitted from wildcard test/ci selections. */
+const journeyJ1Release = Smithers.NodeTest({
+  runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
+  runner: Smithers.entrypoint(Smithers.file("scripts/run-real-e2e.ts"), ["j1.spec.ts"]),
+  timeout: "60m",
+  env: { SMITHERS_JOURNEY: "j1.spec.ts", SMITHERS_CHAT_STUB: "0" },
+  cache: false,
+  srcs: [harnessSources, suiteSources, Smithers.file("playwright.real.config.ts"),
+    Smithers.file("package.json"), Smithers.file("//pnpm-lock.yaml")],
+  deps: [], exclusive: true, cwd
+})
+
+/** Reference-install qualification; omitted from wildcard test/ci selections. */
+const journeyKeyboard = Smithers.NodeTest({
+  runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
+  runner: Smithers.entrypoint(Smithers.file("scripts/run-real-e2e.ts"), ["keyboard-journeys.spec.ts"]),
+  timeout: "60m",
+  env: { SMITHERS_JOURNEY: "keyboard-journeys.spec.ts", SMITHERS_CHAT_STUB: "0" },
+  cache: false,
+  srcs: [harnessSources, suiteSources, Smithers.file("playwright.real.config.ts"),
+    Smithers.file("package.json"), Smithers.file("//pnpm-lock.yaml")],
+  deps: [], exclusive: true, cwd
+})
+
+/** Reference-install qualification; omitted from wildcard test/ci selections. */
+const journeyFreshRepository = Smithers.NodeTest({
+  runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
+  runner: Smithers.entrypoint(Smithers.file("scripts/run-real-e2e.ts"), ["fresh-repository.spec.ts"]),
+  timeout: "60m",
+  env: { SMITHERS_JOURNEY: "fresh-repository.spec.ts", SMITHERS_REAL_E2E_HOST: "local", SMITHERS_CHAT_STUB: "0" },
+  cache: false,
+  srcs: [harnessSources, suiteSources, Smithers.file("playwright.real.config.ts"),
+    Smithers.file("package.json"), Smithers.file("//pnpm-lock.yaml")],
+  deps: [], exclusive: true, cwd
+})
+
+/** Reference-install qualification; omitted from wildcard test/ci selections. */
+const journeyWikiGeneratedRefresh = Smithers.NodeTest({
+  runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
+  runner: Smithers.entrypoint(Smithers.file("scripts/run-real-e2e.ts"), ["wiki-generated-refresh.spec.ts"]),
+  timeout: "60m",
+  env: { SMITHERS_JOURNEY: "wiki-generated-refresh.spec.ts", SMITHERS_REAL_E2E_HOST: "local", SMITHERS_CHAT_STUB: "0" },
+  cache: false,
+  srcs: [harnessSources, suiteSources, Smithers.file("playwright.real.config.ts"),
+    Smithers.file("package.json"), Smithers.file("//pnpm-lock.yaml")],
+  deps: [], exclusive: true, cwd
+})
+
+/** Reference-install qualification; omitted from wildcard test/ci selections. */
+const journeyWikiCoedit = Smithers.NodeTest({
+  runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
+  runner: Smithers.entrypoint(Smithers.file("scripts/run-real-e2e.ts"), ["wiki-coedit.spec.ts"]),
+  timeout: "60m",
+  env: { SMITHERS_JOURNEY: "wiki-coedit.spec.ts", SMITHERS_REAL_E2E_HOST: "local", SMITHERS_CHAT_STUB: "0" },
+  cache: false,
+  srcs: [harnessSources, suiteSources, Smithers.file("playwright.real.config.ts"),
+    Smithers.file("package.json"), Smithers.file("//pnpm-lock.yaml")],
+  deps: [], exclusive: true, cwd
+})
+
 /** Dark reference-host journeys; wildcard selections omit these gates. */
 const journeyTodoFromIssue = Smithers.NodeTest({
   runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
@@ -491,5 +551,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { distributionInputs, crateInputs, proofMockInputs, serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, viewStories, journeyJ1Activation, journeySetup, journeyWikiObsidian, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, journeyAskRepository, proofRecord, proofPage, webSources, ...securityReview }
+  targets: { distributionInputs, crateInputs, proofMockInputs, serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, viewStories, journeyJ1Activation, journeyJ1Release, journeyKeyboard, journeyFreshRepository, journeyWikiGeneratedRefresh, journeyWikiCoedit, journeySetup, journeyWikiObsidian, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, journeyAskRepository, proofRecord, proofPage, webSources, ...securityReview }
 })
