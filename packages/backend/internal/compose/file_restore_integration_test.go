@@ -237,6 +237,10 @@ func TestFileRestoreCommandBoundary(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, f.row.RepositoryID, member.ID)
 	require.NoError(t, err)
+	// This restore fixture has no coding host; retire the shared presence
+	// fixture's binding before granting write access to another member.
+	_, err = f.pool.Exec(ctx, `UPDATE flow_runtime_host_bindings SET state='retired' WHERE workspace_id=$1 AND catalog_key='coding'`, f.row.ID)
+	require.NoError(t, err)
 	_, err = f.pool.Exec(ctx, `INSERT INTO workspace_shares(workspace_id,owner_user_id,grantee_user_id,level) VALUES($1,$2,$3,'write')`, f.row.ID, f.user.ID, member.ID)
 	require.NoError(t, err)
 	sum := sha256.Sum256([]byte("w6-member-cookie"))
