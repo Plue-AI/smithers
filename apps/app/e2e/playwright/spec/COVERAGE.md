@@ -22,7 +22,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | --- | --- | --- | --- |
 | C-COL-06 | [C-COL-06.spec.ts](C-COL-06.spec.ts) | fixme-before-implementation | T-COL-03r |
 | A-BRANCH-ARCHIVE | [A-BRANCH-ARCHIVE.spec.ts](A-BRANCH-ARCHIVE.spec.ts) | passing | T-MCH-09 |
-| C-DUR-05 | [C-DUR-05.spec.ts](C-DUR-05.spec.ts) | fixme-before-implementation | T-COL-13 |
+| C-DUR-05 | [C-DUR-05.spec.ts](C-DUR-05.spec.ts) | passing: 3 browser receipt/reload projections; literal outbox migration/crash/refusal in Rust and composed document refusal in Go pass; real-Mac/microVM qualification pending | T-COL-13 |
 | C-UI-12 · Setup/Settings | [C-UI-12.spec.ts](C-UI-12.spec.ts) | Empty/supplied model slot, zero dispatch, keyboard; 390px capacity line passed | T-UI-02 |
 | C-FM-01 | [C-FM-01.spec.ts](C-FM-01.spec.ts) | fixme-before-implementation | T-FM-01 |
 | C-FM-02 | [C-FM-02.spec.ts](C-FM-02.spec.ts) | fixme-before-implementation | T-FM-02 |

@@ -1,45 +1,51 @@
 import { expect, test } from "../browserTest"
-import { owner, say } from "./j1-fixtures"
+import { say } from "./j1-fixtures"
+import { editorText, fileCoeditFixture } from "./file-coedit-fixture"
 
-// UI projection only. Literal outbox fixtures, event order/identity, pending
-// refs, untouched refused bytes and migration crashes belong to T-COL-13.
-// The browser host needs an upgraded/refused machine seed before activation.
-// Written before implementation: spec.md §9.1.4a, mvp.md §12; lands with T-COL-13
-test("C-DUR-05: previous-release edits survive an interrupted upgrade", async ({ page }) => {
-  test.fixme(true, "Written before implementation: spec.md §9.1.4a, mvp.md §12; lands with T-COL-13")
-  await owner(page)
-  await page.goto("/")
-  // Seed the previous-release outbox and restart after a mid-migration crash.
-  await say(page, "/branch retry-webhooks")
-  const burst = page.getByRole("button", { name: "Maya via SSH changed 3 files", exact: true })
-  await expect(burst).toHaveCount(1)
-  await burst.press("Enter")
-  await say(page, "/file src/webhooks/retry.ts")
-  const editor = page.getByRole("textbox", { name: "src/webhooks/retry.ts", exact: true }).last()
-  await expect(editor).toHaveValue(/Alice keeps delivery idempotent/)
-  await expect(page.getByText("Saved to the machine", { exact: true }).last()).toBeVisible()
-  await page.reload()
-  await expect(editor).toHaveValue(/Alice keeps delivery idempotent/)
-  await expect(burst).toHaveCount(1)
+// Browser projection through the production File flow, seam and document channel.
+// The test host supplies receipts; it does not certify machine durability.
+// Literal N/N+1 outboxes, both migration crashes, identity/order/pending refs and
+// untouched N+2/corrupt refusal are executed in smithers-machined/tests/outbox.rs.
+test("C-DUR-05: replayed edits remain visible after reload", async ({ page }) => {
+  const host = fileCoeditFixture()
+  try {
+    await host.install(page, "Alice")
+    await page.goto("/")
+    await say(page, '/file {"path":"retry.ts","branch":"T12"}')
+    const editor = page.locator('[data-kind="file"] .cm-content').last()
+    await expect(editor).toBeVisible()
+    await editor.click()
+    await page.keyboard.insertText("Alice keeps delivery idempotent")
+    await expect(page.getByText("Saved to the machine", { exact: true }).last()).toBeVisible()
+    await page.reload()
+    await expect.poll(() => editorText(editor)).toBe("Alice keeps delivery idempotent")
+    expect(host.text()).toBe("Alice keeps delivery idempotent")
+    await expect(page.getByRole("button", { name: "Reapply", exact: true })).toHaveCount(0)
+    await expect(page.getByTestId("composer-input")).toBeEditable()
+  } finally { host.dispose() }
 })
 
 for (const refusal of ["newer format", "corrupt header"]) {
-  // Written before implementation: spec.md §9.1.4a, mvp.md §12; lands with T-COL-13
-  test(`C-DUR-05: ${refusal} keeps unacknowledged edits unsaved`, async ({ page }) => {
-    test.fixme(true, "Written before implementation: spec.md §9.1.4a, mvp.md §12; lands with T-COL-13")
-    await owner(page)
-    await page.goto("/")
-    // Seed this refusal with two retained local edits and no daemon receipt.
-    await say(page, "/file src/webhooks/retry.ts")
-    const editor = page.getByRole("textbox", { name: "src/webhooks/retry.ts", exact: true }).last()
-    await expect(editor).toHaveValue(/Ben keeps retries bounded/)
-    await expect(page.getByText("2 edits weren't saved", { exact: true }).last()).toBeVisible()
-    await expect(page.getByRole("button", { name: "Reapply", exact: true }).last()).toBeVisible()
-    await expect(page.getByText("Saved to the machine", { exact: true })).toHaveCount(0)
-    await page.reload()
-    await expect(editor).toHaveValue(/Ben keeps retries bounded/)
-    await expect(page.getByText("2 edits weren't saved", { exact: true }).last()).toBeVisible()
-    await expect(page.getByText("Saved to the machine", { exact: true })).toHaveCount(0)
-    await expect(page.getByRole("button", { name: "Maya via SSH changed 3 files", exact: true })).toHaveCount(0)
+  test(`C-DUR-05: ${refusal} without a receipt retains unsaved edits across reload`, async ({ page }) => {
+    const host = fileCoeditFixture()
+    try {
+      host.acknowledge(false)
+      await host.install(page, "Alice")
+      await page.goto("/")
+      await say(page, '/file {"path":"retry.ts","branch":"T12"}')
+      const editor = page.locator('[data-kind="file"] .cm-content').last()
+      await expect(editor).toBeVisible()
+      await editor.click()
+      await page.keyboard.insertText("Ben keeps retries bounded")
+      await expect.poll(() => host.text()).toBe("Ben keeps retries bounded")
+      await expect(page.getByText("Saving…", { exact: true }).last()).toBeVisible()
+      for (let restart = 0; restart < 2; restart++) {
+        await page.reload()
+        await expect(page.getByRole("button", { name: "Reapply", exact: true }).last()).toBeVisible()
+        await expect(page.locator('[data-tone="attention"]').last()).toContainText("Ben keeps retries bounded")
+        await expect(page.getByText("Saved to the machine", { exact: true })).toHaveCount(0)
+        await expect(page.getByTestId("composer-input")).toBeEditable()
+      }
+    } finally { host.dispose() }
   })
 }
