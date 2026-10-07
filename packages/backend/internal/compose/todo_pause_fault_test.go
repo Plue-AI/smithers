@@ -145,6 +145,7 @@ func TestTodoStartCrashThroughRoute(t *testing.T) {
 	child := faultprocess.Start(t, "TestTodoStartCrashChild", "todo-start", "start", f.pool.Config().ConnString(), f.host)
 	child.Await(t, faultprocess.Marker+"start")
 	child.Kill(t)
+	require.Equal(t, 1, faultDatabaseCount(t, f.pool), "killed child must not orphan a suite database")
 	fmt.Println(faultprocess.Marker + "start")
 	var number int64
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT number FROM mythical_items WHERE title='Start fixture'`).Scan(&number))
