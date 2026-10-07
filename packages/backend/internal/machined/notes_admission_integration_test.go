@@ -29,7 +29,7 @@ func TestOutsideChangeAdmissionSharesBurstCommit(t *testing.T) {
 	registry := &Registry{}
 	boot, err := registry.MintBoot(branch, "vm")
 	require.NoError(t, err)
-	link, _ := connectTest(t, registry, branch, boot)
+	link, peer := connectTest(t, registry, branch, boot)
 	actor := json.RawMessage(`{"id":"member:1","kind":"person","via":"ssh"}`)
 	objects := &burstObjectFixture{}
 	ingest := &BurstIngest{Pool: pool, Objects: objects, ResolveActor: func(context.Context, string, wire.Actor) (json.RawMessage, error) { return actor, nil }}
@@ -84,15 +84,30 @@ func TestOutsideChangeAdmissionSharesBurstCommit(t *testing.T) {
 		require.Zero(t, count, "failed note admission rolls back "+table)
 	}
 	fail = false
-	objects.publishError = errors.New("lost acknowledgement after commit")
+	// Snapshot retention now precedes SQL commit. Its failure must roll back
+	// the note intent, rather than pretending to be a lost transport ACK.
+	objects.publishError = errors.New("snapshot retention unavailable")
 	_, err = ingest.Apply(ctx, link.Connection, scope, event)
-	require.EqualError(t, err, "lost acknowledgement after commit")
+	require.EqualError(t, err, "snapshot retention unavailable")
+	for _, table := range []string{"machine_event_receipts", "product_job_events", "burst_files", "product_job_requests"} {
+		var count int
+		require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&count))
+		require.Zero(t, count, "failed snapshot retention rolls back "+table)
+	}
 	objects.publishError = nil
-	var ack Acknowledgement
+	ack, err := ingest.Apply(ctx, link.Connection, scope, event)
+	require.NoError(t, err)
+	require.Equal(t, AckApplied, ack.Outcome)
+	require.Equal(t, 3, calls)
+	// Lose the actual acknowledgement transport after the durable commit.
+	// Reconnect with the same authenticated boot and replay its unacked event.
+	require.NoError(t, peer.Close())
+	require.Error(t, link.Ack(ctx, branch, ack))
+	link, _ = connectTest(t, registry, branch, boot)
 	ack, err = ingest.Apply(ctx, link.Connection, scope, event)
 	require.NoError(t, err)
 	require.Equal(t, AckDuplicate, ack.Outcome)
-	require.Equal(t, 2, calls, "a committed duplicate never admits another note")
+	require.Equal(t, 3, calls, "a committed duplicate never admits another note")
 	// Reconnection can assign a new transport event identity to the same
 	// logical burst. Deduplication must remain bound to the committed burst.
 	event.EventID = [16]byte{4}
@@ -100,7 +115,7 @@ func TestOutsideChangeAdmissionSharesBurstCommit(t *testing.T) {
 	ack, err = ingest.Apply(ctx, link.Connection, scope, event)
 	require.NoError(t, err)
 	require.Equal(t, AckDuplicate, ack.Outcome)
-	require.Equal(t, 2, calls)
+	require.Equal(t, 3, calls)
 	var signals int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation=$1`, flowdispatch.OperationSignal).Scan(&signals))
 	require.Equal(t, 1, signals, "lost burst acknowledgement leaves exactly one durable signal intent")
