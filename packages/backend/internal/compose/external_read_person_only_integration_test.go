@@ -22,6 +22,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/externalsessions"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
@@ -31,15 +32,18 @@ import (
 // Claude Code transcripts of the account the install runs as are read by
 // the owner's own browser session alone, through the composed install
 // router and real PostgreSQL. The owner's personal access token and CLI
-// credential are refused with never; the owner's terminal credential with
-// permission by the auth loader, which confines it to its profile's routes
-// (§8.11.1); a run credential with permission; and every other member with
-// permission at the owner-only HTTP boundary (code forbidden). The
+// credential are refused with never; an unbound terminal is unauthenticated;
+// a run credential and every other member are refused with permission. The
 // live topic external:<agent>:<session> takes the same decision.
 func TestExternalReadIsPersonOnlyComposedInstallPostgres(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	q := db.New(pool)
-	ctx := t.Context()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	bus := revocation.NewBus(pool, q)
+	require.NoError(t, bus.Start(ctx))
+	routes.SetRevocationSource(bus)
+	defer routes.SetRevocationSource(nil)
 	user := func(name string) db.User {
 		created, err := q.CreateUser(ctx, db.CreateUserParams{Username: name, LowerUsername: name, DisplayName: name})
 		require.NoError(t, err)
@@ -141,14 +145,18 @@ func TestExternalReadIsPersonOnlyComposedInstallPostgres(t *testing.T) {
 	}{
 		{"the owner's personal access token", credential{bearer: token(owner, "pat", "all", false)}, "never"},
 		{"the owner's CLI credential", credential{bearer: token(owner, "cli", "write:repository,via:cli", true)}, "never"},
-		{"the owner's terminal credential", credential{bearer: token(owner, "terminal", "write:repository,via:terminal,branch:main,profile:terminal_s1,terminal-session:s1", true)}, "permission"},
+		{"an unbound terminal credential", credential{bearer: token(owner, "terminal", "write:repository,via:terminal,branch:main,profile:terminal_s1,terminal-session:s1", true)}, "unauthenticated"},
 		{"the owner's run credential", credential{bearer: token(owner, "run", "write:repository", true)}, "permission"},
-		{"a maintainer's session", maintainerSession, "forbidden"},
-		{"a maintainer's CLI credential", credential{bearer: token(maintainer, "cli", "write:repository,via:cli", true)}, "forbidden"},
-		{"a member's session", writerSession, "forbidden"},
+		{"a maintainer's session", maintainerSession, "permission"},
+		{"a maintainer's CLI credential", credential{bearer: token(maintainer, "cli", "write:repository,via:cli", true)}, "permission"},
+		{"a member's session", writerSession, "permission"},
 	} {
 		status, body := get(tc.who)
-		require.Equal(t, http.StatusForbidden, status, "%s: %v", tc.name, body)
+		want := http.StatusForbidden
+		if tc.code == "unauthenticated" {
+			want = http.StatusUnauthorized
+		}
+		require.Equal(t, want, status, "%s: %v", tc.name, body)
 		require.NotContains(t, body, "text", tc.name)
 		if tc.code == "never" {
 			require.Equal(t, never, body, tc.name)
@@ -159,7 +167,7 @@ func TestExternalReadIsPersonOnlyComposedInstallPostgres(t *testing.T) {
 
 	// The live topic takes the same decision: the owner's session follows
 	// the file, every other member's socket is refused it, and no token
-	// opens a socket at all.
+	// reads an external transcript.
 	dial := func(c credential) (*websocket.Conn, int) {
 		t.Helper()
 		dialCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -195,7 +203,9 @@ func TestExternalReadIsPersonOnlyComposedInstallPostgres(t *testing.T) {
 		require.NoError(t, json.Unmarshal(raw, &f))
 		return f
 	}
-	conn, _ := dial(ownerSession)
+	conn, status := dial(ownerSession)
+	require.Equal(t, http.StatusSwitchingProtocols, status)
+	require.NotNil(t, conn)
 	require.Equal(t, "snap", subscribe(conn).T)
 	for name, who := range map[string]credential{"a maintainer's session": maintainerSession, "a member's session": writerSession} {
 		conn, _ := dial(who)
@@ -204,7 +214,8 @@ func TestExternalReadIsPersonOnlyComposedInstallPostgres(t *testing.T) {
 	for name, who := range map[string]credential{"the owner's personal access token": {bearer: token(owner, "pat-live", "all", false)},
 		"the owner's CLI credential": {bearer: token(owner, "cli-live", "write:repository,via:cli", true)}} {
 		conn, status := dial(who)
-		require.Nil(t, conn, name)
-		require.Equal(t, http.StatusUnauthorized, status, name)
+		require.Equal(t, http.StatusSwitchingProtocols, status, name)
+		require.NotNil(t, conn, name)
+		require.Equal(t, frame{T: "err", ID: 1, Code: live.Forbidden}, subscribe(conn), name)
 	}
 }

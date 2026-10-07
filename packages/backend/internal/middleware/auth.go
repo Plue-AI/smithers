@@ -432,6 +432,22 @@ var installMemberRoutes = []struct {
 	method, command string
 	path            *regexp.Regexp
 }{
+	// Non-command authentication and bootstrap protocols retain their own
+	// proof checks; declaring public here does not bypass the credential loader.
+	{http.MethodGet, "public", regexp.MustCompile(`^/api/(?:health|feature-flags|meta/failure-codes|bootstrap|build-cache/healthz)$`)},
+	{http.MethodHead, "public", regexp.MustCompile(`^/api/(?:bootstrap|build-cache/healthz)$`)},
+	{http.MethodGet, "public", regexp.MustCompile(`^/api/auth/(?:github(?:/callback|/cli(?:/consent)?)?|auth0/(?:authorize|callback))$`)},
+	{http.MethodPost, "public", regexp.MustCompile(`^/api/auth/github/(?:cli/consent|token-exchange)$`)},
+	{http.MethodGet, "public", regexp.MustCompile(`^/api/oauth2/authorize$`)},
+	{http.MethodPost, "public", regexp.MustCompile(`^/api/oauth2/(?:authorize|token|revoke)$`)},
+	{http.MethodGet, "public", regexp.MustCompile(`^/api/user/emails/verify-token$`)},
+	{http.MethodPost, "public", regexp.MustCompile(`^/api/user/emails/verify-token$`)},
+	// Retained repository aliases use the same literal read command as the
+	// numbered issue door. Execution credentials have no list-all grant.
+	{http.MethodGet, "issue.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:issue-views|labels(?:/[^/]+)?|issues(?:/state-events(?:/stream)?|/[0-9]+(?:/comments|/labels|/events)?)?)$`)},
+	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+(?:/home|/topics)?$`)},
+	{http.MethodGet, "run.view", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:actions/)?runs/[0-9]+/artifacts(?:/[^/]+/download)?$`)},
+	{http.MethodGet, "external.read", regexp.MustCompile(`^/api/external/sessions$`)},
 	// The relay resolves its body command before workspace lookup or dispatch.
 	{http.MethodPost, "flow.relay", regexp.MustCompile(`^/api/workflow/rpc$`)},
 	{http.MethodPost, "box.resume", regexp.MustCompile(`^/api/workflow/provision$`)},

@@ -20,8 +20,8 @@ import (
 )
 
 // The real router, token loader, repository checks and submission service run
-// against PostgreSQL. An admitted request reaches the service's no-stack
-// refusal; full delivery and retained-source verification run in J1/J4.
+// against PostgreSQL. A scope without its stored lane/item grants no authority.
+// Real retained-source admission is covered by TestInstallCandidateAuthorizationPostgres.
 func TestCodingDeliveryComposedCredentialBoundaryPostgres(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx, q := t.Context(), db.New(pool)
@@ -51,9 +51,9 @@ func TestCodingDeliveryComposedCredentialBoundaryPostgres(t *testing.T) {
 		system, expired                       bool
 		want                                  int
 	}{
-		{"admitted delivery", scopes, "PUT", path, workspace, true, false, 409},
+		{"unstored delivery binding", scopes, "PUT", path, workspace, true, false, 403},
 		{"another workspace", scopes, "PUT", path, foreignWorkspace, true, false, 403},
-		{"another repository door", scopes, "PUT", "/api/repos/delivery-owner/other/mythical/lanes", workspace, true, false, 404},
+		{"another repository door", scopes, "PUT", "/api/repos/delivery-owner/other/mythical/lanes", workspace, true, false, 403},
 		// The command authorizer rejects a foreign grant before resolving the route repository.
 		{"another repository grant", strings.Replace(scopes, middleware.RepositoryRestrictionScope(repo.ID), middleware.RepositoryRestrictionScope(other.ID), 1), "PUT", path, workspace, true, false, 403},
 		{"personal token cannot mint binding", scopes, "PUT", path, workspace, false, false, 401},
@@ -86,8 +86,8 @@ func TestCodingDeliveryComposedCredentialBoundaryPostgres(t *testing.T) {
 			response := httptest.NewRecorder()
 			router.ServeHTTP(response, req)
 			require.Equal(t, tc.want, response.Code, response.Body.String())
-			if tc.want == 409 {
-				require.Contains(t, response.Body.String(), "no active mythical stack")
+			if tc.name == "unstored delivery binding" {
+				require.Contains(t, response.Body.String(), `"code":"permission"`)
 				_, err = pool.Exec(ctx, `DELETE FROM access_tokens WHERE token_hash=$1`, hash)
 				require.NoError(t, err)
 				again := httptest.NewRequest(tc.method, cfg.Server.PublicURL+tc.path, strings.NewReader(string(body)))

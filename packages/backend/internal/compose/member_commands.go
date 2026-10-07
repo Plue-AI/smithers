@@ -153,7 +153,7 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 					return
 				}
 			}
-			if info == nil || info.User == nil || command == "" || command == "self" {
+			if info == nil || info.User == nil || command == "" || command == "self" || command == "public" {
 				next.ServeHTTP(w, r)
 				return
 			}
