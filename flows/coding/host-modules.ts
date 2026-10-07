@@ -50,15 +50,16 @@ const packageOf = (specifier: string) => specifier.split("/").slice(0, specifier
 /**
  * Serves each shared bare specifier from `supplied`, for every module the
  * process imports after this call. A package the host shares serves only its
- * bundled entry points: any other entry point of it is refused rather than
- * loaded as a second copy. `package.json` is data, never shared.
+ * bundled entry points. Every other Smithers package or shared entry point
+ * is refused before repository import. `package.json` is data, never shared.
  */
 export const share = (supplied: ReadonlyMap<string, object> = modules): void => {
   if (supplied.size === 0) return
   const packages = new Set([...supplied.keys()].map(packageOf))
   const refusal = (specifier: string) =>
     new Error(`The coding host does not provide "${specifier}"; import one of its public entry points`)
-  const shared = (specifier: string) => packages.has(packageOf(specifier)) && !specifier.endsWith("/package.json")
+  const shared = (specifier: string) =>
+    (specifier.startsWith("@smthrs/") || packages.has(packageOf(specifier))) && !specifier.endsWith("/package.json")
   const bun = (globalThis as { Bun?: { plugin: (plugin: BunPlugin) => void } }).Bun
   if (bun !== undefined) {
     bun.plugin({
@@ -71,7 +72,7 @@ export const share = (supplied: ReadonlyMap<string, object> = modules): void => 
         // shared package is recognized by the package.json above the file.
         build.onResolve({ filter: /.*/ }, ({ path }) => {
           const name = path.endsWith("package.json") ? undefined : owner(path)
-          if (name !== undefined && packages.has(name)) throw refusal(name)
+          if (name !== undefined && (name.startsWith("@smthrs/") || packages.has(name))) throw refusal(name)
           return undefined
         })
       }
@@ -84,7 +85,16 @@ export const share = (supplied: ReadonlyMap<string, object> = modules): void => 
   ;(globalThis as Record<symbol, unknown>)[registry] = supplied
   NodeModule.registerHooks({
     resolve: (specifier, context, nextResolve) => {
-      if (!shared(specifier)) return nextResolve(specifier, context)
+      if (!shared(specifier)) {
+        const resolved = nextResolve(specifier, context)
+        // An export named package.json can point to JavaScript. Only actual
+        // JSON may bypass the installed host's module ownership.
+        if (
+          specifier.endsWith("/package.json") &&
+          (specifier.startsWith("@smthrs/") || packages.has(packageOf(specifier))) && resolved.format !== "json"
+        ) throw refusal(specifier)
+        return resolved
+      }
       if (!supplied.has(specifier)) throw refusal(specifier)
       return { url: scheme + specifier, format: "module", shortCircuit: true }
     },

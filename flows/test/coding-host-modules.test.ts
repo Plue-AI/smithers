@@ -81,3 +81,46 @@ process.stdout.write(JSON.stringify({ marker: own.default.marker, refused, plain
   assert.equal(result.plain, "/")
   assert.match(result.version, /^\d+\.\d+\.\d+/, "package.json is data, read from the repository")
 })
+
+test("an unbundled Smithers package refuses before importing repository dependency code", async (t) => {
+  const temporary = await mkdtemp(join(tmpdir(), "coding-host-unbundled-"))
+  t.after(() => rm(temporary, { recursive: true, force: true }))
+  const dependency = join(temporary, "node_modules", "@smthrs", "unbundled")
+  await mkdir(dependency, { recursive: true })
+  await writeFile(
+    join(dependency, "package.json"),
+    JSON.stringify({
+      name: "@smthrs/unbundled",
+      type: "module",
+      exports: { ".": "./index.js", "./package.json": "./package.json", "./evil/package.json": "./index.js" }
+    })
+  )
+  await writeFile(join(dependency, "index.js"), "globalThis.repositoryImports = 1; export const value = 'repository'")
+  const ordinary = join(temporary, "node_modules", "pinned-dependency")
+  await mkdir(ordinary)
+  await writeFile(join(ordinary, "package.json"), JSON.stringify({ type: "module", exports: "./index.js" }))
+  await writeFile(join(ordinary, "index.js"), "export const value = 'pinned dependency'")
+  const probe = join(temporary, "probe.mjs")
+  await writeFile(
+    probe,
+    `import { share } from ${JSON.stringify(fileURLToPath(new URL("../coding/host-modules.ts", import.meta.url)))}
+globalThis.repositoryImports = 0
+share(new Map([["effect", { marker: "host" }]]))
+const refused = await import("@smthrs/unbundled").then(() => "loaded", (error) => error.message)
+const data = (await import("@smthrs/unbundled/package.json", { with: { type: "json" } })).default.name
+const deceptive = await import("@smthrs/unbundled/evil/package.json").then(() => "loaded", (error) => error.message)
+const ordinary = (await import("pinned-dependency")).value
+process.stdout.write(JSON.stringify({ refused, deceptive, imports: globalThis.repositoryImports, data, ordinary }))
+`
+  )
+  const result = JSON.parse(execFileSync(process.execPath, [...runtimeFlags, probe], {
+    cwd: temporary,
+    encoding: "utf8",
+    timeout: 60_000
+  }))
+  assert.match(result.refused, /coding host does not provide "@smthrs\/unbundled"/)
+  assert.match(result.deceptive, /coding host does not provide "@smthrs\/unbundled\/evil\/package.json"/)
+  assert.equal(result.imports, 0)
+  assert.equal(result.data, "@smthrs/unbundled", "package metadata remains repository data")
+  assert.equal(result.ordinary, "pinned dependency", "ordinary dependencies resolve from the source checkout")
+})
