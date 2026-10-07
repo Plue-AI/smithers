@@ -861,7 +861,7 @@ export const SessionSchema = z.object({
   })).optional(),
   reviewRequests: z.array(z.object({
     id: z.string(), origin: z.string(), owner: z.string(), repo: z.string(), number: z.number().int().positive(),
-    conversation: z.string(), tabId: z.string().optional(), operationId: z.string().optional(), terminal: z.boolean().optional(), state: z.enum(["requested", "running", "completed", "failed"])
+    conversation: z.string(), tabId: z.string().optional(), operationId: z.string().optional(), confirmationId: z.string().optional(), terminal: z.boolean().optional(), state: z.enum(["requested", "running", "completed", "failed"])
   })).optional(),
   installRequests: z.array(z.object({
     id: z.string(), step: SetupStepIdSchema, origin: z.string(), body: z.record(z.string(), z.unknown()),
