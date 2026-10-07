@@ -422,6 +422,13 @@ func TestPresenceBranchRefreshMachineNameAndOrigin(t *testing.T) {
 	require.Contains(t, string(first.Data), `"item":{"n":1,"place":2,"state":"working","title":"Retry webhooks"}`)
 	require.Contains(t, string(first.Data), `"rebase":{"onto":"main","state":"pending"}`)
 	require.Contains(t, string(first.Data), `"ssh_line":"ssh -p 2222 scratch/presence-owner/presence@factory.example"`)
+	for _, state := range []struct{ stored, visible string }{{"releasing", "releasing"}, {"suspended", "asleep"}, {"starting", "waking"}, {"running", "awake"}} {
+		_, err := f.pool.Exec(t.Context(), `UPDATE workspaces SET status=$2 WHERE id=$1`, f.row.ID, state.stored)
+		require.NoError(t, err)
+		frame := readPresenceFrame(t, conn)
+		require.Equal(t, "snap", frame.T)
+		require.Contains(t, string(frame.Data), `"state":"`+state.visible+`"`)
+	}
 	_, err := f.pool.Exec(t.Context(), `UPDATE workspaces SET status='suspended', target_bookmark='scratch/presence-owner/renamed' WHERE id=$1`, f.row.ID)
 	require.NoError(t, err)
 	second := readPresenceFrame(t, conn)

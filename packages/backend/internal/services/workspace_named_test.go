@@ -108,7 +108,7 @@ func TestCreateWorkspaceNamedIdentity(t *testing.T) {
 
 func TestBranchMachineStateProjection(t *testing.T) {
 	for _, tc := range []struct{ status, vm, want string }{
-		{"running", "vm", "awake"}, {"suspended", "vm", "asleep"}, {"stopped", "", "asleep"},
+		{"releasing", "vm", "releasing"}, {"running", "vm", "awake"}, {"suspended", "vm", "asleep"}, {"stopped", "", "asleep"},
 		{"pending", "", "provisioning"}, {"starting", "", "provisioning"}, {"starting", "vm", "waking"},
 		{"failed", "retained", "failed"}, {"archived", "", "closed"},
 	} {

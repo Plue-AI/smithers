@@ -177,7 +177,8 @@ func composeBranchMachines(options Options, hosted bool, members identity.Member
 // Options are the only deployment seams in the common product assembly.
 type Options struct {
 	// Machined is the shared host link registry, owned by the install runtime.
-	Machined *machined.Registry
+	Machined      *machined.Registry
+	BranchCapture services.BranchCapture
 	// DocumentRelay is the authenticated document seam; nil refuses document subscriptions.
 	DocumentRelay *live.DocRelay
 	HostProfile   *microsandbox.HostProfile
@@ -969,6 +970,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	branchMachines, err := composeBranchMachines(options.Options, options.topology.hosted(), identity.NewMemberBoundary(queries))
 	if err != nil {
 		return err
+	}
+	if options.BranchCapture != nil {
+		services.WithBranchCapture(options.BranchCapture)(workspaceService)
+	} else if options.Machined != nil {
+		services.WithBranchCapture(options.Machined)(workspaceService)
 	}
 	if branchMachines != nil {
 		services.WithBranchMachineProviders(*branchMachines)(workspaceService)
