@@ -104,6 +104,14 @@ func TestCatalogMergeBrowserPostgres(t *testing.T) {
 	testTodoMergeComposedRouteBoundaryPostgres(t, true, true)
 }
 
+// TestAccessMergeBrowserPostgres is driven by the real C-ACC-02 browser spec.
+func TestAccessMergeBrowserPostgres(t *testing.T) {
+	if os.Getenv("SMITHERS_ACCESS_MERGE_PHASE_DIR") == "" {
+		t.Skip("run C-ACC-02 for the composed browser journey")
+	}
+	testTodoMergeComposedRouteBoundaryPostgres(t, true, true)
+}
+
 func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, browserJourney bool, delegatedBrowser ...bool) {
 	installBrowser := browserJourney || len(delegatedBrowser) > 0 && delegatedBrowser[0]
 	installation := int64(98300) + confirmationMergeInstallations.Add(1)
@@ -230,6 +238,8 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 	issuer := &outboundProxyIssuer{}
 	server.Config.Handler = todoMergeComposeRouter(cfg, q, pool, &routes.MythicalHandler{Service: mythical}, &routes.GitHubProxyHandler{Service: services.NewGitHubProxyService(issuer)})
 	if installBrowser {
+		_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'admin') ON CONFLICT DO NOTHING`, repo.ID, owner.ID)
+		require.NoError(t, err)
 		encrypted, err := smitherscrypto.Encrypt(smitherscrypto.DeriveKey("split-process-session-secret"), []byte("ghu_githubfake_owner"))
 		require.NoError(t, err)
 		_, err = pool.Exec(ctx, `UPDATE oauth_accounts SET access_token_encrypted=$1 WHERE user_id=$2`, encrypted, owner.ID)
@@ -237,17 +247,19 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		t.Setenv("SMITHERS_PUBLIC_URL", origin)
 		t.Setenv("SMITHERS_SERVER_ALLOWED_ORIGINS", origin)
 		t.Setenv("SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY", "merge-route-sealing-key")
+		browserOptions := Options{ChatHost: unusedChatHost{}}
 		native := repohostffi.New(os.Getenv("SMITHERS_FFI_LIBRARY_PATH"))
 		require.NoError(t, native.Load())
-		repositoryConfig := repohostserver.Config{StoragePath: t.TempDir(), AuthToken: "split-process-repo"}
-		_, err = native.InitRepo(repositoryConfig.RepoPath(owner.Username, repo.Name))
+		sidecar, err := repohostserver.NewWithFFI(repohostserver.Config{StoragePath: t.TempDir(), AuthToken: "access-merge-test", PushHookCallbackToken: "test-callback"}, native)
 		require.NoError(t, err)
-		repositoryHost, err := repohostserver.NewWithFFI(repositoryConfig, native)
-		require.NoError(t, err)
-		repositoryServer := httptest.NewServer(repositoryHost.Handler())
-		t.Cleanup(repositoryServer.Close)
-		t.Setenv("SMITHERS_REPO_HOST_URL", repositoryServer.URL)
-		api := startSplitProcess(t, Options{ChatHost: unusedChatHost{}})
+		storageServer := httptest.NewServer(sidecar.Handler())
+		t.Cleanup(storageServer.Close)
+		host := repohost.NewClient(&repohost.StaticStorageSetResolver{URL: storageServer.URL}, "access-merge-test")
+		require.NoError(t, host.InitRepo(ctx, owner.Username, repo.Name, "main", true))
+		browserOptions.Repository = host
+		t.Setenv("SMITHERS_REPO_HOST_URL", storageServer.URL)
+		t.Setenv("SMITHERS_REPO_HOST_AUTH_TOKEN", "access-merge-test")
+		api := startSplitProcess(t, browserOptions)
 		spa, err := filepath.Abs("../../../../apps/app/dist")
 		require.NoError(t, err)
 		_, err = os.Stat(filepath.Join(spa, "index.html"))
@@ -307,6 +319,60 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		replayCode, replay := invoke(argv...)
 		require.Equal(t, 3, replayCode)
 		require.Equal(t, receipt, replay, "repeated CLI invocation keeps the same private confirmation")
+		if phaseDir := os.Getenv("SMITHERS_ACCESS_MERGE_PHASE_DIR"); browserJourney && phaseDir != "" {
+			wait := func(name string) {
+				t.Helper()
+				deadline := time.NewTimer(2 * time.Minute)
+				defer deadline.Stop()
+				tick := time.NewTicker(20 * time.Millisecond)
+				defer tick.Stop()
+				for {
+					if _, err := os.Stat(filepath.Join(phaseDir, name)); err == nil {
+						return
+					}
+					if _, err := os.Stat(filepath.Join(phaseDir, "done")); err == nil {
+						t.Fatalf("browser ended before %s", name)
+					}
+					select {
+					case <-tick.C:
+					case <-deadline.C:
+						t.Fatalf("browser did not reach %s", name)
+					}
+				}
+			}
+			noMerge := func() {
+				t.Helper()
+				for _, write := range fake.Writes() {
+					require.False(t, write.Method == "PUT" && strings.HasSuffix(write.Path, "/merge"))
+				}
+			}
+			fmt.Printf("ACCESS_MERGE_READY %s %s\n", origin, id)
+			wait("shown")
+			// The head stays the same: generation is an independent approval fence.
+			_, err = pool.Exec(ctx, `UPDATE mythical_items SET generation=generation+1 WHERE id=$1`, before.ID)
+			require.NoError(t, err)
+			fmt.Println("ACCESS_MERGE_CHANGED")
+			wait("expired")
+			row, err := q.GetMemberConfirmation(ctx, id, owner.ID)
+			require.NoError(t, err)
+			require.Equal(t, "expired", row.State)
+			require.Empty(t, item().PendingOp)
+			noMerge()
+			argv[len(argv)-1] = "access-current-generation"
+			code, receipt = invoke(argv...)
+			require.Equal(t, 3, code, receipt)
+			id = receipt["confirmation"].(string)
+			fmt.Println("ACCESS_MERGE_CURRENT " + id)
+			wait("approved")
+			row, err = q.GetMemberConfirmation(ctx, id, owner.ID)
+			require.NoError(t, err)
+			require.Equal(t, "pending", row.State, "admission is not a completed merge")
+			var operation services.MythicalOutboundOp
+			require.NoError(t, json.Unmarshal(item().PendingOp, &operation))
+			require.Equal(t, "merge", operation.Kind)
+			noMerge()
+			return
+		}
 		if browserJourney {
 			command := exec.CommandContext(t.Context(), "bun", "e2e/real/catalog-merge.browser.ts")
 			command.Dir = "../../../../apps/app"

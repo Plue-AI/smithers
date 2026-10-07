@@ -3,54 +3,62 @@ import type { MemberConfirmation } from "@smthrs/rpc/ConfirmCard"
 import type { TodoCard } from "@smthrs/rpc/TodoCard"
 import { expect, test } from "../browserTest"
 import { fixtures as confirms } from "../../../../../packages/rpc/test/fixtures/Confirm"
-import { fixture, open, privateRow, roster } from "./confirmation-fixtures"
+import { fixture, open, roster } from "./confirmation-fixtures"
+import { spawn } from "node:child_process"
+import { mkdtemp, writeFile, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { resolve, join } from "node:path"
 
-// The composed PostgreSQL/GitHub-fake test proves stale admission refuses.
-// Here the real install seam projects expiry and requires a fresh person press.
-test("C-ACC-02: a stale delegated merge expires before the member reviews the current revision", async ({ page }) => {
-  test.setTimeout(120_000)
-  let row = privateRow(true), calls = 0
-  row = { ...row, revision: "generation-1:h1", payload: { ...row.payload, card: { ...row.payload.card,
-    subject: { kind: "todo", ref: "T12", revision: "h1" }, review: { ...row.payload.card.review!, merge: { state: "ready", on_github: true } } } } }
-  const publish = await fixture(page, topic => topic === "confirmations:1" ? [row] : topic === "members" ? roster("owner") : undefined)
-  await page.route("**/api/confirmations/*/approve", async route => {
-    calls++
-    if (calls === 1) {
-      row = { ...row, state: "expired", payload: { ...row.payload, card: { ...row.payload.card, receipt: confirms.expired.model.receipt } } }
-      publish("confirmations:1")
-      await route.fulfill({ status: 409, json: { class: "conflict", code: "confirmation_resolved", message: "Confirmation changed or was already answered" } })
-    } else {
-      await route.fulfill({ status: 202, json: { id: row.id, state: "pending" } })
-    }
+// Real install composition, native repository, PostgreSQL, source CLI and GitHub fake.
+// This proves stale refusal and current admission; completion belongs to the merge worker.
+test("C-ACC-02: a changed generation expires the merge approval and requires a fresh person press", async ({ page }) => {
+  test.setTimeout(240_000)
+  if (!process.env.SMITHERS_FFI_LIBRARY_PATH || !process.env.SMITHERS_TEST_DATABASE_URL) throw new Error("Native FFI and PostgreSQL are required for C-ACC-02")
+  const directory = await mkdtemp(join(tmpdir(), "smithers-access-merge-"))
+  const backend = spawn("go", ["test", "./internal/compose", "-run", "^TestAccessMergeBrowserPostgres$", "-count=1", "-v"], {
+    cwd: resolve("../../packages/backend"), env: { ...process.env, SMITHERS_ACCESS_MERGE_PHASE_DIR: directory }, stdio: ["pipe", "pipe", "pipe"]
   })
-  const card = await open(page)
-  await expect(card).toContainText("rev h1")
-  await card.getByRole("button", { name: "Review & merge", exact: true }).press("Enter")
-  await expect(card).toContainText("Expired")
-  await expect(card.getByRole("button")).toHaveCount(0)
-  await expect(page.getByTestId("composer-input")).toBeEnabled()
-  row = { ...privateRow(true), id: "10000000-0000-4000-8000-000000000002", payload: { ...privateRow(true).payload,
-    card: { ...privateRow(true).payload.card, subject: { kind: "todo", ref: "T12", revision: "h2" },
-      review: { ...privateRow(true).payload.card.review!, merge: { state: "waiting", reason: "checks", detail: "Checks running on h2", on_github: true } } } } }
-  publish("confirmations:1")
-  const current = page.locator('[data-kind="confirm"]').filter({ hasText: "rev h2" })
-  await expect(current).toContainText("Checks running on h2")
-  await expect(current.getByRole("button", { name: "Review & merge", exact: true })).toBeDisabled()
-  expect(calls).toBe(1)
-  row = { ...row, payload: { ...row.payload, card: { ...row.payload.card, review: { ...row.payload.card.review!, merge: { state: "ready", on_github: true } } } } }
-  publish("confirmations:1")
-  await current.getByRole("button", { name: "Review & merge", exact: true }).press("Enter")
-  await expect.poll(() => calls).toBe(2)
-  await expect(current).not.toContainText("Merged")
-  row = { ...row, state: "approved", payload: { ...row.payload, card: { ...row.payload.card, receipt: { ...confirms.done.model.receipt!, text: "Merged" } } } }
-  publish("confirmations:1")
-  await expect(page.locator('[data-kind="confirm"]').last()).toContainText("Merged")
-  await page.reload()
-  await expect(page.locator('[data-kind="confirm"]').last()).toContainText("Merged")
-  expect(calls).toBe(2)
+  let logs = "", complete = false
+  backend.stdout.on("data", bytes => { logs += String(bytes) })
+  backend.stderr.on("data", bytes => { logs += String(bytes) })
+  const exited = new Promise<number | null>((done, reject) => { backend.on("exit", done); backend.on("error", reject) })
+  const wait = async (pattern: RegExp) => {
+    await expect.poll(() => { if (backend.exitCode !== null) throw new Error(logs); return pattern.test(logs) }, { timeout: 120_000 }).toBe(true)
+    return logs.match(pattern)!
+  }
+  try {
+    const [, origin, id] = await wait(/ACCESS_MERGE_READY (http:\/\/\S+) (\S+)/)
+    await page.context().addCookies([{ name: "smithers_session", value: "owner-browser-session", url: origin }, { name: "__csrf", value: "csrf", url: origin }])
+    await page.goto(origin)
+    const review = page.getByRole("button", { name: "Review & merge", exact: true })
+    await expect(review).toBeEnabled({ timeout: 60_000 })
+    await writeFile(join(directory, "shown"), "shown")
+    await wait(/ACCESS_MERGE_CHANGED/)
+    const stale = page.waitForResponse(response => response.url().endsWith(`/api/confirmations/${id}/approve`) && response.request().method() === "POST")
+    await review.press("Enter")
+    expect((await stale).status()).toBe(409)
+    await expect(page.locator('[data-kind="confirm"]').last()).toContainText("Expired")
+    await expect(review).toHaveCount(0)
+    await expect(page.getByTestId("composer-input")).toBeEnabled()
+    await expect(page.getByText("Merged", { exact: true })).toHaveCount(0)
+    await writeFile(join(directory, "expired"), "expired")
+    const [, current] = await wait(/ACCESS_MERGE_CURRENT (\S+)/)
+    await page.reload()
+    await expect(review).toBeEnabled({ timeout: 60_000 })
+    const admitted = page.waitForResponse(response => response.url().endsWith(`/api/confirmations/${current}/approve`) && response.request().method() === "POST")
+    await review.press("Enter")
+    expect((await admitted).status()).toBe(202)
+    await expect(page.getByText("Merged", { exact: true })).toHaveCount(0)
+    await writeFile(join(directory, "approved"), "approved")
+    complete = true
+  } finally {
+    await writeFile(join(directory, "done"), "done")
+    try { const status = await exited; if (complete) expect(status, logs).toBe(0) } finally { await rm(directory, { recursive: true, force: true }) }
+  }
 })
 
-// Pending merge admission stays durable through reload and settles from the real seam.
+// UI projection only: mocked responses exercise pending/reload/toast behavior.
+// The test above proves admission against the composed install.
 test("C-ACC-02: a person reviews the current revision and merge survives reload", async ({ page }) => {
   test.setTimeout(120_000)
   const id = "10000000-0000-4000-8000-000000000002"
