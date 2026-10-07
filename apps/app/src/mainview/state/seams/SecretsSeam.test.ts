@@ -506,6 +506,8 @@ test("install /secrets reads only its live topic and acknowledges a write before
     bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["identity", "cloud", "install"], authFlow: "credentials", sandbox: null },
     fetchImpl: async (input, init) => {
       const url = String(input)
+      if (url.endsWith("/api/members")) return json(200, { members: [{ login: "will", name: "Will", avatar_url: "https://example.test/avatar", color_index: 0,
+        role: "owner", needs_access: false, suspended: false, actions: [] }], access_url: "https://github.com/will/flows/settings/access" })
       if (!url.includes("/api/secrets")) return json(404, {})
       hits.push({ url, init }); return reply.promise
     }
@@ -676,4 +678,81 @@ for (const action of ["delete", "scope"] as const) test(`reload refuses a persis
     expect(JSON.stringify([...store.collections.messages.values()])).not.toContain("DEPLOY deleted")
     expect(JSON.stringify([...store.collections.messages.values()])).not.toContain("DEPLOY saved")
   } finally { await controller.dispose() }
+})
+
+for (const failure of ["unavailable", "permission", "incompatible", "suspended"] as const) test(`Secrets mount withdraws cached write controls when roster is ${failure}`, async () => {
+  const { LiveChannel } = await import("../../runtime/LiveChannel")
+  const { createElement } = await import("react")
+  const { createRoot } = await import("../../cards/views/testDom")
+  const { act } = await import("react")
+  const host = document.createElement("div")
+  document.body.append(host)
+  const root = createRoot(host)
+  const { ControllerTestProvider } = await import("../../ControllerContext")
+  const { CARD_RENDERERS } = await import("../../cards/CardRenderers")
+  let changed = false
+  let socket!: import("../../runtime/LiveChannel").LiveSocket
+  let memberTopic = 0
+  const live = new LiveChannel({ socket: () => {
+    socket = { readyState: 1, onopen: null, onclose: null, onmessage: null, close() {}, send(raw) {
+      const frame = JSON.parse(String(raw))
+      if (frame.t !== "sub") return
+      if (frame.topic === "members") memberTopic = frame.id
+      if (frame.topic === "secrets") queueMicrotask(() => socket.onmessage?.({ data: JSON.stringify({
+        t: "snap", id: frame.id, cursor: 1, data: { secrets: [{ name: "DEPLOY", scope: "main_only", actions: [] }] }
+      }) }))
+    } }
+    queueMicrotask(() => socket.onopen?.())
+    return socket
+  } })
+  const writes: string[] = []
+  const { store, controller, signupReads } = await heldController({ live,
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["identity", "cloud", "install"], authFlow: "credentials", sandbox: null },
+    fetchImpl: async (input, init) => {
+      const url = String(input)
+      if (url.endsWith("/api/members")) {
+        if (changed && failure === "unavailable") return json(503, { class: "infra", code: "unavailable", message: "Members unavailable" })
+        if (changed && failure === "permission") return json(403, { class: "permission", code: "permission", message: "Not available" })
+        if (changed && failure === "incompatible") return json(200, { members: [{ login: "will", role: "owner" }] })
+        return json(200, { members: [{ login: "will", name: "Will", avatar_url: "https://example.test/avatar", color_index: 0,
+          role: "owner", needs_access: false, suspended: changed && failure === "suspended", actions: [] }], access_url: "https://github.com/will/flows/settings/access" })
+      }
+      if (url.includes("/secrets")) writes.push(`${init?.method ?? "GET"} ${url}`)
+      return json(404, {})
+    }
+  })
+  const mount = async () => { await act(async () => root.render(createElement(ControllerTestProvider, { controller, children: CARD_RENDERERS.secrets.render(secretsCard(store)!, {
+    onDecideApproval() {}, onConnectGitHub() {}, onRunWorkflow() {}, onStopRun() {}, onRetryRun() {}, onChooseWorkflowRepo() {}, worldDocuments: [],
+    onChangeWorldDocument() {}, onRunCommand() {}
+  }) }))); return host.innerHTML }
+  try {
+    await heldReady(store, signupReads)
+    expect(await bounded(controller.commands.run("secrets"))).toMatchObject({ status: "executed" })
+    expect(controller.membersRoster.get()).toMatchObject({ model: { members: [{ role: "owner" }] } })
+    expect(await mount()).toContain('data-flow="secrets.set"')
+    changed = true
+    socket.onmessage?.({ data: JSON.stringify({ t: "snap", id: memberTopic, cursor: 2, data: {} }) })
+    await checkpoint()
+    await checkpoint()
+    expect(controller.commands.state().viewerRole).toBeUndefined()
+    const html = await mount()
+    expect(html).toContain("DEPLOY")
+    expect(html).not.toContain('data-flow="secrets.set"')
+    expect(html).not.toContain('data-flow="secrets.delete"')
+    expect(html).not.toContain('type="password"')
+    const { writeOnlyGesture } = await import("../../flows/CommandGesture")
+    const gesture = writeOnlyGesture("secrets.set", { value: "PRIVATE_WITHHELD_ROSTER" })
+    for (const command of [
+      { name: "secrets.set", payload: { name: "DEPLOY", repo: "will/flows" }, gesture },
+      { name: "secrets.delete", payload: { name: "DEPLOY", repo: "will/flows" } },
+      { name: "secrets.scope", payload: { name: "DEPLOY", scope: "main-only", repo: "will/flows" } },
+      { name: "secrets.bind", payload: { name: "DEPLOY", hosts: "example.test", headers: "authorization", repo: "will/flows" } }
+    ]) expect(await bounded(controller.commands.submit({ ...command, actor: "user" }))).toMatchObject({ status: "failed", error: "Secrets unavailable" })
+    expect(gesture.takeWriteOnly?.("value")).toBeUndefined()
+    expect(store.session().secretRequests ?? []).toEqual([])
+    expect(JSON.stringify((await store.eventHistory()).events)).not.toContain("PRIVATE_WITHHELD_ROSTER")
+    expect(writes).toEqual([])
+    controller.changeDraft("Chat still works")
+    expect(store.session().draft).toBe("Chat still works")
+  } finally { await act(async () => root.unmount()); host.remove(); await controller.dispose(); live.dispose() }
 })
