@@ -457,6 +457,9 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+(?:/home|/topics)?$`)},
 	{http.MethodGet, "run.view", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:actions/)?runs/[0-9]+/artifacts(?:/[^/]+/download)?$`)},
 	{http.MethodGet, "external.read", regexp.MustCompile(`^/api/external/sessions$`)},
+	{http.MethodGet, "runs.list", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/agent/sessions$`)},
+	{http.MethodGet, "run.view", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/agent/sessions/[^/]+$`)},
+	{http.MethodGet, "runs.events", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/agent/sessions/[^/]+/messages$`)},
 	// The relay resolves its body command before workspace lookup or dispatch.
 	{http.MethodPost, "flow.relay", regexp.MustCompile(`^/api/workflow/rpc$`)},
 	{http.MethodPost, "box.resume", regexp.MustCompile(`^/api/workflow/provision$`)},
