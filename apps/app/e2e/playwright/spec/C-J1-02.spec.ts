@@ -78,7 +78,10 @@ test("C-J1-02: blocked squash and failed image keep their literal fixes", async 
   for (const step of model.steps.slice(3, 6)) step.state = "done"
   model.steps[6] = { id: "machine", state: "failed", error: { class: "user", code: "image_failed", message: "figlet missing; update .smithers/machine.json" } }
   await page.reload()
-  await expect(card.locator('[data-step="machine"]').getByRole("alert")).toHaveText("figlet missing; update .smithers/machine.json")
+  const machine = card.locator('[data-step="machine"]')
+  await expect(machine.getByRole("alert")).toHaveText("user")
+  await machine.locator("summary").press("Enter")
+  await expect(machine.getByRole("region", { name: "Failure details", exact: true })).toHaveText("figlet missing; update .smithers/machine.json")
   await expect(card.locator('[data-step="machine"]').getByRole("button", { name: "Retry", exact: true })).toBeEnabled()
 })
 

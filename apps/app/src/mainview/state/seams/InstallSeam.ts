@@ -252,7 +252,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
               ? body as Pick<InstallAddress, "bind" | "origins"> : undefined
             const failedStep = setup ? (path.endsWith("/app") ? "app_manifest" : path.split("/").at(-1)) as InstallStepId : undefined
             publish({ ...shared.snapshot, error: result, model: model && address ? { ...model, address: { ...model.address,
-              change_failed: { from: model.address.origins[0] ?? "", to: address.origins[0] ?? "", reason: result.message } } }
+              change_failed: { from: model.address.origins[0] ?? "", to: address.origins[0] ?? "", reason: result.message, bind: address.bind, origins: [...address.origins] } } }
               : model && path === "/install" && typeof body === "object" && body !== null && "wiki_sync.obsidian" in body
                 ? { ...model, wiki_sync: { obsidian: { ...model.wiki_sync?.obsidian, path: model.wiki_sync?.obsidian?.path ?? "", error: result.message } } }
               : model && failedStep ? { ...model, steps: model.steps.map(step => step.id === failedStep

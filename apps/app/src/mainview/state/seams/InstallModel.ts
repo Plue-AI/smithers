@@ -16,7 +16,7 @@ export const InstallModelSchema = z.object({
   callback_fixes: SettingsCardSchema.shape.callback_fixes,
   can_assign_models: z.boolean().optional(),
   address: z.object({ listen: z.enum(["mac", "network"]), bind: z.string(), origins: z.array(HttpUrlSchema),
-    change_failed: z.object({ from: z.string(), to: z.string(), reason: z.string() }).optional() }),
+    change_failed: z.object({ from: z.string(), to: z.string(), reason: z.string(), bind: z.string().optional(), origins: z.array(z.string()).optional() }).optional() }),
   steps: z.array(z.object({ id: SetupStepIdSchema, state, pct: z.number().min(0).max(100).optional(),
     blocked: z.object({ line: z.string(), fix_url: z.string().url() }).optional(),
     error: InstallErrorSchema.omit({ code: true }).extend({ code: z.string().optional() }).optional() })),
