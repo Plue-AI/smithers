@@ -118,24 +118,31 @@ test("C-J8-02 shared wiki, 400 latency samples and offline reload @production", 
     expect(after.length).toBeGreaterThan(3)
     expect(after.length).toBeLessThan(12) // 400 edits are batched, never 400 revisions.
     const actors = [await f.read("Ben", "/api/user"), await f.read("Alice", "/api/user")]
-    const attributed = new Set<string>()
     for (const revision of after.slice(3)) {
       const doc = new Y.Doc()
-      try { Y.applyUpdate(doc, Buffer.from(revision.state, "base64")); for (const actor of doc.getMap("authors").values()) attributed.add(String(actor)) }
+      try {
+        Y.applyUpdate(doc, Buffer.from(revision.state, "base64"))
+        const attributed = new Set(Array.from(doc.getMap("authors").values(), String))
+        for (const actor of actors) expect(attributed.has(String(actor.id))).toBe(true)
+      }
       finally { doc.destroy() }
     }
     expect(actors).toHaveLength(2)
-    for (const actor of actors) expect(attributed.has(String(actor.id))).toBe(true)
     for (const [revision, body] of original) {
       const response = await realApi(ben, ben.context().request, "GET", `${history}/${revision}/content?visibility=${visibility}`)
       expect(response.status()).toBe(200); expect(await response.text()).toBe(body)
     }
+    const probes: { method: string; suffix: string; status: number }[] = []
     for (const [method, suffix] of [["GET", "updates"], ["POST", "updates"], ["GET", "stream"]]) {
       const response = await realApi(ben, ben.context().request, method!, `${api}/${encodeURIComponent(slug)}/${suffix}`)
+      probes.push({ method: method!, suffix: suffix!, status: response.status() })
       expect(response.status()).toBe(404)
     }
     const openapi = await readFile(resolve("../../docs/api/openapi/repositories.yaml"), "utf8")
     expect(openapi).not.toMatch(/\/wiki\/\{slug\}\/(updates|stream):/)
-    await attachJson(info, "pages-and-revisions", { before: revisions, after, text, sha256: createHash("sha256").update(text).digest("hex") })
+    const texts = { ben: text, alice: (await editors[1]!.textContent())!, stored: after.at(-1).body as string }
+    await attachJson(info, "route-probes", probes)
+    await attachJson(info, "pages-and-revisions", { before: revisions, after, texts,
+      hashes: Object.fromEntries(Object.entries(texts).map(([name, value]) => [name, createHash("sha256").update(value).digest("hex")])) })
   })
 })
