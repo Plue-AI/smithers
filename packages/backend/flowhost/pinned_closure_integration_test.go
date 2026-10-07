@@ -77,6 +77,13 @@ body: Node.capture({}, () => Node.succeed(value)) })`
 		require.NoError(t, json.Unmarshal([]byte(result.Stdout), &got), result.Stdout)
 		return got
 	}
+	// The same real interpreter can run working-copy code only through the
+	// explicitly authorized draft registry; it is separate from either pin.
+	write(filepath.Join(box.Root, "flows/todo/flow.ts"), flow)
+	write(filepath.Join(box.Root, "lib/value.ts"), `export const value = "draft-working-copy"`)
+	write(filepath.Join(box.Root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n")
+	require.NoError(t, os.Symlink(filepath.Join(root, "flows/node_modules"), filepath.Join(box.Root, "node_modules")))
+	require.Equal(t, "draft-working-copy", run(box.Root, "draft", "").Output)
 	first := run(v1, "", "")
 	require.Equal(t, "approved-v1", first.Output)
 	require.Len(t, first.Digest, 64)

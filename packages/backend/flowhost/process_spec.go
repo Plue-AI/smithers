@@ -91,6 +91,14 @@ func BuildProcessSpec(launch HostLaunch, paths WorkspacePaths, port uint16) (Pro
 	environment["SMITHERS_OWNER_GENERATION"] = strconv.FormatInt(launch.Binding.OwnerGeneration, 10)
 	environment["SMITHERS_FLOW_ARTIFACT_SHA256"] = launch.Binding.RuntimeArtifactDigest
 	environment["SMITHERS_SOURCE_REVISION"] = launch.Binding.SourceRevision
+	delete(environment, "SMITHERS_FLOW_DRAFT_VERSION")
+	if launch.Binding.BindingKind == "draft-flow" {
+		if launch.Authority.ExecutionPin != nil {
+			return ProcessSpec{}, errors.New("draft host cannot carry a TODO pin")
+		}
+		environment["SMITHERS_FLOW_DRAFT_VERSION"] = "1"
+		environment["SMITHERS_CODING_LOCAL_OWNER"] = "1"
+	}
 	delete(environment, "SMITHERS_FLOW_SOURCE_PINNED")
 	delete(environment, "SMITHERS_TODO_EXECUTION_DIGEST")
 	if pin := launch.Authority.ExecutionPin; pin != nil {

@@ -11,7 +11,9 @@ import * as Registry from "@smthrs/registry/Registry"
 import { Effect, Layer } from "effect"
 import { bindRepositoryRegistry } from "../../repository/registry.ts"
 
-const [root, expected] = process.argv.slice(2)
+const [root, selected] = process.argv.slice(2)
+const draft = selected === "draft"
+const expected = draft ? undefined : selected
 if (!root) throw new Error("Missing immutable source root")
 const result = await Effect.runPromise(Effect.gen(function*() {
   const snapshots = yield* Snapshot.makeFileSystem({ root })
@@ -21,7 +23,7 @@ const result = await Effect.runPromise(Effect.gen(function*() {
   })
   const descriptor = yield* source.get("todo")
   const digest = expected ?? Descriptor.executionDigest(descriptor)!
-  const registry = bindRepositoryRegistry(source, Registry.makeNoop(), "a".repeat(64), [], digest)
+  const registry = bindRepositoryRegistry(source, Registry.makeNoop(), "a".repeat(64), [], draft ? undefined : digest, draft)
   yield* registry.loadBody("todo", digest)
   const retained = expected === undefined ? descriptor : (yield* snapshots.restore(digest)).descriptor
   const executable = yield* Executable.fromDescriptor(retained, { delegates: [], snapshots })

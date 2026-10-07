@@ -84,7 +84,7 @@ test("missing native authority refuses both actions before ordinary native reads
           Effect.provideService(Action.CurrentInvocationKey, "node-one")
         )
       )
-      assert.equal(error.code, "source_refused")
+      assert.equal(error.code, sourcePublication === "local-only" ? "not_a_todo_run" : "source_refused")
     }
   }
 })
@@ -134,8 +134,8 @@ test("a local-only host cannot use even an installed reserved transport", async 
         Effect.provideService(Action.CurrentInvocationKey, "node-one")
       )
     )
-    assert.equal(error.code, "source_refused")
-    assert.match(error.message, /authority/)
+    assert.equal(error.code, "not_a_todo_run")
+    assert.equal(error.message, "Draft version")
   }
 })
 test("Propose refuses an acknowledgement for another generation", async () => {
