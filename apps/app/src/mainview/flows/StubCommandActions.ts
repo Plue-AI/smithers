@@ -238,6 +238,7 @@ export const stubCommandActions = (overrides: Partial<CommandActions> = {}): Com
   githubOpenInstall: unexpected,
   githubReconcile: unexpected,
   retryGitHubSync: unexpected,
+  resetMainToGitHub: unexpected,
   retryMirrorRef: unexpected,
   githubMirrorSync: unexpected,
   loadCloudSession: unexpected,
