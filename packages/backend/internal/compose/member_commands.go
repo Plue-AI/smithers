@@ -91,15 +91,28 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				return
 			}
 			if command == "stack.candidate" {
+				repository, err := services.InstallRepositoryID(r.Context(), queries)
+				if err != nil {
+					writeConfirmationDispatchError(w, err)
+					return
+				}
+				// Resolve the existing execution binding before reading a candidate.
+				// Scope-shaped, unbound credentials have no system-write authority.
+				if _, err := services.ResolveInstallExecutionSubject(r.Context(), queries, repository); err != nil {
+					if denied, ok := err.(*services.AccessError); ok && denied.Status == http.StatusForbidden {
+						// Keep the refusal on the same command authorizer as a
+						// bound submission, without reading its payload.
+						if _, denied := services.Authorize(r.Context(), queries, command, services.InstallSubject{RepositoryID: repository}); denied != nil {
+							err = denied
+						}
+					}
+					writeConfirmationDispatchError(w, err)
+					return
+				}
 				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 2<<20))
 				var input services.MythicalLaneSubmission
 				if err != nil || json.Unmarshal(raw, &input) != nil {
 					writeConfirmationDispatchError(w, &services.AccessError{Status: 400, Class: "user", Code: "invalid_candidate", Message: "Invalid candidate"})
-					return
-				}
-				repository, err := services.InstallRepositoryID(r.Context(), queries)
-				if err != nil {
-					writeConfirmationDispatchError(w, err)
 					return
 				}
 				parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")

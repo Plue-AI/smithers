@@ -212,6 +212,10 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 	// provisioned credential needs its stored lane, sponsored attempt and run.
 	status, _ = call("GET", "/api/repos/maya/demo/mythical", "", ownerToken)
 	require.Equal(t, http.StatusForbidden, status)
+	// Unbound writes are refused before interpreting a candidate payload.
+	status, envelope = call("PUT", "/api/repos/maya/demo/mythical/lanes", "", ownerToken, `{not-json`)
+	require.Equal(t, http.StatusForbidden, status, envelope)
+	require.Equal(t, "permission", envelope["code"])
 	_, err = pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,name)
  VALUES('11111111-1111-4111-a111-111111111111',$1,$2,'delivery')`, repo.ID, owner.ID)
 	require.NoError(t, err)
