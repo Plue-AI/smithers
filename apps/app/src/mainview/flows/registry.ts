@@ -37,7 +37,6 @@ import * as chat from "./entries/chat"
 import * as cloud from "./entries/cloud"
 import * as debug from "./entries/debug"
 import * as egress from "./entries/egress"
-import * as env from "./entries/env"
 import * as files from "./entries/files"
 import * as findings from "./entries/findings"
 import * as flow from "./entries/flow"
@@ -374,7 +373,6 @@ export const NAMESPACES: ReadonlyArray<Namespace> = [
   palette.namespace,
   sync.namespace,
   branches.namespace,
-  env.namespace,
   secrets.namespace,
   history.namespace,
   browser.namespace,

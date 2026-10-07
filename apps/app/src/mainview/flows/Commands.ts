@@ -444,12 +444,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       const parsed = payloadFor(name, args, undefined, actions.knownRepositories())
       tracedArgs = "[REDACTED]"
       if (!("error" in parsed)) {
-        if (name === "env.set" && typeof parsed.payload.assignment === "string") {
-          const variable = /^([A-Za-z_][A-Za-z0-9_]*)=/.exec(parsed.payload.assignment)?.[1]
-          if (variable !== undefined) {
-            tracedArgs = `${variable}=[REDACTED]${typeof parsed.payload.repo === "string" ? ` ${parsed.payload.repo}` : ""}`
-          }
-        } else if (name === "form.set") {
+        if (name === "form.set") {
           // Mask every form.set value, including arbitrary card/field targets.
           // Write-only controls never enter this path in the first place.
           tracedArgs = `${parsed.payload.cardId} ${parsed.payload.field} [REDACTED]`

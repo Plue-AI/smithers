@@ -269,7 +269,7 @@ describe("the unavailable outcome — one answer for slash, button and agent", (
 describe("trace argument redaction", () => {
   for (const invoker of ["run", "runAsAgent"] as const) {
     for (const [name, args, expected] of [
-      ["env.set", "VALUE=ordinary words = more owner/repo", "VALUE=[REDACTED] owner/repo"],
+      ["env.set", "VALUE=ordinary words = more owner/repo", "[REDACTED]"],
       ["env.set", "malformed-sensitive-input", "[REDACTED]"],
       ["form.set", "form-env.set assignment VALUE=ordinary words", "form-env.set assignment [REDACTED]"],
       ["form.set", "arbitrary-card arbitrary-field ordinary words", "arbitrary-card arbitrary-field [REDACTED]"],
@@ -285,17 +285,16 @@ describe("trace argument redaction", () => {
           noteCommandRun: () => {},
           traceFlow: (record) => { records.push(record) },
           presentCard: async () => "settings",
-          setEnvironmentVar: async (...input) => { received.push(input); return `Invalid ${args}` },
           setFormField: async (...input) => { received.push(input); return `Invalid ${args}` },
           submitForm: async (...input) => { received.push(input); return { value: "Saved VALUE=ordinary words" } }
         })
         const commands = createCommandRegistry(actions)
-        await commands[invoker](name!, args)
-        expect(received).toHaveLength(invoker === "runAsAgent" && name === "env.set" ? 0 : 1)
+        const outcome = await commands[invoker](name!, args)
+        if (name === "env.set") expect(outcome.status).toBe("unknown-command")
+        expect(received).toHaveLength(name === "env.set" ? 0 : 1)
         expect(records).toHaveLength(1)
         expect(records[0]?.args).toBe(expected!)
-        expect(records[0]?.detail).toBe("[REDACTED]")
-        if (name === "env.set" && invoker === "run") expect(received[0]?.[0]).toBe(args!.replace(/ owner\/repo$/, ""))
+        expect(records[0]?.detail).toBe(name === "env.set" ? null : "[REDACTED]")
         if (name === "form.set") expect(received[0]?.[2]).toBe(args!.split(/\s+/).slice(2).join(" "))
       })
     }

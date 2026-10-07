@@ -529,15 +529,21 @@ export const parseRepoSelection = (
 export const ActorSchema = z.enum(["user", "smithers", "system"])
 export type Actor = z.infer<typeof ActorSchema>
 
-const MessageActionSchema = z.object({
+const MessageActionBaseSchema = z.object({
   /** Revision of a pending flow confirmation; absent in older history and ordinary message actions. */
   revision: z.string().optional(),
   /** Old rows name the flow as it was called when written; decoding answers with the flow that runs today. */
-  flow: z.string().transform(currentFlowName), args: z.string().optional(), label: z.string(),
+  flow: z.string(), args: z.string().optional(), label: z.string(),
   /** Web Cloud login uses sign-in too; its requirement is still Cloud access. */
   signInRequirement: z.enum(["identity", "cloud"]).optional()
 })
-const AnsweredActionSchema = MessageActionSchema.extend({ answer: z.string(), answeredAt: z.number() })
+// A retired environment write only opens Settings. Its assignment must not
+// become an argument on that public card door when saved history is decoded.
+const currentAction = <T extends { readonly flow: string; readonly args?: string }>(action: T): Omit<T, "flow" | "args"> & { flow: string; args?: string } => ({
+  ...action, flow: currentFlowName(action.flow), ...(action.flow === "env.set" ? { args: undefined } : {})
+})
+const MessageActionSchema = MessageActionBaseSchema.transform(currentAction)
+const AnsweredActionSchema = MessageActionBaseSchema.extend({ answer: z.string(), answeredAt: z.number() }).transform(currentAction)
 
 export const MessageSchema = z.object({
   id: z.string(),
@@ -702,7 +708,7 @@ export const ToastSchema = z.object({
   title: z.string(),
   status: z.enum(["running", "ok", "failed", "cancelled"]),
   detail: z.string(),
-  action: MessageActionSchema.extend({ flow: z.string().transform(currentFlowName).refine(flow => z.enum(FLOW_NAMES).safeParse(flow).success) }).optional(),
+  action: MessageActionBaseSchema.transform(currentAction).refine(action => z.enum(FLOW_NAMES).safeParse(action.flow).success).optional(),
   answeredAction: AnsweredActionSchema.optional(),
   createdAt: z.number(),
   updatedAt: z.number()

@@ -8,6 +8,7 @@ import { stubCommandActions } from "../flows/StubCommandActions"
  * transcript reads exactly as it would have without the switch.
  */
 import { createCommandRegistry } from "../flows/Commands"
+import { disclosedToAgent } from "../flows/registry"
 import { afterEach, describe, expect, test } from "bun:test"
 import { scopedControllers } from "./ControllerTestScope"
 import { createAppStore, TRACE_MESSAGE_PREFIX, VERBOSE_OFF_TEXT, VERBOSE_ON_TEXT, verboseTrace } from "./AppStore"
@@ -32,13 +33,13 @@ afterEach(() => {
 })
 
 describe("/verbose", () => {
-  test("registers for every session as a listed, model-invocable flow", async () => {
+  test("retains the developer flow without disclosing it in slash or agent catalogs", async () => {
     const { controller } = await fresh()
     const entry = controller.commands.find("debug.verbose")
     expect(entry).toBeDefined()
-    expect(entry?.metadata.hidden).not.toBe(true)
-    expect(entry?.binding.descriptor.modelInvocable).toBe(true)
-    expect(controller.slashItems("verb").map((item) => item.flow.name)).toContain("debug.verbose")
+    expect(entry?.metadata.visibility).toBe("hidden")
+    expect(disclosedToAgent(entry!.metadata)).toBe(false)
+    expect(controller.slashItems("verb").map((item) => item.flow.name)).not.toContain("debug.verbose")
   })
 
   test("toggles the session flag and states it in the transcript", async () => {
@@ -129,7 +130,7 @@ describe("/verbose", () => {
 describe("sensitive flow traces", () => {
   for (const verbose of [false, true]) {
     for (const fails of [false, true]) {
-      test(`env.set redacts persisted and console diagnostics (verbose=${verbose}, fails=${fails})`, async () => {
+      test(`form.set redacts persisted and console diagnostics (verbose=${verbose}, fails=${fails})`, async () => {
         const secret = "review-synthetic-secret-9c814"
         const assignment = `DATABASE_PASSWORD=${secret}`
         const persisted = new Map<string, string>()
@@ -149,15 +150,16 @@ describe("sensitive flow traces", () => {
           snapshot: () => ({ surface: "chat", typing: false, hasConnectors: true, admin: false, signedOut: false }),
           noteCommandRun: () => {},
           traceFlow: (record) => { writes.push(store.dispatch(record).isPersisted.promise) },
-          setEnvironmentVar: async (value, repo) => {
+          setFormField: async (cardId, field, value) => {
             received.push(value)
-            expect(repo).toBe("owner/repo")
+            expect(cardId).toBe("form-retired-env")
+            expect(field).toBe("assignment")
             // A seam may echo input in its error detail.
             if (fails) return `Could not save ${value}`
           }
         })
         const commands = createCommandRegistry(actions)
-        const outcome = await commands.run("env.set", `${assignment} owner/repo`)
+        const outcome = await commands.run("form.set", `form-retired-env assignment ${assignment}`)
         await Promise.all(writes)
         expect(outcome.status).toBe(fails ? "failed" : "executed")
         expect(received).toEqual([assignment])
@@ -178,7 +180,7 @@ describe("sensitive flow traces", () => {
         expect(logged.length).toBe(loggedBeforeReopen)
         if (verbose) {
           expect(logged.length).toBeGreaterThan(0)
-          expect(traces(store).join("\n")).toContain("DATABASE_PASSWORD=[REDACTED]")
+          expect(traces(store).join("\n")).toContain("form-retired-env assignment [REDACTED]")
           expect(traces(store).join("\n")).not.toContain(secret)
         } else {
           expect(logged).toEqual([])

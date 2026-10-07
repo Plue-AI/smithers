@@ -1,4 +1,4 @@
-import { MessageSchema } from "../../state/AppState"
+import { MessageSchema, ToastSchema } from "../../state/AppState"
 import { describe, expect, test } from "bun:test"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
@@ -306,13 +306,30 @@ test("the recorded Account door opens Settings with the same owner authority", a
  } finally { await h.controller.dispose() }
 })
 
-test("recorded environment doors use Settings without an environment request", async () => {
+test("recorded environment doors decode to Settings and discard retired assignments", async () => {
  const h = await harness()
  try {
-   for (const [name, args] of [["env.view", ""], ["env.set", "NODE_ENV=production"], ["env.remove-token", ""]]) {
-     expect((await h.controller.commands.run(name!, args!)).status).toBe("executed"); await tick()
+   for (const [name, args] of [["env.view", "old/repository"], ["env.set", "API_KEY=private-value"], ["env.remove-token", "old/repository"]]) {
+     expect(h.controller.commands.find(name!)).toBeUndefined()
+     expect((await h.controller.commands.run(name!, args!)).status).toBe("unknown-command")
+     const input = { flow: name!, args: args!, label: "Settings" }
+     const saved = MessageSchema.shape.action.parse(input)!
+     const toast = ToastSchema.shape.action.parse(input)!
+     expect(saved.flow).toBe("settings")
+     expect(toast).toEqual(saved)
+     if (name === "env.set") {
+       expect(saved.args).toBeUndefined()
+       expect(JSON.stringify(saved)).not.toContain("private-value")
+       const answered = MessageSchema.shape.answeredAction.parse({ ...input, answer: "Done", answeredAt: 1 })!
+       expect(answered.flow).toBe("settings")
+       expect(answered.args).toBeUndefined()
+       expect(ToastSchema.shape.answeredAction.parse({ ...input, answer: "Done", answeredAt: 1 })).toEqual(answered)
+     }
+     expect((await h.controller.commands.run(saved.flow, saved.args)).status).toBe("executed"); await tick()
      expect([...h.store.collections.cards.keys()]).toEqual(["settings"])
+     expect(modelInvocable(h.controller.commands.find("settings")!)).toBe(false)
    }
+   expect(ToastSchema.shape.action.safeParse({ flow: "unlisted.env.write", args: "API_KEY=private-value", label: "Run" }).success).toBe(false)
    expect(h.requests.every(request => !request.path.includes("agent-environment"))).toBe(true)
  } finally { await h.controller.dispose() }
 })

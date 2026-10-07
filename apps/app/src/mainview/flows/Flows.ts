@@ -47,7 +47,6 @@ import { debugApiFlows, debugFlows, debugVerboseFlows } from "./entries/debug"
 import { docsFlows } from "./entries/docs"
 import { egressFlows } from "./entries/egress"
 export { guideFlows } from "./entries/guide"
-import { envFlows } from "./entries/env"
 import {  filesFlows } from "./entries/files"
 import { findingsFlows } from "./entries/findings"
 import { flowFlows, flowRunStopAllFlows, flowVersionFlows } from "./entries/flow"
@@ -154,7 +153,6 @@ export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   ...membersFlows(actions),
   ...helpFlows(actions),
   ...prsFlows(actions),
-  ...envFlows(actions),
   ...secretsFlows(actions),
   ...historyFlows(actions),
   ...todoFlows(actions),

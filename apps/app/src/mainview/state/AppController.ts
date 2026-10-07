@@ -63,7 +63,7 @@ import { createCloudTerminalClient,pageCloudSocketUrl,awaitTerminalReady } from 
 import { selectFirstRunRepository } from "./BootRepositoryTarget"
 import type { InputMode } from "./InputMode"
 import { cardAvailable } from "./CardAvailability"
-import { type ViewAction, disposePreparedViews,invalidatePreparedViews } from "./PreparedView"
+import { disposePreparedViews,invalidatePreparedViews } from "./PreparedView"
 import type { KnownRepositories } from "./RepoContext"
 import { TodoCardSchema } from "@smthrs/rpc/TodoCard"
 import { activeCatalogRepositoryId,activeRepositoryId,knownRepositories,resolveTargetRepo } from "./RepoContext"
@@ -511,9 +511,6 @@ export interface AppController extends IssueFlowsController {
   readonly showBillingPlans: BillingSeam["showBillingPlans"]
   readonly startCheckout: BillingSeam["startCheckout"]
   readonly openBillingPortal: BillingSeam["openBillingPortal"]
-  readonly viewEnvironment: ViewAction<[repo?: string]>
-  readonly setEnvironmentVar: (assignment: string, repo?: string) => ReturnType<ViewAction<[repo?: string]>>
-  readonly removeSubscriptionToken: ViewAction<[repo?: string]>
   readonly listSecrets: SecretsSeam["listSecrets"]
   readonly scopeSecret: SecretsSeam["scopeSecret"]
   readonly bindSecret: SecretsSeam["bindSecret"]
@@ -2367,9 +2364,6 @@ export const createAppController = (
     startCheckout: billingSeam.startCheckout,
     openBillingPortal: billingSeam.openBillingPortal,
     ...repositoryUpdate,
-    viewEnvironment: async () => installSeam.showSettings(),
-    setEnvironmentVar: async () => installSeam.showSettings(),
-    removeSubscriptionToken: async () => installSeam.showSettings(),
     listSecrets: secretsSeam.listSecrets,
     scopeSecret: secretsSeam.scopeSecret,
     bindSecret: secretsSeam.bindSecret,

@@ -737,13 +737,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     return ok(repo === undefined ? { number, verdict: type, text } : { number, verdict: type, text, repo })
   },
   "billing.upgrade": (args) => optional("plan", args),
-  "env.view": (args) => repoOnly("env.view", args),
-  "env.remove-token": (args) => repoOnly("env.remove-token", args),
-  "env.set": (args, known) => {
-    const { rest, repo } = splitTrailingRepo(args, known)
-    if (rest === "") return no("env.set needs a NAME=value pair")
-    return ok(repo === undefined ? { assignment: rest } : { assignment: rest, repo })
-  },
   "secrets.scope": (args, known) => {
     const { rest, repo } = splitTrailingRepo(args, known)
     const [name, scope, ...extra] = tokensOf(rest)
