@@ -117,3 +117,63 @@ else:
         raise AssertionError('populated group was falsely confirmed')
     print('confirmed')
 `
+
+func TestServiceStopRequiresConfirmedGuestTermination(t *testing.T) {
+	for _, method := range []string{"stop", "manage stop", "manage restart"} {
+		for _, confirmed := range []bool{false, true} {
+			if method == "manage restart" && confirmed {
+				continue
+			}
+			t.Run(fmt.Sprintf("%s/confirmed=%t", method, confirmed), func(t *testing.T) {
+				marker := filepath.Join(t.TempDir(), "invocations")
+				binary := filepath.Join(t.TempDir(), "fake-msb")
+				exit := 7
+				if confirmed {
+					exit = 0
+				}
+				require.NoError(t, os.WriteFile(binary, []byte(fmt.Sprintf("#!/bin/sh\nprintf x >> %q\nexit %d\n", marker, exit)), 0700))
+				finished := make(chan struct{})
+				close(finished)
+				runtime := &Runtime{cli: &cli{binary: binary, home: t.TempDir()}, workspaces: map[string]*workspace{}}
+				ws := newWorkspace(metadata{ID: "workspace", Machine: "fixture-machine", State: "running"}, "")
+				service := &managedService{spec: workspaceapi.ServiceSpec{Name: "app"}, command: &guestCommand{runtime: runtime, machine: ws.Machine, id: "fixture-command", cmd: &exec.Cmd{}, done: finished, stdout: &limitedBuffer{}, stderr: &limitedBuffer{}}}
+				_, err := service.command.stderr.Write([]byte("\x00SMITHERS-EXIT 0\x00"))
+				require.NoError(t, err)
+				ws.services["app"] = service
+				sibling := &managedService{spec: workspaceapi.ServiceSpec{Name: "other"}, command: &guestCommand{done: make(chan struct{}), stdout: &limitedBuffer{}, stderr: &limitedBuffer{}}}
+				ws.services["other"] = sibling
+				runtime.workspaces[ws.ID] = ws
+				stop := func() error {
+					if method == "stop" {
+						return runtime.StopService(t.Context(), ws.ID, "app")
+					}
+					action := strings.TrimPrefix(method, "manage ")
+					_, err := runtime.ManageService(t.Context(), ws.ID, "app", action)
+					return err
+				}
+				for attempt := 0; attempt < 2; attempt++ {
+					err := stop()
+					if confirmed {
+						require.NoError(t, err)
+					} else {
+						require.ErrorIs(t, err, workspaceapi.ErrCommandTerminationUnconfirmed)
+					}
+					require.Equal(t, confirmed, service.stopped, "failed broker termination must not publish stopped")
+				}
+				observed, err := runtime.InspectService(t.Context(), ws.ID, "app")
+				require.NoError(t, err)
+				if confirmed {
+					require.Equal(t, workspaceapi.ServiceStopped, observed.State)
+				} else {
+					require.Equal(t, workspaceapi.ServiceExited, observed.State)
+				}
+				require.Same(t, service, ws.services["app"], "failed stop cannot restart the service")
+				require.False(t, sibling.stopped)
+				require.False(t, sibling.command.finished())
+				calls, err := os.ReadFile(marker)
+				require.NoError(t, err)
+				require.Equal(t, "x", string(calls))
+			})
+		}
+	}
+}

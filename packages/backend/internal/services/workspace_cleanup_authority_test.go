@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/cleanup"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
 )
@@ -144,7 +147,7 @@ func TestWorkspaceCleanerTransactionalPolicyAndRecovery(t *testing.T) {
 			}
 			row, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo, UserID: owner, TargetBookmark: branch, Kind: "container", Status: "suspended"})
 			require.NoError(t, err)
-			_, err = pool.Exec(ctx, `UPDATE workspaces SET vm_id='original',head_commit_id='head' WHERE id=$1`, row.ID)
+			_, err = pool.Exec(ctx, `UPDATE workspaces SET vm_id='original',head_commit_id='head',last_activity_at=$2,suspended_at=$2 WHERE id=$1`, row.ID, now.Add(-30*24*time.Hour))
 			require.NoError(t, err)
 			if name == "running service final writes" {
 				_, err = pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, row.ID)
@@ -312,4 +315,138 @@ func (p *cleanupInterleavingTransactions) Begin(ctx context.Context) (pgx.Tx, er
 		p.beforeRemoval()
 	}
 	return p.RepositoryJobTransactions.Begin(ctx)
+}
+
+// Only the dependency fence is fake. The running publication uses the same
+// generated query as production admission; decisions and retries use PostgreSQL
+// and the normal cleaner. This is not microVM reconstruction qualification.
+func TestWorkspaceCleanerReclaimsReactivatedRuntime(t *testing.T) {
+	pool := newProductTestPool(t)
+	_, repo := setupTestUserAndRepo(t, pool)
+	ctx := t.Context()
+	q := db.New(pool)
+	owner, err := q.GetBranchMachineOwner(ctx)
+	require.NoError(t, err)
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	row, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo, UserID: owner, TargetBookmark: "scratch/member/reactivated", Kind: "container", Status: "suspended"})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE workspaces SET vm_id='original',head_commit_id='head',branch_archived_at=$2 WHERE id=$1`, row.ID, now.Add(-24*time.Hour))
+	require.NoError(t, err)
+	runtime := &cleanupPolicyRuntime{capture: WorkspaceDiskReclaimCapture{CandidateHead: "head", RetainedHead: "head", CaptureID: "first capture", Settled: true, Quiet: true, BindingVerified: true, CaptureComplete: true, InventoryCurrent: true}}
+	svc := NewWorkspaceService(q, WithWorkspaceRuntime(runtime), WithWorkspaceTransactions(pool), WithTransactionalWorkspaceCleanup(func() time.Time { return now }))
+	cleanupPolicyTick(t, svc)
+	stored, err := q.GetWorkspace(ctx, row.ID)
+	require.NoError(t, err)
+	require.True(t, stored.DiskReclaimedAt.Valid)
+	require.Equal(t, []string{row.ID}, runtime.calls)
+	stored, err = q.UpdateWorkspaceStatus(ctx, db.UpdateWorkspaceStatusParams{ID: row.ID, Status: "suspended"})
+	require.NoError(t, err)
+	require.True(t, stored.DiskReclaimedAt.Valid, "a replayed stopped observation does not resurrect a removed disk")
+	_, err = pool.Exec(ctx, `UPDATE workspaces SET cleanup_pending_head='obsolete',cleanup_pending_capture_id='obsolete' WHERE id=$1`, row.ID)
+	require.NoError(t, err)
+	stored, err = q.UpdateWorkspaceStatus(ctx, db.UpdateWorkspaceStatusParams{ID: row.ID, Status: "running"})
+	require.NoError(t, err)
+	require.False(t, stored.DiskReclaimedAt.Valid, "running publication begins a new runtime lifecycle")
+	require.Empty(t, stored.CleanupPendingHead)
+	require.Empty(t, stored.CleanupPendingCaptureID)
+	require.True(t, now.Add(-24*time.Hour).Equal(stored.BranchArchivedAt.Time), "admission cannot alter settlement time")
+	cleanupPolicyTick(t, svc)
+	require.Len(t, runtime.calls, 1, "a running machine is retained")
+	_, err = q.UpdateWorkspaceStatus(ctx, db.UpdateWorkspaceStatusParams{ID: row.ID, Status: "suspended"})
+	require.NoError(t, err)
+	runtime.capture.CaptureID = "new final capture"
+	cleanupPolicyTick(t, svc)
+	stored, err = q.GetWorkspace(ctx, row.ID)
+	require.NoError(t, err)
+	require.True(t, stored.DiskReclaimedAt.Valid)
+	require.Equal(t, []string{row.ID, row.ID}, runtime.calls, "a newly captured runtime is reclaimed after its own lifecycle")
+	cleanupPolicyTick(t, svc)
+	require.Len(t, runtime.calls, 2, "completed removal remains idempotent")
+}
+
+// The first transaction resolves an authorized name without holding database
+// locks while waiting for the shared runtime lock. Membership is then checked
+// again in the transaction that actually archives the branch.
+type archiveResolutionTransactions struct {
+	RepositoryJobTransactions
+	resolved chan struct{}
+	count    atomic.Int32
+}
+
+func (a *archiveResolutionTransactions) Begin(ctx context.Context) (pgx.Tx, error) {
+	tx, err := a.RepositoryJobTransactions.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if a.count.Add(1) == 1 {
+		return &archiveResolutionTx{Tx: tx, resolved: a.resolved}, nil
+	}
+	return tx, nil
+}
+
+type archiveResolutionTx struct {
+	pgx.Tx
+	resolved chan struct{}
+	once     sync.Once
+}
+
+func (a *archiveResolutionTx) Rollback(ctx context.Context) error {
+	err := a.Tx.Rollback(ctx)
+	a.once.Do(func() { close(a.resolved) })
+	return err
+}
+func TestScratchArchiveRechecksMembershipAfterRuntimeWait(t *testing.T) {
+	pool := newProductTestPool(t)
+	person, repo := setupTestUserAndRepo(t, pool)
+	ctx := t.Context()
+	q := db.New(pool)
+	_, err := pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, person)
+	require.NoError(t, err)
+	owner, err := q.GetBranchMachineOwner(ctx)
+	require.NoError(t, err)
+	row, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo, UserID: owner, TargetBookmark: "scratch/member/archive-race", Kind: "container", Status: "suspended"})
+	require.NoError(t, err)
+	transactions := &archiveResolutionTransactions{RepositoryJobTransactions: pool, resolved: make(chan struct{})}
+	svc := NewWorkspaceService(q, WithWorkspaceTransactions(transactions), WithBranchMachineProviders(InstallBranchMachineProviders(nil, nil)))
+	info := &middleware.AuthInfo{User: &db.User{ID: person}, SessionHash: "archive-race"}
+	callCtx := WithInstallAuthorization(middleware.ContextWithAuthInfo(ctx, info), "branch.archive", InstallAuthorization{UserID: person, Role: InstallOwner})
+	unlock := svc.lockRuntimeWorkspace(row.ID)
+	locked := true
+	defer func() {
+		if locked {
+			unlock()
+		}
+	}()
+	result := make(chan error, 1)
+	go func() { _, err := svc.ArchiveScratchBranch(callCtx, row.ID, repo, person); result <- err }()
+	select {
+	case <-transactions.resolved:
+	case <-time.After(5 * time.Second):
+		unlock()
+		locked = false
+		<-result
+		t.Fatal("archive held membership locks while waiting for runtime admission")
+	}
+	revocation, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = revocation.Rollback(context.WithoutCancel(ctx)) }()
+	var id int64
+	require.NoError(t, revocation.QueryRow(ctx, `SELECT user_id FROM self_host_owners WHERE singleton FOR UPDATE NOWAIT`).Scan(&id))
+	require.Equal(t, person, id)
+	_, err = revocation.Exec(ctx, `UPDATE users SET is_active=false WHERE id=$1`, person)
+	require.NoError(t, err)
+	require.NoError(t, revocation.Commit(ctx))
+	unlock()
+	locked = false
+	select {
+	case err := <-result:
+		require.ErrorContains(t, err, "not a member of this install")
+	case <-time.After(5 * time.Second):
+		t.Fatal("archive did not reconsider revoked membership")
+	}
+	stored, err := q.GetWorkspace(ctx, row.ID)
+	require.NoError(t, err)
+	require.False(t, stored.BranchArchivedAt.Valid)
+	require.False(t, stored.DeletedAt.Valid)
+	require.Equal(t, "suspended", stored.Status)
 }
