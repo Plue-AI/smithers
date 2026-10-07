@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -93,8 +94,8 @@ func TestCodingDeliveryComposedCredentialBoundaryPostgres(t *testing.T) {
 					bad.Header = req.Header.Clone()
 					refused := httptest.NewRecorder()
 					router.ServeHTTP(refused, bad)
-					require.Equal(t, 400, refused.Code, refused.Body.String())
-					require.Contains(t, refused.Body.String(), `"class":"user"`)
+					require.Equal(t, http.StatusForbidden, refused.Code, refused.Body.String())
+					require.Contains(t, refused.Body.String(), `"code":"permission"`)
 					require.NotContains(t, refused.Body.String(), "Confirmation unavailable")
 				}
 				require.Contains(t, response.Body.String(), `"code":"permission"`)
