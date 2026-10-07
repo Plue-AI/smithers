@@ -55,6 +55,7 @@ type liveTopics struct {
 	secrets       *services.SecretService
 	external      *externalsessions.Finder
 	jobs          *jobs.Store
+	monitors      *runMonitors
 }
 
 // liveRefreshEvery bounds how stale a topic is when its facts change without
@@ -87,6 +88,11 @@ func (t *liveTopics) resolver(r *http.Request) (live.Resolver, int64) {
 		member = user.ID
 	}
 	return func(ctx context.Context, topic string) (live.Source, string) {
+		if strings.HasPrefix(topic, "run:") {
+			if _, err := services.Authorize(r.Context(), t.queries, "run.inspect"); err != nil {
+				return live.Source{}, live.Forbidden
+			}
+		}
 		if topic == "secrets" {
 			if _, err := services.Authorize(r.Context(), t.queries, "secrets.read"); err != nil {
 				return live.Source{}, live.Forbidden
@@ -227,7 +233,12 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 		}
 		key := "conversation:" + strconv.FormatInt(repository, 10) + ":" + identity.ID + ":member:" + strconv.FormatInt(member, 10)
 		return live.Source{Key: key, Every: liveRefreshEvery, FailClosed: true, Build: func(ctx context.Context) (json.RawMessage, error) { return t.conversation(ctx, member, identity.ID) }}, ""
-	case "branch", "run":
+	case "run":
+		if t.monitors == nil || repository <= 0 || member <= 0 || rest == "" {
+			return live.Source{}, live.Unsupported
+		}
+		return t.monitors.source(ctx, repository, rest)
+	case "branch":
 		return live.Source{}, live.Unsupported
 	case "external":
 		return t.externalSession(ctx, topic, rest)
