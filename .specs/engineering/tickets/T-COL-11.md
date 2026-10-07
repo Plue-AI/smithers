@@ -2,7 +2,7 @@
 
 Stage W0, S1 · Size M · Depends on W0: T-COL-01 · S1: T-COL-10 · Unblocks T-COL-08 · Issue: [#3553](https://github.com/smithersai/smithers/issues/3553)
 Spec: spec.md §1.4, §7.1, §7.4.1–7.4.2, §7.6, §8.2.1, §9.1.1, §9.2.2, §18 · Delta: delta.md §4 (host relay, live channel) · Product: mvp.md J3.5, §6.8 Live co-editing, §9 Live updates, M-02
-Ready: 2026-10-03 smithers-8a sha256:640f6dcf1015
+Ready: 2026-10-06 smithers-8a sha256:bd9c30198563
 
 ## Goal
 
@@ -31,7 +31,7 @@ Out:
 
 ## Tests
 
-- spike: capture growth per capture and after abandon plus gc, and the versions-commit p95, in the same directory. The 14-day projection (one capture per 5 s, 8 h a day) must stay under 2 GiB per machine, or smithers-8a approves and records a shorter retention window in §9.1.2a; this spike does not implement the policy change.
+- spike: capture growth per capture and after abandon plus gc, and the versions-commit p95, in the same directory. Record gross growth, then the net 14-day projection under §9.1.2a's daily cadence (one capture per 5 s, 8 h a day; each day's growth minus that day's abandon plus gc reclaim, keeping the newest 100 operations): the net projection must stay under 2 GiB per machine. If it doesn't, report the cadence that would (smithers-8a records it in §9.1.2a). This spike does not implement the policy; T-COL-03a's daemon does (8a ruling, 2026-10-06, #3553).
 - spike: the four kernel probes, each yes or no.
 - Rerun C-SPK-03 and C-SPK-07 on the idle reference host with browsers on a second device. `scripts/spikes/col-01/run.sh` drives the existing `DialWorkspacePort` and `startBridges` boundaries; browser updates enter the prototype WebSocket fan-out through its LAN listener. Direct echo calls or localhost-only browser runs do not establish these measurements.
 - Capture, versions-commit and kernel probes run in the real machine working-copy filesystem. Literal fixture bytes, frame sizes, sequence tags, 20 ms loaded relay decision threshold, 1 s keystroke threshold and 2 GiB growth threshold are pinned in the harness, never derived from spec files or runtime implementation constants. The C-SPK-03 100 ms loaded transport budget is distinct from this ticket's 20 ms topology trigger.
