@@ -166,7 +166,7 @@ func microVMConfigWithProfile(dataRoot string, bundle *installbundle.Bundle, cod
 		return config, errors.New("SMITHERS_WORKSPACE_ISOLATION=microvm refuses to start: the backend does not run from an installed bundle")
 	}
 	config.Bundle = bundle
-	config.BundlePrograms = []string{codingHost, filepath.Join(bundle.Root(), "share", "skills", "smithers", "SKILL.md")}
+	config.BundlePrograms = []string{codingHost, filepath.Join(bundle.Root(), "share", "skills", "smithers", "SKILL.md"), filepath.Join(bundle.Root(), "share", "cli", "linux-arm64.tar.gz"), filepath.Join(bundle.Root(), "bin", "linux-arm64", "smthrs")}
 	profile, err := detect(dataRoot)
 	if err != nil {
 		var typed *microsandbox.HostProfileError

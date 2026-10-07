@@ -702,11 +702,12 @@ describe("terminal credential files (#3537)", () => {
     const session = new Session({
       ...f.environment,
       SMITHERS_TOKEN_FILE: "/run/smithers/sessions/a/token",
+      SMITHERS_URL: f.origin,
       SMITHERS_TOKEN: "synthetic-env-value"
     })
     await expect(session.require()).rejects.toMatchObject({ code: "token_file_unavailable" })
     expect(session.credentialIdentity(f.origin)).toBe(
-      new Session({ ...f.environment, SMITHERS_TOKEN_FILE: "/run/smithers/sessions/a/token" }).credentialIdentity(f.origin)
+      new Session({ ...f.environment, SMITHERS_URL: f.origin, SMITHERS_TOKEN_FILE: "/run/smithers/sessions/a/token" }).credentialIdentity(f.origin)
     )
     expect(spawn).not.toHaveBeenCalled()
   })

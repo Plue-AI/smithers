@@ -3,6 +3,7 @@ package microsandbox
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
@@ -24,11 +25,15 @@ func (r *Runtime) PutSessionToken(ctx context.Context, workspaceID, sessionID st
 	if token == nil {
 		return "", errors.New("session credential: missing token")
 	}
+	if len(r.config.HostPorts) == 0 || r.config.HostPorts[0] == 0 {
+		return "", errors.New("session credential: backend bridge issuer is unavailable")
+	}
+	issuer := fmt.Sprintf("http://127.0.0.1:%d", r.config.HostPorts[0])
 	ws, err := r.runningWorkspace(workspaceID)
 	if err != nil {
 		return "", err
 	}
-	if _, err := r.guest(ctx, ws.Machine, token, "put-token", sessionID, tokenIdentityArgument(expectedIdentity)); err != nil {
+	if _, err := r.guest(ctx, ws.Machine, token, "put-token", sessionID, tokenIdentityArgument(expectedIdentity), issuer); err != nil {
 		return "", err
 	}
 	return workspaceapi.SessionTokenRoot + "/" + sessionID + "/token", nil
