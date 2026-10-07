@@ -105,6 +105,7 @@ import type { TabsController } from "./controller/tabs"
 import { createTabsController } from "./controller/tabs"
 import { createOrderAttentionSeam } from "./seams/OrderAttentionSeam"
 import { observeBackgroundWork } from "./controller/backgroundWork"
+import { createBranchArchive } from "./controller/branchArchive"
 import { createGitHubSyncRetry } from "./controller/githubSync"
 import { createPromptQueueController } from "./controller/promptQueue"
 import { createTurnController, type TurnController } from "./controller/turns"
@@ -566,6 +567,7 @@ export interface AppController extends IssueFlowsController {
   readonly branchSshLine?: (name: string, signal?: AbortSignal) => Promise<string | { readonly value: string }>
   readonly openBranch?: (name: string) => Promise<string | { readonly value: string }>
   readonly addBranchToStack?: (input: { readonly branch: string; readonly text?: string; readonly title?: string; readonly acceptance?: ReadonlyArray<string>; readonly after?: number; readonly before?: number }) => Promise<string | { readonly value: string }>
+  readonly archiveBranch?: (branch: string) => Promise<string | { readonly value: string }>
   readonly forkBranch?: (input: { readonly from: string; readonly name?: string }) => Promise<string | { readonly value: string }>
   /** members.add, members.role and members.remove: the install's routes, or the seeded roster off an install. A string is the refusal. */
   readonly changeMembers: (tag: "members.add" | "members.role" | "members.remove", input: { readonly login: string; readonly role?: "maintainer" | "member" }) => Promise<string | { readonly value: string }>
@@ -1116,6 +1118,15 @@ export const createAppController = (
   ctx.onDispose(branchMutations.dispose)
   const forkBranch: AppController["forkBranch"] = installHost ? input => branchMutations.request("fork", { ...input }) : undefined
   const addBranchToStack: AppController["addBranchToStack"] = installHost ? input => branchMutations.request("add", { ...input }) : undefined
+  const branchArchive = createBranchArchive(ctx, async (branch, requestId) => {
+    try {
+      const response = await seamCtx.http(`${baseUrl.replace(/\/$/, "")}/api/branches/${encodeURIComponent(branch)}/archive`, { credentials:"same-origin", method:"POST", headers:{"Idempotency-Key":requestId} })
+      if (response.status===200) return true
+      const body=await response.json().catch(()=>undefined) as { readonly message?:unknown } | undefined
+      return typeof body?.message==="string" ? body.message : "Branch unavailable"
+    } catch {return "Branch unavailable"}
+  })
+  const archiveBranch: AppController["archiveBranch"] = installHost ? branchArchive.request : undefined
   const flowCards: AppController["flowCards"] = async (name) => installHost ? flowsSeam.read(name)
     : flowNames(design.world()).flatMap(name => flowCardOf(design.world(), name) ?? [])
   const changeMembers: AppController["changeMembers"] = async (tag, { login, role }) => {
@@ -2164,6 +2175,7 @@ export const createAppController = (
     ...(branchControls ? { branchControls } : {}),
     ...(addBranchToStack ? { addBranchToStack } : {}),
     ...(branchSshLine ? { branchSshLine } : {}),
+    ...(archiveBranch ? { archiveBranch } : {}),
     promptStorageRecovery,
     exportStorageRecovery,
     resetStorageRecovery,
@@ -2567,6 +2579,7 @@ export const createAppController = (
     if (card.loading) store.dispatch({ type: "card.upsert", actor: "system", card: { ...card, loading: false, status: "error", body: "Loading was interrupted. Open this view again to retry." } })
   }
 
+  if (installHost) branchArchive.resume()
   gitHubSyncRetry.resume()
   triggersSeam.resumePauses()
   triggersSeam.resumePreparations()
@@ -2589,6 +2602,7 @@ export const createAppController = (
     queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests(); proposalSeam.resumeProposals(); orderSeam.resumeOrderRequests() } })
     if (installHost) branchMutations.resume()
     workflowController.resumeWorkflowRequests()
+    if (installHost) branchArchive.resume()
     gitHubSyncRetry.resume()
     // Catalog recovery writes a card; leave the identity projection before dispatching it.
     repositoryReadiness.resume()

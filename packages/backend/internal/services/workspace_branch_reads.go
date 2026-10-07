@@ -49,6 +49,9 @@ func WithBranchHeads(heads BranchHeadReader) WorkspaceServiceOption {
 }
 
 func branchMachineState(row db.Workspace) string {
+	if row.BranchArchivedAt.Valid && branchKind(row.TargetBookmark) == "scratch" {
+		return "closed"
+	}
 	switch row.Status {
 	case "running":
 		return "awake"
@@ -180,10 +183,15 @@ func (s *WorkspaceService) projectBranch(ctx context.Context, tx pgx.Tx, q *db.Q
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return BranchMachineResponse{}, err
 		}
-		if err == nil && !lane.RetiredAt.Valid {
+		if err == nil && (!lane.RetiredAt.Valid || row.BranchArchivedAt.Valid) {
 			item, err := q.GetMythicalItem(ctx, lane.ItemID)
 			if err != nil {
 				return BranchMachineResponse{}, err
+			}
+			if row.BranchArchivedAt.Valid {
+				if state := todoState(item); state == "merged" || state == "dropped" {
+					branch.State = "closed"
+				}
 			}
 			if item.WorkspaceID == row.ID {
 				branch.TodoID = uuidString(item.ID)

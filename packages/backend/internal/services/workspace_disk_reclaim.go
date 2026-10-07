@@ -5,121 +5,108 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
-// WorkspaceDiskReclaimAuthority supplies final-capture and quiet-inventory
-// authority from the capture owner. WithFinalCapture must hold exclusion with
-// admission, settlement, binding changes and writers until consume returns,
-// re-read those facts, and verify the retained host ref and complete objects.
-// Its exclusion is acquired before the runtime mutation lock, as on wake.
-// A candidate list is only a hint; it cannot authorize deletion.
+// WorkspaceDiskReclaimAuthority is supplied by the final-capture lifecycle.
+// Candidates are hints only. WithFinalCapture must re-read settlement, lane
+// binding, retained objects and terminal/service inventory, and fence admission
+// and all writers until remove returns. No authority means no disk deletion.
+// Scratch archive timestamps and TODO settlements share this same authority.
 type WorkspaceDiskReclaimAuthority interface {
 	Candidates(context.Context) ([]string, error)
-	WithFinalCapture(context.Context, db.Workspace, func(context.Context, WorkspaceDiskReclaimFacts) error) error
+	WithFinalCapture(context.Context, db.Workspace, func(WorkspaceDiskReclaimCapture) error) error
 }
 
-type WorkspaceDiskReclaimFacts struct {
-	WorkspaceID, CandidateHead, CaptureHead string
-	Settled, Quiet, CaptureVerified         bool
-}
+// WorkspaceDiskReclaimCapture names the verified, complete retained capture.
+// The authority verifies the host ref through the head report, including the
+// working-copy files needed by reopen, before invoking the callback.
+type WorkspaceDiskReclaimCapture = workspaceapi.DiskReclaimCapture
 
 func WithWorkspaceDiskReclaimAuthority(authority WorkspaceDiskReclaimAuthority) WorkspaceServiceOption {
-	return func(s *WorkspaceService) { s.diskReclaim = authority }
+	return func(s *WorkspaceService) { s.diskReclaimAuthority = authority }
 }
 
-// CleanupStoppedAgentWorkspaceDisks stays on the shared cleaner. Until the
-// capture owner is composed, missing authority retains every disk.
+// CleanupStoppedAgentWorkspaceDisks shares the five-minute cleaner. It never
+// infers settlement or capture from age, retirement or an absent lane binding.
 func (s *WorkspaceService) CleanupStoppedAgentWorkspaceDisks(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	reclaimer, ok := s.runtime.(workspaceapi.WorkspaceDiskReclaimer)
-	if s.diskReclaim == nil || !ok {
+	if s.diskReclaimAuthority == nil {
 		return nil
 	}
-	ids, err := s.diskReclaim.Candidates(ctx)
+	if _, ok := s.runtime.(workspaceapi.WorkspaceDiskReclaimer); !ok {
+		return nil
+	}
+	candidates, err := s.diskReclaimAuthority.Candidates(ctx)
 	if err != nil {
 		return err
 	}
-	for _, id := range ids {
-		if err := s.reclaimAgentWorkspaceDisk(ctx, id, reclaimer); err != nil {
-			return err
+	var failures []error
+	for _, id := range candidates {
+		if err := ctx.Err(); err != nil {
+			return errors.Join(append(failures, err)...)
+		}
+		if err := s.reclaimAgentWorkspaceDisk(ctx, id); err != nil {
+			failures = append(failures, err)
 		}
 	}
-	return nil
+	return errors.Join(failures...)
 }
 
-func (s *WorkspaceService) reclaimAgentWorkspaceDisk(ctx context.Context, id string, runtime workspaceapi.WorkspaceDiskReclaimer) error {
-	store, ok := s.q.(interface {
-		GetMythicalLane(context.Context, string) (db.MythicalLane, error)
-		GetMythicalItem(context.Context, pgtype.UUID) (db.MythicalItem, error)
-	})
-	if !ok {
-		return nil
-	}
+func (s *WorkspaceService) reclaimAgentWorkspaceDisk(ctx context.Context, id string) error {
 	unlock := s.lockRuntimeWorkspace(id)
+	defer unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	row, err := s.q.GetWorkspace(ctx, id)
-	unlock()
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	if row.DeletedAt.Valid || (row.Status != "stopped" && row.Status != "suspended") {
+	if row.DeletedAt.Valid || row.DiskReclaimedAt.Valid || (row.Status != "suspended" && row.Status != "stopped" && row.Status != "running") {
 		return nil
 	}
-	return s.diskReclaim.WithFinalCapture(ctx, row, func(ctx context.Context, facts WorkspaceDiskReclaimFacts) error {
-		unlock := s.lockRuntimeWorkspace(id)
-		defer unlock()
+	if row.Status == "running" {
+		// Only the combined broker/capture lifecycle can stop settled
+		// services, capture their final writes and publish a stopped row.
+		if _, ok := s.runtime.(WorkspaceCleanupFence); !ok {
+			return nil
+		}
+	}
+	if s.diskReclaimAuthority == nil {
+		return nil
+	}
+	reclaimer, ok := s.runtime.(workspaceapi.WorkspaceDiskReclaimer)
+	if !ok {
+		return nil
+	}
+	return s.diskReclaimAuthority.WithFinalCapture(ctx, row, func(capture WorkspaceDiskReclaimCapture) error {
+		// The lifecycle lock covers this re-read and runtime removal; the authority
+		// keeps settlement/binding and quiet inventory fenced across the callback.
 		current, err := s.q.GetWorkspace(ctx, id)
-		if err != nil {
-			return err
-		}
-		lane, err := store.GetMythicalLane(ctx, id)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
-		item, err := store.GetMythicalItem(ctx, lane.ItemID)
-		if errors.Is(err, pgx.ErrNoRows) {
+		if current.DeletedAt.Valid || (current.Status != "suspended" && current.Status != "stopped") {
 			return nil
 		}
-		if err != nil {
-			return err
-		}
-		if lane.WorkspaceID != id || lane.RepositoryID != current.RepositoryID || item.ID != lane.ItemID ||
-			item.RepositoryID != current.RepositoryID || item.WorkspaceID != id || item.PausedAt.Valid ||
-			item.CandidateHead != facts.CandidateHead {
+		if current.VmID != row.VmID || current.RepositoryID != row.RepositoryID || current.UserID != row.UserID {
 			return nil
 		}
-		switch item.State {
-		case "landed", "cancelled", "rejected", "declined", "skipped", "dropped":
-		default:
+		if !capture.Settled || !capture.Quiet || !capture.BindingVerified || !capture.CaptureComplete || !capture.InventoryCurrent || capture.WorkspaceID != id || capture.CaptureID == "" ||
+			capture.CandidateHead == "" || capture.CandidateHead != current.HeadCommitID || capture.RetainedHead != capture.CandidateHead {
 			return nil
 		}
-		// A retained snapshot awaiting reconciliation is newer work, even if
-		// the last verified head still matches the settled candidate. Read this
-		// durable fence under exclusion; a stale authority receipt cannot erase it.
-		if len(current.CapturePending) != 0 || current.ID != id || current.VmID != row.VmID || current.DeletedAt.Valid || (current.Status != "stopped" && current.Status != "suspended") ||
-			current.UserID != row.UserID || current.RepositoryID != row.RepositoryID || current.TargetBookmark != row.TargetBookmark ||
-			facts.WorkspaceID != id || !facts.Settled || !facts.Quiet || !facts.CaptureVerified ||
-			facts.CandidateHead == "" || facts.CandidateHead != facts.CaptureHead || current.HeadCommitID != facts.CandidateHead {
-			return nil
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		operationCtx, err := s.workspaceRuntimeContext(ctx, current, current.UserID, workspaceLifecycleOperation(current, "reclaim"))
-		if err != nil {
-			return err
-		}
-		return runtime.ReclaimWorkspaceDisk(operationCtx, id)
+		return reclaimer.ReclaimWorkspaceDisk(ctx, id)
 	})
 }
 

@@ -20,6 +20,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
@@ -58,6 +59,12 @@ func newCheckoutHarness(t *testing.T, public, autoInit bool) *checkoutHarness {
 	queries := db.New(pool)
 	user := processWorkspaceCreateUser(t, pool, "checkout_owner")
 	repo := processWorkspaceCreateRepo(t, pool, user, "checkout_repo", public)
+	_, err := pool.Exec(t.Context(), `INSERT INTO self_host_owners(user_id) VALUES($1)`, user.ID)
+	require.NoError(t, err)
+	binding := fmt.Sprintf(`{"owner_login":%q,"repository_name":%q,"repository_id":%d,"last_access_check_at":%q}`, repo.Owner, repo.Name, repo.ID, time.Now().UTC().Format(time.RFC3339Nano))
+	for _, key := range []string{"github.repository", "owner.access"} {
+		require.NoError(t, queries.UpsertInstallSetting(t.Context(), db.UpsertInstallSettingParams{Key: key, Value: []byte(binding)}))
+	}
 	local, err := repository.OpenLocal(repository.Config{
 		StoragePath: t.TempDir(), AuthToken: "checkout-engine-token", FFILibraryPath: ffi,
 	})
@@ -107,7 +114,7 @@ func newCheckoutHarness(t *testing.T, public, autoInit bool) *checkoutHarness {
 	// Checkout and command persistence use the real process runtime. Its
 	// isolation/guest identity are explicitly outside this transport fixture;
 	// retain the production membership, command and lane-binding providers.
-	providers := services.HostedBranchMachineProviders(runtime)
+	providers := services.InstallBranchMachineProviders(identity.NewMemberBoundary(queries), runtime)
 	membership, authorize := providers.Membership, providers.Authorize
 	providers.Membership = func(ctx context.Context, tx pgx.Tx, repositoryID, actorID int64) error {
 		require.Equal(t, repo.ID, repositoryID)

@@ -179,6 +179,7 @@ var migrationRegistry = []migrationSpec{
 	{141, "migrations/0141_stack_attention.sql"},
 	{142, "migrations/0142_workspace_moved_off.sql"},
 	{143, "migrations/0143_home_background_dismissal.sql"},
+	{144, "migrations/0144_workspace_cleanup.sql"},
 }
 
 type migration struct {
