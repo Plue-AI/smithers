@@ -539,7 +539,11 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		require.Equal(t, "Waiting for Merge owner to confirm", receipt["message"])
 		require.Len(t, receipt, 3, "the CLI exposes only the receipt and waiting message")
 		id := receipt["confirmation"].(string)
-		aliasStatus, aliasReceipt := call(http.MethodPost, "/api/repos/merge-owner/app/mythical/items/"+uuid.UUID(before.ID.Bytes).String()+"/merge", "", pat, "confirm-create", fmt.Sprintf(`{"reviewed_head_sha":%q}`, pull.Head.SHA))
+		aliasBody := `{}`
+		if len(explicitHead) > 0 && explicitHead[0] {
+			aliasBody = fmt.Sprintf(`{"reviewed_head_sha":%q}`, pull.Head.SHA)
+		}
+		aliasStatus, aliasReceipt := call(http.MethodPost, "/api/repos/merge-owner/app/mythical/items/"+uuid.UUID(before.ID.Bytes).String()+"/merge", "", pat, "confirm-create", aliasBody)
 		require.Equal(t, http.StatusAccepted, aliasStatus, aliasReceipt)
 		require.Equal(t, id, aliasReceipt["confirmation"], "the legacy door replays the same private confirmation")
 		require.Equal(t, "pending", aliasReceipt["state"])
