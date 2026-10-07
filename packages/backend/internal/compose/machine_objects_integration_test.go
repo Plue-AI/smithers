@@ -80,6 +80,9 @@ func TestMachineObjectsProductionBinding(t *testing.T) {
 		}
 		require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Objects, Stream: stream, Payload: []byte{2, 0}}))
 	}
+	// Final sleep capture transfers objects after the releasing transition.
+	_, err = b.pool.Exec(t.Context(), `UPDATE workspaces SET status='releasing' WHERE id=$1`, branch)
+	require.NoError(t, err)
 	send(peer, 8)
 	closed, err := wire.Read(peer)
 	require.NoError(t, err)
