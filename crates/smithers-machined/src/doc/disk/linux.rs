@@ -315,7 +315,13 @@ impl<V: Versions> Disk for LinuxDisk<V> {
     }
     fn read_displaced(&mut self, token: u64) -> Result<Vec<u8>> {
         let inode = self.inodes.get_mut(&token).ok_or(Error::Invalid)?;
-        read(&mut inode.file, MAX_TEXT_BYTES)
+        let bytes = read(&mut inode.file, MAX_TEXT_BYTES)?;
+        if bytes.len() > MAX_TEXT_BYTES {
+            // Keep the displaced inode and recovery metadata. A bounded
+            // prefix cannot establish a digest or an exact version receipt.
+            return Err(Error::ReadOnly);
+        }
+        Ok(bytes)
     }
     fn remove_displaced(&mut self, token: u64) -> Result<()> {
         let inode = self.inodes.get(&token).ok_or(Error::Invalid)?;
