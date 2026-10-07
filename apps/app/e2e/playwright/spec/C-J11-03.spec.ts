@@ -106,9 +106,11 @@ test("C-J11-03: the instruction link reads the activated main revision after rel
   { id: "app", label: "App agent", purpose: "", model: { id: "model-f", label: "model-f", provider: "openai-chat" }, builtin: true, available: false, account: "", reason: "", source: "owner", instructions: ".smithers/instructions/app.md", runs: [] }
  ] } }))
  let active = "Answer the repository question as Smithers for the prompt author."
- const draft = "Always end answers with the word DONE."
+ const draft = "Always end answers with the word DONE.\n```js\nthrow new Error(\"instruction Markdown executed\")\n```"
  const reads: string[] = []
+ const writes: string[] = []
  await page.route("**/api/branches/main/files/.smithers/instructions/app.md", route => {
+  if (route.request().method() !== "GET") writes.push(route.request().method())
   reads.push(active)
   return route.fulfill({ json: {
    path: ".smithers/instructions/app.md", branch: "main", language: "markdown", digest: active === draft ? "sha256:merged" : "sha256:builtin",
@@ -131,9 +133,15 @@ test("C-J11-03: the instruction link reads the activated main revision after rel
  await page.reload()
  await openInstructions()
  await expect.poll(() => reads).toContain(draft)
- await expect(page.getByRole("textbox", { name: ".smithers/instructions/app.md", exact: true })).toContainText(draft)
+ await expect(page.getByRole("textbox", { name: ".smithers/instructions/app.md", exact: true }).locator(".cm-line")).toHaveText(draft.split("\n"))
  expect(reads[0]).toBe("Answer the repository question as Smithers for the prompt author.")
  expect(reads.at(-1)).toBe(draft)
+ const source = page.getByRole("textbox", { name: ".smithers/instructions/app.md", exact: true })
+ await expect(source).toHaveAttribute("aria-readonly", "true")
+ await expect(page.getByRole("button", { name: "Save", exact: true })).toHaveCount(0)
+ await say(page, "/help")
+ await expect(page.getByRole("textbox").last()).toBeEnabled()
+ expect(writes).toEqual([])
 })
 
 

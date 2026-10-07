@@ -86,8 +86,8 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
   }
   // Bind the answer and model receipt to this newly admitted turn, rather
   // than accepting any historical app run with the expected model.
-  const ask = async (expectedModel = modelF) => {
-   await fillComposer(page, "What is this repository for? Answer in one sentence.")
+  const ask = async (expectedModel = modelF, prompt = "What is this repository for? Answer in one sentence.") => {
+   await fillComposer(page, prompt)
    const admission = page.waitForResponse(response =>
     new URL(response.url()).pathname === "/api/conversations/main/prompt" &&
     response.request().method() === "POST" && response.status() === 202)
@@ -213,7 +213,19 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
   const original = await readInstructions()
   await page.locator('[data-agent="app"] [data-flow="files.read"]').press("Enter")
   await expect(page.getByText(original.content.text, { exact: true }).last()).toBeVisible()
-  await createTodo(page, 'Update .smithers/instructions/app.md to always end answers with the word DONE')
+  const beforeInstructions = await f.read("Will", "/api/todos")
+  await ask(modelA, 'Update your instructions in .smithers/instructions/app.md to always end answers with the word DONE. Propose a TODO and wait for my confirmation.')
+  const proposal = page.locator('.smithers-card[data-kind="confirm"]').filter({ hasText: ".smithers/instructions/app.md" }).last()
+  await expect(proposal).toBeVisible()
+  await expect(proposal.getByRole("button", { name: "Commit", exact: true })).toBeEnabled()
+  expect((await f.read("Will", "/api/todos")).map((row: any) => row.n)).toEqual(beforeInstructions.map((row: any) => row.n))
+  expect((await readInstructions()).content.text).toBe(original.content.text)
+  await info.attach("instruction-proposal-before-confirmation", { body: await proposal.innerText(), contentType: "text/plain" })
+  await proposal.getByRole("button", { name: "Commit", exact: true }).press("Enter")
+  await expect.poll(async () => (await f.read("Will", "/api/todos")).filter((row: any) =>
+   !beforeInstructions.some((old: any) => old.n === row.n)).length, { timeout: 30_000 }).toBe(1)
+  await attachJson(info, "instruction-todo-after-confirmation", await f.read("Will", "/api/todos"))
+  expect((await ask(modelA)).trim()).not.toMatch(/\bDONE[.!]?$/)
   // A person merges the instruction PR; the observer never grants merge authority.
   expect((await readInstructions()).content.text).toBe(original.content.text)
   await expect.poll(async () => (await readInstructions()).content.text, {
@@ -232,6 +244,6 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
   await runSlash(page, "/agents")
   await expect(page.locator('[data-agent="reviewer"]')).toContainText(modelB)
   await page.locator('[data-agent="app"] [data-flow="files.read"]').press("Enter")
-  await expect(page.getByRole("textbox", { name: ".smithers/instructions/app.md", exact: true })).toContainText(activated.content.text)
+  await expect(page.getByRole("textbox", { name: ".smithers/instructions/app.md", exact: true }).locator(".cm-line")).toHaveText(activated.content.text.split("\n"))
  })
 })
