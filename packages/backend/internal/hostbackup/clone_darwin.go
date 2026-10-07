@@ -27,6 +27,13 @@ func (APFSCloner) Clone(source, destination string) error {
 		return err
 	}
 	defer destinationDir.Close()
+	return (APFSCloner{}).CloneAt(sourceDir, filepath.Base(source), destinationDir, filepath.Base(destination))
+}
+
+func (APFSCloner) CloneAt(sourceDir *os.File, source string, destinationDir *os.File, destination string) error {
+	if !safePath(source) || filepath.Base(source) != source || !safePath(destination) || filepath.Base(destination) != destination {
+		return &Error{Code: UnsafePath, Path: source}
+	}
 	// Hold both ancestors through the syscall, including the filesystem check.
 	// A renamed/replaced ancestor cannot redirect the clone to an outside tree.
 	for _, directory := range []*os.File{sourceDir, destinationDir} {
