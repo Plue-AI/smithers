@@ -142,6 +142,28 @@ const callOf = (flowName: string, input: unknown): Cell.Call =>
   }) as unknown as Cell.Call
 
 describe("the dark coding terminal binding", () => {
+  it.each(["T-FLW-01", "T-COL-03", "T-TRM-07", "T-TRM-01", "T-APP-09", "T-APP-10", "T-APP-12", "acceptance"])(
+    "reports the missing %s provider at the bound Bash boundary without executing", async (missing) => {
+      const terminalProviders = Object.fromEntries(
+        ["T-FLW-01", "T-COL-03", "T-TRM-07", "T-TRM-01", "T-APP-09", "T-APP-10", "T-APP-12"]
+          .filter(ticket => ticket !== missing).map(ticket => [ticket, true as const])
+      )
+      let spawns = 0
+      const services = Context.merge(pathServices, Context.make(
+        ChildProcessSpawner.ChildProcessSpawner,
+        ChildProcessSpawner.makeNoop({ spawn: () => { spawns++; return Effect.die("host execution") } })
+      ))
+      const source = StandardFlows.shell(services, {
+        exec: () => { spawns++; return Effect.die("container execution") }
+      }, { terminal: "agent", terminalProviders })
+      const [binding] = await Effect.runPromise(source.bindings())
+      const result = await Effect.runPromise(binding!.run(callOf("bash", { command: "printf fixture", mode: "unhermetic" })))
+      expect(result).toMatchObject({ outcome: "failure", code: "flow_failed", value: null })
+      expect(result.message).toContain(missing === "acceptance" ? "C-J3-10 and C-COL-04" : `missing ${missing};`)
+      expect(spawns).toBe(0)
+    }
+  )
+
   it.each([
     { command: "printf terminal-fixture", mode: "unhermetic" },
     { command: "printf terminal-fixture", mode: "hermetic", reads: ["**"], writes: ["**"] },
