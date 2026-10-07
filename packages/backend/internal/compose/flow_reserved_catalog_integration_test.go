@@ -8,14 +8,17 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
@@ -46,11 +49,13 @@ func TestInstallFlowCatalogShowsReservedDeclarationRefusal(t *testing.T) {
 	load, err := q.EnsureFlowLoad(ctx, repo)
 	require.NoError(t, err)
 	load.CommitID, load.LoadedCommit = strings.Repeat("a", 40), strings.Repeat("a", 40)
-	load.Versions = json.RawMessage(`[{"name":"merge","path":"flows/merge/flow.ts","digest":"` + strings.Repeat("b", 64) + `","status":"failed","error":"flows/merge/flow.ts: reserved_name"},{"name":"custom","path":"flows/custom/flow.ts","digest":"` + strings.Repeat("c", 64) + `","status":"failed","error":"invalid type"}]`)
+	load.Versions = json.RawMessage(`[{"name":"merge","path":"flows/merge/flow.ts","digest":"` + strings.Repeat("b", 64) + `","status":"failed","error":"flows/merge/flow.ts: reserved_name"},{"name":"custom","path":"flows/custom/flow.ts","digest":"` + strings.Repeat("c", 64) + `","status":"failed","error":"invalid type"},{"name":"checks/canary","path":"flows/checks/canary/flow.ts","digest":"` + strings.Repeat("d", 64) + `","status":"failed","error":"invalid type"}]`)
 	load, err = q.SaveFlowLoad(ctx, load)
 	require.NoError(t, err)
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode, cfg.Auth.SessionCookieName = "selfhost", "session"
+	server := httptest.NewUnstartedServer(nil)
+	cfg.Server.PublicURL = "http://" + server.Listener.Addr().String()
 	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
 	store, err := jobs.NewStore(pool)
 	require.NoError(t, err)
@@ -102,9 +107,13 @@ func TestInstallFlowCatalogShowsReservedDeclarationRefusal(t *testing.T) {
 		nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 		nil, nil, nil, nil, nil, nil,
-		&routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, routerExtras{FlowRuns: runs})
+		&routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, routerExtras{FlowRuns: runs, GitHubAppSetup: &routes.GitHubAppSetupHandler{Origins: middleware.FixedOrigins(cfg.Server.AllowedOrigins...)}})
+	server.Config.Handler = router
+	server.Start()
+	t.Cleanup(server.Close)
 	read := func() []services.FlowCard {
 		request := httptest.NewRequest(http.MethodGet, cfg.Server.PublicURL+"/api/flows", nil)
+		request.RemoteAddr = "127.0.0.1:51999"
 		request.AddCookie(&http.Cookie{Name: "session", Value: cookie})
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, request)
@@ -113,8 +122,9 @@ func TestInstallFlowCatalogShowsReservedDeclarationRefusal(t *testing.T) {
 		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &cards))
 		return cards
 	}
-	for _, name := range []string{"todo", "merge", "missing"} {
-		request := httptest.NewRequest(http.MethodGet, cfg.Server.PublicURL+"/api/flows/"+name, nil)
+	for _, name := range []string{"todo", "merge", "checks/canary", "missing"} {
+		request := httptest.NewRequest(http.MethodGet, cfg.Server.PublicURL+"/api/flows/"+url.PathEscape(name), nil)
+		request.RemoteAddr = "127.0.0.1:51999"
 		request.AddCookie(&http.Cookie{Name: "session", Value: cookie})
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, request)
@@ -168,6 +178,7 @@ func TestInstallFlowCatalogShowsReservedDeclarationRefusal(t *testing.T) {
 		require.NoError(t, err)
 		call := func(method, path, body, key string, signed bool) *httptest.ResponseRecorder {
 			request := httptest.NewRequest(method, cfg.Server.PublicURL+path, strings.NewReader(body))
+			request.RemoteAddr = "127.0.0.1:51999"
 			request.Header.Set("Content-Type", "application/json")
 			request.Header.Set("Origin", cfg.Server.PublicURL)
 			request.Header.Set("Idempotency-Key", key)
@@ -202,6 +213,30 @@ func TestInstallFlowCatalogShowsReservedDeclarationRefusal(t *testing.T) {
 				require.Contains(t, answer.Body.String(), tc.code)
 			})
 		}
+		t.Run("encoded reserved name", func(t *testing.T) {
+			request := fmt.Sprintf(`{"workspaceId":%q,"input":{}}`, machine)
+			refused := call("POST", "/api/flows/%6derge/run", request, "encoded-reserved", true)
+			require.Equal(t, 403, refused.Code, refused.Body.String())
+			require.Contains(t, refused.Body.String(), "reserved_name")
+			double := call("POST", "/api/flows/%256derge/run", request, "double-encoded", true)
+			require.Equal(t, 400, double.Code, double.Body.String())
+			require.Contains(t, double.Body.String(), "invalid_flow_run")
+		})
+		// The generated CLI descriptor must supply the same strict body as
+		// the browser/API door, with real install authentication and storage.
+		token := "smithers_" + strings.Repeat("d", 40)
+		tokenDigest := sha256.Sum256([]byte(token))
+		tokenHash := hex.EncodeToString(tokenDigest[:])
+		_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "canary-cli", TokenHash: tokenHash, TokenLastEight: tokenHash[len(tokenHash)-8:], Scopes: "read:repository,write:repository", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+		require.NoError(t, err)
+		cliCtx, stopCLI := context.WithTimeout(ctx, 30*time.Second)
+		defer stopCLI()
+		code, cliReceipt := catalogCLIInvoker(t, cliCtx, server.URL, token)("flow", "run", "checks/canary", "--workspaceId", machine, "--repo", "flow-owner/app", "--input", `{"hello":"guest"}`)
+		require.Equal(t, 0, code, cliReceipt)
+		require.Equal(t, string(jobs.StateAccepted), cliReceipt["state"])
+		cliID, ok := cliReceipt["operationId"].(string)
+		require.True(t, ok, cliReceipt)
+		require.NotEmpty(t, cliID)
 		answer := call("POST", "/api/flows", body, "run", true)
 		require.Equal(t, 202, answer.Code, answer.Body.String())
 		var receipt jobs.RequestReceipt
@@ -231,6 +266,9 @@ func TestInstallFlowCatalogShowsReservedDeclarationRefusal(t *testing.T) {
 		}
 		// The runtime is deliberately unresolved. Catalog and progress still answer.
 		require.NotEmpty(t, read())
+		cliPending := call("GET", "/api/flows/runs/"+cliID, "", "", true)
+		require.Equal(t, 200, cliPending.Code, cliPending.Body.String())
+		require.NotContains(t, cliPending.Body.String(), `"state":"completed"`)
 		pending := call("GET", "/api/flows/runs/"+receipt.OperationID, "", "", true)
 		require.Equal(t, 200, pending.Code, pending.Body.String())
 		require.NotContains(t, pending.Body.String(), `"state":"completed"`)

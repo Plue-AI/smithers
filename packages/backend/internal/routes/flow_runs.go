@@ -20,7 +20,12 @@ func (h *FlowsHandler) Run(w http.ResponseWriter, r *http.Request) {
 		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_flow_run", Class: "user", Message: "Invalid flow input"})
 		return
 	}
-	if name := chi.URLParam(r, "name"); name != "" {
+	name, err := flowNameParam(r)
+	if err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	if name != "" {
 		if input.Name != "" && input.Name != name {
 			todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_flow_run", Class: "user", Message: "Flow name does not match"})
 			return
