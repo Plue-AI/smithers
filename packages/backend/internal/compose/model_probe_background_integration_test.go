@@ -85,8 +85,11 @@ func TestComposedModelProbeReconnectsWithoutAnotherProviderCall(t *testing.T) {
 		req.AddCookie(&http.Cookie{Name: "session", Value: session})
 		req.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "probe-csrf"})
 		req.Header.Set("X-CSRF-Token", "probe-csrf")
+		var decisions []string
+		req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) { decisions = append(decisions, command) }))
 		res := httptest.NewRecorder()
 		router.ServeHTTP(res, req)
+		require.Equal(t, []string{"model.test"}, decisions, "launch and receipt each reuse one decision")
 		return res
 	}
 	body := fmt.Sprintf(`{"requestId":"probe-request-1","model":{"id":"probe","protocol":"openai-chat","modelId":"probe-model","credential":"PROBE_KEY","baseUrl":%q}}`, provider.URL)

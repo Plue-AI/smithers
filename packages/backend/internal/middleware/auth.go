@@ -506,6 +506,7 @@ var installMemberRoutes = []struct {
 	{http.MethodDelete, "settings.fast-model", regexp.MustCompile(`^/api/model/fast$`)},
 	{http.MethodGet, "settings.model-key", regexp.MustCompile(`^/api/model/credential/receipt$`)},
 	{http.MethodPost, "model.test", regexp.MustCompile(`^/api/model/test$`)},
+	{http.MethodGet, "model.test", regexp.MustCompile(`^/api/model/test/receipt$`)},
 	{http.MethodPut, "model.assign", regexp.MustCompile(`^/api/agents/[^/]+/model$`)},
 	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/user/(orgs|workspaces)$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/user/(?:repos|readable-repos)$`)},

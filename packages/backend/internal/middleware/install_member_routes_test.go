@@ -134,6 +134,7 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodGet, "/api/model/credential/receipt", "settings.model-key"},
 		{http.MethodPut, "/api/model/default", "model.assign"},
 		{http.MethodPost, "/api/model/test", "model.test"},
+		{http.MethodGet, "/api/model/test/receipt", "model.test"},
 		{http.MethodGet, "/api/install/metrics", "install.read"},
 		{http.MethodPost, "/api/user/tokens", "self"},
 		{http.MethodGet, "/api/members/alice", ""},
