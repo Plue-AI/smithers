@@ -138,10 +138,10 @@ for (const fault of [
   }
 }, 180_000)
 
-// Doctor uses the packaged backend's production admission without opening the
-// launcher's fixed listeners. Faults modify a private copy of the real Mach-O,
+// Doctor and the launcher refuse during production runtime admission before
+// opening listeners. Faults modify a private copy of the real Mach-O,
 // never a shell stand-in, and no guest is booted from a modified artifact.
-boundary("packaged doctor refuses a real msb with an unqualified version", () => {
+boundary("packaged doctor and server refuse a real msb with an unqualified version", () => {
   const temporary = mkdtempSync(join(homedir(), ".smithers-runtime-refusal-"))
   try {
     const copy = join(temporary, "bundle")
@@ -190,6 +190,30 @@ boundary("packaged doctor refuses a real msb with an unqualified version", () =>
     expect(result.stderr).toContain("microVM isolation is not ready")
     expect(result.stdout).not.toContain('"setup_urls"')
     expect(existsSync(join(state, "postgres"))).toBe(false)
+    // Version admission precedes listeners and PostgreSQL; drive the person's
+    // entrypoint without booting a guest from this modified artifact.
+    const home = join(temporary, "home")
+    mkdirSync(home, { mode: 0o700 })
+    const started = performance.now()
+    const launcher = spawnSync(join(copy, "bin/smithers-server"), [], {
+      env: {
+        HOME: home, PATH: "/usr/bin:/bin",
+        SMITHERS_WORKSPACE_ISOLATION: "process",
+        SMITHERS_MICROSANDBOX_BIN: "/bin/sh",
+        SMITHERS_BACKEND_BINARY: "/bin/sh",
+        SMITHERS_SERVER_ADDR: "0.0.0.0:9000",
+        SMITHERS_SSH_ADDR: "0.0.0.0:9001",
+        SMITHERS_EGRESS_RELAY_PORT: "9002"
+      }, encoding: "utf8", timeout: 30_000
+    })
+    expect(launcher.error).toBeUndefined()
+    expect(launcher.status).not.toBeNull()
+    expect(launcher.status).not.toBe(0)
+    expect(performance.now() - started).toBeLessThan(30_000)
+    expect(launcher.stderr).toContain("msb 0.6.15 is installed; this backend is qualified with msb 0.6.16")
+    expect(launcher.stdout).not.toContain('"setup_urls"')
+    expect(launcher.stdout).not.toContain("SMITHERS_LOCAL_ORIGIN=")
+    expect(existsSync(join(home, "Library/Application Support/Smithers/postgres"))).toBe(false)
     const processes = spawnSync("/bin/ps", ["-axo", "pid=,comm="], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 })
     expect(processes.status).toBe(0)
     expect(processes.stdout).not.toContain(copy)
