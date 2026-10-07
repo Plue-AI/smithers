@@ -556,15 +556,25 @@ func TestStartupLeavesProcessesThatReusedAGCPidAlone(t *testing.T) {
 // Maintenance git killed on cancellation leaves no gc.pid of its own behind.
 func TestCancelledMaintenanceRemovesGCPid(t *testing.T) {
 	gitDir := t.TempDir()
+	// Opening gc.pid precedes writing its PID. Keep that gap visible so
+	// cancellation is synchronized with an identifiable maintenance owner.
 	maintenanceCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
-		return exec.CommandContext(ctx, "sh", "-c", `echo "$$ host" > `+filepath.Join(gitDir, "gc.pid")+`; sleep 60`)
+		return exec.CommandContext(ctx, "sh", "-c", `touch `+filepath.Join(gitDir, "gc.pid")+`; sleep 0.2; echo "$$ host" > `+filepath.Join(gitDir, "gc.pid")+`; sleep 60`)
 	}
 	maintenanceWaitDelay = 100 * time.Millisecond
 	t.Cleanup(func() { maintenanceCommandContext, maintenanceWaitDelay = exec.CommandContext, 10*time.Second })
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error)
 	go func() { done <- runMaintenanceGit(ctx, gitDir, gcArgs) }()
-	require.Eventually(t, func() bool { _, err := os.Stat(filepath.Join(gitDir, "gc.pid")); return err == nil }, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		raw, err := os.ReadFile(filepath.Join(gitDir, "gc.pid"))
+		fields := strings.Fields(string(raw))
+		if err != nil || len(fields) != 2 || fields[1] != "host" {
+			return false
+		}
+		pid, err := strconv.Atoi(fields[0])
+		return err == nil && pid > 0
+	}, 5*time.Second, 10*time.Millisecond)
 	cancel()
 	require.Error(t, <-done)
 	require.NoFileExists(t, filepath.Join(gitDir, "gc.pid"))
