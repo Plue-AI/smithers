@@ -189,12 +189,14 @@ func (s *BurstIngest) Apply(ctx context.Context, connection *Connection, scope j
 			}
 		}
 	}
-	if err = tx.Commit(ctx); err != nil {
+	// Retain the verified snapshot before exposing its activity or notifying
+	// readers. A ref failure rolls back every row and receipt. If SQL commit
+	// fails after retention, the immutable ref safely survives and replay
+	// retries the transaction against the same pinned bytes.
+	if err = s.Objects.PublishBurst(ctx, branch, burstID, b.Versions); err != nil {
 		return ack, err
 	}
-	// A publish failure deliberately leaves the receipt: replay retries ref
-	// retention, without appending another activity entry.
-	if err = s.Objects.PublishBurst(ctx, branch, burstID, b.Versions); err != nil {
+	if err = tx.Commit(ctx); err != nil {
 		return ack, err
 	}
 	ack.Outcome = AckApplied
