@@ -59,3 +59,18 @@ func TestTODOBranchDiffRoute(t *testing.T) {
 		})
 	}
 }
+
+func TestTODOBranchDiffRejectsSelectorsBeforeRead(t *testing.T) {
+	for _, query := range []string{"entry=burst-1", "entry=", "snapshot_before=before&snapshot_after=after", "entry=first&entry=second", "unknown=value"} {
+		t.Run(query, func(t *testing.T) {
+			reader := &branchDiffFixture{}
+			router := chi.NewRouter()
+			router.Get("/api/branches/{b}/diff", (&BranchDiffHandler{Reader: reader}).Diff)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest("GET", "/api/branches/branch-id/diff?"+query, nil))
+			require.Equal(t, 400, rec.Code)
+			require.JSONEq(t, `{"code":"bad_request","class":"user","message":"Unsupported diff selector"}`, rec.Body.String())
+			require.Zero(t, reader.calls)
+		})
+	}
+}

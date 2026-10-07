@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
@@ -19,6 +20,12 @@ type BranchDiffReader interface {
 type BranchDiffHandler struct{ Reader BranchDiffReader }
 
 func (h *BranchDiffHandler) Diff(w http.ResponseWriter, r *http.Request) {
+	// This reader compares the item base only. Never silently substitute that
+	// comparison for a selected activity burst or caller-supplied snapshots.
+	if r.URL.RawQuery != "" {
+		writeBranchError(w, r, pkgerrors.BadRequest("Unsupported diff selector"))
+		return
+	}
 	if h.Reader == nil {
 		writeBranchDiffUnavailable(w)
 		return
