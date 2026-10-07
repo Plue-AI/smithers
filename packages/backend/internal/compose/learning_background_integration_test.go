@@ -2,6 +2,8 @@ package compose
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -16,6 +18,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
@@ -29,6 +32,11 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx := t.Context()
 	q := db.New(pool)
+	bus := revocation.NewBus(pool, q)
+	routes.SetRevocationSource(bus)
+	t.Cleanup(func() { routes.SetRevocationSource(nil) })
+	digest := sha256.Sum256([]byte("fixture-person"))
+	sessionHash := hex.EncodeToString(digest[:])
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "learnowner", LowerUsername: "learnowner"})
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE users SET is_active=true WHERE id=$1`, owner.ID)
@@ -46,9 +54,9 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET state='active' WHERE repository_id=$1`, repo)
 	require.NoError(t, err)
-	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: owner.ID, Username: owner.Username, SessionKey: "fixture-person", ExpiresAt: time.Now().Add(time.Hour)})
+	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: owner.ID, Username: owner.Username, SessionKey: sessionHash, ExpiresAt: time.Now().Add(time.Hour)})
 	require.NoError(t, err)
-	ctx = middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: "fixture-person"})
+	ctx = middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: sessionHash})
 	service := services.NewMythicalService(pool, nil)
 	_, err = service.FileTodo(ctx, repo, owner.ID, services.MythicalTodoInput{Title: "Retry", Prompt: "Use retry", Request: "fixture", Place: services.MythicalTodoPlace{Mode: "append"}})
 	require.NoError(t, err)
@@ -86,7 +94,7 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 	handler := &routes.LiveHandler{Queries: q, Hub: live.NewHub(hubCtx, nil), Origins: func() []string { return []string{origin} }, Topics: topics.resolver}
 	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{}, routerExtras{Live: handler, Mythical: &routes.MythicalHandler{Service: service}})
 	server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		router.ServeHTTP(w, r.WithContext(middleware.ContextWithAuthInfo(r.Context(), &middleware.AuthInfo{User: &owner, SessionHash: "fixture-person"})))
+		router.ServeHTTP(w, r.WithContext(middleware.ContextWithAuthInfo(r.Context(), &middleware.AuthInfo{User: &owner, SessionHash: sessionHash})))
 	})
 	server.Start()
 	for _, row := range []struct {
