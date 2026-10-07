@@ -22,8 +22,9 @@ type SharedContextPreflight struct {
 }
 
 type SharedTurn struct {
-	Summary         *string `json:"summary,omitempty"`
-	SummaryRevision int64   `json:"summary_rev,omitempty"`
+	EntrySequences  map[string]int64 `json:"entry_sequences,omitempty"`
+	Summary         *string          `json:"summary,omitempty"`
+	SummaryRevision int64            `json:"summary_rev,omitempty"`
 	*ExternalDraft
 	Sequence    int64                   `json:"sequence"`
 	ID          string                  `json:"id"`
@@ -116,6 +117,12 @@ func (s *Store) SharedEntries(ctx context.Context, scope Scope, branch string) (
 		if err := tx.QueryRow(ctx, `SELECT username FROM users WHERE id=$1`, turn.UserID).Scan(&entry.AuthorLogin); err != nil {
 			return result, err
 		}
+		// Reserve a range for this immutable publication and its capped journal.
+		// A turn cannot contain a million frames within the journal's 8 MiB limit.
+		if !externalTurn(turn) && entry.Sequence > 0 && entry.Sequence <= maxSafeInteger/1_000_000 {
+			base := entry.Sequence * 1_000_000
+			entry.EntrySequences = map[string]int64{turn.ID + ":prompt": base, turn.ID + ":answer": base + 1}
+		}
 		cursor := initialCursor(acceptance)
 		var preflight sharedPreflight
 		for {
@@ -124,7 +131,7 @@ func (s *Store) SharedEntries(ctx context.Context, scope Scope, branch string) (
 				return result, e
 			}
 			for _, batch := range page.Batches {
-				for _, frame := range batch.Frames {
+				for frameIndex, frame := range batch.Frames {
 					if err := preflight.apply(frame); err != nil {
 						return result, err
 					}
@@ -132,6 +139,17 @@ func (s *Store) SharedEntries(ctx context.Context, scope Scope, branch string) (
 					entry.Preflight = preflight.result
 					if sharedFrame(frame) {
 						entry.Frames = append(entry.Frames, frame)
+						var card struct {
+							Type string `json:"type"`
+							Card struct {
+								ID string `json:"id"`
+							} `json:"card"`
+						}
+						if entry.EntrySequences != nil && json.Unmarshal(frame, &card) == nil && card.Type == "card" && card.Card.ID != "" {
+							if _, exists := entry.EntrySequences[card.Card.ID]; !exists {
+								entry.EntrySequences[card.Card.ID] = entry.Sequence*1_000_000 + 2 + batch.From + int64(frameIndex)
+							}
+						}
 					}
 				}
 			}
