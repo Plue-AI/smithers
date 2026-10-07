@@ -24,7 +24,12 @@ func (s *MythicalService) recordTodoFact(ctx context.Context, tx pgx.Tx, item db
 	}
 	view := *s
 	view.store = tx
-	card, err := view.todoCard(ctx, item, nil)
+	items, err := view.queries().ListMythicalItems(ctx, item.RepositoryID, 500)
+	if err != nil {
+		return jobs.Event{}, err
+	}
+	ctx = view.todoMachineProjection(ctx, item.RepositoryID, items)
+	card, err := view.todoCard(ctx, item, items)
 	if err != nil {
 		return jobs.Event{}, err
 	}

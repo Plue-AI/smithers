@@ -33,6 +33,7 @@ func (s *MythicalService) Todos(ctx context.Context, repositoryID int64) ([]map[
 	if err != nil {
 		return nil, err
 	}
+	ctx = s.todoMachineProjection(ctx, repositoryID, items)
 	views := []map[string]any{}
 	queuePosition := int64(0)
 	for _, item := range items {
@@ -60,14 +61,10 @@ func todoAvatar(user db.User) string {
 // read it; an item past that page queues after every listed one.
 func (s *MythicalService) todoQueuePosition(ctx context.Context, item db.MythicalItem, items []db.MythicalItem) (int64, error) {
 	if s.installParallelRequired && item.Reason != todoDailyLimitReason {
-		if lanes, ok := s.lanes.(interface {
-			TodoMachinePlace(db.MythicalItem) (int, bool)
-		}); ok {
-			position, _ := lanes.TodoMachinePlace(item)
-			return int64(position), nil
-		}
-		return 0, nil
+		place, _ := s.machineProjectionPlace(ctx, todoMachineHolder(item))
+		return int64(place), nil
 	}
+
 	if items == nil {
 		var err error
 		if items, err = s.queries().ListMythicalItems(ctx, item.RepositoryID, 500); err != nil {
@@ -104,9 +101,7 @@ func (s *MythicalService) todoCardAtQueuePosition(ctx context.Context, item db.M
 			return nil, err
 		}
 	}
-	if err := s.syncTodoMachines(ctx, items); err != nil && s.installParallelRequired {
-		s.logger.Warn("mythical.todo_projection_demand_failed", "error", err)
-	}
+	ctx = s.todoMachineProjection(ctx, item.RepositoryID, items)
 	var owner db.User
 	var err error
 	if item.OwnerID.Valid {
@@ -207,7 +202,11 @@ func (s *MythicalService) todoCardAtQueuePosition(ctx context.Context, item db.M
 		// machine · #2" (spec §4.2), never a failure.
 		// The card says why the TODO waits and where it is in line, whatever
 		// step the lane is for (its run, its review).
-		if place, waiting := s.machinePlace(workspace); waiting {
+		place, waiting := s.machinePlace(workspace)
+		if s.installParallelRequired {
+			place, waiting = s.machineProjectionPlace(ctx, machineQueueHolder(workspace.ID))
+		}
+		if waiting {
 			machine = map[string]any{"state": "waiting", "position": place}
 			card["queue"] = map[string]any{"reason": "machine", "position": int64(place)}
 		}
@@ -246,6 +245,9 @@ func (s *MythicalService) todoCardAtQueuePosition(ctx context.Context, item db.M
 	// in line (mvp.md §4.1), never the stack's internal outage text.
 	if card["state"] == "queued" && card["queue"] == nil {
 		position := queuePosition
+		if s.installParallelRequired && item.Reason != todoDailyLimitReason {
+			position = 0
+		}
 		if position == 0 {
 			position, err = s.todoQueuePosition(ctx, item, items)
 			if err != nil {

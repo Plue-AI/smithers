@@ -15,6 +15,7 @@ import (
 type AdmissionRequest struct {
 	Holder, Actor, Reason, Class, State string
 	Position                            int
+	Aliases                             []string
 	sequence                            uint64
 }
 
@@ -237,7 +238,9 @@ func (r *Runtime) AdmissionSnapshot() []AdmissionRequest {
 	rows := []AdmissionRequest{}
 	for _, h := range r.admission {
 		for _, row := range h.rows {
-			rows = append(rows, *row)
+			copy := *row
+			copy.Aliases = append([]string(nil), h.todoOrigins...)
+			rows = append(rows, copy)
 		}
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].sequence < rows[j].sequence })
@@ -322,6 +325,7 @@ func (r *Runtime) GrantNext(ctx context.Context, p AdmissionProviders) (Admissio
 		return AdmissionRequest{}, nil
 	}
 	h.held = true
+	r.notifyAdmissionOwnershipLocked()
 	for _, row := range h.rows {
 		if row.State == "waiting" {
 			row.State = "granted"
@@ -391,6 +395,9 @@ func (r *Runtime) ConfirmAdmissionStop(holder string, transfer bool) {
 	h.machine = ""
 	if transfer && h.releasing.IsZero() {
 		return
+	}
+	if h.held {
+		r.notifyAdmissionOwnershipLocked()
 	}
 	h.held = false
 	h.releasing = time.Time{}
@@ -621,6 +628,9 @@ func (r *Runtime) detachAdmissionMachineLocked(machine string, release bool) {
 		}
 		h.machine = ""
 		if release {
+			if h.held {
+				r.notifyAdmissionOwnershipLocked()
+			}
 			h.held = false
 			h.releasing = time.Time{}
 			for _, row := range h.rows {
@@ -740,6 +750,9 @@ func (r *Runtime) abandonAdmission(holder, actor string) {
 			return
 		}
 	}
+	if h.held {
+		r.notifyAdmissionOwnershipLocked()
+	}
 	h.held = false
 	h.releasing = time.Time{}
 	r.rankAdmissionLocked()
@@ -764,4 +777,21 @@ func (r *Runtime) notifyAdmissionLocked() {
 		close(r.admissionChanged)
 	}
 	r.admissionChanged = make(chan struct{})
+}
+
+// AdmissionOwnershipChanges wakes the stack engine on real reservations and
+// confirmed releases. Projection refreshes and repeated demand cannot wake it.
+func (r *Runtime) AdmissionOwnershipChanges() <-chan struct{} {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.admissionOwnershipChanged == nil {
+		r.admissionOwnershipChanged = make(chan struct{})
+	}
+	return r.admissionOwnershipChanged
+}
+func (r *Runtime) notifyAdmissionOwnershipLocked() {
+	if r.admissionOwnershipChanged != nil {
+		close(r.admissionOwnershipChanged)
+	}
+	r.admissionOwnershipChanged = make(chan struct{})
 }

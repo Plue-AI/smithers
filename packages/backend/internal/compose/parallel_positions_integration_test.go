@@ -1,12 +1,18 @@
 package compose
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/coder/websocket"
+	"github.com/smithersai/smithers/packages/backend/internal/live"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +31,12 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx := t.Context()
 	q := db.New(pool)
+	busCtx, cancelBus := context.WithCancel(ctx)
+	t.Cleanup(cancelBus)
+	bus := revocation.NewBus(pool, q)
+	require.NoError(t, bus.Start(busCtx))
+	routes.SetRevocationSource(bus)
+	t.Cleanup(func() { routes.SetRevocationSource(nil) })
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "maya", LowerUsername: "maya"})
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE users SET is_active=true WHERE id=$1`, owner.ID)
@@ -48,13 +60,22 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = "selfhost"
 	cfg.Auth.SessionCookieName = "smithers_session"
-	cfg.Server.PublicURL = "http://127.0.0.1:4000"
+	server := httptest.NewUnstartedServer(nil)
+	t.Cleanup(server.Close)
+	cfg.Server.PublicURL = "http://" + server.Listener.Addr().String()
 	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
 	runtime := new(microsandbox.Runtime)
 	service := services.NewMythicalService(pool, nil)
-	service.SetInstallParallel(&services.InstallCapacityService{Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, DiskFreeBytes: 400 << 30}})
+	capacity := &services.InstallCapacityService{Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, DiskFreeBytes: 400 << 30}}
+	service.SetInstallParallel(capacity)
 	service.SetOrchestration(nil, nil, services.NewWorkspaceMythicalLanes(services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime))))
-	router := todoMergeComposeRouter(cfg, q, pool, &routes.MythicalHandler{Service: service})
+	store, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	topics := &liveTopics{queries: q, todos: service, jobs: store, install: &services.InstallSetupService{Capacity: capacity}}
+	handler := &routes.LiveHandler{Hub: live.NewHub(ctx, nil), Queries: q, Origins: func() []string { return cfg.Server.AllowedOrigins }, Topics: topics.resolver}
+	router := hostStatusProductionRouter(cfg, q, capacity, conformanceServices{pool: pool, live: handler, mythical: &routes.MythicalHandler{Service: service}})
+	server.Config.Handler = router
+	server.Start()
 	bearerToken := ""
 	browserCookie := "placement-session"
 	call := func(method, path, body, key string) (int, map[string]any) {
@@ -122,5 +143,85 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 	require.Equal(t, 202, code, body)
 	position(4, 3)
 	position(5, 4)
+	// Both live topics use the same production router, card builder and job facts.
+	// Person demand is supplemental scheduler input; the terminal-open admission
+	// journey remains gated on the production safe-idle provider.
+	dial := func(topic string) *websocket.Conn {
+		socket, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{live.Protocol}, HTTPHeader: http.Header{"Cookie": {"smithers_session=" + browserCookie}, "Origin": {cfg.Server.PublicURL}}})
+		require.NoError(t, err)
+		t.Cleanup(func() { socket.CloseNow() })
+		raw, _ := json.Marshal(map[string]any{"t": "sub", "id": 1, "topic": topic})
+		require.NoError(t, socket.Write(ctx, websocket.MessageText, raw))
+		return socket
+	}
+	read := func(socket *websocket.Conn) live.Frame {
+		t.Helper()
+		deadline, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		_, raw, err := socket.Read(deadline)
+		require.NoError(t, err)
+		var frame live.Frame
+		require.NoError(t, json.Unmarshal(raw, &frame))
+		return frame
+	}
+	homeSocket, todoSocket := dial("home"), dial("todo:1")
+	firstHome, firstTodo := read(homeSocket), read(todoSocket)
+	require.Equal(t, "snap", firstHome.T)
+	require.Equal(t, "snap", firstTodo.T)
+	require.Contains(t, string(firstTodo.Data), `"position":2`)
+	// A person joining the runtime waiting set refreshes both projections even
+	// without an item SQL mutation or a new durable TODO event.
+	_, err = runtime.Request("person", "workspace:ben-2", "Ben", "machine")
+	require.NoError(t, err)
+	personHome, personTodo := read(homeSocket), read(todoSocket)
+	require.Equal(t, "snap", personHome.T)
+	require.Equal(t, "snap", personTodo.T)
+	require.Contains(t, string(personTodo.Data), `"position":3`)
+	require.Equal(t, *firstTodo.Cursor, *personTodo.Cursor)
+	var home map[string]any
+	require.NoError(t, json.Unmarshal(personHome.Data, &home))
+	positions := map[string]float64{}
+	for _, raw := range home["items"].([]any) {
+		row := raw.(map[string]any)
+		if queue, ok := row["queue"].(map[string]any); ok {
+			positions[fmt.Sprintf("T%.0f", row["n"].(float64))] = queue["position"].(float64)
+		}
+	}
+	// Home items use T-number names; no expected value comes from the runtime.
+	require.Equal(t, map[string]float64{"T2": 2, "T1": 3, "T4": 4, "T5": 5}, positions)
+	code, body = call("POST", "/api/todos/1", `{"op":"move","direction":"up"}`, "live-move-T1")
+	require.Equal(t, 202, code, body)
+	movedHome, movedTodo := read(homeSocket), read(todoSocket)
+	require.Equal(t, "delta", movedHome.T)
+	require.Equal(t, "delta", movedTodo.T)
+	var fact struct {
+		Payload map[string]json.RawMessage `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(movedTodo.Data, &fact))
+	require.Contains(t, string(fact.Payload["card"]), `"position":2`)
+	var homeFact struct {
+		Payload map[string]json.RawMessage `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(movedHome.Data, &homeFact))
+	require.JSONEq(t, string(fact.Payload["home"]), string(homeFact.Payload["home"]))
+	require.NoError(t, json.Unmarshal(homeFact.Payload["home"], &home))
+	positions = map[string]float64{}
+	for _, raw := range home["items"].([]any) {
+		row := raw.(map[string]any)
+		if queue, ok := row["queue"].(map[string]any); ok {
+			positions[fmt.Sprintf("T%.0f", row["n"].(float64))] = queue["position"].(float64)
+		}
+	}
+	require.Equal(t, map[string]float64{"T1": 2, "T2": 3, "T4": 4, "T5": 5}, positions)
+	page, err := store.ReplayRepositoryTodos(ctx, strconv.FormatInt(repo, 10), 0, 100)
+	require.NoError(t, err)
+	require.NotEmpty(t, page.Events)
+	// The displayed 500-card page must not cancel runtime demands behind it.
+	// Fixture insertion is supplemental; the assertion reads the production route.
+	_, err = pool.Exec(ctx, `INSERT INTO mythical_items(repository_id,source,state,title,owner_id,revisions)
+ SELECT $1,'todo','queued','Backlog '||n,$2,'[]'::jsonb FROM generate_series(6,505) n ORDER BY n`, repo, owner.ID)
+	require.NoError(t, err)
+	position(505, 505)
+	position(1, 2)
 	require.Zero(t, runtime.InUse(), "projection/reorder never grants or boots a VM")
 }

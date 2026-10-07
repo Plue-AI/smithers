@@ -1344,7 +1344,7 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		return items[i].StackPosition.Int64 < items[j].StackPosition.Int64
 	})
 	step.items = items
-	if err := s.syncTodoMachines(ctx, items); err != nil && s.installParallelRequired {
+	if err := s.syncTodoMachines(ctx, r.row.RepositoryID, items); err != nil && s.installParallelRequired {
 		step.maxParallel = 0
 		s.logger.Warn("mythical.todo_demand_failed", "error", err)
 		return
@@ -1353,8 +1353,14 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 	// An item that waits for a lane may get one when another item moves.
 	waitsForLane, moved := false, false
 	defer func() {
-		if waitsForLane && moved {
-			r.dueAt(step.now)
+		if waitsForLane {
+			if moved {
+				r.dueAt(step.now)
+			} else if s.installParallelRequired {
+				// Settings and disk capacity can change without an item event. Keep the
+				// existing engine due while demand waits; no second scheduler or queue.
+				r.dueAt(step.now.Add(time.Second))
+			}
 		}
 	}()
 	for _, item := range items {

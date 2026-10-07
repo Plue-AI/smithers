@@ -447,9 +447,20 @@ must observe safety, capture and confirm stop before the slot becomes free.
 Existing ungranted workspace demands are reordered in the runtime queue by
 stack position, without changing grants or person priority. TODO projections
 preserve scheduler positions, including waiting person requests. Repeated reads
-of unchanged order do not invalidate a concurrent grant. TODOs without a bound
-workspace still use the retained stack-list projection: pre-workspace demand
-and reservation handoff need the scheduler's branch-authority integration.
+of unchanged order do not invalidate a concurrent grant. TODOs enter that same runtime waiting set before a workspace exists. Only
+its ordered prefix within the effective parallel limit can receive a grant;
+other waiting TODOs retain their scheduler positions. After durable lane
+binding, the runtime transfers demand to the workspace before provisioning.
+Unbound demand cannot boot a machine. Registration reads the full active set,
+so a capped card page cannot cancel demands beyond the page.
+
+Home and TODO facts share one scheduler snapshot, including people waiting
+ahead of TODOs. A committed reorder carries both projections in the same
+live delta; person demand changes refresh live snapshots without inventing a
+TODO event. Runtime-confirmed reservations and releases wake the existing
+stack worker. Waiting work remains scheduled for setting and capacity changes.
+The runtime rechecks the saved parallel setting at each grant.
+
 Production safe-idle observation providers and the complete C-STK-02 journey
 remain required. No second queue, root operation or host execution fallback is
 added.

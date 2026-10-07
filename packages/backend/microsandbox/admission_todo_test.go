@@ -28,6 +28,13 @@ func TestTodoStackDemandCutoffHandoffAndPeople(t *testing.T) {
 		require.Equal(t, "workspace:"+n, granted.Holder)
 	}
 	require.Equal(t, "workspace:1", r.TodoAdmissionHolder("todo:1"))
+	for _, row := range r.AdmissionSnapshot() {
+		if row.Holder == "workspace:1" {
+			require.Equal(t, []string{"todo:1"}, row.Aliases)
+			row.Aliases[0] = "corrupted"
+		}
+	}
+	require.Equal(t, "workspace:1", r.TodoAdmissionHolder("todo:1"))
 	require.NoError(t, r.SyncTodoAdmission("repo", []string{"todo:1", "todo:2", "todo:3", "todo:4", "todo:5"}, 2))
 	require.Equal(t, "workspace:1", r.TodoAdmissionHolder("todo:1"))
 	require.Equal(t, 3, r.InUse())
@@ -110,4 +117,37 @@ func TestTodoGrantRechecksParallelWithoutEnginePass(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, third.Holder)
 	require.Equal(t, 2, r.InUse())
+}
+
+func TestTodoOwnershipWakeRequiresGrantOrConfirmedRelease(t *testing.T) {
+	r, p := admissionFixture()
+	changes := r.AdmissionOwnershipChanges()
+	require.NoError(t, r.SyncTodoAdmission("repo", []string{"todo:1"}, 1))
+	require.NoError(t, r.TransferTodoAdmission("todo:1", "workspace:1"))
+	select {
+	case <-changes:
+		t.Fatal("demand/projection woke the engine")
+	default:
+	}
+	granted, err := r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.Equal(t, "workspace:1", granted.Holder)
+	select {
+	case <-changes:
+	default:
+		t.Fatal("reservation did not wake the engine")
+	}
+	changes = r.AdmissionOwnershipChanges()
+	require.True(t, r.CancelAdmission("workspace:1", "workspace:1", time.Now()))
+	select {
+	case <-changes:
+		t.Fatal("cancellation is not confirmed release")
+	default:
+	}
+	r.ConfirmAdmissionStop("workspace:1", false)
+	select {
+	case <-changes:
+	default:
+		t.Fatal("confirmed release did not wake the engine")
+	}
 }

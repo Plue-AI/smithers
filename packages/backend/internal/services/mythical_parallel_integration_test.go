@@ -6,6 +6,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/stretchr/testify/require"
+	"sync"
 	"testing"
 	"time"
 )
@@ -149,7 +150,7 @@ func (l *fakeMythicalLanes) MachineHeld(_ context.Context, id string) (bool, err
 
 // The engine fixture has no VM runtime. Supply the cutoff contract here; the
 // runtime implementation is exercised separately with the composed card route.
-func (l *fakeMythicalLanes) SyncTodoMachines(items []db.MythicalItem, limit int, _ time.Time) error {
+func (l *fakeMythicalLanes) SyncTodoMachines(_ int64, items []db.MythicalItem, limit int, _ time.Time) error {
 	l.todoEligible = map[[16]byte]bool{}
 	for _, item := range items {
 		if item.WorkspaceID != "" {
@@ -171,7 +172,7 @@ func (l *fakeMythicalLanes) SyncTodoMachines(items []db.MythicalItem, limit int,
 func (l *fakeMythicalLanes) TodoMachineEligible(item db.MythicalItem) bool {
 	return l.todoEligible[item.ID.Bytes]
 }
-func (l *parallelObservedLanes) SyncTodoMachines(items []db.MythicalItem, limit int, _ time.Time) error {
+func (l *parallelObservedLanes) SyncTodoMachines(_ int64, items []db.MythicalItem, limit int, _ time.Time) error {
 	l.todoEligible = map[[16]byte]bool{}
 	for _, item := range items {
 		if l.held[item.WorkspaceID] {
@@ -186,4 +187,51 @@ func (l *parallelObservedLanes) SyncTodoMachines(items []db.MythicalItem, limit 
 		}
 	}
 	return nil
+}
+
+type parallelWakeLanes struct {
+	*parallelObservedLanes
+	wake       chan struct{}
+	subscribed chan struct{}
+	once       sync.Once
+}
+
+func (l *parallelWakeLanes) MachineOwnershipChanges() <-chan struct{} {
+	l.once.Do(func() { close(l.subscribed) })
+	select {
+	case <-l.wake:
+		return nil
+	default:
+		return l.wake
+	}
+}
+
+// T-MCH-06's runtime stop observation is the only injected event. The real
+// database and engine must advance the waiting TODO without a new SQL command,
+// a card refresh, a manual engine pass or the five-minute recovery sweep.
+func TestParallelMachineReleaseWakesWaitingEngine(t *testing.T) {
+	o, session := newTodoAdmission(t)
+	o.service.SetInstallParallel(&InstallCapacityService{Queries: db.New(o.pool), Profile: microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, DiskFreeBytes: 400 << 30}})
+	require.NoError(t, db.New(o.pool).UpsertInstallSetting(t.Context(), db.UpsertInstallSettingParams{Key: "parallel", Value: []byte(`1`)}))
+	lanes := &parallelWakeLanes{parallelObservedLanes: &parallelObservedLanes{fakeMythicalLanes: o.lanes, held: map[string]bool{}}, wake: make(chan struct{}), subscribed: make(chan struct{})}
+	lanes.provision = func(id string) { lanes.held[id] = true }
+	o.service.lanes = lanes
+	first := o.fileTodo(session, "T1")
+	second := o.fileTodo(session, "T2")
+	o.wake()
+	first = o.byID(uuidString(first.ID))
+	require.Equal(t, "queued", o.byID(uuidString(second.ID)).State)
+	lanes.held[first.WorkspaceID] = false
+	// Stop reporting may precede subscription: the initial pass still reads the
+	// runtime. Hold the stack dormant so only the ownership signal requests it.
+	_, err := o.pool.Exec(t.Context(), `UPDATE mythical_stacks SET requested_generation=processed_generation,next_attempt_at=NOW() WHERE repository_id=$1`, o.repoID)
+	require.NoError(t, err)
+	o.service.sweepEvery = 6 * time.Hour
+	ctx, cancel := context.WithCancel(t.Context())
+	stopped := make(chan struct{})
+	go func() { defer close(stopped); o.service.Start(ctx) }()
+	t.Cleanup(func() { cancel(); <-stopped })
+	<-lanes.subscribed
+	close(lanes.wake)
+	require.Eventually(t, func() bool { return o.byID(uuidString(second.ID)).State == "running" }, 2*time.Second, 10*time.Millisecond)
 }

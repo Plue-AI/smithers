@@ -310,7 +310,7 @@ func todoMachineHolder(item db.MythicalItem) string {
 
 type todoMachineDemandKey struct{}
 
-func (l *workspaceMythicalLanes) SyncTodoMachines(items []db.MythicalItem, limit int, now time.Time) error {
+func (l *workspaceMythicalLanes) SyncTodoMachines(repositoryID int64, items []db.MythicalItem, limit int, now time.Time) error {
 	runtime, ok := l.workspaces.runtime.(interface {
 		SyncTodoAdmission(string, []string, int) error
 		AdmissionOwnership(string) (bool, bool)
@@ -318,44 +318,29 @@ func (l *workspaceMythicalLanes) SyncTodoMachines(items []db.MythicalItem, limit
 	if !ok {
 		return errors.New("ordered TODO admission unavailable")
 	}
-	ordered := append([]db.MythicalItem(nil), items...)
-	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].StackPosition.Int64 < ordered[j].StackPosition.Int64 })
 	holders := []string{}
-	var repo int64
-	for _, item := range ordered {
-		repo = item.RepositoryID
+	for _, item := range items {
 		if item.Source != "todo" {
 			continue
 		}
 		holder := todoMachineHolder(item)
 		held, _ := runtime.AdmissionOwnership(holder)
-		eligible := !item.PausedAt.Valid && len(item.PendingOp) == 0 && (item.State == "queued" || item.State == "retrying") && (!item.NextAttemptAt.Valid || !item.NextAttemptAt.Time.After(now)) && item.Reason != todoDailyLimitReason
+		eligible := item.StackPosition.Valid && !item.PausedAt.Valid && len(item.PendingOp) == 0 && (item.State == "queued" || item.State == "retrying") && (!item.NextAttemptAt.Valid || !item.NextAttemptAt.Time.After(now)) && item.Reason != todoDailyLimitReason
 		starting := item.WorkspaceID != "" && !item.PausedAt.Valid && mythicalHoldsLane(item)
 		if held || eligible || starting {
 			holders = append(holders, holder)
 		}
 	}
-	if repo == 0 {
+	if repositoryID == 0 {
 		return nil
 	}
-	return runtime.SyncTodoAdmission(fmt.Sprintf("repository:%d", repo), holders, limit)
+	return runtime.SyncTodoAdmission(fmt.Sprintf("repository:%d", repositoryID), holders, limit)
 }
 func (l *workspaceMythicalLanes) TodoMachineEligible(item db.MythicalItem) bool {
 	runtime, ok := l.workspaces.runtime.(interface{ TodoAdmissionEligible(string) bool })
 	return ok && runtime.TodoAdmissionEligible(todoMachineHolder(item))
 }
-func (l *workspaceMythicalLanes) TodoMachinePlace(item db.MythicalItem) (int, bool) {
-	queue, ok := l.workspaces.runtime.(workspaceMachineQueue)
-	if !ok {
-		return 0, false
-	}
-	holder := todoMachineHolder(item)
-	if runtime, ok := l.workspaces.runtime.(interface{ TodoAdmissionHolder(string) string }); ok {
-		holder = runtime.TodoAdmissionHolder(holder)
-	}
-	return machineQueuePlace(queue, holder)
-}
-func (s *MythicalService) syncTodoMachines(ctx context.Context, items []db.MythicalItem) error {
+func (s *MythicalService) syncTodoMachines(ctx context.Context, repositoryID int64, items []db.MythicalItem) error {
 	if !s.installParallelRequired {
 		s.orderTodoMachines(items)
 		return nil
@@ -369,10 +354,69 @@ func (s *MythicalService) syncTodoMachines(ctx context.Context, items []db.Mythi
 		limit = setting.Effective
 	}
 	lanes, ok := s.lanes.(interface {
-		SyncTodoMachines([]db.MythicalItem, int, time.Time) error
+		SyncTodoMachines(int64, []db.MythicalItem, int, time.Time) error
 	})
 	if !ok {
 		return errors.New("ordered TODO admission unavailable")
 	}
-	return lanes.SyncTodoMachines(items, limit, s.now())
+	// The card page is not an authoritative demand cutoff. Read every active
+	// item so a Home refresh cannot cancel machines waiting beyond that page.
+	active, err := s.queries().ListMythicalItemsInStates(ctx, repositoryID, []string{"queued", "retrying", "running", "delivering", "verifying", "integrating", "proposing", "proposed", "waiting", "blocked"})
+	if err != nil {
+		return err
+	}
+	sort.SliceStable(active, func(i, j int) bool { return active[i].StackPosition.Int64 < active[j].StackPosition.Int64 })
+	return lanes.SyncTodoMachines(repositoryID, active, limit, s.now())
+}
+
+type todoMachinePositionsKey struct{}
+
+func (l *workspaceMythicalLanes) TodoMachinePositions() map[string]int {
+	positions := map[string]int{}
+	queue, ok := l.workspaces.runtime.(workspaceMachineQueue)
+	if !ok {
+		return positions
+	}
+	for _, row := range queue.AdmissionSnapshot() {
+		if row.State != "waiting" || row.Position < 1 {
+			continue
+		}
+		positions[row.Holder] = row.Position
+		for _, alias := range row.Aliases {
+			positions[alias] = row.Position
+		}
+	}
+	return positions
+}
+
+// One Home/card fact reads the waiting order once, so every position in that
+// projection reflects the same person promotions, cancellations and TODO order.
+func (s *MythicalService) todoMachineProjection(ctx context.Context, repositoryID int64, items []db.MythicalItem) context.Context {
+	if _, ok := ctx.Value(todoMachinePositionsKey{}).(map[string]int); ok {
+		return ctx
+	}
+	if err := s.syncTodoMachines(ctx, repositoryID, items); err != nil && s.installParallelRequired {
+		s.logger.Warn("mythical.todo_projection_demand_failed", "error", err)
+	}
+	if !s.installParallelRequired {
+		return ctx
+	}
+	if lanes, ok := s.lanes.(interface{ TodoMachinePositions() map[string]int }); ok {
+		return context.WithValue(ctx, todoMachinePositionsKey{}, lanes.TodoMachinePositions())
+	}
+	return context.WithValue(ctx, todoMachinePositionsKey{}, map[string]int{})
+}
+func (s *MythicalService) machineProjectionPlace(ctx context.Context, holder string) (int, bool) {
+	if positions, ok := ctx.Value(todoMachinePositionsKey{}).(map[string]int); ok {
+		place, waiting := positions[holder]
+		return place, waiting
+	}
+	return 0, false
+}
+
+func (l *workspaceMythicalLanes) MachineOwnershipChanges() <-chan struct{} {
+	if runtime, ok := l.workspaces.runtime.(interface{ AdmissionOwnershipChanges() <-chan struct{} }); ok {
+		return runtime.AdmissionOwnershipChanges()
+	}
+	return nil
 }
