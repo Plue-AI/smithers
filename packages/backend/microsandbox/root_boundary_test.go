@@ -102,7 +102,7 @@ func TestRootPreflightParsesOnlyEnvelope(t *testing.T) {
 	t.Run("CSEC02", func(t *testing.T) {
 		rootBoundaryLifecycle(t, false)
 		t.Run("files", TestRealMicroVMWorkspaceConformance)
-		t.Run("terminal-relay", TestRealMicroVMTerminalAndManagedHost)
+		t.Run("terminal-relay", TestRealMicroVMManagedHost)
 		t.Run("cancellation", TestRealMicroVMCancellationKillsGuestWork)
 		t.Run("restart", TestRealMicroVMServicePreviewAndRestart)
 	})

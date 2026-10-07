@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os"
 	"os/exec"
 	"path"
 	"regexp"
@@ -17,10 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
-
-	"github.com/creack/pty"
 
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
@@ -118,7 +114,6 @@ type guestCommand struct {
 	stderr     *limitedBuffer
 	cancelOnce sync.Once
 	cancelErr  error
-	terminal   *os.File
 }
 
 func (c *guestCommand) finished() bool {
@@ -239,9 +234,6 @@ func (r *Runtime) track(ws *workspace, command *guestCommand) {
 	r.mu.Unlock()
 	go func() {
 		command.waitErr = command.cmd.Wait()
-		if command.terminal != nil {
-			_ = command.terminal.Close()
-		}
 		close(command.done)
 		r.mu.Lock()
 		delete(ws.commands, command.id)
@@ -577,69 +569,12 @@ func (r *Runtime) ManageService(ctx context.Context, workspaceID, name, action s
 	return r.InspectService(ctx, workspaceID, name)
 }
 
-type terminal struct {
-	command   *guestCommand
-	file      *os.File
-	closeOnce sync.Once
-}
-
-func (t *terminal) Read(buffer []byte) (int, error)  { return t.file.Read(buffer) }
-func (t *terminal) Write(buffer []byte) (int, error) { return t.file.Write(buffer) }
-func (t *terminal) Resize(ctx context.Context, columns, rows uint16) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	return pty.Setsize(t.file, &pty.Winsize{Cols: columns, Rows: rows})
-}
-func (t *terminal) Close() error {
-	t.closeOnce.Do(func() { t.command.cancel() })
-	return nil
-}
-
-// OpenWorkspaceTerminal opens a guest PTY: `msb exec -t` under a host PTY.
-func (r *Runtime) OpenWorkspaceTerminal(ctx context.Context, workspaceID string, command workspaceapi.Command) (workspaceapi.Terminal, error) {
+// OpenWorkspaceTerminal refuses an unbound terminal. Installed terminals must
+// use MemberCredentials.OpenTerminal, which seals the current roster identity,
+// delegated credential and environment before opening the broker session.
+func (r *Runtime) OpenWorkspaceTerminal(ctx context.Context, _ string, _ workspaceapi.Command) (workspaceapi.Terminal, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if len(command.Args) == 0 {
-		command.Args = []string{"/bin/bash", "-l"}
-	}
-	ws, err := r.runningWorkspace(workspaceID)
-	if err != nil {
-		return nil, err
-	}
-	request, err := r.request(command)
-	if err != nil {
-		return nil, err
-	}
-	request.Stdin = "inherit"
-	request.Env["TERM"] = "xterm-256color"
-	encoded, err := json.Marshal(request)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := r.guest(ctx, ws.Machine, encoded, "put-request", request.ID); err != nil {
-		return nil, err
-	}
-	args := guestArgs(ws.Machine, nil, false, "exec", "--request", request.ID)
-	args = append(args[:1], append([]string{"-t"}, args[1:]...)...)
-	cmd := r.cli.command(args...)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true}
-	file, err := pty.StartWithAttrs(cmd, &pty.Winsize{Cols: 80, Rows: 24}, cmd.SysProcAttr)
-	if err != nil {
-		return nil, fmt.Errorf("start workspace terminal: %w", err)
-	}
-	started := &guestCommand{runtime: r, machine: ws.Machine, id: request.ID, cmd: cmd, done: make(chan struct{}),
-		stdout: &limitedBuffer{limit: 0}, stderr: &limitedBuffer{limit: 0}, terminal: file}
-	r.track(ws, started)
-	result := &terminal{command: started, file: file}
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = result.Close()
-		case <-started.done:
-		}
-	}()
-	return result, nil
+	return nil, fmt.Errorf("%w: terminal requires member session admission", ErrUnavailable)
 }

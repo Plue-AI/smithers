@@ -273,30 +273,12 @@ func TestRealMicroVMServicePreviewAndRestart(t *testing.T) {
 	require.NoError(t, restarted.DeleteWorkspace(ctx, "microvm-service"))
 }
 
-func TestRealMicroVMTerminalAndManagedHost(t *testing.T) {
+func TestRealMicroVMManagedHost(t *testing.T) {
 	runtime := realRuntime(t, t.TempDir())
 	ctx := operation("terminal")
 	_, err := runtime.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: "microvm-terminal"})
 	require.NoError(t, err)
 	defer func() { require.NoError(t, runtime.DeleteWorkspace(operation("delete"), "microvm-terminal")) }()
-
-	terminal, err := runtime.OpenWorkspaceTerminal(ctx, "microvm-terminal", workspaceapi.Command{Args: []string{"/bin/bash", "--norc", "-i"}})
-	require.NoError(t, err)
-	require.NoError(t, terminal.Resize(ctx, 120, 40))
-	_, err = terminal.Write([]byte("echo tty-$((40+2)) $(tput cols); id -un\n"))
-	require.NoError(t, err)
-	var seen strings.Builder
-	deadline := time.Now().Add(20 * time.Second)
-	buffer := make([]byte, 4096)
-	for !strings.Contains(seen.String(), "tty-42 120") && time.Now().Before(deadline) {
-		n, err := terminal.Read(buffer)
-		seen.Write(buffer[:n])
-		if err != nil {
-			break
-		}
-	}
-	require.Contains(t, seen.String(), "tty-42 120")
-	require.NoError(t, terminal.Close())
 
 	expected := workspaceapi.ManagedHostIdentity{Protocol: "test/v1", ArtifactDigest: strings.Repeat("a", 64), SourceRevision: strings.Repeat("b", 40), OwnerGeneration: 1}
 	spec := workspaceapi.ManagedHostSpec{ID: "binding-1", Name: "flow-host", Identity: "identity-1", Expected: expected, ReadyTimeout: 30 * time.Second,
