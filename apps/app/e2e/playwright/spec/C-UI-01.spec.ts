@@ -151,7 +151,7 @@ test("C-UI-01: Every P0 journey completes keyboard-only", async ({ page }) => {
 })
 
 // Executable slice of C-UI-01 on the mounted seeded Home; full journeys above.
-test("C-UI-01: Home order menu and composer are reachable by keyboard", async ({ page }) => {
+for (const dismissal of ["Escape", "Control+k"]) test(`C-UI-01: Home order menu and composer restore keyboard focus after ${dismissal}`, async ({ page }) => {
   await page.goto("/")
   const order = page.getByRole("button", { name: "Order Log every webhook retry attempt", exact: true })
   await expect(order).toBeVisible()
@@ -169,6 +169,7 @@ test("C-UI-01: Home order menu and composer are reachable by keyboard", async ({
   await expect(order).toBeFocused()
   await page.keyboard.press("Control+k")
   await expect(page.getByTestId("composer-input")).toBeFocused()
-  await page.keyboard.press("Escape")
+  await page.keyboard.press(dismissal)
   await expect(page.getByTestId("composer-input")).toBeHidden()
+  await expect(order).toBeFocused()
 })

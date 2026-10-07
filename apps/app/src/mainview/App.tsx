@@ -1,3 +1,4 @@
+import { rememberComposerFocus, restoreComposerFocus } from "./runtime/ComposerFocus"
 import { useSharedConversation } from "./state/useSharedConversation"
 import { useTodoRole } from "./cards/TodoCard"
 import { SharedConversation } from "./SharedConversation"
@@ -179,10 +180,17 @@ function AppContent() {
 
   // The door is already mounted. Restore focus in this gesture, before the
   // user's next focus choice can be overwritten by a delayed frame.
-  const focusChatDoor = (): void => { chatTriggerRef.current?.focus() }
+  const rememberComposerOrigin = (): void => {
+    const doc = composerWrapRef.current?.ownerDocument
+    if (doc && controller.store.session().paletteOpen !== true) rememberComposerFocus(doc)
+  }
+  const restoreComposerOrigin = (): void => {
+    const doc = chatTriggerRef.current?.ownerDocument ?? composerWrapRef.current?.ownerDocument
+    if (doc) restoreComposerFocus(doc, chatTriggerRef.current)
+  }
   const dismissComposer = (): void => {
     controller.closePalette(controller.store.session().draft)
-    focusChatDoor()
+    restoreComposerOrigin()
   }
 
   /** Dismiss open chrome without swallowing the original press. */
@@ -406,6 +414,7 @@ function AppContent() {
           const current = controller.store.session()
           if (current.paletteOpen === true && !event.shiftKey) dismissComposer()
           else {
+            rememberComposerOrigin()
             const last = current.paletteLastQuery ?? ""
             if (event.shiftKey && last !== "") controller.runCommand("palette.open", last)
             else controller.runCommand("palette.open")
@@ -416,8 +425,14 @@ function AppContent() {
         if (event.key === "Enter" && !event.shiftKey && event.target instanceof HTMLTextAreaElement && event.target.dataset.testid === "composer-input" && event.target.value.trim()) readRequestRef.current += 1
       }}
       onKeyDown={(event) => {
+        // Composer may close through its flow before this event bubbles, so
+        // the new render's session already says closed. Use the event's origin.
+        if (event.key === "Escape" && event.target instanceof Element && event.target.closest(".composer-wrap") && controller.store.session().paletteOpen !== true) {
+          restoreComposerOrigin()
+          return
+        }
         if (event.defaultPrevented) {
-          if (event.key === "Escape" && session.paletteOpen === true && controller.store.session().paletteOpen !== true) focusChatDoor()
+          if (event.key === "Escape" && session.paletteOpen === true && controller.store.session().paletteOpen !== true) restoreComposerOrigin()
           return
         }
         if (event.key === "Escape" && event.target instanceof Element && event.target.closest(".input-mode-menu")) return
@@ -577,6 +592,7 @@ function AppContent() {
       {/* The login screen owns the page: Chat's controls arrive once there is something to ask it (⌘K still opens the composer). */}
       {loginScreen ? null : <footer data-keyboard-pane="Chat controls" className="app-chat-controls" aria-label="Chat controls">
         <FirstSightHint id="chat" placement="above" content={<ChatHint />}><ShortcutButton ref={chatTriggerRef} shortcut={SHORTCUT_KEYS.chat} {...flowProps("chat.open")} onClick={() => {
+          rememberComposerOrigin()
           controller.runCommand("chat.open")
           // Focus an already-open input now; Composer owns focus on opening.
           composerWrapRef.current?.querySelector("textarea")?.focus()

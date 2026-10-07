@@ -126,6 +126,9 @@ C-J1-01 also has a passing test for the mounted Setup card: detected capacity,
 ordered steps, Address admission, product words and reload. The full install check remains fixme.
 
 C-UI-01 also exercises the mounted Home order menu and composer by keyboard.
+Escape and Control+K now restore the originating Home control; these two
+Chromium cases are supplemental. The full journey fixme and reference-host
+qualification remain pending.
 
 | C-UI-12 | [C-UI-12.spec.ts](C-UI-12.spec.ts), [Draft and shell cases](../view-stories.spec.ts) | T-UI-01 primitives, T-UI-07 shell and Context item/Inspect styling passed (light/dark, 1280/390, keyboard), T-UI-10 Flow, T-UI-15 Branch states/recovery, T-UI-16 read-only Compare and recovery keyboard doors (light/dark, 1440/390), T-UI-17 terminal states (owner bytes, watcher/frozen input suppression, both themes at 1440/390) and T-UI-19 co-editing active; Draft passed (light/dark, 1440/390, keyboard); T-UI-04 TODO conflict/mobile/keyboard, Fork/Add to stack and real-seam question active; T-UI-08 shell passes light/dark at 1,179/1,180 px with pointer/Tab + Enter/Space; live resize preserves disclosure and emits one visibility receipt per breakpoint transition; remaining View matrix fixme | T-UI-01..T-UI-17, T-UI-19 |
 | C-UI-13 | [C-UI-13.spec.ts](C-UI-13.spec.ts) | Card doors passed: Stack, TODO, Branch, Flow, Wiki, Settings, Members, Commands, Agent (seed and served HTTP providers); Setup and Run selection passed; Confirm passed (composed install, private live, keyboard/reload) | T-APP-01, T-APP-02, T-APP-03, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-16, T-APP-15, T-FLW-07, T-FLW-08, T-UI-14 |

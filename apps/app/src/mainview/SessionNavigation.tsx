@@ -1,3 +1,4 @@
+import { rememberComposerFocus, restoreComposerFocus } from "./runtime/ComposerFocus"
 import { useLiveQuery } from "@tanstack/react-db"
 import { useCallback,type CSSProperties } from "react"
 import { useController } from "./ControllerContext"
@@ -47,9 +48,10 @@ export function SessionNavigation() {
       controller.dismissHint("chat")
       if (controller.store.session().paletteOpen) {
         controller.closePalette(controller.store.session().draft)
-        doc.querySelector<HTMLButtonElement>(`.app-chat-controls ${flowSelector("chat.open")}`)?.focus()
+        restoreComposerFocus(doc, doc.querySelector<HTMLButtonElement>(`.app-chat-controls ${flowSelector("chat.open")}`))
       }
       else {
+        rememberComposerFocus(doc)
         controller.runCommand('chat.open')
         doc.querySelector<HTMLTextAreaElement>('.app-shell [data-testid="composer-input"]')?.focus()
       }
@@ -62,7 +64,10 @@ export function SessionNavigation() {
           element: [...root.querySelectorAll<HTMLElement>('[aria-keyshortcuts]')].find(button => button.getAttribute('aria-keyshortcuts')?.toLowerCase().split(' ').includes(shortcut)), activate,
         })
         if ((event.metaKey || event.ctrlKey) && !event.altKey && key === 'k') {
-          if (event.shiftKey) return action(() => controller.runCommand('palette.open', controller.store.session().paletteLastQuery ?? ''))
+          if (event.shiftKey) return action(() => {
+            if (!controller.store.session().paletteOpen) rememberComposerFocus(doc)
+            controller.runCommand('palette.open', controller.store.session().paletteLastQuery ?? '')
+          })
           return action(toggleChat, event.metaKey ? 'meta+k' : 'control+k')
         }
         if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return
