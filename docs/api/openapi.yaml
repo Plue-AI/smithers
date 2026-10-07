@@ -2979,6 +2979,7 @@ paths:
           description: Flows unavailable
   /api/flows/{name}:
     get:
+      x-composition: install
       summary: Read one flow
       description: Resolves an overridable flow from the install catalog, or an install-owned system name as built in. This read never loads repository code.
       operationId: get_api_flows_name
@@ -5109,8 +5110,8 @@ paths:
         - bearerAuth: []
         - sessionCookie: []
       responses:
-        '202':
-          description: Persisted probe request; use the receipt route until terminal
+        '200':
+          description: Successful response
           content:
             application/json:
               schema:
@@ -5129,37 +5130,6 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
-  /api/model/test/receipt:
-    get:
-      summary: Read a durable owner model probe
-      operationId: get_api_model_test_receipt
-      tags:
-        - Model
-      parameters:
-        - name: requestId
-          in: query
-          required: true
-          schema:
-            type: string
-      security:
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Current state and terminal model test result
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '503':
-          description: Storage unavailable
   /api/model/vercel/{path}:
     post:
       summary: POST /api/model/vercel/{path}
@@ -17446,6 +17416,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/repos/{owner}/{repo}/landings/{number}/land:
     put:
+      x-composition: plue
       summary: PUT /api/repos/{owner}/{repo}/landings/{number}/land
       operationId: put_api_repos_owner_repo_landings_number_land
       tags:
