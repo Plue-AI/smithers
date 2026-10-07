@@ -84,7 +84,7 @@ interface Execution {
   parentKnown?: boolean | undefined
   flowName?: string | undefined
   coherent: boolean
-  sleepWaits?: Map<string, { id: string; since: number; settledAt?: number }>
+  waits?: Map<string, { id: string; kind: "sleep" | "signal"; since: number; settledAt?: number }>
   graph?: EngineEvent.NodeGraph | undefined
   result?: { readonly value: unknown; readonly sequence: number } | undefined
   failure?: EngineExecutionEvidence["failure"] | undefined
@@ -108,8 +108,8 @@ export interface EngineExecutionEvidence {
   /** Declared nodes, including work not reached at this journal cursor. */
   readonly graph?: EngineEvent.NodeGraph | undefined
   readonly status: string
-  /** Recorded clock registrations and their explicit deferred settlements. */
-  readonly sleepWaits: ReadonlyArray<{ readonly id: string; readonly since: number; readonly settledAt?: number }>
+  /** Recorded clock and deferred registrations and their explicit settlements. */
+  readonly waits: ReadonlyArray<{ readonly id: string; readonly kind: "sleep" | "signal"; readonly since: number; readonly settledAt?: number }>
   readonly result?: { readonly value: unknown; readonly sequence: number } | undefined
   /** Original classified failure bytes, never parsed from rendered detail. */
   readonly failure?: {
@@ -369,12 +369,22 @@ const foldEngineJournal = (records: ReadonlyArray<JournalRecord>) => {
         continue
       }
       execution.parentId = recorded.value.lineage.parentRunId ?? undefined
+      const registerWait = (waitId: string, kind: "sleep" | "signal") => {
+        const waits = execution.waits ??= new Map()
+        const id = identity(key, waitId)
+        const existing = waits.get(id)
+        if (existing === undefined) waits.set(id, { id: `engine-wait:${id}`, kind, since: envelope.emittedAtMs })
+        // A later clock record refines a generic deferred identity without
+        // restarting the wait or dropping its recorded settlement.
+        else if (kind === "sleep") existing.kind = kind
+      }
+      if (recorded.value.event._tag === "Execution" && recorded.value.event.lifecycle.state !== "completed") {
+        for (const wait of recorded.value.event.lifecycle.waits) registerWait(wait.waitId, wait._tag === "Clock" ? "sleep" : "signal")
+      }
       if (recorded.value.event._tag === "ClockScheduled") {
-        const waits = execution.sleepWaits ??= new Map()
-        const id = identity(key, recorded.value.event.waitId)
-        if (!waits.has(id)) waits.set(id, { id: `engine-wait:${id}`, since: envelope.emittedAtMs })
+        registerWait(recorded.value.event.waitId, "sleep")
       } else if (recorded.value.event._tag === "DeferredCompleted") {
-        const wait = execution.sleepWaits?.get(identity(key, recorded.value.event.waitId))
+        const wait = execution.waits?.get(identity(key, recorded.value.event.waitId))
         if (wait !== undefined && wait.settledAt === undefined) wait.settledAt = envelope.emittedAtMs
       }
       if (recorded.value.event._tag !== "Execution") {
@@ -525,7 +535,7 @@ const foldEngineJournal = (records: ReadonlyArray<JournalRecord>) => {
     coherent: current.coherent,
     graph: current.graph,
     status: current.span.status,
-    sleepWaits: [...current.sleepWaits?.values() ?? []],
+    waits: [...current.waits?.values() ?? []],
     result: current.result,
     failure: current.failure
   }))

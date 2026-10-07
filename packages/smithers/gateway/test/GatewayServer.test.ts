@@ -1346,7 +1346,13 @@ describe("the assembled gateway over a real loopback bind", () => {
           event: { _tag: "ClockScheduled", clockId: "clock", waitId: "sleep", dueAtMs: 200 } } },
         { eventType: "flows.engine.v2.state-event", payload: { version: 2, executionId: "native-edit",
           lineage: { kind: "root", runId: "native-edit", rootRunId: "native-edit", lineageId: "native-edit", round: 0, parentRunId: null },
-          event: { _tag: "DeferredCompleted", waitId: "sleep", result: { _tag: "Success", value: null } } } }
+          event: { _tag: "DeferredCompleted", waitId: "sleep", result: { _tag: "Success", value: null } } } },
+        { eventType: "flows.engine.v2.state-event", payload: { version: 2, executionId: "native-edit",
+          lineage: { kind: "root", runId: "native-edit", rootRunId: "native-edit", lineageId: "native-edit", round: 0, parentRunId: null },
+          event: { _tag: "Execution", lifecycle: { state: "suspended", waits: [{ _tag: "Deferred", waitId: "signal" }] } } } },
+        { eventType: "flows.engine.v2.state-event", payload: { version: 2, executionId: "native-edit",
+          lineage: { kind: "root", runId: "native-edit", rootRunId: "native-edit", lineageId: "native-edit", round: 0, parentRunId: null },
+          event: { _tag: "DeferredCompleted", waitId: "signal", result: { _tag: "Success", value: "answer" } } } }
       ]
       for (const [index, record] of records.entries()) yield* emit(runId, "control.engine.event", {
         version: 1, executionId: "native-edit", generation: 0, sequence: index + 1,
@@ -1379,7 +1385,9 @@ describe("the assembled gateway over a real loopback bind", () => {
       const snapshot = yield* monitor()
       expect(snapshot.id).toBe(runId)
       expect(snapshot.waits).toEqual([{ id: "engine-wait:native-edit%3A0:sleep", kind: "sleep", label: "Waited",
-        since: "1970-01-01T00:00:00.102Z", settled: { by: { kind: "system", color_index: 7 }, at: "1970-01-01T00:00:00.103Z" } }])
+        since: "1970-01-01T00:00:00.102Z", settled: { by: { kind: "system", color_index: 7 }, at: "1970-01-01T00:00:00.103Z" } },
+        { id: "engine-wait:native-edit%3A0:signal", kind: "signal", label: "Waited", since: "1970-01-01T00:00:00.104Z",
+          settled: { by: { kind: "system", color_index: 7 }, at: "1970-01-01T00:00:00.105Z" } }])
       const waiting = yield* monitor(answer.exit.value.rows.find((row: any) => row.payload?.payload?.event?._tag === "ClockScheduled").sequence)
       expect(waiting.waits).toEqual([{ id: "engine-wait:native-edit%3A0:sleep", kind: "sleep", label: "Waited", since: "1970-01-01T00:00:00.102Z" }])
       expect(snapshot.attempts[0].graph).toEqual([

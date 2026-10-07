@@ -632,3 +632,28 @@ test("native sleep waits retain registrations, explicit settlements and replay b
   ])
   expect(monitorFromJournal(run, records)).toEqual(model)
 })
+
+
+test("lifecycle waits retain first observations, explicit completion and generation isolation", () => {
+  const event = (sequence: number, event: unknown, generation = 0) => wrap(sequence, "native", "flows.engine.v2.state-event", {
+    version: 2, executionId: "native", lineage: lineage(), event
+  }, generation)
+  const suspended = { _tag: "Execution", lifecycle: { state: "suspended", waits: [
+    { _tag: "Deferred", waitId: "answer" }, { _tag: "Clock", waitId: "clock-wait", dueAtMs: 9000 }
+  ] } }
+  const records = [event(1, suspended), event(2, suspended),
+    event(3, { _tag: "ClockScheduled", clockId: "clock", waitId: "clock-wait", dueAtMs: 9000 }),
+    event(4, { _tag: "DeferredCompleted", waitId: "answer", result: { _tag: "Success", value: "yes" } }),
+    event(5, { _tag: "Execution", lifecycle: { state: "running", waits: [] } }), event(6, suspended, 1)]
+  const model = monitorFromJournal(run, records)
+  expect(model.waits).toEqual([
+    { id: "engine-wait:native%3A0:answer", kind: "signal", label: "Waited", since: "1970-01-01T00:00:00.101Z",
+      settled: { by: { kind: "system", color_index: 7 }, at: "1970-01-01T00:00:00.104Z" } },
+    { id: "engine-wait:native%3A0:clock-wait", kind: "sleep", label: "Waited", since: "1970-01-01T00:00:00.101Z" },
+    { id: "engine-wait:native%3A1:answer", kind: "signal", label: "Waited", since: "1970-01-01T00:00:00.106Z" },
+    { id: "engine-wait:native%3A1:clock-wait", kind: "sleep", label: "Waited", since: "1970-01-01T00:00:00.106Z" }
+  ])
+  expect(monitorFromJournal(run, records, 3).waits).toEqual(model.waits.slice(0, 2).map(({ settled: _, ...wait }) => wait))
+  expect(monitorFromJournal(run, records, 0).waits).toEqual([])
+  expect(monitorFromJournal(run, records)).toEqual(model)
+})
