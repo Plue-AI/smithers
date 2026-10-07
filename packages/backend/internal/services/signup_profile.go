@@ -99,11 +99,17 @@ var signupAccountName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,37}[a-z0-9]$`)
 var signupStages = map[string]bool{"poll": true, "ready": true, "done": true}
 
 type SignupProfileService struct {
-	store SignupProfileStore
+	install         *installAccountMutationStore
+	installAdmitted bool
+	store           SignupProfileStore
 }
 
-func NewSignupProfileService(store SignupProfileStore) *SignupProfileService {
-	return &SignupProfileService{store: store}
+func NewSignupProfileService(store SignupProfileStore, options ...SignupProfileServiceOption) *SignupProfileService {
+	s := &SignupProfileService{store: store}
+	for _, option := range options {
+		option(s)
+	}
+	return s
 }
 
 func profileUnavailable(err error) error {
@@ -128,6 +134,13 @@ func (s *SignupProfileService) Get(ctx context.Context, userID int64) (SignupPro
 
 // Put validates and replaces the caller's whole profile.
 func (s *SignupProfileService) Put(ctx context.Context, userID int64, profile SignupProfile) (SignupProfileReceipt, error) {
+	if s.install != nil && !s.installAdmitted {
+		return withInstallAccountMutation(s.install, ctx, userID, "account.signup.update", 0, profile, func(ctx context.Context, q *db.Queries) (SignupProfileReceipt, error) {
+			scoped := *s
+			scoped.store, scoped.installAdmitted = q, true
+			return scoped.Put(ctx, userID, profile)
+		})
+	}
 	if fieldErrors := validateSignupProfile(profile); len(fieldErrors) > 0 {
 		return SignupProfileReceipt{}, pkgerrors.ValidationFailed(fieldErrors...)
 	}

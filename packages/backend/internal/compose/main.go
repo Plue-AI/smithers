@@ -682,6 +682,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithUserInstallAuthorization(pool)(userService)
 	}
 	userDeviceService := services.NewUserDeviceService(queries)
+	signupProfileService := services.NewSignupProfileService(queries)
+	if config.IsSingleOwner(cfg.Auth) {
+		services.WithUserDeviceInstallAuthorization(pool)(userDeviceService)
+		services.WithSignupProfileInstallAuthorization(pool)(signupProfileService)
+	}
 
 	// Initialize email transport from config.
 	emailTransport, err := newEmailTransport(cfg.Email)
@@ -1307,7 +1312,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		EmailService:   emailService,
 		DeviceService:  userDeviceService,
 		AuditService:   auditService,
-		SignupProfiles: services.NewSignupProfileService(queries),
+		SignupProfiles: signupProfileService,
 	}
 	sshKeyHandler := &routes.SSHKeyHandler{
 		Service:      sshKeyService,

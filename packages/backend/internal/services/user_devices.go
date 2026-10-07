@@ -25,7 +25,9 @@ type UserDeviceQuerier interface {
 }
 
 type UserDeviceService struct {
-	q UserDeviceQuerier
+	install         *installAccountMutationStore
+	installAdmitted bool
+	q               UserDeviceQuerier
 }
 
 type RegisterUserDeviceRequest struct {
@@ -42,8 +44,12 @@ type UserDeviceResponse struct {
 	LastSeenAt time.Time `json:"last_seen_at"`
 }
 
-func NewUserDeviceService(q UserDeviceQuerier) *UserDeviceService {
-	return &UserDeviceService{q: q}
+func NewUserDeviceService(q UserDeviceQuerier, options ...UserDeviceServiceOption) *UserDeviceService {
+	s := &UserDeviceService{q: q}
+	for _, option := range options {
+		option(s)
+	}
+	return s
 }
 
 // RegisterDevice records a push token for the user. A token identifies one
@@ -51,6 +57,13 @@ func NewUserDeviceService(q UserDeviceQuerier) *UserDeviceService {
 // account and caps the user at 50 registered devices (evicting the least
 // recently seen).
 func (s *UserDeviceService) RegisterDevice(ctx context.Context, userID int64, req RegisterUserDeviceRequest) (UserDeviceResponse, error) {
+	if s.install != nil && !s.installAdmitted {
+		return withInstallAccountMutation(s.install, ctx, userID, "account.device.register", 0, req, func(ctx context.Context, q *db.Queries) (UserDeviceResponse, error) {
+			scoped := *s
+			scoped.q, scoped.installAdmitted = q, true
+			return scoped.RegisterDevice(ctx, userID, req)
+		})
+	}
 	if userID <= 0 {
 		return UserDeviceResponse{}, pkgerrors.Unauthorized("authentication required")
 	}
@@ -84,6 +97,14 @@ func (s *UserDeviceService) RegisterDevice(ctx context.Context, userID int64, re
 }
 
 func (s *UserDeviceService) DeleteDevice(ctx context.Context, userID int64, apnsToken string) error {
+	if s.install != nil && !s.installAdmitted {
+		_, err := withInstallAccountMutation(s.install, ctx, userID, "account.device.delete", 0, apnsToken, func(ctx context.Context, q *db.Queries) (struct{}, error) {
+			scoped := *s
+			scoped.q, scoped.installAdmitted = q, true
+			return struct{}{}, scoped.DeleteDevice(ctx, userID, apnsToken)
+		})
+		return err
+	}
 	if userID <= 0 {
 		return pkgerrors.Unauthorized("authentication required")
 	}

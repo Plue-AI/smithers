@@ -50,6 +50,17 @@ func admitInstallAccountMutation(w http.ResponseWriter, r *http.Request, q *db.Q
 			var value services.UpdateUserRequest
 			err = decoder.Decode(&value)
 			input = value
+		case "account.signup.update":
+			var value services.SignupProfile
+			err = decoder.Decode(&value)
+			input = value
+		case "account.device.register", "account.device.delete":
+			var value services.RegisterUserDeviceRequest
+			err = decoder.Decode(&value)
+			input = value
+			if command == "account.device.delete" {
+				input = value.APNSToken
+			}
 		case "account.notifications.update":
 			var value services.UpdateNotificationPreferencesRequest
 			err = decoder.Decode(&value)

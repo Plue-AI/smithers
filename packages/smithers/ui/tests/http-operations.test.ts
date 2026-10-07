@@ -171,6 +171,9 @@ test("retained account writes use the user scope and an owner person", async () 
   const rows = generateCatalog()
   for (const [name, method, path] of [
     ["account.profile.update", "PATCH", "/api/user"],
+    ["account.signup.update", "PUT", "/api/user/settings/signup"],
+    ["account.device.register", "POST", "/api/user/devices"],
+    ["account.device.delete", "DELETE", "/api/user/devices"],
     ["account.notifications.update", "PUT", "/api/user/settings/notifications"],
     ["account.connection.delete", "DELETE", "/api/user/connections/{id}"],
   ]) {
@@ -179,6 +182,12 @@ test("retained account writes use the user scope and an owner person", async () 
       visibility: "hidden", cli: null, slash: null, http: { method, path }
     })
   }
+  const signup = httpProjections.find(row => row.name === "account.signup.update")!
+  const signupBody = { name: "Owner", account: "owner-account", stage: "poll", answers: { choices: ["one", "two"], text: "hello", empty: null } }
+  expect(Schema.decodeUnknownSync(signup.input)(signupBody)).toEqual(signupBody)
+  expect(() => Schema.decodeUnknownSync(signup.input)({ ...signupBody, answers: { invalid: {} } })).toThrow()
+  const device = httpProjections.find(row => row.name === "account.device.register")!
+  expect(Schema.decodeUnknownSync(device.input)({ apns_token: "device", platform: null })).toEqual({ apns_token: "device", platform: null })
   const profile = httpProjections.find(row => row.name === "account.profile.update")!
   const preferences = httpProjections.find(row => row.name === "account.notifications.update")!
   expect(Schema.decodeUnknownSync(profile.input)({ bio: null, display_name: "Alice" })).toEqual({ bio: null, display_name: "Alice" })

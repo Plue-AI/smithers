@@ -15,6 +15,15 @@ import (
 
 type installAccountMutationStore struct{ pool *pgxpool.Pool }
 type UserServiceOption func(*UserService)
+type UserDeviceServiceOption func(*UserDeviceService)
+type SignupProfileServiceOption func(*SignupProfileService)
+
+func WithUserDeviceInstallAuthorization(pool *pgxpool.Pool) UserDeviceServiceOption {
+	return func(s *UserDeviceService) { s.install = &installAccountMutationStore{pool: pool} }
+}
+func WithSignupProfileInstallAuthorization(pool *pgxpool.Pool) SignupProfileServiceOption {
+	return func(s *SignupProfileService) { s.install = &installAccountMutationStore{pool: pool} }
+}
 
 func WithUserInstallAuthorization(pool *pgxpool.Pool) UserServiceOption {
 	return func(s *UserService) { s.install = &installAccountMutationStore{pool: pool} }
@@ -31,6 +40,15 @@ func InstallAccountMutationSubject(repository, userID int64, command string, res
 		valid = valid && resourceID == 0
 	case "account.notifications.update":
 		_, valid = input.(UpdateNotificationPreferencesRequest)
+		valid = valid && resourceID == 0
+	case "account.signup.update":
+		_, valid = input.(SignupProfile)
+		valid = valid && resourceID == 0
+	case "account.device.register":
+		_, valid = input.(RegisterUserDeviceRequest)
+		valid = valid && resourceID == 0
+	case "account.device.delete":
+		_, valid = input.(string)
 		valid = valid && resourceID == 0
 	case "account.connection.delete":
 		_, valid = input.(struct{})

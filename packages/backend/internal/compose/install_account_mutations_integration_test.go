@@ -46,6 +46,58 @@ func (p *accountMutationProbe) DeleteConnectedAccount(ctx context.Context, userI
 	return p.UserProfileService.DeleteConnectedAccount(ctx, userID, accountID)
 }
 
+type accountDeviceProbe struct {
+	routes.UserDeviceRouteService
+	before  func()
+	replace bool
+	userID  int64
+}
+
+func (p *accountDeviceProbe) RegisterDevice(ctx context.Context, userID int64, input services.RegisterUserDeviceRequest) (services.UserDeviceResponse, error) {
+	if p.before != nil {
+		p.before()
+	}
+	if p.replace {
+		input.Platform = "android"
+	}
+	if p.userID != 0 {
+		userID = p.userID
+	}
+	return p.UserDeviceRouteService.RegisterDevice(ctx, userID, input)
+}
+func (p *accountDeviceProbe) DeleteDevice(ctx context.Context, userID int64, token string) error {
+	if p.before != nil {
+		p.before()
+	}
+	if p.replace {
+		token = "other-device"
+	}
+	if p.userID != 0 {
+		userID = p.userID
+	}
+	return p.UserDeviceRouteService.DeleteDevice(ctx, userID, token)
+}
+
+type accountSignupProbe struct {
+	routes.UserSignupProfileService
+	before  func()
+	replace bool
+	userID  int64
+}
+
+func (p *accountSignupProbe) Put(ctx context.Context, userID int64, input services.SignupProfile) (services.SignupProfileReceipt, error) {
+	if p.before != nil {
+		p.before()
+	}
+	if p.replace {
+		input.Answers = map[string]services.SignupAnswer{"replaced": {One: "different"}}
+	}
+	if p.userID != 0 {
+		userID = p.userID
+	}
+	return p.UserSignupProfileService.Put(ctx, userID, input)
+}
+
 func TestInstallAccountMutationsPostgres(t *testing.T) {
 	f := newLandingGateFixtureWithFactory(t, nil, "", true)
 	pool, err := postgresfixture.Open(f.ctx, f.pool.Config().ConnConfig.ConnString(), 1)
@@ -57,7 +109,9 @@ func TestInstallAccountMutationsPostgres(t *testing.T) {
 	cfg.Server.PublicURL = "http://example.com"
 	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
 	service := services.NewUserService(q, services.WithUserInstallAuthorization(pool))
-	handler := &routes.UserHandler{ProfileService: service}
+	devices := services.NewUserDeviceService(q, services.WithUserDeviceInstallAuthorization(pool))
+	signup := services.NewSignupProfileService(q, services.WithSignupProfileInstallAuthorization(pool))
+	handler := &routes.UserHandler{ProfileService: service, DeviceService: devices, SignupProfiles: signup}
 	router := buildRouterCompat(cfg, q, pool, &routes.RepoHandler{}, &routes.AuthHandler{}, handler, &routes.SSHKeyHandler{}, &routes.LabelHandler{},
 		&routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil)
@@ -119,6 +173,24 @@ func TestInstallAccountMutationsPostgres(t *testing.T) {
 		require.Len(t, accounts, 1)
 		require.Equal(t, otherAccount.ID, accounts[0].ID)
 	}
+	signupBody := `{"name":"Owner","account":"owner-account","stage":"poll","question":1,"answers":{"choices":["one","two"],"text":"hello"}}`
+	assertSetup := func(t *testing.T, count int, name string) {
+		t.Helper()
+		var deviceCount int
+		require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM user_devices WHERE user_id=$1`, f.owner.ID).Scan(&deviceCount))
+		require.Equal(t, count, deviceCount)
+		profile, err := signup.Get(f.ctx, f.owner.ID)
+		require.NoError(t, err)
+		if name == "" {
+			require.Nil(t, profile.Profile)
+		} else {
+			require.NotNil(t, profile.Profile)
+			require.Equal(t, name, profile.Profile.Name)
+		}
+		other, err := signup.Get(f.ctx, f.other.ID)
+		require.NoError(t, err)
+		require.Nil(t, other.Profile)
+	}
 	for _, actor := range []struct {
 		name, cookie, bearer string
 		status               int
@@ -134,6 +206,9 @@ func TestInstallAccountMutationsPostgres(t *testing.T) {
 		{"anonymous", "", "", 401, "unauthenticated"},
 	} {
 		for _, op := range []struct{ method, path, body, command string }{
+			{"PUT", "/api/user/settings/signup", signupBody, "account.signup.update"},
+			{"POST", "/api/user/devices", `{"apns_token":"own-device","platform":"ios"}`, "account.device.register"},
+			{"DELETE", "/api/user/devices", `{"apns_token":"own-device"}`, "account.device.delete"},
 			{"PATCH", "/api/user", `{"display_name":"must not change"}`, "account.profile.update"},
 			{"PUT", "/api/user/settings/notifications", `{"email_notifications_enabled":false}`, "account.notifications.update"},
 			{"DELETE", fmt.Sprintf("/api/user/connections/%d", ownerAccount.ID), "", "account.connection.delete"},
@@ -146,9 +221,90 @@ func TestInstallAccountMutationsPostgres(t *testing.T) {
 				require.Equal(t, f.owner.DisplayName, owner.DisplayName)
 				require.True(t, owner.EmailNotificationsEnabled)
 				assertConnections(t, 1)
+				assertSetup(t, 0, "")
 			})
 		}
 	}
+
+	t.Run("owner saves signup and registers own device", func(t *testing.T) {
+		call(t, "PUT", "/api/user/settings/signup", ownerCookie, "", signupBody, "account.signup.update", 200)
+		out := call(t, "POST", "/api/user/devices", ownerCookie, "", fmt.Sprintf(`{"apns_token":"own-device","platform":"ios","user_id":%d}`, f.other.ID), "account.device.register", 201)
+		var receipt services.UserDeviceResponse
+		require.NoError(t, json.Unmarshal(out.Body.Bytes(), &receipt))
+		require.Equal(t, f.owner.ID, receipt.UserID)
+		require.Equal(t, "ios", receipt.Platform)
+		profile, err := signup.Get(f.ctx, f.owner.ID)
+		require.NoError(t, err)
+		raw, err := json.Marshal(profile.Profile.Answers)
+		require.NoError(t, err)
+		require.JSONEq(t, `{"choices":["one","two"],"text":"hello"}`, string(raw))
+		assertSetup(t, 1, "Owner")
+	})
+	for _, op := range []struct{ method, path, body, command string }{
+		{"PUT", "/api/user/settings/signup", signupBody, "account.signup.update"},
+		{"POST", "/api/user/devices", `{"apns_token":"own-device","platform":"ios"}`, "account.device.register"},
+		{"DELETE", "/api/user/devices", `{"apns_token":"own-device"}`, "account.device.delete"},
+	} {
+		for _, mode := range []string{"payload", "account", "expired"} {
+			t.Run(op.command+"/substitution/"+mode, func(t *testing.T) {
+				dp := &accountDeviceProbe{UserDeviceRouteService: devices}
+				sp := &accountSignupProbe{UserSignupProfileService: signup}
+				status := 403
+				switch mode {
+				case "payload":
+					dp.replace, sp.replace = true, true
+				case "account":
+					dp.userID, sp.userID = f.other.ID, f.other.ID
+				case "expired":
+					status = 401
+					before := func() {
+						_, err := f.pool.Exec(f.ctx, `UPDATE auth_sessions SET expires_at=now()-interval '1 second' WHERE session_key=$1`, ownerHash)
+						require.NoError(t, err)
+					}
+					dp.before, sp.before = before, before
+				}
+				handler.DeviceService, handler.SignupProfiles = dp, sp
+				defer func() {
+					handler.DeviceService, handler.SignupProfiles = devices, signup
+					_, err := f.pool.Exec(f.ctx, `UPDATE auth_sessions SET expires_at=now()+interval '1 hour' WHERE session_key=$1`, ownerHash)
+					require.NoError(t, err)
+				}()
+				call(t, op.method, op.path, ownerCookie, "", op.body, op.command, status)
+				assertSetup(t, 1, "Owner")
+				var platform string
+				require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT platform FROM user_devices WHERE apns_token='own-device'`).Scan(&platform))
+				require.Equal(t, "ios", platform)
+				profile, err := signup.Get(f.ctx, f.owner.ID)
+				require.NoError(t, err)
+				require.Equal(t, "hello", profile.Profile.Answers["text"].One)
+			})
+		}
+	}
+	t.Run("owner deletes only own device", func(t *testing.T) {
+		_, err := f.q.UpsertUserDevice(f.ctx, db.UpsertUserDeviceParams{UserID: f.other.ID, ApnsToken: "other-device", Platform: "android"})
+		require.NoError(t, err)
+		call(t, "DELETE", "/api/user/devices", ownerCookie, "", `{"apns_token":"other-device"}`, "account.device.delete", 204)
+		var otherDevices int
+		require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM user_devices WHERE user_id=$1`, f.other.ID).Scan(&otherDevices))
+		require.Equal(t, 1, otherDevices)
+		call(t, "DELETE", "/api/user/devices", ownerCookie, "", `{"apns_token":"own-device","platform":"ignored"}`, "account.device.delete", 204)
+		assertSetup(t, 0, "Owner")
+	})
+	t.Run("signup and device validation has no partial effects", func(t *testing.T) {
+		for _, op := range []struct {
+			method, path, body, command string
+			status                      int
+		}{
+			{"PUT", "/api/user/settings/signup", `{"name":"Changed","account":"invalid!","stage":"poll"}`, "account.signup.update", 422},
+			{"PUT", "/api/user/settings/signup", `{"answers":{"bad":{}}}`, "account.signup.update", 400},
+			{"POST", "/api/user/devices", `{"apns_token":"invalid token"}`, "account.device.register", 400},
+			{"DELETE", "/api/user/devices", `{"apns_token":[]}`, "account.device.delete", 400},
+		} {
+			call(t, op.method, op.path, ownerCookie, "", op.body, op.command, op.status)
+			call(t, op.method, op.path, "", external, op.body, op.command, 403)
+		}
+		assertSetup(t, 0, "Owner")
+	})
 	t.Run("invalid input still checks credential eligibility", func(t *testing.T) {
 		for _, body := range []string{`{"bio":[]}`, `{"bio":"first"} {"bio":"second"}`} {
 			call(t, "PATCH", "/api/user", ownerCookie, "", body, "account.profile.update", 400)
@@ -263,6 +419,37 @@ func TestInstallAccountMutationsPostgres(t *testing.T) {
 		require.Zero(t, grants)
 		require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM github_synced_repo_read_grants WHERE user_id=$1`, f.other.ID).Scan(&grants))
 		require.Equal(t, 1, grants)
+	})
+	t.Run("direct signup and device services require live own-account authority", func(t *testing.T) {
+		ctx := middleware.ContextWithAuthInfo(f.ctx, &middleware.AuthInfo{User: &f.owner, SessionHash: ownerHash})
+		profile := services.SignupProfile{Name: "Direct owner", Account: "direct-owner", Stage: "ready"}
+		for _, op := range []struct {
+			command string
+			effect  func(context.Context, int64) error
+		}{
+			{"account.signup.update", func(ctx context.Context, id int64) error { _, err := signup.Put(ctx, id, profile); return err }},
+			{"account.device.register", func(ctx context.Context, id int64) error {
+				_, err := devices.RegisterDevice(ctx, id, services.RegisterUserDeviceRequest{APNSToken: "direct-device"})
+				return err
+			}},
+			{"account.device.delete", func(ctx context.Context, id int64) error { return devices.DeleteDevice(ctx, id, "direct-device") }},
+		} {
+			var commands []string
+			observed := services.WithAuthorizationObserver(ctx, func(command string) { commands = append(commands, command) })
+			require.NoError(t, op.effect(observed, f.owner.ID))
+			require.Equal(t, []string{op.command}, commands)
+			for _, denied := range []struct {
+				ctx    context.Context
+				id     int64
+				status int
+			}{{f.ctx, f.owner.ID, 401}, {ctx, f.other.ID, 403}} {
+				err := op.effect(denied.ctx, denied.id)
+				var refusal *services.AccessError
+				require.ErrorAs(t, err, &refusal)
+				require.Equal(t, denied.status, refusal.Status)
+			}
+		}
+		assertSetup(t, 0, "Direct owner")
 	})
 	t.Run("direct service entry authenticates and binds the account", func(t *testing.T) {
 		ctx := middleware.ContextWithAuthInfo(f.ctx, &middleware.AuthInfo{User: &f.owner, SessionHash: ownerHash})

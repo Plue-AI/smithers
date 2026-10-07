@@ -69,7 +69,7 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				r.Body = io.NopCloser(bytes.NewReader(raw))
 			}
 
-			if command == "account.profile.update" || command == "account.notifications.update" || command == "account.connection.delete" {
+			if command == "account.profile.update" || command == "account.notifications.update" || command == "account.connection.delete" || command == "account.signup.update" || command == "account.device.register" || command == "account.device.delete" {
 				admitInstallAccountMutation(w, r, queries, command, next)
 				return
 			}

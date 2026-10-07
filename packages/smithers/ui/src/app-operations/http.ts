@@ -29,12 +29,18 @@ const repositoryAdmin = (name: string, method: "GET" | "POST" | "PATCH" | "DELET
   operation({ name, input, summary: name, hidden: true, visibility: "hidden", slash: null, cli: null,
     http: { method, path }, minimumRole: "owner", agent: "never", credentialScope, actors: ["person"] })
 
-const accountWrite = (name: string, method: "PATCH" | "PUT" | "DELETE", path: string, input: OperationPayload) =>
+const accountWrite = (name: string, method: "POST" | "PATCH" | "PUT" | "DELETE", path: string, input: OperationPayload) =>
   operation({ name, input, summary: name, hidden: true, visibility: "hidden", slash: null, cli: null,
     http: { method, path }, minimumRole: "owner", agent: "never", credentialScope: "write:user", actors: ["person"] })
 const optionalText = Schema.optional(Schema.Union([Schema.String, Schema.Null]))
 
 export const httpProjections = [
+ accountWrite("account.signup.update", "PUT", "/api/user/settings/signup", Schema.Struct({
+ name: Schema.String, account: Schema.String, stage: Schema.String, question: Schema.optional(Schema.Number), repo: optionalText,
+ answers: Schema.optional(Schema.Union([Schema.Record(Schema.String, Schema.Union([Schema.String, Schema.Array(Schema.String), Schema.Null])), Schema.Null]))
+ })),
+ accountWrite("account.device.register", "POST", "/api/user/devices", Schema.Struct({ apns_token: Schema.String, platform: optionalText })),
+ accountWrite("account.device.delete", "DELETE", "/api/user/devices", Schema.Struct({ apns_token: Schema.String })),
   accountWrite("account.profile.update", "PATCH", "/api/user", Schema.Struct({ display_name: optionalText, bio: optionalText, avatar_url: optionalText, email: optionalText })),
   accountWrite("account.notifications.update", "PUT", "/api/user/settings/notifications", Schema.Struct({ email_notifications_enabled: Schema.optional(Schema.Union([Schema.Boolean, Schema.Null])) })),
   accountWrite("account.connection.delete", "DELETE", "/api/user/connections/{id}", NoInput),
