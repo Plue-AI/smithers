@@ -46,7 +46,9 @@ func newReviewConsumer(t *testing.T) (*mythicalOrchestration, *GitHubSyncedRepoS
 	item.State = "proposed"
 	item.Attempt = ready.Attempt
 	item.RequestRunID = ready.RequestRunID
-	item.WorkspaceID = ready.WorkspaceID
+	// Durable signal admission binds a UUID workspace, unlike the in-memory
+	// steering fixture's descriptive workspace name.
+	item.WorkspaceID = "11111111-1111-4111-8111-111111111111"
 	item.FlowDigest = ready.FlowDigest
 	checks := mythicalChecksOf(ready)
 	checks.Branch = "smithers/review"
