@@ -113,10 +113,30 @@ func TestInstallSSHBranchRosterBoundary(t *testing.T) {
 		{"identity changed", `UPDATE collaborators SET unix_uid=20042 WHERE user_id=$1`, `UPDATE collaborators SET unix_uid=20041 WHERE user_id=$1`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			retained, e := dial("retry")
-			require.NoError(t, e)
+			// The previous case restored authority, but its asynchronous
+			// revocation can still close a newly accepted connection. Establish
+			// a working positive control before this case removes authority.
+			var retained *gossh.Client
+			require.Eventually(t, func() bool {
+				candidate, err := dial("retry")
+				if err != nil {
+					return false
+				}
+				probe, err := candidate.NewSession()
+				if err == nil {
+					var output []byte
+					output, err = probe.Output("id")
+					probe.Close()
+					if err == nil && string(output) == "alice:20041" {
+						retained = candidate
+						return true
+					}
+				}
+				candidate.Close()
+				return false
+			}, 5*time.Second, 20*time.Millisecond)
 			defer retained.Close()
-			_, e = pool.Exec(ctx, tc.change, alice.ID)
+			_, e := pool.Exec(ctx, tc.change, alice.ID)
 			require.NoError(t, e)
 			s, e := retained.NewSession()
 			if e == nil {
