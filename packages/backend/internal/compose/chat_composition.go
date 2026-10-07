@@ -13,8 +13,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/ports"
 
+	"encoding/json"
+	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/config"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
+	"io"
 )
 
 // Hosted replicas wait on remote model hosts, so a turn costs little local
@@ -130,4 +135,19 @@ func (h presenceChatHost) RunChatTurn(ctx context.Context, grant ports.ChatTurnG
 		return h.ChatHost.RunChatTurn(ctx, grant)
 	}
 	return h.presence.duringTurn(ctx, grant.RepositoryID, grant.OwnerID, branch, grant.RunID, func() error { return h.ChatHost.RunChatTurn(ctx, grant) })
+}
+
+// composeConversationSummaries mounts the same journal hook and sealed stream
+// in the install and in its native HTTP rehearsal.
+func composeConversationSummaries(pool *pgxpool.Pool, jobStore *jobs.Store, store *chat.Store, model ports.ModelStreamHost) *services.ConversationSummaries {
+	if model == nil || store == nil {
+		return nil
+	}
+	summaries := &services.ConversationSummaries{Pool: pool, Jobs: jobStore, Model: func(ctx context.Context, owner, repository int64, request json.RawMessage) (io.ReadCloser, error) {
+		return model.RunModelStream(ctx, ports.ModelStreamGrant{OwnerID: owner, RepositoryID: repository, Request: request})
+	}}
+	store.OnSharedCommit = func(ctx context.Context, tx pgx.Tx, change chat.SharedCommit) error {
+		return summaries.Admit(ctx, tx, change.TurnID, string(change.Previous))
+	}
+	return summaries
 }

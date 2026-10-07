@@ -52,7 +52,17 @@ var schemaFS embed.FS
 
 func Schema() ([]byte, error) { return schemaFS.ReadFile("schema.sql") }
 
+// SharedCommit carries only public subject identity, never producer credentials.
+type SharedCommit struct {
+	TurnID, RunID, Branch           string
+	RepositoryID, Attempt, Revision int64
+	Previous, State                 State
+}
+
 type Store struct {
+	// OnSharedCommit admits optional derived work inside the journal transaction.
+	OnSharedCommit func(context.Context, pgx.Tx, SharedCommit) error
+
 	pool    *pgxpool.Pool
 	now     func() time.Time
 	signals turnSignals
@@ -577,6 +587,9 @@ func (s *Store) Claim(ctx context.Context, scope Scope, turnID string, lease tim
 	if _, err = tx.Exec(ctx, `UPDATE chat_turns SET state='running',producer_generation=$2,producer_token_hash=$3,producer_lease_expires_at=$4,producer_started_at=NULL,updated_at=$5 WHERE id=$1`, turn.ID, generation, tokenHash, expiresAt, now); err != nil {
 		return ProducerGrant{}, err
 	}
+	if err = s.admitSharedCommit(ctx, tx, turn, generation, cursor.Position, StateRunning); err != nil {
+		return ProducerGrant{}, err
+	}
 	if err = notifyTx(ctx, tx, turn.ID); err != nil {
 		return ProducerGrant{}, err
 	}
@@ -1014,6 +1027,9 @@ func (s *Store) Commit(ctx context.Context, input CommitInput) (CommitResult, er
 	if _, err = tx.Exec(ctx, `UPDATE chat_turns SET head_batch=$2,head_position=$3,cursor_hash=$4,head_hash=$5,output_bytes=$6,terminal=$7,state=$8,
 		producer_lease_expires_at=CASE WHEN $7 THEN NULL ELSE producer_lease_expires_at END,updated_at=$9 WHERE id=$1`,
 		turn.ID, next.Batch, next.Position, next.Hash, nextHeadHash, nextBytes, terminal, nextState, now); err != nil {
+		return CommitResult{}, err
+	}
+	if err = s.admitSharedCommit(ctx, tx, turn, turn.ProducerGeneration, next.Position, nextState); err != nil {
 		return CommitResult{}, err
 	}
 	if err = notifyTx(ctx, tx, turn.ID); err != nil {
@@ -1528,3 +1544,16 @@ func (s *Store) GetState(ctx context.Context, scope Scope, turnID string) (State
 }
 
 func (s *Store) String() string { return fmt.Sprintf("chat.Store(%p)", s.pool) }
+
+func (s *Store) admitSharedCommit(ctx context.Context, tx pgx.Tx, turn turnRecord, attempt, revision int64, state State) error {
+	if s.OnSharedCommit == nil || turn.ConversationID == nil || externalTurn(turn) {
+		return nil
+	}
+	var request struct {
+		Shared bool `json:"sharedConversation"`
+	}
+	if json.Unmarshal(turn.Request, &request) != nil || !request.Shared {
+		return nil
+	}
+	return s.OnSharedCommit(ctx, tx, SharedCommit{TurnID: turn.ID, RunID: turn.RunID, Branch: *turn.ConversationID, RepositoryID: turn.RepositoryID, Attempt: attempt, Revision: revision + 1, Previous: turn.State, State: state})
+}

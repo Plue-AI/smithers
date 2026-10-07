@@ -96,3 +96,7 @@ BEGIN
 END $$;
 CREATE TRIGGER chat_entry_sequence BEFORE INSERT OR UPDATE ON chat_turns
  FOR EACH ROW EXECUTE FUNCTION chat_entry_sequence();
+
+ALTER TABLE chat_turns ADD COLUMN summary text;
+ALTER TABLE chat_turns ADD COLUMN summary_rev bigint NOT NULL DEFAULT 0;
+ALTER TABLE chat_turns ADD COLUMN summary_pending_since timestamptz;
