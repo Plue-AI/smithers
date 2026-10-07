@@ -250,7 +250,7 @@ func TestFlowLoadProposalFactsReplayAndDeduplicate(t *testing.T) {
 		require.NoError(t, json.Unmarshal(event.Data, &projection))
 		want := "working"
 		if i == 2 {
-			want = "cancelled"
+			want = "dropped"
 		}
 		require.Equal(t, want, projection.Card.State)
 	}
