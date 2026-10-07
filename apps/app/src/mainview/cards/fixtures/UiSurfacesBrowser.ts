@@ -33,7 +33,6 @@ const controller = createAppController(store, silentAgent, {
   fetchImpl,
   applicationIdentity: applicationIdentityFromFetch(fetchImpl, location.origin),
   cloudSocketUrl: () => undefined,
-  cloudLspSocketUrl: () => undefined
 })
 const commands: Array<{ name: string; args?: string }> = []
 const refusals: Array<{ name: string; args?: string; error: string }> = []
