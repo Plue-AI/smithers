@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
-import { execFileSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { execFileSync, spawnSync } from "node:child_process"
+import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { test } from "node:test"
@@ -41,4 +41,19 @@ test("collect drops matching files that declare no test", () => {
 
 test("the committed list matches the backend test files", () => {
   execFileSync(process.execPath, [join(root, "scripts/backend-access-tests.mjs"), "--check"], { stdio: "pipe" })
+})
+
+test("--runs selects from the files on disk even when the committed list is stale", () => {
+  const dir = mkdtempSync(join(tmpdir(), "access-runs-"))
+  for (const pkg of packages) mkdirSync(join(dir, pkg), { recursive: true })
+  mkdirSync(join(dir, "scripts"))
+  copyFileSync(join(root, "scripts/backend-access-tests.mjs"), join(dir, "scripts/backend-access-tests.mjs"))
+  writeFileSync(join(dir, "scripts/backend-access-tests.json"), "[]\n")
+  writeFileSync(join(dir, packages[1], "member_new_test.go"), "func TestNew(t *testing.T) {}\n")
+  const script = join(dir, "scripts/backend-access-tests.mjs")
+  const runs = spawnSync(process.execPath, [script, "--runs"], { encoding: "utf8" })
+  assert.equal(runs.status, 0)
+  assert.equal(runs.stdout, `${packages[1]}\t^(TestNew)$\n`)
+  assert.match(runs.stderr, /^warning: .*drifted/)
+  assert.equal(spawnSync(process.execPath, [script, "--check"]).status, 1)
 })

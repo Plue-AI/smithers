@@ -13,7 +13,10 @@
 // `--runs` emits one anchored alternation per file, so the target runs each
 // file as its own `go test` process: a hang in one file panics only that
 // process and cannot hide the access tests in the files that sort after it.
-import { readFileSync, readdirSync, writeFileSync } from "node:fs"
+// It selects from the files on disk, never the committed list, so a stale list
+// warns but still runs every access test; //:backendAccessTests (the drift
+// workflow) is what fails on a stale list.
+import { readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -60,6 +63,17 @@ export const runPattern = (tests) => `^(${tests.join("|")})$`
 
 export const render = (entries) => `${JSON.stringify(entries, null, 2)}\n`
 
+const drift =
+  "scripts/backend-access-tests.json drifted from the access test files; run `node scripts/backend-access-tests.mjs --write` and commit it"
+
+const read = (path) => {
+  try {
+    return readFileSync(path, "utf8")
+  } catch {
+    return ""
+  }
+}
+
 const main = () => {
   const root = join(dirname(fileURLToPath(import.meta.url)), "..")
   const listPath = join(root, "scripts/backend-access-tests.json")
@@ -69,23 +83,18 @@ const main = () => {
     writeFileSync(listPath, current)
     return 0
   }
-  let committed = ""
-  try {
-    committed = readFileSync(listPath, "utf8")
-  } catch {}
-  if (committed !== current) {
-    process.stderr.write(
-      "scripts/backend-access-tests.json drifted from the access test files; run `node scripts/backend-access-tests.mjs --write` and commit it\n"
-    )
-    return 1
-  }
-  if (mode === "--check") return 0
   if (mode === "--runs") {
-    for (const entry of JSON.parse(committed)) process.stdout.write(`${entry.package}\t${runPattern(entry.tests)}\n`)
+    if (read(listPath) !== current) process.stderr.write(`warning: ${drift}\n`)
+    for (const entry of JSON.parse(current)) process.stdout.write(`${entry.package}\t${runPattern(entry.tests)}\n`)
     return 0
+  }
+  if (mode === "--check") {
+    if (read(listPath) === current) return 0
+    process.stderr.write(`${drift}\n`)
+    return 1
   }
   process.stderr.write("usage: backend-access-tests.mjs --write | --check | --runs\n")
   return 2
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) process.exitCode = main()
+if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) process.exitCode = main()

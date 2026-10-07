@@ -153,6 +153,13 @@
   },
   {
     "package": "packages/backend/internal/compose",
+    "file": "member_actor_integration_test.go",
+    "tests": [
+      "TestMemberActorAdmissionCommitsBeforeLaunchAndRechecksAuthority"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
     "file": "member_commands_integration_test.go",
     "tests": [
       "TestMemberRoutesAuthorizeByRolePostgres"
@@ -223,6 +230,13 @@
     "tests": [
       "TestSecretsWriteComposedInstallPostgres",
       "TestSecretsInstallAPIAndLivePostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "todo_admission_fault_install_integration_test.go",
+    "tests": [
+      "TestTodoAdmissionInstallRollbackAndRace"
     ]
   },
   {
@@ -571,6 +585,13 @@
     "file": "ssh_authorization_z_test.go",
     "tests": [
       "TestSSHAuthorization_Z_ErrorBranches"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "ssh_credential_test.go",
+    "tests": [
+      "TestSSHCredentialRetainsDelegationAcrossRenewalAndRevokes"
     ]
   },
   {
