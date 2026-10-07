@@ -84,6 +84,7 @@ interface Execution {
   parentKnown?: boolean | undefined
   flowName?: string | undefined
   coherent: boolean
+  sleepWaits?: Map<string, { id: string; since: number; settledAt?: number }>
   graph?: EngineEvent.NodeGraph | undefined
   result?: { readonly value: unknown; readonly sequence: number } | undefined
   failure?: EngineExecutionEvidence["failure"] | undefined
@@ -107,6 +108,8 @@ export interface EngineExecutionEvidence {
   /** Declared nodes, including work not reached at this journal cursor. */
   readonly graph?: EngineEvent.NodeGraph | undefined
   readonly status: string
+  /** Recorded clock registrations and their explicit deferred settlements. */
+  readonly sleepWaits: ReadonlyArray<{ readonly id: string; readonly since: number; readonly settledAt?: number }>
   readonly result?: { readonly value: unknown; readonly sequence: number } | undefined
   /** Original classified failure bytes, never parsed from rendered detail. */
   readonly failure?: {
@@ -366,6 +369,14 @@ const foldEngineJournal = (records: ReadonlyArray<JournalRecord>) => {
         continue
       }
       execution.parentId = recorded.value.lineage.parentRunId ?? undefined
+      if (recorded.value.event._tag === "ClockScheduled") {
+        const waits = execution.sleepWaits ??= new Map()
+        const id = identity(key, recorded.value.event.waitId)
+        if (!waits.has(id)) waits.set(id, { id: `engine-wait:${id}`, since: envelope.emittedAtMs })
+      } else if (recorded.value.event._tag === "DeferredCompleted") {
+        const wait = execution.sleepWaits?.get(identity(key, recorded.value.event.waitId))
+        if (wait !== undefined && wait.settledAt === undefined) wait.settledAt = envelope.emittedAtMs
+      }
       if (recorded.value.event._tag !== "Execution") {
         generic()
         continue
@@ -514,6 +525,7 @@ const foldEngineJournal = (records: ReadonlyArray<JournalRecord>) => {
     coherent: current.coherent,
     graph: current.graph,
     status: current.span.status,
+    sleepWaits: [...current.sleepWaits?.values() ?? []],
     result: current.result,
     failure: current.failure
   }))

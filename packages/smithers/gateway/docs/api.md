@@ -493,7 +493,7 @@ evidence do not acquire invented phases, successful checks, or file changes.
 - `traceFromJournal(run, records, options?)` builds a `TraceModel`: nested
   spans, frame summaries, phase bands, milestone pins, and discipline notes.
 - `monitorFromJournal(run, records, at?)` adapts that same fold to the install
-  monitor: recorded step instances, deterministic phases, approval waits,
+  monitor: recorded step instances, deterministic phases, approval and sleep waits,
   bookkeeping and the raw journal. Declared native graph pages retain
   unreached nodes and dependency edges; recorded node instances supply their
   live states. Rescheduled native nodes retain separate instance keys. A replay
@@ -501,6 +501,9 @@ evidence do not acquire invented phases, successful checks, or file changes.
   state from that prefix, and returns `replay: { at, last }`. It does not fetch
   a registry or execute presentation code. The current adapter does not yet
   reconstruct all native wait kinds or priced usage;
+  sleep waits use typed native clock registrations and explicit deferred
+  settlements. Repeated registrations retain the opening timestamp, generations
+  have separate identities, and replay hides settlements beyond its cursor;
   callers must enforce the metering refusal described above.
 - `inspectLabel(tag)` reads the build-generated Appendix C Inspect rendering.
   Coding call and native execution spans use the same labels. Dynamic

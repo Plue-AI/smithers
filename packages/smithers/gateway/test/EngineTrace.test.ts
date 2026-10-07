@@ -7,7 +7,7 @@ import {
   engineTraceFromJournal
 } from "../src/EngineTrace.js"
 import type { JournalRecord } from "../src/RunTrace.js"
-import { traceFromJournal, turnNarratives } from "../src/RunTrace.js"
+import { monitorFromJournal, traceFromJournal, turnNarratives } from "../src/RunTrace.js"
 
 const nativeRecord = (eventType: string, payload: unknown) => ({ eventType, payload })
 
@@ -607,4 +607,28 @@ test("declared graph pages merge within one execution generation and reject malf
   const evidence = engineExecutionEvidence(rows)
   expect(evidence.map(row => [row.generation, row.graph?.nodes])).toEqual([[0, [read, check]], [1, [check]]])
   expect(engineExecutionEvidence(rows)).toEqual(evidence)
+})
+
+
+test("native sleep waits retain registrations, explicit settlements and replay boundaries", () => {
+  const clock = (sequence: number, generation = 0) => wrap(sequence, "native", "flows.engine.v2.state-event", {
+    version: 2, executionId: "native", lineage: lineage(),
+    event: { _tag: "ClockScheduled", clockId: "clock", waitId: "sleep", dueAtMs: 9000 }
+  }, generation)
+  const settled = (sequence: number, waitId = "sleep", generation = 0) => wrap(sequence, "native", "flows.engine.v2.state-event", {
+    version: 2, executionId: "native", lineage: lineage(),
+    event: { _tag: "DeferredCompleted", waitId, result: { _tag: "Success", value: null } }
+  }, generation)
+  const records = [settled(1, "foreign"), clock(2), clock(3), settled(4), settled(5), clock(6, 1)]
+  const model = monitorFromJournal(run, records)
+  expect(model.waits).toEqual([
+    { id: "engine-wait:native%3A0:sleep", kind: "sleep", label: "Waited", since: "1970-01-01T00:00:00.102Z",
+      settled: { by: { kind: "system", color_index: 7 }, at: "1970-01-01T00:00:00.104Z" } },
+    { id: "engine-wait:native%3A1:sleep", kind: "sleep", label: "Waited", since: "1970-01-01T00:00:00.106Z" }
+  ])
+  expect(monitorFromJournal(run, records, 1).waits).toEqual([])
+  expect(monitorFromJournal(run, records, 3).waits).toEqual([
+    { id: "engine-wait:native%3A0:sleep", kind: "sleep", label: "Waited", since: "1970-01-01T00:00:00.102Z" }
+  ])
+  expect(monitorFromJournal(run, records)).toEqual(model)
 })

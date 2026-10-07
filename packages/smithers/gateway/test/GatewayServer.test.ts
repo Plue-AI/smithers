@@ -1340,7 +1340,13 @@ describe("the assembled gateway over a real loopback bind", () => {
         ] } } },
         { eventType: "flows.engine.node-scheduled", payload: { nodeId: "edit", kind: "action", attempt: 1, action: "coding/edit-atom" } },
         { eventType: "flows.engine.node-settled", payload: { nodeId: "edit", outcome: "built", attempts: 1,
-          result: { preview: "globalThis.monitorCanary = true", bytes: 9000, truncated: true } } }
+          result: { preview: "globalThis.monitorCanary = true", bytes: 9000, truncated: true } } },
+        { eventType: "flows.engine.v2.state-event", payload: { version: 2, executionId: "native-edit",
+          lineage: { kind: "root", runId: "native-edit", rootRunId: "native-edit", lineageId: "native-edit", round: 0, parentRunId: null },
+          event: { _tag: "ClockScheduled", clockId: "clock", waitId: "sleep", dueAtMs: 200 } } },
+        { eventType: "flows.engine.v2.state-event", payload: { version: 2, executionId: "native-edit",
+          lineage: { kind: "root", runId: "native-edit", rootRunId: "native-edit", lineageId: "native-edit", round: 0, parentRunId: null },
+          event: { _tag: "DeferredCompleted", waitId: "sleep", result: { _tag: "Success", value: null } } } }
       ]
       for (const [index, record] of records.entries()) yield* emit(runId, "control.engine.event", {
         version: 1, executionId: "native-edit", generation: 0, sequence: index + 1,
@@ -1372,6 +1378,10 @@ describe("the assembled gateway over a real loopback bind", () => {
       })
       const snapshot = yield* monitor()
       expect(snapshot.id).toBe(runId)
+      expect(snapshot.waits).toEqual([{ id: "engine-wait:native-edit%3A0:sleep", kind: "sleep", label: "Waited",
+        since: "1970-01-01T00:00:00.102Z", settled: { by: { kind: "system", color_index: 7 }, at: "1970-01-01T00:00:00.103Z" } }])
+      const waiting = yield* monitor(answer.exit.value.rows.find((row: any) => row.payload?.payload?.event?._tag === "ClockScheduled").sequence)
+      expect(waiting.waits).toEqual([{ id: "engine-wait:native-edit%3A0:sleep", kind: "sleep", label: "Waited", since: "1970-01-01T00:00:00.102Z" }])
       expect(snapshot.attempts[0].graph).toEqual([
         { id: "engine-node:native-edit%3A0:edit", label: "Edited the files", state: "done", deps: [] },
         { id: "engine-node:native-edit%3A0:check", label: "Ran checks", state: "next", deps: ["engine-node:native-edit%3A0:edit"] }

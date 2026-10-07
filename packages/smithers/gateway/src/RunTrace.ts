@@ -2320,7 +2320,7 @@ export const monitorFromJournal = (run: TraceRun, records: ReadonlyArray<Journal
         deps: node.dependsOn.map(dependency => prefix + encodeURIComponent(dependency)) }
     })
   })
-  const waits = trace.rows.filter(row => row.kind === "approval").map(row => ({
+  const approvalWaits = trace.rows.filter(row => row.kind === "approval").map(row => ({
     id: row.id, kind: "approval" as const, label: row.label, since: new Date(row.startedAt).toISOString(),
     ...(row.endedAt === undefined ? {} : { settled: { by: { kind: "system" as const, color_index: 7 as const }, at: new Date(row.endedAt).toISOString() } })
   }))
@@ -2329,7 +2329,10 @@ export const monitorFromJournal = (run: TraceRun, records: ReadonlyArray<Journal
     attempts: [{ n: 1, run_id: run.runId, state: state(status), steps, phases,
       graph: declaredGraph.length > 0 ? declaredGraph : calls.map(row => ({ id: row.id, label: row.label, state: row.status === "completed" ? "done" as const
         : row.status === "failed" ? "failed" as const : row.status === "waiting" ? "waiting" as const : "current" as const, deps: [] as string[] })) }],
-    waits, tokens: trace.rows.reduce((total, row) => total + (row.detail.usage?.inputTokens ?? 0) + (row.detail.usage?.outputTokens ?? 0), 0),
+    waits: [...approvalWaits, ...engineExecutionEvidence(journal).filter(execution => execution.coherent).flatMap(execution => execution.sleepWaits.map(wait => ({
+      id: wait.id, kind: "sleep" as const, label: inspectLabel("wait"), since: new Date(wait.since).toISOString(),
+      ...(wait.settledAt === undefined ? {} : { settled: { by: { kind: "system" as const, color_index: 7 as const }, at: new Date(wait.settledAt).toISOString() } })
+    })))], tokens: trace.rows.reduce((total, row) => total + (row.detail.usage?.inputTokens ?? 0) + (row.detail.usage?.outputTokens ?? 0), 0),
     time_s: Math.max(0, trace.extent.end - trace.extent.start) / 1000, cost_usd: 0,
     engine: trace.rows.filter(row => row.kind === "event" || row.kind === "execution" || row.kind === "attempt" || bookkeeping(row)).map(row => ({ label: row.label, detail: row.detail.output ?? row.detail.message ?? "" })),
     journal: journal.map(row => ({ seq: row.sequence ?? 0, at: new Date(row.occurredAt ?? 0).toISOString(), type: row.kind ?? "event", text: JSON.stringify(row.payload) ?? "null" })),
