@@ -180,7 +180,7 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 		_, err = f.pool.Exec(f.ctx, `UPDATE access_tokens SET name=$2,created_at=clock_timestamp()-interval '1 day' WHERE name=$1`, "old-host-"+hostID, "flow-host-landing-"+hostID)
 		require.NoError(t, err)
 		initial := f.token(f.owner, "flow-host-landing-"+hostID, scopes, true)
-		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='',lane_started_at=clock_timestamp()-interval '1 second',checks=jsonb_set(jsonb_set(checks,'{run_attached}','false'),'{run_launched}','true') WHERE id=$1`, itemID)
+		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET state='running',candidate_head='',candidate_base='',candidate_verified=false,pr_head='',request_run_id='',lane_started_at=clock_timestamp()-interval '1 second',checks=jsonb_set(jsonb_set(checks,'{run_attached}','false'),'{run_launched}','true') WHERE id=$1`, itemID)
 		require.NoError(t, err)
 		before := runtime.calls
 		call(t, initial, "candidate", request, 403)
@@ -198,6 +198,12 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, service.ProjectFlowRuntime(f.ctx, attachment))
 		require.Equal(t, before, runtime.calls)
+		call(t, initial, "candidate", request, 204)
+		// Restore this fixture's seeded verified result after initial attachment.
+		// Candidate generation/verification is proven by the owning-worker
+		// PostgreSQL/Git campaign, not by this admission fixture.
+		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET state='proposed',candidate_head=$2,candidate_base=$3,candidate_verified=true,pr_head=$2 WHERE id=$1`, itemID, head, base)
+		require.NoError(t, err)
 		call(t, initial, "propose", proposal, 200)
 		beforeOlder := runtime.calls
 		call(t, older, "candidate", request, 403)
