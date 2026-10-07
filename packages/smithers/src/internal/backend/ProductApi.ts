@@ -5361,7 +5361,7 @@ export type PostApiReposOwnerRepoMythicalItemsIdMergeBody = {
   reviewed_head_sha: string
 }
 
-export type PostApiReposOwnerRepoMythicalItemsIdMergeResponse = AnyJSON
+export type PostApiReposOwnerRepoMythicalItemsIdMergeResponse = AnyJSON | ConfirmationReceipt
 
 export interface PostApiReposOwnerRepoMythicalItemsIdMergeInput {
   readonly path: { readonly owner: string; readonly repo: string; readonly id: string }

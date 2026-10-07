@@ -306,8 +306,9 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 		readPath("/api/branches/"+id+"/files?path=src", 200)
 		_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=NOW() WHERE repository_id=$1 AND user_id=$2`, repo.ID, member.ID)
 		require.NoError(t, err)
-		readPath("/api/branches/"+id+"/files/src/backoff.ts", 403)
-		readPath("/api/branches/"+id+"/diff", 403)
+		for _, path := range []string{"/api/branches/" + id + "/files/src/backoff.ts", "/api/branches/" + id + "/diff"} {
+			require.Contains(t, string(readPath(path, 401)), `"code":"unauthenticated"`)
+		}
 	}
 	cookie = ownerCookie
 	var tokenID int64
@@ -334,6 +335,12 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes=$2 WHERE id=$1`, tokenID, "read:repository,"+strings.Join(middleware.DelegationScopes(middleware.Delegation{Via: "cli", Branch: id}), ","))
 	require.NoError(t, err)
 	readPath("/api/branches/main/files/src/retry.ts", 403)
+	readPath("/api/branches/"+id+"/files/src/backoff.ts", 200)
+	assertDiff()
+	// Full-scope delegated readers use the catalog decision. Only a stored
+	// branch restriction narrows them to one branch.
+	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes='read:repository,via:cli' WHERE id=$1`, tokenID)
+	require.NoError(t, err)
 	readPath("/api/branches/"+id+"/files/src/backoff.ts", 200)
 	assertDiff()
 	_, err = pool.Exec(ctx, `DELETE FROM access_tokens WHERE id=$1`, tokenID)

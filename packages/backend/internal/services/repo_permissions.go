@@ -395,7 +395,12 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 	}
 	if bound, ok := ctx.Value(installAuthorizationKey{}).(boundInstallAuthorization); ok {
 		info := middleware.AuthInfoFromContext(ctx)
-		if info != nil && info.User != nil && info == bound.credential && info.User.ID == bound.decision.UserID && command == bound.command && subject == bound.subject {
+		if info != nil && info.User != nil && info == bound.credential && info.User.ID == bound.decision.UserID && command == bound.command {
+			if subject != bound.subject {
+				// A stored binding changed after admission. Never substitute a
+				// second decision for the request's original command subject.
+				return InstallAuthorization{}, confirmationPermission()
+			}
 			return bound.decision, nil
 		}
 	}

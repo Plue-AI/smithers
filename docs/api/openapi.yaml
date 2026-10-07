@@ -2588,7 +2588,7 @@ paths:
     get:
       x-composition: install
       summary: Read a file from the branch mirror
-      description: Reads source data without waking a machine or executing repository code. Main is pinned to the last successful GitHub mirror commit.
+      description: Reads source data without waking a machine or executing repository code. Main is pinned to the last successful GitHub mirror commit. Run and machine credentials may read current files only on their stored TODO branch; at, digest and compare selectors are refused.
       operationId: get_api_branch_file
       tags:
         - Branches
@@ -2673,11 +2673,13 @@ paths:
     get:
       x-composition: install
       summary: List branch files
+      description: Run and machine credentials may list files only on their stored TODO branch. Other branches and main are refused.
       operationId: get_api_branches_b_files
       tags:
         - Branches
       security:
         - sessionCookie: []
+        - bearerAuth: []
       parameters:
         - name: b
           in: path
@@ -9223,7 +9225,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
-          $ref: '#/components/responses/Forbidden'
+          $ref: '#/components/responses/AuthorizationForbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -10938,7 +10940,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
-          $ref: '#/components/responses/Forbidden'
+          $ref: '#/components/responses/AuthorizationForbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -10986,7 +10988,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
-          $ref: '#/components/responses/Forbidden'
+          $ref: '#/components/responses/AuthorizationForbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -11288,7 +11290,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
-          $ref: '#/components/responses/Forbidden'
+          $ref: '#/components/responses/AuthorizationForbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -14873,7 +14875,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
-          $ref: '#/components/responses/Forbidden'
+          $ref: '#/components/responses/AuthorizationForbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -14934,7 +14936,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
-          $ref: '#/components/responses/Forbidden'
+          $ref: '#/components/responses/AuthorizationForbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -18857,7 +18859,7 @@ paths:
   /api/repos/{owner}/{repo}/mythical/items/{id}/merge:
     post:
       summary: POST /api/repos/{owner}/{repo}/mythical/items/{id}/merge
-      description: The same Review & merge as POST /api/todos/{n}/merge, naming the TODO by item id, with the same checks in the same order. The install owner's browser session records the approval and merge fence at the reviewed head; the stack worker sends the squash merge. Answers the item.
+      description: The same Review & merge as POST /api/todos/{n}/merge, naming the TODO by item id, with the same checks in the same order. The install owner's browser session records the approval and merge fence at the reviewed head; the stack worker sends the squash merge. Answers the item. A full-scope delegated credential requests the same private confirmation as the numbered TODO route; it never records merge authority.
       operationId: post_api_repos_owner_repo_mythical_items_id_merge
       tags:
         - Repositories
@@ -18901,19 +18903,22 @@ paths:
                   pattern: '^[0-9a-fA-F]{40}$'
       security:
         - sessionCookie: []
+        - bearerAuth: []
       responses:
         '202':
-          description: The item, its approval and merge fence recorded
+          description: The item with person approval, or a pending private confirmation
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                anyOf:
+                  - $ref: '#/components/schemas/AnyJSON'
+                  - $ref: '#/components/schemas/ConfirmationReceipt'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
-          $ref: '#/components/responses/Forbidden'
+          $ref: '#/components/responses/AuthorizationForbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':

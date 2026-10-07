@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -24,11 +25,38 @@ func (s *MythicalService) prepareMergeConfirmation(ctx context.Context, tx pgx.T
 		return p, confirmationUnavailable()
 	}
 	var subject struct {
-		Kind string `json:"kind"`
-		Ref  string `json:"ref"`
+		Kind  string `json:"kind"`
+		Ref   string `json:"ref"`
+		Owner string `json:"owner,omitempty"`
+		Repo  string `json:"repo,omitempty"`
 	}
 	var request MythicalMergeInput
-	if confirmationJSON(input.Subject, &subject) != nil || subject.Kind != "todo" || !strings.HasPrefix(subject.Ref, "T") || confirmationJSON(input.Payload, &request) != nil {
+	if confirmationJSON(input.Subject, &subject) != nil || confirmationJSON(input.Payload, &request) != nil {
+		return p, invalidConfirmation()
+	}
+	if subject.Kind == "todo-id" {
+		named, err := db.New(tx).GetRepoByOwnerAndLowerName(ctx, db.GetRepoByOwnerAndLowerNameParams{Owner: strings.ToLower(subject.Owner), LowerName: strings.ToLower(subject.Repo)})
+		if errors.Is(err, pgx.ErrNoRows) || err == nil && named.ID != repository {
+			return p, &TodoControlError{Status: 404, Class: "user", Code: "todo_not_found", Message: "TODO not found"}
+		}
+		if err != nil {
+			return p, err
+		}
+		id, err := uuid.Parse(subject.Ref)
+		if err != nil {
+			return p, invalidConfirmation()
+		}
+		item, err := db.New(tx).GetMythicalItem(ctx, stringToUUID(id.String()))
+		if errors.Is(err, pgx.ErrNoRows) || err == nil && (item.RepositoryID != repository || !item.Number.Valid) {
+			return p, &TodoControlError{Status: 404, Class: "user", Code: "todo_not_found", Message: "TODO not found"}
+		}
+		if err != nil {
+			return p, err
+		}
+		subject.Kind, subject.Ref = "todo", "T"+strconv.FormatInt(item.Number.Int64, 10)
+		subject.Owner, subject.Repo = "", ""
+	}
+	if subject.Kind != "todo" || !strings.HasPrefix(subject.Ref, "T") {
 		return p, invalidConfirmation()
 	}
 	number, err := strconv.ParseInt(strings.TrimPrefix(subject.Ref, "T"), 10, 64)

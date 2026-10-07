@@ -267,7 +267,7 @@ paths:
     get:
       x-composition: install
       summary: Read a file from the branch mirror
-      description: Reads source data without waking a machine or executing repository code. Main is pinned to the last successful GitHub mirror commit.
+      description: Reads source data without waking a machine or executing repository code. Main is pinned to the last successful GitHub mirror commit. Run and machine credentials may read current files only on their stored TODO branch; at, digest and compare selectors are refused.
       operationId: get_api_branch_file
       tags:
         - Branches
@@ -352,11 +352,13 @@ paths:
     get:
       x-composition: install
       summary: List branch files
+      description: Run and machine credentials may list files only on their stored TODO branch. Other branches and main are refused.
       operationId: get_api_branches_b_files
       tags:
         - Branches
       security:
         - sessionCookie: []
+        - bearerAuth: []
       parameters:
         - name: b
           in: path

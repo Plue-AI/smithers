@@ -183,6 +183,7 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		args []any
 	}{
 		{`UPDATE users SET is_active = true WHERE id IN ($1, $2)`, []any{owner.ID, member.ID}},
+		{`INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, []any{repo.ID, member.ID}},
 		{`INSERT INTO self_host_owners(singleton,user_id) VALUES (true,$1)`, []any{owner.ID}},
 		{`INSERT INTO oauth_accounts(id,user_id,provider,provider_user_id,profile_data) VALUES (1,$1,'github','7','{"login":"rehearsal-owner"}')`, []any{owner.ID}},
 		{`UPDATE repositories SET mirror_destination = 'rehearsal-owner/app' WHERE id = $1`, []any{repo.ID}},
@@ -493,6 +494,14 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		require.Equal(t, "pending", receipt["state"])
 		require.Equal(t, "Waiting for Merge owner to confirm", receipt["message"])
 		id := receipt["confirmation"].(string)
+		aliasStatus, aliasReceipt := call(http.MethodPost, "/api/repos/merge-owner/app/mythical/items/"+uuid.UUID(before.ID.Bytes).String()+"/merge", "", pat, "confirm-create", fmt.Sprintf(`{"reviewed_head_sha":%q}`, pull.Head.SHA))
+		require.Equal(t, http.StatusAccepted, aliasStatus, aliasReceipt)
+		require.Equal(t, id, aliasReceipt["confirmation"], "the legacy door replays the same private confirmation")
+		require.Equal(t, "pending", aliasReceipt["state"])
+		for _, write := range fake.Writes() {
+			require.False(t, write.Method == "PUT" && strings.HasSuffix(write.Path, "/merge"), "requesting confirmation never merges")
+		}
+
 		if len(delegatedBrowser) > 0 && delegatedBrowser[0] {
 			runMergeConfirmationBrowser(t, cfg, pool, mythical, server, owner, pat, id, filed.Number, pull.Head.SHA, before.ID,
 				&services.Members{Pool: pool, Credentials: credentials, Minter: connections, Budget: services.NewBudgetTracker()})
@@ -691,10 +700,8 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 
 	t.Run("shared TODO replay excludes private and other item facts", func(t *testing.T) {
 		scope := jobs.Scope{TenantID: strconv.FormatInt(repo.ID, 10), PrincipalID: "todo:" + uuid.UUID(before.ID.Bytes).String()}
-		_, err := pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES ($1,$2,'write')`, repo.ID, member.ID)
-		require.NoError(t, err)
 		defer func() {
-			_, err := pool.Exec(ctx, `DELETE FROM collaborators WHERE repository_id=$1 AND user_id=$2`, repo.ID, member.ID)
+			_, err := pool.Exec(ctx, `UPDATE collaborators SET suspended_at=NULL WHERE repository_id=$1 AND user_id=$2`, repo.ID, member.ID)
 			require.NoError(t, err)
 		}()
 		var shared []jobs.Event
@@ -777,7 +784,8 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE repository_id=$1 AND user_id=$2`, repo.ID, member.ID)
 		require.NoError(t, err)
 		response, raw := read("member-browser-session", "")
-		require.Equal(t, 403, response.StatusCode, string(raw))
+		require.Equal(t, 401, response.StatusCode, string(raw))
+		require.Contains(t, string(raw), `"code":"unauthenticated"`)
 		require.NotContains(t, string(raw), "Alice")
 	})
 
@@ -1014,27 +1022,30 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 				for _, target := range []string{door.valid, door.unknown, door.malformed, door.encoded} {
 					status, envelope := post(door.path(target), tc.set)
 					expectedStatus := tc.status
-					// The numbered door uses the install command gate: a person's
-					// API credential requires app confirmation before reading a TODO.
-					if tc.name == "the owner's personal access token" && door.name == "numbered" && (target == door.valid || target == door.unknown) {
+
+					var expected map[string]any
+					if tc.name == "the owner's personal access token" {
 						expectedStatus = http.StatusServiceUnavailable
-						if target == door.unknown {
+						expected = map[string]any{"code": "confirmation_unavailable", "class": "infra", "message": "Confirmation unavailable"}
+
+						if door.name == "unknown repository" || target == door.unknown {
 							expectedStatus = http.StatusNotFound
+							expected = map[string]any{"code": "todo_not_found", "class": "user", "message": "TODO not found"}
+						} else if target == door.malformed || target == door.encoded {
+							expectedStatus = http.StatusBadRequest
+							expected = map[string]any{"code": "invalid_confirmation", "class": "user", "message": "Invalid confirmation request"}
+							if door.name == "numbered" {
+								expected = map[string]any{"code": "invalid_todo", "class": "user", "message": "Invalid TODO number"}
+							}
 						}
+					} else {
+						expected = tc.envelope
 					}
 					require.Equal(t, expectedStatus, status, "%s %s: %v", door.name, target, envelope)
-					if tc.envelope != nil {
-						expected := tc.envelope
-						if tc.name == "the owner's personal access token" && door.name == "numbered" && (target == door.valid || target == door.unknown) {
-							expected = map[string]any{"code": "confirmation_unavailable", "class": "infra", "message": "Confirmation unavailable"}
-							if target == door.unknown {
-								expected = map[string]any{"code": "todo_not_found", "class": "user", "message": "TODO not found"}
-							}
-						} else if tc.name == "the owner's personal access token" {
-							expected = map[string]any{"code": "permission", "class": "permission", "message": "Not available"}
-						}
+					if expected != nil {
 						require.Equal(t, expected, envelope, "%s %s", door.name, target)
 					}
+
 					if first == nil {
 						first = envelope
 					}

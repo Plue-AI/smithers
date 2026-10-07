@@ -152,7 +152,7 @@ func (s *MythicalService) TODOBranchDiff(ctx context.Context, branch string) (Br
 	if err := todoBranchForbids(ctx, item); err != nil {
 		return BranchDiff{}, err
 	}
-	if delegation, delegated := middleware.AuthInfoFromContext(ctx).Delegation(); delegated && (delegation.Branch == "" || delegation.Branch != item.WorkspaceID) {
+	if delegation, delegated := middleware.AuthInfoFromContext(ctx).Delegation(); delegated && (delegation.Profile != "" && delegation.Branch == "" || delegation.Branch != "" && delegation.Branch != item.WorkspaceID) {
 		return BranchDiff{}, &BranchError{http.StatusForbidden, "permission", "permission", "Credential is bound to another branch"}
 	}
 	base, head := item.CandidateBase, item.CandidateHead

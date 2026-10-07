@@ -136,19 +136,10 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				return
 			}
 			if command == "branch.read" && services.InstallExecutionCredential(r.Context()) {
-				parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-				subject := services.InstallSubject{}
-				if (len(parts) == 7 || len(parts) == 8 && parts[7] == "content") && parts[1] == "repos" && parts[4] == "workspaces" && parts[6] == "files" {
-					repository, err := queries.GetRepoByOwnerAndLowerName(r.Context(), db.GetRepoByOwnerAndLowerNameParams{Owner: strings.ToLower(parts[2]), LowerName: strings.ToLower(parts[3])})
-					if err != nil {
-						writeConfirmationDispatchError(w, &services.AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"})
-						return
-					}
-					subject, err = services.InstallExecutionFileSubject(r.Context(), queries, repository.ID, parts[5])
-					if err != nil {
-						writeConfirmationDispatchError(w, err)
-						return
-					}
+				subject, err := routes.InstallBranchReadSubject(r, queries)
+				if err != nil {
+					writeConfirmationDispatchError(w, err)
+					return
 				}
 				decision, err := services.Authorize(r.Context(), queries, command, subject)
 				if err != nil {
@@ -370,9 +361,9 @@ func dispatchConfirmation(w http.ResponseWriter, r *http.Request, command string
 	}
 	input := services.ConfirmationInput{Command: command, Payload: raw, Key: r.Header.Get("Idempotency-Key")}
 	if strings.HasPrefix(r.URL.Path, "/api/todos/") {
-		part := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/todos/"), "/")[0]
+		part, decodeErr := url.PathUnescape(strings.Split(strings.TrimPrefix(r.URL.EscapedPath(), "/api/todos/"), "/")[0])
 		n, err := strconv.ParseInt(part, 10, 64)
-		if err != nil || n <= 0 {
+		if decodeErr != nil || err != nil || n <= 0 {
 			writeConfirmationDispatchError(w, &services.AccessError{Status: 400, Class: "user", Code: "invalid_todo", Message: "Invalid TODO number"})
 			return true
 		}
@@ -386,6 +377,19 @@ func dispatchConfirmation(w http.ResponseWriter, r *http.Request, command string
 			return true
 		}
 		input.Subject, _ = json.Marshal(map[string]string{"kind": "branch", "ref": branch})
+	}
+	if command == "merge" {
+		parts := strings.Split(strings.Trim(r.URL.EscapedPath(), "/"), "/")
+		if len(parts) == 8 && parts[1] == "repos" && parts[4] == "mythical" && parts[5] == "items" && parts[7] == "merge" {
+			id, err := url.PathUnescape(parts[6])
+			if err != nil {
+				writeConfirmationDispatchError(w, &services.AccessError{Status: 400, Class: "user", Code: "invalid_confirmation", Message: "Invalid confirmation request"})
+				return true
+			}
+			// The consumer resolves this legacy identity after the one policy
+			// decision, then stores the same canonical TODO subject as the card.
+			input.Subject, _ = json.Marshal(map[string]string{"kind": "todo-id", "ref": id, "owner": parts[2], "repo": parts[3]})
+		}
 	}
 	if command == "branch.discard-foreign" || command == "branch.bring-in" {
 		input.Subject, _ = json.Marshal(map[string]string{"kind": "branch", "ref": strings.TrimPrefix(r.URL.Path, "/api/branches/")})

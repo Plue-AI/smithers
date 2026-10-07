@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -160,7 +161,7 @@ func TestInstallExecutionFileReadsPostgres(t *testing.T) {
 		for _, door := range []struct {
 			name, path string
 			own        bool
-		}{{"list", "/api/repos/gate-owner/app/workspaces/" + ws.ID + "/files", true}, {"file", "/api/repos/gate-owner/app/workspaces/" + ws.ID + "/files/content?path=history.txt", true}, {"other", "/api/repos/gate-owner/app/workspaces/" + otherWS.ID + "/files/content?path=history.txt", false}, {"retained branch", "/api/repos/gate-owner/app/workspaces/" + ws.ID, false}, {"branch card", "/api/branches/" + ws.ID, false}, {"main file", "/api/branches/main/files/history.txt", false}} {
+		}{{"list", "/api/repos/gate-owner/app/workspaces/" + ws.ID + "/files", true}, {"canonical list", "/api/branches/" + ws.ID + "/files", true}, {"canonical file", "/api/branches/" + ws.ID + "/files/history.txt", true}, {"named file", "/api/branches/" + url.PathEscape(ws.TargetBookmark) + "/files/history.txt", true}, {"canonical other", "/api/branches/" + otherWS.ID + "/files/history.txt", false}, {"historical at", "/api/branches/" + ws.ID + "/files/history.txt?at=" + head, false}, {"historical digest", "/api/branches/" + ws.ID + "/files/history.txt?digest=absent", false}, {"historical compare", "/api/branches/" + ws.ID + "/files/history.txt?compare=main", false}, {"file", "/api/repos/gate-owner/app/workspaces/" + ws.ID + "/files/content?path=history.txt", true}, {"other", "/api/repos/gate-owner/app/workspaces/" + otherWS.ID + "/files/content?path=history.txt", false}, {"retained branch", "/api/repos/gate-owner/app/workspaces/" + ws.ID, false}, {"branch card", "/api/branches/" + ws.ID, false}, {"main file", "/api/branches/main/files/history.txt", false}} {
 			t.Run(actor.name+"/"+door.name, func(t *testing.T) {
 				status := actor.status
 				if !door.own {
@@ -178,7 +179,7 @@ func TestInstallExecutionFileReadsPostgres(t *testing.T) {
 				if status == 200 {
 					require.Contains(t, out.Body.String(), "history.txt")
 					require.Greater(t, store.reads.Load(), before)
-					if door.name == "file" {
+					if strings.HasSuffix(door.name, "file") {
 						require.Contains(t, out.Body.String(), "Recorded repository content")
 					}
 				} else {
@@ -191,7 +192,7 @@ func TestInstallExecutionFileReadsPostgres(t *testing.T) {
 	for _, change := range []struct {
 		name, sql string
 		status    int
-	}{{"sponsor", fmt.Sprintf(`UPDATE mythical_items SET owner_id=%d WHERE id=$1`, f.other.ID), 403}, {"run", `UPDATE mythical_items SET request_run_id='replacement' WHERE id=$1`, 403}, {"workspace", fmt.Sprintf(`UPDATE mythical_items SET workspace_id='%s' WHERE id=$1`, otherWS.ID), 403}, {"expired", "", 401}} {
+	}{{"sponsor", fmt.Sprintf(`UPDATE mythical_items SET owner_id=%d WHERE id=$1`, f.other.ID), 403}, {"run", `UPDATE mythical_items SET request_run_id='replacement' WHERE id=$1`, 403}, {"workspace", fmt.Sprintf(`UPDATE mythical_items SET workspace_id='%s' WHERE id=$1`, otherWS.ID), 403}, {"todo identity", `UPDATE mythical_items SET number=number+1000 WHERE id=$1`, 403}, {"expired", "", 401}} {
 		t.Run("bound read after "+change.name, func(t *testing.T) {
 			token := f.token(f.owner, "file-stale-"+change.name, scopes, true)
 			sum := sha256.Sum256([]byte(token))
@@ -214,7 +215,7 @@ func TestInstallExecutionFileReadsPostgres(t *testing.T) {
 			}
 			require.NoError(t, err)
 			t.Cleanup(func() {
-				_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET owner_id=$2,workspace_id=$3,request_run_id='file-run' WHERE id=$1`, itemID, f.owner.ID, ws.ID)
+				_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET owner_id=$2,workspace_id=$3,request_run_id='file-run',number=$4 WHERE id=$1`, itemID, f.owner.ID, ws.ID, number)
 				require.NoError(t, err)
 			})
 			before := store.reads.Load()
@@ -227,105 +228,113 @@ func TestInstallExecutionFileReadsPostgres(t *testing.T) {
 			require.Equal(t, 1, count)
 		})
 	}
-	t.Run("member suspension serializes after admitted bytes", func(t *testing.T) {
-		_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET owner_id=$2 WHERE id=$1`, itemID, f.other.ID)
-		require.NoError(t, err)
-		t.Cleanup(func() {
-			_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET owner_id=$2 WHERE id=$1`, itemID, f.owner.ID)
+	for _, spelling := range []string{"workspace", "branch"} {
+		t.Run("member suspension serializes after admitted bytes/"+spelling, func(t *testing.T) {
+			_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET owner_id=$2 WHERE id=$1`, itemID, f.other.ID)
 			require.NoError(t, err)
+			t.Cleanup(func() {
+				_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET owner_id=$2 WHERE id=$1`, itemID, f.owner.ID)
+				require.NoError(t, err)
+				_, err = f.pool.Exec(f.ctx, `UPDATE collaborators SET suspended_at=NULL WHERE repository_id=$1 AND user_id=$2`, f.repoID, f.other.ID)
+				require.NoError(t, err)
+			})
+			token := f.token(f.other, "file-member-serial-"+spelling, scopes, true)
+			cookie := "suspended-file-member-" + spelling
+			sum := sha256.Sum256([]byte(cookie))
+			_, err = f.q.CreateAuthSession(f.ctx, db.CreateAuthSessionParams{UserID: f.other.ID, Username: f.other.Username, SessionKey: hex.EncodeToString(sum[:]), ExpiresAt: time.Now().Add(time.Hour)})
+			require.NoError(t, err)
+			delegated := f.token(f.other, spelling+"-file-dead-delegated", "write:repository,via:codex", true)
+			challenge := func(bearer string, status, decisions int, code string) {
+				t.Helper()
+				req := httptest.NewRequest("GET", cfg.Server.PublicURL+"/api/members", nil)
+				if bearer == "" {
+					req.AddCookie(&http.Cookie{Name: "session", Value: cookie})
+				} else {
+					req.Header.Set("Authorization", "Bearer "+bearer)
+				}
+				count := 0
+				req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(string) { count++ }))
+				out := httptest.NewRecorder()
+				router.ServeHTTP(out, req)
+				require.Equal(t, status, out.Code, out.Body.String())
+				require.Equal(t, decisions, count)
+				if code != "" {
+					require.Contains(t, out.Body.String(), `"code":"`+code+`"`)
+				}
+			}
+			challenge("", 200, 1, "")
+			challenge(delegated, 403, 1, "never")
+			challenge(token, 403, 1, "permission")
+
+			var decisionCount atomic.Int64
+			request := func() *httptest.ResponseRecorder {
+				path := "/api/repos/gate-owner/app/workspaces/" + ws.ID + "/files/content?path=history.txt"
+				if spelling == "branch" {
+					path = "/api/branches/" + ws.ID + "/files/history.txt"
+				}
+				req := httptest.NewRequest("GET", cfg.Server.PublicURL+path, nil)
+				req.Header.Set("Authorization", "Bearer "+token)
+				req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(string) { decisionCount.Add(1) }))
+				out := httptest.NewRecorder()
+				router.ServeHTTP(out, req)
+				return out
+			}
+			entered, finish := make(chan struct{}), make(chan struct{})
+			var release sync.Once
+			finishRead := func() { release.Do(func() { close(finish) }) }
+			defer finishRead()
+			store.beforeRead = func() { close(entered); <-finish }
+			readDone := make(chan *httptest.ResponseRecorder, 1)
+			go func() { readDone <- request() }()
+			select {
+			case <-entered:
+			case <-time.After(5 * time.Second):
+				t.Fatal("file did not reach native storage")
+			}
+			conn, err := f.pool.Acquire(f.ctx)
+			require.NoError(t, err)
+			var pid int32
+			require.NoError(t, conn.QueryRow(f.ctx, `SELECT pg_backend_pid()`).Scan(&pid))
+			writeDone := make(chan error, 1)
+			writeCtx, cancel := context.WithTimeout(f.ctx, 10*time.Second)
+			defer cancel()
+			go func() {
+				defer conn.Release()
+				_, err := conn.Exec(writeCtx, `UPDATE collaborators SET suspended_at=NOW() WHERE repository_id=$1 AND user_id=$2`, f.repoID, f.other.ID)
+				writeDone <- err
+			}()
+			require.Eventually(t, func() bool {
+				var waiting bool
+				err := f.pool.QueryRow(f.ctx, `SELECT COALESCE(wait_event_type='Lock',false) FROM pg_stat_activity WHERE pid=$1`, pid).Scan(&waiting)
+				return err == nil && waiting
+			}, 5*time.Second, 10*time.Millisecond, "suspension must wait for the admitted read")
+			finishRead()
+			select {
+			case out := <-readDone:
+				require.Equal(t, 200, out.Code, out.Body.String())
+				require.Contains(t, out.Body.String(), "Recorded repository content")
+			case <-time.After(5 * time.Second):
+				t.Fatal("read did not finish")
+			}
+			store.beforeRead = nil
+			select {
+			case err := <-writeDone:
+				require.NoError(t, err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("suspension did not finish")
+			}
+			before := store.reads.Load()
+			out := request()
+			require.Equal(t, 401, out.Code, out.Body.String())
+			require.Equal(t, before, store.reads.Load())
+			require.NotContains(t, out.Body.String(), "Recorded repository content")
+			require.Equal(t, int64(1), decisionCount.Load())
+			// Death wins over both person-only delegation and command policy.
+			challenge("", 401, 0, "unauthenticated")
+			challenge(delegated, 401, 0, "unauthenticated")
+			challenge(token, 401, 0, "unauthenticated")
+
 		})
-		token := f.token(f.other, "file-member-serial", scopes, true)
-		cookie := "suspended-file-member"
-		sum := sha256.Sum256([]byte(cookie))
-		_, err = f.q.CreateAuthSession(f.ctx, db.CreateAuthSessionParams{UserID: f.other.ID, Username: f.other.Username, SessionKey: hex.EncodeToString(sum[:]), ExpiresAt: time.Now().Add(time.Hour)})
-		require.NoError(t, err)
-		delegated := f.token(f.other, "file-dead-delegated", "write:repository,via:codex", true)
-		challenge := func(bearer string, status, decisions int, code string) {
-			t.Helper()
-			req := httptest.NewRequest("GET", cfg.Server.PublicURL+"/api/members", nil)
-			if bearer == "" {
-				req.AddCookie(&http.Cookie{Name: "session", Value: cookie})
-			} else {
-				req.Header.Set("Authorization", "Bearer "+bearer)
-			}
-			count := 0
-			req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(string) { count++ }))
-			out := httptest.NewRecorder()
-			router.ServeHTTP(out, req)
-			require.Equal(t, status, out.Code, out.Body.String())
-			require.Equal(t, decisions, count)
-			if code != "" {
-				require.Contains(t, out.Body.String(), `"code":"`+code+`"`)
-			}
-		}
-		challenge("", 200, 1, "")
-		challenge(delegated, 403, 1, "never")
-		challenge(token, 403, 1, "permission")
 
-		var decisionCount atomic.Int64
-		request := func() *httptest.ResponseRecorder {
-			req := httptest.NewRequest("GET", cfg.Server.PublicURL+"/api/repos/gate-owner/app/workspaces/"+ws.ID+"/files/content?path=history.txt", nil)
-			req.Header.Set("Authorization", "Bearer "+token)
-			req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(string) { decisionCount.Add(1) }))
-			out := httptest.NewRecorder()
-			router.ServeHTTP(out, req)
-			return out
-		}
-		entered, finish := make(chan struct{}), make(chan struct{})
-		var release sync.Once
-		finishRead := func() { release.Do(func() { close(finish) }) }
-		defer finishRead()
-		store.beforeRead = func() { close(entered); <-finish }
-		readDone := make(chan *httptest.ResponseRecorder, 1)
-		go func() { readDone <- request() }()
-		select {
-		case <-entered:
-		case <-time.After(5 * time.Second):
-			t.Fatal("file did not reach native storage")
-		}
-		conn, err := f.pool.Acquire(f.ctx)
-		require.NoError(t, err)
-		var pid int32
-		require.NoError(t, conn.QueryRow(f.ctx, `SELECT pg_backend_pid()`).Scan(&pid))
-		writeDone := make(chan error, 1)
-		writeCtx, cancel := context.WithTimeout(f.ctx, 10*time.Second)
-		defer cancel()
-		go func() {
-			defer conn.Release()
-			_, err := conn.Exec(writeCtx, `UPDATE collaborators SET suspended_at=NOW() WHERE repository_id=$1 AND user_id=$2`, f.repoID, f.other.ID)
-			writeDone <- err
-		}()
-		require.Eventually(t, func() bool {
-			var waiting bool
-			err := f.pool.QueryRow(f.ctx, `SELECT COALESCE(wait_event_type='Lock',false) FROM pg_stat_activity WHERE pid=$1`, pid).Scan(&waiting)
-			return err == nil && waiting
-		}, 5*time.Second, 10*time.Millisecond, "suspension must wait for the admitted read")
-		finishRead()
-		select {
-		case out := <-readDone:
-			require.Equal(t, 200, out.Code, out.Body.String())
-			require.Contains(t, out.Body.String(), "Recorded repository content")
-		case <-time.After(5 * time.Second):
-			t.Fatal("read did not finish")
-		}
-		store.beforeRead = nil
-		select {
-		case err := <-writeDone:
-			require.NoError(t, err)
-		case <-time.After(5 * time.Second):
-			t.Fatal("suspension did not finish")
-		}
-		before := store.reads.Load()
-		out := request()
-		require.Equal(t, 401, out.Code, out.Body.String())
-		require.Equal(t, before, store.reads.Load())
-		require.NotContains(t, out.Body.String(), "Recorded repository content")
-		require.Equal(t, int64(1), decisionCount.Load())
-		// Death wins over both person-only delegation and command policy.
-		challenge("", 401, 0, "unauthenticated")
-		challenge(delegated, 401, 0, "unauthenticated")
-		challenge(token, 401, 0, "unauthenticated")
-
-	})
-
+	}
 }

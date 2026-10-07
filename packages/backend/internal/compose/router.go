@@ -1134,7 +1134,9 @@ func buildRouter(
 					files.Source = services.InstallSource{Pool: pool, Repos: repos, Members: ownerBoundary}
 				}
 			}
-			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)).Get("/branches/{b}/files/*", files.Read)
+			// The install command decision already checks credential scope and the
+			// stored repository. This canonical route has no owner/repo URL params.
+			r.With(middleware.RequireAuth).Get("/branches/{b}/files/*", files.Read)
 			restore := &routes.FileRestoreHandler{Authorize: routes.InstallBranchAuthorizer(queries)}
 			if workspaceHandler != nil {
 				restore.Service, _ = workspaceHandler.Service.(routes.BranchFileRestorer)

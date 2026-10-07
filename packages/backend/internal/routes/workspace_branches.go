@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -133,6 +135,14 @@ func InstallBranchAuthorizer(queries *db.Queries) func(*http.Request, string) (i
 			}
 			subject = services.InstallBranchForkSubject(r.Context(), repository, input)
 		}
+		if command == "branch.read" && services.InstallExecutionCredential(r.Context()) {
+			var err error
+			subject, err = InstallBranchReadSubject(r, queries)
+			if err != nil {
+				return 0, 0, err
+			}
+		}
+
 		decision, err := services.Authorize(r.Context(), queries, command, subject)
 		if err != nil {
 			return 0, 0, err
@@ -282,4 +292,60 @@ func (h *BranchHandler) AddToStack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pkgerrors.WriteJSON(w, 202, map[string]any{"state": "accepted", "n": item.Number, "rev": 1})
+}
+
+// InstallBranchReadSubject binds both file-route spellings to the same stored
+// execution workspace. Other branch reads and historical selectors have no
+// execution grant. Resolve it before the one command decision in either entry.
+func InstallBranchReadSubject(r *http.Request, q *db.Queries) (services.InstallSubject, error) {
+	if q == nil {
+		return services.InstallSubject{}, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branches unavailable")
+	}
+	if !services.InstallExecutionCredential(r.Context()) {
+		return services.InstallSubject{}, nil
+	}
+	parts := strings.Split(strings.Trim(r.URL.EscapedPath(), "/"), "/")
+	if (len(parts) == 7 || len(parts) == 8 && parts[7] == "content") && parts[1] == "repos" && parts[4] == "workspaces" && parts[6] == "files" {
+		owner, ownerErr := url.PathUnescape(parts[2])
+		repo, repoErr := url.PathUnescape(parts[3])
+		workspace, workspaceErr := url.PathUnescape(parts[5])
+		if ownerErr != nil || repoErr != nil || workspaceErr != nil {
+			return services.InstallSubject{}, nil
+		}
+		row, err := q.GetRepoByOwnerAndLowerName(r.Context(), db.GetRepoByOwnerAndLowerNameParams{Owner: strings.ToLower(owner), LowerName: strings.ToLower(repo)})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return services.InstallSubject{}, nil
+		}
+		if err != nil {
+			return services.InstallSubject{}, err
+		}
+		return services.InstallExecutionFileSubject(r.Context(), q, row.ID, workspace)
+	}
+	if len(parts) < 4 || parts[1] != "branches" || parts[3] != "files" {
+		return services.InstallSubject{}, nil
+	}
+	query := r.URL.Query()
+	if query.Has("at") || query.Has("digest") || query.Has("compare") {
+		return services.InstallSubject{}, nil
+	}
+	branch, err := url.PathUnescape(parts[2])
+	if err != nil || branch == "main" {
+		return services.InstallSubject{}, nil
+	}
+	repository, err := services.InstallRepositoryID(r.Context(), q)
+	if err != nil {
+		return services.InstallSubject{}, err
+	}
+	workspace := branch
+	if _, err := uuid.Parse(branch); err != nil {
+		row, err := q.GetBranchWorkspace(r.Context(), db.GetBranchWorkspaceParams{RepositoryID: repository, TargetBookmark: branch})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return services.InstallSubject{}, nil
+		}
+		if err != nil {
+			return services.InstallSubject{}, err
+		}
+		workspace = row.ID
+	}
+	return services.InstallExecutionFileSubject(r.Context(), q, repository, workspace)
 }

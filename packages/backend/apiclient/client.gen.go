@@ -5568,8 +5568,8 @@ func (c *Client) GetAPIReposOwnerRepoMythicalItemsRef(ctx context.Context, owner
 }
 
 // PostAPIReposOwnerRepoMythicalItemsIDMerge calls POST /api/repos/{owner}/{repo}/mythical/items/{id}/merge.
-func (c *Client) PostAPIReposOwnerRepoMythicalItemsIDMerge(ctx context.Context, owner string, repo string, id string, idempotencyKey string, body PostAPIReposOwnerRepoMythicalItemsIDMergeBody) (AnyJSON, error) {
-	var out AnyJSON
+func (c *Client) PostAPIReposOwnerRepoMythicalItemsIDMerge(ctx context.Context, owner string, repo string, id string, idempotencyKey string, body PostAPIReposOwnerRepoMythicalItemsIDMergeBody) (json.RawMessage, error) {
+	var out json.RawMessage
 	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/mythical/items/"+url.PathEscape(id)+"/merge", nil, body, &out)
 	return out, err
 }
