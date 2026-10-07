@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -276,5 +277,23 @@ func TestQuiesceResumeFailurePreservesFreeze(t *testing.T) {
 	service.Host = steps
 	if err := service.Gate.Admit(t.Context(), "POST"); err != nil || store.row != nil {
 		t.Fatalf("resume retry: %v", err)
+	}
+}
+
+func TestQuiesceCompositionRecoversPersistedLease(t *testing.T) {
+	store := &memoryFreeze{row: &QuiesceFreeze{Op: "old-operation", Ready: true, LeaseUntil: time.Now().Add(-time.Second)}}
+	gate := &QuiesceGate{Store: store, StateDir: t.TempDir()}
+	service := NewInstallQuiesce(gate)
+	calls := []string{}
+	steps := quiesceSteps{calls: &calls}
+	service.Host = steps
+	service.Admission = steps
+	service.Barriers = barrierFixtures(&calls, "")
+	if err := gate.Admit(t.Context(), "POST"); err != nil || store.row != nil {
+		t.Fatalf("restart recovery: %v row=%v", err, store.row)
+	}
+	want := []string{"resume", "resume-T-SEC-01", "resume-T-TRM-07", "resume-T-GH-09", "resume-T-COL-09", "resume-T-COL-08", "resume-T-STK-04", "resume"}
+	if !reflect.DeepEqual(calls, want) {
+		t.Fatalf("resume order: %v", calls)
 	}
 }

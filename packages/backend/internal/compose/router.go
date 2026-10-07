@@ -1103,7 +1103,7 @@ func buildRouter(
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository)).Post("/branches/{b}/files/*", restore.Restore)
 		}
 		if cfg.Install.QuiesceEnabled {
-			h := &routes.InstallQuiesceHandler{Owners: queries, Service: &services.InstallQuiesce{Gate: quiesce}}
+			h := &routes.InstallQuiesceHandler{Owners: queries, Service: services.NewInstallQuiesce(quiesce)}
 			r.Post("/install/quiesce", h.Handle)
 			r.Delete("/install/quiesce", h.Handle)
 		}
