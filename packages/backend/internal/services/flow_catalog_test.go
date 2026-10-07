@@ -125,7 +125,7 @@ func TestFlowCatalogServesTheBuiltinTodoFlow(t *testing.T) {
 	if err := json.Unmarshal(builtinFlowsJSON, &digests); err != nil {
 		t.Fatal(err)
 	}
-	want := `[{"name":"todo","source":{"builtin":true},"system":false,"versions":[{"id":"` + digests["todo"] + `","state":"active","steps":[` +
+	want := `[{"name":"learning","source":{"builtin":true},"system":false,"versions":[{"id":"` + digests["learning"] + `","state":"active","steps":[]}]},{"name":"todo","source":{"builtin":true},"system":false,"versions":[{"id":"` + digests["todo"] + `","state":"active","steps":[` +
 		`{"id":"plan","label":"Plan"},{"id":"implement","label":"Implement"},{"id":"verify","label":"Verify"},` +
 		`{"id":"review","label":"Review"},{"id":"propose","label":"Propose"},` +
 		`{"id":"merge","wait":true,"signals":[{"on":"rebase","to":"Verify"},{"on":"steer","to":"Implement"}]}]}]}]`
