@@ -47,6 +47,7 @@ export const Package = S.Package({ targets: {
     'concurrency:', '  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.sha }}',
     '  cancel-in-progress: false', 'permissions:', '  contents: read', 'jobs:',
     '  "check":', '    runs-on: "ubuntu-latest"', '    steps:', '      - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"',
+    '        with:', '          "persist-credentials": "false"',
     '      - uses: "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"',
     '      - id: setup', '        run: "pnpm install --frozen-lockfile --ignore-scripts"',
     "      - if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}",
