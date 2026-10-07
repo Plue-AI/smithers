@@ -48,7 +48,8 @@ are not copied into artifacts. A driver is not reference-host evidence: no
 passing real-stack run has been recorded yet. The operator must ensure this
 runner is the second Mac and the selected install is the reference Mac mini.
 
-Outstanding: agent-first-token, warm-wake and rebase-hold drivers,
+Outstanding: production timing/action bindings for agent-first-token, warm-wake
+and rebase-hold,
 browser and SSH fixtures, remaining §20.3 latency/wake/burst producers,
 qualified network/machine security evidence,
 real raw-sample artifacts, second-Mac runs, and
@@ -111,3 +112,78 @@ Set `lane` to the lane namespace when the target runner filters ambient LANE;
 otherwise they preserve the caller's LANE. They use the shared Go cache. The complete
 K1–K8 target remains incomplete pending executable guest composition and the
 writer/head/row/client evidence matrix.
+
+`projection-delta.mjs` qualifies C-PERF-02 from the second Mac. Set
+`SMITHERS_PERF_ORIGIN`, `SMITHERS_PERF_TODO` (a queued TODO that can move up
+and down), `SMITHERS_PERF_OWNER_COOKIE` (session and `__csrf` cookies),
+`SMITHERS_PERF_MEMBER_A` (Playwright storage-state file), and
+`SMITHERS_PERF_INSTALL_VERSION`. The reference install needs ten TODOs.
+Run `node scripts/perf/projection-delta.mjs` from the repository root.
+It opens two Node live sockets plus three Chromium Home tabs, performs 200
+idempotent moves, and records same-process monotonic timings and source cursors.
+Any gap, coalescing, duplicate, refusal or unrelated delta fails the workload;
+it never resubscribes to turn missing delivery into a passing sample. Metadata
+snapshots may retain the current source cursor; a snapshot advancing it fails.
+The runner writes raw samples through the existing artifact writer. A Linux
+run cannot qualify the reference-host check.
+
+`node scripts/perf/warm-wake.mjs` is the C-PERF-05 reference-Mac workload.
+It opens 100 terminals through `POST /api/terminals`, observes an `awake`
+Branch delta, closes each session through the retained session-destroy route,
+and waits for `asleep` before the next sample. Set `SMITHERS_PERF_ORIGIN`,
+`SMITHERS_PERF_BRANCH` (the Branch topic ID), `SMITHERS_PERF_REPOSITORY`
+(`owner/repo`), `SMITHERS_PERF_OWNER_COOKIE` (including `__csrf`), and
+`SMITHERS_PERF_INSTALL_VERSION`. The selected TODO must be in review, with a
+previously booted and finally captured machine, no other work, and spare
+capacity. `SMITHERS_PERF_SLEEP_SECONDS` records the configured idle policy
+(default 120); it does not alter the install. The driver never discards cold,
+failed, recovered-stream or mismatched-head samples.
+
+`SMITHERS_PERF_HOST_WAKE_LOG` must identify a local JSONL export from the
+install's host observer. Each complete record has `requestId` (the submitted
+`X-Request-ID`), `branch`, `bootId`, `kind: "warm"`, `failed: false`,
+`acceptedNs` and `awakeWrittenNs` (decimal strings from the same host monotonic
+clock), and `workingHead` (independently observed in the machine after wake).
+Acceptance must be measured before admission. The driver matches records by
+request, rejects duplicate or cross-boot evidence and verifies the working head
+against the preceding final capture. It reports nearest-rank host and client
+p95 separately, and requires host p95 strictly below 5000 ms. Raw observations,
+host sizing, commit, version, sleep policy and failures are written through the
+shared artifact writer to both performance and C-PERF-05 check directories.
+Credentials are excluded. Failed runs attempt to close their last terminal;
+an unsuccessful cleanup records the remaining session ID.
+
+This driver is not a passing receipt. The current S2 terminal route refuses
+startup, its successful session-ID response still needs integration with
+T-TRM-01, and the acceptance/state-write host observer export is not yet
+implemented. Those must be supplied before a reference-host run can pass;
+a client stopwatch or wake histogram cannot substitute for the host log.
+Run offline validation with `node --test scripts/perf/warm-wake.test.mjs`.
+
+`agent-first-token.mjs` drives the main conversation on the second Mac. It uses
+member A, the main conversation page, origin, owner cookie and install version.
+Five warmups precede the twenty fixed questions repeated five times with a fixed
+shuffle seed. The Enter keydown, first rendered answer text, and completed answer
+with a File/wiki card use one browser monotonic clock. The driver reads model
+metadata from the owner install API, verifies the server identity and conversation
+access of the member fixture, reads Inspect, and cross-checks the wake counter.
+It refuses missing Inspect preflight phases, host-monotonic `at`/`clock` receipts,
+model/context or the wake counter. Existing preflight duration alone cannot
+qualify those receipts. No reference-host run has been executed.
+
+`lib/member.mjs` verifies each supplied Playwright storage-state session through
+`GET /api/user` and `GET /api/conversations/main`. Co-editing refuses two states
+that authenticate as the same member, even when the files have different names.
+These are checks of operator-provided fixtures; no credentials or fake sessions
+are minted. SSH fixtures still require the member's configured identity, trusted
+host key, branch destination and verified write attribution.
+
+`rebase-hold.mjs` contains a sample-driving contract tested with **test-only**
+dependency boundaries. It sequences 100 ordinary and 100 delayed acknowledgement
+rebases, retains typed markers, verifies guest hold clocks, activity and approvals,
+and waits for delayed outbox drain. It restores the acknowledgement window on
+failure. Its production adapter needs T-STK-08's Rebase now action and guest hold
+logs, T-APP-14's edits, an acknowledgement-delay fixture and lifecycle qualification.
+Invoking it uses the shared runner and reports incomplete (exit 2). Contract tests
+emit no performance artifacts or passing check receipts. Browser C-PERF fixmes
+remain. The existing upstream warm-wake implementation is retained in full.
