@@ -53,6 +53,8 @@ func branchMachineState(row db.Workspace) string {
 		return "closed"
 	}
 	switch row.Status {
+	case "releasing":
+		return "releasing"
 	case "running":
 		return "awake"
 	case "suspended", "stopped":

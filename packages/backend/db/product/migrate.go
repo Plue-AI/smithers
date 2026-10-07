@@ -181,6 +181,7 @@ var migrationRegistry = []migrationSpec{
 	{143, "migrations/0143_home_background_dismissal.sql"},
 	{144, "migrations/0144_workspace_cleanup.sql"},
 	{145, "migrations/0145_github_main_reset_intent.sql"},
+	{146, "migrations/0146_branch_releasing.sql"},
 }
 
 type migration struct {
