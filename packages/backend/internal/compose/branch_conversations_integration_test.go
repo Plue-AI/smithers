@@ -111,11 +111,11 @@ func TestBranchConversationMemberViewStateInstall(t *testing.T) {
 		require.Equal(t, `{"type":"view_state"}`, message.Payload)
 	}
 	const path = "/api/conversations/main/view-state"
-	const benState = `{"scroll_anchor":"entry-8","card_view":{"todo-2":"maximized"},"last_seen_seq":8,"toasts_hidden":true}`
+	const benState = `{"scroll_anchor":"entry-8","card_view":{"todo-2":"maximized"},"last_seen_seq":8,"toasts_hidden":true,"global_toasts_hidden":false}`
 	require.JSONEq(t, benState, call("PUT", path, benState, benCookie, 200))
 	hint()
-	require.JSONEq(t, `{"toasts_hidden":false}`, call("GET", path, "", aliceCookie, 200))
-	require.JSONEq(t, `{"scroll_anchor":"entry-2","toasts_hidden":false}`, call("PUT", path, `{"scroll_anchor":"entry-2"}`, aliceCookie, 200))
+	require.JSONEq(t, `{"global_toasts_hidden":false}`, call("GET", path, "", aliceCookie, 200))
+	require.JSONEq(t, `{"scroll_anchor":"entry-2","global_toasts_hidden":false}`, call("PUT", path, `{"scroll_anchor":"entry-2"}`, aliceCookie, 200))
 	require.JSONEq(t, benState, call("GET", path, "", benCookie, 200))
 	for _, method := range []string{"GET", "PUT"} {
 		req, err := http.NewRequest(method, origin+path, strings.NewReader(`{}`))
@@ -132,24 +132,24 @@ func TestBranchConversationMemberViewStateInstall(t *testing.T) {
 		require.NotContains(t, string(privateBody), "entry-8")
 	}
 	require.JSONEq(t, benState, call("GET", path, "", benCookie, 200))
-	require.JSONEq(t, `{"scroll_anchor":"entry-2","toasts_hidden":false}`, call("GET", path, "", aliceCookie, 200))
-	// The preference crosses conversations, never members. A write without
-	// the preference preserves it; malformed values do not change it.
+	require.JSONEq(t, `{"scroll_anchor":"entry-2","global_toasts_hidden":false}`, call("GET", path, "", aliceCookie, 200))
+	// Branch hiding stays private to this conversation and member. Writes
+	// elsewhere preserve it; malformed values emit no view-state hint.
 	const otherPath = "/api/conversations/feature/view-state"
-	require.JSONEq(t, `{"scroll_anchor":"named-entry","toasts_hidden":true}`, call("PUT", otherPath, `{"scroll_anchor":"named-entry"}`, benCookie, 200))
+	require.JSONEq(t, `{"scroll_anchor":"named-entry","global_toasts_hidden":false}`, call("PUT", otherPath, `{"scroll_anchor":"named-entry"}`, benCookie, 200))
 	hint()
-	require.JSONEq(t, `{"scroll_anchor":"named-entry","toasts_hidden":true}`, call("GET", "/api/conversations/"+feature.ID+"/view-state", "", benCookie, 200))
+	require.JSONEq(t, `{"scroll_anchor":"named-entry","global_toasts_hidden":false}`, call("GET", "/api/conversations/"+feature.ID+"/view-state", "", benCookie, 200))
 	call("GET", "/api/conversations/missing/view-state", "", benCookie, 404)
-	require.JSONEq(t, `{"scroll_anchor":"named-entry","toasts_hidden":true}`, call("GET", otherPath, "", benCookie, 200))
-	require.JSONEq(t, `{"scroll_anchor":"feature-entry","toasts_hidden":true}`, call("PUT", otherPath, `{"scroll_anchor":"feature-entry"}`, benCookie, 200))
+	require.JSONEq(t, `{"scroll_anchor":"named-entry","global_toasts_hidden":false}`, call("GET", otherPath, "", benCookie, 200))
+	require.JSONEq(t, `{"scroll_anchor":"feature-entry","global_toasts_hidden":false}`, call("PUT", otherPath, `{"scroll_anchor":"feature-entry"}`, benCookie, 200))
 	hint()
 	call("PUT", otherPath, `{"toasts_hidden":"false"}`, benCookie, 400)
 	quietCtx, quietCancel := context.WithTimeout(ctx, 100*time.Millisecond)
 	_, err = listener.Conn().WaitForNotification(quietCtx)
 	quietCancel()
 	require.ErrorIs(t, err, context.DeadlineExceeded, "a refused write emits no hint")
-	require.JSONEq(t, `{"toasts_hidden":false}`, call("PUT", otherPath, `{"toasts_hidden":false}`, benCookie, 200))
-	require.JSONEq(t, `{"scroll_anchor":"entry-8","card_view":{"todo-2":"maximized"},"last_seen_seq":8,"toasts_hidden":false}`, call("GET", path, "", benCookie, 200))
+	require.JSONEq(t, `{"toasts_hidden":false,"global_toasts_hidden":false}`, call("PUT", otherPath, `{"toasts_hidden":false,"global_toasts_hidden":false}`, benCookie, 200))
+	require.JSONEq(t, `{"scroll_anchor":"entry-8","card_view":{"todo-2":"maximized"},"last_seen_seq":8,"toasts_hidden":true,"global_toasts_hidden":false}`, call("GET", path, "", benCookie, 200))
 	require.JSONEq(t, benState, call("PUT", path, benState, benCookie, 200))
 	require.JSONEq(t, benState, call("GET", path, "", benCookie, 200))
 	call("PUT", path, `[]`, benCookie, 400)
