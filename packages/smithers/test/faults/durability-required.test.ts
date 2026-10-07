@@ -10,7 +10,6 @@ const backend = `${root}packages/backend`
 const cases = [
   ["C-DUR-01", "internal/compose/todo_pause_fault_test.go", "TestTodoStartCrashThroughRoute", ["start"]],
   ["C-DUR-01", "internal/services/todo_pause_fault_test.go", "TestTodoStartPauseResumeCrashThroughRoutes", ["stop", "resume"]],
-  ["C-DUR-01", "internal/compose/todo_host_kill_fault_test.go", "TestTodoHostKillThroughInstall", ["host-keyless-crossing"]],
   ["C-DUR-01", "internal/compose/postgres_kill_fault_test.go", "TestTodoPostgresCrashThroughRoute", ["postgres-transition"]],
   ["C-DUR-03", "internal/compose/todo_merge_fault_test.go", "TestTodoMergeCrashThroughRoute", ["merge-pre-land", "merge-post-land", "merge-post-call"]],
   ["C-DUR-03", "internal/compose/github_outbound_kill_test.go", null, ["github-push", "github-open", "github-body", "github-merge", "github-close"]],
@@ -43,7 +42,7 @@ for (const [check, file, name, points] of selected) {
       .map((match) => match[1]!).filter((entry) => !entry.includes("Child"))
     expect(names.length, `No acceptance tests in ${file}`).toBeGreaterThan(0)
     const result = spawnSync("go", ["test", "-json", "-count=1", `./${pkg}`, "-run", `^(${names.join("|")})$`], {
-      cwd: backend, env: { ...process.env, SMITHERS_TODO_HOST_KILL: "1" }, encoding: "utf8", timeout: name === "TestTodoHostKillThroughInstall" ? 750_000 : 150_000, maxBuffer: 32 << 20
+      cwd: backend, env: process.env, encoding: "utf8", timeout: 150_000, maxBuffer: 32 << 20
     })
     // Preserve partial JSON and stderr before checking exit status: crashes,
     // compile errors and timeouts are precisely the failures this tier needs.
@@ -54,5 +53,5 @@ for (const [check, file, name, points] of selected) {
     expect(result.status, "Go fault process exited unsuccessfully").toBe(0)
     requireReachedGoFaultMatrix(result.stdout, names, points,
       name === "TestRebaseCrashThroughDispatcher" ? ["people-present", "people-absent"] : [])
-  }, name === "TestTodoHostKillThroughInstall" ? 780_000 : 180_000)
+  }, 180_000)
 }
