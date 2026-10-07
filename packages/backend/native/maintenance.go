@@ -14,7 +14,7 @@ import (
 
 // DispatchMaintenance is server-free: refusals cannot bootstrap PostgreSQL,
 // migrate state, acquire a freeze or launch a repository runtime. The install
-// currently has no coordinated capture/drain or authenticated CLI-owner bridge.
+// currently has no coordinated capture/drain; the CLI uses the private owner socket.
 // Those providers must be composed before any destructive command is enabled.
 func DispatchMaintenance(ctx context.Context, args []string) (bool, error) {
 	if len(args) == 0 || args[0] != "host-maintenance" {
@@ -57,6 +57,15 @@ func DispatchMaintenance(ctx context.Context, args []string) (bool, error) {
 		}
 	default:
 		return true, fmt.Errorf("invalid_command: unknown maintenance operation %q", args[1])
+	}
+	if args[1] != "restore" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return true, err
+		}
+		if err := MaintenancePreflight(ctx, filepath.Join(home, "Library/Application Support/Smithers")); err != nil {
+			return true, err
+		}
 	}
 	return true, errors.New("host_maintenance_unavailable: owner authorization, admission/flow drain, verified machine capture, persistence flush and external-write recovery must be composed before host maintenance")
 }
