@@ -226,16 +226,16 @@ func TestDeadCredentialRepoRoutesComposedInstallPostgres(t *testing.T) {
 		}
 	}
 
-	// A valid session without an active install membership is dead for
-	// protected install commands. Refuse it identically before resolving the
-	// repository. An active maintainer can still write to the real repository.
+	// A live session belonging to someone who never joined is refused by
+	// roster policy (403), not mistaken for a dead credential. Refuse it
+	// identically before resolving the repository. An active maintainer can still write to the real repository.
 	outsiderSession := credential{cookie: session(outsider, "outsider-cookie", later)}
 	var first string
 	for _, column := range columns {
 		got := raw(request(outsiderSession, "POST", column.path+"/secrets", `{"name":"PROBE","value":"v"}`))
-		require.True(t, strings.HasPrefix(got, "401\n"), got)
-		require.Contains(t, got, `"code":"unauthenticated"`)
-		require.Contains(t, got, `"message":"Sign in again"`)
+		require.True(t, strings.HasPrefix(got, "403\n"), got)
+		require.Contains(t, got, `"code":"permission"`)
+		require.Contains(t, got, `"message":"Not a member of this install"`)
 		if first == "" {
 			first = got
 			continue

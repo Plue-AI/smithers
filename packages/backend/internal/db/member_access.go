@@ -10,8 +10,8 @@ func (q *Queries) InstallationMemberPermission(ctx context.Context, userID int64
 		return "", err
 	}
 	var permission string
-	err = q.db.QueryRow(ctx, `SELECT c.permission FROM collaborators c JOIN users u ON u.id=c.user_id
- WHERE c.repository_id=$2 AND c.user_id=$1 AND c.suspended_at IS NULL AND NOT u.prohibit_login`, userID, repositoryID).Scan(&permission)
+	err = q.db.QueryRow(ctx, `SELECT CASE WHEN c.suspended_at IS NULL AND NOT u.prohibit_login THEN c.permission ELSE '' END FROM collaborators c JOIN users u ON u.id=c.user_id
+ WHERE c.repository_id=$2 AND c.user_id=$1`, userID, repositoryID).Scan(&permission)
 	return permission, err
 }
 

@@ -101,7 +101,15 @@ func TestMemberBoundaryAdmitsRosterMembersOnMemberRoutes(t *testing.T) {
 		assert.Contains(t, err.Error(), "installation owner")
 		require.NotNil(t, boundary.AuthorizeMember(WithSetupScope(context.Background()), id), "setup scope is not a member route")
 	}
-	for _, id := range []int64{10, 11} {
+	absent := boundary.AuthorizeMember(member, 11)
+	require.NotNil(t, absent)
+	assert.Equal(t, 403, absent.Status)
+	assert.Equal(t, "permission", string(absent.Code))
+	dead := boundary.AuthorizeMember(WithMemberBoundCredential(member), 11)
+	require.NotNil(t, dead)
+	assert.Equal(t, 401, dead.Status)
+	assert.Equal(t, "unauthenticated", string(dead.Code))
+	for _, id := range []int64{10} {
 		err := boundary.AuthorizeMember(member, id)
 		require.NotNil(t, err, "%d is not a member", id)
 		assert.Equal(t, 401, err.Status)

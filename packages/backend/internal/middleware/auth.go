@@ -630,7 +630,7 @@ func authorizeInstallationOwner(w http.ResponseWriter, r *http.Request, authInfo
 	if boundary == nil || authInfo == nil || authInfo.User == nil {
 		return true
 	}
-	if err := boundary.AuthorizeMember(installationAuthorizationContext(r), authInfo.User.ID); err != nil {
+	if err := boundary.AuthorizeMember(installationAuthorizationContext(r, authInfo.IsTokenAuth), authInfo.User.ID); err != nil {
 		errors.WriteError(w, err)
 		return false
 	}
@@ -638,8 +638,11 @@ func authorizeInstallationOwner(w http.ResponseWriter, r *http.Request, authInfo
 }
 
 // installationAuthorizationContext applies the same route admission to cookies and SSE tickets.
-func installationAuthorizationContext(r *http.Request) context.Context {
+func installationAuthorizationContext(r *http.Request, memberBound ...bool) context.Context {
 	ctx := r.Context()
+	if len(memberBound) > 0 && memberBound[0] {
+		ctx = identity.WithMemberBoundCredential(ctx)
+	}
 	// GitHub returns the browser to /setup/github/* before the repository step
 	// verifies the owner, so those returns are setup routes too.
 	if r.URL.Path == "/api/install" || strings.HasPrefix(r.URL.Path, "/api/install/setup/") || strings.HasPrefix(r.URL.Path, "/api/github-app/") || r.URL.Path == "/api/auth/github" || r.URL.Path == "/api/auth/github/callback" || r.URL.Path == "/api/auth/logout" || r.URL.Path == "/setup/github/callback" || r.URL.Path == "/setup/github/installed" {

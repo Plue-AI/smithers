@@ -23,6 +23,14 @@ func WithSetupScope(ctx context.Context) context.Context {
 }
 
 type memberRouteKey struct{}
+type memberBoundCredentialKey struct{}
+
+// WithMemberBoundCredential marks credentials that can only be issued to an
+// active install member. An absent sponsor makes them dead; a live browser
+// session may instead belong to someone who has never joined the roster.
+func WithMemberBoundCredential(ctx context.Context) context.Context {
+	return context.WithValue(ctx, memberBoundCredentialKey{}, true)
+}
 
 // WithMemberRoute is set only by the HTTP boundary for a route a roster
 // member may call; without it the boundary admits the owner alone.
@@ -94,8 +102,14 @@ func (b *MemberBoundary) AuthorizeMember(ctx context.Context, userID int64) *pkg
 			return pkgerrors.Forbidden("credential does not belong to the installation owner")
 		}
 		permission, err := q.InstallationMemberPermission(ctx, userID)
-		if errors.Is(err, pgx.ErrNoRows) || err == nil && permission != "write" && permission != "admin" {
-			// An absent or suspended member's stored credential is dead before
+		if errors.Is(err, pgx.ErrNoRows) {
+			if bound, _ := ctx.Value(memberBoundCredentialKey{}).(bool); !bound {
+				return pkgerrors.New(pkgerrors.CodePermission, "Not a member of this install")
+			}
+			return pkgerrors.New(pkgerrors.CodeUnauthenticated, "Sign in again")
+		}
+		if err == nil && permission != "write" && permission != "admin" {
+			// A suspended member's stored credential is dead before
 			// command policy, even before physical token revocation finishes.
 			return pkgerrors.New(pkgerrors.CodeUnauthenticated, "Sign in again")
 		}
