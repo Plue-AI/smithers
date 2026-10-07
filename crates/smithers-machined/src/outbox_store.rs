@@ -9,6 +9,16 @@ use std::{
     path::{Path, PathBuf},
 };
 
+/// Persisted layout version, independent of ADR 0004. Increment for ANY layout
+/// change and retain a reader/migration for the preceding release's fixture.
+pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_UNSUPPORTED: &str = "outbox_format_unsupported";
+const MAGIC: &[u8] = b"SMITHERS-OUTBOX\0";
+
+pub fn format_unsupported(error: &io::Error) -> bool {
+    error.kind() == io::ErrorKind::InvalidData && error.to_string() == FORMAT_UNSUPPORTED
+}
+
 const MAX_EVENT_BYTES: usize = 4 * 1024 * 1024;
 #[cfg(target_os = "linux")]
 const NOFOLLOW: i32 = 0o400000 | 0o4000; // O_NOFOLLOW | O_NONBLOCK
@@ -77,6 +87,14 @@ impl Store {
             owner,
         )?;
         private_dir(directory, owner)?;
+        // Inspect the header before cleanup, decoding, ref reconciliation or writes.
+        // A missing header is the sole legacy (release N) layout.
+        let header = [MAGIC, &FORMAT_VERSION.to_be_bytes()].concat();
+        let migrate = match read_regular(&directory.join("FORMAT"), header.len(), owner) {
+            Ok(bytes) if bytes == header => false,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => true,
+            _ => return Err(corrupt(FORMAT_UNSUPPORTED)),
+        };
         let mut entries = BTreeSet::new();
         let mut highest = match read_regular(&directory.join("SEQ"), 20, owner) {
             Ok(bytes) => std::str::from_utf8(&bytes)
@@ -92,10 +110,10 @@ impl Store {
             let name = name
                 .to_str()
                 .ok_or_else(|| corrupt("invalid outbox filename"))?;
-            if name == "SEQ" || name == "dead" {
+            if name == "SEQ" || name == "dead" || name == "FORMAT" {
                 continue;
             }
-            if name == "SEQ.tmp" || name.ends_with(".ev.tmp") {
+            if name == "SEQ.tmp" || name == "FORMAT.tmp" || name.ends_with(".ev.tmp") {
                 // Only interrupted writes use .tmp; never replay an incomplete event.
                 let metadata = fs::symlink_metadata(item.path())?;
                 if !metadata.is_file() || metadata.uid() != owner {
@@ -128,12 +146,18 @@ impl Store {
             Err(error) => return Err(error),
         }
         File::open(directory)?.sync_all()?;
-        Ok(Self {
+        let store = Self {
             directory: directory.into(),
             entries,
             highest,
             poisoned: false,
-        })
+        };
+        if migrate {
+            // Payloads, SEQ and pending refs do not change. A crash before rename
+            // leaves legacy data; a crash after rename leaves the current layout.
+            store.atomic_write("FORMAT", &header)?;
+        }
+        Ok(store)
     }
 
     pub fn sequences(&self) -> impl Iterator<Item = u64> + '_ {
@@ -157,7 +181,15 @@ impl Store {
             .open(&temp)?;
         file.write_all(bytes)?;
         file.sync_all()?;
+        #[cfg(all(feature = "killpoints", debug_assertions))]
+        if name == "FORMAT" {
+            crate::events::killpoint("OUTBOX_FORMAT_SYNCED");
+        }
         fs::rename(temp, self.directory.join(name))?;
+        #[cfg(all(feature = "killpoints", debug_assertions))]
+        if name == "FORMAT" {
+            crate::events::killpoint("OUTBOX_FORMAT_RENAMED");
+        }
         File::open(&self.directory)?.sync_all()
     }
 

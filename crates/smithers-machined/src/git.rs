@@ -505,6 +505,40 @@ mod tests {
     };
     use std::os::unix::fs::PermissionsExt;
 
+    #[test]
+    fn legacy_outbox_migration_preserves_real_pending_refs_through_gc() {
+        let fixture = Fixture::new();
+        let head = fixture.commit();
+        let mut repository = fixture.repository.clone();
+        for seq in [3u8, 4] {
+            repository.pin_and_sync([seq; 16], head).unwrap();
+            let name = format!("{seq:020}.ev");
+            let bytes: &[u8] = if seq == 3 {
+                include_bytes!("../tests/data/outbox/legacy/00000000000000000003.ev")
+            } else {
+                include_bytes!("../tests/data/outbox/legacy/00000000000000000004.ev")
+            };
+            let path = fixture.root.join("state/outbox").join(name);
+            fs::write(&path, bytes).unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        // Git object contents are deliberately independent of the opaque event
+        // fixture: migration must preserve every pending ref without inspecting
+        // or rewriting either the ref target or the event payload.
+        let before = repository.command(&["show-ref"]).unwrap();
+        for _ in 0..2 {
+            let outbox = fixture.outbox();
+            assert_eq!(outbox.depth(), 2);
+            assert_eq!(outbox.front().unwrap().unwrap().id, [3; 16]);
+            assert_eq!(repository.pending().unwrap(), vec![[3; 16], [4; 16]]);
+            assert_eq!(repository.command(&["show-ref"]).unwrap(), before);
+            repository.command(&["gc", "--prune=now"]).unwrap();
+            repository
+                .command(&["cat-file", "-e", &hex(&head)])
+                .unwrap();
+        }
+    }
+
     struct Fixture {
         root: PathBuf,
         repository: Repository,

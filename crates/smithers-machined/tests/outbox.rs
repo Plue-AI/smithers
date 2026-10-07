@@ -311,3 +311,232 @@ fn delivery_rebuilds_missing_objects_against_peer_haves() {
     assert_eq!(*exports.lock().unwrap(), vec![vec![], vec![[7; 20]]]);
     assert!(outbox.front().unwrap().is_none());
 }
+
+fn install_fixture(f: &Fixture, layout: &str) {
+    let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/data/outbox")
+        .join(layout);
+    for file in std::fs::read_dir(source).unwrap() {
+        let file = file.unwrap();
+        let path = f.path.join("outbox").join(file.file_name());
+        std::fs::copy(file.path(), &path).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    for seq in [3, 4] {
+        f.repo.0.lock().unwrap().pins.insert([seq; 16], [seq; 20]);
+    }
+}
+
+fn deliver_fixture(f: &Fixture) {
+    use smithers_machined::objects::Delivery;
+    let mut outbox = f.open();
+    assert_eq!(f.repo.0.lock().unwrap().pins.len(), 2);
+    let mut delivery = Delivery::new(Bundles(vec![]));
+    let mut sent = Vec::new();
+    for seq in [3, 4] {
+        assert!(delivery.begin(&outbox, seq as u32).unwrap());
+        loop {
+            let frame = delivery.next_frame().unwrap().unwrap();
+            if frame.payload[0] == 2 {
+                break;
+            }
+            let mut credit = vec![6];
+            credit.extend(((frame.payload.len() - 2) as u32).to_be_bytes());
+            delivery
+                .receive(
+                    &mut outbox,
+                    &Frame {
+                        kind: 6,
+                        stream: seq as u32,
+                        payload: credit,
+                    },
+                )
+                .unwrap();
+        }
+        let frame = delivery
+            .receive(
+                &mut outbox,
+                &Frame {
+                    kind: 6,
+                    stream: seq as u32,
+                    payload: vec![7],
+                },
+            )
+            .unwrap()
+            .unwrap();
+        let decoded = Frame::decode(&frame.encode().unwrap()).unwrap();
+        let event = conn::Durable::decode(&decoded.payload).unwrap();
+        sent.push((event.seq, event.id));
+        assert_eq!(
+            event.event,
+            outbox::captured([seq as u8; 20], [2; 20], [1; 20])
+        );
+        delivery.receive(&mut outbox, &ack(seq, 1)).unwrap();
+    }
+    assert_eq!(sent, vec![(3, [3; 16]), (4, [4; 16])]);
+    assert!(!delivery.begin(&outbox, 5).unwrap());
+    assert!(f.repo.0.lock().unwrap().pins.is_empty());
+    drop(outbox);
+    let reopened = f.open();
+    assert!(reopened.front().unwrap().is_none());
+    assert_eq!(reopened.next_sequence().unwrap(), 5);
+}
+
+#[test]
+fn literal_previous_and_current_release_deliver_once_with_same_ids_and_pins() {
+    for layout in ["legacy", "v1"] {
+        let f = Fixture::new();
+        install_fixture(&f, layout);
+        deliver_fixture(&f);
+        assert_eq!(
+            std::fs::read(f.path.join("outbox/FORMAT")).unwrap(),
+            include_bytes!("data/outbox/v1/FORMAT")
+        );
+    }
+}
+
+#[cfg(all(feature = "killpoints", debug_assertions))]
+#[test]
+fn migration_crash_child() {
+    let Ok(path) = std::env::var("OUTBOX_MIGRATION_FIXTURE") else {
+        return;
+    };
+    let path = PathBuf::from(path);
+    let owner = std::fs::metadata(&path).unwrap().uid();
+    let _ = Store::open(&path.join("outbox"), owner).unwrap();
+    panic!("migration killpoint did not run");
+}
+
+#[cfg(all(feature = "killpoints", debug_assertions))]
+#[test]
+fn migration_crash_before_and_after_header_rename_replays_without_loss() {
+    for point in ["OUTBOX_FORMAT_SYNCED", "OUTBOX_FORMAT_RENAMED"] {
+        let f = Fixture::new();
+        install_fixture(&f, "legacy");
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "migration_crash_child"])
+            .env("OUTBOX_MIGRATION_FIXTURE", &f.path)
+            .env("SMITHERS_MACHINED_KILL_AT", point)
+            .status()
+            .unwrap();
+        assert_eq!(status.code(), Some(73));
+        assert_eq!(
+            f.path.join("outbox/FORMAT").exists(),
+            point == "OUTBOX_FORMAT_RENAMED"
+        );
+        assert_eq!(
+            std::fs::read(f.path.join("outbox/00000000000000000003.ev")).unwrap(),
+            include_bytes!("data/outbox/legacy/00000000000000000003.ev")
+        );
+        assert_eq!(
+            std::fs::read(f.path.join("outbox/00000000000000000004.ev")).unwrap(),
+            include_bytes!("data/outbox/legacy/00000000000000000004.ev")
+        );
+        deliver_fixture(&f);
+        assert!(!f.path.join("outbox/FORMAT.tmp").exists());
+    }
+}
+
+#[test]
+fn unsupported_headers_leave_every_byte_and_pin_untouched_and_status_reachable() {
+    use smithers_machined::{daemon, link};
+    use std::net::{TcpListener, TcpStream};
+    fn hello(variant: u8, fields: &[Vec<u8>]) -> Frame {
+        Frame {
+            kind: 0,
+            stream: 0,
+            payload: conn::tagged(variant, fields),
+        }
+    }
+    for header in [
+        include_bytes!("data/outbox/newer.header").as_slice(),
+        include_bytes!("data/outbox/corrupt.header").as_slice(),
+        b"",
+        b"WRONG-MAGIC\0\0\0\0\x01",
+    ] {
+        let f = Fixture::new();
+        install_fixture(&f, "v1");
+        std::fs::write(f.path.join("outbox/FORMAT"), header).unwrap();
+        // These would be removed by ordinary recovery. Refusal must not touch them.
+        std::fs::write(f.path.join("outbox/FORMAT.tmp"), b"partial").unwrap();
+        std::fs::write(f.path.join("outbox/SEQ.tmp"), b"99").unwrap();
+        let snapshot = || -> BTreeMap<_, _> {
+            std::fs::read_dir(f.path.join("outbox"))
+                .unwrap()
+                .map(|file| {
+                    let file = file.unwrap();
+                    (file.file_name(), std::fs::read(file.path()).unwrap())
+                })
+                .collect()
+        };
+        let before = snapshot();
+        let error = match Store::open(&f.path.join("outbox"), f.owner) {
+            Ok(_) => panic!("unsupported format admitted"),
+            Err(error) => error,
+        };
+        assert!(smithers_machined::outbox_store::format_unsupported(&error));
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let worker = std::thread::spawn(move || {
+            let (socket, _) = listener.accept().unwrap();
+            let identity =
+                link::Identity::new([4; 16], [9; 32], b"machine-token".to_vec()).unwrap();
+            let auth = link::authenticate(socket, &identity, 1, &[]).unwrap();
+            assert!(daemon::serve_outbox_refused(auth).is_err());
+        });
+        let mut host = TcpStream::connect(address).unwrap();
+        host.set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+        let challenge = Frame::read(&mut host).unwrap();
+        let fields = conn::fields("challenge", &challenge.payload[1..]).unwrap();
+        let nonce = fields[3].1.try_into().unwrap();
+        hello(
+            2,
+            &[
+                conn::field(1, conn::PROTOCOL.to_be_bytes()),
+                conn::field(
+                    2,
+                    conn::host_mac(&[9; 32], conn::PROTOCOL, &[4; 16], &nonce),
+                ),
+            ],
+        )
+        .write(&mut host)
+        .unwrap();
+        assert_eq!(Frame::read(&mut host).unwrap().payload[0], 3);
+        hello(4, &[]).write(&mut host).unwrap();
+        // Status remains callable; capture is refused too. Only RPC replies can
+        // arrive: any outbox event or bundle would fail the frame-kind assertion.
+        for (id, method) in [(1u32, 1u8), (2, 4), (3, 1)] {
+            Frame {
+                kind: 1,
+                stream: 0,
+                payload: conn::tagged(
+                    1,
+                    &[
+                        conn::field(1, id.to_be_bytes()),
+                        conn::field(2, conn::tagged(method, &[])),
+                    ],
+                ),
+            }
+            .write(&mut host)
+            .unwrap();
+            let response = Frame::read(&mut host).unwrap();
+            assert_eq!(response.kind, 1);
+            let fields = conn::fields("response", &response.payload[1..]).unwrap();
+            assert_eq!(fields[0].1, id.to_be_bytes());
+            assert_eq!(fields[1].1, include_bytes!("data/outbox/refusal.result"));
+            let error = conn::fields("error", &fields[1].1[1..]).unwrap();
+            assert_eq!(error[0].1, [2]);
+            assert_eq!(&error[1].1[2..], b"outbox_format_unsupported");
+        }
+        host.set_read_timeout(Some(std::time::Duration::from_millis(100)))
+            .unwrap();
+        use std::io::Read;
+        let mut byte = [0];
+        assert!(host.read(&mut byte).is_err(), "unsolicited durable frame");
+        drop(host);
+        worker.join().unwrap();
+        assert_eq!(snapshot(), before);
+        assert_eq!(f.repo.0.lock().unwrap().pins.len(), 2);
+    }
+}

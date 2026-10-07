@@ -326,7 +326,7 @@ type LocalDoor = ();
 pub fn run_with_local(
     boot: crate::boot::Boot,
     hooks: Hooks,
-    mut source: impl crate::link::LinkSource,
+    source: impl crate::link::LinkSource,
     next_seq: impl Fn() -> io::Result<u64>,
     local: Option<LocalDoor>,
 ) -> io::Result<()> {
@@ -361,6 +361,72 @@ pub fn run_with_local(
     }
     #[cfg(not(target_os = "linux"))]
     let _ = local;
+    let serving = daemon.clone();
+    let admission = daemon.clone();
+    run_connections(
+        boot,
+        source,
+        next_seq,
+        move || daemon.hooks.sessions.live(),
+        move || crate::wiring::ready(&admission.hooks).map_err(io::Error::other),
+        move |auth| {
+            let _ = serving.serve(auth);
+        },
+    )
+}
+
+/// Keep authenticated status reachable without opening the repository, starting
+/// providers, or interpreting any bytes from an unsupported outbox.
+pub fn run_outbox_refused(
+    boot: crate::boot::Boot,
+    source: impl crate::link::LinkSource,
+) -> io::Result<()> {
+    run_connections(
+        boot,
+        source,
+        || Ok(1),
+        Vec::new,
+        || Ok(()),
+        |auth| {
+            let _ = serve_outbox_refused(auth);
+        },
+    )
+}
+
+pub fn serve_outbox_refused(
+    mut connection: crate::link::Authenticated,
+) -> Result<(), ProtocolError> {
+    loop {
+        let frame = Frame::read_envelope(connection.stream())?;
+        let response = if let Err(error) = frame.validate(false) {
+            rpc::malformed_response(&frame, error)?
+        } else if frame.kind == 1 {
+            let (id, _, _) = frame.request()?;
+            refused(
+                id,
+                Error {
+                    detail: Some(crate::outbox_store::FORMAT_UNSUPPORTED.into()),
+                    ..Error::unsupported()
+                },
+            )
+        } else {
+            return Err(ProtocolError::HandshakeOrder);
+        };
+        response
+            .write(connection.stream())
+            .map_err(|_| ProtocolError::Truncated)?;
+    }
+}
+
+fn run_connections(
+    boot: crate::boot::Boot,
+    mut source: impl crate::link::LinkSource,
+    next_seq: impl Fn() -> io::Result<u64>,
+    sessions: impl Fn() -> Vec<u32>,
+    ready: impl Fn() -> io::Result<()>,
+    serve: impl Fn(crate::link::Authenticated) + Send + Sync + 'static,
+) -> io::Result<()> {
+    let serve = Arc::new(serve);
     let live = crate::link::Live::default();
     let mut backoff = crate::link::Backoff::default();
     loop {
@@ -373,25 +439,19 @@ pub fn run_with_local(
                 continue;
             }
         };
-        let auth = match crate::link::authenticate(
-            stream,
-            &boot.identity,
-            next_seq()?,
-            &daemon.hooks.sessions.live(),
-        ) {
+        let auth = match crate::link::authenticate(stream, &boot.identity, next_seq()?, &sessions())
+        {
             Ok(auth) => auth,
             Err(_) => {
                 std::thread::sleep(backoff.delay());
                 continue;
             }
         };
-        crate::wiring::ready(&daemon.hooks).map_err(io::Error::other)?;
+        ready()?;
         live.replace(&auth)?;
         backoff.reset();
-        let daemon = daemon.clone();
-        let connection = std::thread::spawn(move || {
-            let _ = daemon.serve(auth);
-        });
+        let serve = serve.clone();
+        let connection = std::thread::spawn(move || serve(auth));
         if matches!(boot.topology, crate::boot::Topology::Bridge(_)) {
             // A bridge must not repeatedly replace its own healthy connection.
             // The connection owner wakes the next dial only after EOF.

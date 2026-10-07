@@ -294,18 +294,29 @@ pub fn run() -> io::Result<()> {
     // SAFETY: the shipped broker explicitly installs these three descriptors;
     // each is taken exactly once after verifying the fixed daemon identity.
     let broker = Arc::new(SocketpairBroker::new(unsafe { OwnedFd::from_raw_fd(3) })?);
-    let native = Arc::new(crate::native::Repository::installed()?);
     let state = Path::new("/var/lib/smithers-machined");
+    let outbox_dir = state.join("outbox");
+    private(&outbox_dir)?;
+    let store = match crate::outbox_store::Store::open(&outbox_dir, 19998) {
+        Ok(store) => store,
+        Err(error) if crate::outbox_store::format_unsupported(&error) => {
+            return match boot.topology {
+                crate::boot::Topology::Relay => crate::daemon::run_outbox_refused(
+                    boot,
+                    crate::link::RelayListener(unsafe { std::net::TcpListener::from_raw_fd(4) }),
+                ),
+                crate::boot::Topology::Bridge(port) => {
+                    crate::daemon::run_outbox_refused(boot, crate::link::BridgeDialer(port))
+                }
+            };
+        }
+        Err(error) => return Err(error),
+    };
+    let native = Arc::new(crate::native::Repository::installed()?);
     let spool = state.join("bundles");
     private(&spool)?;
     let git = crate::git::Repository::open(Path::new("/workspace"), &spool)?;
-    let outbox_dir = state.join("outbox");
-    private(&outbox_dir)?;
-    let outbox = crate::outbox::Outbox::open(
-        crate::outbox_store::Store::open(&outbox_dir, 19998)?,
-        19998,
-        git.clone(),
-    )?;
+    let outbox = crate::outbox::Outbox::open(store, 19998, git.clone())?;
     let allocator = broker.clone();
     let events = Arc::new(
         Events::new(outbox, git.clone(), move || allocator.allocate_stream())?
