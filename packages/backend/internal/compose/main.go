@@ -453,7 +453,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	var installCapacity *services.InstallCapacityService
 	if options.HostProfile != nil {
 		capacity := &services.InstallCapacityService{Queries: queries, Profile: *options.HostProfile, AuthorizeParallel: func(ctx context.Context) error {
-			_, err := services.Authorize(ctx, queries, "settings.parallel")
+			// The install write already binds this owner-only command.
+			// Reuse it without changing the admitted command identity.
+			_, err := services.Authorize(ctx, queries, "settings")
 			return err
 		}}
 		if disk, ok := options.Workspace.(interface {
