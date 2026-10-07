@@ -123,6 +123,7 @@ func TestTodoPullLabelApprovalComposedPostgres(t *testing.T) {
 }
 
 func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, browserJourney, labelApproval bool, explicitHead ...bool) {
+	t.Setenv("TMPDIR", t.TempDir())
 	installBrowser := browserJourney || len(explicitHead) > 1 && explicitHead[1]
 	installation := int64(98300) + confirmationMergeInstallations.Add(1)
 	var pool *pgxpool.Pool
