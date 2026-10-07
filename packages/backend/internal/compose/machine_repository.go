@@ -38,7 +38,7 @@ func withMachineRepositoryAuthorityTx(ctx context.Context, tx pgx.Tx, branch str
 	var repository int64
 	err = tx.QueryRow(ctx, `SELECT repository_id FROM workspaces
  WHERE id=$1 AND deleted_at IS NULL AND vm_id<>''
- AND status IN ('starting','running','suspended','stopped') `+lock, branch).Scan(&repository)
+ AND status IN ('starting','running','releasing','suspended','stopped') `+lock, branch).Scan(&repository)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return machined.ErrUnauthorized
 	}

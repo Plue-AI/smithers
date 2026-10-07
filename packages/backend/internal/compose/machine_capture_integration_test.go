@@ -142,6 +142,10 @@ func TestMachineCaptureTransactionBinding(t *testing.T) {
 		require.NoError(t, json.Unmarshal(raw, &got))
 		require.Equal(t, *want, got)
 	}
+	// Sleep enters releasing before the final RPC. Object delivery and capture
+	// verification must retain the same host-store capability until stop.
+	_, err = pool.Exec(t.Context(), `UPDATE workspaces SET status='releasing' WHERE id=$1`, branch)
+	require.NoError(t, err)
 	_, peer := presenceTestLink(t, registry, branch)
 	e := event(1, 1, first)
 	send(peer, e)
