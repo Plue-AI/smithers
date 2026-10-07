@@ -1047,35 +1047,8 @@ export const definitions = {
     options: z.object({})
   },
   "ssh-key list": { description: "List SSH keys", args: z.object({}), options: z.object({}) },
-  "stack land": {
-    description: "Land approved stack PRs from the bottom and re-stack remaining changes",
-    args: z.object({}),
-    options: z.object({
-      "all": z.boolean().describe("Land all consecutively approved+passing changes from the bottom").default(false),
-      "change": z.string().describe("Land this change and everything below it").optional(),
-      "repo": z.string().describe("Repository (OWNER/REPO)").optional(),
-      "target": z.string().describe("Target branch").default("main")
-    })
-  },
   "stack status": {
     description: "Show stack status with PR, review, and CI state",
-    args: z.object({}),
-    options: z.object({
-      "repo": z.string().describe("Repository (OWNER/REPO)").optional(),
-      "target": z.string().describe("Target branch").default("main")
-    })
-  },
-  "stack submit": {
-    description: "Create or update linked GitHub pull requests from the local jj stack",
-    args: z.object({}),
-    options: z.object({
-      "draft": z.boolean().describe("Create pull requests as drafts").default(false),
-      "repo": z.string().describe("Repository (OWNER/REPO)").optional(),
-      "target": z.string().describe("Target branch").default("main")
-    })
-  },
-  "stack sync": {
-    description: "Sync stack with merged PRs, rebase remaining changes, and refresh PR tables",
     args: z.object({}),
     options: z.object({
       "repo": z.string().describe("Repository (OWNER/REPO)").optional(),
@@ -1091,6 +1064,16 @@ export const definitions = {
     })
   },
   "status": { description: "Show working copy status", args: z.object({}), options: z.object({}) },
+  "todo answer": {
+    description: "Answer the question a TODO's agent asked",
+    args: z.object({
+      "todo": z.string().regex(/^T[1-9]\d*$/, "Expected Tn").describe("TODO number (T3)"),
+      "answer": z.string().describe("Your answer")
+    }),
+    options: z.object({
+      "wait": z.string().describe("The question's id, when the TODO asks more than one").optional()
+    })
+  },
   "variable delete": {
     description: "Delete a variable",
     args: z.object({ "name": z.string().describe("Variable name") }),

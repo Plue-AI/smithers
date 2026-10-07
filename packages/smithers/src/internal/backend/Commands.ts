@@ -3,8 +3,9 @@
  * @since 1.0.0
  */
 
+import { targetsInstall } from "./Destination.ts"
 import { mountCardDoors } from "./CardDoors.ts"
-import { mountCatalog } from "./Catalog.ts"
+import { catalogCommands, dispatchCatalog, mountCatalog } from "./Catalog.ts"
 import { Cli, Completions, z } from "incur"
 import type { Runtime } from "../../cli/ControlBridge.ts"
 import * as Presentation from "../../cli/Presentation.ts"
@@ -47,11 +48,13 @@ export const handlers: Record<string, Handler> = {
   ...misc,
   ...workspaces,
   ...workspaceChildren,
-  ...stacks,
+  ...Object.fromEntries(Object.entries(stacks).filter(([name]) => !["stack land", "stack submit", "stack sync"].includes(name))),
   ...egress,
   ...history,
   "agent ask": ask,
   "workspace cp": copy,
+  "todo answer": (client, args, options) =>
+    dispatchCatalog(client, catalogCommands.find((row) => row.name === "todo.answer")!, { ...args, ...options }),
   completion: async (_c, a) => Completions.register(a.shell as "bash" | "zsh" | "fish", "smithers")
 }
 /** @private
@@ -99,7 +102,7 @@ export const groups: Record<string, string> = {
   "search": "Search repositories, issues, code and users",
   "secret": "Manage repository secrets",
   "ssh-key": "Manage your SSH keys",
-  "stack": "Submit, sync and land stacked GitHub pull requests",
+  "stack": "Show the stack and background runs",
   "todo": "Answer the install's TODOs",
   "variable": "Manage repository variables",
   "webhook": "Manage repository webhooks",
@@ -199,7 +202,7 @@ export const mount = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime) => {
         : options,
       alias: { ...previous?.alias, ...(Object.hasOwn(definition.options.shape, "repo") ? { repo: "R" } : {}) },
       run: (context: any) => {
-        if (previous && !context.options.cloud && context.options.repo === undefined) {
+        if (previous && !targetsInstall(context, runtime)) {
           return previous.run({ ...context, options: previous.options?.parse(context.options) ?? context.options })
         }
         const options: Values = context.options,

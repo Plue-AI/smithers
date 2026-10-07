@@ -251,8 +251,7 @@ describe("migrated command dispatch", () => {
   it("accounts for every Go command without replacing target cache operations", async () => {
     expect(Object.keys(handlers).sort()).toEqual(Object.keys(definitions).sort())
     // Independent count rejects a command dropped from both handlers and definitions.
-    // 212 original commands plus host start/stop and todo answer, less the
-    // retired forge-only and registration commands below.
+    // 200 retained backend definitions after the catalog and MVP retirements.
     const retired = [
       "changeset create",
       "changeset get",
@@ -263,12 +262,17 @@ describe("migrated command dispatch", () => {
       "history backfill",
       "history land",
       "history retry",
+      "history show",
+      "history todo",
+      "stack land",
+      "stack submit",
+      "stack sync",
       "repo report",
       "auth local bootstrap",
       "auth local login",
       "auth local status"
     ]
-    expect(Object.keys(definitions)).toHaveLength(215 - retired.length)
+    expect(Object.keys(definitions)).toHaveLength(200)
     for (const name of retired) {
       expect(Object.hasOwn(definitions, name)).toBe(false)
       expect(Object.hasOwn(handlers, name)).toBe(false)
@@ -333,7 +337,7 @@ describe("migrated command dispatch", () => {
         undefined
       ],
       [["secret", "list", "--repo", "owner/repo"], "GET", "/api/repos/owner/repo/secrets", undefined],
-      [["runs", "list", "--repo", "owner/repo"], "GET", "/api/repos/owner/repo/runs", undefined],
+      [["runs", "list", "--repo", "owner/repo"], "GET", "/api/runs", undefined],
       [["flow", "list", "--repo", "owner/repo"], "GET", "/api/repos/owner/repo/workflows", undefined],
       [["workspace", "list", "--repo", "owner/repo"], "GET", "/api/repos/owner/repo/workspaces", undefined],
       [
@@ -399,7 +403,7 @@ describe("migrated command dispatch", () => {
       [
         ["issue", "comment", "4", "--body", "Text", "--repo", "owner/repo"],
         "POST",
-        "/api/repos/owner/repo/issues/4/comments",
+        "/api/issues/4/comments",
         { "body": "Text" }
       ],
       [
@@ -522,7 +526,7 @@ describe("migrated command dispatch", () => {
         "/api/repos/owner/repo/variables",
         { name: "REGION", value: "west" }
       ],
-      [["runs", "show", "12", "--repo", "owner/repo"], "GET", "/api/repos/owner/repo/runs/12", undefined],
+      [["runs", "show", "12", "--repo", "owner/repo"], "GET", "/api/runs/12", undefined],
       [["runs", "rerun", "12", "--repo", "owner/repo"], "POST", "/api/repos/owner/repo/runs/12/rerun", undefined],
       [["runs", "cancel", "12", "--repo", "owner/repo"], "POST", "/api/repos/owner/repo/runs/12/cancel", undefined],
       [
@@ -666,7 +670,7 @@ describe("migrated command dispatch", () => {
     expect(result.output).toContain("image_unavailable")
     expect(polls).toBe(2)
   })
-  it("fails closed when stack review or CI cannot be read", async () => {
+  it("refuses the retired stack land verb without reading GitHub", async () => {
     const methods: string[] = []
     const f = await fixture((req, res, body) => {
       if (req.method === "GET") {
@@ -695,7 +699,7 @@ describe("migrated command dispatch", () => {
     })
     const result = await f.run(["stack", "land", "--repo", "owner/repo"])
     expect(result.code).not.toBe(0)
-    expect(methods).toEqual(["GET", "GET"])
+    expect(methods).toEqual([])
   })
 })
 
