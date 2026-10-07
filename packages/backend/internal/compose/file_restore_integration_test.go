@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
@@ -108,7 +109,8 @@ func TestFileRestoreCommandBoundary(t *testing.T) {
 	}
 	const post = "7b9a72466d3960eb2aacccfc848939453490db0678bd4725def3f789b891c919"
 	seed("modified", post)
-	call := func(path, body, cookie string) int {
+	var responseBody string
+	call := func(path, body, cookie string, bearer ...string) int {
 		t.Helper()
 		req := httptest.NewRequest("POST", f.origin+"/api/branches/"+f.row.ID+"/files/"+path, strings.NewReader(body))
 		req.Header.Set("Origin", f.origin)
@@ -118,9 +120,13 @@ func TestFileRestoreCommandBoundary(t *testing.T) {
 		if cookie != "" {
 			req.AddCookie(&http.Cookie{Name: "session", Value: cookie})
 		}
+		if len(bearer) > 0 {
+			req.Header.Set("Authorization", "Bearer "+bearer[0])
+		}
 		req.RemoteAddr = "127.0.0.1:61000"
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
+		responseBody = rec.Body.String()
 		t.Logf("restore HTTP %d %s", rec.Code, rec.Body.String())
 		return rec.Code
 	}
@@ -158,12 +164,42 @@ func TestFileRestoreCommandBoundary(t *testing.T) {
 	sum := sha256.Sum256([]byte("w6-member-cookie"))
 	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: member.ID, Username: member.Username, SessionKey: hex.EncodeToString(sum[:]), ExpiresAt: time.Now().Add(time.Hour)})
 	require.NoError(t, err)
+	for i, credential := range []struct{ name, scopes string }{
+		{"external actor", "write:repository,via:codex"},
+		{"run", "write:repository"},
+		{"machine", "write:repository,workspace:" + f.row.ID},
+		{"insufficient scope", "read:repository,via:codex"},
+	} {
+		t.Run(credential.name, func(t *testing.T) {
+			raw := fmt.Sprintf("smithers_%040x", 7100+i)
+			digest := sha256.Sum256([]byte(raw))
+			hash := hex.EncodeToString(digest[:])
+			_, err := q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: member.ID, Name: credential.name, TokenHash: hash, TokenLastEight: hash[56:], Scopes: credential.scopes, SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+			require.NoError(t, err)
+			before := versions.calls
+			for _, payload := range []string{body, deleted} {
+				require.Equal(t, 403, call("src/a.ts", payload, "", raw))
+				var refusal map[string]any
+				require.NoError(t, json.Unmarshal([]byte(responseBody), &refusal))
+				require.Equal(t, "permission", refusal["code"], responseBody)
+				require.Equal(t, "permission", refusal["class"], responseBody)
+				require.Equal(t, before, versions.calls)
+				require.Equal(t, 2, provider.writes)
+			}
+		})
+	}
+	// An active member with a write share uses the same concrete command as
+	// the owner. Previously the outer route fell into owner-only admission.
+	delete(provider.files, "src/a.ts")
+	require.Equal(t, 200, call("src/a.ts", deleted, "w6-member-cookie"))
+	require.Equal(t, fmt.Sprint(member.ID), provider.actor)
+	require.Equal(t, 3, provider.writes)
 	_, err = f.pool.Exec(ctx, `DELETE FROM collaborators WHERE repository_id=$1 AND user_id=$2`, f.row.RepositoryID, member.ID)
 	require.NoError(t, err)
 	beforeCalls := versions.calls
 	status := call("src/a.ts", deleted, "w6-member-cookie")
 	require.Contains(t, []int{401, 403}, status)
 	require.Equal(t, beforeCalls, versions.calls)
-	require.Equal(t, 2, provider.writes)
+	require.Equal(t, 3, provider.writes)
 	require.Empty(t, runtime.WorkspaceIDs(), "test-only provider did not start a host workspace")
 }
