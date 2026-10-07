@@ -14,6 +14,9 @@ type Operation struct {
 	TenantID    string
 	PrincipalID string
 	OperationID string
+	// Automated marks a system-issued caller. A daemon must bind such writes
+	// to a registered run; it must never attribute them to the owning person.
+	Automated bool
 }
 
 type operationContextKey struct{}
