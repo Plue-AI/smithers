@@ -22,6 +22,15 @@ export function fileCoeditFixture(initial = "") {
     replace: (text: string) => doc.transact(() => { const content = doc.getText("content"); content.delete(0, content.length); content.insert(0, text) }),
     async install(page: Page, login: string) {
       await installCloudFixture(page, { capabilities: ["install", "identity"] })
+      // The install transcript persists private card state alongside the shared
+      // conversation. Keep it per member and branch, including across reload.
+      const views = new Map<string, Record<string, unknown>>()
+      await page.route("**/api/conversations/*/view-state", async route => {
+        const path = new URL(route.request().url()).pathname
+        if (route.request().method() === "PUT") views.set(path, route.request().postDataJSON())
+        await route.fulfill({ json: views.get(path) ?? { queue: [], instructions: [] } })
+      })
+      await page.route(/\/api\/conversations\/[^/]+$/, route => route.fulfill({ json: { id: "T12", entries: [] } }))
       await page.route("**/api/user", route => route.fulfill({ json: { id: login === "Alice" ? 42 : 43, username: login.toLowerCase(), is_admin: false } }))
       await page.route("**/api/branches/T12/files/retry.ts*", route => route.fulfill({ json: model() }))
       await page.routeWebSocket("**/api/live", socket => {
@@ -35,6 +44,8 @@ export function fileCoeditFixture(initial = "") {
               doc.getMap("authors").set(String(peer.client), { kind: "person", login: login.toLowerCase(), name: login,
                 avatar_url: "https://github.com/identicons/placeholder.png", color_index: login === "Alice" ? 0 : 1 })
               socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: 1, data: { epoch: "00112233445566778899aabbccddeeff", client_id: peer.client } }))
+            } else if (frame.topic === "branch:T12" || frame.topic === "branch:main") {
+              socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: 1, data: { id: frame.topic.slice(7), name: frame.topic.slice(7), machine: { state: "ready" }, presence: [], terminals: [] } }))
             } else if (frame.topic === "branch:T12:files") socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: 1, data: [model()] }))
             else socket.send(JSON.stringify({ t: "err", id: frame.id, code: "unsupported" }))
             return
