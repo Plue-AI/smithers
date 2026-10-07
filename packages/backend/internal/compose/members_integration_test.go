@@ -49,6 +49,12 @@ type rosterGitHub struct {
 	permissionStatus   int
 	permissionBody     string
 	repositoryStatus   int
+	keys               map[string][]string
+	keyETag            string
+	keyReads           int
+	keyNotModified     int
+	keyPages           map[string][]string
+	keyStatus          int
 	renamed            bool
 	missingID          bool
 }
@@ -92,15 +98,15 @@ func (g *rosterGitHub) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		id, _ := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/user/"), 10, 64)
 		json.NewEncoder(w).Encode(map[string]any{"id": id, "login": login})
-	case r.URL.Path == "/repos/acme/app":
-		fmt.Fprint(w, `{"id":500,"full_name":"acme/app"}`)
+	case r.URL.Path == "/repos/acme/app" || r.URL.Path == "/repos/owner/app":
+		fmt.Fprintf(w, `{"id":500,"full_name":%q}`, strings.TrimPrefix(r.URL.Path, "/repos/"))
 	case r.URL.Path == "/installation/repositories":
 		if g.repositoryStatus != 0 {
 			w.WriteHeader(g.repositoryStatus)
 			return
 		}
 		fmt.Fprint(w, `{"total_count":1,"repositories":[{"id":500}]}`)
-	case strings.HasPrefix(r.URL.Path, "/repos/acme/app/collaborators/"):
+	case strings.HasPrefix(r.URL.Path, "/repos/acme/app/collaborators/") || strings.HasPrefix(r.URL.Path, "/repos/owner/app/collaborators/"):
 		if g.permissionStatus != 0 {
 			w.WriteHeader(g.permissionStatus)
 			fmt.Fprint(w, g.permissionBody)
@@ -121,6 +127,30 @@ func (g *rosterGitHub) serve(w http.ResponseWriter, r *http.Request) {
 			id = 102
 		}
 		json.NewEncoder(w).Encode(map[string]any{"permission": permission, "role_name": role, "user": map[string]any{"id": id}})
+	case strings.HasPrefix(r.URL.Path, "/users/") && strings.HasSuffix(r.URL.Path, "/keys"):
+		g.keyReads++
+		if g.keyStatus != 0 {
+			w.WriteHeader(g.keyStatus)
+			return
+		}
+		w.Header().Set("ETag", g.keyETag)
+		if g.keyETag != "" && r.Header.Get("If-None-Match") == g.keyETag {
+			g.keyNotModified++
+			w.WriteHeader(304)
+			return
+		}
+		login := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/users/"), "/keys")
+		keys := []map[string]any{}
+		pageKeys := g.keys[login]
+		if r.URL.Query().Get("page") == "2" {
+			pageKeys = g.keyPages[login]
+		} else if len(g.keyPages[login]) > 0 {
+			w.Header().Set("Link", `<https://api.github.com/users/`+login+`/keys?per_page=100&page=2>; rel="next"`)
+		}
+		for i, key := range pageKeys {
+			keys = append(keys, map[string]any{"id": i + 1, "key": key})
+		}
+		json.NewEncoder(w).Encode(keys)
 	case strings.HasPrefix(r.URL.Path, "/users/"):
 		if r.URL.Path == "/users/renamed" {
 			json.NewEncoder(w).Encode(map[string]any{"id": 102, "login": "renamed"})
@@ -329,6 +359,8 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	require.GreaterOrEqual(t, uid, 20000)
 	// OAuth start/callback uses the composed router and production HTTP client.
 	login := func(name string, want int) string {
+		// Each admission case starts with a fresh rate-limit window.
+		require.NoError(t, q.DeleteAllRateLimits(ctx))
 		github.mu.Lock()
 		github.login = name
 		github.mu.Unlock()
@@ -377,7 +409,7 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	github.roles["writer"] = "read"
 	github.mu.Unlock()
 	refusedAccess := login("writer", 403)
-	require.JSONEq(t, `{"class":"permission","code":"needs_github_access","message":"Needs access on GitHub ↗","fix":"https://github.com/owner/app/settings/access"}`, refusedAccess)
+	require.JSONEq(t, `{"class":"permission","code":"needs_github_access","message":"Needs access on GitHub ↗"}`, refusedAccess)
 	github.mu.Lock()
 	github.roles["writer"] = "write"
 	github.mu.Unlock()
@@ -410,7 +442,7 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 
 	_, err = pool.Exec(ctx, `CREATE FUNCTION reject_key_event() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.kind='ssh_key_revoked' THEN RAISE EXCEPTION 'key event failed'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_key_event BEFORE INSERT ON revocation_events FOR EACH ROW EXECUTE FUNCTION reject_key_event()`)
 	require.NoError(t, err)
-	require.ErrorContains(t, members.Recheck(ctx), "key event failed")
+	require.NoError(t, members.Recheck(ctx), "key failure cannot fail permission rechecks")
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM ssh_keys WHERE user_id=$1 AND source='github'`, writer.ID).Scan(&count))
 	require.Equal(t, 1, count)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM revocation_events WHERE user_id=$1 AND kind='ssh_key_revoked'`, writer.ID).Scan(&count))
@@ -521,7 +553,7 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	require.Equal(t, 204, status, body)
 
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM collaborators WHERE unix_login='writer' AND user_id IS NULL AND github_id IS NULL AND suspended_at IS NOT NULL`).Scan(&count))
-	require.Equal(t, 1, count, "removal reserves the login without retaining access")
+	require.Zero(t, count, "main removes the roster row")
 	status, body = request("GET", "/api/members", "", "owner-cookie")
 	require.Equal(t, 200, status, body)
 	require.NotContains(t, body, `"login":"writer"`)
@@ -531,8 +563,8 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	status, body = request("POST", "/api/members", `{"login":"writer"}`, "owner-cookie")
 	require.Equal(t, 204, status, body)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT unix_uid,unix_login FROM collaborators WHERE github_id=102`).Scan(&uid, &unixLogin))
-	require.Equal(t, firstUID, uid, "the same GitHub identity retains its allocation")
-	require.Equal(t, "writer", unixLogin, "the same GitHub identity retains its login")
+	require.NotEqual(t, firstUID, uid, "main re-admission creates a fresh roster allocation")
+	require.Equal(t, "writer", unixLogin, "the fresh roster row receives the available login")
 	login("writer", 302)
 	createSession(writer, "writer-cookie-2")
 	status, body = request("GET", "/api/members", "", "writer-cookie-2")

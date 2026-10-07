@@ -101,14 +101,14 @@ func TestUserGitHubRefusalQueuesPermissionRecheckPostgres(t *testing.T) {
 			var reads atomic.Int32
 			f := newPermissionPollFixture(t, func(w http.ResponseWriter, r *http.Request) {
 				if reads.Add(1) == 1 {
-					fmt.Fprint(w, `{"permission":"write"}`)
+					fmt.Fprint(w, `{"user":{"id":77},"permission":"write"}`)
 					return
 				}
 				if tc.permissionFails {
 					w.WriteHeader(403)
 					return
 				}
-				fmt.Fprintf(w, `{"permission":%q}`, tc.permission)
+				fmt.Fprintf(w, `{"user":{"id":77},"permission":%q}`, tc.permission)
 			}, func(w http.ResponseWriter, r *http.Request) {
 				require.Contains(t, []string{"/user/repos", "/repos/factory/app/pulls"}, r.URL.Path)
 				require.Equal(t, "Bearer user-access", r.Header.Get("Authorization"))

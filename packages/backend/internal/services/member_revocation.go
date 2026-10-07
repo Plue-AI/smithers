@@ -149,7 +149,7 @@ func (m *Members) Remove(ctx context.Context, login string) error {
 			return err
 		}
 	}
-	if _, err = tx.Exec(ctx, `UPDATE collaborators SET user_id=NULL, github_id=NULL, github_login=NULL, permission='read', suspended_at=now() WHERE id=$1`, id); err != nil {
+	if _, err = tx.Exec(ctx, `DELETE FROM collaborators WHERE id=$1`, id); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
@@ -25,6 +26,7 @@ type GitHubSyncHealth struct {
 // A transport failure leaves LastSuccessAt intact; only permission and
 // not_installed are refusals. RetryAt includes the shared budget pause.
 type GitHubSyncStream struct {
+	Background    bool
 	Target        time.Duration
 	LastSuccessAt *time.Time
 	Cause         string
@@ -59,7 +61,11 @@ type gitHubMainPullStreams struct {
 
 func (g gitHubMainPullStreams) RequiredStreams(ctx context.Context) ([]GitHubSyncStream, error) {
 	if g.observe == nil {
-		return nil, githubSyncUnavailable()
+		if _, ok := g.receipts.(interface {
+			GetInstallSetting(context.Context, string) (db.InstallSetting, error)
+		}); !ok {
+			return nil, githubSyncUnavailable()
+		}
 	}
 	rows, err := g.receipts.ListGithubMainPulls(ctx)
 	if err != nil {
@@ -67,21 +73,34 @@ func (g gitHubMainPullStreams) RequiredStreams(ctx context.Context) ([]GitHubSyn
 	}
 	streams := make([]GitHubSyncStream, 0, len(rows))
 	for _, row := range rows {
-		streams = append(streams, g.observe(row))
-	}
-	// The permission worker uses the same required-stream health projection.
-	if settings, ok := g.receipts.(interface {
-		GetInstallSetting(context.Context, string) (db.InstallSetting, error)
-	}); ok {
-		setting, e := settings.GetInstallSetting(ctx, "github.permissions.health")
-		if e == nil {
+		if g.observe != nil {
+			streams = append(streams, g.observe(row))
+		} else {
 			var stream GitHubSyncStream
-			if e = json.Unmarshal(setting.Value, &stream); e != nil {
-				return nil, e
+			if row.LastSyncedAt.Valid {
+				at := row.LastSyncedAt.Time
+				stream.LastSuccessAt = &at
 			}
 			streams = append(streams, stream)
-		} else if !errors.Is(e, pgx.ErrNoRows) {
-			return nil, e
+		}
+	}
+
+	// The persisted projection owns permissions when no separate provider is installed.
+	if g.observe == nil {
+		if settings, ok := g.receipts.(interface {
+			GetInstallSetting(context.Context, string) (db.InstallSetting, error)
+		}); ok {
+			setting, err := settings.GetInstallSetting(ctx, "github.permissions.health")
+			if err == nil {
+				var stream GitHubSyncStream
+				if err := json.Unmarshal(setting.Value, &stream); err != nil {
+					return nil, err
+				}
+				stream.Background = true
+				streams = append(streams, stream)
+			} else if !errors.Is(err, pgx.ErrNoRows) {
+				return nil, err
+			}
 		}
 	}
 	return streams, nil
@@ -328,7 +347,7 @@ func aggregateGitHubSyncHealth(streams []GitHubSyncStream, now time.Time) GitHub
 			at := *stream.LastSuccessAt
 			health.LastSuccessAt = &at
 		}
-		if stream.LastSuccessAt != nil {
+		if !stream.Background && stream.LastSuccessAt != nil {
 			target := stream.Target
 			if target <= 0 {
 				target = 60 * time.Second
@@ -364,7 +383,7 @@ func aggregateGitHubSyncHealth(streams []GitHubSyncStream, now time.Time) GitHub
 		health.State = "refused"
 	case health.RetryAt != nil:
 		health.State = "limited"
-	case missing || stale:
+	case missing || stale || health.LastSuccessAt == nil:
 		health.State = "stale"
 	}
 	return health

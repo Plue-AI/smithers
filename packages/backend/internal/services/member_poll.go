@@ -2,9 +2,12 @@ package services
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
@@ -16,7 +19,6 @@ type memberPollBinding struct {
 	repository int64
 	stream     gitHubStreamKey
 }
-type memberPermissionValidator struct{ etag, version string }
 type memberPermissionPoll struct {
 	mu                 sync.Mutex
 	synced             *GitHubSyncedRepoService
@@ -24,7 +26,7 @@ type memberPermissionPoll struct {
 	binding            memberPollBinding
 	state              gitHubPollState
 	requested, running bool
-	validators         map[int64]memberPermissionValidator
+	healthReset        bool
 }
 
 // UseInstallPermissionPolling joins the existing roster worker to shared sync.
@@ -75,9 +77,9 @@ func permissionBinding(repo memberRepository, row db.GithubSyncedRepo) memberPol
 }
 func (p *memberPermissionPoll) bind(binding memberPollBinding) {
 	if p.binding != binding {
+		p.healthReset = p.binding.repository != 0
 		p.binding = binding
 		p.state = gitHubPollState{}
-		p.validators = make(map[int64]memberPermissionValidator)
 	}
 }
 func (m *Members) permissionPause(row db.GithubSyncedRepo) time.Time {
@@ -90,7 +92,7 @@ func (m *Members) permissionPause(row db.GithubSyncedRepo) time.Time {
 }
 
 // RequiredStreams reports only the permission owner's observation, including
-// an unread state after boot or rebinding. It never fetches GitHub.
+// persisted health after boot and an unread state after rebinding. It never fetches GitHub.
 func (m *Members) RequiredStreams(ctx context.Context) ([]GitHubSyncStream, error) {
 	repo, row, err := m.permissionPollReady(ctx)
 	if err != nil {
@@ -100,8 +102,27 @@ func (m *Members) RequiredStreams(ctx context.Context) ([]GitHubSyncStream, erro
 	p.mu.Lock()
 	p.bind(permissionBinding(repo, row))
 	state := p.state
+	healthReset := p.healthReset
 	p.mu.Unlock()
-	observation := gitHubSyncObservation(state, m.permissionPause(row), p.synced.now())
+	observation := GitHubSyncStream{Target: MemberRecheckInterval, Background: true}
+	setting, readErr := db.New(m.Pool).GetInstallSetting(ctx, "github.permissions.health")
+	if readErr == nil {
+		if err := json.Unmarshal(setting.Value, &observation); err != nil {
+			return nil, err
+		}
+	} else if !errors.Is(readErr, pgx.ErrNoRows) {
+		return nil, readErr
+	}
+	// Rebinding resets the scheduler's observation; retain durable refusal health.
+	if state.lastSuccess.IsZero() && healthReset {
+		observation.LastSuccessAt = nil
+	} else if !state.lastSuccess.IsZero() {
+		observation.LastSuccessAt = &state.lastSuccess
+	}
+	pause := m.permissionPause(row)
+	if pause.After(p.synced.now()) {
+		observation.RetryAt = &pause
+	}
 	observation.Background = true
 	return []GitHubSyncStream{observation}, nil
 }
@@ -159,12 +180,7 @@ func (m *Members) PollPermissions(ctx context.Context) error {
 	p.running = true
 	p.mu.Unlock()
 	defer func() { p.mu.Lock(); p.running = false; p.mu.Unlock() }()
-	// The qualified registry binding already identifies the installation. No
-	// separate App-JWT discovery read or second permission-token cache is needed.
-	token, err := m.memberToken(ctx, row.InstallationID.Int64)
-	if err == nil {
-		err = m.recheckRepository(ctx, repo, token, p, binding)
-	}
+	err = m.Recheck(ctx)
 	current, currentRow, bindingErr := m.permissionPollReady(ctx)
 	if bindingErr != nil {
 		err = bindingErr
@@ -178,6 +194,7 @@ func (m *Members) PollPermissions(ctx context.Context) error {
 		p.state.retryAt = m.permissionPause(row)
 		if err == nil {
 			p.state.lastSuccess = p.synced.now()
+			p.healthReset = false
 		}
 	}
 	return err

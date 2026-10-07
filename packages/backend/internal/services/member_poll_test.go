@@ -18,11 +18,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type permissionPollCredentials struct {
+	memberCredentials
+	jwtCalls int
+}
+
+func (c *permissionPollCredentials) AppJWT(context.Context) (string, error) {
+	c.jwtCalls++
+	return "fixture-jwt", nil
+}
+
 type permissionPollFixture struct {
 	m                *Members
 	s                *GitHubSyncedRepoService
 	minter           *recordingMinter
-	credentials      *callerCredentialFixture
+	credentials      *permissionPollCredentials
 	clock            atomic.Int64
 	wakes            atomic.Int32
 	memberID, userID int64
@@ -32,7 +42,7 @@ func newPermissionPollFixture(t *testing.T, handler http.HandlerFunc, userHandle
 	t.Helper()
 	s, pool, _ := newFetchedFixture(t)
 	allowFetched(s)
-	f := &permissionPollFixture{s: s, minter: &recordingMinter{}, credentials: &callerCredentialFixture{}}
+	f := &permissionPollFixture{s: s, minter: &recordingMinter{}, credentials: &permissionPollCredentials{}}
 	f.clock.Store(time.Now().UTC().Truncate(time.Second).Unix())
 	s.now = func() time.Time { return time.Unix(f.clock.Load(), 0).UTC() }
 	s.budget = NewGitHubResponseBudgetTracker()
@@ -58,6 +68,23 @@ func newPermissionPollFixture(t *testing.T, handler http.HandlerFunc, userHandle
 	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{SessionKey: "before-poll", UserID: user.ID, Username: "writer", ExpiresAt: time.Now().Add(24 * time.Hour)})
 	require.NoError(t, err)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/factory/app/installation":
+			fmt.Fprint(w, `{"id":12}`)
+			return
+		case "/repos/factory/app":
+			fmt.Fprint(w, `{"id":500,"full_name":"factory/app"}`)
+			return
+		case "/installation/repositories":
+			fmt.Fprint(w, `{"total_count":1,"repositories":[{"id":500}]}`)
+			return
+		case "/user/88":
+			fmt.Fprint(w, `{"id":88,"login":"writer"}`)
+			return
+		case "/user/77", "/users/writer":
+			fmt.Fprint(w, `{"id":77,"login":"writer"}`)
+			return
+		}
 		if strings.HasSuffix(r.URL.Path, "/keys") {
 			fmt.Fprint(w, "[]")
 			return
@@ -94,18 +121,18 @@ func TestPermissionPollCadenceRetryAndConditionalRevocationPostgres(t *testing.T
 		case 1:
 			require.Empty(t, r.Header.Get("If-None-Match"))
 			w.Header().Set("ETag", `"write"`)
-			fmt.Fprint(w, `{"permission":"write","role_name":"write"}`)
+			fmt.Fprint(w, `{"user":{"id":77},"permission":"write","role_name":"write"}`)
 		case 2:
-			require.Equal(t, `"write"`, r.Header.Get("If-None-Match"))
+			require.Empty(t, r.Header.Get("If-None-Match"))
 			w.Header().Set("ETag", `"read"`)
-			fmt.Fprint(w, `{"permission":"read","role_name":"read"}`)
+			fmt.Fprint(w, `{"user":{"id":77},"permission":"read","role_name":"read"}`)
 		case 3:
-			require.Equal(t, `"read"`, r.Header.Get("If-None-Match"))
-			w.WriteHeader(http.StatusNotModified)
+			require.Empty(t, r.Header.Get("If-None-Match"))
+			fmt.Fprint(w, `{"user":{"id":77},"permission":"read","role_name":"read"}`)
 		case 4:
-			require.Equal(t, `"read"`, r.Header.Get("If-None-Match"))
+			require.Empty(t, r.Header.Get("If-None-Match"))
 			w.Header().Set("ETag", `"recovered"`)
-			fmt.Fprint(w, `{"permission":"write","role_name":"maintain"}`)
+			fmt.Fprint(w, `{"user":{"id":77},"permission":"write","role_name":"maintain"}`)
 		default:
 			t.Error("unexpected extra permission read")
 		}
@@ -134,7 +161,7 @@ func TestPermissionPollCadenceRetryAndConditionalRevocationPostgres(t *testing.T
 	streams, err = f.m.RequiredStreams(ctx)
 	require.NoError(t, err)
 	require.Equal(t, f.s.now(), *streams[0].LastSuccessAt)
-	require.Zero(t, f.credentials.jwtCalls, "registry binding avoids a second installation discovery")
+	require.Equal(t, 4, f.credentials.jwtCalls, "main proves the installation for every recheck")
 	require.Equal(t, []int64{12, 12, 12, 12}, f.minter.installations)
 }
 
@@ -147,14 +174,21 @@ func TestPermissionPollFailuresPreserveAccessPostgres(t *testing.T) {
 					fmt.Fprint(w, `{"role_name":"read"}`)
 				}
 			})
-			require.Error(t, f.m.PollPermissions(t.Context()))
-			f.assertRoster(t, false, 1)
+			if status == 404 {
+				require.NoError(t, f.m.PollPermissions(t.Context()))
+				f.assertRoster(t, true, 0)
+			} else {
+				require.Error(t, f.m.PollPermissions(t.Context()))
+				f.assertRoster(t, false, 1)
+			}
 			streams, err := f.m.RequiredStreams(t.Context())
 			require.NoError(t, err)
-			require.Nil(t, streams[0].LastSuccessAt)
-			if status == 401 || status == 403 || status == 404 {
-				require.Equal(t, "permission", streams[0].Cause)
+			if status == 404 {
+				require.NotNil(t, streams[0].LastSuccessAt)
+			} else {
+				require.Nil(t, streams[0].LastSuccessAt)
 			}
+			require.Empty(t, streams[0].Cause, "member-specific failures do not refuse the installation")
 		})
 	}
 }
@@ -167,7 +201,7 @@ func TestPermissionPollSharedPauseRetainsRetryPostgres(t *testing.T) {
 			w.WriteHeader(429)
 			return
 		}
-		fmt.Fprint(w, `{"permission":"write"}`)
+		fmt.Fprint(w, `{"user":{"id":77},"permission":"write"}`)
 	})
 	ctx := t.Context()
 	require.Error(t, f.m.PollPermissions(ctx))
@@ -198,7 +232,7 @@ func TestPermissionPollRejectsChangedRosterDuringReadPostgres(t *testing.T) {
 		}
 		require.Empty(t, r.Header.Get("If-None-Match"), "uncommitted read must not install an ETag")
 		w.Header().Set("ETag", `"read"`)
-		fmt.Fprint(w, `{"permission":"read"}`)
+		fmt.Fprint(w, `{"user":{"id":77},"permission":"read"}`)
 	})
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -209,14 +243,16 @@ func TestPermissionPollRejectsChangedRosterDuringReadPostgres(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("read did not start")
 	}
-	_, err := f.m.Pool.Exec(ctx, `UPDATE collaborators SET permission='admin' WHERE id=$1`, f.memberID)
+	_, err := f.m.Pool.Exec(ctx, `UPDATE collaborators SET github_id=88 WHERE id=$1`, f.memberID)
 	require.NoError(t, err)
 	require.NoError(t, f.m.RetryStreams(ctx))    // Retained even while this read is running.
 	require.NoError(t, f.m.PollPermissions(ctx)) // Cannot start another concurrent read.
 	require.EqualValues(t, 1, calls.Load())
 	close(release)
-	require.ErrorContains(t, <-done, "member changed")
+	require.NoError(t, <-done)
 	f.assertRoster(t, false, 1)
+	_, err = f.m.Pool.Exec(ctx, `UPDATE collaborators SET github_id=77 WHERE id=$1`, f.memberID)
+	require.NoError(t, err)
 	require.NoError(t, f.m.PollPermissions(ctx))
 	require.EqualValues(t, 2, calls.Load())
 	f.assertRoster(t, true, 0)
@@ -228,7 +264,7 @@ func TestPermissionPollRollbackAndRestartPostgres(t *testing.T) {
 		calls.Add(1)
 		require.Empty(t, r.Header.Get("If-None-Match"), "failed commit and restart both require a fresh body")
 		w.Header().Set("ETag", `"read"`)
-		fmt.Fprint(w, `{"permission":"read"}`)
+		fmt.Fprint(w, `{"user":{"id":77},"permission":"read"}`)
 	})
 	ctx := t.Context()
 	_, err := f.m.Pool.Exec(ctx, `CREATE FUNCTION reject_permission_revoke() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test revoke failed'; END $$;
@@ -265,7 +301,7 @@ func TestPermissionPollLowBudgetCadencePostgres(t *testing.T) {
 		w.Header().Set("X-RateLimit-Limit", "100")
 		w.Header().Set("X-RateLimit-Remaining", "19")
 		w.Header().Set("X-RateLimit-Reset", fmt.Sprint(reset))
-		fmt.Fprint(w, `{"permission":"write"}`)
+		fmt.Fprint(w, `{"user":{"id":77},"permission":"write"}`)
 	})
 	reset = f.clock.Load() + 10800
 	require.NoError(t, f.m.PollPermissions(t.Context()))
@@ -288,10 +324,10 @@ func TestPermissionPollConditionalReadRejectsRebindingPostgres(t *testing.T) {
 			f := newPermissionPollFixture(t, func(w http.ResponseWriter, r *http.Request) {
 				if calls.Add(1) == 1 {
 					w.Header().Set("ETag", `"write"`)
-					fmt.Fprint(w, `{"permission":"write"}`)
+					fmt.Fprint(w, `{"user":{"id":77},"permission":"write"}`)
 					return
 				}
-				require.Equal(t, `"write"`, r.Header.Get("If-None-Match"))
+				require.Empty(t, r.Header.Get("If-None-Match"))
 				close(entered)
 				select {
 				case <-release:
@@ -363,4 +399,32 @@ func TestGitHubSyncObservationAggregatesMemberFailures(t *testing.T) {
 	} {
 		require.Equal(t, tc.want, gitHubSyncObservation(gitHubPollState{lastError: tc.err}, time.Time{}, now).Cause)
 	}
+}
+
+func TestPermissionPollKeyFailureCannotUndoSuspensionPostgres(t *testing.T) {
+	f := newPermissionPollFixture(t, func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `{"user":{"id":77},"permission":"read"}`) })
+	_, err := f.m.Pool.Exec(t.Context(), `CREATE SEQUENCE poll_key_sync_attempt; CREATE FUNCTION reject_poll_key_setting() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.key LIKE 'github.keys.%' THEN PERFORM nextval('poll_key_sync_attempt'); RAISE EXCEPTION 'test key sync failed'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_poll_key_setting BEFORE INSERT OR UPDATE ON install_settings FOR EACH ROW EXECUTE FUNCTION reject_poll_key_setting()`)
+	require.NoError(t, err)
+	require.NoError(t, f.m.PollPermissions(t.Context()))
+	f.assertRoster(t, true, 0)
+	var attempts int64
+	var attempted bool
+	require.NoError(t, f.m.Pool.QueryRow(t.Context(), `SELECT last_value,is_called FROM poll_key_sync_attempt`).Scan(&attempts, &attempted))
+	require.True(t, attempted, "the owner key sync was attempted")
+	require.EqualValues(t, 1, attempts, "suspended members are excluded")
+	require.Zero(t, fetchedCount(t, f.m.Pool, `SELECT count(*) FROM install_settings WHERE key LIKE 'github.keys.%'`))
+	streams, err := f.m.RequiredStreams(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, streams[0].LastSuccessAt)
+	require.Empty(t, streams[0].Cause)
+}
+
+func TestPermissionPollRestartProjectsPersistedHealthPostgres(t *testing.T) {
+	f := newPermissionPollFixture(t, func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `{"user":{"id":77},"permission":"write"}`) })
+	require.NoError(t, f.m.PollPermissions(t.Context()))
+	f.m.UseInstallPermissionPolling(f.s, func() { f.wakes.Add(1) })
+	streams, err := f.m.RequiredStreams(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, streams[0].LastSuccessAt)
+	require.True(t, streams[0].Background)
 }

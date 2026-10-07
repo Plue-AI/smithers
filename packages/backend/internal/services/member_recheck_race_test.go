@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -56,6 +57,10 @@ func TestMemberRecheckConcurrentRosterPostgres(t *testing.T) {
 			var once sync.Once
 			release := func() { once.Do(func() { close(resume) }) }
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "/keys") {
+					fmt.Fprint(w, "[]")
+					return
+				}
 				w.Header().Set("Content-Type", "application/json")
 				switch r.URL.Path {
 				case "/repos/acme/app/installation":

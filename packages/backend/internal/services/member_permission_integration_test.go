@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -36,6 +37,10 @@ func TestMemberPermissionFailuresPreserveCommittedAccessPostgres(t *testing.T) {
 	var mu sync.Mutex
 	permissionStatus, permissionBody, repositoryStatus := 404, `{}`, 404
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/keys") {
+			fmt.Fprint(w, "[]")
+			return
+		}
 		mu.Lock()
 		defer mu.Unlock()
 		if r.URL.Path != "/repos/acme/app/installation" {
@@ -146,6 +151,10 @@ func TestMemberPermissionIdentityBindingPostgres(t *testing.T) {
 				require.NoError(t, err)
 			}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "/keys") {
+					fmt.Fprint(w, "[]")
+					return
+				}
 				if r.URL.Path != "/repos/acme/app/installation" {
 					require.Equal(t, "Bearer minted-token", r.Header.Get("Authorization"))
 				}
@@ -222,6 +231,10 @@ func TestMemberPermissionInstallationRefusalIsRosterAtomicPostgres(t *testing.T)
 	discoveryStatus := 200
 	listingCalls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/keys") {
+			fmt.Fprint(w, "[]")
+			return
+		}
 		mu.Lock()
 		defer mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
@@ -315,6 +328,10 @@ func TestMemberPermissionRoundTwoIsolationPostgres(t *testing.T) {
 			var priorEvents int
 			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM revocation_events WHERE user_id=$1`, b.ID).Scan(&priorEvents))
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "/keys") {
+					fmt.Fprint(w, "[]")
+					return
+				}
 				w.Header().Set("Content-Type", "application/json")
 				switch r.URL.Path {
 				case "/repos/acme/app/installation":

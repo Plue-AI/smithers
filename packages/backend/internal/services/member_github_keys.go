@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -146,4 +147,32 @@ func (m *Members) SyncGitHubKeys(ctx context.Context, userID int64, login string
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// Key failures are independent of the committed permission decisions.
+func (m *Members) syncActivePermissionKeys(ctx context.Context, repositoryID int64) {
+	rows, err := m.Pool.Query(ctx, `SELECT u.id,u.username FROM users u JOIN self_host_owners o ON o.user_id=u.id
+ UNION SELECT c.user_id,c.github_login FROM collaborators c WHERE c.repository_id=$1 AND c.user_id IS NOT NULL AND c.suspended_at IS NULL AND NOT EXISTS(SELECT 1 FROM self_host_owners o WHERE o.user_id=c.user_id)`, repositoryID)
+	if err != nil {
+		slog.WarnContext(ctx, "members.keys.failed", "error", err)
+		return
+	}
+	type keyMember struct {
+		id    int64
+		login string
+	}
+	members, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (keyMember, error) {
+		var member keyMember
+		err := r.Scan(&member.id, &member.login)
+		return member, err
+	})
+	if err != nil {
+		slog.WarnContext(ctx, "members.keys.failed", "error", err)
+		return
+	}
+	for _, member := range members {
+		if err := m.SyncGitHubKeys(ctx, member.id, member.login); err != nil {
+			slog.WarnContext(ctx, "members.keys.failed", "user_id", member.id, "error", err)
+		}
+	}
 }

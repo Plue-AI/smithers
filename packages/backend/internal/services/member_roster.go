@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -39,8 +40,11 @@ func (r memberRepository) accessURL() string {
 }
 
 func (m *Members) repository(ctx context.Context) (memberRepository, error) {
-	binding, err := db.New(m.Pool).ReadInstallRepositoryBinding(ctx)
-	repo := memberRepository{Owner: binding.Owner, Name: binding.Name, ID: binding.ID}
+	var repo memberRepository
+	setting, err := db.New(m.Pool).GetInstallSetting(ctx, "github.repository")
+	if err == nil {
+		err = json.Unmarshal(setting.Value, &repo)
+	}
 	if err != nil || repo.ID <= 0 || !gitHubAppComponent.MatchString(repo.Owner) || !gitHubAppComponent.MatchString(repo.Name) {
 		return repo, memberError(http.StatusServiceUnavailable, "infra", "unavailable", "Repository unavailable")
 	}
@@ -308,7 +312,7 @@ func (m *Members) AdmitGitHub(ctx context.Context, id int64, login string) error
 		return err
 	}
 	if role == "" {
-		return &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "needs_github_access", Message: "Needs access on GitHub ↗", Fix: repo.accessURL()}
+		return memberError(http.StatusForbidden, "permission", "needs_github_access", "Needs access on GitHub ↗")
 	}
 	return nil
 }
@@ -348,10 +352,7 @@ func (m *Members) Add(ctx context.Context, login string) error {
 		Login string `json:"login"`
 	}
 	status, err := m.api(15*time.Second).request(ctx, token, http.MethodGet, "/users/"+login, nil, &user)
-	if err != nil {
-		return err
-	}
-	if status != http.StatusOK && status != http.StatusNotFound {
+	if err != nil || (status != http.StatusOK && status != http.StatusNotFound) {
 		return memberError(http.StatusServiceUnavailable, "infra", "github_unavailable", "GitHub unavailable")
 	}
 	if status == http.StatusNotFound || user.ID <= 0 || !ValidMemberLogin(user.Login) {
@@ -374,21 +375,11 @@ func (m *Members) Add(ctx context.Context, login string) error {
 	githubID := strconv.FormatInt(user.ID, 10)
 	// A person already on the roster, by GitHub id or by account, keeps their
 	// row and role: adding again changes nothing.
-	// Re-admission restores the same GitHub identity's original allocation.
-	// It grants no old session: those were revoked by Remove.
-	tag, err := tx.Exec(ctx, `UPDATE collaborators SET github_id=$2,github_login=$3,
- user_id=(SELECT user_id FROM oauth_accounts WHERE provider='workos' AND provider_user_id=$4),
- permission=$5,suspended_at=NULL WHERE repository_id=$1 AND unix_github_id=$2 AND github_id IS NULL`, repo.ID, user.ID, user.Login, githubID, role)
+	tag, err := tx.Exec(ctx, `INSERT INTO collaborators(repository_id,github_id,github_login,user_id,permission)
+ VALUES($1,$2,$3,(SELECT user_id FROM oauth_accounts WHERE provider='workos' AND provider_user_id=$4),$5)
+ ON CONFLICT DO NOTHING`, repo.ID, user.ID, user.Login, githubID, role)
 	if err != nil {
 		return err
-	}
-	if tag.RowsAffected() == 0 {
-		tag, err = tx.Exec(ctx, `INSERT INTO collaborators(repository_id,github_id,github_login,unix_github_id,user_id,permission)
- VALUES($1,$2,$3,$2,(SELECT user_id FROM oauth_accounts WHERE provider='workos' AND provider_user_id=$4),$5)
- ON CONFLICT DO NOTHING`, repo.ID, user.ID, user.Login, githubID, role)
-		if err != nil {
-			return err
-		}
 	}
 	if err = allocateRosterLogins(ctx, tx); err != nil {
 		return err
@@ -430,8 +421,7 @@ func (m *Members) List(ctx context.Context) (MembersProjection, error) {
 	return m.roster(ctx, decision.Role.rank() >= InstallMaintainer.rank())
 }
 
-// SharedRoster serves committed facts for the members live topic. The topic
-// resolver authorizes each subscriber; shared snapshots carry no role controls.
+// SharedRoster serves authorized live subscribers without role controls.
 func (m *Members) SharedRoster(ctx context.Context) (MembersProjection, error) {
 	return m.roster(ctx, false)
 }
