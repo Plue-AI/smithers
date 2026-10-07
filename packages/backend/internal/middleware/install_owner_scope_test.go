@@ -20,6 +20,9 @@ type unverifiedOwner struct{}
 func (unverifiedOwner) GetSelfHostOwner(context.Context) (db.User, error) {
 	return db.User{ID: 7}, nil
 }
+func (unverifiedOwner) ReadInstallRepositoryBinding(context.Context) (db.InstallRepositoryBinding, error) {
+	return db.InstallRepositoryBinding{}, db.ErrInstallRepositoryUnavailable
+}
 func (unverifiedOwner) GetInstallSetting(context.Context, string) (db.InstallSetting, error) {
 	return db.InstallSetting{}, pgx.ErrNoRows
 }

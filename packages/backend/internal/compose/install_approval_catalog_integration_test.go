@@ -88,7 +88,11 @@ func TestInstallApprovalCatalogDecisionsPostgres(t *testing.T) {
 	// Direct service entry has the same decision before row lookup or mutation.
 	service := services.NewApprovalsService(f.q)
 	service.ConfigureInstallAuthorization(f.q)
-	info := &middleware.AuthInfo{User: &f.owner, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "write:repository", Scopes: middleware.ParseTokenScopes("write:repository")}
+	raw := f.token(f.owner, "direct service run", "write:repository", true)
+	tokenSum := sha256.Sum256([]byte(raw))
+	info, err := middleware.ReloadCredential(f.ctx, f.q, middleware.Credential{TokenHash: hex.EncodeToString(tokenSum[:])}, time.Now())
+	require.NoError(t, err)
+	require.True(t, middleware.BindInstallCredential(info))
 	ctx := middleware.ContextWithAuthInfo(f.ctx, info)
 	_, err = service.Decide(ctx, services.DecideApprovalInput{ApprovalID: uuid.NewString(), RepositoryID: f.repoID, UserID: f.owner.ID, Decision: "approved"})
 	var access *services.AccessError
@@ -192,6 +196,12 @@ func TestInstallApprovalCatalogDecisionsPostgres(t *testing.T) {
 		require.ErrorAs(t, err, &access)
 		require.Equal(t, 401, access.Status)
 		require.Equal(t, "unauthenticated", access.Code)
+		_, err = service.GetForRepo(ctx, id, f.repoID)
+		require.ErrorAs(t, err, &access)
+		require.Equal(t, 401, access.Status)
+		_, err = service.ListForRepo(ctx, f.repoID, "", 1, 30)
+		require.ErrorAs(t, err, &access)
+		require.Equal(t, 401, access.Status)
 		row, err := f.q.GetApproval(f.ctx, id)
 		require.NoError(t, err)
 		require.Equal(t, "pending", row.State)
