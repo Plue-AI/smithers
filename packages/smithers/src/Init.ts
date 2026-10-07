@@ -174,10 +174,10 @@ const seatNote = (seat: Seat): string =>
   seat.resolved
     ? `# The model seat this flow runs on. \`smthrs init\` chose it from
 # ${seat.variable}, the first provider credential this environment sets. Change
-# the line to run somewhere else; \`smthrs doctor\` lists the keys it reads.`
+# the line to run somewhere else; Provider credentials are read from the environment.`
     : `# The model seat this flow runs on. No provider credential was set when
 # \`smthrs init\` ran, so this is the default: set ${seat.variable}, or change
-# the line to a seat you have a key for. \`smthrs doctor\` lists them.`
+# the line to a seat you have a key for. Provider credentials are read from the environment.`
 
 /**
  * The scaffolded flow body.

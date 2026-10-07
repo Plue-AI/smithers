@@ -36,9 +36,9 @@ describe("shared helpers", () => {
       { name: "db", level: "fail", detail: "locked" }
     ]
     expect(Doctor.render({ root: "/work", checks })).toBe(
-      "smthrs doctor: /work\nok   node: v22\nwarn seat: none\nfail db: locked"
+      "Diagnostics: /work\nok   node: v22\nwarn seat: none\nfail db: locked"
     )
     expect(Doctor.render({ root: "/work", checks }))
-      .toBe(Ui.renderChecklist("smthrs doctor: /work", checks, { interactive: false }))
+      .toBe(Ui.renderChecklist("Diagnostics: /work", checks, { interactive: false }))
   })
 })

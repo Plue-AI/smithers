@@ -554,7 +554,10 @@ export const makeCli = (config: Bridge.Runtime = {}, documentation: { humanHelp?
     })
     if (!refused || parsed.json || parsed.format !== undefined || config.presentation?.structured) return
     const suggestion = await Effect.runPromise(
-      DidYouMean.didYouMean(typed, parsed.rest.slice(offset + 1), DidYouMean.commands(cli)).pipe(
+      DidYouMean.didYouMean(
+        typed, parsed.rest.slice(offset + 1),
+        DidYouMean.commands(documentation.humanHelp ? humanDiscovery : discovery)
+      ).pipe(
         Effect.provide(evaluator(config.environment ?? process.env))
       )
     )

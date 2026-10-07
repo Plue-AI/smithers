@@ -578,10 +578,20 @@ describe("the help surface", processBudget, () => {
   })
 
   it("advertises no removed verb", () => {
+    const manifest = run(["--llms-full", "--format", "json"])
+    expect(manifest.status).toBe(0)
+    const commands = new Set((JSON.parse(manifest.stdout) as { commands: { name: string }[] }).commands
+      .map((command) => command.name))
     // Matched on the help layout's own leading indentation so a word that
     // merely appears inside a description is not read as a listed command.
     for (const verb of Unsupported.removedVerbs) {
-      expect(help.stdout).not.toMatch(new RegExp(`^\\s+${verb.name}\\s{2,}`, "m"))
+      if (verb.subcommands === undefined) {
+        expect(help.stdout).not.toMatch(new RegExp(`^\\s+${verb.name}\\s{2,}`, "m"))
+        expect(commands.has(verb.name)).toBe(false)
+      } else {
+        // Catalog parents can return while their old child verbs remain removed.
+        for (const child of verb.subcommands) expect(commands.has(`${verb.name} ${child}`)).toBe(false)
+      }
     }
   })
 

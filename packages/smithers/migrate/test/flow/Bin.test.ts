@@ -53,7 +53,7 @@ describe("smithers-migrate", () => {
     const result = runBin(["--root", root, "--report-dir", ".out"])
 
     expect(result.status).toBe(0)
-    expect(result.stdout).toContain("smthrs migrate plan:")
+    expect(result.stdout).toContain("smithers-migrate plan:")
     expect(result.stdout).toContain("Units: 3 planned, 0 migrated, 0 failed, 0 blocked.")
     expect(result.stdout).toContain(join(root, ".out", "report.md"))
     expect(existsSync(join(root, ".out", "report.md"))).toBe(true)
@@ -96,7 +96,7 @@ describe("smithers-migrate", () => {
     })
 
     expect(result.status).toBe(3)
-    expect(result.stderr).toContain("smthrs migrate:")
+    expect(result.stderr).toContain("smithers-migrate:")
     expect(result.stderr).not.toContain("AI_GATEWAY_API_KEY")
     expect(hashTree(root)).toEqual(before)
   })

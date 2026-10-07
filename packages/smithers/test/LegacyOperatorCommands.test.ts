@@ -116,13 +116,13 @@ describe("legacy operator command contracts", () => {
     expect(Exit.isSuccess(result.exit)).toBe(true)
     expect(result.codes).toEqual([3])
     expect(result.stdout).toBe("")
-    expect(result.stderr).toBe("smthrs migrate: Review the unsafe constructs")
+    expect(result.stderr).toBe("smithers-migrate: Review the unsafe constructs")
   })
 
   it("preserves failure diagnostics for migration execution errors", async () => {
     ports.migrate.mockReturnValue(Effect.fail(migrateError("io", "Could not read input", "disk unavailable")))
     const result = await invoke(["migrate", "--json"])
-    expect(result.failure).toContain("smthrs migrate: Could not read input\ndisk unavailable")
+    expect(result.failure).toContain("smithers-migrate: Could not read input\ndisk unavailable")
     expect(result.codes).toEqual([])
     expect(result.stdout).toBe("")
   })
@@ -230,7 +230,7 @@ describe("legacy operator command contracts", () => {
       vi.stubGlobal("fetch", fetch)
       const result = await invoke(["update", "--json"])
       expect(result.failure).toContain(
-        "Could not reach the npm registry. Check your network and run `smthrs update` again."
+        "Could not reach the npm registry. Check your network and retry."
       )
       expect(result.failure).not.toContain("offline")
       expect(Exit.isFailure(result.exit) && Cause.squash(result.exit.cause)).toMatchObject({

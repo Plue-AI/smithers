@@ -399,7 +399,7 @@ describe("the report", () => {
     const rendered = Doctor.render(report)
 
     expect(rendered.split("\n")).toHaveLength(report.checks.length + 1)
-    expect(rendered).toContain("smthrs doctor: /work")
+    expect(rendered).toContain("Diagnostics: /work")
     expect(rendered).toContain("fail node:")
     expect(rendered).toContain("warn registry:")
     expect(rendered).toContain("ok   state:")

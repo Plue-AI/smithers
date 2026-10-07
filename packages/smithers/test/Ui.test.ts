@@ -158,7 +158,7 @@ describe("bookends and log lines", () => {
 describe("checklist", () => {
   it("is byte-identical to Doctor.render when not interactive", () => {
     const report: Doctor.Report = { root: "/work", checks }
-    expect(Ui.renderChecklist(`smthrs doctor: ${report.root}`, report.checks, { interactive: false }))
+    expect(Ui.renderChecklist(`Diagnostics: ${report.root}`, report.checks, { interactive: false }))
       .toBe(Doctor.render(report))
   })
 

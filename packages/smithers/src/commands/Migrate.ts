@@ -138,7 +138,7 @@ export const run = (
       }
       return yield* Effect.fail(
         new CliError.UnsupportedError({
-          message: `smthrs migrate: ${error.message}${error.details === undefined ? "" : `\n${error.details}`}`
+          message: `smithers-migrate: ${error.message}${error.details === undefined ? "" : `\n${error.details}`}`
         })
       )
     }

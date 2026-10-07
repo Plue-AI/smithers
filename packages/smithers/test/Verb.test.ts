@@ -178,14 +178,12 @@ describe("the removed surface", () => {
       "retry-task",
       "tree",
       "timeline",
-      "diff",
       "worktrees",
       "hijack",
       "pause",
       "gateway",
       "ui",
       "gui",
-      "monitor",
       "supervise",
       "supervisor",
       "top",
@@ -225,7 +223,6 @@ describe("the removed surface", () => {
       "stop",
       "kill",
       "start",
-      "exec",
       "log",
       "help"
     ])
@@ -312,9 +309,12 @@ describe("the removed surface", () => {
       exit: () => {}
     })
     const commands = JSON.parse(manifest).commands as ReadonlyArray<{ readonly name: string }>
-    const canonical = new Set(commands.map((command) => command.name.split(" ")[0]))
+    const canonical = new Set(commands.map((command) => command.name))
 
     expect(canonical.size).toBeGreaterThan(0)
-    expect(Unsupported.removedVerbs.map((verb) => verb.name).filter((name) => canonical.has(name))).toEqual([])
+    const removed = Unsupported.removedVerbs.flatMap((verb) =>
+      verb.subcommands === undefined ? [verb.name] : verb.subcommands.map((child) => `${verb.name} ${child}`)
+    )
+    expect(removed.filter((name) => canonical.has(name))).toEqual([])
   })
 })

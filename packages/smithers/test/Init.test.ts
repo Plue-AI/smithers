@@ -215,7 +215,7 @@ describe("the seat the scaffold writes", () => {
 
     expect(body).toContain("\nmodel: openai:gpt-6-sol\n")
     expect(body).toContain("OPENAI_API_KEY")
-    expect(body).toContain("smthrs doctor")
+    expect(body).toContain("Provider credentials are read from the environment.")
     // The explanation is a YAML comment, not prose: every line of the body is
     // an instruction the agent is handed.
     const frontmatter = body.split("---")[1] ?? ""

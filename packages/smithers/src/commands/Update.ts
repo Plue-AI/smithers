@@ -29,7 +29,7 @@ export const check = (
         new CliError.Refused({
           fault: "dependency",
           code: "registry_unreachable",
-          message: "Could not reach the npm registry. Check your network and run `smthrs update` again."
+          message: "Could not reach the npm registry. Check your network and retry."
         })
     })
     return Update.compare(packageVersion, tags)

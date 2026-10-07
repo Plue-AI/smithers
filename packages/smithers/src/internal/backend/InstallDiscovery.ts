@@ -9,6 +9,8 @@ export const retainInstallDiscovery = (cli: object, commands: Commands): void =>
   trees.set(cli, commands)
 }
 
+export const installCommands = (cli: object): Commands | undefined => trees.get(cli)
+
 export const installCommandPaths = (cli: object): string[] => {
   const tree = trees.get(cli)
   if (tree === undefined) throw new Error("CLI install discovery is unavailable")

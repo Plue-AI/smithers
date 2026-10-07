@@ -348,7 +348,7 @@ const describeLegacyDatabase = (path: string): string => {
  * @since 1.0.0
  */
 export const render = (report: Report): string =>
-  Ui.renderChecklist(`smthrs doctor: ${report.root}`, report.checks, { interactive: false })
+  Ui.renderChecklist(`Diagnostics: ${report.root}`, report.checks, { interactive: false })
 
 /**
  * Whether the report contains a failing check, which decides the exit status.

@@ -135,10 +135,17 @@ describe("didYouMean", () => {
   })
 
   it("never asks about a command the tree serves", async () => {
-    const confident = scripted({ choice: "doctor", probabilities: { doctor: 0.99 } })
+    const confident = scripted({ choice: "github", probabilities: { github: 0.99 } })
 
-    expect(await ask("doctor", [], confident)).toBeUndefined()
+    expect(await ask("github", [], confident)).toBeUndefined()
     expect(asked).toHaveLength(0)
+  })
+
+  it.each(["doctor", "migrate", "bug", "update", "rewind"])("never suggests the hidden door %s", async (name) => {
+    expect(await ask("stauts", [], scripted({ choice: name, probabilities: { [name]: 0.99 } })))
+      .toBeUndefined()
+    const criteria = Object.assign({}, ...Object.values(asked[0]!.questions).map((question) => question.criteria))
+    expect(criteria).not.toHaveProperty(name)
   })
 })
 

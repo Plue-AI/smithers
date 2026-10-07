@@ -50,7 +50,7 @@ const recovery = "the run driver's heartbeat sweep owns recovery"
 const uiHosting = "replaced by `smthrs serve`; the terminal monitor is deleted"
 const control = "not available; use `smthrs runs steer|signal|cancel|resume` and `smthrs approvals approve|deny`"
 const plugins = "moved to the plugins repository or deferred"
-const packs = "JSX pack tooling is gone; `smthrs migrate` replaces `upgrade`"
+const packs = "JSX pack tooling is gone; `smithers-migrate` replaces `upgrade`"
 const approvals = "approvals park the run; use `smthrs approvals list|approve|deny`"
 const nodeDetail = "use `smthrs runs output`, `smthrs runs logs --format json`, and the node-output projection"
 const jsx = "removed with the JSX inline workflow"
@@ -72,7 +72,7 @@ const removedGroup = (
  *
  * Only names the CLI no longer answers belong here. A 0.x spelling the
  * canonical tree reissued with a new meaning is not a removal: `smthrs graph`,
- * `eval`, `review`, `test`, `runs`, and `show` all run today, so saying they
+ * `eval`, `review`, `test`, `runs`, `show`, `diff`, `monitor`, and `exec` run today, so saying they
  * were removed would make every consumer of this table maintain the same
  * exclusion list by hand. `test/Verb.test.ts` pins the two sets apart.
  *
@@ -91,8 +91,7 @@ export const removedVerbs: ReadonlyArray<RemovedVerb> = [
     "revert",
     "retry-task",
     "tree",
-    "timeline",
-    "diff"
+    "timeline"
   ]),
   removedGroup("Time travel and checkpoints", timeTravel, "worktrees", ["list", "prune"]),
   ...removed("Hijack and pause", control, ["hijack", "pause"]),
@@ -100,7 +99,7 @@ export const removedVerbs: ReadonlyArray<RemovedVerb> = [
   // are removed. They are a group rather than plain verbs for exactly that
   // reason: the parent still runs.
   removedGroup("Old gateway and UI hosting", uiHosting, "gateway", ["status", "stop"]),
-  ...removed("Old gateway and UI hosting", uiHosting, ["ui", "gui", "monitor"]),
+  ...removed("Old gateway and UI hosting", uiHosting, ["ui", "gui"]),
   ...removed("Supervision", recovery, ["supervise", "supervisor", "top"]),
   ...removed("Evaluation and optimization", evaluation, ["optimize", "scores"]),
   ...removed("Chat and narration", jsx, ["chat", "chat-create", "what", "ask"]),
@@ -158,7 +157,7 @@ export const removedVerbs: ReadonlyArray<RemovedVerb> = [
   ...removed("Old aliases and did-you-mean keys", "use `smthrs runs list`", ["list-runs"]),
   ...removed("Old aliases and did-you-mean keys", "use `smthrs flow list`", ["list", "workflows"]),
   ...removed("Old aliases and did-you-mean keys", "use `smthrs runs cancel`", ["stop", "kill"]),
-  ...removed("Old aliases and did-you-mean keys", "use `smthrs flow start`", ["start", "exec"]),
+  ...removed("Old aliases and did-you-mean keys", "use `smthrs flow start`", ["start"]),
   ...removed("Old aliases and did-you-mean keys", "use `smthrs runs logs`", ["log"]),
   ...removed("Old aliases and did-you-mean keys", "use `--help`", ["help"])
 ]

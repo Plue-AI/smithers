@@ -282,7 +282,7 @@ export const legacyState = (
 export const legacyNotice = (path: string): string =>
   `Found Smithers 0.x state at ${path}. 1.0.0-rc.0 does not load, resume, or migrate 0.x run databases. ` +
   `Finish, archive, or discard those runs with the 0.x CLI (bunx smthrs@0.35.0 ps), ` +
-  `then run "smthrs migrate" to convert the project source. ` +
+  `then run "smithers-migrate" to convert the project source. ` +
   `See https://smithers.sh/migration/1.0#run-data`
 
 /**

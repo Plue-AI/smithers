@@ -8,6 +8,7 @@
  * lists handed to a shell-quoting helper, and resolves each `smthrs ...`
  * spelling against the canonical Incur manifest.
  */
+import { Cli as Incur } from "incur"
 import { readdirSync, readFileSync } from "node:fs"
 import { join, relative } from "node:path"
 import ts from "typescript"
@@ -18,10 +19,16 @@ import * as Unsupported from "../src/Unsupported.ts"
 
 const packageRoot = join(import.meta.dirname, "..")
 
-const capture = async (args: ReadonlyArray<string>): Promise<string> => {
+const capture = async (args: ReadonlyArray<string>, published = false): Promise<string> => {
   const environment = { ...process.env, NO_COLOR: "1" } as Record<string, string>
   let output = ""
-  await makeCli({ environment }).serve([...args], {
+  const cli = makeCli({ environment })
+  const tree = published ? Incur.create("smthrs") : cli
+  if (published) {
+    const commands = Incur.toCommands.get(tree as never)!
+    for (const [name, entry] of Incur.toCommands.get(cli as never)!) commands.set(name, entry)
+  }
+  await tree.serve([...args], {
     env: environment,
     stdout: (text) => {
       output += text
@@ -108,17 +115,28 @@ describe("the spelling prefilter", () => {
   })
 })
 
+describe("published group children", () => {
+  it("resolves child options even when install discovery omits the library door", async () => {
+    const manifest = JSON.parse(await capture(["--llms-full", "--format", "json"], true)) as Manifest
+    expect(manifest.commands.find((command) => command.name === "runs logs")?.schema?.options?.properties)
+      .toHaveProperty("follow")
+  })
+})
+
 describe("printed command spellings", () => {
   it("name only canonical, non-hidden commands and their declared options", async () => {
     const manifest = JSON.parse(await capture(["--llms-full", "--format", "json"])) as Manifest
-    const canonical = new Map(manifest.commands.map((command) => [command.name, command]))
+    // Install discovery hides published library children. Their printed flags
+    // still resolve against their own schema, never the catalog parent schema.
+    const published = JSON.parse(await capture(["--llms-full", "--format", "json"], true)) as Manifest
+    const canonical = new Map(published.commands.map((command) => [command.name, command]))
     const paths = new Set(
-      manifest.commands.flatMap((command) => {
+      published.commands.flatMap((command) => {
         const words = command.name.split(" ")
         return words.map((_, index) => words.slice(0, index + 1).join(" "))
       })
     )
-    const topLevel = new Set([...paths].filter((path) => !path.includes(" ")))
+    const topLevel = new Set(manifest.commands.map((command) => command.name.split(" ")[0]!))
     // Every word the compatibility tree answers that the canonical one does not.
     const hidden = new Set(
       [

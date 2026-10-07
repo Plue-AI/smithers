@@ -272,7 +272,7 @@ describe("Command.render", () => {
     const report = reportWith("apply", [{ id: "workflow:a", status: "migrated" }])
     const text = Command.render(report, "human", "/work/.smithers-migrate")
 
-    expect(text).toContain("smthrs migrate apply: /work")
+    expect(text).toContain("smithers-migrate apply: /work")
     expect(text).toContain("1 migrated")
     expect(text).toContain("Run state: clean")
     expect(text).toContain("Report: /work/.smithers-migrate/report.md")
@@ -310,7 +310,7 @@ describe("Command.render", () => {
   it("does not claim a report was written in scan mode even when given a report path", () => {
     const report = reportWith("scan", [])
     const text = Command.render(report, "human", "/work/.smithers-migrate")
-    expect(text).toContain("smthrs migrate scan: /work")
+    expect(text).toContain("smithers-migrate scan: /work")
     expect(text).toContain("Units: 0 planned, 0 migrated, 0 failed, 0 blocked.")
     expect(text).not.toContain("Report:")
     expect(text).toContain("Exit 0.")

@@ -337,7 +337,7 @@ export const render = (
   const byStatus = (status: Report.UnitReport["status"]): number =>
     report.units.filter((unit) => unit.status === status).length
   const lines: Array<string> = [
-    `smthrs migrate ${report.mode}: ${report.root}`,
+    `smithers-migrate ${report.mode}: ${report.root}`,
     "",
     `Units: ${byStatus("planned")} planned, ${byStatus("migrated")} migrated, ${byStatus("failed")} failed, ${
       byStatus("blocked")

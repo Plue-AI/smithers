@@ -100,7 +100,6 @@ export const knowledge = {
     { name: "smthrs generate flow <name>", about: "Scaffold a Markdown flow without replacing an existing one." },
     { name: "smthrs test <pattern>", about: "Run PACKAGE.ts test targets, e.g. //packages/smithers/agent:test." },
     { name: "smthrs docs <pattern>", about: "Docs parity targets, e.g. smthrs docs //packages/smithers/agent:docs." },
-    { name: "smthrs doctor", about: "Check project discovery, providers, tools, and durable state." },
     { name: "smthrs tui", about: "Open the terminal coding agent." }
   ],
   authoring: [

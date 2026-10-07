@@ -648,7 +648,7 @@ const migrate = Command.make("migrate", {
       if (root.json) yield* Console.log(JSON.stringify(document))
       else {
         yield* Console.error(
-          `smthrs migrate: ${outcome.message}${outcome.details === undefined ? "" : `\n${outcome.details}`}`
+          `smithers-migrate: ${outcome.message}${outcome.details === undefined ? "" : `\n${outcome.details}`}`
         )
       }
       return yield* CommandStatus.set(3)
@@ -702,7 +702,7 @@ const doctor = Command.make("doctor", {}, () =>
     yield* render(
       root.json
         ? report
-        : Ui.renderChecklist(`smthrs doctor: ${report.root}`, report.checks, { interactive: ui.interactive })
+        : Ui.renderChecklist(`Diagnostics: ${report.root}`, report.checks, { interactive: ui.interactive })
     )
     if (Doctor.failed(report)) {
       yield* Effect.fail(new CliError.UnsupportedError({ message: "doctor found a blocking problem" }))

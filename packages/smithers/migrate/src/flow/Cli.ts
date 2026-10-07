@@ -115,7 +115,7 @@ export const command = Command.make("smithers-migrate", flags, (config) =>
       // the first one's lock. Both print the operator's own instructions,
       // exit 3, and leave the project untouched.
       yield* Console.error(
-        `smthrs migrate: ${error.message}${error.details === undefined ? "" : `\n${error.details}`}`
+        `smithers-migrate: ${error.message}${error.details === undefined ? "" : `\n${error.details}`}`
       )
       process.exitCode = error.code === "run-state-blocked" || error.code === "unsafe-blocked" ||
           error.code === "apply-in-progress"

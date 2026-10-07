@@ -22,6 +22,7 @@ import type * as Evaluator from "@smthrs/model/Evaluator"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import { Cli } from "incur"
+import { installCommands } from "./internal/backend/InstallDiscovery.ts"
 import * as Unsupported from "./Unsupported.ts"
 
 /** The option that means no command is what the person typed. */
@@ -72,7 +73,7 @@ export const commands = (cli: Cli.Cli<any, any, any, any>): ReadonlyArray<Comman
       }
     }
   }
-  walk((Cli.toCommands.get(cli as never) ?? new Map()) as ReadonlyMap<string, Entry>, "")
+  walk((installCommands(cli) ?? Cli.toCommands.get(cli as never) ?? new Map()) as ReadonlyMap<string, Entry>, "")
   return found
 }
 

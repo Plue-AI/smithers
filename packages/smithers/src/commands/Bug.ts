@@ -65,7 +65,7 @@ export const submit = (
     const environment = globals.environment ?? process.env
     const summary = options.summary.trim()
     if (summary === "") {
-      return yield* Effect.fail(new CliError.UsageError({ message: "smthrs bug needs a one-line summary" }))
+      return yield* Effect.fail(new CliError.UsageError({ message: "A bug report needs a one-line summary" }))
     }
     const control = yield* ControlService.Control
     const runId = options.runId
