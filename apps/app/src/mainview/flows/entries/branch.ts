@@ -41,10 +41,9 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     flow({ name: "branch.fork", slash: "/branch.fork", cli: ["branch","fork"], journey: ["J7"], group: "Branches and machines", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/branches"}, summary: "Fork a scratch branch", args: "<branch>", hidden: true, discloseToAgent: true,
       grammar: field("from"), agent: "run", input: Schema.Struct({ from: Schema.NonEmptyString, name: Schema.optional(Schema.NonEmptyString) }),
       handler: async ({ from, name }) => {
-        // An install forks through the stack service: {from: "main" | "T2", name?}; a bare `/branch.fork T2` names the source.
+        // The shared stack service captures awake sources before selecting a revision.
         if (actions.forkBranch) {
           const source = from.trim()
-          if (source === "") return "Fork main or a TODO such as T2"
           return actions.forkBranch({ from: source, ...(name ? { name } : {}) })
         }
         if (actions.design.enabled === false) return "Branch unavailable"
