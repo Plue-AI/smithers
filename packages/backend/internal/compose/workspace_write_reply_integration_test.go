@@ -149,6 +149,15 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 			if string(changes[0].Content) == "wrong-receipt" {
 				return machined.WriteResult{Applied: []machined.AppliedFile{{Path: "daemon.txt", PostDigest: helloDigest}}}, nil
 			}
+			if string(changes[0].Content) == "partial-stale" {
+				// A provider may not combine refusal with a published change.
+				// Reject this receipt rather than report an unchanged stale write.
+				current := otherDigest
+				return machined.WriteResult{
+					Stale:   &machined.StaleFile{Path: "daemon.txt", CurrentDigest: &current},
+					Applied: []machined.AppliedFile{{Path: "daemon.txt", PostDigest: helloDigest}},
+				}, nil
+			}
 			if changes[0].BaseDigest != nil {
 				current := otherDigest
 				return machined.WriteResult{Stale: &machined.StaleFile{Path: "daemon.txt", CurrentDigest: &current}}, nil
@@ -167,6 +176,7 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 			{"?path=daemon.txt", `{"content":"hello"}`, 400, "base_digest"},
 			{"?path=daemon.txt", `{"content":"offline","base_digest":"absent"}`, 503, `"code":"service_unavailable"`},
 			{"?path=daemon.txt", `{"content":"wrong-receipt","base_digest":"absent"}`, 503, `"code":"service_unavailable"`},
+			{"?path=daemon.txt", `{"content":"partial-stale","base_digest":"absent"}`, 503, `"code":"service_unavailable"`},
 			{"", `{"changes":[{"path":"daemon.txt","content":"hello","base_digest":"absent"},{"path":"second.txt","content":"hello","base_digest":"absent"}]}`, 503, `"code":"service_unavailable"`},
 			{"", `{"changes":[{"path":"daemon.txt","content":null,"base_digest":"` + helloDigest + `"}]}`, 503, `"code":"service_unavailable"`},
 		} {
@@ -187,6 +197,6 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 		}
 		// Unsupported transactions and deletions must refuse before the first
 		// remote write. Sequential WriteFiles receipts cannot qualify a patch.
-		require.Equal(t, 4, calls)
+		require.Equal(t, 5, calls)
 	})
 }
