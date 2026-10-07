@@ -645,6 +645,26 @@ fn authenticated_daemon_emits_production_broker_presence_after_roster_and_on_rec
     impl Controls for BrokerHost {
         fn stream(&mut self, op: u8, _: &[u8]) -> io::Result<Vec<u8>> {
             match op {
+                25 => {
+                    let entries: Vec<_> = self
+                        .0
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .map(|id| smithers_machined::broker::sessions::Entry {
+                            id: *id,
+                            user: smithers_machined::broker::sessions::User {
+                                login: "maya".into(),
+                                uid: 20001,
+                            },
+                            kind: smithers_machined::broker::sessions::Kind::Pty,
+                            run: None,
+                            closed: false,
+                            exited: false,
+                        })
+                        .collect();
+                    serde_json::to_vec(&entries).map_err(io::Error::other)
+                }
                 18 | 22 | 23 => Ok(vec![]),
                 21 => Ok(self
                     .0

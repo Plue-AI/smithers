@@ -14,6 +14,26 @@ struct Host(Arc<Mutex<Vec<u32>>>);
 impl Controls for Host {
     fn stream(&mut self, op: u8, _: &[u8]) -> io::Result<Vec<u8>> {
         match op {
+            25 => {
+                let entries: Vec<_> = self
+                    .0
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .map(|id| smithers_machined::broker::sessions::Entry {
+                        id: *id,
+                        user: smithers_machined::broker::sessions::User {
+                            login: "maya".into(),
+                            uid: 20001,
+                        },
+                        kind: smithers_machined::broker::sessions::Kind::Pty,
+                        run: None,
+                        closed: false,
+                        exited: false,
+                    })
+                    .collect();
+                serde_json::to_vec(&entries).map_err(io::Error::other)
+            }
             18 | 22 | 23 => Ok(vec![]),
             21 => Ok(self
                 .0
@@ -192,4 +212,106 @@ fn lost_broker_connection_is_unknown_on_every_retry() {
     for _ in 0..2 {
         assert_eq!(broker.poll_presence(Instant::now()).unwrap_err().code, 12);
     }
+}
+
+#[test]
+fn snapshot_excludes_forwarding_ended_and_unregistered_agent_sessions() {
+    use smithers_machined::broker::sessions::{Entry, Kind, User};
+    struct RegistryHost(Vec<Entry>);
+    impl Controls for RegistryHost {
+        fn stream(&mut self, op: u8, _: &[u8]) -> io::Result<Vec<u8>> {
+            match op {
+                18 | 22 | 23 => Ok(vec![]),
+                25 => serde_json::to_vec(&self.0).map_err(io::Error::other),
+                _ => Err(io::ErrorKind::Unsupported.into()),
+            }
+        }
+        fn freeze(&mut self, _: Duration) -> io::Result<Option<u32>> {
+            Err(io::ErrorKind::Unsupported.into())
+        }
+        fn thaw(&mut self) -> io::Result<()> {
+            Err(io::ErrorKind::Unsupported.into())
+        }
+        fn kill(&mut self) -> io::Result<u16> {
+            Err(io::ErrorKind::Unsupported.into())
+        }
+    }
+    let person = User {
+        login: "maya".into(),
+        uid: 20001,
+    };
+    let agent = User {
+        login: "agent".into(),
+        uid: 19999,
+    };
+    let entries = vec![
+        Entry {
+            id: 1,
+            user: person.clone(),
+            kind: Kind::Pty,
+            run: None,
+            closed: false,
+            exited: false,
+        },
+        Entry {
+            id: 2,
+            user: agent.clone(),
+            kind: Kind::Tcp,
+            run: None,
+            closed: false,
+            exited: false,
+        },
+        Entry {
+            id: 3,
+            user: agent.clone(),
+            kind: Kind::Exec,
+            run: None,
+            closed: false,
+            exited: false,
+        },
+        Entry {
+            id: 4,
+            user: person.clone(),
+            kind: Kind::Pty,
+            run: None,
+            closed: true,
+            exited: false,
+        },
+        Entry {
+            id: 5,
+            user: person,
+            kind: Kind::Pty,
+            run: None,
+            closed: false,
+            exited: true,
+        },
+        Entry {
+            id: 6,
+            user: agent,
+            kind: Kind::Exec,
+            run: Some("run-6".into()),
+            closed: false,
+            exited: false,
+        },
+    ];
+    let (parent, child) = socketpair(
+        AddressFamily::UNIX,
+        SocketType::SEQPACKET,
+        SocketFlags::CLOEXEC,
+        None,
+    )
+    .unwrap();
+    let worker =
+        std::thread::spawn(move || control::serve(&parent, &mut RegistryHost(entries)).unwrap());
+    let broker = SocketpairBroker::new(child).unwrap();
+    assert!(broker.where_file(3, "bad.ts").is_err());
+    assert!(broker.where_file(2, "bad.ts").is_err());
+    let frame = broker.poll_presence(Instant::now()).unwrap().unwrap();
+    // Literal snapshot count and session ids, independent of production encoders.
+    assert_eq!(
+        hex(&frame.payload),
+        "0100000015010002000000050100000001000000050100000006"
+    );
+    drop(broker);
+    worker.join().unwrap();
 }

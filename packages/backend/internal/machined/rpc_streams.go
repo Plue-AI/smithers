@@ -238,6 +238,7 @@ func (s registrySessions) CallSession(ctx context.Context, call SessionCall) (Se
 			peer.mu.Lock()
 			copy := *call.User
 			peer.user = &copy
+			peer.via = call.Via
 			peer.mu.Unlock()
 		}
 		return SessionResult{Session: id}, nil

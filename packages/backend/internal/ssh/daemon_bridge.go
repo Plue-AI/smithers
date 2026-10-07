@@ -33,7 +33,9 @@ type daemonClient struct{ *machined.Sessions }
 func (c daemonClient) Stream(ctx context.Context, id uint32) (DaemonStream, error) {
 	return c.Sessions.Stream(ctx, id)
 }
-func NewDaemonClient(s *machined.Sessions) DaemonClient { return daemonClient{s} }
+func NewDaemonClient(s *machined.Sessions) DaemonClient {
+	return daemonClient{s.WithPresenceVia("ssh")}
+}
 
 // DaemonBridge requires every authority before authentication succeeds. Ready
 // is read-only; Admit waits as a person, reconciles the wake and returns the

@@ -355,17 +355,23 @@ impl SocketpairBroker {
         Ok(entries)
     }
     fn live_sessions(&self) -> crate::hooks::Result<Vec<u32>> {
-        let bytes = self.call_body(21, &[])?;
-        if bytes.len() % 4 != 0 || bytes.len() > 512 * 4 {
-            return Err(error(12));
-        }
+        let entries = self.registry()?;
         let mut ids = Vec::new();
-        for b in bytes.chunks_exact(4) {
-            let id = u32::from_be_bytes(b.try_into().unwrap());
-            if id == 0 || id > 0x7fff_ffff || ids.contains(&id) {
+        let mut seen = std::collections::BTreeSet::new();
+        for entry in entries {
+            if !seen.insert(entry.id) {
                 return Err(error(12));
             }
-            ids.push(id);
+            // Forwarded TCP streams are transport, not working actors. An agent
+            // gains presence only after the host registers its broker run.
+            if entry.closed
+                || entry.exited
+                || entry.kind == super::sessions::Kind::Tcp
+                || entry.user.login == "agent" && entry.run.is_none()
+            {
+                continue;
+            }
+            ids.push(entry.id);
         }
         ids.sort_unstable();
         Ok(ids)

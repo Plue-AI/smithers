@@ -31,7 +31,9 @@ const (
 // SessionCall mirrors only the six control methods in ADR 0004. The wire
 // owner supplies encoding; this seam deliberately does not define a codec.
 type SessionCall struct {
-	Method   string
+	Method string
+	// Via is host-side display metadata; it is never encoded in the guest RPC.
+	Via      string
 	User     *SessionUser
 	Kind     SessionKind
 	Argv     []string
@@ -58,6 +60,7 @@ type Sessions struct {
 	rpc        SessionRPC
 	connection *Connection
 	branch     string
+	via        string
 }
 
 func NewSessions(connection *Connection, branch string, rpc SessionRPC) *Sessions {
@@ -66,6 +69,16 @@ func NewSessions(connection *Connection, branch string, rpc SessionRPC) *Session
 		rpc = bound
 	}
 	return &Sessions{rpc: rpc, connection: connection, branch: branch}
+}
+
+// WithPresenceVia binds transport metadata at the trusted host adapter.
+func (s *Sessions) WithPresenceVia(via string) *Sessions {
+	if s == nil {
+		return nil
+	}
+	copy := *s
+	copy.via = via
+	return &copy
 }
 
 func validUser(user SessionUser) bool {
@@ -113,6 +126,12 @@ func (s *Sessions) call(ctx context.Context, call SessionCall) (SessionResult, e
 	if err := s.requireReady(ctx); err != nil {
 		return SessionResult{}, err
 	}
+	switch s.via {
+	case "", "cli", "ssh", "terminal":
+	default:
+		return SessionResult{}, refused("unauthorized", "invalid session transport")
+	}
+	call.Via = s.via
 	return s.rpc.CallSession(ctx, call)
 }
 

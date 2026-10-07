@@ -38,6 +38,7 @@ type SessionStream struct {
 	closed                       bool
 	user                         *SessionUser
 	run                          string
+	via                          string
 }
 
 func newSessionStream(l *Link, id uint32) *SessionStream {
