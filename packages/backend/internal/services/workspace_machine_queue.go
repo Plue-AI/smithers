@@ -422,7 +422,7 @@ func (l *workspaceMythicalLanes) SyncTodoMachines(repositoryID int64, items []db
 	}
 	holders := []string{}
 	for _, item := range items {
-		if item.Source != "todo" {
+		if !mythicalTodo(item) {
 			continue
 		}
 		holder := todoMachineHolder(item)

@@ -1277,7 +1277,7 @@ func mythicalRunInFlight(item db.MythicalItem) bool {
 // Fresh TODO admission stays refused until ordered runtime admission is composed.
 // freeLane supplies identity only; people use runtime admission, not a lane reserve.
 func (st *mythicalItemStep) slot(item db.MythicalItem) bool {
-	if st.s != nil && st.s.installParallelRequired && item.Source == "todo" {
+	if st.s != nil && st.s.installParallelRequired && mythicalTodo(item) {
 		lanes, ok := st.s.lanes.(interface{ TodoMachineEligible(db.MythicalItem) bool })
 		return st.maxParallel > 0 && ok && lanes.TodoMachineEligible(item) && st.launches < mythicalLaunchesPerRun
 	}
@@ -2134,7 +2134,7 @@ func (st *mythicalItemStep) commitWithGuard(ctx context.Context, item db.Mythica
 // two inserts can leave an unbound, unprovisioned workspace row.
 func (st *mythicalItemStep) lane(ctx context.Context, item db.MythicalItem, name string, placement MythicalPlacement) (string, error) {
 	s, r := st.s, st.r
-	if s.installParallelRequired && item.Source == "todo" && (item.State == "queued" || item.State == "retrying") {
+	if s.installParallelRequired && mythicalTodo(item) && (item.State == "queued" || item.State == "retrying") {
 		ctx = context.WithValue(ctx, todoMachineDemandKey{}, todoMachineHolder(item))
 	}
 	q := s.queries()

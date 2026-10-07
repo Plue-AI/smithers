@@ -366,3 +366,25 @@ func TestIssueTodoMachineOrderFollowsTheStack(t *testing.T) {
 	position, _ = svc.MachinePlace(q.row("chat"))
 	require.Equal(t, 2, position, "chat demand is excluded from stack reorder")
 }
+
+func TestIssueTodoSharesOrderedRuntimeAdmission(t *testing.T) {
+	svc, _ := machineQueueService(t)
+	lanes := &workspaceMythicalLanes{workspaces: svc}
+	issue := db.MythicalItem{Source: "issue", WorkspaceID: "issue", State: "queued", Revisions: []byte(`[{"text":"Frozen issue"}]`)}
+	issue.StackPosition.Int64, issue.StackPosition.Valid = 1, true
+	manual := db.MythicalItem{Source: "todo", WorkspaceID: "manual", State: "queued"}
+	manual.StackPosition.Int64, manual.StackPosition.Valid = 2, true
+	historical := db.MythicalItem{Source: "issue", WorkspaceID: "historical", State: "queued", Revisions: []byte(`[]`)}
+	historical.StackPosition.Int64, historical.StackPosition.Valid = 3, true
+	require.NoError(t, lanes.SyncTodoMachines(1, []db.MythicalItem{issue, manual, historical}, 1, time.Now()))
+	require.True(t, lanes.TodoMachineEligible(issue), "admitted issue leads the shared stack")
+	require.False(t, lanes.TodoMachineEligible(manual), "issue demand consumes the parallel cutoff")
+	require.False(t, lanes.TodoMachineEligible(historical), "historical intake is not executable demand")
+	step := &mythicalItemStep{s: &MythicalService{installParallelRequired: true, lanes: lanes}, maxParallel: 1}
+	require.True(t, step.slot(issue))
+	require.False(t, step.slot(manual), "issue and manual TODOs use the same runtime eligibility")
+	issue.PausedAt.Valid = true
+	require.NoError(t, lanes.SyncTodoMachines(1, []db.MythicalItem{issue, manual, historical}, 1, time.Now()))
+	require.False(t, lanes.TodoMachineEligible(issue))
+	require.True(t, lanes.TodoMachineEligible(manual), "pausing the issue releases its demand")
+}
