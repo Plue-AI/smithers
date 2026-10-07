@@ -7,7 +7,7 @@ import { ChildProcessSpawner, make as makeSpawner } from "effect/unstable/proces
 import { execFileSync } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { basename, dirname, join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 // The control API is fake because provisioning a VM is outside this contract.
@@ -87,7 +87,9 @@ const fixture = (deleteFailures = 0) => {
       workdir: guest,
       pollInterval: "10 millis"
     }))
-  return { root, host, guest, base, bundle, events, provider }
+  // The SSH stand-in shares this host’s /tmp with concurrent suites. Give
+  // each fixture its own process namespace, as separate real guests have.
+  return { root, host, guest, base, bundle, events, provider, session: basename(root) }
 }
 
 const shell = (script: string) =>
@@ -99,7 +101,7 @@ const shell = (script: string) =>
 
 describe("CloudSandbox work", () => {
   it.each([2, Infinity])("retains captured work after %s deletion failures", async (failures) => {
-    const { guest, events, provider } = fixture(failures)
+    const { guest, events, provider, session } = fixture(failures)
     const warning = vi.spyOn(console, "log").mockImplementation(() => {})
     try {
       const captured = await Effect.runPromise(
@@ -108,7 +110,7 @@ describe("CloudSandbox work", () => {
           (cloud) =>
             Sandbox.run(
               cloud,
-              { session: "cleanup-retry" },
+              { session },
               shell("printf 'saved\\n' >> tracked.txt && printf completed")
             )
         )
@@ -132,13 +134,13 @@ describe("CloudSandbox work", () => {
   }, 120_000)
 
   it("captures the workspace's work before DELETE and merges it onto the host repository", async () => {
-    const { host, guest, base, events, provider } = fixture()
+    const { host, guest, base, events, provider, session } = fixture()
     const { result, work } = await Effect.runPromise(
       Effect.gen(function*() {
         const cloud = yield* provider
         return yield* Sandbox.run(
           cloud,
-          { session: "cloud-work" },
+          { session },
           shell(
             "printf 'committed\\n' > committed.txt && git add committed.txt && " +
               "git -c commit.gpgsign=false commit -q -m guest && " +
@@ -152,7 +154,7 @@ describe("CloudSandbox work", () => {
     expect(result).toBe("edited")
     expect(work._tag).toBe("Changed")
     expect(work.base).toBe(base)
-    expect(work.session).toBe("cloud-work")
+    expect(work.session).toBe(session)
     if (work._tag !== "Changed") return
     expect(work.patch).toContain("rename from rename-me.txt\nrename to renamed.txt\n")
     expect(work.patch).toContain("deleted file mode 100644")
@@ -187,21 +189,21 @@ describe("CloudSandbox work", () => {
   }, 120_000)
 
   it("returns Unchanged for a workspace that edited nothing, still before DELETE", async () => {
-    const { base, events, provider } = fixture()
+    const { base, events, provider, session } = fixture()
     const { work } = await Effect.runPromise(
-      Effect.flatMap(provider, (cloud) => Sandbox.run(cloud, { session: "cloud-idle" }, shell("git status --short")))
+      Effect.flatMap(provider, (cloud) => Sandbox.run(cloud, { session }, shell("git status --short")))
         .pipe(Effect.provide(NodeServices.layer))
     )
-    expect(work).toMatchObject({ _tag: "Unchanged", base, session: "cloud-idle" })
+    expect(work).toMatchObject({ _tag: "Unchanged", base, session })
     expect(events.lastIndexOf("ssh")).toBeLessThan(events.indexOf("DELETE"))
   }, 120_000)
 
   it("passes SandboxConformance, the work checks included", async () => {
-    const { base, bundle, provider } = fixture()
+    const { base, bundle, provider, session } = fixture()
     const violations = await Effect.runPromise(
       Effect.flatMap(provider, (cloud) =>
         SandboxConformance.check(cloud, {
-          session: "cloud-conformance",
+          session,
           // Each work check makes about a dozen framed SSH round trips and
           // streams a bundle through the shell, past the 10 s default.
           checkTimeout: "120 seconds",
