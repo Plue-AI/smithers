@@ -104,7 +104,18 @@ pub fn handle(packet: &[u8], controls: &mut impl Controls) -> io::Result<Vec<u8>
     })
 }
 #[cfg(target_os = "linux")]
-pub struct SocketpairBroker(std::sync::Mutex<(std::os::fd::OwnedFd, u32, bool)>);
+pub struct SocketpairBroker(
+    std::sync::Mutex<(std::os::fd::OwnedFd, u32, bool)>,
+    std::sync::Mutex<Presence>,
+);
+#[cfg(target_os = "linux")]
+#[derive(Default)]
+struct Presence {
+    // Display metadata only; live session identity always comes from the broker.
+    paths: std::collections::BTreeMap<u32, String>,
+    last: Option<Vec<u8>>,
+    sent: Option<std::time::Instant>,
+}
 #[cfg(target_os = "linux")]
 impl SocketpairBroker {
     pub fn new(fd: std::os::fd::OwnedFd) -> io::Result<Self> {
@@ -112,7 +123,10 @@ impl SocketpairBroker {
         for timeout in [Timeout::Recv, Timeout::Send] {
             sockopt::set_socket_timeout(&fd, timeout, Some(Duration::from_secs(6)))?;
         }
-        Ok(Self(std::sync::Mutex::new((fd, 0, false))))
+        Ok(Self(
+            std::sync::Mutex::new((fd, 0, false)),
+            std::sync::Mutex::new(Presence::default()),
+        ))
     }
     fn call(&self, variant: u8, fields: &[Vec<u8>]) -> crate::hooks::Result<Vec<u8>> {
         self.call_body(variant, &conn::structure_bytes(fields))
@@ -242,6 +256,12 @@ pub fn serve(fd: &std::os::fd::OwnedFd, controls: &mut impl Controls) -> io::Res
 
 #[cfg(target_os = "linux")]
 impl crate::hooks::Sessions for SocketpairBroker {
+    fn reset_presence(&self) -> crate::hooks::Result<()> {
+        let mut presence = self.1.lock().map_err(|_| error(12))?;
+        presence.last = None;
+        presence.sent = None;
+        Ok(())
+    }
     fn ready(&self) -> crate::hooks::Result<()> {
         self.call_body(23, &[]).map(|_| ())
     }
@@ -253,7 +273,11 @@ impl crate::hooks::Sessions for SocketpairBroker {
         Ok(None)
     }
     fn poll(&self) -> crate::hooks::Result<Vec<conn::Frame>> {
-        self.poll_stream(0)
+        let mut frames = self.poll_stream(0)?;
+        if let Some(frame) = self.poll_presence(std::time::Instant::now())? {
+            frames.push(frame);
+        }
+        Ok(frames)
     }
     fn poll_local(&self, id: u32) -> crate::hooks::Result<Vec<conn::Frame>> {
         if id == 0 {
@@ -273,19 +297,32 @@ impl crate::hooks::Sessions for SocketpairBroker {
         String::from_utf8(self.call_body(20, path.as_bytes()).ok()?).ok()
     }
     fn live(&self) -> Vec<u32> {
-        let Ok(bytes) = self.call_body(21, &[]) else {
-            return vec![];
-        };
-        if bytes.len() % 4 != 0 || bytes.len() > 512 * 4 {
-            return vec![];
+        self.live_sessions().unwrap_or_default()
+    }
+    fn last_path(&self, session: u32) -> Option<String> {
+        self.1.lock().ok()?.paths.get(&session).cloned()
+    }
+    fn where_file(&self, session: u32, path: &str) -> crate::hooks::Result<()> {
+        if !crate::ignore::relative(std::path::Path::new(path))
+            || path.contains('\0')
+            || path.len() > 4096
+        {
+            return Err(error(1));
         }
-        bytes
-            .chunks_exact(4)
-            .map(|b| u32::from_be_bytes(b.try_into().unwrap()))
-            .collect()
+        // An outside write, stale session or forged id cannot move anyone.
+        if !self.live_sessions()?.contains(&session) {
+            return Err(error(11));
+        }
+        self.1
+            .lock()
+            .map_err(|_| error(12))?
+            .paths
+            .insert(session, path.into());
+        Ok(())
     }
     fn disconnected(&self) -> crate::hooks::Result<()> {
-        self.call_body(22, &[]).map(|_| ())
+        self.call_body(22, &[])?;
+        self.reset_presence()
     }
     fn call(&self, method: u8, args: &[u8]) -> crate::hooks::Result<Vec<u8>> {
         if !matches!(method, 6..=10 | 15) {
@@ -300,6 +337,66 @@ impl crate::hooks::Sessions for SocketpairBroker {
 
 #[cfg(target_os = "linux")]
 impl SocketpairBroker {
+    fn live_sessions(&self) -> crate::hooks::Result<Vec<u32>> {
+        let bytes = self.call_body(21, &[])?;
+        if bytes.len() % 4 != 0 || bytes.len() > 512 * 4 {
+            return Err(error(12));
+        }
+        let mut ids = Vec::new();
+        for b in bytes.chunks_exact(4) {
+            let id = u32::from_be_bytes(b.try_into().unwrap());
+            if id == 0 || id > 0x7fff_ffff || ids.contains(&id) {
+                return Err(error(12));
+            }
+            ids.push(id);
+        }
+        ids.sort_unstable();
+        Ok(ids)
+    }
+    /// Poll runs only after the daemon's authenticated roster and reconciliation
+    /// gates. Reconnect resets emission so the new host immediately gets a full
+    /// snapshot. Failed broker reads never become an empty presence snapshot.
+    pub fn poll_presence(
+        &self,
+        now: std::time::Instant,
+    ) -> crate::hooks::Result<Option<conn::Frame>> {
+        let ids = self.live_sessions()?;
+        let mut presence = self.1.lock().map_err(|_| error(12))?;
+        presence.paths.retain(|id, _| ids.contains(id));
+        let mut items = (ids.len() as u16).to_be_bytes().to_vec();
+        for id in ids {
+            let mut fields = vec![conn::field(1, id.to_be_bytes())];
+            if let Some(path) = presence.paths.get(&id) {
+                let mut value = (path.len() as u16).to_be_bytes().to_vec();
+                value.extend(path.as_bytes());
+                fields.push(conn::field(2, value));
+            }
+            items.extend(conn::structure_bytes(&fields));
+        }
+        let payload = conn::tagged(1, &[conn::field(1, items)]);
+        if presence
+            .sent
+            .is_some_and(|sent| now.saturating_duration_since(sent) < Duration::from_millis(250))
+        {
+            return Ok(None);
+        }
+        if presence.last.as_ref() == Some(&payload)
+            && presence
+                .sent
+                .is_some_and(|sent| now.saturating_duration_since(sent) < Duration::from_secs(10))
+        {
+            return Ok(None);
+        }
+        let frame = conn::Frame {
+            kind: 3,
+            stream: 0,
+            payload,
+        };
+        frame.encode().map_err(|_| error(12))?;
+        presence.last = Some(frame.payload.clone());
+        presence.sent = Some(now);
+        Ok(Some(frame))
+    }
     /// Shared stream allocator for document/object provider composition.
     pub fn allocate_stream(&self) -> crate::hooks::Result<u32> {
         let bytes = self.call_body(24, &[])?;

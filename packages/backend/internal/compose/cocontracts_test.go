@@ -403,3 +403,49 @@ func TestWorkingTogetherWireContract(t *testing.T) {
 		t.Fatal("sequence receipt or actor changed", input, saved)
 	}
 }
+
+// Row 4 expands committed daemon locations and preserves browser document-line
+// coordinates through the composed install. Expected locations are literals.
+func TestMachinedPresenceRow4LocationExpansion(t *testing.T) {
+	frame, err := wire.Decode(wireBytes(t, "presence_snapshot"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	locations, err := frame.PresenceSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(locations) != 2 || locations[0].Session != 1 || locations[0].Path != "a" || locations[1].Session != 2 || locations[1].Path != "" {
+		t.Fatalf("row-4 locations: %#v", locations)
+	}
+	f := presenceInstall(t)
+	conn := f.dial(t)
+	sendPresenceFrame(t, conn, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s"}`, f.row.ID))
+	readPresenceFrame(t, conn)
+	sendPresenceFrame(t, conn, fmt.Sprintf(`{"t":"presence","id":2,"where":{"branch":%q,"path":"retry.ts","line":12}}`, f.row.ID))
+	snapshot := readPresenceFrame(t, conn)
+	var card struct {
+		Presence []struct {
+			Where struct {
+				Kind, Path string
+				Line       int64
+			}
+			Sessions []struct {
+				Where struct {
+					Kind, Path string
+					Line       int64
+				}
+			}
+		}
+	}
+	if err := json.Unmarshal(snapshot.Data, &card); err != nil {
+		t.Fatal(err)
+	}
+	if len(card.Presence) != 1 {
+		t.Fatalf("presence: %s", snapshot.Data)
+	}
+	person := card.Presence[0]
+	if person.Where.Kind != "file" || person.Where.Path != "retry.ts" || person.Where.Line != 12 || len(person.Sessions) != 1 || person.Sessions[0].Where != person.Where {
+		t.Fatalf("document coordinates: %s", snapshot.Data)
+	}
+}

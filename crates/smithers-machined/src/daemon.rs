@@ -39,6 +39,10 @@ impl Daemon {
     pub fn serve(&self, mut connection: crate::link::Authenticated) -> Result<(), ProtocolError> {
         let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
         self.roster.store(false, Ordering::Release);
+        self.hooks
+            .sessions
+            .reset_presence()
+            .map_err(|_| ProtocolError::Truncated)?;
         let writer = Arc::new(Mutex::new(
             connection
                 .stream()
