@@ -250,8 +250,8 @@ func turnAuthor(ctx context.Context, q *db.Queries, members identity.MemberAutho
 	return info, nil
 }
 
-// ReadBranchFile reuses Source-ready and live member authority for an immutable
-// branch read. Main uses the sync-owned bookmark, never a workspace checkout.
+// ReadBranchFile reuses Source-ready and live member authority for working-copy
+// and captured reads. Main uses the sync-owned bookmark, never a workspace checkout.
 func (s InstallSource) ReadBranchFile(ctx context.Context, credential middleware.Credential, userID int64, branch, filePath, at string, branches interface {
 	GetBranch(context.Context, string, int64, int64) (BranchMachineResponse, error)
 }) (repohost.FileContent, string, error) {
@@ -300,6 +300,17 @@ func (s InstallSource) ReadBranchFile(ctx context.Context, credential middleware
 		if delegation, ok := middleware.AuthInfoFromContext(ctx).Delegation(); ok &&
 			(!strings.EqualFold(delegation.Branch, row.Machine.ID) || at != "" && at != row.Head) {
 			return repohost.FileContent{}, "", ErrSourceForbidden
+		}
+		if row.State == "awake" && at == "" {
+			reader, ok := branches.(interface {
+				ReadCurrentBranchFile(context.Context, string, int64, int64, string) (WorkspaceFileContent, error)
+			})
+			if !ok {
+				return repohost.FileContent{}, "", ErrSourceNotReady
+			}
+			file, err := reader.ReadCurrentBranchFile(ctx, row.Machine.ID, repository.ID, userID, filePath)
+			// Working-copy bytes have no immutable commit identity.
+			return repohost.FileContent{Content: file.Content, Encoding: file.Encoding}, "", err
 		}
 		if row.State == "asleep" {
 			snapshots, ok := branches.(interface {
