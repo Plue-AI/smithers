@@ -48,3 +48,16 @@ LIMIT 1
 	}
 	return hook, true, nil
 }
+
+// A test ping is sent once by its admitting request, never by the delivery
+// worker. Infinity keeps a crash or an ambiguous remote result from turning
+// into an automatic retry. The durable receipt exists before any HTTP send.
+func (q *Queries) CreateWebhookTestDelivery(ctx context.Context, webhookID int64, payload []byte) (WebhookDelivery, error) {
+	var row WebhookDelivery
+	err := q.db.QueryRow(ctx, `INSERT INTO webhook_deliveries
+ (webhook_id,event_type,payload,status,response_body,next_retry_at,attempts)
+ VALUES ($1,'ping',$2,'pending','{"outcome":"outcomeUnknown"}','infinity',1)
+ RETURNING id,webhook_id,event_type,payload,status,response_status,response_body,attempts,delivered_at,next_retry_at,created_at,updated_at`, webhookID, payload).Scan(
+		&row.ID, &row.WebhookID, &row.EventType, &row.Payload, &row.Status, &row.ResponseStatus, &row.ResponseBody, &row.Attempts, &row.DeliveredAt, &row.NextRetryAt, &row.CreatedAt, &row.UpdatedAt)
+	return row, err
+}

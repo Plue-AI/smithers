@@ -49,6 +49,7 @@ type WebhookQuerier interface {
 	UpdateRepoWebhookByOwnerAndRepo(ctx context.Context, arg db.UpdateRepoWebhookByOwnerAndRepoParams) (db.Webhook, error)
 	DeleteRepoWebhookByOwnerAndRepo(ctx context.Context, arg db.DeleteRepoWebhookByOwnerAndRepoParams) (int64, error)
 	CreateWebhookDelivery(ctx context.Context, arg db.CreateWebhookDeliveryParams) (db.WebhookDelivery, error)
+	CreateWebhookTestDelivery(ctx context.Context, webhookID int64, payload []byte) (db.WebhookDelivery, error)
 	UpdateWebhookDeliveryResult(ctx context.Context, arg db.UpdateWebhookDeliveryResultParams) error
 	ListWebhookDeliveriesForRepo(ctx context.Context, arg db.ListWebhookDeliveriesForRepoParams) ([]db.WebhookDelivery, error)
 	GetWebhookDeliveryForRepo(ctx context.Context, arg db.GetWebhookDeliveryForRepoParams) (db.WebhookDelivery, error)
@@ -73,6 +74,16 @@ type WebhookServiceOption func(*WebhookService)
 func WithWebhookOwnershipGuard(g RepoOwnershipGuard) WebhookServiceOption {
 	return func(s *WebhookService) {
 		s.ownershipGuard = g
+	}
+}
+
+// WithWebhookHTTPClient supplies the host's outbound transport. The default
+// constructor retains the SSRF-safe delivery client.
+func WithWebhookHTTPClient(client *http.Client) WebhookServiceOption {
+	return func(s *WebhookService) {
+		if client != nil {
+			s.httpClient = client
+		}
 	}
 }
 
@@ -498,27 +509,43 @@ func redactWebhookSecret(h db.Webhook) db.Webhook {
 }
 
 // TestWebhookResult is the outcome of a ping delivery. Error is set, and
-// StatusCode is 0, when the endpoint could not be reached at all.
+// StatusCode is 0, when no HTTP response was received. An ambiguous send
+// reports outcomeUnknown and is never automatically retried.
 type TestWebhookResult struct {
 	StatusCode int    `json:"status_code"`
 	Body       string `json:"body"`
 	Error      string `json:"error,omitempty"`
+	Outcome    string `json:"outcome,omitempty"`
 }
 
-func (s *WebhookService) TestWebhook(ctx context.Context, actor *db.User, owner, repo string, webhookID int64) (*TestWebhookResult, error) {
+type webhookTestRequest struct {
+	ctx      context.Context
+	hook     db.Webhook
+	delivery db.WebhookDelivery
+	secret   string
+	payload  []byte
+}
+
+func (s *WebhookService) prepareWebhookTest(ctx context.Context, actor *db.User, owner, repo string, webhookID int64) (webhookTestRequest, error) {
+	if s.install != nil && !s.installAdmitted {
+		return withInstallWebhook(s, ctx, actor, owner, repo, "webhooks.test", webhookID, 0, struct{}{}, func(scoped *WebhookService, ctx context.Context) (webhookTestRequest, error) {
+			return scoped.prepareWebhookTest(ctx, actor, owner, repo, webhookID)
+		})
+	}
+
 	if actor == nil {
-		return nil, pkgerrors.Unauthorized("authentication required")
+		return webhookTestRequest{}, pkgerrors.Unauthorized("authentication required")
 	}
 	if webhookID <= 0 {
-		return nil, pkgerrors.BadRequest("invalid webhook id")
+		return webhookTestRequest{}, pkgerrors.BadRequest("invalid webhook id")
 	}
 
 	repository, err := s.resolveRepoByOwnerAndName(ctx, owner, repo)
 	if err != nil {
-		return nil, err
+		return webhookTestRequest{}, err
 	}
 	if err := s.requireAdminAccess(ctx, repository, actor); err != nil {
-		return nil, err
+		return webhookTestRequest{}, err
 	}
 
 	hook, err := s.queries.GetRepoWebhookByOwnerAndRepo(ctx, db.GetRepoWebhookByOwnerAndRepoParams{
@@ -528,14 +555,14 @@ func (s *WebhookService) TestWebhook(ctx context.Context, actor *db.User, owner,
 	})
 	if err != nil {
 		if stdErrors.Is(err, pgx.ErrNoRows) {
-			return nil, pkgerrors.NotFound("webhook not found")
+			return webhookTestRequest{}, pkgerrors.NotFound("webhook not found")
 		}
-		return nil, pkgerrors.Internal("failed to load webhook").WithCause(err)
+		return webhookTestRequest{}, pkgerrors.Internal("failed to load webhook").WithCause(err)
 	}
 
 	decryptedSecret, err := s.secretCodec.DecryptString(hook.Secret)
 	if err != nil {
-		return nil, pkgerrors.Internal("failed to decrypt webhook secret").WithCause(err)
+		return webhookTestRequest{}, pkgerrors.Internal("failed to decrypt webhook secret").WithCause(err)
 	}
 
 	pingPayload, _ := json.Marshal(map[string]any{
@@ -544,15 +571,21 @@ func (s *WebhookService) TestWebhook(ctx context.Context, actor *db.User, owner,
 		"hook_id": hook.ID,
 	})
 
-	delivery, err := s.queries.CreateWebhookDelivery(ctx, db.CreateWebhookDeliveryParams{
-		WebhookID: hook.ID,
-		EventType: "ping",
-		Payload:   pingPayload,
-		Status:    "pending",
-	})
+	delivery, err := s.queries.CreateWebhookTestDelivery(ctx, hook.ID, pingPayload)
 	if err != nil {
-		return nil, pkgerrors.Internal("failed to create ping delivery").WithCause(err)
+		return webhookTestRequest{}, pkgerrors.Internal("failed to create ping delivery").WithCause(err)
 	}
+
+	return webhookTestRequest{ctx: ctx, hook: hook, delivery: delivery, secret: decryptedSecret, payload: pingPayload}, nil
+}
+
+func (s *WebhookService) TestWebhook(ctx context.Context, actor *db.User, owner, repo string, webhookID int64) (*TestWebhookResult, error) {
+	prepared, err := s.prepareWebhookTest(ctx, actor, owner, repo, webhookID)
+	if err != nil {
+		return nil, err
+	}
+	ctx = prepared.ctx
+	hook, delivery, decryptedSecret, pingPayload := prepared.hook, prepared.delivery, prepared.secret, prepared.payload
 
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -570,6 +603,17 @@ func (s *WebhookService) TestWebhook(ctx context.Context, actor *db.User, owner,
 		finalStatus = "failed"
 	}
 
+	outcome, receiptBody := "", body
+	if deliveryErr != nil || statusCode >= 500 {
+		outcome = "outcomeUnknown"
+		receipt := map[string]any{"outcome": outcome, "status_code": statusCode, "body": body}
+		if deliveryErr != nil {
+			receipt["error"] = deliveryErr.Error()
+		}
+		raw, _ := json.Marshal(receipt)
+		receiptBody = string(raw)
+	}
+
 	// Record the delivery result on a context detached from the (possibly
 	// expired) request/delivery context so a slow endpoint cannot prevent
 	// the result from being persisted.
@@ -579,21 +623,31 @@ func (s *WebhookService) TestWebhook(ctx context.Context, actor *db.User, owner,
 		ID:             delivery.ID,
 		Status:         finalStatus,
 		ResponseStatus: toNullableInt4(statusCode),
-		ResponseBody:   body,
+		ResponseBody:   receiptBody,
 	}); err != nil {
 		slog.Error("failed to record webhook test delivery result",
 			"webhook_id", hook.ID, "delivery_id", delivery.ID, "error", err)
 	}
 
+	// The send and its receipt already happened. A revoked viewer may not read
+	// the remote response, but refusal must never imply the send was undone.
+	if s.install != nil {
+		_, err := withInstallWebhook(s, ctx, actor, owner, repo, "webhooks.test", webhookID, 0, struct{}{}, func(_ *WebhookService, _ context.Context) (struct{}, error) { return struct{}{}, nil })
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	if deliveryErr != nil {
 		// The endpoint, not the server, failed: report it as a result the
 		// admin can act on instead of a 500 blamed on the server.
-		return &TestWebhookResult{Error: deliveryErr.Error()}, nil
+		return &TestWebhookResult{Error: deliveryErr.Error(), Outcome: outcome}, nil
 	}
 
 	return &TestWebhookResult{
 		StatusCode: statusCode,
 		Body:       body,
+		Outcome:    outcome,
 	}, nil
 }
 

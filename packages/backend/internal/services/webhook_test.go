@@ -173,6 +173,10 @@ func (m *mockWebhookQuerier) CreateWebhookDelivery(ctx context.Context, arg db.C
 	}, nil
 }
 
+func (m *mockWebhookQuerier) CreateWebhookTestDelivery(ctx context.Context, id int64, payload []byte) (db.WebhookDelivery, error) {
+	return m.CreateWebhookDelivery(ctx, db.CreateWebhookDeliveryParams{WebhookID: id, EventType: "ping", Payload: payload, Status: "pending"})
+}
+
 func (m *mockWebhookQuerier) ListWebhookDeliveriesForRepo(ctx context.Context, arg db.ListWebhookDeliveriesForRepoParams) ([]db.WebhookDelivery, error) {
 	if m.listWebhookDeliveriesForRepoFn != nil {
 		return m.listWebhookDeliveriesForRepoFn(ctx, arg)

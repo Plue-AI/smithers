@@ -13226,7 +13226,14 @@
             "secret": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 {
                   "type": "null"
@@ -13234,15 +13241,36 @@
               ]
             },
             "events": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "is_active": {
               "anyOf": [
                 {
-                  "type": "boolean"
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 {
                   "type": "null"
@@ -13251,8 +13279,7 @@
             }
           },
           "required": [
-            "url",
-            "events"
+            "url"
           ],
           "additionalProperties": true
         },
@@ -13384,6 +13411,33 @@
       "http": {
         "method": "POST",
         "path": "/api/repos/{owner}/{repo}/hooks/{id}/deliveries/{delivery_id}/redeliver"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "webhooks.test",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "credentialScope": "write:repository",
+      "agent": "never",
+      "summary": "webhooks.test",
+      "http": {
+        "method": "POST",
+        "path": "/api/repos/{owner}/{repo}/hooks/{id}/tests"
       },
       "payload": {
         "dialect": "draft-2020-12",

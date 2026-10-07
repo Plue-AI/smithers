@@ -6,9 +6,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,6 +19,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
@@ -37,6 +41,16 @@ func (p *webhookAdmissionProbe) UpdateWebhook(ctx context.Context, actor *db.Use
 	return p.WebhookRouteService.UpdateWebhook(ctx, actor, owner, repo, id, input)
 }
 
+func (p *webhookAdmissionProbe) TestWebhook(ctx context.Context, actor *db.User, owner, repo string, id int64) (*services.TestWebhookResult, error) {
+	if p.before != nil {
+		p.before()
+	}
+	if p.replace {
+		id++
+	}
+	return p.WebhookRouteService.TestWebhook(ctx, actor, owner, repo, id)
+}
+
 func TestInstallWebhookAuthorizationPostgres(t *testing.T) {
 	f := newLandingGateFixtureWithFactory(t, nil, "", true)
 	pool, err := postgresfixture.Open(f.ctx, f.pool.Config().ConnConfig.ConnString(), 1)
@@ -50,7 +64,65 @@ func TestInstallWebhookAuthorizationPostgres(t *testing.T) {
 	cfg.FeatureFlags.WebhooksUser = true
 	cfg.Server.PublicURL = "http://example.com"
 	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
-	service := services.NewWebhookService(q, nil, services.WithWebhookInstallAuthorization(pool))
+
+	var sends, mode atomic.Int32
+	var expireDuringSend atomic.Bool
+	var sendOwnerHash string
+	var lastDelivery atomic.Int64
+	endpoint := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sends.Add(1)
+		payload, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		if !webhook.VerifyPayloadSignature("private-hook-secret", payload, r.Header.Get("X-Smithers-Signature-256")) {
+			t.Error("ping signature did not bind the payload")
+		}
+		id, err := strconv.ParseInt(r.Header.Get("X-Smithers-Delivery"), 10, 64)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		lastDelivery.Store(id)
+		// The admission transaction must have committed before this external
+		// call, and must not occupy the install's only database connection.
+		var reserved bool
+		if err := pool.QueryRow(r.Context(), `SELECT status='pending' AND next_retry_at='infinity'::timestamptz AND response_body LIKE '%outcomeUnknown%' FROM webhook_deliveries WHERE id=$1`, id).Scan(&reserved); err != nil || !reserved {
+			t.Errorf("missing durable single-send receipt: reserved=%v err=%v", reserved, err)
+		}
+		claimed, err := q.ClaimDueWebhookDeliveries(r.Context(), 100)
+		if err != nil {
+			t.Error(err)
+		}
+		for _, row := range claimed {
+			if row.ID == id {
+				t.Error("delivery worker claimed the in-flight test ping")
+			}
+		}
+		if expireDuringSend.Load() {
+			if _, err := pool.Exec(r.Context(), `UPDATE auth_sessions SET expires_at=now()-interval '1 second' WHERE session_key=$1`, sendOwnerHash); err != nil {
+				t.Error(err)
+			}
+		}
+		if mode.Load() == -1 {
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			_ = conn.Close()
+			return
+		}
+		if mode.Load() == 500 {
+			w.WriteHeader(500)
+			_, _ = w.Write([]byte("accepted but response failed"))
+			return
+		}
+		w.WriteHeader(204)
+	}))
+	defer endpoint.Close()
+	service := services.NewWebhookService(q, nil, services.WithWebhookInstallAuthorization(pool), services.WithWebhookHTTPClient(endpoint.Client()))
 	handler := &routes.WebhookHandler{Service: service}
 	router := buildRouterCompat(cfg, q, pool, &routes.RepoHandler{Service: services.NewRepoService(q, nil, "")}, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{},
 		&routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}},
@@ -64,13 +136,14 @@ func TestInstallWebhookAuthorizationPostgres(t *testing.T) {
 	}
 	ownerCookie, memberCookie := "hook-owner", "hook-member"
 	ownerHash := session(f.owner, ownerCookie)
+	sendOwnerHash = ownerHash
 	session(f.other, memberCookie)
 	maintainer, err := q.CreateUser(f.ctx, db.CreateUserParams{Username: "hook-maintainer", LowerUsername: "hook-maintainer"})
 	require.NoError(t, err)
 	_, err = f.pool.Exec(f.ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'admin')`, f.repoID, maintainer.ID)
 	require.NoError(t, err)
 	session(maintainer, "hook-maintainer")
-	hook, err := q.CreateWebhook(f.ctx, db.CreateWebhookParams{RepositoryID: f.repoID, Url: "https://retained.example/hook", Secret: "private-hook-secret", Events: []string{"push"}, IsActive: true})
+	hook, err := q.CreateWebhook(f.ctx, db.CreateWebhookParams{RepositoryID: f.repoID, Url: endpoint.URL, Secret: "private-hook-secret", Events: []string{"push"}, IsActive: true})
 	require.NoError(t, err)
 	delivery, err := q.CreateWebhookDelivery(f.ctx, db.CreateWebhookDeliveryParams{WebhookID: hook.ID, EventType: "push", Payload: json.RawMessage(`{"private":"delivery-marker"}`), Status: "failed"})
 	require.NoError(t, err)
@@ -80,6 +153,7 @@ func TestInstallWebhookAuthorizationPostgres(t *testing.T) {
 		status                      int
 	}
 	requests := []request{{"GET", "", "", "webhooks.list", 200}, {"GET", path, "", "webhooks.get", 200}, {"GET", path + "/deliveries", "", "webhooks.deliveries", 200}, {"POST", "", `{"url":"https://created.example/hook","secret":"new-secret","events":["push"],"is_active":true}`, "webhooks.create", 201}, {"PATCH", path, `{"is_active":false}`, "webhooks.update", 200}, {"POST", fmt.Sprintf("%s/deliveries/%d/redeliver", path, delivery.ID), "", "webhooks.redeliver", 201}, {"DELETE", path, "", "webhooks.delete", 204}}
+	requests = append(requests, request{"POST", path + "/tests", "", "webhooks.test", 200})
 	call := func(cookie, bearer string, r request) (*httptest.ResponseRecorder, []string) {
 		t.Helper()
 		req := httptest.NewRequest(r.method, cfg.Server.PublicURL+"/api/repos/gate-owner/app/hooks"+r.path, strings.NewReader(r.body))
@@ -150,7 +224,7 @@ func TestInstallWebhookAuthorizationPostgres(t *testing.T) {
 		require.Equal(t, []string{"webhooks.update"}, commands)
 		stored, err := q.GetRepoWebhookByOwnerAndRepo(f.ctx, db.GetRepoWebhookByOwnerAndRepoParams{WebhookID: hook.ID, Owner: "gate-owner", Repo: "app"})
 		require.NoError(t, err)
-		require.Equal(t, "https://retained.example/hook", stored.Url)
+		require.Equal(t, endpoint.URL, stored.Url)
 	})
 	t.Run("expiry between admission and service", func(t *testing.T) {
 		handler.Service = &webhookAdmissionProbe{WebhookRouteService: service, before: func() {
@@ -209,6 +283,93 @@ func TestInstallWebhookAuthorizationPostgres(t *testing.T) {
 		_, err = service.ListWebhooks(ctx, &f.owner, "gate-owner", "app")
 		denied(err)
 		require.Equal(t, []string{"webhooks.get"}, commands)
+	})
+
+	t.Run("test admission rejects substitution before sending", func(t *testing.T) {
+		before := sends.Load()
+		handler.Service = &webhookAdmissionProbe{WebhookRouteService: service, replace: true}
+		defer func() { handler.Service = service }()
+		out, commands := call(ownerCookie, "", requests[7])
+		require.Equal(t, 403, out.Code, out.Body.String())
+		require.Equal(t, []string{"webhooks.test"}, commands)
+		require.Equal(t, before, sends.Load())
+	})
+	t.Run("expired test admission sends nothing", func(t *testing.T) {
+		before := sends.Load()
+		handler.Service = &webhookAdmissionProbe{WebhookRouteService: service, before: func() {
+			_, err := f.pool.Exec(f.ctx, `UPDATE auth_sessions SET expires_at=now()-interval '1 second' WHERE session_key=$1`, ownerHash)
+			require.NoError(t, err)
+		}}
+		defer func() {
+			handler.Service = service
+			_, err := f.pool.Exec(f.ctx, `UPDATE auth_sessions SET expires_at=now()+interval '1 hour' WHERE session_key=$1`, ownerHash)
+			require.NoError(t, err)
+		}()
+		out, commands := call(ownerCookie, "", requests[7])
+		require.Equal(t, 401, out.Code, out.Body.String())
+		require.Equal(t, []string{"webhooks.test"}, commands)
+		require.Equal(t, before, sends.Load())
+	})
+	for _, tc := range []struct {
+		name            string
+		mode            int32
+		status, outcome string
+	}{{"success", 0, "success", ""}, {"server failure", 500, "failed", "outcomeUnknown"}, {"lost response", -1, "failed", "outcomeUnknown"}} {
+		t.Run("test ping/"+tc.name, func(t *testing.T) {
+			mode.Store(tc.mode)
+			before := sends.Load()
+			out, commands := call(ownerCookie, "", requests[7])
+			require.Equal(t, 200, out.Code, out.Body.String())
+			require.Equal(t, []string{"webhooks.test"}, commands)
+			require.Equal(t, before+1, sends.Load())
+			var result services.TestWebhookResult
+			require.NoError(t, json.Unmarshal(out.Body.Bytes(), &result))
+			require.Equal(t, tc.outcome, result.Outcome)
+			var status, body string
+			var reserved bool
+			require.NoError(t, pool.QueryRow(f.ctx, `SELECT status,response_body,next_retry_at='infinity'::timestamptz FROM webhook_deliveries WHERE id=$1`, lastDelivery.Load()).Scan(&status, &body, &reserved))
+			require.Equal(t, tc.status, status)
+			require.True(t, reserved)
+			if tc.outcome != "" {
+				require.Contains(t, body, tc.outcome)
+			}
+			rows, err := q.ClaimDueWebhookDeliveries(f.ctx, 100)
+			require.NoError(t, err)
+			for _, row := range rows {
+				require.NotEqual(t, lastDelivery.Load(), row.ID)
+			}
+		})
+	}
+
+	t.Run("direct test admission keeps one decision through delivery", func(t *testing.T) {
+		mode.Store(0)
+		before := sends.Load()
+		ctx := middleware.ContextWithAuthInfo(f.ctx, &middleware.AuthInfo{User: &f.owner, SessionHash: ownerHash})
+		commands := []string{}
+		ctx = services.WithAuthorizationObserver(ctx, func(command string) { commands = append(commands, command) })
+		result, err := service.TestWebhook(ctx, &f.owner, "gate-owner", "app", hook.ID)
+		require.NoError(t, err)
+		require.Equal(t, 204, result.StatusCode)
+		require.Equal(t, []string{"webhooks.test"}, commands)
+		require.Equal(t, before+1, sends.Load())
+	})
+	t.Run("expiry during delivery hides output and retains the completed receipt", func(t *testing.T) {
+		mode.Store(0)
+		expireDuringSend.Store(true)
+		before := sends.Load()
+		defer func() {
+			expireDuringSend.Store(false)
+			_, err := f.pool.Exec(f.ctx, `UPDATE auth_sessions SET expires_at=now()+interval '1 hour' WHERE session_key=$1`, ownerHash)
+			require.NoError(t, err)
+		}()
+		out, commands := call(ownerCookie, "", requests[7])
+		require.Equal(t, 401, out.Code, out.Body.String())
+		require.Equal(t, []string{"webhooks.test"}, commands)
+		require.Equal(t, before+1, sends.Load())
+		require.NotContains(t, out.Body.String(), "status_code")
+		var status string
+		require.NoError(t, pool.QueryRow(f.ctx, `SELECT status FROM webhook_deliveries WHERE id=$1`, lastDelivery.Load()).Scan(&status))
+		require.Equal(t, "success", status)
 	})
 	t.Run("owner deletes", func(t *testing.T) {
 		out, commands := call(ownerCookie, "", requests[6])

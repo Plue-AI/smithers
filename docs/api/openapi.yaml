@@ -16598,6 +16598,12 @@ paths:
   /api/repos/{owner}/{repo}/hooks/{id}/tests:
     post:
       summary: POST /api/repos/{owner}/{repo}/hooks/{id}/tests
+      description: >-
+        Owner-only test delivery. Admission is committed before one outbound send;
+        the delivery worker never claims a test ping. A lost response or HTTP 5xx
+        reports outcomeUnknown and retains that outcome in the delivery receipt.
+        Credential expiry after sending refuses response disclosure without undoing
+        the recorded delivery.
       operationId: post_api_repos_owner_repo_hooks_id_tests
       tags:
         - Repositories

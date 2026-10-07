@@ -35,8 +35,9 @@ const accountWrite = (name: string, method: "POST" | "PATCH" | "PUT" | "DELETE",
 const optionalText = Schema.optional(Schema.Union([Schema.String, Schema.Null]))
 
 export const httpProjections = [
+ repositoryAdmin("webhooks.test", "POST", "/api/repos/{owner}/{repo}/hooks/{id}/tests", NoInput, "write:repository"),
  repositoryAdmin("webhooks.list", "GET", "/api/repos/{owner}/{repo}/hooks", NoInput, "write:repository"),
- repositoryAdmin("webhooks.create", "POST", "/api/repos/{owner}/{repo}/hooks", Schema.Struct({ url: Schema.String, secret: Schema.optional(Schema.String), events: Schema.Array(Schema.String), is_active: Schema.optional(Schema.Boolean) }), "write:repository"),
+ repositoryAdmin("webhooks.create", "POST", "/api/repos/{owner}/{repo}/hooks", Schema.Struct({ url: Schema.String, secret: optionalText, events: Schema.optional(Schema.Union([Schema.Array(Schema.String), Schema.Null])), is_active: Schema.optional(Schema.Union([Schema.Boolean, Schema.Null])) }), "write:repository"),
  repositoryAdmin("webhooks.get", "GET", "/api/repos/{owner}/{repo}/hooks/{id}", NoInput, "write:repository"),
  repositoryAdmin("webhooks.update", "PATCH", "/api/repos/{owner}/{repo}/hooks/{id}", Schema.Struct({ url: optionalText, secret: optionalText, events: Schema.optional(Schema.Union([Schema.Array(Schema.String), Schema.Null])), is_active: Schema.optional(Schema.Union([Schema.Boolean, Schema.Null])) }), "write:repository"),
  repositoryAdmin("webhooks.delete", "DELETE", "/api/repos/{owner}/{repo}/hooks/{id}", NoInput, "write:repository"),

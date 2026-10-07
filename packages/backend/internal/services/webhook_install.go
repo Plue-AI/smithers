@@ -26,7 +26,7 @@ func InstallWebhookSubject(repository int64, command string, id, delivery int64,
 	case "webhooks.list":
 		_, valid = input.(struct{})
 		valid = valid && id == 0 && delivery == 0
-	case "webhooks.get", "webhooks.deliveries", "webhooks.delete":
+	case "webhooks.get", "webhooks.deliveries", "webhooks.delete", "webhooks.test":
 		_, valid = input.(struct{})
 		valid = valid && id > 0 && delivery == 0
 	case "webhooks.create":
@@ -51,7 +51,7 @@ func InstallWebhookSubject(repository int64, command string, id, delivery int64,
 	return subject, nil
 }
 
-// Only database administration runs here. Sending a webhook is a separate
+// Only database administration and test admission run here. Sending is a separate
 // outbound action and cannot be rolled back with a database transaction.
 func withInstallWebhook[T any](s *WebhookService, ctx context.Context, actor *db.User, owner, name, command string, id, delivery int64, input any, effect func(*WebhookService, context.Context) (T, error)) (T, error) {
 	var zero T
