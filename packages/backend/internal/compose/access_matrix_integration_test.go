@@ -46,6 +46,13 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 	}
 	_, err = pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,actor_user_id,state) VALUES($1,$2,'active')`, repo.ID, users[0].ID)
 	require.NoError(t, err)
+	cfg := testConfigAllFlagsOn()
+	cfg.Auth.Mode = "selfhost"
+	cfg.Auth.SessionCookieName = "session"
+	cfg.Server.PublicURL = "http://example.com"
+	cfg.Server.AllowedOrigins = []string{"http://example.com"}
+	issuer := services.NewAuthService(q, cfg.Auth, nil, nil)
+	issuer.Members = &services.Members{Pool: pool}
 	sessions, tokens, hashes := make([]string, 3), make([]string, 3), make([]string, 3)
 	for i, u := range users {
 		role := "admin"
@@ -58,19 +65,14 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 		sum := sha256.Sum256([]byte(sessions[i]))
 		_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: u.ID, Username: u.Username, SessionKey: hex.EncodeToString(sum[:]), ExpiresAt: time.Now().Add(time.Hour)})
 		require.NoError(t, err)
-		tokens[i] = fmt.Sprintf("smithers_%040x", u.ID+900)
+		credential, err := issuer.CreateToken(ctx, u.ID, services.CreateTokenRequest{Name: "matrix-cli", Scopes: []string{"repo", "user"}})
+		require.NoError(t, err)
+		tokens[i] = credential.Token
 		sum = sha256.Sum256([]byte(tokens[i]))
 		hashes[i] = hex.EncodeToString(sum[:])
-		_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: u.ID, Name: "matrix-codex", TokenHash: hashes[i], TokenLastEight: hashes[i][56:], Scopes: "write:repository,read:user,via:codex", SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
-		require.NoError(t, err)
 	}
 	todos := services.NewMythicalService(pool, nil)
 	confirmations := services.NewApprovalsService(q, services.WithConfirmationTodos(pool, todos))
-	cfg := testConfigAllFlagsOn()
-	cfg.Auth.Mode = "selfhost"
-	cfg.Auth.SessionCookieName = "session"
-	cfg.Server.PublicURL = "http://example.com"
-	cfg.Server.AllowedOrigins = []string{"http://example.com"}
 	router := githubAppSetupComposeRouter(cfg, pool, nil, routerExtras{Mythical: &routes.MythicalHandler{Service: todos}, Confirmations: confirmations})
 	call := func(i int, person bool, path, key, body string) (int, map[string]any) {
 		t.Helper()
@@ -160,10 +162,10 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 			{"members MX", "MX", "/api/members", 403, "permission"},
 			{"secrets MO", "MO", "/api/secrets", 403, "permission"},
 			{"secrets MX", "MX", "/api/secrets", 403, "permission"},
-			{"ssh DO", "DO", "/api/ssh", 403, "never"},
-			{"ssh DM", "DM", "/api/ssh", 403, "never"},
-			{"ssh DE", "DE", "/api/ssh", 403, "never"},
-			{"ssh RO", "RO", "/api/ssh", 403, "permission"},
+			{"ssh DO", "DO", "/api/ssh", 404, "not_found"},
+			{"ssh DM", "DM", "/api/ssh", 404, "not_found"},
+			{"ssh DE", "DE", "/api/ssh", 404, "not_found"},
+			{"ssh RO", "RO", "/api/ssh", 404, "not_found"},
 			{"workspace ssh DO", "DO", "/api/repos/maya/demo/workspaces/box/ssh", 403, "never"},
 			{"workspace ssh DM", "DM", "/api/repos/maya/demo/workspaces/box/ssh", 403, "never"},
 			{"workspace ssh DE", "DE", "/api/repos/maya/demo/workspaces/box/ssh", 403, "never"},

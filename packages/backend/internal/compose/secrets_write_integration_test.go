@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -39,6 +40,12 @@ func testSecretsComposed(t *testing.T, install bool) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	q := db.New(pool)
 	ctx := t.Context()
+	busCtx, cancelBus := context.WithCancel(ctx)
+	defer cancelBus()
+	bus := revocation.NewBus(pool, q)
+	require.NoError(t, bus.Start(busCtx))
+	routes.SetRevocationSource(bus)
+	defer routes.SetRevocationSource(nil)
 	user := func(name string) db.User {
 		created, err := q.CreateUser(ctx, db.CreateUserParams{Username: name, LowerUsername: name, DisplayName: name})
 		require.NoError(t, err)
