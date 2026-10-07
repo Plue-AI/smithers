@@ -46,6 +46,7 @@ type terminalMemberRuntime struct {
 	*replacementRuntime
 	terminal *echoOwnerTerminal
 	branch   db.Workspace
+	member   microsandbox.MemberIdentity
 	prepared bool
 	opened   bool
 	admitted bool
@@ -79,17 +80,17 @@ func (r *terminalMemberRuntime) ExecuteCommand(ctx context.Context, id string, c
 	return r.replacementRuntime.ExecuteCommand(ctx, id, command)
 }
 func (r *terminalMemberRuntime) SessionCredentialsForMember(_ context.Context, branch string, member microsandbox.MemberIdentity) (microsandbox.MemberSessionCredentials, error) {
-	if !r.prepared || branch != r.branch.ID || member != (microsandbox.MemberIdentity{Login: "ben", UID: 20001, Active: true}) {
+	if !r.prepared || branch != r.branch.ID || member != r.member {
 		return nil, fmt.Errorf("unbound member")
 	}
 	return r, nil
 }
 func (r *terminalMemberRuntime) PutSessionToken(ctx context.Context, branch, id string, token []byte, expected string) (string, error) {
 	_, err := r.replacementRuntime.PutSessionToken(ctx, branch, id, token, expected)
-	return "/run/smithers/20001/token/sessions/" + id + "/token", err
+	return fmt.Sprintf("/run/smithers/%d/token/sessions/%s/token", r.member.UID, id), err
 }
 func (r *terminalMemberRuntime) OpenTerminal(_ context.Context, branch, id, digest string, command workspaceapi.Command) (workspaceapi.Terminal, error) {
-	if branch != r.branch.ID || digest != workspaceapi.SessionCredentialIdentity([]byte(r.current())) || command.Environment["SMITHERS_TOKEN_FILE"] != "/run/smithers/20001/token/sessions/"+id+"/token" || command.Environment["SMITHERS_URL"] != "http://127.0.0.1:4000" || strings.Join(command.Args, " ") != "/bin/bash -l" {
+	if branch != r.branch.ID || digest != workspaceapi.SessionCredentialIdentity([]byte(r.current())) || command.Environment["SMITHERS_TOKEN_FILE"] != fmt.Sprintf("/run/smithers/%d/token/sessions/%s/token", r.member.UID, id) || command.Environment["SMITHERS_URL"] != "http://127.0.0.1:4000" || strings.Join(command.Args, " ") != "/bin/bash -l" {
 		return nil, fmt.Errorf("unbound session credential")
 	}
 	r.opened = true
@@ -151,13 +152,13 @@ func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
 	server.Config.Handler = hostStatusProductionRouter(cfg, q, nil, conformanceServices{pool: f.pool, terminal: handler, members: &routes.MembersHandler{Service: &services.Members{Pool: f.pool, Credentials: rosterAppCredentials{}, Minter: services.NewRepoConnectionService(nil, rosterAppCredentials{})}}})
 	server.Start()
 	defer server.Close()
-	post := func(body string) (int, []byte) {
+	postAs := func(body, cookie string) (int, []byte) {
 		req, err := http.NewRequest(http.MethodPost, server.URL+"/api/terminals", strings.NewReader(body))
 		require.NoError(t, err)
 		req.Header.Set("Origin", f.origin)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-CSRF-Token", "csrf")
-		req.Header.Set("Cookie", "session="+f.cookie+"; __csrf=csrf")
+		req.Header.Set("Cookie", "session="+cookie+"; __csrf=csrf")
 		response, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
 		defer response.Body.Close()
@@ -165,6 +166,7 @@ func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
 		require.NoError(t, err)
 		return response.StatusCode, raw
 	}
+	post := func(body string) (int, []byte) { return postAs(body, f.cookie) }
 	// Exercise the real owner service through the composed door before replacing
 	// the unavailable guest broker. A missing admitted link must mint nothing.
 	handler.OwnerTerminals = &installOwnerTerminals{queries: q, branches: f.p.branches}
@@ -178,7 +180,7 @@ func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
 	registry := new(machined.Registry)
 	link, _ := presenceTestLink(t, registry, f.row.ID)
 	require.NoError(t, link.Reconciled())
-	runtime := &terminalMemberRuntime{replacementRuntime: &replacementRuntime{repoID: f.row.RepositoryID}, terminal: terminal, branch: f.row}
+	runtime := &terminalMemberRuntime{replacementRuntime: &replacementRuntime{repoID: f.row.RepositoryID}, terminal: terminal, branch: f.row, member: microsandbox.MemberIdentity{Login: "ben", UID: 20001, Active: true}}
 	_, err = f.pool.Exec(t.Context(), `INSERT INTO collaborators(repository_id,user_id,permission,unix_login,unix_uid) VALUES($1,$2,'admin','ben',20001)`, f.row.RepositoryID, f.user.ID)
 	require.NoError(t, err)
 	auth := services.NewAuthService(q, cfg.Auth, nil, nil)
@@ -318,4 +320,53 @@ func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
 	_, _, err = owner.Read(ctx)
 	require.Equal(t, websocket.StatusNormalClosure, websocket.CloseStatus(err))
 	require.Eventually(t, func() bool { return !manager.HasBranchTerminal(f.row.RepositoryID, f.row.ID) }, time.Second, time.Millisecond)
+
+	// A member who owns the PTY is revoked through the same installed door.
+	// Only guest process effects are fixtures; removal, credentials and fanout
+	// use the real database and production router.
+	carol, err := q.CreateUser(t.Context(), db.CreateUserParams{Username: "carol", LowerUsername: "carol"})
+	require.NoError(t, err)
+	_, err = f.pool.Exec(t.Context(), `INSERT INTO collaborators(repository_id,user_id,permission,github_login,unix_login,unix_uid) VALUES($1,$2,'write','carol','carol',20003)`, f.row.RepositoryID, carol.ID)
+	require.NoError(t, err)
+	carolHash := sha256.Sum256([]byte("carol-terminal-cookie"))
+	_, err = q.CreateAuthSession(t.Context(), db.CreateAuthSessionParams{UserID: carol.ID, Username: carol.Username, SessionKey: hex.EncodeToString(carolHash[:]), ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
+	reader, writer = io.Pipe()
+	runtime.terminal = &echoOwnerTerminal{reader: reader, writer: writer}
+	runtime.member = microsandbox.MemberIdentity{Login: "carol", UID: 20003, Active: true}
+	status, body = postAs(fmt.Sprintf(`{"branch":%q}`, f.row.ID), "carol-terminal-cookie")
+	require.Equal(t, 201, status, string(body))
+	require.NoError(t, json.Unmarshal(body, &opened))
+	carolSocket := dial("carol-terminal-cookie")
+	benWatcher := dial(f.cookie)
+	attachCtx, attachCancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer attachCancel()
+	for _, socket := range []*websocket.Conn{carolSocket, benWatcher} {
+		messageType, marker, err := socket.Read(attachCtx)
+		require.NoError(t, err)
+		require.Equal(t, websocket.MessageText, messageType)
+		require.JSONEq(t, `{"type":"replay-complete"}`, string(marker))
+	}
+	remove, err = http.NewRequest(http.MethodDelete, server.URL+"/api/members/carol", nil)
+	require.NoError(t, err)
+	remove.Header.Set("Origin", f.origin)
+	remove.Header.Set("X-CSRF-Token", "csrf")
+	remove.Header.Set("Cookie", "session="+f.cookie+"; __csrf=csrf")
+	removed, err = http.DefaultClient.Do(remove)
+	require.NoError(t, err)
+	defer removed.Body.Close()
+	removedBody, err = io.ReadAll(removed.Body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusNoContent, removed.StatusCode, string(removedBody))
+	revokedCtx, revokedCancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer revokedCancel()
+	_, _, err = carolSocket.Read(revokedCtx)
+	require.Equal(t, websocket.StatusPolicyViolation, websocket.CloseStatus(err))
+	_, _, err = benWatcher.Read(revokedCtx)
+	require.Equal(t, websocket.StatusPolicyViolation, websocket.CloseStatus(err))
+	require.Eventually(t, func() bool { return !manager.HasBranchTerminal(f.row.RepositoryID, f.row.ID) }, time.Second, time.Millisecond)
+	require.Empty(t, manager.BranchTerminals(f.row.RepositoryID, f.row.ID))
+	require.False(t, manager.OwnsSubject(carol.ID, f.row.RepositoryID, f.row.ID, opened.ID))
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM access_tokens WHERE user_id=$1`, carol.ID).Scan(&count))
+	require.Zero(t, count)
 }
