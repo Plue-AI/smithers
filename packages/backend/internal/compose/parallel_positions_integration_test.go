@@ -52,6 +52,7 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
 	runtime := new(microsandbox.Runtime)
 	service := services.NewMythicalService(pool, nil)
+	service.SetInstallParallel(&services.InstallCapacityService{Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, DiskFreeBytes: 400 << 30}})
 	service.SetOrchestration(nil, nil, services.NewWorkspaceMythicalLanes(services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime))))
 	router := todoMergeComposeRouter(cfg, q, pool, &routes.MythicalHandler{Service: service})
 	bearerToken := ""
@@ -77,9 +78,12 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 		return res.Code, result
 	}
 	holders := map[int]string{}
-	for n, title := range []string{"T1", "T2"} {
+	for n, title := range []string{"T1", "T2", "T3", "T4", "T5"} {
 		code, body := call("POST", "/api/todos", fmt.Sprintf(`{"title":%q,"prompt":"Add a line","place":{"mode":"append"}}`, title), title)
 		require.Equal(t, 202, code, body)
+		if n >= 2 {
+			continue
+		}
 		id := uuid.NewString()
 		_, err = pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,status,target_bookmark) VALUES($1,$2,$3,'pending',$4)`, id, repo, owner.ID, fmt.Sprintf("smithers/todo-%d", n+1))
 		require.NoError(t, err)
@@ -101,12 +105,29 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 	}
 	position(1, 2)
 	position(2, 3)
+	position(3, 4)
+	position(4, 5)
+	position(5, 6)
 	code, body := call("POST", "/api/todos/2", `{"op":"move","direction":"up"}`, "move-T2")
 	require.Equal(t, 202, code, body)
 	position(2, 2)
 	position(1, 3)
 	require.False(t, runtime.CancelAdmission("workspace:ben", "Ben", time.Now()))
 	position(2, 1)
+	position(1, 2)
+	position(3, 3)
+	position(4, 4)
+	position(5, 5)
+	code, body = call("POST", "/api/todos/3", `{"op":"drop"}`, "drop-T3")
+	require.Equal(t, 202, code, body)
+	position(4, 3)
+	position(5, 4)
+	// Demand includes the full stack, even beyond Home's 500-card page.
+	// Fixture insertion is supplemental; the assertion uses the install route.
+	_, err = pool.Exec(ctx, `INSERT INTO mythical_items(repository_id,source,state,title,owner_id,revisions)
+ SELECT $1,'todo','queued','Backlog '||n,$2,'[]'::jsonb FROM generate_series(6,505) n ORDER BY n`, repo, owner.ID)
+	require.NoError(t, err)
+	position(505, 504)
 	position(1, 2)
 	require.Zero(t, runtime.InUse(), "projection/reorder never grants or boots a VM")
 }

@@ -224,6 +224,12 @@ func (s *MythicalService) Start(ctx context.Context) {
 	}
 	lastSweep := time.Time{}
 	for {
+		var machineChanged <-chan struct{}
+		if s.installParallelRequired {
+			if lanes, ok := s.lanes.(interface{ MachineOwnershipChanges() <-chan struct{} }); ok {
+				machineChanged = lanes.MachineOwnershipChanges()
+			}
+		}
 		if s.now().Sub(lastSweep) >= sweepEvery {
 			if _, err := s.queries().RequestStaleMythicalStacks(ctx, sweepEvery.Seconds()); err != nil && ctx.Err() == nil {
 				s.logger.Error("mythical.sweep_failed", "error", err)
@@ -237,6 +243,22 @@ func (s *MythicalService) Start(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-pullWake:
+		case <-machineChanged:
+			// A confirmed release may be the only event after a TODO pauses or enters
+			// review. Reconcile now instead of waiting for the five-minute safety sweep.
+			binding, err := s.queries().GetInstallSetting(ctx, "github.repository")
+			var installed struct {
+				RepositoryID int64 `json:"repository_id"`
+			}
+			if err == nil {
+				err = json.Unmarshal(binding.Value, &installed)
+			}
+			if err == nil && installed.RepositoryID > 0 {
+				_, err = s.queries().RequestMythicalStack(ctx, installed.RepositoryID)
+			}
+			if err != nil && ctx.Err() == nil {
+				s.logger.Warn("mythical.machine_wake_failed", "error", err)
+			}
 		case <-time.After(mythicalPollInterval):
 		}
 	}
