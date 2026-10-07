@@ -90,7 +90,6 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 	cfg.Server.AllowedOrigins = []string{origin}
 	hubCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	bus := revocation.NewBus(pool, q)
 	require.NoError(t, bus.Start(hubCtx))
 	routes.SetRevocationSource(bus)
 	defer routes.SetRevocationSource(nil)
