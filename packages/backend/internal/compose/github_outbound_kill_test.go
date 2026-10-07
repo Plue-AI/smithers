@@ -144,6 +144,7 @@ func TestGitHubOutboundKillComposedCandidateControl(t *testing.T) {
 				defer func() { unlock(); peer.Close() }()
 				wake()
 				child := githubKillWorker(t, peer.URL, r.repositoryRoot)
+				defer child.close()
 				select {
 				case <-reached:
 				case err := <-child.done:
@@ -168,10 +169,25 @@ func TestGitHubOutboundKillComposedCandidateControl(t *testing.T) {
 				traceMu.Unlock()
 				wake()
 				restarted := githubKillWorker(t, peer.URL, r.repositoryRoot)
+				defer restarted.close()
 				require.Eventually(t, func() bool {
 					var empty bool
 					err := r.pool.QueryRow(r.ctx, `SELECT pending_op IS NULL FROM mythical_items WHERE number=$1`, number).Scan(&empty)
-					return err == nil && empty
+					if err != nil || !empty {
+						return false
+					}
+					card, err := r.todo(number)
+					if err != nil {
+						return false
+					}
+					switch kind {
+					case "close":
+						return card.State == "dropped"
+					case "merge":
+						return card.State == "merged" || card.State == "merging"
+					default:
+						return card.State == "in_review"
+					}
 				}, 60*time.Second, 100*time.Millisecond, "restart: %s", restarted.log.Name())
 				traceMu.Lock()
 				requests := append([]string(nil), trace...)
@@ -288,6 +304,17 @@ type githubKillProcess struct {
 }
 
 func (p *githubKillProcess) output() string { raw, _ := os.ReadFile(p.log.Name()); return string(raw) }
+
+// Stop owned workers before closing their peer on failure. Test cleanup runs
+// after function defers; leaving this until Cleanup can strand HTTP shutdown.
+func (p *githubKillProcess) close() {
+	if !p.waited {
+		_ = syscall.Kill(-p.command.Process.Pid, syscall.SIGKILL)
+		<-p.done
+		p.waited = true
+	}
+}
+
 func (p *githubKillProcess) kill(t *testing.T) {
 	t.Helper()
 	require.NoError(t, syscall.Kill(-p.command.Process.Pid, syscall.SIGKILL))
@@ -315,11 +342,7 @@ func githubKillWorker(t *testing.T, peer, repositoryRoot string) *githubKillProc
 	p := &githubKillProcess{command: command, done: make(chan error, 1), log: log}
 	go func() { p.done <- command.Wait() }()
 	t.Cleanup(func() {
-		if !p.waited {
-			_ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
-			<-p.done
-			p.waited = true
-		}
+		p.close()
 		require.NoError(t, log.Close())
 	})
 	return p
