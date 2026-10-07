@@ -2080,7 +2080,22 @@ func buildRouter(
 						middleware.RequirePersonCredential,
 					}
 					if extras.AdminSystemHealth != nil && (config.IsSingleOwner(cfg.Auth) || config.IsMultitenant(cfg.Auth)) {
-						r.With(readAdmin...).Get("/system/health", extras.AdminSystemHealth.SystemHealth)
+						healthRead := readAdmin
+						if config.IsSingleOwner(cfg.Auth) {
+							// The install owner is a roster role, not a hosted
+							// admin flag. The enclosing command middleware
+							// already bound the person-only install.read act.
+							healthRead = []func(http.Handler) http.Handler{func(next http.Handler) http.Handler {
+								return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+									if middleware.UserFromContext(r.Context()) == nil {
+										pkgerrors.WriteError(w, pkgerrors.New(pkgerrors.CodeUnauthenticated, middleware.UnauthenticatedMessage(r.Context())))
+										return
+									}
+									next.ServeHTTP(w, r)
+								})
+							}}
+						}
+						r.With(healthRead...).Get("/system/health", extras.AdminSystemHealth.SystemHealth)
 					}
 					if config.IsSingleOwner(cfg.Auth) && adminUserHandler != nil {
 						r.With(middleware.RequireAuth).Post("/users/{username}/erase", func(w http.ResponseWriter, r *http.Request) {

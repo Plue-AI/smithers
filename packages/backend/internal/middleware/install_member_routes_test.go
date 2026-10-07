@@ -164,6 +164,8 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodGet, "/api/user/readable-repos", "repo.read"},
 		{http.MethodGet, "/api/repos/local-owner/demo/workspace-snapshots", "repo.read"},
 		{http.MethodGet, "/api/repos/local-owner/demo/workspace-snapshots/snapshot-id", "repo.read"},
+		{http.MethodGet, "/api/status", "public"},
+		{http.MethodGet, "/api/admin/system/health", "install.read"},
 		{http.MethodGet, "/api/user/keys", "self.read"},
 		{http.MethodPost, "/api/auth/sse-ticket", "self.read"},
 		{http.MethodPost, "/api/v1/sse/ticket", "self.read"},
