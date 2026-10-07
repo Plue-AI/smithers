@@ -16,26 +16,33 @@
  * `approve` verb still crosses a process boundary to decide a token another
  * process wrote.
  *
- * The run every verb below acts on is a MODULE flow, for the same reason: an
- * agent host answers `pending` for one and drives nothing (`AgentSession`
- * "only prompt flows run on the cell harness"), which leaves a durable
- * non-terminal run without a seat, a network call, or a stubbed composition.
- * The scaffolded prompt flow cannot stand in for it: since it carries a
- * `model:` line, launching it either runs a real model or is refused, and a
- * refused launch settles the run `failed` in the launching process.
+ * A registered module flow holds a real native action until cancellation.
+ * Its marker proves the executor entered that action; no model seat is used.
  */
 import * as ControlRuntime from "@smthrs/control/ControlRuntime"
+import * as UnsupportedBackend from "@smthrs/database/UnsupportedBackend"
 import { Effect } from "effect"
 import { spawnSync } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { afterAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import * as Detached from "../src/Detached.ts"
 import * as NodeControl from "../src/NodeControl.ts"
 
 const scriptedHost = fileURLToPath(new URL("./fixtures/scripted-native-host.ts", import.meta.url))
+const idleFixture = fileURLToPath(new URL("./fixtures/idle/flow.ts", import.meta.url))
+const nodeModules = fileURLToPath(new URL("../node_modules", import.meta.url))
 const executable = fileURLToPath(new URL("../src/bin.ts", import.meta.url))
 
 // Outside the repository: `Project.root` walks up for `.flows/`, and this
@@ -44,7 +51,26 @@ const executable = fileURLToPath(new URL("../src/bin.ts", import.meta.url))
 // macOS the system temporary directory is a symlink.
 const project = realpathSync(mkdtempSync(join(tmpdir(), "smithers-cli-e2e-")))
 
-afterAll(() => rmSync(project, { recursive: true, force: true }))
+// This fixture owns local SQLite stores. The package's PostgreSQL test
+// settings and a developer's remote selection must not redirect its commands.
+beforeAll(() => {
+  vi.stubEnv("SMITHERS_BACKEND", "sqlite")
+  vi.stubEnv("SMITHERS_REMOTE", "")
+  vi.stubEnv("XDG_CONFIG_HOME", join(project, "config"))
+  for (const name of UnsupportedBackend.ignoredNames(process.env)) vi.stubEnv(name, "")
+})
+
+afterAll(() => {
+  try {
+    if (existsSync(join(project, ".flows", "control.db"))) {
+      const stopped = smithers("down", "--json")
+      expect(stopped.status, stopped.stdout + stopped.stderr).toBe(0)
+    }
+  } finally {
+    rmSync(project, { recursive: true, force: true })
+    vi.unstubAllEnvs()
+  }
+}, 300_000)
 
 interface Invocation {
   readonly status: number | null
@@ -63,7 +89,7 @@ const smithers = (...args: ReadonlyArray<string>): Invocation => {
 
 const json = (...args: ReadonlyArray<string>): any => {
   const result = smithers(...args, "--json")
-  expect({ args, status: result.status, stderr: result.stderr }).toMatchObject({ status: 0 })
+  expect({ args, ...result }, JSON.stringify({ args, ...result })).toMatchObject({ status: 0 })
   return JSON.parse(result.stdout)
 }
 
@@ -80,6 +106,17 @@ const processBudget = { timeout: 300_000 }
 
 describe("one project, from init to gc", processBudget, () => {
   let runId = ""
+  let launchCount = 0
+  const launchIdle = () =>
+    json(
+      "up",
+      "idle",
+      "--data",
+      JSON.stringify({
+        marker: join(project, `idle-entered-${++launchCount}`)
+      }),
+      "-d"
+    )
 
   it("scaffolds a project and discovers the flow in it", () => {
     const scaffolded = json("init", "hello")
@@ -126,28 +163,25 @@ describe("one project, from init to gc", processBudget, () => {
     json("down")
   })
 
-  it("launches a flow detached and returns only the receipt's run id", () => {
+  it("launches a real module detached and returns its durable admission receipt", async () => {
     // Written here rather than beside the scaffold so the `ls` assertion above
     // still sees exactly what `init` created.
     mkdirSync(join(project, "flows", "idle"), { recursive: true })
-    writeFileSync(
-      join(project, "flows", "idle", "flow.ts"),
-      [
-        "import { Flow } from \"@smthrs/core\"",
-        "import { Schema } from \"effect\"",
-        "",
-        "export default ({",
-        // The registry name the path derives; `@smthrs/core` requires it.
-        "  name: \"idle\",",
-        "  description: \"A module flow this host accepts and drives nothing for.\",",
-        "  input: Schema.Struct({ args: Schema.String }),",
-        "  output: Schema.String",
-        "})",
-        ""
-      ].join("\n"),
-      "utf8"
-    )
-    const launched = json("up", "idle", "-d")
+    symlinkSync(nodeModules, join(project, "node_modules"), "dir")
+    copyFileSync(idleFixture, join(project, "flows", "idle", "flow.ts"))
+    const launched = launchIdle()
+    const marker = join(project, `idle-entered-${launchCount}`)
+    const deadline = Date.now() + 30_000
+    while (!existsSync(marker) || !/^[1-9][0-9]*\n$/.test(readFileSync(marker, "utf8"))) {
+      if (Date.now() >= deadline) {
+        throw new Error(`Idle action did not start: ${readFileSync(launched.logFile, "utf8")}`)
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+    const actionPid = readFileSync(marker, "utf8")
+    expect(actionPid).toMatch(/^[1-9][0-9]*\n$/)
+    expect(Number(actionPid)).not.toBe(process.pid)
+    expect(() => process.kill(Number(actionPid), 0)).not.toThrow()
 
     // The receipt's own field. rc.0 has no `--run-id`, so this is the only
     // place a caller learns which run it started.
@@ -182,45 +216,17 @@ describe("one project, from init to gc", processBudget, () => {
     expect(smithers("ps", "--status", "sleeping", "--json").status).toBe(2)
   })
 
-  /**
-   * The park is the contract; being unreadable was the defect.
-   *
-   * `up` on a module flow leaves a durable run at `accepted` that only
-   * `smthrs cancel` ends, because the CLI's agent host runs prompt flows and
-   * a module flow's behaviour is registered in code by the host program that
-   * declares its delegates (`examples/src/16-fan-out-fan-in.ts`,
-   * `examples/src/24-control-plane-and-gateway.ts`). That is a real wait for a
-   * real external executor, so the run stays. What an operator got instead of
-   * an explanation was the bare word `pending` from `status`, no marker at all
-   * from `ps`, and a launch sentence that blamed a missing provider key and
-   * sent them to `smthrs doctor` — the one place with nothing to say about
-   * it, and a diagnosis `smthrs init`'s seatless-prompt refusal already
-   * owns.
-   */
-  it("says what the pending run waits for and how to proceed", async () => {
+  it("does not call an executing module an unclaimed run", async () => {
     // Listings allow five seconds for an executor to claim a new run.
     await new Promise((resolve) => setTimeout(resolve, 5_500))
     const run = json("ps").items.find((entry: { readonly runId: string }) => entry.runId === runId)
-
-    // `ps` labels it, in the field that already names what a waiting run holds
-    // on: this one holds on an executor.
-    expect(run.status).toBe("accepted")
-    expect(run.waitingReason).toBe("executor")
-
-    // `status` says it, and says the one command that ends it.
+    expect(run).toBeDefined()
+    expect(run.waitingReason).not.toBe("executor")
     const card = smithers("status", runId)
-
-    expect(card.status).toBe(0)
-    expect(card.stdout).toContain("no executor took the run")
-    expect(card.stdout).toContain(`smthrs runs cancel ${runId}`)
-
-    // And the launch that produced it said the same thing, in the log the
-    // detached child wrote.
+    expect(card.status, card.stdout + card.stderr).toBe(0)
+    expect(card.stdout).not.toContain("no executor took the run")
     const log = readFileSync(join(project, ".flows", "logs", `${runId}.log`), "utf8")
-
-    expect(log).toContain("no executor took it")
-    expect(log).toContain("registers its delegates")
-    expect(log).not.toContain("smthrs doctor")
+    expect(log).not.toContain("no executor took it")
   })
 
   it("streams the run's own control events", () => {
@@ -263,12 +269,16 @@ describe("one project, from init to gc", processBudget, () => {
       )
       expect(registered._tag).toBe("Pending")
 
+      const ownerBefore = json("ps").items.find((entry: { readonly runId: string }) => entry.runId === runId).ownerId
+      expect(JSON.parse(ownerBefore).pid).toBe(Number(readFileSync(join(project, "idle-entered-1"), "utf8")))
       const decided = json(
         "approvals",
         decision,
         JSON.stringify({ target, scope: "run", idempotencyKey: `${decision}:${target.requestId}` })
       )
       expect(decided).toMatchObject({ _tag: "Accepted" })
+      expect(json("ps").items.find((entry: { readonly runId: string }) => entry.runId === runId).ownerId)
+        .toBe(ownerBefore)
 
       const readBack = await Effect.runPromise(
         Effect.gen(function*() {
@@ -320,17 +330,27 @@ describe("one project, from init to gc", processBudget, () => {
     ]))
   })
 
-  it("cancels the run durably", () => {
+  it("cancels the run durably", async () => {
     const cancelled = smithers("cancel", runId, "--json")
-    expect(cancelled.status).toBe(130)
+    // An external cancellation is a request until the owning process settles.
+    expect(cancelled.status, cancelled.stdout + cancelled.stderr).toBe(0)
     expect(cancelled.stderr).toBe("")
-    expect(JSON.parse(cancelled.stdout)).toMatchObject({ _tag: "Terminal", runId, status: "cancelled" })
-    expect(json("ps").items.find((entry: { readonly runId: string }) => entry.runId === runId).status)
-      .toBe("cancelled")
+    expect(JSON.parse(cancelled.stdout)).toMatchObject({ _tag: "Accepted", runId })
+    const deadline = Date.now() + 30_000
+    for (;;) {
+      const run = json("ps").items.find((entry: { readonly runId: string }) => entry.runId === runId)
+      if (run.status === "cancelled") break
+      expect(Date.now(), JSON.stringify(run)).toBeLessThan(deadline)
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+    // A later cancel sees the durable terminal status and reports its exit code.
+    const settled = smithers("cancel", runId, "--json")
+    expect(settled.status, settled.stdout + settled.stderr).toBe(130)
+    expect(JSON.parse(settled.stdout)).toMatchObject({ _tag: "Terminal", runId, status: "cancelled" })
   })
 
   it("takes every remaining run down", () => {
-    const launched = json("up", "idle", "-d")
+    const launched = launchIdle()
     expect(json("ps").items.some((entry: { readonly status: string }) => entry.status !== "cancelled")).toBe(true)
 
     json("down")

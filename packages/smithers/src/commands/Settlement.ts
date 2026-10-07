@@ -9,7 +9,9 @@
  */
 
 import { type Control as ControlService, ControlError, type ControlSchema } from "@smthrs/control"
-import { Clock, Duration, Effect, Option, Stream } from "effect"
+import { Ownership } from "@smthrs/run-store"
+import { Clock, Duration, Effect, Option, Schema, Stream } from "effect"
+import { hostname } from "node:os"
 import * as RunProgress from "../cli/RunProgress.ts"
 import * as CliError from "../CliError.ts"
 import * as ExecutorOwnership from "../ExecutorOwnership.ts"
@@ -209,6 +211,8 @@ export const awaitHandOff = (
     )
   })
 
+const decodeOwner = Schema.decodeUnknownOption(Schema.fromJsonString(Ownership.OwnerId))
+
 /**
  * Waits for a run this process's executor owns, or reports the receipt's own
  * terminal status.
@@ -231,6 +235,16 @@ export const awaitOwnedRun = (
     if (receipt._tag === "Terminal") return { kind: `control.run.${receipt.status}` }
     const ownsExecutor = yield* ExecutorOwnership.ExecutorOwnership
     if (!ownsExecutor || receipt._tag !== "Accepted" || receipt.runId === undefined) return undefined
+    // A local executor can drive runs without owning this one. Approval
+    // decisions delegate to the existing host; waiting here would hold the
+    // operator's command open until that other process finishes its work.
+    if (receipt.handedTo !== undefined) return undefined
+    const listed = yield* control.list({ _tag: "runs", filters: { runId: receipt.runId } })
+    const run = listed._tag === "runs" ? listed.items.find((item) => item.runId === receipt.runId) : undefined
+    const owner = decodeOwner(run?.ownerId ?? run?.parkedBy)
+    if (Option.isSome(owner) && (owner.value.hostId !== hostname() || owner.value.pid !== process.pid)) {
+      return undefined
+    }
     return yield* awaitRun(control, receipt.runId, afterSequence, quiet)
   })
 
