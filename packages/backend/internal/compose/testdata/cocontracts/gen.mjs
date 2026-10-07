@@ -5,14 +5,25 @@ import {fileURLToPath} from 'node:url';
 const dir=fileURLToPath(new URL('.',import.meta.url));
 const check=process.argv.includes('--check');
 const protocol=7;
-const num=(v,n)=>{let b=Buffer.alloc(n);let x=BigInt(v);for(let i=n-1;i>=0;i--){b[i]=Number(x&255n);x>>=8n}return b};
+// ADR 0004 §handshake: one protocol value in four places, changed in one
+// commit. This reads the other three as text (it imports no codec) and fails
+// both --check and generation when any differs.
+const repo=dir+'../../../../../../';
+for(const [file,re] of [['docs/architecture/0004-machined-wire.md',/^`protocol` is `(\d+)`/m],['packages/backend/internal/machined/wire/frame.go',/^const Protocol = (\d+)$/m],['crates/smithers-machined/src/conn.rs',/^pub const PROTOCOL: u16 = (\d+);$/m]]){const m=readFileSync(repo+file,'utf8').match(re);if(!m||Number(m[1])!==protocol)throw Error(`protocol drift: ${file} says ${m?.[1]}, gen.mjs ${protocol}`)}
+// Every builder also records a structured literal (ADR 0004 golden frames:
+// the .json `literal`), so a reviewer reads field values without decoding.
+// Field tags are numbers: names would need a schema, i.e. a third codec.
+const L=new WeakMap();const lit=(b,v)=>(L.set(b,v),b);
+const leaf=b=>L.get(b)??(Array.isArray(b)&&b.length===1?{u8:b[0]}:{hex:Buffer.from(b).toString('hex')});
+const sha256=b=>createHash('sha256').update(b).digest('hex');
+const num=(v,n)=>{let b=Buffer.alloc(n);let x=BigInt(v);for(let i=n-1;i>=0;i--){b[i]=Number(x&255n);x>>=8n}return lit(b,{['u'+n*8]:BigInt(v)>BigInt(Number.MAX_SAFE_INTEGER)?BigInt(v).toString():Number(v)})};
 const cat=(...b)=>Buffer.concat(b.map(x=>Buffer.from(x)));
-const f=(t,b)=>cat([t],b);
-const st=(...fields)=>{let b=cat(...fields);return cat(num(b.length,4),b)};
-const un=(v,...fields)=>cat([v],st(...fields));
-const str=s=>{let b=Buffer.from(s);return cat(num(b.length,2),b)};
-const bytes=b=>cat(num(b.length,4),b);
-const list=(...items)=>cat(num(items.length,2),...items);
+const f=(t,b)=>lit(cat([t],b),[t,leaf(b)]);
+const st=(...fields)=>{let b=cat(...fields);return lit(cat(num(b.length,4),b),{struct:fields.map(leaf)})};
+const un=(v,...fields)=>lit(cat([v],st(...fields)),{variant:v,struct:fields.map(leaf)});
+const str=s=>{let b=Buffer.from(s);return lit(cat(num(b.length,2),b),{str:s})};
+const bytes=b=>lit(cat(num(b.length,4),b),b.length<=64?{bytes:Buffer.from(b).toString('hex')}:{bytes_len:b.length,sha256:sha256(b)});
+const list=(...items)=>lit(cat(num(items.length,2),...items),{list:items.map(leaf)});
 const oid=Buffer.alloc(20,0x11),oid2=Buffer.alloc(20,0x22),digest=Buffer.alloc(32,0x33),id=Buffer.alloc(16,0x44);
 const actor=un(1,f(1,bytes(Buffer.from('principal'))));
 const base=un(1,f(1,digest));
@@ -29,6 +40,8 @@ const range=(a,b)=>Buffer.from(Array.from({length:b-a},(_,i)=>a+i));
 const vectors={
   a:{secret:range(0x00,0x20),boot_id:range(0xa0,0xb0),nonce:range(0x20,0x40),mac:'bf835b8b735a29000a5b1db8369ec694b8b8fa8f786ed931ff4dfc06be3566f4'},
   b:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x60,0x80),mac:'c6fc90e2834fdc3176329238a8033b9a354b0b03d36036b7e12f5e164371e837'},
+  // c: b's boot and secret, a fresh nonce (seq_newer_boot's third connection).
+  c:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x80,0xa0),mac:'f68cb22bfc24ddae7be2ca31d46e166a703fe7ea73f48675fd62558633549af1'},
 };
 const macInput=v=>cat(Buffer.from(MAC_LABEL),num(protocol,2),v.boot_id,v.nonce);
 for(const [name,v] of Object.entries(vectors))if(createHmac('sha256',v.secret).update(macInput(v)).digest('hex')!==v.mac)throw Error('HMAC vector '+name+' disagrees with node:crypto');
@@ -36,7 +49,7 @@ const mac=v=>Buffer.from(v.mac,'hex');
 const badMac=Buffer.from(mac(vectors.a));badMac[31]^=1;
 const eid=n=>Buffer.alloc(16,n);
 const entries=[];
-function emit(name,kind,payload,stream=0,expected='ok',direction='host-to-daemon',local=false){const b=cat(num(payload.length,4),[kind],num(stream,4),payload);raw(name,b,expected,{kind,stream,payload:payload.toString('hex'),local},direction)}
+function emit(name,kind,payload,stream=0,expected='ok',direction='host-to-daemon',local=false){const b=cat(num(payload.length,4),[kind],num(stream,4),payload);raw(name,b,expected,{kind,stream,payload:payload.toString('hex'),local,...(L.has(payload)?{literal:L.get(payload)}:{})},direction)}
 function raw(name,b,expected,value=null,direction='host-to-daemon',extra={}){entries.push({name,b,expected,value,direction,extra})}
 const header=(n,kind,stream=0)=>cat(num(n,4),[kind],num(stream,4));
 const challenge=(v,p=protocol)=>un(1,f(1,num(0x534d4d44,4)),f(2,num(p,2)),f(3,v.boot_id),f(4,v.nonce));
@@ -56,17 +69,32 @@ for(const [p,name] of [[protocol-1,'older'],[protocol+1,'newer']]){const older=p
 // Connection b: the same machine's newer boot (seq_newer_boot).
 hello('hello_challenge_b',challenge(vectors.b),'ok','daemon-to-host','b');
 hello('hello_host_proof_b',proof(mac(vectors.b)),'ok','host-to-daemon','b');
+hello('hello_challenge_c',challenge(vectors.c),'ok','daemon-to-host','c');
+hello('hello_host_proof_c',proof(mac(vectors.c)),'ok','host-to-daemon','c');
 emit('hello_machine',0,un(3,f(1,bytes(Buffer.from('boot-token'))),f(2,id),f(3,num(7,8)),f(4,list(num(1,4)))),0,'ok','daemon-to-host');
 emit('hello_machine_b',0,un(3,f(1,bytes(Buffer.from('boot-token-2'))),f(2,Buffer.alloc(16,0x45)),f(3,num(1,8)),f(4,list())),0,'ok','daemon-to-host');
 emit('hello_welcome',0,un(4));
 for(const [name,code] of [['version_mismatch',13],['auth_failed',14],['superseded',15],['handshake_order',16]])emit('goodbye_'+name,0,un(5,f(1,[code])));
+// Goodbye's optional detail (ADR §handshake, at most 1,024 bytes).
+emit('goodbye_detail',0,un(5,f(1,[14]),f(2,str('credential belongs to another boot'))));
 const methods=['status','read_file','write_file','capture','wake_reconcile','open_session','tcp_connect','close_session','kill_sessions','register_run','rebase','return_to_item','open_doc','close_doc','attach_session'];
 const args=[[],[f(1,str('src/a.ts'))],[f(1,str('src/a.ts')),f(2,base),f(3,bytes(Buffer.from('hello'))),f(4,actor)],[],[f(1,oid)],[f(1,st(f(1,str('ben')),f(2,num(20001,4)))),f(2,[1]),f(4,st(f(1,num(80,2)),f(2,num(24,2))))],[f(1,num(3000,2))],[f(1,num(1,4))],[f(1,un(1,f(1,st(f(1,str('ben')),f(2,num(20001,4))))))],[f(1,str('run-1')),f(2,num(1,4))],[f(1,oid),f(2,actor)],[f(1,actor)],[f(1,str('src/a.ts'))],[f(1,num(1,4))],[f(1,num(1,4)),f(2,num(65536,8))]];
 for(let i=0;i<methods.length;i++){emit('req_'+methods[i],1,methods[i]==='kill_sessions'?req(9,f(1,un(3,f(1,num(1,4))))):req(i+1,...args[i]));emit('res_unsupported_'+methods[i],1,err(2),0,'ok','daemon-to-host')}
 emit('req_kill_sessions_user',1,req(9,...args[8]));emit('req_kill_sessions_run',1,req(9,f(1,un(2,f(1,str('run-1'))))));
 emit('req_read_file_at',1,req(2,f(1,str('src/a.ts')),f(2,oid)));
 emit('req_write_file_absent',1,req(3,f(1,str('src/new')),f(2,un(2)),f(3,bytes(Buffer.from('new'))),f(4,actor)));
+// Protocol 3 admission: open_session tags 5/6, tcp_connect tags 2/3. The
+// local socket decodes the same fields and the daemon refuses them there.
+const agent=st(f(1,str('agent')),f(2,num(19999,4))),committed=Buffer.alloc(16,0x77);
+emit('req_open_session_admitted',1,req(6,f(1,agent),f(2,[1]),f(4,st(f(1,num(80,2)),f(2,num(24,2)))),f(5,committed),f(6,str('run-1'))));
+emit('req_tcp_connect_admitted',1,req(7,f(1,num(3000,2)),f(2,committed),f(3,str('run-1'))));
+emit('local_open_session',1,req(6,f(1,agent),f(2,[1])),0,'ok','host-to-daemon',true);
+emit('local_open_session_admitted',1,req(6,f(1,agent),f(2,[1]),f(5,committed),f(6,str('run-1'))),0,'ok','host-to-daemon',true);
+// Protocol 4: kill_sessions result `killed`; 0 for an already reaped id.
+for(const [name,n] of [['res_kill_sessions',1],['res_kill_sessions_none',0]])emit(name,1,res(9,f(1,num(n,2))),0,'ok','daemon-to-host');
 emit('res_status',1,res(1,f(1,[3]),f(2,num(protocol,2)),f(3,str('0.1.0')),f(4,num(0,4)),f(5,oid),f(6,num(0,2))),0,'ok','daemon-to-host');
+// acked_head is optional: absent before the first acknowledged capture.
+emit('res_status_no_acked_head',1,res(1,f(1,[2]),f(2,num(protocol,2)),f(3,str('0.1.0')),f(4,num(3,4)),f(6,num(0,2))),0,'ok','daemon-to-host');
 emit('res_read_file',1,res(2,f(1,bytes(Buffer.from('hello'))),f(2,digest),f(3,num(420,4))),0,'ok','daemon-to-host');
 emit('res_write_file',1,res(3,f(1,digest)),0,'ok','daemon-to-host');
 emit('res_capture',1,res(4,f(1,oid),f(2,oid2),f(3,num(0,2))),0,'ok','daemon-to-host');
@@ -84,17 +112,31 @@ emit('ev_reserved_moved_off',2,durable(11,un(4),eid(0xe7)),0,'missing_field','da
 // ADR 0004 ruling 3: a reserved variant is bad_value before its body is decoded.
 emit('ev_reserved_doc_edit',2,durable(11,un(6),eid(0xe8)),0,'bad_value','daemon-to-host');
 emit('ev_reserved_doc_edit_body',2,durable(11,un(6,f(1,num(1,4)),f(2,str('a'))),eid(0xe9)),0,'bad_value','daemon-to-host');
+// Variant 5 transcript (ADR 0004 ruling 2, #3622). Tag 9 carries the record
+// with a u32 length, as both live codecs encode it (the ruling's text says
+// `str`; see #3626). ev_transcript's bytes are the ones T-AGT-02 shipped.
+const transcript=({version=1,session=1,participant=id,source=Buffer.alloc(16,0x33),profile='claude-code/2.1.0',generation=1,record=Buffer.from('{"type":"user"}'),start=0,end}={})=>un(5,f(1,num(version,2)),f(2,num(session,4)),f(3,participant),f(4,source),f(5,str(profile)),f(6,num(generation,8)),f(7,num(start,8)),f(8,num(end??start+record.length+1,8)),f(9,bytes(record)));
+emit('ev_transcript',2,durable(12,transcript(),id),0,'ok','daemon-to-host');
+// Invalid UTF-8 in the record is the str rule (bad_utf8); a newline inside it
+// breaks "one record without its newline" (bad_value).
+emit('ev_transcript_bad_utf8',2,durable(12,transcript({record:Buffer.from([255])}),eid(0xf0)),0,'bad_utf8','daemon-to-host');
+emit('ev_transcript_partial',2,durable(12,transcript({record:Buffer.from('one\ntwo')}),eid(0xf1)),0,'bad_value','daemon-to-host');
+// One violated bound each; every other field is ev_transcript's.
+for(const [i,[name,change]] of Object.entries({version:{version:2},session_zero:{session:0},session_over:{session:0x80000000},participant_zero:{participant:Buffer.alloc(16)},source_zero:{source:Buffer.alloc(16)},profile_empty:{profile:''},generation_zero:{generation:0},end_not_after_start:{start:16,end:16},span:{end:17}}).entries())emit('bad_value_transcript_'+name,2,durable(12,transcript(change),eid(0xf2+i)),0,'bad_value','daemon-to-host');
 emit('hint_file_written',2,un(2,f(1,un(1,f(1,str('a')),f(2,actor),f(3,digest)))),0,'ok','daemon-to-host');
 emit('presence_snapshot',3,un(1,f(1,list(st(f(1,num(1,4)),f(2,str('a'))),st(f(1,num(2,4)))))),0,'ok','daemon-to-host');
 for(const [v,name,fs]of [[1,'applied',[]],[2,'duplicate',[]],[3,'missing_objects',[f(3,list(oid)),f(5,list(oid2))]],[4,'rejected',[f(4,st(f(1,[11])))]],[5,'stale_base',[]]])emit('ack_'+name,2,un(3,f(1,num(7,8)),f(2,[v]),...fs));
-for(const [name,p] of [['obj_data',cat([1,0],Buffer.from('git bundle fixture'))],['obj_eof',[2,0]],['obj_close',[7]],['obj_window',cat([6],num(65536,4))]])emit(name,6,Buffer.from(p),1,'ok','daemon-to-host');
+// Stream 1 is the daemon's bundle; the host returns its credit (window).
+for(const [name,p] of [['obj_data',cat([1,0],Buffer.from('git bundle fixture'))],['obj_eof',[2,0]],['obj_close',[7]],['obj_window',cat([6],num(65536,4))]])emit(name,6,Buffer.from(p),1,'ok',name==='obj_window'?'host-to-daemon':'daemon-to-host');
 for(const [prefix,stream] of [['obj_resend_',2],['obj_replay_',3]]){emit(prefix+'data',6,cat([1,0],Buffer.from('git bundle fixture')),stream,'ok','daemon-to-host');emit(prefix+'eof',6,Buffer.from([2,0]),stream,'ok','daemon-to-host')}
 emit('obj_host_data',6,cat([1,0],Buffer.from('git bundle fixture')),0x80000001);
 emit('obj_host_eof',6,Buffer.from([2,0]),0x80000001);
 emit('obj_host_close',6,Buffer.from([7]),0x80000001,'ok','daemon-to-host');
 emit('ack_captured',2,un(3,f(1,num(8,8)),f(2,[1])));
 for(const [name,p]of [['data_in',[1,0,97]],['data_out',[1,1,98]],['data_err',[1,2,99]],['eof',[2,1]],['resize',cat([3],num(80,2),num(24,2))],['signal_int',[4,1]],['exit_code',cat([5,0],num(0,4))],['exit_signal',[5,1,2,0]],['window',cat([6],num(262144,4))],['close',[7]],['refused_unsupported',un(255,f(1,[2]))]]){const daemon=['data_out','data_err','eof','exit_code','exit_signal','refused_unsupported'].includes(name);emit('sess_'+name,5,Buffer.from(p),1,'ok',daemon?'daemon-to-host':'host-to-daemon')}
-emit('doc_reserved_sync',4,Buffer.from([1,9,8,7]),1);emit('doc_refused_unsupported',4,un(255,f(1,[2])),1,'ok','daemon-to-host');
+// Opaque to the envelope decoder in every stage, and a well-formed protocol-2
+// input sync (actor, seq, sync bytes), so it misleads no S3 reader.
+emit('doc_reserved_sync',4,cat([1],un(1,f(1,bytes(Buffer.from('Be')))),num(1,8),[0,2,0]),1);emit('doc_refused_unsupported',4,un(255,f(1,[2])),1,'ok','daemon-to-host');
 emit('bad_unknown_field_uid',1,req(3,...args[2],f(9,num(20001,4))),0,'unknown_field');
 emit('bad_actor_names_branch',1,req(3,...args[2].slice(0,3),f(4,un(1,f(1,bytes(Buffer.from('principal'))),f(2,str('branch'))))),0,'unknown_field');
 emit('bad_actor_variant_from_host',1,req(3,...args[2].slice(0,3),f(4,un(4))),0,'bad_value');
@@ -128,6 +170,12 @@ emit('bad_value_obj_resize',6,cat([3],num(80,2),num(24,2)),1,'bad_value','daemon
 emit('bad_value_obj_data_fd',6,cat([1,1],Buffer.from('x')),1,'bad_value','daemon-to-host');
 emit('bad_value_sess_exit_form',5,Buffer.from([5,2]),1,'bad_value','daemon-to-host');
 emit('bad_value_ack_outcome',2,un(3,f(1,num(7,8)),f(2,[6])),0,'bad_value');
+// ADR 0004 ruling 5: named stream bounds.
+emit('bad_value_obj_signal',6,Buffer.from([4,1]),1,'bad_value','daemon-to-host');
+emit('bad_value_obj_exit',6,cat([5,0],num(0,4)),1,'bad_value','daemon-to-host');
+for(const [kind,name] of [[5,'sessions'],[6,'objects']])emit('bad_unknown_message_'+name,kind,Buffer.from([8]),1,'unknown_message','daemon-to-host');
+emit('bad_value_sess_window_zero',5,cat([6],num(0,4)),1,'bad_value');
+emit('bad_value_sess_window_over',5,cat([6],num(262145,4)),1,'bad_value');
 for(const [n,name,expected] of [[1048576,'content_at_limit','ok'],[1048577,'content_over_limit','bad_value']])emit(name,1,req(3,f(1,str('a')),f(2,un(2)),f(3,bytes(Buffer.alloc(n,97))),f(4,actor)),0,expected);
 // S3 document fixtures are literal tables, independent of either codec.
 const docs=JSON.parse(readFileSync(dir+'doc-daemon.json','utf8'));
@@ -156,12 +204,12 @@ const batchChanges=list(st(f(1,str('a')),f(2,un(2)),f(3,bytes(Buffer.from('x')))
 const batchReq=(...fs)=>un(1,f(1,num(9,4)),f(2,un(17,...fs)));
 const batchRes=(...fs)=>un(2,f(1,num(9,4)),f(2,un(17,...fs)));
 const batchReceipt=st(f(1,un(1,f(1,sha('x')))));
-const batchFailure=(index,preflight,code)=>st(f(1,num(index,2)),f(2,[preflight]),f(3,st(f(1,[code]))));
+const batchFailure=(index,preflight,code,...error)=>st(f(1,num(index,2)),f(2,[preflight]),f(3,st(f(1,[code]),...error)));
 emit('req_write_files',1,batchReq(f(1,batchChanges),f(2,batchActor)));
 emit('local_write_files',1,batchReq(f(1,batchChanges)),0,'ok','host-to-daemon',true);
 emit('local_write_files_actor',1,batchReq(f(1,batchChanges),f(2,batchActor)),0,'unknown_field','host-to-daemon',true);
 emit('res_write_files',1,batchRes(f(1,list(batchReceipt,st(f(1,un(1,f(1,sha('y')))))))),0,'ok','daemon-to-host');
-emit('res_write_files_stale',1,batchRes(f(1,list()),f(2,batchFailure(1,1,4))),0,'ok','daemon-to-host');
+emit('res_write_files_stale',1,batchRes(f(1,list()),f(2,batchFailure(1,1,4,f(3,sha('current'))))),0,'ok','daemon-to-host');
 emit('res_write_files_partial',1,batchRes(f(1,list(batchReceipt)),f(2,batchFailure(1,0,12))),0,'ok','daemon-to-host');
 const deletion=list(st(f(1,str('a')),f(2,un(1,f(1,sha('before'))))));
 emit('req_delete_files',1,batchReq(f(1,deletion),f(2,batchActor)));
@@ -184,9 +232,10 @@ const sequences={
   // After Welcome the batch is preceded by its objects (ADR:247, :252).
   seq_reconnect_replay:steps(...handshake,'obj_replay_data','obj_replay_eof','ev_burst','ev_captured'),
   seq_reserved_doc_s2:steps('doc_reserved_sync','doc_refused_unsupported'),
-  // a live; b (newer boot) accepted; a superseded; c presents a's older
-  // credential on b's boot and is refused. c replays b's challenge and proof.
-  seq_newer_boot:[...on('a',...handshake),...on('b','hello_challenge_b','hello_host_proof_b','hello_machine_b','hello_welcome'),...on('a','goodbye_superseded'),...on('c','hello_challenge_b','hello_host_proof_b','hello_machine','goodbye_auth_failed')],
+  // a live; b (newer boot) accepted; a superseded; c answers its own
+  // challenge on b's boot (fresh nonce, valid proof), presents a's older
+  // credential and is refused.
+  seq_newer_boot:[...on('a',...handshake),...on('b','hello_challenge_b','hello_host_proof_b','hello_machine_b','hello_welcome'),...on('a','goodbye_superseded'),...on('c','hello_challenge_c','hello_host_proof_c','hello_machine','goodbye_auth_failed')],
   seq_wake_objects:steps('obj_host_data','obj_host_eof','obj_host_close','req_wake_reconcile'),
 };
 // Handshake refusals only a handshake state machine detects. `by` names the

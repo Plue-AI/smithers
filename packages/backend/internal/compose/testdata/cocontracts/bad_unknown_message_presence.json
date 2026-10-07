@@ -2,5 +2,9 @@
   "kind": 3,
   "stream": 0,
   "payload": "0900000000",
-  "local": false
+  "local": false,
+  "literal": {
+    "variant": 9,
+    "struct": []
+  }
 }

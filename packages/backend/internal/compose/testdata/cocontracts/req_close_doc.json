@@ -2,5 +2,30 @@
   "kind": 1,
   "stream": 0,
   "payload": "0100000010010000002a020e000000050100000001",
-  "local": false
+  "local": false,
+  "literal": {
+    "variant": 1,
+    "struct": [
+      [
+        1,
+        {
+          "u32": 42
+        }
+      ],
+      [
+        2,
+        {
+          "variant": 14,
+          "struct": [
+            [
+              1,
+              {
+                "u32": 1
+              }
+            ]
+          ]
+        }
+      ]
+    ]
+  }
 }

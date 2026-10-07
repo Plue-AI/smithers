@@ -1,0 +1,23 @@
+{
+  "kind": 0,
+  "stream": 0,
+  "payload": "0500000027010e02002263726564656e7469616c2062656c6f6e677320746f20616e6f7468657220626f6f74",
+  "local": false,
+  "literal": {
+    "variant": 5,
+    "struct": [
+      [
+        1,
+        {
+          "u8": 14
+        }
+      ],
+      [
+        2,
+        {
+          "str": "credential belongs to another boot"
+        }
+      ]
+    ]
+  }
+}

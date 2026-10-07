@@ -97,6 +97,6 @@ var unions = map[string]map[byte]string{
 }
 
 // reserved union variants are refused with BadValue whatever their body
-// (ADR 0004 ruling 3). Event 6 (doc_edit) waits for T-COL-08a. Event 5 is
-// decoded by T-AGT-02's shipped transcript codec; see #3626.
+// (ADR 0004 ruling 3). Event 6 (doc_edit) waits for T-COL-08a. Event 5
+// (transcript) is defined by ruling 2.
 var reserved = map[string]map[byte]bool{"event": {6: true}}

@@ -2,5 +2,22 @@
   "kind": 0,
   "stream": 0,
   "payload": "020000002401000702bf835b8b735a29000a5b1db8369ec694b8b8fa8f786ed931ff4dfc06be3566f5",
-  "local": false
+  "local": false,
+  "literal": {
+    "variant": 2,
+    "struct": [
+      [
+        1,
+        {
+          "u16": 7
+        }
+      ],
+      [
+        2,
+        {
+          "hex": "bf835b8b735a29000a5b1db8369ec694b8b8fa8f786ed931ff4dfc06be3566f5"
+        }
+      ]
+    ]
+  }
 }

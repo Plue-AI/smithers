@@ -42,12 +42,30 @@ func DecodeTranscript(p []byte) (Transcript, error) {
 	if p[0] != 5 {
 		return Transcript{}, UnknownMessage
 	}
-	f := fields(p[1:], "transcript")
-	t := Transcript{Version: binary.BigEndian.Uint16(f[1]), Session: binary.BigEndian.Uint32(f[2]), Profile: textValue(f[5]), Generation: binary.BigEndian.Uint64(f[6]), Start: binary.BigEndian.Uint64(f[7]), End: binary.BigEndian.Uint64(f[8]), Record: string(f[9][4:])}
-	copy(t.Participant[:], f[3])
-	copy(t.Source[:], f[4])
+	t := transcriptOf(p[5:])
 	if !t.valid() {
 		return Transcript{}, BadValue
 	}
 	return t, nil
+}
+
+// transcriptOf projects a transcript struct body (after its u32 length) whose
+// tags and types the schema has already accepted.
+func transcriptOf(body []byte) Transcript {
+	c := cursor{body}
+	f := map[byte][]byte{}
+	for len(c.b) > 0 {
+		tag, _ := c.number(1)
+		before := c.b
+		for _, x := range structures["transcript"] {
+			if x.tag == byte(tag) {
+				_ = c.value(x.typ)
+			}
+		}
+		f[byte(tag)] = before[:len(before)-len(c.b)]
+	}
+	t := Transcript{Version: binary.BigEndian.Uint16(f[1]), Session: binary.BigEndian.Uint32(f[2]), Profile: textValue(f[5]), Generation: binary.BigEndian.Uint64(f[6]), Start: binary.BigEndian.Uint64(f[7]), End: binary.BigEndian.Uint64(f[8]), Record: string(f[9][4:])}
+	copy(t.Participant[:], f[3])
+	copy(t.Source[:], f[4])
+	return t
 }

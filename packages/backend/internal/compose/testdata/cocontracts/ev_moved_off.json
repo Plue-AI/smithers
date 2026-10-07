@@ -2,5 +2,56 @@
   "kind": 2,
   "stream": 0,
   "payload": "010000004901000000000000000b02eaeaeaeaeaeaeaeaeaeaeaeaeaeaeaea0304000000290102000000050100000007020000000000000002031234567890abcdef1234567890abcdef12345678",
-  "local": false
+  "local": false,
+  "literal": {
+    "variant": 1,
+    "struct": [
+      [
+        1,
+        {
+          "u64": 11
+        }
+      ],
+      [
+        2,
+        {
+          "hex": "eaeaeaeaeaeaeaeaeaeaeaeaeaeaeaea"
+        }
+      ],
+      [
+        3,
+        {
+          "variant": 4,
+          "struct": [
+            [
+              1,
+              {
+                "variant": 2,
+                "struct": [
+                  [
+                    1,
+                    {
+                      "u32": 7
+                    }
+                  ]
+                ]
+              }
+            ],
+            [
+              2,
+              {
+                "u64": 2
+              }
+            ],
+            [
+              3,
+              {
+                "hex": "1234567890abcdef1234567890abcdef12345678"
+              }
+            ]
+          ]
+        }
+      ]
+    ]
+  }
 }

@@ -152,7 +152,10 @@ impl Frame {
             if msg == 255 {
                 c.value("error")?
             } else {
-                if self.kind == 6 && !matches!(msg, 1 | 2 | 6 | 7) {
+                // ADR 0004 ruling 5: resize, signal and exit are forbidden on
+                // an object stream (bad_value); an unknown msg is
+                // unknown_message on both stream kinds.
+                if self.kind == 6 && matches!(msg, 3..=5) {
                     return Err(BadValue);
                 };
                 match msg {
@@ -234,8 +237,8 @@ impl<'a> Cursor<'a> {
         if is_union(typ) {
             let v = self.number(1)? as u8;
             // ADR 0004 ruling 3: a reserved variant is refused before its body
-            // is decoded. Event 6 (doc_edit) waits for T-COL-08a; event 5 is
-            // decoded by T-AGT-02's shipped transcript codec (see #3626).
+            // is decoded. Event 6 (doc_edit) waits for T-COL-08a; event 5
+            // (transcript) is defined by ruling 2.
             if typ == "event" && v == 6 {
                 return Err(BadValue);
             }
@@ -253,7 +256,8 @@ impl<'a> Cursor<'a> {
             structure(typ)
         } {
             let n = self.number(4)? as usize;
-            let mut inner = Cursor(self.take(n)?);
+            let body = self.take(n)?;
+            let mut inner = Cursor(body);
             let mut last = 0;
             let mut seen = Vec::new();
             while !inner.0.is_empty() {
@@ -269,6 +273,11 @@ impl<'a> Cursor<'a> {
             if fields.iter().any(|f| f.1 && !seen.contains(&f.0)) {
                 return Err(MissingField);
             };
+            // ADR 0004 ruling 2: every transcript bound is checked by the
+            // shared decoder, not only by transcript::wire.
+            if typ == "transcript" {
+                transcript_bounds(fields, body)?;
+            }
             return Ok(());
         }
         if typ.starts_with("list:") || typ == "sessions" {
@@ -311,13 +320,13 @@ impl<'a> Cursor<'a> {
                     return Err(BadValue);
                 };
                 let bytes = self.take(n)?;
-                if typ == "record"
-                    && (std::str::from_utf8(bytes).is_err()
-                        || bytes.is_empty()
-                        || bytes.contains(&0)
-                        || bytes.contains(&b'\n'))
-                {
+                // A record is UTF-8 without NUL (the str rule, bad_utf8) and
+                // one non-empty line without its newline (a bound, bad_value).
+                if typ == "record" && (std::str::from_utf8(bytes).is_err() || bytes.contains(&0)) {
                     return Err(BadUtf8);
+                }
+                if typ == "record" && (bytes.is_empty() || bytes.contains(&b'\n')) {
+                    return Err(BadValue);
                 }
                 if width == 2 && (std::str::from_utf8(bytes).is_err() || bytes.contains(&0)) {
                     return Err(BadUtf8);
@@ -351,6 +360,29 @@ impl<'a> Cursor<'a> {
         };
         Ok(())
     }
+}
+/// Ruling 2's bounds over a transcript body whose tags and types the schema
+/// has already accepted.
+fn transcript_bounds(schema: &[(u8, bool, &str)], body: &[u8]) -> Result<(), ProtocolError> {
+    let mut c = Cursor(body);
+    let mut v: [&[u8]; 10] = [&[]; 10];
+    while !c.0.is_empty() {
+        let tag = c.number(1)? as usize;
+        let start = c.0;
+        c.value(schema.iter().find(|f| f.0 as usize == tag).ok_or(UnknownField)?.2)?;
+        v[tag] = &start[..start.len() - c.0.len()];
+    }
+    let n = |b: &[u8]| b.iter().fold(0u64, |a, x| (a << 8) | u64::from(*x));
+    let (session, start, end) = (n(v[2]), n(v[7]), n(v[8]));
+    let ok = n(v[1]) == 1
+        && (1..=0x7fff_ffff).contains(&session)
+        && v[3] != [0; 16]
+        && v[4] != [0; 16]
+        && v[5].len() > 2
+        && n(v[6]) >= 1
+        && end > start
+        && end - start == (v[9].len() as u64 - 4) + 1;
+    if ok { Ok(()) } else { Err(BadValue) }
 }
 pub fn field(tag: u8, value: impl AsRef<[u8]>) -> Vec<u8> {
     let mut b = vec![tag];

@@ -249,6 +249,11 @@ func (c *cursor) value(typ string) error {
 				return MissingField
 			}
 		}
+		// ADR 0004 ruling 2: every transcript bound is checked by the
+		// shared decoder, not only by DecodeTranscript.
+		if typ == "transcript" && !transcriptOf(body).valid() {
+			return BadValue
+		}
 		return nil
 	}
 	if strings.HasPrefix(typ, "list:") || typ == "sessions" {
@@ -304,8 +309,13 @@ func (c *cursor) value(typ string) error {
 		if e != nil {
 			return e
 		}
-		if typ == "record" && (!utf8.Valid(b) || len(b) == 0 || bytes.ContainsAny(b, "\n\x00")) {
+		// A record is UTF-8 without NUL (the str rule, bad_utf8) and one
+		// non-empty line without its newline (a bound, bad_value).
+		if typ == "record" && (!utf8.Valid(b) || bytes.IndexByte(b, 0) >= 0) {
 			return BadUTF8
+		}
+		if typ == "record" && (len(b) == 0 || bytes.IndexByte(b, '\n') >= 0) {
+			return BadValue
 		}
 		if width == 2 && (!utf8.Valid(b) || strings.ContainsRune(string(b), 0)) {
 			return BadUTF8
@@ -395,7 +405,10 @@ func validate(f Frame, local bool) error {
 				return e
 			}
 		} else {
-			if f.Kind == Objects && msg != 1 && msg != 2 && msg != 6 && msg != 7 {
+			// ADR 0004 ruling 5: resize, signal and exit are forbidden on an
+			// object stream (bad_value); an unknown msg is unknown_message
+			// on both stream kinds.
+			if f.Kind == Objects && (msg == 3 || msg == 4 || msg == 5) {
 				return BadValue
 			}
 			switch msg {

@@ -2,5 +2,16 @@
   "kind": 0,
   "stream": 0,
   "payload": "05000000020110",
-  "local": false
+  "local": false,
+  "literal": {
+    "variant": 5,
+    "struct": [
+      [
+        1,
+        {
+          "u8": 16
+        }
+      ]
+    ]
+  }
 }

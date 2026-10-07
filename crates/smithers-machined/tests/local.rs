@@ -365,3 +365,22 @@ fn local_delete_is_absent_content_and_actor_only_comes_from_admission() {
         Err(conn::ProtocolError::UnknownField)
     );
 }
+/// ADR 0004 §durable session admission: the local socket decodes open_session
+/// tags 5/6 but refuses a local request carrying them. Corpus bytes, not
+/// test-built ones.
+#[test]
+fn local_open_refuses_admission_fields_from_corpus() {
+    use smithers_machined::local::validate_open;
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../packages/backend/internal/compose/testdata/cocontracts");
+    for (name, allowed) in [
+        ("local_open_session", true),
+        ("local_open_session_admitted", false),
+    ] {
+        let frame = Frame::decode_local(&std::fs::read(root.join(format!("{name}.bin"))).unwrap())
+            .unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        let (_, method, args) = frame.request().unwrap();
+        assert_eq!(method, 6, "{name}");
+        assert_eq!(validate_open(args).is_ok(), allowed, "{name}");
+    }
+}

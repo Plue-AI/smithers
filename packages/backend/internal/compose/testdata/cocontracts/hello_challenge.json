@@ -2,5 +2,34 @@
   "kind": 0,
   "stream": 0,
   "payload": "010000003a01534d4d4402000703a0a1a2a3a4a5a6a7a8a9aaabacadaeaf04202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
-  "local": false
+  "local": false,
+  "literal": {
+    "variant": 1,
+    "struct": [
+      [
+        1,
+        {
+          "u32": 1397574980
+        }
+      ],
+      [
+        2,
+        {
+          "u16": 7
+        }
+      ],
+      [
+        3,
+        {
+          "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf"
+        }
+      ],
+      [
+        4,
+        {
+          "hex": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+        }
+      ]
+    ]
+  }
 }

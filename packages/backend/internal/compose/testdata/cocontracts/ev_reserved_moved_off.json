@@ -2,5 +2,29 @@
   "kind": 2,
   "stream": 0,
   "payload": "010000002001000000000000000b02e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7030400000000",
-  "local": false
+  "local": false,
+  "literal": {
+    "variant": 1,
+    "struct": [
+      [
+        1,
+        {
+          "u64": 11
+        }
+      ],
+      [
+        2,
+        {
+          "hex": "e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7"
+        }
+      ],
+      [
+        3,
+        {
+          "variant": 4,
+          "struct": []
+        }
+      ]
+    ]
+  }
 }

@@ -7,7 +7,7 @@ import (
 )
 
 func TestTranscriptLiteralAndRefusals(t *testing.T) {
-	b, err := os.ReadFile("../../compose/testdata/cocontracts/transcript/ev_transcript.bin")
+	b, err := os.ReadFile("../../compose/testdata/cocontracts/ev_transcript.bin")
 	if err != nil {
 		t.Fatal(err)
 	}

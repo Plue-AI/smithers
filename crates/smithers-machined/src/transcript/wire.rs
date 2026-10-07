@@ -34,7 +34,7 @@ impl Source {
         if event.first() != Some(&5) { return Err(ProtocolError::UnknownMessage); }
         let values = fields("transcript", &event[1..])?;
         let get = |tag| values.iter().find(|(t,_)| *t==tag).unwrap().1;
-        if get(1) != 1u16.to_be_bytes() {return Err(ProtocolError::VersionMismatch);}
+        if get(1) != 1u16.to_be_bytes() {return Err(ProtocolError::BadValue);}
         let source = Self {session:u32::from_be_bytes(get(2).try_into().unwrap()),participant:get(3).try_into().unwrap(),lifetime:get(4).try_into().unwrap(),profile:String::from_utf8(get(5)[2..].to_vec()).map_err(|_| ProtocolError::BadUtf8)?};
         let record = Record {generation:u64::from_be_bytes(get(6).try_into().unwrap()),start:u64::from_be_bytes(get(7).try_into().unwrap()),end:u64::from_be_bytes(get(8).try_into().unwrap()),text:String::from_utf8(get(9)[4..].to_vec()).map_err(|_| ProtocolError::BadUtf8)?};
         source.event(&record)?;
@@ -44,7 +44,7 @@ impl Source {
 
 #[test]
 fn transcript_wire_literal() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/backend/internal/compose/testdata/cocontracts/transcript/ev_transcript.bin");
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/backend/internal/compose/testdata/cocontracts/ev_transcript.bin");
     let frame = crate::conn::Frame::decode(&std::fs::read(path).unwrap()).unwrap();
     let durable = Durable::decode(&frame.payload).unwrap();
     let (source,record)=Source::decode(&durable.event).unwrap();
