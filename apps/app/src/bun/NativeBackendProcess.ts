@@ -275,6 +275,14 @@ export const startNativeBackend = async (
   const postgres = postgresBinDirectory(packagedPath(bundleRoot, "postgres", "Owned PostgreSQL bundle"))
   const hosts = flowHostBundle(packagedPath(bundleRoot, "bin/flow-hosts.json", "Packaged Flow host manifest"))
   const msb = packagedPath(bundleRoot, "bin/msb", "Bundled microVM runtime")
+  // Refuse missing guest runtime inputs before a backend can create state.
+  // Byte and ownership approval remains the backend's manifest boundary.
+  const kernel = packagedPath(bundleRoot, "lib/libkrunfw.5.dylib", "Bundled microVM guest kernel")
+  try {
+    accessSync(kernel, constants.R_OK)
+  } catch {
+    throw new Error(`Bundled microVM guest kernel is unavailable: ${kernel}`)
+  }
   const modelHost = checksummedExecutable(packagedPath(bundleRoot, "bin/smithers-model-host", "Packaged model host"), "Packaged model host")
   const jj = packagedPath(bundleRoot, "bin/jj", "Packaged jj")
   const git = packagedPath(bundleRoot, "bin/git", "Packaged Git")
