@@ -92,6 +92,16 @@ func TestBranchAddAdoptsScratchAndReplays(t *testing.T) {
 	input = BranchAddInput{Text: "No", Request: "both", After: ptrAdd(1), Before: ptrAdd(2)}
 	_, err = f.service.AddBranchToStack(ctx, f.repoID, f.userID, ws.TargetBookmark, input)
 	require.Error(t, err)
+	second, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: f.userID, TargetBookmark: "scratch/ben/explicit", Status: "stopped"})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE workspaces SET is_fork=true,forked_from_base=$1,source_commit=$1,head_commit_id=$2 WHERE id=$3`, base, head, second.ID)
+	require.NoError(t, err)
+	after, err := f.service.AddBranchToStack(ctx, f.repoID, f.userID, second.ID, BranchAddInput{Text: "After first", Request: "explicit-after", After: ptrAdd(got.Number)})
+	require.NoError(t, err)
+	afterItem, err := q.GetMythicalItemByNumber(ctx, f.repoID, after.Number)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, afterItem.StackPosition.Int64)
+	require.Equal(t, second.ID, afterItem.WorkspaceID)
 
 }
 func ptrAdd(n int64) *int64 { return &n }
