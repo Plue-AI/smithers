@@ -107,6 +107,55 @@ test("coding std ledger rejects stale and unread writes, advances only its run, 
   )
 })
 
+test("lost write receipt and resumed coding host require a fresh read before retry", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "coding-lost-receipt-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const path = join(root, "a")
+  await writeFile(path, "before")
+  let calls = 0
+  let loseReceipt = true
+  const provider: CodingFileSystem.MutationProvider = {
+    commit: (_session, changes) => Effect.tryPromise({
+      try: async () => {
+        calls++
+        assert.equal(changes.length, 1)
+        const change = changes[0]!
+        assert.equal(change.base_digest, hash(await readFile(path)))
+        assert.ok(change.content !== null)
+        await writeFile(path, change.content)
+        if (loseReceipt) throw new StdError({ code: "provider_unavailable", message: "Connection lost after publication" })
+      },
+      catch: (error) => error as StdError
+    })
+  }
+  await Effect.runPromise(Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+    const coding = CodingFileSystem.make({ repositoryPath: root }, fs, spawner, root, provider)
+    const call = <A, E, R>(effect: Effect.Effect<A, E, R>, host = coding) => effect.pipe(
+      Effect.provideService(FileSystem.FileSystem, host),
+      Effect.provideService(Read.ReadSession, "run")
+    )
+    yield* call(Read.run({ path }))
+    assert.equal((yield* Effect.flip(call(Write.run({ path, content: "published" })))).code, "provider_unavailable")
+    assert.equal(yield* fs.readFileString(path), "published")
+    const retry = yield* Effect.flip(call(Write.run({ path, content: "blind retry" })))
+    assert.equal(retry.code, "stale_read")
+    assert.equal(retry.base_digest, hash(Buffer.from("before")))
+    assert.equal(retry.current_digest, hash(Buffer.from("published")))
+    assert.equal(calls, 1)
+    const resumed = CodingFileSystem.make({ repositoryPath: root }, fs, spawner, root, provider)
+    assert.equal((yield* Effect.flip(call(Write.run({ path, content: "resume" }), resumed))).base_digest, "unread")
+    assert.equal(calls, 1)
+    loseReceipt = false
+    yield* call(Read.run({ path }), resumed)
+    yield* call(Write.run({ path, content: "recovered" }), resumed)
+    yield* call(Edit.run({ path, oldString: "recovered", newString: "own write" }), resumed)
+    assert.equal(calls, 3)
+    assert.equal(yield* fs.readFileString(path), "own write")
+  }).pipe(Effect.provide(NodeServices.layer)))
+})
+
 test("unavailable provider refuses all std mutations before creating protocol files", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "coding-no-writer-"))
   t.after(() => rm(root, { recursive: true, force: true }))
