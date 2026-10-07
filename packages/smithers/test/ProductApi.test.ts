@@ -95,7 +95,7 @@ describe("the generated product API client", () => {
     // GET /api/issues/{n} (#3457), were added.
     // Includes branch operations, live updates, TODO edits and named flow reads.
     // Exact parity above and the literal resource inventory below remain independent.
-    expect(expected).toHaveLength(532)
+    expect(expected).toHaveLength(534)
     expect(spec.paths["/api/flows/{name}"]).toHaveProperty("get.operationId", "get_api_flows_name")
     for (const path of ["/api/agent/turn/cancel", "/api/agent/turn/retire", "/api/chat/turn", "/api/chat/cancel"]) {
       expect(spec.paths).not.toHaveProperty(path)
