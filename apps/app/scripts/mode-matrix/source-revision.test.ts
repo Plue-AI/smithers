@@ -38,7 +38,25 @@ const git = (root: string, ...args: string[]): string => {
   return new TextDecoder().decode(result.stdout).trim()
 }
 
-test("Git-only source revision refuses staged and unstaged edits", async () => {
+const withGitOnlyEnvironment = async (run: () => Promise<void>): Promise<void> => {
+  const previousPath = process.env.PATH
+  const previousConfig = process.env.GIT_CONFIG_GLOBAL
+  const previousSystemConfig = process.env.GIT_CONFIG_NOSYSTEM
+  // Exercise the Git fallback without discovering an installed jj or user hooks/signing.
+  process.env.PATH = "/usr/bin:/bin"
+  process.env.GIT_CONFIG_GLOBAL = "/dev/null"
+  process.env.GIT_CONFIG_NOSYSTEM = "1"
+  try {
+    await run()
+  } finally {
+    for (const [key, value] of [["PATH", previousPath], ["GIT_CONFIG_GLOBAL", previousConfig], ["GIT_CONFIG_NOSYSTEM", previousSystemConfig]] as const) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+}
+
+test("Git-only source revision refuses staged and unstaged edits", () => withGitOnlyEnvironment(async () => {
   const root = mkdtempSync(join(tmpdir(), "smithers-matrix-git-revision-"))
   roots.push(root)
   git(root, "init")
@@ -61,4 +79,4 @@ test("Git-only source revision refuses staged and unstaged edits", async () => {
   writeFileSync(file, "export const product = 1\n")
   expect(git(root, "status", "--porcelain")).toBe("")
   expect(await sourceRevision(root)).toBe(head)
-}, 30_000)
+}), 30_000)
