@@ -5,6 +5,8 @@
  */
 export const journeySpecs = [
   "j1-activation.spec.ts",
+  "j1.spec.ts",
+  "keyboard-journeys.spec.ts",
   "setup.spec.ts",
   "wiki-obsidian.spec.ts",
   "todo-from-issue.spec.ts",
