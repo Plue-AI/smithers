@@ -2,6 +2,7 @@
  * They expose no additional slash, CLI or model door. Concrete control bodies
  * must resolve their operation before authorization; there is no control grant.
  */
+import { Schema } from "effect"
 import { NoInput, operation } from "./index"
 
 const read = (name: string, path: string, agent: "run" | "never" = "run", minimumRole: "member" | "owner" = "member") =>
@@ -9,7 +10,14 @@ const read = (name: string, path: string, agent: "run" | "never" = "run", minimu
     http: { method: "GET", path }, minimumRole, agent, credentialScope: name === "self.read" ? "read:user" : "read:repository",
     actors: agent === "never" ? ["person"] : ["person", "app_agent", "external_agent"] })
 
+const machine = (op: "sleep" | "wake") => operation({
+  name: `branch.${op}`, input: Schema.Struct({ branch: Schema.String }), summary: op === "sleep" ? "Sleep branch" : "Wake branch",
+  hidden: true, visibility: "hidden", slash: null, cli: null, agent: "never", actors: ["person"], minimumRole: "member",
+  http: { method: "POST", path: "/api/branches/{branch}", defaults: { op } }
+})
+
 export const httpProjections = [
+  machine("sleep"), machine("wake"),
   read("install.read", "/api/install", "never", "owner"),
   read("install.scorecard", "/api/install/scorecard", "never", "owner"),
   read("self.read", "/api/user/orgs"),

@@ -109,11 +109,11 @@ paths:
           description: Branch machines unavailable
     post:
       x-composition: install
-      summary: Answer an outside push to a TODO branch
+      summary: Request a branch operation
       operationId: post_api_branches_b
       tags:
         - Branches
-      description: Discard requires a maintainer browser session. Bring in retains the hold until the machine checkpoint provider is available. The wait id and revision bind the answer to the displayed commit. Repeated identical requests return the durable receipt.
+      description: Sleep and wake persist a person request before capture or admission and return its durable receipt. The machine state changes only after execution. Read the receipt at /api/repos/{owner}/{repo}/workspaces/{id}/command-runs/{operationId}; completed machine requests include machine, and failures include error. Discard requires a maintainer browser session. Bring in retains the hold until the machine checkpoint provider is available. The wait id and revision bind the answer to the displayed commit. Repeated identical requests return the durable receipt.
       security:
         - sessionCookie: []
       parameters:
@@ -136,11 +136,21 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [op, id, revision]
+              required: [op]
+              oneOf:
+                - properties:
+                    op: {enum: [bring-in, discard-foreign]}
+                  required: [id, revision]
+                - properties:
+                    op: {enum: [sleep, wake]}
+                  not:
+                    anyOf:
+                      - required: [id]
+                      - required: [revision]
               properties:
                 op:
                   type: string
-                  enum: [bring-in, discard-foreign]
+                  enum: [bring-in, discard-foreign, sleep, wake]
                 id:
                   type: string
                 revision:
@@ -151,7 +161,7 @@ paths:
           description: Decision recorded
           content:
             application/json:
-              schema: {"oneOf":[{"type":"object","properties":{"state":{"type":"string","enum":["accepted"]},"n":{"type":"integer"}}},{"$ref":"#/components/schemas/ConfirmationReceipt"}]}
+              schema: {"oneOf":[{"type":"object","properties":{"state":{"type":"string","enum":["accepted"]},"n":{"type":"integer"}}},{"$ref":"#/components/schemas/ConfirmationReceipt"},{"$ref":"#/components/schemas/FlowRunReceipt"}]}
         '400':
           description: Invalid answer or missing Idempotency-Key
         '401':
@@ -358,7 +368,7 @@ components:
           enum: [scratch, item, main]
         state:
           type: string
-          enum: [awake, asleep, waking, provisioning, failed, closed]
+          enum: [awake, releasing, asleep, waking, provisioning, failed, closed]
         head:
           description: A scratch branch's branch ref in the install's repository; any other branch's machine head.
           type: string
