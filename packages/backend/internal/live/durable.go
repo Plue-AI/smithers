@@ -1,6 +1,7 @@
 package live
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -32,12 +33,17 @@ func (h *Hub) serveDurable(ctx context.Context, source Source, resume *int64, se
 	}()
 	listen()
 	cursor := int64(0)
+	var lastSnapshot json.RawMessage
+	lastRefresh := time.Now()
 	snapshot := func() bool {
 		unavailable := false
 		for {
 			head, data, err := source.Snapshot(ctx)
 			if err == nil && head >= 0 && json.Valid(data) {
 				cursor = head
+				if source.RefreshSnapshot != nil {
+					lastSnapshot = append(lastSnapshot[:0], source.RefreshSnapshot(data)...)
+				}
 				return send(frame{T: "snap", Cursor: &head, Data: data})
 			}
 			if !unavailable {
@@ -100,6 +106,9 @@ func (h *Hub) serveDurable(ctx context.Context, source Source, resume *int64, se
 			if !send(frame{T: "delta", Cursor: &seq, Data: json.RawMessage(event.Data)}) {
 				return stopped
 			}
+			if source.RefreshDelta != nil {
+				lastSnapshot = source.RefreshDelta(lastSnapshot, json.RawMessage(event.Data))
+			}
 			cursor = seq
 			return nil
 		})
@@ -141,6 +150,18 @@ func (h *Hub) serveDurable(ctx context.Context, source Source, resume *int64, se
 			listen()
 			if !catchUp() {
 				return
+			}
+			if source.RefreshSnapshot != nil && time.Since(lastRefresh) >= source.RefreshEvery {
+				lastRefresh = time.Now()
+				head, data, err := source.Snapshot(ctx)
+				if err == nil && head == cursor && json.Valid(data) && !bytes.Equal(source.RefreshSnapshot(data), lastSnapshot) {
+					if source.RefreshSnapshot != nil {
+						lastSnapshot = append(lastSnapshot[:0], source.RefreshSnapshot(data)...)
+					}
+					if !send(frame{T: "snap", Cursor: &head, Data: data}) {
+						return
+					}
+				}
 			}
 		}
 	}
