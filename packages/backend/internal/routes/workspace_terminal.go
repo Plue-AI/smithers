@@ -59,8 +59,6 @@ type WorkspaceTerminalService interface {
 	GetSession(ctx context.Context, sessionID string, repositoryID, userID int64) (services.WorkspaceSessionResponse, error)
 	GetSSHConnectionInfo(ctx context.Context, sessionID string, repositoryID, userID int64) (services.WorkspaceSSHConnectionInfo, error)
 	TouchSessionActivity(ctx context.Context, sessionID string) error
-	// ResolveLanguageServer answers the launch for an LSP session (#505).
-	ResolveLanguageServer(ctx context.Context, sessionID string, repositoryID, userID int64) (services.LanguageServerLaunch, error)
 }
 
 type workspaceRuntimeTerminalService interface {
@@ -93,23 +91,23 @@ type WorkspaceTerminalHandler struct {
 	// dialSSH so existing tests and route construction keep working.
 	TerminalSessions *TerminalSessionManager
 
-	// LSPSessions owns live language-server relays keyed by workspace
-	// session id (#505). Lazily created like TerminalSessions.
-	LSPSessions *LSPSessionManager
-
 	managerMu sync.Mutex
 
 	beforeTerminalAttach func(*terminalSession)
-	beforeLSPAttach      func(*lspSession)
 }
 
 // checkOrigin validates the Origin header against the handler's allowed origins list.
 // Returns true if the origin is allowed, false otherwise.
 func (h *WorkspaceTerminalHandler) checkOrigin(origin string, r *http.Request) bool {
+	return socketOriginAllowed(h.AllowedOrigins, origin, r)
+}
+
+// socketOriginAllowed admits a configured origin or the request's own.
+func socketOriginAllowed(allowedOrigins []string, origin string, r *http.Request) bool {
 	if origin == "" || origin == "null" {
 		return false
 	}
-	for _, allowed := range h.AllowedOrigins {
+	for _, allowed := range allowedOrigins {
 		if strings.EqualFold(origin, allowed) {
 			return true
 		}

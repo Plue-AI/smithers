@@ -101,7 +101,7 @@ export type FeatureSupport = "core" | "optional" | "absent"
 export type FeatureRow = { readonly support: "core" } | { readonly support: "optional" | "absent"; readonly reason: string }
 
 /** Bump with any row change; every matrix report publishes this version and the table's digest. */
-export const FEATURE_MATRIX_VERSION = 6
+export const FEATURE_MATRIX_VERSION = 7
 
 const core = { support: "core" } as const
 const optional = (reason: string): FeatureRow => ({ support: "optional", reason })
@@ -133,6 +133,7 @@ export const FEATURE_MATRIX: Readonly<Record<RuntimeCapability, Readonly<Record<
   "billing.checkout": { selfhost: billing, plue: billing },
   "billing.portal": { selfhost: billing, plue: billing },
   "cloud.terminal": { selfhost: core, plue: core },
+  "code.intelligence": { selfhost: optional("needs isolated branch machines with member sessions"), plue: absent("hosted composition serves no branch language servers") },
   "cloud.pat": { selfhost: optional("a local host's session with its configured backend"), plue: absent("the shared backend holds no Smithers Cloud PAT session") },
   // #3730: only the local preview host starts an agent CLI on its own machine; the backend has no launch route.
   "launch.codex": { selfhost: absent("the backend starts no agent CLI"), plue: absent("the backend starts no agent CLI") },

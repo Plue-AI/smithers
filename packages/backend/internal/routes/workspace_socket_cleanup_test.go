@@ -22,41 +22,32 @@ import (
 
 func cleanupSocketHandler(t *testing.T, kind string) (*WorkspaceTerminalHandler, func(revocation.Event), func() bool) {
 	t.Helper()
-	service := lspTestService("running")
+	service := socketTestService("running")
 	service.getSessionFunc = func(context.Context, string, int64, int64) (services.WorkspaceSessionResponse, error) {
-		row := lspTestSession("s1", 11, 7, "running")
+		row := socketTestSession("s1", 11, 7, "running")
 		row.Kind = kind
 		return row, nil
 	}
 	h := &WorkspaceTerminalHandler{Service: service}
-	if kind == "terminal" {
-		fake := newFakeTerminalSSH()
-		m := NewTerminalSessionManager(func(context.Context, services.WorkspaceSSHConnectionInfo, int32, int32) (terminalSSHClient, terminalSSHSession, error) {
-			return fake.client, fake.session, nil
-		})
-		m.keepaliveInterval = 0
-		t.Cleanup(m.Close)
-		h.TerminalSessions = m
-		return h, m.RevokeMatching, func() bool { m.mu.Lock(); defer m.mu.Unlock(); return m.sessions["s1"] == nil }
-	}
-	m, _ := newLSPRelayManager(t, 0, true)
-	h.LSPSessions = m
+	fake := newFakeTerminalSSH()
+	m := NewTerminalSessionManager(func(context.Context, services.WorkspaceSSHConnectionInfo, int32, int32) (terminalSSHClient, terminalSSHSession, error) {
+		return fake.client, fake.session, nil
+	})
+	m.keepaliveInterval = 0
+	t.Cleanup(m.Close)
+	h.TerminalSessions = m
 	return h, m.RevokeMatching, func() bool { m.mu.Lock(); defer m.mu.Unlock(); return m.sessions["s1"] == nil }
 }
 
 func TestWorkspaceSocketRevocationDoesNotWaitForSilentPeer(t *testing.T) {
-	for _, kind := range []string{"terminal", "lsp"} {
+	for _, kind := range []string{"terminal"} {
 		t.Run(kind, func(t *testing.T) {
 			bus := revocation.NewBus(nil, nil)
 			h, revoke, removed := cleanupSocketHandler(t, kind)
 			t.Cleanup(bus.Subscribe(revoke))
 			withSocketRevocationSource(t, bus)
 			attached := make(chan struct{})
-			if kind == "terminal" {
-				h.beforeTerminalAttach = func(*terminalSession) { close(attached) }
-			} else {
-				h.beforeLSPAttach = func(*lspSession) { close(attached) }
-			}
+			h.beforeTerminalAttach = func(*terminalSession) { close(attached) }
 			server := httptest.NewServer(managerFirstSocketRouter(h, kind))
 			defer server.Close()
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -65,10 +56,7 @@ func TestWorkspaceSocketRevocationDoesNotWaitForSilentPeer(t *testing.T) {
 			require.NoError(t, err)
 			defer ws.CloseNow()
 			<-attached
-			if kind == "lsp" {
-				require.NoError(t, ws.Write(ctx, websocket.MessageText, []byte(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`)))
-			}
-			// Ensure attachment completed through terminal replay / LSP response.
+			// Ensure attachment completed through terminal replay.
 			_, _, err = ws.Read(ctx)
 			require.NoError(t, err)
 			// No further reads: this peer will never answer a close frame.
@@ -100,34 +88,13 @@ func (s *cleanupObservedRevocationSource) Subscribe(fn func(revocation.Event)) f
 	})
 }
 
-// Keep the real language-server stdin and count only the late public request.
-// Closing stdin must not itself manufacture a successful authorization check.
-type cleanupObservedStdin struct {
-	io.WriteCloser
-	late atomic.Int32
-}
-
-func (s *cleanupObservedStdin) Write(p []byte) (int, error) {
-	if bytes.Contains(p, []byte(`"method":"regression/late"`)) {
-		s.late.Add(1)
-	}
-	return s.WriteCloser.Write(p)
-}
-
 func TestWorkspaceSocketManagerBeforeLaunchGuardCleansCreatedSession(t *testing.T) {
-	for _, kind := range []string{"terminal", "lsp"} {
+	for _, kind := range []string{"terminal"} {
 		t.Run(kind, func(t *testing.T) {
 			bus := revocation.NewBus(nil, nil)
 			h, revoke, removed := cleanupSocketHandler(t, kind)
 			createdTerminal := make(chan *terminalSession, 1)
-			createdLSP := make(chan *lspSession, 1)
-			var stdin *cleanupObservedStdin
 			h.beforeTerminalAttach = func(s *terminalSession) { createdTerminal <- s }
-			h.beforeLSPAttach = func(s *lspSession) {
-				stdin = &cleanupObservedStdin{WriteCloser: s.stdin}
-				s.stdin = stdin
-				createdLSP <- s
-			}
 			type callbackState struct{ dead, done bool }
 			observed := make(chan callbackState, 1)
 			var requestGuard atomic.Pointer[workspaceSocketRevocation]
@@ -189,12 +156,7 @@ func TestWorkspaceSocketManagerBeforeLaunchGuardCleansCreatedSession(t *testing.
 					next.ServeHTTP(w, r.WithContext(ctx))
 				})
 			})
-			path := "/repos/{owner}/{repo}/workspace/sessions/{id}/" + kind
-			if kind == "lsp" {
-				router.Get(path, h.LSPWebSocket)
-			} else {
-				router.Get(path, h.TerminalWebSocket)
-			}
+			router.Get("/repos/{owner}/{repo}/workspace/sessions/{id}/"+kind, h.TerminalWebSocket)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				defer close(handlerReturned)
 				router.ServeHTTP(w, r)
@@ -222,16 +184,8 @@ func TestWorkspaceSocketManagerBeforeLaunchGuardCleansCreatedSession(t *testing.
 			got := <-dialed
 			require.NoError(t, got.err)
 			defer got.ws.CloseNow()
-			if kind == "lsp" {
-				session := <-createdLSP
-				dead, done = session.isDead, session.done
-			} else {
-				session := <-createdTerminal
-				dead, done = session.isDead, session.done
-			}
-			if kind == "lsp" {
-				require.NoError(t, got.ws.Write(ctx, websocket.MessageText, []byte(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`)))
-			}
+			session := <-createdTerminal
+			dead, done = session.isDead, session.done
 			_, _, err := got.ws.Read(ctx)
 			require.NoError(t, err)
 			require.False(t, removed())
@@ -241,11 +195,6 @@ func TestWorkspaceSocketManagerBeforeLaunchGuardCleansCreatedSession(t *testing.
 			require.True(t, state.done, "done must signal the same synchronous dead state")
 			<-delivered
 			require.True(t, dead(), "session alive after delivery")
-			if kind == "lsp" {
-				// A successful client write only queues a frame; authorization is
-				// verified after the public handler joins its relay goroutines.
-				_ = got.ws.Write(ctx, websocket.MessageText, []byte(`{"jsonrpc":"2.0","id":2,"method":"regression/late"}`))
-			}
 			for {
 				_, _, err = got.ws.Read(ctx)
 				if err != nil {
@@ -259,11 +208,7 @@ func TestWorkspaceSocketManagerBeforeLaunchGuardCleansCreatedSession(t *testing.
 			case <-ctx.Done():
 				t.Fatal("public socket handler did not finish its relay")
 			}
-			if kind == "lsp" {
-				require.Zero(t, stdin.late.Load(), "late public request reached language-server stdin")
-			} else {
-				require.True(t, removed(), "terminal publication must be removed synchronously")
-			}
+			require.True(t, removed(), "terminal publication must be removed synchronously")
 		})
 	}
 }
@@ -326,11 +271,11 @@ func TestTerminalGuardCleanupPreservesDurability(t *testing.T) {
 func TestLSPRevokedRelayDropsLatePublicSocketInput(t *testing.T) {
 	serverWS, clientWS, cleanup := terminalSessionManagerHWebsocketPair(t)
 	defer cleanup()
-	fake := newFakeLSPSSHSession()
-	defer fake.Close()
+	fake := newFakeLSPProcess()
+	defer func() { _ = fake.Kill(context.Background()) }()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	session := &lspSession{dead: true, stdin: fake.stdinW}
+	session := &lspSession{dead: true, proc: fake}
 	session.once.Do(func() {})
 	returned := make(chan struct{})
 	go func() { session.pumpClientToServer(ctx, serverWS); close(returned) }()

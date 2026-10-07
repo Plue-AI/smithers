@@ -167,7 +167,8 @@ func (s *Sessions) call(ctx context.Context, call SessionCall) (SessionResult, e
 		return SessionResult{}, err
 	}
 	switch s.via {
-	case "", "cli", "ssh", "terminal":
+	// "lsp" is a member's code-intelligence server: presence ignores it.
+	case "", "cli", "ssh", "terminal", "lsp":
 	default:
 		run, err := uuid.Parse(strings.TrimPrefix(s.via, "agent:"))
 		if !strings.HasPrefix(s.via, "agent:") || err != nil || run.String() != strings.TrimPrefix(s.via, "agent:") {

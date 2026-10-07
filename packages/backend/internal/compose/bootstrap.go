@@ -54,6 +54,7 @@ type bootstrapFeatures struct {
 	billingCheckout  bool
 	workspaceRuntime bool
 	isolatedSandbox  bool
+	codeIntelligence bool
 }
 
 func newAppBootstrap(features bootstrapFeatures) appBootstrap {
@@ -92,6 +93,9 @@ func newAppBootstrap(features bootstrapFeatures) appBootstrap {
 	}
 	if features.terminal {
 		result.Capabilities = append(result.Capabilities, "cloud.terminal")
+	}
+	if features.codeIntelligence {
+		result.Capabilities = append(result.Capabilities, "code.intelligence")
 	}
 	if features.billingBalance {
 		result.Capabilities = append(result.Capabilities, "billing.balance")

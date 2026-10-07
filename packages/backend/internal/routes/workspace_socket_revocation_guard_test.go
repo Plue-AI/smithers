@@ -299,7 +299,7 @@ func TestWorkspaceSocketRevocationGuardWithoutBus(t *testing.T) {
 }
 
 func TestWorkspaceSocketRevocationMiddlewareCoversRepositoryLookup(t *testing.T) {
-	for _, kind := range []string{"terminal", "lsp"} {
+	for _, kind := range []string{"terminal"} {
 		for _, event := range []struct {
 			name  string
 			value revocation.Event
@@ -332,12 +332,7 @@ func TestWorkspaceSocketRevocationMiddlewareCoversRepositoryLookup(t *testing.T)
 						next.ServeHTTP(w, r.WithContext(ctx))
 					})
 				})
-				path := "/repos/{owner}/{repo}/workspace/sessions/{id}/" + kind
-				if kind == "terminal" {
-					router.Get(path, handler.TerminalWebSocket)
-				} else {
-					router.Get(path, handler.LSPWebSocket)
-				}
+				router.Get("/repos/{owner}/{repo}/workspace/sessions/{id}/"+kind, handler.TerminalWebSocket)
 				server := httptest.NewServer(router)
 				defer server.Close()
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

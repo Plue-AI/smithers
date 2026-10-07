@@ -1,7 +1,6 @@
 package services
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -92,20 +91,6 @@ type WorkspaceLSP struct {
 	Languages []string `json:"languages"`
 }
 
-// LanguageServerLaunch is what the relay needs to start one server over the
-// workspace's SSH gateway: the exact command, run as the developer user with
-// the checkout as the working directory.
-type LanguageServerLaunch struct {
-	SessionID   string
-	WorkspaceID string
-	Language    string
-	Spec        LanguageServerSpec
-	// Command is the SSH exec command. Its script resolves Bin from
-	// `<checkout>/node_modules/.bin` then PATH, exits 127 when nothing
-	// resolves, prints one `ready` line, then execs the server on stdio.
-	Command string
-}
-
 // LanguageServerReadyLine is the single line the launch script prints on
 // stdout before the server owns the stream. The relay reads it before the
 // WebSocket upgrade so a missing binary is an HTTP 409, never a 101.
@@ -127,10 +112,11 @@ const LanguageServerMissingExitCode = 127
 // whatever the guest's SSH session inherited.
 const languageServerGuestPath = `$PWD/node_modules/.bin:$HOME/.local/bin:/run/current-system/sw/bin:/usr/local/bin:/usr/bin:/bin:$PATH`
 
-// LaunchCommand builds the SSH command for spec with checkout as the
-// workspace folder: `bash -c` over LaunchScript.
-func (spec LanguageServerSpec) LaunchCommand(checkout string) string {
-	return "bash -c " + shellQuote(spec.LaunchScript(checkout))
+// LaunchArgv is the broker exec argv for spec with checkout as the
+// workspace folder. The broker drops to the member's uid before it applies
+// argv; the trusted absolute shell then runs LaunchScript.
+func (spec LanguageServerSpec) LaunchArgv(checkout string) []string {
+	return []string{"/bin/sh", "-c", spec.LaunchScript(checkout)}
 }
 
 // LaunchScript is the guest-side launch, one line of POSIX shell. Profile
@@ -201,52 +187,4 @@ func normalizeWorkspaceSessionLanguage(kind, language string) (string, error) {
 		return "", pkgerrors.BadRequest("language must be one of: " + strings.Join(LSPLanguages(), ", "))
 	}
 	return language, nil
-}
-
-// ResolveLanguageServer answers the launch for an LSP session the caller may
-// operate (write access on the owning workspace). A terminal session answers
-// 409 workspace_session_kind_mismatch; an unknown language (a row written by a
-// newer registry) answers 409 language_server_missing with no install line.
-func (s *WorkspaceService) ResolveLanguageServer(ctx context.Context, sessionID string, repositoryID, userID int64) (LanguageServerLaunch, error) {
-	if s.q == nil {
-		return LanguageServerLaunch{}, pkgerrors.Internal("workspace store unavailable")
-	}
-	session, err := s.loadOwnedWorkspaceSession(ctx, sessionID, repositoryID, userID)
-	if err != nil {
-		return LanguageServerLaunch{}, err
-	}
-	if session.Kind != WorkspaceSessionKindLSP {
-		return LanguageServerLaunch{}, &pkgerrors.APIError{
-			Status:  http.StatusConflict,
-			Code:    CodeWorkspaceSessionKindMismatch,
-			Message: fmt.Sprintf("workspace session is a %s session; create one with kind lsp", session.Kind),
-		}
-	}
-	spec, ok := LanguageServerFor(session.Language)
-	if !ok {
-		return LanguageServerLaunch{}, &pkgerrors.APIError{
-			Status:  http.StatusConflict,
-			Code:    CodeLanguageServerMissing,
-			Message: "no language server is registered for " + session.Language,
-		}
-	}
-	checkout := defaultWorkspaceClonePath
-	if s.runtimeGuest() {
-		workspace, err := s.loadOwnedWorkspace(ctx, session.WorkspaceID, session.RepositoryID, userID)
-		if err != nil {
-			return LanguageServerLaunch{}, err
-		}
-		layout, _, err := s.runtimeGuestPaths(ctx, workspace, userID)
-		if err != nil {
-			return LanguageServerLaunch{}, err
-		}
-		checkout = layout.Root
-	}
-	return LanguageServerLaunch{
-		SessionID:   session.ID,
-		WorkspaceID: session.WorkspaceID,
-		Language:    spec.Language,
-		Spec:        spec,
-		Command:     spec.LaunchCommand(checkout),
-	}, nil
 }

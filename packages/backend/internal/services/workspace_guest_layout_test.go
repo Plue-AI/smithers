@@ -309,16 +309,3 @@ func TestWorkspaceGuestLayoutReadsTheRuntimeAccount(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, defaultWorkspaceGuestLayout, layout, "a sandbox-provider guest is this backend's own")
 }
-
-// A language server starts in the runtime guest's checkout.
-func TestResolveLanguageServerStartsInTheRuntimeGuestCheckout(t *testing.T) {
-	runtime := newGuestLayoutRuntime("developer", "/home/developer", "/home/developer/workspace")
-	runtime.state["ws-1"] = workspaceapi.WorkspaceRunning
-	q := &mockWorkspaceQuerier{getWorkspaceSessionByRepoFn: func(_ context.Context, arg db.GetWorkspaceSessionByRepoParams) (db.WorkspaceSession, error) {
-		return sampleDBLSPSession(arg.ID, "ws-1", "typescript"), nil
-	}}
-	launch, err := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(runtime), WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{})).
-		ResolveLanguageServer(context.Background(), "lsp-1", 101, 1)
-	require.NoError(t, err)
-	require.Equal(t, launch.Spec.LaunchCommand("/home/developer/workspace"), launch.Command)
-}

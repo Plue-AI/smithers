@@ -23,6 +23,11 @@ func (p *branchPresence) sessionResolver(link *machined.Link) presenceSessionRes
 		if err != nil {
 			return presenceSessionBinding{}, err
 		}
+		// A File card's language server is not a participant: it neither
+		// announces the member nor holds the machine awake (spec §9.1.2).
+		if via == "lsp" {
+			return presenceSessionBinding{Skip: true}, nil
+		}
 		if user.Login == "agent" {
 			if run == "" {
 				return presenceSessionBinding{}, machined.ErrUnauthorized

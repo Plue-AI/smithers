@@ -30,11 +30,6 @@ type workspaceTerminalZService struct {
 	touchFn   func(context.Context, string) error
 }
 
-func (s workspaceTerminalZService) ResolveLanguageServer(ctx context.Context, sessionID string, repositoryID, userID int64) (services.LanguageServerLaunch, error) {
-	spec, _ := services.LanguageServerFor("typescript")
-	return services.LanguageServerLaunch{SessionID: sessionID, Language: spec.Language, Spec: spec, Command: spec.LaunchCommand("/home/developer/workspace")}, nil
-}
-
 func (s workspaceTerminalZService) GetSession(ctx context.Context, sessionID string, repositoryID, userID int64) (services.WorkspaceSessionResponse, error) {
 	if s.sessionFn != nil {
 		return s.sessionFn(ctx, sessionID, repositoryID, userID)

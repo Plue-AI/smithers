@@ -13,9 +13,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	gossh "golang.org/x/crypto/ssh"
 
-	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
@@ -25,14 +23,11 @@ const (
 	// direction: close 1000 `language_server_idle`, server shut down.
 	defaultLSPIdleTimeout = 10 * time.Minute
 	// defaultLSPStartTimeout bounds the wait for the launch script's ready
-	// line: SSH dial through the gateway plus the guest resolving the binary.
+	// line: broker admission plus the guest resolving the binary.
 	defaultLSPStartTimeout = 20 * time.Second
 	// defaultLSPExitWait is how long the relay waits, after closing the
-	// server's stdin, for it to exit on its own before SIGKILL.
+	// server's stdin, for it to exit on its own before the cgroup kill.
 	defaultLSPExitWait = 2 * time.Second
-	// defaultLSPStartupRetryDelay mirrors the terminal's activation retry on
-	// NixOS guests whose shell is not linked yet.
-	defaultLSPStartupRetryDelay = defaultTerminalStartupRetryDelay
 	// lspWriteTimeout bounds one WebSocket write; a client that cannot drain
 	// a message in this long is dropped (close 1001, reconnect).
 	lspWriteTimeout = 10 * time.Second
@@ -44,31 +39,28 @@ const (
 	lspCloseReasonExited   = "language_server_exited"
 )
 
-// lspSSHSession is the SSH exec session that runs the language server: no
-// PTY, stdio relayed 1:1. *gossh.Session satisfies it.
-type lspSSHSession interface {
-	StdinPipe() (io.WriteCloser, error)
-	StdoutPipe() (io.Reader, error)
-	StderrPipe() (io.Reader, error)
-	Start(cmd string) error
-	Signal(sig gossh.Signal) error
+// LSPProcess is one language server's stdio on the branch machine: a daemon
+// exec session owned by the member who asked (spec §9.1.2), relayed 1:1.
+type LSPProcess interface {
+	io.Writer
+	// CloseWrite sends stdin eof; a stdio server exits on it.
+	CloseWrite() error
+	Stdout() io.Reader
+	Stderr() io.Reader
+	// Wait returns nil for exit 0 and an error with ExitStatus() otherwise.
 	Wait() error
-	Close() error
+	// Ready is called once the launch printed its ready line.
+	Ready()
+	// Kill empties the session's cgroup, detached descendants included.
+	Kill(context.Context) error
 }
 
-type lspSSHClient interface {
-	Close() error
-}
-
-type lspDialer func(ctx context.Context, info services.WorkspaceSSHConnectionInfo) (lspSSHClient, lspSSHSession, error)
+// lspOpener starts one language server through the broker.
+type lspOpener func(ctx context.Context) (LSPProcess, error)
 
 // errLanguageServerMissing is what open reports when the guest printed the
 // missing line: the handler answers 409 language_server_missing.
 var errLanguageServerMissing = errors.New("language server missing in guest")
-
-// errLanguageServerGuestNotReady is an exit 127 with no handshake line: the
-// guest's shell did not resolve (NixOS before activation).
-var errLanguageServerGuestNotReady = errors.New("language server guest not ready")
 
 // errLanguageServerReplaced is a launch that a newer start, Destroy or Close
 // superseded before it published: its server is killed, never tracked.
@@ -88,8 +80,8 @@ func (e *lspStartError) Error() string {
 	return fmt.Sprintf("language server exited with status %d before ready: %s", e.code, strings.TrimSpace(e.stderr))
 }
 
-// LSPSessionManager owns live language-server relays keyed by workspace
-// session id. Unlike terminals there is no durable process: a server lives
+// LSPSessionManager owns live language-server relays keyed by the member's
+// code-intelligence session id. Unlike terminals there is no durable process: a server lives
 // exactly as long as the WebSocket that opened it, so a reconnect starts a
 // fresh server and the client's `initialize` is always answered by a server
 // that has not seen one. The manager exists to enforce one live server per
@@ -103,13 +95,11 @@ type LSPSessionManager struct {
 	// still the one registered here, so two overlapping starts never leave
 	// an untracked server alive (the terminal manager has no such window
 	// because its process outlives the socket).
-	starting          map[string]*lspStartup
-	closed            bool
-	dial              lspDialer
-	idleTimeout       time.Duration
-	startTimeout      time.Duration
-	exitWait          time.Duration
-	startupRetryDelay time.Duration
+	starting     map[string]*lspStartup
+	closed       bool
+	idleTimeout  time.Duration
+	startTimeout time.Duration
+	exitWait     time.Duration
 }
 
 // lspStartup is one launch that has not published yet.
@@ -118,31 +108,29 @@ type lspStartup struct {
 	principal revocation.Principal
 }
 
-func NewLSPSessionManager(dial lspDialer) *LSPSessionManager {
+func NewLSPSessionManager() *LSPSessionManager {
 	return &LSPSessionManager{
-		sessions:          make(map[string]*lspSession),
-		starting:          make(map[string]*lspStartup),
-		dial:              dial,
-		idleTimeout:       defaultLSPIdleTimeout,
-		startTimeout:      defaultLSPStartTimeout,
-		exitWait:          defaultLSPExitWait,
-		startupRetryDelay: defaultLSPStartupRetryDelay,
+		sessions:     make(map[string]*lspSession),
+		starting:     make(map[string]*lspStartup),
+		idleTimeout:  defaultLSPIdleTimeout,
+		startTimeout: defaultLSPStartTimeout,
+		exitWait:     defaultLSPExitWait,
 	}
 }
 
-// start launches the language server for sessionID over SSH and waits for
+// start launches the language server for sessionID through open and waits for
 // its ready line. A previous live relay for the same session is closed
 // first (1000, replaced by a newer client), and so is a launch still in
 // flight for it: the newest start wins, an older one that completes later
 // kills its server and reports errLanguageServerReplaced. The returned
 // session is not yet attached to a WebSocket; the caller attaches after the
 // upgrade.
-func (m *LSPSessionManager) start(ctx context.Context, sessionID string, info services.WorkspaceSSHConnectionInfo, launch services.LanguageServerLaunch, principal revocation.Principal) (session *lspSession, err error) {
+func (m *LSPSessionManager) start(ctx context.Context, sessionID, language string, open lspOpener, principal revocation.Principal) (session *lspSession, err error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if m.dial == nil {
-		return nil, errors.New("lsp session manager dialer is nil")
+	if open == nil {
+		return nil, errors.New("lsp session opener is nil")
 	}
 	m.mu.Lock()
 	if m.closed {
@@ -179,77 +167,36 @@ func (m *LSPSessionManager) start(ctx context.Context, sessionID string, info se
 		previous.destroy(websocket.StatusNormalClosure, lspCloseReasonReplaced)
 	}
 
-	attempts := 1
-	if terminalNeedsActivationWatch(info.Kind) {
-		attempts = 2
+	sess, err := m.open(ctx, sessionID, language, open)
+	if err != nil {
+		return nil, err
 	}
-	for attempt := 0; attempt < attempts; attempt++ {
-		sess, err := m.open(ctx, sessionID, info, launch)
-		if err != nil {
-			if errors.Is(err, errLanguageServerGuestNotReady) {
-				if attempt+1 < attempts {
-					if waitErr := waitForTerminalRetry(ctx, m.startupRetryDelay); waitErr != nil {
-						return nil, waitErr
-					}
-					continue
-				}
-				return nil, pkgerrors.GuestNotReady("workspace guest is still starting; retry shortly")
-			}
-			return nil, err
-		}
-		m.mu.Lock()
-		if m.closed || m.starting[sessionID] != startup || ctx.Err() != nil {
-			// Superseded while dialing: whoever displaced this launch owns
-			// the id now, so this server dies instead of being orphaned.
-			m.mu.Unlock()
-			sess.destroy(websocket.StatusNormalClosure, lspCloseReasonReplaced)
-			return nil, errLanguageServerReplaced
-		}
-		sess.setPrincipal(principal)
-		m.sessions[sessionID] = sess
-		delete(m.starting, sessionID)
+	m.mu.Lock()
+	if m.closed || m.starting[sessionID] != startup || ctx.Err() != nil {
+		// Superseded while starting: whoever displaced this launch owns
+		// the id now, so this server dies instead of being orphaned.
 		m.mu.Unlock()
-		return sess, nil
+		sess.destroy(websocket.StatusNormalClosure, lspCloseReasonReplaced)
+		return nil, errLanguageServerReplaced
 	}
-	return nil, pkgerrors.GuestNotReady("workspace guest is still starting; retry shortly")
+	sess.setPrincipal(principal)
+	m.sessions[sessionID] = sess
+	delete(m.starting, sessionID)
+	m.mu.Unlock()
+	return sess, nil
 }
 
-// open dials, starts the launch command, and reads the handshake line.
-func (m *LSPSessionManager) open(ctx context.Context, sessionID string, info services.WorkspaceSSHConnectionInfo, launch services.LanguageServerLaunch) (*lspSession, error) {
-	client, sshSess, err := m.dial(ctx, info)
+// open starts the process and reads the handshake line.
+func (m *LSPSessionManager) open(ctx context.Context, sessionID, language string, start lspOpener) (*lspSession, error) {
+	proc, err := start(ctx)
 	if err != nil {
 		return nil, err
 	}
-	stop := context.AfterFunc(ctx, func() { _ = sshSess.Close(); _ = client.Close() })
-	defer stop()
-	fail := func(err error) (*lspSession, error) {
-		_ = sshSess.Close()
-		_ = client.Close()
-		return nil, err
-	}
-	stdin, err := sshSess.StdinPipe()
-	if err != nil {
-		return fail(fmt.Errorf("ssh stdin pipe: %w", err))
-	}
-	stdout, err := sshSess.StdoutPipe()
-	if err != nil {
-		return fail(fmt.Errorf("ssh stdout pipe: %w", err))
-	}
-	stderr, err := sshSess.StderrPipe()
-	if err != nil {
-		return fail(fmt.Errorf("ssh stderr pipe: %w", err))
-	}
-	if err := sshSess.Start(launch.Command); err != nil {
-		return fail(fmt.Errorf("ssh start language server: %w", err))
-	}
-
 	sess := &lspSession{
 		id:            sessionID,
-		language:      launch.Language,
-		client:        client,
-		sshSess:       sshSess,
-		stdin:         stdin,
-		br:            bufio.NewReaderSize(stdout, 64*1024),
+		language:      language,
+		proc:          proc,
+		br:            bufio.NewReaderSize(proc.Stdout(), 64*1024),
 		stderr:        newTailBuffer(lspStderrTailBytes),
 		idleAfter:     m.idleTimeout,
 		exitWait:      m.exitWait,
@@ -261,7 +208,7 @@ func (m *LSPSessionManager) open(ctx context.Context, sessionID string, info ser
 	// relay's teardown must not evict the newer one under the same id.
 	sess.onDone = func() { m.removeSession(sessionID, sess) }
 	sess.touch()
-	go sess.drainStderr(stderr)
+	go sess.drainStderr(proc.Stderr())
 	go sess.waitExit()
 
 	handshake := make(chan handshakeResult, 1)
@@ -277,10 +224,8 @@ func (m *LSPSessionManager) open(ctx context.Context, sessionID string, info ser
 
 	// The launch script's first stdout line is the verdict: the ready line,
 	// the `missing` line, or nothing at all. The exit status never decides on
-	// its own — on a real SSH channel it can arrive before the line the guest
-	// already wrote is drained, and answering `guest_not_ready` to a guest
-	// that told us which binary is missing is a misleading refusal. An exit
-	// only bounds how long the line may still arrive.
+	// its own: it can arrive before the line the guest already wrote is
+	// drained. An exit only bounds how long the line may still arrive.
 	var res handshakeResult
 	select {
 	case res = <-handshake:
@@ -297,7 +242,9 @@ func (m *LSPSessionManager) open(ctx context.Context, sessionID string, info ser
 		return nil, ctx.Err()
 	}
 	if res.err == nil && res.line == services.LanguageServerReadyLine {
-		// The relay is live from here: its exit now ends the WebSocket.
+		// The session launcher consumed its admission; the relay is live
+		// from here and the process's exit now ends the WebSocket.
+		proc.Ready()
 		go sess.closeOnExit()
 		return sess, nil
 	}
@@ -319,15 +266,12 @@ type handshakeResult struct {
 	err  error
 }
 
-// classifyLSPStart maps a launch that ended before ready to the error the
-// handler answers: the missing line is a 409, an exit 127 without any line
-// is the shell itself missing (retry), anything else is a start failure.
+// classifyLSPStart maps a launch that ended before ready to the close the
+// handler sends: the missing line names the install line, anything else is
+// a start failure.
 func classifyLSPStart(line string, code int, stderr string) error {
 	if strings.HasPrefix(line, services.LanguageServerMissingLine+" ") || line == services.LanguageServerMissingLine {
 		return errLanguageServerMissing
-	}
-	if line == "" && code == services.LanguageServerMissingExitCode {
-		return errLanguageServerGuestNotReady
 	}
 	return &lspStartError{code: code, stderr: stderr}
 }
@@ -405,9 +349,7 @@ func (m *LSPSessionManager) RevokeMatching(event revocation.Event) {
 type lspSession struct {
 	id        string
 	language  string
-	client    lspSSHClient
-	sshSess   lspSSHSession
-	stdin     io.WriteCloser
+	proc      LSPProcess
 	br        *bufio.Reader
 	stderr    *tailBuffer
 	idleAfter time.Duration
@@ -489,10 +431,10 @@ func (s *lspSession) attach(ws *websocket.Conn, touch func()) error {
 
 // waitExit records the server process's exit; it does not tear the session
 // down. Teardown during startup belongs to open, which is still reading the
-// handshake line: destroying here would close the SSH session out from under
+// handshake line: destroying here would close the stream out from under
 // that read and lose the line the guest wrote.
 func (s *lspSession) waitExit() {
-	s.exitErr = s.sshSess.Wait()
+	s.exitErr = s.proc.Wait()
 	close(s.exited)
 }
 
@@ -507,7 +449,7 @@ func (s *lspSession) closeOnExit() {
 }
 
 // exitCode is valid after exited is closed: 0 for a clean exit, the status
-// for an exit error, -1 when SSH reported no status.
+// for an exit error, -1 when the session ended without a status.
 func (s *lspSession) exitCode() int {
 	select {
 	case <-s.exited:
@@ -662,7 +604,7 @@ func (s *lspSession) pumpClientToServer(ctx context.Context, ws *websocket.Conn)
 		if s.isDead() {
 			return
 		}
-		if _, err := s.stdin.Write(lspEncodeMessage(body)); err != nil {
+		if _, err := s.proc.Write(lspEncodeMessage(body)); err != nil {
 			// The server went away; waitExit reports the typed exit.
 			select {
 			case <-s.exited:
@@ -704,22 +646,24 @@ func (s *lspSession) watchIdle(ctx context.Context) {
 	}
 }
 
-// kill ends the server process: stdin closed (a vscode-languageserver
-// server exits on stdin EOF), SIGKILL after exitWait if it lingers, then the
-// SSH session and connection.
+// kill ends the server process: stdin eof (a vscode-languageserver server
+// exits on it), then the broker empties the session's cgroup, so a lingering
+// server or a descendant it detached never outlives the relay.
 func (s *lspSession) kill() {
-	_ = s.stdin.Close()
+	_ = s.proc.CloseWrite()
 	select {
 	case <-s.exited:
 	case <-time.After(s.exitWait):
-		_ = s.sshSess.Signal(gossh.SIGKILL)
-		select {
-		case <-s.exited:
-		case <-time.After(time.Second):
-		}
 	}
-	_ = s.sshSess.Close()
-	_ = s.client.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.proc.Kill(ctx); err != nil {
+		slog.Warn("language server kill unconfirmed", "session_id", s.id, "error", err)
+	}
+	select {
+	case <-s.exited:
+	case <-time.After(time.Second):
+	}
 }
 
 // destroy ends the relay exactly once: the client is told why with code and

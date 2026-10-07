@@ -206,7 +206,7 @@ requires all declared hosts. Test discovery (`--list`) is not execution proof.
 
 ### Feature matrix
 
-Feature matrix version 6. `FEATURE_MATRIX` in `matrix.ts` classifies every
+Feature matrix version 7. `FEATURE_MATRIX` in `matrix.ts` classifies every
 runtime capability for each provider:
 
 - `core`: every mode of the provider must advertise it. The report has one
@@ -236,6 +236,7 @@ SHA-256 digest of the table. Change a row only with a version bump.
 | `billing.checkout` | optional | optional |
 | `billing.portal` | optional | optional |
 | `cloud.terminal` | core | core |
+| `code.intelligence` | optional | absent |
 | `cloud.pat` | optional | absent |
 | `launch.codex` | absent | absent |
 | `launch.claude-code` | absent | absent |

@@ -103,6 +103,29 @@ func (c *MemberCredentials) OpenTerminal(ctx context.Context, id, session, diges
 	return
 }
 
+// OpenExec starts a member's File-card language server (spec §9.1.2) through
+// the same sealed admission as a terminal. It is attributed to the web app
+// and its session presence is "lsp", which neither announces the member nor
+// holds the machine awake.
+func (c *MemberCredentials) OpenExec(ctx context.Context, id, session, digest string, command workspaceapi.Command) (process *machined.Exec, err error) {
+	if len(command.Args) == 0 {
+		return nil, fmt.Errorf("exec argv is required")
+	}
+	var admitted *machined.Sessions
+	err = c.withAdmission(ctx, id, session, digest, command, "web", func(admissionCtx context.Context, sessions *machined.Sessions, user machined.SessionUser) error {
+		admitted = sessions
+		var e error
+		process, e = sessions.WithPresenceVia("lsp").OpenExec(admissionCtx, user, command.Args)
+		return e
+	})
+	if err != nil && process != nil {
+		err = errors.Join(err, c.cleanupFailedAdmission(admitted))
+		_ = process.Close()
+		process = nil
+	}
+	return
+}
+
 // OpenSession uses the same sealed member admission for SSH exec, SFTP and
 // loopback relay processes. No session user comes from a channel payload.
 func (c *MemberCredentials) OpenSession(ctx context.Context, id, session, digest string, command workspaceapi.Command, kind machined.SessionKind, size *machined.SessionSize) (client *machined.Sessions, sid uint32, err error) {

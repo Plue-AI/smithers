@@ -566,6 +566,10 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "flows.read", regexp.MustCompile(`^/api/runs/[0-9]+/background-status$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/files/.+$`)},
 	{http.MethodPost, "file.restore", regexp.MustCompile(`^/api/branches/[^/]+/files/.+$`)},
+	// The File card's language server shares code.hover's policy with
+	// code.definition and code.diagnostics: one session answers all three.
+	{http.MethodPost, "code.hover", regexp.MustCompile(`^/api/branches/[^/]+/lsp$`)},
+	{http.MethodGet, "code.hover", regexp.MustCompile(`^/api/branches/[^/]+/lsp/[^/]+$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspace-snapshots(?:/[^/]+)?$`)},
 	{http.MethodGet, "branches.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces$`)},
 	{http.MethodGet, "branches.read", regexp.MustCompile(`^/api/branches$`)},

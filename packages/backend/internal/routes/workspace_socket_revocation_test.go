@@ -2,7 +2,6 @@ package routes
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -25,7 +24,7 @@ import (
 // The channel-controlled dial keeps the public request between admission and
 // upgrade while a real bus delivers the credential deletion.
 func TestWorkspaceSocketRevocationDuringStartup(t *testing.T) {
-	for _, kind := range []string{"lsp", "terminal"} {
+	for _, kind := range []string{"terminal"} {
 		t.Run(kind, func(t *testing.T) {
 			for _, phase := range []string{"during_startup", "after_attachment"} {
 				t.Run(phase, func(t *testing.T) {
@@ -40,53 +39,30 @@ func TestWorkspaceSocketRevocationDuringStartup(t *testing.T) {
 					t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
 					block := phase == "during_startup"
 					var handler *WorkspaceTerminalHandler
-					var lspServer *fakeLanguageServer
 					var terminal *fakeTerminalSSH
-					if kind == "lsp" {
-						lspSession := newFakeLSPSSHSession()
-						t.Cleanup(func() { _ = lspSession.Close() })
-						lspServer = &fakeLanguageServer{sess: lspSession}
-						manager := NewLSPSessionManager(func(ctx context.Context, _ services.WorkspaceSSHConnectionInfo) (lspSSHClient, lspSSHSession, error) {
-							if block {
-								close(entered)
-								select {
-								case <-release:
-								case <-ctx.Done():
-									return nil, nil, ctx.Err()
-								}
+					terminal = newFakeTerminalSSH()
+					t.Cleanup(func() { _ = terminal.session.Close() })
+					manager := NewTerminalSessionManager(func(ctx context.Context, _ services.WorkspaceSSHConnectionInfo, _, _ int32) (terminalSSHClient, terminalSSHSession, error) {
+						if block {
+							close(entered)
+							select {
+							case <-release:
+							case <-ctx.Done():
+								return nil, nil, ctx.Err()
 							}
-							go lspServer.serve(t)
-							return &fakeLSPSSHClient{}, lspSession, nil
-						})
-						manager.startupRetryDelay = time.Millisecond
-						t.Cleanup(manager.Close)
-						t.Cleanup(bus.Subscribe(manager.RevokeMatching))
-						handler = &WorkspaceTerminalHandler{Service: lspTestService("running"), AllowedOrigins: []string{"https://smithers.sh"}, LSPSessions: manager}
-					} else {
-						terminal = newFakeTerminalSSH()
-						t.Cleanup(func() { _ = terminal.session.Close() })
-						manager := NewTerminalSessionManager(func(ctx context.Context, _ services.WorkspaceSSHConnectionInfo, _, _ int32) (terminalSSHClient, terminalSSHSession, error) {
-							if block {
-								close(entered)
-								select {
-								case <-release:
-								case <-ctx.Done():
-									return nil, nil, ctx.Err()
-								}
-							}
-							return terminal.client, terminal.session, nil
-						})
-						manager.keepaliveInterval = 0
-						t.Cleanup(manager.Close)
-						t.Cleanup(bus.Subscribe(manager.RevokeMatching))
-						service := lspTestService("running")
-						service.getSessionFunc = func(context.Context, string, int64, int64) (services.WorkspaceSessionResponse, error) {
-							session := lspTestSession("s1", 1, 1, "running")
-							session.Kind = services.WorkspaceSessionKindTerminal
-							return session, nil
 						}
-						handler = &WorkspaceTerminalHandler{Service: service, AllowedOrigins: []string{"https://smithers.sh"}, TerminalSessions: manager}
+						return terminal.client, terminal.session, nil
+					})
+					manager.keepaliveInterval = 0
+					t.Cleanup(manager.Close)
+					t.Cleanup(bus.Subscribe(manager.RevokeMatching))
+					service := socketTestService("running")
+					service.getSessionFunc = func(context.Context, string, int64, int64) (services.WorkspaceSessionResponse, error) {
+						session := socketTestSession("s1", 1, 1, "running")
+						session.Kind = services.WorkspaceSessionKindTerminal
+						return session, nil
 					}
+					handler = &WorkspaceTerminalHandler{Service: service, AllowedOrigins: []string{"https://smithers.sh"}, TerminalSessions: manager}
 
 					router := chi.NewRouter()
 					router.Use(func(next http.Handler) http.Handler {
@@ -96,12 +72,7 @@ func TestWorkspaceSocketRevocationDuringStartup(t *testing.T) {
 							next.ServeHTTP(w, r.WithContext(ctx))
 						})
 					})
-					path := "/repos/owner/repo/workspace/sessions/{id}/" + kind
-					if kind == "lsp" {
-						router.Get(path, handler.LSPWebSocket)
-					} else {
-						router.Get(path, handler.TerminalWebSocket)
-					}
+					router.Get("/repos/owner/repo/workspace/sessions/{id}/"+kind, handler.TerminalWebSocket)
 					srv := httptest.NewServer(router)
 					t.Cleanup(srv.Close)
 					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -145,42 +116,30 @@ func TestWorkspaceSocketRevocationDuringStartup(t *testing.T) {
 					result = dial()
 					require.NoError(t, result.err)
 					defer result.ws.CloseNow()
-					if kind == "lsp" {
-						require.NoError(t, result.ws.Write(ctx, websocket.MessageText, []byte(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`)))
-						_, body, err := result.ws.Read(ctx)
-						require.NoError(t, err)
-						var reply struct {
-							Result json.RawMessage `json:"result"`
+					_, body, err := result.ws.Read(ctx)
+					require.NoError(t, err)
+					require.JSONEq(t, `{"type":"replay-complete"}`, string(body))
+					read := make(chan []byte, 1)
+					go func() {
+						data := make([]byte, 5)
+						_, err := io.ReadFull(terminal.session.stdinR, data)
+						if err == nil {
+							read <- data
 						}
-						require.NoError(t, json.Unmarshal(body, &reply))
-						require.NotEmpty(t, reply.Result)
-						require.Equal(t, []string{"initialize"}, lspServer.methods())
-					} else {
-						_, body, err := result.ws.Read(ctx)
-						require.NoError(t, err)
-						require.JSONEq(t, `{"type":"replay-complete"}`, string(body))
-						read := make(chan []byte, 1)
-						go func() {
-							data := make([]byte, 5)
-							_, err := io.ReadFull(terminal.session.stdinR, data)
-							if err == nil {
-								read <- data
-							}
-						}()
-						require.NoError(t, result.ws.Write(ctx, websocket.MessageBinary, []byte("hello")))
-						select {
-						case bytes := <-read:
-							require.Equal(t, []byte("hello"), bytes)
-						case <-ctx.Done():
-							t.Fatal("terminal input did not reach SSH stdin")
-						}
+					}()
+					require.NoError(t, result.ws.Write(ctx, websocket.MessageBinary, []byte("hello")))
+					select {
+					case bytes := <-read:
+						require.Equal(t, []byte("hello"), bytes)
+					case <-ctx.Done():
+						t.Fatal("terminal input did not reach SSH stdin")
 					}
 					delivered := make(chan struct{})
 					go func() {
 						bus.Deliver(revocation.Event{Kind: revocation.KindTokenRevoked, TokenHash: tokenHash, Reason: "token deleted"})
 						close(delivered)
 					}()
-					_, _, err := result.ws.Read(ctx)
+					_, _, err = result.ws.Read(ctx)
 					require.Error(t, err)
 					require.Equal(t, websocket.StatusPolicyViolation, websocket.CloseStatus(err))
 					select {
@@ -197,15 +156,15 @@ func TestWorkspaceSocketRevocationDuringStartup(t *testing.T) {
 func TestLSPSessionManagerRevokesMatchingPendingLaunch(t *testing.T) {
 	const token = "pending-lsp-token"
 	entered := make(chan context.Context, 1)
-	manager := NewLSPSessionManager(func(ctx context.Context, _ services.WorkspaceSSHConnectionInfo) (lspSSHClient, lspSSHSession, error) {
-		entered <- ctx
-		<-ctx.Done()
-		return nil, nil, ctx.Err()
-	})
+	manager := NewLSPSessionManager()
 	t.Cleanup(manager.Close)
 	result := make(chan error, 1)
 	go func() {
-		_, err := manager.start(context.Background(), "s1", services.WorkspaceSSHConnectionInfo{}, services.LanguageServerLaunch{}, revocation.Principal{UserID: 7, TokenHash: token})
+		_, err := manager.start(context.Background(), "s1", "typescript", func(ctx context.Context) (LSPProcess, error) {
+			entered <- ctx
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}, revocation.Principal{UserID: 7, TokenHash: token})
 		result <- err
 	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -214,7 +173,7 @@ func TestLSPSessionManagerRevokesMatchingPendingLaunch(t *testing.T) {
 	select {
 	case dialCtx = <-entered:
 	case <-ctx.Done():
-		t.Fatal("pending LSP launch did not enter the dialer")
+		t.Fatal("pending LSP launch did not enter the opener")
 	}
 	manager.RevokeMatching(revocation.Event{Kind: revocation.KindTokenRevoked, TokenHash: "other"})
 	select {
@@ -292,9 +251,9 @@ func TestTerminalReusedSessionCallerRevokedBeforeAttach(t *testing.T) {
 	session, created, err := manager.getOrCreate(context.Background(), "s1", services.WorkspaceSSHConnectionInfo{WorkspaceID: "workspace-1", VMID: "vm-1", Kind: "container"}, 80, 24, creator)
 	require.NoError(t, err)
 	require.True(t, created)
-	service := lspTestService("running")
+	service := socketTestService("running")
 	service.getSessionFunc = func(context.Context, string, int64, int64) (services.WorkspaceSessionResponse, error) {
-		row := lspTestSession("s1", 1, 1, "running")
+		row := socketTestSession("s1", 1, 1, "running")
 		row.Kind = services.WorkspaceSessionKindTerminal
 		return row, nil
 	}
@@ -334,12 +293,12 @@ func TestWorkspaceSessionManagersRefuseCanceledStartupBeforeDial(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	var lspDials atomic.Int32
-	lsp := NewLSPSessionManager(func(context.Context, services.WorkspaceSSHConnectionInfo) (lspSSHClient, lspSSHSession, error) {
-		lspDials.Add(1)
-		return nil, nil, errors.New("should not dial")
-	})
+	lsp := NewLSPSessionManager()
 	defer lsp.Close()
-	_, err := lsp.start(ctx, "s1", services.WorkspaceSSHConnectionInfo{}, services.LanguageServerLaunch{}, revocation.Principal{TokenHash: "token"})
+	_, err := lsp.start(ctx, "s1", "typescript", func(context.Context) (LSPProcess, error) {
+		lspDials.Add(1)
+		return nil, errors.New("should not start")
+	}, revocation.Principal{TokenHash: "token"})
 	require.ErrorIs(t, err, context.Canceled)
 	require.Zero(t, lspDials.Load())
 

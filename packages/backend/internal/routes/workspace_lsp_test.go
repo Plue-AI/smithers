@@ -21,7 +21,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	gossh "golang.org/x/crypto/ssh"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -30,16 +29,16 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
-// fakeLSPExit is the exit status the fake SSH session reports; it satisfies
-// the ExitStatus() shape the relay reads from *gossh.ExitError.
+// fakeLSPExit is the exit status the fake process reports; it satisfies the
+// ExitStatus() shape the relay reads from *machined.ExitError.
 type fakeLSPExit struct{ code int }
 
 func (e *fakeLSPExit) Error() string   { return fmt.Sprintf("exit status %d", e.code) }
 func (e *fakeLSPExit) ExitStatus() int { return e.code }
 
-// fakeLSPSSHSession is one exec session: the test's fake language server
+// fakeLSPProcess is one daemon exec session: the test's fake language server
 // reads Content-Length frames from stdinR and writes to stdoutW.
-type fakeLSPSSHSession struct {
+type fakeLSPProcess struct {
 	stdinR  *io.PipeReader
 	stdinW  *io.PipeWriter
 	stdoutR *io.PipeReader
@@ -47,52 +46,57 @@ type fakeLSPSSHSession struct {
 	stderrR *io.PipeReader
 	stderrW *io.PipeWriter
 
-	started chan string
-	exitCh  chan error
-	exitErr error
-	exited  sync.Once
+	exitCh chan error
+	exited sync.Once
 	// waitReturned closes once the relay's Wait observed the exit status, so
 	// a test can order what it does next after the relay saw the exit.
 	waitReturned chan struct{}
-	closed       atomic.Bool
-	signals      []gossh.Signal
-	mu           sync.Mutex
+	ready        atomic.Int32
+	killed       atomic.Bool
 }
 
-func newFakeLSPSSHSession() *fakeLSPSSHSession {
+func newFakeLSPProcess() *fakeLSPProcess {
 	stdinR, stdinW := io.Pipe()
 	stdoutR, stdoutW := io.Pipe()
 	stderrR, stderrW := io.Pipe()
-	return &fakeLSPSSHSession{
+	return &fakeLSPProcess{
 		stdinR: stdinR, stdinW: stdinW,
 		stdoutR: stdoutR, stdoutW: stdoutW,
 		stderrR: stderrR, stderrW: stderrW,
-		started:      make(chan string, 1),
 		exitCh:       make(chan error, 1),
 		waitReturned: make(chan struct{}),
 	}
 }
 
-func (f *fakeLSPSSHSession) StdinPipe() (io.WriteCloser, error) { return f.stdinW, nil }
-func (f *fakeLSPSSHSession) StdoutPipe() (io.Reader, error)     { return f.stdoutR, nil }
-func (f *fakeLSPSSHSession) StderrPipe() (io.Reader, error)     { return f.stderrR, nil }
-func (f *fakeLSPSSHSession) Start(cmd string) error             { f.started <- cmd; return nil }
-func (f *fakeLSPSSHSession) Signal(sig gossh.Signal) error {
-	f.mu.Lock()
-	f.signals = append(f.signals, sig)
-	f.mu.Unlock()
-	return nil
-}
-func (f *fakeLSPSSHSession) Wait() error {
+func (f *fakeLSPProcess) Write(p []byte) (int, error) { return f.stdinW.Write(p) }
+func (f *fakeLSPProcess) CloseWrite() error           { return f.stdinW.Close() }
+func (f *fakeLSPProcess) Stdout() io.Reader           { return f.stdoutR }
+func (f *fakeLSPProcess) Stderr() io.Reader           { return f.stderrR }
+func (f *fakeLSPProcess) Ready()                      { f.ready.Add(1) }
+func (f *fakeLSPProcess) Wait() error {
 	err := <-f.exitCh
-	f.exitErr = err
 	close(f.waitReturned)
 	return err
 }
 
+// Kill is the broker's cgroup kill: every pipe closes and a process still
+// running reports 137.
+func (f *fakeLSPProcess) Kill(context.Context) error {
+	if f.killed.CompareAndSwap(false, true) {
+		_ = f.stdinR.Close()
+		_ = f.stdinW.Close()
+		_ = f.stdoutR.Close()
+		_ = f.stdoutW.Close()
+		_ = f.stderrR.Close()
+		_ = f.stderrW.Close()
+		f.exit(137)
+	}
+	return nil
+}
+
 // exit ends the fake process with code: stdout closes (EOF for the relay's
 // reader) and Wait returns.
-func (f *fakeLSPSSHSession) exit(code int) {
+func (f *fakeLSPProcess) exit(code int) {
 	f.exited.Do(func() {
 		_ = f.stdoutW.Close()
 		_ = f.stderrW.Close()
@@ -105,62 +109,39 @@ func (f *fakeLSPSSHSession) exit(code int) {
 }
 
 // exitStatusOnly reports the exit status while the output stream stays open:
-// the order a real SSH channel can deliver, with the bytes the command
-// already wrote still queued behind the status. It returns only after the
-// relay's Wait observed the status, so whatever the caller writes next is
-// strictly ordered after the relay saw the process exit.
-func (f *fakeLSPSSHSession) exitStatusOnly(code int) {
+// the bytes the command already wrote are still queued behind the status.
+// It returns only after the relay's Wait observed the status.
+func (f *fakeLSPProcess) exitStatusOnly(code int) {
 	f.exited.Do(func() { f.exitCh <- &fakeLSPExit{code: code} })
 	<-f.waitReturned
 }
 
-func (f *fakeLSPSSHSession) Close() error {
-	if f.closed.CompareAndSwap(false, true) {
-		_ = f.stdinR.Close()
-		_ = f.stdinW.Close()
-		_ = f.stdoutR.Close()
-		_ = f.stdoutW.Close()
-		_ = f.stderrR.Close()
-		_ = f.stderrW.Close()
-		// A killed process reports a non-zero status to anyone still waiting.
-		f.exit(137)
-	}
-	return nil
+func (f *fakeLSPProcess) opener() lspOpener {
+	return func(context.Context) (LSPProcess, error) { return f, nil }
 }
 
-type fakeLSPSSHClient struct{ closed atomic.Bool }
-
-func (f *fakeLSPSSHClient) Close() error { f.closed.Store(true); return nil }
-
-// fakeLanguageServer drives a fakeLSPSSHSession like a stdio server would:
+// fakeLanguageServer drives a fakeLSPProcess like a stdio server would:
 // prints the ready line, then answers requests until it sees `exit`.
 type fakeLanguageServer struct {
-	sess *fakeLSPSSHSession
+	proc *fakeLSPProcess
 	// hoverBytes sizes the hover result's contents so tests can force the
 	// relay to fragment.
 	hoverBytes int
-	// received collects every method the server saw, in order.
-	mu       sync.Mutex
-	received []string
-	bodies   [][]byte
+	mu         sync.Mutex
+	received   []string
+	bodies     [][]byte
 }
 
 func (s *fakeLanguageServer) serve(t *testing.T) {
 	t.Helper()
-	select {
-	case <-s.sess.started:
-	case <-time.After(5 * time.Second):
-		t.Error("fake language server never started")
-		return
-	}
-	_, _ = io.WriteString(s.sess.stdoutW, services.LanguageServerReadyLine+"\n")
-	reader := newLSPFrameReader(bufio.NewReader(s.sess.stdinR), lspMaxAssembledBytes)
+	_, _ = io.WriteString(s.proc.stdoutW, services.LanguageServerReadyLine+"\n")
+	reader := newLSPFrameReader(bufio.NewReader(s.proc.stdinR), lspMaxAssembledBytes)
 	for {
 		body, err := reader.Next()
 		if err != nil {
 			// stdin closed: a vscode-languageserver server exits 1 here when
 			// it never saw shutdown.
-			s.sess.exit(1)
+			s.proc.exit(1)
 			return
 		}
 		var msg struct {
@@ -181,10 +162,10 @@ func (s *fakeLanguageServer) serve(t *testing.T) {
 		case "shutdown":
 			s.reply(msg.ID, `null`)
 		case "exit":
-			s.sess.exit(0)
+			s.proc.exit(0)
 			return
 		case "crash":
-			s.sess.exit(3)
+			s.proc.exit(3)
 			return
 		}
 	}
@@ -192,7 +173,7 @@ func (s *fakeLanguageServer) serve(t *testing.T) {
 
 func (s *fakeLanguageServer) reply(id json.RawMessage, result string) {
 	body := `{"jsonrpc":"2.0","id":` + string(id) + `,"result":` + result + `}`
-	_, _ = s.sess.stdoutW.Write(lspEncodeMessage([]byte(body)))
+	_, _ = s.proc.stdoutW.Write(lspEncodeMessage([]byte(body)))
 }
 
 func (s *fakeLanguageServer) methods() []string {
@@ -201,32 +182,92 @@ func (s *fakeLanguageServer) methods() []string {
 	return append([]string(nil), s.received...)
 }
 
-func lspTestSession(sessionID string, repositoryID, userID int64, status string) services.WorkspaceSessionResponse {
-	return services.WorkspaceSessionResponse{
-		ID:           sessionID,
-		WorkspaceID:  "workspace-1",
-		RepositoryID: repositoryID,
-		UserID:       userID,
-		Status:       status,
-		Kind:         services.WorkspaceSessionKindLSP,
-		Language:     "typescript",
-		Cols:         80,
-		Rows:         24,
+// newLSPRelayManager wires a manager and an opener that hands out one fake
+// process with a fake language server on it.
+func newLSPRelayManager(t *testing.T, hoverBytes int, ready bool) (*LSPSessionManager, *fakeLanguageServer) {
+	t.Helper()
+	proc := newFakeLSPProcess()
+	server := &fakeLanguageServer{proc: proc, hoverBytes: hoverBytes}
+	manager := NewLSPSessionManager()
+	manager.exitWait = 200 * time.Millisecond
+	if ready {
+		go server.serve(t)
+	}
+	t.Cleanup(manager.Close)
+	return manager, server
+}
+
+const lspTestBranch = "scratch/maya/intelligence"
+
+// fakeBranchLanguageServers is the install provider with its authority
+// decisions selected by the test; the handler, relay and wire are real.
+type fakeBranchLanguageServers struct {
+	unavailable bool
+	authorize   func(branch string, member int64) (revocation.Principal, error)
+	ready       atomic.Pointer[error]
+	open        func(context.Context) (LSPProcess, error)
+	authorizes  atomic.Int32
+	opens       atomic.Int32
+	mu          sync.Mutex
+	opened      []string
+}
+
+func (p *fakeBranchLanguageServers) Available() bool { return !p.unavailable }
+func (p *fakeBranchLanguageServers) Authorize(_ context.Context, branch string, member int64) (revocation.Principal, error) {
+	p.authorizes.Add(1)
+	if p.authorize != nil {
+		return p.authorize(branch, member)
+	}
+	if branch != lspTestBranch {
+		return revocation.Principal{}, pkgerrors.NotFound("branch not found")
+	}
+	return revocation.Principal{UserID: member, RepositoryID: 1, WorkspaceID: "workspace-1", SandboxID: "vm-1"}, nil
+}
+func (p *fakeBranchLanguageServers) Ready(context.Context, revocation.Principal) error {
+	if err := p.ready.Load(); err != nil {
+		return *err
+	}
+	return nil
+}
+func (p *fakeBranchLanguageServers) asleep() {
+	err := error(services.ErrBranchAsleep)
+	p.ready.Store(&err)
+}
+func (p *fakeBranchLanguageServers) Open(ctx context.Context, principal revocation.Principal, language string) (LSPProcess, error) {
+	p.opens.Add(1)
+	p.mu.Lock()
+	p.opened = append(p.opened, fmt.Sprintf("%d:%s:%s", principal.UserID, principal.WorkspaceID, language))
+	p.mu.Unlock()
+	if p.open == nil {
+		return nil, errors.New("no language server in this test")
+	}
+	return p.open(ctx)
+}
+
+func lspTestHandler(provider *fakeBranchLanguageServers, manager *LSPSessionManager) *BranchLSPHandler {
+	return &BranchLSPHandler{
+		Provider:       provider,
+		AllowedOrigins: []string{"https://smithers.sh"},
+		sessions:       manager,
+		Authorize: func(r *http.Request, command string) (int64, int64, error) {
+			if command != "code.hover" {
+				return 0, 0, pkgerrors.Forbidden("unexpected command " + command)
+			}
+			user := middleware.UserFromContext(r.Context())
+			if user == nil {
+				return 0, 0, pkgerrors.Unauthorized("authentication required")
+			}
+			return 1, user.ID, nil
+		},
 	}
 }
 
-func lspTestService(status string) *mockWorkspaceTerminalService {
-	return &mockWorkspaceTerminalService{
-		getSessionFunc: func(ctx context.Context, sessionID string, repositoryID, userID int64) (services.WorkspaceSessionResponse, error) {
-			return lspTestSession(sessionID, repositoryID, userID, status), nil
-		},
-		getSSHConnectionFunc: func(ctx context.Context, sessionID string, repositoryID, userID int64) (services.WorkspaceSSHConnectionInfo, error) {
-			return services.WorkspaceSSHConnectionInfo{WorkspaceID: "workspace-1", VMID: "vm-1", Host: "vm-ssh.example", Username: "developer", Kind: "container"}, nil
-		},
-	}
+// seedLSPGrant admits session "s1" for member 1, as a POST would.
+func seedLSPGrant(handler *BranchLSPHandler) {
+	handler.grants = map[string]*lspGrant{"s1": {id: "s1", member: 1, repository: 1, branch: "workspace-1", language: "typescript", used: time.Now()}}
 }
 
-func newLSPTestServer(t *testing.T, handler *WorkspaceTerminalHandler, authInfo *middleware.AuthInfo) *httptest.Server {
+func newLSPTestServer(t *testing.T, handler *BranchLSPHandler, authInfo *middleware.AuthInfo) *httptest.Server {
 	t.Helper()
 	r := chi.NewRouter()
 	r.Use(func(next http.Handler) http.Handler {
@@ -235,14 +276,11 @@ func newLSPTestServer(t *testing.T, handler *WorkspaceTerminalHandler, authInfo 
 			if authInfo != nil {
 				ctx = middleware.ContextWithAuthInfo(ctx, authInfo)
 			}
-			ctx = middleware.ContextWithRepoContext(ctx, &middleware.RepoContext{
-				Owner:      "testowner",
-				Repository: &db.Repository{ID: 1, Name: "testrepo"},
-			}, middleware.PermissionWrite)
 			next.ServeHTTP(w, req.WithContext(ctx))
 		})
 	})
-	r.Get("/repos/{owner}/{repo}/workspace/sessions/{id}/lsp", handler.LSPWebSocket)
+	r.Post("/branches/{b}/lsp", handler.Open)
+	r.Get("/branches/{b}/lsp/{id}", handler.Socket)
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 	return srv
@@ -252,8 +290,22 @@ func lspTestAuth() *middleware.AuthInfo {
 	return &middleware.AuthInfo{User: &db.User{ID: 1, Username: "testuser"}}
 }
 
+func lspBranchPath(branch string) string {
+	return "/branches/" + strings.ReplaceAll(branch, "/", "%2F") + "/lsp"
+}
+
+func openLSP(t *testing.T, srvURL, body string) (int, map[string]any) {
+	t.Helper()
+	resp, err := http.Post(srvURL+lspBranchPath(lspTestBranch), "application/json", strings.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	return resp.StatusCode, out
+}
+
 func dialLSP(ctx context.Context, srvURL, sessionID string) (*websocket.Conn, *http.Response, error) {
-	return websocket.Dial(ctx, "ws"+srvURL[len("http"):]+"/repos/testowner/testrepo/workspace/sessions/"+sessionID+"/lsp", &websocket.DialOptions{
+	return websocket.Dial(ctx, "ws"+srvURL[len("http"):]+lspBranchPath(lspTestBranch)+"/"+sessionID, &websocket.DialOptions{
 		Subprotocols: []string{"lsp"},
 		HTTPHeader:   http.Header{"Origin": []string{"https://smithers.sh"}},
 	})
@@ -268,137 +320,153 @@ func readAPIError(t *testing.T, resp *http.Response) pkgerrors.APIError {
 	return apiErr
 }
 
-// newLSPRelayManager wires a manager whose dialer hands out fake sessions and
-// starts a fake language server on each.
-func newLSPRelayManager(t *testing.T, hoverBytes int, ready bool) (*LSPSessionManager, *fakeLanguageServer) {
+// relayHandler is a socket handler whose provider opens the relay manager's
+// fake process, with session "s1" admitted for member 1.
+func relayHandler(t *testing.T, hoverBytes int) (*BranchLSPHandler, *LSPSessionManager, *fakeLanguageServer, *fakeBranchLanguageServers) {
 	t.Helper()
-	sess := newFakeLSPSSHSession()
-	server := &fakeLanguageServer{sess: sess, hoverBytes: hoverBytes}
-	manager := NewLSPSessionManager(func(ctx context.Context, info services.WorkspaceSSHConnectionInfo) (lspSSHClient, lspSSHSession, error) {
-		return &fakeLSPSSHClient{}, sess, nil
-	})
-	manager.exitWait = 200 * time.Millisecond
-	manager.startupRetryDelay = 10 * time.Millisecond
-	if ready {
-		go server.serve(t)
-	}
-	t.Cleanup(manager.Close)
-	return manager, server
+	manager, server := newLSPRelayManager(t, hoverBytes, true)
+	provider := &fakeBranchLanguageServers{open: server.proc.opener()}
+	handler := lspTestHandler(provider, manager)
+	seedLSPGrant(handler)
+	return handler, manager, server, provider
 }
 
-func TestLSPWebSocket_PreUpgradeStatuses(t *testing.T) {
+// One code-intelligence session per (member, branch, language): the POST
+// admits and dedupes it and starts no process.
+func TestBranchLSPOpen_AdmitsOneSessionPerMemberBranchLanguage(t *testing.T) {
+	t.Parallel()
+
+	provider := &fakeBranchLanguageServers{}
+	handler := lspTestHandler(provider, NewLSPSessionManager())
+	srv := newLSPTestServer(t, handler, lspTestAuth())
+	status, first := openLSP(t, srv.URL, `{"language":"typescript"}`)
+	require.Equal(t, http.StatusCreated, status, first)
+	assert.Equal(t, "exec", first["kind"])
+	assert.Equal(t, "typescript", first["language"])
+	assert.Equal(t, "workspace-1", first["branch"])
+	require.NotEmpty(t, first["id"])
+	status, again := openLSP(t, srv.URL, `{"language":"TypeScript"}`)
+	require.Equal(t, http.StatusCreated, status)
+	assert.Equal(t, first["id"], again["id"], "the same member, branch and language reuse one session")
+
+	other := newLSPTestServer(t, handler, &middleware.AuthInfo{User: &db.User{ID: 2, Username: "maya"}})
+	status, theirs := openLSP(t, other.URL, `{"language":"typescript"}`)
+	require.Equal(t, http.StatusCreated, status)
+	assert.NotEqual(t, first["id"], theirs["id"], "a session belongs to the member who asked")
+	assert.Zero(t, provider.opens.Load(), "admission starts no language server")
+}
+
+func TestBranchLSPOpen_RefusesWithoutStartingAnything(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		provider func() *fakeBranchLanguageServers
+		auth     *middleware.AuthInfo
+		body     string
+		status   int
+		message  string
+	}{
+		{"no provider is 503", func() *fakeBranchLanguageServers { return &fakeBranchLanguageServers{unavailable: true} }, lspTestAuth(), `{"language":"typescript"}`, http.StatusServiceUnavailable, "Code intelligence is unavailable"},
+		{"signed out is 401", func() *fakeBranchLanguageServers { return &fakeBranchLanguageServers{} }, nil, `{"language":"typescript"}`, http.StatusUnauthorized, ""},
+		{"unknown language is 400", func() *fakeBranchLanguageServers { return &fakeBranchLanguageServers{} }, lspTestAuth(), `{"language":"cobol"}`, http.StatusBadRequest, "language must be one of: typescript"},
+		{"unknown field is 400", func() *fakeBranchLanguageServers { return &fakeBranchLanguageServers{} }, lspTestAuth(), `{"language":"typescript","argv":["/bin/sh"]}`, http.StatusBadRequest, ""},
+		{"sleeping branch is 409", func() *fakeBranchLanguageServers {
+			p := &fakeBranchLanguageServers{}
+			p.asleep()
+			return p
+		}, lspTestAuth(), `{"language":"typescript"}`, http.StatusConflict, "The branch is asleep."},
+		{"branch outside the member's access is 404", func() *fakeBranchLanguageServers {
+			return &fakeBranchLanguageServers{authorize: func(string, int64) (revocation.Principal, error) {
+				return revocation.Principal{}, pkgerrors.NotFound("branch not found")
+			}}
+		}, lspTestAuth(), `{"language":"typescript"}`, http.StatusNotFound, ""},
+		{"another repository's machine is 404", func() *fakeBranchLanguageServers {
+			return &fakeBranchLanguageServers{authorize: func(_ string, member int64) (revocation.Principal, error) {
+				return revocation.Principal{UserID: member, RepositoryID: 2, WorkspaceID: "workspace-9"}, nil
+			}}
+		}, lspTestAuth(), `{"language":"typescript"}`, http.StatusNotFound, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			provider := tc.provider()
+			handler := lspTestHandler(provider, NewLSPSessionManager())
+			srv := newLSPTestServer(t, handler, tc.auth)
+			status, body := openLSP(t, srv.URL, tc.body)
+			assert.Equal(t, tc.status, status, body)
+			if tc.message != "" {
+				assert.Equal(t, tc.message, body["message"])
+			}
+			assert.Zero(t, provider.opens.Load())
+			assert.Empty(t, handler.grants)
+		})
+	}
+}
+
+func TestBranchLSPSocket_PreUpgradeStatuses(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
 		name       string
 		auth       *middleware.AuthInfo
 		origin     string
-		service    *mockWorkspaceTerminalService
+		id         string
 		query      string
+		provider   func() *fakeBranchLanguageServers
 		wantStatus int
-		wantCode   pkgerrors.Code
 	}{
-		{
-			name:       "no auth is 401",
-			auth:       nil,
-			origin:     "https://smithers.sh",
-			service:    lspTestService("running"),
-			wantStatus: http.StatusUnauthorized,
-		},
-		{
-			name:       "bad origin on a cookie principal is 403",
-			auth:       lspTestAuth(),
-			origin:     "https://evil.example",
-			service:    lspTestService("running"),
-			wantStatus: http.StatusForbidden,
-		},
-		{
-			name:   "terminal session on the lsp route is 409 kind mismatch",
-			auth:   lspTestAuth(),
-			origin: "https://smithers.sh",
-			service: &mockWorkspaceTerminalService{getSessionFunc: func(ctx context.Context, sessionID string, repositoryID, userID int64) (services.WorkspaceSessionResponse, error) {
-				s := lspTestSession(sessionID, repositoryID, userID, "running")
-				s.Kind = services.WorkspaceSessionKindTerminal
-				s.Language = ""
-				return s, nil
-			}},
-			wantStatus: http.StatusConflict,
-			wantCode:   services.CodeWorkspaceSessionKindMismatch,
-		},
-		{
-			name:       "language query that disagrees with the session is 400",
-			auth:       lspTestAuth(),
-			origin:     "https://smithers.sh",
-			service:    lspTestService("running"),
-			query:      "?language=rust",
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "pending session is 425",
-			auth:       lspTestAuth(),
-			origin:     "https://smithers.sh",
-			service:    lspTestService("pending"),
-			wantStatus: http.StatusTooEarly,
-			wantCode:   "workspace_session_pending",
-		},
-		{
-			name:       "stopped session is 409",
-			auth:       lspTestAuth(),
-			origin:     "https://smithers.sh",
-			service:    lspTestService("stopped"),
-			wantStatus: http.StatusConflict,
-		},
-		{
-			name:       "failed session is 409",
-			auth:       lspTestAuth(),
-			origin:     "https://smithers.sh",
-			service:    lspTestService("failed"),
-			wantStatus: http.StatusConflict,
-		},
+		{"no auth is 401", nil, "https://smithers.sh", "s1", "", nil, http.StatusUnauthorized},
+		{"bad origin on a cookie principal is 403", lspTestAuth(), "https://evil.example", "s1", "", nil, http.StatusForbidden},
+		{"unknown session is 404", lspTestAuth(), "https://smithers.sh", "s2", "", nil, http.StatusNotFound},
+		{"another member's session is 404", &middleware.AuthInfo{User: &db.User{ID: 2, Username: "maya"}}, "https://smithers.sh", "s1", "", nil, http.StatusNotFound},
+		{"language query that disagrees with the session is 400", lspTestAuth(), "https://smithers.sh", "s1", "?language=rust", nil, http.StatusBadRequest},
+		{"lost branch access is 404", lspTestAuth(), "https://smithers.sh", "s1", "", func() *fakeBranchLanguageServers {
+			return &fakeBranchLanguageServers{authorize: func(string, int64) (revocation.Principal, error) {
+				return revocation.Principal{}, pkgerrors.NotFound("branch not found")
+			}}
+		}, http.StatusNotFound},
+		{"sleeping branch is 409", lspTestAuth(), "https://smithers.sh", "s1", "", func() *fakeBranchLanguageServers {
+			p := &fakeBranchLanguageServers{}
+			p.asleep()
+			return p
+		}, http.StatusConflict},
+		{"no provider is 503", lspTestAuth(), "https://smithers.sh", "s1", "", func() *fakeBranchLanguageServers {
+			return &fakeBranchLanguageServers{unavailable: true}
+		}, http.StatusServiceUnavailable},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			handler := &WorkspaceTerminalHandler{
-				Service:        tc.service,
-				AllowedOrigins: []string{"https://smithers.sh"},
-				LSPSessions: NewLSPSessionManager(func(ctx context.Context, info services.WorkspaceSSHConnectionInfo) (lspSSHClient, lspSSHSession, error) {
-					t.Fatal("pre-upgrade rejections must not dial SSH")
-					return nil, nil, nil
-				}),
+			provider := &fakeBranchLanguageServers{}
+			if tc.provider != nil {
+				provider = tc.provider()
 			}
+			handler := lspTestHandler(provider, NewLSPSessionManager())
+			seedLSPGrant(handler)
 			srv := newLSPTestServer(t, handler, tc.auth)
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			_, resp, err := websocket.Dial(ctx, "ws"+srv.URL[len("http"):]+"/repos/testowner/testrepo/workspace/sessions/s1/lsp"+tc.query, &websocket.DialOptions{
+			_, resp, err := websocket.Dial(ctx, "ws"+srv.URL[len("http"):]+lspBranchPath(lspTestBranch)+"/"+tc.id+tc.query, &websocket.DialOptions{
 				Subprotocols: []string{"lsp"},
 				HTTPHeader:   http.Header{"Origin": []string{tc.origin}},
 			})
 			require.Error(t, err)
 			require.NotNil(t, resp)
 			assert.Equal(t, tc.wantStatus, resp.StatusCode)
-			if tc.wantCode != "" {
-				assert.Equal(t, tc.wantCode, readAPIError(t, resp).Code)
-			}
+			assert.Zero(t, provider.opens.Load(), "a refused socket starts no language server")
 		})
 	}
 }
 
-func TestLSPWebSocket_ActiveCapIs429BeforeSSH(t *testing.T) {
+func TestBranchLSPSocket_ActiveCapIs429BeforeStart(t *testing.T) {
 	t.Parallel()
 
 	counter := middleware.NewActiveCounter("workspace_terminal_active", 1, nil)
 	require.True(t, counter.Acquire(1), "hold the single slot")
-	dialed := atomic.Int32{}
-	handler := &WorkspaceTerminalHandler{
-		Service:           lspTestService("running"),
-		AllowedOrigins:    []string{"https://smithers.sh"},
-		ActiveConnections: counter,
-		LSPSessions: NewLSPSessionManager(func(ctx context.Context, info services.WorkspaceSSHConnectionInfo) (lspSSHClient, lspSSHSession, error) {
-			dialed.Add(1)
-			return nil, nil, errors.New("must not dial")
-		}),
-	}
+	provider := &fakeBranchLanguageServers{}
+	handler := lspTestHandler(provider, NewLSPSessionManager())
+	handler.ActiveConnections = counter
+	seedLSPGrant(handler)
 	srv := newLSPTestServer(t, handler, lspTestAuth())
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -407,128 +475,103 @@ func TestLSPWebSocket_ActiveCapIs429BeforeSSH(t *testing.T) {
 	assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
 	assert.Equal(t, "1", resp.Header.Get("Retry-After"))
 	assert.Equal(t, pkgerrors.CodeRateLimitExceeded, readAPIError(t, resp).Code)
-	assert.Zero(t, dialed.Load())
+	assert.Zero(t, provider.opens.Load())
 }
 
-func TestLSPWebSocket_MissingBinaryIs409WithInstallLine(t *testing.T) {
+// A missing binary is a typed close the browser can read, with the install
+// line, whichever of the line and the exit status lands first.
+func TestBranchLSPSocket_MissingBinaryClosesWithInstallLine(t *testing.T) {
 	t.Parallel()
 
-	sess := newFakeLSPSSHSession()
-	manager := NewLSPSessionManager(func(ctx context.Context, info services.WorkspaceSSHConnectionInfo) (lspSSHClient, lspSSHSession, error) {
-		return &fakeLSPSSHClient{}, sess, nil
-	})
-	manager.exitWait = 200 * time.Millisecond
-	go func() {
-		cmd := <-sess.started
-		assert.Contains(t, cmd, "typescript-language-server")
-		// The launch script's missing branch: the line, then exit 127.
-		_, _ = io.WriteString(sess.stdoutW, services.LanguageServerMissingLine+" typescript-language-server\n")
-		sess.exit(services.LanguageServerMissingExitCode)
-	}()
-	handler := &WorkspaceTerminalHandler{
-		Service:        lspTestService("running"),
-		AllowedOrigins: []string{"https://smithers.sh"},
-		LSPSessions:    manager,
+	for _, exitFirst := range []bool{false, true} {
+		t.Run(map[bool]string{false: "line first", true: "exit first"}[exitFirst], func(t *testing.T) {
+			t.Parallel()
+			proc := newFakeLSPProcess()
+			provider := &fakeBranchLanguageServers{open: func(context.Context) (LSPProcess, error) {
+				go func() {
+					if exitFirst {
+						proc.exitStatusOnly(services.LanguageServerMissingExitCode)
+						_, _ = io.WriteString(proc.stdoutW, services.LanguageServerMissingLine+" typescript-language-server\n")
+						_ = proc.stdoutW.Close()
+						return
+					}
+					_, _ = io.WriteString(proc.stdoutW, services.LanguageServerMissingLine+" typescript-language-server\n")
+					proc.exit(services.LanguageServerMissingExitCode)
+				}()
+				return proc, nil
+			}}
+			manager := NewLSPSessionManager()
+			manager.exitWait = 200 * time.Millisecond
+			t.Cleanup(manager.Close)
+			handler := lspTestHandler(provider, manager)
+			seedLSPGrant(handler)
+			srv := newLSPTestServer(t, handler, lspTestAuth())
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			ws, _, err := dialLSP(ctx, srv.URL, "s1")
+			require.NoError(t, err)
+			defer ws.CloseNow()
+			_, _, err = ws.Read(ctx)
+			var closeErr websocket.CloseError
+			require.True(t, errors.As(err, &closeErr), "typed close missing: %v", err)
+			assert.Equal(t, websocket.StatusNormalClosure, closeErr.Code)
+			assert.Equal(t, "language_server_missing: npm i -g typescript-language-server typescript", closeErr.Reason)
+			assert.True(t, proc.killed.Load(), "the failed launch's session is killed")
+			assert.Zero(t, proc.ready.Load(), "a launch that never printed ready keeps no credential and is never Ready")
+		})
 	}
-	srv := newLSPTestServer(t, handler, lspTestAuth())
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_, resp, err := dialLSP(ctx, srv.URL, "s1")
-	require.Error(t, err)
-	require.NotNil(t, resp)
-	assert.Equal(t, http.StatusConflict, resp.StatusCode)
-	assert.Empty(t, resp.Header.Get("Sec-Websocket-Accept"), "a missing server is answered before the upgrade")
-	apiErr := readAPIError(t, resp)
-	assert.Equal(t, services.CodeLanguageServerMissing, apiErr.Code)
-	assert.Equal(t, "npm i -g typescript-language-server typescript", apiErr.Message)
-	assert.True(t, sess.closed.Load(), "the failed launch's SSH session is closed")
 }
 
-// TestLSPWebSocket_MissingBinaryIs409WhenTheExitLandsFirst pins the ordering
-// the previous test leaves to chance. On a real SSH channel the exit status
-// can reach Wait before the relay has drained the line the launch script
-// already wrote, and the same guest must not then be answered
-// `guest_not_ready`: the handshake line is the verdict, the exit status only
-// bounds how long it may still arrive.
-func TestLSPWebSocket_MissingBinaryIs409WhenTheExitLandsFirst(t *testing.T) {
+func TestBranchLSPSocket_StartRefusalsCloseTyped(t *testing.T) {
 	t.Parallel()
 
-	sess := newFakeLSPSSHSession()
-	manager := NewLSPSessionManager(func(ctx context.Context, info services.WorkspaceSSHConnectionInfo) (lspSSHClient, lspSSHSession, error) {
-		return &fakeLSPSSHClient{}, sess, nil
-	})
-	go func() {
-		<-sess.started
-		// The status lands first: nothing has been read from stdout yet.
-		sess.exitStatusOnly(services.LanguageServerMissingExitCode)
-		// Only now does the queued line reach the relay.
-		_, _ = io.WriteString(sess.stdoutW, services.LanguageServerMissingLine+" typescript-language-server\n")
-		_ = sess.stdoutW.Close()
-	}()
-	handler := &WorkspaceTerminalHandler{
-		Service:        lspTestService("running"),
-		AllowedOrigins: []string{"https://smithers.sh"},
-		LSPSessions:    manager,
+	for _, tc := range []struct {
+		name   string
+		err    error
+		code   websocket.StatusCode
+		reason string
+	}{
+		{"branch slept during start", services.ErrBranchAsleep, websocket.StatusNormalClosure, "The branch is asleep."},
+		{"broker refused", errors.New("broker_3: session refused"), websocket.StatusInternalError, "language server failed to start"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			provider := &fakeBranchLanguageServers{open: func(context.Context) (LSPProcess, error) { return nil, tc.err }}
+			handler := lspTestHandler(provider, NewLSPSessionManager())
+			seedLSPGrant(handler)
+			srv := newLSPTestServer(t, handler, lspTestAuth())
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			ws, _, err := dialLSP(ctx, srv.URL, "s1")
+			require.NoError(t, err)
+			defer ws.CloseNow()
+			_, _, err = ws.Read(ctx)
+			var closeErr websocket.CloseError
+			require.True(t, errors.As(err, &closeErr), "typed close missing: %v", err)
+			assert.Equal(t, tc.code, closeErr.Code)
+			assert.Equal(t, tc.reason, closeErr.Reason)
+		})
 	}
-	srv := newLSPTestServer(t, handler, lspTestAuth())
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_, resp, err := dialLSP(ctx, srv.URL, "s1")
-	require.Error(t, err)
-	require.NotNil(t, resp)
-	assert.Equal(t, http.StatusConflict, resp.StatusCode)
-	apiErr := readAPIError(t, resp)
-	assert.Equal(t, services.CodeLanguageServerMissing, apiErr.Code)
-	assert.Equal(t, "npm i -g typescript-language-server typescript", apiErr.Message)
-	assert.True(t, sess.closed.Load(), "the failed launch's SSH session is closed")
 }
 
-func TestLSPWebSocket_ShellMissingOnVMGuestRetriesThen503(t *testing.T) {
-	t.Parallel()
-
-	var dials atomic.Int32
-	manager := NewLSPSessionManager(func(ctx context.Context, info services.WorkspaceSSHConnectionInfo) (lspSSHClient, lspSSHSession, error) {
-		dials.Add(1)
-		sess := newFakeLSPSSHSession()
-		go func() {
-			<-sess.started
-			// exit 127 with no handshake line: the guest's shell did not resolve.
-			sess.exit(127)
-		}()
-		return &fakeLSPSSHClient{}, sess, nil
-	})
-	manager.exitWait = 200 * time.Millisecond
-	manager.startupRetryDelay = 10 * time.Millisecond
-	svc := lspTestService("running")
-	svc.getSSHConnectionFunc = func(ctx context.Context, sessionID string, repositoryID, userID int64) (services.WorkspaceSSHConnectionInfo, error) {
-		return services.WorkspaceSSHConnectionInfo{WorkspaceID: "workspace-1", VMID: "vm-1", Host: "vm-ssh.example", Username: "developer", Kind: "vm"}, nil
-	}
-	handler := &WorkspaceTerminalHandler{Service: svc, AllowedOrigins: []string{"https://smithers.sh"}, LSPSessions: manager}
-	srv := newLSPTestServer(t, handler, lspTestAuth())
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_, resp, err := dialLSP(ctx, srv.URL, "s1")
-	require.Error(t, err)
-	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
-	assert.Equal(t, pkgerrors.CodeGuestNotReady, readAPIError(t, resp).Code)
-	assert.Equal(t, int32(2), dials.Load(), "a vm guest gets one activation retry")
-}
-
-// TestLSPWebSocket_RelayRoundTrip proves the relay against a fake stdio
-// server: Content-Length framing both ways, a >1 MiB hover fragmented for
-// the client, a fragmented client message reassembled, and the typed 1000
-// close when the client's shutdown/exit ends the server.
-func TestLSPWebSocket_RelayRoundTrip(t *testing.T) {
+// TestBranchLSPSocket_RelayRoundTrip proves the relay against a fake stdio
+// server: the member's session opens with its language, Content-Length
+// framing both ways, a >1 MiB hover fragmented for the client, a fragmented
+// client message reassembled, and the typed 1000 close when the client's
+// shutdown/exit ends the server.
+func TestBranchLSPSocket_RelayRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	manager, server := newLSPRelayManager(t, 2*lspMaxMessageBytes, true)
-	svc := lspTestService("running")
-	handler := &WorkspaceTerminalHandler{Service: svc, AllowedOrigins: []string{"https://smithers.sh"}, LSPSessions: manager}
+	provider := &fakeBranchLanguageServers{open: server.proc.opener()}
+	handler := lspTestHandler(provider, manager)
 	srv := newLSPTestServer(t, handler, lspTestAuth())
+	status, admitted := openLSP(t, srv.URL, `{"language":"typescript"}`)
+	require.Equal(t, http.StatusCreated, status)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	ws, resp, err := dialLSP(ctx, srv.URL, "s1")
+	ws, resp, err := dialLSP(ctx, srv.URL, admitted["id"].(string)+"?language=typescript")
 	require.NoError(t, err)
 	require.Equal(t, http.StatusSwitchingProtocols, resp.StatusCode)
 	assert.Equal(t, "lsp", resp.Header.Get("Sec-Websocket-Protocol"))
@@ -547,10 +590,12 @@ func TestLSPWebSocket_RelayRoundTrip(t *testing.T) {
 		return out
 	}
 
-	send(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"rootUri":"file:///home/developer/workspace","capabilities":{}}}`)
+	send(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"rootUri":"file:///workspace","capabilities":{}}}`)
 	init := readJSON()
 	assert.EqualValues(t, 1, init["id"])
 	assert.Contains(t, init, "result")
+	assert.Equal(t, []string{"1:workspace-1:typescript"}, provider.opened, "the requesting member's server on the authorized machine")
+	assert.EqualValues(t, 1, server.proc.ready.Load(), "the launch credential retires at the ready line")
 
 	// A hover whose result is 2 MiB arrives as ordered {seq,last,data} fragments.
 	send(`{"jsonrpc":"2.0","id":2,"method":"textDocument/hover","params":{}}`)
@@ -579,7 +624,7 @@ func TestLSPWebSocket_RelayRoundTrip(t *testing.T) {
 
 	// A client message sent as fragments is reassembled before it reaches
 	// the server's stdin as one Content-Length frame.
-	big := `{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///home/developer/workspace/index.ts","languageId":"typescript","version":1,"text":"` + strings.Repeat("y", 1500*1024) + `"}}}`
+	big := `{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///workspace/index.ts","languageId":"typescript","version":1,"text":"` + strings.Repeat("y", 1500*1024) + `"}}}`
 	for _, frame := range lspSplitFragments([]byte(big), 512*1024) {
 		require.NoError(t, ws.Write(ctx, websocket.MessageText, frame))
 	}
@@ -600,14 +645,14 @@ func TestLSPWebSocket_RelayRoundTrip(t *testing.T) {
 	didOpen := server.bodies[2]
 	server.mu.Unlock()
 	assert.Equal(t, big, string(didOpen), "fragments reassemble byte-for-byte")
-	assert.Len(t, svc.touchCalls, 1, "traffic refreshes the session row's activity once per debounce window")
+	require.Eventually(t, server.proc.killed.Load, time.Second, time.Millisecond, "teardown empties the session's cgroup")
+	assert.EqualValues(t, 1, server.proc.ready.Load())
 }
 
-func TestLSPWebSocket_ServerCrashCloses1011Typed(t *testing.T) {
+func TestBranchLSPSocket_ServerCrashCloses1011Typed(t *testing.T) {
 	t.Parallel()
 
-	manager, _ := newLSPRelayManager(t, 0, true)
-	handler := &WorkspaceTerminalHandler{Service: lspTestService("running"), AllowedOrigins: []string{"https://smithers.sh"}, LSPSessions: manager}
+	handler, _, _, _ := relayHandler(t, 0)
 	srv := newLSPTestServer(t, handler, lspTestAuth())
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -624,7 +669,7 @@ func TestLSPWebSocket_ServerCrashCloses1011Typed(t *testing.T) {
 	assert.Equal(t, "language_server_exited: 3", closeErr.Reason)
 }
 
-func TestLSPWebSocket_ClientFaultsCloseWithProtocolCodes(t *testing.T) {
+func TestBranchLSPSocket_ClientFaultsCloseWithProtocolCodes(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -640,8 +685,7 @@ func TestLSPWebSocket_ClientFaultsCloseWithProtocolCodes(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			manager, _ := newLSPRelayManager(t, 0, true)
-			handler := &WorkspaceTerminalHandler{Service: lspTestService("running"), AllowedOrigins: []string{"https://smithers.sh"}, LSPSessions: manager}
+			handler, _, _, _ := relayHandler(t, 0)
 			srv := newLSPTestServer(t, handler, lspTestAuth())
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -656,12 +700,11 @@ func TestLSPWebSocket_ClientFaultsCloseWithProtocolCodes(t *testing.T) {
 	}
 }
 
-func TestLSPWebSocket_IdleCloses1000Typed(t *testing.T) {
+func TestBranchLSPSocket_IdleCloses1000Typed(t *testing.T) {
 	t.Parallel()
 
-	manager, _ := newLSPRelayManager(t, 0, true)
+	handler, manager, server, _ := relayHandler(t, 0)
 	manager.idleTimeout = 150 * time.Millisecond
-	handler := &WorkspaceTerminalHandler{Service: lspTestService("running"), AllowedOrigins: []string{"https://smithers.sh"}, LSPSessions: manager}
 	srv := newLSPTestServer(t, handler, lspTestAuth())
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -675,13 +718,64 @@ func TestLSPWebSocket_IdleCloses1000Typed(t *testing.T) {
 	var closeErr websocket.CloseError
 	require.True(t, errors.As(err, &closeErr))
 	assert.Equal(t, lspCloseReasonIdle, closeErr.Reason)
+	require.Eventually(t, server.proc.killed.Load, time.Second, time.Millisecond, "an idle server is killed, not left running")
+}
+
+// A credential deletion during the server's start or after attach closes the
+// socket 1008, and the member's server never outlives it.
+func TestBranchLSPSocket_RevocationDuringStartAndAfterAttach(t *testing.T) {
+	for _, phase := range []string{"during_start", "after_attach"} {
+		t.Run(phase, func(t *testing.T) {
+			const tokenHash = "revoked-lsp-token"
+			bus := revocation.NewBus(nil, nil)
+			withSocketRevocationSource(t, bus)
+			proc := newFakeLSPProcess()
+			entered := make(chan struct{})
+			provider := &fakeBranchLanguageServers{open: func(ctx context.Context) (LSPProcess, error) {
+				if phase == "during_start" {
+					close(entered)
+					<-ctx.Done()
+					return nil, ctx.Err()
+				}
+				go (&fakeLanguageServer{proc: proc}).serve(t)
+				return proc, nil
+			}}
+			manager := NewLSPSessionManager()
+			manager.exitWait = 50 * time.Millisecond
+			t.Cleanup(manager.Close)
+			handler := lspTestHandler(provider, manager)
+			seedLSPGrant(handler)
+			srv := newLSPTestServer(t, handler, &middleware.AuthInfo{User: &db.User{ID: 1}, IsTokenAuth: true, TokenHash: tokenHash})
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			ws, _, err := dialLSP(ctx, srv.URL, "s1")
+			require.NoError(t, err)
+			defer ws.CloseNow()
+			if phase == "during_start" {
+				<-entered
+			} else {
+				require.NoError(t, ws.Write(ctx, websocket.MessageText, []byte(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`)))
+				_, _, err = ws.Read(ctx)
+				require.NoError(t, err)
+			}
+			bus.Deliver(revocation.Event{Kind: revocation.KindTokenRevoked, TokenHash: tokenHash, Reason: "token deleted"})
+			_, _, err = ws.Read(ctx)
+			require.Error(t, err)
+			assert.Equal(t, websocket.StatusPolicyViolation, websocket.CloseStatus(err))
+			if phase == "after_attach" {
+				require.Eventually(t, proc.killed.Load, time.Second, time.Millisecond, "a revoked member's server is killed")
+			}
+			manager.mu.Lock()
+			defer manager.mu.Unlock()
+			require.Empty(t, manager.starting)
+		})
+	}
 }
 
 func TestLSPSessionManager_RevokeMatchingCloses1008(t *testing.T) {
 	t.Parallel()
 
-	manager, _ := newLSPRelayManager(t, 0, true)
-	handler := &WorkspaceTerminalHandler{Service: lspTestService("running"), AllowedOrigins: []string{"https://smithers.sh"}, LSPSessions: manager}
+	handler, manager, _, _ := relayHandler(t, 0)
 	srv := newLSPTestServer(t, handler, lspTestAuth())
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -780,55 +874,54 @@ func TestLSPFrameReader_BoundsHeaderReads(t *testing.T) {
 	}
 }
 
-// handshakeOnlySession serves a fixed stdout: what a launch script prints
+// handshakeOnlyProcess serves a fixed stdout: what a launch script prints
 // before (or instead of) the ready line.
-type handshakeOnlySession struct {
-	*fakeLSPSSHSession
+type handshakeOnlyProcess struct {
+	*fakeLSPProcess
 	stdout io.Reader
 }
 
-func (s *handshakeOnlySession) StdoutPipe() (io.Reader, error) { return s.stdout, nil }
+func (p *handshakeOnlyProcess) Stdout() io.Reader { return p.stdout }
 
 func TestLSPSessionManager_StartBoundsReadyLine(t *testing.T) {
 	input := strings.Repeat("x", 2<<20)
 	source := strings.NewReader(input)
-	fake := newFakeLSPSSHSession()
-	defer fake.Close()
-	client := &fakeLSPSSHClient{}
-	m := NewLSPSessionManager(func(context.Context, services.WorkspaceSSHConnectionInfo) (lspSSHClient, lspSSHSession, error) {
-		return client, &handshakeOnlySession{fake, source}, nil
-	})
+	fake := newFakeLSPProcess()
+	m := NewLSPSessionManager()
 	m.exitWait = time.Millisecond
 	// The guest exits once the relay closes its stdin, like a real server.
 	go func() { _, _ = io.Copy(io.Discard, fake.stdinR); fake.exit(1) }()
 
-	_, err := m.start(context.Background(), "s", services.WorkspaceSSHConnectionInfo{}, services.LanguageServerLaunch{}, revocation.Principal{})
+	_, err := m.start(context.Background(), "s", "typescript", func(context.Context) (LSPProcess, error) {
+		return &handshakeOnlyProcess{fake, source}, nil
+	}, revocation.Principal{})
 	require.ErrorIs(t, err, errLSPHeaderTooLarge)
 	// One bufio fill at most: the 64 KiB reader, never the 2 MiB line.
 	assert.LessOrEqual(t, len(input)-source.Len(), 64<<10)
-	assert.True(t, client.closed.Load(), "the SSH connection is closed with the launch")
+	assert.True(t, fake.killed.Load(), "the launch's session is killed")
+	assert.Zero(t, fake.ready.Load())
 }
 
 // Two tabs, or a reconnect racing the attach it replaces, start the same
 // session id while neither launch has finished. Exactly one server may be
 // tracked afterwards and the other must be killed: an untracked server is
-// out of reach of Destroy, Close and revocation. The dial deliberately
+// out of reach of Destroy, Close and revocation. The opener deliberately
 // ignores its context so the superseded launch completes late.
 func TestLSPSessionManager_OverlappingStartsKeepOneLiveServer(t *testing.T) {
 	for _, end := range []string{"replace", "destroy", "close"} {
 		t.Run(end, func(t *testing.T) {
 			entered := make(chan chan struct{}, 2)
-			clients := make(chan *fakeLSPSSHClient, 2)
-			m := NewLSPSessionManager(func(context.Context, services.WorkspaceSSHConnectionInfo) (lspSSHClient, lspSSHSession, error) {
+			procs := make(chan *fakeLSPProcess, 2)
+			open := func(context.Context) (LSPProcess, error) {
 				release := make(chan struct{})
 				entered <- release
 				<-release
-				fake := newFakeLSPSSHSession()
-				go (&fakeLanguageServer{sess: fake}).serve(t)
-				client := &fakeLSPSSHClient{}
-				clients <- client
-				return client, fake, nil
-			})
+				fake := newFakeLSPProcess()
+				go (&fakeLanguageServer{proc: fake}).serve(t)
+				procs <- fake
+				return fake, nil
+			}
+			m := NewLSPSessionManager()
 			m.exitWait = time.Millisecond
 			defer m.Close()
 			type result struct {
@@ -837,7 +930,7 @@ func TestLSPSessionManager_OverlappingStartsKeepOneLiveServer(t *testing.T) {
 			}
 			results := make(chan result, 2)
 			start := func() {
-				s, e := m.start(context.Background(), "same", services.WorkspaceSSHConnectionInfo{}, services.LanguageServerLaunch{}, revocation.Principal{})
+				s, e := m.start(context.Background(), "same", "typescript", open, revocation.Principal{})
 				results <- result{s, e}
 			}
 			go start()
@@ -847,7 +940,7 @@ func TestLSPSessionManager_OverlappingStartsKeepOneLiveServer(t *testing.T) {
 
 			close(second)
 			winner := <-results
-			winnerClient := <-clients
+			winnerProc := <-procs
 			require.NoError(t, winner.err)
 			switch end {
 			case "destroy":
@@ -858,10 +951,10 @@ func TestLSPSessionManager_OverlappingStartsKeepOneLiveServer(t *testing.T) {
 
 			close(first)
 			older := <-results
-			olderClient := <-clients
+			olderProc := <-procs
 			require.Error(t, older.err, "a superseded launch must not publish")
 			assert.Nil(t, older.sess)
-			require.Eventually(t, olderClient.closed.Load, time.Second, time.Millisecond, "the superseded server is killed")
+			require.Eventually(t, olderProc.killed.Load, time.Second, time.Millisecond, "the superseded server is killed")
 
 			tracked := func() *lspSession {
 				m.mu.Lock()
@@ -877,7 +970,7 @@ func TestLSPSessionManager_OverlappingStartsKeepOneLiveServer(t *testing.T) {
 				require.Eventually(t, func() bool { return tracked() == nil }, time.Second, time.Millisecond)
 			}
 			m.Destroy("same", "test")
-			require.Eventually(t, winnerClient.closed.Load, time.Second, time.Millisecond)
+			require.Eventually(t, winnerProc.killed.Load, time.Second, time.Millisecond)
 		})
 	}
 }

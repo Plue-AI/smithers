@@ -15,10 +15,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
-	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
 // lspCloseGateConn holds the actual protocol close write at the TCP boundary.
@@ -78,10 +76,10 @@ func waitLSPCloseEvent(t *testing.T, event <-chan struct{}, timeout time.Duratio
 }
 
 func TestLSPSessionRun_WaitsForProtocolCloseBeforeHandlerCleanup(t *testing.T) {
-	// Only SSH process launch/stdio is simulated: a guest process is unnecessary
+	// Only the daemon process stdio is simulated: a guest process is unnecessary
 	// to verify socket cleanup ordering. HTTP, TCP and WebSocket are real.
-	manager, _ := newLSPRelayManager(t, 0, true)
-	sess, err := manager.start(context.Background(), "close-order", services.WorkspaceSSHConnectionInfo{}, services.LanguageServerLaunch{}, revocation.Principal{})
+	manager, guest := newLSPRelayManager(t, 0, true)
+	sess, err := manager.start(context.Background(), "close-order", "typescript", guest.proc.opener(), revocation.Principal{})
 	require.NoError(t, err)
 	killed := make(chan struct{})
 	onDone := sess.onDone
@@ -100,7 +98,7 @@ func TestLSPSessionRun_WaitsForProtocolCloseBeforeHandlerCleanup(t *testing.T) {
 			return
 		}
 		sess.run(r.Context())
-		// This is the caller-owned cleanup boundary used by LSPWebSocket.
+		// This is the caller-owned cleanup boundary used by BranchLSPHandler.Socket.
 		// CloseNow may itself wait if Close already started, masking early run
 		// return; observe the ownership contract before invoking it.
 		close(runReturned)
@@ -129,7 +127,7 @@ func TestLSPSessionRun_WaitsForProtocolCloseBeforeHandlerCleanup(t *testing.T) {
 	default:
 		t.Error("destroy must signal done while the close write is pending")
 	}
-	waitLSPCloseEvent(t, killed, 2*time.Second, "SSH teardown waited for the socket close")
+	waitLSPCloseEvent(t, killed, 2*time.Second, "process teardown waited for the socket close")
 
 	sess.destroy(websocket.StatusGoingAway, "second destroy")
 	code, reason := sess.closeStatus()
@@ -150,15 +148,11 @@ func TestLSPSessionRun_WaitsForProtocolCloseBeforeHandlerCleanup(t *testing.T) {
 	waitLSPCloseEvent(t, runReturned, 2*time.Second, "run did not return after close completed")
 }
 
-func newLSPCloseRouteServer(t *testing.T, handler *WorkspaceTerminalHandler, returned chan struct{}) *httptest.Server {
+func newLSPCloseRouteServer(t *testing.T, handler *BranchLSPHandler, returned chan struct{}) *httptest.Server {
 	t.Helper()
 	router := chi.NewRouter()
-	router.Get("/repos/{owner}/{repo}/workspace/sessions/{id}/lsp", func(w http.ResponseWriter, r *http.Request) {
-		ctx := middleware.ContextWithAuthInfo(r.Context(), lspTestAuth())
-		ctx = middleware.ContextWithRepoContext(ctx, &middleware.RepoContext{
-			Owner: "testowner", Repository: &db.Repository{ID: 1, Name: "testrepo"},
-		}, middleware.PermissionWrite)
-		handler.LSPWebSocket(w, r.WithContext(ctx))
+	router.Get("/branches/{b}/lsp/{id}", func(w http.ResponseWriter, r *http.Request) {
+		handler.Socket(w, r.WithContext(middleware.ContextWithAuthInfo(r.Context(), lspTestAuth())))
 		close(returned)
 	})
 	srv := httptest.NewServer(router)
@@ -166,8 +160,8 @@ func newLSPCloseRouteServer(t *testing.T, handler *WorkspaceTerminalHandler, ret
 	return srv
 }
 
-func TestLSPWebSocket_CloseCodeAndReasonReachClient(t *testing.T) {
-	// Guest SSH is simulated to select exact process verdicts. All request
+func TestBranchLSPSocket_CloseCodeAndReasonReachClient(t *testing.T) {
+	// The daemon process is simulated to select exact verdicts. All request
 	// preflight, upgrade, relay and protocol close behavior uses the real route.
 	for _, tc := range []struct {
 		name   string
@@ -175,8 +169,8 @@ func TestLSPWebSocket_CloseCodeAndReasonReachClient(t *testing.T) {
 		reason string
 		end    func(*LSPSessionManager, *fakeLanguageServer)
 	}{
-		{"clean exit", websocket.StatusNormalClosure, "language_server_exited: 0", func(_ *LSPSessionManager, guest *fakeLanguageServer) { guest.sess.exit(0) }},
-		{"failed exit", websocket.StatusInternalError, "language_server_exited: 3", func(_ *LSPSessionManager, guest *fakeLanguageServer) { guest.sess.exit(3) }},
+		{"clean exit", websocket.StatusNormalClosure, "language_server_exited: 0", func(_ *LSPSessionManager, guest *fakeLanguageServer) { guest.proc.exit(0) }},
+		{"failed exit", websocket.StatusInternalError, "language_server_exited: 3", func(_ *LSPSessionManager, guest *fakeLanguageServer) { guest.proc.exit(3) }},
 		{"shutdown", websocket.StatusGoingAway, "server shutting down", func(manager *LSPSessionManager, _ *fakeLanguageServer) { manager.Close() }},
 		{"revoked", websocket.StatusPolicyViolation, "access revoked: token deleted", func(manager *LSPSessionManager, _ *fakeLanguageServer) {
 			manager.RevokeMatching(revocation.Event{Kind: revocation.KindUserDisabled, UserID: 1, Reason: "token deleted"})
@@ -186,7 +180,8 @@ func TestLSPWebSocket_CloseCodeAndReasonReachClient(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			manager, guest := newLSPRelayManager(t, 0, true)
 			returned := make(chan struct{})
-			handler := &WorkspaceTerminalHandler{Service: lspTestService("running"), AllowedOrigins: []string{"https://smithers.sh"}, LSPSessions: manager}
+			handler := lspTestHandler(&fakeBranchLanguageServers{open: guest.proc.opener()}, manager)
+			seedLSPGrant(handler)
 			srv := newLSPCloseRouteServer(t, handler, returned)
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -208,14 +203,13 @@ func TestLSPWebSocket_CloseCodeAndReasonReachClient(t *testing.T) {
 	}
 }
 
-func TestLSPWebSocket_NonreadingPeerDoesNotDelayManagerShutdown(t *testing.T) {
-	manager, _ := newLSPRelayManager(t, 0, true)
+func TestBranchLSPSocket_NonreadingPeerDoesNotDelayManagerShutdown(t *testing.T) {
+	manager, guest := newLSPRelayManager(t, 0, true)
 	attached := make(chan *lspSession, 1)
 	returned := make(chan struct{})
-	handler := &WorkspaceTerminalHandler{
-		Service: lspTestService("running"), AllowedOrigins: []string{"https://smithers.sh"}, LSPSessions: manager,
-		beforeLSPAttach: func(sess *lspSession) { attached <- sess },
-	}
+	handler := lspTestHandler(&fakeBranchLanguageServers{open: guest.proc.opener()}, manager)
+	handler.beforeAttach = func(sess *lspSession) { attached <- sess }
+	seedLSPGrant(handler)
 	srv := newLSPCloseRouteServer(t, handler, returned)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -234,7 +228,7 @@ func TestLSPWebSocket_NonreadingPeerDoesNotDelayManagerShutdown(t *testing.T) {
 	waitLSPCloseEvent(t, shutdownReturned, time.Second, "manager waited for the nonreading peer")
 	assert.True(t, sess.isDead())
 	waitLSPCloseEvent(t, sess.done, time.Second, "done waited for the nonreading peer")
-	_, err = manager.start(ctx, "later", services.WorkspaceSSHConnectionInfo{}, services.LanguageServerLaunch{}, revocation.Principal{})
+	_, err = manager.start(ctx, "later", "typescript", newFakeLSPProcess().opener(), revocation.Principal{})
 	require.ErrorIs(t, err, errLSPManagerClosed)
 	waitLSPCloseEvent(t, returned, 8*time.Second, "HTTP close exceeded the library's bounded peer wait")
 	select {
@@ -254,8 +248,8 @@ func TestLSPWebSocket_NonreadingPeerDoesNotDelayManagerShutdown(t *testing.T) {
 func TestLSPSessionRun_CloseWithoutAttachedSocket(t *testing.T) {
 	for _, destroyFirst := range []bool{false, true} {
 		t.Run(map[bool]string{false: "run destroys", true: "already destroyed"}[destroyFirst], func(t *testing.T) {
-			manager, _ := newLSPRelayManager(t, 0, true)
-			sess, err := manager.start(context.Background(), "unattached", services.WorkspaceSSHConnectionInfo{}, services.LanguageServerLaunch{}, revocation.Principal{})
+			manager, guest := newLSPRelayManager(t, 0, true)
+			sess, err := manager.start(context.Background(), "unattached", "typescript", guest.proc.opener(), revocation.Principal{})
 			require.NoError(t, err)
 			if destroyFirst {
 				sess.destroy(websocket.StatusGoingAway, "server shutting down")

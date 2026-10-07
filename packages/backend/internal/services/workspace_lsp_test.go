@@ -209,57 +209,28 @@ func TestLanguageServerMissing_Is409WithInstallLineVerbatim(t *testing.T) {
 	assert.Equal(t, spec.Install, details["install"])
 }
 
-func TestResolveLanguageServer_TerminalSessionIsKindMismatch(t *testing.T) {
+func TestLanguageServerLaunchArgv_IsTheTrustedShellOverTheLaunchScript(t *testing.T) {
 	t.Parallel()
 
-	q := &mockWorkspaceQuerier{
-		getWorkspaceSessionByRepoFn: func(ctx context.Context, arg db.GetWorkspaceSessionByRepoParams) (db.WorkspaceSession, error) {
-			return db.WorkspaceSession{ID: arg.ID, WorkspaceID: "ws-1", RepositoryID: arg.RepositoryID, UserID: 1, Status: "running", Kind: WorkspaceSessionKindTerminal}, nil
-		},
-	}
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{}))
-
-	_, err := svc.ResolveLanguageServer(context.Background(), "term-1", 101, 1)
-	var apiErr *pkgerrors.APIError
-	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, http.StatusConflict, apiErr.Status)
-	assert.Equal(t, CodeWorkspaceSessionKindMismatch, apiErr.Code)
-}
-
-func TestResolveLanguageServer_AnswersLaunchForLSPSession(t *testing.T) {
-	t.Parallel()
-
-	q := &mockWorkspaceQuerier{
-		getWorkspaceSessionByRepoFn: func(ctx context.Context, arg db.GetWorkspaceSessionByRepoParams) (db.WorkspaceSession, error) {
-			return sampleDBLSPSession(arg.ID, "ws-1", "typescript"), nil
-		},
-	}
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{}))
-
-	launch, err := svc.ResolveLanguageServer(context.Background(), "lsp-1", 101, 1)
-	require.NoError(t, err)
-	assert.Equal(t, "typescript", launch.Language)
-	assert.Equal(t, "ws-1", launch.WorkspaceID)
-	assert.Equal(t, "typescript-language-server", launch.Spec.Bin)
-	assert.True(t, strings.HasPrefix(launch.Command, "bash -c '"), launch.Command)
-	script := launch.Spec.LaunchScript(defaultWorkspaceClonePath)
-	assert.Equal(t, "bash -c "+shellQuote(script), launch.Command)
+	spec, ok := LanguageServerFor("typescript")
+	require.True(t, ok)
+	argv := spec.LaunchArgv(defaultWorkspaceClonePath)
+	require.Len(t, argv, 3)
+	assert.Equal(t, []string{"/bin/sh", "-c"}, argv[:2])
+	script := argv[2]
 	assert.Contains(t, script, "cd '/workspace'")
 	assert.Contains(t, script, "node_modules/.bin:$HOME/.local/bin:/run/current-system/sw/bin")
 	assert.Contains(t, script, "printf 'missing %s\\n' 'typescript-language-server'; exit 127")
 	assert.Contains(t, script, "printf 'ready\\n'; exec 'typescript-language-server' '--stdio'")
 }
 
-// TestLanguageServerLaunchCommand_RunsUnderBash executes the real launch
-// script under bash with a scratch checkout, so the ready/missing handshake
-// the relay depends on is proven, not assumed.
-func TestLanguageServerLaunchCommand_RunsUnderBash(t *testing.T) {
+// TestLanguageServerLaunchArgv_RunsUnderSh executes the real launch argv with
+// a scratch checkout, so the ready/missing handshake the relay depends on is
+// proven, not assumed.
+func TestLanguageServerLaunchArgv_RunsUnderSh(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("bash launch script")
-	}
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash not installed")
 	}
 
 	spec := LanguageServerSpec{Language: "fake", Bin: "fake-language-server", Args: []string{"--stdio"}, Install: "install fake"}
@@ -268,7 +239,8 @@ func TestLanguageServerLaunchCommand_RunsUnderBash(t *testing.T) {
 
 	run := func() (string, int) {
 		t.Helper()
-		cmd := exec.Command("sh", "-c", spec.LaunchCommand(checkout))
+		argv := spec.LaunchArgv(checkout)
+		cmd := exec.Command(argv[0], argv[1:]...)
 		cmd.Env = []string{"HOME=" + home, "PATH=/usr/bin:/bin"}
 		out, err := cmd.Output()
 		code := 0

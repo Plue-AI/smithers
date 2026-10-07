@@ -184,7 +184,8 @@ describe("deployment mode matrix", () => {
       "609193c0daf3143e80a21a1fa4c28f51e6a7b4a5c8f9cee2e5faf780dbdbd356",
       "ceefdbdb4354e207073557c58681c24ee1a1f5aa90bb6797addc44c4f70fc517",
       "d49406e39037cd1b9bdadae0bccc0fe926f5e9cee6ed24250c78a63526187726",
-      "f8a29e64e387c7d1d89be67b5175c0572b15be37d3366acb46cf0fa07c2e1a57"
+      "f8a29e64e387c7d1d89be67b5175c0572b15be37d3366acb46cf0fa07c2e1a57",
+      "30baa935b07f9517e72e9d508da6aae447b21bb5effe9c74409a333d748236f8"
     ]
     expect(published).toHaveLength(FEATURE_MATRIX_VERSION)
     expect(new Set(published).size).toBe(published.length)

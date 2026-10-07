@@ -115,8 +115,8 @@ export interface CloudLspClient {
 export interface CloudLspClientOptions {
   /** Bound to the authenticated member and branch by the existing session host. */
   readonly openSession: (scope: { branch: string; kind: "exec"; language: LspLanguageId }, signal: AbortSignal) => Promise<Response>
-  /** The tunnel URL for one session; undefined where no socket can exist (tests, server render). */
-  readonly socketUrl: (repo: string, sessionId: string, language: string) => string | undefined
+  /** The socket URL for one session on its branch; undefined where no socket can exist (tests, server render). */
+  readonly socketUrl: (repo: string, sessionId: string, language: string, branch: string) => string | undefined
   /** The local-session capability subprotocol; undefined means no socket opens. */
   readonly socketProtocol?: () => string | undefined
   /** Exchanges the selected application credential for a fresh one-use socket ticket. */
@@ -150,6 +150,36 @@ const GUEST_NOT_READY = "guest_not_ready"
 const ROOT_PATH = "/workspace"
 
 export const DAEMON_LSP_ROOT_URI = "file:///workspace"
+
+/**
+ * The install's language-server doors (spec §9.1.2): `POST /api/branches/{b}/lsp`
+ * admits the member's session, and `/api/branches/{b}/lsp/{id}` relays it. The
+ * backend starts the server as the member's daemon exec session and never
+ * wakes a sleeping branch.
+ */
+export const installDaemonLsp = (
+  http: (input: string, init?: RequestInit) => Promise<Response>,
+  baseUrl: string
+): Pick<CloudLspClientOptions, "openSession" | "socketUrl"> & { readonly ready: () => boolean } => {
+  const base = baseUrl.replace(/\/$/, "")
+  const branchPath = (branch: string) => `/api/branches/${encodeURIComponent(branch)}/lsp`
+  return {
+    ready: () => true,
+    openSession: (scope, signal) => http(`${base}${branchPath(scope.branch)}`, {
+      method: "POST",
+      credentials: "same-origin",
+      signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ language: scope.language })
+    }),
+    socketUrl: (_repo, sessionId, language, branch) => {
+      const page = typeof window === "undefined" ? undefined : window.location.origin
+      if (base === "" && page === undefined) return undefined
+      const origin = new URL(base === "" ? page! : base)
+      return `${origin.protocol === "https:" ? "wss" : "ws"}://${origin.host}${branchPath(branch)}/${encodeURIComponent(sessionId)}?language=${encodeURIComponent(language)}`
+    }
+  }
+}
 
 /** The file URI of a checkout-relative path under the guest root. */
 export const cloudDocumentUri = (path: string): string => `${DAEMON_LSP_ROOT_URI}/${path.split("/").map(encodeURIComponent).join("/")}`
@@ -558,7 +588,7 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
     sessionId: string
   ): Promise<{ readonly ok: true } | { readonly close: { readonly code: number; readonly reason: string } }> => {
     assertActive()
-    const rawUrl = options.socketUrl(conn.repo, sessionId, conn.language)
+    const rawUrl = options.socketUrl(conn.repo, sessionId, conn.language, conn.workspaceId)
     const protocol = options.socketProtocol?.()
     if (rawUrl === undefined || (options.authorizeSocket === undefined && protocol === undefined)) {
       return { close: { code: 0, reason: "no cloud socket can open from here" } }

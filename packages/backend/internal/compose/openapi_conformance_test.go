@@ -187,6 +187,7 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *s
 			Members:          deps.members,
 			Live:             deps.live,
 			ExternalSessions: &routes.ExternalSessionsHandler{},
+			LanguageServers:  &routes.BranchLSPHandler{},
 		},
 	)
 	// The routes run() mounts beside buildRouter.

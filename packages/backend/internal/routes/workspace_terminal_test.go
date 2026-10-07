@@ -24,19 +24,35 @@ import (
 
 // mockWorkspaceTerminalService implements WorkspaceTerminalService for testing.
 type mockWorkspaceTerminalService struct {
-	getSessionFunc            func(ctx context.Context, sessionID string, repositoryID, userID int64) (services.WorkspaceSessionResponse, error)
-	getSSHConnectionFunc      func(ctx context.Context, sessionID string, repositoryID, userID int64) (services.WorkspaceSSHConnectionInfo, error)
-	touchSessionActivityFunc  func(ctx context.Context, sessionID string) error
-	resolveLanguageServerFunc func(ctx context.Context, sessionID string, repositoryID, userID int64) (services.LanguageServerLaunch, error)
-	touchCalls                []string
+	getSessionFunc           func(ctx context.Context, sessionID string, repositoryID, userID int64) (services.WorkspaceSessionResponse, error)
+	getSSHConnectionFunc     func(ctx context.Context, sessionID string, repositoryID, userID int64) (services.WorkspaceSSHConnectionInfo, error)
+	touchSessionActivityFunc func(ctx context.Context, sessionID string) error
+	touchCalls               []string
 }
 
-func (m *mockWorkspaceTerminalService) ResolveLanguageServer(ctx context.Context, sessionID string, repositoryID, userID int64) (services.LanguageServerLaunch, error) {
-	if m.resolveLanguageServerFunc != nil {
-		return m.resolveLanguageServerFunc(ctx, sessionID, repositoryID, userID)
+// socketTestSession is a running terminal session row for the socket tests.
+func socketTestSession(sessionID string, repositoryID, userID int64, status string) services.WorkspaceSessionResponse {
+	return services.WorkspaceSessionResponse{
+		ID:           sessionID,
+		WorkspaceID:  "workspace-1",
+		RepositoryID: repositoryID,
+		UserID:       userID,
+		Status:       status,
+		Kind:         services.WorkspaceSessionKindTerminal,
+		Cols:         80,
+		Rows:         24,
 	}
-	spec, _ := services.LanguageServerFor("typescript")
-	return services.LanguageServerLaunch{SessionID: sessionID, WorkspaceID: "workspace-1", Language: spec.Language, Spec: spec, Command: spec.LaunchCommand("/home/developer/workspace")}, nil
+}
+
+func socketTestService(status string) *mockWorkspaceTerminalService {
+	return &mockWorkspaceTerminalService{
+		getSessionFunc: func(ctx context.Context, sessionID string, repositoryID, userID int64) (services.WorkspaceSessionResponse, error) {
+			return socketTestSession(sessionID, repositoryID, userID, status), nil
+		},
+		getSSHConnectionFunc: func(ctx context.Context, sessionID string, repositoryID, userID int64) (services.WorkspaceSSHConnectionInfo, error) {
+			return services.WorkspaceSSHConnectionInfo{WorkspaceID: "workspace-1", VMID: "vm-1", Host: "vm-ssh.example", Username: "developer", Kind: "container"}, nil
+		},
+	}
 }
 
 func (m *mockWorkspaceTerminalService) GetSession(ctx context.Context, sessionID string, repositoryID, userID int64) (services.WorkspaceSessionResponse, error) {

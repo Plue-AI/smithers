@@ -1636,7 +1636,19 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		SessionCookieName: cfg.Auth.SessionCookieName,
 		ActiveConnections: terminalActiveCounter,
 	}
+	var languageServers *routes.BranchLSPHandler
 	if presence != nil {
+		// Code intelligence: member-owned daemon exec sessions under the
+		// terminal's branch.join authority and connection cap.
+		languageServers = &routes.BranchLSPHandler{
+			Provider:          newInstallLanguageServers(queries, workspaceService, options.Machined),
+			Authorize:         routes.InstallBranchAuthorizer(queries),
+			Metrics:           smithersMetrics,
+			AllowedOrigins:    apiAllowedOrigins(cfg),
+			SessionCookieName: cfg.Auth.SessionCookieName,
+			ActiveConnections: terminalActiveCounter,
+		}
+		defer languageServers.Close()
 		workspaceTerminalHandler.OwnerOnly = true
 		workspaceTerminalHandler.OwnerTerminals = &installOwnerTerminals{queries: queries, branches: workspaceService, registry: options.Machined}
 		workspaceTerminalHandler.TerminalSessions = workspaceTerminalHandler.SharedTerminalSessions()
@@ -2077,7 +2089,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			AdminTokens:        &routes.AdminTokenHandler{Service: adminManageService},
 			DeploymentAdmin:    deploymentAdminRoutes,
 			EgressPolicy:       &routes.RepositoryEgressPolicyHandler{Service: egressPolicyService},
-			GitHubSync:         gitHubSyncRoute, Live: liveHandler, ExternalSessions: externalSessionsHandler},
+			GitHubSync:         gitHubSyncRoute, Live: liveHandler, ExternalSessions: externalSessionsHandler, LanguageServers: languageServers},
 	)
 	if flow != nil && options.topology.servesHTTP() {
 		browser := &browserFlowAPI{installTransactions: pool, repos: repoService, queries: queries, dispatcher: flow.dispatcher, boxes: workspaceService,
@@ -2136,6 +2148,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		billingCheckout:  billingCapabilities.Checkout,
 		workspaceRuntime: options.Workspace != nil,
 		isolatedSandbox:  provider != nil || (options.Workspace != nil && options.Workspace.Isolation() == workspace.IsolationSandboxed),
+		codeIntelligence: languageServers != nil && languageServers.Provider.Available(),
 	}), apiCORSOptions(cfg))
 	// An in-process repository has no network health endpoint; a remote
 	// client, whatever the identity mode, is probed at repo_host.url by the router.

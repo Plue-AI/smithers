@@ -79,6 +79,9 @@ type routerExtras struct {
 	// ExternalSessions serves the owner's Codex and Claude Code sessions
 	// (GET /api/external/sessions); nil serves none.
 	ExternalSessions *routes.ExternalSessionsHandler
+	// LanguageServers is the File card's code intelligence on the branch
+	// machine (/api/branches/{b}/lsp); nil serves none.
+	LanguageServers *routes.BranchLSPHandler
 	// WikiSelection is a TODO plan step's shared-selector call over the
 	// install's wiki (T-FLW-10); nil serves none.
 	WikiSelection http.Handler
@@ -951,6 +954,17 @@ func buildRouter(
 	if config.IsSingleOwner(cfg.Auth) && extras.Live != nil {
 		r.With(authLoader(queries, cfg.Auth)).Get("/api/live", extras.Live.ServeHTTP)
 	}
+	// The File card's language-server socket, outside the JSON group like the
+	// terminal: the handler reruns the code.hover decision and branch.join.
+	if config.IsSingleOwner(cfg.Auth) && extras.LanguageServers != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(browserCORS(apiCORS, true))
+			r.Use(authLoader(queries, cfg.Auth))
+			r.Use(sseTicketAuth)
+			r.Use(routes.WorkspaceSocketRevocations)
+			r.With(middleware.RequireAuth).Get("/api/branches/{b}/lsp/{id}", extras.LanguageServers.Socket)
+		})
+	}
 
 	// WebSocket terminal — mounted outside /api's JSONTimeout group so the
 	// upgrade and subsequent bidirectional stream are not killed after 30 s.
@@ -986,9 +1000,6 @@ func buildRouter(
 				terminalAdmission = append(append([]func(http.Handler) http.Handler{}, writeTerminal...), memberCommands(queries))
 			}
 			r.With(terminalAdmission...).Get("/api/repos/{owner}/{repo}/workspace/sessions/{id}/terminal", workspaceTerminalHandler.TerminalWebSocket)
-			// LSP relay (#505): the same chain, open-rate limiter, and active cap
-			// as the terminal; the handler checks the session kind.
-			r.With(writeTerminal...).Get("/api/repos/{owner}/{repo}/workspace/sessions/{id}/lsp", workspaceTerminalHandler.LSPWebSocket)
 		})
 	}
 
@@ -1179,6 +1190,9 @@ func buildRouter(
 				restore.Service, _ = workspaceHandler.Service.(routes.BranchFileRestorer)
 			}
 			r.With(middleware.RequireAuth).Post("/branches/{b}/files/*", restore.Restore)
+			if extras.LanguageServers != nil {
+				r.With(middleware.RequireAuth).Post("/branches/{b}/lsp", extras.LanguageServers.Open)
+			}
 		}
 		if quiesceEnabled {
 			h := &routes.InstallQuiesceHandler{Owners: queries, Service: quiesceService}

@@ -3,7 +3,7 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test"
 import { withRetryAfter } from "@smthrs/rpc/CloudTunnel"
 import { LSP_LANGUAGE_SERVER_MISSING } from "@smthrs/rpc/LocalLsp"
-import { cloudDocumentUri, createCloudLspClient, documentLanguageId, DAEMON_LSP_ROOT_URI, STARTING_NOTE } from "./CloudLspClient"
+import { cloudDocumentUri, createCloudLspClient, documentLanguageId, DAEMON_LSP_ROOT_URI, installDaemonLsp, STARTING_NOTE } from "./CloudLspClient"
 import type { CloudLspClient, CloudLspDocument, CloudLspEvent } from "./CloudLspClient"
 
 setDefaultTimeout(60_000)
@@ -793,4 +793,39 @@ test("idle settles pending requests and disposal cancels the idle notification",
   await Bun.sleep(100)
   expect(other.events.filter(event => event.type === "closed")).toEqual([])
   expect(events.filter(event => event.type === "closed")).toHaveLength(1)
+})
+
+test("the install doors admit the member's branch session and relay it on that branch's socket", async () => {
+  const posts: Array<{ readonly path: string; readonly body: unknown }> = []
+  const upgrades: string[] = []
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: async (request, bun) => {
+      const url = new URL(request.url)
+      if (request.method === "POST") {
+        posts.push({ path: url.pathname, body: await request.json() })
+        return Response.json({ id: "s/1", kind: "exec", language: "typescript", branch: "9b3f" }, { status: 201 })
+      }
+      upgrades.push(`${url.pathname}${url.search}`)
+      return bun.upgrade(request) ? undefined : new Response("No", { status: 400 })
+    },
+    websocket: {
+      message: (socket, raw) => {
+        const message = JSON.parse(String(raw))
+        if (message.method === "initialize") socket.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { capabilities: {} } }))
+        if (message.method === "textDocument/hover") socket.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { contents: "literal install hover" } }))
+      }
+    }
+  })
+  const lsp = createCloudLspClient({ ...installDaemonLsp(fetch, `http://127.0.0.1:${server.port}/`), socketProtocol: () => "smithers.local.test" })
+  try {
+    const answer = await lsp.hover({ ...DOC, workspaceId: "scratch/maya/intelligence" }, { line: 1, character: 1 })
+    expect(answer).toEqual({ ok: { hover: { contents: "literal install hover", truncated: false } } })
+    expect(posts).toEqual([{ path: "/api/branches/scratch%2Fmaya%2Fintelligence/lsp", body: { language: "typescript" } }])
+    expect(upgrades).toEqual(["/api/branches/scratch%2Fmaya%2Fintelligence/lsp/s%2F1?language=typescript"])
+  } finally {
+    lsp.dispose()
+    await server.stop(true)
+  }
 })

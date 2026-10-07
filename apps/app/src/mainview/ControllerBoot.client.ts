@@ -14,6 +14,7 @@ import { createAppStore } from "./state/AppStore"
 import { canPaintAppBeforeIdentity, loadControllerBootInputs } from "./ControllerBootMemo"
 import { createTurnEraser } from "./runtime/TurnErasure"
 import { liveChannel } from "./runtime/LiveChannel"
+import { installDaemonLsp } from "./state/CloudLspClient"
 
 const promiseEffect = <A>(label: string, run: () => Promise<A>) =>
   Effect.tryPromise({
@@ -73,6 +74,8 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
           documentOptions: { channel: liveChannel(), prerequisites: { contract: true, actor: true, file: true, recovery: true, catalog: true, machine: true } },
           // Selection needs a backend that serves it; one that does not advertises no row and turns run on the pinned commands.
           ...(hasCapability(bootstrap, "commands.select") ? { commandSelector: httpCommandSelector(runtime.http, client.baseUrl) } : {}),
+          // Code intelligence exists only where the install composed member exec sessions.
+          ...(hasCapability(bootstrap, "code.intelligence") ? { daemonLsp: installDaemonLsp(runtime.http, client.baseUrl) } : {}),
           pageLifetime: pageLifetime.signal,
           clientErrors: options.clientErrors,
           baseUrl: client.baseUrl,

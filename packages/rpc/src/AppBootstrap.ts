@@ -46,6 +46,7 @@ export const RuntimeCapabilitySchema = z.enum([
   // Cloud doors a host serves itself, declared by the host that opens them
   // (packages/rpc/src/HostCapabilities.ts holds the per-host tables).
   "cloud.terminal", // this origin tunnels workspace terminals (/api/cloud-ws/*)
+  "code.intelligence", // File-card language servers run as member daemon sessions (/api/branches/{b}/lsp)
   "cloud.pat", // a host-held Smithers Cloud PAT session (/api/cloud-auth/*)
   // This host starts the Codex or the Claude Code CLI on its own machine and serves the session it writes (/api/external/launch).
   "launch.codex",

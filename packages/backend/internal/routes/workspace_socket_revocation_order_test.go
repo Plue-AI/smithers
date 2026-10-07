@@ -41,7 +41,7 @@ func (s *managerFirstRevocationSource) Subscribe(fn func(revocation.Event)) func
 }
 
 func TestWorkspaceSocketManagerFirstRevocationRejectsStartup(t *testing.T) {
-	for _, kind := range []string{"lsp", "terminal"} {
+	for _, kind := range []string{"terminal"} {
 		for _, revocationCase := range []struct {
 			name  string
 			event revocation.Event
@@ -54,31 +54,20 @@ func TestWorkspaceSocketManagerFirstRevocationRejectsStartup(t *testing.T) {
 				dialEntered := make(chan struct{})
 				var handler *WorkspaceTerminalHandler
 				var revokeManager func(revocation.Event)
-				if kind == "lsp" {
-					manager := NewLSPSessionManager(func(ctx context.Context, _ services.WorkspaceSSHConnectionInfo) (lspSSHClient, lspSSHSession, error) {
-						close(dialEntered)
-						<-ctx.Done()
-						return nil, nil, ctx.Err()
-					})
-					t.Cleanup(manager.Close)
-					revokeManager = manager.RevokeMatching
-					handler = &WorkspaceTerminalHandler{Service: lspTestService("running"), AllowedOrigins: []string{"https://smithers.sh"}, LSPSessions: manager}
-				} else {
-					manager := NewTerminalSessionManager(func(ctx context.Context, _ services.WorkspaceSSHConnectionInfo, _, _ int32) (terminalSSHClient, terminalSSHSession, error) {
-						close(dialEntered)
-						<-ctx.Done()
-						return nil, nil, ctx.Err()
-					})
-					t.Cleanup(manager.Close)
-					revokeManager = manager.RevokeMatching
-					service := lspTestService("running")
-					service.getSessionFunc = func(context.Context, string, int64, int64) (services.WorkspaceSessionResponse, error) {
-						row := lspTestSession("s1", 11, 7, "running")
-						row.Kind = services.WorkspaceSessionKindTerminal
-						return row, nil
-					}
-					handler = &WorkspaceTerminalHandler{Service: service, AllowedOrigins: []string{"https://smithers.sh"}, TerminalSessions: manager}
+				manager := NewTerminalSessionManager(func(ctx context.Context, _ services.WorkspaceSSHConnectionInfo, _, _ int32) (terminalSSHClient, terminalSSHSession, error) {
+					close(dialEntered)
+					<-ctx.Done()
+					return nil, nil, ctx.Err()
+				})
+				t.Cleanup(manager.Close)
+				revokeManager = manager.RevokeMatching
+				service := socketTestService("running")
+				service.getSessionFunc = func(context.Context, string, int64, int64) (services.WorkspaceSessionResponse, error) {
+					row := socketTestSession("s1", 11, 7, "running")
+					row.Kind = services.WorkspaceSessionKindTerminal
+					return row, nil
 				}
+				handler = &WorkspaceTerminalHandler{Service: service, AllowedOrigins: []string{"https://smithers.sh"}, TerminalSessions: manager}
 				source := &managerFirstRevocationSource{Bus: bus, onEvent: revokeManager, entered: make(chan struct{}), release: make(chan struct{})}
 				var releaseOnce sync.Once
 				t.Cleanup(func() { releaseOnce.Do(func() { close(source.release) }) })
@@ -93,12 +82,7 @@ func TestWorkspaceSocketManagerFirstRevocationRejectsStartup(t *testing.T) {
 						next.ServeHTTP(w, r.WithContext(ctx))
 					})
 				})
-				path := "/repos/{owner}/{repo}/workspace/sessions/{id}/" + kind
-				if kind == "lsp" {
-					router.Get(path, handler.LSPWebSocket)
-				} else {
-					router.Get(path, handler.TerminalWebSocket)
-				}
+				router.Get("/repos/{owner}/{repo}/workspace/sessions/{id}/"+kind, handler.TerminalWebSocket)
 				server := httptest.NewServer(router)
 				t.Cleanup(server.Close)
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -146,31 +130,23 @@ func TestWorkspaceSocketManagerFirstRevocationRejectsStartup(t *testing.T) {
 // The upgrade succeeds, then the manager revokes before addSink while the
 // route guard's callback remains blocked. No replay or usable socket may escape.
 func TestWorkspaceSocketManagerFirstBetweenUpgradeAndAttach(t *testing.T) {
-	for _, kind := range []string{"terminal", "lsp"} {
+	for _, kind := range []string{"terminal"} {
 		t.Run(kind, func(t *testing.T) {
 			bus := revocation.NewBus(nil, nil)
-			var terminalManager *TerminalSessionManager
-			var lspManager *LSPSessionManager
-			var revokeManager func(revocation.Event)
-			if kind == "terminal" {
-				fake := newFakeTerminalSSH()
-				terminalManager = NewTerminalSessionManager(func(context.Context, services.WorkspaceSSHConnectionInfo, int32, int32) (terminalSSHClient, terminalSSHSession, error) {
-					return fake.client, fake.session, nil
-				})
-				terminalManager.keepaliveInterval = 0
-				t.Cleanup(terminalManager.Close)
-				revokeManager = terminalManager.RevokeMatching
-			} else {
-				lspManager, _ = newLSPRelayManager(t, 0, true)
-				revokeManager = lspManager.RevokeMatching
-			}
+			fake := newFakeTerminalSSH()
+			terminalManager := NewTerminalSessionManager(func(context.Context, services.WorkspaceSSHConnectionInfo, int32, int32) (terminalSSHClient, terminalSSHSession, error) {
+				return fake.client, fake.session, nil
+			})
+			terminalManager.keepaliveInterval = 0
+			t.Cleanup(terminalManager.Close)
+			revokeManager := terminalManager.RevokeMatching
 			source := &managerFirstRevocationSource{Bus: bus, onEvent: revokeManager, entered: make(chan struct{}), release: make(chan struct{})}
 			var releaseOnce sync.Once
 			t.Cleanup(func() { releaseOnce.Do(func() { close(source.release) }) })
 			withSocketRevocationSource(t, source)
-			service := lspTestService("running")
+			service := socketTestService("running")
 			service.getSessionFunc = func(context.Context, string, int64, int64) (services.WorkspaceSessionResponse, error) {
-				row := lspTestSession("s1", 11, 7, "running")
+				row := socketTestSession("s1", 11, 7, "running")
 				row.Kind = kind
 				return row, nil
 			}
@@ -188,9 +164,8 @@ func TestWorkspaceSocketManagerFirstBetweenUpgradeAndAttach(t *testing.T) {
 					t.Error("manager-first revocation did not run")
 				}
 			}
-			handler := &WorkspaceTerminalHandler{Service: service, TerminalSessions: terminalManager, LSPSessions: lspManager,
+			handler := &WorkspaceTerminalHandler{Service: service, TerminalSessions: terminalManager,
 				beforeTerminalAttach: func(*terminalSession) { revokeBeforeAttach() },
-				beforeLSPAttach:      func(*lspSession) { revokeBeforeAttach() },
 			}
 			server := httptest.NewServer(managerFirstSocketRouter(handler, kind))
 			defer server.Close()
@@ -219,12 +194,7 @@ func managerFirstSocketRouter(handler *WorkspaceTerminalHandler, kind string) ht
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	})
-	path := "/repos/{owner}/{repo}/workspace/sessions/{id}/" + kind
-	if kind == "lsp" {
-		router.Get(path, handler.LSPWebSocket)
-	} else {
-		router.Get(path, handler.TerminalWebSocket)
-	}
+	router.Get("/repos/{owner}/{repo}/workspace/sessions/{id}/"+kind, handler.TerminalWebSocket)
 	return router
 }
 
@@ -259,9 +229,9 @@ func TestWorkspaceSocketManagerFirstRevokedTerminalReuseForbidden(t *testing.T) 
 	case <-ctx.Done():
 		t.Fatal("revocation teardown did not run")
 	}
-	service := lspTestService("running")
+	service := socketTestService("running")
 	service.getSessionFunc = func(context.Context, string, int64, int64) (services.WorkspaceSessionResponse, error) {
-		row := lspTestSession("s1", 11, 7, "running")
+		row := socketTestSession("s1", 11, 7, "running")
 		row.Kind = services.WorkspaceSessionKindTerminal
 		return row, nil
 	}
