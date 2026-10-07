@@ -1,5 +1,9 @@
+import { NodeCrypto } from "@effect/platform-node"
 import * as SeatResolver from "@smthrs/agent/SeatResolver"
-import { Effect, Layer } from "effect"
+import { FlowEngine } from "@smthrs/engine"
+import { Action, Flow, FlowRuntime } from "@smthrs/flow"
+import { Node } from "@smthrs/plan"
+import { Effect, Layer, Schema, Stream } from "effect"
 import assert from "node:assert/strict"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
@@ -305,4 +309,150 @@ test("preserves aliases and blank or invalid explicit pins without fallback", as
     }
   }
   assert.deepEqual(connected.requests, [])
+})
+
+test("factory roles send their attenuated model credential through the native provider route", async (t) => {
+  const seen: string[] = []
+  const models: string[] = []
+  let currentModel = "fixture-model"
+  const server = createServer((request, response) => {
+    if (request.url === "/model-proxy/factory-seat") {
+      assert.match(request.headers.authorization ?? "", /^Bearer smithers_flowhost_(planner|implementer|reviewer)$/)
+      response.writeHead(200, { "content-type": "application/json" })
+      response.end(
+        JSON.stringify({
+          seat: request.headers.authorization?.endsWith("reviewer") === true ? "auto" : `anthropic:${currentModel}`,
+          protocol: "anthropic-messages"
+        })
+      )
+      return
+    }
+    seen.push(request.headers["x-api-key"] as string)
+    let raw = ""
+    request.on("data", (chunk) => {
+      raw += chunk
+    })
+    request.on("end", () => {
+      models.push((JSON.parse(raw) as { model: string }).model)
+    })
+    currentModel = "replacement-model"
+    response.writeHead(200, { "content-type": "text/event-stream" })
+    response.end(
+      "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"role\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"fixture-model\",\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":0}}}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":1}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+    )
+  })
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  t.after(() => new Promise<void>((resolve) => server.close(() => resolve())))
+  const address = server.address() as AddressInfo
+  const environment = {
+    SMITHERS_MODEL_PROXY_URL: `http://127.0.0.1:${address.port}/model-proxy`,
+    SMITHERS_MODEL_PROXY_PROVIDERS: "anthropic",
+    ANTHROPIC_API_KEY: "smithers_flowhost_unscoped",
+    SMITHERS_MODEL_ROLE_PLANNER_KEY: "smithers_flowhost_planner",
+    SMITHERS_MODEL_ROLE_IMPLEMENTER_KEY: "smithers_flowhost_implementer",
+    SMITHERS_MODEL_ROLE_REVIEWER_KEY: "smithers_flowhost_reviewer"
+  }
+  await Effect.runPromise(
+    Effect.gen(function*() {
+      const resolver = yield* SeatResolver.SeatResolver
+      for (const role of ["coding/plan", "coding/implement", "coding/review"]) {
+        currentModel = "fixture-model"
+        const seat =
+          yield* (role === "coding/review" ? resolver.resolve("anthropic:fixture-model", role) : resolver.resolve(role))
+        yield* Stream.runCollect(seat.model.stream({
+          modelId: seat.modelId,
+          system: [],
+          messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+          tools: [],
+          params: { maxOutputTokens: 10 }
+        } as never))
+        const next = yield* seat.refresh!()
+        assert.equal(next.modelId, role === "coding/review" ? "fixture-model" : "replacement-model")
+        yield* Stream.runCollect(next.model.stream({
+          modelId: next.modelId,
+          system: [],
+          messages: [{ role: "user", content: [{ type: "text", text: "again" }] }],
+          tools: [],
+          params: { maxOutputTokens: 10 }
+        } as never))
+      }
+    }).pipe(
+      Effect.provide(
+        Host.roleSeats({ ...hostOptions("anthropic:fixture-model"), reviewModel: "anthropic:fixture-model" })(
+          environment
+        ).pipe(Layer.provide(platform.requestExecutor))
+      )
+    )
+  )
+  assert.deepEqual(seen, [
+    "smithers_flowhost_planner",
+    "smithers_flowhost_planner",
+    "smithers_flowhost_implementer",
+    "smithers_flowhost_implementer",
+    "smithers_flowhost_reviewer",
+    "smithers_flowhost_reviewer"
+  ])
+  assert.deepEqual(models, [
+    "fixture-model",
+    "replacement-model",
+    "fixture-model",
+    "replacement-model",
+    "fixture-model",
+    "fixture-model"
+  ])
+})
+
+test("factory seat choices replay their admitted model while a new call reads the owner switch", async (t) => {
+  let current = "model-a"
+  let reads = 0
+  const server = createServer((request, response) => {
+    assert.equal(request.url, "/model-proxy/factory-seat")
+    assert.match(request.headers.authorization ?? "", /^Bearer smithers_flowhost_/)
+    reads++
+    response.writeHead(200, { "content-type": "application/json" })
+    response.end(JSON.stringify({ seat: `anthropic:${current}`, protocol: "anthropic-messages" }))
+  })
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  t.after(() => new Promise<void>((resolve) => server.close(() => resolve())))
+  const address = server.address() as AddressInfo
+  const environment = {
+    SMITHERS_MODEL_PROXY_URL: `http://127.0.0.1:${address.port}/model-proxy`,
+    SMITHERS_MODEL_PROXY_PROVIDERS: "anthropic",
+    ANTHROPIC_API_KEY: "smithers_flowhost_unscoped",
+    SMITHERS_MODEL_ROLE_REVIEWER_KEY: "smithers_flowhost_reviewer"
+  }
+  const probe = Flow.make("test/factory-model-journal", {
+    payload: {},
+    success: Schema.Array(Schema.String),
+    error: Schema.Unknown,
+    body: () => Node.succeed([])
+  })
+  const models = await Effect.runPromise(
+    Effect.gen(function*() {
+      const engine = yield* FlowRuntime.FlowRuntime
+      const resolver = yield* SeatResolver.SeatResolver
+      yield* engine.register(probe, () =>
+        Effect.gen(function*() {
+          const seat = yield* resolver.resolve("coding/review")
+          const first = yield* seat.refresh!("admitted-call")
+          current = "model-b"
+          const replay = yield* seat.refresh!("admitted-call")
+          const next = yield* seat.refresh!("next-call")
+          return [first.modelId, replay.modelId, next.modelId]
+        }))
+      return yield* probe.execute({}, { executionId: "factory-journal" })
+    }).pipe(
+      Effect.provide(
+        Host.roleSeats({ ...hostOptions("anthropic:model-a"), reviewModel: "anthropic:model-a" })(environment).pipe(
+          Layer.provideMerge(platform.requestExecutor),
+          Layer.provideMerge(Action.layerImplementations),
+          Layer.provideMerge(FlowEngine.layerMemory),
+          Layer.provideMerge(NodeCrypto.layer)
+        )
+      ),
+      Effect.scoped
+    )
+  )
+  assert.deepEqual(models, ["model-a", "model-a", "model-b"])
+  assert.equal(reads, 4, "one bootstrap read, one resolution, and two admitted calls; replay spends no read")
 })

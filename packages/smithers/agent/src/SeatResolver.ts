@@ -34,7 +34,8 @@ import type * as SeatRouter from "./SeatRouter.ts"
  * @since 1.0.0-rc.0
  */
 export interface Service {
-  readonly resolve: (id: string) => Effect.Effect<Seat.Seat, Seat.SeatUnresolved>
+  /** The declared role accompanies a graph-selected concrete seat. */
+  readonly resolve: (id: string, declaredRole?: string) => Effect.Effect<Seat.Seat, Seat.SeatUnresolved>
   /**
    * How the host routes `id` by the routing graph instead of resolving it to
    * one seat, as a declared {@link Seat.auto} routes: a host that maps a role

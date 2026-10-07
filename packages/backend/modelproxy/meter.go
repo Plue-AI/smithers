@@ -42,6 +42,8 @@ const StepHeader = "X-Smithers-Step-Id"
 
 // Caller is who pays for a call and what it is correlated with.
 type Caller struct {
+	// FactoryRole is authenticated by the host credential or persisted step.
+	FactoryRole   string
 	OwnerType     string
 	OwnerID       int64
 	Source        string

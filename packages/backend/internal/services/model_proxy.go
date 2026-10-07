@@ -109,6 +109,12 @@ func (c *ModelProxyCallers) ResolveModelCaller(r *http.Request) (modelproxy.Call
 		caller.Source, caller.RepositoryID, caller.WorkflowRunID = modelproxy.SourceAgentRun, run.RepositoryID, run.ID
 		if err == nil {
 			caller.WorkflowStepID, err = c.modelRunStep(ctx, run.ID, run.RepositoryID, r.Header.Get(modelproxy.StepHeader))
+			if err == nil && caller.WorkflowStepID > 0 {
+				err = c.pool.QueryRow(ctx, `SELECT CASE name WHEN 'coding/plan' THEN 'planner' WHEN 'coding/implement' THEN 'implementer' WHEN 'coding/review' THEN 'reviewer' ELSE '' END FROM workflow_steps WHERE id=$1 AND workflow_run_id=$2 AND repository_id=$3`, caller.WorkflowStepID, run.ID, run.RepositoryID).Scan(&caller.FactoryRole)
+				if caller.FactoryRole != "" {
+					caller.Reference = "factory:" + caller.FactoryRole
+				}
+			}
 		}
 		return caller, err
 	}
@@ -130,7 +136,10 @@ func (c *ModelProxyCallers) ResolveModelCaller(r *http.Request) (modelproxy.Call
 			caller, err = c.automationPayer(ctx, caller, func() (int64, error) { return binding.UserID, nil })
 		}
 		caller.Source, caller.UserID, caller.RepositoryID = modelproxy.SourceFlowHost, binding.UserID, binding.RepositoryID
-		caller.WorkspaceID, caller.Reference = binding.WorkspaceID, binding.ID
+		caller.WorkspaceID, caller.Reference, caller.FactoryRole = binding.WorkspaceID, binding.ID, binding.FactoryRole
+		if binding.FactoryRole != "" {
+			caller.Reference += "#" + binding.FactoryRole
+		}
 		return caller, err
 	}
 	if token := bearerCredential(r); strings.HasPrefix(token, turncredential.Prefix) {
