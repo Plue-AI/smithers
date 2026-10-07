@@ -190,7 +190,11 @@ func workingConversationWithContext(t *testing.T, reader chat.ContextRepository,
 				}
 				return json.Marshal(entries)
 			}
-			args[len(args)-1] = reflect.ValueOf([]any{routerExtras{Members: &routes.MembersHandler{Service: auth.Members}, Live: &routes.LiveHandler{Hub: live.NewHub(ctx, nil), Origins: func() []string { return []string{f.origin} }, Queries: q, Topics: topics.resolver}}})
+			extras := routerExtras{Members: &routes.MembersHandler{Service: auth.Members}, Live: &routes.LiveHandler{Hub: live.NewHub(ctx, nil), Origins: func() []string { return []string{f.origin} }, Queries: q, Topics: topics.resolver}}
+			if local.configureExtras != nil {
+				local.configureExtras(&extras)
+			}
+			args[len(args)-1] = reflect.ValueOf([]any{extras})
 			router := fn.CallSlice(args)[0].Interface().(chi.Router)
 			mountChatPublic(router, runtime, q, cfg)
 			if root := os.Getenv("SMITHERS_W17_WEB_ROOT"); root != "" {
