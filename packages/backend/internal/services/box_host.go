@@ -149,9 +149,19 @@ func (s *WorkspaceService) PrepareBoxHost(ctx context.Context, hostID, workspace
 	if err != nil {
 		return nil, err
 	}
+	// Delivery uses the host token rather than the reporter's Git cache.
+	// Bind both transports to the same issuer-owned current TODO run.
+	authorityScopes, err := s.workspaceHeadAuthorityScopes(ctx, workspace, userID)
+	if err != nil {
+		return nil, err
+	}
+	landingScopes := boxHostLandingTokenScopes(repositoryID, workspace.ID)
+	if run := middleware.ParseTokenAgentSessionRestriction(authorityScopes); run != "" {
+		landingScopes += "," + middleware.AgentSessionRestrictionScope(run)
+	}
 	s.RetireBoxHostCredential(ctx, hostID, userID)
 	token, err := issueTemporaryRepoTokenWithTTL(ctx, q, userID, boxHostLandingTokenName(hostID),
-		boxHostLandingTokenScopes(repositoryID, workspace.ID), boxHostLandingTokenTTL)
+		landingScopes, boxHostLandingTokenTTL)
 	if err != nil {
 		return nil, err
 	}

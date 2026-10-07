@@ -199,14 +199,18 @@ func TestInstallCandidateAuthorizationPostgres(t *testing.T) {
 	t.Run("installed publisher issues and replaces current run authority", func(t *testing.T) {
 		runtime := &candidatePublisherRuntime{}
 		workspaces := services.NewWorkspaceService(f.q, services.WithWorkspaceInstallAuthorization(f.q), services.WithWorkspaceTransactions(f.pool), services.WithWorkspaceRuntime(runtime), services.WithWorkspaceGitBaseURL("http://127.0.0.1:47199"))
+		var landing string
 		prepare := func() string {
 			t.Helper()
-			_, err := workspaces.PrepareBoxHost(f.ctx, "candidate-host", workspace.ID, f.repoID, f.owner.ID)
+			environment, err := workspaces.PrepareBoxHost(f.ctx, "candidate-host", workspace.ID, f.repoID, f.owner.ID)
 			require.NoError(t, err)
 			require.NotEmpty(t, runtime.token)
+			landing = environment["SMITHERS_JJHUB_TOKEN"]
+			require.NotEmpty(t, landing)
 			return runtime.token
 		}
 		current := prepare()
+		call(landing, input, 202)
 		require.Equal(t, 1, runtime.starts)
 		call(current, input, 202)
 		require.Equal(t, current, prepare(), "an unchanged run reuses the live publisher")
@@ -216,6 +220,7 @@ func TestInstallCandidateAuthorizationPostgres(t *testing.T) {
 		replacement := input
 		replacement.RequestRunID = "replacement-run"
 		before := reads.Load()
+		call(landing, replacement, 403)
 		call(current, replacement, 403)
 		require.Equal(t, before, reads.Load())
 		next := prepare()
@@ -226,6 +231,7 @@ func TestInstallCandidateAuthorizationPostgres(t *testing.T) {
 		require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT EXISTS(SELECT 1 FROM access_tokens WHERE token_hash=$1)`, hex.EncodeToString(sum[:])).Scan(&live))
 		require.False(t, live, "replacing the publisher revokes its previous run bearer")
 		call(next, replacement, 202)
+		call(landing, replacement, 202)
 		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='current-run',generation=7 WHERE id=$1`, itemID)
 		require.NoError(t, err)
 		afterReplay = reads.Load()

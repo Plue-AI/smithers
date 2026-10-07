@@ -76,6 +76,37 @@ func TestWorkspaceHeadAuthorityScopesPostgres(t *testing.T) {
 	scopes, err = service.workspaceHeadAuthorityScopes(ctx, workspace, user)
 	require.NoError(t, err)
 	require.Equal(t, base+","+middleware.AgentSessionRestrictionScope("replacement-run"), scopes)
+	for _, cell := range []struct{ name, set string }{
+		{"ordinary coding work", "source='chat'"},
+		{"attempt not admitted", "attempt=0"},
+		{"run not attached", "request_run_id=''"},
+		{"closed TODO", "state='landed'"},
+		{"sponsor removed", "owner_id=NULL"},
+		{"workspace replaced", "workspace_id=''"},
+	} {
+		t.Run(cell.name, func(t *testing.T) {
+			tx, err := pool.Begin(ctx)
+			require.NoError(t, err)
+			defer func() { _ = tx.Rollback(context.Background()) }()
+			_, err = tx.Exec(ctx, "UPDATE mythical_items SET "+cell.set+" WHERE id=$1", itemID)
+			require.NoError(t, err)
+			scoped := NewWorkspaceService(q, WithWorkspaceInstallAuthorization(db.New(tx)))
+			actual, err := scoped.workspaceHeadAuthorityScopes(ctx, workspace, user)
+			require.NoError(t, err)
+			require.Equal(t, base, actual)
+		})
+	}
+	t.Run("malformed stored run", func(t *testing.T) {
+		tx, err := pool.Begin(ctx)
+		require.NoError(t, err)
+		defer func() { _ = tx.Rollback(context.Background()) }()
+		_, err = tx.Exec(ctx, `UPDATE mythical_items SET request_run_id='run,write:user' WHERE id=$1`, itemID)
+		require.NoError(t, err)
+		scoped := NewWorkspaceService(q, WithWorkspaceInstallAuthorization(db.New(tx)))
+		actual, err := scoped.workspaceHeadAuthorityScopes(ctx, workspace, user)
+		require.Error(t, err)
+		require.Empty(t, actual, "stored run text cannot inject a credential scope")
+	})
 	_, err = pool.Exec(ctx, `UPDATE mythical_lanes SET retired_at=now() WHERE workspace_id=$1`, workspace.ID)
 	require.NoError(t, err)
 	scopes, err = service.workspaceHeadAuthorityScopes(ctx, workspace, user)
