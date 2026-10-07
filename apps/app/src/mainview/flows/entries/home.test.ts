@@ -13,8 +13,9 @@ import { modelInvocable, nameOf } from "../registry"
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 import { fixtures } from "../../../../../../packages/rpc/test/fixtures/Todo"
 
-const boot = async (options: { readonly bootstrap?: AppBootstrap; readonly fetch?: (url: string, init?: RequestInit) => Response | undefined } = {}) => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+const boot = async (options: { readonly bootstrap?: AppBootstrap; readonly fetch?: (url: string, init?: RequestInit) => Response | Promise<Response> | undefined } = {}) => {
+  const storage = memoryStorage()
+  const store = await createAppStore({ kind: "localStorage", storage })
   const requests: string[] = []
   const profile = signupProfileFetch(async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
@@ -23,7 +24,7 @@ const boot = async (options: { readonly bootstrap?: AppBootstrap; readonly fetch
   })
   const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl, ...(options.bootstrap ? { bootstrap: options.bootstrap } : {}) })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maya", admin: false, scopesPlain: null }).isPersisted.promise
-  return { store, controller, requests }
+  return { store, controller, requests, storage }
 }
 type Harness = Awaited<ReturnType<typeof boot>>
 const slash = (h: Harness, name: string, args?: string) => h.controller.runCommandForResult(name, args)
@@ -269,4 +270,101 @@ test("an install reconnects its persisted running Retry after controller restart
     const recovered = await createAppStore({ kind: "localStorage", storage })
     expect(recovered.session().githubSyncRequest).toBeUndefined()
   } finally { controller.dispose() }
+})
+
+test("install background Retry returns before admission and execution, deduplicates, and keeps the toast through completion", async () => {
+  let admit!: (response: Response) => void
+  let status = "running"
+  const posts: RequestInit[] = []
+  const bootstrap: AppBootstrap = { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null }
+  const h = await boot({ bootstrap, fetch: (url, init) => {
+    const path = new URL(url, "http://local.test").pathname
+    if (path === "/api/runs/7" && init?.method === "POST") { posts.push(init); return new Promise<Response>(done => { admit = done }) }
+    if (path === "/api/runs/8/background-status") return Response.json({ run_id: 8, state: status })
+    return undefined
+  } })
+  try {
+    expect(await button(h, "background.retry", { id: "7" })).toMatchObject({ status: "executed", value: "Requested" })
+    await waitFor(() => posts.length === 1)
+    expect(h.store.session().homeBackgroundRequests).toMatchObject([{ id: "7", op: "retry", state: "requested" }])
+    expect(await slash(h, "background.retry", "7")).toMatchObject({ status: "executed", value: "Requested" })
+    expect(posts).toHaveLength(1)
+    expect(posts[0]?.body).toBe('{"op":"retry"}')
+    expect(await slash(h, "stack")).toMatchObject({ status: "executed" })
+    await waitFor(() => [...h.store.collections.toasts.values()].some(row => row.key.startsWith("background.") && row.status === "running"))
+    admit(Response.json({ state: "accepted", run_id: 8 }, { status: 202 }))
+    await waitFor(() => h.store.session().homeBackgroundRequests?.[0]?.state === "running")
+    expect([...h.store.collections.toasts.values()].filter(row => row.key.startsWith("background.")).map(row => row.status)).toEqual(["running"])
+    status = "success"
+    await waitFor(() => h.store.session().homeBackgroundRequests?.[0]?.state === "completed")
+    expect([...h.store.collections.toasts.values()].filter(row => row.key.startsWith("background.")).map(row => row.status)).toEqual(["ok"])
+  } finally { h.controller.dispose() }
+})
+
+test("install background Dismiss records failure, retains its retry key and never claims a refused write completed", async () => {
+  let refuse = true
+  const keys: string[] = []
+  const bootstrap: AppBootstrap = { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null }
+  const h = await boot({ bootstrap, fetch: (url, init) => {
+    if (new URL(url, "http://local.test").pathname !== "/api/runs/7" || init?.method !== "POST") return undefined
+    keys.push(new Headers(init.headers).get("Idempotency-Key")!)
+    return refuse ? new Response("", { status: 403 }) : Response.json({ state: "dismissed", run_id: 7 })
+  } })
+  try {
+    expect(await button(h, "background.dismiss", { id: "7" })).toMatchObject({ status: "executed", value: "Requested" })
+    await waitFor(() => h.store.session().homeBackgroundRequests?.[0]?.state === "failed")
+    expect(h.store.session().homeBackgroundRequests?.[0]?.error).toBe("Run action failed")
+    refuse = false
+    expect(await button(h, "background.dismiss", { id: "7" })).toMatchObject({ status: "executed", value: "Requested" })
+    await waitFor(() => h.store.session().homeBackgroundRequests?.[0]?.state === "completed")
+    expect(keys).toHaveLength(2)
+    expect(keys[0]).toBe(keys[1])
+  } finally { h.controller.dispose() }
+})
+
+test("install background Retry reconnects its persisted accepted run without admitting a second one", async () => {
+  const bootstrap: AppBootstrap = { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null }
+  const h = await boot({ bootstrap, fetch: (url, init) => {
+    const path = new URL(url, "http://local.test").pathname
+    if (path === "/api/runs/7" && init?.method === "POST") return Response.json({ run_id: 8, state: "accepted" }, { status: 202 })
+    if (path === "/api/runs/8/background-status") return Response.json({ run_id: 8, state: "running" })
+    return undefined
+  } })
+  let reloaded: ReturnType<typeof createAppController> | undefined
+  try {
+    await button(h, "background.retry", { id: "7" })
+    await waitFor(() => h.store.session().homeBackgroundRequests?.[0]?.state === "running")
+    h.controller.dispose()
+    const requests: string[] = []
+    const profile = signupProfileFetch(async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+      const path = new URL(url, "http://local.test").pathname
+      requests.push(`${init?.method ?? "GET"} ${path}`)
+      return path === "/api/runs/8/background-status" ? Response.json({ run_id: 8, state: "success" }) : new Response("{}", { status: 404 })
+    })
+    const restoredStore = await createAppStore({ kind: "localStorage", storage: h.storage })
+    reloaded = createAppController(restoredStore, unavailableAgent, { bootstrap, fetchImpl: profile.fetchImpl })
+    await restoredStore.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maya", admin: false, scopesPlain: null }).isPersisted.promise
+    await waitFor(() => restoredStore.session().homeBackgroundRequests?.[0]?.state === "completed")
+    expect(requests).toContain("GET /api/runs/8/background-status")
+    expect(requests.filter(row => row === "POST /api/runs/7")).toEqual([])
+  } finally { h.controller.dispose(); reloaded?.dispose() }
+})
+
+test("an account change ignores an earlier background admission response", async () => {
+  let finish!: (response: Response) => void
+  const bootstrap: AppBootstrap = { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null }
+  const h = await boot({ bootstrap, fetch: (url, init) => {
+    if (new URL(url, "http://local.test").pathname === "/api/runs/7" && init?.method === "POST") return new Promise<Response>(resolve => { finish = resolve })
+    return undefined
+  } })
+  try {
+    await button(h, "background.retry", { id: "7" })
+    await waitFor(() => finish !== undefined)
+    await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    finish(Response.json({ state: "accepted", run_id: 8 }, { status: 202 }))
+    await Bun.sleep(10)
+    expect(h.store.session().homeBackgroundRequests).toMatchObject([{ owner: "maya", state: "requested" }])
+    expect(h.requests.filter(row => row.includes("/api/runs/8"))).toEqual([])
+  } finally { h.controller.dispose() }
 })

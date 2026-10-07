@@ -6,6 +6,7 @@ import { createSharedPrompts } from "./controller/sharedPrompts"
 import { createSharedConversationSeam, type SharedConversationSeam } from "./seams/SharedConversationSeam"
 import { createEarlierHistoryController } from "./controller/earlierHistory"
 import { accountOwnerOf } from "./AccountOwner"
+import { createHomeBackgroundSeam, type HomeBackgroundSeam } from "./seams/HomeBackgroundSeam"
 import { createHomeViewSeam, type HomeViewSeam } from "./seams/HomeViewSeam"
 import { contextMonitor } from "./ContextMonitor"
 import type { MonitorCard } from "@smthrs/rpc/MonitorCard"
@@ -619,6 +620,7 @@ export interface AppController extends IssueFlowsController {
   readonly githubChooseInstallation: GitHubSeam["chooseInstallation"]
   readonly githubOpenInstall: GitHubSeam["openInstall"]
   readonly githubReconcile: GitHubSeam["reconcile"]
+  readonly backgroundRun: HomeBackgroundSeam["control"]
   /** `github.retry` on the install (POST /api/github/sync); undefined where this host serves no sync. */
   readonly retryGitHubSync: GitHubSyncSeam["retry"]
   readonly retryMirrorRef: GitHubSeam["retryMirrorRef"]
@@ -987,6 +989,18 @@ export const createAppController = (
   }
   const showMembers = () => { if (installHost) { membersSeam.start(); void membersSeam.read() } }
   /* Flows (T-APP-05): an install reads its catalog from GET /api/flows; the seeded flows stand in only off an install. */
+  const homeBackground = createHomeBackgroundSeam({
+    http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init),
+    owner: () => installHost ? ctx.accountOwner() ?? undefined : undefined, epoch: () => ctx.accountEpoch,
+    load: () => store.session().homeBackgroundRequests ?? [],
+    save: requests => store.dispatch({ type: "home.background.requests.changed", actor: seamCtx.actor(), requests }).isPersisted.promise,
+    withToast, report: error => seamCtx.report?.("Background run", error),
+    failed: (request, message) => ctx.resolveToast(`background.${request.key}`, { status: "failed", detail: message, action: { flow: request.op === "retry" ? "background.retry" : "background.dismiss", label: "Retry", args: request.op === "retry" ? flowArgs("background.retry", { id: request.id }) : flowArgs("background.dismiss", { id: request.id }) } })
+  })
+  ctx.onDispose(homeBackground.dispose)
+  const backgroundOwner = store.collections.identitySessions.subscribeChanges(homeBackground.resume)
+  ctx.onDispose(() => backgroundOwner.unsubscribe())
+  if (installHost) homeBackground.resume()
   const flowsSeam = createFlowsSeam({ http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init), live: services.live })
   ctx.onDispose(flowsSeam.dispose)
   const setBranchNavigationView: AppController["setBranchNavigationView"] = async patch => {
@@ -2362,6 +2376,11 @@ export const createAppController = (
     githubChooseInstallation: gitHubSeam.chooseInstallation,
     githubOpenInstall: gitHubSeam.openInstall,
     githubReconcile: gitHubSeam.reconcile,
+    backgroundRun: async (id, op) => {
+      if (installHost) return homeBackground.control(id, op)
+      const outcome = op === "retry" ? design.retryRun(id) : design.dismissRun(id)
+      return outcome.ok ? { value: outcome.ack } : outcome.refusal
+    },
     retryGitHubSync: gitHubSyncRetry.retry,
     retryMirrorRef: gitHubSeam.retryMirrorRef,
     githubMirrorSync: gitHubSeam.mirrorSync,
