@@ -182,7 +182,8 @@ type Options struct {
 	InstallCaptureSummary      ports.InstallCaptureSummary
 	InstallRunSummary          ports.InstallRunSummary
 	// Machined is the shared host link registry, owned by the install runtime.
-	Machined *machined.Registry
+	Machined      *machined.Registry
+	BranchCapture services.BranchCapture
 	// CodeDocuments supplies the document host after real-machine activation
 	// checks. Composition owns member authorization and the daemon connection.
 	// Nil refuses subscriptions until those checks pass.
@@ -1060,6 +1061,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	branchMachines, err := composeBranchMachines(options.Options, options.topology.hosted(), identity.NewMemberBoundary(queries))
 	if err != nil {
 		return err
+	}
+	if options.BranchCapture != nil {
+		services.WithBranchCapture(options.BranchCapture)(workspaceService)
+	} else if options.Machined != nil {
+		services.WithBranchCapture(options.Machined)(workspaceService)
 	}
 	if branchMachines != nil {
 		services.WithBranchMachineProviders(*branchMachines)(workspaceService)
