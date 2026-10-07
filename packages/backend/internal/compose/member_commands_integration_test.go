@@ -177,6 +177,9 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 				status, envelope = call(route.method, route.path, cookies[who], "")
 			}
 			require.Equal(t, want, status, "%s %s %v", who, key, envelope)
+			if want == http.StatusUnauthorized {
+				require.Equal(t, map[string]any{"class": "permission", "code": "unauthenticated", "fault": "user", "message": "Sign in again"}, envelope, key)
+			}
 			if want == http.StatusForbidden && who == "member" && maintainerOnly[key] {
 				require.Equal(t, map[string]any{"class": "permission", "code": "permission", "message": "Only a maintainer can do this"}, envelope, key)
 			}
@@ -295,5 +298,5 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 	require.NoError(t, err)
 	status, envelope = call("GET", "/api/install", cookies["maintainer"], "")
 	require.Equal(t, http.StatusUnauthorized, status)
-	require.Equal(t, "unauthenticated", envelope["code"])
+	require.Equal(t, map[string]any{"class": "permission", "code": "unauthenticated", "fault": "user", "message": "Sign in again"}, envelope)
 }
