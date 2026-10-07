@@ -157,6 +157,13 @@ try {
   assert.ok(requests.slice(sshReads).some(request => request.path === "/api/branches/smithers%2Fsleep-item" && request.status === 200))
   const missingSsh = await controller.runCommandForResult("ssh", "T999")
   assert.equal(missingSsh.status, "failed", "unknown TODO never copies a seed SSH line")
+  await act(async () => (host.querySelector('[data-flow="branch.fork"]') as HTMLButtonElement).click())
+  await waitFor(() => requests.some(request => request.method === "POST" && request.path === "/api/branches"))
+  const fork = requests.find(request => request.method === "POST" && request.path === "/api/branches")!
+  assert.deepEqual(fork.body, { from: "T1" })
+  // A blocked TODO cannot be forked. Check before Answer changes its state.
+  assert.equal(fork.status, 409, JSON.stringify(fork))
+  assert.deepEqual(fork.refusal, { class: "conflict", code: "todo_settled", message: "T1 is needs_you; fork main" })
   await waitFor(() => host.querySelector('form[data-flow="todo.answer"]') !== null)
   const steer = host.querySelector('form[data-flow="todo.steer"]') as HTMLFormElement
   const steerField = steer.querySelector("input")!
@@ -195,14 +202,6 @@ try {
   const file = [...store.collections.cards.values()].find(each => each.kind === "file")!
   assert.equal(file.kind, "file")
   if (file.kind === "file") assert.equal(file.payload.content, "export const retry = 3;\n")
-  await act(async () => (host.querySelector('[data-flow="branch.fork"]') as HTMLButtonElement).click())
-  await waitFor(() => requests.some(request => request.method === "POST" && request.path === "/api/branches"))
-  const fork = requests.find(request => request.method === "POST" && request.path === "/api/branches")!
-  assert.deepEqual(fork.body, { from: "T1" })
-  // This read-only fixture deliberately has no machine runtime qualification.
-  // Fork refuses admission before resolving or retaining the source revision.
-  assert.equal(fork.status, 503, JSON.stringify(fork))
-  assert.deepEqual(fork.refusal, { class: "infra", code: "branch_machine_unavailable", message: "Branch unavailable" })
   assert.ok(requests.some(request => request.path === "/api/todos/1" && request.status === 200))
   assert.ok(requests.some(request => request.path.endsWith("/files/src/retry.ts") && request.status === 200))
   assert.ok(requests.filter(request => request.method === "POST").every(request => request.path === "/api/branches" || request.path === "/api/todos/1/answer" || request.path === "/api/todos/1"), "reads never wake the sleeping branch")
