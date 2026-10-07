@@ -50,7 +50,14 @@ func TestBranchConversationUnavailableProviders(t *testing.T) {
 					require.NoError(t, err)
 				}
 				turn := f.prompt(t, "ben", "must not run")
-				f.terminal(t, turn, "failed", 20*time.Second)
+				timeout := 20 * time.Second
+				if missing == "context-reader" {
+					// The packaged host refuses before provider startup, so the
+					// dispatcher exhausts five attempts with 15s of backoff.
+					// Leave time for host startup and recovery polling under load.
+					timeout = time.Minute
+				}
+				f.terminal(t, turn, "failed", timeout)
 				if missing == "delegated-issuer" {
 					body := string(f.call(t, "ben", "GET", "/api/conversations/main", "", 200))
 					require.Contains(t, body, "credential_issuer_unavailable")
