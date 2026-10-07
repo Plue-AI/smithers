@@ -135,6 +135,7 @@
     "dist/**/*.d.ts",
     "dist/**/*.d.ts.map",
     "dist/**/package.json",
+    "dist/**/catalog.mvp.json",
     "LICENSE",
     "README.md",
     "CHANGELOG.md",
