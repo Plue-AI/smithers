@@ -111,7 +111,7 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 	q := db.New(pool)
 	var mirror *pollingGitHost
 	gitRoot, base := "", ""
-	if confirmations {
+	if confirmations || labelApproval {
 		// Real Git transport behind the existing native-host test adapter.
 		// GitHub and the install mirror are distinct bare repositories.
 		gitRoot = t.TempDir()
@@ -204,7 +204,7 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 	require.NoError(t, err)
 	require.NoError(t, connections.ReconcileGitHubAppInstallations(ctx))
 	mythical := services.NewMythicalService(pool, nil)
-	if confirmations {
+	if confirmations || labelApproval {
 		mythical = services.NewMythicalService(pool, mirror)
 	}
 	mythical.SetOrchestration(services.NewMythicalGitHub(q, connections, userRepos, connections), nil, nil)
@@ -212,7 +212,7 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 	mythical.EnableTodoPublication(credentials, connections, services.NewBudgetTracker())
 	_, err = q.RequestMythicalBootstrap(ctx, repo.ID, owner.ID, 100, false)
 	require.NoError(t, err)
-	if confirmations {
+	if confirmations || labelApproval {
 		require.NoError(t, mythical.PollOnce(ctx))
 		stack, err := q.GetMythicalStack(ctx, repo.ID)
 		require.NoError(t, err)
@@ -241,6 +241,12 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state = 'proposed', pr_number = $2, pr_url = $3, pr_state = 'open', pr_head = $4, candidate_verified = true
 		WHERE repository_id = $1 AND number = $5`, repo.ID, pull.Number, pull.HTMLURL, pull.Head.SHA, filed.Number)
 	require.NoError(t, err)
+	if labelApproval {
+		fake.RequireCheck("required-ci")
+		fake.SetCheck("rehearsal-owner/app", pull.Head.SHA, "required-ci", "in_progress", "")
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{branch}','"smithers/wave"'::jsonb) WHERE repository_id=$1 AND number=$2`, repo.ID, filed.Number)
+		require.NoError(t, err)
+	}
 	item := func() db.MythicalItem {
 		row, err := q.GetMythicalItemByNumber(ctx, repo.ID, filed.Number)
 		require.NoError(t, err)
@@ -290,7 +296,7 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		synced.BindInstallAuthority(credentials, true)
 		synced.SetConditionalFetcherFactory(userRepos.SyncedRepoConditionalFetcherFactory(connections))
 		mythical.UseInstallGitHubPolling(synced)
-		_, err = q.EnrollGitHubSyncedRepo(ctx, db.EnrollGitHubSyncedRepoParams{OwnerLogin: "rehearsal-owner", RepoName: "app", InstallationID: pgtype.Int8{Int64: installation, Valid: true}, GithubRepositoryID: pgtype.Int8{Int64: 100, Valid: true}, SyncMetadata: true, EnrolledVia: services.GitHubSyncedRepoEnrolledViaInstallation})
+		syncedRow, err := q.EnrollGitHubSyncedRepo(ctx, db.EnrollGitHubSyncedRepoParams{OwnerLogin: "rehearsal-owner", RepoName: "app", InstallationID: pgtype.Int8{Int64: installation, Valid: true}, GithubRepositoryID: pgtype.Int8{Int64: 100, Valid: true}, SyncMetadata: true, EnrolledVia: services.GitHubSyncedRepoEnrolledViaInstallation})
 		require.NoError(t, err)
 		require.Positive(t, fake.LabelIssue("rehearsal-owner/app", pull.Number, "rehearsal-owner", "automerge"))
 		workerCtx, stop := context.WithCancel(ctx)
@@ -309,6 +315,102 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 			return response.StatusCode == 200 && card["preapproval"] != nil
 		}, 20*time.Second, 100*time.Millisecond, "the install TODO card must show the authenticated PR label approval")
 		require.Empty(t, item().PendingOp, "ingestion grants approval without dispatching")
+		// The production follow pass fetches checks and the same durable
+		// delivery worker acknowledges the snapshot and requests evaluation.
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET next_attempt_at=NOW()-INTERVAL '1 second' WHERE id=$1`, before.ID)
+		require.NoError(t, err)
+		require.NoError(t, mythical.PollOnce(ctx))
+		require.Eventually(t, func() bool {
+			var count int
+			err := pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND principal_id='checks' AND state='completed'`).Scan(&count)
+			return err == nil && count > 0
+		}, 10*time.Second, 100*time.Millisecond, "check snapshots must reach the composed merge consumer")
+		var woken int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT (terminal_receipt->>'woken')::int FROM product_job_requests WHERE operation='github.fetched.consume' AND principal_id='checks' AND state='completed' LIMIT 1`).Scan(&woken))
+		require.Equal(t, 1, woken)
+		for replay := 0; replay < 2; replay++ {
+			require.NoError(t, synced.ReadInstallPullFacts(ctx, syncedRow, pull.Number, pull.Head.SHA, "checks"))
+		}
+		var deliveries int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND principal_id='checks'`).Scan(&deliveries))
+		require.Equal(t, 1, deliveries, "duplicate fetched facts reuse the committed delivery")
+		// C-J4-03's service layer: the later card and person command use
+		// the same order decision, before any GitHub merge transport.
+		later, err := mythical.FileTodo(middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: ownerSession}), repo.ID, owner.ID,
+			services.MythicalTodoInput{Title: "Later", Prompt: "Wait for Wave", Request: "file-later"})
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='proposed',pr_head=$2,pr_number=$4,pr_state='open',candidate_verified=true WHERE repository_id=$1 AND number=$3`, repo.ID, pull.Head.SHA, later.Number, pull.Number+1)
+		require.NoError(t, err)
+		get, err := http.NewRequest(http.MethodGet, origin+fmt.Sprintf("/api/todos/%d", later.Number), nil)
+		require.NoError(t, err)
+		get.AddCookie(&http.Cookie{Name: "smithers_session", Value: "owner-browser-session"})
+		response, err := fake.Client().Do(get)
+		require.NoError(t, err)
+		var card map[string]any
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&card))
+		require.NoError(t, response.Body.Close())
+		require.Equal(t, 200, response.StatusCode)
+		require.Equal(t, "order", card["merge"].(map[string]any)["reason"])
+		require.Equal(t, "T1", card["merge"].(map[string]any)["detail"])
+		press, err := http.NewRequest(http.MethodPost, origin+fmt.Sprintf("/api/todos/%d/merge", later.Number), strings.NewReader(`{"reviewed_head_sha":"`+pull.Head.SHA+`"}`))
+		require.NoError(t, err)
+		press.AddCookie(&http.Cookie{Name: "smithers_session", Value: "owner-browser-session"})
+		press.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "csrf"})
+		press.Header.Set("X-CSRF-Token", "csrf")
+		press.Header.Set("Origin", origin)
+		press.Header.Set("Content-Type", "application/json")
+		press.Header.Set("Idempotency-Key", "merge-later")
+		response, err = fake.Client().Do(press)
+		require.NoError(t, err)
+		var refusal map[string]any
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&refusal))
+		require.NoError(t, response.Body.Close())
+		require.Equal(t, 409, response.StatusCode)
+		require.Equal(t, "order", refusal["code"])
+		for _, write := range fake.Writes() {
+			require.False(t, strings.HasSuffix(write.Path, "/merge"), "out-of-order requests merge nothing")
+		}
+		fake.SetCheck("rehearsal-owner/app", pull.Head.SHA, "required-ci", "completed", "success")
+		for replay := 0; replay < 2; replay++ {
+			require.NoError(t, synced.ReadInstallPullFacts(ctx, syncedRow, pull.Number, pull.Head.SHA, "checks"))
+		}
+		require.Eventually(t, func() bool {
+			var count int
+			err := pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND principal_id='checks' AND state='completed' AND terminal_receipt->>'woken'='1'`).Scan(&count)
+			return err == nil && count == 2
+		}, 10*time.Second, 100*time.Millisecond)
+		for pass := 0; pass < 6 && item().State != "landed"; pass++ {
+			_, err = pool.Exec(ctx, `UPDATE mythical_items SET next_attempt_at=NOW()-INTERVAL '1 second' WHERE id=$1`, before.ID)
+			require.NoError(t, err)
+			_, err = q.RequestMythicalStack(ctx, repo.ID)
+			require.NoError(t, err)
+			require.NoError(t, mythical.PollOnce(ctx))
+		}
+		require.Equal(t, "landed", item().State)
+		merges := 0
+		for _, write := range fake.Writes() {
+			if !strings.HasSuffix(write.Path, "/merge") {
+				continue
+			}
+			merges++
+			var sent struct {
+				SHA    string `json:"sha"`
+				Method string `json:"merge_method"`
+			}
+			require.NoError(t, json.Unmarshal(write.Body, &sent))
+			require.Equal(t, pull.Head.SHA, sent.SHA)
+			require.Equal(t, "squash", sent.Method)
+		}
+		require.Equal(t, 1, merges)
+		get.URL.Path = fmt.Sprintf("/api/todos/%d", filed.Number)
+		response, err = fake.Client().Do(get)
+		require.NoError(t, err)
+		card = nil
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&card))
+		require.NoError(t, response.Body.Close())
+		require.Equal(t, 200, response.StatusCode)
+		require.Equal(t, "merged", card["state"])
+		require.Equal(t, "rehearsal-owner", card["preapproval"].(map[string]any)["by"])
 		return
 	}
 
