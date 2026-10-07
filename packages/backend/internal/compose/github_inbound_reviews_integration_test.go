@@ -76,6 +76,14 @@ func TestGitHubCommentSteerRecoversUnavailableRuntime(t *testing.T) {
 	testGitHubCommentSteerThroughComposedInstall(t, "runtime-restored")
 }
 
+func TestGitHubCommentSteerSettledDuringWake(t *testing.T) {
+	for _, state := range []string{"landed", "cancelled"} {
+		t.Run(state, func(t *testing.T) {
+			testGitHubCommentSteerThroughComposedInstall(t, "settled-"+state)
+		})
+	}
+}
+
 func TestGitHubCommentSteerRevokedBeforeWake(t *testing.T) {
 	for _, revocation := range []string{"removed", "suspended", "login-disabled"} {
 		t.Run(revocation, func(t *testing.T) {
@@ -157,9 +165,21 @@ func testGitHubCommentSteerThroughComposedInstall(t *testing.T, revocation strin
 	require.NoError(t, err)
 	var wakeAvailable atomic.Bool
 	var wakeCalls atomic.Int64
+	wakeStarted, releaseWake := make(chan struct{}), make(chan struct{})
+	var wakeOnce sync.Once
+	settledDuringWake := strings.HasPrefix(revocation, "settled-")
 	wakeAvailable.Store(revocation == "" || revocation == "before-commit" || revocation == "consumed-edit")
-	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(ctx context.Context, _ flowruntime.Target) (flowruntime.Runtime, error) {
 		wakeCalls.Add(1)
+		if settledDuringWake {
+			wakeOnce.Do(func() { close(wakeStarted) })
+			select {
+			case <-releaseWake:
+				return receiver, nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
 		if !wakeAvailable.Load() {
 			return nil, reviewWakeUnavailable{}
 		}
@@ -221,6 +241,39 @@ func testGitHubCommentSteerThroughComposedInstall(t *testing.T, revocation strin
 	t0 := time.Now()
 	hint()
 	hint()
+	if settledDuringWake {
+		select {
+		case <-wakeStarted:
+		case <-time.After(15 * time.Second):
+			t.Fatal("review input never entered the production delivery resolver")
+		}
+		// The fixture supplies the committed settlement while actual delivery is
+		// inside wake. GitHub poll, durable admission and both authorization
+		// boundaries are production; this is not real-machine qualification.
+		state := strings.TrimPrefix(revocation, "settled-")
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET state=$2 WHERE id=$1`, item.ID, state)
+		require.NoError(t, err)
+		close(releaseWake)
+		require.Eventually(t, func() bool {
+			var count int
+			err := pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer' AND state='failed' AND terminal_receipt->>'errorCode'='steer_todo_closed'`).Scan(&count)
+			return err == nil && count == 1
+		}, 10*time.Second, 10*time.Millisecond)
+		receiver.mu.Lock()
+		require.Empty(t, receiver.messages, "settlement during wake must consume no input")
+		receiver.mu.Unlock()
+		current, err := q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, err)
+		require.Equal(t, state, current.State, "late wake cannot revive a settled TODO")
+		require.Equal(t, "fixture-run", current.RequestRunID)
+		var inputs, activity int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer'`).Scan(&inputs))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_input'`).Scan(&activity))
+		require.Equal(t, 1, inputs, "duplicate hints keep the same pending identity")
+		require.Equal(t, 1, activity, "settlement preserves recorded review activity")
+		require.EqualValues(t, 1, wakeCalls.Load())
+		return
+	}
 	if revocation == "before-commit" {
 		require.Eventually(t, func() bool {
 			var count int
