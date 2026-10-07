@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
@@ -233,4 +234,43 @@ func TestConflictDoneComposedInstall(t *testing.T) {
 		}
 	}
 	require.Equal(t, 1, provider.signals)
+	// The native continuation contract parks the existing attempt. Project it
+	// through the production runtime boundary and read the mounted HTTP card.
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set($2::jsonb-'waits','{conflictReservation}','{"change":"change","onto":"onto","run":"pinned-run","limit":1,"reserved":1}') WHERE id=$1`, item.ID, checks)
+	require.NoError(t, err)
+	current, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	projection, err := json.Marshal(map[string]any{"kind": "mythical-item", "itemId": fmt.Sprint(item.ID), "generation": current.Generation, "attempt": 1, "phase": "todo", "flowDigest": digest, "flowSource": source})
+	require.NoError(t, err)
+	update := flowdispatch.ProjectionUpdate{State: jobs.StateWaiting, Scope: jobs.Scope{TenantID: tenant, PrincipalID: principal}, Checkpoint: flowdispatch.RuntimeCheckpoint{
+		FlowID: "todo", RunID: "pinned-run", ExecutionDigest: digest, Projection: projection,
+		Target: flowruntime.Target{TenantID: tenant, PrincipalID: principal, WorkspaceID: current.WorkspaceID, BindingKind: "mythical-item", BindingID: fmt.Sprint(item.ID)},
+		Run:    &flowruntime.Run{RunID: "pinned-run", Status: "waiting", PendingWaits: []flowruntime.PendingWait{{RunID: "conflict-child", Token: "park-1", Name: "conflict", Request: json.RawMessage(`{"kind":"conflict","conflict_change":"change","onto_revision":"onto","paths":["invented.txt"]}`)}}},
+	}}
+	for range 10 {
+		require.NoError(t, service.ProjectFlowRuntime(ctx, update))
+	}
+	request, err := http.NewRequest("GET", origin+"/api/todos/1", nil)
+	require.NoError(t, err)
+	request.AddCookie(&http.Cookie{Name: "smithers_session", Value: "pin-cookie"})
+	response, err := http.DefaultClient.Do(request)
+	require.NoError(t, err)
+	defer response.Body.Close()
+	var card map[string]any
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&card))
+	require.Equal(t, 200, response.StatusCode, card)
+	require.Equal(t, "needs_you", card["state"], card)
+	stored, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	var waits struct {
+		Waits []services.TodoWait `json:"waits"`
+	}
+	require.NoError(t, json.Unmarshal(stored.Checks, &waits))
+	require.Len(t, waits.Waits, 1)
+	require.Equal(t, "c-ac8c6e0340460eaf", waits.Waits[0].ID)
+	require.Equal(t, []string{"a.txt"}, waits.Waits[0].Paths)
+	require.Equal(t, "change", waits.Waits[0].ConflictChange)
+	require.Equal(t, "onto", waits.Waits[0].OntoRevision)
+	require.Equal(t, 1, provider.signals, "projection never launches or answers an attempt")
+
 }

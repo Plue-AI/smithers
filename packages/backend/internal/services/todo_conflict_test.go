@@ -1,7 +1,15 @@
 package services
 
 import (
+	"encoding/json"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/jobs"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -26,4 +34,83 @@ func TestConflictAttemptLimit(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+}
+
+func TestConflictWaitRetainsAttemptAndNativePaths(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	item := db.MythicalItem{ID: pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, RepositoryID: 1, State: "integrating", WorkspaceID: "branch", RequestRunID: "run", FlowDigest: pgtype.Text{String: strings.Repeat("b", 64), Valid: true}, Integration: []byte(`{"conflict":{"head":"change","onto":"onto","paths":["a.txt"]}}`)}
+	checks := mythicalChecks{RunLaunched: true, RunAttached: true, FlowSource: strings.Repeat("a", 40), Rebase: &mythicalRebase{Onto: "onto"}, ConflictReservation: &todoConflictReservation{Change: "change", Onto: "onto", Run: "run", Limit: 1, Reserved: 1}}
+	item.Checks = checks.encode()
+	wait := flowruntime.PendingWait{RunID: "child", Token: "park", Name: "conflict", Request: json.RawMessage(`{"kind":"conflict","conflict_change":"change","onto_revision":"onto","paths":["invented"]}`)}
+	update := flowdispatch.ProjectionUpdate{State: jobs.StateWaiting, Scope: jobs.Scope{TenantID: "repository:1", PrincipalID: "user:1"}, Checkpoint: flowdispatch.RuntimeCheckpoint{FlowID: "todo", RunID: "run", Target: flowruntime.Target{TenantID: "repository:1", PrincipalID: "user:1", WorkspaceID: "branch", BindingKind: "mythical-item", BindingID: uuidString(item.ID)}}}
+	got, ok := todoConflictWait(item, wait, update, now)
+	require.True(t, ok)
+	require.Equal(t, []string{"a.txt"}, got.Paths)
+	require.Equal(t, "run", got.Signal.Run)
+	for _, tc := range []struct {
+		name   string
+		mutate func(*db.MythicalItem, *flowruntime.PendingWait, *flowdispatch.ProjectionUpdate)
+	}{
+		{"malformed", func(i *db.MythicalItem, w *flowruntime.PendingWait, u *flowdispatch.ProjectionUpdate) {
+			w.Request = []byte(`{`)
+		}},
+		{"question", func(i *db.MythicalItem, w *flowruntime.PendingWait, u *flowdispatch.ProjectionUpdate) {
+			w.Request = []byte(`{"kind":"ask","prompt":"Resolve"}`)
+		}},
+		{"stale change", func(i *db.MythicalItem, w *flowruntime.PendingWait, u *flowdispatch.ProjectionUpdate) {
+			w.Request = []byte(`{"kind":"conflict","conflict_change":"other","onto_revision":"onto"}`)
+		}},
+		{"stale onto", func(i *db.MythicalItem, w *flowruntime.PendingWait, u *flowdispatch.ProjectionUpdate) {
+			w.Request = []byte(`{"kind":"conflict","conflict_change":"change","onto_revision":"other"}`)
+		}},
+		{"no token", func(i *db.MythicalItem, w *flowruntime.PendingWait, u *flowdispatch.ProjectionUpdate) { w.Token = "" }},
+		{"no name", func(i *db.MythicalItem, w *flowruntime.PendingWait, u *flowdispatch.ProjectionUpdate) { w.Name = "" }},
+		{"no child", func(i *db.MythicalItem, w *flowruntime.PendingWait, u *flowdispatch.ProjectionUpdate) { w.RunID = "" }},
+		{"foreign run", func(i *db.MythicalItem, w *flowruntime.PendingWait, u *flowdispatch.ProjectionUpdate) {
+			u.Checkpoint.RunID = "other"
+		}},
+		{"foreign flow", func(i *db.MythicalItem, w *flowruntime.PendingWait, u *flowdispatch.ProjectionUpdate) {
+			u.Checkpoint.FlowID = "other"
+		}},
+		{"foreign branch", func(i *db.MythicalItem, w *flowruntime.PendingWait, u *flowdispatch.ProjectionUpdate) {
+			u.Checkpoint.Target.WorkspaceID = "other"
+		}},
+		{"missing pin", func(i *db.MythicalItem, w *flowruntime.PendingWait, u *flowdispatch.ProjectionUpdate) {
+			i.FlowDigest.Valid = false
+		}},
+		{"no retained conflict", func(i *db.MythicalItem, w *flowruntime.PendingWait, u *flowdispatch.ProjectionUpdate) {
+			i.Integration = []byte(`{}`)
+		}},
+		{"no reservation", func(i *db.MythicalItem, w *flowruntime.PendingWait, u *flowdispatch.ProjectionUpdate) {
+			c := mythicalChecksOf(*i)
+			c.ConflictReservation = nil
+			i.Checks = c.encode()
+		}},
+		{"foreign reservation", func(i *db.MythicalItem, w *flowruntime.PendingWait, u *flowdispatch.ProjectionUpdate) {
+			c := mythicalChecksOf(*i)
+			c.ConflictReservation.Run = "other"
+			i.Checks = c.encode()
+		}},
+		{"unattached", func(i *db.MythicalItem, w *flowruntime.PendingWait, u *flowdispatch.ProjectionUpdate) {
+			c := mythicalChecksOf(*i)
+			c.RunAttached = false
+			i.Checks = c.encode()
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			i, w, u := item, wait, update
+			tc.mutate(&i, &w, &u)
+			_, ok := todoConflictWait(i, w, u, now)
+			require.False(t, ok)
+		})
+	}
+	update.Checkpoint.Run = &flowruntime.Run{RunID: "run", PendingWaits: []flowruntime.PendingWait{wait, wait}}
+	for range 10 {
+		mythicalProjectWaits(&item, mythicalProjection{Phase: "todo"}, update, "run", now)
+	}
+	require.Len(t, mythicalChecksOf(item).Waits, 1)
+	require.Equal(t, "needs_you", todoState(item))
+	update.Checkpoint.Run.PendingWaits = nil
+	mythicalProjectWaits(&item, mythicalProjection{Phase: "todo"}, update, "run", now)
+	require.Nil(t, mythicalChecksOf(item).Waits[0].SettledAt, "absence is not native conflict resolution")
 }
