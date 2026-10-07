@@ -672,7 +672,7 @@ export type Branch = {
   todo_id?: string
   name: string
   kind: "scratch" | "item" | "main"
-  state: "awake" | "asleep" | "waking" | "provisioning" | "failed" | "closed"
+  state: "awake" | "releasing" | "asleep" | "waking" | "provisioning" | "failed" | "closed"
   head?: string
   forked_from?: {
     kind: "main" | "item" | "branch"
@@ -1719,6 +1719,8 @@ export const getApiBranchesB = (transport: Transport, input: GetApiBranchesBInpu
   transport.request("GET", `/api/branches/${segment(input.path.b)}`) as Promise<GetApiBranchesBResponse>
 
 export type PostApiBranchesBBody = {
+  op: "sleep" | "wake"
+} | {
   op: "bring-in" | "discard-foreign"
   id: string
   revision: string
@@ -1738,7 +1740,7 @@ export type PostApiBranchesBBody = {
 export type PostApiBranchesBResponse = {
   state?: "accepted"
   n?: number
-} | ConfirmationReceipt
+} | ConfirmationReceipt | FlowRunReceipt
 
 export interface PostApiBranchesBInput {
   readonly path: { readonly b: string }
@@ -1746,9 +1748,19 @@ export interface PostApiBranchesBInput {
   readonly body: PostApiBranchesBBody
 }
 
-/** POST /api/branches/{b}: Rebase a branch or answer its retained conflict */
+/** POST /api/branches/{b}: Request a branch operation */
 export const postApiBranchesB = (transport: Transport, input: PostApiBranchesBInput): Promise<PostApiBranchesBResponse> =>
   transport.request("POST", `/api/branches/${segment(input.path.b)}`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiBranchesBResponse>
+
+export type GetApiBranchesActivityResponse = Array<Record<string, unknown>>
+
+export interface GetApiBranchesActivityInput {
+  readonly path: { readonly b: string }
+}
+
+/** GET /api/branches/{b}/activity: Read retained branch activity */
+export const getApiBranchesActivity = (transport: Transport, input: GetApiBranchesActivityInput): Promise<GetApiBranchesActivityResponse> =>
+  transport.request("GET", `/api/branches/${segment(input.path.b)}/activity`) as Promise<GetApiBranchesActivityResponse>
 
 export type GetApiBranchesBDiffResponse = TODOBranchDiff
 

@@ -2492,11 +2492,11 @@ paths:
           description: Branch machines unavailable
     post:
       x-composition: install
-      summary: Rebase a branch or answer its retained conflict
+      summary: Request a branch operation
       operationId: post_api_branches_b
       tags:
         - Branches
-      description: Rebase now uses the stack-selected target. Scratch Done binds conflict_change and onto_revision to the retained conflict. Run and machine credentials cannot invoke rebase. Required execution providers must be available before effects. Discard requires a maintainer browser session; outside-push decisions bind id and revision to the displayed commit.
+      description: Sleep and wake persist a person request before capture or admission and return its durable receipt. Machine state changes only after execution; completed command-runs receipts include machine and failures include error. Rebase now uses the stack-selected target. Scratch Done binds conflict_change and onto_revision to the retained conflict. Run and machine credentials cannot invoke rebase. Required execution providers must be available before effects. Discard requires a maintainer browser session; outside-push decisions bind id and revision to the displayed commit.
       security:
         - sessionCookie: []
       parameters:
@@ -2518,6 +2518,11 @@ paths:
           application/json:
             schema:
               oneOf:
+                - type: object
+                  additionalProperties: false
+                  required: [op]
+                  properties:
+                    op: {type: string, enum: [sleep, wake]}
                 - type: object
                   additionalProperties: false
                   required: [op, id, revision]
@@ -2550,7 +2555,7 @@ paths:
           description: Decision recorded
           content:
             application/json:
-              schema: {"oneOf":[{"type":"object","properties":{"state":{"type":"string","enum":["accepted"]},"n":{"type":"integer"}}},{"$ref":"#/components/schemas/ConfirmationReceipt"}]}
+              schema: {"oneOf":[{"type":"object","properties":{"state":{"type":"string","enum":["accepted"]},"n":{"type":"integer"}}},{"$ref":"#/components/schemas/ConfirmationReceipt"},{"$ref":"#/components/schemas/FlowRunReceipt"}]}
         '400':
           description: Invalid answer or missing Idempotency-Key
         '401':
@@ -2562,6 +2567,36 @@ paths:
           description: Stale target, unresolved conflict, settled wait, changed request, or publication recovering
         '503':
           description: Checkpoint rebase or required provider unavailable
+  /api/branches/{b}/activity:
+    get:
+      x-composition: install
+      summary: Read retained branch activity
+      description: >-
+        Returns the latest 200 activity entries in chronological order from the
+        same host projection as branch:{id}:activity. Never wakes the machine.
+      operationId: get_api_branches_activity
+      tags:
+        - Branches
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      parameters:
+        - name: b
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Retained activity
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {type: object}
+        '401': {description: Sign in required}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404': {description: Branch not found}
+        '503': {description: Activity provider unavailable}
   /api/branches/{b}/diff:
     get:
       x-composition: install
@@ -25404,7 +25439,7 @@ components:
           enum: [scratch, item, main]
         state:
           type: string
-          enum: [awake, asleep, waking, provisioning, failed, closed]
+          enum: [awake, releasing, asleep, waking, provisioning, failed, closed]
         head:
           description: A scratch branch's branch ref in the install's repository; any other branch's machine head.
           type: string

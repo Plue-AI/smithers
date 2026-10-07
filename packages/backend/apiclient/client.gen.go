@@ -3095,6 +3095,13 @@ func (c *Client) PostAPIBranchesB(ctx context.Context, b string, idempotencyKey 
 	return out, err
 }
 
+// GetAPIBranchesActivity calls GET /api/branches/{b}/activity.
+func (c *Client) GetAPIBranchesActivity(ctx context.Context, b string) ([]map[string]json.RawMessage, error) {
+	var out []map[string]json.RawMessage
+	err := c.do(ctx, "GET", "/api/branches/"+url.PathEscape(b)+"/activity", nil, nil, &out)
+	return out, err
+}
+
 // GetAPIBranchesBDiff calls GET /api/branches/{b}/diff.
 func (c *Client) GetAPIBranchesBDiff(ctx context.Context, b string) (TODOBranchDiff, error) {
 	var out TODOBranchDiff
