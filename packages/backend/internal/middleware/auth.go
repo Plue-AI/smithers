@@ -429,6 +429,8 @@ var installMemberRoutes = []struct {
 	method, command string
 	path            *regexp.Regexp
 }{
+	{http.MethodGet, "issue.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/issues/[0-9]+/comments/[0-9]+/reactions$`)},
+	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/stacks/active$`)},
 	{http.MethodGet, "approvals.list", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/approvals$`)},
 	{http.MethodGet, "approvals.list", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/approvals/[^/]+$`)},
 	{http.MethodPost, "approval.decide", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/approvals/[^/]+/decide$`)},
