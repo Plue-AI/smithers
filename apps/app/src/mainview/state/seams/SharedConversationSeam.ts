@@ -64,7 +64,7 @@ export const SharedConversationSchema = z.object({
   return { ...decoded.data, ...(entry.sequence === undefined ? {} : { sequence: entry.sequence }) }
 }) }))
 export type SharedConversation = z.infer<typeof SharedConversationSchema>
-export const ConversationViewSchema = z.object({ instructions: z.array(z.object({ id: z.string(), command: z.literal("theme"), mode: z.enum(["light", "dark"]) })).default([]), scroll_anchor: z.string().optional(), card_view: z.record(z.string(), z.unknown()).optional(), last_seen_seq: z.number().int().nonnegative().optional(), toasts_hidden: z.boolean().optional(), timeline_visible_until: z.string().nullable().optional(), queue: z.array(z.object({ id: z.string(), prompt: z.string() })).default([]) }).passthrough()
+export const ConversationViewSchema = z.object({ instructions: z.array(z.object({ id: z.string(), command: z.literal("theme"), mode: z.enum(["light", "dark"]) })).default([]), scroll_anchor: z.string().optional(), card_view: z.record(z.string(), z.unknown()).optional(), last_seen_seq: z.number().int().nonnegative().optional(), toasts_hidden: z.boolean().optional(), global_toasts_hidden: z.boolean().optional(), timeline_visible_until: z.string().nullable().optional(), queue: z.array(z.object({ id: z.string(), prompt: z.string() })).default([]) }).passthrough()
 export type ConversationView = z.infer<typeof ConversationViewSchema>
 export interface ConversationSnapshot { readonly view?: ConversationView; readonly queue?: readonly { id: string; prompt: string }[]; readonly conversation?: SharedConversation; readonly error?: string }
 
@@ -124,7 +124,7 @@ export function createSharedConversationSeam(ctx: ControllerContext, live?: Live
     } catch { if (valid(revision)) publish({ error: "Conversation unavailable" }) }
     finally { reading = false; if (again) { again = false; void read() } }
   }
-  const saveView = (patch: Partial<Pick<ConversationView, "scroll_anchor" | "card_view" | "last_seen_seq" | "toasts_hidden" | "timeline_visible_until">>) => {
+  const saveView = (patch: Partial<Pick<ConversationView, "scroll_anchor" | "card_view" | "last_seen_seq" | "toasts_hidden" | "global_toasts_hidden" | "timeline_visible_until">>) => {
     const revision = generation, at = branch
     if (!key || !valid(revision)) return Promise.resolve()
     ++viewRevision
