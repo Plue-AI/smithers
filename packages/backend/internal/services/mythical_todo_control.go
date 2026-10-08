@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 )
 
@@ -310,17 +309,6 @@ func guardInstallMemberCredential(ctx context.Context, tx pgx.Tx, repository, ac
 	currentInfo := middleware.AuthInfoFromContext(fresh)
 	if original.RawScopes != currentInfo.RawScopes || original.CredentialKind() != currentInfo.CredentialKind() {
 		return &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Credential binding changed"}
-	}
-	q := db.New(tx)
-	role, err := InstallRoleOf(fresh, q, actor)
-	if err != nil {
-		return err
-	}
-	if role == "" {
-		return &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Sign in again"}
-	}
-	if refusal := identity.NewMemberBoundary(q).AuthorizeMember(identity.WithMemberRoute(fresh), actor); refusal != nil {
-		return refusal
 	}
 	return nil
 }

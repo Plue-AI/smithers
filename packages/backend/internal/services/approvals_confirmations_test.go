@@ -290,7 +290,7 @@ func TestConfirmationCredentialIsolationAndRevocationPostgres(t *testing.T) {
 	requireConfirmationCode(t, err, "permission")
 	f.exec(`UPDATE collaborators SET permission='read' WHERE user_id=$1`, f.member.ID)
 	_, err = f.service.DecideConfirmation(f.person, r.ID, "approve", "press")
-	requireConfirmationCode(t, err, "permission")
+	requireConfirmationCode(t, err, "unauthenticated")
 	f.exec(`UPDATE collaborators SET permission='write' WHERE user_id=$1`, f.member.ID)
 	f.exec(`DELETE FROM auth_sessions WHERE session_key=$1`, middleware.AuthInfoFromContext(f.person).SessionHash)
 	_, err = f.service.DecideConfirmation(f.person, r.ID, "approve", "press")
@@ -371,7 +371,8 @@ func TestConfirmationQueuedPressReloadsAuthorityPostgres(t *testing.T) {
 				code = "unauthenticated"
 			case "downgrade":
 				f.exec(`UPDATE collaborators SET permission='read' WHERE user_id=$1`, f.member.ID)
-				code = "permission"
+				// Losing the roster's required write access kills the credential.
+				code = "unauthenticated"
 			case "expire":
 				f.exec(`UPDATE approvals SET expires_at=clock_timestamp()-interval '1 second' WHERE id=$1`, r.ID)
 				code = "confirmation_resolved"

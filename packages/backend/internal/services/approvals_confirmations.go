@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
@@ -158,6 +159,13 @@ func lockInstallCredential(ctx context.Context, tx pgx.Tx, info *middleware.Auth
 	}
 	if !middleware.BindInstallCredential(fresh) {
 		return ctx, 0, confirmationPermission()
+	}
+	// The HTTP member check may predate a wait for these locks. Reload the
+	// same member boundary before command policy or persisted result disclosure;
+	// a suspended/removed holder's surviving credential is already dead.
+	memberContext := identity.WithMemberBoundCredential(identity.WithMemberRoute(ctx))
+	if refusal := identity.NewMemberBoundary(q).AuthorizeMember(memberContext, fresh.User.ID); refusal != nil {
+		return ctx, 0, &AccessError{Status: refusal.Status, Class: string(refusal.Class), Code: string(refusal.Code), Message: refusal.Message}
 	}
 	fresh.ViaHint = info.ViaHint
 	if fresh.User.ID != info.User.ID {
