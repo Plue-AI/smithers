@@ -53,7 +53,7 @@ func (s *MythicalService) LearningBackgroundRuns(ctx context.Context, repository
 const learningBackgroundQuery = `SELECT * FROM (SELECT r.id,r.state,i.number,r.terminal_receipt FROM product_job_requests r
  JOIN mythical_items i ON i.id::text=r.payload->'target'->>'BindingID' AND i.repository_id=$1
  WHERE r.tenant_id=$2 AND r.operation='flow.runtime.launch'
- AND i.state='landed' AND i.pr_state='merged'
+ AND i.source='todo' AND i.state='landed' AND i.pr_state='merged'
  AND r.payload->'target'->>'TenantID'=r.tenant_id
  AND r.payload->'target'->>'PrincipalID'=r.principal_id AND r.principal_id='user:' || i.owner_id::text
  AND r.payload->'payload'->>'todo'=i.number::text

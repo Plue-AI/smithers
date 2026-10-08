@@ -198,6 +198,59 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 	}
 	_, err = pool.Exec(ctx, `UPDATE product_job_requests SET state='failed',terminal_receipt='{"reason":"lint"}' WHERE id=$1`, operation)
 	require.NoError(t, err)
+	// Only merged TODOs qualify for the Learning Home door. A retained issue
+	// lane record must not borrow a Learning launch to expose controls.
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET source='issue' WHERE id=$1`, itemID)
+	require.NoError(t, err)
+	ineligible, err := service.LearningBackgroundRuns(ctx, repo)
+	require.NoError(t, err)
+	require.Empty(t, ineligible)
+	require.Equal(t, 404, post(operation, "retry", "wrong-source").StatusCode)
+	require.Equal(t, 404, post(operation, "dismiss", "").StatusCode)
+	statusRequest, err := http.NewRequest("GET", origin+"/api/runs/"+operation+"/background-status", nil)
+	require.NoError(t, err)
+	statusRequest.Header.Set("Cookie", "smithers_session=fixture-person")
+	statusResponse, err := server.Client().Do(statusRequest)
+	require.NoError(t, err)
+	require.Equal(t, 404, statusResponse.StatusCode)
+	statusResponse.Body.Close()
+	unchanged, err := store.Get(ctx, scope, operation)
+	require.NoError(t, err)
+	require.Equal(t, jobs.StateFailed, unchanged.State)
+	require.JSONEq(t, `{"reason":"lint"}`, string(unchanged.TerminalReceipt))
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET source='todo' WHERE id=$1`, itemID)
+	require.NoError(t, err)
+	for _, missing := range []string{"machines", "launcher", "billing"} {
+		t.Run("missing_"+missing, func(t *testing.T) {
+			switch missing {
+			case "machines":
+				service.SetLearningMachines(nil)
+				defer service.SetLearningMachines(homeLearningMachines{})
+			case "launcher":
+				service.SetLauncher(nil)
+				defer service.SetLauncher(dispatcher)
+			case "billing":
+				provider.Billing = nil
+				defer func() { provider.Billing = services.NewUnlimitedBillingPolicy() }()
+			}
+			runs, err := service.LearningBackgroundRuns(ctx, repo)
+			require.NoError(t, err)
+			require.Equal(t, []map[string]any{{"id": operation, "title": "Learning · T1", "state": "failed", "actions": []any{map[string]any{"tag": "background.dismiss", "label": "Dismiss"}}}}, runs)
+			before, err := store.Get(ctx, scope, operation)
+			require.NoError(t, err)
+			require.Equal(t, 503, post(operation, "retry", "missing-"+missing).StatusCode)
+			after, err := store.Get(ctx, scope, operation)
+			require.NoError(t, err)
+			require.Equal(t, before, after)
+			require.Equal(t, 200, post(operation, "dismiss", "").StatusCode)
+			runs, err = service.LearningBackgroundRuns(ctx, repo)
+			require.NoError(t, err)
+			require.Empty(t, runs)
+			// Restore only this fixture's failure before the next boundary case.
+			_, err = pool.Exec(ctx, `UPDATE product_job_requests SET terminal_receipt='{"reason":"lint"}' WHERE id=$1`, operation)
+			require.NoError(t, err)
+		})
+	}
 	require.Equal(t, 400, post(operation, "retry", "").StatusCode)
 	require.Equal(t, 404, post(wrongOperation, "dismiss", "").StatusCode)
 	require.Equal(t, 404, post("00000000-0000-0000-0000-000000000001", "retry", "missing").StatusCode)
@@ -234,7 +287,7 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 	var retries, dismissals int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FILTER(WHERE event_type='operation.retry_authorized'),count(*) FILTER(WHERE event_type='operation.dismissed') FROM product_job_events WHERE operation_id=$1`, operation).Scan(&retries, &dismissals))
 	require.Equal(t, 1, retries)
-	require.Equal(t, 1, dismissals)
+	require.Equal(t, 4, dismissals)
 	// Failures before the launch use the same Home door and retain the first
 	// qualified pin in the admission checkpoint.
 	merge := strings.Repeat("a", 40)
