@@ -16,6 +16,15 @@ const PLAN = "Plan one linear mythical coding progression"
 const EDIT = "Implement the single atomic change in the owning workspace using the provided filesystem tools."
 const REPAIR = "Select one existing JJ atom owned by this Change to correct the supplied findings. Return its exact changeId."
 
+test("review feedback changes the scripted candidate on a fresh attempt", async () => {
+  const initial = await plan("[FILE src/retry.ts] Retry failed webhook deliveries")
+  const reviewed = await plan("[FILE src/retry.ts] Retry failed webhook deliveries", { feedback: "Use the existing backoff helper" })
+  const before = await run(todoTurn(turn(EDIT, { atom: initial })).content)
+  const after = await run(todoTurn(turn(EDIT, { atom: reviewed })).content)
+  assert.notEqual(after.tree["src/retry.ts"], before.tree["src/retry.ts"])
+  assert.ok(after.tree["src/retry.ts"].includes("Use the existing backoff helper"))
+})
+
 /** The value a scripted cell settles with, run against an in-memory working copy. */
 const run = async (content, files = {}) => {
   const source = /^```cell\n([\s\S]*)\n```$/.exec(content)?.[1]

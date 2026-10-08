@@ -155,6 +155,29 @@ func TestReviewSteerJourneyComposedInstall(t *testing.T) {
 			require.NoError(t, os.Rename(restarted+".tmp", restarted))
 		}
 	}
+	if err != nil {
+		rows, queryErr := r.pool.Query(t.Context(), `SELECT payload->'head'->>'sha', related_facts->'reviews' FROM github_synced_issues WHERE resource='pulls'`)
+		if queryErr == nil {
+			for rows.Next() {
+				var head string
+				var reviews []byte
+				if rows.Scan(&head, &reviews) == nil {
+					t.Logf("failed journey synced head=%s reviews=%s", head, reviews)
+				}
+			}
+			rows.Close()
+		}
+		rows, queryErr = r.pool.Query(t.Context(), `SELECT r.principal_id,r.state,COALESCE(d.external_receipt::text,'') FROM product_job_requests r LEFT JOIN product_job_dispatches d ON d.operation_id=r.id WHERE r.operation='github.fetched.consume' ORDER BY r.created_at`)
+		if queryErr == nil {
+			for rows.Next() {
+				var principal, state, receipt string
+				if rows.Scan(&principal, &state, &receipt) == nil {
+					t.Logf("failed journey fetched delivery %s %s %s", principal, state, receipt)
+				}
+			}
+			rows.Close()
+		}
+	}
 	require.NoError(t, err, "review-steer.spec.ts against the composed install; evidence %s", r.evidence)
 
 	// The coding run itself received Alice's steer and never Dana's comment:
@@ -169,7 +192,7 @@ func TestReviewSteerJourneyComposedInstall(t *testing.T) {
 // reviewSteerCommit names the checkout under test; the real-tier evidence
 // reporter refuses a run without an exact revision.
 func reviewSteerCommit(t *testing.T, root string) string {
-	output, err := exec.Command("jj", "--ignore-working-copy", "-R", root, "log", "-r", "@-", "--no-graph", "-T", "commit_id").Output()
+	output, err := exec.Command("/usr/bin/git", "-C", root, "rev-parse", "HEAD").Output()
 	require.NoError(t, err, "read the checkout's revision")
 	commit := strings.TrimSpace(string(output))
 	require.Regexp(t, `^[0-9a-f]{40}$`, commit)

@@ -112,6 +112,12 @@ func (s *GitHubSyncedRepoService) admitFetchedReviewSnapshot(ctx context.Context
 		if err != nil {
 			return err
 		}
+		// A 304 reuses PostgreSQL's JSONB pages, whose nested field order can
+		// differ from GitHub's response. Use the same canonical bytes as the
+		// other fetched objects before assigning the durable delivery identity.
+		if err := tx.QueryRow(ctx, `SELECT $1::jsonb::text`, canonical).Scan(&canonical); err != nil {
+			return err
+		}
 		if err := s.admitFetchedObject(ctx, tx, row, gitHubReviews, review.ID, number, canonical); err != nil {
 			return err
 		}

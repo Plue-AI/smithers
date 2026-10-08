@@ -94,6 +94,8 @@ func TestGitHubReviewConsumerAtomicReplayAndAuthority(t *testing.T) {
 			require.Empty(t, mythicalChecksOf(o.byID(uuidString(item.ID))).GitHubInputs)
 			require.NoError(t, consume())
 			require.NoError(t, consume())
+			fact.Version = "legacy-jsonb-replay"
+			require.NoError(t, consume(), "equivalent legacy payloads cannot block later approvals or create another steer")
 			next := o.byID(uuidString(item.ID))
 			checks := mythicalChecksOf(next)
 			require.Len(t, checks.GitHubInputs, 1)
@@ -207,7 +209,10 @@ func TestGitHubReviewPollBatchesAnchorsAndReplays(t *testing.T) {
 		return synced.commitFetchedIssue(t.Context(), tx, row, GitHubRepoMetadataPulls, read, json.RawMessage(`{"id":707,"number":3,"state":"open","title":"Change","head":{"sha":"head","ref":"smithers/review"},"updated_at":"2026-10-05T10:00:00Z"}`))
 	}))
 	synced.SetConditionalFetcherFactory(func(db.GithubSyncedRepo) GitHubSyncedRepoConditionalFetcher {
-		return func(_ context.Context, resource string, _ url.Values, _ string) (GitHubSyncedRepoConditionalPage, error) {
+		return func(_ context.Context, resource string, _ url.Values, etag string) (GitHubSyncedRepoConditionalPage, error) {
+			if etag != "" {
+				return GitHubSyncedRepoConditionalPage{NotModified: true, ETag: etag}, nil
+			}
 			raw := ""
 			switch resource {
 			case "issues/3/comments":
@@ -219,7 +224,7 @@ func TestGitHubReviewPollBatchesAnchorsAndReplays(t *testing.T) {
 			default:
 				return GitHubSyncedRepoConditionalPage{}, fmt.Errorf("unexpected read %s", resource)
 			}
-			return GitHubSyncedRepoConditionalPage{Body: json.RawMessage(raw)}, nil
+			return GitHubSyncedRepoConditionalPage{Body: json.RawMessage(raw), ETag: `"stable"`}, nil
 		}
 	})
 	require.NoError(t, synced.ReadInstallPullFacts(t.Context(), row, 3, "head", "reviews"))

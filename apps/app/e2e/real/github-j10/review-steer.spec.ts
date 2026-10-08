@@ -137,7 +137,6 @@ const withReviewInstall = async (browser: Browser, info: TestInfo, body: (instal
     for (const actor of ["Will", "Ben", "Alice"] as const) {
       const context = await browser.newContext({ baseURL: host.origin, recordVideo: { dir: info.outputPath(`video-${actor}`) } })
       contexts.push(context)
-      await context.tracing.start({ screenshots: true, snapshots: true })
       await context.addCookies(host.members[actor].map(cookie => ({ ...cookie, url: host.origin, httpOnly: cookie.name !== "__csrf" })))
       const page = await context.newPage()
       await page.goto(`${host.origin}/${host.repository}`)
@@ -163,8 +162,7 @@ const withReviewInstall = async (browser: Browser, info: TestInfo, body: (instal
       }
     })
   } finally {
-    for (const [index, context] of contexts.entries()) {
-      await context.tracing.stop({ path: info.outputPath(`member-${index}.zip`) })
+    for (const context of contexts) {
       await context.close()
     }
   }

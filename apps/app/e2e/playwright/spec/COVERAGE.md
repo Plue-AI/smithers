@@ -45,7 +45,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J4-02 | [C-J4-02.spec.ts](C-J4-02.spec.ts) | passing app HTTP-seam proof: Answer, head-bound Merge (acceptance stays In review until terminal projection), Move, Retry, displayed-wait/head Bring in, durable pause/resume projections and pending execution; runtime pause/checkpoint backend, real flow/GitHub and reference-host timing remain pending | T-STK-02, T-STK-05, T-APP-02 |
 | C-J4-03 | [C-J4-03.spec.ts](C-J4-03.spec.ts) | fixme-before-implementation | T-STK-04, T-REL-02 |
 | C-J10-01 | [C-J10-01.spec.ts](C-J10-01.spec.ts) | composed-install Chromium: publication, drafts and item-only diff; packaged guest dispatch pending | T-GH-03, T-REL-02 |
-| C-J10-02 | [C-J10-02.spec.ts](C-J10-02.spec.ts) | fixme-before-implementation | T-GH-04 |
+| C-J10-02 | [review-steer.spec.ts](../../real/github-j10/review-steer.spec.ts) | composed-install Chromium: attributed review, updated PR, restart deduplication, outsider refusal and recorded approval; real GitHub/Mac qualification pending | T-GH-04 |
 | C-J10-03 | [C-J10-03.spec.ts](C-J10-03.spec.ts), [install Discard cases](C-UI-12-todo-install.spec.ts) | Passing Chromium install HTTP seam: stale Discard refresh, displayed wait/SHA binding, person confirmation, independent question, pending toast, usable Chat and reload; machine Bring in ancestry and full reference-host journey pending | T-GH-06 |
 | C-J10-04 | [C-J10-04.spec.ts](C-J10-04.spec.ts) | fixme-before-implementation | T-STK-08 |
 | C-J10-05 | [C-J10-05.spec.ts](C-J10-05.spec.ts) | composed-install: merged cards and fixes_issue true/false through production polling/completion; accepted-tree fixture, guest qualification pending | T-GH-03 |

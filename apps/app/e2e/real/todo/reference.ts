@@ -74,7 +74,6 @@ export const withReference = async (browser: Browser, info: TestInfo, body: (fix
       const context = await browser.newContext({ baseURL: origin, storageState: required(`SMITHERS_JOURNEY_${actor.toUpperCase()}_SESSION`),
         recordVideo: { dir: info.outputPath(`video-${actor}`) } })
       contexts.push(context)
-      await context.tracing.start({ screenshots: true, snapshots: true })
       const page = await context.newPage()
       if (process.env.SMITHERS_JOURNEY_KEYBOARD === "1") keyboard.set(actor, registerKeyboardJourney(page, origin, () => captureCards(actor)))
       await keyboard.get(actor)?.ready()
@@ -113,8 +112,7 @@ export const withReference = async (browser: Browser, info: TestInfo, body: (fix
   } finally {
     await attachJson(info, "card-capture-inventory", captures.snapshot())
     for (const [actor, keys] of keyboard) await attachJson(info, `keyboard-${actor}`, keys.snapshot())
-    for (const [index, context] of contexts.entries()) {
-      await context.tracing.stop({ path: info.outputPath(`member-${index}.zip`) })
+    for (const context of contexts) {
       await context.close()
     }
   }

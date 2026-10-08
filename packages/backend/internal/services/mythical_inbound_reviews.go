@@ -145,8 +145,9 @@ func (s *MythicalService) consumeGitHubReviewTodos(ctx context.Context, tx pgx.T
 			}
 			duplicate, stale := false, false
 			if index >= 0 {
-				duplicate = checks.GitHubInputs[index].Version == fetched.Version
-				stale = checks.GitHubInputs[index].UpdatedAt.After(updated)
+				prior := checks.GitHubInputs[index]
+				duplicate = prior.Version == fetched.Version
+				stale = prior.UpdatedAt.After(updated)
 			}
 			var personID int64
 			// GitHub's numeric identity, never author_association or an old login.
@@ -173,6 +174,12 @@ func (s *MythicalService) consumeGitHubReviewTodos(ctx context.Context, tx pgx.T
 				}
 			}
 			priorSteer := -1
+			if index >= 0 {
+				prior := checks.GitHubInputs[index]
+				// Older deliveries hashed JSON before JSONB canonicalization.
+				// A formatting-only replay is not a new input or an edit.
+				duplicate = duplicate || prior.UpdatedAt.Equal(updated) && prior.Text == text && prior.ReviewState == object.State && prior.Hidden == object.Deleted && jsonEqual(prior.Actor, actor)
+			}
 			for i, feedback := range checks.Steers {
 				if feedback.Request == "github:"+key {
 					priorSteer = i

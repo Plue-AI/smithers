@@ -288,7 +288,7 @@ const steps = [
           atoms: [{
             changeId: null,
             message: subject,
-            intent: `Append a greeting line to ${file}. ${intentMarkers(markers, payload?.answer)}`.trim(),
+            intent: `Append a greeting line to ${file}. ${intentMarkers(markers, payload?.answer || (typeof payload?.input?.feedback === "string" ? payload.input.feedback : undefined))}`.trim(),
             reads: writes,
             writes
           }],

@@ -56,6 +56,24 @@ func TestTodoStateLiteralProjection(t *testing.T) {
 	}
 	require.Equal(t, "in_review", todoState(db.MythicalItem{State: "queued", PRState: "open"}))
 }
+func TestTodoReviewWorkQueuesNextAttemptWithOpenPR(t *testing.T) {
+	item := db.MythicalItem{Source: "todo", State: "proposed", Attempt: 3, PRState: "open", RequestOutcome: "succeeded", Checks: mythicalChecks{RunLaunched: true, RunAttached: true}.encode()}
+	require.Equal(t, "in_review", todoState(item))
+	queued := queueReopenedTodo(item)
+	require.Equal(t, "queued", todoState(queued), "the old PR does not hide new work awaiting admission")
+	require.True(t, todoRetryPending(queued), "late updates from the ended run must not restore its phase")
+	queued.Attempt++
+	checks := mythicalChecksOf(queued)
+	checks.RunLaunched = true
+	queued.Checks = checks.encode()
+	require.False(t, todoRetryPending(queued))
+	require.Equal(t, "starting", todoState(queued))
+	checks.RunAttached = true
+	queued.State = "running"
+	queued.Checks = checks.encode()
+	require.Equal(t, "working", todoState(queued))
+}
+
 func TestTodoWaitPriorityAndSettlement(t *testing.T) {
 	now := time.Unix(1, 0)
 	item := db.MythicalItem{State: "blocked", Checks: mythicalChecks{Waits: []TodoWait{

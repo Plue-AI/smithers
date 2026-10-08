@@ -1569,13 +1569,24 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		}
 		result := *next
 		if !saved {
-			if next.State == "landed" && item.State != "landed" {
+			stateChanged := mythicalTodo(item) && todoState(item) != todoState(*next)
+			if stateChanged || next.State == "landed" && item.State != "landed" {
 				err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
 					result, err = db.New(tx).SaveMythicalItem(ctx, *next)
 					if err != nil {
 						return err
 					}
-					return s.admitLearningInTx(ctx, tx, result)
+					if result.State == "landed" && item.State != "landed" {
+						if err := s.admitLearningInTx(ctx, tx, result); err != nil {
+							return err
+						}
+					}
+					if stateChanged {
+						data, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": mythicalItemNumber(item), "from": todoState(item), "to": todoState(result)})
+						_, err := s.recordTodoFact(ctx, tx, result, uuid.NewString(), "todo.state_changed", todoState(result), data)
+						return err
+					}
+					return nil
 				})
 			} else {
 				result, err = q.SaveMythicalItem(ctx, *next)

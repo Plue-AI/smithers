@@ -61,7 +61,7 @@ func todoState(item db.MythicalItem) string {
 	case "proposed":
 		return "in_review"
 	case "queued":
-		// An accepted retry queues a new attempt; the previous run and PR
+		// Accepted work queues a new attempt; the previous run and PR
 		// remain historical facts until admission replaces the live binding.
 		if todoRetryPending(item) {
 			return "queued"
@@ -88,7 +88,8 @@ func todoState(item db.MythicalItem) string {
 	}
 }
 
-// todoRetryPending identifies a committed Retry awaiting admission. The row
+// todoRetryPending identifies a new attempt awaiting admission after Retry or
+// work on a reopened or ended review run. The row
 // still names the ended attempt until its successor is granted a machine.
 // Projection and runtime ingestion share this fact; an old run cannot become
 // live again during that interval.
@@ -96,7 +97,11 @@ func todoRetryPending(item db.MythicalItem) bool {
 	if item.State != "queued" {
 		return false
 	}
-	for _, retry := range mythicalChecksOf(item).Retries {
+	checks := mythicalChecksOf(item)
+	if item.Attempt > 0 && checks.AttemptBase == item.Attempt && !checks.RunLaunched {
+		return true
+	}
+	for _, retry := range checks.Retries {
 		if retry.Attempt == item.Attempt+1 {
 			return true
 		}
