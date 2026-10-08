@@ -1,5 +1,32 @@
 # Permanent product interaction rules
 
+## Doneish first; release continuously (Will, 2026-10-08)
+
+Make it work, then make it good. The goal is **doneish**, and every doneish
+`main` ships as a silent prerelease. Where another rule here or in `.specs`
+sets a stricter bar or a different order, this section wins until the
+prerelease is out.
+
+- **Doneish:** to the best of our knowledge the spec is implemented. On one
+  `main` commit the J1 to J11 journey suites pass, and every ticket is either
+  believed complete or listed in `PRERELEASE.md` as off, missing or unverified.
+  It may be unverified on the reference host and unreviewed.
+- **Done** is unchanged: receipts for every check on its named layer
+  (T-PRC-03), owner sign-off and a closed issue. Done gates the real release,
+  never a prerelease. That work continues after each prerelease.
+- Nothing strict blocks doneish: no wiped or reference Mac mini, independent
+  operator, receipt, `Ready:` restamp, owner pre-review, second-model review or
+  coverage campaign. Each becomes a line under Unverified.
+- Security hard rules and contributor trust rules still hold. A feature with a
+  known hole ships switched off and listed.
+- Work in this order: failing journey rows, the release path, then the rest.
+  Work that serves neither waits for the prerelease.
+- A prerelease is a suffixed version such as `1.0.0-rc.2`, published under npm
+  `next` with no announcement; `latest` does not move. Only gates that prove it
+  builds, installs and starts can block it; every other gate reports. Cut one
+  whenever the journeys pass, at least daily, so Will sees the product instead
+  of waiting on it.
+
 ## MVP scope (Will, 2026-10-02)
 
 The product contract is [`.specs/product/overview.md`](.specs/product/overview.md)
@@ -103,7 +130,8 @@ rules to behavior that applies throughout their directory trees.
   builds and self-hosting must not depend on private files or services.
 - Ship the MVP in small, tested increments in the mvp.md §11 order, with the
   npm packages; the TUI and Smithers Cloud follow the MVP. Require actual
-  release evidence; defer unreliable or undifferentiated features. Publish
+  release evidence for the real release, not for a prerelease (Doneish
+  first); defer unreliable or undifferentiated features. Publish
   benchmark claims only with reproducible methods, artifacts, and limitations.
 
 ## Claim an issue before working it (Will, 2026-09-29)
@@ -134,6 +162,9 @@ check|claim|release|comment <repo>#<n> --by <agent/session>`.
   user's rate limits.
 
 ## Engineering completion evidence (T-PRC-03)
+
+This section defines done. Doneish and prereleases need none of it (Doneish
+first).
 
 Completed closes require passing receipts for every check in the landed ticket;
 there is no enforcement switch. NEEDS-OWNER checks get approved argv and host
