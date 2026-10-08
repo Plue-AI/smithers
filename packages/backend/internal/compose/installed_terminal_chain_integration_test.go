@@ -238,6 +238,7 @@ func exerciseInstalledMemberTerminalAndSSHChain(t *testing.T, check func(*rootLa
 		check(h, client, sshAddress, login, signer, member, uid)
 	}
 	testInstalledCredentials(t, h, branch, installedMemberTerminal(t, h, branch, benBrowser), benBrowser, aliceBrowser)
+	testInstalledTerminalTokenAcceptance(t, h, branch, benBrowser, aliceBrowser)
 	testInstalledTerminalPendingAPI(t, h, branch, benBrowser, carolBrowser)
 	testInstalledTerminalRootInputs(t, h, branch, benBrowser, aliceBrowser)
 	testInstalledTerminalRemovalDuringWake(t, h, branch, benBrowser)
