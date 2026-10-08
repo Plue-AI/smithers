@@ -13,11 +13,13 @@ import { makeCli } from "../src/Cli.ts"
 
 const read = (path: string) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), "utf8")
 const guide = read("../docs/guides/wire-the-mcp-server.md")
-const reference = read("../../../apps/site/src/content/docs/docs/reference/mcp-tools.mdx")
-const setup = read("../../../apps/site/src/content/docs/docs/guides/mcp-setup.mdx")
+// The standalone docs site was retired for M-35. The npm package retains
+// its MCP guide; verify the documentation users actually receive.
+const reference = guide.split("## Canonical tools and independent approval")[1]?.split("`approvals_approve`")[0] ?? ""
 
 /** Backticked names in one piece of text, in order. */
 const names = (text: string) => [...text.matchAll(/`([a-z_-]+)`/g)].map((match) => match[1] ?? "")
+const excluded = names(guide.replaceAll(/\s+/g, " ").match(/([^.]*) are absent from both discovery and dispatch/)?.[1] ?? "")
 
 /** The tool names `smthrs --mcp` serves through its discovery tools. */
 const unified = new Set(
@@ -34,10 +36,7 @@ describe("the unified MCP docs", () => {
   })
 
   it("tells agents to discover only tools the server serves", () => {
-    const section = reference.split("## Command names")[1]?.split("\n## ")[0] ?? ""
-    const table = section.split("\n").filter((line) => line.startsWith("| ") && !line.startsWith("| Task"))
-    const cells = table.map((line) => line.split("|")[2]?.trim() ?? "")
-    const listed = cells.filter((cell) => !cell.startsWith("Search for")).flatMap(names)
+    const listed = names(reference).filter((name) => /^(flow|approvals|runs)_/.test(name))
 
     expect(listed.length).toBeGreaterThan(0)
     expect(listed.filter((name) => !unified.has(name))).toEqual([])
@@ -45,9 +44,12 @@ describe("the unified MCP docs", () => {
 
   it("never describes an unserved verb as an MCP tool", () => {
     const tools = (text: string) =>
-      names(text).filter((name) => /^(flow|approvals|runs|run)_/.test(name) && !unified.has(name))
+      names(text).filter((name) =>
+        /^(flow|approvals|runs|run)_/.test(name) && !excluded.includes(name) && !unified.has(name)
+      )
 
     expect(tools(reference)).toEqual([])
-    expect(tools(setup)).toEqual([])
+    expect(tools(guide)).toEqual([])
+    expect(excluded).toEqual(["approvals_approve", "approvals_deny", "flow_start"])
   })
 })
