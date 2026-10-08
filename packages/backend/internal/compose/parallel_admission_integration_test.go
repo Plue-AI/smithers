@@ -505,6 +505,9 @@ func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery b
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.created' AND (data->>'n')::bigint=6 AND (data->>'before')::bigint=3`).Scan(&facts))
 		require.Equal(t, 1, facts)
 		held("Before capacity recovery", 3)
+		saved, err := q.GetInstallParallel(ctx)
+		require.NoError(t, err)
+		require.JSONEq(t, `8`, string(saved), "automatic capacity recovery must preserve the owner setting")
 		return
 	}
 

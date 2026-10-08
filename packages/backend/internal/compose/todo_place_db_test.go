@@ -291,8 +291,8 @@ func TestTodoPlacementComposedInstall(t *testing.T) {
 	require.Equal(t, 202, code, body)
 	require.Equal(t, "pending", body["state"])
 	require.Equal(t, []int64{5, 4, 2, 3, 8, 7, 6}, order())
-	// The generic confirmation consumer does not qualify a private handoff
-	// for a branch-bound terminal. Append, Before and Move remain side-effect free.
+	// The terminal confirmation consumer landed in 5a20392df2. Append
+	// requests a private handoff; Before and Move remain forbidden.
 	branch := uuid.NewString()
 	_, err = pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,name) VALUES($1,$2,$3,'placement-terminal')`, branch, repo, member.ID)
 	require.NoError(t, err)
@@ -304,9 +304,15 @@ func TestTodoPlacementComposedInstall(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&beforeEvents))
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&beforeApprovals))
 	code, body = call("POST", "/api/todos", `{"title":"Terminal","prompt":"Add a terminal line","place":{"mode":"append"}}`, "terminal-append")
-	require.Equal(t, 403, code, body)
-	require.Equal(t, "confirm_in_app", body["code"])
-	require.Equal(t, "Confirm in the app", body["message"])
+	require.Equal(t, 202, code, body)
+	require.Equal(t, "pending", body["state"])
+	terminalConfirmation, ok := body["confirmation"].(string)
+	require.True(t, ok, body)
+	var confirmationMember int64
+	var confirmationState string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT member_id,state FROM approvals WHERE id=$1`, terminalConfirmation).Scan(&confirmationMember, &confirmationState))
+	require.Equal(t, member.ID, confirmationMember)
+	require.Equal(t, "pending", confirmationState)
 	require.Equal(t, []int64{5, 4, 2, 3, 8, 7, 6}, order())
 	code, body = call("POST", "/api/todos", `{"title":"Denied","prompt":"Add a line","place":{"mode":"before","n":7}}`, "terminal-before")
 	require.Equal(t, 403, code, body)
@@ -317,7 +323,7 @@ func TestTodoPlacementComposedInstall(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&afterEvents))
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&afterApprovals))
 	require.Equal(t, beforeEvents, afterEvents)
-	require.Equal(t, beforeApprovals, afterApprovals)
+	require.Equal(t, beforeApprovals+1, afterApprovals, "only Append may request a confirmation")
 	for _, credential := range []string{
 		mint("smithers_"+strings.Repeat("f", 40), "read:repository,via:cli", true),
 		mint("smithers_"+strings.Repeat("a", 40), "write:repository", true),
