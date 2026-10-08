@@ -42,7 +42,7 @@ def trusted(info, directory=False):
         raise ValueError("untrusted install object")
 
 
-def open_protected(path):
+def open_protected(path, ancestry=None):
     """Hold each no-follow ancestor while opening the validated object."""
     parts = Path(path).parts
     if not Path(path).is_absolute() or any(part in (".", "..") for part in parts):
@@ -50,11 +50,15 @@ def open_protected(path):
     parent = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         trusted(os.fstat(parent), True)
+        if ancestry is not None:
+            ancestry.append(os.dup(parent))
         for part in parts[1:-1]:
             child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
             os.close(parent)
             parent = child
             trusted(os.fstat(parent), True)
+            if ancestry is not None:
+                ancestry.append(os.dup(parent))
         fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
         try:
             info = os.fstat(fd)
@@ -102,8 +106,10 @@ def main():
     held = []
     paths = []
     identities = []
+    ancestors = []
     try:
-        manifest_fd = open_protected(root / "manifest.json")
+        ancestors.append([])
+        manifest_fd = open_protected(root / "manifest.json", ancestors[-1])
         held.append(manifest_fd)
         paths.append(root / "manifest.json")
         manifest_bytes = read_held(manifest_fd, 16 * 1024 * 1024)
@@ -121,7 +127,8 @@ def main():
         gateway = None
         for relative in ("share/trm06/launcher.py", "share/trm06/run.sh", "share/trm06/revoke.sh", "share/trm06/flow.sh", "bin/trm06-gateway"):
             entry = entries[relative]
-            fd = open_protected(root / relative)
+            ancestors.append([])
+            fd = open_protected(root / relative, ancestors[-1])
             held.append(fd)
             paths.append(root / relative)
             identities.append((entry["mode"], entry["sha256"]))
@@ -135,9 +142,18 @@ def main():
             raise ValueError("invalid operation")
         # Refuse replacements already visible before exec. The held executable
         # also prevents a final post-check replacement selecting other bytes.
-        for path, fd, (mode, digest) in zip(paths, held, identities):
-            current = open_protected(path)
+        for path, fd, (mode, digest), original_parents in zip(paths, held, identities, ancestors):
+            current_parents = []
+            current = None
             try:
+                current = open_protected(path, current_parents)
+                if len(original_parents) != len(current_parents):
+                    raise ValueError("replaced install ancestor")
+                for original, observed_parent in zip(original_parents, current_parents):
+                    before, after = os.fstat(original), os.fstat(observed_parent)
+                    trusted(before, True)
+                    if (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
+                        raise ValueError("replaced install ancestor")
                 expected, observed = os.fstat(fd), os.fstat(current)
                 if (expected.st_dev, expected.st_ino) != (observed.st_dev, observed.st_ino):
                     raise ValueError("replaced install object")
@@ -146,12 +162,18 @@ def main():
                 if stat.S_IMODE(observed.st_mode) != mode or hashlib.sha256(read_held(current, 64 * 1024 * 1024)).hexdigest() != digest:
                     raise ValueError("modified install object")
             finally:
-                os.close(current)
+                if current is not None:
+                    os.close(current)
+                for parent in current_parents:
+                    os.close(parent)
         os.chdir("/")
         execute_held(gateway, [str(root / "bin/trm06-gateway"), operation])
     finally:
         for fd in held:
             os.close(fd)
+        for chain in ancestors:
+            for fd in chain:
+                os.close(fd)
 
 
 if __name__ == "__main__":

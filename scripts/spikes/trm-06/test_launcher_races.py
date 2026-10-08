@@ -53,7 +53,7 @@ class LauncherRaces(unittest.TestCase):
 
     def test_replacement_visible_before_exec_refuses_every_artifact(self):
         for target in ("manifest.json", "share/trm06/launcher.py", "share/trm06/run.sh", "share/trm06/revoke.sh", "share/trm06/flow.sh", "bin/trm06-gateway"):
-            for replacement in ("file", "symlink", "parent", "contents", "mode", "hardlink"):
+            for replacement in ("file", "symlink", "parent", "contents", "mode", "hardlink", "parent-held-leaf"):
                 with self.subTest(target=target, replacement=replacement), tempfile.TemporaryDirectory() as temporary:
                     root = Path(temporary) / "bundle"
                     root.mkdir()
@@ -71,6 +71,11 @@ class LauncherRaces(unittest.TestCase):
                                 path.chmod(0o777)
                             elif replacement == "hardlink":
                                 os.link(path, root / "outside-hardlink")
+                            elif replacement == "parent-held-leaf":
+                                original_parent = path.parent.with_name(path.parent.name + "-held")
+                                path.parent.rename(original_parent)
+                                path.parent.mkdir()
+                                (original_parent / path.name).rename(path)
                             elif replacement == "parent":
                                 path.parent.rename(path.parent.with_name(path.parent.name + "-held"))
                                 path.parent.mkdir()
@@ -87,6 +92,35 @@ class LauncherRaces(unittest.TestCase):
                     with RaceSchedule(mutate) as schedule, patch.object(launcher, "ROOT", root), patch.object(launcher, "__file__", str(root / "share/trm06/launcher.py")), patch.object(launcher, "protected", side_effect=lambda p, *args: Path(p)), patch.object(launcher, "trusted"), patch.object(launcher, "read_held", side_effect=read), patch.object(launcher.sys, "argv", ["launcher", "run"]), patch.object(launcher, "execute_held") as execute:
                         with self.assertRaises((ValueError, OSError)): launcher.main()
                         execute.assert_not_called()
+
+    def test_parent_replacement_preserving_every_artifact_inode_refuses(self):
+        # Leaf-only checks accepted these replacements: every artifact and its
+        # bytes remain identical, while one validated ancestor is detached.
+        for ancestor in (".", "bin", "share", "share/trm06"):
+            with self.subTest(ancestor=ancestor), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary) / "bundle"
+                root.mkdir()
+                self.fixture(root)
+                files = [root / entry["path"] for entry in json.loads((root / "manifest.json").read_bytes())["files"]]
+                before = {path: path.stat().st_ino for path in files}
+                real_read = launcher.read_held
+                mutated = False
+                def mutate():
+                    nonlocal mutated
+                    parent = root / ancestor
+                    original = parent.with_name(parent.name + "-original")
+                    parent.rename(original)
+                    parent.mkdir()
+                    for child in list(original.iterdir()): child.rename(parent / child.name)
+                    mutated = True
+                def read(fd, limit):
+                    data = real_read(fd, limit)
+                    if data.startswith(b"main-fixture:bin/") and not mutated: schedule.replace()
+                    return data
+                with RaceSchedule(mutate) as schedule, patch.object(launcher, "ROOT", root), patch.object(launcher, "__file__", str(root / "share/trm06/launcher.py")), patch.object(launcher, "protected", side_effect=lambda p, *args: Path(p)), patch.object(launcher, "trusted"), patch.object(launcher, "read_held", side_effect=read), patch.object(launcher.sys, "argv", ["launcher", "run"]), patch.object(launcher, "execute_held") as execute:
+                    with self.assertRaisesRegex(ValueError, "replaced install ancestor"): launcher.main()
+                    execute.assert_not_called()
+                self.assertEqual({path: path.stat().st_ino for path in files}, before)
 
     def test_symlink_ancestors_and_artifacts_refuse(self):
         for target in ("share", "share/trm06", "share/trm06/launcher.py", "bin", "bin/trm06-gateway", "manifest.json"):

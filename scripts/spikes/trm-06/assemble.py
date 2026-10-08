@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import shutil
 import stat
+import sys
 import struct
 import subprocess
 import tarfile
@@ -43,7 +44,7 @@ def regular(path):
     return info
 
 
-def validate_base(base, revision):
+def validate_base(base, revision, *, overlay=False):
     manifest = json.loads((base / "manifest.json").read_bytes(), object_pairs_hook=unique)
     if manifest["version"] != 1 or manifest["platform"] != "darwin-arm64" or manifest["revision"] != revision:
         raise ValueError("base bundle is not this main revision/platform")
@@ -67,7 +68,7 @@ def validate_base(base, revision):
     actual = {p.relative_to(base).as_posix() for p in base.rglob("*") if (p.is_symlink() or not p.is_dir()) and p.relative_to(base).as_posix() != "manifest.json"}
     if actual != seen:
         raise ValueError("base bundle has unmanifested artifacts")
-    if any(p.startswith("share/trm06/") or p in ("bin/trm06-gateway", "libexec/trm06-supervisor") for p in seen):
+    if not overlay and any(p.startswith("share/trm06/") or p in ("bin/trm06-gateway", "libexec/trm06-supervisor") for p in seen):
         raise ValueError("spike already assembled")
     return manifest
 
@@ -204,7 +205,7 @@ def validate_gateway(path):
             raise ValueError("unclaimed Mach-O command bytes")
 
 
-def supervisor_build_environment(target):
+def supervisor_build_environment(target, source=None):
     sysroot = Path(subprocess.check_output(["rustc", "--print", "sysroot"], text=True).strip())
     metadata = subprocess.check_output(["rustc", "-vV"], text=True)
     hosts = [line.removeprefix("host: ") for line in metadata.splitlines() if line.startswith("host: ")]
@@ -212,13 +213,27 @@ def supervisor_build_environment(target):
         raise ValueError("invalid Rust host triple")
     linker = sysroot / "lib/rustlib" / hosts[0] / "bin/rust-lld"
     regular(linker)
-    return dict(os.environ, CARGO_TARGET_DIR=str(target), CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=str(linker))
+    environment = dict(os.environ, CARGO_TARGET_DIR=str(target),
+                       CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=str(linker))
+    # Cargo prefers encoded flags over RUSTFLAGS. Clear both caller-selected
+    # flags and wrappers, and remove the randomized archive extraction path.
+    for name in ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER",
+                 "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS"):
+        environment.pop(name, None)
+    if source is not None:
+        environment["CARGO_ENCODED_RUSTFLAGS"] = "--remap-path-prefix=" + str(source) + "=/smithers/main"
+    return environment
 
 
-def main_revision(repo):
+def main_revision(repo, requested=None):
     revision = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "origin/main"], text=True).strip()
     if len(revision) != 40 or any(c not in "0123456789abcdef" for c in revision):
         raise ValueError("invalid main revision")
+    if requested is not None:
+        if len(requested) != 40 or any(c not in "0123456789abcdef" for c in requested):
+            raise ValueError("invalid requested main revision")
+        subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", requested, revision], check=True)
+        return requested
     return revision
 
 
@@ -226,7 +241,7 @@ def build_artifacts(repo, output, expected_revision=None):
     """Build only main-pinned release inputs; never a bundle or root authority."""
     if os.geteuid() == 0:
         raise ValueError("release builds must be unprivileged")
-    revision = main_revision(repo)
+    revision = main_revision(repo, expected_revision)
     if expected_revision is not None and revision != expected_revision:
         raise ValueError("main changed before overlay build")
     if output.exists() or output.is_symlink() or output.resolve().is_relative_to(Path("/usr/local/lib/smithers")):
@@ -239,11 +254,11 @@ def build_artifacts(repo, output, expected_revision=None):
         with tarfile.open(archive) as source:
             source.extractall(build / "source", filter="data")
         source = build / "source"
-        environment = dict(os.environ, GOOS="darwin", GOARCH="arm64", CGO_ENABLED="0")
+        environment = dict(os.environ, GOOS="darwin", GOARCH="arm64", CGO_ENABLED="0", GOFLAGS="", GOWORK="off")
         gateway = build / "trm06-gateway"
-        subprocess.run(["go", "build", "-trimpath", "-o", str(gateway), "./scripts/spikes/trm-06/gateway"], cwd=source, env=environment, check=True)
+        subprocess.run(["go", "build", "-trimpath", "-buildvcs=false", "-o", str(gateway), "./scripts/spikes/trm-06/gateway"], cwd=source, env=environment, check=True)
         validate_gateway(gateway)
-        subprocess.run(["cargo", "build", "--locked", "--release", "--target", "aarch64-unknown-linux-musl", "--manifest-path", str(source / SPIKE / "supervisor/Cargo.toml")], cwd=source, env=supervisor_build_environment(build / "cargo-target"), check=True)
+        subprocess.run(["cargo", "build", "--locked", "--release", "--target", "aarch64-unknown-linux-musl", "--manifest-path", str(source / SPIKE / "supervisor/Cargo.toml")], cwd=source, env=supervisor_build_environment(build / "cargo-target", source), check=True)
         # Cargo hardlinks its executable to deps. Retain a private single-link copy.
         supervisor = build / "trm06-supervisor"
         shutil.copyfile(build / "cargo-target/aarch64-unknown-linux-musl/release/trm06-supervisor", supervisor)
@@ -269,10 +284,10 @@ def build_artifacts(repo, output, expected_revision=None):
     return receipt
 
 
-def assemble(repo, base, output, review_key):
+def assemble(repo, base, output, review_key, expected_revision=None):
     if os.geteuid() == 0:
         raise ValueError("release builds must be unprivileged")
-    revision = main_revision(repo)
+    revision = main_revision(repo, expected_revision)
     manifest = validate_base(base, revision)
     regular(review_key)
     if review_key.stat().st_size != 32:
@@ -301,20 +316,81 @@ def assemble(repo, base, output, review_key):
             "activation": "refused-until-reviewed"}
 
 
+
+def archive_overlay(repo, root, destination):
+    """Publish a reproducible verified overlay using the release archive writer.
+
+    No signature is created and nothing is installed. The tar's actual bytes,
+    including manifest and symlink targets, must match the staged identities.
+    """
+    if destination.exists() or destination.is_symlink() or destination.resolve().is_relative_to(root.resolve()):
+        raise ValueError("archive must be a new path outside the overlay")
+    manifest_bytes = (root / "manifest.json").read_bytes()
+    manifest = json.loads(manifest_bytes, object_pairs_hook=unique)
+    validate_base(root, manifest["revision"], overlay=True)
+    required = {"bin/trm06-gateway", "libexec/trm06-supervisor", "share/trm06/smithers-3f.pub"}
+    required.update("share/trm06/" + name for name in FILES)
+    entries = {entry["path"]: entry for entry in manifest["files"]}
+    if not required.issubset(entries):
+        raise ValueError("incomplete spike overlay")
+    validate_gateway(root / "bin/trm06-gateway")
+    validate_supervisor(root / "libexec/trm06-supervisor")
+    if regular(root / "share/trm06/smithers-3f.pub").st_size != 32:
+        raise ValueError("invalid reviewer key")
+    with tempfile.TemporaryDirectory(prefix="trm06-archive-", dir=destination.parent) as temporary:
+        archive = Path(temporary) / "overlay.tar.gz"
+        subprocess.run([sys.executable, "-I", "-S", str(repo / "apps/app/scripts/deterministic-tar.py"),
+                        str(root), str(archive), "directory"], check=True)
+        expected = set(entries) | {"manifest.json"}
+        seen = set()
+        with tarfile.open(archive, "r:gz") as source:
+            for member in source:
+                if member.name not in expected or member.name in seen:
+                    raise ValueError("archive contains unexpected artifact")
+                seen.add(member.name)
+                entry = entries.get(member.name)
+                if member.issym():
+                    if entry is None or member.linkname != entry.get("symlink"):
+                        raise ValueError("archive symlink differs from manifest")
+                elif member.isfile():
+                    if entry is not None and "symlink" in entry:
+                        raise ValueError("archive replaced declared symlink")
+                    with source.extractfile(member) as contents:
+                        actual = hashlib.file_digest(contents, "sha256").hexdigest()
+                    wanted = entry["sha256"] if entry else hashlib.sha256(manifest_bytes).hexdigest()
+                    if actual != wanted or member.mode != (entry["mode"] if entry else 0o644):
+                        raise ValueError("archive bytes/mode differ from manifest")
+                else:
+                    raise ValueError("archive contains non-artifact entry")
+        if seen != expected:
+            raise ValueError("archive is missing artifacts")
+        validate_base(root, manifest["revision"], overlay=True)
+        # Exclusive publication refuses an output replacement; no existing
+        # archive or symlink target is overwritten.
+        archive_sha = digest(archive)
+        os.link(archive, destination)
+        return {"revision": manifest["revision"], "sha256": archive_sha,
+                "activation": "refused-until-reviewed"}
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--review-key", type=Path)
     parser.add_argument("--build-only", action="store_true", help="retain main release inputs without a base bundle or approval key")
+    parser.add_argument("--revision", help="pin a full SHA already landed on origin/main")
+    parser.add_argument("--archive", type=Path, help="publish a deterministic complete overlay archive")
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[3]
     if args.build_only:
-        if args.base is not None or args.review_key is not None:
-            parser.error("--build-only does not accept base or review key")
-        result = build_artifacts(repo, args.output.absolute())
+        if args.base is not None or args.review_key is not None or args.archive is not None:
+            parser.error("--build-only does not accept base, review key or archive")
+        result = build_artifacts(repo, args.output.absolute(), args.revision)
     else:
         if args.base is None or args.review_key is None:
             parser.error("overlay requires --base and --review-key")
-        result = assemble(repo, args.base.resolve(), args.output.absolute(), args.review_key)
+        result = assemble(repo, args.base.resolve(), args.output.absolute(), args.review_key, args.revision)
+    if args.archive is not None:
+        result["archive"] = archive_overlay(repo, args.output.absolute(), args.archive.absolute())
     print(json.dumps(result))

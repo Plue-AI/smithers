@@ -353,3 +353,28 @@ state destinations. Preparation and refusal go through the installed fixture
 and actual `install.py` path in separate fresh machines. Outside sentinels must
 remain unchanged and no init may be launched. Local installer tests substitute
 root ownership and process launch; installed execution remains required.
+
+## Reproducible overlay distribution
+
+The overlay command accepts `--archive <new-path>.tar.gz` outside its output
+folder. It reuses the release's deterministic archive writer, checks every
+archived artifact against the overlay manifest, and publishes exclusively.
+Changed bytes, missing artifacts and raced output symlinks refuse publication.
+No approval is created. The same-revision base bundle and owner-provisioned
+reviewer key remain required; `--build-only` cannot produce this archive.
+
+Builds clear caller Go flags and Rust flags/wrappers, disable Go workspace/VCS
+injection, and remap the temporary Rust source directory to `/smithers/main`.
+Compare two `--build-only` receipts' revision, source archive and all eight
+artifact digests to qualify reproducibility on the executing toolchain. This
+comparison supplies release-input evidence, never installed/root acceptance.
+
+The launcher now retains all ancestor descriptors through its final artifact
+recheck. Replacing a parent while preserving the exact leaf inode refuses before
+execution. Linux schedules exercise the actual descriptor walk and replacement
+syscalls with ownership checks substituted; installed Mac qualification remains
+required, including Darwin descriptor execution.
+
+Use `--revision <full-main-SHA>` for both repeated builds and the matching base
+overlay. The pin must be an ancestor of fetched `origin/main`; a branch-only SHA
+refuses. This keeps simultaneous fleet fetches from changing the build identity.

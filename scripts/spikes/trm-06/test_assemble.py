@@ -7,6 +7,8 @@ import subprocess
 import struct
 import sys
 import tempfile
+import tarfile
+import shutil
 import unittest
 from unittest.mock import patch
 from race_schedule import RaceSchedule
@@ -40,6 +42,132 @@ class BundleAssembly(unittest.TestCase):
                 environment = assemble.supervisor_build_environment(target)
             self.assertEqual(environment["CARGO_TARGET_DIR"], str(target))
             self.assertEqual(environment["CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER"], str(linker))
+
+    def test_release_environment_remaps_source_and_removes_caller_compiler_flags(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            linker = root / "lib/rustlib/x86_64-unknown-linux-gnu/bin/rust-lld"
+            linker.parent.mkdir(parents=True)
+            linker.write_bytes(b"linker")
+            poison = {name: "/branch" for name in ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER", "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS")}
+            with patch.dict(os.environ, poison), patch.object(subprocess, "check_output", side_effect=[str(root) + "\n", "host: x86_64-unknown-linux-gnu\n"]):
+                env = assemble.supervisor_build_environment(root / "target", root / "random-source")
+            self.assertEqual(env["CARGO_ENCODED_RUSTFLAGS"], "--remap-path-prefix=" + str(root / "random-source") + "=/smithers/main")
+            for name in poison.keys() - {"CARGO_ENCODED_RUSTFLAGS"}:
+                self.assertNotIn(name, env)
+
+    def overlay(self, temporary):
+        base, manifest = self.base(temporary)
+        gateway = Path(temporary) / "gateway"
+        gateway.write_bytes(struct.pack("<8I", 0xFEEDFACF, 0x0100000C, 0, 2, 1, 8, 0, 0) + struct.pack("<II", 1, 8))
+        supervisor = Path(temporary) / "supervisor"
+        header = bytearray(64)
+        header[:7] = b"\x7fELF\x02\x01\x01"
+        struct.pack_into("<HHI", header, 16, 2, 183, 1)
+        struct.pack_into("<Q", header, 32, 64)
+        struct.pack_into("<HHH", header, 52, 64, 56, 1)
+        supervisor.write_bytes(header + struct.pack("<I", 1) + bytes(52))
+        key = Path(temporary) / "key"
+        key.write_bytes(b"k" * 32)
+        assemble.add_artifact(base, manifest, "bin/trm06-gateway", gateway, 0o755)
+        assemble.add_artifact(base, manifest, "libexec/trm06-supervisor", supervisor, 0o755)
+        assemble.add_artifact(base, manifest, "share/trm06/smithers-3f.pub", key, 0o644)
+        for name, mode in assemble.FILES.items():
+            assemble.add_artifact(base, manifest, "share/trm06/" + name, Path(__file__).with_name(name), mode)
+        assemble.publish_manifest(base, manifest)
+        return base
+
+    def test_complete_overlay_archive_reproduces_across_paths_and_metadata(self):
+        repo = Path(__file__).resolve().parents[3]
+        with tempfile.TemporaryDirectory() as temporary:
+            base = self.overlay(temporary)
+            first = Path(temporary) / "first.tar.gz"
+            result = assemble.archive_overlay(repo, base, first)
+            relocated = Path(temporary) / "relocated"
+            shutil.copytree(base, relocated)
+            for path in relocated.rglob("*"):
+                os.utime(path, (123456, 123456))
+            second = Path(temporary) / "second.tar.gz"
+            self.assertEqual(assemble.archive_overlay(repo, relocated, second), result)
+            self.assertEqual(first.read_bytes(), second.read_bytes())
+            with tarfile.open(first) as archive:
+                names = archive.getnames()
+                self.assertEqual(names, sorted(names))
+                self.assertIn("share/trm06/validation.py", names)
+                for member in archive:
+                    self.assertEqual((member.uid, member.gid, member.mtime, member.uname, member.gname), (0, 0, 0, "", ""))
+            with self.assertRaises(ValueError): assemble.archive_overlay(repo, base, first)
+            with self.assertRaises(ValueError): assemble.archive_overlay(repo, base, base / "nested.tar.gz")
+
+    def test_archive_refuses_incomplete_and_changed_overlay(self):
+        repo = Path(__file__).resolve().parents[3]
+        for mode in ("missing", "bytes", "unmanifested", "key", "gateway"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
+                base = self.overlay(temporary)
+                if mode == "missing": (base / "share/trm06/run.sh").unlink()
+                elif mode == "bytes": (base / "libexec/trm06-supervisor").write_bytes(b"branch")
+                elif mode == "unmanifested": (base / "extra").write_bytes(b"extra")
+                else:
+                    path = base / ("share/trm06/smithers-3f.pub" if mode == "key" else "bin/trm06-gateway")
+                    path.write_bytes(b"short")
+                    manifest = json.loads((base / "manifest.json").read_bytes())
+                    for entry in manifest["files"]:
+                        if entry["path"] == path.relative_to(base).as_posix(): entry["sha256"] = assemble.digest(path)
+                    (base / "manifest.json").write_text(json.dumps(manifest))
+                archive = Path(temporary) / "refused.tar.gz"
+                with self.assertRaises((ValueError, OSError)): assemble.archive_overlay(repo, base, archive)
+                self.assertFalse(archive.exists())
+
+    def test_archive_checks_actual_tar_bytes_even_when_staging_is_unchanged(self):
+        repo = Path(__file__).resolve().parents[3]
+        with tempfile.TemporaryDirectory() as temporary:
+            base = self.overlay(temporary)
+            destination = Path(temporary) / "refused.tar.gz"
+            real_run = subprocess.run
+            def corrupt(argv, **kwargs):
+                result = real_run(argv, **kwargs)
+                import io
+                with tarfile.open(argv[-2], "w:gz") as archive:
+                    info = tarfile.TarInfo("bin/trm06-gateway")
+                    info.size = 6
+                    info.mode = 0o755
+                    archive.addfile(info, io.BytesIO(b"branch"))
+                return result
+            with patch.object(assemble.subprocess, "run", side_effect=corrupt):
+                with self.assertRaisesRegex(ValueError, "archive bytes/mode"):
+                    assemble.archive_overlay(repo, base, destination)
+            self.assertFalse(destination.exists())
+            assemble.validate_base(base, REVISION, overlay=True)
+
+    def test_archive_publication_never_overwrites_raced_output_symlink(self):
+        repo = Path(__file__).resolve().parents[3]
+        with tempfile.TemporaryDirectory() as temporary:
+            base = self.overlay(temporary)
+            destination = Path(temporary) / "refused.tar.gz"
+            outside = Path(temporary) / "outside"
+            outside.write_bytes(b"outside-fixture")
+            original = outside.stat()
+            real_run = subprocess.run
+            def race(argv, **kwargs):
+                result = real_run(argv, **kwargs)
+                destination.symlink_to(outside)
+                return result
+            with patch.object(assemble.subprocess, "run", side_effect=race):
+                with self.assertRaises(FileExistsError): assemble.archive_overlay(repo, base, destination)
+            self.assertEqual(outside.read_bytes(), b"outside-fixture")
+            self.assertEqual((outside.stat().st_ino, outside.stat().st_mode, outside.stat().st_uid), (original.st_ino, original.st_mode, original.st_uid))
+            self.assertFalse(list(Path(temporary).glob("trm06-archive-*")))
+
+    def test_revision_pin_requires_full_sha_and_main_ancestry(self):
+        for requested in ("branch", "a" * 39, "z" * 40):
+            with self.subTest(requested=requested), patch.object(subprocess, "check_output", return_value="b" * 40 + "\n"), patch.object(subprocess, "run") as git:
+                with self.assertRaises(ValueError): assemble.main_revision(Path("/repo"), requested)
+                git.assert_not_called()
+        with patch.object(subprocess, "check_output", return_value="b" * 40 + "\n"), patch.object(subprocess, "run") as git:
+            self.assertEqual(assemble.main_revision(Path("/repo"), REVISION), REVISION)
+            git.assert_called_once_with(["git", "-C", "/repo", "merge-base", "--is-ancestor", REVISION, "b" * 40], check=True)
+        with patch.object(subprocess, "check_output", return_value="b" * 40 + "\n"), patch.object(subprocess, "run", side_effect=subprocess.CalledProcessError(1, "git")):
+            with self.assertRaises(subprocess.CalledProcessError): assemble.main_revision(Path("/repo"), REVISION)
 
     def test_gateway_requires_arm64_macho_executable(self):
         for mode in ("valid", "x86", "library", "script", "truncated", "table", "command", "trailing", "count", "unaligned"):
