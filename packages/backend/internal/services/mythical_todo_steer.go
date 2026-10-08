@@ -206,7 +206,7 @@ func currentTodoSteerCredential(ctx context.Context, tx pgx.Tx, feedback todoSte
 // can mask a paused, queued, or failed attempt as needs_you. The question
 // itself remains open and does not hold feedback for an otherwise live run.
 func todoSteerReady(item db.MythicalItem) bool {
-	if item.PausedAt.Valid || mythicalMergeFenced(item) || todoReopenedAttempt(item) {
+	if item.PausedAt.Valid || mythicalMergeFenced(item) || todoReopenedAttempt(item) || todoRunAwaitsProposal(item) {
 		return false
 	}
 	checks := mythicalChecksOf(item)
@@ -451,7 +451,9 @@ func prepareTodoSteer(ctx context.Context, item db.MythicalItem, input TodoContr
 		checks.Retries = append(checks.Retries, todoRetry{Request: input.Request, Credential: credential,
 			By: attribution["person"], At: now.UTC(), Attempt: attempt})
 	}
-	if !fenced {
+	// Preserve a published generation until its offering run observes the
+	// acknowledgment. New input stays durable and releases afterward.
+	if !fenced && !todoRunAwaitsProposal(item) {
 		next.CandidateVerified = false
 		checks.Land = nil
 		if deliver && item.State == "proposed" {

@@ -246,22 +246,26 @@ func (h hostWorkspaceSources) ReadWorkspaceSource(_ context.Context, _, _ string
 // Git, JJ guest checkout, stack worker and GitHub fake. The microVM and the
 // native helper's HTTP hop are the only substitutions.
 func TestReservedCandidateProposesVerifiedTree(t *testing.T) {
-	testReservedCandidateProposesVerifiedTree(t, false, false, false)
+	testReservedCandidateProposesVerifiedTree(t, false, false, false, false)
 }
 
 func TestReservedCandidateWithoutProposeReleasesLane(t *testing.T) {
-	testReservedCandidateProposesVerifiedTree(t, true, false, false)
+	testReservedCandidateProposesVerifiedTree(t, true, false, false, false)
 }
 
 func TestReservedCandidateBindsExistingCapture(t *testing.T) {
-	testReservedCandidateProposesVerifiedTree(t, false, true, false)
+	testReservedCandidateProposesVerifiedTree(t, false, true, false, false)
 }
 
 func TestReservedCandidateVerifiesUnderForeignHold(t *testing.T) {
-	testReservedCandidateProposesVerifiedTree(t, false, false, true)
+	testReservedCandidateProposesVerifiedTree(t, false, false, true, false)
 }
 
-func testReservedCandidateProposesVerifiedTree(t *testing.T, expire, existingCapture, foreignHold bool) {
+func TestReservedCandidateSteerBeforeProposalAcknowledgment(t *testing.T) {
+	testReservedCandidateProposesVerifiedTree(t, false, false, false, true)
+}
+
+func testReservedCandidateProposesVerifiedTree(t *testing.T, expire, existingCapture, foreignHold, earlySteer bool) {
 	f := newRebaseFixture(t)
 	ctx := context.Background()
 	q := db.New(f.pool)
@@ -279,7 +283,7 @@ func testReservedCandidateProposesVerifiedTree(t *testing.T, expire, existingCap
 	item.RequestRunID = "current-run"
 	item.FlowDigest = pgtype.Text{String: todoPinOne, Valid: true}
 	checks := mythicalChecksOf(item)
-	checks.FlowSource, checks.RunAttached = f.main, true
+	checks.FlowSource, checks.RunAttached, checks.RunLaunched = f.main, true, true
 	// Bring in can resume the same run with its question/steer history still
 	// retained. Its sealed candidate must reach checks without erasing that
 	// history or treating a delivered steer as a consumption receipt.
@@ -433,9 +437,31 @@ func testReservedCandidateProposesVerifiedTree(t *testing.T, expire, existingCap
 		require.Empty(t, failed.WorkspaceID)
 		return
 	}
+	if earlySteer {
+		proposed = f.item(item.Number.Int64)
+		text := "Also log the attempt number"
+		personCtx := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &user, SessionHash: "reserved-race-person"})
+		prepared, feedback, deliver, _, err := prepareTodoSteer(personCtx, proposed, TodoControlInput{Repository: f.repoID, Actor: f.userID, Request: "early-steer", Steer: &text}, json.RawMessage(`{"kind":"person","login":"owner"}`), map[string]string{"person": "owner"}, time.Now())
+		require.NoError(t, err)
+		require.False(t, deliver, "the prior proposal has not reached its offering run")
+		require.True(t, feedback.ReleasePending)
+		require.True(t, prepared.CandidateVerified, "queued text cannot invalidate the accepted proposal")
+		require.Equal(t, "proposed", prepared.State)
+		_, err = q.SaveMythicalItem(ctx, prepared)
+		require.NoError(t, err)
+	}
 	result, status = call("stack.propose", proposal)
 	require.Equal(t, 200, status)
 	require.Equal(t, ReservedStackResult{Generation: generation + 1, Head: proposed.PRHead}, result)
+	if earlySteer {
+		accepted := f.item(item.Number.Int64)
+		require.True(t, todoSteerReady(accepted), "the held input can now enter the same run")
+		require.Empty(t, mythicalChecksOf(accepted).ProposalRun)
+		require.True(t, mythicalChecksOf(accepted).Steers[len(mythicalChecksOf(accepted).Steers)-1].ReleasePending)
+		_, status = call("stack.propose", proposal)
+		require.Equal(t, 200, status, "acceptance replays while later input is queued")
+		return
+	}
 	// Independently observed GitHub bytes: the PR head has the verified
 	// candidate's tree on main.
 	require.Equal(t, proposed.PRHead, f.githubRef(mythicalChecksOf(proposed).Branch))
