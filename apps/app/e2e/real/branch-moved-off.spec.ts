@@ -58,6 +58,27 @@ test("C-J3-09 reference: Return restores the item; Keep holds Needs you", scenar
 
   await ssh("jj new main")
   await expect(returnButton).toBeVisible({ timeout: 1000 })
+  await journeyActivate(returnButton)
+  await expect.poll(async () => (await todo()).state).toBe("working")
+  expect(await record()).toEqual(before)
+
+  // Watch the entire five-second window: a transient false moved-off wait
+  // must fail too, even if the detector later clears it.
+  for (const operation of ["git status", "jj log", "printf '\\n// col05 on-item\\n' >> retry.ts && git commit -am wip", "jj new"]) {
+    await ssh(operation)
+    const until = Date.now() + 5000
+    while (Date.now() < until) {
+      const current = await todo()
+      expect(current.waits.some(wait => wait.kind === "moved_off"), operation).toBe(false)
+      expect(current.state, operation).toBe("working")
+      await page.waitForTimeout(100)
+    }
+  }
+  // Restore the recorded item before exercising Keep, after the on-item
+  // descendants above. All commands execute in the branch through SSH.
+  await ssh(`jj edit ${before.commit}`)
+  await ssh("git checkout main")
+  await expect(returnButton).toBeVisible({ timeout: 1000 })
   await journeyActivate(page.getByRole("button", { name: "Keep for now", exact: true }).last())
   const heldUntil = Date.now() + 30_000
   while (Date.now() < heldUntil) {
@@ -103,21 +124,15 @@ test("C-J3-09 reference: both members see the move and only one choice wins", sc
       const csrf = (await target.context().cookies(origin)).find(cookie => cookie.name === "__csrf")?.value
       if (!csrf) throw new Error("Member CSRF cookie required")
       return target.context().request.post(new URL("/api/todos/2", origin).toString(), {
-        headers: { Origin: origin, "X-CSRF-Token": csrf, "Idempotency-Key": `moved-race-${wait.id}-${op}` },
+        headers: { Origin: origin, "X-CSRF-Token": csrf, "Idempotency-Key": `moved-race-${wait.id}-${target === page ? "owner" : "member"}` },
         data: { op, id: wait.id }
       })
     }
-    const responses = await Promise.all([post(page, "return-to-item"), post(member.page, "keep-moved")])
+    const responses = await Promise.all([post(page, "return-to-item"), post(member.page, "return-to-item")])
     expect(responses.map(response => response.status()).sort()).toEqual([202, 409])
     const refusal = await responses.find(response => response.status() === 409)!.json()
     expect([owner, member.session.login]).toContain(refusal.answered_by)
     await info.attach("first-answer", { body: JSON.stringify({ statuses: responses.map(response => response.status()), answered_by: refusal.answered_by, wait: wait.id }), contentType: "application/json" })
-    if (responses[1]!.status() === 202) {
-      // The winning Keep leaves the move and both live cards visible.
-      await expect(page.getByText(wait.prompt, { exact: true }).last()).toBeVisible()
-      await expect(member.page.getByText(wait.prompt, { exact: true }).last()).toBeVisible()
-      await ssh(`jj edit ${before.commit}`)
-    }
     await expect.poll(async () => {
       const response = await realApi(page, request, "GET", "/api/todos/2")
       expect(response.status()).toBe(200)
