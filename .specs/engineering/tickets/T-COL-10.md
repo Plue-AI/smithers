@@ -2,7 +2,7 @@
 
 Stage S1, S2 · Size M · Depends on S1: T-FLW-01 · S2: T-COL-03 · Unblocks T-COL-03, T-COL-04, T-COL-05, T-COL-08, T-COL-11 · Issue: [#3508](https://github.com/smithersai/smithers/issues/3508)
 Spec: spec.md §7.6.1 (write preconditions), §9.1.2 (`write_file`), §9.2.2, §9.3.9 · Delta: delta.md §4 · Product: mvp.md §6.8 No silent overwrite and External changes, J3.4, M-02, M-27
-Ready: 2026-10-03 smithers-8a sha256:bf6d7f69a591
+Ready: 2026-10-08 smithers-8a sha256:99969bb09e70
 
 Rescoped by the minimal-code synthesis, 2026-10-03 (v1 §3). Absorbs T-COL-10 ([#3507](https://github.com/smithersai/smithers/issues/3507)).
 
@@ -14,8 +14,10 @@ before application: a stale preflight changes nothing. Once application starts,
 an I/O failure may retain a durable prefix and the stopped path may also have
 changed. It is a failure requiring fresh reads, never `stale_read` or success.
 An exchange race retains and versions outside bytes and returns a `raced`
-receipt. No compensating host writes roll back an applied patch. This follows
-the lane's product-over-ticket ruling; owner/provider qualification is pending.
+receipt. No compensating host writes roll back an applied patch. smithers-8a
+ruling, 2026-10-08 (#3508): a multi-file rollback across I/O failure cannot be
+made complete, and the accepted ADR 0004 protocol-7 batch defines this. smithers-3f
+still approves the atomicity seam, and provider qualification is pending.
 
 ## Goal
 Every write to a branch's files through Smithers, from the app or the coding agent, carries `base_digest`. A stale write is refused and changes nothing. The wiki keeps its Yjs text.
