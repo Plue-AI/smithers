@@ -51,6 +51,7 @@
  * @since 0.1.0
  */
 import { randomUUID } from "node:crypto"
+import { existsSync } from "node:fs"
 import { createRequire, isBuiltin, registerHooks } from "node:module"
 import * as NodePath from "node:path"
 import { fileURLToPath } from "node:url"
@@ -109,6 +110,47 @@ const ownerOf = (specifier) => {
 
 /** Workspace packages whose module-level state is compared by identity. */
 const cliOwnedPackages = ["@smthrs/targets", "@smthrs/plan", "@smthrs/core", "@smthrs/flow"]
+
+/** This package's root, the directory that holds `src` and `dist`. */
+const packageRootUrl = new URL("../", cliParentUrl).href
+
+/**
+ * The Effect platform adapters a published install carries in `dist/vendor`:
+ * each package name with its barrel file and the directory of its modules.
+ *
+ * The manifest declares them as `smthrs.privateEffectAdapters`. The build
+ * inlines the pinned adapters and rewrites `dist` to import them, so the
+ * published package has no `@effect/platform-node` dependency (#3093). This
+ * executable runs the shipped TypeScript sources, which still name the
+ * package, so in an installed consumer every one of those imports failed with
+ * `ERR_MODULE_NOT_FOUND` and `smithers-build --version` could not start.
+ */
+const vendoredAdapters = new Map([
+  ["@effect/platform-node", ["platform-node.js", "node"]],
+  ["@effect/platform-node-shared", ["platform-node-shared.js", "node-shared"]]
+])
+
+/**
+ * The vendored file a private adapter specifier names, or `undefined` when the
+ * specifier is not one or this installation carries no vendored copy.
+ *
+ * {@link parentHooks} asks only after ordinary resolution has failed, and only
+ * for an import made from this package. A checkout therefore keeps resolving
+ * the real development dependency, whatever an old build left in `dist`.
+ */
+const vendoredAdapter = (specifier) => {
+  for (const [name, [barrel, modules]] of vendoredAdapters) {
+    const path = specifier === name
+      ? barrel
+      : specifier.startsWith(`${name}/`)
+      ? `${modules}/${specifier.slice(name.length + 1)}.js`
+      : undefined
+    if (path === undefined) continue
+    const url = new URL(`dist/vendor/${path}`, packageRootUrl)
+    return existsSync(fileURLToPath(url)) ? url.href : undefined
+  }
+  return undefined
+}
 
 /** tsx's marker for the CommonJS virtual module it wraps a CJS `.ts` file in. */
 const commonjsVirtualParameter = "tsx-commonjs-virtual-query"
@@ -227,9 +269,19 @@ const parentHooks = {
     // CommonJS consumers must install their ordinary dependencies. Node 26
     // also sends require() through these synchronous hooks.
     const owner = ownerOf(specifier)
-    const resolved = !context.conditions.includes("require") && owner !== undefined
-      ? nextResolve(specifier, { ...context, parentURL: owner })
-      : nextResolve(specifier, context)
+    let resolved
+    try {
+      resolved = !context.conditions.includes("require") && owner !== undefined
+        ? nextResolve(specifier, { ...context, parentURL: owner })
+        : nextResolve(specifier, context)
+    } catch (error) {
+      const vendored = error?.code === "ERR_MODULE_NOT_FOUND" && !context.conditions.includes("require") &&
+          context.parentURL?.startsWith(packageRootUrl)
+        ? vendoredAdapter(specifier)
+        : undefined
+      if (vendored === undefined) throw error
+      resolved = nextResolve(vendored, context)
+    }
     const url = withoutNamespace(resolved.url)
     return url === resolved.url ? resolved : { ...resolved, url }
   }

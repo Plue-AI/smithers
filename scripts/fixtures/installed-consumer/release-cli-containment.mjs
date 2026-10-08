@@ -161,8 +161,10 @@ const containment = async (recovery) => {
       })}); ctx.done("finished")`)
     const launched = invoke("up", "busy", "-d")
     assert.equal(launched.value.detached, true)
+    // The detached owner is the launcher's own child running `flow execute`
+    // (packages/smithers/src/Detached.ts); it was `run` before #3634.
     const owner = remember(records(join(recording, "processes.jsonl"))
-      .find((entry) => entry.event === "start" && entry.ppid === launched.pid && entry.verb === "run")?.pid)
+      .find((entry) => entry.event === "start" && entry.ppid === launched.pid && entry.verb === "flow")?.pid)
     const ownedMcp = () => {
       const spawned = ledger().filter((entry) =>
         entry.kind === "flows.host.process-spawned.v1" && entry.payload.ownerPid === owner)

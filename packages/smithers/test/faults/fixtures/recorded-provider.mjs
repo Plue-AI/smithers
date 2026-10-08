@@ -1,6 +1,10 @@
 // Loaded only by the real-binary recovery tests, including detached children.
 // No real provider request is permitted, and no credential is recorded.
-import { Agent, MockAgent } from "@effect/platform-node/Undici"
+// undici is the pinned dependency the host dispatches through, and the one
+// `@effect/platform-node/Undici` re-exports. Import it by its own name: the
+// published packages inline the Effect platform adapters (#3093), so an
+// installed consumer has undici and no `@effect/platform-node` to import from.
+import { Agent, MockAgent } from "undici"
 import { deepStrictEqual } from "node:assert"
 import { appendFileSync, readFileSync } from "node:fs"
 

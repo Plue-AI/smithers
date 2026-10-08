@@ -155,7 +155,8 @@ const containment = async (mode: "shell" | "mcp", recovery: "automatic" | "reape
     )
     const launched = invoke("up", "busy", "-d")
     const owner = processes().find((entry) =>
-      entry.event === "start" && entry.ppid === launched.pid && entry.verb === "run"
+      // The detached owner runs `flow execute` (src/Detached.ts); it was `run` before #3634.
+      entry.event === "start" && entry.ppid === launched.pid && entry.verb === "flow"
     )
       ?.pid
     expect(owner).toBeDefined()

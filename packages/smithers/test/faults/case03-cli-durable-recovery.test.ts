@@ -101,7 +101,8 @@ const recover = async (mode: "approval" | "timer" | "checkpoint") => {
     expect(launched.status, launched.stderr).toBe(0)
     const receipt = JSON.parse(launched.stdout)
     expect(receipt).toMatchObject({ detached: true, runId: expect.stringMatching(/^run-/) })
-    detachedPid = records().find((entry) => entry.ppid === launched.pid && entry.verb === "run")?.pid
+    // The detached owner runs `flow execute` (src/Detached.ts); it was `run` before #3634.
+    detachedPid = records().find((entry) => entry.ppid === launched.pid && entry.verb === "flow")?.pid
     expect(detachedPid).toBeDefined()
 
     const engineRow = () => {

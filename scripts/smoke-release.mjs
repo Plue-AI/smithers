@@ -42,7 +42,8 @@
  */
 import { build as bundle } from "esbuild"
 import { spawn } from "node:child_process"
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises"
+import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { EXPECTED_EFFECT_VERSION } from "./check-single-effect-version.mjs"
@@ -269,6 +270,29 @@ try {
   }
   if (failures.length > 0) {
     throw new Error(`release tarballs failed to load:\n${failures.join("\n\n")}`)
+  }
+
+  // The recorded transport below mocks undici, so it must import the copy the
+  // installed host dispatches through. The tarballs inline the Effect platform
+  // adapters (#3093), so no installed package offers undici to this project,
+  // and pnpm links only direct dependencies at its root. The consumer
+  // therefore declares undici itself, at the exact version the candidate
+  // declares, and the mock is trusted only when every first-party package
+  // that depends on undici resolves the same file this project does: a second
+  // copy would intercept nothing.
+  const undiciDependents = installed.filter((manifest) => typeof manifest.dependencies?.undici === "string")
+  const undiciVersions = [...new Set(undiciDependents.map((manifest) => manifest.dependencies.undici))]
+  if (undiciVersions.length !== 1 || !/^\d+\.\d+\.\d+$/.test(undiciVersions[0])) {
+    throw new Error(`the candidate must pin one exact undici for the recorded transport, not: ${undiciVersions.join(", ") || "none"}`)
+  }
+  await run("pnpm", ["--dir", smokeRoot, "add", "--ignore-scripts", ...cacheFlags, `undici@${undiciVersions[0]}`], repoRoot)
+  const undiciFrom = (directory) => createRequire(join(directory, "package.json")).resolve("undici")
+  const consumerUndici = undiciFrom(smokeRoot)
+  for (const manifest of undiciDependents) {
+    const dependentUndici = undiciFrom(await realpath(join(smokeRoot, "node_modules", manifest.name)))
+    if (dependentUndici !== consumerUndici) {
+      throw new Error(`${manifest.name} dispatches through ${dependentUndici}, not the consumer's ${consumerUndici}`)
+    }
   }
 
   // The same recorded transport and stubborn stdio server used by the source
