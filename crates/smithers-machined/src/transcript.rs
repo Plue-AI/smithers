@@ -6,8 +6,7 @@
 //! contiguous whatever a line holds. A record is as long as its line, byte for
 //! byte: a byte that cannot cross the wire (not UTF-8, or NUL) is sent as `?`,
 //! and a line with nothing in it is carried as leading whitespace of the next
-//! record. Neither stops a source. Only a line longer than a record can be
-//! (1 MiB) does.
+//! record. Oversized lines become explicit skipped records.
 use std::io;
 
 /// Leaves space for identity and the ADR 0004 envelope within the 4 MiB limit.
@@ -20,6 +19,7 @@ pub struct Record {
     pub start: u64,
     pub end: u64,
     pub text: String,
+    pub skipped: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -27,6 +27,7 @@ pub struct Framer {
     generation: u64,
     offset: u64,
     pending: Vec<u8>,
+    skipped: Option<u64>,
     failed: bool,
     /// Nothing but whitespace is pending: a blank line so far. Kept as the
     /// bytes arrive, so a long run of blank lines is not scanned again each.
@@ -50,26 +51,34 @@ impl Framer {
             generation,
             offset: 0,
             pending: Vec::new(),
+            skipped: None,
             failed: false,
             blank: true,
         })
     }
     /// A framer as a checkpoint saved it.
     #[cfg(target_os = "linux")]
-    fn restored(generation: u64, offset: u64, pending: Vec<u8>, failed: bool) -> Self {
+    fn restored(
+        generation: u64,
+        offset: u64,
+        pending: Vec<u8>,
+        failed: bool,
+        skipped: Option<u64>,
+    ) -> Self {
         Self {
             generation,
             offset,
             blank: pending.iter().copied().all(whitespace),
             pending,
             failed,
+            skipped,
         }
     }
     pub fn offset(&self) -> u64 {
         self.offset
     }
-    /// One bounded read at a time. A line longer than a record can be stops
-    /// the source; no resynchronization silently drops a record. Use a clone
+    /// One bounded read at a time. Oversized lines retain only a byte count
+    /// until their newline emits one skipped record. Use a clone
     /// while persisting outputs, then commit that clone only after all outbox
     /// appends succeed.
     pub fn push(&mut self, bytes: &[u8]) -> io::Result<Vec<Record>> {
@@ -85,14 +94,38 @@ impl Framer {
                     return Err(invalid("source offset exhausted"));
                 }
             };
+            if let Some(skipped) = self.skipped {
+                if *byte == b'\n' {
+                    records.push(Record {
+                        generation: self.generation,
+                        start: self.offset - skipped - 1,
+                        end: self.offset,
+                        text: "Skipped oversized transcript line.".into(),
+                        skipped: Some(skipped),
+                    });
+                    self.skipped = None;
+                    self.blank = true;
+                } else {
+                    self.skipped = Some(skipped + 1);
+                }
+                continue;
+            }
             if *byte == b'\n' {
                 // A blank line is no record. Its bytes, and a space for its
                 // newline, stay pending and lead the next record: JSON reads
                 // through leading whitespace, and no byte leaves the ranges.
                 if self.blank {
                     if self.pending.len() == MAX_RECORD_BYTES {
-                        self.failed = true;
-                        return Err(invalid("transcript record exceeds 1 MiB"));
+                        let skipped = self.pending.len() as u64;
+                        self.pending.clear();
+                        records.push(Record {
+                            generation: self.generation,
+                            start: self.offset - skipped - 1,
+                            end: self.offset,
+                            text: "Skipped oversized transcript line.".into(),
+                            skipped: Some(skipped),
+                        });
+                        continue;
                     }
                     self.pending.push(b' ');
                     continue;
@@ -103,13 +136,15 @@ impl Framer {
                     start,
                     end: self.offset,
                     text: readable(&self.pending),
+                    skipped: None,
                 });
                 self.pending.clear();
                 self.blank = true;
             } else {
                 if self.pending.len() == MAX_RECORD_BYTES {
-                    self.failed = true;
-                    return Err(invalid("transcript record exceeds 1 MiB"));
+                    self.skipped = Some(self.pending.len() as u64 + 1);
+                    self.pending.clear();
+                    continue;
                 }
                 self.pending.push(*byte);
                 self.blank &= whitespace(*byte);
@@ -168,13 +203,15 @@ mod tests {
                     generation: 7,
                     start: 0,
                     end: 14,
-                    text: "{\"text\":\"é\"}".into()
+                    text: "{\"text\":\"é\"}".into(),
+                    skipped: None,
                 },
                 Record {
                     generation: 7,
                     start: 14,
                     end: 17,
-                    text: "{}".into()
+                    text: "{}".into(),
+                    skipped: None,
                 },
             ]
         );
@@ -184,7 +221,8 @@ mod tests {
                 generation: 7,
                 start: 17,
                 end: 25,
-                text: "partial".into()
+                text: "partial".into(),
+                skipped: None,
             }]
         );
     }
@@ -237,7 +275,8 @@ mod tests {
                     generation: 1,
                     start: 0,
                     end: 8,
-                    text: "{\"a\":1}".into()
+                    text: "{\"a\":1}".into(),
+                    skipped: None,
                 },
                 // Two empty lines and a line of whitespace: their newlines are
                 // spaces at the head of the record that follows them.
@@ -245,7 +284,8 @@ mod tests {
                     generation: 1,
                     start: 8,
                     end: 22,
-                    text: "   \t\r {\"b\":2}".into()
+                    text: "   \t\r {\"b\":2}".into(),
+                    skipped: None,
                 },
             ]
         );
@@ -257,33 +297,42 @@ mod tests {
                 generation: 1,
                 start: 22,
                 end: 31,
-                text: " {\"c\":3}".into()
+                text: " {\"c\":3}".into(),
+                skipped: None,
             }]
         );
     }
 
     #[test]
-    fn only_a_line_longer_than_a_record_stops_the_source() {
-        assert!(Framer::new(0).is_err());
+    fn oversized_lines_are_one_skip_then_continue() {
+        for size in [MAX_RECORD_BYTES + 1, 5 * MAX_RECORD_BYTES] {
+            let mut f = Framer::new(1).unwrap();
+            for chunk in vec![b'x'; size].chunks(READ_BYTES) {
+                assert!(f.push(chunk).unwrap().is_empty());
+                assert!(f.pending.len() <= MAX_RECORD_BYTES);
+            }
+            let records = f.push(b"\n{}\n").unwrap();
+            assert_eq!(records.len(), 2);
+            assert_eq!(records[0].skipped, Some(size as u64));
+            assert_eq!((records[0].start, records[0].end), (0, size as u64 + 1));
+            assert_eq!(records[1].start, records[0].end);
+            assert_eq!(records[1].text, "{}");
+            assert_eq!(records[1].skipped, None);
+        }
         let mut f = Framer::new(1).unwrap();
-        for _ in 0..16 {
-            assert!(f.push(&vec![b'x'; READ_BYTES]).unwrap().is_empty());
+        for chunk in vec![b'x'; MAX_RECORD_BYTES].chunks(READ_BYTES) {
+            f.push(chunk).unwrap();
         }
         assert_eq!(f.push(b"\n").unwrap()[0].text.len(), MAX_RECORD_BYTES);
-        let mut f = Framer::new(1).unwrap();
-        for _ in 0..16 {
-            f.push(&vec![b'x'; READ_BYTES]).unwrap();
+        let mut blank = Framer::new(1).unwrap();
+        for chunk in vec![b'\n'; MAX_RECORD_BYTES].chunks(READ_BYTES) {
+            assert!(blank.push(chunk).unwrap().is_empty());
         }
-        assert!(f.push(b"x").is_err());
-        // Stopped for good: nothing after the line is guessed at.
-        assert!(f.push(b"\n").is_err());
-        assert!(f.push(b"{}\n").is_err());
-        // The same bound holds for a megabyte of blank lines.
-        let mut f = Framer::new(1).unwrap();
-        for _ in 0..16 {
-            assert!(f.push(&vec![b'\n'; READ_BYTES]).unwrap().is_empty());
-        }
-        assert!(f.push(b"\n").is_err());
+        let records = blank.push(b"\n{}\n").unwrap();
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].skipped, Some(MAX_RECORD_BYTES as u64));
+        assert_eq!(records[1].start, records[0].end);
+        assert!(Framer::new(0).is_err());
         assert!(Framer::new(1)
             .unwrap()
             .push(&vec![0; READ_BYTES + 1])

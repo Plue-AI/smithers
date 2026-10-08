@@ -53,3 +53,22 @@ func TestTranscriptLiteralAndRefusals(t *testing.T) {
 		t.Fatal(t2, err)
 	}
 }
+
+func TestTranscriptSkippedRoundtripAndBothRefused(t *testing.T) {
+	for _, n := range []uint64{1048577, 5242880} {
+		value := Transcript{Version: 1, Session: 1, Participant: [16]byte{1}, Source: [16]byte{2}, Profile: "codex-rollout/0.160", Generation: 1, Start: 9, End: 9 + n + 1, Record: "Skipped oversized transcript line.", Skipped: &n}
+		encoded, err := EncodeTranscript(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded, err := DecodeTranscript(encoded)
+		if err != nil || decoded.Skipped == nil || *decoded.Skipped != n || decoded.End != value.End || decoded.Record != value.Record {
+			t.Fatalf("%+v %v", decoded, err)
+		}
+		value.Record = `{"type":"user"}`
+		// A forged agent line with a valid skipped span must also be refused.
+		if _, err := EncodeTranscript(value); err != BadValue {
+			t.Fatalf("both: %v", err)
+		}
+	}
+}

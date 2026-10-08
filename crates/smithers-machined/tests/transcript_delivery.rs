@@ -128,6 +128,7 @@ fn record(source: &Source, start: u64, text: &str) -> Vec<u8> {
             start,
             end: start + text.len() as u64 + 1,
             text: text.into(),
+            skipped: None,
         })
         .unwrap()
 }

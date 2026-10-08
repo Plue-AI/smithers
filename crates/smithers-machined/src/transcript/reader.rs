@@ -173,6 +173,7 @@ pub fn serve(mut input: impl Read, mut output: impl Write) -> io::Result<()> {
             start: 0,
             end: 2,
             text: "x".into(),
+            skipped: None,
         })
         .map_err(|_| invalid())?;
     if let Some(bytes) = startup.checkpoint.as_ref() {
@@ -257,6 +258,7 @@ pub struct Reader {
     socket: UnixStream,
     startup: Startup,
     failed: bool,
+    progressed: bool,
 }
 impl Reader {
     pub fn connect(mut socket: UnixStream, startup: &Startup) -> io::Result<Self> {
@@ -274,12 +276,17 @@ impl Reader {
             socket,
             startup: startup.clone(),
             failed: false,
+            progressed: false,
         })
     }
     /// Whether the checkpoint this reader last saved, or a stored one, says the
     /// source is stopped for good. Reading it again can only fail.
     pub fn stopped(checkpoint: &[u8]) -> bool {
         super::linux::checkpoint_stopped(checkpoint)
+    }
+    /// A bounded read can advance through a long line without emitting yet.
+    pub fn progressed(&self) -> bool {
+        self.progressed
     }
     pub fn source_stopped(&self) -> bool {
         self.startup
@@ -313,6 +320,7 @@ impl Reader {
             return Err(invalid());
         }
         self.failed = true;
+        self.progressed = false;
         let mut connection = DeadlineSocket {
             socket: &mut self.socket,
             deadline: Instant::now() + Duration::from_secs(2),
@@ -331,7 +339,7 @@ impl Reader {
                     if source != self.startup.source {
                         return Err(invalid());
                     }
-                    record_bytes += record.end - record.start;
+                    record_bytes += record.text.len() as u64 + 1;
                     if events >= super::READ_BYTES / 2
                         || record_bytes > (super::MAX_RECORD_BYTES + super::READ_BYTES) as u64
                     {
@@ -346,6 +354,14 @@ impl Reader {
                 }
                 CHECKPOINT if !checkpoint => {
                     super::linux::validate_reader_checkpoint(&bytes, &self.startup)?;
+                    let previous = self
+                        .startup
+                        .checkpoint
+                        .as_ref()
+                        .map(|s| super::linux::checkpoint_position(s.as_bytes()))
+                        .transpose()?
+                        .unwrap_or((1, 0));
+                    self.progressed = super::linux::checkpoint_position(&bytes)? != previous;
                     let began = Instant::now();
                     save(&bytes)?;
                     connection.deadline += began.elapsed();

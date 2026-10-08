@@ -79,25 +79,29 @@ fn real_inotify_partial_replacement_truncation_and_revoke() {
                 generation: 1,
                 start: 0,
                 end: 8,
-                text: "{\"a\":1}".into()
+                text: "{\"a\":1}".into(),
+                skipped: None,
             },
             Record {
                 generation: 1,
                 start: 8,
                 end: 16,
-                text: "partial".into()
+                text: "partial".into(),
+                skipped: None,
             },
             Record {
                 generation: 2,
                 start: 0,
                 end: 3,
-                text: "{}".into()
+                text: "{}".into(),
+                skipped: None,
             },
             Record {
                 generation: 3,
                 start: 0,
                 end: 2,
-                text: "x".into()
+                text: "x".into(),
+                skipped: None,
             },
         ]
     );
@@ -203,32 +207,35 @@ fn too_long() -> Vec<u8> {
     line.push(b'\n');
     line
 }
-/// Polls until the tail stops the source. A megabyte is read 64 KiB at a time.
-fn until_stopped(
-    tail: &mut Tail,
-    now: Instant,
-    mut persist: impl FnMut(&Record) -> io::Result<()>,
-) -> io::Error {
+/// Drain bounded reads, preserving every record including explicit skips.
+fn drain(tail: &mut Tail, now: Instant, mut persist: impl FnMut(&Record) -> io::Result<()>) {
     for step in 1..40 {
-        if let Err(error) = tail.poll(now + Duration::from_secs(step), &mut persist) {
-            return error;
-        }
+        tail.poll(now + Duration::from_secs(step), &mut persist)
+            .unwrap();
     }
-    panic!("the tail read past a line longer than a record");
 }
 
 #[test]
-fn missing_source_reconciles_and_a_line_too_long_stops_the_source() {
+fn missing_source_reconciles_and_a_line_too_long_is_skipped() {
     let fixture = Fixture::new();
     let mut tail = fixture.tail("session.jsonl").unwrap();
     let now = Instant::now();
     assert_eq!(tail.poll(now, |_| panic!()).unwrap(), 0);
     fixture.write("session.jsonl", &too_long());
-    until_stopped(&mut tail, now, |_| panic!());
-    fixture.write("session.jsonl", b"{}\n");
-    assert!(tail
-        .poll(now + Duration::from_secs(60), |_| panic!())
-        .is_err());
+    let mut records = vec![];
+    drain(&mut tail, now, |r| {
+        records.push(r.clone());
+        Ok(())
+    });
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].skipped, Some(1048577));
+    fixture.append(b"{}\n");
+    drain(&mut tail, now + Duration::from_secs(60), |r| {
+        records.push(r.clone());
+        Ok(())
+    });
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[1].start, records[0].end);
 }
 
 #[test]
@@ -277,7 +284,8 @@ fn lines_that_cannot_cross_the_wire_are_read_and_the_source_goes_on() {
             generation: 1,
             start: 31,
             end: 39,
-            text: "{\"d\":4}".into()
+            text: "{\"d\":4}".into(),
+            skipped: None,
         }
     );
 }
@@ -288,20 +296,23 @@ fn valid_record_before_a_line_too_long_is_persisted() {
     fixture.write("session.jsonl", &[b"{}\n".as_slice(), &too_long()].concat());
     let mut tail = fixture.tail("session.jsonl").unwrap();
     let mut records = vec![];
-    until_stopped(&mut tail, Instant::now(), |r| {
+    drain(&mut tail, Instant::now(), |r| {
         records.push(r.clone());
         Ok(())
     });
     assert_eq!(
-        records,
+        records[..1],
         vec![Record {
             generation: 1,
             start: 0,
             end: 3,
-            text: "{}".into()
+            text: "{}".into(),
+            skipped: None,
         }]
     );
-    assert!(tail.poll(Instant::now(), |_| panic!()).is_err());
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[1].skipped, Some(1048577));
+    assert_eq!(tail.poll(Instant::now(), |_| panic!()).unwrap(), 0);
 }
 
 #[test]
@@ -318,26 +329,24 @@ fn persistence_failure_before_a_line_too_long_preserves_replay() {
         })
         .is_err());
     let mut replay = vec![];
-    until_stopped(&mut tail, now, |r| {
+    drain(&mut tail, now, |r| {
         replay.push(r.clone());
         Ok(())
     });
-    assert_eq!(attempted, replay);
+    assert_eq!(attempted, replay[..1]);
+    assert_eq!(replay.len(), 2);
+    assert_eq!(replay[1].skipped, Some(1048577));
     assert_eq!(
-        replay,
+        replay[..1],
         vec![Record {
             generation: 1,
             start: 0,
             end: 3,
             text: "{}".into(),
+            skipped: None,
         }]
     );
-    assert_eq!(
-        tail.poll(now, |_| panic!("stopped source published"))
-            .unwrap_err()
-            .kind(),
-        io::ErrorKind::PermissionDenied
-    );
+    assert_eq!(tail.poll(now, |_| panic!("duplicate record")).unwrap(), 0);
 }
 
 #[test]
@@ -374,7 +383,8 @@ fn held_root_survives_path_replacement_without_reading_replacement() {
             generation: 1,
             start: 0,
             end: 6,
-            text: "owner".into()
+            text: "owner".into(),
+            skipped: None,
         }]
     );
     assert_eq!(
@@ -425,7 +435,8 @@ fn backlog_and_partial_records_do_not_wait_for_reconciliation() {
             generation: 2,
             start: 0,
             end: 4,
-            text: "new".into()
+            text: "new".into(),
+            skipped: None,
         }]
     );
 }
@@ -450,7 +461,8 @@ fn truncate_and_regrow_before_poll_starts_new_generation() {
             generation: 2,
             start: 0,
             end: 12,
-            text: "replacement".into()
+            text: "replacement".into(),
+            skipped: None,
         }]
     );
 }
@@ -558,7 +570,8 @@ fn durable_restart_preserves_partial_and_replacement_generation() {
             generation: 1,
             start: 3,
             end: 11,
-            text: "partial".into()
+            text: "partial".into(),
+            skipped: None,
         }]
     );
     f.write("new", b"new\n");
@@ -590,7 +603,8 @@ fn durable_restart_preserves_partial_and_replacement_generation() {
             generation: 2,
             start: 4,
             end: 9,
-            text: "next".into()
+            text: "next".into(),
+            skipped: None,
         }]
     );
 }
@@ -636,7 +650,8 @@ fn checkpoint_failure_replays_outbox_range_without_advancing_reader() {
             generation: 1,
             start: 0,
             end: 3,
-            text: "{}".into()
+            text: "{}".into(),
+            skipped: None,
         }]
     );
     let (_, persisted) = smithers_machined::transcript::wire::Source::decode(&first.event).unwrap();
@@ -729,7 +744,7 @@ fn durable_checkpoint_remains_on_held_directory_and_refuses_links() {
     assert!(forged.load().is_err());
 }
 #[test]
-fn checkpoint_preserves_too_long_and_revoked_refusals_after_restart() {
+fn checkpoint_preserves_skipped_progress_and_revoked_refusals_after_restart() {
     let f = Fixture::new();
     f.write(
         "session.jsonl",
@@ -738,21 +753,23 @@ fn checkpoint_preserves_too_long_and_revoked_refusals_after_restart() {
     let (store, mut outbox) = durable(&f);
     let mut tail = f.tail("session.jsonl").unwrap();
     let now = Instant::now();
-    let stopped = (1..40).any(|step| {
+    for step in 1..40 {
         tail.poll_durable(
             now + Duration::from_secs(step),
             &source(),
             |event| outbox.append(event, None).map(|_| ()),
             |state| store.save(state),
         )
-        .is_err()
-    });
-    assert!(stopped, "the tail read past a line longer than a record");
+        .unwrap();
+    }
     assert!(outbox.front().unwrap().is_some()); // valid preceding record survives
     let mut restored = recover(&f, &store.load().unwrap().unwrap()).unwrap();
-    assert!(restored
-        .poll(Instant::now(), |_| panic!("stopped reader"))
-        .is_err());
+    assert_eq!(
+        restored
+            .poll(Instant::now(), |_| panic!("duplicate record"))
+            .unwrap(),
+        0
+    );
     let mut tail = f.tail("session.jsonl").unwrap();
     tail.revoke();
     let mut restored = recover(&f, &tail.checkpoint().unwrap()).unwrap();

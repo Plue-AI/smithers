@@ -76,7 +76,7 @@ var structures = map[string][]field{
 	"captured":        {{1, true, "oid"}, {2, true, "oid"}, {3, true, "oid"}},
 	"reconciled":      {{1, true, "oid"}, {2, true, "oid"}, {3, true, "reconcile_outcome"}, {4, false, "list:str"}},
 	"written":         {{1, true, "str"}, {2, true, "actor"}, {3, false, "digest"}},
-	"transcript":      {{1, true, "u16"}, {2, true, "u32"}, {3, true, "id128"}, {4, true, "id128"}, {5, true, "str"}, {6, true, "u64"}, {7, true, "u64"}, {8, true, "u64"}, {9, true, "record"}},
+	"transcript":      {{1, true, "u16"}, {2, true, "u32"}, {3, true, "id128"}, {4, true, "id128"}, {5, true, "str"}, {6, true, "u64"}, {7, true, "u64"}, {8, true, "u64"}, {9, true, "record"}, {10, false, "u64"}},
 	"snapshot":        {{1, true, "list:where"}},
 	"where":           {{1, true, "u32"}, {2, false, "str"}},
 }

@@ -27,7 +27,7 @@ impl Source {
             || self.profile.len() > 4096
             || record.generation == 0
             || record.end <= record.start
-            || record.end - record.start != record.text.len() as u64 + 1
+            || record.end - record.start - 1 != record.skipped.unwrap_or(record.text.len() as u64)
         {
             return Err(ProtocolError::BadValue);
         }
@@ -35,7 +35,7 @@ impl Source {
         profile.extend(self.profile.as_bytes());
         let mut text = (record.text.len() as u32).to_be_bytes().to_vec();
         text.extend(record.text.as_bytes());
-        let event = tagged(
+        let mut event = tagged(
             5,
             &[
                 field(1, 1u16.to_be_bytes()),
@@ -49,6 +49,11 @@ impl Source {
                 field(9, text),
             ],
         );
+        if let Some(skipped) = record.skipped {
+            event.extend(field(10, skipped.to_be_bytes()));
+            let length = (event.len() - 5) as u32;
+            event[1..5].copy_from_slice(&length.to_be_bytes());
+        }
         // Validate through the shared codec before persisting to the outbox.
         Durable {
             seq: 1,
@@ -79,6 +84,10 @@ impl Source {
             start: u64::from_be_bytes(get(7).try_into().unwrap()),
             end: u64::from_be_bytes(get(8).try_into().unwrap()),
             text: String::from_utf8(get(9)[4..].to_vec()).map_err(|_| ProtocolError::BadUtf8)?,
+            skipped: values
+                .iter()
+                .find(|(tag, _)| *tag == 10)
+                .map(|(_, bytes)| u64::from_be_bytes((*bytes).try_into().unwrap())),
         };
         source.event(&record)?;
         Ok((source, record))
@@ -102,8 +111,38 @@ fn transcript_wire_literal() {
             generation: 1,
             start: 0,
             end: 16,
-            text: "{\"type\":\"user\"}".into()
+            text: "{\"type\":\"user\"}".into(),
+            skipped: None,
         }
     );
     assert_eq!(source.event(&record).unwrap(), durable.event);
+}
+
+#[test]
+fn skipped_roundtrip_and_both_refused() {
+    let source = Source {
+        session: 1,
+        participant: [1; 16],
+        lifetime: [2; 16],
+        profile: "codex-rollout/0.160".into(),
+    };
+    for n in [1048577, 5242880] {
+        let mut record = Record {
+            generation: 1,
+            start: 9,
+            end: 9 + n + 1,
+            text: "Skipped oversized transcript line.".into(),
+            skipped: Some(n),
+        };
+        let event = source.event(&record).unwrap();
+        assert_eq!(
+            Source::decode(&event).unwrap(),
+            (source.clone(), record.clone())
+        );
+        record.text = "{\"type\":\"user\"}".into();
+        // Even with a valid skipped span, an agent line is not a daemon note.
+        assert_eq!(source.event(&record), Err(ProtocolError::BadValue));
+        record.skipped = Some(u64::MAX);
+        assert_eq!(source.event(&record), Err(ProtocolError::BadValue));
+    }
 }

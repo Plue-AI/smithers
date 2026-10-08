@@ -14,6 +14,7 @@ import (
 // ExternalNormalizeInput contains trusted registration context and one framed
 // record. State is the adapter checkpoint from the previous committed receipt.
 type ExternalNormalizeInput struct {
+	Skipped *uint64           `json:"skipped,omitempty"`
 	Profile string            `json:"profile"`
 	Context map[string]string `json:"context"`
 	Record  string            `json:"record"`

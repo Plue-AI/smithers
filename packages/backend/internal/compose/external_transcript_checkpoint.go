@@ -134,7 +134,7 @@ func (s *TranscriptIngest) normalizeHost(ctx context.Context, tx pgx.Tx, branch 
 			return nil, false, chat.ErrCursorConflict
 		}
 		participant := uuid.UUID(record.Participant).String()
-		decoded, err := s.Host.NormalizeExternalTranscript(ctx, chat.ExternalNormalizeInput{Profile: record.Profile, Context: map[string]string{"owner_id": fmt.Sprint(binding.Scope.UserID), "participant_id": participant, "session_id": fmt.Sprint(record.Session), "source_generation": source + ":" + generation}, Record: record.Record, Start: record.Start, End: record.End, State: previous})
+		decoded, err := s.Host.NormalizeExternalTranscript(ctx, chat.ExternalNormalizeInput{Profile: record.Profile, Context: map[string]string{"owner_id": fmt.Sprint(binding.Scope.UserID), "participant_id": participant, "session_id": fmt.Sprint(record.Session), "source_generation": source + ":" + generation}, Record: record.Record, Skipped: record.Skipped, Start: record.Start, End: record.End, State: previous})
 		var refusal *chat.ExternalRefusal
 		switch {
 		case errors.As(err, &refusal):

@@ -542,29 +542,36 @@ fn lines_with_bytes_that_cannot_cross_the_wire_reach_the_outbox_and_the_source_g
 }
 
 #[test]
-fn a_line_longer_than_a_record_stops_the_source_after_the_records_before_it() {
-    let fixture = Fixture::new();
-    fixture.append(CODEX, b"{\"n\":1}\n");
-    let mut long = vec![b'x'; smithers_machined::transcript::MAX_RECORD_BYTES + 1];
-    long.push(b'\n');
-    fixture.append(CODEX, &long);
-    fixture.append(CODEX, b"{\"n\":3}\n");
-    fixture.broker.list(CODEX, false);
-    let mut pump = fixture.pump();
-    until(&mut pump, || !fixture.broker.released().is_empty());
-    // The record before the long line arrived. Nothing after it did: no
-    // record is skipped silently.
-    assert_eq!(fixture.outbox.texts(CODEX), ["{\"n\":1}"]);
-    assert_eq!(fixture.broker.released(), [(CODEX, true)]);
-    assert_eq!(fixture.checkpoints(), Vec::<String>::new());
-    // It is not retried, whatever the broker still lists.
-    fixture.broker.list(CODEX, false);
-    for _ in 0..3 {
-        pump.pass(Instant::now() + Duration::from_secs(120))
-            .unwrap();
+fn oversized_lines_emit_one_skip_and_resume_after_restart() {
+    for size in [1024 * 1024 + 1, 5 * 1024 * 1024] {
+        let fixture = Fixture::new();
+        fixture.append(CODEX, b"{}\n");
+        fixture.append(CODEX, &vec![b'x'; size]);
+        fixture.broker.list(CODEX, false);
+        let mut pump = fixture.pump();
+        for _ in 0..size / 65536 + 2 {
+            pump.pass(Instant::now()).unwrap();
+        }
+        assert_eq!(fixture.outbox.texts(CODEX), ["{}"]);
+        drop(pump);
+        wait_for(|| fixture.broker.alive(CODEX) == 0);
+        fixture.append(CODEX, b"\n{\"later\":true}\n");
+        fixture.broker.list(CODEX, true);
+        let mut pump = fixture.pump();
+        until(&mut pump, || fixture.outbox.records().len() == 3);
+        let events = fixture.outbox.0.events.lock().unwrap();
+        let (_, skipped) = Source::decode(&events[1]).unwrap();
+        assert_eq!(skipped.skipped, Some(size as u64));
+        assert_eq!((skipped.start, skipped.end), (3, size as u64 + 4));
+        let (_, later) = Source::decode(&events[2]).unwrap();
+        assert_eq!(later.start, skipped.end);
+        assert_eq!(later.text, "{\"later\":true}");
+        drop(events);
+        assert!(fixture.broker.released().is_empty());
+        pump.pass(Instant::now()).unwrap();
+        assert_eq!(fixture.outbox.records().len(), 3);
+        assert_eq!(fixture.broker.released(), [(CODEX, false)]);
     }
-    assert_eq!(fixture.broker.started(), [CODEX]);
-    assert_eq!(fixture.outbox.texts(CODEX), ["{\"n\":1}"]);
 }
 
 #[test]
@@ -689,5 +696,24 @@ fn idle_lets_go_of_every_reader_and_keeps_what_was_read() {
     assert_eq!(
         pump.pass(Instant::now()).unwrap_err().kind(),
         io::ErrorKind::Unsupported
+    );
+}
+
+#[test]
+fn an_ended_source_drains_a_long_line_before_release() {
+    let fixture = Fixture::new();
+    fixture.append(CODEX, &vec![b'x'; 5 * 1024 * 1024]);
+    fixture.append(CODEX, b"\n{}\n");
+    fixture.broker.list(CODEX, true);
+    let mut pump = fixture.pump();
+    // One 64 KiB read per pass, followed by the EOF pass. No wall-clock
+    // timeout: checkpoint fsync time varies on a shared host.
+    for _ in 0..82 {
+        pump.pass(Instant::now()).unwrap();
+    }
+    assert_eq!(fixture.broker.released(), [(CODEX, false)]);
+    assert_eq!(
+        fixture.outbox.texts(CODEX),
+        ["Skipped oversized transcript line.", "{}"]
     );
 }

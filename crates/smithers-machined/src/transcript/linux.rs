@@ -48,6 +48,8 @@ struct SavedFramer {
     offset: u64,
     pending: Vec<u8>,
     failed: bool,
+    #[serde(default)]
+    skipped: Option<u64>,
 }
 
 // The daemon validates opaque child state without opening an owner home.
@@ -64,6 +66,11 @@ fn decode_checkpoint(bytes: &[u8]) -> io::Result<Checkpoint> {
         || state.framer.generation == 0
         || state.framer.pending.len() > super::MAX_RECORD_BYTES
         || state.framer.pending.len() as u64 > state.framer.offset
+        || state.framer.skipped.is_some_and(|n| {
+            n < super::MAX_RECORD_BYTES as u64
+                || n > state.framer.offset
+                || !state.framer.pending.is_empty()
+        })
         || state.framer.pending.contains(&b'\n')
         || state.anchor.len() > 64
         || state.anchor.len() as u64 > state.framer.offset
@@ -73,6 +80,11 @@ fn decode_checkpoint(bytes: &[u8]) -> io::Result<Checkpoint> {
         return Err(invalid("transcript checkpoint binding mismatch"));
     }
     Ok(state)
+}
+
+pub(super) fn checkpoint_position(bytes: &[u8]) -> io::Result<(u64, u64)> {
+    let state = decode_checkpoint(bytes)?;
+    Ok((state.framer.generation, state.framer.offset))
 }
 
 /// Whether a saved checkpoint records that its reader stopped the source for
@@ -261,6 +273,7 @@ impl Tail {
                 offset: self.framer.offset,
                 pending: self.framer.pending.clone(),
                 failed: self.framer.failed,
+                skipped: self.framer.skipped,
             },
             anchor: self.anchor.clone(),
             stopped: self.stopped,
@@ -284,6 +297,7 @@ impl Tail {
             state.framer.offset,
             state.framer.pending,
             state.framer.failed,
+            state.framer.skipped,
         );
         tail.anchor = state.anchor;
         tail.stopped = state.stopped;
@@ -312,6 +326,7 @@ impl Tail {
                 start: 0,
                 end: 2,
                 text: "x".into(),
+                skipped: None,
             })
             .map_err(|_| invalid("invalid transcript source"))?;
         self.source = Some(source.clone());

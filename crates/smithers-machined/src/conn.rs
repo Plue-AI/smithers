@@ -1,7 +1,7 @@
 //! ADR 0004 framing and canonical tagged payload validation.
 use std::io::{Read, Write};
 include!("schema.rs");
-pub const PROTOCOL: u16 = 11;
+pub const PROTOCOL: u16 = 12;
 pub const MAX_FILE_BYTES: usize = 1_048_576;
 pub const INITIAL_CREDIT: usize = 262_144;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -366,7 +366,7 @@ impl<'a> Cursor<'a> {
 /// has already accepted.
 fn transcript_bounds(schema: &[(u8, bool, &str)], body: &[u8]) -> Result<(), ProtocolError> {
     let mut c = Cursor(body);
-    let mut v: [&[u8]; 10] = [&[]; 10];
+    let mut v: [&[u8]; 11] = [&[]; 11];
     while !c.0.is_empty() {
         let tag = c.number(1)? as usize;
         let start = c.0;
@@ -388,7 +388,19 @@ fn transcript_bounds(schema: &[(u8, bool, &str)], body: &[u8]) -> Result<(), Pro
         && v[5].len() > 2
         && n(v[6]) >= 1
         && end > start
-        && end - start == (v[9].len() as u64 - 4) + 1;
+        && if v[10].is_empty() {
+            end - start == (v[9].len() as u64 - 4) + 1
+        } else {
+            n(v[10]) >= 1024 * 1024
+                && v[9].len() <= 1028
+                && !matches!(
+                    v[9][4..]
+                        .iter()
+                        .find(|b| !matches!(b, b' ' | b'\t' | b'\r')),
+                    Some(b'{' | b'[')
+                )
+                && end - start - 1 == n(v[10])
+        };
     if ok {
         Ok(())
     } else {

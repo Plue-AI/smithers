@@ -505,3 +505,68 @@ func TestInstallTranscriptPumpDoesNotFenceRegistryWhileWaitingForWorkspace(t *te
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts WHERE workspace_id=$1 AND outcome='applied'`, branch).Scan(&receipts))
 	require.Equal(t, 1, receipts)
 }
+
+// The installed pipeline serves one failed inert entry to both members, then
+// imports later records using the actual packaged decoder and persisted cursor.
+func TestInstallTranscriptPumpSkippedLineContinues(t *testing.T) {
+	fixture := newTranscriptImportFixture(t)
+	pool, ctx, branch := fixture.pool, t.Context(), fixture.branch.ID
+	adapter := &countingTranscriptAdapter{HTTPChatHost: packagedTranscriptHost(t)}
+	transcripts, err := installTranscripts(pool, adapter)
+	require.NoError(t, err)
+	repository := repohost.NewLocalClient(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("transcript reached repository host") }), "transcripts")
+	stop, err := machineEvents{Transcripts: transcripts}.bind(ctx, fixture.registry, pool, repository, nil, nil)
+	require.NoError(t, err)
+	t.Cleanup(stop)
+	link, peer := externalTranscriptLink(t, fixture.registry, branch, fixture.authority)
+	require.NoError(t, peer.SetDeadline(time.Now().Add(60*time.Second)))
+	var uid uint32
+	require.NoError(t, pool.QueryRow(ctx, `SELECT unix_uid FROM collaborators WHERE user_id=$1`, fixture.ben.ID).Scan(&uid))
+	require.NoError(t, newMachineHost(pool, repository).Record(ctx, branch, link.BootID(), 1, machined.SessionUser{Login: fixture.ben.Username, UID: uid}, "terminal"))
+	var seq uint64
+	for i, size := range []uint64{1048577, 5242880} {
+		source := [16]byte{byte(i + 1), 0xf1}
+		record := wire.Transcript{Version: 1, Session: 1, Participant: [16]byte{byte(i + 1), 0xf2}, Source: source, Profile: "codex-rollout/0.160", Generation: 1, End: size + 1, Record: "Skipped oversized transcript line.", Skipped: &size}
+		outcome, event, err := deliverTranscript(peer, &seq, record)
+		require.NoError(t, err)
+		require.Equal(t, machined.AckApplied, outcome)
+		calls := adapter.calls
+		outcome, _, err = deliverTranscript(peer, &seq, record, event)
+		require.NoError(t, err)
+		require.Equal(t, machined.AckDuplicate, outcome)
+		// A reconnect-style replay with a fresh event id also reaches no decoder.
+		outcome, _, err = deliverTranscript(peer, &seq, record)
+		require.NoError(t, err)
+		require.Equal(t, machined.AckApplied, outcome)
+		require.Equal(t, calls, adapter.calls)
+		var offset uint64
+		require.NoError(t, pool.QueryRow(ctx, `SELECT (transcript_checkpoint->'state'->>'offset')::bigint FROM machine_event_receipts WHERE workspace_id=$1 AND event_id=$2`, branch, uuid.UUID(event).String()).Scan(&offset))
+		require.Equal(t, record.End, offset)
+		for _, cookie := range []string{fixture.benCookie, fixture.aliceCookie} {
+			var matches []externalMessage
+			for _, entry := range fixture.history(t, cookie) {
+				if entry.Participant == uuid.UUID(record.Participant).String() {
+					matches = append(matches, entry)
+				}
+			}
+			require.Len(t, matches, 1)
+			require.True(t, matches[0].ReadOnly)
+			require.Equal(t, "failed", matches[0].Status)
+			require.Equal(t, record.Record, matches[0].Text)
+		}
+		for _, line := range recordedTranscript(t, "codex-signed-out-0.160", "rollout.jsonl") {
+			record.Start, record.Skipped, record.Record = record.End, nil, line
+			record.End = record.Start + uint64(len(line)) + 1
+			outcome, _, err = deliverTranscript(peer, &seq, record)
+			require.NoError(t, err)
+			require.Equal(t, machined.AckApplied, outcome)
+		}
+		var matches []externalMessage
+		for _, entry := range fixture.history(t, fixture.aliceCookie) {
+			if entry.Participant == uuid.UUID(record.Participant).String() {
+				matches = append(matches, entry)
+			}
+		}
+		require.Len(t, matches, 3)
+	}
+}

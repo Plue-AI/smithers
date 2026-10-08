@@ -31,6 +31,30 @@ test("packaged transcript HTTP normalization preserves inert identities, checkpo
     assert.equal((await post({}, "wrong")).status, 401)
     assert.equal((await post({})).status, 422)
     const context = { owner_id: "42", participant_id: "01000000-0000-0000-0000-000000000000", session_id: "9", source_generation: "02000000-0000-0000-0000-000000000000:1" }
+    // A note is not JSON and no agent decoder can read it. It is admitted
+    // even for an unsupported release: the skipped branch calls no decoder.
+    for (const skipped of [1048577, 5242880]) {
+      const input = { profile: "codex-rollout/0.160", context, record: "Skipped oversized transcript line.", skipped, start: 0, end: skipped + 1 }
+      const response = await post(input)
+      assert.equal(response.status, 200)
+      const output = await response.json()
+      assert.equal(output.entries.length, 1)
+      assert.equal(output.entries[0].failed, true)
+      assert.equal(output.entries[0].read_only, true)
+      assert.equal(output.state.offset, skipped + 1)
+      assert.equal(output.state.decoder.line, 1)
+      assert.deepEqual(await (await post(input)).json(), output)
+      assert.equal((await post({ ...input, profile: "codex-rollout/99.99" })).status, 200)
+      assert.equal((await post({ ...input, end: input.record.length + 1 })).status, 422)
+      assert.equal((await post({ ...input, record: '{"type":"user"}' })).status, 422)
+      const { skipped: _, ...inBand } = input
+      assert.equal((await post({ ...inBand, end: input.record.length + 1 })).status, 422)
+      assert.equal((await post({ ...input, record: "a".repeat(1025) })).status, 422)
+      const record = '{"timestamp":"2026-10-08T05:00:00.000Z","type":"session_meta","payload":{"id":"after-skip","cwd":"/workspace","cli_version":"0.160.1"}}'
+      const next = await post({ profile: input.profile, context, record, start: input.end, end: input.end + Buffer.byteLength(record) + 1, state: output.state })
+      assert.equal(next.status, 200)
+      assert.equal((await next.json()).state.decoder.line, 2)
+    }
     for (const [fixture, file, profile, count, firstSource, toolCall] of [
       ["codex-0.160", "rollout.jsonl", "codex-rollout/0.160", 34, "01a10d62-91c7-7163-b038-72dab55a2e8c:10", "exec-72424bde-7b89-43fe-9962-8fe21e4a3d4b"],
       ["codex-machine-0.160", "rollout.jsonl", "codex-rollout/0.160", 12, "01a1149b-f90c-7833-87d0-6c4ff981df9c:10", "exec-10bea587-3f23-46c4-acb7-30d36f92b5d5"],

@@ -15,7 +15,7 @@ import (
 
 // Protocol is the sole live connection version. Decoding a historical frame
 // does not admit an older peer; link admission requires this exact version.
-const Protocol = 11
+const Protocol = 12
 const MaxWorkspaceFileBytes = 1048576
 const InitialCredit = 262144
 const (

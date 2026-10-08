@@ -107,7 +107,7 @@ impl<B: Broker, O: Outbox> Pump<B, O> {
         let _ = self.broker.release(lifetime, true);
     }
 
-    fn read(&mut self, source: &Listed) -> io::Result<usize> {
+    fn read(&mut self, source: &Listed) -> io::Result<bool> {
         let store = self.store(source.lifetime)?;
         if !self.readers.contains_key(&source.lifetime) {
             let checkpoint = store
@@ -135,11 +135,12 @@ impl<B: Broker, O: Outbox> Pump<B, O> {
         }
         let reader = self.readers.get_mut(&source.lifetime).unwrap();
         let outbox = &self.outbox;
-        reader.poll(
+        let count = reader.poll(
             || Ok(()),
             |event| outbox.append(event),
             |checkpoint| store.save(checkpoint),
-        )
+        )?;
+        Ok(count > 0 || reader.progressed())
     }
 
     /// One pass over what the broker lists. An error means the broker or the
@@ -176,10 +177,10 @@ impl<B: Broker, O: Outbox> Pump<B, O> {
                 continue;
             }
             match self.read(source) {
-                Ok(read) => {
+                Ok(progressed) => {
                     self.failing.remove(&lifetime);
                     // An ended source with nothing left to read is done.
-                    if source.ended && read == 0 {
+                    if source.ended && !progressed {
                         self.readers.remove(&lifetime);
                         let _ = self.store(lifetime).and_then(|store| store.remove());
                         let _ = self.broker.release(lifetime, false);

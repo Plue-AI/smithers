@@ -388,14 +388,12 @@ number.
 | No transcript is read while 64 durable events of any kind are queued. | `transcript/pump.rs` (`QUEUED`) | The outbox is one queue. A long transcript must not hold a capture or a burst behind it. |
 | A byte that is not UTF-8, and a NUL, is sent as `?`, one byte for one. | `transcript.rs` (`Framer`) | A record must be UTF-8 without NUL. The record stays as long as its line, so its byte range is still the file's and the member sees where the byte was. |
 | An empty or whitespace-only line is carried as leading whitespace of the next record. | `transcript.rs` (`Framer`) | A record is at least one byte. Every byte of the source stays in exactly one record's range, and JSON reads through leading whitespace. |
-| A line longer than 1 MiB stops its source. | `transcript.rs` (`Framer`) | A record cannot be longer. The bytes after it are not guessed at. |
+| A line longer than 1 MiB becomes one failed, read-only skipped entry. | `transcript.rs` (`Framer`), protocol 12 field 10 | The next line continues at its own file offset; no decoder reads the skipped note. |
 | The daemon asks the broker and reads four times a second; the broker reads the kernel at most once a second and asks a Claude Code process again every 2 s which file is its session. | `transcript/pump.rs` (`PASS`), `broker/transcripts.rs` | A complete record is in the outbox well inside the 5 s bound, and `/clear` becomes a new source of the same participant. |
 | The daemon reads only while it serves an authenticated, reconciled link with a synchronized roster. | `broker/control.rs` (`serving`) | Without one, nothing is discovered and no home is read. |
 
 ### Open before T-AGT-02 is Landed (#3622)
 
-- A line longer than 1 MiB stops its source and nothing is shown to the
-  member. Showing it and reading on needs a rule the wire does not state today.
 - The local `/?codex=` preview stays until the install path's reference-host
   receipt passes. It is deleted in the commit that records that receipt.
 - Reference-host receipts: `tests/transcript_broker.rs` and

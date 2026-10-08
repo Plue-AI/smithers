@@ -1,6 +1,9 @@
 package wire
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+	"strings"
+)
 
 // Transcript is data from one registry-bound process lifetime. No path, home,
 // UID or executable crosses this event. Profile names the pinned host adapter.
@@ -13,10 +16,15 @@ type Transcript struct {
 	Profile                string
 	Generation, Start, End uint64
 	Record                 string
+	Skipped                *uint64
 }
 
 func (t Transcript) valid() bool {
-	return t.Version == 1 && t.Session > 0 && t.Session <= 0x7fffffff && t.Participant != ([16]byte{}) && t.Source != ([16]byte{}) && t.Profile != "" && t.Generation > 0 && t.End > t.Start && t.End-t.Start == uint64(len(t.Record))+1
+	span := t.End > t.Start && t.End-t.Start-1 == uint64(len(t.Record))
+	if t.Skipped != nil {
+		span = t.End > t.Start && t.End-t.Start-1 == *t.Skipped && *t.Skipped >= 1024*1024 && len(t.Record) <= 1024 && !strings.HasPrefix(strings.TrimLeft(t.Record, " \t\r"), "{") && !strings.HasPrefix(strings.TrimLeft(t.Record, " \t\r"), "[")
+	}
+	return span && t.Version == 1 && t.Session > 0 && t.Session <= 0x7fffffff && t.Participant != ([16]byte{}) && t.Source != ([16]byte{}) && t.Profile != "" && t.Generation > 0
 }
 
 func EncodeTranscript(t Transcript) ([]byte, error) {
@@ -24,6 +32,10 @@ func EncodeTranscript(t Transcript) ([]byte, error) {
 		return nil, BadValue
 	}
 	p := Union(5, Field(1, U16(t.Version)), Field(2, U32(t.Session)), Field(3, t.Participant[:]), Field(4, t.Source[:]), Field(5, String(t.Profile)), Field(6, U64(t.Generation)), Field(7, U64(t.Start)), Field(8, U64(t.End)), Field(9, Bytes([]byte(t.Record))))
+	if t.Skipped != nil {
+		p = append(p, Field(10, U64(*t.Skipped))...)
+		binary.BigEndian.PutUint32(p[1:5], uint32(len(p)-5))
+	}
 	c := cursor{p}
 	if err := c.value("event"); err != nil {
 		return nil, err
@@ -65,6 +77,10 @@ func transcriptOf(body []byte) Transcript {
 		f[byte(tag)] = before[:len(before)-len(c.b)]
 	}
 	t := Transcript{Version: binary.BigEndian.Uint16(f[1]), Session: binary.BigEndian.Uint32(f[2]), Profile: textValue(f[5]), Generation: binary.BigEndian.Uint64(f[6]), Start: binary.BigEndian.Uint64(f[7]), End: binary.BigEndian.Uint64(f[8]), Record: string(f[9][4:])}
+	if f[10] != nil {
+		n := binary.BigEndian.Uint64(f[10])
+		t.Skipped = &n
+	}
 	copy(t.Participant[:], f[3])
 	copy(t.Source[:], f[4])
 	return t

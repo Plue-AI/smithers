@@ -482,6 +482,7 @@ fn parent_refuses_forged_source_and_out_of_order_checkpoint_protocol() {
                         start: 0,
                         end: 2,
                         text: "x".into(),
+                        skipped: None,
                     })
                     .unwrap();
                 frame(&mut peer, 2, &event);

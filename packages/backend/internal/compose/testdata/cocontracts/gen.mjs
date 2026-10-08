@@ -4,7 +4,7 @@ import {createHash,createHmac} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 const dir=fileURLToPath(new URL('.',import.meta.url));
 const check=process.argv.includes('--check');
-const protocol=11;
+const protocol=12;
 // ADR 0004 §handshake: one protocol value in four places, changed in one
 // commit. This reads the other three as text (it imports no codec) and fails
 // both --check and generation when any differs.
@@ -38,10 +38,10 @@ const err=(code,...fields)=>res(255,f(1,[code]),...fields);
 const MAC_LABEL='smithers-machined host';
 const range=(a,b)=>Buffer.from(Array.from({length:b-a},(_,i)=>a+i));
 const vectors={
-  a:{secret:range(0x00,0x20),boot_id:range(0xa0,0xb0),nonce:range(0x20,0x40),mac:'cf2aaa96ca18e143cbd49fb326658efd3e1541bcd076020b5a25599c2a1fc698'},
-  b:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x60,0x80),mac:'9ddee3a8c05557937c92a6aad6913b8f5e40028eac41c6d7ea666fce20e9d66f'},
+  a:{secret:range(0x00,0x20),boot_id:range(0xa0,0xb0),nonce:range(0x20,0x40),mac:'b6b140d2fbddd25d6e8b4380e2b0e49fd9b9576b2696275a455c087166c2562e'},
+  b:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x60,0x80),mac:'26f6283c339ef56e3003716681364ff9097156607baa556be3ce704f8500efec'},
   // c: b's boot and secret, a fresh nonce (seq_newer_boot's third connection).
-  c:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x80,0xa0),mac:'7b154d31b2a37c29c3bf00adcd23d6f97c017b600debeee8e79f43632e857cc2'},
+  c:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x80,0xa0),mac:'c1c223ce1128cd68b9ad7fec2f8a8a53b9e81e9eb8ed15e181a303e79867825f'},
 };
 const macInput=v=>cat(Buffer.from(MAC_LABEL),num(protocol,2),v.boot_id,v.nonce);
 for(const [name,v] of Object.entries(vectors))if(createHmac('sha256',v.secret).update(macInput(v)).digest('hex')!==v.mac)throw Error('HMAC vector '+name+' disagrees with node:crypto');
@@ -126,12 +126,20 @@ emit('ev_reserved_doc_edit_body',2,durable(11,un(6,f(1,num(1,4)),f(2,str('a'))),
 // Variant 5 transcript (ADR 0004 ruling 2, #3622). Tag 9 carries the record
 // with a u32 length, as both live codecs encode it (the ruling's text says
 // `str`; see #3626). ev_transcript's bytes are the ones T-AGT-02 shipped.
-const transcript=({version=1,session=1,participant=id,source=Buffer.alloc(16,0x33),profile='claude-code/2.1.0',generation=1,record=Buffer.from('{"type":"user"}'),start=0,end}={})=>un(5,f(1,num(version,2)),f(2,num(session,4)),f(3,participant),f(4,source),f(5,str(profile)),f(6,num(generation,8)),f(7,num(start,8)),f(8,num(end??start+record.length+1,8)),f(9,bytes(record)));
+const transcript=({version=1,session=1,participant=id,source=Buffer.alloc(16,0x33),profile='claude-code/2.1.0',generation=1,record=Buffer.from('{"type":"user"}'),start=0,end,skipped}={})=>un(5,f(1,num(version,2)),f(2,num(session,4)),f(3,participant),f(4,source),f(5,str(profile)),f(6,num(generation,8)),f(7,num(start,8)),f(8,num(end??start+record.length+1,8)),f(9,bytes(record)),...(skipped===undefined?[]:[f(10,num(skipped,8))]));
 emit('ev_transcript',2,durable(12,transcript(),id),0,'ok','daemon-to-host');
 // Invalid UTF-8 in the record is the str rule (bad_utf8); a newline inside it
 // breaks "one record without its newline" (bad_value).
 emit('ev_transcript_bad_utf8',2,durable(12,transcript({record:Buffer.from([255])}),eid(0xf0)),0,'bad_utf8','daemon-to-host');
 emit('ev_transcript_partial',2,durable(12,transcript({record:Buffer.from('one\ntwo')}),eid(0xf1)),0,'bad_value','daemon-to-host');
+for (const [name,change,expected] of [
+  ['skipped', {record:Buffer.from('Skipped oversized transcript line.'),skipped:1048577,end:1048578}, 'ok'],
+  ['skipped_5mib', {record:Buffer.from('Skipped oversized transcript line.'),skipped:5242880,end:5242881}, 'ok'],
+  ['skipped_both', {skipped:1048577,end:1048578}, 'bad_value'],
+  ['skipped_note_over_1kib', {record:Buffer.alloc(1025,0x61),skipped:1048577,end:1048578}, 'bad_value'],
+  ['skipped_span', {record:Buffer.from('Skipped oversized transcript line.'),skipped:1048577,end:1048577}, 'bad_value'],
+  ['skipped_overflow', {record:Buffer.from('Skipped oversized transcript line.'),skipped:18446744073709551615n,end:1}, 'bad_value'],
+]) emit('ev_transcript_'+name,2,durable(12,transcript(change),eid(0xc0+['skipped','skipped_5mib','skipped_both','skipped_note_over_1kib','skipped_span','skipped_overflow'].indexOf(name))),0,expected,'daemon-to-host');
 // One violated bound each; every other field is ev_transcript's.
 for(const [i,[name,change]] of Object.entries({version:{version:2},session_zero:{session:0},session_over:{session:0x80000000},participant_zero:{participant:Buffer.alloc(16)},source_zero:{source:Buffer.alloc(16)},profile_empty:{profile:''},generation_zero:{generation:0},end_not_after_start:{start:16,end:16},span:{end:17}}).entries())emit('bad_value_transcript_'+name,2,durable(12,transcript(change),eid(0xf2+i)),0,'bad_value','daemon-to-host');
 // Ruling 2's record bounds (8a at 02fe2e50a2): 1 byte to 1 MiB, UTF-8 without

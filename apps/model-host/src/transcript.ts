@@ -30,6 +30,7 @@ const Input = Schema.Struct({
   profile: Schema.String,
   context: Context,
   record: Schema.String,
+  skipped: Schema.optional(Schema.Number),
   start: Schema.Number,
   end: Schema.Number,
   state: Schema.optional(Schema.Unknown)
@@ -66,7 +67,9 @@ export const normalizeTranscript = (value: unknown) => {
     !/^[a-f0-9-]{36}:[1-9]\d*$/.test(context.source_generation) ||
     Object.values(context).some(value => value.length > 160) ||
     !Number.isSafeInteger(input.start) || !Number.isSafeInteger(input.end) || input.start < 0 ||
-    input.end - input.start !== Buffer.byteLength(input.record, "utf8") + 1 ||
+    input.end - input.start !== (input.skipped ?? Buffer.byteLength(input.record, "utf8")) + 1 ||
+    (input.skipped !== undefined && (!Number.isSafeInteger(input.skipped) || input.skipped < 1024 * 1024 || Buffer.byteLength(input.record, "utf8") > 1024)) ||
+    Buffer.byteLength(input.record, "utf8") === 0 ||
     Buffer.byteLength(input.record, "utf8") > 1024 * 1024 || /[\n\0]/.test(input.record)) {
     throw new Error("invalid transcript envelope")
   }
@@ -79,6 +82,26 @@ export const normalizeTranscript = (value: unknown) => {
   const codex = input.profile.startsWith("codex-rollout/")
   // The line a refusal names: the source line this record is, counted by the decoder's own checkpoint.
   const line = (previous === undefined ? 0 : Schema.decodeUnknownSync(Schema.Struct({ line: Schema.Number }))(previous.decoder).line) + 1
+  if (input.skipped !== undefined) {
+    // Agent lines are JSON; the skipped payload is only the daemon's note.
+    if (/^[ \t\r]*[\{\[]/.test(input.record)) throw new Error("invalid transcript envelope")
+    const decoder = previous === undefined ? (codex ? Transcript.codexStart : Transcript.claudeStart) :
+      codex ? Schema.decodeUnknownSync(Codex)(previous.decoder) : Schema.decodeUnknownSync(Claude)(previous.decoder)
+    validateState(decoder)
+    const sourceId = `skipped:${input.start}`
+    return {
+      entries: [{
+        id: `${context.source_generation}:${sourceId}`, source_id: sourceId, source_offset: input.start,
+        seq: decoder.seq, at: 0, origin: "external", read_only: true,
+        agent: codex ? "codex" : "claude-code", source_format_version: input.profile,
+        session_id: context.session_id, participant_id: context.participant_id, owner_id: context.owner_id,
+        author_id: context.participant_id, kind: "error", body: { type: "error", message: input.record }, failed: true
+      }],
+      state: { offset: input.end, pending: "", profile: input.profile, source_generation: context.source_generation,
+        decoder: { ...decoder, line, seq: decoder.seq + 1 } },
+      needs_more: false
+    }
+  }
   // An agent of a release line no decoder reads: the registered profile itself is the unsupported version.
   if (!profiles.includes(input.profile)) throw new TranscriptRefused("unsupported_version", line)
   const decode = (): Result.Result<Transcript.Decoded<Transcript.CodexState | Transcript.ClaudeState>, Transcript.ExternalTranscriptError> => {
