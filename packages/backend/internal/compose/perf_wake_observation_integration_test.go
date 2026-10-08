@@ -16,15 +16,19 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
+	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
@@ -387,5 +391,244 @@ func testPerfWarmWakeObservationComposedInstall(t *testing.T, scheduled bool) {
 				require.Contains(t, string(output), "cold or failed wake")
 			}
 		})
+	}
+}
+
+// Guest observations share one production runtime queue. Delegation here only
+// selects the retained guest whose boot/PTY/filesystem is being observed.
+type terminalFIFOGuests struct {
+	*perfWakeRuntime
+	guests  map[string]*perfWakeRuntime
+	started chan string
+}
+
+func (r *terminalFIFOGuests) SyncTodoAdmission(scope string, holders []string, limit int) error {
+	return r.queue.SyncTodoAdmission(scope, holders, limit)
+}
+func (r *terminalFIFOGuests) TodoAdmissionEligible(holder string) bool {
+	return r.queue.TodoAdmissionEligible(holder)
+}
+func (r *terminalFIFOGuests) AdmissionOwnership(holder string) (bool, bool) {
+	return r.queue.AdmissionOwnership(holder)
+}
+func (r *terminalFIFOGuests) InspectWorkspace(ctx context.Context, id string) (workspaceapi.Workspace, error) {
+	return r.guests[id].InspectWorkspace(ctx, id)
+}
+func (r *terminalFIFOGuests) StartWorkspace(ctx context.Context, id string) (workspaceapi.Workspace, error) {
+	if !r.queue.AdmissionHeld("workspace:" + id) {
+		return workspaceapi.Workspace{}, fmt.Errorf("boot without admission")
+	}
+	machine, err := r.guests[id].StartWorkspace(ctx, id)
+	if err == nil {
+		r.started <- id
+	}
+	return machine, err
+}
+func (r *terminalFIFOGuests) EnsureMachined(ctx context.Context, id string) error {
+	return r.guests[id].EnsureMachined(ctx, id)
+}
+func (r *terminalFIFOGuests) SessionCredentialsForMember(ctx context.Context, id string, m microsandbox.MemberIdentity) (microsandbox.MemberSessionCredentials, error) {
+	return r.guests[id].SessionCredentialsForMember(ctx, id, m)
+}
+func (r *terminalFIFOGuests) ReadFile(ctx context.Context, id, path string) ([]byte, error) {
+	return r.guests[id].ReadFile(ctx, id, path)
+}
+func (r *terminalFIFOGuests) ExecuteCommand(ctx context.Context, id string, command workspaceapi.Command) (workspaceapi.CommandResult, error) {
+	return r.guests[id].ExecuteCommand(ctx, id, command)
+}
+
+func TestSuccessfulTerminalFIFOInstallBoundary(t *testing.T) {
+	f := presenceInstall(t)
+	ctx := t.Context()
+	q := db.New(f.pool)
+	owner, err := q.GetBranchMachineOwner(ctx)
+	require.NoError(t, err)
+	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET state='cancelled'`)
+	require.NoError(t, err)
+	_, err = f.pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission,unix_login,unix_uid) VALUES($1,$2,'admin','ben',20001)`, f.row.RepositoryID, f.user.ID)
+	require.NoError(t, err)
+	root := t.TempDir()
+	binary := filepath.Join(root, "msb")
+	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\nprintf '[]\\n'\n"), 0700))
+	profile := microsandbox.HostProfile{MemoryBytes: 64 << 30, PerfCores: 10, DiskFreeBytes: 140 << 30}
+	queue, err := microsandbox.New(ctx, microsandbox.Config{Root: filepath.Join(root, "runtime"), Binary: binary, SkipQualification: true, HostProfile: &profile, MaxRunningVMs: 1, CPUs: 2, MemoryMiB: 8192, DiskMiB: 32768})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, queue.Close()) })
+	var freeDisk atomic.Int64
+	freeDisk.Store(40 << 30)
+	readDisk := func(context.Context) (int64, error) { return freeDisk.Load(), nil }
+	capacity := &services.InstallCapacityService{Queries: q, Profile: profile, FreeDisk: readDisk, InUse: queue.InUse}
+	queue.SetCapacityReader(capacity.Capacity)
+	runtime := &terminalFIFOGuests{perfWakeRuntime: &perfWakeRuntime{queue: queue, entered: make(chan struct{})}, guests: map[string]*perfWakeRuntime{}, started: make(chan string, 3)}
+	var branches []db.Workspace
+	for i := 0; i < 3; i++ {
+		branch, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: f.row.RepositoryID, UserID: owner, Name: fmt.Sprintf("fifo-%d", i), TargetBookmark: fmt.Sprintf("scratch/presence-owner/fifo-%d", i), Status: "suspended", Kind: "vm"})
+		require.NoError(t, err)
+		reader, writer := io.Pipe()
+		guest := &perfWakeRuntime{row: branch, state: workspaceapi.WorkspaceStopped, mode: "warm"}
+		guest.owner = &terminalMemberRuntime{replacementRuntime: &replacementRuntime{repoID: f.row.RepositoryID}, terminal: &echoOwnerTerminal{reader: reader, writer: writer}, branch: branch, member: microsandbox.MemberIdentity{Login: "ben", UID: 20001, Active: true}}
+		runtime.guests[branch.ID] = guest
+		link, _ := presenceTestLink(t, &runtime.registry, branch.ID)
+		require.NoError(t, link.Reconciled())
+		branches = append(branches, branch)
+	}
+	handler := &routes.WorkspaceTerminalHandler{OwnerOnly: true}
+	manager := handler.SharedTerminalSessions()
+	defer manager.Close()
+	cfg := testConfigAllFlagsOn()
+	cfg.Auth.Mode = "selfhost"
+	server := httptest.NewUnstartedServer(nil)
+	cfg.Server.PublicURL = "http://" + server.Listener.Addr().String()
+	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
+	handler.AllowedOrigins = cfg.Server.AllowedOrigins
+	auth := services.NewAuthService(q, cfg.Auth, nil, nil)
+	auth.Members = &services.Members{Pool: f.pool}
+	auth.TerminalSubject = manager.OwnsSubject
+	service := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime), services.WithWorkspaceTransactions(f.pool), services.WithBranchMachineProviders(services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), runtime)), services.WithWorkspaceInstallAuthorization(q), services.WithWorkspaceCredentialIssuer(auth), services.WithWorkspaceGitBaseURL("http://127.0.0.1:4000"), services.WithWorkspaceBillingPolicy(services.NewMachineAdmissionPolicy(services.NewUnlimitedBillingPolicy())))
+	service.EnableMachineAdmission(readDisk)
+	service.BindBranchTerminalHost(func(context.Context, db.Workspace, int64) error { return nil })
+	provider := &installOwnerTerminals{queries: q, branches: service, registry: &runtime.registry}
+	provider.Bind(manager)
+	handler.Service, handler.OwnerTerminals = service, provider
+	f.p.branches = service
+	stack := services.NewMythicalService(f.pool, nil)
+	stack.SetInstallParallel(capacity)
+	stack.SetOrchestration(nil, nil, services.NewWorkspaceMythicalLanes(service))
+	store, err := jobs.NewStore(f.pool)
+	require.NoError(t, err)
+	topics := &liveTopics{queries: q, todos: stack, jobs: store, presence: f.p, capacity: capacity}
+	workerCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go stack.StartMachineQueueProjection(workerCtx)
+	liveHandler := &routes.LiveHandler{Queries: q, Hub: live.NewHub(workerCtx, nil), Origins: func() []string { return cfg.Server.AllowedOrigins }, Topics: topics.resolver}
+	server.Config.Handler = parallelInstallRouter(cfg, q, f.pool, handler, routerExtras{Live: liveHandler})
+	server.Start()
+	defer server.Close()
+	// All demand enters through the authenticated terminal door. Disk keeps
+	// grants closed while the literal FIFO is established, including a duplicate.
+	var sessions []services.WorkspaceSessionResponse
+	for i, branch := range branches {
+		requestID := uuid.NewString()
+		request := func() *http.Response {
+			req, err := http.NewRequestWithContext(ctx, "POST", server.URL+"/api/terminals", strings.NewReader(fmt.Sprintf(`{"branch":%q}`, branch.ID)))
+			require.NoError(t, err)
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Origin", cfg.Server.PublicURL)
+			req.Header.Set("Idempotency-Key", requestID)
+			req.Header.Set("X-CSRF-Token", "csrf")
+			req.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
+			req.AddCookie(&http.Cookie{Name: "smithers_session", Value: f.cookie})
+			res, err := server.Client().Do(req)
+			require.NoError(t, err)
+			return res
+		}
+		response := request()
+		var session services.WorkspaceSessionResponse
+		require.Equal(t, 202, response.StatusCode)
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&session))
+		response.Body.Close()
+		sessions = append(sessions, session)
+		duplicate := request()
+		var repeated services.WorkspaceSessionResponse
+		require.Equal(t, 202, duplicate.StatusCode)
+		require.NoError(t, json.NewDecoder(duplicate.Body).Decode(&repeated))
+		duplicate.Body.Close()
+		require.Equal(t, session.ID, repeated.ID)
+		require.Eventually(t, func() bool {
+			for _, row := range queue.AdmissionSnapshot() {
+				if row.Holder == "workspace:"+branch.ID {
+					return row.State == "waiting" && row.Position == i+1
+				}
+			}
+			return false
+		}, 5*time.Second, 10*time.Millisecond)
+	}
+	require.Zero(t, queue.InUse())
+	require.Empty(t, runtime.started)
+	// Each mounted card receives the committed wake before the next observed
+	// stop makes room. A stop acknowledgment alone cannot advance this queue.
+	var sockets []*websocket.Conn
+	var cursors []int64
+	for i, branch := range branches {
+		require.Eventually(t, func() bool {
+			var state string
+			var position int
+			err := f.pool.QueryRow(ctx, `SELECT data->'branch'->'machine'->>'state',COALESCE((data->'branch'->'machine'->>'position')::int,0) FROM product_job_events WHERE principal_id=$1 ORDER BY sequence DESC LIMIT 1`, "branch:"+branch.ID+":machine").Scan(&state, &position)
+			return err == nil && state == "waiting" && position == i+1
+		}, 5*time.Second, 10*time.Millisecond)
+		conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{live.Protocol}, HTTPHeader: http.Header{"Origin": {cfg.Server.PublicURL}, "Cookie": {"smithers_session=" + f.cookie}}})
+		require.NoError(t, err)
+		defer conn.CloseNow()
+		sendPresenceFrame(t, conn, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s"}`, branch.ID))
+		for {
+			frame := readPresenceFrame(t, conn)
+			require.NotEqual(t, "err", frame.T)
+			if frame.T != "snap" {
+				continue
+			}
+			var card struct {
+				Machine struct {
+					State    string
+					Position int
+				}
+			}
+			require.NoError(t, json.Unmarshal(frame.Data, &card))
+			if card.Machine.State != "waiting" || card.Machine.Position != i+1 {
+				continue
+			}
+			cursors = append(cursors, *frame.Cursor)
+			break
+		}
+		sockets = append(sockets, conn)
+	}
+	freeDisk.Store(72 << 30)
+	for i, branch := range branches {
+		select {
+		case started := <-runtime.started:
+			require.Equal(t, branch.ID, started)
+		case <-time.After(5 * time.Second):
+			t.Fatal("FIFO branch did not boot")
+		}
+		require.Equal(t, 1, queue.InUse())
+		for {
+			frame := readPresenceFrame(t, sockets[i])
+			require.NotEqual(t, "err", frame.T)
+			if frame.T != "delta" {
+				continue
+			}
+			var event jobs.Event
+			require.NoError(t, json.Unmarshal(frame.Data, &event))
+			var fact struct {
+				Branch struct {
+					ID      string
+					Machine struct{ State string }
+				}
+			}
+			require.NoError(t, json.Unmarshal(event.Data, &fact))
+			if fact.Branch.Machine.State != "awake" {
+				continue
+			}
+			require.Equal(t, branch.ID, fact.Branch.ID)
+			require.Greater(t, *frame.Cursor, cursors[i])
+			break
+		}
+		require.Eventually(t, func() bool {
+			var count int
+			err := f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='terminal.running' AND data->>'session'=$1`, sessions[i].ID).Scan(&count)
+			return err == nil && count == 1
+		}, 5*time.Second, 10*time.Millisecond, "terminal guest accepted the real member credential")
+		// Inject a delayed stop observation, keeping the granted slot throughout.
+		for until := time.Now().Add(1100 * time.Millisecond); time.Now().Before(until); {
+			require.Equal(t, 1, queue.InUse())
+			require.Empty(t, runtime.started)
+			time.Sleep(20 * time.Millisecond)
+		}
+		queue.ConfirmAdmissionStop("workspace:"+branch.ID, false)
+	}
+	require.NoError(t, service.WaitForProvisioning(ctx))
+	require.Zero(t, queue.InUse())
+	require.Len(t, queue.AdmissionSnapshot(), 3)
+	for _, row := range queue.AdmissionSnapshot() {
+		require.Equal(t, "released", row.State)
 	}
 }
