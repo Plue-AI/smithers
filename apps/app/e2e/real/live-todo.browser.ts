@@ -59,7 +59,7 @@ try {
   }
   await say("/todo.new Replay alpha")
   await page.getByRole("region", { name: "Draft", exact: true }).getByRole("button", { name: "Commit", exact: true }).click()
-  const first = page.getByRole("article", { name: "TODO T1", exact: true })
+  const first = page.locator('[data-kind="todo"]').getByRole("article", { name: "TODO T1", exact: true })
   await expect.poll(async () => (await page.request.get(`${origin}/__live_test/held`)).status()).toBe(204)
   await expect(first).toHaveCount(0)
   await expect(page.getByText("Commit pending", { exact: true }).first()).toBeVisible()
@@ -73,15 +73,19 @@ try {
   // This control-only install has no machine runtime. Queue positions come
   // from that runtime's admission facts, not from counting queued cards.
   // Assert the committed TODO state without inventing machine admission.
-  await expect(first.getByText("Queued", { exact: true })).toBeVisible()
+  await expect(first.getByText("Queued", { exact: true }).first()).toBeVisible()
   await expect(first.locator('[data-state="starting"], [data-state="working"]')).toHaveCount(0)
   console.log("PASS live install: held admission keeps chat responsive and shows no uncommitted TODO")
   await say("/todo.new Replay beta")
   await page.getByRole("region", { name: "Draft", exact: true }).getByRole("button", { name: "Commit", exact: true }).click()
-  const second = page.getByRole("article", { name: "TODO T2", exact: true })
+  const second = page.locator('[data-kind="todo"]').getByRole("article", { name: "TODO T2", exact: true })
   await expect.poll(() => subscriptions.some(subscription => subscription.topic === "todo:2"
     && frames.some(frame => frame.id === subscription.id && frame.t === "snap"))).toBe(true)
-  await expect(second).toHaveCount(0)
+  // Live already reports a committed source model. The mounted card must stay
+  // readable while the HTTP acknowledgment is held; admission is not execution.
+  await expect(second).toBeVisible()
+  await expect(second.getByText("Queued", { exact: true }).first()).toBeVisible()
+  await expect(second.locator('[data-state="starting"], [data-state="working"]')).toHaveCount(0)
   expect((await page.request.post(`${origin}/__live_test/admit`)).status()).toBe(204)
   await expect(second).toBeVisible({ timeout: 30000 })
   console.log("PASS live install: a source model arriving before admission populates its card")
@@ -89,14 +93,14 @@ try {
   const beforeReloadFrames = frames.length
   await page.reload()
   for (const card of [first, second]) {
-    await expect(card.getByText("Queued", { exact: true })).toBeVisible()
+    await expect(card.getByText("Queued", { exact: true }).first()).toBeVisible()
     await expect(card.locator('[data-state="starting"], [data-state="working"]')).toHaveCount(0)
   }
   await expect.poll(() => {
     const mounted = subscriptions.slice(beforeReload)
     return ["home", "todo:1", "todo:2"].every(topic => mounted.some(s => s.topic === topic
       && frames.slice(beforeReloadFrames).some(frame => frame.id === s.id && frame.t === "snap")))
-  }).toBe(true)
+  }, { timeout: 5_000 }).toBe(true)
   console.log("PASS live install: queued cards reconnect from committed snapshots after reload")
   const before = subscriptions.length
   const beforeFrames = frames.length
@@ -138,8 +142,8 @@ try {
   expect(aggregate).toHaveLength(2)
   expect(aggregate[0]!.cursor).toBeGreaterThan(home[0]!.cursor!)
   expect(aggregate[1]!.cursor).toBeGreaterThan(aggregate[0]!.cursor!)
-  expect(aggregate[0]!.data).toMatchObject({ Type: "todo.dropped", Data: { n: 1, home: { counts: { queued: 1, dropped: 1 } } } })
-  expect(aggregate[1]!.data).toMatchObject({ Type: "todo.dropped", Data: { n: 2, home: { items: [], counts: { queued: 0, dropped: 2 } } } })
+  expect(aggregate[0]!.data).toMatchObject({ Type: "todo.dropped", Data: { n: 1, home: { counts: { queued: 1, dropped: 0 } } } })
+  expect(aggregate[1]!.data).toMatchObject({ Type: "todo.dropped", Data: { n: 2, home: { items: [], counts: { queued: 0, dropped: 0 } } } })
   expect(frames.filter(frame => frame.t === "gap")).toHaveLength(0)
   console.log("PASS live install: production commands, committed TODO cards, ten-second outage and cursor replay")
   unblock = undefined

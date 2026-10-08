@@ -26,6 +26,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/ports"
+	"github.com/smithersai/smithers/packages/backend/repository"
 	"github.com/stretchr/testify/require"
 )
 
@@ -108,7 +109,11 @@ func testLiveInstallBrowser(t *testing.T, secrets bool) {
 	t.Setenv("SMITHERS_SERVER_ALLOWED_ORIGINS", origin)
 	runtime := new(liveBrowserAdmissionRuntime)
 	profile := microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, DiskFreeBytes: 400 << 30}
-	api := startSplitProcess(t, Options{ChatHost: liveBrowserChatHost{}, Workspace: runtime, HostProfile: &profile, FlowHostProductAPIURL: origin})
+	engine, err := repository.OpenLocal(repository.Config{StoragePath: t.TempDir(), AuthToken: "live-native", FFILibraryPath: os.Getenv("SMITHERS_FFI_LIBRARY_PATH"), InstallMainMirror: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
+	require.NoError(t, engine.Client().InitRepo(ctx, owner.Username, repo.Name, "main", true))
+	api := startSplitProcess(t, Options{Repository: engine.Client(), ChatHost: liveBrowserChatHost{}, Workspace: runtime, HostProfile: &profile, FlowHostProductAPIURL: origin})
 	t.Cleanup(func() { require.Zero(t, runtime.InUse(), "the control-path journey never boots a VM") })
 	app, err := filepath.Abs("../../../../apps/app")
 	require.NoError(t, err)

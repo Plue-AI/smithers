@@ -11,10 +11,11 @@ import { EntryRow } from "./EntryRow"
 import { CardView } from "./ChatCards"
 import { controllerCardActions } from "./cards/controllerCardActions"
 import { useController } from "./ControllerContext"
+import type { Card } from "./state/AppState"
 import type { SharedConversationSeam } from "./state/seams/SharedConversationSeam"
 
 /** Output only: no tool-call frame can invoke a browser command. */
-export function SharedConversation({ source }: { source: SharedConversationSeam }) {
+export function SharedConversation({ source, localCardIds }: { source: SharedConversationSeam; localCardIds?: ReadonlySet<string> }) {
   const controller = useController()
   const { data: sessions } = useLiveQuery(q => q.from({ session: controller.store.collections.sessions }).select(({ session }) => ({ id: session.id, requests: session.sharedPrompts })))
   const { data: identities } = useLiveQuery(controller.store.collections.identitySessions)
@@ -23,6 +24,12 @@ export function SharedConversation({ source }: { source: SharedConversationSeam 
   const branch = navigation?.owner === owner ? navigation?.selected_branch : "main"
   const requests = (sessions[0]?.requests ?? []).filter(row => row.owner === owner && row.branch === branch && (row.state === "requested" || row.state === "failed"))
   const snapshot = useSyncExternalStore(source.subscribe, source.get, source.get)
+  const sharedCards = new Map<string, Card>()
+  for (const turn of snapshot.conversation?.entries ?? []) {
+    if (!("frames" in turn)) continue
+    for (const frame of turn.frames) if (frame.runId === turn.runId && frame.type === "card") sharedCards.set(frame.card.id, frame.card)
+  }
+  const renderedCards = new Set<string>()
   return <div data-shared-conversation={snapshot.conversation?.id}>
     {snapshot.error ? <FailureNotice role="status" failure={describedFailure("ConversationUnavailable", { fault: "infra", sentence: snapshot.error === "View unavailable" ? "View unavailable" : "Conversation unavailable", actions: [] }, snapshot.error)} /> : null}
     {requests.map(row => <EntryRow key={row.id} kind="prompt" private author={{ kind: "person", login: row.owner, name: row.owner, avatar_url: PlaceholderAvatarUrl, color_index: 0 }} title="" tone={row.state === "failed" ? "failed" : "quiet"} card={<div data-prompt-request={row.id}><Markdown content={row.prompt} />{row.error ? <FailureNotice role="status" failure={describedFailure("PromptUnavailable", { fault: "infra", sentence: "Prompt unavailable", actions: [] }, row.error)} /> : <p role="status">Requested</p>}</div>} onAction={() => {}} />)}
@@ -45,7 +52,9 @@ export function SharedConversation({ source }: { source: SharedConversationSeam 
         </>}
         {frames.flatMap((frame) => {
           if (frame.type !== "card") return []
-          const card = frame.card
+          const card = sharedCards.get(frame.card.id) ?? frame.card
+          if (localCardIds?.has(card.id) || renderedCards.has(card.id)) return []
+          renderedCards.add(card.id)
           return [<MessageScrollerItem style={{ contentVisibility: "visible" }} key={card.id} messageId={card.id}><CardView card={card} worldDocuments={[]} maximized={snapshot.view?.card_view?.[card.id] === "maximized"} {...controllerCardActions(controller, card)} /></MessageScrollerItem>]
         })}
       </div>
