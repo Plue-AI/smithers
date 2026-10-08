@@ -96,6 +96,17 @@ export async function journeyActivate(target: Locator): Promise<void> {
   if (input) await input.activate(target)
   else await pointerDoor(target, () => target.click())
 }
+/** Two physical activations without re-finding a control that the first may
+ * dismiss. The production door must deduplicate; this helper never retries. */
+export async function journeyDoubleActivate(target: Locator): Promise<void> {
+  const input = keyboardInputFor(target.page())
+  if (!input) { await pointerDoor(target, () => target.dblclick()); return }
+  await input.reach(target)
+  await target.page().keyboard.press("Enter")
+  await target.page().keyboard.press("Enter")
+  await input.observe()
+}
+
 export async function journeyReach(target: Locator): Promise<void> {
   const input = keyboardInputFor(target.page())
   if (input) await input.reach(target)

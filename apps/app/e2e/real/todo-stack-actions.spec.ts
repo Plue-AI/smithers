@@ -1,3 +1,5 @@
+import { journeyActivate, journeyDoubleActivate, journeyEnter } from "./support/keyboard-journey-input"
+import type { Locator } from "@playwright/test"
 import { closeComposer, command, reloadApp, test } from "./support"
 import { scenario } from "./coverage/types"
 import { readTodo } from "./support/seed-stack"
@@ -27,24 +29,30 @@ test("C-J4-02 answer, merge next, move up and retry with a steer, all while chat
     const card = (n: number) => page.getByRole("article", { name: `TODO T${n}` }).last()
     const timings: Timing[] = []
     const pressed: Record<string, number> = {}
-    const timed = async (action: string, n: number, path: string, press: () => Promise<void>) => {
+    const timed = async (action: string, n: number, path: string, control: Locator, double = false) => {
+      // Measure the native activation, excluding Tab traversal and capture.
+      await control.evaluate(node => node.addEventListener("click", () => {
+        ;(window as any).__j4ActionPressedAt = Date.now()
+      }, { once: true }))
       const acknowledged = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === path)
-      pressed[action] = Date.now()
-      await press()
-      const response = await acknowledged
-      const ackMs = Date.now() - pressed[action]!
+        .then(response => ({ response, at: Date.now() }))
+      if (double) await journeyDoubleActivate(control)
+      else await journeyActivate(control)
+      const { response, at } = await acknowledged
+      pressed[action] = await page.evaluate(() => (window as any).__j4ActionPressedAt as number)
+      const ackMs = at - pressed[action]!
       const answering = await page.locator('[data-testid="transcript"][aria-busy="true"]').count() > 0
       timings.push({ action, n, ackMs, status: response.status(), ack: await response.json(), body: response.request().postDataJSON(), answering })
     }
     // Step 2: answer T2's question, pressed twice.
     await runSlash(page, `/todo T${t2}`)
-    await card(t2).getByLabel("Answer", { exact: true }).fill(ANSWER)
-    await timed("answer", t2, `/api/todos/${t2}/answer`, () => card(t2).getByRole("button", { name: "Answer", exact: true }).dblclick())
+    await journeyEnter(card(t2).getByLabel("Answer", { exact: true }), ANSWER)
+    await timed("answer", t2, `/api/todos/${t2}/answer`, card(t2).getByRole("button", { name: "Answer", exact: true }), true)
     // Step 3: open T1's card and its evidence, then merge the reviewed head.
     await runSlash(page, `/todo T${t1}`)
     const head = (await readTodo(page, t1)).pr.head
     await expect(card(t1)).toBeVisible()
-    await timed("merge", t1, `/api/todos/${t1}/merge`, () => card(t1).getByRole("button", { name: "Merge", exact: true }).click())
+    await timed("merge", t1, `/api/todos/${t1}/merge`, card(t1).getByRole("button", { name: "Merge", exact: true }))
     // Step 4: move T4 above the stuck T3.
     await runSlash(page, "/stack")
     const moved = await moveUp(page, t4)
@@ -53,8 +61,8 @@ test("C-J4-02 answer, merge next, move up and retry with a steer, all while chat
     // Step 5: retry T3 with the steer, pressed twice.
     await runSlash(page, `/todo T${t3}`)
     const retry = card(t3).locator("form").filter({ has: page.getByRole("button", { name: "Retry", exact: true }) })
-    await retry.getByLabel("Steer", { exact: true }).fill(STEER)
-    await timed("retry", t3, `/api/todos/${t3}`, () => retry.getByRole("button", { name: "Retry", exact: true }).dblclick())
+    await journeyEnter(retry.getByLabel("Steer", { exact: true }), STEER)
+    await timed("retry", t3, `/api/todos/${t3}`, retry.getByRole("button", { name: "Retry", exact: true }), true)
     await attachJson(info, "action-timing", timings)
     expect(timings.map(timing => timing.action)).toEqual(["answer", "merge", "move", "retry"])
     for (const timing of timings) {

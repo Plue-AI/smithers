@@ -165,6 +165,7 @@ describe("the rail's Views at their callback seam", () => {
     click(more)
     expect(host.querySelectorAll(".notice").length).toBe(5)
     expect(host.querySelector(".notice-more")).toBeNull()
+    expect(document.activeElement).toBe(host.querySelector('[aria-label="Hide Notice 4"]'))
     click(host.querySelector('[aria-label="Hide Notice 2"]'))
     expect(views).toEqual([{ toast_hidden: "2" }])
     click(host.querySelector('[data-flow="background.retry"]'))

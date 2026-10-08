@@ -1,3 +1,4 @@
+import { journeyActivate, journeyDoubleActivate } from "../support/keyboard-journey-input"
 import { expect, type Locator, type Page } from "@playwright/test"
 import { marker, seedStack } from "../support/seed-stack"
 
@@ -52,7 +53,7 @@ export const sampleScreen = async (page: Page) => {
   // Expand the existing notification stack so the action receipt remains
   // observable when setup and TODO state notices occupy its first three slots.
   const more = page.locator(".notify .notice-more")
-  if (await more.isVisible()) await more.click()
+  if (await more.isVisible()) await journeyActivate(more)
   return page.evaluate(() => {
     const samples: Sample[] = []
     ;(window as any).__j4Samples = samples
@@ -85,7 +86,7 @@ export type Timing = { action: string; n: number; ackMs: number; status: number;
  * Answers the acknowledgement timing; one move is applied.
  */
 export const moveUp = async (page: Page, t4: number): Promise<Timing> => {
-  await home(page).getByRole("button", { name: `Order ${TITLES[3]}`, exact: true }).click()
+  await journeyActivate(home(page).getByRole("button", { name: `Order ${TITLES[3]}`, exact: true }))
   const item = home(page).getByRole("menu", { name: `Order ${TITLES[3]}` }).getByRole("menuitem", { name: "Move up", exact: true })
   // Playwright actionability waits happen before the person's click. Measure
   // the DOM gesture to the response, excluding that test-driver preparation.
@@ -94,7 +95,7 @@ export const moveUp = async (page: Page, t4: number): Promise<Timing> => {
   }, { once: true }))
   const acknowledged = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === `/api/todos/${t4}`)
     .then(response => ({ response, at: Date.now() }))
-  await item.dblclick()
+  await journeyDoubleActivate(item)
   const { response, at } = await acknowledged
   const clickedAt = await page.evaluate(() => (window as any).__j4MovePressedAt as number)
   const ackMs = at - clickedAt

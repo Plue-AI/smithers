@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test"
 import { chromium } from "@playwright/test"
-import { keyboardJourneyInput, registerKeyboardJourney, journeyActivate, journeyReach, journeyEnter, journeyChecked, journeySelect } from "./keyboard-journey-input"
+import { journeyDoubleActivate, keyboardJourneyInput, registerKeyboardJourney, journeyActivate, journeyReach, journeyEnter, journeyChecked, journeySelect } from "./keyboard-journey-input"
 import { installReleasedHost } from "./release-install"
 
 test("keyboard journey traversal refuses a page outside the declared install", async () => {
@@ -236,5 +236,29 @@ test("terminal journey reaches the input rather than its region and refuses watc
       expect(await page.getByLabel("Chat").inputValue()).toBe("")
     }
     keys.finish()
+  } finally { await browser.close(); server.stop(true) }
+}, 30_000)
+
+// Observe the actual browser keyboard boundary, including a dismissed menu.
+for (const dismiss of [false, true]) test(`double activation uses two physical Enter keys; dismiss=${dismiss}`, async () => {
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(`
+    <style>:root{--ring-border:rgb(12,34,56)}:focus-visible{outline:2px solid var(--ring-border)}</style>
+    <button onclick="const out=document.querySelector('output'); out.value=String(Number(out.value)+1); ${dismiss ? "this.remove()" : ""}">Retry</button>
+    <input aria-label="Chat"><output>0</output>
+  `, { headers: { "Content-Type": "text/html" } }) })
+  const browser = await chromium.launch()
+  try {
+    const page = await browser.newPage(), origin = `http://127.0.0.1:${server.port}`
+    const keys = registerKeyboardJourney(page, origin)
+    await page.goto(origin)
+    const activate = () => journeyDoubleActivate(page.getByRole("button", { name: "Retry", exact: true }))
+    if (dismiss) await expect(activate()).rejects.toThrow("focus is missing")
+    else await activate()
+    expect(await page.locator("output").textContent()).toBe(dismiss ? "1" : "2")
+    expect(await page.getByLabel("Chat").inputValue()).toBe("")
+    // A missing product focus handoff is a refusal, retained in the log.
+    if (dismiss) expect(() => keys.finish()).toThrow("focus is missing")
+    expect(keys.snapshot().inputs.filter(input => input.result === "refused")).toEqual([])
+    if (!dismiss) keys.finish()
   } finally { await browser.close(); server.stop(true) }
 }, 30_000)

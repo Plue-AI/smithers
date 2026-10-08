@@ -273,3 +273,12 @@ branch activity, and ask/answer/late-steer cells from the production run trace.
 Obsolete private run URLs and event/table fields were removed from this path.
 The first-answer race still requires real reference execution; successful
 collection and seeded composed authorization coverage are supplemental only.
+
+J4's shared stack doors now use physical keyboard traversal for notification
+expansion, Order, Answer, Merge and Retry. Duplicate activation sends two Enter
+presses without re-finding a dismissed control; missing focus still refuses the
+pass. Action timings begin at the native activation event, excluding traversal
+and capture. The notification disclosure hands focus to the first revealed
+control once and leaves later keyboard focus intact during projection updates.
+The composed control-only J4 Move proof is supplemental; its fixture flow and
+scripted app answer cannot qualify the reference journey or C-UI-01.

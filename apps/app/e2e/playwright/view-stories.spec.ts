@@ -55,6 +55,7 @@ test("Shell breakpoint and keyboard controls", async ({ page }) => {
     await activate(".notice-more", undefined)
     await expect(page.locator(".notice")).toHaveCount(5)
     await expect(page.locator(".notice-more")).toHaveCount(0)
+    await expect(page.locator(".notice").nth(3).getByRole("button").first()).toBeFocused()
     await activate('[aria-label="Hide Needs you"]', { kind: "view", value: { toast_hidden: "notice-2" } })
     await expect(page.locator(".notice")).toHaveCount(5)
     await expect(timeline.locator("li")).toHaveCount(4)
@@ -91,6 +92,11 @@ test("Shell resize preserves disclosure and reports only breakpoint transitions"
     ])
     await page.locator(".notice-more").press("Enter")
     await expect(page.locator(".notice")).toHaveCount(5)
+    const revealed = page.locator(".notice").nth(3).getByRole("button").first()
+    await expect(revealed).toBeFocused()
+    await page.keyboard.press("Tab")
+    const next = page.locator(".notice").nth(4).getByRole("button").first()
+    await expect(next).toBeFocused()
     const expected = [{ kind: "view", value: { timeline_visible: false } }]
     for (const [width, visible, changed] of [[1180, true, true], [1280, true, false], [1179, false, true], [1100, false, false], [1180, true, true]] as const) {
       await page.setViewportSize({ width, height: 1000 })
@@ -98,6 +104,7 @@ test("Shell resize preserves disclosure and reports only breakpoint transitions"
       await expect(page.locator('[data-edge="above"] .edge-pill')).toBeVisible({ visible: !visible })
       await expect(page.locator(".notice")).toHaveCount(5)
       await expect(page.locator(".notice-more")).toHaveCount(0)
+      await expect(next).toBeFocused()
       if (changed) expected.push({ kind: "view", value: { timeline_visible: visible } })
       await expect.poll(() => page.evaluate(() => Reflect.get(window, "resizeReceipts"))).toEqual(expected)
     }
