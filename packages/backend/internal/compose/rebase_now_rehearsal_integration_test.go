@@ -82,7 +82,39 @@ func (r *rehearsal) rebaseCheckpoint(n int64) error {
 			if card.PR.Number != before.PR.Number || card.PR.Head != pull.Head.SHA || parent != main {
 				return fmt.Errorf("checkpoint PR binding differs: %+v parent=%s main=%s", card.PR, parent, main)
 			}
-			r.actual = fmt.Sprintf("T%d PR #%d %s → %s on %s", n, card.PR.Number, short7(before.PR.Head), short7(card.PR.Head), short7(main))
+			// The preceding explicit press must not lend its requester to this
+			// automatic rewrite. Observe committed activity independently of the
+			// PR, which could otherwise conceal duplicate worker execution.
+			var count int
+			var system, requester string
+			if err = r.pool.QueryRow(r.t.Context(), `SELECT count(*),COALESCE(MAX(data->'actor'->>'id'),''),COALESCE(MAX(data->'by'->>'person'),'')
+ FROM product_job_events WHERE event_type='todo.rebased' AND (data->>'n')::bigint=$1 AND data->>'onto'=$2`, n, main).Scan(&count, &system, &requester); err != nil {
+				return err
+			}
+			if count != 1 || system != "stack" || requester != "" {
+				return fmt.Errorf("checkpoint activity: %d completions, system %q, requester %q", count, system, requester)
+			}
+			if card.Branch == nil {
+				return fmt.Errorf("checkpoint TODO lost its branch")
+			}
+			data, err := r.expect("GET", "/api/branches/"+url.PathEscape(card.Branch.ID), "", 200)
+			if err != nil {
+				return err
+			}
+			var branch struct {
+				Head string `json:"head"`
+			}
+			if err = json.Unmarshal(data, &branch); err != nil {
+				return err
+			}
+			var candidate string
+			if err = r.pool.QueryRow(r.t.Context(), `SELECT candidate_head FROM mythical_items WHERE number=$1 AND source='todo'`, n).Scan(&candidate); err != nil {
+				return err
+			}
+			if branch.Head != candidate {
+				return fmt.Errorf("checkpoint Branch head %s differs from candidate %s", branch.Head, candidate)
+			}
+			r.actual = fmt.Sprintf("T%d PR #%d %s → %s on %s; one system rebase; branch head %s", n, card.PR.Number, short7(before.PR.Head), short7(card.PR.Head), short7(main), short7(branch.Head))
 			return nil
 		}
 		if time.Now().After(deadline) {
