@@ -17,6 +17,39 @@ chunk completed and the state to pass with the next chunk. Both are pure. They
 read no file, clock, network or process, register no importer and publish
 nothing. The reference for every type is [api.md](api.md#externaltranscript).
 
+## Machine side
+
+The bytes a decoder gets are one line of one file, framed in the member's
+machine by `smithers-machined` (spec §9.6.6). No decoder runs there.
+
+```
+member's terminal session        root broker                     daemon (uid 19998)
+┌────────────────────┐ kernel  ┌─────────────────────┐  list   ┌────────────────────┐
+│ codex / claude     │─facts──▶│ discovery           │◀────────│ pump, 4 passes/s   │
+│ (member's uid)     │         │ resolver (owner uid)│ socket  │ one reader/source  │──▶ outbox ──▶ variant 5
+└────────────────────┘         │ reader (owner uid) ─┼────────▶│ checkpoint/source  │
+                               └─────────────────────┘         └────────────────────┘
+```
+
+- **Which process is an agent.** A process in a roster member's own terminal
+  session, with every uid the member's, whose executable is `codex`, `claude`
+  or `claude/versions/<release>`, whose agent home is beneath the member's home
+  (`CODEX_HOME` or `CLAUDE_CONFIG_DIR` is honored only there), and which is
+  linked to exactly one transcript: the rollout a Codex process holds open, or
+  the session a Claude Code process names in `sessions/<pid>.json`. A coding
+  run's session is the factory's and is never read.
+- **Who reads.** Root reads kernel facts about processes and opens no home. A
+  child running as the member answers which file is the transcript and which
+  release wrote it; another tails that one file beneath the member's agent
+  root without following a link. The profile is `<family>/<major.minor>` of
+  that release.
+- **Participants and sources.** A participant is one agent process. A source
+  is one file of that process. `/clear` in Claude Code starts a new source of
+  the same participant. A record's identity is its source, generation and byte
+  range, so a replay after a reconnect or a restart is the same record.
+- **Stopping.** A record the host refuses stops its source for the life of the
+  process. A removed member's readers are killed with their sessions.
+
 ## Host caller
 
 ```
@@ -198,5 +231,13 @@ a tail would. It reaches the network, so it runs only with
   here ran on a maintainer's Mac.
 - A release line outside the lists is refused. Reading a new line means
   capturing a session, adding its `major.minor` and naming any new kinds.
+- The machine side has run on an arm64 Linux kernel with stand-in agent
+  processes, not yet in a microVM with the real CLIs.
+- Claude Code started through a Node launcher is not found: its executable is
+  `node`. The native install is.
+- A line over 1 MiB, an empty line or bytes that are not UTF-8 stop the
+  source in the machine. No entry says so yet; that needs a wire addition.
+- An agent process is a participant of its entries but is not yet in
+  presence; that needs a wire addition too.
 - smithers-38 has not signed off the exports or the §21.1 evidence.
 - No §21.1 benchmark hot path changes: decoding is linear in the bytes given.

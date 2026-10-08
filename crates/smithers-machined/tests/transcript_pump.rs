@@ -534,6 +534,48 @@ fn a_record_that_cannot_be_framed_stops_the_source_after_the_records_before_it()
 }
 
 #[test]
+fn a_truncated_or_replaced_transcript_is_a_new_generation_read_from_its_start() {
+    let fixture = Fixture::new();
+    let path = fixture.dir.join("codex/session.jsonl");
+    fixture.append(CODEX, b"{\"n\":1}\n{\"n\":2}\n");
+    fixture.broker.list(CODEX, false);
+    let mut pump = fixture.pump();
+    until(&mut pump, || fixture.outbox.records().len() == 2);
+    // The agent truncates its file and writes again, shorter than before.
+    fs::write(&path, b"{\"t\":1}\n").unwrap();
+    until(&mut pump, || fixture.outbox.records().len() == 3);
+    assert_eq!(
+        fixture.outbox.records()[2],
+        (CODEX, 2, 0, 8, "{\"t\":1}".to_owned())
+    );
+    // Then replaces it: another file under the same name.
+    let replacement = fixture.dir.join("codex/next.jsonl");
+    fs::write(&replacement, b"{\"r\":1}\n{\"r\":2}\n").unwrap();
+    fs::rename(&replacement, &path).unwrap();
+    until(&mut pump, || fixture.outbox.records().len() == 5);
+    assert_eq!(
+        fixture.outbox.records()[3..],
+        [
+            (CODEX, 3, 0, 8, "{\"r\":1}".to_owned()),
+            (CODEX, 3, 8, 16, "{\"r\":2}".to_owned()),
+        ]
+    );
+    // A daemon restart continues the third generation where it stopped.
+    drop(pump);
+    wait_for(|| fixture.broker.alive(CODEX) == 0);
+    fixture.append(CODEX, b"{\"r\":3}\n");
+    let mut pump = fixture.pump();
+    until(&mut pump, || fixture.outbox.records().len() == 6);
+    assert_eq!(
+        fixture.outbox.records()[5],
+        (CODEX, 3, 16, 24, "{\"r\":3}".to_owned())
+    );
+    // One source throughout: the same lifetime, never a second reader at once.
+    assert_eq!(fixture.broker.started(), [CODEX, CODEX]);
+    assert_eq!(fixture.broker.released(), Vec::<([u8; 16], bool)>::new());
+}
+
+#[test]
 fn a_killed_reader_is_replaced_and_no_record_is_lost_or_repeated() {
     let fixture = Fixture::new();
     fixture.append(CODEX, b"{\"n\":1}\n");
