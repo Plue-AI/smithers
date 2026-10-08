@@ -127,7 +127,11 @@ export const serve = async (adapters: Pick<Options, "fileMutationProvider"> = {}
       todoExecutionDigest: process.env.SMITHERS_FLOW_SOURCE_PINNED === "1"
         ? process.env.SMITHERS_TODO_EXECUTION_DIGEST
         : undefined,
-      sourcePublication: process.env.SMITHERS_CODING_LOCAL_OWNER === "1" ? "local-only" as const : "cloud" as const,
+      // Pinned reviews restore source locally and carry no publishing binding.
+      sourcePublication: process.env.SMITHERS_CODING_LOCAL_OWNER === "1" ||
+          process.env.SMITHERS_FLOW_SOURCE_PINNED === "1" && process.env.SMITHERS_FLOW_SOURCE_LOCAL === "1"
+        ? "local-only" as const
+        : "cloud" as const,
       // Checks export immutable trees with the same packaged helper; the
       // guest's fixed /usr/local/bin path is only its default.
       ...(process.env.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY === undefined

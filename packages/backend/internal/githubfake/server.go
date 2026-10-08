@@ -1130,8 +1130,11 @@ type Pull struct {
 		} `json:"repo"`
 	} `json:"head"`
 	Base struct {
-		Ref string `json:"ref"`
-		SHA string `json:"sha"`
+		Ref  string `json:"ref"`
+		SHA  string `json:"sha"`
+		Repo struct {
+			FullName string `json:"full_name"`
+		} `json:"repo"`
 	} `json:"base"`
 	Labels []Label `json:"labels"`
 }
@@ -1254,6 +1257,7 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 			p.Head.SHA = head
 		}
 		p.Head.Repo.FullName = repo
+		p.Base.Repo.FullName = repo
 		p.Base.Ref = input.Base
 		key := repo + "/" + strconv.FormatInt(number, 10)
 		s.pulls[key] = p
@@ -1460,10 +1464,16 @@ func (s *Server) current(key string) Pull {
 	p := s.pulls[key]
 	p.Labels = labelsOf(s.labels[key])
 	if p.State == "open" {
-		if head, hosted, exists := s.branchHead(p.Repository, p.Head.Ref); hosted && exists && head != p.Head.SHA {
-			p.Head.SHA = head
-			p.UpdatedAt = time.Now().UTC()
-			s.pulls[key] = p
+		if head, hosted, exists := s.branchHead(p.Repository, p.Head.Ref); hosted && exists {
+			if head != p.Head.SHA {
+				p.Head.SHA = head
+				p.UpdatedAt = time.Now().UTC()
+				s.pulls[key] = p
+			}
+			// GitHub also publishes this read-only fetch ref for every PR.
+			// Source retention fetches it independently of the JSON API.
+			dir, _ := s.gitDir(p.Repository)
+			_, _ = s.git(dir, "update-ref", fmt.Sprintf("refs/pull/%d/head", p.Number), head)
 		}
 	}
 	return p

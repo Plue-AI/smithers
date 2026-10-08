@@ -42,7 +42,7 @@ func exerciseReviewMachine(t *testing.T, pool *pgxpool.Pool, service *services.M
 	personProviders := microsandbox.AdmissionProviders{Ready: func(context.Context, microsandbox.AdmissionRequest) error { return nil }, FreeDisk: func(context.Context) (int64, error) { return 140 << 30, nil }}
 	_, err = queue.WaitAdmission(ctx, personProviders, "person", "held", "owner", "terminal")
 	require.NoError(t, err)
-	runtime := &reviewRuntimeContract{queue: queue, head: strings.Repeat("a", 40), loseLaunch: true, failDelete: true}
+	runtime := &reviewRuntimeContract{queue: queue, head: strings.Repeat("a", 40), loseLaunch: true, loseApproval: true, failDelete: true}
 	source := &reviewSourceContract{}
 	machine := &reviewMachine{pool: pool, jobs: store, workspace: runtime, source: source}
 	resolver := &reviewResolverContract{machine: machine, runtime: runtime}
@@ -139,7 +139,10 @@ func exerciseReviewMachine(t *testing.T, pool *pgxpool.Pool, service *services.M
 		}
 	}
 	require.Equal(t, 1, runtime.creates)
-	require.Equal(t, 2, runtime.launches, "lost launch reply reconnects the same application request")
+	require.Equal(t, 4, runtime.launches, "lost launch and approval replies replay the same pinned plan before one run")
+	require.Equal(t, 2, runtime.approvals)
+	require.True(t, runtime.approved)
+	require.Equal(t, int64(2), runtime.launch.Attempt)
 	require.Equal(t, 2, runtime.deletes, "failed retirement must retry")
 	require.Equal(t, 1, runtime.heldOnFailedDelete, "failed deletion retains capacity")
 	require.Equal(t, admission.OperationID, runtime.launch.ApplicationRequestID)
@@ -209,6 +212,8 @@ type reviewRuntimeContract struct {
 	mu                             sync.Mutex
 	head, id                       string
 	exists, loseLaunch, failDelete bool
+	approved, loseApproval         bool
+	approvals                      int
 	creates, launches, deletes     int
 	launch                         flowruntime.Launch
 }
@@ -263,8 +268,34 @@ func (r *reviewRuntimeContract) Launch(_ context.Context, l flowruntime.Launch) 
 		r.loseLaunch = false
 		return flowruntime.LaunchResult{}, errors.New("lost launch reply")
 	}
+	if l.Attempt == 1 {
+		approval := json.RawMessage(`{"target":{"_tag":"Plan","planId":"review-plan","digest":"` + strings.Repeat("e", 64) + `"},"scope":"run"}`)
+		return flowruntime.LaunchResult{ApplicationRequestID: l.ApplicationRequestID, SourceRevision: l.SourceRevision, RuntimeArtifactDigest: l.RuntimeArtifactDigest, OwnerGeneration: l.OwnerGeneration, ExecutionDigest: l.Pin.ExecutionDigest, PlanID: "review-plan", PlanDigest: strings.Repeat("e", 64), Approval: approval, Receipt: flowruntime.Receipt{Tag: "Parked", PlanID: "review-plan", Status: "waiting-approval"}}, nil
+	}
+	if !r.approved {
+		return flowruntime.LaunchResult{}, errors.New("review cannot execute before approval")
+	}
 	return flowruntime.LaunchResult{ApplicationRequestID: l.ApplicationRequestID, SourceRevision: l.SourceRevision, RuntimeArtifactDigest: l.RuntimeArtifactDigest, OwnerGeneration: l.OwnerGeneration, ExecutionDigest: l.Pin.ExecutionDigest, Receipt: flowruntime.Receipt{RunID: "review-engine-run"}}, nil
 }
+func (r *reviewRuntimeContract) Approve(_ context.Context, d flowruntime.Decision) (flowruntime.MutationResult, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.approvals++
+	if d.ApplicationRequestID != r.launch.ApplicationRequestID+":review-plan" || d.OwnerGeneration != r.launch.OwnerGeneration || !strings.Contains(string(d.Approval), strings.Repeat("e", 64)) {
+		return flowruntime.MutationResult{}, errors.New("wrong review approval")
+	}
+	tag := "Accepted"
+	if r.approved {
+		tag = "AlreadyApplied"
+	}
+	r.approved = true
+	if r.loseApproval {
+		r.loseApproval = false
+		return flowruntime.MutationResult{}, errors.New("lost approval reply")
+	}
+	return flowruntime.MutationResult{Operation: "approve", ApplicationRequestID: d.ApplicationRequestID, Receipt: flowruntime.Receipt{Tag: tag}}, nil
+}
+
 func (*reviewRuntimeContract) Observe(context.Context, string, string, int) (flowruntime.Observation, error) {
 	output := `{"review":{"status":"success","ok":true,"comments":[{"path":"cache.ts","content":"Pinned adapter finding","startLine":20,"severity":"major","thinking":"private-thinking-canary"}]},"ui":{"html":"untrusted-html-canary"}}`
 	return flowruntime.Observation{Terminal: true, Run: flowruntime.Run{RunID: "review-engine-run", FlowID: "review", Status: "completed", FinalOutput: &output}}, nil

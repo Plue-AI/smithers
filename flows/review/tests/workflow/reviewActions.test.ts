@@ -205,7 +205,7 @@ test.each(["failed", "completed_with_errors", "completed_with_warnings"] as cons
       }, { executionId: `verify-${crypto.randomUUID()}` }).pipe(Effect.provide(testLayer()))
     )
     expect(result.status).toBe(status)
-    expect(result.warnings[0]!?.message).toContain("sol: provider refused")
+    expect(result.warnings[0]!?.message).toContain("coding/review: provider refused")
   }
 )
 

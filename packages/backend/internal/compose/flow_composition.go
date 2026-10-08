@@ -217,10 +217,18 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	}
 	archive.host = dispatcher
 	var review *reviewMachine
-	if config.IsSingleOwner(cfg.Auth) && options.Workspace.Isolation() == workspace.IsolationSandboxed {
+	reviewWorkspace := options.ReviewWorkspace
+	if reviewWorkspace == nil {
+		reviewWorkspace = options.Workspace
+	}
+	if config.IsSingleOwner(cfg.Auth) && reviewWorkspace.Isolation() == workspace.IsolationSandboxed {
+		reviewLauncher, err := flowhost.NewWorkspaceLauncher(reviewWorkspace)
+		if err != nil {
+			return nil, err
+		}
 		// Bypass the box launcher, repository variables and write credentials.
-		review = &reviewMachine{pool: pool, jobs: store, workspace: options.Workspace}
-		reviewResolver, err := flowhost.New(flowhost.Config{Store: bindings, Targets: review, Launcher: workspaceHosts, Catalogs: catalogs})
+		review = &reviewMachine{pool: pool, jobs: store, workspace: reviewWorkspace}
+		reviewResolver, err := flowhost.New(flowhost.Config{Store: bindings, Targets: review, Launcher: reviewLauncher, Catalogs: catalogs})
 		if err != nil {
 			return nil, err
 		}

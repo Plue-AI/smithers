@@ -77,6 +77,8 @@ func NewRepositorySourceRetentionService(q repositorySourceRetentionStore, jobs 
 	return &RepositorySourceRetentionService{q: q, jobs: jobs, imports: imports, runGit: runSourceRetentionGit, slots: make(chan struct{}, 2)}
 }
 
+var gitHubSourceRetentionPermissions = map[string]string{"contents": "read", "pull_requests": "read"}
+
 var repositorySourceSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
 var repositorySourceName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,100}$`)
 
@@ -175,7 +177,27 @@ func (s *RepositorySourceRetentionService) Retain(ctx context.Context, repoID, u
 	defer cancel()
 	// Reuse the import's exact-source installation/OAuth credentials and its
 	// pre-transfer size limit. No GitHub credential ever reaches the workspace.
-	token, _, _, err := s.imports.githubCloneInfoForRepo(ctx, userID, owner, name)
+	permissions := gitHubImportPermissions
+	if input.Kind == "pull_request" {
+		// Retention verifies the selected PR before and after transfer. A clone's
+		// contents-only token cannot read that API; neither permission writes.
+		permissions = gitHubSourceRetentionPermissions
+	}
+	// The install has one connected repository, owned by its owner. A
+	// member's authorization permits retaining this source, but their sign-in
+	// token is not the install's repository connection or clone credential.
+	readerID := userID
+	if s.imports.installMainMirror {
+		repository, err := s.jobs.authorizedRepo(ctx, repoID, userID, true)
+		if err != nil {
+			return result, err
+		}
+		if !repository.UserID.Valid || repository.UserID.Int64 <= 0 {
+			return result, sourceRetentionError("source_refused")
+		}
+		readerID = repository.UserID.Int64
+	}
+	token, _, _, err := s.imports.githubCloneInfoForRepoWithPermissions(ctx, readerID, owner, name, permissions)
 	if err != nil {
 		var api *pkgerrors.APIError
 		if errors.As(err, &api) && (api.Status == 401 || api.Status == 403 || api.Status == 404) {

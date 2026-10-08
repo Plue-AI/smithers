@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -21,15 +22,16 @@ import (
 )
 
 type retentionTestAuthority struct {
-	denied bool
-	source RepositorySource
+	denied  bool
+	ownerID int64
+	source  RepositorySource
 }
 
 func (a *retentionTestAuthority) authorizedRepo(context.Context, int64, int64, bool) (db.Repository, error) {
 	if a.denied {
 		return db.Repository{}, pkgerrors.Forbidden("write denied")
 	}
-	return db.Repository{ID: 7}, nil
+	return db.Repository{ID: 7, UserID: pgtype.Int8{Int64: a.ownerID, Valid: a.ownerID > 0}}, nil
 }
 func (a *retentionTestAuthority) Source(context.Context, int64, int64) (RepositorySource, error) {
 	return a.source, nil
@@ -67,7 +69,7 @@ func retentionTestFixture(t *testing.T) (*RepositorySourceRetentionService, *ret
 	t.Helper()
 	input := RepositorySourceRetentionInput{WorkspaceID: uuid.NewString(), Kind: "pull_request", Number: 17, Head: strings.Repeat("a", 40), Base: strings.Repeat("b", 40)}
 	q := &retentionTestStore{workspace: db.Workspace{ID: input.WorkspaceID, RepositoryID: 7, UserID: 9, Kind: "vm", Status: "running"}}
-	a := &retentionTestAuthority{source: RepositorySource{Source: "github", FullName: "original/source"}}
+	a := &retentionTestAuthority{ownerID: 9, source: RepositorySource{Source: "github", FullName: "original/source"}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "Bearer private-fixture-credential", r.Header.Get("Authorization"))
 		if r.URL.Path == "/repos/original/source" {
@@ -276,4 +278,43 @@ func TestRepositoryJobsIntegrationSourcePushIdentity(t *testing.T) {
 	require.NoError(t, q.AdmitRepositoryJobEvent(ctx, input))
 	_, err = q.GetRepositorySourcePushEvent(ctx, db.GetRepositorySourcePushEventParams{RepositoryID: input.RepositoryID, DeliveryKey: input.DeliveryKey})
 	require.ErrorIs(t, err, pgx.ErrNoRows)
+}
+
+// PR retention needs both clone and PR API reads; the clone import remains
+// contents-only, and neither token can submit a review or publish a commit.
+func TestSourceRetentionTokenReadsPullRequest(t *testing.T) {
+	s, _, authority, input, _ := retentionTestFixture(t)
+	issuer := &fakeGitHubProxyTokenIssuer{}
+	s.imports.appTokens = issuer
+	s.imports.readAccess = nil
+	// Metadata is public here so it needs no separate private-user read proof.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "Bearer install-token", r.Header.Get("Authorization"))
+		if r.URL.Path == "/repos/original/source" {
+			_, _ = w.Write([]byte(`{"private":false,"size":1,"default_branch":"main"}`))
+			return
+		}
+		require.Equal(t, "/repos/original/source/pulls/17", r.URL.Path)
+		require.Equal(t, map[string]string{"contents": "read", "pull_requests": "read"}, issuer.permissions[len(issuer.permissions)-1])
+		_ = json.NewEncoder(w).Encode(map[string]any{"number": 17, "base": map[string]any{"sha": input.Base, "repo": map[string]string{"full_name": "original/source"}}, "head": map[string]string{"sha": input.Head}})
+	}))
+	defer server.Close()
+	t.Setenv(envGitHubAppAPIBaseURL, server.URL)
+	s.imports.httpClient = server.Client()
+	_, err := s.Retain(context.Background(), 7, 9, input)
+	require.NoError(t, err)
+	require.Equal(t, []map[string]string{{"contents": "read", "pull_requests": "read"}}, issuer.permissions)
+	_, _, _, err = s.imports.githubCloneInfoForRepo(context.Background(), 9, "original", "source")
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{"contents": "read"}, issuer.permissions[1])
+	s.imports.installMainMirror = true
+	authority.ownerID = 1
+	_, err = s.Retain(context.Background(), 7, 9, input)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), issuer.calls[2].userID, "an authorized member uses the install owner's repository connection")
+	require.Equal(t, map[string]string{"contents": "read", "pull_requests": "read"}, issuer.permissions[2])
+	authority.denied = true
+	_, err = s.Retain(context.Background(), 7, 9, input)
+	require.Error(t, err)
+	require.Len(t, issuer.calls, 3, "a refused member gets no owner credential")
 }

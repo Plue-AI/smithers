@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs"
 import { createServer as createHttpServer } from "node:http"
 import { createServer } from "node:net"
 import { test } from "node:test"
-import { CHANGELOG_STEP, GREETING, markersOf, QUESTION, REVIEW_ANSWER, todoAnswer, todoTurn } from "./fake-todo-turns.mjs"
+import { CHANGELOG_STEP, done, GREETING, markersOf, QUESTION, REVIEW_ANSWER, todoAnswer, todoTurn } from "./fake-todo-turns.mjs"
 
 // A turn as the coding host sends it: the step's teaching, then its task.
 const turn = (teaching, payload, ...user) => [
@@ -317,4 +317,17 @@ test("the install wiki reviewer quotes hostile fixture sources without tools", a
   ])
   assert.deepEqual(todoAnswer("support", { type: "choice", criteria: { supports: "yes", contradicts: "no", unrelated: "other" } }), { type: "choice", choice: "supports" })
   assert.equal(todoTurn([{ role: "system", content: teaching }]), undefined)
+})
+
+test("member PR review scripts the cache defect and its verification separately", () => {
+  const reviewed = todoTurn([{ role: "system", content: "You are a precise code reviewer." },
+    { role: "user", content: "src/cache.ts\nentries.length > capacity ? entries.slice(entries.length - capacity - 1) : entries" }])
+  assert.equal(reviewed.step, "review/file")
+  assert.match(reviewed.content, /capacity \+ 1/)
+  assert.match(reviewed.content, /src\/cache.ts/)
+  const unrelated = todoTurn([{ role: "system", content: "You are a precise code reviewer." }, { role: "user", content: "JOURNEY.md" }])
+  assert.equal(unrelated.content, done({ status: "success", comments: [] }))
+  const verified = todoTurn([{ role: "system", content: "You adjudicate code-review findings against the diff they were made on." }])
+  assert.equal(verified.step, "review/verify")
+  assert.match(verified.content, /keep/)
 })

@@ -2453,7 +2453,11 @@ func gitHubImportSizeExceeded(sizeKB, maxMB int64) (bool, int64) {
 }
 
 func (s *GitHubImportService) githubCloneInfoForRepo(ctx context.Context, userID int64, owner, repo string) (string, bool, string, error) {
-	token, account, installation, err := s.githubImportSourceToken(ctx, userID, owner, repo)
+	return s.githubCloneInfoForRepoWithPermissions(ctx, userID, owner, repo, gitHubImportPermissions)
+}
+
+func (s *GitHubImportService) githubCloneInfoForRepoWithPermissions(ctx context.Context, userID int64, owner, repo string, permissions map[string]string) (string, bool, string, error) {
+	token, account, installation, err := s.githubImportSourceToken(ctx, userID, owner, repo, permissions)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return "", false, "", err
 	}
@@ -2534,9 +2538,9 @@ func (s *GitHubImportService) githubCloneInfoForRepo(ctx context.Context, userID
 // a terminal, user-visible error if GitHub hides a private repository with 404.
 // The bool reports an installation token, which proves nothing about the
 // user's own access.
-func (s *GitHubImportService) githubImportSourceToken(ctx context.Context, userID int64, owner, repo string) (string, db.OauthAccount, bool, error) {
+func (s *GitHubImportService) githubImportSourceToken(ctx context.Context, userID int64, owner, repo string, permissions map[string]string) (string, db.OauthAccount, bool, error) {
 	if s.appTokens != nil {
-		installation, err := s.appTokens.CreateGitHubInstallationTokenForUserRepo(ctx, userID, owner, repo, gitHubImportPermissions)
+		installation, err := s.appTokens.CreateGitHubInstallationTokenForUserRepo(ctx, userID, owner, repo, permissions)
 		if err == nil && strings.TrimSpace(installation.Token) != "" {
 			return strings.TrimSpace(installation.Token), db.OauthAccount{}, true, nil
 		}

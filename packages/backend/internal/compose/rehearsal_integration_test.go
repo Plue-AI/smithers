@@ -428,6 +428,9 @@ path = "lib.rs"
 		HostProfile: &microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: 400 << 30, MacOSVersion: "15.6", Hypervisor: true},
 		// A label on GitHub is read within seconds, not the product's 120 s.
 		GitHubIssueEventsEvery: 2 * time.Second}
+	if !realMicroVM && check == "C-J10" && registry != nil && processDaemons != nil {
+		options.ReviewWorkspace = newRehearsalReviewRuntime(t, admittedRuntime, node, rehearsalJJExport(r.root, library), registry.Coding.Executable, r.evidence, buildRehearsalMachined(t, r.root), processDaemons)
+	}
 	if !realMicroVM {
 		options.BranchCapture = rehearsalPublishedCapture{r}
 		options.Machined = processDaemons
@@ -1750,10 +1753,11 @@ func rehearsalBranchMachines(pool *pgxpool.Pool) *services.BranchMachineProvider
 // claiming capacity or isolation evidence. Production uses microsandbox's queue.
 type rehearsalAdmissionRuntime struct {
 	*process.Runtime
-	admissionMu sync.Mutex
-	eligible    map[string]bool
-	released    map[string]bool
-	aliases     map[string]string
+	admissionMu    sync.Mutex
+	eligible       map[string]bool
+	released       map[string]bool
+	aliases        map[string]string
+	reviewRequests map[string]microsandbox.AdmissionRequest
 }
 
 func (r *rehearsalAdmissionRuntime) SyncTodoAdmission(scope string, holders []string, limit int) error {
@@ -1761,6 +1765,11 @@ func (r *rehearsalAdmissionRuntime) SyncTodoAdmission(scope string, holders []st
 	defer r.admissionMu.Unlock()
 	if scope == "" {
 		return errors.New("TODO admission scope unavailable")
+	}
+	for _, request := range r.reviewRequests {
+		if request.State == "granted" {
+			limit--
+		}
 	}
 	r.eligible = map[string]bool{}
 	for i, holder := range holders {

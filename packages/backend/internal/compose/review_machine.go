@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 
 	"github.com/google/uuid"
@@ -104,6 +105,12 @@ func reviewMachineContext(ctx context.Context, operation, action string, a servi
 }
 
 func (m *reviewMachine) Start(ctx context.Context, operation string, a services.ReviewAdmission) (runRef string, startErr error) {
+	defer func() {
+		var refusal *services.TodoControlError
+		if errors.As(startErr, &refusal) {
+			slog.WarnContext(ctx, "review machine refused", "operation", operation, "code", refusal.Code)
+		}
+	}()
 	if err := m.Prepare(ctx, a); err != nil {
 		return "", err
 	}
@@ -204,7 +211,7 @@ func (m *reviewMachine) Start(ctx context.Context, operation string, a services.
 	if head != a.Head {
 		return "", reviewRefusal("review_head_mismatch")
 	}
-	if _, err = m.pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1 AND repository_id=$2 AND user_id=$3`, target.WorkspaceID, a.RepositoryID, a.RequesterID); err != nil {
+	if _, err = m.pool.Exec(ctx, `UPDATE workspaces SET status='running',vm_id=$4 WHERE id=$1 AND repository_id=$2 AND user_id=$3`, target.WorkspaceID, a.RepositoryID, a.RequesterID, current.ID); err != nil {
 		return "", err
 	}
 	host, err := m.resolver.ResolveFlowRuntime(ctx, target)
@@ -219,9 +226,38 @@ func (m *reviewMachine) Start(ctx context.Context, operation string, a services.
 		return "", reviewRefusal("review_source_mismatch")
 	}
 	payload, _ := json.Marshal(map[string]any{"repo": ".", "from": a.Base, "to": a.Head, "verify": true, "narrate": false})
-	result, err := host.Launch(ctx, flowruntime.Launch{ApplicationRequestID: operation, Attempt: 1, OwnerGeneration: identity.OwnerGeneration, RuntimeArtifactDigest: identity.RuntimeArtifactDigest, SourceRevision: a.Pin.SourceCommit, FlowID: "review", Payload: payload, Pin: &a.Pin})
+	launch := flowruntime.Launch{ApplicationRequestID: operation, Attempt: 1, OwnerGeneration: identity.OwnerGeneration, RuntimeArtifactDigest: identity.RuntimeArtifactDigest, SourceRevision: a.Pin.SourceCommit, FlowID: "review", Payload: payload, Pin: &a.Pin}
+	result, err := host.Launch(ctx, launch)
 	if err != nil {
 		return "", err
+	}
+	if result.Receipt.Tag == "Parked" && result.Receipt.Status == "waiting-approval" {
+		// The requesting person authorized this exact pinned review at admission.
+		// Carry that authority through the shared engine, never GitHub approval.
+		var approval struct {
+			Target struct {
+				Tag    string `json:"_tag"`
+				PlanID string `json:"planId"`
+				Digest string `json:"digest"`
+			} `json:"target"`
+			Scope string `json:"scope"`
+		}
+		if result.ApplicationRequestID != operation || result.SourceRevision != a.Pin.SourceCommit || result.RuntimeArtifactDigest != identity.RuntimeArtifactDigest || result.OwnerGeneration != identity.OwnerGeneration || result.ExecutionDigest != a.Pin.ExecutionDigest || result.PlanID == "" || len(result.PlanDigest) != 64 || result.Receipt.PlanID != result.PlanID || json.Unmarshal(result.Approval, &approval) != nil || approval.Target.Tag != "Plan" || approval.Target.PlanID != result.PlanID || approval.Target.Digest != result.PlanDigest || approval.Scope != "run" {
+			return "", reviewRefusal("review_plan_mismatch")
+		}
+		decisionID := operation + ":review-plan"
+		decision, err := host.Approve(ctx, flowruntime.Decision{ApplicationRequestID: decisionID, OwnerGeneration: identity.OwnerGeneration, Approval: result.Approval})
+		if err != nil {
+			return "", err
+		}
+		if decision.ApplicationRequestID != decisionID || decision.Operation != "approve" || (decision.Receipt.Tag != "Accepted" && decision.Receipt.Tag != "AlreadyApplied") {
+			return "", reviewRefusal("review_approval_mismatch")
+		}
+		launch.Attempt = 2
+		result, err = host.Launch(ctx, launch)
+		if err != nil {
+			return "", err
+		}
 	}
 	if result.ApplicationRequestID != operation || result.SourceRevision != a.Pin.SourceCommit || result.RuntimeArtifactDigest != identity.RuntimeArtifactDigest || result.OwnerGeneration != identity.OwnerGeneration || result.ExecutionDigest != a.Pin.ExecutionDigest || result.Receipt.RunID == "" {
 		return "", reviewRefusal("review_launch_mismatch")

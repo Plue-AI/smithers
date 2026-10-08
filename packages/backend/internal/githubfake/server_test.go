@@ -255,6 +255,7 @@ func TestPullDraftLifecycleRequiresScopedInstallation(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &pull))
 	require.True(t, pull.Draft)
 	require.Equal(t, "main", pull.Base.Ref)
+	require.Equal(t, "acme/app", pull.Base.Repo.FullName)
 	for _, tc := range []struct {
 		mutation string
 		draft    bool
@@ -712,6 +713,7 @@ func TestGitPushNeedsInstallationTokenAndPullHeadsFollowTheBranch(t *testing.T) 
 	require.Equal(t, 200, status)
 	require.NoError(t, json.Unmarshal(body, &pull))
 	require.Equal(t, second, pull.Head.SHA, "an open pull request follows its branch")
+	require.Equal(t, second, git("--git-dir", bare, "rev-parse", "refs/pull/1/head"), "the Git fetch ref follows the same PR head")
 	status, body = request(t, server, "GET", "/repos/acme/app/pulls?head=acme:smithers/retry&state=all", access.Token, nil)
 	require.Equal(t, 200, status)
 	var pulls []Pull

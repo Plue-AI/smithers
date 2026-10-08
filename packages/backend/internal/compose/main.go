@@ -240,7 +240,10 @@ type Options struct {
 	RepositoryPlacement    services.RepoPlacementLookup
 	RepositoryProvisioning services.RepositoryProvisioningStore
 	Workspace              workspace.WorkspaceRuntime
-	FlowHostRegistry       *flowmanifest.Registry
+	// ReviewWorkspace optionally supplies a separate isolated execution adapter.
+	// Its admission queue must be shared with Workspace.
+	ReviewWorkspace  workspace.WorkspaceRuntime
+	FlowHostRegistry *flowmanifest.Registry
 	// FlowHostConfig is supplied only by process-runtime integration tests.
 	FlowHostConfig        flowhost.WorkspaceLauncherConfig
 	FlowHostProductAPIURL string
@@ -1657,7 +1660,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		// The read-only pinned review source: the PR head and base retained by
 		// the backend, fetched into the machine with a read-only token beside
 		// the Active review version's source commit.
-		flow.review.source = services.NewReviewSource(queries, options.Workspace, services.NewRepositorySourceRetentionService(queries, repositoryJobService, gitHubImportService), repoHostClient)
+		flow.review.source = services.NewReviewSource(queries, flow.review.workspace.(workspace.WorkspaceExecution), services.NewRepositorySourceRetentionService(queries, repositoryJobService, gitHubImportService), repoHostClient)
 		reviewBackground, err = services.NewReviewBackground(pool, mythicalService, flow.review, reviewConversationDelivery{store: chatService.runtime.Handler.Store, resolve: conversationBranchResolver(workspaceService)})
 		if err != nil {
 			return fmt.Errorf("initialize background reviews: %w", err)

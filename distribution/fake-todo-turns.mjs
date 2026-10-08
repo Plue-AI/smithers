@@ -366,6 +366,20 @@ const conflictPath = /Resolve the conflict in path "([^"]+)"/
 export const todoTurn = (messages, greeting = GREETING) => {
   const system = systemOf(messages)
   const all = messages.map((message) => text(message?.content)).join("\n")
+  // The built-in /review is an ordinary model-backed flow. Script the
+  // committed J10 cache defect, including its independent verification turn.
+  if (system.includes("You are a precise code reviewer.")) {
+    const defect = all.includes("src/cache.ts") && all.includes("entries.slice(entries.length - capacity - 1)")
+    return { step: "review/file", content: done({ status: "success", comments: defect ? [{
+      path: "src/cache.ts", startLine: 2, endLine: 2,
+      content: "Off by one: eviction retains capacity + 1 entries.",
+      existingCode: "entries.length > capacity ? entries.slice(entries.length - capacity - 1) : entries",
+      severity: "major", category: "correctness", confidence: "confirmed"
+    }] : [] }) }
+  }
+  if (system.includes("You adjudicate code-review findings against the diff")) {
+    return { step: "review/verify", content: done({ verdicts: [{ index: 0, verdict: "keep", reason: "The slice starts one entry too early." }] }) }
+  }
   // The install's ordinary wiki check runs before implementation. Its
   // rehearsal pages quote source lines verbatim; answer only that fixture
   // shape, preserving hostile bytes as citation data.

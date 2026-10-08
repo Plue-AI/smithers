@@ -63,8 +63,7 @@ func (r *rehearsal) j10BuiltinReviewActive() {
 
 // j10MemberReview is C-J10-09 S1 step 1: Alice pushes her own branch and opens
 // a PR, and Ben runs /review on it. Admission pins the Active review before it
-// asks for a machine, so a refusal for want of one is the row's next blocker,
-// not a missing review flow.
+// asks for a machine; completion must deliver anchored findings and retire it.
 func (r *rehearsal) j10MemberReview(ben http.CookieJar, repo string) {
 	const memberPR = 901
 	reviewRoute := fmt.Sprintf("git push alice/cache; GitHub fake: Alice's PR #%d → POST /api/reviews as Ben; GET /api/reviews/{id}", memberPR)
@@ -80,78 +79,108 @@ func (r *rehearsal) j10MemberReview(ben http.CookieJar, repo string) {
 	if reviewErr == nil {
 		r.fake.UpdatePull(repo, memberPR, func(p *githubfake.Pull) {
 			p.Repository, p.Number, p.State, p.Title = repo, memberPR, "open", "Bound the cache"
+			p.ID, p.NodeID, p.CreatedAt = memberPR, "PR_review_member", time.Now().UTC()
 			p.User = &githubfake.PullAuthor{ID: 202, Login: "alice", Type: "User"}
 			p.HTMLURL = fmt.Sprintf("https://github.com/%s/pull/%d", repo, memberPR)
 			p.Head.Ref, p.Base.Ref = "alice/cache", "main"
 			p.Head.SHA, p.Base.SHA = reviewHead, reviewBase
+			p.Head.Repo.FullName, p.Base.Repo.FullName = repo, repo
 		})
 		reviewCode, reviewData, reviewErr = r.keyedAs(ben, "POST", "/api/reviews", fmt.Sprintf(`{"number":%d,"conversation":"main"}`, memberPR), r.keyPrefix+"review-member")
 	}
-	if reviewErr == nil && reviewCode == 503 && strings.Contains(string(reviewData), `"code":"review_delivery_unavailable"`) {
-		r.pending("9 /review a teammate's PR", reviewRoute, reviewExpected, "T-FLW-13", "review-machine (503 review_delivery_unavailable: this runtime composes no sandboxed review machine)")
-	} else {
-		r.step("9 /review a teammate's PR", reviewRoute, reviewExpected, "T-FLW-13", func() error {
-			if reviewErr != nil {
-				return reviewErr
-			}
-			if reviewCode != 202 {
-				return fmt.Errorf("HTTP %d %s", reviewCode, reviewData)
-			}
-			shipped, err := builtinReviewDigest()
+	r.step("9 /review a teammate's PR", reviewRoute, reviewExpected, "T-FLW-13", func() error {
+		if reviewErr != nil {
+			return reviewErr
+		}
+		if reviewCode != 202 {
+			return fmt.Errorf("HTTP %d %s", reviewCode, reviewData)
+		}
+		shipped, err := builtinReviewDigest()
+		if err != nil {
+			return err
+		}
+		var admission struct {
+			Head        string `json:"head"`
+			OperationID string `json:"operationId"`
+			Pin         struct {
+				Flow            string `json:"flow"`
+				SourceCommit    string `json:"sourceCommit"`
+				ExecutionDigest string `json:"executionDigest"`
+			} `json:"pin"`
+		}
+		if err := json.Unmarshal(reviewData, &admission); err != nil {
+			return err
+		}
+		if admission.Head != reviewHead || admission.Pin.Flow != "review" || admission.Pin.ExecutionDigest != shipped || len(admission.Pin.SourceCommit) != 40 {
+			return fmt.Errorf("admitted %s", reviewData)
+		}
+		var status struct {
+			State  string          `json:"state"`
+			Change json.RawMessage `json:"change"`
+			Error  string          `json:"error"`
+		}
+		for deadline := time.Now().Add(j10RunWait); status.State != "completed"; time.Sleep(2 * time.Second) {
+			data, err := r.expectAs(ben, "GET", "/api/reviews/"+admission.OperationID, "", 200)
 			if err != nil {
 				return err
 			}
-			var admission struct {
-				Head        string `json:"head"`
-				OperationID string `json:"operationId"`
-				Pin         struct {
-					Flow            string `json:"flow"`
-					SourceCommit    string `json:"sourceCommit"`
-					ExecutionDigest string `json:"executionDigest"`
-				} `json:"pin"`
-			}
-			if err := json.Unmarshal(reviewData, &admission); err != nil {
+			if err := json.Unmarshal(data, &status); err != nil {
 				return err
 			}
-			if admission.Head != reviewHead || admission.Pin.Flow != "review" || admission.Pin.ExecutionDigest != shipped || len(admission.Pin.SourceCommit) != 40 {
-				return fmt.Errorf("admitted %s", reviewData)
+			if status.State == "failed" || status.State == "cancelled" || time.Now().After(deadline) {
+				return fmt.Errorf("review %s: %s %s", admission.OperationID, status.State, status.Error)
 			}
-			var status struct {
-				State  string          `json:"state"`
-				Change json.RawMessage `json:"change"`
-				Error  string          `json:"error"`
+		}
+		if len(status.Change) == 0 || string(status.Change) == "null" {
+			return fmt.Errorf("review %s completed without findings", admission.OperationID)
+		}
+
+		var change struct {
+			Findings []struct {
+				Path     string `json:"path"`
+				Line     int    `json:"line"`
+				Severity string `json:"severity"`
+			} `json:"findings"`
+		}
+		if err := json.Unmarshal(status.Change, &change); err != nil {
+			return err
+		}
+		anchored := false
+		for _, finding := range change.Findings {
+			anchored = anchored || finding.Path == "src/cache.ts" && finding.Line == 2 && finding.Severity == "fix"
+		}
+		if !anchored {
+			return fmt.Errorf("cache finding missing: %s", status.Change)
+		}
+		conversation, err := r.expectAs(ben, "GET", "/api/conversations/main", "", 200)
+		if err != nil {
+			return err
+		}
+		if !strings.Contains(string(conversation), "Off by one") || !strings.Contains(string(conversation), fmt.Sprintf("/pull/%d", memberPR)) {
+			return fmt.Errorf("conversation has no findings and PR link: %s", conversation)
+		}
+		var machines int
+		if err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM workspaces WHERE id=$1`, reviewWorkspaceID(admission.OperationID)).Scan(&machines); err != nil {
+			return err
+		}
+		if machines != 0 {
+			return fmt.Errorf("completed review left its ephemeral machine")
+		}
+		for _, write := range r.fake.Writes()[reviewWrites:] {
+			if strings.Contains(write.Path, fmt.Sprintf("/pulls/%d", memberPR)) || strings.Contains(write.Path, fmt.Sprintf("/issues/%d/", memberPR)) || strings.Contains(write.Path, "/statuses/"+reviewHead) {
+				return fmt.Errorf("the review wrote %s %s", write.Method, write.Path)
 			}
-			for deadline := time.Now().Add(j10RunWait); status.State != "completed"; time.Sleep(2 * time.Second) {
-				data, err := r.expectAs(ben, "GET", "/api/reviews/"+admission.OperationID, "", 200)
-				if err != nil {
-					return err
-				}
-				if err := json.Unmarshal(data, &status); err != nil {
-					return err
-				}
-				if status.State == "failed" || status.State == "cancelled" || time.Now().After(deadline) {
-					return fmt.Errorf("review %s: %s %s", admission.OperationID, status.State, status.Error)
-				}
-			}
-			if len(status.Change) == 0 || string(status.Change) == "null" {
-				return fmt.Errorf("review %s completed without findings", admission.OperationID)
-			}
-			for _, write := range r.fake.Writes()[reviewWrites:] {
-				if strings.Contains(write.Path, fmt.Sprintf("/pulls/%d", memberPR)) || strings.Contains(write.Path, fmt.Sprintf("/issues/%d/", memberPR)) || strings.Contains(write.Path, "/statuses/"+reviewHead) {
-					return fmt.Errorf("the review wrote %s %s", write.Method, write.Path)
-				}
-			}
-			var items int
-			if err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM mythical_items`).Scan(&items); err != nil {
-				return err
-			}
-			if items != reviewItems {
-				return fmt.Errorf("the review left %d stack items, was %d", items, reviewItems)
-			}
-			r.actual = fmt.Sprintf("202 pinned %s… at %s; completed with findings; no GitHub write; no TODO", shipped[:12], reviewHead[:12])
-			return nil
-		})
-	}
+		}
+		var items int
+		if err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM mythical_items`).Scan(&items); err != nil {
+			return err
+		}
+		if items != reviewItems {
+			return fmt.Errorf("the review left %d stack items, was %d", items, reviewItems)
+		}
+		r.actual = fmt.Sprintf("202 pinned %s… at %s; completed with findings; no GitHub write; no TODO", shipped[:12], reviewHead[:12])
+		return nil
+	})
 }
 
 // builtinReviewDigest is the review version the install ships (builtin_flows.json).
@@ -382,6 +411,8 @@ func TestJ10Rehearsal(t *testing.T) {
 		return
 	}
 	r.j10BuiltinReviewActive()
+	// Independent member PR review does not depend on the TODO coding rows.
+	r.j10MemberReview(ben, repo)
 	var t1, t2, pr1, pr2 int64
 	var pull1URL, head2 string
 	if !r.step("1 File T1", "POST /api/todos {issue, issue_digest, fixes}", "202; T1 fixes #I", "T-STK-01, T-STK-09", func() error {
@@ -1099,7 +1130,6 @@ func TestJ10Rehearsal(t *testing.T) {
 		return nil
 	})
 
-	r.j10MemberReview(ben, repo)
 	r.step("9 An outsider's PR gets no machine", "GitHub fake: @outsider's PR #900 → POST /api/reviews {number: 900} as Ben", "refused with class permission; no machine requested", "T-FLW-13", func() error {
 		r.fake.UpdatePull(repo, 900, func(p *githubfake.Pull) {
 			p.Repository, p.Number, p.State, p.Title = repo, 900, "open", "Outsider cache change"

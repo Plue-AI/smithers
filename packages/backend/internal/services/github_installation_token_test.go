@@ -139,7 +139,7 @@ func TestEveryTokenScopeFitsTheManifestGrant(t *testing.T) {
 	require.Error(t, err, "an unknown mutation gets no token")
 	level := map[string]int{"read": 1, "write": 2}
 	for name, permissions := range map[string]map[string]string{
-		"proxy read": gitHubProxyReadPermissions, "proxy merge": merge, "import": gitHubImportPermissions, "listing": gitHubListingPermissions,
+		"proxy read": gitHubProxyReadPermissions, "proxy merge": merge, "import": gitHubImportPermissions, "source retention": gitHubSourceRetentionPermissions, "listing": gitHubListingPermissions,
 		"text": gitHubIssueTextPermissions, "metadata": gitHubRepoMetadataPermissions, "stack": stackGitHubPermissions,
 		"main pull": gitHubMainPullPermissions, "merge": landingGitHubMergePermissions, "push": landingGitHubPushPermissions,
 		"pull": landingGitHubPullPermissions, "mythical": mythicalGitHubAPIPermissions,

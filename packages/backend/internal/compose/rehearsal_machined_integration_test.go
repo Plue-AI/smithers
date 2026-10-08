@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -33,8 +34,8 @@ func (c rehearsalReadyConn) Read(p []byte) (int, error) { return c.reader.Read(p
 // The installed daemon runs unchanged as UID 19998 in an unprivileged mount
 // namespace. Only the broker's empty session census is a fixture. Agent/local
 // writes and personal terminals still require the real guest session broker.
-func startRehearsalMachined(t *testing.T, ctx context.Context, registry *machined.Registry, branch, root, evidence, binary string, item *machined.ItemBinding) (result error) {
-	return startRehearsalMachinedWith(t, ctx, registry, branch, root, evidence, binary, item, nil)
+func startRehearsalMachined(t *testing.T, ctx context.Context, registry *machined.Registry, branch, root, evidence, binary string, item *machined.ItemBinding, retirement ...func(func())) (result error) {
+	return startRehearsalMachinedWith(t, ctx, registry, branch, root, evidence, binary, item, nil, retirement...)
 }
 
 // Retain the guest's private state and authenticated boot across a daemon kill.
@@ -44,7 +45,7 @@ type rehearsalRestart struct {
 	Exited             chan error
 }
 
-func startRehearsalMachinedWith(t *testing.T, ctx context.Context, registry *machined.Registry, branch, root, evidence, binary string, item *machined.ItemBinding, restart *rehearsalRestart) (result error) {
+func startRehearsalMachinedWith(t *testing.T, ctx context.Context, registry *machined.Registry, branch, root, evidence, binary string, item *machined.ItemBinding, restart *rehearsalRestart, retirement ...func(func())) (result error) {
 	t.Helper()
 	if binary == "" {
 		return fmt.Errorf("SMITHERS_REHEARSAL_MACHINED_BINARY must name the rehearsal_daemon example")
@@ -120,7 +121,12 @@ func startRehearsalMachinedWith(t *testing.T, ctx context.Context, registry *mac
 		}
 		done <- err
 	}()
-	t.Cleanup(func() { _ = command.Process.Kill(); <-done; _ = log.Close() })
+	var stopOnce sync.Once
+	stop := func() { stopOnce.Do(func() { _ = command.Process.Kill(); <-done; _ = log.Close() }) }
+	t.Cleanup(stop)
+	for _, register := range retirement {
+		register(stop)
+	}
 	scanner := bufio.NewScanner(stdout)
 	ready := make(chan string, 1)
 	go func() {
