@@ -638,7 +638,12 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 			for _, write := range fake.Writes() {
 				require.False(t, write.Method == "PUT" && strings.HasSuffix(write.Path, "/merge"))
 			}
-			return
+			// Cancellation completes only this request. Start a fresh delegated
+			// request so the same real browser can also authorize the merge.
+			argv[len(argv)-1] = "browser-after-cancellation"
+			code, receipt = invoke(argv...)
+			require.Equal(t, 3, code, receipt)
+			id = receipt["confirmation"].(string)
 		}
 		status := 0
 		require.Empty(t, item().PendingOp)
@@ -696,13 +701,26 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		// Only the required check changes. The failed optional check remains
 		// on the reviewed SHA and cannot prevent the person's approval.
 		fake.SetCheck("rehearsal-owner/app", pull.Head.SHA, "required/unit", "completed", "success")
-		status, receipt = call("POST", "/api/confirmations/"+id+"/approve", "owner-browser-session", "", "person-press", `{}`)
-		require.Equal(t, 202, status, receipt)
-		require.Equal(t, "pending", receipt["state"])
-		version := item().Version
-		status, receipt = call("POST", "/api/confirmations/"+id+"/approve", "owner-browser-session", "", "person-press", `{}`)
-		require.Equal(t, 202, status, receipt)
-		require.Equal(t, version, item().Version)
+		if browserJourney {
+			command := exec.CommandContext(t.Context(), "bun", "e2e/real/catalog-merge-approve.browser.ts")
+			command.Dir = "../../../../apps/app"
+			command.Env = append(os.Environ(), "SMITHERS_CATALOG_ORIGIN="+origin, "SMITHERS_CATALOG_CONFIRMATION="+id)
+			output, err := command.CombinedOutput()
+			t.Log(string(output))
+			require.NoError(t, err)
+			var operation services.MythicalOutboundOp
+			require.NoError(t, json.Unmarshal(item().PendingOp, &operation))
+			require.Equal(t, "merge", operation.Kind, "the keyboard press admits the merge")
+		}
+		if !browserJourney {
+			status, receipt = call("POST", "/api/confirmations/"+id+"/approve", "owner-browser-session", "", "person-press", `{}`)
+			require.Equal(t, 202, status, receipt)
+			require.Equal(t, "pending", receipt["state"])
+			version := item().Version
+			status, receipt = call("POST", "/api/confirmations/"+id+"/approve", "owner-browser-session", "", "person-press", `{}`)
+			require.Equal(t, 202, status, receipt)
+			require.Equal(t, version, item().Version)
+		}
 		status, receipt = call("POST", "/api/confirmations/"+id+"/deny", "owner-browser-session", "", "cancel-in-flight", `{}`)
 		require.Equal(t, 409, status, receipt)
 		require.Equal(t, "merging", receipt["code"])
