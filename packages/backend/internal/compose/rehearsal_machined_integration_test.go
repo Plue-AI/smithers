@@ -34,6 +34,17 @@ func (c rehearsalReadyConn) Read(p []byte) (int, error) { return c.reader.Read(p
 // namespace. Only the broker's empty session census is a fixture. Agent/local
 // writes and personal terminals still require the real guest session broker.
 func startRehearsalMachined(t *testing.T, ctx context.Context, registry *machined.Registry, branch, root, evidence, binary string, item *machined.ItemBinding) (result error) {
+	return startRehearsalMachinedWith(t, ctx, registry, branch, root, evidence, binary, item, nil)
+}
+
+// Retain the guest's private state and authenticated boot across a daemon kill.
+// These options are test-only; the default rehearsal remains a single boot.
+type rehearsalRestart struct {
+	State, Run, KillAt string
+	Exited             chan error
+}
+
+func startRehearsalMachinedWith(t *testing.T, ctx context.Context, registry *machined.Registry, branch, root, evidence, binary string, item *machined.ItemBinding, restart *rehearsalRestart) (result error) {
 	t.Helper()
 	if binary == "" {
 		return fmt.Errorf("SMITHERS_REHEARSAL_MACHINED_BINARY must name the rehearsal_daemon example")
@@ -42,30 +53,46 @@ func startRehearsalMachined(t *testing.T, ctx context.Context, registry *machine
 	if err != nil {
 		return err
 	}
-	state := t.TempDir()
-	run := t.TempDir()
+	state, run := "", ""
+	if restart != nil {
+		state, run = restart.State, restart.Run
+	}
+	if state == "" {
+		state = t.TempDir()
+	}
+	if run == "" {
+		run = t.TempDir()
+	}
 	if err = os.Chmod(state, 0700); err != nil {
 		return err
 	}
 	if err = os.MkdirAll(filepath.Join(run, "machined"), 0700); err != nil {
 		return err
 	}
-	authority, err := registry.MintBoot(branch, branch)
-	if err != nil {
-		return err
-	}
-	bootFile := authority.File(0)
-	if item != nil {
-		bootFile, err = authority.FileForItem(0, *item)
-		if err != nil {
+	bootPath := filepath.Join(run, "machined", "boot")
+	if _, statErr := os.Stat(bootPath); os.IsNotExist(statErr) {
+		authority, mintErr := registry.MintBoot(branch, branch)
+		if mintErr != nil {
+			return mintErr
+		}
+		bootFile := authority.File(0)
+		if item != nil {
+			bootFile, err = authority.FileForItem(0, *item)
+			if err != nil {
+				return err
+			}
+		}
+		if err = os.WriteFile(bootPath, bootFile, 0400); err != nil {
 			return err
 		}
-	}
-	if err = os.WriteFile(filepath.Join(run, "machined", "boot"), bootFile, 0400); err != nil {
-		return err
+	} else if statErr != nil {
+		return statErr
 	}
 	command := exec.Command("bwrap", "--tmpfs", "/", "--ro-bind", "/usr", "/usr", "--ro-bind", "/lib", "/lib", "--ro-bind", "/lib64", "/lib64", "--symlink", "usr/bin", "/bin", "--ro-bind", "/etc", "/etc", "--proc", "/proc", "--dev", "/dev", "--ro-bind", binary, binary, "--unshare-user", "--uid", "19998", "--gid", "19998", "--die-with-parent", "--bind", root, root, "--bind", root, "/workspace", "--tmpfs", "/var/lib", "--bind", state, "/var/lib/smithers-machined", "--tmpfs", "/run", "--bind", run, "/run/smithers", "--chdir", "/workspace", "--", binary)
 	command.Env = []string{"PATH=/usr/bin:/bin", "LANG=C.UTF-8"}
+	if restart != nil && restart.KillAt != "" {
+		command.Env = append(command.Env, "SMITHERS_MACHINED_KILL_AT="+restart.KillAt)
+	}
 	stdout, err := command.StdoutPipe()
 	if err != nil {
 		return err
@@ -86,7 +113,13 @@ func startRehearsalMachined(t *testing.T, ctx context.Context, registry *machine
 		return err
 	}
 	done := make(chan error, 1)
-	go func() { done <- command.Wait() }()
+	go func() {
+		err := command.Wait()
+		if restart != nil && restart.Exited != nil {
+			restart.Exited <- err
+		}
+		done <- err
+	}()
 	t.Cleanup(func() { _ = command.Process.Kill(); <-done; _ = log.Close() })
 	scanner := bufio.NewScanner(stdout)
 	ready := make(chan string, 1)

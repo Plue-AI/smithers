@@ -5,6 +5,11 @@ import { authenticatedTest as test } from "./auth-permissions/profile"
 import { scenario } from "./coverage/types"
 import { awaitBoot, command, expect, realApi } from "./support/test"
 
+import { gatewayCall } from "./flow-execution/production"
+import { openTodo, todoCard } from "./todo/reference"
+import { journeyEnter, journeyActivate } from "./support/keyboard-journey-input"
+import { outsideAwareness, outsideEvents, type OutsideJournalRow } from "./support/outside-awareness"
+
 const execute = promisify(execFile)
 // Provisioned reference canary: T2, twelve src files (retry/deliver/a included),
 // Maya's SSH key/session, and Ben's signed-in browser. All writes run in the guest.
@@ -99,4 +104,64 @@ test("C-J3-03 reference: two busy member sessions produce outside attribution", 
     expect(entries[0]!.files.map(file => file.path)).toEqual(["src/a.ts"])
     await info.attach("overlap", { body: JSON.stringify(entries), contentType: "application/json" })
   } finally { await ben }
+})
+
+
+test("C-J3-03 reference: outside note precedes the resumed agent's tools and fresh read", scenario("branch.outside-change-agent-awareness", {
+  capabilities: ["install", "ssh"],
+  coverage: ["action:todo.answer", "door:button", "path:success", "evidence:outside-note-before-tool", "evidence:outside-fresh-read", "host:local"]
+}), async ({ page, request }, info) => {
+  test.setTimeout(960_000)
+  const branch = process.env.SMITHERS_OUTSIDE_BRANCH
+  const repo = process.env.SMITHERS_OUTSIDE_REPOSITORY
+  const answer = process.env.SMITHERS_OUTSIDE_ANSWER
+  if (!branch || !repo || !answer) throw new Error("Provision paused T2 and set SMITHERS_OUTSIDE_BRANCH, SMITHERS_OUTSIDE_REPOSITORY and SMITHERS_OUTSIDE_ANSWER")
+  await page.goto("/"); await awaitBoot(page)
+  const todoResponse = await realApi(page, request, "GET", "/api/todos/2")
+  expect(todoResponse.status()).toBe(200)
+  const todo = await todoResponse.json() as { state: string; run: { id: string }; branch: { id: string }; waits: { kind: string; id: string }[] }
+  expect(todo.state).toBe("needs_you")
+  expect(todo.branch.id).toBe(branch)
+  expect(todo.waits.filter(wait => wait.kind === "question")).toHaveLength(1)
+  const journal = async () => {
+    const result = await gatewayCall(page, request, repo, "Projection.Snapshot", { selector: { _tag: "run-events", runId: todo.run.id } }, branch)
+    const rows = (result.payload as { rows: OutsideJournalRow[] }).rows
+    expect(Array.isArray(rows)).toBe(true)
+    return rows
+  }
+  const initial = await journal()
+  const initialEvents = outsideEvents(initial)
+  expect(initialEvents.some(row => {
+    const payload = row.payload as { callId?: string; flowName?: string; input?: { path?: string } }
+    return row.kind === "control.agent.cell-call-started" && payload.flowName === "read" && ["src/retry.ts", "/workspace/src/retry.ts"].includes(payload.input?.path ?? "") && initialEvents.some(result => {
+      const receipt = result.payload as { callId?: string; outcome?: string }
+      return result.kind === "control.agent.cell-call-settled" && receipt.callId === payload.callId && receipt.outcome === "success"
+    })
+  })).toBe(true)
+  const after = Math.max(0, ...initial.map(row => row.sequence))
+  // Keep the canary digest different from the agent's pre-question read, even
+  // when the preceding Restore returned it to its original bytes.
+  const activity = async (): Promise<Entry[]> => {
+    const response = await realApi(page, request, "GET", `/api/branches/${encodeURIComponent(branch)}/activity`)
+    expect(response.status()).toBe(200)
+    return await response.json() as Entry[]
+  }
+  const before = new Set((await activity()).map(entry => entry.id))
+  await ssh("printf '\\n// outside awareness\\n' >> src/retry.ts")
+  await expect.poll(async () => (await activity()).some(entry => !before.has(entry.id) && entry.actor.login === "maya" && entry.actor.via === "ssh" && entry.files.some(file => file.path === "src/retry.ts")), { timeout: 10_000 }).toBe(true)
+  await openTodo(page, 2)
+  const card = todoCard(page, 2)
+  await journeyEnter(card.getByRole("textbox"), answer)
+  await journeyActivate(card.getByRole("button", { name: "Answer", exact: true }))
+  let rows: OutsideJournalRow[] = []
+  let receipt: ReturnType<typeof outsideAwareness>
+  try {
+    await expect.poll(async () => {
+      rows = await journal()
+      receipt = outsideAwareness(rows, after, "src/retry.ts", "Maya", ["src/retry.ts"])
+      return receipt !== undefined
+    }, { timeout: 900_000, intervals: [500, 1000, 2000] }).toBe(true)
+  } finally {
+    await info.attach("outside-agent-run-trace", { body: JSON.stringify({ run: todo.run.id, after, receipt, rows }), contentType: "application/json" })
+  }
 })

@@ -1,0 +1,254 @@
+package compose
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/identity"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
+	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
+	"github.com/smithersai/smithers/packages/backend/internal/repohostserver"
+	"github.com/smithersai/smithers/packages/backend/internal/routes"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/stretchr/testify/require"
+)
+
+// Real installed watcher, native versions/capture, durable outbox, bundle
+// transport, host store, PostgreSQL and sleeping HTTP diff. The rehearsal broker
+// has an empty census: this qualifies outside-write daemon recovery only, not
+// C-DUR-04's member cgroup, init supervision, host-kill or VM-kill acceptance.
+func TestOutsideWatcherDaemonFaultRecovery(t *testing.T) {
+	binary := os.Getenv("SMITHERS_REHEARSAL_MACHINED_FAULT_BINARY")
+	if binary == "" {
+		t.Skip("requires rehearsal_daemon built with --features killpoints")
+	}
+	for _, point := range []string{"K1", "K2", "K3", "K3b", "K5a", "K5b", "K5c"} {
+		t.Run(point, func(t *testing.T) {
+			for run := 1; run <= 10; run++ {
+				t.Run(fmt.Sprint(run), func(t *testing.T) { outsideWatcherDaemonFault(t, binary, point) })
+			}
+		})
+	}
+}
+
+func outsideWatcherDaemonFault(t *testing.T, binary, point string) {
+	f := presenceInstall(t, true)
+	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+	defer cancel()
+	_, err := f.pool.Exec(ctx, `UPDATE workspaces SET vm_id='machine' WHERE id=$1`, f.row.ID)
+	require.NoError(t, err)
+	native := repohostffi.New(os.Getenv("SMITHERS_FFI_LIBRARY_PATH"))
+	require.NoError(t, native.Load())
+	cfg := repohostserver.Config{StoragePath: t.TempDir(), AuthToken: "outside-fault"}
+	repo := cfg.RepoPath("presence-owner", "app")
+	_, err = native.InitRepo(repo)
+	require.NoError(t, err)
+	store := filepath.Join(repo, ".jj", "repo", "store", "git")
+	server, err := repohostserver.NewWithFFI(cfg, native)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
+	client := repohost.NewLocalClient(server.Handler(), cfg.AuthToken)
+	client.BindMachineRepository(server.WithMachineRepository)
+	registry := new(machined.Registry)
+	registry.BindObjectImporter(machined.GitBundleImporter(func(_ context.Context, branch string) (string, error) {
+		if branch != f.row.ID {
+			return "", machined.ErrUnauthorized
+		}
+		return store, nil
+	}))
+	t.Cleanup(func() { require.NoError(t, registry.Close()) })
+	stop, err := bindMachineEvents(ctx, registry, f.pool, client, nil, nil)
+	require.NoError(t, err)
+	t.Cleanup(stop)
+	root := t.TempDir()
+	jj, err := rehearsalJJBinary(os.Getenv("PATH"))
+	require.NoError(t, err)
+	output, err := exec.Command(jj, "git", "init", root).CombinedOutput()
+	require.NoError(t, err, string(output))
+	headCommand := exec.Command(jj, "log", "-r", "@", "--no-graph", "-T", "commit_id")
+	headCommand.Dir = root
+	head, err := headCommand.Output()
+	require.NoError(t, err)
+	seed := strings.TrimSpace(string(head))
+	seedRef := "refs/smithers/fixture/seed"
+	bundle := filepath.Join(t.TempDir(), "seed.bundle")
+	for _, argv := range [][]string{
+		{"-C", root, "update-ref", seedRef, seed},
+		{"-C", root, "bundle", "create", bundle, seedRef},
+		{"-C", store, "fetch", "--no-tags", bundle, seedRef + ":refs/smithers/branches/" + f.row.ID + "/head"},
+	} {
+		output, err = exec.Command("/usr/bin/git", argv...).CombinedOutput()
+		require.NoError(t, err, string(output))
+	}
+	_, err = f.pool.Exec(ctx, `UPDATE workspaces SET source_commit=$2,head_commit_id=$2 WHERE id=$1`, f.row.ID, seed)
+	require.NoError(t, err)
+	evidence := t.TempDir()
+	if directory := os.Getenv("SMITHERS_REHEARSAL_FAULT_EVIDENCE"); directory != "" {
+		require.True(t, filepath.IsAbs(directory), "evidence directory must be absolute")
+		evidence = filepath.Join(directory, point, filepath.Base(t.Name()))
+		require.NoError(t, os.MkdirAll(evidence, 0700))
+	}
+	writeEvidence := func(name string, value any) {
+		t.Helper()
+		data, err := json.MarshalIndent(value, "", "  ")
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(evidence, name), data, 0600))
+	}
+	writeEvidence("env.json", map[string]any{"commit": os.Getenv("SMITHERS_REHEARSAL_COMMIT"), "point": point, "run": t.Name(), "scope": "outside-daemon-recovery", "broker": "empty-census", "guest_init": false, "vm": false, "head_before": seed})
+	restart := &rehearsalRestart{State: t.TempDir(), Run: t.TempDir(), KillAt: point, Exited: make(chan error, 1)}
+	require.NoError(t, startRehearsalMachinedWith(t, ctx, registry, f.row.ID, root, evidence, binary, &machined.ItemBinding{}, restart))
+	// Independent acknowledged-write oracle: log only after fsync and close.
+	writer, err := os.Create(filepath.Join(evidence, "writer.jsonl"))
+	require.NoError(t, err)
+	expected := map[string]string{}
+	for n := 0; n < 20; n++ {
+		path := fmt.Sprintf("acknowledged-%02d.ts", n)
+		content := fmt.Sprintf("// acknowledged write %02d at %s\n", n, point)
+		file, err := os.Create(filepath.Join(root, path))
+		require.NoError(t, err)
+		_, err = file.WriteString(content)
+		require.NoError(t, err)
+		require.NoError(t, file.Sync())
+		require.NoError(t, file.Close())
+		hash := sha256.Sum256([]byte(content))
+		expected[path] = content
+		require.NoError(t, json.NewEncoder(writer).Encode(map[string]any{"seq": n, "path": path, "sha256": hex.EncodeToString(hash[:])}))
+	}
+	require.NoError(t, writer.Sync())
+	require.NoError(t, writer.Close())
+	if strings.HasPrefix(point, "K5") {
+		require.Eventually(t, func() bool {
+			var n int
+			err := f.pool.QueryRow(ctx, `SELECT count(*) FROM burst_files`).Scan(&n)
+			return err == nil && n == 20
+		}, 20*time.Second, 50*time.Millisecond)
+		// Capture invokes the actual native snapshot/object stream/captured event.
+		_, _ = registry.Capture(ctx, f.row.ID)
+	}
+	select {
+	case err := <-restart.Exited:
+		var exit *exec.ExitError
+		require.ErrorAs(t, err, &exit)
+		require.Equal(t, 73, exit.ExitCode(), "must reach the compiled kill hook")
+	case <-time.After(30 * time.Second):
+		t.Fatal("daemon did not reach " + point)
+	}
+	// Retain the exact durable records at the kill, before replay changes them.
+	killedEntries, err := os.ReadDir(filepath.Join(restart.State, "outbox"))
+	require.NoError(t, err)
+	var outboxNames []string
+	for _, entry := range killedEntries {
+		if strings.HasSuffix(entry.Name(), ".ev") {
+			data, err := os.ReadFile(filepath.Join(restart.State, "outbox", entry.Name()))
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(filepath.Join(evidence, "killed-"+entry.Name()), data, 0600))
+			outboxNames = append(outboxNames, entry.Name())
+		}
+	}
+	writeEvidence("outbox-at-kill.json", outboxNames)
+	// Reconnect the same boot with the original private outbox/checkpoint files.
+	// Guest init/VM supervision is deliberately not claimed by this Linux test.
+	require.NoError(t, os.Remove(filepath.Join(restart.Run, "machined.sock")))
+	restart.KillAt = ""
+	restart.Exited = nil
+	require.NoError(t, startRehearsalMachinedWith(t, ctx, registry, f.row.ID, root, evidence, binary, &machined.ItemBinding{}, restart))
+	require.Eventually(t, func() bool {
+		var n int
+		err := f.pool.QueryRow(ctx, `SELECT count(*) FROM burst_files`).Scan(&n)
+		return err == nil && n == 20
+	}, 20*time.Second, 50*time.Millisecond)
+	var capture machined.CaptureResult
+	require.Eventually(t, func() bool {
+		capture, err = registry.Capture(ctx, f.row.ID)
+		if errors.Is(err, machined.ErrNotReady) {
+			return false
+		}
+		require.NoError(t, err)
+		return true
+	}, 20*time.Second, 50*time.Millisecond)
+	hashes := map[string]string{}
+	for path, content := range expected {
+		disk, err := os.ReadFile(filepath.Join(root, path))
+		require.NoError(t, err)
+		require.Equal(t, content, string(disk))
+		captured, err := exec.Command("/usr/bin/git", "-C", store, "show", capture.Head+":"+path).CombinedOutput()
+		require.NoError(t, err, string(captured))
+		require.Equal(t, content, string(captured))
+		var n int
+		var digest string
+		require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*),min(post_digest) FROM burst_files WHERE path=$1`, path).Scan(&n, &digest))
+		require.Equal(t, 1, n, "one durable file row per acknowledged path")
+		hash := sha256.Sum256([]byte(content))
+		require.Equal(t, hex.EncodeToString(hash[:]), digest)
+		hashes[path] = digest
+	}
+	writeEvidence("working-copy-hashes.json", hashes)
+	writeEvidence("head-after.json", map[string]string{"head": capture.Head})
+	for _, table := range []string{"product_job_events", "burst_files", "machine_event_receipts"} {
+		var data []byte
+		require.NoError(t, f.pool.QueryRow(ctx, "SELECT COALESCE(json_agg(row_to_json(r)), '[]'::json) FROM "+table+" r").Scan(&data))
+		require.NoError(t, os.WriteFile(filepath.Join(evidence, table+".json"), data, 0600))
+	}
+	remaining, err := os.ReadDir(filepath.Join(restart.State, "outbox"))
+	require.NoError(t, err)
+	for _, entry := range remaining {
+		require.False(t, strings.HasSuffix(entry.Name(), ".ev"), "outbox must drain")
+	}
+	var duplicate int
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM (SELECT data->>'id' FROM product_job_events WHERE event_type='branch.burst' GROUP BY data->>'id' HAVING count(*)>1) d`).Scan(&duplicate))
+	require.Zero(t, duplicate)
+	// Close the machine; a person must still be able to open every exact diff.
+	require.NoError(t, registry.Close())
+	_, err = f.pool.Exec(ctx, `UPDATE workspaces SET status='stopped' WHERE id=$1`, f.row.ID)
+	require.NoError(t, err)
+	q := db.New(f.pool)
+	workspace := services.NewWorkspaceService(q, services.WithWorkspaceTransactions(f.pool), services.WithWorkspaceInstallAuthorization(q), services.WithBranchMachineProviders(services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), nil)), services.WithWorkspaceBurstVersions(f.pool, client))
+	install := testConfigAllFlagsOn()
+	install.Auth.Mode = "selfhost"
+	install.Auth.SessionCookieName = "session"
+	install.Server.PublicURL = f.origin
+	install.Server.AllowedOrigins = []string{f.origin}
+	router := githubAppSetupComposeRouter(install, f.pool, nil, &routes.WorkspaceHandler{Service: workspace})
+	rows, err := f.pool.Query(ctx, `SELECT data->>'id' FROM product_job_events WHERE event_type='branch.burst' ORDER BY sequence`)
+	require.NoError(t, err)
+	var entries []string
+	for rows.Next() {
+		var id string
+		require.NoError(t, rows.Scan(&id))
+		entries = append(entries, id)
+	}
+	require.NoError(t, rows.Err())
+	rows.Close()
+	seen := map[string]bool{}
+	for _, entry := range entries {
+		req := httptest.NewRequest("GET", f.origin+"/api/branches/"+f.row.ID+"/diff?entry="+entry, nil)
+		req.AddCookie(&http.Cookie{Name: "session", Value: f.cookie})
+		req.RemoteAddr = "127.0.0.1:61000"
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		require.Equal(t, 200, rec.Code, rec.Body.String())
+		var diff services.BranchDiff
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &diff))
+		for _, file := range diff.Files {
+			require.False(t, seen[file.Path])
+			seen[file.Path] = true
+			require.Equal(t, []services.BranchDiffHunk{{OldStart: 0, NewStart: 1, Lines: []services.BranchDiffLine{{Op: "+", Text: strings.TrimSuffix(expected[file.Path], "\n")}}}}, file.Hunks)
+		}
+	}
+	require.Len(t, seen, 20)
+	t.Logf("point=%s acknowledged=20 durable_files=20 sleeping_http_files=20 capture=%s scope=outside-daemon-recovery", point, capture.Head)
+}
