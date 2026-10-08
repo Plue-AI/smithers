@@ -11,6 +11,45 @@ import (
 	"time"
 )
 
+func TestFlowLoadLargeResultComposedInstall(t *testing.T) {
+	t.Setenv("SMITHERS_FEATURE_FLAGS_FLOW_LOAD", "true")
+	r := newRehearsal(t, "SMITHERS_FLOW_LOAD_REHEARSAL", "C-STK-06-large-result", "large-flow-")
+	if !r.install("Install through Machine ready") {
+		return
+	}
+	const source = `import { Flow, Sleep } from "@smthrs/flow"
+import { Node } from "@smthrs/plan"
+import { Schema } from "effect"
+export default Flow.make("todo", {
+ description: "A large inspected repository flow", capabilities: [], modelInvocable: false,
+ effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "sealed" },
+ payload: Schema.Struct({}), success: Schema.Void, error: Sleep.SleepRequestInvalid,
+ body: () => Node.all(Object.fromEntries(Array.from({ length: 1030 }, (_, i) =>
+   ["step" + i, Sleep.action.call({ until: i + 1 })]
+ ))).pipe(Node.andThen(Sleep.action.call({ millis: 3600000 })))
+})
+`
+	r.step("Large typed load result activates", "GitHub main sync; GET /api/flows", "the exact large root result activates the repository version", "T-FLW-11", func() error {
+		commit, digest := activateWatchdogOverride(t, r, source)
+		var result []byte
+		var loaded string
+		if err := r.pool.QueryRow(r.ctx, `SELECT versions,loaded_commit FROM flow_loads WHERE commit_id=$1 AND state='idle'`, commit).Scan(&result, &loaded); err != nil {
+			return err
+		}
+		var output []struct{ Name, Digest, Status string }
+		if err := json.Unmarshal(result, &output); err != nil {
+			return err
+		}
+		if len(result) <= 16384 || loaded != commit || len(output) != 1 ||
+			output[0].Name != "todo" || output[0].Digest != digest || output[0].Status != "loaded" ||
+			!strings.Contains(string(result), "step1029") {
+			return fmt.Errorf("large result was lost or changed: bytes=%d commit=%s flows=%d", len(result), loaded, len(output))
+		}
+		r.actual = "the complete large result and final step reach Active through the install router"
+		return nil
+	})
+}
+
 // This isolates T-FLW-03's real guest load and HTTP activation boundary from
 // J5's TODO editing, attempt recovery and delivery dependencies. It composes
 // the packaged host and native helper, not a fake loader. Process-mode evidence

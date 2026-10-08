@@ -43,6 +43,7 @@ import * as GatewayProjection from "./GatewayProjection.ts"
 import * as GatewaySchema from "./GatewaySchema.ts"
 import { callEventKey, nativeCallEvent, nativeStepEvent } from "./internal/callEvents.ts"
 import { retainedDigestBytes } from "./internal/digestMemory.ts"
+import * as NativeResolution from "./internal/nativeResolution.ts"
 
 /**
  * How often an idle subscription emits a keepalive frame.
@@ -406,7 +407,19 @@ const appendEvent = (
     // A payload larger than one projection reads is clipped before it is
     // measured, so a journaled model body costs the window its own size and
     // not the body's.
-    const event = retainedEvent(decoded)
+    // A bound root's typed answer must remain exact across event clipping.
+    // Retain it in the same bounded digest as evicted root decisions; the
+    // event window carries only a marker, never a partial typed answer.
+    const resolution = encodedSize(decoded) > maxEventBytes ? NativeResolution.fromEvent(decoded) : undefined
+    let carry = state.carry
+    if (resolution?.result !== undefined) {
+      carry = Diagnosis.combine(carry ?? Diagnosis.emptyDigest(), {
+        ...Diagnosis.emptyDigest(), nativeResolution: resolution
+      })
+    }
+    const event = resolution?.result === undefined ? retainedEvent(decoded) : {
+      ...decoded, payload: { truncated: true, encodedBytes: encodedSize(decoded.payload) }
+    }
     // `decodedEvent` has already rebuilt payload through `Schema.Json`, so it
     // contains neither accessors nor `toJSON` hooks and JSON encoding cannot
     // execute caller code here.
@@ -450,6 +463,7 @@ const appendEvent = (
       }
     } else if (state.compactHealth && event.kind === "control.monitor.beat") keep = false
     let encodedBytes = Math.max(2, state.encodedBytes - removedBytes) +
+      retainedDigestBytes(carry) - retainedDigestBytes(state.carry) +
       (keep ? bytes + (state.events.length === 0 ? 0 : 1) : 0)
     // Unreachable today: every term is a byte length, `state.encodedBytes` is
     // bounded by `maxProjectionBytes` by the loop below, and one event is
@@ -467,7 +481,6 @@ const appendEvent = (
     // Event bodies may leave the window while compact identity contributions
     // keep the diagnosis exact. Both share the byte budget; if even the scalar
     // state cannot fit, refuse instead of silently forgetting identities.
-    let carry = state.carry
     let dropped = state.dropped
     while (state.events.length > maxEventsPerRun || encodedBytes > maxProjectionBytes) {
       const evicted = state.events.shift()

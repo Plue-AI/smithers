@@ -327,6 +327,34 @@ describe("Projections read-path failures", () => {
 })
 
 describe("Projections resource bounds", () => {
+  it.effect("retains exact large bound root answers while clipping event bodies and refusing oversized carry", () =>
+    Effect.gen(function*() {
+      const binding = event(1, "control.engine.bound", { version: 1, controlRunId: run.runId, executionId: "root" })
+      const completion = (value: unknown) => event(2, "control.engine.event", {
+        version: 1, executionId: "root", generation: 0, sequence: 10,
+        eventType: "flows.engine.run-decision", payload: {
+          decision: "transitioned", status: "completed",
+          executionFact: { version: 1, baseline: "created", observation: { executionId: "root", flowName: "agent/run", status: "completed" } },
+          state: { version: 1, flowName: "agent/run", payload: { runId: run.runId, planId: "plan-1" },
+            result: { _tag: "Complete", exit: { _tag: "Success", value } } }
+        }
+      })
+      const read = (events: ReadonlyArray<ControlEvent>) => make(control({
+        list: () => Effect.succeed({ _tag: "runs", items: [{ ...run, status: "completed" }] }),
+        watch: () => Stream.fromIterable(events)
+      })).snapshot({ _tag: "run-summary", runId: run.runId })
+      for (const value of ["x".repeat(32_000), { flows: Array.from({ length: 1030 }, (_, n) => ({ id: n, label: "step".repeat(40) })) }]) {
+        const snapshot = yield* read([binding, completion(value)])
+        expect(snapshot.rows[0]).toMatchObject({ finalOutput: typeof value === "string" ? value : JSON.stringify(value) })
+        const unbound = yield* read([completion(value)])
+        expect(unbound.rows[0]).not.toHaveProperty("finalOutput")
+        const wrong = yield* read([event(1, "control.engine.bound", { version: 1, controlRunId: run.runId, executionId: "other" }), completion(value)])
+        expect(wrong.rows[0]).not.toHaveProperty("finalOutput")
+      }
+      const refused = yield* read([binding, completion("x".repeat(Projections.maxProjectionBytes + 1))]).pipe(Effect.flip)
+      expect(refused.code).toBe("resource_limit")
+    }))
+
   it.effect(
     "stops reading at the scan ceiling instead of refusing a long journal",
     () =>
