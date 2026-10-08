@@ -20,7 +20,9 @@ it(
   async () => {
     const root = await mkdtemp(join(tmpdir(), "postgres-history-"))
     const prefix = `test_history_${randomUUID().replaceAll("-", "")}`
-    vi.stubEnv("SMITHERS_POSTGRES_URL", process.env.SMITHERS_HISTORY_TEST_PG_URL!)
+    const postgresUrl = process.env.SMITHERS_HISTORY_TEST_PG_URL ?? process.env.SMITHERS_TEST_DATABASE_URL
+    if (postgresUrl === undefined) throw new Error("Set SMITHERS_HISTORY_TEST_PG_URL or SMITHERS_TEST_DATABASE_URL")
+    vi.stubEnv("SMITHERS_POSTGRES_URL", postgresUrl)
     vi.stubEnv("SMITHERS_POSTGRES_SCHEMA", prefix)
     vi.stubEnv("SMITHERS_BACKEND", "postgres")
     const database = (kind: string) => NodeDatabase.layer({ filename: join(root, ".flows", `${kind}.db`) })

@@ -276,13 +276,17 @@ it("verifies a PostgreSQL-backed project on a schema copy it drops afterwards", 
   // The prefix names every store's schema by its file's basename, so a
   // scratch `engine.db` would alias the original: the copy is named apart.
   const prefix = `test_verify_${randomUUID().replaceAll("-", "").slice(0, 16)}`
-  vi.stubEnv("SMITHERS_POSTGRES_URL", process.env.SMITHERS_HISTORY_TEST_PG_URL!)
+  const postgresUrl = process.env.SMITHERS_HISTORY_TEST_PG_URL ?? process.env.SMITHERS_TEST_DATABASE_URL
+  if (postgresUrl === undefined) throw new Error("Set SMITHERS_HISTORY_TEST_PG_URL or SMITHERS_TEST_DATABASE_URL")
+  const adminUrl = new URL(postgresUrl)
+  adminUrl.searchParams.set("schema", "public")
+  vi.stubEnv("SMITHERS_POSTGRES_URL", postgresUrl)
   vi.stubEnv("SMITHERS_POSTGRES_SCHEMA", prefix)
   vi.stubEnv("SMITHERS_BACKEND", "postgres")
   const admin = <A, E>(body: Effect.Effect<A, E, SqlClient>) =>
     Effect.runPromise(
       body.pipe(
-        Effect.provide(NodeDatabase.layer({ filename: `${process.env.SMITHERS_HISTORY_TEST_PG_URL!}?schema=public` }))
+        Effect.provide(NodeDatabase.layer({ filename: adminUrl.toString() }))
       )
     )
   const schemas = () =>
