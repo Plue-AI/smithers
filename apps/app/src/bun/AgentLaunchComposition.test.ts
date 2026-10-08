@@ -74,7 +74,8 @@ test("app source never constructs a host launcher outside the local composition"
 test("install network composition registers no host launch route or bootstrap capability", async () => {
   const root = resolve(import.meta.dir, "../../../..", "packages/backend/internal/compose")
   const router = await readFile(join(root, "router.go"), "utf8")
-  expect(router).toContain('r.Get("/external/sessions", extras.ExternalSessions.Read)')
+  // 5391e0e43e removed owner-home transcript reads from the install.
+  expect(router).not.toMatch(/external\/sessions|ExternalSessions/)
   for (const path of await sources(root)) {
     const source = await readFile(path, "utf8")
     expect(source).not.toMatch(/external\/launch|launch\.codex|launch\.claude-code/)
