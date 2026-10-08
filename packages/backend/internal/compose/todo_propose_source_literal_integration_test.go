@@ -128,6 +128,14 @@ func TestTodoProposeSourceTransitionLiteralCases(t *testing.T) {
 			require.NoError(t, json.NewDecoder(response.Body).Decode(&card))
 			require.Equal(t, 200, response.StatusCode, card)
 			require.Equal(t, expected, card["state"])
+			if c.name == expected || c.propose {
+				recordTodoGuardPair(t, c.name, "propose", func() string {
+					if c.propose {
+						return card["state"].(string)
+					}
+					return ""
+				}())
+			}
 		})
 	}
 	require.Equal(t, 1, accepted)

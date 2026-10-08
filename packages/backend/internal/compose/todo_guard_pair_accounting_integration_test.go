@@ -100,6 +100,7 @@ func TestTodoCommandGuardPairAccountingComposedInstall(t *testing.T) {
 				status, receipt := h.call(t, "POST", body, "pair-"+s.from+"-"+trigger, path)
 				after, err := h.q.GetMythicalItem(ctx, h.item.ID)
 				require.NoError(t, err)
+				recordTodoGuardPair(t, s.from, trigger, s.destinations[i])
 				if s.destinations[i] == "" {
 					refused++
 					if s.from == "draft" {
@@ -149,21 +150,21 @@ func TestTodoRuntimeGuardPairAccountingComposedInstall(t *testing.T) {
 	const source = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	var service *services.MythicalService
 	h := newTodoLiteralInstall(t, func(s *services.MythicalService, _ *pgxpool.Pool) { service = s })
-	triggers := []string{"run_attached", "question", "approval", "start_failed", "run_uncertain", "missing_tool"}
+	triggers := []string{"run_attached", "question", "approval", "start_failed", "run_uncertain", "missing_tool", "run_failed", "park"}
 	sources := []struct {
 		from, engine string
-		destinations [6]string
+		destinations [8]string
 	}{
-		{"draft", "", [6]string{}},
-		{"queued", "queued", [6]string{}},
-		{"starting", "running", [6]string{"working", "", "", "failed", "failed", "failed"}},
-		{"working", "running", [6]string{"working", "needs_you", "needs_you", "", "failed", "failed"}},
-		{"needs_you", "running", [6]string{"needs_you", "needs_you", "needs_you", "", "needs_you", "needs_you"}},
-		{"paused", "running", [6]string{"paused", "", "", "", "paused", "paused"}},
-		{"failed", "blocked", [6]string{"", "", "", "", "failed", "failed"}},
-		{"in_review", "proposed", [6]string{"in_review", "", "", "", "in_review", "failed"}},
-		{"merged", "landed", [6]string{"", "", "", "", "merged", "merged"}},
-		{"dropped", "cancelled", [6]string{"", "", "", "", "dropped", "dropped"}},
+		{"draft", "", [8]string{}},
+		{"queued", "queued", [8]string{}},
+		{"starting", "running", [8]string{"working", "", "", "failed", "failed", "failed", "failed", "working"}},
+		{"working", "running", [8]string{"working", "needs_you", "needs_you", "", "failed", "failed", "failed", "paused"}},
+		{"needs_you", "running", [8]string{"needs_you", "needs_you", "needs_you", "", "needs_you", "needs_you", "needs_you", "needs_you"}},
+		{"paused", "running", [8]string{"paused", "", "", "", "paused", "paused", "paused", "paused"}},
+		{"failed", "blocked", [8]string{"", "", "", "", "failed", "failed", "failed"}},
+		{"in_review", "proposed", [8]string{"in_review", "", "", "", "in_review", "failed", "in_review", "paused"}},
+		{"merged", "landed", [8]string{"", "", "", "", "merged", "merged", "merged"}},
+		{"dropped", "cancelled", [8]string{"", "", "", "", "dropped", "dropped", "dropped"}},
 	}
 	ctx := t.Context()
 	scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", h.item.RepositoryID), PrincipalID: fmt.Sprintf("user:%d", h.owner)}
@@ -184,6 +185,9 @@ func TestTodoRuntimeGuardPairAccountingComposedInstall(t *testing.T) {
 				checks := map[string]any{"todo": true, "flowSource": source, "run_launched": s.from != "queued", "run_attached": s.from != "starting", "attempts": []map[string]any{{"attempt": 1, "run_id": run}}}
 				if s.from == "needs_you" {
 					checks["waits"] = []map[string]any{{"id": "branch", "kind": "foreign_push", "prompt": "Outside push", "since": "2026-10-02T12:00:00Z"}}
+				}
+				if trigger == "park" && (s.from == "working" || s.from == "needs_you" || s.from == "paused" || s.from == "in_review") {
+					checks["pause"] = map[string]any{"generation": 1, "run": run, "requested": true}
 				}
 				raw, err := json.Marshal(checks)
 				require.NoError(t, err)
@@ -217,6 +221,15 @@ func TestTodoRuntimeGuardPairAccountingComposedInstall(t *testing.T) {
 				if trigger == "run_uncertain" {
 					update.State = jobs.StateUncertain
 					update.Checkpoint.Run.Status = "uncertain"
+				}
+				if trigger == "park" {
+					update.Checkpoint.Run.PendingWaits = []flowruntime.PendingWait{{RunID: "parked-child", Name: "resume#1", Token: "real-pause-token", Reason: "approval", Request: json.RawMessage(`{"kind":"pause"}`)}}
+				}
+				if trigger == "run_failed" {
+					update.State = jobs.StateFailed
+					update.Checkpoint.Run.Status = "failed"
+					update.Checkpoint.Run.FailureFault = "user"
+					update.Checkpoint.Run.FailureTag = "literal_runtime_failure"
 				}
 				if trigger == "missing_tool" {
 					update.State = jobs.StateFailed
@@ -262,6 +275,7 @@ func TestTodoRuntimeGuardPairAccountingComposedInstall(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, after, replay)
 				require.Equal(t, events+boolQuestionInt(s.destinations[i] != ""), count())
+				recordTodoGuardPair(t, s.from, trigger, s.destinations[i])
 				if s.from != "draft" {
 					status, card := h.call(t, "GET", "", "")
 					require.Equal(t, 200, status)
@@ -270,7 +284,7 @@ func TestTodoRuntimeGuardPairAccountingComposedInstall(t *testing.T) {
 			})
 		}
 	}
-	require.Equal(t, 26, allowed)
-	require.Equal(t, 34, refused)
-	t.Logf("literal runtime pairs: %d allowed, %d refused; 10 sources × 6 triggers = %d", allowed, refused, allowed+refused)
+	require.Equal(t, 39, allowed)
+	require.Equal(t, 41, refused)
+	t.Logf("literal runtime pairs: %d allowed, %d refused; 10 sources × 8 triggers = %d", allowed, refused, allowed+refused)
 }

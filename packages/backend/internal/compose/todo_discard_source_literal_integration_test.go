@@ -60,6 +60,7 @@ func TestTodoDiscardSourceTransitionLiteralCases(t *testing.T) {
 				}
 				body := fmt.Sprintf(`{"op":"discard-foreign","id":"foreign","revision":%q}`, f.base)
 				status, receipt := f.call(t, n, "POST", body, branch)
+
 				if !c.accepted {
 					require.Equal(t, 409, status, receipt)
 					require.Zero(t, count())

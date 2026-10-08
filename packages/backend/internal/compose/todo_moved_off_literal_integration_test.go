@@ -77,6 +77,14 @@ func TestTodoMovedOffSourceTransitionLiteralCases(t *testing.T) {
 				outcome = machined.AckRejected
 			}
 			h.deliver(guest, event, &outcome)
+			if c.state == state {
+				recordTodoGuardPair(t, state, "moved_off", func() string {
+					if outcome == machined.AckApplied {
+						return "needs_you"
+					}
+					return ""
+				}())
+			}
 			after, err := q.GetMythicalItemByNumber(ctx, h.f.row.RepositoryID, 1)
 			require.NoError(t, err)
 			if !c.accepted {

@@ -128,6 +128,14 @@ func TestTodoAdmissionSourceTransitionLiteralCases(t *testing.T) {
 			require.NoError(t, json.NewDecoder(response.Body).Decode(&card))
 			require.Equal(t, 200, response.StatusCode, card)
 			require.Equal(t, row.to, card["state"])
+			if row.item.Title.String == row.from {
+				recordTodoGuardPair(t, row.from, "admit", func() string {
+					if events == 1 {
+						return card["state"].(string)
+					}
+					return ""
+				}())
+			}
 		})
 	}
 	var launches int

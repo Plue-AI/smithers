@@ -133,6 +133,12 @@ func TestTodoReviewSourceTransitionLiteralCases(t *testing.T) {
 			require.NoError(t, json.Unmarshal(raw, &fact))
 			require.Equal(t, strings.Split(fixture.name, "/")[0], fact["from"])
 			require.Equal(t, fixture.to, fact["to"])
+			parts := strings.Split(fixture.name, "/")
+			trigger := "review_comment"
+			if parts[1] == "CHANGES_REQUESTED" {
+				trigger = "changes_requested"
+			}
+			recordTodoGuardPair(t, parts[0], trigger, fact["to"].(string))
 			require.Equal(t, fact["by"], fact["actor"])
 			require.Equal(t, "person", fact["actor"].(map[string]any)["kind"])
 			if strings.HasPrefix(fixture.name, "needs_you/") {

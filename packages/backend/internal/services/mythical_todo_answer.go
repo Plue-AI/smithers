@@ -306,6 +306,9 @@ func (s *MythicalService) answerTodo(ctx context.Context, repositoryID, userID, 
 			return err
 		}
 		item, err := s.queries().GetMythicalItemByNumber(ctx, repositoryID, number)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return &TodoControlError{http.StatusNotFound, "todo_not_found", "user", "TODO not found"}
+		}
 		if err != nil {
 			return err
 		}

@@ -79,6 +79,14 @@ func TestTodoRuntimeConflictTransitionLiteralCases(t *testing.T) {
 					require.NoError(t, service.ProjectFlowRuntime(ctx, update))
 					after, err := h.q.GetMythicalItem(ctx, h.item.ID)
 					require.NoError(t, err)
+					if valid && ((phase == "todo" && c.name == "starting") || (phase == "conflict" && c.name != "starting")) {
+						recordTodoGuardPair(t, c.name, "conflict", func() string {
+							if c.allow {
+								return "needs_you"
+							}
+							return ""
+						}())
+					}
 					expected := c.name
 					if c.name == "starting" && !valid && phase == "todo" {
 						expected = "working"

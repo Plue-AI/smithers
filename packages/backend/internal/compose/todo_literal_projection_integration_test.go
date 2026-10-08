@@ -265,10 +265,10 @@ func TestTodoLiteralProjectionComposedInstall(t *testing.T) {
 	require.Zero(t, events, "read-only projection publishes no lifecycle events")
 }
 
-// This literal subset covers Drop through the installed HTTP command door,
+// This full engine-state cross-product supplements the ten-source inventory with Drop through the installed HTTP command door,
 // not Transition or a guard helper. A fixture has no executing pinned writer;
 // stopped-writer final capture and guest cancellation have separate proofs.
-func TestTodoTransitionLiteralCases(t *testing.T) {
+func TestTodoDropEngineTransitionLiteralCases(t *testing.T) {
 	h := newTodoLiteralInstall(t)
 	ctx := t.Context()
 	cases := []struct {

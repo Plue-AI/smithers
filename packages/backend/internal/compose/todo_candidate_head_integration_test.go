@@ -273,6 +273,19 @@ func testCandidateHeadReportComposedInstall(t *testing.T, installAuthority bool)
 	require.False(t, v, "a later equal report cannot restore verification")
 
 	if installAuthority {
+		t.Run("draft edited binding", func(t *testing.T) {
+			_, err := pool.Exec(ctx, `UPDATE mythical_items SET workspace_id='' WHERE id=$1`, itemID)
+			require.NoError(t, err)
+			var before, after int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.edited'`).Scan(&before))
+			response := report(runtime.head, true)
+			require.Equal(t, 200, response.Code, response.Body.String())
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.edited'`).Scan(&after))
+			require.Equal(t, before, after)
+			recordTodoGuardPair(t, "draft", "edited", "")
+			_, err = pool.Exec(ctx, `UPDATE mythical_items SET workspace_id=$2 WHERE id=$1`, itemID, workspaceID)
+			require.NoError(t, err)
+		})
 		t.Run("literal edited sources", func(t *testing.T) {
 			sources := []struct {
 				name, engine                               string
@@ -339,6 +352,13 @@ func testCandidateHeadReportComposedInstall(t *testing.T, installAuthority bool)
 						require.Equal(t, "in_review", fact["card"].(map[string]any)["state"])
 					} else {
 						require.Equal(t, before, facts())
+					}
+					if source.name != "skipped" {
+						to := ""
+						if source.fact {
+							to = expected
+						}
+						recordTodoGuardPair(t, source.name, "edited", to)
 					}
 					// A duplicate observation cannot invalidate or publish twice.
 					after := facts()

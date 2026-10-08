@@ -77,6 +77,12 @@ func TestTodoChecksSourceTransitionLiteralCases(t *testing.T) {
 			status, card := f.call(t, item.Number.Int64, "GET", "", "")
 			require.Equal(t, 200, status, card)
 			require.Equal(t, source.name, card["state"])
+			recordTodoGuardPair(t, source.name, "checks_updated", func() string {
+				if count(item.Number.Int64) == 1 {
+					return card["state"].(string)
+				}
+				return ""
+			}())
 			// Same HTTP representation/ETag is one delivery, not another self-loop.
 			require.NoError(t, f.sync.synced.ReadInstallPullFacts(t.Context(), row, item.PRNumber.Int64, item.PRHead, "checks"))
 			require.NoError(t, f.sync.synced.RetryStreams(t.Context()))

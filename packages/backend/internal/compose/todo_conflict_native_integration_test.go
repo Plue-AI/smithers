@@ -40,7 +40,7 @@ func TestTerminalConflictDoneNativeComposedInstall(t *testing.T) {
 	conflictDoneAwakeNativeComposedInstall(t, true)
 }
 
-func conflictDoneAwakeNativeComposedInstall(t *testing.T, terminal bool) {
+func conflictDoneAwakeNativeComposedInstall(t *testing.T, terminal bool, pairAccounting ...bool) {
 	if os.Getenv("SMITHERS_REHEARSAL_MACHINED_BINARY") == "" {
 		t.Skip("requires real rehearsal daemon")
 	}
@@ -151,7 +151,7 @@ func conflictDoneAwakeNativeComposedInstall(t *testing.T, terminal bool) {
 		require.NotEmpty(t, token)
 		invoke = packagedTerminalCLIInvoker(t, ctx, origin, token)
 	}
-	call := func(expected int, code string) {
+	callFor := func(t *testing.T, expected int, code string) {
 		t.Helper()
 		if invoke != nil {
 			exit, body := invoke("todo", "answer", "T1", "done", "--wait", "conflict-1")
@@ -179,6 +179,53 @@ func conflictDoneAwakeNativeComposedInstall(t *testing.T, terminal bool) {
 		if code != "" {
 			require.Equal(t, code, body["code"])
 		}
+	}
+	call := func(expected int, code string) { callFor(t, expected, code) }
+	if len(pairAccounting) > 0 && pairAccounting[0] {
+		for _, c := range []struct {
+			source, engine             string
+			launched, attached, paused bool
+		}{
+			{"draft", "queued", false, false, false}, {"queued", "queued", false, false, false}, {"starting", "running", true, false, false},
+			{"working", "running", true, true, false}, {"paused", "running", true, true, true}, {"failed", "blocked", true, true, false},
+			{"in_review", "proposed", true, true, false}, {"merged", "landed", true, true, false}, {"dropped", "cancelled", true, true, false},
+		} {
+			t.Run("without-conflict/"+c.source, func(t *testing.T) {
+				minimal, _ := json.Marshal(map[string]any{"todo": true, "run_launched": c.launched, "run_attached": c.attached})
+				_, err := f.pool.Exec(ctx, `UPDATE mythical_items SET state=$2,checks=$3,pr_state='',number=CASE WHEN $4='draft' THEN NULL ELSE 1 END,paused_at=CASE WHEN $5 THEN now() ELSE NULL END WHERE id=$1`, item.ID, c.engine, minimal, c.source, c.paused)
+				require.NoError(t, err)
+				req, err := http.NewRequest("GET", origin+"/api/todos/1", nil)
+				require.NoError(t, err)
+				req.AddCookie(&http.Cookie{Name: "session", Value: f.cookie})
+				res, err := http.DefaultClient.Do(req)
+				require.NoError(t, err)
+				if c.source == "draft" {
+					require.Equal(t, 404, res.StatusCode)
+				} else {
+					require.Equal(t, 200, res.StatusCode)
+					var card map[string]any
+					require.NoError(t, json.NewDecoder(res.Body).Decode(&card))
+					require.Equal(t, c.source, card["state"])
+				}
+				require.NoError(t, res.Body.Close())
+				before, err := q.GetMythicalItem(ctx, item.ID)
+				require.NoError(t, err)
+				var events int
+				require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&events))
+				priorSignals := signals()
+				callFor(t, 404, "")
+				after, err := q.GetMythicalItem(ctx, item.ID)
+				require.NoError(t, err)
+				require.Equal(t, before, after)
+				require.Equal(t, priorSignals, signals())
+				var total int
+				require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&total))
+				require.Equal(t, events, total)
+				recordTodoGuardPair(t, c.source, "resolve", "")
+			})
+		}
+		_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET state='running',checks=$2,number=1,paused_at=NULL WHERE id=$1`, item.ID, raw)
+		require.NoError(t, err)
 	}
 	binary := os.Getenv("SMITHERS_REHEARSAL_MACHINED_BINARY")
 	require.NotEmpty(t, binary)
@@ -228,6 +275,18 @@ func conflictDoneAwakeNativeComposedInstall(t *testing.T, terminal bool) {
 	call(202, "")
 	call(202, "")
 	require.Equal(t, 1, signals())
+	if len(pairAccounting) > 0 && pairAccounting[0] {
+		var event []byte
+		var facts int
+		require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.answered'`).Scan(&facts))
+		require.Equal(t, 1, facts)
+		require.NoError(t, f.pool.QueryRow(ctx, `SELECT data FROM product_job_events WHERE event_type='todo.answered'`).Scan(&event))
+		var fact map[string]any
+		require.NoError(t, json.Unmarshal(event, &fact))
+		require.Equal(t, "needs_you", fact["from"])
+		require.Equal(t, "working", fact["to"])
+		recordTodoGuardPair(t, "needs_you", "resolve", fact["to"].(string))
+	}
 }
 
 // Only transport and token-file placement are simulated; authority is issued by

@@ -749,8 +749,22 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 				checks := mythicalChecksOf(item)
 				executing = checks.RunLaunched && !checks.RunAttached
 			}
-			if projection.Phase != "conflict" && mythicalRunOutcome(projection.Phase, update) == mythicalInterrupted && mythicalTodo(item) && executing {
-				next = *mythicalStop(next, mythicalFault{Class: "interrupted", Tag: "interrupted", Kind: mythicalFailRuntime}, "interrupted")
+			if outcome := mythicalRunOutcome(projection.Phase, update); projection.Phase != "conflict" && mythicalTodo(item) && executing &&
+				(outcome == mythicalInterrupted || (projection.Phase == "todo" || projection.Phase == "request") && strings.HasPrefix(outcome, mythicalStopped)) {
+				// Commit a non-retryable terminal failure with its lifecycle fact.
+				// Independent branch waits and a person pause retain precedence.
+				fault := mythicalFault{Class: "interrupted", Tag: "interrupted", Kind: mythicalFailRuntime}
+				message := "interrupted"
+				if outcome != mythicalInterrupted {
+					parts := strings.SplitN(strings.TrimPrefix(outcome, mythicalStopped), ": ", 2)
+					fault.Class, fault.Tag = parts[0], parts[0]
+					if len(parts) == 2 {
+						fault.Tag = parts[1]
+					}
+					fault.Kind = fault.kind()
+					message = strings.TrimPrefix(outcome, mythicalStopped)
+				}
+				next = *mythicalStop(next, fault, message)
 			}
 			// Late failure evidence belongs to the attempt, but cannot undo
 			// GitHub merge or person Drop settlement.

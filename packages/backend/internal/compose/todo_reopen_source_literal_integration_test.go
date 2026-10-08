@@ -68,6 +68,12 @@ func TestTodoReopenSourceTransitionLiteralCases(t *testing.T) {
 			status, card := f.call(t, item.Number.Int64, "GET", "", "")
 			require.Equal(t, 200, status, card)
 			require.Equal(t, c.to, card["state"])
+			recordTodoGuardPair(t, c.state, "github_reopened", func() string {
+				if c.state == "dropped" {
+					return card["state"].(string)
+				}
+				return ""
+			}())
 			row, err := f.q.GetMythicalItem(t.Context(), item.ID)
 			require.NoError(t, err)
 			require.Equal(t, item.Attempt, row.Attempt)

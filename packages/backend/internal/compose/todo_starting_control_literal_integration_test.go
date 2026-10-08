@@ -111,4 +111,5 @@ func TestTodoDraftPlacementLiteralComposedInstall(t *testing.T) {
 	status, card := h.call(t, "GET", "", "", "/api/todos/2")
 	require.Equal(t, 200, status, card)
 	require.Equal(t, "queued", card["state"])
+	recordTodoGuardPair(t, "draft", "place", card["state"].(string))
 }

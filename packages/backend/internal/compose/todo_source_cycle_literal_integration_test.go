@@ -145,7 +145,7 @@ func newTodoSourceCycle(t *testing.T) *todoSourceCycle {
 	return &todoSourceCycle{installPollingComposition: f, host: host, base: main, call: call, upstreamDir: upstreamDir, dispatcher: dispatcher, chooseActor: chooseActor}
 }
 
-func (f *todoSourceCycle) item(t *testing.T, n int64, engine string, checks map[string]any, paused bool) db.MythicalItem {
+func (f *todoSourceCycle) openPull(t *testing.T, n int64) githubfake.Pull {
 	t.Helper()
 	ctx := t.Context()
 	branch := fmt.Sprintf("smithers/literal-%d", n)
@@ -166,6 +166,14 @@ func (f *todoSourceCycle) item(t *testing.T, n int64, engine string, checks map[
 	var pull githubfake.Pull
 	require.NoError(t, json.NewDecoder(response.Body).Decode(&pull))
 	require.NoError(t, response.Body.Close())
+	return pull
+}
+
+func (f *todoSourceCycle) item(t *testing.T, n int64, engine string, checks map[string]any, paused bool) db.MythicalItem {
+	t.Helper()
+	ctx := t.Context()
+	branch := fmt.Sprintf("smithers/literal-%d", n)
+	pull := f.openPull(t, n)
 	checks["todo"] = true
 	checks["branch"] = branch
 	checks["flowSource"] = strings.Repeat("a", 40)
@@ -488,6 +496,12 @@ func TestTodoGitHubSourceTransitionLiteralCases(t *testing.T) {
 				refused++
 				require.Zero(t, events)
 			}
+			recordTodoGuardPair(t, fixture.name, "github_"+fixture.trigger, func() string {
+				if events == 1 {
+					return card["state"].(string)
+				}
+				return ""
+			}())
 		})
 	}
 	require.Equal(t, 15, accepted)
@@ -735,6 +749,12 @@ func TestTodoForeignPushSourceTransitionLiteralCases(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, fixture.item.State, row.State)
 			}
+			recordTodoGuardPair(t, fixture.state, "foreign_push", func() string {
+				if count() == 1 {
+					return "needs_you"
+				}
+				return ""
+			}())
 		})
 	}
 	require.Equal(t, 7, accepted)

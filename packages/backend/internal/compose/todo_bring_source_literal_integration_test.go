@@ -27,6 +27,55 @@ func proveTodoBringSourceCases(t *testing.T, pool *pgxpool.Pool, q *db.Queries, 
 		{"in_review", "proposed", false, true}, {"merged", "landed", false, false}, {"dropped", "cancelled", false, false},
 	}
 	for _, c := range cases {
+		t.Run("canonical/"+c.source, func(t *testing.T) {
+			checks := map[string]any{"todo": true, "branch": "smithers/test", "run_launched": c.source != "queued", "run_attached": c.source != "starting"}
+			if c.source == "needs_you" {
+				checks["foreignHead"] = onto
+				checks["waits"] = []map[string]any{{"id": "foreign-1", "kind": "foreign_push", "sha": onto, "prompt": "Outside push", "since": "2026-10-02T12:00:00Z"}}
+			}
+			raw, err := json.Marshal(checks)
+			require.NoError(t, err)
+			_, err = pool.Exec(ctx, `UPDATE mythical_items SET workspace_id='',state=$2,checks=$3,pr_state='',candidate_head=$4,paused_at=CASE WHEN $5 THEN now() ELSE NULL END WHERE id=$1`, item.ID, c.engine, raw, head, c.paused)
+			require.NoError(t, err)
+			request, err := http.NewRequest("GET", origin+"/api/todos/1", nil)
+			require.NoError(t, err)
+			request.AddCookie(&http.Cookie{Name: "smithers_session", Value: "pin-cookie"})
+			response, err := http.DefaultClient.Do(request)
+			require.NoError(t, err)
+			defer response.Body.Close()
+			require.Equal(t, 200, response.StatusCode)
+			var card map[string]any
+			require.NoError(t, json.NewDecoder(response.Body).Decode(&card))
+			require.Equal(t, c.source, card["state"])
+			before, err := q.GetMythicalItem(ctx, item.ID)
+			require.NoError(t, err)
+			count := func() int {
+				var n int
+				require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.foreign_bring-in'`).Scan(&n))
+				return n
+			}
+			facts := count()
+			code, reply := call("canonical-bring-"+c.source, fmt.Sprintf(`{"op":"bring-in","id":"foreign-1","revision":%q}`, onto))
+			if c.source != "needs_you" {
+				require.Equal(t, 409, code, reply)
+				after, err := q.GetMythicalItem(ctx, item.ID)
+				require.NoError(t, err)
+				require.Equal(t, before, after)
+				require.Equal(t, facts, count())
+				recordTodoGuardPair(t, c.source, "bring-in", "")
+				return
+			}
+			require.Equal(t, 202, code, reply)
+			require.Equal(t, facts+1, count())
+			require.NoError(t, pool.QueryRow(ctx, `SELECT data FROM product_job_events WHERE event_type='todo.foreign_bring-in' ORDER BY sequence DESC LIMIT 1`).Scan(&raw))
+			var fact map[string]any
+			require.NoError(t, json.Unmarshal(raw, &fact))
+			require.Equal(t, "needs_you", fact["from"])
+			require.Equal(t, "needs_you", fact["to"])
+			recordTodoGuardPair(t, c.source, "bring-in", fact["to"].(string))
+		})
+	}
+	for _, c := range cases {
 		for _, question := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/question=%t", c.source, question), func(t *testing.T) {
 				waits := []map[string]any{{"id": "foreign-1", "kind": "foreign_push", "sha": onto, "prompt": "Outside push", "since": "2026-10-02T12:00:00Z", "by": map[string]any{"kind": "github", "login": "alice"}}}
@@ -79,6 +128,7 @@ func proveTodoBringSourceCases(t *testing.T, pool *pgxpool.Pool, q *db.Queries, 
 					require.Equal(t, before, after)
 					require.Equal(t, facts, count())
 					require.Equal(t, from, read()["state"])
+
 					return
 				}
 				require.Equal(t, 202, code, reply)
@@ -95,6 +145,7 @@ func proveTodoBringSourceCases(t *testing.T, pool *pgxpool.Pool, q *db.Queries, 
 				require.NoError(t, json.Unmarshal(raw, &fact))
 				require.Equal(t, "needs_you", fact["from"])
 				require.Equal(t, "needs_you", fact["to"])
+
 				actor, ok := fact["actor"].(map[string]any)
 				require.True(t, ok)
 				require.Equal(t, "person", actor["kind"])

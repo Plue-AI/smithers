@@ -193,6 +193,7 @@ func testBranchRebaseNowComposedAdmission(t *testing.T, sources, bringSources bo
 				if c.status != 202 {
 					require.Equal(t, before, after)
 					require.Equal(t, facts, n)
+					recordTodoGuardPair(t, c.state, "rebase-requested", "")
 					return
 				}
 				require.Equal(t, facts+1, n)
@@ -201,6 +202,7 @@ func testBranchRebaseNowComposedAdmission(t *testing.T, sources, bringSources bo
 				require.NoError(t, json.Unmarshal(raw, &fact))
 				require.Equal(t, c.state, fact["from"])
 				require.Equal(t, c.state, fact["to"])
+				recordTodoGuardPair(t, c.state, "rebase-requested", fact["to"].(string))
 				require.Equal(t, map[string]any{"kind": "system", "id": "stack"}, fact["actor"])
 				code, replay := call("literal-rebase-" + c.state)
 				require.Equal(t, 202, code)

@@ -114,7 +114,10 @@ func TestFailedRepairDoneRevokedCredentialNativeComposedInstall(t *testing.T) {
 	testBranchRebaseNative(t, true, "", rebaseNativeOptions{Conflict: true, ManualDone: true, FailedRepair: true, RevokeDone: true})
 }
 
-type rebaseNativeOptions struct{ Conflict, ManualDone, InReview, Paused, Bring, AdvanceMain, FreezeTimeout, FailedRepair, RevokeDone bool }
+type rebaseNativeOptions struct {
+	Conflict, ManualDone, InReview, Paused, Bring, AdvanceMain, FreezeTimeout, FailedRepair, RevokeDone bool
+	PairSource, PairEngine                                                                              string
+}
 
 func testBranchRebaseNative(t *testing.T, people bool, point string, options ...rebaseNativeOptions) {
 	var option rebaseNativeOptions
@@ -484,6 +487,33 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 	}
 	if people && !bring {
 		readReceipt("running")
+	}
+	if option.PairSource != "" {
+		attached := option.PairSource != "starting"
+		checks := map[string]any{"todo": true, "run_launched": option.PairSource != "queued", "run_attached": attached, "branch": "smithers/test", "flowSource": base, "rebase": map[string]any{"onto": onto, "name": "main"}}
+		if option.PairSource == "needs_you" {
+			checks["waits"] = []map[string]any{{"id": "independent", "kind": "question", "prompt": "Choose", "since": "2026-10-02T12:00:00Z"}}
+		}
+		raw, err := json.Marshal(checks)
+		require.NoError(t, err)
+		_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET state=$2,checks=$3,pr_state=CASE WHEN $4='in_review' THEN 'open' ELSE '' END,pr_number=CASE WHEN $4='in_review' THEN 999 ELSE NULL END,paused_at=CASE WHEN $4='paused' THEN now() ELSE NULL END WHERE id=$1`, item.ID, option.PairEngine, raw, option.PairSource)
+		require.NoError(t, err)
+		if option.PairSource == "draft" {
+			_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET number=NULL,source='chat',workspace_id='' WHERE id=$1`, item.ID)
+			require.NoError(t, err)
+		} else {
+			assertCardState(option.PairSource)
+		}
+		if option.PairEngine != "integrating" {
+			_, err = q.RequestMythicalStack(ctx, f.row.RepositoryID)
+			require.NoError(t, err)
+			require.NoError(t, service.PollOnce(ctx))
+			var facts int
+			require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.rebased'`).Scan(&facts))
+			require.Zero(t, facts)
+			recordTodoGuardPair(t, option.PairSource, "rebased", "")
+			return
+		}
 	}
 	// The HTTP door returns with the old head; only the stack worker rewrites.
 	current, err := q.GetMythicalItem(ctx, item.ID)
@@ -950,11 +980,17 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 	if inReview {
 		expectedState = "in_review"
 	}
+	if option.PairSource != "" {
+		expectedState = option.PairSource
+	}
 	require.Equal(t, expectedState, event["from"])
 	require.Equal(t, expectedState, event["to"])
 	require.Equal(t, base, event["previous_base"])
 	require.Equal(t, expectedState, event["card"].(map[string]any)["state"])
 	assertCardState(expectedState)
+	if option.PairSource != "" {
+		recordTodoGuardPair(t, option.PairSource, "rebased", event["to"].(string))
+	}
 	require.Equal(t, "pinned-run", current.RequestRunID)
 	require.EqualValues(t, 1, current.Attempt)
 

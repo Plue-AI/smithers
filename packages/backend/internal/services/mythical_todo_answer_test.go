@@ -147,19 +147,17 @@ func TestTodoQuestionNeedsYouAndTheFirstAnswerWins(t *testing.T) {
 	require.NoError(t, o.pool.QueryRow(ctx, `SELECT username FROM users WHERE id=$1`, o.userID).Scan(&ownerLogin))
 	ask := humanAsk("WaitFor-token-1", "coding-clarification", "Use backoff or a fixed delay?")
 
-	// Waits that are not a named HumanTask ask are not questions: a confirm,
-	// an in-run approval of the agent's own ask (no wait point to signal),
-	// and an ask without a prompt.
-	confirm := humanAsk("WaitFor-token-0", "coding-plan-approval", "Approve this plan?")
-	confirm.Request = json.RawMessage(`{"task":"human","name":"coding-plan-approval","kind":"confirm","prompt":"Approve this plan?"}`)
+	// Unnamed in-run approval requests have no person wait point to signal;
+	// an ask without a prompt is also not an answerable question. Named
+	// HumanTask confirms are real approval waits, qualified separately.
 	approval := flowruntime.PendingWait{RunID: "todo-run-1", Reason: "approval", Token: "ask-request-1", Request: json.RawMessage(`{"question":"May I?"}`)}
 	blank := humanAsk("WaitFor-token-9", "coding-clarification", " ")
-	o.projectAsking(launch, jobs.StateWaiting, "todo-run-1", confirm, approval, blank)
+	o.projectAsking(launch, jobs.StateWaiting, "todo-run-1", approval, blank)
 	require.Equal(t, "working", todoState(o.byID(uuidString(item.ID))))
 
 	// The question opens Needs you, once however often it is observed.
 	o.projectAsking(launch, jobs.StateWaiting, "todo-run-1", ask)
-	o.projectAsking(launch, jobs.StateWaiting, "todo-run-1", confirm, ask)
+	o.projectAsking(launch, jobs.StateWaiting, "todo-run-1", ask)
 	item = o.byID(uuidString(item.ID))
 	require.Equal(t, "needs_you", todoState(item))
 	waits := todoOpenWaits(item)
