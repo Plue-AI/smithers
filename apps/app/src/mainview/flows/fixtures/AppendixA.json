@@ -563,6 +563,30 @@
     }
   },
   {
+    "name": "branch.rebase-now",
+    "summary": "Rebase now",
+    "slash": "/rebase",
+    "cli": null,
+    "journey": [
+      "J7"
+    ],
+    "group": "Branches and machines",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": {
+      "method": "POST",
+      "path": "/api/branches/{branch}",
+      "defaults": {
+        "rebase": true
+      }
+    }
+  },
+  {
     "name": "terminal",
     "summary": "Open a terminal on a branch",
     "slash": "/terminal",
