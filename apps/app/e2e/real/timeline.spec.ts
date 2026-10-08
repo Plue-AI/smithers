@@ -163,6 +163,28 @@ test("shared attention and live entries preserve actions and private hiding", as
         await expect(failed).toHaveAttribute("data-tone", "failed")
         await expect(failed.getByRole("button", { name: "Retry", exact: true })).toBeVisible()
       }
+      if (n === host.todos.aliceFail) {
+        await alice.setViewportSize({ width: 1440, height: 420 })
+        const timeline = alice.getByRole("navigation", { name: "Timeline", exact: true })
+        await timeline.locator(`[data-entry="todo:${n}"]`).getByRole("button").first().press("Enter")
+        await expect(alice.locator(`[data-message-id="todo:${n}"]`)).toBeInViewport()
+        const above = alice.locator('.edge[data-edge="above"]')
+        await expect(above.getByRole("button", { name: "Question entry", exact: true })).toBeVisible()
+        const more = above.getByRole("button", { name: "+1 above", exact: true })
+        await expect(more).toBeVisible()
+        await more.press("Enter")
+        await expect(alice.locator(`[data-message-id="todo:${host.todos.live}"]`)).toBeInViewport()
+        await timeline.locator(`[data-entry="todo:${n}"]`).getByRole("button").first().press("Enter")
+        await expect(alice.locator(`[data-message-id="todo:${n}"]`)).toBeInViewport()
+        await alice.setViewportSize({ width: 900, height: 420 })
+        await expect(timeline).toBeHidden()
+        const pill = above.getByRole("button", { name: "↑ 3 live above", exact: true })
+        await expect(pill).toBeVisible()
+        await pill.press("Enter")
+        await expect(alice.locator(`[data-message-id="todo:${host.todos.live}"]`)).toBeInViewport()
+        await expect(alice.getByTestId("composer-input")).toBeEditable()
+        await alice.setViewportSize({ width: 1440, height: 1000 })
+      }
     }
     // Each failure's owner is read from the real TODO response. Alice's saved
     // hide suppresses her notice, while Maya's own failure still notifies her.
