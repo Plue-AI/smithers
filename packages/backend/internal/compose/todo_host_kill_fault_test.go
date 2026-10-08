@@ -128,3 +128,37 @@ func TestTodoHostBindingMissingSelector(t *testing.T) {
 	_, _, err := r.todoHostBinding(-1)
 	require.ErrorIs(t, err, pgx.ErrNoRows)
 }
+
+// TODO numbers are repository-scoped. A kill controller must never select a
+// host from another repository just because that repository used the same n.
+func TestTodoHostBindingSelectsInstalledRepository(t *testing.T) {
+	t.Setenv("SMITHERS_TEST_DATABASE_NAMESPACE", "fr12_killscope")
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	ctx := t.Context()
+	var user int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username,lower_username) VALUES('kill-owner','kill-owner') RETURNING id`).Scan(&user))
+	var wanted string
+	for _, name := range []string{"other", "installed"} {
+		var repository int64
+		var workspace string
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name) VALUES($1,$2,$2) RETURNING id`, user, name).Scan(&repository))
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workspaces(repository_id,user_id,name,status) VALUES($1,$2,$3,'running') RETURNING id`, repository, user, name).Scan(&workspace))
+		_, err := pool.Exec(ctx, `INSERT INTO mythical_items(repository_id,source,state,title,workspace_id,number) VALUES($1,'todo','running',$2,$3,7)`, repository, name, workspace)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET number=7 WHERE repository_id=$1`, repository)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `INSERT INTO flow_runtime_host_bindings(id,tenant_id,principal_id,binding_kind,binding_id,repository_id,user_id,workspace_id,catalog_key,service_name,runtime_artifact_digest,source_revision,owner_generation,credential_ciphertext,credential_hash,state)
+ VALUES(gen_random_uuid(),'fixture','owner','mythical-item',$1,$2,$3,$1::text::uuid,'coding',$4,repeat('a',64),repeat('b',40),1,'fixture-only',decode(repeat('00',32),'hex'),'running')`, workspace, repository, user, "host-"+name)
+		require.NoError(t, err)
+		if name == "installed" {
+			_, err = pool.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES('github.repository',jsonb_build_object('repository_id',$1::bigint))`, repository)
+			require.NoError(t, err)
+			wanted = workspace
+		}
+	}
+	r := &rehearsal{ctx: ctx, pool: pool}
+	workspace, service, err := r.todoHostBinding(7)
+	require.NoError(t, err)
+	require.Equal(t, wanted, workspace)
+	require.Equal(t, "host-installed", service)
+}

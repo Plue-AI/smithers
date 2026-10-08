@@ -170,11 +170,11 @@ const freePort = async () => {
   return port
 }
 
-test("the provider holds a [HOLD key] edit turn until POST /release/<key>", { timeout: 15_000 }, async (t) => {
+for (const step of ["coding/edit-atom", "coding/draft-plan"]) test(`the provider holds a [HOLD key] ${step} turn until POST /release/<key>`, { timeout: 15_000 }, async (t) => {
   const port = await freePort()
   const origin = `http://127.0.0.1:${port}`
   const provider = spawn(process.execPath, [new URL("./fake-todo-provider.mjs", import.meta.url).pathname], {
-    env: { ...process.env, HOST: "127.0.0.1", PORT: String(port) },
+    env: { ...process.env, HOST: "127.0.0.1", PORT: String(port), TODO_HOLD_STEP: step === "coding/draft-plan" ? step : "" },
     stdio: ["ignore", "pipe", "pipe"]
   })
   const exited = new Promise((resolve) => provider.once("exit", resolve))
@@ -190,7 +190,8 @@ test("the provider holds a [HOLD key] edit turn until POST /release/<key>", { ti
     await new Promise((resolve) => setTimeout(resolve, 25))
   }
   const atom = { changeId: null, message: "m", intent: "Append a greeting line to t4.md. [HOLD t4] [FILE t4.md]", reads: ["t4.md"], writes: ["t4.md"] }
-  const answered = fetch(`${origin}/v1/chat/completions`, { method: "POST", body: JSON.stringify({ model: "m", messages: turn(EDIT, { atom }) }) }).then((response) => response.text())
+  const messages = step === "coding/edit-atom" ? turn(EDIT, { atom }) : turn(PLAN, { input: { prompt: "Append a greeting line to t4.md. [HOLD t4] [FILE t4.md]" }, context: { checks: [] } })
+  const answered = fetch(`${origin}/v1/chat/completions`, { method: "POST", body: JSON.stringify({ model: "m", messages }) }).then((response) => response.text())
   let settled = false
   void answered.then(() => { settled = true })
   for (const deadline = Date.now() + 5000; ;) {
@@ -207,7 +208,7 @@ test("the provider holds a [HOLD key] edit turn until POST /release/<key>", { ti
   assert.match(body, /\[DONE\]/)
   assert.deepEqual(await (await fetch(`${origin}/held`)).json(), [])
   // A released key holds nothing later.
-  const again = await (await fetch(`${origin}/v1/chat/completions`, { method: "POST", body: JSON.stringify({ model: "m", messages: turn(EDIT, { atom }) }) })).text()
+  const again = await (await fetch(`${origin}/v1/chat/completions`, { method: "POST", body: JSON.stringify({ model: "m", messages }) })).text()
   assert.match(again, /\[DONE\]/)
 })
 

@@ -2134,7 +2134,7 @@ func (r *rehearsal) drop(number int64) error {
 
 // Retained items store workspace selectors as text; host bindings use UUIDs.
 func (r *rehearsal) todoHostBinding(number int64) (workspace, service string, err error) {
-	err = r.pool.QueryRow(r.ctx, `SELECT h.workspace_id,h.service_name FROM flow_runtime_host_bindings h JOIN mythical_items i ON h.workspace_id::text=i.workspace_id WHERE i.number=$1`, number).Scan(&workspace, &service)
+	err = r.pool.QueryRow(r.ctx, `SELECT h.workspace_id,h.service_name FROM flow_runtime_host_bindings h JOIN mythical_items i ON h.workspace_id::text=i.workspace_id WHERE i.number=$1 AND i.repository_id=(SELECT (value->>'repository_id')::bigint FROM install_settings WHERE key='github.repository')`, number).Scan(&workspace, &service)
 	return
 }
 

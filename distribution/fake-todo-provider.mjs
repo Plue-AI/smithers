@@ -23,7 +23,7 @@
 // model; the trace still records each turn's step, never the key.
 import { appendFileSync } from "node:fs"
 import { createServer } from "node:http"
-import { done, GREETING, systemOf, text, todoAnswer, todoTurn } from "./fake-todo-turns.mjs"
+import { done, GREETING, markersOf, systemOf, text, todoAnswer, todoTurn } from "./fake-todo-turns.mjs"
 
 const greeting = process.env.TODO_GREETING ?? GREETING
 const trace = process.env.TRACE_FILE
@@ -53,7 +53,12 @@ const release = (key) => {
 
 const chat = (input) => {
   const messages = input.messages ?? []
-  const matched = todoTurn(messages, greeting)
+  const scripted = todoTurn(messages, greeting)
+  // Pause fault rehearsals hold a named completed-planning turn before the
+  // built-in TODO reaches its following durable boundary.
+  const key = scripted?.step === process.env.TODO_HOLD_STEP
+    ? markersOf(messages.map(message => text(message.content)).join("\n")).hold : undefined
+  const matched = key === undefined ? scripted : { ...scripted, hold: key }
   const step = matched?.step ?? "unscripted"
   record("chat", step, {
     model: input.model,
