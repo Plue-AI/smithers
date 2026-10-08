@@ -18,7 +18,12 @@ if (activationSelected) requireJ1Preconditions()
 // door, before an absent origin can select the development webServer fallback.
 const referenceJourneySelected = journeySpecs.some(spec =>
   process.env.SMITHERS_JOURNEY === spec || process.argv.some(arg => arg.endsWith(`/${spec}`) || arg === spec))
-if (!activationSelected && referenceJourneySelected && (!process.env.SMITHERS_REAL_BASE_URL ||
+// A backend composed-install driver (packages/backend TestJ10*Browser) serves an
+// owned loopback install and describes it in SMITHERS_JOURNEY_COMPOSED_HOST; it
+// is never release qualification, and no fallback host starts.
+const composedJourney = !!process.env.SMITHERS_JOURNEY_COMPOSED_HOST &&
+  /^http:\/\/127\.0\.0\.1:\d+\/?$/.test(process.env.SMITHERS_REAL_BASE_URL ?? "")
+if (!activationSelected && referenceJourneySelected && !composedJourney && (!process.env.SMITHERS_REAL_BASE_URL ||
   !process.env.SMITHERS_REAL_E2E_BUILD_SHA || process.env.SMITHERS_REAL_HEADED !== "1")) {
   throw new Error("Release journey qualification requires a reference install origin, pinned build SHA and headed operator; no development host is started")
 }
