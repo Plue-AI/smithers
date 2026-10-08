@@ -392,6 +392,7 @@ test("a repository copy of the TODO composition loads on the packaged host with 
   assert.deepEqual(host.refused, [])
   assert.equal(host.loaded, "todo")
   assert.deepEqual(host.exports, [
+    "CheckCommand",
     "Request",
     "RequestInput",
     "StackBase",
