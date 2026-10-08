@@ -56,14 +56,14 @@ func TestBranchConversationsMigrationPreservesPrivateTurns(t *testing.T) {
 	require.NoError(t, Apply(ctx, pool))
 	require.NoError(t, Apply(ctx, pool))
 
-	// Later entry and summary migrations must preserve private journal bytes too.
-	require.NoError(t, pool.QueryRow(ctx, `SELECT jsonb_agg(to_jsonb(t)-ARRAY['conversation_id','entry_seq','summary','summary_rev','summary_pending_since'] ORDER BY id)::text FROM chat_turns t`).Scan(&turnsAfter))
+	// Later entry, subject and summary migrations must preserve private journal bytes too.
+	require.NoError(t, pool.QueryRow(ctx, `SELECT jsonb_agg(to_jsonb(t)-ARRAY['conversation_id','entry_seq','summary','summary_rev','summary_pending_since','entry_subject'] ORDER BY id)::text FROM chat_turns t`).Scan(&turnsAfter))
 	require.NoError(t, pool.QueryRow(ctx, `SELECT jsonb_agg(to_jsonb(b) ORDER BY turn_id, batch_number)::text FROM chat_turn_batches b`).Scan(&batchesAfter))
 	require.JSONEq(t, turnsBefore, turnsAfter)
 	require.JSONEq(t, batchesBefore, batchesAfter)
 	var initialized int
-	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM chat_turns WHERE conversation_id IS NOT NULL OR entry_seq<>0 OR summary IS NOT NULL OR summary_rev<>0 OR summary_pending_since IS NOT NULL`).Scan(&initialized))
-	require.Zero(t, initialized, "legacy private turns must not gain shared cursors or model summaries")
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM chat_turns WHERE conversation_id IS NOT NULL OR entry_seq<>0 OR summary IS NOT NULL OR summary_rev<>0 OR summary_pending_since IS NOT NULL OR entry_subject IS NOT NULL`).Scan(&initialized))
+	require.Zero(t, initialized, "legacy private turns must not gain shared cursors, subjects or model summaries")
 
 	// New shared turns still enforce one producer per repository/conversation,
 	// without an old private producer blocking admission or queue progress.
