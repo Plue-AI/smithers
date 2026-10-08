@@ -812,6 +812,30 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 	} else {
 		require.Equal(t, 1, entries)
 	}
+	if option.FreezeTimeout {
+		// The person sees one completed operation after all busy retries,
+		// attributed to Smithers and bound to the actual target revision.
+		req, err := http.NewRequest("GET", origin+"/api/branches/"+f.row.ID+"/activity", nil)
+		require.NoError(t, err)
+		req.AddCookie(&http.Cookie{Name: "session", Value: f.cookie})
+		response, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		var activity []map[string]any
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&activity))
+		require.NoError(t, response.Body.Close())
+		require.Equal(t, http.StatusOK, response.StatusCode)
+		var rebases []map[string]any
+		for _, entry := range activity {
+			if entry["kind"] == "rebase" {
+				rebases = append(rebases, entry)
+			}
+		}
+		require.Len(t, rebases, 1, "busy retries cannot publish completed activity")
+		require.Equal(t, onto, rebases[0]["onto_revision"])
+		require.Equal(t, true, rebases[0]["head_changed"])
+		require.Equal(t, true, rebases[0]["approvals_cleared"])
+		require.Equal(t, map[string]any{"kind": "system", "id": "stack", "color_index": float64(7)}, rebases[0]["actor"])
+	}
 	if observe {
 		require.Eventually(t, func() bool { delay = ackRequest("GET", ""); return delay.State == "acknowledged" }, 30*time.Second, 50*time.Millisecond)
 		require.GreaterOrEqual(t, delay.WithheldMS, float64(10000))

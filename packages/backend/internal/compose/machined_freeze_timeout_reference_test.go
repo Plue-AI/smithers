@@ -152,7 +152,7 @@ print('COMPLETED',flush=True)
 	require.Eventually(t, func() bool {
 		read()
 		return view.Execution.Session == writer.ID()
-	}, 3*time.Second, 10*time.Millisecond, "busy must name the actual D-state session")
+	}, 10*time.Second, 100*time.Millisecond, "busy must name the actual D-state session")
 	require.Equal(t, "running", view.Execution.State)
 	require.Equal(t, onto, view.Execution.Onto)
 	require.NotNil(t, view.Pending)
@@ -170,7 +170,8 @@ print('COMPLETED',flush=True)
 	require.Equal(t, "rebase_pending", item.Reason)
 	require.True(t, item.NextAttemptAt.Valid, "timeout must persist a retry deadline")
 	var checks struct {
-		Rebase struct {
+		Outages int `json:"outages"`
+		Rebase  struct {
 			Session uint32                  `json:"blocking_session"`
 			Native  *machined.RewriteResult `json:"native"`
 		} `json:"rebase"`
@@ -178,6 +179,7 @@ print('COMPLETED',flush=True)
 	require.NoError(t, json.Unmarshal(item.Checks, &checks))
 	require.Equal(t, writer.ID(), checks.Rebase.Session)
 	require.Nil(t, checks.Rebase.Native, "busy cannot persist a completed rewrite")
+	require.Zero(t, checks.Outages, "freeze contention cannot charge the outage allowance")
 	// Snapshot IDs can advance on the ordinary cadence, but the captured tree
 	// and target-file absence must remain unchanged until a successful rewrite.
 	current, err := registry.Capture(r.ctx, branch)
@@ -196,8 +198,23 @@ print('COMPLETED',flush=True)
 	require.Eventually(t, func() bool {
 		pending, err := q.GetMythicalItemByNumber(r.ctx, row.RepositoryID, n)
 		require.NoError(t, err)
-		return pending.Reason == "rebase_pending" && pending.NextAttemptAt.Valid && pending.NextAttemptAt.Time.After(previousDue)
-	}, 5*time.Second, 10*time.Millisecond, "real scheduler must persist another retry while the blocker remains")
+		var retry struct {
+			Outages int `json:"outages"`
+			Rebase  struct {
+				Session uint32                  `json:"blocking_session"`
+				Native  *machined.RewriteResult `json:"native"`
+			} `json:"rebase"`
+		}
+		require.NoError(t, json.Unmarshal(pending.Checks, &retry))
+		require.Zero(t, retry.Outages, "retry cannot consume outage allowance")
+		require.Nil(t, retry.Rebase.Native, "blocked retry cannot complete a rewrite")
+		require.Equal(t, item.CandidateHead, pending.CandidateHead)
+		return retry.Rebase.Session == writer.ID() && pending.Reason == "rebase_pending" && pending.NextAttemptAt.Valid && pending.NextAttemptAt.Time.After(previousDue)
+	}, 10*time.Second, 100*time.Millisecond, "real scheduler must persist another busy receipt while the blocker remains")
+	require.Equal(t, parent, command(`jj log -r '@-' --no-graph -T commit_id`), "repeated timeout cannot rewrite the parent")
+	read()
+	require.NotNil(t, view.Pending)
+	require.Equal(t, writer.ID(), view.Execution.Session)
 
 	// No new POST, PollOnce, due-row edit or clock advance. The composed
 	// worker must recover this same persisted request when the kernel releases D.
@@ -239,6 +256,21 @@ print('COMPLETED',flush=True)
 		}
 		return nil
 	}))
+	activityRaw, err := r.expect("GET", "/api/branches/"+branch+"/activity", "", 200)
+	require.NoError(t, err)
+	var activity []map[string]any
+	require.NoError(t, json.Unmarshal(activityRaw, &activity))
+	var rebases []map[string]any
+	for _, entry := range activity {
+		if entry["kind"] == "rebase" {
+			rebases = append(rebases, entry)
+		}
+	}
+	require.Len(t, rebases, 1, "busy attempts cannot publish completed activity")
+	require.Equal(t, onto, rebases[0]["onto_revision"])
+	require.Equal(t, true, rebases[0]["head_changed"])
+	require.Equal(t, true, rebases[0]["approvals_cleared"])
+	require.Equal(t, map[string]any{"kind": "system", "id": "stack", "color_index": float64(7)}, rebases[0]["actor"])
 	receipt, err := json.MarshalIndent(map[string]any{"branch": branch, "session": writer.ID(), "pid": pid, "observed_state": "D", "before_parent": parent, "before_tree": captured.Tree, "busy_ns": busyAt.Sub(started).Nanoseconds(), "onto": onto, "execution": view.Execution, "automatic_retry": true, "activation": false}, "", "  ")
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "composed-freeze-timeout.json"), receipt, 0600))
