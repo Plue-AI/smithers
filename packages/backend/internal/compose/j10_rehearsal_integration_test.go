@@ -7,6 +7,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -25,6 +28,183 @@ var j10ClosingKeyword = regexp.MustCompile(`(?i)\b(close[sd]?|fix(e[sd])?|resolv
 // j10RunWait bounds one scripted TODO run, start to In review, on a shared
 // host where machine readiness alone can take minutes.
 const j10RunWait = 15 * time.Minute
+
+// j10BuiltinReviewActive is C-J10-09's setup row: with no flows/review of its
+// own, the repository's Active review is the built-in version the install
+// ships, and admission pins it at the main commit flow-load last settled.
+func (r *rehearsal) j10BuiltinReviewActive() {
+	r.step("0c Built-in review is Active", "GET /api/flows; flow_loads", "review: source builtin, system false, Active is the shipped digest; flow-load settled at a main commit", "T-FLW-13", func() error {
+		shipped, err := builtinReviewDigest()
+		if err != nil {
+			return err
+		}
+		card, err := r.flowCard("review")
+		if err != nil {
+			return err
+		}
+		if !card.Source.Builtin || card.version("active") != shipped {
+			return fmt.Errorf("review has source %+v, Active %q; want built in at %s", card.Source, card.version("active"), shipped)
+		}
+		for deadline := time.Now().Add(5 * time.Minute); ; time.Sleep(time.Second) {
+			var loaded string
+			if err := r.pool.QueryRow(r.ctx, `SELECT coalesce(max(loaded_commit),'') FROM flow_loads`).Scan(&loaded); err != nil {
+				return err
+			}
+			if len(loaded) == 40 {
+				r.actual = fmt.Sprintf("review built in, Active %s…; flow-load settled at %s", shipped[:12], loaded[:12])
+				return nil
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("review built in, Active %s…; flow-load has not settled after 5 min", shipped[:12])
+			}
+		}
+	})
+}
+
+// j10MemberReview is C-J10-09 S1 step 1: Alice pushes her own branch and opens
+// a PR, and Ben runs /review on it. Admission pins the Active review before it
+// asks for a machine, so a refusal for want of one is the row's next blocker,
+// not a missing review flow.
+func (r *rehearsal) j10MemberReview(ben http.CookieJar, repo string) {
+	const memberPR = 901
+	reviewRoute := fmt.Sprintf("git push alice/cache; GitHub fake: Alice's PR #%d → POST /api/reviews as Ben; GET /api/reviews/{id}", memberPR)
+	reviewExpected := "202 pinned to the built-in review at the PR head; completed in an ephemeral machine with findings; no GitHub write; no TODO"
+	reviewWrites, reviewItems := len(r.fake.Writes()), 0
+	if err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM mythical_items`).Scan(&reviewItems); err != nil {
+		r.t.Fatal(err)
+	}
+	reviewHead, reviewBase, reviewErr := r.pushMemberBranch("alice/cache", "Bound the cache", map[string]string{
+		"src/cache.ts": "export const evict = (entries: string[], capacity: number) =>\n  entries.length > capacity ? entries.slice(entries.length - capacity - 1) : entries\n",
+	})
+	reviewCode, reviewData := 0, []byte(nil)
+	if reviewErr == nil {
+		r.fake.UpdatePull(repo, memberPR, func(p *githubfake.Pull) {
+			p.Repository, p.Number, p.State, p.Title = repo, memberPR, "open", "Bound the cache"
+			p.User = &githubfake.PullAuthor{ID: 202, Login: "alice", Type: "User"}
+			p.HTMLURL = fmt.Sprintf("https://github.com/%s/pull/%d", repo, memberPR)
+			p.Head.Ref, p.Base.Ref = "alice/cache", "main"
+			p.Head.SHA, p.Base.SHA = reviewHead, reviewBase
+		})
+		reviewCode, reviewData, reviewErr = r.keyedAs(ben, "POST", "/api/reviews", fmt.Sprintf(`{"number":%d,"conversation":"main"}`, memberPR), r.keyPrefix+"review-member")
+	}
+	if reviewErr == nil && reviewCode == 503 && strings.Contains(string(reviewData), `"code":"review_delivery_unavailable"`) {
+		r.pending("9 /review a teammate's PR", reviewRoute, reviewExpected, "T-FLW-13", "review-machine (503 review_delivery_unavailable: this runtime composes no sandboxed review machine)")
+	} else {
+		r.step("9 /review a teammate's PR", reviewRoute, reviewExpected, "T-FLW-13", func() error {
+			if reviewErr != nil {
+				return reviewErr
+			}
+			if reviewCode != 202 {
+				return fmt.Errorf("HTTP %d %s", reviewCode, reviewData)
+			}
+			shipped, err := builtinReviewDigest()
+			if err != nil {
+				return err
+			}
+			var admission struct {
+				Head        string `json:"head"`
+				OperationID string `json:"operationId"`
+				Pin         struct {
+					Flow            string `json:"flow"`
+					SourceCommit    string `json:"sourceCommit"`
+					ExecutionDigest string `json:"executionDigest"`
+				} `json:"pin"`
+			}
+			if err := json.Unmarshal(reviewData, &admission); err != nil {
+				return err
+			}
+			if admission.Head != reviewHead || admission.Pin.Flow != "review" || admission.Pin.ExecutionDigest != shipped || len(admission.Pin.SourceCommit) != 40 {
+				return fmt.Errorf("admitted %s", reviewData)
+			}
+			var status struct {
+				State  string          `json:"state"`
+				Change json.RawMessage `json:"change"`
+				Error  string          `json:"error"`
+			}
+			for deadline := time.Now().Add(j10RunWait); status.State != "completed"; time.Sleep(2 * time.Second) {
+				data, err := r.expectAs(ben, "GET", "/api/reviews/"+admission.OperationID, "", 200)
+				if err != nil {
+					return err
+				}
+				if err := json.Unmarshal(data, &status); err != nil {
+					return err
+				}
+				if status.State == "failed" || status.State == "cancelled" || time.Now().After(deadline) {
+					return fmt.Errorf("review %s: %s %s", admission.OperationID, status.State, status.Error)
+				}
+			}
+			if len(status.Change) == 0 || string(status.Change) == "null" {
+				return fmt.Errorf("review %s completed without findings", admission.OperationID)
+			}
+			for _, write := range r.fake.Writes()[reviewWrites:] {
+				if strings.Contains(write.Path, fmt.Sprintf("/pulls/%d", memberPR)) || strings.Contains(write.Path, fmt.Sprintf("/issues/%d/", memberPR)) || strings.Contains(write.Path, "/statuses/"+reviewHead) {
+					return fmt.Errorf("the review wrote %s %s", write.Method, write.Path)
+				}
+			}
+			var items int
+			if err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM mythical_items`).Scan(&items); err != nil {
+				return err
+			}
+			if items != reviewItems {
+				return fmt.Errorf("the review left %d stack items, was %d", items, reviewItems)
+			}
+			r.actual = fmt.Sprintf("202 pinned %s… at %s; completed with findings; no GitHub write; no TODO", shipped[:12], reviewHead[:12])
+			return nil
+		})
+	}
+}
+
+// builtinReviewDigest is the review version the install ships (builtin_flows.json).
+func builtinReviewDigest() (string, error) {
+	cards, err := services.FlowCatalog()
+	if err != nil {
+		return "", err
+	}
+	for _, card := range cards {
+		if card.Name == "review" && len(card.Versions) == 1 {
+			return card.Versions[0].ID, nil
+		}
+	}
+	return "", fmt.Errorf("the install ships no review")
+}
+
+// pushMemberBranch commits files onto a new branch from GitHub's main, as a
+// member pushing their own branch would, and answers its head and base.
+func (r *rehearsal) pushMemberBranch(branch, message string, files map[string]string) (string, string, error) {
+	work := r.t.TempDir()
+	run := func(args ...string) (string, error) {
+		cmd := exec.Command("/usr/bin/git", args...)
+		cmd.Dir = work
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=Alice", "GIT_AUTHOR_EMAIL=alice@example.test", "GIT_COMMITTER_NAME=Alice", "GIT_COMMITTER_EMAIL=alice@example.test")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("git %s: %v: %s", strings.Join(args, " "), err, out)
+		}
+		return strings.TrimSpace(string(out)), nil
+	}
+	if _, err := run("clone", "-q", "--branch", "main", filepath.Join(r.gitRoot, "rehearsal-owner/app.git"), "."); err != nil {
+		return "", "", err
+	}
+	base, err := run("rev-parse", "HEAD")
+	if err != nil {
+		return "", "", err
+	}
+	for path, content := range files {
+		if err := os.MkdirAll(filepath.Join(work, filepath.Dir(path)), 0700); err != nil {
+			return "", "", err
+		}
+		if err := os.WriteFile(filepath.Join(work, path), []byte(content), 0600); err != nil {
+			return "", "", err
+		}
+	}
+	for _, args := range [][]string{{"add", "-A"}, {"commit", "-q", "-m", message}, {"push", "-q", "origin", "HEAD:refs/heads/" + branch}} {
+		if _, err := run(args...); err != nil {
+			return "", "", err
+		}
+	}
+	head, err := run("rev-parse", "HEAD")
+	return head, base, err
+}
 
 // j10Card is what the J10 rows read of a TODO card beyond rehearsalTodo.
 type j10Card struct {
@@ -201,6 +381,7 @@ func TestJ10Rehearsal(t *testing.T) {
 	}) {
 		return
 	}
+	r.j10BuiltinReviewActive()
 	var t1, t2, pr1, pr2 int64
 	var pull1URL, head2 string
 	if !r.step("1 File T1", "POST /api/todos {issue, issue_digest, fixes}", "202; T1 fixes #I", "T-STK-01, T-STK-09", func() error {
@@ -378,12 +559,22 @@ func TestJ10Rehearsal(t *testing.T) {
 		return
 	}
 	if !r.step("2 The agent's fix updates the PR", "GET /api/todos/{T2}; GitHub fake PR", "T2 back in review; a new PR head under the same PR number; one PR for the branch", "T-GH-04, T-STK-06", func() error {
-		v, err := r.waitTodoWithin(t2, j10RunWait, "in_review")
-		if err != nil {
-			return err
+		// The steer starts the next attempt; In review counts only with its new head.
+		var v rehearsalTodo
+		for deadline := time.Now().Add(j10RunWait); ; time.Sleep(time.Second) {
+			var err error
+			if v, err = r.todo(t2); err != nil {
+				return err
+			}
+			if v.State == "in_review" && v.PR.Head != head2 {
+				break
+			}
+			if v.State == "failed" || v.State == "dropped" || time.Now().After(deadline) {
+				return fmt.Errorf("T2 %s with PR #%d at %s after the steer (was %s)", v.State, v.PR.Number, short7(v.PR.Head), short7(head2))
+			}
 		}
-		if v.PR.Number != pr2 || v.PR.Head == head2 {
-			return fmt.Errorf("T2's PR #%d head %s after the steer (was #%d at %s)", v.PR.Number, short7(v.PR.Head), pr2, short7(head2))
+		if v.PR.Number != pr2 {
+			return fmt.Errorf("the fix opened PR #%d, not #%d", v.PR.Number, pr2)
 		}
 		pull, err := r.readFakePull(pr2)
 		if err != nil {
@@ -523,8 +714,8 @@ func TestJ10Rehearsal(t *testing.T) {
 		return nil
 	})
 	r.pending("3 Bring in Alice's commit", "POST /api/branches/{b} {op: bring-in, id, revision}", "T2 works on top of Alice's commit; her line in the item's diff; same PR", "T-GH-06, T-STK-08", "checkpoint-rebase")
-	if !r.step("3 Discard Alice's commit", "POST /api/branches/smithers%2Fretry-webhooks {op: discard-foreign, id, revision} as Alice, then the owner; GitHub fake branch; SQL activity",
-		"403 for member Alice; 202 for the owner; T2 back in review; Smithers' next push replaces Alice's commit, which stays kept and linked", "T-GH-06", func() error {
+	if !r.step("3 Discard Alice's commit", "POST /api/branches/smithers%2Fretry-webhooks {op: discard-foreign, id, revision} as Alice, then the owner; SQL activity",
+		"403 for member Alice; 202 for the owner; the Needs you settles, T2 reads In review, and activity links Alice's kept commit", "T-GH-06", func() error {
 			if a1 == "" || wait1 == "" {
 				return fmt.Errorf("blocked by Alice's push row")
 			}
@@ -536,7 +727,33 @@ func TestJ10Rehearsal(t *testing.T) {
 			if code, data, err := r.keyed("POST", path, string(body), r.keyPrefix+"discard-owner"); err != nil || code != 202 {
 				return fmt.Errorf("the owner's Discard: %d %s %v", code, data, err)
 			}
-			for deadline := time.Now().Add(3 * time.Minute); ; time.Sleep(500 * time.Millisecond) {
+			for deadline := time.Now().Add(time.Minute); ; time.Sleep(500 * time.Millisecond) {
+				card, err := r.j10Card(t2)
+				if err != nil {
+					return err
+				}
+				if card.State == "in_review" && len(card.Waits) == 0 {
+					break
+				}
+				if time.Now().After(deadline) {
+					return fmt.Errorf("T%d %s with waits %+v a minute after Discard", t2, card.State, card.Waits)
+				}
+			}
+			if err := r.waitSQL(10*time.Second, `SELECT count(*) FROM product_job_events WHERE data::text LIKE '%kept/'||$1::text||'%'`, a1); err != nil {
+				return fmt.Errorf("no activity links the kept commit: %w", err)
+			}
+			r.actual = fmt.Sprintf("403 Alice; 202 owner; T%d in_review; activity links refs/smithers/kept/%s", t2, short7(a1))
+			return nil
+		}) {
+		return
+	}
+	r.step("3 The next verified push replaces Alice's commit", "POST /api/todos/{T2} {steer}; GitHub fake branch",
+		"the owner's steer runs the next attempt; its verified head replaces Alice's discarded commit, leased against it, under the same PR", "T-GH-06, T-STK-06", func() error {
+			body, _ := json.Marshal(map[string]string{"steer": "Also log each retry."})
+			if code, data, err := r.keyed("POST", fmt.Sprintf("/api/todos/%d", t2), string(body), r.keyPrefix+"steer-after-discard"); err != nil || code != 202 {
+				return fmt.Errorf("the owner's steer: %d %s %v", code, data, err)
+			}
+			for deadline := time.Now().Add(j10RunWait); ; time.Sleep(time.Second) {
 				card, err := r.j10Card(t2)
 				if err != nil {
 					return err
@@ -545,23 +762,22 @@ func TestJ10Rehearsal(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				if card.State == "in_review" && len(card.Waits) == 0 && head != a1 && card.PR.Head == head {
+				if card.State == "in_review" && head != a1 && card.PR.Head == head {
 					if _, err := r.githubGit("merge-base", "--is-ancestor", a1, head); err == nil {
 						return fmt.Errorf("the new head %s keeps Alice's discarded commit", short7(head))
 					}
-					if err := r.waitSQL(10*time.Second, `SELECT count(*) FROM product_job_events WHERE data::text LIKE '%kept/'||$1::text||'%'`, a1); err != nil {
-						return fmt.Errorf("no activity links the kept commit: %w", err)
+					if card.PR.Number != pr2 {
+						return fmt.Errorf("the push opened PR #%d, not #%d", card.PR.Number, pr2)
 					}
-					r.actual = fmt.Sprintf("403 Alice; 202 owner; T%d in_review; branch %s → %s; kept ref linked", t2, short7(a1), short7(head))
+					r.actual = fmt.Sprintf("T%d in_review; branch %s → %s; PR #%d", t2, short7(a1), short7(head), pr2)
+					head2 = head
 					return nil
 				}
-				if time.Now().After(deadline) {
-					return fmt.Errorf("T%d %s waits %d, GitHub branch %s, card head %s, 3 min after Discard", t2, card.State, len(card.Waits), short7(head), short7(card.PR.Head))
+				if card.State == "failed" || time.Now().After(deadline) {
+					return fmt.Errorf("T%d %s, GitHub branch %s, card head %s after the steer", t2, card.State, short7(head), short7(card.PR.Head))
 				}
 			}
-		}) {
-		return
-	}
+		})
 
 	// J10.4: someone merges an unrelated PR on GitHub.
 	var m2 string
@@ -619,81 +835,10 @@ func TestJ10Rehearsal(t *testing.T) {
 			}
 		}
 	})
-	r.step("4 Rebase pending while a person is present", "Ben's live branch:<T1> presence; GitHub fake main moves → GET /api/todos/{T1}",
-		"T1 reads rebase_pending and keeps its head while Ben is present; it rebases within 90 s of Ben leaving", "T-STK-08", func() error {
-			v1, err := r.todo(t1)
-			if err != nil {
-				return err
-			}
-			if v1.Branch == nil || v1.Branch.ID == "" {
-				return fmt.Errorf("T%d has no branch", t1)
-			}
-			socket, err := r.openLive(ben)
-			if err != nil {
-				return err
-			}
-			// Ben's Branch card announces where he is, as LiveChannel's
-			// presence frame does, and heartbeats while he stays.
-			present := func(branch string) error {
-				frame, _ := json.Marshal(map[string]any{"t": "presence", "id": 9001, "where": map[string]string{"branch": branch}})
-				return socket.send(frame)
-			}
-			if _, err = socket.subscribe("branch:" + v1.Branch.ID); err != nil {
-				return err
-			}
-			if _, err = socket.wait("branch:"+v1.Branch.ID, 30*time.Second, func(liveFrame) bool { return true }); err != nil {
-				return fmt.Errorf("Ben's branch card: %w", err)
-			}
-			if err = present(v1.Branch.ID); err != nil {
-				return err
-			}
-			defer present("")
-			m3, err := r.pushMain("UNRELATED2.md", "unrelated again\n", "Second unrelated docs change")
-			if err != nil {
-				return err
-			}
-			pending := false
-			for end := time.Now().Add(60 * time.Second); time.Now().Before(end); time.Sleep(time.Second) {
-				if time.Now().Unix()%10 == 0 {
-					if err = present(v1.Branch.ID); err != nil {
-						return err
-					}
-				}
-				card, err := r.j10Card(t1)
-				if err != nil {
-					return err
-				}
-				if card.PR.Head != v1.PR.Head {
-					return fmt.Errorf("T%d rebased to %s while Ben was present", t1, short7(card.PR.Head))
-				}
-				pending = pending || card.RebasePending != nil
-			}
-			if !pending {
-				return fmt.Errorf("T%d never read rebase_pending while Ben was present", t1)
-			}
-			if err = present(""); err != nil {
-				return err
-			}
-			left := time.Now()
-			for deadline := left.Add(3 * time.Minute); ; time.Sleep(time.Second) {
-				pull, err := r.readFakePull(pr1)
-				if err != nil {
-					return err
-				}
-				parent, _ := r.githubGit("rev-parse", pull.Head.SHA+"^")
-				if parent == m3 {
-					took := time.Since(left)
-					r.actual = fmt.Sprintf("rebase_pending, head kept 60 s with Ben present; rebased onto %s %s after he left", short7(m3), took.Round(time.Second))
-					if took > 90*time.Second {
-						return fmt.Errorf("rebased %s after Ben left, want within 90 s", took.Round(time.Second))
-					}
-					return nil
-				}
-				if time.Now().After(deadline) {
-					return fmt.Errorf("T%d's PR head %s (parent %s) 3 min after Ben left; main %s", t1, short7(pull.Head.SHA), short7(parent), short7(m3))
-				}
-			}
-		})
+	// Presence-aware rebase is S2 (spec §10, C-J10-04): the Branch topic and the
+	// machine daemon's presence census it reads are not on the S1 install.
+	r.pending("4 Rebase pending while a person is present", "Ben's Branch card (branch:<T1>); GitHub fake main moves; GET /api/todos/{T1}",
+		"T1 reads rebase_pending and keeps its head while Ben is present; it rebases within 60 s of presence expiry", "T-STK-08", "presence-rebase")
 
 	// J10.5: the lead merges on GitHub instead of in Smithers.
 	r.step("5 Merge on GitHub turns T1 Merged", "GitHub fake: the owner merges T1's PR → GET /api/todos/{T1}; GET /api/repos/{o}/{r}/mythical; GitHub write log",
@@ -878,8 +1023,7 @@ func TestJ10Rehearsal(t *testing.T) {
 		return nil
 	})
 
-	// C-J10-09: /review on a teammate's PR.
-	r.pending("9 /review a teammate's PR", "POST /api/reviews {number} for Alice's PR", "the Active review flow in an ephemeral machine at the PR head; findings to Ben; no GitHub write; no TODO", "T-FLW-13", "review-machine")
+	r.j10MemberReview(ben, repo)
 	r.step("9 An outsider's PR gets no machine", "GitHub fake: @outsider's PR #900 → POST /api/reviews {number: 900} as Ben", "refused with class permission; no machine requested", "T-FLW-13", func() error {
 		r.fake.UpdatePull(repo, 900, func(p *githubfake.Pull) {
 			p.Repository, p.Number, p.State, p.Title = repo, 900, "open", "Outsider cache change"
@@ -888,6 +1032,10 @@ func TestJ10Rehearsal(t *testing.T) {
 			p.Head.Ref, p.Base.Ref = "outsider:cache", "main"
 			p.Head.SHA = strings.Repeat("9", 40)
 		})
+		var before, machines int
+		if err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review'`).Scan(&before); err != nil {
+			return err
+		}
 		code, data, err := r.keyedAs(ben, "POST", "/api/reviews", `{"number":900,"conversation":"main"}`, r.keyPrefix+"review-outsider")
 		if err != nil {
 			return err
@@ -895,12 +1043,11 @@ func TestJ10Rehearsal(t *testing.T) {
 		if code != 403 || !strings.Contains(string(data), `"class":"permission"`) {
 			return fmt.Errorf("outsider review: HTTP %d %s", code, data)
 		}
-		var machines int
 		if err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review'`).Scan(&machines); err != nil {
 			return err
 		}
-		if machines != 0 {
-			return fmt.Errorf("the refused review left %d review jobs", machines)
+		if machines != before {
+			return fmt.Errorf("the refused review left %d review jobs", machines-before)
 		}
 		r.actual = fmt.Sprintf("403 %s; no install.review job", data)
 		return nil
