@@ -446,7 +446,17 @@ func TestSuccessfulFiftyTerminalInstallBoundary(t *testing.T) {
 func TestSuccessfulTerminalPublicationBarrierInstallBoundary(t *testing.T) {
 	testSuccessfulTerminalFIFOInstallBoundary(t, 2, 1, 2, true)
 }
-func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBranch, slots int, rejectPublication bool) {
+func TestSuccessfulTerminalDiskRecheckInstallBoundary(t *testing.T) {
+	testSuccessfulTerminalFIFOInstallBoundary(t, 3, 1, 3, false, "disk")
+}
+func TestSuccessfulTerminalOwnerCapacityInstallBoundary(t *testing.T) {
+	testSuccessfulTerminalFIFOInstallBoundary(t, 4, 1, 3, false, "owner")
+}
+func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBranch, slots int, rejectPublication bool, constraints ...string) {
+	constraint := ""
+	if len(constraints) > 0 {
+		constraint = constraints[0]
+	}
 	f := presenceInstall(t)
 	ctx := t.Context()
 	q := db.New(f.pool)
@@ -514,7 +524,7 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 	defer cancel()
 	go stack.StartMachineQueueProjection(workerCtx)
 	liveHandler := &routes.LiveHandler{Queries: q, Hub: live.NewHub(workerCtx, nil), Origins: func() []string { return cfg.Server.AllowedOrigins }, Topics: topics.resolver}
-	server.Config.Handler = parallelInstallRouter(cfg, q, f.pool, handler, routerExtras{Live: liveHandler})
+	server.Config.Handler = parallelInstallRouter(cfg, q, f.pool, handler, routerExtras{Live: liveHandler, GitHubAppSetup: &routes.GitHubAppSetupHandler{Owners: q, Origins: liveHandler.Origins, Setup: &services.InstallSetupService{Pool: f.pool, Capacity: capacity}}})
 	server.Start()
 	defer server.Close()
 	// All demand enters through the authenticated terminal door. Disk keeps
@@ -640,6 +650,44 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 		require.NoError(t, err)
 	}
 	freeDisk.Store(int64(40+32*slots) << 30)
+	if constraint == "disk" {
+		freeDisk.Store(104 << 30)
+		require.Eventually(t, func() bool { return len(runtime.started) == 2 }, 5*time.Second, 10*time.Millisecond)
+		freeDisk.Store(100 << 30)
+		for until := time.Now().Add(1100 * time.Millisecond); time.Now().Before(until); {
+			require.Equal(t, 2, queue.InUse())
+			require.Len(t, runtime.started, 2, "falling disk cannot grant the third branch or preempt either awake machine")
+			require.False(t, queue.AdmissionHeld("workspace:"+branches[2].ID))
+			time.Sleep(20 * time.Millisecond)
+		}
+		recoveredAt := time.Now()
+		freeDisk.Store(140 << 30)
+		require.Eventually(t, func() bool { return len(runtime.started) == 3 }, 2*time.Second, 10*time.Millisecond)
+		require.Less(t, time.Since(recoveredAt), 2*time.Second)
+	}
+	if constraint == "owner" {
+		require.Eventually(t, func() bool { return len(runtime.started) == 3 }, 5*time.Second, 10*time.Millisecond)
+		req, err := http.NewRequestWithContext(ctx, "PUT", server.URL+"/api/install", strings.NewReader(`{"capacity":1}`))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Origin", cfg.Server.PublicURL)
+		req.Header.Set("X-CSRF-Token", "csrf")
+		req.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
+		req.AddCookie(&http.Cookie{Name: "smithers_session", Value: f.cookie})
+		res, err := server.Client().Do(req)
+		require.NoError(t, err)
+		body, err := io.ReadAll(res.Body)
+		res.Body.Close()
+		require.NoError(t, err)
+		require.Equal(t, 200, res.StatusCode, string(body))
+		for until := time.Now().Add(1100 * time.Millisecond); time.Now().Before(until); {
+			require.Equal(t, 3, queue.InUse())
+			require.Len(t, runtime.started, 3)
+			require.False(t, queue.AdmissionHeld("workspace:"+branches[3].ID), "lowering capacity cannot preempt or grant")
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+
 	if rejectPublication {
 		require.Eventually(t, func() bool { return queue.InUse() == 1 }, 5*time.Second, 10*time.Millisecond)
 		for until := time.Now().Add(1100 * time.Millisecond); time.Now().Before(until); {
@@ -712,11 +760,35 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 		guest.state = workspaceapi.WorkspaceStopped
 		guest.mu.Unlock()
 		queue.ConfirmAdmissionStop("workspace:"+branch.ID, false)
+		if constraint == "owner" && i < 2 {
+			for until := time.Now().Add(1100 * time.Millisecond); time.Now().Before(until); {
+				require.Equal(t, 2-i, queue.InUse())
+				require.False(t, queue.AdmissionHeld("workspace:"+branches[3].ID))
+				time.Sleep(20 * time.Millisecond)
+			}
+		}
+
 	}
 	require.NoError(t, service.WaitForProvisioning(ctx))
 	var grantCount int
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='branch.machine.granted'`).Scan(&grantCount))
 	require.Equal(t, branchCount, grantCount, "each successful grant has one durable receipt")
+	rows, err := f.pool.Query(ctx, `SELECT data->'branch'->>'id' FROM product_job_events WHERE event_type='branch.machine.granted' ORDER BY recorded_at`)
+	require.NoError(t, err)
+	var order []string
+	for rows.Next() {
+		var id string
+		require.NoError(t, rows.Scan(&id))
+		order = append(order, id)
+	}
+	require.NoError(t, rows.Err())
+	rows.Close()
+	var expected []string
+	for _, branch := range branches {
+		expected = append(expected, branch.ID)
+	}
+	require.Equal(t, expected, order, "committed grants preserve literal holder FIFO at multi-slot capacity")
+
 	require.Zero(t, queue.InUse())
 	require.Len(t, queue.AdmissionSnapshot(), branchCount)
 	for _, row := range queue.AdmissionSnapshot() {

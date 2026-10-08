@@ -33,3 +33,11 @@ test("C-MCH-11: grant publication rollback fences a second free slot", async () 
   const output = await runLiveInstall("^TestSuccessfulTerminalPublicationBarrierInstallBoundary$")
   expect(output).toContain("--- PASS: TestSuccessfulTerminalPublicationBarrierInstallBoundary")
 })
+
+
+test("C-MCH-11: successful terminals obey changing disk and owner capacity", async () => {
+  test.setTimeout(300_000)
+  const output = await runLiveInstall("^TestSuccessfulTerminal(DiskRecheck|OwnerCapacity)InstallBoundary$")
+  expect(output).toContain("--- PASS: TestSuccessfulTerminalDiskRecheckInstallBoundary")
+  expect(output).toContain("--- PASS: TestSuccessfulTerminalOwnerCapacityInstallBoundary")
+})
