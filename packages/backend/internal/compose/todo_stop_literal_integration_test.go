@@ -45,8 +45,12 @@ func TestTodoStopTransitionLiteralCases(t *testing.T) {
 		paused, ended bool
 	}{
 		{"plain", "", false, false}, {"branch", "foreign_push", false, false},
+		{"conflict", "conflict", false, false}, {"moved-off", "moved_off", false, false},
 		{"question", "question", false, false}, {"approval", "approval", false, false},
 		{"paused", "", true, false}, {"ended", "", false, true},
+		{"starting", "", false, false},
+		{"branch-and-question", "question", false, false},
+		{"branch-and-approval", "approval", false, false},
 	}
 	accepted, refused := 0, 0
 	count := func(table, predicate string) int {
@@ -61,7 +65,10 @@ func TestTodoStopTransitionLiteralCases(t *testing.T) {
 				if mode.wait != "" {
 					waits = append(waits, map[string]any{"id": "w", "kind": mode.wait, "prompt": "Choose", "since": "2026-10-02T12:00:00Z"})
 				}
-				facts := map[string]any{"todo": true, "run_launched": true, "run_attached": true, "flowSource": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+				if mode.name == "branch-and-question" || mode.name == "branch-and-approval" {
+					waits = append(waits, map[string]any{"id": "foreign", "kind": "foreign_push", "prompt": "Push", "since": "2026-10-02T12:00:01Z"})
+				}
+				facts := map[string]any{"todo": true, "run_launched": true, "run_attached": mode.name != "starting", "flowSource": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 				if len(waits) > 0 {
 					facts["waits"] = waits
 				}
@@ -74,6 +81,9 @@ func TestTodoStopTransitionLiteralCases(t *testing.T) {
 				_, err = h.pool.Exec(ctx, `UPDATE mythical_items SET state=$2,checks=$3,attempt=1,request_run_id='run-1',request_outcome=$4,workspace_id='11111111-1111-4111-8111-111111111111',flow_digest=$6,paused_at=CASE WHEN $5 THEN '2026-10-02T12:00:00Z'::timestamptz ELSE NULL END WHERE id=$1`, h.item.ID, c.engine, checks, outcome, mode.paused, digest)
 				require.NoError(t, err)
 				from := c.plain
+				if mode.name == "starting" && (c.plain == "working" || c.engine == "queued") {
+					from = "starting"
+				}
 				if mode.wait != "" {
 					from = c.wait
 				}
@@ -83,7 +93,7 @@ func TestTodoStopTransitionLiteralCases(t *testing.T) {
 				status, card := h.call(t, "GET", "", "")
 				require.Equal(t, 200, status, card)
 				require.Equal(t, from, card["state"])
-				require.Equal(t, c.live && !mode.paused && !mode.ended, card["run"].(map[string]any)["executing"])
+				require.Equal(t, c.live && !mode.paused && !mode.ended && mode.name != "starting", card["run"].(map[string]any)["executing"])
 				before, err := h.q.GetMythicalItem(ctx, h.item.ID)
 				require.NoError(t, err)
 				events := count("product_job_events", "event_type LIKE 'todo.%'")
@@ -92,7 +102,7 @@ func TestTodoStopTransitionLiteralCases(t *testing.T) {
 				status, receipt := h.call(t, "POST", `{"op":"stop"}`, key)
 				after, err := h.q.GetMythicalItem(ctx, h.item.ID)
 				require.NoError(t, err)
-				allowed := c.live && (mode.name == "plain" || mode.name == "branch")
+				allowed := c.live && (mode.name == "plain" || mode.name == "branch" || mode.name == "conflict" || mode.name == "moved-off")
 				if !allowed {
 					require.Equal(t, 409, status, receipt)
 					require.Equal(t, "todo_transition_refused", receipt["code"])
@@ -142,8 +152,8 @@ func TestTodoStopTransitionLiteralCases(t *testing.T) {
 			})
 		}
 	}
-	require.Equal(t, 16, accepted)
-	require.Equal(t, 74, refused)
+	require.Equal(t, 32, accepted)
+	require.Equal(t, 133, refused)
 	t.Logf("literal Stop cases: %d accepted, %d refused", accepted, refused)
 }
 
