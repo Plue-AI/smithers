@@ -91,6 +91,7 @@ func (h offlineGatewayHost) RunModelTest(ctx context.Context, owner int64, reque
 var rehearsalInstallations atomic.Int64
 
 type rehearsal struct {
+	hostCredentials sync.Map
 	// Fault controls retain only this fixture's engine and stop its original worker.
 	repositoryRoot string
 	stopBackend    func()
@@ -381,7 +382,7 @@ path = "lib.rs"
 				startFault = new(atomic.Bool)
 				startFault.Store(true)
 			}
-			workspace = bindingProcessRuntime{rehearsalAdmissionRuntime: admittedRuntime, evidence: r.evidence, t: t, daemons: processDaemons, pool: pool, daemonBinary: buildRehearsalMachined(t, r.root), failNextTodoStart: startFault}
+			workspace = bindingProcessRuntime{rehearsalAdmissionRuntime: admittedRuntime, evidence: r.evidence, t: t, daemons: processDaemons, pool: pool, daemonBinary: buildRehearsalMachined(t, r.root), failNextTodoStart: startFault, hostCredentials: &r.hostCredentials}
 		} else {
 			fmt.Println("rehearsal: smithers-jj-export lacks trusted-process-binding (cargo build --release -p smithers-ffi --bin smithers-jj-export --features trusted-process-binding); the TODO cannot import its base")
 		}
@@ -1817,6 +1818,7 @@ func (r *rehearsalAdmissionRuntime) releaseTodoAdmission(holder string) {
 // credential is the head publisher's Git cache, as in a guest.
 // A host that exits before it is ready leaves both output streams in the evidence.
 type bindingProcessRuntime struct {
+	hostCredentials *sync.Map
 	*rehearsalAdmissionRuntime
 	evidence          string
 	t                 *testing.T
@@ -1948,6 +1950,9 @@ func (r bindingProcessRuntime) StartManagedHost(ctx context.Context, workspaceID
 		environment["SMITHERS_WORKSPACE_CODING_CONFIG"] = file
 		environment["PATH"] = filepath.Join(observed.Root, ".jj", "rehearsal-tools") + ":" + os.Getenv("PATH")
 		command.Environment = environment
+		if r.hostCredentials != nil && environment["SMITHERS_JJHUB_TOKEN"] != "" {
+			r.hostCredentials.Store(workspaceID, environment["SMITHERS_JJHUB_TOKEN"])
+		}
 		return command, nil
 	})
 	// Complete daemon admission before any coding process or credential can
