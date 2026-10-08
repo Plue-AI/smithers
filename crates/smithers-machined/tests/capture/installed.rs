@@ -1539,3 +1539,156 @@ fn production_local_socket_rejects_non_agent_before_write_dispatch() {
         );
     }
 }
+
+// Real dispatcher/native rewrite evidence with the rehearsal's empty census.
+// This proves receipt latency does not hold the mutation executor; actual
+// process suspension and kernel thaw remain broker/freeze.rs qualification.
+#[test]
+#[ignore = "requires SMITHERS_NAMESPACE_INIT; production rebase with delayed receipts"]
+fn production_rebase_releases_mutations_before_ten_second_capture_ack() {
+    use sha2::{Digest, Sha256};
+    let (guest, mut host) = guest();
+    assert_eq!(call(&mut host, 5, &[conn::field(1, guest.head)])[0], 5);
+    assert_eq!(call(&mut host, 16, &[conn::field(1, [0, 0])])[0], 16);
+    assert_eq!(call(&mut host, 4, &[])[0], 4);
+    let workspace = guest.root.path().join("workspace");
+    let git = |args: &[&str]| {
+        let output = Command::new("/usr/bin/git")
+            .arg("-C")
+            .arg(&workspace)
+            .args(args)
+            .env("GIT_AUTHOR_NAME", "Qualification")
+            .env("GIT_AUTHOR_EMAIL", "qualification@example.invalid")
+            .env("GIT_COMMITTER_NAME", "Qualification")
+            .env("GIT_COMMITTER_EMAIL", "qualification@example.invalid")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    };
+    // The item's original parent is jj's empty root. An independently authored
+    // empty Git tree provides a non-conflicting new prefix, without copying
+    // the item's own added files into both sides of the rebase.
+    let tree = git(&["mktree"]);
+    let onto = git(&["commit-tree", &tree, "-m", "independent host target"]);
+    let onto_bytes: Vec<u8> = (0..20)
+        .map(|i| u8::from_str_radix(&onto[2 * i..2 * i + 2], 16).unwrap())
+        .collect();
+    let before = b"uncaptured writer bytes survive rebase\n";
+    fs::write(workspace.join("file"), before).unwrap();
+    host.acknowledge = false;
+    host.events.clear();
+    let actor = conn::tagged(
+        1,
+        &[conn::field(
+            1,
+            [b"\0\0\0\x14".as_slice(), b"qualification-person"].concat(),
+        )],
+    );
+    let held = std::time::Instant::now();
+    let result = call(
+        &mut host,
+        11,
+        &[conn::field(1, onto_bytes), conn::field(2, &actor)],
+    );
+    assert_eq!(result[0], 11, "rebase refusal: {result:?}");
+    assert!(
+        held.elapsed() < Duration::from_secs(10),
+        "rewrite waited for receipt"
+    );
+    assert_eq!(fs::read(workspace.join("file")).unwrap(), before);
+    // A subsequent dispatched mutation must execute while the local capture
+    // is still pinned, rather than queue behind a host-dependent rewrite.
+    let after = b"following mutation before host receipt\n";
+    let mut path = vec![0, 4];
+    path.extend_from_slice(b"file");
+    let mut content = (after.len() as u32).to_be_bytes().to_vec();
+    content.extend_from_slice(after);
+    let write = call(
+        &mut host,
+        3,
+        &[
+            conn::field(1, path),
+            conn::field(
+                2,
+                conn::tagged(1, &[conn::field(1, Sha256::digest(before))]),
+            ),
+            conn::field(3, content),
+            conn::field(4, &actor),
+        ],
+    );
+    assert_eq!(write[0], 3, "queued write refusal: {write:?}");
+    assert!(held.elapsed() < Duration::from_secs(10));
+    assert_eq!(fs::read(workspace.join("file")).unwrap(), after);
+    let pending = git(&[
+        "for-each-ref",
+        "--format=%(refname)",
+        "refs/smithers/pending/",
+    ]);
+    assert!(!pending.is_empty(), "rewrite did not pin its local capture");
+    let pinned = pending
+        .lines()
+        .find(|reference| {
+            // Burst refs can name a versions tree with no working-copy file.
+            // Select the actual snapshot by independently comparing its bytes.
+            let output = Command::new("/usr/bin/git")
+                .arg("-C")
+                .arg(&workspace)
+                .args(["show", &format!("{reference}:file")])
+                .output()
+                .unwrap();
+            output.status.success() && output.stdout == before
+        })
+        .expect("local capture did not preserve the pre-rewrite writer bytes");
+    let pinned_head = git(&["rev-parse", pinned]);
+    let acked = git(&["rev-parse", "refs/smithers/acked/head"]);
+    let remaining = Duration::from_secs(10).saturating_sub(held.elapsed());
+    std::thread::sleep(remaining);
+    assert_eq!(git(&["rev-parse", pinned]), pinned_head);
+    assert_eq!(git(&["rev-parse", "refs/smithers/acked/head"]), acked);
+    // Resume the real event acknowledgements, then a normal capture must
+    // drain every pending object and converge to the following write.
+    for event in &host.events {
+        if event.captured_head().is_some() {
+            Frame {
+                kind: 2,
+                stream: 0,
+                payload: conn::tagged(
+                    3,
+                    &[conn::field(1, event.seq.to_be_bytes()), conn::field(2, [1])],
+                ),
+            }
+            .write(&mut host.stream)
+            .unwrap();
+        }
+    }
+    host.acknowledge = true;
+    assert_eq!(call(&mut host, 4, &[])[0], 4);
+    assert!(git(&[
+        "for-each-ref",
+        "--format=%(refname)",
+        "refs/smithers/pending/"
+    ])
+    .is_empty());
+    let head = host.captured.expect("host verified final capture");
+    let hex: String = head.iter().map(|b| format!("{b:02x}")).collect();
+    let output = Command::new("/usr/bin/git")
+        .arg("-C")
+        .arg(host.store.path())
+        .args(["show", &format!("{hex}:file")])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(output.stdout, after);
+    assert!(Command::new("/usr/bin/git")
+        .arg("-C")
+        .arg(host.store.path())
+        .args(["merge-base", "--is-ancestor", &onto, &hex])
+        .status()
+        .unwrap()
+        .success());
+}
