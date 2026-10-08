@@ -47,6 +47,12 @@ When an outside push needs a decision, an owner or maintainer can choose **Disca
 
 Open the TODO's evidence and pull request. Read the diff, verification results, GitHub checks and review. When the reviewed revision is ready, choose **Merge** in the app and confirm it. People merge; agents cannot approve or merge. The TODO becomes Merged after GitHub reports the squash merge. A learning run follows.
 
+## Follow the pull request
+
+When a TODO reaches In review, it has one GitHub pull request. Open **on GitHub** from its card to read the pull request, reviews, and checks.
+
+Later stack items have draft pull requests.
+
 ## Read the stack
 
 Open `main`'s conversation to see the stack. `main` stays at the top; TODOs follow in merge order.
