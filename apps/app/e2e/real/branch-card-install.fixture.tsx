@@ -150,7 +150,7 @@ try {
   const sshReads = requests.length
   for (const subject of ["T1", "smithers/sleep-item"]) {
     const copied = await controller.runCommandForResult("ssh", subject)
-    assert.deepEqual(copied, { status: "executed", value: "ssh -p 2222 smithers/sleep-item@127.0.0.1" })
+    assert.deepEqual(copied, { status: "executed", value: "ssh -p 2222 sleep-item@127.0.0.1" })
   }
   assert.ok(requests.slice(sshReads).every(request => request.method === "GET"), "SSH resolution never admits or wakes")
   assert.ok(requests.slice(sshReads).some(request => request.path === "/api/todos/1" && request.status === 200))
