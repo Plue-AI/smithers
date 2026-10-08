@@ -95,6 +95,16 @@ for(const [name,n] of [['res_kill_sessions',1],['res_kill_sessions_none',0]])emi
 emit('res_status',1,res(1,f(1,[3]),f(2,num(protocol,2)),f(3,str('0.1.0')),f(4,num(0,4)),f(5,oid),f(6,num(0,2))),0,'ok','daemon-to-host');
 // acked_head is optional: absent before the first acknowledged capture.
 emit('res_status_no_acked_head',1,res(1,f(1,[2]),f(2,num(protocol,2)),f(3,str('0.1.0')),f(4,num(3,4)),f(6,num(0,2))),0,'ok','daemon-to-host');
+// Protocol 8 safety observations: absence means unavailable, false means busy.
+// Keep all combinations and invalid boolean bytes in the independent corpus.
+for(const bursts of [undefined,0,1])for(const documents of [undefined,0,1]){
+  const observations=[];
+  if(bursts!==undefined)observations.push(f(7,[bursts]));
+  if(documents!==undefined)observations.push(f(8,[documents]));
+  emit(`res_status_safety_${bursts??'missing'}_${documents??'missing'}`,1,res(1,f(1,[3]),f(2,num(protocol,2)),f(3,str('0.1.0')),f(4,num(0,4)),f(6,num(0,2)),...observations),0,'ok','daemon-to-host');
+}
+for(const tag of [7,8])emit(`res_status_safety_invalid_${tag}`,1,res(1,f(1,[3]),f(2,num(protocol,2)),f(3,str('0.1.0')),f(4,num(0,4)),f(6,num(0,2)),f(tag,[2])),0,'bad_value','daemon-to-host');
+
 emit('res_read_file',1,res(2,f(1,bytes(Buffer.from('hello'))),f(2,digest),f(3,num(420,4))),0,'ok','daemon-to-host');
 emit('res_write_file',1,res(3,f(1,digest)),0,'ok','daemon-to-host');
 emit('res_capture',1,res(4,f(1,oid),f(2,oid2),f(3,num(0,2))),0,'ok','daemon-to-host');
