@@ -153,7 +153,7 @@ func exerciseInstalledMemberTerminalAndSSHChain(t *testing.T, check func(*rootLa
 	require.NoError(t, err)
 
 	testInstalledUsers(t, h, branch, term, benBrowser, aliceBrowser)
-	testInstalledSecretFiles(t, h, branch, term)
+	testInstalledSecretFiles(t, h, branch, term, benBrowser, aliceBrowser)
 	installedShell(t, term, fmt.Sprintf(`test "$(cat "$HOME/.config/mch/relay")" = MCH_RELAY_KEY && test "$(curl --silent --show-error --fail --noproxy '' --proxy "$http_proxy" -H "x-api-key: $(cat "$HOME/.config/mch/relay")" %q)" = provider-fixture-ok`, provider.URL))
 	select {
 	case received := <-providerRequests:

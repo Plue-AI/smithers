@@ -14,3 +14,10 @@ The credential chain plants a member-owned target symlink before retained boot,
 declares its secret while the machine sleeps, then verifies the symlink and
 outside target remain unchanged after wake. This is authored native coverage,
 not a passing receipt or a fix for declaration-time symlink validation.
+
+The composed native chain observes placeholder ownership and mode in the
+owner's, Ben's, Alice's and agent's private homes. Replacement and removal
+share one deadline across the HTTP mutation and every home observation.
+Environment scans send only the real fixture's SHA-256 digest to the guest,
+so the acceptance command itself cannot plant the key in shell history.
+These additional assertions still require execution on the approved bundle.
