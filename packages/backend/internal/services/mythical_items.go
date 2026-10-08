@@ -1797,6 +1797,10 @@ func mythicalDue(item db.MythicalItem, moved bool, now time.Time) time.Time {
 		// Close settlement must establish a fresh read before queued snapshots
 		// can reopen the Drop. A retired lane has no release to wake this pass.
 		return now
+	case item.State == "cancelled" && item.WorkspaceID != "" && mythicalChecksOf(item).Dropped != nil:
+		// Final capture or its save can fail after Drop commits. The retained
+		// lane still owes release, even without a PR to poll or another event.
+		return now.Add(3 * time.Second)
 	case mythicalReopenFollowed(item, now):
 		if item.NextAttemptAt.Valid && item.NextAttemptAt.Time.After(now) {
 			return item.NextAttemptAt.Time
@@ -1851,7 +1855,11 @@ func mythicalStepFailedDue(err error, now time.Time) time.Time {
 // pinned, so nothing depends on it. A failed release is retried next claim.
 // It answers the item as saved, so a step that follows works on it.
 func (s *MythicalService) releaseLane(ctx context.Context, r *mythicalRun, item db.MythicalItem) db.MythicalItem {
-	if mythicalChecksOf(item).Capture != nil || todoRunAwaitsProposal(item) {
+	checks := mythicalChecksOf(item)
+	// Drop ends the continuation obligation, not the retained capture. Retire
+	// through the ordinary writer-excluded final capture even when the ended
+	// attempt left captured edits it could no longer consume.
+	if checks.Capture != nil && !(item.State == "cancelled" && checks.Dropped != nil) || todoRunAwaitsProposal(item) {
 		return item
 	}
 	// A separate reviewer releases its lane after settlement even if the

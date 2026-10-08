@@ -277,6 +277,56 @@ type dropCaptureFault struct {
 	captures int
 }
 
+// Inject only retirement's transient failure; admission, Drop and the worker
+// still use their real PostgreSQL transactions and scheduling.
+type dropReleaseFault struct {
+	*fakeMythicalLanes
+	failure error
+}
+
+func (f *dropReleaseFault) Delete(ctx context.Context, repository, actor int64, branch string) error {
+	if f.failure != nil {
+		return f.failure
+	}
+	return f.fakeMythicalLanes.Delete(ctx, repository, actor, branch)
+}
+
+func TestTodoDropRetainedCaptureReleaseRetries(t *testing.T) {
+	o, session := newTodoAdmission(t)
+	ctx := context.Background()
+	item := o.fileTodo(session, "drop-retained-capture")
+	o.wake()
+	item = o.byID(uuidString(item.ID))
+	branch := item.WorkspaceID
+	require.NotEmpty(t, branch)
+	// An ended attempt still owns captured edits, as in J7's source refusal.
+	item.State, item.RequestOutcome = "blocked", "stopped: source_refused"
+	checks := mythicalChecksOf(item)
+	checks.Capture = &MachineCapturePending{Head: item.BaseCommit, Tree: strings.Repeat("b", 40), Base: item.BaseCommit, Onto: item.BaseCommit}
+	item.Checks = checks.encode()
+	_, err := db.New(o.pool).SaveMythicalItem(ctx, item)
+	require.NoError(t, err)
+	fault := &dropReleaseFault{fakeMythicalLanes: o.lanes, failure: errors.New("final capture disconnected")}
+	o.service.lanes = fault
+	_, err = o.service.ControlTodo(session, item.Number.Int64, TodoControlInput{Op: "drop", Repository: o.repoID, Actor: o.userID, Request: "drop-retained"})
+	require.NoError(t, err)
+	started := time.Now()
+	stack := o.wake()
+	pending := o.byID(uuidString(item.ID))
+	require.Equal(t, "dropped", todoState(pending))
+	require.Equal(t, branch, pending.WorkspaceID)
+	require.NotContains(t, o.lanes.deleted, branch)
+	require.Equal(t, checks.Capture, mythicalChecksOf(pending).Capture)
+	require.WithinDuration(t, started.Add(3*time.Second), stack.NextAttemptAt.Time, time.Second)
+	fault.failure = nil
+	time.Sleep(time.Until(stack.NextAttemptAt.Time) + 100*time.Millisecond)
+	require.NoError(t, o.service.PollOnce(ctx))
+	saved := o.byID(uuidString(item.ID))
+	require.Empty(t, saved.WorkspaceID)
+	require.Contains(t, o.lanes.deleted, branch)
+	require.Equal(t, checks.Capture, mythicalChecksOf(saved).Capture, "release retains captured-change history")
+}
+
 func (f *dropCaptureFault) DropCaptureReady(context.Context, pgx.Tx, db.MythicalItem) error {
 	return nil
 }
