@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -69,12 +70,23 @@ func TestLiveFlowsRepairsMissedHintAndKeepsActive(t *testing.T) {
 		require.Equal(t, "snap", frame.T)
 		return frame
 	}
+	// The card named todo, wherever the sorted catalog places it.
+	todoCard := func(frame liveFrame) services.FlowCard {
+		t.Helper()
+		var cards []services.FlowCard
+		require.NoError(t, json.Unmarshal(frame.Data, &cards))
+		for _, card := range cards {
+			if card.Name == "todo" {
+				return card
+			}
+		}
+		t.Fatalf("no todo card in %+v", cards)
+		return services.FlowCard{}
+	}
 	first := read(3 * time.Second)
-	var cards []services.FlowCard
-	require.NoError(t, json.Unmarshal(first.Data, &cards))
-	require.Equal(t, "todo", cards[1].Name)
-	require.Equal(t, active, cards[1].Versions[0].ID)
-	require.Equal(t, []services.FlowStep{{ID: "changelog", Label: "Changelog"}}, cards[1].Versions[0].Steps)
+	card := todoCard(first)
+	require.Equal(t, active, card.Versions[0].ID)
+	require.Equal(t, []services.FlowStep{{ID: "changelog", Label: "Changelog"}}, card.Versions[0].Steps)
 	_, err = q.RequestMythicalBootstrap(ctx, repository, user.ID, 100, false)
 	require.NoError(t, err)
 	load, err := q.EnsureFlowLoad(ctx, repository)
@@ -88,14 +100,13 @@ func TestLiveFlowsRepairsMissedHintAndKeepsActive(t *testing.T) {
 	require.NotNil(t, first.Cursor)
 	require.NotNil(t, changed.Cursor)
 	require.Greater(t, *changed.Cursor, *first.Cursor)
-	require.NoError(t, json.Unmarshal(changed.Data, &cards))
-	require.Equal(t, "todo", cards[1].Name)
-	require.Equal(t, active, cards[1].Versions[0].ID)
-	require.Equal(t, []services.FlowStep{{ID: "changelog", Label: "Changelog"}}, cards[1].Versions[0].Steps)
-	require.Equal(t, "active", cards[1].Versions[0].State)
-	require.Equal(t, failed, cards[1].Versions[1].ID)
-	require.Equal(t, "merged-failed", cards[1].Versions[1].State)
-	require.Equal(t, "flows/todo/flow.ts:12: invalid type", cards[1].Versions[1].Error)
+	card = todoCard(changed)
+	require.Equal(t, active, card.Versions[0].ID)
+	require.Equal(t, []services.FlowStep{{ID: "changelog", Label: "Changelog"}}, card.Versions[0].Steps)
+	require.Equal(t, "active", card.Versions[0].State)
+	require.Equal(t, failed, card.Versions[1].ID)
+	require.Equal(t, "merged-failed", card.Versions[1].State)
+	require.Equal(t, "flows/todo/flow.ts:12: invalid type", card.Versions[1].Error)
 }
 
 // The person-facing install route reads the same persisted version metadata
@@ -175,8 +186,10 @@ func TestInstallFlowsServesPersistedGuestSteps(t *testing.T) {
 			require.JSONEq(t, string(projection), string(replayed.Data))
 			conn.CloseNow()
 			server.Close()
-			require.Equal(t, digest, cards[1].Versions[0].ID)
-			require.Equal(t, []services.FlowStep{{ID: "changelog", Label: "Changelog"}}, cards[1].Versions[0].Steps)
+			todo := slices.IndexFunc(cards, func(card services.FlowCard) bool { return card.Name == "todo" })
+			require.GreaterOrEqual(t, todo, 0, "GET /api/flows lists todo")
+			require.Equal(t, digest, cards[todo].Versions[0].ID)
+			require.Equal(t, []services.FlowStep{{ID: "changelog", Label: "Changelog"}}, cards[todo].Versions[0].Steps)
 		})
 	}
 }

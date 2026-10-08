@@ -35,9 +35,34 @@ func TestInstallReviewPinsMemberPRBeforeDispatch(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission,github_id,github_login) VALUES($1,$2,'write',4242,'alice')`, f.repoID, member.ID)
 	require.NoError(t, err)
+	// No flow-load has settled, so no commit holds the built-in version yet.
 	_, err = f.service.RequestReview(ctx, f.repoID, f.userID, request, "review-50")
 	requireTodoControl(t, err, 503, "active_flow_unavailable")
 	q := db.New(f.pool)
+	// With no review of its own, the repository runs the built-in version the
+	// install ships, at the commit flow-load last settled.
+	digests, err := builtinFlowDigests()
+	require.NoError(t, err)
+	_, err = q.EnsureFlowLoad(ctx, f.repoID)
+	require.NoError(t, err)
+	for _, settled := range []string{"", strings.Repeat("0", 40)} {
+		_, err = f.pool.Exec(ctx, `UPDATE flow_loads SET loaded_commit=$2 WHERE repository_id=$1`, f.repoID, settled)
+		require.NoError(t, err)
+		_, err = f.service.prepareReview(ctx, f.repoID, f.userID, request, "review-50")
+		requireTodoControl(t, err, 503, "active_flow_unavailable")
+	}
+	_, err = f.pool.Exec(ctx, `UPDATE flow_loads SET loaded_commit=$2 WHERE repository_id=$1`, f.repoID, strings.Repeat("7", 40))
+	require.NoError(t, err)
+	builtin, err := f.service.prepareReview(ctx, f.repoID, f.userID, request, "review-50")
+	require.NoError(t, err)
+	require.Equal(t, strings.Repeat("7", 40), builtin.Pin.SourceCommit)
+	require.Equal(t, digests["review"], builtin.Pin.ExecutionDigest)
+	// A failed or inactive repository version leaves Active on the built-in.
+	_, err = q.InsertFlowVersion(ctx, f.repoID, "review", "flows/review/flow.ts", strings.Repeat("6", 40), strings.Repeat("5", 64), "failed", "load failed", []byte(`{}`))
+	require.NoError(t, err)
+	builtin, err = f.service.prepareReview(ctx, f.repoID, f.userID, request, "review-50")
+	require.NoError(t, err)
+	require.Equal(t, digests["review"], builtin.Pin.ExecutionDigest)
 	_, err = q.InsertFlowVersion(ctx, f.repoID, "review", "flows/review/flow.ts", strings.Repeat("b", 40), strings.Repeat("c", 64), "loaded", "", []byte(`{}`))
 	require.NoError(t, err)
 	activated, err := q.ActivateFlowVersion(ctx, f.repoID, "review", strings.Repeat("c", 64))

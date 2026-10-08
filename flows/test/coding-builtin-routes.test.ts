@@ -10,7 +10,7 @@
  * are the functions `flows/coding/host.ts` calls at startup.
  */
 import { NodeServices } from "@effect/platform-node"
-import { Flow, Graph } from "@smthrs/flow"
+import { Flow, FlowRuntime, Graph } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Discovery from "@smthrs/registry/Discovery"
@@ -32,6 +32,8 @@ import { loadProject } from "../coding/project-config.ts"
 import { bindRepositoryRegistry, provisionBuiltins, repositoryCatalog } from "../repository/registry.ts"
 import { RunJob, RunSetup } from "../repository/setup.ts"
 import { RunTrigger } from "../repository/triggers.ts"
+import { host as reviewHost } from "../review/tests/host.ts"
+import { scriptedSeats } from "../review/tests/workflow/scriptedSeats.ts"
 import Todo from "../todo/flow.ts"
 import { systemFlows } from "./fixtures/system-flows.ts"
 
@@ -446,6 +448,96 @@ test("an admitted pin loads the packaged default TODO without a repository overr
     assert.equal((yield* generic.loadBody("todo", digest).pipe(Effect.result))._tag, "Failure")
     const stale = bindRepositoryRegistry(project, builtins.registry, policy, systemFlows, "0".repeat(64))
     assert.equal((yield* stale.loadBody("todo").pipe(Effect.result))._tag, "Failure")
+  }).pipe(Effect.provide(platform), Effect.runPromise)
+})
+
+// A repository without flows/review runs the install's review (C-J10-09
+// setup): the entry and every module beside it are the shipped bytes, and the
+// value is the module the host compiled from them, its layer included.
+test("a repository without its own review runs the packaged default with its modules and layer", async (t) => {
+  const { repositoryPath, stateRoot } = await workspace(t)
+  const { review: digest } = JSON.parse(
+    await readFile(new URL("../../packages/backend/internal/services/builtin_flows.json", import.meta.url), "utf8")
+  )
+  const subject = join(repositoryPath, "..", "subject")
+  await mkdir(subject)
+  const git = (...args: Array<string>) => execFileSync("git", args, { cwd: subject, stdio: "pipe" })
+  git("init", "-q")
+  await writeFile(join(subject, "file.ts"), "export const n = 1;\n")
+  git("add", ".")
+  git(
+    "-c",
+    "user.name=Review",
+    "-c",
+    "user.email=review@example.com",
+    "-c",
+    "commit.gpgsign=false",
+    "commit",
+    "-qm",
+    "base"
+  )
+  await writeFile(join(subject, "file.ts"), "export const n = 2;\n")
+  let asked = 0
+  const result = await Effect.gen(function*() {
+    const builtins = yield* provisionBuiltins(stateRoot, policy)
+    const project = yield* Registry.make({
+      sources: [{ root: join(repositoryPath, "flows"), source: "project", naming: "path" }]
+    }).pipe(Effect.provide(Discovery.layer))
+    const registry = bindRepositoryRegistry(project, builtins.registry, policy, systemFlows)
+    const descriptor = yield* registry.get("review")
+    assert.equal(descriptor.provenance.source, "repository-host")
+    assert.equal(Descriptor.executionDigest(descriptor), digest)
+    assert.equal((yield* registry.loadBody("review", digest))._tag, "Module")
+    const built = yield* repositoryCatalog({ delegates: [] }, builtins.load).pipe(
+      Effect.provideService(Registry.Registry, registry)
+    )
+    assert.equal(built.refused.find((entry) => entry.flow === "review"), undefined)
+    const review = built.executables.find((entry) => entry.descriptor.name === "review")
+    assert.equal(review?.declaredTag, "review")
+    yield* Layer.build(review!.layer)
+    const runtime = yield* FlowRuntime.FlowRuntime
+    return yield* runtime.execute(review!.flow, {
+      payload: { input: { repo: subject, narrate: false, verify: false } },
+      executionId: crypto.randomUUID()
+    })
+  }).pipe(
+    Effect.scoped,
+    Effect.provide(reviewHost(scriptedSeats(() => {
+      asked++
+      return { status: "success", comments: [], warnings: [] }
+    }))),
+    Effect.runPromise
+  ) as { review: { status: string }; ui: { kind: string; html: string } }
+  assert.equal(asked, 1)
+  assert.equal(result.review.status, "success")
+  assert.equal(result.ui.kind, "html")
+  assert.match(result.ui.html, /file\.ts/)
+})
+
+test("a packaged review whose modules changed on disk is refused before its compiled value runs", async (t) => {
+  const { stateRoot } = await workspace(t)
+  await Effect.gen(function*() {
+    const builtins = yield* provisionBuiltins(stateRoot, policy)
+    const root = join(stateRoot, "builtin-flows", policy)
+    const helper = join(root, "review", "src", "workflow", "reviewFlow.ts")
+    yield* Effect.promise(async () => writeFile(helper, `${await readFile(helper, "utf8")}\n// changed\n`))
+    const registry = yield* Registry.make({
+      sources: [{ root, source: "repository-host", naming: "path", system: true }]
+    }).pipe(Effect.provide(Discovery.layer))
+    const descriptor = yield* registry.get("review")
+    assert.equal(
+      descriptor.body._tag === "Module" && descriptor.body.imports?.some((entry) =>
+        entry.path === "src/workflow/reviewFlow.ts"
+      ),
+      true
+    )
+    const built = yield* Executable.catalog({ delegates: [], load: builtins.load }).pipe(
+      Effect.provideService(Registry.Registry, registry)
+    )
+    const refusal = built.refused.find((entry) => entry.flow === "review")
+    assert.equal(refusal?.code, "body_unavailable")
+    assert.match(String((refusal?.cause as Error | undefined)?.message), /Bundled declaration bytes changed/)
+    assert.equal(built.executables.some((entry) => entry.descriptor.name === "review"), false)
   }).pipe(Effect.provide(platform), Effect.runPromise)
 })
 

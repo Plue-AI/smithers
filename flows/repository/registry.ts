@@ -21,8 +21,10 @@ import ImplementPlan from "../coding/flow.ts"
 import ImplementAtoms from "../coding/implementation/flow.ts"
 import Verify from "../coding/verify/flow.ts"
 import CodingWiki from "../coding/wiki/flow.ts"
-import Todo from "../todo/flow.ts"
 import Learning from "../learning/flow.ts"
+import * as Review from "../review/flow.ts"
+import Todo from "../todo/flow.ts"
+import { builtinDefaults, shipsWithDefault } from "./builtin-defaults.ts"
 import { deploymentMinutes, deploymentTokens } from "./inspection.ts"
 import { JobInput, JobResult, OperationResult, SetupInput, TriggerRequest } from "./schema.ts"
 import { TriggerOutcome } from "./triggers.ts"
@@ -38,7 +40,12 @@ declare const __SMITHERS_CODING_ARTIFACT_DIGEST__: string | undefined
  * source", where {@link authoringBodies} reads the same files from disk.
  */
 declare const __SMITHERS_CREATE_FLOW_PACK__: Readonly<Record<string, string>> | undefined
-/** Exact default composition bytes, carried inside the measured host bundle. */
+/**
+ * Exact packaged default bytes, keyed by their path under `flows/` (each
+ * default's entry and the modules beside it), carried inside the measured host
+ * bundle. Undefined means "running from source", where {@link shippedDefaults}
+ * reads the same files from disk.
+ */
 declare const __SMITHERS_BUILTIN_DEFAULTS__: Readonly<Record<string, string>> | undefined
 /** Where each pack body lives, relative to this module, in source and in the bundler. */
 const authoringSource = (name: string) => `../${name}/flow.mdx`
@@ -131,6 +138,27 @@ export const authoringBodies: Effect.Effect<ReadonlyMap<string, string>, Error, 
     return bodies
   }
 )
+
+/**
+ * The packaged defaults' files, keyed by their POSIX path under `flows/`: the
+ * constant compiled into the bundle, else this checkout's own files.
+ */
+export const shippedDefaults: Effect.Effect<Readonly<Record<string, string>>, Error, FileSystem.FileSystem> = Effect
+  .gen(function*() {
+    if (typeof __SMITHERS_BUILTIN_DEFAULTS__ !== "undefined") return __SMITHERS_BUILTIN_DEFAULTS__
+    const fs = yield* FileSystem.FileSystem
+    const files: Record<string, string> = {}
+    for (const name of builtinDefaults) {
+      const directory = fileURLToPath(new URL(`../${name}/`, import.meta.url))
+      const listed = (yield* fs.readDirectory(directory, { recursive: true })).map((entry) =>
+        entry.replaceAll("\\", "/")
+      )
+      for (const relative of listed.filter(shipsWithDefault).sort()) {
+        files[`${name}/${relative}`] = yield* fs.readFileString(`${directory}${relative}`)
+      }
+    }
+    return files
+  }).pipe(Effect.mapError((cause) => new Error(`The packaged default flows could not be read: ${cause.message}`)))
 
 /**
  * The optional coding routes a configured host serves (`configuredCodingRoutes`).
@@ -232,7 +260,12 @@ export const provisionBuiltins = (
     for (const name of Object.keys(codingRoutes) as ReadonlyArray<CodingRoute>) {
       if (!routes.includes(name)) yield* fs.remove(path.join(root, name), { recursive: true, force: true })
     }
-    const modules = new Map<string, { body: string; declaration: unknown }>()
+    // Each bundled entry's exact bytes and the module value this host bundle
+    // compiled from them: a flow's default export and, beside it, its layer.
+    const modules = new Map<
+      string,
+      { body: string; exports: { readonly default: unknown; readonly layer?: unknown } }
+    >()
     for (const entry of entries) {
       const directory = path.join(root, entry.name)
       yield* fs.makeDirectory(directory, { recursive: true })
@@ -261,31 +294,37 @@ export const provisionBuiltins = (
       // `Flow.make` has no `budget` option, so the value carries none either.
       modules.set(path.resolve(file), {
         body,
-        declaration: entry.flow ??
-          ({
-            effects: undefined,
-            name: entry.name,
-            description: entry.description,
-            capabilities: ["*"],
-            flows: [entry.delegate],
-            input: Schema.Unknown,
-            output: Schema.Unknown
-          } satisfies FlowBinding.Declared)
+        exports: {
+          default: entry.flow ??
+            ({
+              effects: undefined,
+              name: entry.name,
+              description: entry.description,
+              capabilities: ["*"],
+              flows: [entry.delegate],
+              input: Schema.Unknown,
+              output: Schema.Unknown
+            } satisfies FlowBinding.Declared)
+        }
       })
     }
-    // Defaults use their shipped declaration bytes, so the backend can pin
-    // the same registry execution identity on every host and policy root.
-    for (const [name, declaration] of [["todo", Todo], ["learning", Learning]] as const) {
-      const body = typeof __SMITHERS_BUILTIN_DEFAULTS__ === "undefined"
-        ? yield* fs.readFileString(fileURLToPath(new URL(`../${name}/flow.ts`, import.meta.url)))
-        : __SMITHERS_BUILTIN_DEFAULTS__[name]
-      if (body === undefined) return yield* Effect.die(new Error(`Missing packaged ${name} default`))
-      const file = path.join(root, name, "flow.ts")
+    // Defaults use their shipped bytes, the entry and every module beside it,
+    // so discovery measures one closure and the backend can pin the same
+    // registry execution identity on every host and policy root. Their value
+    // is the module this bundle compiled from those bytes, layer included.
+    const shipped = yield* Effect.orDie(shippedDefaults)
+    for (const [relative, text] of Object.entries(shipped)) {
+      const file = path.join(root, ...relative.split("/"))
       yield* fs.makeDirectory(path.dirname(file), { recursive: true })
-      if ((yield* fs.readFileString(file).pipe(Effect.orElseSucceed(() => ""))) !== body) {
-        yield* fs.writeFileString(file, body)
+      if ((yield* fs.readFileString(file).pipe(Effect.orElseSucceed(() => ""))) !== text) {
+        yield* fs.writeFileString(file, text)
       }
-      modules.set(path.resolve(file), { body, declaration })
+    }
+    const defaults = { todo: { default: Todo }, learning: { default: Learning }, review: Review }
+    for (const name of builtinDefaults) {
+      const body = shipped[`${name}/flow.ts`]
+      if (body === undefined) return yield* Effect.die(new Error(`Missing packaged ${name} default`))
+      modules.set(path.resolve(root, name, "flow.ts"), { body, exports: defaults[name] })
     }
     /*
      * The authoring pack, written beside the module built-ins as ordinary
@@ -329,11 +368,19 @@ export const provisionBuiltins = (
     const registry = yield* Registry.make({
       sources: [{ root, source: "repository-host", naming: "path", system: true }]
     }).pipe(Effect.provide(Discovery.layer))
+    // Admission is exact: the entry and every module it reaches must be the
+    // bytes this bundle shipped, or the compiled value is not what they say.
+    const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes)
     const load: NonNullable<Executable.Options["load"]> = (file, source) => {
-      const entry = modules.get(path.resolve(file))
-      return entry !== undefined && new TextDecoder().decode(source.bytes) === entry.body &&
-          Digest.digest(entry.body) === source.contentDigest
-        ? Effect.succeed({ default: entry.declaration }) :
+      const entryPath = path.resolve(file), entry = modules.get(entryPath)
+      const closure = [...source.modules].every(([module, { bytes }]) => {
+        if (path.resolve(module) === entryPath) return true
+        const relative = path.relative(root, path.resolve(module)).split(path.sep).join("/")
+        return Object.hasOwn(shipped, relative) && shipped[relative] === decode(bytes)
+      })
+      return entry !== undefined && decode(source.bytes) === entry.body &&
+          Digest.digest(entry.body) === source.contentDigest && closure
+        ? Effect.succeed(entry.exports) :
         Effect.fail(new Error("Bundled declaration bytes changed"))
     }
     return { registry, load }

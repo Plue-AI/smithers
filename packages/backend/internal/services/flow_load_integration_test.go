@@ -89,11 +89,21 @@ func TestFlowLoadProductionPollKeepsPreviousAndCoalesces(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, d1, active)
 	instructionRevision(m1)
-	cards, err := RepositoryFlowCatalog(ctx, h.q, h.repoID)
-	require.NoError(t, err)
-	require.Equal(t, "todo", cards[1].Name)
-	require.Equal(t, []FlowStep{{ID: "changelog", Label: "Changelog"}}, cards[1].Versions[0].Steps)
-	require.Contains(t, states(cards[1]), "merged-failed "+strings.Repeat("2", 64)+": flows/todo/flow.ts:29: Type 'number' is not assignable to type 'string'.")
+	// The card named todo, wherever the sorted catalog places it.
+	todoCard := func() FlowCard {
+		cards, err := RepositoryFlowCatalog(ctx, h.q, h.repoID)
+		require.NoError(t, err)
+		for _, card := range cards {
+			if card.Name == "todo" {
+				return card
+			}
+		}
+		t.Fatalf("no todo card in %+v", cards)
+		return FlowCard{}
+	}
+	card := todoCard()
+	require.Equal(t, []FlowStep{{ID: "changelog", Label: "Changelog"}}, card.Versions[0].Steps)
+	require.Contains(t, states(card), "merged-failed "+strings.Repeat("2", 64)+": flows/todo/flow.ts:29: Type 'number' is not assignable to type 'string'.")
 	m3 := move("export default 'three'\n")
 	require.Len(t, loads(), 3)
 	move("export default 'four'\n")
@@ -122,10 +132,9 @@ func TestFlowLoadProductionPollKeepsPreviousAndCoalesces(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, strings.Repeat("5", 64), active)
 	instructionRevision(m5)
-	cards, err = RepositoryFlowCatalog(ctx, h.q, h.repoID)
-	require.NoError(t, err)
-	require.Equal(t, []FlowStep{{ID: "changelog", Label: "Changelog"}}, cards[1].Versions[0].Steps)
-	require.Contains(t, states(cards[1]), "merged-failed "+d6+": flows/todo/flow.ts: Module flows require a literal description in the default Flow.make value")
+	card = todoCard()
+	require.Equal(t, []FlowStep{{ID: "changelog", Label: "Changelog"}}, card.Versions[0].Steps)
+	require.Contains(t, states(card), "merged-failed "+d6+": flows/todo/flow.ts: Module flows require a literal description in the default Flow.make value")
 	rows, err = h.q.ListFlowVersions(ctx, h.repoID)
 	require.NoError(t, err)
 	require.Len(t, rows, 5)

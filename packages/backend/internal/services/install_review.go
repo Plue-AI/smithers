@@ -189,24 +189,50 @@ func (s *MythicalService) prepareReviewSubject(ctx context.Context, repositoryID
 	if !flowCommitPattern.MatchString(pull.BaseSHA) || strings.Trim(pull.BaseSHA, "0") == "" {
 		return ReviewAdmission{}, reviewUnavailable("pr_base_unavailable")
 	}
-	versions, err := db.New(s.store).ListFlowVersions(ctx, repositoryID)
+	pin, err := activeReviewPin(ctx, db.New(s.store), repositoryID)
 	if err != nil {
-		return ReviewAdmission{}, reviewUnavailable("active_flow_unavailable")
+		return ReviewAdmission{}, err
 	}
-	var pin flowruntime.Pin
-	for _, version := range versions {
-		if version.Name == "review" && version.IsActive && version.Status.Valid && version.Status.String == "loaded" && version.SourceCommit.Valid && version.Digest.Valid {
-			pin = flowruntime.Pin{Flow: "review", SourceCommit: version.SourceCommit.String, ExecutionDigest: version.Digest.String}
-			break
-		}
+	return ReviewAdmission{RepositoryID: repositoryID, RequesterID: requesterID, AuthorID: authorID, Number: request.Number, Base: pull.BaseSHA, Head: pull.HeadSHA, URL: fmt.Sprintf("https://github.com/%s/%s/pull/%d", gh.Owner, gh.Name, request.Number), Pin: pin, IdempotencyKey: key, Conversation: request.Conversation}, nil
+}
+
+// activeReviewPin pins the review flow's Active version (§4.3): the
+// repository's Active row at the commit flow-load measured it, else the
+// built-in version the install ships, at the commit flow-load last settled,
+// where the repository declared no review of its own. An Active row that
+// cannot name restorable source never falls back to the built-in.
+func activeReviewPin(ctx context.Context, q *db.Queries, repositoryID int64) (flowruntime.Pin, error) {
+	versions, err := q.ListFlowVersions(ctx, repositoryID)
+	if err != nil {
+		return flowruntime.Pin{}, reviewUnavailable("active_flow_unavailable")
 	}
 	// Git's all-zero object ID denotes a missing revision, not restorable
 	// source. The shared pin shape checks encoding; review also needs an
-	// actual selected source before it can admit repository execution.
-	if !pin.Valid() || strings.Trim(pin.SourceCommit, "0") == "" {
-		return ReviewAdmission{}, reviewUnavailable("active_flow_unavailable")
+	// actual selected source before it can admit execution.
+	restorable := func(pin flowruntime.Pin) (flowruntime.Pin, error) {
+		if !pin.Valid() || strings.Trim(pin.SourceCommit, "0") == "" {
+			return flowruntime.Pin{}, reviewUnavailable("active_flow_unavailable")
+		}
+		return pin, nil
 	}
-	return ReviewAdmission{RepositoryID: repositoryID, RequesterID: requesterID, AuthorID: authorID, Number: request.Number, Base: pull.BaseSHA, Head: pull.HeadSHA, URL: fmt.Sprintf("https://github.com/%s/%s/pull/%d", gh.Owner, gh.Name, request.Number), Pin: pin, IdempotencyKey: key, Conversation: request.Conversation}, nil
+	for _, version := range versions {
+		if version.Name != "review" || !version.IsActive {
+			continue
+		}
+		if !version.Status.Valid || version.Status.String != "loaded" || !version.SourceCommit.Valid || !version.Digest.Valid {
+			return flowruntime.Pin{}, reviewUnavailable("active_flow_unavailable")
+		}
+		return restorable(flowruntime.Pin{Flow: "review", SourceCommit: version.SourceCommit.String, ExecutionDigest: version.Digest.String})
+	}
+	digests, err := builtinFlowDigests()
+	if err != nil {
+		return flowruntime.Pin{}, reviewUnavailable("active_flow_unavailable")
+	}
+	load, err := q.GetFlowLoad(ctx, repositoryID)
+	if err != nil {
+		return flowruntime.Pin{}, reviewUnavailable("active_flow_unavailable")
+	}
+	return restorable(flowruntime.Pin{Flow: "review", SourceCommit: load.LoadedCommit, ExecutionDigest: digests["review"]})
 }
 
 func reviewUnavailable(code string) error {

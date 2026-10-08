@@ -134,6 +134,16 @@ func TestReviewSourceRestoresHeadBesidePinnedSource(t *testing.T) {
 		failed := admission
 		failed.Pin = reviewPin(base, strings.Repeat("e", 64))
 		requireTodoControl(t, source.Prepare(ctx, failed), 503, "review_digest_mismatch")
+		// The built-in version the install ships needs no measured row: Restore
+		// checks its commit is on main, and the host serves it only there.
+		digests, err := builtinFlowDigests()
+		require.NoError(t, err)
+		builtin := admission
+		builtin.Pin = reviewPin(base, digests["review"])
+		require.NoError(t, source.Prepare(ctx, builtin))
+		builtin.Pin.Flow = "learning"
+		requireTodoControl(t, source.Prepare(ctx, builtin), 503, "review_binding_unavailable")
+		require.Empty(t, host.calls, "Prepare retains no source")
 	})
 
 	workspaceID := "6a4b3b0e-9a59-5c4f-8c1b-0f7d2b5d1a10"

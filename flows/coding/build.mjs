@@ -5,6 +5,7 @@ import { createHash } from "node:crypto"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { policySources } from "../wiki/reuse.ts"
+import { builtinDefaults, shipsWithDefault } from "../repository/builtin-defaults.ts"
 import { hostModulesSource } from "./host-modules-build.mjs"
 import { typecheckInputs, typecheckSource } from "./flow-typecheck-build.mjs"
 import { wikiPolicyIdentity } from "./wiki-policy.ts"
@@ -102,7 +103,17 @@ export const bundle = async (entryPoint, outfile) => {
   // review task alone keeps prior reviews (#1971).
   const policyTexts = new Map()
   for (const source of policySources) policyTexts.set(source, await readFile(resolve(root, source), "utf8"))
-  const defaults = Object.fromEntries(await Promise.all(["todo", "learning"].map(async name => [name, await readFile(resolve(root, `flows/${name}/flow.ts`), "utf8")])));
+  // The packaged default flows travel with the executable the same way: each
+  // entry and the modules beside it, so the host writes and measures exactly
+  // the closure it compiled (flows/repository/builtin-defaults.ts).
+  const defaults = {}
+  for (const name of builtinDefaults) {
+    const directory = resolve(root, "flows", name)
+    const listed = (await readdir(directory, { recursive: true })).map(entry => entry.replaceAll("\\", "/"))
+    for (const relative of listed.filter(shipsWithDefault).sort()) {
+      defaults[`${name}/${relative}`] = await readFile(resolve(directory, relative), "utf8")
+    }
+  }
   const flowTypes = await typecheckInputs(root, alias)
   const compiled = result.outputFiles[0].text.replace(/^(#![^\n]*\n)/,
     (banner) => `${banner}${typecheckSource(flowTypes)}const __SMITHERS_CREATE_FLOW_PACK__ = ${JSON.stringify(pack)};\nconst __SMITHERS_CODING_WIKI_POLICY__ = ${JSON.stringify(wikiPolicyIdentity(policyTexts))};\nconst __SMITHERS_BUILTIN_DEFAULTS__ = ${JSON.stringify(defaults)};\n`)

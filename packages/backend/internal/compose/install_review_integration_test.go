@@ -246,12 +246,20 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 	requestReview(403, "permission") // Login alone is not membership.
 	_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,github_id,github_login,permission) VALUES($1,$2,4242,'alice','write')`, repo.ID, member.ID)
 	require.NoError(t, err)
+	// No flow-load has settled, so no commit holds the built-in version yet.
 	requestReview(503, "active_flow_unavailable")
 	_, err = q.InsertFlowVersion(ctx, repo.ID, "review", "flows/review/flow.ts", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", strings.Repeat("c", 64), "loaded", "", []byte(`{}`))
 	require.NoError(t, err)
 	active, err := q.ActivateFlowVersion(ctx, repo.ID, "review", strings.Repeat("c", 64))
 	require.NoError(t, err)
 	require.True(t, active)
+	// A settled flow-load names the commit that holds the built-in version.
+	_, err = pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,actor_user_id,state) VALUES($1,$2,'active')`, repo.ID, owner.ID)
+	require.NoError(t, err)
+	_, err = q.EnsureFlowLoad(ctx, repo.ID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE flow_loads SET loaded_commit=$2 WHERE repository_id=$1`, repo.ID, strings.Repeat("7", 40))
+	require.NoError(t, err)
 	// Legacy/incomplete Active rows must never select a built-in digest or
 	// proceed toward execution. In particular Git's missing-object sentinel
 	// is syntactically a SHA but cannot identify a pinned closure.
@@ -259,20 +267,33 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 		name   string
 		source any
 		status any
-		active bool
 	}{
-		{"missing source", nil, "loaded", true},
-		{"missing load status", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", nil, true},
-		{"zero source", strings.Repeat("0", 40), "loaded", true},
-		{"inactive loaded version", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "loaded", false},
-		{"failed version", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "failed", false},
+		{"missing source", nil, "loaded"},
+		{"missing load status", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", nil},
+		{"zero source", strings.Repeat("0", 40), "loaded"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := pool.Exec(ctx, `UPDATE workflow_definitions SET source_commit=$2,status=$3,is_active=$4 WHERE repository_id=$1 AND name='review' AND digest=$5`, repo.ID, tc.source, tc.status, tc.active, strings.Repeat("c", 64))
+			_, err := pool.Exec(ctx, `UPDATE workflow_definitions SET source_commit=$2,status=$3,is_active=true WHERE repository_id=$1 AND name='review' AND digest=$4`, repo.ID, tc.source, tc.status, strings.Repeat("c", 64))
 			require.NoError(t, err)
 			requestReview(503, "active_flow_unavailable")
 		})
 	}
+	// An inactive or failed repository version leaves Active on the built-in
+	// version, which admission pins at the settled flow-load commit.
+	for _, tc := range []struct {
+		name   string
+		status string
+	}{{"inactive loaded version", "loaded"}, {"failed version", "failed"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := pool.Exec(ctx, `UPDATE workflow_definitions SET source_commit='bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',status=$2,is_active=false WHERE repository_id=$1 AND name='review' AND digest=$3`, repo.ID, tc.status, strings.Repeat("c", 64))
+			require.NoError(t, err)
+			requestReview(503, "review_delivery_unavailable")
+		})
+	}
+	// Without a settled flow-load no commit holds the built-in version.
+	_, err = pool.Exec(ctx, `DELETE FROM mythical_stacks WHERE repository_id=$1`, repo.ID)
+	require.NoError(t, err)
+	requestReview(503, "active_flow_unavailable")
 	_, err = pool.Exec(ctx, `UPDATE workflow_definitions SET source_commit='bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',status='loaded',is_active=true WHERE repository_id=$1 AND name='review' AND digest=$2`, repo.ID, strings.Repeat("c", 64))
 	require.NoError(t, err)
 	requestReview(503, "review_delivery_unavailable")
