@@ -31,14 +31,14 @@ export default Flow.make("todo", {
   success: VibeDelivered,
   error: Schema.Union([Request.errorSchema, VibeError, WaitFor.WaitForRequestInvalid]),
   body: (input) =>
-    TodoBoundary.child({}).pipe(
+    TodoBoundary.call({}).pipe(
       Node.bindPlanned(() => Request.child(input)),
-      Node.bindPlanned((request) => TodoBoundary.child({}).pipe(Node.andThen(Node.succeed(request)))),
+      Node.bindPlanned((request) => TodoBoundary.call({}).pipe(Node.andThen(Node.succeed(request)))),
       Node.bindPlanned((request) => TodoDelivery.call({ request })),
       Node.bindPlanned((delivery) => Vibe.child(delivery)),
       Node.bindPlanned((delivered) =>
         Node.succeed(delivered).pipe(
-          Node.andThen(TodoBoundary.child({})),
+          Node.andThen(TodoBoundary.call({})),
           Node.andThen(TodoReview.child({ input }))
         )
       )

@@ -62,7 +62,9 @@ export const TodoBoundary = Flow.make("coding/todo-boundary", {
         Node.andThen(TodoResume.call({ name: request.resume })),
         Node.map(Node.capture({}, () => undefined))
       )),
-      else: Node.capture({}, () => Node.succeed(undefined))
+      else: Node.capture({}, () => Node.succeed(null).pipe(
+        Node.map(Node.capture({}, () => undefined))
+      ))
     })
   ))
 })

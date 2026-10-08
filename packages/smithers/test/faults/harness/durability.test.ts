@@ -129,3 +129,23 @@ test("production GitHub evidence requires each send boundary and late Drop", () 
     expect(() => requireReachedGoFaultMatrix(transcript(point), names, points)).toThrow(point)
   }
 })
+
+test("packaged Stop and Resume each require their own reached crossing", () => {
+  const parent = "TestTodoStartPauseResumeCrashThroughRoutes"
+  const names = ["stop", "resume"].map(point => `${parent}/${point}`)
+  const transcript = (resumeReached = true, setup = "pass") => log(
+    { Action: setup, Test: `${parent}/Install_through_Machine_ready` },
+    { Action: "output", Test: names[0]!, Output: "CRASH-POINT stop\n" },
+    { Action: "pass", Test: names[0]! },
+    ...(resumeReached ? [{ Action: "output", Test: names[1]!, Output: "CRASH-POINT resume\n" }] : []),
+    { Action: "pass", Test: names[1]! },
+    { Action: "pass", Test: parent }
+  )
+  expect(() => requireReachedGoFaultMatrix(transcript(), names, ["stop", "resume"])).not.toThrow()
+  expect(() => requireReachedGoFaultMatrix(transcript(false), names, ["stop", "resume"]))
+    .toThrow("logged no kill marker")
+  for (const state of ["skip", "fail"]) {
+    expect(() => requireReachedGoFaultMatrix(transcript(true, state), names, ["stop", "resume"]))
+      .toThrow("skipped or failed")
+  }
+})

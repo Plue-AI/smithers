@@ -225,8 +225,12 @@ func testTodoStopResumeComposedInstall(t *testing.T, engineState, productState s
 	case <-time.After(5 * time.Second):
 		t.Fatal("Stop not dispatched")
 	}
-	projectWaits := func(waits []flowruntime.PendingWait) {
-		require.NoError(t, service.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{Scope: scope, State: jobs.StateWaiting, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: projection, Target: target, FlowID: "todo", RunID: "run-1", ExecutionDigest: digest, Run: &flowruntime.Run{RunID: "run-1", FlowID: "todo", Status: "running", PendingWaits: waits}}}))
+	projectWaits := func(waits []flowruntime.PendingWait, statuses ...string) {
+		runStatus := "running"
+		if len(statuses) > 0 {
+			runStatus = statuses[0]
+		}
+		require.NoError(t, service.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{Scope: scope, State: jobs.StateWaiting, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: projection, Target: target, FlowID: "todo", RunID: "run-1", ExecutionDigest: digest, Run: &flowruntime.Run{RunID: "run-1", FlowID: "todo", Status: runStatus, PendingWaits: waits}}}))
 	}
 	project := func(name string) {
 		var waits []flowruntime.PendingWait
@@ -337,7 +341,7 @@ func testTodoStopResumeComposedInstall(t *testing.T, engineState, productState s
 	project("resume#1")
 	_, card = call("GET", "", "")
 	require.Contains(t, card, "pause", "old parked checkpoints cannot report resumed")
-	project("")
+	projectWaits(nil, "parked")
 	_, card = call("GET", "", "")
 	require.Equal(t, "needs_you", card["state"])
 	require.NotContains(t, card, "pause")

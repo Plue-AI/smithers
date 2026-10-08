@@ -2,6 +2,7 @@ import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
 import * as DurableWriter from "@smthrs/database/DurableWriter"
 import { ModuleOwner } from "../../packages/smithers/src/internal/ModuleOwner.ts"
 import { Node } from "@smthrs/plan"
+import { InputRef } from "@smthrs/plan/KeyMaterial"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -20,7 +21,7 @@ import * as EngineStore from "@smthrs/engine-store/EngineStore"
 import * as Migrations from "@smthrs/engine-store/Migrations"
 import * as OwnerIdentity from "@smthrs/engine-store/OwnerIdentity"
 import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
-import { Action, DurableDeferred, Flow, FlowRuntime, Interpreter, WaitFor } from "@smthrs/flow"
+import { Action, DurableDeferred, Flow, FlowRuntime, Graph, Interpreter, WaitFor } from "@smthrs/flow"
 import * as Jj from "../../packages/smithers/flows/jj/src/index.ts"
 import * as SqlJournal from "@smthrs/journal/SqlJournal"
 import * as AttemptStore from "@smthrs/run-store/AttemptStore"
@@ -173,7 +174,9 @@ test("TODO pause survives a cold SQLite host restart without repeating finished 
 
 // Linux qualification of the production SQLite engine/control boundary. Machine
 // grant, guest attachment and reference-host timings remain separate proofs.
-test("fifty TODO waits survive cold restart and staggered Resume without replaying work", { timeout: 60_000 }, async () => {
+// Setup and fifty staggered grants have their own fixture budget. The cold
+// restoration assertion below retains the 60-second bound.
+test("fifty TODO waits survive cold restart and staggered Resume without replaying work", { timeout: 180_000 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), "todo-fifty-cold-"))
   const before = new Map<number, number>(), after = new Map<number, number>()
   const First = Action.make("test/fifty-first", { payload: { id: Schema.Number }, success: Schema.Void })
@@ -252,4 +255,17 @@ test("fifty TODO waits survive cold restart and staggered Resume without replayi
     }
     console.log(`fifty SQLite waits restored in ${restored.toFixed(1)}ms; no machine timing claimed`)
   } finally { await host.dispose(); await rm(directory, { recursive: true, force: true }) }
+})
+
+test("the no-pause boundary survives the Control plan JSON round trip", () => {
+  const drafts = Graph.drafts(Graph.build(TodoBoundary, {}))
+  let emptyBranches = 0
+  for (const draft of drafts) {
+    for (const input of draft.material.inputs) {
+      const encoded = JSON.parse(JSON.stringify(input))
+      assert.doesNotThrow(() => Schema.decodeUnknownSync(InputRef)(encoded), draft.id)
+      if (encoded._tag === "Literal" && encoded.value === null) emptyBranches++
+    }
+  }
+  assert.equal(emptyBranches, 1)
 })

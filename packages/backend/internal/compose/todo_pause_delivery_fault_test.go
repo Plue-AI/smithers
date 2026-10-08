@@ -118,7 +118,7 @@ func TestTodoStopResumeDeliveryCrashComposed(t *testing.T) {
 				require.NoError(t, err)
 				_, err = pool.Exec(ctx, `UPDATE mythical_items SET source='todo',number=1,owner_id=$2,attempt=1,request_run_id='run-1',title='Interrupted',stack_position=1 WHERE id=$1`, item.ID, owner.ID)
 				require.NoError(t, err)
-				digest := "e274ce85c2e7f9fdef2bb4de75700e9847920893d24e6f69d692a573ff11ed3d"
+				digest := rehearsalBuiltinTodoDigest(t)
 				_, err = pool.Exec(ctx, `UPDATE mythical_items SET flow_digest=$2,workspace_id='11111111-1111-4111-8111-111111111111',checks=jsonb_set(jsonb_set(checks,'{flowSource}',to_jsonb(repeat('a',40))),'{run_attached}'::text[],'true') WHERE id=$1`, item.ID, digest)
 				require.NoError(t, err)
 				raw := "interrupted-session"

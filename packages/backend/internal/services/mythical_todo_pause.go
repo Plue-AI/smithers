@@ -198,7 +198,7 @@ func projectTodoPause(next *db.MythicalItem, projection mythicalProjection, upda
 			return
 		}
 	}
-	if pause.Resuming && pause.Delivered && run.Status == "running" {
+	if pause.Resuming && pause.Delivered && (run.Status == "running" || run.Status == "parked") {
 		pause.Requested, pause.Resuming = false, false
 		checks.RunAttached = true
 	}

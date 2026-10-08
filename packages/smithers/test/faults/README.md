@@ -8,14 +8,14 @@ fail the matrix. The PostgreSQL transition and three merge boundaries are implem
 remaining required production cases stay fail-closed. The composed Start admission
 case uses the production dispatcher and workspace rows with a test-only VM
 qualification contract; it proves the pinned launch survives SIGKILL before
-any step, not machine or run recovery. Stop/Resume engine recovery remains a separate required case. The composed
+any step, not machine or run recovery. The packaged pause control below exercises the shipped engine boundary. The composed
 Stop/Resume handlers have landed; the protocol-peer delivery controls below
 cannot qualify engine parking or completed-step replay.
 Existing engine/library crash tests are not C-DUR acceptance evidence.
 
 | Check | Required production harness | Host |
 | --- | --- | --- |
-| C-DUR-01 | `host/case40-host-kill-todo-run.test.ts`; backend compose `todo_pause_fault_test.go` (Start) and services `todo_pause_fault_test.go` (Stop/Resume); compose `postgres_kill_fault_test.go` | Linux CI and reference Mac |
+| C-DUR-01 | `host/case40-host-kill-todo-run.test.ts`; backend compose `todo_pause_fault_test.go` (Start) and compose `todo_live_pause_fault_test.go` (Stop/Resume); compose `postgres_kill_fault_test.go` | Linux CI and reference Mac |
 | C-DUR-02 | backend `flowhost/machine_kill_fault_test.go` and compose `todo_machine_kill_fault_test.go` | Approved reference Mac, microVM |
 | C-DUR-03 | backend compose `github_outbound_kill_test.go`; compose `todo_merge_fault_test.go`; `github-step-kill.test.ts`; `engine/case39-kill-crossing.test.ts` | CI, PostgreSQL 18, fake GitHub |
 | C-DUR-04 | backend machined `fault_test.go`, `rebase_fault_test.go` | Linux CI (daemon), approved reference Mac (VM) |
@@ -184,7 +184,7 @@ after recovery and refuses any Active-flow lookup.
 
 These four crossings use a durable test protocol peer. They prove route and
 delivery recovery, not the TODO engine's paused wait or completed-step replay.
-The nightly matrix runs them in addition to the still-required
+The nightly matrix runs them in addition to the packaged-engine
 `TestTodoStartPauseResumeCrashThroughRoutes`; it never substitutes them for
 that acceptance case. The child environment is the shared fault harness's
 credential-free environment. No root process or real GitHub write is involved.
@@ -192,4 +192,39 @@ credential-free environment. No root process or real GitHub write is involved.
 ```sh
 cd packages/backend
 go test -p 4 ./internal/compose -run '^TestTodoStopResumeDeliveryCrashComposed$' -count=1
+```
+
+### Packaged Stop/Resume control
+
+`compose/todo_live_pause_fault_test.go` supplies
+`TestTodoStartPauseResumeCrashThroughRoutes`. Install setup, TODO admission and
+the ordinary parent workers use the shared composed install. The built-in TODO
+holds its scripted planning turn before the next shipped pause boundary. The
+boundaries inline into the parent plan, so later observations cannot run ahead
+of planning or delivery. Their empty branch retains a JSON literal and returns
+void; it survives Control's persisted plan decoding.
+
+A credential-isolated dispatcher child serves the owner’s HTTP Stop/Resume
+press and blocks after the packaged runtime accepts its durable signal. The
+shared controller requires the exact `stop` or `resume` marker before SIGKILL.
+The ordinary install worker then reconciles that same request. A temporary
+PostgreSQL trigger reserves only pause-control deliveries for the child; it
+never creates or settles a signal or engine wait.
+
+Stop must park the real run after planning returns. Resume can advance directly
+to an ordinary parked review without retaining the old pause. It retains that run,
+its attempt and its original digest. Duplicate presses preserve the same
+admission receipt. Provider observations require exactly one route and planning
+turn. Per-crossing observations are retained under
+`C-DUR-01/rehearsal/<timestamp>/{stop,resume}/`. The matrix selects both kill
+leaves explicitly and still refuses any failed or skipped setup node.
+
+This proves packaged engine parking/continuation plus dispatcher delivery
+recovery on the trusted-process install. It does not qualify a microVM kill,
+a cold engine-host restart, privileged execution or launchd supervision.
+Reference-host qualification and approved check mappings remain required.
+
+```sh
+cd packages/smithers
+pnpm exec vitest run --config vitest.faults.config.ts test/faults/durability-required.test.ts -t 'C-DUR-01: TestTodoStartPauseResumeCrashThroughRoutes'
 ```

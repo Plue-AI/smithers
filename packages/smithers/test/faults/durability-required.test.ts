@@ -14,7 +14,7 @@ const githubPoints = githubKinds.flatMap(kind => githubStages.map(stage => `gith
 const cases = [
   ["C-DUR-01", "internal/compose/todo_pause_delivery_fault_test.go", "TestTodoStopResumeDeliveryCrashComposed", ["stop-pre-delivery", "stop-delivery", "resume-pre-delivery", "resume-delivery"]],
   ["C-DUR-01", "internal/compose/todo_pause_fault_test.go", "TestTodoStartCrashThroughRoute", ["start"]],
-  ["C-DUR-01", "internal/services/todo_pause_fault_test.go", "TestTodoStartPauseResumeCrashThroughRoutes", ["stop", "resume"]],
+  ["C-DUR-01", "internal/compose/todo_live_pause_fault_test.go", "TestTodoStartPauseResumeCrashThroughRoutes", ["stop", "resume"]],
   ["C-DUR-01", "internal/compose/postgres_kill_fault_test.go", "TestTodoPostgresCrashThroughRoute", ["postgres-transition"]],
   ["C-DUR-03", "internal/compose/todo_merge_fault_test.go", "TestTodoMergeCrashThroughRoute", ["merge-pre-land", "merge-post-land", "merge-post-call"]],
   ["C-DUR-03", "internal/compose/github_outbound_kill_test.go", null, [...githubPoints, "github-open-drop-remote-success", "github-production-propose"]],
@@ -52,14 +52,16 @@ for (const [check, file, name, points] of selected) {
     // kills the claimed worker at every send/commit/response boundary.
     const githubControl = file === "internal/compose/github_outbound_kill_test.go"
     const referenceMachine = check === "C-DUR-02"
-    const timeout = referenceMachine || githubControl ? 2_700_000 : 150_000
+    const packagedPause = name === "TestTodoStartPauseResumeCrashThroughRoutes"
+    const timeout = referenceMachine || githubControl ? 2_700_000 : packagedPause ? 750_000 : 150_000
     const evidenceNames = githubControl
       ? [...githubCrossings, "open-drop/remote-success"].map(crossing => `TestGitHubOutboundKillProductionProposal/${crossing}/crossing`)
-      : names
+      : packagedPause ? ["stop", "resume"].map(point => `${name}/${point}`) : names
     const result = spawnSync("go", ["test", "-json", "-count=1", `./${pkg}`, "-run", `^(${names.join("|")})$`,
-      "-timeout", referenceMachine || githubControl ? "44m" : "2m"], {
+      "-timeout", referenceMachine || githubControl ? "44m" : packagedPause ? "12m" : "2m"], {
       cwd: backend,
-      env: githubControl ? { ...process.env, SMITHERS_GITHUB_OUTBOUND_KILL: "1" } : process.env,
+      env: githubControl ? { ...process.env, SMITHERS_GITHUB_OUTBOUND_KILL: "1" }
+        : packagedPause ? { ...process.env, SMITHERS_TODO_PAUSE_HOST_KILL: "1" } : process.env,
       encoding: "utf8", timeout, maxBuffer: 32 << 20
     })
     // Preserve partial JSON and stderr before checking exit status: crashes,
@@ -71,5 +73,5 @@ for (const [check, file, name, points] of selected) {
     expect(result.status, "Go fault process exited unsuccessfully").toBe(0)
     requireReachedGoFaultMatrix(result.stdout, evidenceNames, points,
       name === "TestRebaseCrashThroughDispatcher" ? ["people-present", "people-absent"] : [])
-  }, check === "C-DUR-02" || file === "internal/compose/github_outbound_kill_test.go" ? 2_730_000 : 180_000)
+  }, check === "C-DUR-02" || file === "internal/compose/github_outbound_kill_test.go" ? 2_730_000 : name === "TestTodoStartPauseResumeCrashThroughRoutes" ? 780_000 : 180_000)
 }
