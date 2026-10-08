@@ -23,23 +23,29 @@ def objects(content):
  text=content if isinstance(content,str) else '\\n'.join(block.get('text','') for block in content if isinstance(block,dict))
  decoder=json.JSONDecoder()
  values=[]
- for offset,char in enumerate(text):
-  if char!='{': continue
-  try: value,_=decoder.raw_decode(text[offset:])
-  except ValueError: continue
-  if isinstance(value,dict): values.append(value)
+ offset=0
+ while offset<len(text):
+  if text[offset] not in '{[':
+   offset+=1
+   continue
+  try: value,length=decoder.raw_decode(text[offset:])
+  except ValueError:
+   offset+=1
+   continue
+  if isinstance(value,(dict,list)): values.append(value)
+  offset+=length
  return values
 for block in tool_results:
  command=commands.get(block.get('tool_use_id'),'')
  receipts=objects(block.get('content',''))
- pending=[value for value in receipts if value.get('state')=='pending' and isinstance(value.get('confirmation'),str) and value['confirmation'].strip()]
+ pending=[value for value in receipts if isinstance(value,dict) and value.get('state')=='pending' and isinstance(value.get('confirmation'),str) and value['confirmation'].strip()]
  is_confirmation=confirmation_command is not None and 'smthrs '+confirmation_command in command and bool(pending)
- is_refusal=refusal is not None and 'smthrs todo new' in command and any(value.get('class')=='permission' and value.get('code')==refusal['code'] and value.get('message')==refusal['message'] for value in receipts)
+ is_refusal=refusal is not None and 'smthrs todo new' in command and any(isinstance(value,dict) and value.get('class')=='permission' and value.get('code')==refusal['code'] and value.get('message')==refusal['message'] for value in receipts)
  assert not block.get('is_error') or is_confirmation or is_refusal, 'Claude skill tool failed'
  for name in expected:
   if 'smthrs '+name in command:
    assert receipts, 'Smithers command produced no JSON receipt'
-   assert is_refusal or not any(value.get('class') in ('permission','user','infra','conflict') for value in receipts), 'Smithers command returned a typed failure'
+   assert is_refusal or not any(isinstance(value,dict) and value.get('class') in ('permission','user','infra','conflict') for value in receipts), 'Smithers command returned a typed failure'
    completed.add(name)
  if is_confirmation: confirmations.extend(value['confirmation'] for value in pending)
  refused=refused or is_refusal

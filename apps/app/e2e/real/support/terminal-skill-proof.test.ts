@@ -53,6 +53,14 @@ describe("installed Claude skill execution receipts", () => {
   test("a typed refusal fails even when Claude marks its tool successful", () => {
     expect(run(transcript("smthrs todo answer --json", JSON.stringify({ class: "permission", code: "permission" }), false), ["todo answer"], "").status).not.toBe(0)
   })
+  test("wiki list receipts qualify without treating nested examples as errors", () => {
+    for (const receipt of [[], [{ title: "Authorization", example: { class: "permission", code: "permission" } }]]) {
+      expect(run(transcript("smthrs wiki list --json", JSON.stringify(receipt), false), ["wiki"], "").status).toBe(0)
+    }
+  })
+  test("a nested pending example is not a command confirmation", () => {
+    expect(run(transcript("smthrs todo new --json", JSON.stringify({ example: pending }), false)).status).not.toBe(0)
+  })
   test("a later failed tool or final Claude failure invalidates the transcript", () => {
     const messages: unknown[] = transcript("smthrs todo new --json", JSON.stringify(pending), true)
     messages.splice(2, 0, { message: { content: [{ type: "tool_result", tool_use_id: "other", content: "failed", is_error: true }] } })
