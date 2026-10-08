@@ -498,8 +498,10 @@ func (h *todoRuntimeHost) serve(t *testing.T) *httptest.Server {
 		if r.URL.Path == "/runtime/v1/observe" {
 			runID, _ := input["runId"].(string)
 			flowID := "todo"
-			if strings.HasPrefix(runID, "review-") {
-				flowID = mythicalReviewFlow
+			for _, launch := range h.launches {
+				if launch["runId"] == runID {
+					flowID, _ = launch["flowId"].(string)
+				}
 			}
 			status := "running"
 			if h.cancelled[runID] {
@@ -508,7 +510,7 @@ func (h *todoRuntimeHost) serve(t *testing.T) *httptest.Server {
 			value = map[string]any{"run": flowruntime.Run{RunID: runID, FlowID: flowID, Status: status}, "events": []any{}, "nextCursor": "", "hasMore": false, "terminal": status == "cancelled"}
 		} else {
 			operation, _ := input["operation"].(string)
-			runID := "todo-run"
+			runID, _ := input["runId"].(string)
 			receipt := flowruntime.Receipt{Tag: "Accepted", RunID: runID}
 			switch operation {
 			case "steer":
@@ -516,9 +518,7 @@ func (h *todoRuntimeHost) serve(t *testing.T) *httptest.Server {
 				receipt.RunID, _ = input["runId"].(string)
 			case "launch":
 				h.launches = append(h.launches, input)
-				if input["flowId"] == mythicalReviewFlow {
-					receipt.RunID = "review-run"
-				} else if h.parked {
+				if h.parked {
 					receipt = flowruntime.Receipt{Tag: "Parked", PlanID: "todo-plan", Status: "waiting-approval"}
 				}
 			case "cancel":
@@ -571,6 +571,25 @@ func (h *todoRuntimeHost) flows() []string {
 		out = append(out, flowID)
 	}
 	return out
+}
+
+// reservedRun asserts the protocol peer received the literal caller-ID rule.
+func (h *todoRuntimeHost) reservedRun(t *testing.T, flow string) string {
+	t.Helper()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, launch := range h.launches {
+		if launch["flowId"] == flow {
+			request, ok := launch["applicationRequestId"].(string)
+			require.True(t, ok)
+			require.NotEmpty(t, request)
+			reserved := "dispatch:" + request
+			require.Equal(t, reserved, launch["runId"])
+			return reserved
+		}
+	}
+	t.Fatalf("no %s launch", flow)
+	return ""
 }
 
 // pins are the pins the host received, launch by launch.
@@ -651,7 +670,7 @@ func todoPinnedEngineLaunches(t *testing.T, review string) {
 
 	startWorker()
 	require.Eventually(t, func() bool { return todoState(o.byID(id)) == "working" }, 10*time.Second, 10*time.Millisecond)
-	require.Equal(t, "todo-run", o.byID(id).RequestRunID)
+	require.Equal(t, peer.reservedRun(t, "todo"), o.byID(id).RequestRunID)
 	require.Equal(t, []string{"todo"}, peer.flows(), "the host launched the composition once")
 	require.Equal(t, []any{pin}, peer.pins(), "the host received the pin with the launch")
 
@@ -660,7 +679,7 @@ func todoPinnedEngineLaunches(t *testing.T, review string) {
 	// the composition's run, the one the attempt bound.
 	item = o.byID(id)
 	candidate := o.laneResult(item.WorkspaceID, tip, map[string]string{"JOURNEY.md": "Hello, reader.\n"}, "✨ feat: greet the reader")
-	submission := MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: tip, Source: candidate, RequestRunID: "todo-run", Summary: "✨ feat: greet the reader"}
+	submission := MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: tip, Source: candidate, RequestRunID: item.RequestRunID, Summary: "✨ feat: greet the reader"}
 	other := submission
 	other.RequestRunID = "another-run"
 	_, err = o.service.SubmitLane(ctx, o.repoID, o.userID, other)
@@ -729,10 +748,12 @@ func todoPinnedEngineLaunches(t *testing.T, review string) {
 	require.Eventually(t, func() bool { return len(peer.flows()) == 2 }, 10*time.Second, 10*time.Millisecond)
 	require.Equal(t, []string{"todo", mythicalReviewFlow}, peer.flows())
 	require.Equal(t, []any{pin, pin}, peer.pins(), "the review launch carried the same pin to the host")
+	reviewRun := peer.reservedRun(t, mythicalReviewFlow)
+	require.NotEqual(t, peer.reservedRun(t, "todo"), reviewRun)
 	if review != "" {
 		require.Eventually(t, func() bool {
 			current := mythicalChecksOf(o.byID(id)).Review
-			return current != nil && current.RunID == "review-run"
+			return current != nil && current.RunID == reviewRun
 		}, 10*time.Second, 10*time.Millisecond)
 		cancels, _ := peer.stopped()
 		require.Empty(t, cancels)
@@ -742,7 +763,7 @@ func todoPinnedEngineLaunches(t *testing.T, review string) {
 			return len(cancels) == 1
 		}, 10*time.Second, 10*time.Millisecond)
 		cancels, _ := peer.stopped()
-		require.Equal(t, []string{"review-run"}, cancels, "a review run without an execution identity is cancelled")
+		require.Equal(t, []string{reviewRun}, cancels, "a review run without an execution identity is cancelled")
 		require.Eventually(t, func() bool {
 			current := mythicalChecksOf(o.byID(id)).Review
 			return current != nil && current.Verdict != ""
@@ -787,7 +808,7 @@ func TestTodoRunOfAnotherFlowIsNeverTheAttempts(t *testing.T) {
 				require.Equal(t, []string{"todo-plan"}, denials, "the parked plan was denied, never approved")
 				require.Empty(t, cancels)
 			} else {
-				require.Equal(t, []string{"todo-run"}, cancels, "the run was cancelled before the attempt settled")
+				require.Equal(t, []string{peer.reservedRun(t, "todo")}, cancels, "the run was cancelled before the attempt settled")
 				require.Empty(t, denials)
 			}
 			item := o.byID(id)

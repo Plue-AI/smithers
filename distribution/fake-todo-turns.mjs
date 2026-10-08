@@ -366,6 +366,27 @@ const conflictPath = /Resolve the conflict in path "([^"]+)"/
 export const todoTurn = (messages, greeting = GREETING) => {
   const system = systemOf(messages)
   const all = messages.map((message) => text(message?.content)).join("\n")
+  // The install's ordinary wiki check runs before implementation. Its
+  // rehearsal pages quote source lines verbatim; answer only that fixture
+  // shape, preserving hostile bytes as citation data.
+  if (system.includes("Review a repository wiki page against its exact source snapshot.")) {
+    const task = system.slice(system.lastIndexOf("The task for this run:"))
+    const evidence = leadingJson(task.slice(task.indexOf("\n{") + 1))
+    if (!Array.isArray(evidence?.sections) || !Array.isArray(evidence?.sources)) return undefined
+    const sections = evidence.sections.map((section) => {
+      const link = /\[([^\]]+):(\d+)\]\(\.\.\/sources\//.exec(section.markdown)
+      const source = evidence.sources.find((entry) => entry.path === link?.[1]) ?? evidence.sources[0]
+      const numbered = source?.lines.split("\n").map((line) => /^(\d+) \| (.*)$/.exec(line)).filter(Boolean) ?? []
+      const selected = link === null ? numbered.find((line) => line[2].trim()) : numbered.find((line) => line[1] === link[2])
+      const supported = selected !== undefined && (link !== null || /^# [^\n]+$/.test(section.markdown.trim()))
+      return {
+        id: section.id, verdict: supported ? "supported" : "uncertain",
+        explanation: supported ? "The rehearsal page quotes the supplied source snapshot." : "No literal rehearsal source supports this section.",
+        citations: supported ? [{ path: source.path, line: Number(selected[1]), quote: selected[2] }] : []
+      }
+    })
+    return { step: "wiki/review-page", content: done({ sections }) }
+  }
   const conflict = conflictPath.exec(all)
   if (conflict !== null) {
     const path = conflict[1]
@@ -395,7 +416,7 @@ export const todoAnswer = (name, question) => {
       return { type: "score", score: name === "confident" ? question.criteria.length - 1 : 0 }
     case "choice": {
       const keys = Object.keys(question.criteria ?? {})
-      const choice = ["implement", "none"].find((key) => keys.includes(key))
+      const choice = (name === "support" ? ["supports"] : ["implement", "none"]).find((key) => keys.includes(key))
       if (choice === undefined) throw new Error(`unexpected choice question: ${name}`)
       return { type: "choice", choice }
     }

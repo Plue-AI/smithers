@@ -149,7 +149,9 @@ func startRehearsalMachined(t *testing.T, ctx context.Context, registry *machine
 	if err != nil || len(fields[2]) == 0 || fields[2][0] == 255 {
 		return fmt.Errorf("machined reconciliation refused: %x (%v)", reply.Payload, err)
 	}
-	if err = registry.SetRoster(ctx, branch, nil); err != nil {
+	// Roster is part of the handshake; the ordinary registry RPC correctly
+	// refuses until this exact wake and roster have been acknowledged.
+	if _, err = link.Request(ctx, branch, wire.SetRoster, wire.Field(1, wire.U16(0))); err != nil {
 		return err
 	}
 	reply, err = link.Request(ctx, branch, wire.Status)

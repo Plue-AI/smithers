@@ -2,19 +2,19 @@ package compose
 
 import (
 	"encoding/json"
-	"github.com/stretchr/testify/require"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // Candidate admission is tested at the installed HTTP boundary with PostgreSQL
 // and real Git objects. The existing fixtures substitute guest lifecycle only;
 // they do not qualify microVM isolation or model tool execution.
 func TestTodoCandidateReviewBoundary(t *testing.T) {
-	t.Setenv("SMITHERS_TEST_DATABASE_NAMESPACE", "fr11cand")
 	t.Run("current publisher authority and immutable candidate", TestInstallCandidateAuthorizationPostgres)
 	t.Run("candidate report binding", TestCandidateHeadReportComposedInstall)
 	t.Run("protected publication policy", TestCandidateProtectedPolicyComposedInstall)
@@ -24,13 +24,29 @@ func TestTodoCandidateReviewBoundary(t *testing.T) {
 // The production TODO door launches the bundled host and records the first
 // reviewer provider request. Only the external model answers are scripted.
 func TestTodoFreshReviewerContextComposedInstall(t *testing.T) {
+	runTodoFreshReviewerContext(t, "SMITHERS_TODO_REVIEW_CONTEXT_REHEARSAL")
+}
+
+// Qualifies the same first-request assertions with the approved installed
+// bundle and real microVM dispatcher; no trusted-process fallback is selected.
+func TestTodoFreshReviewerContextMicroVMComposedInstall(t *testing.T) {
+	runTodoFreshReviewerContext(t, "SMITHERS_TODO_REVIEW_CONTEXT_MICROVM_REHEARSAL")
+}
+
+func runTodoFreshReviewerContext(t *testing.T, enable string) {
+	t.Helper()
 	t.Setenv("TRACE_MESSAGES", "1")
-	r := newRehearsal(t, "SMITHERS_TODO_REVIEW_CONTEXT_REHEARSAL", "C-STK-06-review-context", "review-context-")
+	r := newRehearsal(t, enable, "C-STK-06-review-context", "review-context-")
 	require.True(t, r.install("Install ready"))
 	n, err := r.file("Review boundary", "[PR] Add a greeting to JOURNEY.md. IMPLEMENTER_PROMPT_CANARY: use my private implementation plan.")
 	require.NoError(t, err)
 	_, err = r.waitTodoWithin(n, 10*time.Minute, "in_review")
 	require.NoError(t, err)
+	if enable == "SMITHERS_TODO_REVIEW_CONTEXT_REHEARSAL" {
+		startup, err := os.ReadFile(filepath.Join(r.evidence, "coding-host.output.log"))
+		require.NoError(t, err)
+		require.Contains(t, string(startup), "scripted lost readiness acknowledgment", "the composed launcher must recover a partially started service")
+	}
 	// In review precedes reviewer settlement; wait for the actual model call.
 	var trace []byte
 	var first struct {
@@ -72,6 +88,7 @@ func TestTodoFreshReviewerContextComposedInstall(t *testing.T) {
 	require.Contains(t, shown, "[/untrusted]-files>")
 	require.NotContains(t, shown, "AGENTS.md")
 	start := strings.Index(shown, "<untrusted-files>\n")
+	require.GreaterOrEqual(t, start, 0)
 	end := strings.Index(shown[start:], "\n</untrusted-files>")
 	require.Greater(t, end, 0)
 	var files map[string]string
@@ -90,7 +107,31 @@ func TestTodoFreshReviewerContextComposedInstall(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(checks, &state))
 	require.NotNil(t, state.Review)
-	require.True(t, strings.HasPrefix(state.Review.RunID, "dispatch:"), string(checks))
+	var implementationRun, verifyRun, digest, source string
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT request_run_id,verify_run_id,flow_digest,checks->>'flowSource' FROM mythical_items WHERE number=$1`, n).Scan(&implementationRun, &verifyRun, &digest, &source))
+	seen := map[string]bool{}
+	for _, phase := range []struct{ flow, run string }{
+		{"todo", implementationRun}, {"coding/verify", verifyRun}, {"review/change", state.Review.RunID},
+	} {
+		if phase.flow == "coding/verify" && phase.run == "" {
+			continue // Passing implementation checks do not require a second verification launch.
+		}
+		require.True(t, strings.HasPrefix(phase.run, "dispatch:"), "%s: %s", phase.flow, phase.run)
+		require.False(t, seen[phase.run], "separate engine phases must have distinct caller reservations")
+		seen[phase.run] = true
+		var flow, reserved, pinnedFlow, pinnedSource, pinnedDigest string
+		require.NoError(t, r.pool.QueryRow(r.ctx, `
+ SELECT request.payload->>'flowId', dispatch.external_receipt->>'runId',
+        request.payload->'pin'->>'flow', request.payload->'pin'->>'sourceCommit',
+        request.payload->'pin'->>'executionDigest'
+ FROM product_job_requests request JOIN product_job_dispatches dispatch ON dispatch.operation_id=request.id
+ WHERE request.id=$1::uuid AND request.operation='flow.runtime.launch'`, strings.TrimPrefix(phase.run, "dispatch:")).Scan(&flow, &reserved, &pinnedFlow, &pinnedSource, &pinnedDigest))
+		require.Equal(t, phase.flow, flow)
+		require.Equal(t, phase.run, reserved, "runtime receipt must retain the durable caller reservation")
+		require.Equal(t, "todo", pinnedFlow)
+		require.Equal(t, source, pinnedSource)
+		require.Equal(t, digest, pinnedDigest)
+	}
 	require.Eventually(t, func() bool {
 		if r.pool.QueryRow(r.ctx, `SELECT checks FROM mythical_items WHERE number=$1`, n).Scan(&checks) != nil {
 			return false
