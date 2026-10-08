@@ -63,7 +63,7 @@ func TestSSHUnavailableProvidersFailClosed(t *testing.T) {
 	// Omit each required production bridge capability independently. These are
 	// actual install adapters; no recording bridge can supply acceptance.
 	service := services.NewWorkspaceService(q, services.WithWorkspaceTransactions(pool))
-	for _, missing := range []string{"authorization", "admission", "session tracking"} {
+	for _, missing := range []string{"authorization", "admission", "session tracking", "authenticated daemon transport", "transaction boundary"} {
 		t.Run(missing, func(t *testing.T) {
 			bridge := installDaemonBridge(pool, service, &machined.Registry{})
 			switch missing {
@@ -73,6 +73,10 @@ func TestSSHUnavailableProvidersFailClosed(t *testing.T) {
 				bridge.Admit = nil
 			case "session tracking":
 				bridge.Track = nil
+			case "authenticated daemon transport":
+				bridge = installDaemonBridge(pool, service, nil)
+			case "transaction boundary":
+				bridge = installDaemonBridge(pool, services.NewWorkspaceService(q), &machined.Registry{})
 			}
 			_, p, close, e := startInstallSSH(ctx, cfg, pool, repository.NewRemoteClient(nil, "test"), nil, bridge, "http://localhost:4000")
 			require.NoError(t, e)
@@ -168,7 +172,17 @@ func TestSSHProductionAuthorizationAndForwarding(t *testing.T) {
 		require.NoError(t, err)
 		require.False(t, accepted)
 		s.Close()
-		for _, user := range []string{"root", "machine+root"} {
+		s, err = client.NewSession()
+		require.NoError(t, err)
+		accepted, err = s.SendRequest("x11-req", true, gossh.Marshal(struct {
+			SingleConnection bool
+			Protocol, Cookie string
+			Screen           uint32
+		}{true, "MIT-MAGIC-COOKIE-1", "00000000000000000000000000000000", 0}))
+		require.NoError(t, err)
+		require.False(t, accepted, "X11 forwarding cannot open a guest channel")
+		s.Close()
+		for _, user := range []string{"root", "developer", "agent", "machine+root"} {
 			c, e := gossh.Dial("tcp", address, &gossh.ClientConfig{User: user, Auth: []gossh.AuthMethod{gossh.PublicKeys(signer)}, HostKeyCallback: gossh.InsecureIgnoreHostKey(), Timeout: time.Second})
 			if c != nil {
 				c.Close()
@@ -194,6 +208,19 @@ func TestSSHProductionAuthorizationAndForwarding(t *testing.T) {
 		_, e = q.CreateDeployKey(t.Context(), db.CreateDeployKeyParams{RepositoryID: repositoryID, Title: "native-refusal", KeyFingerprint: gossh.FingerprintSHA256(stranger.PublicKey()), PublicKey: string(gossh.MarshalAuthorizedKey(stranger.PublicKey())), ReadOnly: false})
 		require.NoError(t, e)
 		refuseLogin(login, gossh.PublicKeys(stranger))
+		t.Run("withdrawn key", func(t *testing.T) {
+			_, private, e := ed25519.GenerateKey(rand.Reader)
+			require.NoError(t, e)
+			withdrawn, e := gossh.NewSignerFromKey(private)
+			require.NoError(t, e)
+			key, e := q.CreateSSHKey(t.Context(), db.CreateSSHKeyParams{UserID: member, Name: "native-withdrawn", PublicKey: string(gossh.MarshalAuthorizedKey(withdrawn.PublicKey())), Fingerprint: gossh.FingerprintSHA256(withdrawn.PublicKey()), KeyType: "ssh-ed25519"})
+			require.NoError(t, e)
+			positive, e := gossh.Dial("tcp", address, &gossh.ClientConfig{User: login, Auth: []gossh.AuthMethod{gossh.PublicKeys(withdrawn)}, HostKeyCallback: gossh.InsecureIgnoreHostKey(), Timeout: time.Second})
+			require.NoError(t, e, "same key authenticates before withdrawal")
+			require.NoError(t, positive.Close())
+			require.NoError(t, q.DeleteSSHKey(t.Context(), db.DeleteSSHKeyParams{ID: key.ID, UserID: member}))
+			refuseLogin(login, gossh.PublicKeys(withdrawn))
+		})
 		// Mutate only the disposable install's roster. Each new handshake must read
 		// current production authority; this never calls a real GitHub repository.
 		for _, fixture := range []struct{ name, change, undo string }{
@@ -234,16 +261,47 @@ func TestSSHRootInputsValidatedBeforeUse(t *testing.T) {
 		// Repository startup files must not select the privileged shell or loader.
 		// Poison files run only as the member and remain data to the root broker.
 		command(`mkdir -p /workspace/trm03-poison; printf '#!/bin/sh\nprintf root-canary > /workspace/trm03-root-canary\n' > /workspace/trm03-poison/sh; chmod 755 /workspace/trm03-poison/sh`)
-		s, err := client.NewSession()
-		require.NoError(t, err)
-		for _, pair := range [][2]string{{"PATH", "/workspace/trm03-poison"}, {"LD_PRELOAD", "/workspace/trm03-poison/loader.so"}, {"SHELL", "/workspace/trm03-poison/sh"}} {
-			require.NoError(t, s.Setenv(pair[0], pair[1]), "SSH acknowledges environment without applying it to broker startup")
+		poisons := [][2]string{{"PATH", "/workspace/trm03-poison"}, {"HOME", "/workspace/trm03-poison"}, {"LD_PRELOAD", "/workspace/trm03-poison/loader.so"}, {"LD_LIBRARY_PATH", "/workspace/trm03-poison"}, {"SHELL", "/workspace/trm03-poison/sh"}, {"BASH_ENV", "/workspace/trm03-poison/sh"}, {"ENV", "/workspace/trm03-poison/sh"}, {"PYTHONPATH", "/workspace/trm03-poison"}, {"PYTHONHOME", "/workspace/trm03-poison"}}
+		for index := 0; index <= len(poisons); index++ {
+			name := "combined"
+			values := poisons
+			if index < len(poisons) {
+				name = poisons[index][0]
+				values = poisons[index : index+1]
+			}
+			t.Run(name, func(t *testing.T) {
+				s, err := client.NewSession()
+				require.NoError(t, err)
+				defer s.Close()
+				for _, pair := range values {
+					require.NoError(t, s.Setenv(pair[0], pair[1]), "environment acknowledgment cannot select broker startup inputs")
+				}
+				output, err := s.CombinedOutput("id -u; id -g; pwd; test ! -e /workspace/trm03-root-canary")
+				require.NoError(t, err, string(output))
+				require.Equal(t, "20000\n20000\n/workspace\n", string(output))
+			})
 		}
-		output, err := s.CombinedOutput("id -u; id -g; pwd; test ! -e /workspace/trm03-root-canary")
-		s.Close()
-		require.NoError(t, err, string(output))
 		require.Equal(t, uint32(20000), uid)
-		require.Equal(t, "20000\n20000\n/workspace\n", string(output))
+		for _, size := range [][2]int{{0, 80}, {24, 0}, {65536, 80}, {24, 65536}} {
+			t.Run(fmt.Sprintf("invalid-pty-%d-%d", size[0], size[1]), func(t *testing.T) {
+				s, err := client.NewSession()
+				require.NoError(t, err)
+				defer s.Close()
+				err = s.RequestPty("xterm", size[0], size[1], gossh.TerminalModes{})
+				if err == nil {
+					_, err = s.CombinedOutput("printf root-canary > /workspace/trm03-root-canary")
+				}
+				require.Error(t, err, "invalid dimensions must refuse before member payload")
+				command("test ! -e /workspace/trm03-root-canary")
+			})
+		}
+		positive, err := client.NewSession()
+		require.NoError(t, err)
+		defer positive.Close()
+		require.NoError(t, positive.RequestPty("xterm", 24, 80, gossh.TerminalModes{}))
+		output, err := positive.CombinedOutput("stty size")
+		require.NoError(t, err, string(output))
+		require.Equal(t, "24 80\r\n", string(output))
 		command(`rm -rf /workspace/trm03-poison`)
 		t.Log("C-J3-06 native startup-input subset; raw broker envelopes, retained-machine races and C-COL-04 receipts remain required")
 	})
