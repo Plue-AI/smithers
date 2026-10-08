@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/pkg/sftp"
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
@@ -337,6 +338,7 @@ func TestSSHRootInputsValidatedBeforeUse(t *testing.T) {
 		require.Equal(t, "24 80\r\n", string(output))
 		command(`rm -rf /workspace/trm03-poison`)
 		exerciseSSHBrokerSemanticInputs(t, h, client, login, member, uid)
+		exerciseSSHRetainedFilesystemRace(t, client)
 		t.Log("C-J3-06 native startup and authenticated semantic-envelope subset; private socketpair malformed frames, retained wake races and C-COL-04 receipts remain required")
 	})
 }
@@ -498,4 +500,66 @@ func TestSSHBrokerEnvelopeFramingBoundary(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Exercise branch-controlled symlink swaps on the already admitted machine,
+// after the roster withdrawal/restore matrix. SFTP uses the installed member
+// process, not a host filesystem or a recording bridge.
+func exerciseSSHRetainedFilesystemRace(t *testing.T, client *gossh.Client) {
+	t.Helper()
+	t.Run("retained-sftp-symlink-race", func(t *testing.T) {
+		command := func(text string) []byte {
+			t.Helper()
+			session, err := client.NewSession()
+			require.NoError(t, err)
+			defer session.Close()
+			output, err := session.CombinedOutput(text)
+			require.NoError(t, err, string(output))
+			return output
+		}
+		const root = "/workspace/trm03-retained-race"
+		command(`test ! -e /etc/trm03-outside-canary; mkdir -p /workspace/trm03-retained-race/inside; ln -s /etc /workspace/trm03-retained-race/target`)
+		defer command(`rm -rf /workspace/trm03-retained-race`)
+		remote, err := sftp.NewClient(client)
+		require.NoError(t, err)
+		defer remote.Close()
+		outside, err := remote.Create(root + "/target/trm03-outside-canary")
+		if outside != nil {
+			outside.Close()
+		}
+		require.ErrorIs(t, err, os.ErrPermission, "fixed outside target is refused before the race")
+		racer, err := client.NewSession()
+		require.NoError(t, err)
+		defer racer.Close()
+		var raceOutput bytes.Buffer
+		racer.Stdout, racer.Stderr = &raceOutput, &raceOutput
+		require.NoError(t, racer.Start(`set -eu; cd /workspace/trm03-retained-race; touch ready; while test ! -e done; do ln -s /etc next; mv -Tf next target; ln -s inside next; mv -Tf next target; done`))
+		defer func() {
+			done, e := remote.Create(root + "/done")
+			require.NoError(t, e)
+			require.NoError(t, done.Close())
+			require.NoError(t, racer.Wait(), raceOutput.String())
+		}()
+		// The handshake proves the swapping process is running before any write.
+		require.Eventually(t, func() bool { _, e := remote.Stat(root + "/ready"); return e == nil }, 5*time.Second, 10*time.Millisecond)
+		for attempt := 0; attempt < 64; attempt++ {
+			file, e := remote.OpenFile(root+"/target/trm03-outside-canary", os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
+			if e != nil {
+				// A raced outside target is refused by the member process. Other errors
+				// must not turn transport failure into successful confinement evidence.
+				require.ErrorIs(t, e, os.ErrPermission)
+				continue
+			}
+			_, e = file.Write([]byte("member-only\n"))
+			require.NoError(t, e)
+			require.NoError(t, file.Close())
+		}
+		require.Equal(t, "20000\n20000\n20000\n/workspace\n", string(command(`id -u; id -g; id -G; pwd; test ! -e /etc/trm03-outside-canary`)))
+		positive, err := remote.Create(root + "/inside/positive")
+		require.NoError(t, err)
+		_, err = positive.Write([]byte("retained-member\n"))
+		require.NoError(t, err)
+		require.NoError(t, positive.Close())
+		require.Equal(t, "retained-member\n", string(command(`cat /workspace/trm03-retained-race/inside/positive`)))
+	})
 }
