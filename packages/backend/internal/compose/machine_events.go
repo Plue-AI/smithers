@@ -99,6 +99,12 @@ func (m machineEvents) bind(ctx context.Context, registry *machined.Registry, po
 				// session receipts of another boot never answer for it.
 				transcripts := *m.Transcripts
 				transcripts.Resolve = installTranscriptSource(link)
+				// A workspace owner may consult the registry while holding
+				// this row. Acquire it before Ingestor takes the registry fence.
+				var workspace string
+				if err := tx.QueryRow(ctx, `SELECT id FROM workspaces WHERE id=$1 FOR UPDATE`, branch).Scan(&workspace); err != nil {
+					return nil, err
+				}
 				return transcripts.Write, nil
 			}
 			if len(event.Payload) == 0 || (event.Payload[0] != 2 && event.Payload[0] != 3) {

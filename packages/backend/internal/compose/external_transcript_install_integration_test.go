@@ -355,3 +355,58 @@ func TestInstallTranscriptsRequireTheAdapterHost(t *testing.T) {
 	require.NoError(t, fixture.pool.QueryRow(t.Context(), `SELECT (SELECT count(*) FROM machine_event_receipts)+(SELECT count(*) FROM chat_turns)`).Scan(&rows))
 	require.Zero(t, rows)
 }
+
+// A stack worker can hold the workspace while inspecting connected machines.
+// Transcript receipt admission must not hold the registry while waiting for it.
+func TestInstallTranscriptPumpDoesNotFenceRegistryWhileWaitingForWorkspace(t *testing.T) {
+	fixture := newTranscriptImportFixture(t)
+	pool, ctx, branch := fixture.pool, t.Context(), fixture.branch.ID
+	transcripts, err := installTranscripts(pool, packagedTranscriptHost(t))
+	require.NoError(t, err)
+	repository := repohost.NewLocalClient(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("a transcript reached the repository host")
+	}), "transcripts")
+	stop, err := machineEvents{Transcripts: transcripts}.bind(ctx, fixture.registry, pool, repository, nil, nil)
+	require.NoError(t, err)
+	t.Cleanup(stop)
+	link, peer := externalTranscriptLink(t, fixture.registry, branch, fixture.authority)
+	require.NoError(t, peer.SetDeadline(time.Now().Add(10*time.Second)))
+	var uid uint32
+	require.NoError(t, pool.QueryRow(ctx, `SELECT unix_uid FROM collaborators WHERE user_id=$1`, fixture.ben.ID).Scan(&uid))
+	require.NoError(t, newMachineHost(pool, repository).Record(ctx, branch, link.BootID(), 1, machined.SessionUser{Login: fixture.ben.Username, UID: uid}, "terminal"))
+	tx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer tx.Rollback(ctx)
+	var holder int
+	require.NoError(t, tx.QueryRow(ctx, `SELECT pg_backend_pid() FROM workspaces WHERE id=$1 FOR UPDATE`, branch).Scan(&holder))
+	var seq uint64
+	delivered := make(chan error, 1)
+	record := recordedTranscript(t, "claude-code-signed-out-2.1", "session.jsonl")[0]
+	go func() {
+		outcome, _, err := deliverTranscript(peer, &seq, wire.Transcript{Version: 1, Session: 1, Participant: [16]byte{1}, Source: [16]byte{2}, Profile: "claude-code/2.1", Generation: 1, End: uint64(len(record) + 1), Record: record})
+		if err == nil && outcome != machined.AckApplied {
+			err = fmt.Errorf("outcome %v", outcome)
+		}
+		delivered <- err
+	}()
+	require.Eventually(t, func() bool {
+		var blocked int
+		return pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid))`, holder).Scan(&blocked) == nil && blocked > 0
+	}, 5*time.Second, 10*time.Millisecond)
+	roster := make(chan bool, 1)
+	go func() { roster <- len(fixture.registry.ConnectedBranches()) > 0 }()
+	select {
+	case connected := <-roster:
+		require.True(t, connected)
+	case <-time.After(time.Second):
+		_ = tx.Rollback(ctx)
+		<-roster
+		<-delivered
+		t.Fatal("workspace wait held the registry fence")
+	}
+	require.NoError(t, tx.Commit(ctx))
+	require.NoError(t, <-delivered)
+	var receipts int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts WHERE workspace_id=$1 AND outcome='applied'`, branch).Scan(&receipts))
+	require.Equal(t, 1, receipts)
+}
