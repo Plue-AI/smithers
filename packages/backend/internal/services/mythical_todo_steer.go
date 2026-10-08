@@ -315,7 +315,7 @@ func (s *MythicalService) admitTodoFeedback(ctx context.Context, number int64, i
 			}
 			id := uuidString(saved.ID)
 			fact, err := json.Marshal(map[string]any{"item": id, "n": number, "input": feedback.ID,
-				"text": feedback.Text, "by": todoActorRef(ctx, person), "attempt": feedback.Attempt,
+				"text": feedback.Text, "by": todoActorRef(ctx, person), "actor": todoActor(ctx, person), "attempt": feedback.Attempt,
 				"from": todoState(item), "to": todoState(saved)})
 			if err != nil {
 				return err
@@ -332,7 +332,7 @@ func (s *MythicalService) admitTodoFeedback(ctx context.Context, number int64, i
 			}
 			if amendment != nil {
 				amended, err := json.Marshal(map[string]any{"item": id, "n": number, "rev": feedback.Revision, "input": feedback.ID,
-					"by": feedback.Attribution, "from": todoState(item), "to": todoState(saved)})
+					"by": feedback.Attribution, "actor": todoActor(ctx, person), "from": todoState(item), "to": todoState(saved)})
 				if err != nil {
 					return err
 				}

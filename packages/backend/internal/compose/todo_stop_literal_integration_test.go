@@ -165,7 +165,7 @@ func mustStopChecksWithoutPause(t *testing.T, checks map[string]any) string {
 	return string(raw)
 }
 
-func newTodoSignalLiteralInstall(t *testing.T) todoLiteralInstall {
+func newTodoSignalLiteralInstall(t *testing.T, configure ...func(*services.MythicalService, *pgxpool.Pool)) todoLiteralInstall {
 	t.Helper()
 	return newTodoLiteralInstall(t, func(service *services.MythicalService, pool *pgxpool.Pool) {
 		service.SetTodoFlow(func(context.Context, int64, string) (string, error) {
@@ -181,5 +181,8 @@ func newTodoSignalLiteralInstall(t *testing.T) todoLiteralInstall {
 			})})
 		require.NoError(t, err)
 		service.SetLauncher(dispatcher)
+		for _, apply := range configure {
+			apply(service, pool)
+		}
 	})
 }
