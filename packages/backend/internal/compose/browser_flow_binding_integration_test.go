@@ -153,23 +153,117 @@ func TestBrowserFlowStoredBindingComposedInstall(t *testing.T) {
 
 type browserBindingDispatcher struct {
 	browserFlowRecordingDispatcher
-	mutate bool
-	during func()
+	mutate   bool
+	during   func()
+	classify func()
+	failure  error
 }
 
 func (d *browserBindingDispatcher) CallRPC(ctx context.Context, target flowruntime.Target, procedure string, payload json.RawMessage) (json.RawMessage, error) {
 	if d.during != nil {
 		d.during()
 	}
-	return d.browserFlowRecordingDispatcher.CallRPC(ctx, target, procedure, payload)
+	answer, err := d.browserFlowRecordingDispatcher.CallRPC(ctx, target, procedure, payload)
+	if d.failure != nil {
+		return nil, d.failure
+	}
+	return answer, err
 }
 
 func (d *browserBindingDispatcher) RefuseRelay(ctx context.Context, target flowruntime.Target, procedure string, payload json.RawMessage) error {
 	if err := d.browserFlowRecordingDispatcher.RefuseRelay(ctx, target, procedure, payload); err != nil {
 		return err
 	}
+	if d.classify != nil {
+		d.classify()
+	}
 	if d.mutate {
 		copy(payload, strings.ReplaceAll(string(payload), "greeting", "replaced"))
 	}
 	return nil
+}
+
+func TestRunSnapshotRetirementComposedInstall(t *testing.T) {
+	f := newLandingGateFixtureWithFactory(t, nil, "", true)
+	cfg := testConfigAllFlagsOn()
+	cfg.Auth.Mode, cfg.Auth.SessionCookieName = "selfhost", "session"
+	cfg.Server.PublicURL = "http://example.com"
+	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
+	workspace, err := f.q.CreateWorkspace(f.ctx, db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: f.other.ID, Name: "retiring-relay", TargetBookmark: "scratch/member/bound", Kind: "container", Status: "running"})
+	require.NoError(t, err)
+	cookie := "retiring-relay-session"
+	digest := sha256.Sum256([]byte(cookie))
+	_, err = f.q.CreateAuthSession(f.ctx, db.CreateAuthSessionParams{UserID: f.other.ID, Username: f.other.Username, SessionKey: hex.EncodeToString(digest[:]), ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
+	repo, err := f.q.GetRepoByID(f.ctx, f.repoID)
+	require.NoError(t, err)
+	_, err = f.pool.Exec(f.ctx, `INSERT INTO run_archives(repository_id,workspace_id,run_id,flow_id,status,summary,tree,monitor)
+		VALUES ($1,$2,'finished-run','todo','completed','{"runId":"finished-run","flowId":"todo","status":"completed"}','[]','{}')`, f.repoID, workspace.ID)
+	require.NoError(t, err)
+	for _, change := range []string{"status", "host retirement", "host replacement", "bookmark", "generation", "machine", "owner", "expired", "suspended"} {
+		t.Run(change, func(t *testing.T) {
+			_, err := f.pool.Exec(f.ctx, `UPDATE workspaces SET target_bookmark=$2,vm_id=$3,provisioning_generation=$4,status='running',user_id=$5 WHERE id=$1`, workspace.ID, workspace.TargetBookmark, workspace.VmID, workspace.ProvisioningGeneration, f.other.ID)
+			require.NoError(t, err)
+			_, err = f.pool.Exec(f.ctx, `UPDATE auth_sessions SET expires_at=now()+interval '1 hour' WHERE user_id=$1`, f.other.ID)
+			require.NoError(t, err)
+			_, err = f.pool.Exec(f.ctx, `UPDATE collaborators SET suspended_at=NULL WHERE repository_id=$1 AND user_id=$2`, f.repoID, f.other.ID)
+			require.NoError(t, err)
+			recorder := &browserBindingDispatcher{classify: func() {
+				switch change {
+				case "status":
+					_, err = f.pool.Exec(f.ctx, `UPDATE workspaces SET status='stopped' WHERE id=$1`, workspace.ID)
+				case "bookmark":
+					_, err = f.pool.Exec(f.ctx, `UPDATE workspaces SET target_bookmark='scratch/member/replaced' WHERE id=$1`, workspace.ID)
+				case "generation":
+					_, err = f.pool.Exec(f.ctx, `UPDATE workspaces SET provisioning_generation=provisioning_generation+1 WHERE id=$1`, workspace.ID)
+				case "machine":
+					_, err = f.pool.Exec(f.ctx, `UPDATE workspaces SET vm_id='replaced' WHERE id=$1`, workspace.ID)
+				case "owner":
+					_, err = f.pool.Exec(f.ctx, `UPDATE workspaces SET user_id=$2 WHERE id=$1`, workspace.ID, f.owner.ID)
+				case "expired":
+					_, err = f.pool.Exec(f.ctx, `UPDATE auth_sessions SET expires_at=now()-interval '1 second' WHERE user_id=$1`, f.other.ID)
+				case "suspended":
+					_, err = f.pool.Exec(f.ctx, `UPDATE collaborators SET suspended_at=now() WHERE repository_id=$1 AND user_id=$2`, f.repoID, f.other.ID)
+				}
+				require.NoError(t, err)
+			}}
+			if change == "host retirement" || change == "host replacement" {
+				recorder.failure = testFlowFailure("runtime_binding_unavailable")
+				recorder.during = func() {
+					if change == "host replacement" {
+						_, err = f.pool.Exec(f.ctx, `UPDATE workspaces SET vm_id='replaced' WHERE id=$1`, workspace.ID)
+					} else {
+						_, err = f.pool.Exec(f.ctx, `UPDATE workspaces SET status='stopped' WHERE id=$1`, workspace.ID)
+					}
+					require.NoError(t, err)
+				}
+			}
+			api := &browserFlowAPI{installTransactions: f.pool, repos: services.NewRepoService(f.q, nil, ""), queries: f.q, dispatcher: recorder}
+			router := chi.NewRouter()
+			mountBrowserFlow(router, cfg, f.q, api)
+			body, err := json.Marshal(browserFlowRequest{Repo: f.owner.Username + "/" + repo.Name, WorkspaceID: workspace.ID, Procedure: "Projection.Snapshot", Payload: json.RawMessage(`{"selector":{"_tag":"run-summary","runId":"finished-run"}}`)})
+			require.NoError(t, err)
+			req := httptest.NewRequest(http.MethodPost, cfg.Server.PublicURL+"/api/workflow/rpc", strings.NewReader(string(body)))
+			req.AddCookie(&http.Cookie{Name: "session", Value: cookie})
+			req.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "csrf"})
+			req.Header.Set("Origin", cfg.Server.PublicURL)
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-CSRF-Token", "csrf")
+			out := httptest.NewRecorder()
+			router.ServeHTTP(out, req)
+			if change == "status" || change == "host retirement" {
+				require.Equal(t, 200, out.Code, out.Body.String())
+				require.JSONEq(t, `{"ok":true,"payload":{"selector":{"_tag":"run-summary","runId":"finished-run"},"cursor":{"selector":{"_tag":"run-summary","runId":"finished-run"},"projection":"run-summary","runId":"finished-run","value":0,"offset":0},"rows":[{"runId":"finished-run","flowId":"todo","status":"completed"}]}}`, out.Body.String())
+			} else if change == "expired" || change == "suspended" {
+				require.Equal(t, 401, out.Code, out.Body.String())
+			} else {
+				require.Equal(t, 403, out.Code, out.Body.String())
+			}
+			if change == "host retirement" || change == "host replacement" {
+				require.Len(t, recorder.calls, 1, "the stopped guest is attempted once")
+			} else {
+				require.Empty(t, recorder.calls, "retirement reads the archive; refused bindings have no guest IO")
+			}
+		})
+	}
 }

@@ -157,7 +157,7 @@ func (api *browserFlowAPI) prepare(w http.ResponseWriter, r *http.Request, provi
 				return request, flowruntime.Target{}, db.Workspace{}, false
 			}
 		}
-		subject, lookup := api.installSubject(r.Context(), request)
+		subject, lookup := api.installSubject(r.Context(), request, provision)
 		decision, err := services.Authorize(r.Context(), api.installQueries, command, subject)
 		if err != nil {
 			writeConfirmationDispatchError(w, err)
@@ -233,7 +233,7 @@ func (api *browserFlowAPI) prepare(w http.ResponseWriter, r *http.Request, provi
 
 // installSubject binds the decoded relay request to its stored workspace. The
 // guest's current host lease still decides whether that workspace can execute.
-func (api *browserFlowAPI) installSubject(ctx context.Context, request browserFlowRequest) (services.InstallSubject, error) {
+func (api *browserFlowAPI) installSubject(ctx context.Context, request browserFlowRequest, provision bool) (services.InstallSubject, error) {
 	denied := &services.AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"}
 	if api.installQueries == nil {
 		return services.InstallSubject{}, denied
@@ -260,12 +260,18 @@ func (api *browserFlowAPI) installSubject(ctx context.Context, request browserFl
 	if err != nil || workspace.RepositoryID != repository.ID || workspace.DeletedAt.Valid {
 		return services.InstallSubject{}, denied
 	}
+	status := workspace.Status
+	if !provision && runSnapshot(request) {
+		// A run's journal belongs to the same workspace before and after
+		// retirement. Stopping its machine does not revoke a member's read.
+		status = ""
+	}
 	raw, err := json.Marshal(struct {
 		Request      browserFlowRequest
 		Owner        int64
 		Status, Kind string
 		Rebuild      bool
-	}{request, workspace.UserID, workspace.Status, workspace.Kind, workspace.RebuildRequiredAt.Valid})
+	}{request, workspace.UserID, status, workspace.Kind, workspace.RebuildRequiredAt.Valid})
 	if err != nil {
 		return services.InstallSubject{}, denied
 	}
@@ -275,13 +281,33 @@ func (api *browserFlowAPI) installSubject(ctx context.Context, request browserFl
 		Resource: request.Procedure, PayloadDigest: hex.EncodeToString(digest[:])}, nil
 }
 
+func runSnapshot(request browserFlowRequest) bool {
+	if request.Procedure != "Projection.Snapshot" {
+		return false
+	}
+	var payload struct {
+		Selector struct {
+			Tag   string `json:"_tag"`
+			RunID string `json:"runId"`
+		} `json:"selector"`
+	}
+	if json.Unmarshal(request.Payload, &payload) != nil || payload.Selector.RunID == "" {
+		return false
+	}
+	switch payload.Selector.Tag {
+	case "run-summary", "run-tree", "run-events":
+		return true
+	}
+	return false
+}
+
 // Reuse the original decision after the limiter and before each admission.
 // A replaced payload, workspace generation or relay target cannot inherit it.
 func (api *browserFlowAPI) checkInstallBinding(ctx context.Context, request browserFlowRequest, target flowruntime.Target, provision bool) error {
 	if !api.install {
 		return nil
 	}
-	subject, err := api.installSubject(ctx, request)
+	subject, err := api.installSubject(ctx, request, provision)
 	if err != nil {
 		return err
 	}
@@ -477,6 +503,18 @@ func (api *browserFlowAPI) relay(w http.ResponseWriter, r *http.Request, request
 		writeConfirmationDispatchError(w, err)
 		return
 	}
+	if api.install && runSnapshot(request) {
+		// Retirement may have committed after prepare authorized this read.
+		// Choose the live host or archive using the current machine state.
+		current, err := api.queries.GetFlowWorkspaceForUserRepo(r.Context(), db.GetFlowWorkspaceForUserRepoParams{
+			ID: workspace.ID, RepositoryID: workspace.RepositoryID, UserID: middleware.UserFromContext(r.Context()).ID,
+		})
+		if err != nil {
+			browserFlowUnavailable(w, err, request.Procedure)
+			return
+		}
+		workspace = current
+	}
 	// A read never wakes a sleeping or stopped box: a run it ran is served
 	// from its host's own answers, retained while the host was live.
 	if snapshot && workspace.Status != "running" {
@@ -510,6 +548,25 @@ func (api *browserFlowAPI) relay(w http.ResponseWriter, r *http.Request, request
 		return err
 	})
 	var failure flowruntime.Failure
+	if snapshot && runSnapshot(request) && errors.As(err, &failure) &&
+		(failure.FlowRuntimeCode() == "runtime_binding_unavailable" || failure.FlowRuntimeCode() == "runtime_host_not_running" || failure.FlowRuntimeCode() == "runtime_host_starting") {
+		// The machine can retire after the state read but before guest IO.
+		// Reauthorize the same run read and use its retained host answers.
+		var archived json.RawMessage
+		err = api.withInstallEffect(r.Context(), request, target, false, func(ctx context.Context) error {
+			var ok bool
+			archived, ok = api.archivedSnapshot(ctx, workspace, request.Payload)
+			if !ok {
+				return failure
+			}
+			return nil
+		})
+		if err == nil {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(archived)
+			return
+		}
+	}
 	if (snapshot || request.Procedure == "List") && errors.As(err, &failure) && (failure.FlowRuntimeCode() == "runtime_host_not_running" || failure.FlowRuntimeCode() == "runtime_host_starting") {
 		if err = api.withInstallEffect(r.Context(), request, target, false, func(ctx context.Context) error {
 			_, err := api.dispatcher.StartHost(ctx, target)
