@@ -137,7 +137,9 @@ test("/branch T2 mounts live facts and its Fork enters the production dispatcher
       await act(async () => root.render(<ControllerTestProvider controller={controller}>{CARD_RENDERERS.branch.render(saved, actions)}</ControllerTestProvider>))
       expect(host.querySelector(`[data-tab="${tab}"]`)?.getAttribute("aria-selected")).toBe("true")
     }
-    expect(host.querySelector('[data-flow="box.resume"]')).toBeNull()
+    // An install binds Branch Sleep, Wake and Rebase (1dc959d1cd, #3555); the
+    // server authorizes each press. An asleep machine offers Wake.
+    expect(host.querySelector('[data-flow="box.resume"]')).not.toBeNull()
     await act(async () => {
       (host.querySelector('.branch-location [data-flow="file"]') as HTMLButtonElement).click()
       for (let i = 0; i < 20 && requests.length < 3; i++) await new Promise(resolve => setTimeout(resolve, 5))
