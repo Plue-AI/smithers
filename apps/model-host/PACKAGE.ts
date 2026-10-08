@@ -40,6 +40,7 @@ const test = Smithers.NodeTest({
   runner: Smithers.testRunner([Smithers.file("test/serve.test.mjs"), Smithers.file("test/transcript.test.mjs")]),
   srcs: [sources, Smithers.file("build.mjs"), Smithers.file("package.json"), ...docsSources,
     Smithers.file("../../packages/smithers/agent/harness/test/fixtures/external/codex-0.160/rollout.jsonl"),
+    Smithers.file("../../packages/smithers/agent/harness/test/fixtures/external/codex-machine-0.160/rollout.jsonl"),
     Smithers.file("../../packages/smithers/agent/harness/test/fixtures/external/claude-code-2.1/session.jsonl")],
   deps: [modelHostPackage.lib, harnessPackage.lib, appPackage.docsInputs],
   cwd

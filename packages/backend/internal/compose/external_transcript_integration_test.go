@@ -413,7 +413,7 @@ func TestExternalImportCommitReplay(t *testing.T) {
 		directory, file, profile string
 		count                    int
 	}{
-		{"codex-0.160", "rollout.jsonl", "codex-rollout/0.160", 32},
+		{"codex-0.160", "rollout.jsonl", "codex-rollout/0.160", 34},
 		{"claude-code-2.1", "session.jsonl", "claude-code/2.1", 36},
 	}
 	type liveFixture struct {
@@ -473,6 +473,12 @@ func TestExternalImportCommitReplay(t *testing.T) {
 		require.Contains(t, history, "How do I use ultrafast")
 		require.Contains(t, history, "exec-72424bde-7b89-43fe-9962-8fe21e4a3d4b")
 		require.Contains(t, history, "toolu_01JD3dL8cHy7FW7iBubC6yjY")
+		// The recorded encrypted message body is one read-only line at its
+		// source record; neither its ciphertext nor its header is imported.
+		require.Equal(t, 1, strings.Count(history, `"text":"Encrypted by Codex"`))
+		require.Contains(t, history, `"source_id":"01a10d62-91c7-7163-b038-72dab55a2e8c:98"`)
+		require.NotContains(t, history, "gAAAAABqw_FYg6K7")
+		require.NotContains(t, history, "Message Type: MESSAGE")
 		require.Contains(t, history, `"participant_id":"03000000-0000-0000-0000-000000000000"`)
 		require.Contains(t, history, `"participant_id":"04000000-0000-0000-0000-000000000000"`)
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM chat_turns WHERE NOT terminal`).Scan(&entries))
@@ -485,7 +491,7 @@ func TestExternalImportCommitReplay(t *testing.T) {
 		// seam; no fake message projection is injected at this boundary.
 		bun, err := exec.LookPath("bun")
 		require.NoError(t, err)
-		check := exec.CommandContext(t.Context(), bun, "-e", `import { SharedConversationSchema } from "./apps/app/src/mainview/state/seams/SharedConversationSeam.ts"; const conversation = SharedConversationSchema.parse(JSON.parse(await Bun.stdin.text())); if (conversation.entries.length !== 69) throw new Error("lost imported history"); for (const row of conversation.entries) { if (!Number.isSafeInteger(row.sequence) || row.sequence <= 0 || row.origin !== "external" || row.read_only !== true || row.turnId !== undefined || row.runId !== undefined) throw new Error("executable imported history"); }`)
+		check := exec.CommandContext(t.Context(), bun, "-e", `import { SharedConversationSchema } from "./apps/app/src/mainview/state/seams/SharedConversationSeam.ts"; const conversation = SharedConversationSchema.parse(JSON.parse(await Bun.stdin.text())); if (conversation.entries.length !== 71) throw new Error("lost imported history"); for (const row of conversation.entries) { if (!Number.isSafeInteger(row.sequence) || row.sequence <= 0 || row.origin !== "external" || row.read_only !== true || row.turnId !== undefined || row.runId !== undefined) throw new Error("executable imported history"); }`)
 		check.Dir = root
 		check.Stdin = strings.NewReader(history)
 		output, err := check.CombinedOutput()

@@ -79,7 +79,7 @@ behavior and signatures.
 | `Tokens`                     | `Count`, `Segment`, `Accounting`, `Estimator`, `estimate`, `count`, `combine`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Deterministic token accounting for context windows.                                                      |
 | `ContextWindow`              | `TypeId`, `SegmentKind`, `SegmentZone`, `Content`, `Mark`, `ContextWindowErrorCode`, `ContextWindowError`, `Segment`, `ContextWindow`, `SegmentInput`, `MakeOptions`, `makeSegment`, `make`, `empty`, `appendTurn`, `prefixDigest`, `compactMarked`, `compactPrefix`, `compact`, `render`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | The immutable, provider-neutral context assembled for one model request.                                 |
 | `Transcript`                 | `journalVersion`, `validateJournal`, `TranscriptErrorCode`, `TranscriptError`, `ProjectedMessage`, `ProjectedState`, `CellEvidence`, `projectStateResult`, `projectResult`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Transcript projection from durable journal entries.                                                      |
-| `ExternalTranscript`         | `AgentKind`, `EditedFile`, `Part`, `Entry`, `ExternalTranscriptErrorCode`, `ExternalTranscriptError`, `codexReleases`, `CodexState`, `codexStart`, `Decoded`, `decodeCodex`, `claudeReleases`, `ClaudeCall`, `ClaudeState`, `claudeStart`, `decodeClaude`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Read-only conversation entries decoded from another agent's transcript file.                             |
+| `ExternalTranscript`         | `AgentKind`, `EditedFile`, `Part`, `Entry`, `ExternalTranscriptErrorCode`, `ExternalTranscriptError`, `codexReleases`, `CodexState`, `CodexCall`, `codexStart`, `Decoded`, `decodeCodex`, `claudeReleases`, `ClaudeCall`, `ClaudeState`, `claudeStart`, `decodeClaude`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Read-only conversation entries decoded from another agent's transcript file.                             |
 | `Compaction`                 | `summaryInstruction`, `InvalidStep`, `Summarizer`, `CompactionStep`, `TokenAccounting`, `shouldCompact`, `selectPrefix`, `declare`, `summaryRequest`, `apply`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Declarations for sealed transcript-summary steps.                                                        |
 | `Steering`                   | `Delivery`, `SteerInsert`, `QueueInsert`, `Insert`, `SeatChange`, `ThinkingChange`, `Item`, `Queue`, `Drain`, `BoundaryInput`, `DrainRecord`, `drainRecord`, `empty`, `enqueue`, `drainAtClose`, `Source`, `SourceInput`, `make`, `makeNoop`, `layer`, `layerNoop`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Turn-boundary steering values and their source contract.                                                 |
 | `Notifications`              | `Options`, `make`, `layer`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Adapter from the durable notification queue to harness turn boundaries.                                  |
@@ -1221,28 +1221,44 @@ transcript text never sets it, and who the owner and the agent participant are
 is the caller's to supply.
 
 A `Part` is a `prompt`, a `goal`, `text` (`final` on the turn's answer),
-`reasoning`, `encrypted` (a placeholder for a body Codex encrypted, never
-dropped), `tool` (call id, command, `reads` labels such as `Read mvp.md` when
-the call only reads, searches or lists, status, exit code, output and
+`reasoning`, `encrypted` (a placeholder for a message body Codex encrypted,
+never dropped), `tool` (call id, command, `reads` labels such as `Read mvp.md`
+when the call only reads, searches or lists, status, exit code, output and
 duration), `edit` (call id, each `EditedFile` with its unified diff, and
 `applied` or `failed`), `search`, `helper`, `compaction`, or `error` for a
-failure the agent reported or a record kind this release does not read.
+failure the agent reported.
+
+Every kind a decoder skips is named in its source. A record, event, item,
+status line, attachment or content block outside those names is refused with
+`unsupported_record`: a new kind stops the import where a person can see it
+and is never shown as something else. The mapping tables, the recorded
+captures behind them and the host caller are in
+[external-transcripts.md](https://github.com/smithersai/smithers/blob/main/packages/smithers/agent/harness/docs/external-transcripts.md).
 
 ### Codex
 
-Entries come from `event_msg` `item_completed` rows and from
-`thread_goal_updated` rows whose objective or status changed. `reasoning` is
-only a summary Codex chose to write. `response_item` copies and usage,
-settings and context rows are skipped.
+Entries come from `event_msg` rows: `item_completed` items,
+`thread_goal_updated` rows whose objective or status changed, a
+`task_complete` that carries the failure its turn ended in, and
+`turn_aborted`. `reasoning` is only a summary Codex chose to write.
+`response_item` rows repeat the items for the model and are skipped, except
+two the items leave out. An `agent_message` is a message between this agent
+and one it works with: a body with ciphertext is one `encrypted` placeholder
+that stands for the whole body, and a readable body is `text`. A
+`custom_tool_call_output` that reports a failed code-mode script is a failed
+`tool` whose command is the script its `custom_tool_call` requested, followed
+by a failed `edit` when the report names the file an `apply_patch` could not
+change. The request waits in `state.calls` until its output arrives.
 
 ### Claude Code
 
-Claude Code chains its conversation records by `uuid`. Rows without one
-(`mode`, `permission-mode`, `queue-operation`, `last-prompt`, `ai-title`,
-`file-history-snapshot`, `cost-state` and the like) are session metadata and
-are skipped, as are `isSidechain` rows, which belong to a subagent's own
-transcript. The session is the `sessionId` of the first conversation record,
-and `turn_id` is the `promptId` of the latest user record.
+Claude Code chains its conversation records (`user`, `assistant`, `system`,
+`attachment`) by `uuid`. Thirteen named bookkeeping rows (`mode`,
+`permission-mode`, `queue-operation`, `last-prompt`, `ai-title`,
+`file-history-snapshot`, `cost-state` and the like) are skipped, as are
+`isSidechain` rows, which belong to a subagent's own transcript. The session
+is the `sessionId` of the first conversation record, and `turn_id` is the
+`promptId` of the latest user record.
 
 | Record                                                                   | Part                                                                                                              |
 | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
@@ -1258,9 +1274,9 @@ and `turn_id` is the `promptId` of the latest user record.
 | `WebSearch`, `WebFetch`                                                  | `search` for the query or address                                                                                 |
 | `Agent`, `Task`                                                          | `helper` named by `subagent_type`, with the call's description                                                    |
 | any other tool                                                           | `tool` whose command is the tool's name and its input as JSON                                                     |
-| `system` `compact_boundary`                                              | `compaction`; every other `system` subtype is a status line and is skipped                                        |
-| `attachment` `queued_command` the owner typed while the agent worked     | `prompt`; every other attachment is context for the model and is skipped                                          |
-| a record or content block of a kind this release does not read           | `error` naming it                                                                                                 |
+| `system` `compact_boundary`                                              | `compaction`; nine named status subtypes are skipped                                                              |
+| `attachment` `queued_command` the owner typed while the agent worked     | `prompt`; 44 named context attachments are skipped                                                                |
+| a record, status line, attachment or content block of any other kind     | Refused: `unsupported_record` naming it                                                                           |
 
 A tool call waits in `state.calls` from its `tool_use` record until the
 `tool_result` with the same id arrives, and becomes one entry at the result's
@@ -1289,12 +1305,17 @@ host reading bytes decodes them with a streaming `TextDecoder` first.
   Claude Code conversation record carries no `version`.
 - `unsupported_version`: the release is missing (Codex) or outside
   `codexReleases` (`0.159`, `0.160`) or `claudeReleases` (`2.1`).
-- `malformed_record`: a complete line is not a JSON record, or the first
-  Claude Code conversation record names no session.
+- `unsupported_record`: a complete, well-formed record, event, item, status
+  line, attachment or content block of a kind this module does not name. The
+  message names the kind.
+- `malformed_record`: a complete line is not a JSON record; a record names no
+  type; a conversation record has no `uuid`, session or message content; a
+  message part has no text; a tool request names no call.
 
-Each error carries the 1-based `line` the decode stopped at. `Fault` classifies
-all three as `dependency`: the agent wrote a transcript this release cannot
-read.
+Each error carries the 1-based `line` the decode stopped at, and a failed
+decode returns no entries from its chunk: a host that must keep the entries
+before the refused line decodes one record at a time. `Fault` classifies all
+four as `dependency`: the agent wrote a transcript this release cannot read.
 
 ## Compaction
 

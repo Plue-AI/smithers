@@ -1,0 +1,46 @@
+{
+  "state": {
+    "pending": "",
+    "line": 11,
+    "seq": 2,
+    "session": {
+      "id": "01a119e7-51a2-7c83-86d2-3f125158d08b",
+      "format_version": "codex-rollout/0.160",
+      "cwd": "/tmp/fixture-session/work"
+    }
+  },
+  "entries": [
+    {
+      "origin": "external",
+      "agent_kind": "codex",
+      "format_version": "codex-rollout/0.160",
+      "session_id": "01a119e7-51a2-7c83-86d2-3f125158d08b",
+      "source_id": "01a119e7-51a2-7c83-86d2-3f125158d08b:10",
+      "read_only": true,
+      "seq": 0,
+      "at": 1791435953192,
+      "turn_id": "01a119e7-51b2-7e83-bc56-854874598532",
+      "role": "user",
+      "part": {
+        "type": "prompt",
+        "text": "Create sample.txt containing the word alpha, then print it."
+      }
+    },
+    {
+      "origin": "external",
+      "agent_kind": "codex",
+      "format_version": "codex-rollout/0.160",
+      "session_id": "01a119e7-51a2-7c83-86d2-3f125158d08b",
+      "source_id": "01a119e7-51a2-7c83-86d2-3f125158d08b:11",
+      "read_only": true,
+      "seq": 1,
+      "at": 1791435970615,
+      "turn_id": "01a119e7-51b2-7e83-bc56-854874598532",
+      "role": "assistant",
+      "part": {
+        "type": "error",
+        "message": "unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: a4729d5f4c74b917-SJC, request id: req_e2160dcbe03b4eae96cc1889277325b5"
+      }
+    }
+  ]
+}

@@ -1,0 +1,251 @@
+{
+  "state": {
+    "pending": "",
+    "line": 46,
+    "seq": 12,
+    "session": {
+      "id": "01a1149b-f90c-7833-87d0-6c4ff981df9c",
+      "format_version": "codex-rollout/0.160",
+      "cwd": "/workspace/capture"
+    }
+  },
+  "entries": [
+    {
+      "origin": "external",
+      "agent_kind": "codex",
+      "format_version": "codex-rollout/0.160",
+      "session_id": "01a1149b-f90c-7833-87d0-6c4ff981df9c",
+      "source_id": "01a1149b-f90c-7833-87d0-6c4ff981df9c:10",
+      "read_only": true,
+      "seq": 0,
+      "at": 1791347138159,
+      "role": "user",
+      "part": {
+        "type": "prompt",
+        "text": "This is a transcript capture in a disposable toy directory. Use apply_patch to create sample.txt containing alpha on its own line. Then use apply_patch to change alpha to beta. Run cat sample.txt to verify it. Do not inspect credentials or any files outside this directory. End with Done."
+      },
+      "turn_id": "01a1149c-0cad-7cf0-a454-71fb68f103c9"
+    },
+    {
+      "origin": "external",
+      "agent_kind": "codex",
+      "format_version": "codex-rollout/0.160",
+      "session_id": "01a1149b-f90c-7833-87d0-6c4ff981df9c",
+      "source_id": "01a1149b-f90c-7833-87d0-6c4ff981df9c:11",
+      "read_only": true,
+      "seq": 1,
+      "at": 1791347152558,
+      "role": "assistant",
+      "part": {
+        "type": "text",
+        "text": "I’ll create `sample.txt`, change `alpha` to `beta`, and verify it with `cat`.",
+        "final": false
+      },
+      "turn_id": "01a1149c-0cad-7cf0-a454-71fb68f103c9"
+    },
+    {
+      "origin": "external",
+      "agent_kind": "codex",
+      "format_version": "codex-rollout/0.160",
+      "session_id": "01a1149b-f90c-7833-87d0-6c4ff981df9c",
+      "source_id": "01a1149b-f90c-7833-87d0-6c4ff981df9c:15",
+      "read_only": true,
+      "seq": 2,
+      "at": 1791347152582,
+      "role": "assistant",
+      "part": {
+        "type": "edit",
+        "call_id": "exec-b894488e-3c0b-47b4-a3cb-6510db50a6dd",
+        "outcome": "applied",
+        "files": [
+          {
+            "path": "/workspace/capture/sample.txt",
+            "change": "added",
+            "diff": "@@ -0,0 +1,1 @@\n+alpha\n"
+          }
+        ]
+      },
+      "turn_id": "01a1149c-0cad-7cf0-a454-71fb68f103c9"
+    },
+    {
+      "origin": "external",
+      "agent_kind": "codex",
+      "format_version": "codex-rollout/0.160",
+      "session_id": "01a1149b-f90c-7833-87d0-6c4ff981df9c",
+      "source_id": "01a1149b-f90c-7833-87d0-6c4ff981df9c:16",
+      "read_only": true,
+      "seq": 3,
+      "at": 1791347152586,
+      "role": "assistant",
+      "part": {
+        "type": "edit",
+        "call_id": "exec-f0173419-e317-4cdd-9672-e14341f5ab7b",
+        "outcome": "applied",
+        "files": [
+          {
+            "path": "/workspace/capture/sample.txt",
+            "change": "modified",
+            "diff": "@@ -1 +1 @@\n-alpha\n+beta\n"
+          }
+        ]
+      },
+      "turn_id": "01a1149c-0cad-7cf0-a454-71fb68f103c9"
+    },
+    {
+      "origin": "external",
+      "agent_kind": "codex",
+      "format_version": "codex-rollout/0.160",
+      "session_id": "01a1149b-f90c-7833-87d0-6c4ff981df9c",
+      "source_id": "01a1149b-f90c-7833-87d0-6c4ff981df9c:17",
+      "read_only": true,
+      "seq": 4,
+      "at": 1791347152678,
+      "role": "assistant",
+      "part": {
+        "type": "tool",
+        "call_id": "exec-10bea587-3f23-46c4-acb7-30d36f92b5d5",
+        "command": "cat sample.txt",
+        "reads": [
+          "Read sample.txt"
+        ],
+        "status": "ok",
+        "exit_code": 0,
+        "output": "beta\n",
+        "duration_ms": 1
+      },
+      "turn_id": "01a1149c-0cad-7cf0-a454-71fb68f103c9"
+    },
+    {
+      "origin": "external",
+      "agent_kind": "codex",
+      "format_version": "codex-rollout/0.160",
+      "session_id": "01a1149b-f90c-7833-87d0-6c4ff981df9c",
+      "source_id": "01a1149b-f90c-7833-87d0-6c4ff981df9c:20",
+      "read_only": true,
+      "seq": 5,
+      "at": 1791347159181,
+      "role": "assistant",
+      "part": {
+        "type": "text",
+        "text": "Done.",
+        "final": true
+      },
+      "turn_id": "01a1149c-0cad-7cf0-a454-71fb68f103c9"
+    },
+    {
+      "origin": "external",
+      "agent_kind": "codex",
+      "format_version": "codex-rollout/0.160",
+      "session_id": "01a1149b-f90c-7833-87d0-6c4ff981df9c",
+      "source_id": "01a1149b-f90c-7833-87d0-6c4ff981df9c:30",
+      "read_only": true,
+      "seq": 6,
+      "at": 1791347165371,
+      "role": "user",
+      "part": {
+        "type": "prompt",
+        "text": "Second capture turn. Deliberately issue one apply_patch with a replacement hunk matching the nonexistent line gamma in sample.txt so it fails. Do not repair that deliberate failure. Then execute a shell command that prints capture-error and exits with status 7. Report both failures briefly. Do not inspect credentials or any files outside this directory."
+      },
+      "turn_id": "01a1149c-8798-7780-aa89-ba89a9bf01b9"
+    },
+    {
+      "origin": "external",
+      "agent_kind": "codex",
+      "format_version": "codex-rollout/0.160",
+      "session_id": "01a1149b-f90c-7833-87d0-6c4ff981df9c",
+      "source_id": "01a1149b-f90c-7833-87d0-6c4ff981df9c:31",
+      "read_only": true,
+      "seq": 7,
+      "at": 1791347177951,
+      "role": "assistant",
+      "part": {
+        "type": "text",
+        "text": "I’ll run the deliberate patch failure, leave it unrepaired, then run the command that exits with status 7.",
+        "final": false
+      },
+      "turn_id": "01a1149c-8798-7780-aa89-ba89a9bf01b9"
+    },
+    {
+      "origin": "external",
+      "agent_kind": "codex",
+      "format_version": "codex-rollout/0.160",
+      "session_id": "01a1149b-f90c-7833-87d0-6c4ff981df9c",
+      "source_id": "01a1149b-f90c-7833-87d0-6c4ff981df9c:35",
+      "read_only": true,
+      "seq": 8,
+      "at": 1791347177969,
+      "role": "assistant",
+      "part": {
+        "type": "tool",
+        "call_id": "call_dbe0b931f54b4b7bbca20b5236d530ff",
+        "command": "text(await tools.apply_patch(\"*** Begin Patch\\n*** Update File: /workspace/capture/sample.txt\\n@@\\n-gamma\\n+delta\\n*** End Patch\"));\ntext(await tools.exec_command({cmd:\"printf 'capture-error\\\\n'; exit 7\",workdir:\"/workspace/capture\",max_output_tokens:1000}));\n",
+        "reads": [],
+        "status": "error",
+        "output": "Script failed\nWall time 0.0 seconds\nOutput:\n\nScript error:\napply_patch verification failed: Failed to find expected lines in /workspace/capture/sample.txt:\ngamma",
+        "duration_ms": 0
+      }
+    },
+    {
+      "origin": "external",
+      "agent_kind": "codex",
+      "format_version": "codex-rollout/0.160",
+      "session_id": "01a1149b-f90c-7833-87d0-6c4ff981df9c",
+      "source_id": "01a1149b-f90c-7833-87d0-6c4ff981df9c:35#1",
+      "read_only": true,
+      "seq": 9,
+      "at": 1791347177969,
+      "role": "assistant",
+      "part": {
+        "type": "edit",
+        "call_id": "call_dbe0b931f54b4b7bbca20b5236d530ff",
+        "outcome": "failed",
+        "files": [
+          {
+            "path": "/workspace/capture/sample.txt",
+            "change": "modified",
+            "diff": ""
+          }
+        ]
+      }
+    },
+    {
+      "origin": "external",
+      "agent_kind": "codex",
+      "format_version": "codex-rollout/0.160",
+      "session_id": "01a1149b-f90c-7833-87d0-6c4ff981df9c",
+      "source_id": "01a1149b-f90c-7833-87d0-6c4ff981df9c:38",
+      "read_only": true,
+      "seq": 10,
+      "at": 1791347180542,
+      "role": "assistant",
+      "part": {
+        "type": "tool",
+        "call_id": "exec-7040b11f-a9d6-419e-8f67-57c1287ef193",
+        "command": "printf 'capture-error\\n'; exit 7",
+        "reads": [],
+        "status": "error",
+        "exit_code": 7,
+        "output": "capture-error\n",
+        "duration_ms": 0
+      },
+      "turn_id": "01a1149c-8798-7780-aa89-ba89a9bf01b9"
+    },
+    {
+      "origin": "external",
+      "agent_kind": "codex",
+      "format_version": "codex-rollout/0.160",
+      "session_id": "01a1149b-f90c-7833-87d0-6c4ff981df9c",
+      "source_id": "01a1149b-f90c-7833-87d0-6c4ff981df9c:42",
+      "read_only": true,
+      "seq": 11,
+      "at": 1791347183884,
+      "role": "assistant",
+      "part": {
+        "type": "text",
+        "text": "- `apply_patch` failed because `gamma` was absent from `sample.txt`; left unrepaired.\n- The shell command printed `capture-error` and exited with status 7.",
+        "final": true
+      },
+      "turn_id": "01a1149c-8798-7780-aa89-ba89a9bf01b9"
+    }
+  ]
+}

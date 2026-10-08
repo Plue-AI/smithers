@@ -10,7 +10,7 @@ A sanitized excerpt of one real Codex CLI rollout, and the entries
 | Format version | `codex-rollout/0.160`: the adapter profile named by the release's `major.minor`                          |
 | Session        | `01a10d62-91c7-7163-b038-72dab55a2e8c`, recorded 2026-10-05 on macOS (Apple Silicon)                     |
 | Source file    | `$CODEX_HOME/sessions/2026/10/05/rollout-2026-10-05T11-45-26-01a10d62-91c7-7163-b038-72dab55a2e8c.jsonl` |
-| Files          | `rollout.jsonl` (107 rows), `expected.json` (final decoder state and 32 entries)                         |
+| Files          | `rollout.jsonl` (109 rows), `expected.json` (final decoder state and 34 entries)                         |
 
 A rollout carries no schema version of its own, so the release in
 `session_meta` selects the profile. A rollout without that row, or from a
@@ -40,29 +40,39 @@ shapes, repeat steps 2 and 3, and add the release's `major.minor` to
 | 1             | 1             | `session_meta`                                                                                          |
 | 2–52          | 2–52          | Turn 1, every row: prompt "How do I use ultrafast", commentary, commands, web searches, final answer    |
 | 53–94         | 53–94         | Turn 2, every row: prompt "how do I do it in codex?", commands (one failed), web searches, final answer |
-| 95, 96, 98    | 145, 189, 472 | `SubAgentActivity` started, interacted, completed                                                       |
+| 95, 96, 99    | 145, 189, 472 | `SubAgentActivity` started, interacted, completed                                                       |
 | 97            | 256           | `inter_agent_communication_metadata`                                                                    |
-| 99            | 581           | `CollabAgentToolCall` `wait` with no receivers                                                          |
-| 100, 101      | 696, 701      | `compacted`, then the `ContextCompaction` item                                                          |
-| 102           | 704           | `CommandExecution` whose parsed command only lists files                                                |
-| 103           | 774           | Failed `CommandExecution` whose parsed command searches a path (exit 2)                                 |
-| 104           | 1337          | `thread_goal_updated`: "finish the spec", active                                                        |
-| 105           | 1481          | `FileChange` `update` of two files (`unified_diff`, `move_path: null`)                                  |
-| 106           | 1747          | `FileChange` `add` (`content`, no diff)                                                                 |
-| 107           | 2519          | `thread_goal_updated` repeating line 104's objective and status with new usage: no entry                |
+| 98            | 257           | `agent_message` from a helper: a readable header and an encrypted body                                  |
+| 100           | 477           | `agent_message` from a helper whose whole body is readable (`FINAL_ANSWER`)                             |
+| 101           | 581           | `CollabAgentToolCall` `wait` with no receivers                                                          |
+| 102, 103      | 696, 701      | `compacted`, then the `ContextCompaction` item                                                          |
+| 104           | 704           | `CommandExecution` whose parsed command only lists files                                                |
+| 105           | 774           | Failed `CommandExecution` whose parsed command searches a path (exit 2)                                 |
+| 106           | 1337          | `thread_goal_updated`: "finish the spec", active                                                        |
+| 107           | 1481          | `FileChange` `update` of two files (`unified_diff`, `move_path: null`)                                  |
+| 108           | 1747          | `FileChange` `add` (`content`, no diff)                                                                 |
+| 109           | 2519          | `thread_goal_updated` repeating line 106's objective and status with new usage: no entry                |
 
 The `ordinal` field keeps the source numbering, so its gaps mark the excerpt.
 
 ## Record shapes
 
-| Row (`type` / `payload.type`)                                                                           | Decoder                                                |
-| ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| `session_meta`: `payload.{id, session_id, timestamp, cwd, cli_version, …}`                              | Selects the profile and session; no entry              |
-| `event_msg` / `item_completed`: `payload.{thread_id, turn_id, item, started_at_ms, completed_at_ms}`    | One entry per item, except `Reasoning` with no summary |
-| `event_msg` / `thread_goal_updated`: `payload.goal.{objective, status, tokensUsed, timeUsedSeconds, …}` | A `goal` entry when objective or status changes        |
-| `event_msg` / `task_started`, `task_complete`, `token_count`, `thread_settings_applied`                 | Skipped                                                |
-| `response_item` / `message`, `reasoning`, `custom_tool_call`, `custom_tool_call_output`                 | Skipped: the model-facing copy of items                |
-| `turn_context`, `world_state`, `token_usage_record`, `compacted`, `inter_agent_communication_metadata`  | Skipped                                                |
+| Row (`type` / `payload.type`)                                                                                   | Decoder                                                                                   |
+| --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `session_meta`: `payload.{id, session_id, timestamp, cwd, cli_version, …}`                                      | Selects the profile and session; no entry                                                 |
+| `event_msg` / `item_completed`: `payload.{thread_id, turn_id, item, started_at_ms, completed_at_ms}`            | One entry per item, except `Reasoning` with no summary                                    |
+| `event_msg` / `thread_goal_updated`: `payload.goal.{objective, status, tokensUsed, timeUsedSeconds, …}`         | A `goal` entry when objective or status changes                                           |
+| `event_msg` / `task_started`, `token_count`, `thread_settings_applied`                                          | Skipped by name                                                                           |
+| `event_msg` / `task_complete`: `payload.{turn_id, last_agent_message, error}`                                   | No entry here: no turn in this capture ended in a failure                                 |
+| `response_item` / `agent_message`: `payload.{id, author, recipient, content[].{type, text, encrypted_content}}` | One `encrypted` placeholder for a body with ciphertext; otherwise the agent side's `text` |
+| `response_item` / `message`, `reasoning`, `function_call`, `function_call_output`                               | Skipped by name: the model-facing copy of items                                           |
+| `response_item` / `custom_tool_call`, `custom_tool_call_output`                                                 | Request held until its output; no entry for a script that completed                       |
+| `turn_context`, `world_state`, `token_usage_record`, `compacted`, `inter_agent_communication_metadata`          | Skipped by name                                                                           |
+
+Any other row, event, response item, item or message part is refused with
+`unsupported_record`. All 1,029 local rollouts from `0.159.0` to `0.160.1`
+decode with no tagged error (2026-10-08); the 98 from `0.158` are refused by
+release.
 
 Items in this capture:
 
@@ -78,11 +88,20 @@ Items in this capture:
 | `CollabAgentToolCall` | `id`, `tool`, `receiver_agents`                                                                                                                                        |
 | `ContextCompaction`   | `id`                                                                                                                                                                   |
 
-No local capture (15 rollouts from 0.159.2 and 0.160.0) contains an
-encrypted `AgentMessage` body, a `Reasoning` summary, a `FileChange` delete,
-rename or failure, or a `CollabAgentToolCall` with receivers. The test builds
-those rows by hand and labels them as constructed; they are not golden
-evidence.
+Codex encrypts the body of a message between agents in the `response_item`
+`agent_message` row, not in an `AgentMessage` item: line 98 is that recorded
+body, and it decodes to exactly one placeholder. Every `response_item`
+`reasoning` row is also encrypted; reasoning is not a message, and without a
+summary it has nothing to show, like Claude Code's signature-only thinking.
+
+This capture contains no encrypted `AgentMessage` item body, `Reasoning`
+summary, `FileChange` delete, rename or failure, `CollabAgentToolCall` with
+receivers, `McpToolCall`, `FunctionCallOutput`, `ImageView` or interrupted
+turn. Other local rollouts contain the last four (176, 70, 5 and 53 rows, all
+0.159); the test builds every row in this paragraph by hand and labels it as
+constructed. A failed edit and a failing command recorded in a member's
+machine are `../codex-machine-0.160`; a turn that ended in a failure Codex
+reported is `../codex-signed-out-0.160`.
 
 ## Redactions and truncations
 
@@ -103,8 +122,8 @@ evidence.
    two final answers (lines 48 and 90) and their `task_complete` copies,
    instruction text in `response_item` messages, `turn_context` and
    `thread_settings_applied`, and tool call input and output.
-5. `encrypted_content` (`response_item` reasoning): first 48 characters and
-   the same marker.
+5. `encrypted_content` (`response_item` reasoning, and the message body on
+   line 98): first 48 characters and the same marker.
 6. `Extension` `results`: the first two results.
 7. `FileChange` `update` diffs: whole hunks while a file's kept diff stays
    under 1,200 characters, and always the first hunk, so every kept hunk header

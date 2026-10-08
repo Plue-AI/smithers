@@ -2,7 +2,30 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `ExternalTranscript.decodeCodex` and `decodeClaude` refuse a record, event,
+  item, status line, attachment or content block they do not name with the new
+  error code `unsupported_record`, and a record of the wrong shape with
+  `malformed_record`. Before, an unknown Codex item or Claude Code record
+  became an `error` entry and every other unknown kind was skipped. Exhaustive
+  matches on `ExternalTranscriptErrorCode` must handle `unsupported_record`.
+  Every skipped kind is now listed by name; all local transcripts from Claude
+  Code 2.1.261 to 2.1.291 and Codex 0.159.0 to 0.160.1 still decode.
+
 ### Added
+
+- `ExternalTranscript.decodeCodex` reads what Codex records outside its
+  completed items: a message between agents (`agent_message`), whose encrypted
+  body is one `encrypted` placeholder; a failed code-mode script with the
+  request that started it, and the failed `edit` its report names; the failure
+  a turn ended in (`task_complete.error`); and an interrupted turn
+  (`turn_aborted`). `CodexState.calls` holds a script request until its
+  output. It also reads the completed items `McpToolCall`,
+  `FunctionCallOutput` and `ImageView` as `tool` parts.
+- Recorded captures: a member's Codex session in a machine with a failed edit
+  and a failing command, and signed-out headless runs of Claude Code 2.1.291
+  and Codex 0.160.1. See `docs/external-transcripts.md`.
 
 - `AgentEvent.ModelSelected` names the actual seat used by each capacity
   attempt. Exhaustive event matches must handle `model-selected`.

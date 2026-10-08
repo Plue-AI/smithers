@@ -19,7 +19,9 @@ const Base = { pending: Schema.String, line: Schema.Number, seq: Schema.Number }
 const Codex = Schema.Struct({
   ...Base,
   session: Schema.optional(Schema.Struct({ id: Schema.String, format_version: Schema.String, cwd: Schema.String })),
-  goal: Schema.optional(Schema.String)
+  goal: Schema.optional(Schema.String),
+  // Code-mode requests the decoder holds until their output: without them a failed script loses its request.
+  calls: Schema.optional(Schema.Record(Schema.String, Schema.Struct({ name: Schema.String, input: Schema.String })))
 })
 const Claude = Schema.Struct({
   ...Base,
@@ -76,7 +78,9 @@ export const normalizeTranscript = (value: unknown) => {
   return {
     entries: decoded.entries.map(entry => {
       const part = entry.part
-      const kind = part.type === "prompt" ? "prompt" : part.type === "text" ? "assistant" :
+      // The owner's entries (a prompt, a goal) are prompts; the decoder gives them the user role and nothing in
+      // the transcript can.
+      const kind = entry.role === "user" ? "prompt" : part.type === "text" ? "assistant" :
         part.type === "reasoning" ? "thinking" : part.type === "tool" ?
         (part.status === "running" ? "tool_request" : "tool_result") :
         part.type === "edit" ? "edit" : part.type === "error" ? "error" : "attachment"

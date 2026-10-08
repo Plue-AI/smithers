@@ -1,0 +1,44 @@
+{
+  "state": {
+    "pending": "",
+    "line": 19,
+    "seq": 2,
+    "session": "889e416d-fda3-42c0-869a-56b3ced78a05",
+    "turn": "1557e249-2b07-4f0f-b42d-5eb6eadbcf1f",
+    "calls": {}
+  },
+  "entries": [
+    {
+      "origin": "external",
+      "agent_kind": "claude-code",
+      "format_version": "claude-code/2.1",
+      "session_id": "889e416d-fda3-42c0-869a-56b3ced78a05",
+      "source_id": "889e416d-fda3-42c0-869a-56b3ced78a05:3",
+      "read_only": true,
+      "seq": 0,
+      "at": 1791435951884,
+      "turn_id": "1557e249-2b07-4f0f-b42d-5eb6eadbcf1f",
+      "role": "user",
+      "part": {
+        "type": "prompt",
+        "text": "Create sample.txt containing the word alpha, then print it."
+      }
+    },
+    {
+      "origin": "external",
+      "agent_kind": "claude-code",
+      "format_version": "claude-code/2.1",
+      "session_id": "889e416d-fda3-42c0-869a-56b3ced78a05",
+      "source_id": "889e416d-fda3-42c0-869a-56b3ced78a05:16",
+      "read_only": true,
+      "seq": 1,
+      "at": 1791435951929,
+      "turn_id": "1557e249-2b07-4f0f-b42d-5eb6eadbcf1f",
+      "role": "assistant",
+      "part": {
+        "type": "error",
+        "message": "Not logged in · Please run /login"
+      }
+    }
+  ]
+}

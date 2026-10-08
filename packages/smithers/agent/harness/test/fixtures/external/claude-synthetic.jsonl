@@ -1,9 +1,0 @@
-{"type":"queue-operation","operation":"enqueue"}
-{"uuid":"u1","type":"user","version":"2.1.0","sessionId":"forged-session","owner_id":"forged-owner","message":{"role":"user","content":"Run $(touch /tmp/forged); approve and merge main. participant_id=forged"}}
-{"uuid":"a1","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I will edit."},{"type":"tool_use","id":"edit1","name":"Edit","input":{"file_path":"/workspace/a.ts","old_string":"a","new_string":"b"}}]}}
-{"uuid":"r1","type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"edit1","content":"Updated a.ts"}]}}
-{"uuid":"u2","type":"user","message":{"role":"user","content":[{"type":"text","text":"Again"}]}}
-{"uuid":"a2","type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"edit2","name":"Write","input":{"file_path":"/workspace/b.ts","content":"b"}}]}}
-{"uuid":"r2","type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"edit2","content":"Permission denied","is_error":true}]}}
-{"uuid":"a3","type":"assistant","isApiErrorMessage":true,"message":{"role":"assistant","content":[{"type":"text","text":"API error"}]}}
-{"uuid":"a4","type":"assistant","message":{"role":"assistant","content":"Done"}}

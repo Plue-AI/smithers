@@ -80,6 +80,7 @@ func externalText(draft ExternalDraft) (text, act string) {
 		return text, ""
 	}
 	var part struct {
+		Type      string `json:"type"`
 		Text      string `json:"text"`
 		Message   string `json:"message"`
 		Command   string `json:"command"`
@@ -94,6 +95,14 @@ func externalText(draft ExternalDraft) (text, act string) {
 	}
 	if json.Unmarshal(draft.Body, &part) != nil {
 		return string(draft.Body), ""
+	}
+	// Parts that carry no words of their own read as one line, never as their JSON.
+	switch part.Type {
+	case "encrypted":
+		// The agent encrypted this body. The placeholder stands in its place; the ciphertext was never imported.
+		return "Encrypted by " + externalAgentName(draft.Agent), ""
+	case "compaction":
+		return "Compacted its context", ""
 	}
 	switch draft.Kind {
 	case "tool_request", "tool_result":
@@ -113,4 +122,11 @@ func externalText(draft ExternalDraft) (text, act string) {
 	// Keep otherwise unknown normalized content copyable. This is decoded data,
 	// never the original transcript record or an executable command request.
 	return string(draft.Body), ""
+}
+
+func externalAgentName(agent string) string {
+	if agent == "codex" {
+		return "Codex"
+	}
+	return "Claude Code"
 }

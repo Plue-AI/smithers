@@ -6,16 +6,19 @@
  * `read_only: true`; who the owner and the agent participant are is the caller's to say, never the
  * transcript's. Decoding is pure: the caller supplies bytes in any chunking and keeps the returned state,
  * so a growing file is tailed by decoding only what was appended. An incomplete last line waits for more
- * bytes; a complete line that is not a record, a transcript without a version, and a version this module
- * does not support are tagged errors, never a guess.
+ * bytes. A complete line that is not a record, a transcript without a version, a version this module does
+ * not support, and a record, event, item or content block this module does not name are tagged errors,
+ * never a guess: every skipped kind is listed below by name.
  *
  * Codex: `rollout-*.jsonl` files under `$CODEX_HOME/sessions`, profile `codex-rollout/<major.minor>` from
- * the CLI release in `session_meta`. Items come from `event_msg` `item_completed` rows; `response_item` rows
- * repeat them for the model and are skipped, as are usage, rate-limit, settings and context rows.
+ * the CLI release in `session_meta`. Items come from `event_msg` `item_completed` rows. `response_item` rows
+ * repeat them for the model and are skipped, except three the items leave out: a message between agents
+ * (`agent_message`), whose encrypted body is one placeholder; a code-mode script that failed
+ * (`custom_tool_call_output`), with the request that started it; and nothing else.
  *
  * Claude Code: `<session>.jsonl` files under `~/.claude/projects/<project>`, profile `claude-code/<major.minor>`
  * from the `version` every conversation record carries. A tool call becomes one entry when its result arrives;
- * rows outside the conversation chain (no `uuid`) are session metadata and are skipped.
+ * the named bookkeeping rows outside the conversation chain (no `uuid`) are skipped.
  *
  * @since 1.0.0-rc.1
  */
@@ -113,8 +116,8 @@ export const Entry = Schema.Struct({
   format_version: Schema.String,
   session_id: Schema.String,
   /**
-   * The record this entry came from: `<session>:<line>`. A Claude Code record that yields several entries numbers
-   * the later ones `<session>:<line>#<n>`.
+   * The record this entry came from: `<session>:<line>`. A record that yields several entries numbers the later
+   * ones `<session>:<line>#<n>`.
    */
   source_id: Schema.String,
   read_only: Schema.Literal(true),
@@ -144,6 +147,7 @@ export type Entry = typeof Entry.Type
 export const ExternalTranscriptErrorCode = Schema.Literals([
   "missing_version",
   "unsupported_version",
+  "unsupported_record",
   "malformed_record"
 ])
 
@@ -174,6 +178,7 @@ Fault.register(
     // The agent wrote a transcript this release cannot read: a format change outside Smithers.
     missing_version: "dependency",
     unsupported_version: "dependency",
+    unsupported_record: "dependency",
     malformed_record: "dependency"
   } satisfies Fault.Rows<ExternalTranscriptErrorCode>
 )
@@ -201,6 +206,19 @@ export interface CodexState {
   readonly seq: number
   readonly session?: { readonly id: string; readonly format_version: string; readonly cwd: string } | undefined
   readonly goal?: string | undefined
+  /** Code-mode scripts whose output has not arrived, by `call_id`: text the decoder keeps and never runs. */
+  readonly calls?: Readonly<Record<string, CodexCall>> | undefined
+}
+
+/**
+ * A Codex code-mode request waiting for its output: the tool's name and the script it was given.
+ *
+ * @category models
+ * @since 1.0.0-rc.1
+ */
+export interface CodexCall {
+  readonly name: string
+  readonly input: string
 }
 
 /**
@@ -275,8 +293,49 @@ const changeOf = (change: Json): Schema.Schema.Type<typeof EditedFile>["change"]
     : "modified"
 
 /**
+ * The Codex record, event and item kinds this module names. Each list is closed: a kind outside it is a tagged
+ * `unsupported_record`, so a new kind stops the import where a person can see it instead of vanishing.
+ */
+const codexSkippedRows = [
+  "turn_context",
+  "world_state",
+  "token_usage_record",
+  "compacted",
+  "inter_agent_communication_metadata"
+]
+const codexResponseItems = [
+  "message",
+  "reasoning",
+  "custom_tool_call",
+  "custom_tool_call_output",
+  "function_call",
+  "function_call_output",
+  "agent_message"
+]
+const codexSkippedEvents = ["task_started", "token_count", "thread_settings_applied"]
+const codexItems = [
+  "UserMessage",
+  "AgentMessage",
+  "Reasoning",
+  "CommandExecution",
+  "FileChange",
+  "ContextCompaction",
+  "SubAgentActivity",
+  "CollabAgentToolCall",
+  "Extension",
+  "McpToolCall",
+  "FunctionCallOutput",
+  "ImageView"
+]
+
+/** The text of a list of `{type, text}` parts, as Codex and MCP servers write tool output. */
+const partsText = (value: unknown): string =>
+  typeof value === "string" ? value : list(value).map((each) => text(record(each)["text"])).filter(Boolean).join("\n")
+
+/**
  * One completed Codex item as the part it reports, or `undefined` for items with nothing to show. `took` is the
- * wall time Codex recorded around the item (`completed_at_ms - started_at_ms`).
+ * wall time Codex recorded around the item (`completed_at_ms - started_at_ms`). The caller has checked the item's
+ * type against `codexItems`.
  */
 const itemPart = (item: Json, took: number): { readonly role: Entry["role"]; readonly part: Part } | undefined => {
   switch (item["type"]) {
@@ -296,7 +355,9 @@ const itemPart = (item: Json, took: number): { readonly role: Entry["role"]; rea
     case "Reasoning": {
       // Codex keeps reasoning encrypted; only a summary it chose to write is readable.
       const summary = list(item["summary_text"]).map(text).filter(Boolean).join("\n")
-      return summary === "" ? (item["encrypted_content"] ? { role: "assistant", part: { type: "encrypted" } } : undefined) : { role: "assistant", part: { type: "reasoning", text: summary } }
+      return summary === ""
+        ? (item["encrypted_content"] ? { role: "assistant", part: { type: "encrypted" } } : undefined)
+        : { role: "assistant", part: { type: "reasoning", text: summary } }
     }
     case "CommandExecution": {
       const exit = typeof item["exit_code"] === "number" ? item["exit_code"] : undefined
@@ -368,16 +429,64 @@ const itemPart = (item: Json, took: number): { readonly role: Entry["role"]; rea
       const query = text(item["query"]) || text(action["query"]) || text(action["pattern"]) || text(action["url"])
       return { role: "assistant", part: { type: "search", call_id: text(item["id"]), query } }
     }
-    default:
+    case "McpToolCall": {
+      // A tool another server ran for the agent: its request and the result the server reported.
+      const result = record(item["result"])
+      const args = record(item["arguments"])
+      const name = [text(item["server"]), text(item["tool"])].filter(Boolean).join(".")
+      const failed = item["status"] !== "completed" || result["isError"] === true
       return {
         role: "assistant",
         part: {
-          type: "error",
-          message: `Codex reported an item this release does not read: ${text(item["type"]) || "unnamed"}`
+          type: "tool",
+          call_id: text(item["id"]),
+          command: Object.keys(args).length === 0 ? name : `${name} ${JSON.stringify(args)}`,
+          reads: [],
+          status: item["status"] === "in_progress" ? "running" : failed ? "error" : "ok",
+          output: partsText(result["content"]) || text(record(item["error"])["message"]),
+          duration_ms: took
+        }
+      }
+    }
+    case "FunctionCallOutput":
+      return {
+        role: "assistant",
+        part: {
+          type: "tool",
+          call_id: text(item["id"]),
+          command: [text(item["namespace"]), text(item["name"])].filter(Boolean).join("."),
+          reads: [],
+          status: "ok",
+          output: partsText(item["output"]),
+          duration_ms: took
+        }
+      }
+    default:
+      // ImageView, the one kind of `codexItems` left: an image the agent looked at.
+      return {
+        role: "assistant",
+        part: {
+          type: "tool",
+          call_id: text(item["id"]),
+          command: `view_image ${text(item["path"])}`,
+          reads: [`Read ${basename(text(item["path"]))}`],
+          status: "ok",
+          output: "",
+          duration_ms: took
         }
       }
   }
 }
+
+/**
+ * The first line of a code-mode output says how the script ended. A script that finished, or one still running in
+ * a cell, repeats what completed items already report; any other ending is a failure only this row records.
+ */
+const scriptFailed = (output: string): boolean => !/^Script (?:completed|running)\b/.test(output)
+
+/** The file a failed `apply_patch` names, when the report is that failure. */
+const failedPatchPath = (output: string): string | undefined =>
+  /apply_patch verification failed: Failed to find expected lines in ([^\n]+):\n/.exec(output)?.[1]
 
 /** The adapter profile `<profile>/<major.minor>` for a supported release, or `undefined`. */
 const profileOf = (profile: string, releases: ReadonlyArray<string>, release: string): string | undefined => {
@@ -396,80 +505,202 @@ export const decodeCodex = (state: CodexState, chunk: string): Result.Result<Dec
   const lines = (state.pending + chunk).split("\n")
   const pending = lines.pop()!
   let { line, seq, session, goal } = state
+  const calls = new Map(Object.entries(state.calls ?? {}))
   const entries: Array<Entry> = []
+  const fail = (code: ExternalTranscriptErrorCode, message: string) =>
+    Result.fail(new ExternalTranscriptError({ code, message, line }))
+  /** A kind outside the named lists; a kind that is not even a string is a record of another shape. */
+  const unread = (what: string, type: unknown) =>
+    typeof type === "string" && type !== ""
+      ? fail("unsupported_record", `Codex wrote ${what} this release does not read: ${type}`)
+      : fail("malformed_record", `Codex rollout line ${line} names no ${what.replace(/^an? /, "")} type.`)
   for (const raw of lines) {
     line++
     if (raw.trim() === "") continue
     const row = parseRow(raw)
-    if (row === undefined) {
-      return Result.fail(
-        new ExternalTranscriptError({
-          code: "malformed_record",
-          message: `Codex rollout line ${line} is not a JSON record.`,
-          line
-        })
-      )
-    }
+    if (row === undefined) return fail("malformed_record", `Codex rollout line ${line} is not a JSON record.`)
     const payload = record(row["payload"])
     if (row["type"] === "session_meta") {
       const release = text(payload["cli_version"])
       const format_version = profileOf("codex-rollout", codexReleases, release)
       if (format_version === undefined) {
-        return Result.fail(
-          new ExternalTranscriptError({
-            code: "unsupported_version",
-            message: `Codex ${release || "(no release)"} wrote this rollout; supported: ${codexReleases.join(", ")}.`,
-            line
-          })
+        return fail(
+          "unsupported_version",
+          `Codex ${release || "(no release)"} wrote this rollout; supported: ${codexReleases.join(", ")}.`
         )
       }
       session = { id: text(payload["id"]) || text(payload["session_id"]), format_version, cwd: text(payload["cwd"]) }
       continue
     }
     if (session === undefined) {
-      return Result.fail(
-        new ExternalTranscriptError({
-          code: "missing_version",
-          message: `Codex rollout line ${line} comes before its session record.`,
-          line
-        })
-      )
+      return fail("missing_version", `Codex rollout line ${line} comes before its session record.`)
     }
-    if (row["type"] !== "event_msg") continue
-    let found: { readonly role: Entry["role"]; readonly part: Part; readonly turn?: string } | undefined
-    if (payload["type"] === "item_completed") {
-      const started = payload["started_at_ms"], completed = payload["completed_at_ms"]
-      const took = typeof started === "number" && typeof completed === "number" ? completed - started : 0
-      const part = itemPart(record(payload["item"]), Number.isFinite(took) && took > 0 ? took : 0)
-      found = part === undefined ? undefined : { ...part, turn: text(payload["turn_id"]) }
-    } else if (payload["type"] === "thread_goal_updated") {
-      const update = record(payload["goal"])
-      const key = `${text(update["status"])}:${text(update["objective"])}`
-      // Codex repeats a goal on every usage update; only a new objective or status is news.
-      if (key !== goal) {
-        found = {
-          role: "user",
-          part: { type: "goal", objective: text(update["objective"]), status: text(update["status"]) }
+    const found: Array<{ readonly role: Entry["role"]; readonly part: Part; readonly turn?: string }> = []
+    if (row["type"] === "response_item") {
+      if (!codexResponseItems.includes(text(payload["type"]))) return unread("a response item", payload["type"])
+      switch (payload["type"]) {
+        case "custom_tool_call": {
+          const id = payload["call_id"], name = payload["name"], input = payload["input"]
+          if (typeof id !== "string" || id === "" || typeof name !== "string" || typeof input !== "string") {
+            return fail("malformed_record", `Codex tool request on line ${line} names no call, tool or input.`)
+          }
+          calls.set(id, { name, input })
+          break
         }
+        case "custom_tool_call_output": {
+          const id = text(payload["call_id"])
+          const call = calls.get(id)
+          calls.delete(id)
+          const output = partsText(payload["output"])
+          // A script that finished repeats its completed items. One that failed has no item: keep its report with
+          // the request that started it, so a failed edit is never silently missing.
+          if (!scriptFailed(output)) break
+          found.push({
+            role: "assistant",
+            part: {
+              type: "tool",
+              call_id: id,
+              command: call?.input ?? "",
+              reads: [],
+              status: "error",
+              output,
+              duration_ms: 0
+            }
+          })
+          const path = failedPatchPath(output)
+          if (path !== undefined) {
+            // The report names the file and no change: the diff is empty because nothing was observed to change.
+            found.push({
+              role: "assistant",
+              part: { type: "edit", call_id: id, files: [{ path, change: "modified", diff: "" }], outcome: "failed" }
+            })
+          }
+          break
+        }
+        case "agent_message": {
+          // A message between this agent and one it works with. Codex encrypts the body; the header beside it
+          // names agents, and a name in a transcript confers nothing.
+          const content = payload["content"]
+          if (!Array.isArray(content)) {
+            return fail("malformed_record", `Codex agent message on line ${line} has no content list.`)
+          }
+          let encrypted = false
+          const said: Array<string> = []
+          for (const each of content) {
+            const block = record(each)
+            if (block["type"] === "encrypted_content") {
+              if (typeof block["encrypted_content"] !== "string" || block["encrypted_content"] === "") {
+                return fail("malformed_record", `Codex encrypted body on line ${line} is empty.`)
+              }
+              encrypted = true
+            } else if (block["type"] === "input_text" || block["type"] === "output_text") {
+              if (typeof block["text"] !== "string") {
+                return fail("malformed_record", `Codex agent message on line ${line} has a text part without text.`)
+              }
+              said.push(block["text"])
+            } else {
+              return unread("a message part", block["type"])
+            }
+          }
+          const turn = text(record(payload["internal_chat_message_metadata_passthrough"])["turn_id"])
+          // One placeholder stands for the whole body, header included: nothing readable is shown beside it.
+          if (encrypted) found.push({ role: "assistant", part: { type: "encrypted" }, turn })
+          else if (said.join("\n") !== "") {
+            found.push({ role: "assistant", part: { type: "text", text: said.join("\n"), final: false }, turn })
+          }
+          break
+        }
+          // message, reasoning, function_call, function_call_output: the model-facing copy of completed items.
       }
-      goal = key
+    } else if (row["type"] === "event_msg") {
+      switch (payload["type"]) {
+        case "item_completed": {
+          const started = payload["started_at_ms"], completed = payload["completed_at_ms"]
+          const took = typeof started === "number" && typeof completed === "number" ? completed - started : 0
+          const item = record(payload["item"])
+          if (!codexItems.includes(text(item["type"]))) return unread("an item", item["type"])
+          if (item["type"] === "UserMessage" || item["type"] === "AgentMessage") {
+            const content = item["content"]
+            if (!Array.isArray(content)) {
+              return fail("malformed_record", `Codex message on line ${line} has no content list.`)
+            }
+            // Ciphertext stands for the whole body, so the parts beside it are not read.
+            if (!content.some((each) => record(each)["type"] === "encrypted_content")) {
+              for (const each of content) {
+                const block = record(each)
+                if (block["type"] !== (item["type"] === "UserMessage" ? "text" : "Text")) {
+                  return unread("a message part", block["type"])
+                }
+                if (typeof block["text"] !== "string") {
+                  return fail("malformed_record", `Codex message on line ${line} has a text part without text.`)
+                }
+              }
+            }
+          }
+          const part = itemPart(item, Number.isFinite(took) && took > 0 ? took : 0)
+          if (part !== undefined) found.push({ ...part, turn: text(payload["turn_id"]) })
+          break
+        }
+        case "thread_goal_updated": {
+          const update = record(payload["goal"])
+          const key = `${text(update["status"])}:${text(update["objective"])}`
+          // Codex repeats a goal on every usage update; only a new objective or status is news.
+          if (key !== goal) {
+            found.push({
+              role: "user",
+              part: { type: "goal", objective: text(update["objective"]), status: text(update["status"]) }
+            })
+          }
+          goal = key
+          break
+        }
+        case "task_complete": {
+          // A turn's end repeats its last message, and carries the failure when the turn ended in one: a usage
+          // limit, a model at capacity, a refused request.
+          if (payload["error"] === undefined || payload["error"] === null) break
+          const message = text(record(payload["error"])["message"])
+          if (message === "") return fail("malformed_record", `Codex failure on line ${line} gives no message.`)
+          found.push({ role: "assistant", part: { type: "error", message }, turn: text(payload["turn_id"]) })
+          break
+        }
+        case "error":
+        case "turn_aborted": {
+          // What Codex said went wrong, or why the turn stopped ("interrupted").
+          const message = text(payload["message"]) || text(payload["reason"])
+          if (message === "") {
+            return fail("malformed_record", `Codex failure on line ${line} gives no message or reason.`)
+          }
+          found.push({ role: "assistant", part: { type: "error", message }, turn: text(payload["turn_id"]) })
+          break
+        }
+        default:
+          if (!codexSkippedEvents.includes(text(payload["type"]))) return unread("an event", payload["type"])
+      }
+    } else if (!codexSkippedRows.includes(text(row["type"]))) {
+      return unread("a record", row["type"])
     }
-    if (found === undefined) continue
-    entries.push({
-      origin: "external",
-      agent_kind: "codex",
-      format_version: session.format_version,
-      session_id: session.id,
-      source_id: `${session.id}:${line}`,
-      read_only: true,
-      seq: seq++,
-      at: Date.parse(text(row["timestamp"])) || 0,
-      ...(found.turn ? { turn_id: found.turn } : {}),
-      role: found.role,
-      part: found.part
+    const at = Date.parse(text(row["timestamp"])) || 0
+    const sessionId = session.id, format_version = session.format_version
+    found.forEach(({ part, role, turn }, index) => {
+      entries.push({
+        origin: "external",
+        agent_kind: "codex",
+        format_version,
+        session_id: sessionId,
+        source_id: index === 0 ? `${sessionId}:${line}` : `${sessionId}:${line}#${index}`,
+        read_only: true,
+        seq: seq++,
+        at,
+        ...(turn ? { turn_id: turn } : {}),
+        role,
+        part
+      })
     })
   }
-  return Result.succeed({ state: { pending, line, seq, session, goal }, entries })
+  return Result.succeed({
+    state: { pending, line, seq, session, goal, ...(calls.size === 0 ? {} : { calls: Object.fromEntries(calls) }) },
+    entries
+  })
 }
 
 /**
@@ -640,11 +871,85 @@ const claudeToolPart = (
   }
 }
 
-/** An `error` part for a record or block kind this release does not read, named so a person can report it. */
-const unread = (kind: "record" | "content block", type: unknown): Part => ({
-  type: "error",
-  message: `Claude Code wrote a ${kind} this release does not read: ${text(type) || "unnamed"}`
-})
+/**
+ * The Claude Code record, status, attachment and block kinds this module names. Each list is closed: a kind
+ * outside it is a tagged `unsupported_record`, so a new kind stops the import where a person can see it.
+ */
+/** Rows outside the conversation chain: session bookkeeping that names no speaker and says nothing. */
+const claudeSkippedRows = [
+  "mode",
+  "permission-mode",
+  "atis-latch",
+  "last-prompt",
+  "ai-title",
+  "custom-title",
+  "agent-name",
+  "queue-operation",
+  "file-history-snapshot",
+  "file-history-delta",
+  "cost-state",
+  "pr-link",
+  "bridge-session"
+]
+/** Status lines: turn timing, hook summaries, retries, model fallback and scheduled-task notices. */
+const claudeSkippedStatus = [
+  "turn_duration",
+  "informational",
+  "stop_hook_summary",
+  "away_summary",
+  "api_error",
+  "local_command",
+  "scheduled_task_fire",
+  "agents_killed",
+  "model_refusal_fallback"
+]
+/** Context Claude Code attaches for the model; `queued_command` alone can carry the owner's words. */
+const claudeSkippedAttachments = [
+  "agent_listing_delta",
+  "auto_mode",
+  "bash_output_audience_note",
+  "batching_reminder_sent",
+  "budget_usd",
+  "command_permissions",
+  "compact_file_reference",
+  "credential_org",
+  "date",
+  "deferred_tools_delta",
+  "deferred_tools_record",
+  "diagnostics",
+  "directory",
+  "edited_text_file",
+  "environment",
+  "file",
+  "goal_status",
+  "hook_additional_context",
+  "hook_cancelled",
+  "hook_non_blocking_error",
+  "hook_system_message",
+  "instructions",
+  "invoked_skills",
+  "max_turns_reached",
+  "mcp_instructions_delta",
+  "model",
+  "nested_memory",
+  "plan_mode",
+  "prompt_snapshot",
+  "read_truncation_notice",
+  "remote_session_change",
+  "sandbox_instructions",
+  "session_context",
+  "silent_turn_reminder",
+  "skill_listing",
+  "skill_mention",
+  "task_reminder",
+  "task_status",
+  "thinking_drop",
+  "thinking_stripped",
+  "total_tokens_reminder",
+  "ultra_effort_enter",
+  "ultra_effort_exit",
+  "workflow_keyword_request"
+]
 
 /** The owner's words in a user record, or `undefined` for Claude Code's own output of a local command. */
 const ownerText = (said: string): Part | undefined => {
@@ -684,13 +989,25 @@ export const decodeClaude = (
   const entries: Array<Entry> = []
   const fail = (code: ExternalTranscriptErrorCode, message: string) =>
     Result.fail(new ExternalTranscriptError({ code, message, line }))
+  /** A kind outside the named lists; a kind that is not even a string is a record of another shape. */
+  const unread = (what: string, type: unknown) =>
+    typeof type === "string" && type !== ""
+      ? fail("unsupported_record", `Claude Code wrote ${what} this release does not read: ${type}`)
+      : fail("malformed_record", `Claude Code transcript line ${line} names no ${what.replace(/^an? /, "")} type.`)
   for (const raw of lines) {
     line++
     if (raw.trim() === "") continue
     const row = parseRow(raw)
     if (row === undefined) return fail("malformed_record", `Claude Code transcript line ${line} is not a JSON record.`)
-    // Conversation records chain by uuid; queue, mode, title, cost and file-history rows do not.
-    if (typeof row["uuid"] !== "string") continue
+    // Bookkeeping rows say nothing in the conversation, whether or not a release gives them a uuid.
+    if (claudeSkippedRows.includes(text(row["type"]))) continue
+    if (!["user", "assistant", "system", "attachment"].includes(text(row["type"]))) {
+      return unread("a record", row["type"])
+    }
+    // Conversation records chain by uuid: one without it is not the shape this profile reads.
+    if (typeof row["uuid"] !== "string") {
+      return fail("malformed_record", `Claude Code transcript line ${line} is a conversation record without a uuid.`)
+    }
     const release = text(row["version"])
     if (release === "") return fail("missing_version", `Claude Code transcript line ${line} names no release.`)
     const format_version = profileOf("claude-code", claudeReleases, release)
@@ -714,6 +1031,12 @@ export const decodeClaude = (
     const found: Array<{ readonly role: Entry["role"]; readonly part: Part }> = []
     const said = (part: Part) => found.push({ role: "assistant", part })
     const message = record(row["message"])
+    if (
+      (row["type"] === "user" || row["type"] === "assistant") && typeof message["content"] !== "string" &&
+      !Array.isArray(message["content"])
+    ) {
+      return fail("malformed_record", `Claude Code transcript line ${line} has no message content.`)
+    }
     switch (row["type"]) {
       case "user": {
         const blocks = blocksOf(message["content"])
@@ -730,7 +1053,7 @@ export const decodeClaude = (
               took: call !== undefined && call.at > 0 && at > call.at ? at - call.at : 0
             }))
           } else if (block["type"] !== "text" && block["type"] !== "image") {
-            said(unread("content block", block["type"]))
+            return unread("a content block", block["type"])
           }
         }
         const words = textOf(blocks)
@@ -760,33 +1083,42 @@ export const decodeClaude = (
               break
             case "redacted_thinking":
               break
+            case "fallback":
+              // A notice that Claude Code answered with another model: a status line, not something it said.
+              break
             case "tool_use":
-              calls.set(text(block["id"]), { name: text(block["name"]), input: block["input"] ?? {}, at })
+              if (typeof block["id"] !== "string" || block["id"] === "") {
+                return fail("malformed_record", `Claude Code tool request on line ${line} names no call.`)
+              }
+              calls.set(block["id"], { name: text(block["name"]), input: block["input"] ?? {}, at })
               break
             default:
-              said(unread("content block", block["type"]))
+              return unread("a content block", block["type"])
           }
         }
         break
       }
       case "system":
-        // Every other subtype is a status line: turn timing, hook summaries, retries, usage-limit notices.
         if (row["subtype"] === "compact_boundary") said({ type: "compaction" })
+        else if (!claudeSkippedStatus.includes(text(row["subtype"]))) return unread("a status record", row["subtype"])
         break
       case "attachment": {
         // Context Claude Code attaches for the model, except a prompt the owner queued while the agent worked.
         const attachment = record(row["attachment"])
+        if (attachment["type"] !== "queued_command") {
+          if (!claudeSkippedAttachments.includes(text(attachment["type"]))) {
+            return unread("an attachment", attachment["type"])
+          }
+          break
+        }
         if (
-          attachment["type"] === "queued_command" && attachment["commandMode"] === "prompt" &&
-          attachment["isMeta"] !== true && byOwner(attachment["origin"])
+          attachment["commandMode"] === "prompt" && attachment["isMeta"] !== true && byOwner(attachment["origin"])
         ) {
           const words = textOf(blocksOf(attachment["prompt"]))
           if (words !== "") found.push({ role: "user", part: { type: "prompt", text: words } })
         }
         break
       }
-      default:
-        said(unread("record", row["type"]))
     }
     found.forEach(({ part, role }, index) => {
       entries.push({

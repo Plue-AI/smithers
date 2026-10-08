@@ -97,6 +97,22 @@ test("a transcript the decoder refuses keeps what came before and says where it 
   expect(headless.get()).toMatchObject({ entries: [], error: "Session transcript line 1 could not be read." })
 })
 
+test("a record of a kind the decoder does not name stops the import, keeps what came before and asks no more", async () => {
+  const future = `${JSON.stringify({ timestamp: "2026-10-05T18:00:02.000Z", type: "event_msg", payload: { type: "future_semantic_event", text: "never shown as something else" } })}\n`
+  const { asked, http } = host({ text: meta() + prompt(1, "kept") + future + prompt(3, "never") })
+  const seam = createExternalSessionSeam({ http, pollMs: 10 })
+  const source = seam.session("codex", SESSION)
+  const stop = source.subscribe(() => {})
+  await until(() => source.get().error !== undefined)
+  expect(texts(source)).toEqual(["kept"])
+  expect(source.get().error).toBe("Session transcript line 3 could not be read.")
+  const count = asked.length
+  await Bun.sleep(40)
+  expect(asked).toHaveLength(count)
+  stop()
+  seam.dispose()
+})
+
 test("each host's refusal is the error, in its words; a host without the route says so", async () => {
   for (const body of [{ class: "user", code: "source_not_found", message: "No Codex session ffff on this machine." },
     { error: { code: "source_not_found", message: "No Codex session ffff on this machine." }, status: "error", code: "source_not_found", message: "No Codex session ffff on this machine." }]) {

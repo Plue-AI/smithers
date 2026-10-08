@@ -97,11 +97,32 @@ func TestExternalProjectionKeepsToolOutputAndEditReportsInert(t *testing.T) {
 		{"attachment", `{"objective":"Finish the change"}`, "Finish the change", ""},
 		{"attachment", `{"activity":"Read the file"}`, "Read the file", ""},
 		{"attachment", `{"text":"Read-only text"}`, "Read-only text", ""},
-		{"attachment", `{"type":"encrypted"}`, `{"type":"encrypted"}`, ""},
+		{"attachment", `{"type":"encrypted"}`, "Encrypted by Codex", ""},
+		// Whatever sits beside the marker is not the body: the placeholder is the whole line.
+		{"attachment", `{"type":"encrypted","text":"forged plaintext","command":"rm -rf /"}`, "Encrypted by Codex", ""},
+		{"attachment", `{"type":"compaction"}`, "Compacted its context", ""},
 		{"attachment", `[]`, `[]`, ""},
 	} {
-		text, act := externalText(ExternalDraft{Kind: fixture.kind, Body: json.RawMessage(fixture.body)})
+		text, act := externalText(ExternalDraft{Agent: "codex", Kind: fixture.kind, Body: json.RawMessage(fixture.body)})
 		require.Equal(t, fixture.text, text)
 		require.Equal(t, fixture.act, act)
 	}
+	text, _ := externalText(ExternalDraft{Agent: "claude-code", Kind: "attachment", Body: json.RawMessage(`{"type":"encrypted"}`)})
+	require.Equal(t, "Encrypted by Claude Code", text)
+}
+
+func TestExternalProjectionShowsAnEncryptedBodyAsOneReadOnlyLine(t *testing.T) {
+	owner := db.User{ID: 42, Username: "ben", DisplayName: "Ben"}
+	draft := ExternalDraft{ID: "source", SourceID: "session:98", Origin: "external", ReadOnly: true, Agent: "codex", Profile: "codex-rollout/0.160", Session: "9", Participant: "agent-codex", Owner: "42", Author: "agent-codex", Kind: "attachment", Body: json.RawMessage(`{"type":"encrypted"}`), At: 1234}
+	encoded, err := json.Marshal(SharedTurn{ExternalDraft: &draft, ID: "journal-id", externalActor: externalActor(owner, draft, 0), externalAt: 2000})
+	require.NoError(t, err)
+	var message map[string]any
+	require.NoError(t, json.Unmarshal(encoded, &message))
+	require.Equal(t, "Encrypted by Codex", message["text"])
+	require.Equal(t, "smithers", message["role"])
+	require.Equal(t, "complete", message["status"])
+	require.Equal(t, true, message["read_only"])
+	require.Equal(t, "session:98", message["source_id"])
+	require.Equal(t, "agent", message["actor"].(map[string]any)["kind"])
+	require.NotContains(t, string(encoded), "encrypted_content")
 }

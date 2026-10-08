@@ -32,7 +32,8 @@ test("packaged transcript HTTP normalization preserves inert identities, checkpo
     assert.equal((await post({})).status, 422)
     const context = { owner_id: "42", participant_id: "01000000-0000-0000-0000-000000000000", session_id: "9", source_generation: "02000000-0000-0000-0000-000000000000:1" }
     for (const [fixture, file, profile, count, firstSource, toolCall] of [
-      ["codex-0.160", "rollout.jsonl", "codex-rollout/0.160", 32, "01a10d62-91c7-7163-b038-72dab55a2e8c:10", "exec-72424bde-7b89-43fe-9962-8fe21e4a3d4b"],
+      ["codex-0.160", "rollout.jsonl", "codex-rollout/0.160", 34, "01a10d62-91c7-7163-b038-72dab55a2e8c:10", "exec-72424bde-7b89-43fe-9962-8fe21e4a3d4b"],
+      ["codex-machine-0.160", "rollout.jsonl", "codex-rollout/0.160", 12, "01a1149b-f90c-7833-87d0-6c4ff981df9c:10", "exec-10bea587-3f23-46c4-acb7-30d36f92b5d5"],
       ["claude-code-2.1", "session.jsonl", "claude-code/2.1", 36, "93469675-c700-423f-be09-43aefb36a280:6", "toolu_01JD3dL8cHy7FW7iBubC6yjY"]
     ]) {
       const bytes = await readFile(new URL(`../../../packages/smithers/agent/harness/test/fixtures/external/${fixture}/${file}`, import.meta.url), "utf8")
@@ -60,9 +61,33 @@ test("packaged transcript HTTP normalization preserves inert identities, checkpo
       assert.equal(entries[0].author_id, "42")
       assert.equal(entries[0].kind, "prompt")
       assert.equal(entries[0].seq, 0)
-      assert.equal(entries[0].at, fixture === "codex-0.160" ? 1791225945426 : 1789775623241)
+      assert.equal(entries[0].at, { "codex-0.160": 1791225945426, "codex-machine-0.160": 1791347138159, "claude-code-2.1": 1789775623241 }[fixture])
       assert.equal(entries[0].body.type, "prompt")
-      if (fixture === "codex-0.160") assert.equal(entries[0].body.text, "How do I use ultrafast")
+      if (fixture === "codex-0.160") {
+        assert.equal(entries[0].body.text, "How do I use ultrafast")
+        // The recorded encrypted message body is one inert placeholder at its source record, never the ciphertext.
+        const encrypted = entries.filter(entry => entry.body.type === "encrypted")
+        assert.deepEqual(encrypted.map(entry => [entry.source_id, entry.kind, entry.author_id, entry.body]), [
+          ["01a10d62-91c7-7163-b038-72dab55a2e8c:98", "attachment", context.participant_id, { type: "encrypted" }]
+        ])
+        assert.ok(!JSON.stringify(entries).includes("gAAAAABqw_FYg6K7"))
+        // The owner's goal is the owner's, like a prompt.
+        const goal = entries.find(entry => entry.body.type === "goal")
+        assert.deepEqual([goal.kind, goal.author_id, goal.body.objective], ["prompt", "42", "finish the spec"])
+      }
+      if (fixture === "codex-machine-0.160") {
+        // The failed script's request arrives two records before its report: the checkpoint carries it between
+        // requests, so the failed tool keeps its command and the failed edit its file.
+        const failed = entries.filter(entry => entry.call_id === "call_dbe0b931f54b4b7bbca20b5236d530ff")
+        assert.deepEqual(failed.map(entry => [entry.source_id, entry.kind, entry.failed]), [
+          ["01a1149b-f90c-7833-87d0-6c4ff981df9c:35", "tool_result", true],
+          ["01a1149b-f90c-7833-87d0-6c4ff981df9c:35#1", "edit", true]
+        ])
+        assert.match(failed[0].body.command, /apply_patch/)
+        assert.match(failed[0].body.output, /^Script failed\n/)
+        assert.deepEqual(failed[1].body.files, [{ path: "/workspace/capture/sample.txt", change: "modified", diff: "" }])
+        assert.deepEqual(entries.filter(entry => entry.kind === "edit").map(entry => entry.failed), [false, false, true])
+      }
       const tool = entries.find(entry => entry.call_id === toolCall)
       assert.equal(tool.kind, "tool_result")
       assert.equal(tool.author_id, context.participant_id)
@@ -75,8 +100,13 @@ test("packaged transcript HTTP normalization preserves inert identities, checkpo
         assert.equal(entry.read_only, true)
         assert.equal(entry.id, `${context.source_generation}:${entry.source_id}`)
       }
-      const record = "{}"
-      const next = { profile, context, record, start: offset, end: offset + 3, state }
+      // A record each decoder skips by name, so only the forged envelope can refuse the request.
+      const record = profile.startsWith("codex") ? '{"type":"turn_context","payload":{}}' : '{"type":"mode","mode":"default"}'
+      const next = { profile, context, record, start: offset, end: offset + Buffer.byteLength(record) + 1, state }
+      assert.equal((await post(next)).status, 200)
+      // A complete record of a kind the decoder does not name refuses the request; nothing is guessed.
+      const future = '{"type":"future_semantic_record","payload":{}}'
+      assert.equal((await post({ ...next, record: future, end: offset + Buffer.byteLength(future) + 1 })).status, 422)
       for (const forged of [
         { ...next, start: offset + 1 }, { ...next, end: Number.MAX_SAFE_INTEGER + 1 },
         { ...next, context: { ...context, owner_id: "../../other-home" } },
@@ -95,7 +125,8 @@ test("packaged transcript HTTP normalization preserves inert identities, checkpo
     const recovered159 = await accepted159.json()
     assert.deepEqual(recovered159.entries, [])
     assert.equal(recovered159.state.decoder.session.format_version, "codex-rollout/0.159")
-    const next159 = { profile: older.profile, context, record: "{}", start: older.end, end: older.end + 3, state: recovered159.state }
+    const context159 = '{"type":"turn_context","payload":{}}'
+    const next159 = { profile: older.profile, context, record: context159, start: older.end, end: older.end + Buffer.byteLength(context159) + 1, state: recovered159.state }
     assert.equal((await post(next159)).status, 200)
     assert.equal((await post({ ...older, profile: "codex-rollout/0.160" })).status, 422)
     assert.equal((await post({ ...next159, profile: "codex-rollout/0.160" })).status, 422)

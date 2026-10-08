@@ -11,7 +11,7 @@ entries `ExternalTranscript.decodeClaude` must produce from it.
 | Session        | `93469675-c700-423f-be09-43aefb36a280`, recorded 2026-09-18 to 2026-09-20 on macOS (Apple Silicon)                  |
 | Source file    | `~/.claude/projects/-Users-williamcory-smithers/93469675-c700-423f-be09-43aefb36a280.jsonl` (3,957 rows)            |
 | Files          | `session.jsonl` (133 rows), `expected.json` (final decoder state and 36 entries)                                    |
-| Local evidence | All 2,472 main transcripts on the capture machine (`2.1.261` to `2.1.290`) decode with no tagged error (2026-10-05) |
+| Local evidence | All 4,309 main transcripts on the capture machine (`2.1.261` to `2.1.291`) decode with no tagged error (2026-10-08) |
 
 A Claude Code transcript has no schema version of its own. Every
 conversation record (one with a `uuid`) carries the CLI release in `version`,
@@ -68,14 +68,25 @@ on the previous turn's id.
 
 ## Record shapes
 
-| Row (`type`)                                                                                                    | Decoder                                                                                                                                            |
-| --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `user`: `{uuid, parentUuid, isSidechain, promptId, message: {role, content}, origin, isMeta, toolUseResult, …}` | `tool_result` blocks end their call; the owner's text is a `prompt`                                                                                |
-| `assistant`: `{uuid, message: {model, content: [one block], stop_reason}, isApiErrorMessage, …}`                | `text`, `thinking` with a body, `tool_use` held until its result; an API error message is an `error`                                               |
-| `system`: `{uuid, subtype, content, …}`                                                                         | `compact_boundary` is a `compaction`; `informational`, `stop_hook_summary`, `turn_duration`, `away_summary` and other status lines are skipped     |
-| `attachment`: `{uuid, attachment: {type, …}, rendered}`                                                         | A `queued_command` the owner typed (`commandMode: "prompt"`, origin `human` or none) is a `prompt`; context attachments are skipped                |
-| `mode`, `permission-mode`, `atis-latch`, `last-prompt`, `ai-title`, `queue-operation`, `file-history-snapshot`, | Skipped: no `uuid`, so not part of the conversation. Other such rows in local captures: `custom-title`, `agent-name`, `cost-state`, `pr-link`, ... |
-| `file-history-delta`                                                                                            |                                                                                                                                                    |
+| Row (`type`)                                                                                                    | Decoder                                                                                                                                       |
+| --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `user`: `{uuid, parentUuid, isSidechain, promptId, message: {role, content}, origin, isMeta, toolUseResult, …}` | `tool_result` blocks end their call; the owner's text is a `prompt`                                                                           |
+| `assistant`: `{uuid, message: {model, content: [one block], stop_reason}, isApiErrorMessage, …}`                | `text`, `thinking` with a body, `tool_use` held until its result; an API error message is an `error`                                          |
+| `system`: `{uuid, subtype, content, …}`                                                                         | `compact_boundary` is a `compaction`; `informational`, `stop_hook_summary`, `turn_duration`, `away_summary` are status lines, skipped by name |
+| `attachment`: `{uuid, attachment: {type, …}, rendered}`                                                         | A `queued_command` the owner typed (`commandMode: "prompt"`, origin `human` or none) is a `prompt`; context attachments are skipped by name   |
+| `mode`, `permission-mode`, `atis-latch`, `last-prompt`, `ai-title`, `queue-operation`, `file-history-snapshot`, | Skipped by name: session bookkeeping outside the conversation chain                                                                           |
+| `file-history-delta`                                                                                            |                                                                                                                                               |
+
+Every list is closed. A row, status line, attachment or content block the
+decoder does not name is refused with `unsupported_record`, so a new kind stops
+the import where a person can see it. The names come from every local 2.1
+transcript (4,309 files, 1.1 million rows): 13 bookkeeping rows (the eight
+above and `custom-title`, `agent-name`, `cost-state`, `pr-link`,
+`bridge-session`), 10 `system` subtypes (the five above and `api_error`,
+`local_command`, `scheduled_task_fire`, `agents_killed`,
+`model_refusal_fallback`), 45 attachment types, and the content blocks `text`,
+`thinking`, `redacted_thinking`, `tool_use`, `fallback` (assistant) and `text`,
+`image`, `tool_result` (user).
 
 User records the decoder does not read as the owner's: `isMeta` (skill bodies,
 caveats, peer messages, automatic continuations), `isCompactSummary`, any
@@ -90,9 +101,11 @@ No local 2.1 capture contains `MultiEdit`, `NotebookEdit`, `LS` or `Task`
 calls, `redacted_thinking`, an assistant record with two blocks, a user
 record with two `tool_result` blocks, or `isSidechain: true` rows in a main
 transcript. This session has no `Grep` or `Glob` call, `<bash-input>` record
-or unknown content block (other local captures have them; across all 2,472,
-the only block the decoder does not read is `fallback`, three times). The test builds those rows by hand and labels them as
-constructed; they are not golden evidence.
+or `fallback` block (other local captures have them; `fallback`, three times,
+is Claude Code's notice that it answered with another model, and is skipped by
+name). The test builds those rows by hand and labels them as constructed; they
+are not golden evidence. A signed-out headless run from release `2.1.291` is
+`../claude-code-signed-out-2.1`.
 
 ## Redactions and truncations
 

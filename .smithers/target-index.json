@@ -29753,6 +29753,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/agent/harness/test/fixtures/external/codex-machine-0.160/rollout.jsonl"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/agent/harness/test/fixtures/external/claude-code-2.1/session.jsonl"
       }
     ],

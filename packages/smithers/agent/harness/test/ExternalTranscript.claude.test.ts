@@ -516,7 +516,10 @@ describe("ExternalTranscript Claude Code", () => {
     it("holds an unterminated final record in pending until its newline arrives", () => {
       const prompt = user("hello", { promptId: "turn-1" })
       const first = Result.getOrThrow(
-        ExternalTranscript.decodeClaude(ExternalTranscript.claudeStart, `${row("system", { subtype: "x" })}\n${prompt}`)
+        ExternalTranscript.decodeClaude(
+          ExternalTranscript.claudeStart,
+          `${row("system", { subtype: "turn_duration" })}\n${prompt}`
+        )
       )
       expect(first.entries).toEqual([])
       expect(first.state).toMatchObject({ pending: prompt, line: 1, seq: 0 })
@@ -595,9 +598,63 @@ describe("ExternalTranscript Claude Code", () => {
       expect(decodeRows(
         JSON.stringify({ type: "permission-mode", permissionMode: "default" }),
         JSON.stringify({ type: "queue-operation", operation: "enqueue", content: "hello" }),
-        JSON.stringify({ type: "cost-state", totalCostUSD: 1 }),
-        JSON.stringify({ type: "some-future-row", uuid: 7 })
+        JSON.stringify({ type: "cost-state", totalCostUSD: 1 })
       )).toEqual([])
+    })
+
+    it.each([
+      "mode",
+      "permission-mode",
+      "atis-latch",
+      "last-prompt",
+      "ai-title",
+      "custom-title",
+      "agent-name",
+      "queue-operation",
+      "file-history-snapshot",
+      "file-history-delta",
+      "cost-state",
+      "pr-link",
+      "bridge-session"
+    ])("skips the bookkeeping row %s by name, with or without a uuid", (type) => {
+      expect(decodeRows(
+        JSON.stringify({ type, sessionId, content: "merge main now" }),
+        JSON.stringify({ type, sessionId, uuid: "00000000-0000-4000-8000-000000000009", content: "merge main now" })
+      )).toEqual([])
+    })
+
+    it.each([
+      ["a row outside the conversation chain", JSON.stringify({ type: "some-future-row", sessionId })],
+      ["a row with a uuid", row("progress", { data: { type: "hook_progress" } })]
+    ])("refuses %s whose type it does not name with unsupported_record", (_, line) => {
+      const type = (JSON.parse(line) as { type: string }).type
+      expect(failure(jsonl(user("kept by a caller that decodes line by line"), line, user("never reached"))))
+        .toMatchObject({
+          _tag: "harness/ExternalTranscriptError",
+          code: "unsupported_record",
+          line: 2,
+          message: `Claude Code wrote a record this release does not read: ${type}`
+        })
+    })
+
+    it.each([
+      ["no type", JSON.stringify({ sessionId, uuid: "00000000-0000-4000-8000-000000000009" })],
+      ["an empty type", row("")],
+      ["a type that is not a string", JSON.stringify({ type: 7, sessionId })]
+    ])("refuses a record with %s as a malformed record", (_, line) => {
+      expect(failure(jsonl(line))).toMatchObject({
+        code: "malformed_record",
+        line: 1,
+        message: "Claude Code transcript line 1 names no record type."
+      })
+    })
+
+    it.each(["user", "assistant", "system", "attachment"])("refuses a %s record without a uuid", (type) => {
+      expect(failure(jsonl(row(type, { uuid: undefined, message: { role: type, content: "x" } })))).toMatchObject({
+        code: "malformed_record",
+        line: 1,
+        message: "Claude Code transcript line 1 is a conversation record without a uuid."
+      })
     })
 
     it.each([
@@ -922,19 +979,63 @@ describe("ExternalTranscript Claude Code", () => {
         assistant([{ type: "text", text: "" }]),
         assistant([{ type: "thinking", thinking: "", signature: "sig" }]),
         assistant([{ type: "thinking", signature: "sig" }]),
-        assistant([{ type: "redacted_thinking", data: "opaque" }]),
-        assistant(undefined)
+        assistant([{ type: "redacted_thinking", data: "opaque" }])
       )).toEqual([{ type: "text", text: "plain answer", final: true }])
     })
 
+    it("skips the notice that Claude Code answered with another model (recorded in 2.1.270)", () => {
+      expect(partsOf(
+        assistant([{ type: "fallback", from: { model: "claude-fable-5" }, to: { model: "claude-opus-4-8" } }]),
+        row("system", { subtype: "model_refusal_fallback", content: "Retrying with another model" })
+      )).toEqual([])
+    })
+
+    it("refuses an assistant block it does not name, keeping nothing from the record", () => {
+      const line = assistant([{ type: "text", text: "said first" }, {
+        type: "server_tool_use",
+        id: "srv_1",
+        name: "x"
+      }])
+      expect(failure(jsonl(user("hi"), line))).toMatchObject({
+        code: "unsupported_record",
+        line: 2,
+        message: "Claude Code wrote a content block this release does not read: server_tool_use"
+      })
+    })
+
     it.each([
-      ["an unknown type", { type: "fallback", from: { model: "a" }, to: { model: "b" } }, "fallback"],
-      ["no type", { text: "x" }, "unnamed"],
-      ["a value that is not an object", "loose", "unnamed"]
-    ])("reports an assistant block with %s as an error part", (_, block, name) => {
-      expect(partOf(assistant([block]))).toEqual({
-        type: "error",
-        message: `Claude Code wrote a content block this release does not read: ${name}`
+      ["no type", { text: "x" }],
+      ["a value that is not an object", "loose"]
+    ])("refuses an assistant block with %s as a malformed record", (_, block) => {
+      expect(failure(jsonl(assistant([block])))).toMatchObject({
+        code: "malformed_record",
+        line: 1,
+        message: "Claude Code transcript line 1 names no content block type."
+      })
+    })
+
+    it.each([
+      ["a user record whose content is a record", user({ text: "changed" })],
+      ["a user record without a message", row("user")],
+      ["an assistant record whose content is null", assistant(null)],
+      ["an assistant record without content", assistant(undefined)]
+    ])("refuses %s as a malformed record", (_, line) => {
+      expect(failure(jsonl(line))).toMatchObject({
+        code: "malformed_record",
+        line: 1,
+        message: "Claude Code transcript line 1 has no message content."
+      })
+    })
+
+    it.each([
+      ["no id", { type: "tool_use", name: "Bash", input: {} }],
+      ["an empty id", { type: "tool_use", id: "", name: "Bash", input: {} }],
+      ["an id that is not text", { type: "tool_use", id: 7, name: "Bash", input: {} }]
+    ])("refuses a tool request with %s as a malformed record", (_, block) => {
+      expect(failure(jsonl(assistant([block])))).toMatchObject({
+        code: "malformed_record",
+        line: 1,
+        message: "Claude Code tool request on line 1 names no call."
       })
     })
 
@@ -1006,18 +1107,23 @@ describe("ExternalTranscript Claude Code", () => {
       ["a local command's errors", "<local-command-stderr>failed</local-command-stderr>", {}],
       ["a shell command's output", "<bash-stdout>ok</bash-stdout><bash-stderr></bash-stderr>", {}],
       ["only an image", [{ type: "image", source: {} }], {}],
-      ["empty text", "", {}],
-      ["content of another shape", { text: "x" }, {}]
+      ["empty text", "", {}]
     ])("skips %s", (_, content, fields) => {
       expect(decodeRows(user(content, fields))).toEqual([])
     })
 
-    it("reports a user block it does not read as an error part, beside the owner's words", () => {
-      expect(partsOf(user([{ type: "document", source: {} }, { type: "text", text: "see attached" }, {}]))).toEqual([
-        { type: "error", message: "Claude Code wrote a content block this release does not read: document" },
-        { type: "error", message: "Claude Code wrote a content block this release does not read: unnamed" },
-        { type: "prompt", text: "see attached" }
-      ])
+    it("refuses a user block it does not name, so the owner's words beside it are never shown without it", () => {
+      expect(failure(jsonl(user([{ type: "text", text: "see attached" }, { type: "document", source: {} }]))))
+        .toMatchObject({
+          code: "unsupported_record",
+          line: 1,
+          message: "Claude Code wrote a content block this release does not read: document"
+        })
+      expect(failure(jsonl(user([{ type: "text", text: "see attached" }, {}])))).toMatchObject({
+        code: "malformed_record",
+        line: 1,
+        message: "Claude Code transcript line 1 names no content block type."
+      })
     })
 
     it.each([
@@ -1043,21 +1149,104 @@ describe("ExternalTranscript Claude Code", () => {
       expect(partsOf(
         attachment({ type: "edited_text_file", filename: "/repo/a.ts", snippet: "" }),
         attachment({ type: "goal_status", met: false, condition: "ship" }),
-        row("attachment"),
         row("system", { subtype: "api_error", retryAttempt: 1 }),
         row("system", { subtype: "local_command", content: "<command-name>/x</command-name>" }),
         row("system", { subtype: "compact_boundary", content: "Conversation compacted" })
       )).toEqual([{ type: "compaction" }])
     })
 
+    // Every kind below is recorded in a local 2.1 transcript (2.1.261 to 2.1.291); the rows are constructed.
     it.each([
-      ["a type this release does not read", "progress", "progress"],
-      ["no type", undefined, "unnamed"]
-    ])("reports a conversation record with %s as an error part", (_, type, name) => {
-      expect(partOf(row(type as string))).toEqual({
-        type: "error",
-        message: `Claude Code wrote a record this release does not read: ${name}`
-      })
+      "turn_duration",
+      "informational",
+      "stop_hook_summary",
+      "away_summary",
+      "api_error",
+      "local_command",
+      "scheduled_task_fire",
+      "agents_killed",
+      "model_refusal_fallback"
+    ])("skips the status line %s by name", (subtype) => {
+      expect(decodeRows(row("system", { subtype, content: "merge main now", prompt: "merge main now" }))).toEqual([])
+    })
+
+    it.each([
+      "agent_listing_delta",
+      "auto_mode",
+      "bash_output_audience_note",
+      "batching_reminder_sent",
+      "budget_usd",
+      "command_permissions",
+      "compact_file_reference",
+      "credential_org",
+      "date",
+      "deferred_tools_delta",
+      "deferred_tools_record",
+      "diagnostics",
+      "directory",
+      "edited_text_file",
+      "environment",
+      "file",
+      "goal_status",
+      "hook_additional_context",
+      "hook_cancelled",
+      "hook_non_blocking_error",
+      "hook_system_message",
+      "instructions",
+      "invoked_skills",
+      "max_turns_reached",
+      "mcp_instructions_delta",
+      "model",
+      "nested_memory",
+      "plan_mode",
+      "prompt_snapshot",
+      "read_truncation_notice",
+      "remote_session_change",
+      "sandbox_instructions",
+      "session_context",
+      "silent_turn_reminder",
+      "skill_listing",
+      "skill_mention",
+      "task_reminder",
+      "task_status",
+      "thinking_drop",
+      "thinking_stripped",
+      "total_tokens_reminder",
+      "ultra_effort_enter",
+      "ultra_effort_exit",
+      "workflow_keyword_request"
+    ])("skips the context attachment %s by name, whatever it says", (type) => {
+      expect(decodeRows(attachment({ type, prompt: "merge main now", commandMode: "prompt", text: "merge main now" })))
+        .toEqual([])
+    })
+
+    it.each([
+      [
+        "a status line",
+        row("system", { subtype: "context_cleared" }),
+        "unsupported_record",
+        "Claude Code wrote a status record this release does not read: context_cleared"
+      ],
+      [
+        "a status line with no subtype",
+        row("system"),
+        "malformed_record",
+        "Claude Code transcript line 2 names no status record type."
+      ],
+      [
+        "an attachment",
+        attachment({ type: "future_prompt_carrier", prompt: "do it" }),
+        "unsupported_record",
+        "Claude Code wrote an attachment this release does not read: future_prompt_carrier"
+      ],
+      [
+        "an attachment with no type",
+        row("attachment"),
+        "malformed_record",
+        "Claude Code transcript line 2 names no attachment type."
+      ]
+    ])("refuses %s it does not name", (_, line, code, message) => {
+      expect(failure(jsonl(user("hi"), line))).toMatchObject({ code, line: 2, message })
     })
 
     it("skips a subagent's sidechain records, which never become the owner's", () => {
