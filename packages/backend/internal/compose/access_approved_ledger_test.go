@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -71,12 +72,28 @@ func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 	// These rows let SG-07 cross the production TODO route rather than treating
 	// a missing subject as evidence for either an allow or a refusal.
 	workspaces := make([]db.Workspace, 2)
+	runs, machines := make([]string, 2), make([]string, 2)
 	for i := range workspaces {
-		workspaces[i], err = q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: users[0].ID, Name: fmt.Sprintf("ledger-%d", i), TargetBookmark: "main", Kind: "container", Status: "running"})
+		workspaces[i], err = q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: users[1].ID, Name: fmt.Sprintf("ledger-%d", i), TargetBookmark: "main", Kind: "container", Status: "running"})
 		require.NoError(t, err)
 		_, err = pool.Exec(ctx, `INSERT INTO mythical_items(repository_id,source,state,number,stack_position,title,workspace_id,request_run_id,owner_id,created_by,revisions,checks,attempt)
- VALUES($1,'todo','running',$2,$2,'Bound execution',$3,$4,$5,$5,'[{"private":"never-return-person-card"}]','{"private":"never-return-confirmation"}',1)`, repo.ID, i+1, workspaces[i].ID, fmt.Sprintf("ledger-run-%d", i), users[0].ID)
+ VALUES($1,'todo','running',$2,$2,'Bound execution',$3,$4,$5,$5,'[{"private":"never-return-person-card"}]','{"private":"never-return-confirmation"}',1)`, repo.ID, i+1, workspaces[i].ID, uuid.NewString(), users[1].ID)
 		require.NoError(t, err)
+		item, err := q.GetMythicalItemByNumber(ctx, repo.ID, int64(i+1))
+		require.NoError(t, err)
+		_, _, err = q.BindMythicalLane(ctx, db.MythicalLane{RepositoryID: repo.ID, WorkspaceID: workspaces[i].ID, ItemID: item.ID, Name: workspaces[i].Name})
+		require.NoError(t, err)
+		// Only guest transport is controlled; issuance and sponsor/run binding
+		// use the same production path as a member's running TODO.
+		runtime := &candidatePublisherRuntime{}
+		hostIssuer := services.NewWorkspaceService(q, services.WithWorkspaceInstallAuthorization(q), services.WithWorkspaceTransactions(pool), services.WithWorkspaceRuntime(runtime), services.WithWorkspaceGitBaseURL("http://127.0.0.1:47199"))
+		hostID := fmt.Sprintf("ledger-host-%d", i)
+		environment, err := hostIssuer.PrepareBoxHost(ctx, hostID, workspaces[i].ID, repo.ID, users[1].ID)
+		require.NoError(t, err)
+		runs[i], machines[i] = environment["SMITHERS_JJHUB_TOKEN"], runtime.token
+		require.NotEmpty(t, runs[i])
+		require.NotEmpty(t, machines[i])
+		t.Cleanup(func() { hostIssuer.RetireBoxHostCredential(ctx, hostID, users[1].ID) })
 	}
 	infos := map[string]*middleware.AuthInfo{}
 	tokens, sessions := map[string]string{}, map[string]string{}
@@ -108,24 +125,30 @@ func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 			info.Scopes = middleware.ParseTokenScopes(row.Scopes)
 			tokens[label] = credential.Token
 		} else {
-			info.IsTokenAuth, info.TokenSystemIssued = true, true
 			subjectIndex := 0
 			if label[1] == 'X' {
 				subjectIndex = 1
 			}
-			info.RawScopes = "repo,user," + middleware.RepositoryRestrictionScope(repo.ID)
+			tokens[label] = runs[subjectIndex]
 			if label[0] == 'M' {
-				info.RawScopes += "," + middleware.WorkspaceRestrictionScope(workspaces[subjectIndex].ID)
-			} else {
-				info.RawScopes += "," + middleware.LandingWorkspaceScope(workspaces[subjectIndex].ID) + "," + middleware.AgentSessionRestrictionScope(fmt.Sprintf("ledger-run-%d", subjectIndex))
+				tokens[label] = machines[subjectIndex]
 			}
-			info.Scopes = middleware.ParseTokenScopes(info.RawScopes)
-			tokens[label] = fmt.Sprintf("smithers_%040x", len(infos)+12000)
 			sum := sha256.Sum256([]byte(tokens[label]))
-			info.TokenHash = hex.EncodeToString(sum[:])
-			row, err := q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: users[i].ID, Name: label, TokenHash: info.TokenHash, TokenLastEight: info.TokenHash[56:], Scopes: info.RawScopes, SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+			stored, err := q.GetAuthInfoByTokenHash(ctx, hex.EncodeToString(sum[:]))
 			require.NoError(t, err)
-			info.TokenID = row.ID
+			require.Equal(t, users[1].ID, stored.ID, "Ben's TODO never borrows the owner's standing")
+			row, err := q.GetAccessTokenByID(ctx, stored.TokenID)
+			require.NoError(t, err)
+			info.User = &users[1]
+			info.IsTokenAuth, info.TokenSystemIssued = true, row.SystemIssued
+			info.TokenID, info.TokenHash, info.RawScopes = row.ID, row.TokenHash, row.Scopes
+			info.Scopes = middleware.ParseTokenScopes(row.Scopes)
+			require.Contains(t, row.Scopes, workspaces[subjectIndex].ID)
+			wantKind := middleware.CredentialAgentRun
+			if label[0] == 'M' {
+				wantKind = middleware.CredentialMachine
+			}
+			require.Equal(t, wantKind, info.CredentialKind())
 		}
 		infos[label] = info
 	}
@@ -322,7 +345,7 @@ func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 	require.Equal(t, 2, todosCount, "confirmation admission must not add to the two execution fixtures")
 	require.Equal(t, 3, confirmationCount, "only the three eligible delegated create cells store private confirmations")
 	if dir := os.Getenv("SMITHERS_ACCESS_LEDGER_DIR"); dir != "" {
-		data, err := json.MarshalIndent(map[string]any{"acceptance_complete": resolved == 52 && retired == 6 && !t.Failed(), "authorization_resolved": resolved, "retired_resolved": retired, "pending": 0, "cells": ledger}, "", "  ")
+		data, err := json.MarshalIndent(map[string]any{"boundary": "58 approved literal HTTP cells", "ledger_complete": resolved == 52 && retired == 6 && !t.Failed(), "authorization_resolved": resolved, "retired_resolved": retired, "pending": 0, "cells": ledger}, "", "  ")
 		require.NoError(t, err)
 		require.NoError(t, os.MkdirAll(dir, 0700))
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "ledger.json"), append(data, '\n'), 0600))

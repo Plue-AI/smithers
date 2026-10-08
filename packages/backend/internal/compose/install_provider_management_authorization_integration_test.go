@@ -32,15 +32,17 @@ func TestInstallProviderManagementCommandsPostgres(t *testing.T) {
 	}
 	delegated := f.token(f.owner, "account-agent", "write:repository,write:user,via:codex", true)
 	run := f.token(f.owner, "account-run", "write:repository,write:user", true)
+	// Coding-account controls were consolidated into the owner Settings door
+	// by T-CAT-01; grants retain the separate maintainer secret-scope command.
 	for _, route := range []struct{ method, path, command string }{
-		{"GET", "", "secrets.connections"},
-		{"GET", "/absent", "secrets.connections"},
-		{"POST", "", "secrets.connect"},
-		{"PUT", "/order", "secrets.move"},
-		{"POST", "/codex/device", "secrets.connect.codex"},
-		{"POST", "/codex/device/absent", "secrets.connect.codex"},
-		{"DELETE", "/absent", "secrets.revoke"},
-		{"POST", "/absent/refresh", "secrets.connect"},
+		{"GET", "", "settings"},
+		{"GET", "/absent", "settings"},
+		{"POST", "", "settings"},
+		{"PUT", "/order", "settings"},
+		{"POST", "/codex/device", "settings"},
+		{"POST", "/codex/device/absent", "settings"},
+		{"DELETE", "/absent", "settings"},
+		{"POST", "/absent/refresh", "settings"},
 		{"POST", "/absent/grants", "secrets.scope"},
 		{"DELETE", "/absent/grants/1", "secrets.scope"},
 	} {

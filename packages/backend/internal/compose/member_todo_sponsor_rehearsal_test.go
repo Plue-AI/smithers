@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/stretchr/testify/require"
@@ -96,6 +97,29 @@ func memberTodoSponsorRehearsal(t *testing.T, suspend bool) {
 	started := time.Now()
 	require.NoError(t, members.Recheck(r.ctx))
 	call(n, 401)
+	var survivingTokens int
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM access_tokens WHERE user_id=$1`, benID).Scan(&survivingTokens))
+	require.Zero(t, survivingTokens, "suspension physically revokes every sponsor credential")
 	require.LessOrEqual(t, time.Since(started), 5*time.Second)
+	// GitHub restoration reopens membership, never the old run credential.
+	r.fake.SetCollaborator(201, "ben", "write")
+	require.NoError(t, members.Recheck(r.ctx))
+	var suspended, barred bool
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT c.suspended_at IS NOT NULL,u.prohibit_login FROM collaborators c JOIN users u ON u.id=c.user_id WHERE c.user_id=$1`, benID).Scan(&suspended, &barred))
+	require.False(t, suspended)
+	require.False(t, barred)
+	call(n, 401)
+	// Restoration does not resurrect the revoked machine share either.
+	// A host cannot mint a replacement by bypassing fresh branch admission.
+	q := db.New(r.pool)
+	row, err := q.GetWorkspace(r.ctx, workspace)
+	require.NoError(t, err)
+	issuer := services.NewWorkspaceService(q, services.WithWorkspaceInstallAuthorization(q), services.WithWorkspaceTransactions(r.pool), services.WithBranchMachineProviders(*rehearsalBranchMachines(r.pool)), services.WithWorkspaceRuntime(&candidatePublisherRuntime{}), services.WithWorkspaceGitBaseURL(r.origin))
+	environment, err := issuer.PrepareBoxHost(r.ctx, "restored-sponsor-host", workspace, row.RepositoryID, benID)
+	require.ErrorContains(t, err, "access denied")
+	require.Nil(t, environment)
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM access_tokens WHERE user_id=$1`, benID).Scan(&survivingTokens))
+	require.Zero(t, survivingTokens, "fresh branch admission is required before replacement issuance")
+	call(n, 401)
 	require.NoError(t, r.release("member-sponsor"))
 }
