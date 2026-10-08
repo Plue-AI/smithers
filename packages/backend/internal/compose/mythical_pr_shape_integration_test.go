@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,13 +11,35 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/smithersai/smithers/packages/backend/hostexec"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
 )
+
+// Keep real namespace execution and every optional runtime capability. Only the
+// availability of its isolation guarantee changes, as on runtime loss.
+type publicationIsolationRuntime struct {
+	bindingProcessRuntime
+	unavailable atomic.Bool
+	commands    atomic.Int64
+}
+
+func (r *publicationIsolationRuntime) Isolation() workspaceapi.IsolationLevel {
+	if r.unavailable.Load() {
+		return workspaceapi.IsolationTrustedProcess
+	}
+	return r.bindingProcessRuntime.Isolation()
+}
+
+func (r *publicationIsolationRuntime) ExecuteCommand(ctx context.Context, id string, command workspaceapi.Command) (workspaceapi.CommandResult, error) {
+	r.commands.Add(1)
+	return r.bindingProcessRuntime.ExecuteCommand(ctx, id, command)
+}
 
 // Packaged candidate/propose actions, the publication worker and the served
 // diff use the composed install. This Linux rehearsal substitutes provisioning
@@ -24,6 +47,14 @@ import (
 func TestMythicalPRShapeHostileProductionDispatch(t *testing.T) {
 	t.Setenv("REHEARSAL_PUBLIC_REPOSITORY", "1")
 	r := newRehearsal(t, "SMITHERS_GH03_REHEARSAL", "C-J10-01-hostile", "hostile-pr-")
+	runtime, ok := r.workspaceRuntime.(bindingProcessRuntime)
+	require.True(t, ok, "hostile acceptance requires the namespace runtime")
+	availability := &publicationIsolationRuntime{bindingProcessRuntime: runtime}
+	r.options.Workspace = availability
+	// A pre-claim restart rotates the setup token. Consume only this boot's
+	// printed line when walking setup, keeping the previous boot's output apart.
+	r.stdout = &lockedBuffer{}
+	r.restartBackend()
 	require.True(t, r.install("Install ready"))
 	// Retain failed production dispatch responses alongside the host canaries.
 	production := r.serving.Load()
@@ -184,6 +215,50 @@ func TestMythicalPRShapeHostileProductionDispatch(t *testing.T) {
 	}
 	for name, marker := range markers {
 		require.NoFileExists(t, marker, "%s executed on host", name)
+	}
+	// Refuse both packaged operation endpoints on this very same composed
+	// install, with its real live-run credential and accepted generation.
+	token, ok := r.hostCredentials.Load(workspace)
+	require.True(t, ok)
+	var generation int64
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT generation FROM mythical_items WHERE number=$1`, second).Scan(&generation))
+	var before int
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests WHERE operation LIKE 'stack.%'`).Scan(&before))
+	commands := availability.commands.Load()
+	availability.unavailable.Store(true)
+	preflight := fmt.Sprintf(`{"requestId":%q}`, uuid.NewString())
+	call := func(operation, body string, status int) {
+		t.Helper()
+		request, err := http.NewRequestWithContext(r.ctx, "POST", r.origin+"/api/repos/rehearsal-owner/app/workspaces/"+workspace+"/stack/"+operation, strings.NewReader(body))
+		require.NoError(t, err)
+		request.Header.Set("Authorization", "Bearer "+token.(string))
+		request.Header.Set("Content-Type", "application/json")
+		response, err := r.client.Do(request)
+		require.NoError(t, err)
+		require.Equal(t, status, response.StatusCode, operation)
+		if status == http.StatusServiceUnavailable {
+			var refusal struct{ Code, Class, Message string }
+			require.NoError(t, json.NewDecoder(response.Body).Decode(&refusal))
+			require.Equal(t, "service_unavailable", refusal.Code)
+			require.Equal(t, "infra", refusal.Class)
+			require.Equal(t, "service unavailable", refusal.Message)
+		}
+		require.NoError(t, response.Body.Close())
+	}
+	call("candidate", preflight, http.StatusServiceUnavailable)
+	// Syntactically valid but absent objects must not reach the source reader
+	// while containment is unavailable. Preflight alone would not prove this.
+	call("candidate", fmt.Sprintf(`{"requestId":%q,"source":{"change_id":"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk","commit_id":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","tree_id":"cccccccccccccccccccccccccccccccccccccccc","parent_commit_ids":["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]}}`, uuid.NewString()), http.StatusServiceUnavailable)
+	call("propose", fmt.Sprintf(`{"requestId":%q,"generation":%d}`, uuid.NewString(), generation), http.StatusServiceUnavailable)
+	availability.unavailable.Store(false)
+	// Retry the exact refused request after the same runtime regains isolation.
+	call("candidate", preflight, http.StatusNoContent)
+	require.Equal(t, commands, availability.commands.Load(), "refusal must precede source observation or host fallback")
+	var after int
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests WHERE operation LIKE 'stack.%'`).Scan(&after))
+	require.Equal(t, before, after, "refused operations create no dispatch receipt")
+	for name, marker := range markers {
+		require.NoFileExists(t, marker, "%s executed on host during isolation loss", name)
 	}
 	githubLifecycleBrowserPhase(t, r, second, "shape")
 }
