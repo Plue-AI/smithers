@@ -72,8 +72,8 @@ func (r *Runtime) MaintenanceHealthWake(ctx context.Context, id, op string, p Ad
 	if op == "" || id == "" || p.Ready == nil || p.FreeDisk == nil {
 		return errors.New("maintenance health providers unavailable")
 	}
-	holder := "workspace:" + id
-	request := AdmissionRequest{Holder: holder, Actor: "maintenance:" + op, Class: "background", Reason: "health", State: "granted"}
+	holder := "maintenance:" + op
+	request := AdmissionRequest{Holder: "workspace:" + id, Actor: holder, Class: "background", Reason: "health", State: "granted"}
 	if err := p.Ready(ctx, request); err != nil {
 		return err
 	}
@@ -107,6 +107,9 @@ func (r *Runtime) MaintenanceHealthWake(ctx context.Context, id, op string, p Ad
 	h.health, h.held, h.machine, h.releasing = token, true, "", time.Time{}
 	r.admissionSequence++
 	request.sequence = r.admissionSequence
+	// The branch binding was validated above, but health owns a separate holder.
+	// It must never make an ordinary TODO look machine-granted while frozen.
+	request.Holder = holder
 	h.rows[request.Actor] = &request
 	r.notifyAdmissionLocked()
 	r.mu.Unlock()

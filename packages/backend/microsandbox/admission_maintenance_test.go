@@ -86,6 +86,7 @@ func TestMaintenanceHealthWakeUsesIsolatedGrantAndConfirmedStop(t *testing.T) {
 	require.ErrorIs(t, err, ErrAdmissionFrozen, "a health failure never reopens normal admission")
 	require.Len(t, r.AdmissionSnapshot(), 1)
 	require.Equal(t, "released", r.AdmissionSnapshot()[0].State)
+	require.Equal(t, "maintenance:owner-upgrade", r.AdmissionSnapshot()[0].Holder)
 }
 
 func TestMaintenanceHealthWakeRefusesMissingAuthorityOrHeldSlots(t *testing.T) {
@@ -125,8 +126,34 @@ func TestMaintenanceHealthWakeUnconfirmedStopRetainsSlot(t *testing.T) {
 	p := AdmissionProviders{Ready: func(context.Context, AdmissionRequest) error { return nil }, FreeDisk: func(context.Context) (int64, error) { return 140 << 30, nil }}
 	require.Error(t, r.MaintenanceHealthWake(t.Context(), ws.ID, "upgrade", p))
 	require.Equal(t, 1, r.InUse())
-	require.True(t, r.AdmissionHeld("workspace:"+ws.ID))
+	require.True(t, r.AdmissionHeld("maintenance:upgrade"))
+	require.True(t, r.AdmissionHeld("workspace:"+ws.ID), "physical machine ownership still awaits confirmed stop")
+	for _, row := range r.AdmissionSnapshot() {
+		require.NotEqual(t, "workspace:"+ws.ID, row.Holder, "health never manufactures an ordinary branch grant")
+	}
 	require.Error(t, r.MaintenanceHealthWake(t.Context(), ws.ID, "upgrade", p), "no second isolated grant before confirmed stop")
 	_, err := r.Request("person", "workspace:other", "member", "terminal")
 	require.ErrorIs(t, err, ErrAdmissionFrozen)
+}
+
+func TestMaintenanceHealthCapabilityDoesNotReopenOrPermitIdleRelease(t *testing.T) {
+	r, p := admissionFixture()
+	_, err := r.WaitAdmission(t.Context(), p, "person", "workspace:health", "member", "terminal")
+	require.NoError(t, err)
+	require.NoError(t, r.DrainMachineAdmission(t.Context()))
+	token := &maintenanceHealthGrant{}
+	r.admission["workspace:health"].health = token
+	granted := WithAdmissionHolder(t.Context(), "workspace:health")
+	require.ErrorIs(t, r.admitMachineLocked(granted, 1, "machine"), ErrAdmissionFrozen)
+	forged := context.WithValue(granted, maintenanceHealthKey{}, &maintenanceHealthGrant{})
+	require.ErrorIs(t, r.admitMachineLocked(forged, 1, "machine"), ErrAdmissionFrozen)
+	valid := context.WithValue(granted, maintenanceHealthKey{}, token)
+	require.NoError(t, r.admitMachineLocked(valid, 1, "machine"))
+	require.ErrorContains(t, r.ResumeMachineAdmission(t.Context()), "health wake in progress")
+	now := time.Now()
+	safety := []AdmissionSafety{{Holder: "workspace:health", PresenceKnown: true, SessionsKnown: true, RunKnown: true, IdleSince: now.Add(-time.Hour)}}
+	require.Empty(t, r.AdmissionIdleRelease(now, now.Add(-time.Minute), safety))
+	r.admission["workspace:health"].health = nil
+	require.Equal(t, "workspace:health", r.AdmissionIdleRelease(now, now.Add(-time.Minute), safety), "normal safe-idle control uses the same release policy")
+	require.ErrorIs(t, r.admitMachineLocked(valid, 1, "machine"), ErrAdmissionFrozen, "revoked context never grants another start")
 }

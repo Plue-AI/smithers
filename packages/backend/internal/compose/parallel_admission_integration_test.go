@@ -176,6 +176,8 @@ func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery b
 	require.NoError(t, err)
 	scratchBranch, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: machines, Name: "notes", TargetBookmark: "scratch/ben/notes", Kind: "vm", Status: "suspended"})
 	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE workspaces SET vm_id=id WHERE id=$1`, scratchBranch.ID)
+	require.NoError(t, err)
 	root := filepath.Join(scratch, "runtime")
 	sum := sha256.Sum256([]byte(scratchBranch.ID))
 	sleeping := "smthrs-ws-01234567-" + hex.EncodeToString(sum[:])[:20]
@@ -664,6 +666,33 @@ func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery b
 		}
 		return personRows == 1
 	}), "both terminal launches share the person actor and one holder: %+v", runtime.AdmissionSnapshot())
+	// A second member's terminal promotes no new holder: both people see the
+	// same branch position and, later, share exactly one confirmed-stop slot.
+	code, body = call("POST", "/api/terminals", fmt.Sprintf(`{"branch":%q}`, scratchBranch.ID), mayaCookie)
+	require.Equal(t, 202, code, string(body))
+	require.True(t, assertEventually(10*time.Second, func() bool {
+		people := map[string]bool{}
+		for _, row := range runtime.AdmissionSnapshot() {
+			if row.Holder == "workspace:"+scratchBranch.ID && row.State == "waiting" {
+				if row.Class != "person" || row.Position != 1 {
+					return false
+				}
+				people[row.Actor] = true
+			}
+		}
+		return people[fmt.Sprintf("person:%d", maya.ID)] && people[fmt.Sprintf("person:%d", ben.ID)] && len(people) == 2
+	}), "two members coalesce on the same branch: %+v", runtime.AdmissionSnapshot())
+	readBranchPlace := func(position int, state string) {
+		t.Helper()
+		var branch services.BranchMachineResponse
+		require.True(t, assertEventually(2*time.Second, func() bool {
+			code, body := call("GET", "/api/branches/"+scratchBranch.ID, "", mayaCookie)
+			require.Equal(t, 200, code, string(body))
+			require.NoError(t, json.Unmarshal(body, &branch))
+			return branch.Machine.WaitPosition == position && branch.State == state
+		}), "branch machine %+v", branch)
+	}
+	readBranchPlace(1, "asleep")
 	settle("step 5 waiting", working, map[int]int{3: 2, 4: 3, 5: 4})
 	todoSnapshot("step 5 waiting", 3, 2)
 	held("step 5 waiting", 3)
@@ -674,9 +703,11 @@ func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery b
 	settle("step 5 granted", map[int]string{1: "working", 2: "working", 3: "starting", 4: "queued", 5: "queued", 6: "working"}, map[int]int{3: 1, 4: 2, 5: 3})
 	homeSnapshot("step 5 granted", homeView{Order: []int{1, 6, 2, 3, 4, 5}, Positions: map[int]int{3: 1, 4: 2, 5: 3}, Parallel: 4})
 	held("step 5 granted", 4)
+	readBranchPlace(0, "waking")
 	until := time.Now().Add(3 * time.Second)
 	for time.Now().Before(until) {
 		held("step 5 granted", 4)
+		readBranchPlace(0, "waking")
 		time.Sleep(200 * time.Millisecond)
 	}
 }
@@ -696,6 +727,8 @@ func parallelInstallRouter(cfg *config.Config, q *db.Queries, pool *pgxpool.Pool
 			args[i] = reflect.ValueOf(q)
 		case in == reflect.TypeOf(pool):
 			args[i] = reflect.ValueOf(pool)
+		case in == reflect.TypeOf(&routes.WorkspaceHandler{}) && terminal != nil:
+			args[i] = reflect.ValueOf(&routes.WorkspaceHandler{Service: terminal.Service.(*services.WorkspaceService)})
 		case in == reflect.TypeOf(terminal) && terminal != nil:
 			args[i] = reflect.ValueOf(terminal)
 		}
