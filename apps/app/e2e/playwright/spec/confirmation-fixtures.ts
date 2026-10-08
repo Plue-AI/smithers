@@ -12,6 +12,7 @@ export const privateRow = (merge = false): MemberConfirmation => ({ id, state: "
 // observer. TestConfirmationsBrowserPostgres separately proves real API effects.
 export const fixture = async (page: Page, data: (topic: string) => unknown) => {
   await owner(page)
+  await page.route("**/api/auth/session", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
   await page.route("**/api/bootstrap", route => route.fulfill({ json: {
     apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "credentials", sandbox: null
   } }))
