@@ -312,7 +312,10 @@ pub fn run() -> io::Result<()> {
     let boot = crate::boot::Boot::open()?;
     // SAFETY: the shipped broker explicitly installs these three descriptors;
     // each is taken exactly once after verifying the fixed daemon identity.
-    let broker = Arc::new(SocketpairBroker::new(unsafe { OwnedFd::from_raw_fd(3) })?);
+    let broker = SocketpairBroker::new(unsafe { OwnedFd::from_raw_fd(3) })?;
+    #[cfg(all(feature = "testing", debug_assertions))]
+    let broker = broker.with_installed_input_validation();
+    let broker = Arc::new(broker);
     let state = Path::new("/var/lib/smithers-machined");
     let outbox_dir = state.join("outbox");
     private(&outbox_dir)?;

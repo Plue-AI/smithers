@@ -116,6 +116,7 @@ pub fn handle(packet: &[u8], controls: &mut impl Controls) -> io::Result<Vec<u8>
 pub struct SocketpairBroker(
     std::sync::Mutex<(std::os::fd::OwnedFd, u32, bool)>,
     std::sync::Mutex<Presence>,
+    #[cfg(all(feature = "testing", debug_assertions))] bool,
 );
 #[cfg(target_os = "linux")]
 #[derive(Default)]
@@ -138,7 +139,45 @@ impl SocketpairBroker {
         Ok(Self(
             std::sync::Mutex::new((fd, 0, false)),
             std::sync::Mutex::new(Presence::default()),
+            #[cfg(all(feature = "testing", debug_assertions))]
+            false,
         ))
+    }
+    #[cfg(all(feature = "testing", debug_assertions))]
+    pub(crate) fn with_installed_input_validation(mut self) -> Self {
+        self.2 = true;
+        self
+    }
+    /// Acceptance images only: a bounded fixed packet ends this private
+    /// channel. The installed supervisor must drain sessions before restarting.
+    #[cfg(any(test, all(feature = "testing", debug_assertions)))]
+    pub(super) fn acceptance_fatal(&self, length: usize) -> crate::hooks::Result<()> {
+        use rustix::net::{recv, send, RecvFlags, SendFlags};
+        if !matches!(length, 1 | 4 | 8 | 65537 | 65561 | 70000) {
+            return Err(error(1));
+        }
+        let mut connection = self.0.lock().map_err(|_| error(12))?;
+        let (fd, _, failed) = &mut *connection;
+        let mut packet = vec![0; length];
+        if length > 4 {
+            packet[4] = 6;
+        }
+        send(&*fd, &packet, SendFlags::NOSIGNAL).map_err(|e| map_io(e.into()))?;
+        let mut response = [0; 8];
+        let result = recv(&*fd, &mut response, RecvFlags::empty());
+        *failed = true;
+        match result {
+            Ok((0, _)) => Ok(()),
+            _ => Err(error(12)),
+        }
+    }
+    #[cfg(any(test, all(feature = "testing", debug_assertions)))]
+    pub(super) fn acceptance_body(
+        &self,
+        variant: u8,
+        body: &[u8],
+    ) -> crate::hooks::Result<Vec<u8>> {
+        self.call_body(variant, body)
     }
     fn call(&self, variant: u8, fields: &[Vec<u8>]) -> crate::hooks::Result<Vec<u8>> {
         self.call_body(variant, &conn::structure_bytes(fields))
@@ -447,9 +486,31 @@ impl crate::hooks::Sessions for SocketpairBroker {
         if !matches!(method, 6..=10 | 15) {
             return Err(error(2));
         }
-        super::request::Request::decode(method, args).map_err(map_io)?;
+        let request = super::request::Request::decode(method, args).map_err(map_io)?;
+        #[cfg(not(all(feature = "testing", debug_assertions)))]
+        let _ = request;
         let body = self.call_body(method, args)?;
         conn::fields(&format!("result{method}"), &body).map_err(|_| error(12))?;
+        #[cfg(all(feature = "testing", debug_assertions))]
+        if method == 6 && self.2 {
+            let fields = conn::fields("result6", &body).map_err(|_| error(12))?;
+            let id = u32::from_be_bytes(fields[0].1.try_into().map_err(|_| error(12))?);
+            if let Err(failure) = super::ssh_acceptance::installed(self, id) {
+                // A refused acceptance reply must not hide an already-started
+                // member process. Use the existing session-specific kill.
+                let target = conn::tagged(3, &[conn::field(1, id.to_be_bytes())]);
+                self.call(9, &[conn::field(1, target)])?;
+                return Err(failure);
+            }
+            if let super::request::Request::Open { argv, user, .. } = request {
+                if let Some(length) =
+                    super::ssh_acceptance::fatal_profile(&argv).filter(|_| user.uid >= 20000)
+                {
+                    self.acceptance_fatal(length)?;
+                    return Err(error(12));
+                }
+            }
+        }
         Ok(body)
     }
 }

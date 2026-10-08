@@ -1,6 +1,13 @@
 fn main() {
     let args: Vec<_> = std::env::args().skip(1).collect();
     let result = match args.first().map(String::as_str) {
+        // A fixed unprivileged build marker lets reference SSH checks refuse a
+        // normal image that cannot execute the private-channel test cases.
+        #[cfg(all(target_os = "linux", feature = "testing", debug_assertions))]
+        Some("ssh-acceptance-image") if args.len() == 1 => {
+            println!("ssh-input-validation-v1");
+            Ok(true)
+        }
         #[cfg(target_os = "linux")]
         Some("session-exec") => {
             smithers_machined::session_environment::run(&args[1..]).map(|()| true)

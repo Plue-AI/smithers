@@ -42,7 +42,7 @@ func TestInstalledMemberTerminalAndSSHChain(t *testing.T) {
 
 // Shared native setup keeps every SSH check on the composed install, approved
 // bundle, real PostgreSQL and authenticated microVM transport.
-func exerciseInstalledMemberTerminalAndSSHChain(t *testing.T, check func(*rootLayerHarness, *gossh.Client, string, string, gossh.Signer, int64, uint32)) {
+func exerciseInstalledMemberTerminalAndSSHChain(t *testing.T, check func(*rootLayerHarness, *gossh.Client, string, string, gossh.Signer, int64, uint32), after ...func(*rootLayerHarness, string, string, gossh.Signer)) {
 	var eventScan *installedCredentialEventScan
 	h, providerRequests, bundle, provider, sshAddress := startInstalledTerminalHarness(t, func(h *rootLayerHarness) { eventScan = startInstalledCredentialEventScan(t, h) })
 	memberFixture := &rehearsal{ctx: t.Context(), origin: h.origin, jar: h.jar, client: h.client, fake: h.github}
@@ -242,6 +242,9 @@ func exerciseInstalledMemberTerminalAndSSHChain(t *testing.T, check func(*rootLa
 	testInstalledTerminalRootInputs(t, h, branch, benBrowser, aliceBrowser)
 	testInstalledTerminalRemovalDuringWake(t, h, branch, benBrowser)
 	testInstalledTerminalOwnerWatch(t, h, branch, benBrowser, aliceBrowser, sshAddress, login)
+	for _, check := range after {
+		check(h, sshAddress, login, signer)
+	}
 	eventScan.assertClean(t)
 	t.Logf("installed member terminal and SSH: bundle=%s branch=%s uid=%d", bundle.Revision(), branch, uid)
 }

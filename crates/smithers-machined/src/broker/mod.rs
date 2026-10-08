@@ -21,5 +21,8 @@ pub mod process_identity;
 #[cfg(target_os = "linux")]
 pub mod transcripts;
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(all(
+    target_os = "linux",
+    any(test, all(feature = "testing", debug_assertions))
+))]
 mod ssh_acceptance;

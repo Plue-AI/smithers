@@ -284,6 +284,7 @@ func TestSSHProductionAuthorizationAndForwarding(t *testing.T) {
 
 func TestSSHRootInputsValidatedBeforeUse(t *testing.T) {
 	exerciseInstalledMemberTerminalAndSSHChain(t, func(h *rootLayerHarness, client *gossh.Client, address, login string, signer gossh.Signer, member int64, uid uint32) {
+		exerciseSSHInstalledInputValidation(t, client)
 		command := func(text string) []byte {
 			s, e := client.NewSession()
 			require.NoError(t, e)
@@ -342,7 +343,12 @@ func TestSSHRootInputsValidatedBeforeUse(t *testing.T) {
 		exerciseSSHRetainedExecutableRace(t, client)
 		exerciseSSHRetainedCwdRace(t, client)
 		exerciseSSHRetainedRootInputs(t, h, client, address, login, signer, member, uid)
-		t.Log("C-J3-06 native startup and authenticated semantic-envelope subset; raw private envelopes require broker::ssh_acceptance::TestSSHRawPrivilegedBrokerEnvelopes; retained sleep/wake and queued-key revocation authored here; approved receipts remain required")
+		t.Log("C-J3-06 native startup and authenticated semantic-envelope subset; fixed raw private envelopes execute on the installed debug testing image; retained sleep/wake and queued-key revocation authored here; approved receipts remain required")
+	}, func(h *rootLayerHarness, address, login string, signer gossh.Signer) {
+		var branch string
+		require.NoError(t, h.pool.QueryRow(t.Context(), `SELECT id FROM workspaces WHERE target_bookmark=$1 OR target_bookmark='smithers/' || $1`, login).Scan(&branch))
+		exerciseSSHQueuedMemberRemoval(t, h, branch, address, login, signer)
+		exerciseSSHInstalledFraming(t, h, address, login, signer)
 	})
 }
 
