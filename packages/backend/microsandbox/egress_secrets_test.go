@@ -80,7 +80,7 @@ func TestMicroVMBindsEgressSecretsThroughTheRelay(t *testing.T) {
 	assert.Equal(t, guestStateDir+"/egress-ca.pem", binding.Environment["SSL_CERT_FILE"])
 	written, err := os.ReadFile(argv)
 	require.NoError(t, err)
-	assert.Contains(t, string(written), "run fs agent write "+guestStateDir+" egress-ca.pem 644")
+	assert.Contains(t, string(written), "run fs agent state-write "+guestStateDir+" egress-ca.pem\n")
 	ca, err := os.ReadFile(stdin)
 	require.NoError(t, err)
 	assert.Equal(t, relay.CACertPEM(), ca, "only the public CA enters the guest")

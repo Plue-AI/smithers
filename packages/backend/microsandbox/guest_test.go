@@ -159,6 +159,7 @@ func TestGuestFSOnlyFixedReceiptCanWrite(t *testing.T) {
 	for _, tc := range []struct{ operation, path string }{
 		{"write", "victim"}, {"read", "victim"},
 		{"receipt-write", "victim"}, {"receipt-read", "victim"},
+		{"state-write", "victim"}, {"state-read", "victim"}, {"state-write", "egress-ca.pem"},
 	} {
 		t.Run(tc.operation, func(t *testing.T) {
 			root := t.TempDir()
@@ -199,4 +200,46 @@ func TestGuestFSReceiptRoundTrip(t *testing.T) {
 	out, err = call("receipt-read", "")
 	require.NoError(t, err)
 	require.Equal(t, "fixed receipt\n", string(out))
+}
+
+// The host keeps two files of its own in the guest state directory: the egress
+// relay's public CA and a managed host's binding. Only the directory is
+// replaced here; the production CLI refuses any other root (see above).
+func TestGuestFSStateFilesRoundTrip(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	require.NoError(t, err)
+	root := t.TempDir()
+	script := `import importlib.util,sys
+spec=importlib.util.spec_from_file_location("guest",sys.argv[1]); guest=importlib.util.module_from_spec(spec); spec.loader.exec_module(guest)
+guest.STATE_DIR=sys.argv[2]
+guest.run_fs(["fs","agent",sys.argv[3],sys.argv[2],sys.argv[4]])`
+	call := func(operation, name, body string) ([]byte, error) {
+		cmd := exec.Command(python, "-B", "-c", script, filepath.Join("guest", "smithers-guest.py"), root, operation, name)
+		cmd.Stdin = strings.NewReader(body)
+		return cmd.CombinedOutput()
+	}
+	for name, mode := range map[string]os.FileMode{"egress-ca.pem": 0o644, "managed-hosts/" + digest("binding") + "/binding.json": 0o600} {
+		out, err := call("state-read", name, "")
+		var exit *exec.ExitError
+		require.ErrorAs(t, err, &exit, string(out))
+		require.Equal(t, 2, exit.ExitCode(), "an absent state file reads as not found: %s", out)
+		for _, body := range []string{"first\n", "second\n"} {
+			out, err = call("state-write", name, body)
+			require.NoError(t, err, string(out))
+		}
+		info, err := os.Stat(filepath.Join(root, filepath.FromSlash(name)))
+		require.NoError(t, err)
+		require.Equal(t, mode, info.Mode().Perm(), name)
+		out, err = call("state-read", name, "")
+		require.NoError(t, err, string(out))
+		require.Equal(t, "second\n", string(out))
+	}
+	out, err := call("state-write", "egress-ca.pem", strings.Repeat("x", 65537))
+	require.Error(t, err)
+	require.Contains(t, string(out), "state file exceeds limit")
+	for _, name := range []string{"other.pem", "managed-hosts/short/binding.json", "managed-hosts/" + digest("binding") + "/other.json"} {
+		out, err = call("state-write", name, "refused")
+		require.Error(t, err, name)
+		require.Contains(t, string(out), "invalid state file path", name)
+	}
 }

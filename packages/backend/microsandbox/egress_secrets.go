@@ -57,7 +57,7 @@ func (r *Runtime) BindEgressSecrets(ctx context.Context, workspaceID string, sec
 	if err != nil || len(secrets) == 0 {
 		return workspaceapi.EgressSecretBinding{}, err
 	}
-	if _, err := r.fileOperation(ctx, ws.ID, guestStateDir, grant.CACertPEM, "write", egressCAFile, "644"); err != nil {
+	if _, err := r.fileOperation(ctx, ws.ID, guestStateDir, grant.CACertPEM, "state-write", egressCAFile); err != nil {
 		relay.RevokeGrant(ws.ID, grant)
 		return workspaceapi.EgressSecretBinding{}, fmt.Errorf("write egress relay CA: %w", err)
 	}

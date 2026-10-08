@@ -60,6 +60,7 @@ MUTATION_CGROUP_ROOT = "/sys/fs/cgroup/smithers-mutations"
 MUTATION_TIMEOUT = 60
 EXIT_TRAILER = b"\x00SMITHERS-EXIT %d\x00"
 ENV_FILE = "/opt/smithers/env.json"
+STATE_DIR = "/var/lib/smithers/state"
 SECRET_ENV_DIR = "/run/smithers"
 SECRET_ENV_LIMIT = 1 << 20
 # Declared secret files (spec 8.8.1a): `~/...` in each home, written as that
@@ -1351,7 +1352,17 @@ def run_fs(args):
         if operation == "receipt-read":
             fs_read(root, path, 65536)
         else:
-            fs_write_repository_receipt(root)
+            fs_write_fixed(root, path, 0o600, "repository receipt")
+    elif operation in ("state-read", "state-write"):
+        # The host's own two files in the state directory: the egress relay's
+        # public CA and a managed host's binding. No caller names another.
+        binding = re.fullmatch(r"managed-hosts/[0-9a-f]{64}/binding\.json", path)
+        if root != STATE_DIR or not (binding or path == "egress-ca.pem"):
+            fail(125, "invalid state file path")
+        if operation == "state-read":
+            fs_read(root, path, 65536)
+        else:
+            fs_write_fixed(root, path, 0o600 if binding else 0o644, "state file")
     elif operation == "compare-write":
         # No branch argument or environment can open this qualification gate.
         fail(125, "compare-write provider is not qualified")
@@ -1489,9 +1500,8 @@ def ensure_parent(real_root, parts):
             fail(3, "workspace mutation parent is not a directory")
 
 
-def fs_write_repository_receipt(root):
-    path = ".git/smithers-workspace-initialization.json"
-    mode = 0o600
+def fs_write_fixed(root, path, mode, name):
+    # run_fs passes only a fixed path: the repository receipt or a state file.
     parts = [p for p in path.split("/") if p not in ("", ".")]
     if path.startswith("/") or not parts or ".." in parts:
         fail(3, "workspace mutation path escapes or replaces root")
@@ -1503,7 +1513,7 @@ def fs_write_repository_receipt(root):
     directory = os.path.dirname(resolved)
     data = sys.stdin.buffer.read(65537)
     if len(data) > 65536:
-        fail(3, "repository receipt exceeds limit")
+        fail(3, name + " exceeds limit")
     for _ in range(16):
         temporary = os.path.join(directory, ".smithers-write-%s" % os.urandom(8).hex())
         try:

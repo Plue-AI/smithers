@@ -373,7 +373,7 @@ func (r *Runtime) ensureManagedHostState(ctx context.Context, workspaceID string
 		ID   string `json:"id"`
 		Name string `json:"name"`
 	}
-	existing, err := r.fileOperation(ctx, workspaceID, guestStateDir, nil, "read", relative+"/binding.json", "65536")
+	existing, err := r.fileOperation(ctx, workspaceID, guestStateDir, nil, "state-read", relative+"/binding.json")
 	switch {
 	case err == nil:
 		var stored binding
@@ -390,7 +390,7 @@ func (r *Runtime) ensureManagedHostState(ctx context.Context, workspaceID string
 	if err != nil {
 		return "", err
 	}
-	if _, err := r.fileOperation(ctx, workspaceID, guestStateDir, append(contents, '\n'), "write", relative+"/binding.json", "600"); err != nil {
+	if _, err := r.fileOperation(ctx, workspaceID, guestStateDir, append(contents, '\n'), "state-write", relative+"/binding.json"); err != nil {
 		return "", fmt.Errorf("write managed host state identity: %w", err)
 	}
 	return path.Join(guestStateDir, relative), nil
