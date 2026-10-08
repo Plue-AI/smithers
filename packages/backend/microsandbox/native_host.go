@@ -176,7 +176,14 @@ func (r *Runtime) startNativeHost(ctx context.Context, ws *workspace, binding st
 		defer close(command.done)
 		defer stop()
 		defer cleanupToken()
-		command.waitErr = pumpNativeHost(pumpCtx, stream, command.stdout, command.stderr)
+		command.waitErr = superviseNativeHost(pumpCtx, stream, command.stdout, command.stderr, func(ctx context.Context) error {
+			_, err := sessions.KillRun(ctx, binding)
+			if err != nil {
+				_ = sessions.CloseConnection()
+			}
+			return err
+		})
+		closeSession()
 	}()
 	r.mu.Lock()
 	ws.services[spec.Name] = &managedService{spec: spec, command: command, fingerprint: serviceFingerprint(spec)}
@@ -191,6 +198,20 @@ type nativeHostStream interface {
 	Receive(context.Context) ([]byte, error)
 	Send(context.Context, []byte) error
 	Reattach(context.Context) (uint64, error)
+}
+
+// A session exit only reaps its first process. Keep the managed host running
+// until the broker confirms that every descendant in its registered run is gone.
+// This also fences descendants after a transport failure, without depending on
+// an explicit StopService call or the request context that launched the host.
+func superviseNativeHost(ctx context.Context, stream nativeHostStream, stdout, stderr *limitedBuffer, kill func(context.Context) error) error {
+	pumpErr := pumpNativeHost(ctx, stream, stdout, stderr)
+	cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := kill(cleanup); err != nil {
+		return errors.Join(pumpErr, fmt.Errorf("%w: %v", workspaceapi.ErrCommandTerminationUnconfirmed, err))
+	}
+	return pumpErr
 }
 
 func pumpNativeHost(ctx context.Context, stream nativeHostStream, stdout, stderr *limitedBuffer) error {
@@ -224,14 +245,18 @@ func pumpNativeHost(ctx context.Context, stream nativeHostStream, stdout, stderr
 				}
 			}
 		case 5:
-			if len(frame) < 2 || (frame[1] == 0 && len(frame) != 6) || (frame[1] == 1 && len(frame) != 4) || frame[1] > 1 {
+			if len(frame) < 2 || (frame[1] == 0 && len(frame) != 6) || (frame[1] == 1 && (len(frame) != 4 || frame[2] < 1 || frame[2] > 7 || frame[3] > 1)) || frame[1] > 1 {
 				return fmt.Errorf("invalid coding host exit")
 			}
 			var code int32
 			if frame[1] == 0 {
 				code = int32(binary.BigEndian.Uint32(frame[2:]))
+				if code < 0 || code > 255 {
+					return fmt.Errorf("invalid coding host exit code")
+				}
 			} else {
-				code = 128 + int32(frame[2])
+				// The daemon uses the protocol signal enum, not Linux signal numbers.
+				code = 128 + [...]int32{0, 2, 15, 1, 9, 3, 10, 12}[frame[2]]
 			}
 			_, _ = fmt.Fprintf(stderr, "\x00SMITHERS-EXIT %d\x00", code)
 			return nil
