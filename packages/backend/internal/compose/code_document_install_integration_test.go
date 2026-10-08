@@ -161,6 +161,25 @@ func TestLiveCodeDocumentsComposedInstall(t *testing.T) {
 	})
 }
 
+// Development campaign only: the authenticated composed router and production
+// Chromium editor run for five minutes per flag. The guest remains scripted;
+// this is never the reference-Mac qualification receipt.
+func TestCodeDocumentLatencyCampaign(t *testing.T) {
+	if os.Getenv("SMITHERS_CODE_LATENCY_CAMPAIGN") != "1" {
+		t.Skip("opt-in ten-minute C-UI-14 development campaign")
+	}
+	install := startCodeDocumentInstall(t, true)
+	script, err := filepath.Abs("../../../../apps/app/e2e/real/code-document-latency.campaign.ts")
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Minute)
+	defer cancel()
+	command := exec.CommandContext(ctx, "bun", "run", script)
+	command.Env = append(os.Environ(), "SMITHERS_CODE_DOCUMENT_ORIGIN="+install.origin, "SMITHERS_CODE_DOCUMENT_TOPIC="+install.topic)
+	output, err := command.CombinedOutput()
+	t.Log(string(output))
+	require.NoError(t, err)
+}
+
 type codeDocumentInstall struct {
 	origin, branch, topic string
 	ben, alice            int64
