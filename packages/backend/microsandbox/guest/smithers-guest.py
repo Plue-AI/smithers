@@ -374,7 +374,7 @@ def home_secret_file(entry, parts, value):
 
 
 def secret_files_directory(gid, create):
-    parent = safe_directory(SECRET_ENV_DIR, trusted=True)
+    parent = safe_directory(SECRET_ENV_DIR, trusted=True, create=create)
     try:
         if create:
             try:
@@ -449,6 +449,36 @@ def save_secret_files_manifest(parent, paths):
     finally:
         if temporary is not None:
             os.unlink(temporary, dir_fd=parent)
+
+
+def validate_secret_file_path(path):
+    """Read-only no-follow inspection; never create a directory or read a value."""
+    kind, parts = secret_path(path)
+    targets = [None] if kind == "files" else secret_homes()
+    for entry in targets:
+        fd = None
+        try:
+            fd = (secret_files_directory(secret_team(), False) if entry is None
+                  else os.open(entry.pw_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW))
+            for index, part in enumerate(parts):
+                info = os.stat(part, dir_fd=fd, follow_symlinks=False)
+                if stat.S_ISLNK(info.st_mode):
+                    return False
+                if index == len(parts) - 1:
+                    if not stat.S_ISREG(info.st_mode):
+                        return False
+                else:
+                    child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                    os.close(fd)
+                    fd = child
+        except FileNotFoundError:
+            pass
+        except OSError:
+            return False
+        finally:
+            if fd is not None:
+                os.close(fd)
+    return True
 
 
 def deliver_secret_files(files):
@@ -2656,6 +2686,12 @@ def main(args):
         return
     if command == "machined-start" and len(args) == 2:
         print(start_machined(args[1], sys.stdin.buffer.read(4097)))
+        return
+    if command == "validate-secret-path" and len(args) == 1:
+        if os.geteuid() != 0:
+            fail(3, "inspection requires trusted host transport")
+        path = json.loads(sys.stdin.buffer.read(4097))
+        print("valid" if validate_secret_file_path(path) else "refused")
         return
     if command == "put-env" and len(args) == 1:
         put_secret_environment(sys.stdin.buffer.read(SECRET_ENV_LIMIT + 1))

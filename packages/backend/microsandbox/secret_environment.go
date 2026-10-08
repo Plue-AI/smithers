@@ -195,3 +195,34 @@ func (r *Runtime) watchSecretEnvironment(ws *workspace, link *machined.Link) {
 		}
 	}()
 }
+
+// ValidateSecretFilePath inspects the retained filesystem through the same
+// trusted guest transport as delivery. Missing components are valid; existing
+// links are refused. Wake uses ordinary capacity admission, never a host walk.
+func (r *Runtime) ValidateSecretFilePath(ctx context.Context, branch, path string) (bool, error) {
+	if _, err := r.StartWorkspace(ctx, branch); err != nil {
+		return false, err
+	}
+	ws, err := r.runningWorkspace(branch)
+	if err != nil {
+		return false, err
+	}
+	ws.daemonMu.Lock()
+	defer ws.daemonMu.Unlock()
+	body, err := json.Marshal(path)
+	if err != nil {
+		return false, err
+	}
+	output, err := r.guest(ctx, ws.Machine, body, "validate-secret-path")
+	if err != nil {
+		return false, err
+	}
+	switch string(bytes.TrimSpace(output)) {
+	case "valid":
+		return true, nil
+	case "refused":
+		return false, nil
+	default:
+		return false, fmt.Errorf("invalid secret path inspection response")
+	}
+}

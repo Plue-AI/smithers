@@ -20,7 +20,7 @@ func TestSecretFilesDeliveredWithoutFollowingLinksSupplemental(t *testing.T) {
 	python, err := exec.LookPath("python3")
 	require.NoError(t, err)
 	for _, scenario := range []string{
-		"deliver", "leaf-link", "parent-link", "directory-leaf", "files-link", "removal-retried", "reboot", "homes",
+		"validate-missing", "validate-leaf", "validate-parent", "validate-absolute", "validate-regular", "deliver", "leaf-link", "parent-link", "directory-leaf", "files-link", "removal-retried", "reboot", "homes",
 		"invalid:~/../x", "invalid:/etc/x", "invalid:/workspace/x", "invalid:~/a//b", "invalid:/run/smithers/files/",
 	} {
 		t.Run(scenario, func(t *testing.T) {
@@ -64,7 +64,18 @@ with tempfile.TemporaryDirectory() as root:
   return json.loads(out.getvalue())["refused"] if out.getvalue() else []
  manifest=lambda:json.load(open(root+"/var/lib/smithers/secret-files.json"))
  mode=lambda p:stat.S_IMODE(real_stat(p,follow_symlinks=False).st_mode)
- if scenario=="deliver":
+ if scenario.startswith("validate-"):
+  before=set(os.listdir(root+"/home/agent"))
+  if scenario=="validate-leaf": os.symlink(canary,root+"/home/ben/key")
+  if scenario=="validate-parent": os.symlink(root+"/outside",root+"/home/ben/folder")
+  if scenario=="validate-absolute": os.symlink(root+"/outside",root+"/run/smithers/files")
+  if scenario=="validate-regular": open(root+"/home/ben/key","w").write("keep")
+  path={"validate-parent":"~/folder/key","validate-absolute":"/run/smithers/files/key"}.get(scenario,"~/key")
+  assert g.validate_secret_file_path(path)==(scenario in ("validate-missing","validate-regular"))
+  assert set(os.listdir(root+"/home/agent"))==before
+  assert open(canary,"rb").read()==b"root canary"
+  assert not os.path.exists(root+"/var")
+ elif scenario=="deliver":
   assert put({key:"ANTHROPIC_API_KEY","/run/smithers/files/npm/token":"npm-value"})==[]
   for n in ("agent","ben"):
    assert open(home_file(n),"rb").read()==b"ANTHROPIC_API_KEY"

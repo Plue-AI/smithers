@@ -879,6 +879,47 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		return err
 	}
 	secretService := services.NewSecretService(queries, webhookSecretCodec, services.WithSecretInstallAuthorization(config.IsSingleOwner(cfg.Auth), pool), services.WithSecretOwnershipGuard(repoOwnershipFence), services.WithSecretSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections))
+	if config.IsSingleOwner(cfg.Auth) {
+		services.WithSecretFilePathValidator(func(ctx context.Context, repositoryID int64, path string) error {
+			// Inspect all retained branch disks, including sleeping machines. A
+			// declaration on an install with no machines needs only grammar validation.
+			rows, err := pool.Query(ctx, `SELECT id FROM workspaces WHERE repository_id=$1 AND deleted_at IS NULL AND disk_reclaimed_at IS NULL ORDER BY id`, repositoryID)
+			if err != nil {
+				return err
+			}
+			var branches []string
+			for rows.Next() {
+				var branch string
+				if err := rows.Scan(&branch); err != nil {
+					rows.Close()
+					return err
+				}
+				branches = append(branches, branch)
+			}
+			err = rows.Err()
+			rows.Close()
+			if err != nil {
+				return err
+			}
+			broker, ok := options.Workspace.(interface {
+				ValidateSecretFilePath(context.Context, string, string) (bool, error)
+			})
+			for _, branch := range branches {
+				if !ok {
+					return fmt.Errorf("secret path inspection broker unavailable")
+				}
+				valid, err := broker.ValidateSecretFilePath(ctx, branch, path)
+				if err != nil {
+					return err
+				}
+				if !valid {
+					return &services.AccessError{Status: http.StatusBadRequest, Class: "user", Code: "path_symlink", Message: "Path goes through a link"}
+				}
+			}
+			return nil
+		})(secretService)
+	}
+
 	variableService := services.NewVariableService(queries, services.WithVariableOwnershipGuard(repoOwnershipFence), services.WithVariableSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections))
 	if config.IsSingleOwner(cfg.Auth) {
 		services.WithVariableInstallAuthorization(pool)(variableService)

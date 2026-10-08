@@ -70,7 +70,10 @@ func (*liveBrowserAdmissionRuntime) FreeDisk(context.Context) (int64, error) {
 	return 400 << 30, nil
 }
 
-func TestLiveTodoBrowserPostgres(t *testing.T) {
+func TestLiveTodoBrowserPostgres(t *testing.T)    { testLiveInstallBrowser(t, false) }
+func TestLiveSecretsBrowserPostgres(t *testing.T) { testLiveInstallBrowser(t, true) }
+
+func testLiveInstallBrowser(t *testing.T, secrets bool) {
 	if os.Getenv("SMITHERS_LIVE_BROWSER") != "1" {
 		t.Skip("set SMITHERS_LIVE_BROWSER=1 for the composed live browser journey")
 	}
@@ -109,7 +112,11 @@ func TestLiveTodoBrowserPostgres(t *testing.T) {
 	t.Cleanup(func() { require.Zero(t, runtime.InUse(), "the control-path journey never boots a VM") })
 	app, err := filepath.Abs("../../../../apps/app")
 	require.NoError(t, err)
-	command := exec.CommandContext(ctx, "bun", "e2e/real/live-todo.browser.ts")
+	script := "e2e/real/live-todo.browser.ts"
+	if secrets {
+		script = "e2e/real/live-secrets.browser.ts"
+	}
+	command := exec.CommandContext(ctx, "bun", script)
 	command.Dir = app
 	command.Env = append(os.Environ(), "SMITHERS_LIVE_ORIGIN="+origin)
 	stdout, err := command.StdoutPipe()
@@ -203,6 +210,12 @@ func TestLiveTodoBrowserPostgres(t *testing.T) {
 	}
 	require.NoError(t, scanner.Err())
 	require.NoError(t, command.Wait())
+	if secrets {
+		var count int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM repository_secrets`).Scan(&count))
+		require.Zero(t, count, "browser deleted the declared secret")
+		return
+	}
 	var drops int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.dropped'`).Scan(&drops))
 	require.Equal(t, 2, drops, "both browser changes have committed source events")

@@ -24,7 +24,8 @@ const (
 
 // secretHomeLinks are the home entries the guest helper plants as symlinks
 // (HOME_LINKS in smithers-guest.py). A path through one is refused when
-// declared; the broker refuses any other symlink when it writes.
+// declared even before a machine exists. Composition also asks the broker
+// to inspect arbitrary member-created links before persisting a declaration.
 var secretHomeLinks = []string{
 	".cache/ms-playwright",
 	".cache/dprint",

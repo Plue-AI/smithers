@@ -79,6 +79,10 @@ func exerciseInstalledMemberTerminalAndSSHChain(t *testing.T, check func(*rootLa
 	t.Setenv("SMITHERS_SSH_HOST_KEY_DIR", t.TempDir())
 	providerRequests := make(chan string, 8)
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/v1/messages" {
+			serveInstalledCodingProvider(t, w, request)
+			return
+		}
 		select {
 		case providerRequests <- request.Header.Get("x-api-key"):
 		default:
@@ -164,6 +168,7 @@ func exerciseInstalledMemberTerminalAndSSHChain(t *testing.T, check func(*rootLa
 		t.Fatal("guest request never reached the provider fixture through the production relay")
 	}
 
+	testInstalledCodingToolSecret(t, h, branch, provider.URL)
 	testInstalledBoundKeyDiskScan(t, h, branch, bundle)
 
 	// A second live session must have a distinct credential file. Closing the

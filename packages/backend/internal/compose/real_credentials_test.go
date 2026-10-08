@@ -90,7 +90,10 @@ func testInstalledCredentials(t *testing.T, h *rootLayerHarness, branch string, 
 		}
 	}
 
-	installedShell(t, second, `printf 'preboot-unchanged\n' > "$HOME/.mch-preboot-outside" && ln -s "$HOME/.mch-preboot-outside" "$HOME/.mch-preboot-link"`)
+	deadline := time.Now().Add(5 * time.Second)
+	h.expect("POST", installedSecretsURL, `{"name":"MCH_PREBOOT_FILE","value":"before-preboot-link","path":"~/.mch-preboot-link"}`, 201)
+	installedSecretDeadline(t, second, deadline, `for i in $(seq 1 50); do test -f "$HOME/.mch-preboot-link" && break; sleep .1; done; test "$(cat "$HOME/.mch-preboot-link")" = before-preboot-link`)
+	installedShell(t, second, `rm "$HOME/.mch-preboot-link" && printf 'preboot-unchanged\n' > "$HOME/.mch-preboot-outside" && ln -s "$HOME/.mch-preboot-outside" "$HOME/.mch-preboot-link"`)
 	second.close()
 	code, body = h.request("POST", "/api/branches/"+secondBranch, `{"op":"sleep"}`, uuid.NewString())
 	require.Equal(t, 202, code, string(body))
@@ -98,10 +101,12 @@ func testInstalledCredentials(t *testing.T, h *rootLayerHarness, branch string, 
 		machine, err := h.runtime.InspectWorkspace(t.Context(), secondBranch)
 		return err == nil && machine.State == workspaceapi.WorkspaceStopped
 	}, 2*time.Minute, 100*time.Millisecond)
-	h.expect("POST", installedSecretsURL, `{"name":"MCH_PREBOOT_FILE","value":"must-not-replace-preboot","path":"~/.mch-preboot-link"}`, 201)
+	refused := h.expect("POST", installedSecretsURL, `{"name":"MCH_PREBOOT_FILE","value":"must-not-replace-preboot","path":"~/.mch-preboot-link"}`, 400)
+	require.Contains(t, string(refused), `"class":"user"`)
 	second = installedMemberTerminal(t, h, secondBranch, browser)
 	installedShell(t, second, `test "$(cat "$HOME/.claude/.credentials.json")" = mch-claude-B-fixture && test "$(cat "$HOME/.codex/auth.json")" = mch-codex-B-fixture && test "$(cat "$HOME/.config/gh/hosts.yml")" = mch-gh-B-fixture && test ! -e "$HOME/.marker"`)
 	installedShell(t, second, `test -L "$HOME/.mch-preboot-link" && test "$(cat "$HOME/.mch-preboot-outside")" = preboot-unchanged`)
+
 	h.expect("DELETE", installedSecretsURL+"/MCH_PREBOOT_FILE", "", 204)
 	// Scan every persisted product table, rather than just audit metadata.
 	// Table names come from PostgreSQL and are quoted as identifiers; sentinel

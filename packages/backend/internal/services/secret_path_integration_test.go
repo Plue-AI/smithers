@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -65,6 +66,20 @@ func TestSecretPathStoredAndDeliveredPostgres(t *testing.T) {
 	snapshot, err = NewSecretInjector(queries, codec).RepositorySecrets(ctx, repositoryID, false)
 	require.NoError(t, err)
 	require.Empty(t, snapshot.Files)
+
+	// A declaration refusal cannot create a row.
+	calls := 0
+	WithSecretFilePathValidator(func(_ context.Context, id int64, declared string) error {
+		require.Equal(t, repositoryID, id)
+		require.Equal(t, path, declared)
+		calls++
+		return secretPathRefusal("path_symlink", "Path goes through a link")
+	})(service)
+	_, err = service.SetSecret(ctx, owner, owner.Username, repoName, "REFUSED", "must-not-persist", nil, nil, &path)
+	require.ErrorAs(t, err, &refusal)
+	require.Equal(t, "user", refusal.Class)
+	require.Equal(t, 1, calls)
+	WithSecretFilePathValidator(nil)(service)
 	// The freed path can be declared by another secret.
 	_, err = service.SetSecret(ctx, owner, owner.Username, repoName, "OTHER", "other-literal", nil, nil, &path)
 	require.NoError(t, err)
@@ -72,6 +87,25 @@ func TestSecretPathStoredAndDeliveredPostgres(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{path: "other-literal"}, snapshot.Files)
 
+	for _, inspectionErr := range []error{secretPathRefusal("path_symlink", "Path goes through a link"), errors.New("broker disconnected")} {
+		WithSecretFilePathValidator(func(_ context.Context, id int64, declared string) error {
+			require.Equal(t, repositoryID, id)
+			require.Equal(t, path, declared)
+			return inspectionErr
+		})(service)
+		_, err = service.SetSecret(ctx, owner, owner.Username, repoName, "OTHER", "must-not-replace", nil, nil, nil)
+		require.ErrorIs(t, err, inspectionErr)
+		snapshot, err = NewSecretInjector(queries, codec).RepositorySecrets(ctx, repositoryID, false)
+		require.NoError(t, err)
+		require.Equal(t, map[string]string{path: "other-literal"}, snapshot.Files)
+		require.NotContains(t, snapshot.Env, "REFUSED")
+	}
+	// Explicit removal of the path never needs to inspect the removed target.
+	_, err = service.SetSecret(ctx, owner, owner.Username, repoName, "OTHER", "cleared", nil, nil, &cleared)
+	require.NoError(t, err)
+	snapshot, err = NewSecretInjector(queries, codec).RepositorySecrets(ctx, repositoryID, false)
+	require.NoError(t, err)
+	require.Empty(t, snapshot.Files)
 	var stored string
 	require.Error(t, pool.QueryRow(ctx, `UPDATE repository_secrets SET path = repeat('a', 513) WHERE repository_id = $1 AND name = 'OTHER' RETURNING path`, repositoryID).Scan(&stored))
 }

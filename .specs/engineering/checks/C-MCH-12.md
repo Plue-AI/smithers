@@ -6,14 +6,27 @@ Automation: `packages/backend/internal/compose/secret_files_real_vm_test.go`, in
 
 The native chain also observes a literal key at a local provider fixture reached through the production egress relay from a guest placeholder file. It does not contact a real provider account.
 
-Pending reference-host evidence: these authored cases and a coding tool consuming the declared key without sign-in; real-key disk scan; a symlink planted before retained boot. Arbitrary member-planted symlinks are currently refused by the writer, not at declaration; the route rejects known image symlinks. That declaration gap remains open; these tests do not waive it.
+Declaration validation now asks the broker to inspect every retained branch
+filesystem before storing a nonempty path, including value-only replacements.
+The guest walks all provisioned homes without following links or creating
+components. A member-planted link is refused with class `user`; an unavailable
+inspection refuses the mutation. Sleeping machines use normal wake admission.
+The writer still refuses links planted after inspection.
+
+Pending reference-host evidence: execute the authored native lifecycle, relay,
+whole-disk scan, retained-boot symlink and installed coding-tool campaign.
+`testInstalledCodingToolSecret` runs the real installed Claude Code in the
+fresh TODO branch as uid 19999, reads the declared placeholder file, and
+requires a real Write-tool result without a subscription sign-in. Its local
+Anthropic streaming fixture requires the relay-substituted literal key.
+No fake coding executable or real provider account is used.
 
 Replacement and deletion assertions include the HTTP mutation in their strict
 five-second wall-clock budget; late responses or late guest observation fail.
 The credential chain plants a member-owned target symlink before retained boot,
 declares its secret while the machine sleeps, then verifies the symlink and
 outside target remain unchanged after wake. This is authored native coverage,
-not a passing receipt or a fix for declaration-time symlink validation.
+not a passing native receipt. A replacement declaration is also refused before persistence.
 
 The composed native chain observes placeholder ownership and mode in the
 owner's, Ben's, Alice's and agent's private homes. Replacement and removal
@@ -27,7 +40,7 @@ diagnostic after relay substitution. It requires a complete whole-disk and
 process-environment scan with no hits for either literal host-bound key.
 Sentinels travel only over the trusted diagnostic's stdin; no terminal command
 contains them. This authors the disk scan; execution on the approved bundle
-and the installed coding-tool falsifier remain pending.
+remain pending; the coding-tool falsifier is authored in the same native chain.
 
 The native chain additionally declares `/run/smithers/files/mch/key` before
 fresh boot, observes its literal `0:20000:640` ownership/mode and lack of write
@@ -36,3 +49,9 @@ within a shared five-second deadline. The composed HTTP/PostgreSQL campaign
 checks absolute-path metadata, value-only replacement, moving the declaration
 to a home path, persisted path identity and deletion. Native observations still
 require execution on the approved reference host.
+
+The runnable browser projection is `TestLiveSecretsBrowserPostgres` and
+`apps/app/e2e/playwright/spec/C-MCH-12.spec.ts`: the production install,
+PostgreSQL, app Secrets card, shared command flows and Live are used without
+intercepted API replies or a seeded card. This proves declared path metadata,
+write-only values, reload, replacement and deletion, not native qualification.

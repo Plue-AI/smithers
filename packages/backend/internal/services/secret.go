@@ -54,6 +54,7 @@ type SecretService struct {
 	subscriptionTokens   bool
 	installAuthorization bool
 	installPool          *pgxpool.Pool
+	validateFilePath     func(context.Context, int64, string) error
 }
 
 type SecretServiceOption func(*SecretService)
@@ -62,6 +63,11 @@ type SecretServiceOption func(*SecretService)
 // of the multitenant repository ACL for repository secret writes.
 func WithSecretInstallAuthorization(enabled bool, pool *pgxpool.Pool) SecretServiceOption {
 	return func(s *SecretService) { s.installAuthorization, s.installPool = enabled, pool }
+}
+
+// WithSecretFilePathValidator binds declaration-time inspection to the machine broker.
+func WithSecretFilePathValidator(validate func(context.Context, int64, string) error) SecretServiceOption {
+	return func(s *SecretService) { s.validateFilePath = validate }
 }
 
 // WithSecretSubscriptionTokens lets a self-hosted deployment store Claude or
@@ -199,6 +205,30 @@ func (s *SecretService) SetSecret(ctx context.Context, actor *db.User, owner, re
 
 	if err := s.enforceSecretQuota(ctx, repository.ID, trimmedName, storedPath); err != nil {
 		return SecretResponse{}, err
+	}
+
+	if s.validateFilePath != nil {
+		// A value-only replacement retains its declaration and must inspect it too.
+		declared := ""
+		if storedPath != nil {
+			declared = *storedPath
+		} else {
+			rows, err := s.queries.ListSecrets(ctx, repository.ID)
+			if err != nil {
+				return SecretResponse{}, err
+			}
+			for _, row := range rows {
+				if row.Name == trimmedName {
+					declared = row.Path
+					break
+				}
+			}
+		}
+		if declared != "" {
+			if err := s.validateFilePath(ctx, repository.ID, declared); err != nil {
+				return SecretResponse{}, err
+			}
+		}
 	}
 
 	// Encrypt the secret value before storing.
