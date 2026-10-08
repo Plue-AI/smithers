@@ -85,3 +85,42 @@ func TestOwnedTerminalHoldsUntilCloseReceipt(t *testing.T) {
 		})
 	}
 }
+
+func TestAgentTerminalUsesSharedManagerWithoutSponsorInput(t *testing.T) {
+	manager := NewTerminalSessionManager(nil)
+	defer manager.Close()
+	principal := revocation.Principal{UserID: 7, RepositoryID: 3, WorkspaceID: "branch"}
+	terminal := &ownedTerminalFixture{done: make(chan struct{})}
+	calls := 0
+	open := func(context.Context) (workspaceapi.Terminal, error) { calls++; return terminal, nil }
+	for _, run := range []string{"", "bad\x00run"} {
+		require.Error(t, manager.OpenAgent(t.Context(), "agent-terminal", run, "Fix build", principal, open))
+	}
+	require.Zero(t, calls)
+	require.NoError(t, manager.OpenAgent(t.Context(), "agent-terminal", "run-1", "Fix build", principal, open))
+	facts := manager.BranchTerminals(3, "branch")
+	require.Len(t, facts, 1)
+	require.Zero(t, facts[0].Owner)
+	require.Equal(t, int64(7), facts[0].ForMember)
+	require.Equal(t, "run-1", facts[0].RunID)
+	require.Equal(t, "Fix build", facts[0].Title)
+	session, err := manager.getExisting("agent-terminal")
+	require.NoError(t, err)
+	session.idleExpire(session.idleGen)
+	require.False(t, session.isDead(), "run lifetime does not depend on a browser watcher")
+	// Even the sponsoring member's authenticated attachment is a watcher.
+	sink := &terminalSink{principal: principal}
+	session.mu.Lock()
+	session.sinks[sink] = struct{}{}
+	session.mu.Unlock()
+	require.False(t, session.ownsInput(nil))
+	require.Equal(t, []int64{7}, manager.BranchTerminals(3, "branch")[0].Watchers)
+	require.Zero(t, manager.Presence("agent-terminal").Owner)
+	require.Equal(t, []int64{7}, manager.Presence("agent-terminal").Watchers)
+	session.mu.Lock()
+	delete(session.sinks, sink)
+	session.mu.Unlock()
+	manager.RevokeMatching(revocation.Event{Kind: revocation.KindCollaboratorRemoved, UserID: 7, RepositoryID: 3})
+	require.Empty(t, manager.BranchTerminals(3, "branch"))
+	<-terminal.done
+}

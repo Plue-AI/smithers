@@ -24,7 +24,11 @@ func terminalProjection(pool *pgxpool.Pool, manager *routes.TerminalSessionManag
 		result := make([]any, 0, len(entries))
 		q := db.New(pool)
 		for _, entry := range entries {
-			owner, err := q.GetUserByID(ctx, entry.Owner)
+			member := entry.Owner
+			if entry.RunID != "" {
+				member = entry.ForMember
+			}
+			owner, err := q.GetUserByID(ctx, member)
 			if err != nil {
 				return nil, err
 			}
@@ -44,7 +48,13 @@ func terminalProjection(pool *pgxpool.Pool, manager *routes.TerminalSessionManag
 					watching = append(watching, branchPersonActor(person, colors[person.Username]))
 				}
 			}
-			result = append(result, map[string]any{"id": entry.ID, "title": "Terminal", "owner": branchPersonActor(owner, colors[owner.Username]), "watchers": watching, "agents": []any{}, "frozen": frozen || branch.Status != "running"})
+			title := "Terminal"
+			actor := branchPersonActor(owner, colors[owner.Username])
+			if entry.RunID != "" {
+				title = entry.Title
+				actor = branchAgentActor("agent:"+entry.RunID, leaseParticipant{AgentKind: "coding", RunID: entry.RunID, SessionID: entry.ID, DisplayName: "Agent"}, &owner, colors[owner.Username])
+			}
+			result = append(result, map[string]any{"id": entry.ID, "title": title, "owner": actor, "watchers": watching, "agents": []any{}, "frozen": frozen || branch.Status != "running"})
 		}
 		return result, nil
 	}

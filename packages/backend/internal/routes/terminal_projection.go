@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
@@ -14,6 +15,9 @@ type TerminalFact struct {
 	ID         string
 	Branch     string
 	Owner      int64
+	RunID      string
+	Title      string
+	ForMember  int64
 	Repository int64
 	Watchers   []int64
 }
@@ -30,10 +34,16 @@ func (m *TerminalSessionManager) BranchTerminals(repository int64, branch string
 		p := session.principal
 		if !session.dead && p.RepositoryID == repository && p.WorkspaceID == branch && p.UserID > 0 {
 			fact := TerminalFact{ID: session.id, Branch: branch, Owner: p.UserID, Repository: repository, Watchers: []int64{}}
+			if session.agentRun != "" {
+				fact.Owner = 0
+				fact.RunID = session.agentRun
+				fact.Title = session.agentTitle
+				fact.ForMember = p.UserID
+			}
 			seen := map[int64]bool{}
 			for sink := range session.sinks {
 				id := sink.principal.UserID
-				if id > 0 && id != p.UserID && !seen[id] {
+				if id > 0 && id != fact.Owner && !seen[id] {
 					fact.Watchers = append(fact.Watchers, id)
 					seen[id] = true
 				}
@@ -75,6 +85,19 @@ func (m *TerminalSessionManager) HasBranchTerminal(repository int64, branch stri
 // workspace_sessions row. The opener must use the authenticated daemon broker.
 // Pending opens participate in revocation and the safe-idle hold.
 func (m *TerminalSessionManager) OpenOwned(ctx context.Context, id string, principal revocation.Principal, open func(context.Context) (workspaceapi.Terminal, error)) error {
+	return m.openRegistered(ctx, id, principal, "", "", open)
+}
+
+// OpenAgent attaches a host-admitted run terminal to the existing ring and fanout.
+// The sponsor is retained for revocation only; no browser attachment owns input.
+func (m *TerminalSessionManager) OpenAgent(ctx context.Context, id, run, title string, sponsor revocation.Principal, open func(context.Context) (workspaceapi.Terminal, error)) error {
+	if run == "" || len(run) > 4096 || strings.ContainsRune(run, 0) || title == "" || len(title) > 4096 || strings.ContainsRune(title, 0) {
+		return errors.New("invalid agent terminal")
+	}
+	return m.openRegistered(ctx, id, sponsor, run, title, open)
+}
+
+func (m *TerminalSessionManager) openRegistered(ctx context.Context, id string, principal revocation.Principal, run, title string, open func(context.Context) (workspaceapi.Terminal, error)) error {
 	if principal.UserID <= 0 || principal.RepositoryID <= 0 || principal.WorkspaceID == "" || id == "" || open == nil {
 		return errors.New("invalid terminal owner")
 	}
@@ -113,6 +136,8 @@ func (m *TerminalSessionManager) OpenOwned(ctx context.Context, id string, princ
 	var session *terminalSession
 	session = newTerminalSession(id, client, backend, stdin, stdout, stderr, m.ringBufferBytes, m.idleTimeout, 0, func() { m.removeSession(id, session) })
 	session.ownerSession = true
+	session.agentRun = run
+	session.agentTitle = title
 	session.setPrincipal(principal)
 	m.mu.Lock()
 	if ctx.Err() != nil || m.sessions[id] != nil {

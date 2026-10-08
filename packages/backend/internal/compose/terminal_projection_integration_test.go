@@ -69,3 +69,48 @@ func TestTerminalBranchProjectionLifecycleHTTP(t *testing.T) {
 	require.NoError(t, json.Unmarshal(frame.Data, &model))
 	require.Empty(t, model.Terminals)
 }
+
+// The composed live socket projects the registered run owner rather than
+// looking up the participant id as a member. The broker transport fixture is
+// not evidence of uid/cgroup confinement or command execution.
+func TestAgentTerminalOwnerThroughComposedLiveSocket(t *testing.T) {
+	f := presenceInstall(t)
+	manager := routes.NewTerminalSessionManager(nil)
+	defer manager.Close()
+	f.p.terminalManager = manager
+	f.p.terminals = terminalProjection(f.pool, manager, nil)
+	terminal := &projectionTerminal{done: make(chan struct{})}
+	require.NoError(t, manager.OpenAgent(t.Context(), "agent-term", "coding-run", "Fix build", revocation.Principal{UserID: f.user.ID, RepositoryID: f.row.RepositoryID, WorkspaceID: f.row.ID}, func(context.Context) (workspaceapi.Terminal, error) { return terminal, nil }))
+	conn := f.dial(t)
+	sendPresenceFrame(t, conn, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s"}`, f.row.ID))
+	var model struct {
+		Terminals []struct {
+			ID, Title string
+			Owner     struct {
+				ID, Kind, Name string
+				RunID          string                 `json:"run_id"`
+				SessionID      string                 `json:"session_id"`
+				ForMember      struct{ Login string } `json:"for_member"`
+			}
+		}
+	}
+	for i := 0; i < 3; i++ {
+		frame := readPresenceFrame(t, conn)
+		if len(frame.Data) > 0 {
+			require.NoError(t, json.Unmarshal(frame.Data, &model))
+			break
+		}
+	}
+	require.Len(t, model.Terminals, 1)
+	entry := model.Terminals[0]
+	require.Equal(t, "agent-term", entry.ID)
+	require.Equal(t, "Fix build", entry.Title)
+	require.Equal(t, "agent:coding-run", entry.Owner.ID)
+	require.Equal(t, "agent", entry.Owner.Kind)
+	require.Equal(t, "Agent", entry.Owner.Name)
+	require.Equal(t, "coding-run", entry.Owner.RunID)
+	require.Equal(t, "agent-term", entry.Owner.SessionID)
+	require.Equal(t, f.user.Username, entry.Owner.ForMember.Login)
+	manager.Destroy("agent-term")
+	require.Eventually(t, func() bool { return !manager.HasBranchTerminal(f.row.RepositoryID, f.row.ID) }, time.Second, time.Millisecond)
+}

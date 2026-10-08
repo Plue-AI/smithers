@@ -111,6 +111,9 @@ func (m *TerminalSessionManager) Presence(id string) TerminalPresence {
 		return TerminalPresence{}
 	}
 	result := TerminalPresence{Owner: session.principal.UserID}
+	if session.agentRun != "" {
+		result.Owner = 0
+	}
 	seen := map[int64]bool{}
 	for sink := range session.sinks {
 		user := sink.principal.UserID
@@ -438,6 +441,8 @@ func (m *TerminalSessionManager) Close() {
 
 type terminalSession struct {
 	ownerSession bool
+	agentRun     string
+	agentTitle   string
 	id           string
 	client       terminalSSHClient
 	sshSess      terminalSSHSession
@@ -598,7 +603,7 @@ func (s *terminalSession) detachSink(sink *terminalSink, closeWS bool, code webs
 // whose callback has already started when addSink calls Stop can never destroy
 // a session that a sink has since reattached to.
 func (s *terminalSession) armIdleLocked() {
-	if s.dead || s.idleAfter <= 0 {
+	if s.dead || s.agentRun != "" || s.idleAfter <= 0 {
 		return
 	}
 	if s.idle != nil {
@@ -618,7 +623,7 @@ func (s *terminalSession) armIdleLocked() {
 // never a live connection torn down underneath.
 func (s *terminalSession) idleExpire(gen uint64) {
 	s.mu.Lock()
-	if s.dead || gen != s.idleGen || len(s.sinks) > 0 {
+	if s.dead || s.agentRun != "" || gen != s.idleGen || len(s.sinks) > 0 {
 		s.mu.Unlock()
 		return
 	}
@@ -649,7 +654,7 @@ func (s *terminalSession) destroyIfUnattached(msg string) {
 func (s *terminalSession) ownsInput(ws *websocket.Conn) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.dead || s.principal.UserID <= 0 {
+	if s.dead || s.principal.UserID <= 0 || s.agentRun != "" {
 		return false
 	}
 	for sink := range s.sinks {
