@@ -101,8 +101,8 @@ func TestTodoDropAnswersBeforeCatalogTransportComposedInstall(t *testing.T) {
 	server.Config.Handler = todoMergeComposeRouter(cfg, q, pool, &routes.MythicalHandler{Service: service})
 	server.Start()
 	t.Cleanup(server.Close)
-	call := func(method, body, key string) (int, map[string]any) {
-		req, err := http.NewRequest(method, origin+"/api/todos/1", strings.NewReader(body))
+	callPath := func(method, path, body, key string) (int, map[string]any) {
+		req, err := http.NewRequest(method, origin+path, strings.NewReader(body))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Origin", origin)
@@ -116,6 +116,9 @@ func TestTodoDropAnswersBeforeCatalogTransportComposedInstall(t *testing.T) {
 		var value map[string]any
 		require.NoError(t, json.NewDecoder(res.Body).Decode(&value))
 		return res.StatusCode, value
+	}
+	call := func(method, body, key string) (int, map[string]any) {
+		return callPath(method, "/api/todos/1", body, key)
 	}
 	// A second TODO has a candidate: catalog projection must inspect its Git
 	// tree even though it has no flow edit. Drop itself must never wait for it.
@@ -147,6 +150,11 @@ func TestTodoDropAnswersBeforeCatalogTransportComposedInstall(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, stack.LastError, "refresh flow catalog")
 	require.Greater(t, stack.RequestedGeneration, stack.ProcessedGeneration)
+	// The member can see the persisted failure through the served boundary;
+	// it is not merely a worker log or an inaccessible database field.
+	status, snapshot := callPath("GET", "/api/repos/owner/app/mythical", "", "")
+	require.Equal(t, http.StatusOK, status, snapshot)
+	require.Contains(t, snapshot["lastError"], "refresh flow catalog")
 	host.fail.Store(false)
 	_, err = q.RequestMythicalStack(ctx, repo.ID)
 	require.NoError(t, err)
@@ -159,6 +167,8 @@ func TestTodoDropAnswersBeforeCatalogTransportComposedInstall(t *testing.T) {
 	}
 	status, receipt = call("POST", `{"op":"drop"}`, "drop-once")
 	require.Equal(t, 202, status, receipt)
+	status, receipt = call("POST", `{"op":"drop"}`, "drop-new-press")
+	require.Equal(t, http.StatusConflict, status, receipt)
 	status, card = call("GET", "", "")
 	require.Equal(t, 200, status)
 	require.Equal(t, "dropped", card["state"])
@@ -172,6 +182,9 @@ func TestTodoDropAnswersBeforeCatalogTransportComposedInstall(t *testing.T) {
 	stack, err = q.GetMythicalStack(ctx, repo.ID)
 	require.NoError(t, err)
 	require.Empty(t, stack.LastError)
+	status, snapshot = callPath("GET", "/api/repos/owner/app/mythical", "", "")
+	require.Equal(t, http.StatusOK, status, snapshot)
+	require.Empty(t, snapshot["lastError"], "successful retry clears the visible failure")
 	var events int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='flows.changed'`).Scan(&events))
 	require.Positive(t, events)
