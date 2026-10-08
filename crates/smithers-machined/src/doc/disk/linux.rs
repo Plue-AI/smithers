@@ -217,7 +217,7 @@ impl<V: Versions> Disk for LinuxDisk<V> {
         let mode = if let Some(old) = &old {
             regular(old)?;
             let metadata = old.metadata()?;
-            super::saved_mode(metadata.mode())?
+            super::saved_mode(metadata.mode())? | 0o020
         } else {
             // New working-copy files remain writable by the shared team.
             0o664

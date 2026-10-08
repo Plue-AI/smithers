@@ -19,6 +19,7 @@ use smithers_machined::{
 };
 use std::{
     fs::{self, File},
+    io::Write as _,
     os::unix::fs::{symlink, MetadataExt, PermissionsExt},
     path::PathBuf,
     sync::{
@@ -417,7 +418,7 @@ fn durable_record_restart_and_real_permission_faults() {
             "abc 🦀".as_bytes()
         );
         let saved = fs::metadata(f.root.join("workspace/a.rs")).unwrap();
-        assert_eq!(saved.mode() & 0o7777, 0o640);
+        assert_eq!(saved.mode() & 0o7777, 0o660);
         assert_eq!(saved.gid(), original.gid());
         assert_eq!(saved.uid(), 19998);
         let key: String = digest(b"a.rs").iter().map(|b| format!("{b:02x}")).collect();
@@ -1428,7 +1429,7 @@ fn corrupted_deletion_metadata_refuses_recovery_without_touching_recreated_file(
 
 #[test]
 #[ignore = "requires Linux uid19998 and confined real filesystem"]
-fn new_files_are_team_writable_and_existing_permissions_survive() {
+fn new_files_and_replacements_are_group_writable() {
     let f = Fixture::new();
     fs::write(f.root.join("workspace/script"), b"before").unwrap();
     fs::set_permissions(
@@ -1436,6 +1437,7 @@ fn new_files_are_team_writable_and_existing_permissions_survive() {
         fs::Permissions::from_mode(0o751),
     )
     .unwrap();
+    let sentinel = fs::metadata(f.root.join("sentinel")).unwrap();
     let (_service, mut cx) = f.service();
     let reply = batch(
         &mut cx,
@@ -1446,7 +1448,7 @@ fn new_files_are_team_writable_and_existing_permissions_survive() {
         ],
     );
     assert_eq!(conn::fields("result17", &reply[1..]).unwrap().len(), 1);
-    for (path, mode) in [("new", 0o664), ("a.rs", 0o640), ("script", 0o751)] {
+    for (path, mode) in [("new", 0o664), ("a.rs", 0o660), ("script", 0o771)] {
         assert_eq!(
             fs::metadata(f.root.join("workspace").join(path))
                 .unwrap()
@@ -1455,7 +1457,29 @@ fn new_files_are_team_writable_and_existing_permissions_survive() {
             mode,
             "{path}"
         );
+        let file = f.root.join("workspace").join(path);
+        assert_eq!(
+            fs::metadata(&file).unwrap().gid(),
+            rustix::process::getgid().as_raw()
+        );
+        let inode = fs::metadata(&file).unwrap().ino();
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .write_all(b"in place")
+            .unwrap();
+        assert_eq!(fs::metadata(&file).unwrap().ino(), inode);
+        assert_eq!(fs::read(&file).unwrap(), b"in place");
     }
+    assert_eq!(
+        fs::metadata(f.root.join("sentinel")).unwrap().mode(),
+        sentinel.mode()
+    );
+    assert_eq!(
+        fs::read(f.root.join("sentinel")).unwrap(),
+        b"outside unchanged"
+    );
 }
 
 #[test]
@@ -1586,4 +1610,60 @@ fn nested_batch_refused_preflight_leaves_no_directories_or_records() {
         assert_eq!(fs::read(f.root.join("workspace/a.rs")).unwrap(), b"abc");
         assert_eq!(fs::read_dir(f.root.join("store")).unwrap().count(), 0);
     }
+}
+
+#[test]
+fn daemon_file_permissions_in_user_namespace() {
+    let executable = std::env::current_exe().unwrap();
+    let result = std::process::Command::new("bwrap")
+        .args([
+            "--tmpfs",
+            "/",
+            "--ro-bind",
+            "/usr",
+            "/usr",
+            "--ro-bind",
+            "/lib",
+            "/lib",
+            "--ro-bind",
+            "/lib64",
+            "/lib64",
+            "--symlink",
+            "usr/bin",
+            "/bin",
+            "--ro-bind",
+            "/etc",
+            "/etc",
+            "--proc",
+            "/proc",
+            "--dev",
+            "/dev",
+            "--unshare-user",
+            "--uid",
+            "19998",
+            "--gid",
+            "20000",
+            "--die-with-parent",
+            "--tmpfs",
+            "/tmp",
+            "--ro-bind",
+        ])
+        .arg(&executable)
+        .arg(&executable)
+        .arg("--")
+        .arg(&executable)
+        .args([
+            "--exact",
+            "new_files_and_replacements_are_group_writable",
+            "--ignored",
+            "--nocapture",
+        ])
+        .output()
+        .expect("bubblewrap is required for the daemon file permission regression");
+    assert!(
+        result.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr),
+    );
 }

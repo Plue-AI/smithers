@@ -96,7 +96,7 @@ fn shared(path: &Path) {
         } else if meta.is_file() {
             assert_eq!(meta.gid(), 20000, "{}", path.display());
             assert_ne!(meta.mode() & 0o040, 0, "unreadable: {}", path.display());
-            if path.starts_with("/workspace/.jj") {
+            if path.starts_with("/workspace/.jj") || path.starts_with("/workspace/.git") {
                 assert_ne!(
                     meta.mode() & 0o020,
                     0,
@@ -114,7 +114,12 @@ fn shared(path: &Path) {
 fn workspace_permissions_child() {
     let workspace = Path::new("/workspace");
     fs::set_permissions(workspace, fs::Permissions::from_mode(0o2775)).unwrap();
-    rustix::process::umask(rustix::fs::Mode::from_raw_mode(0o002));
+    rustix::process::umask(rustix::fs::Mode::from_raw_mode(0o077));
+    // Startup sets the mask before composing any providers; this namespace
+    // deliberately lacks the production daemon identity and broker.
+    assert!(smithers_machined::installed::run().is_err());
+    let mask = rustix::process::umask(rustix::fs::Mode::from_raw_mode(0o002));
+    assert_eq!(mask.as_raw_mode(), 0o002);
     let settings = UserSettings::from_config(StackedConfig::with_defaults()).unwrap();
     Workspace::init_colocated_git(&settings, workspace, gix::hash::Kind::Sha1)
         .block_on()
@@ -187,6 +192,28 @@ fn workspace_permissions_child() {
             0o600
         );
     }
+    // The Git-object grant must not affect another repository, even when its
+    // name starts with /workspace. gix's original immutable mode stays intact.
+    let outside = Path::new("/workspace-escape");
+    Workspace::init_colocated_git(&settings, outside, gix::hash::Kind::Sha1)
+        .block_on()
+        .unwrap();
+    fs::write(outside.join("file"), "outside blob").unwrap();
+    flows_jj::ops::snapshot(outside, None).unwrap();
+    let mut objects = 0;
+    for dir in fs::read_dir(outside.join(".git/objects")).unwrap() {
+        let dir = dir.unwrap();
+        if dir.file_name().len() != 2 {
+            continue;
+        }
+        for file in fs::read_dir(dir.path()).unwrap() {
+            let file = file.unwrap();
+            assert_eq!(file.metadata().unwrap().mode() & 0o777, 0o444);
+            objects += 1;
+        }
+    }
+    assert!(objects > 0);
+
     // A temporary inode with a second name cannot widen an existing file's
     // access. The rejection leaves both the private mode and target intact.
     let temporary = tempfile::NamedTempFile::new_in(workspace).unwrap();

@@ -306,6 +306,9 @@ impl Versions for DocumentVersions {
 }
 /// Validates the inherited process boundary before reading authority or repo data.
 pub fn run() -> io::Result<()> {
+    // Set before composing providers or starting threads. Setgid workspace
+    // directories supply team ownership; jj tempfiles also need their grant.
+    rustix::process::umask(rustix::fs::Mode::from_raw_mode(0o002));
     if rustix::process::getuid().as_raw() != 19998 || rustix::process::geteuid().as_raw() != 19998 {
         return Err(io::ErrorKind::PermissionDenied.into());
     }

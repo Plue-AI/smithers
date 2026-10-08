@@ -75,6 +75,8 @@ The machine daemon has never started in a real machine on main. A TODO needs it.
 | 3 | The broker cannot enable `+cpu +pids`. The guest's root cgroup delegates no controllers. | Open |
 | 4 | jj writes the repository 0600. The daemon's user cannot read what the agent's user created. | Fix landed, 42b5401381; Linux init/snapshot/checkout regression passes. Two-UID real-VM startup remains unverified. |
 | 5 | The daemon's git refuses `/workspace` as dubious ownership. | Open |
+| 7 | Daemon jj writes leave repository state inaccessible to the agent. | Linux fix: shared jj persistence, daemon umask 002, and group-writable loose Git objects. Two-UID real-VM proof remains unverified. |
+| 8 | Daemon-created working files cannot be edited in place by the agent. | Linux fix: new files 0664, replacement modes retain executable bits and add group write. Two-UID real-VM proof remains unverified. |
 
 Source: `~/smithers-lanes/release/REAL-RUN.md` lists 0 and 1. Defects 2 to 5 come from the real-VM agent's report to the lead and are not in that file yet. Failure 4's implementation is on main; its real-VM proof is still pending. None has smithers-3f's review.
 

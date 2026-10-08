@@ -546,10 +546,52 @@ impl GitBackend {
                     object_type,
                     source: err,
                 })?;
+            share_git_object(&locked_repo, &write_oid)?;
             assert!(oid == write_oid);
         }
         Ok(oid)
     }
+}
+
+// Smithers: gix publishes loose objects as 0444 regardless of umask. Grant
+// access to the exact object just written before returning to the caller. Use
+// a confined descriptor, and the same workspace contract as jj tempfiles.
+fn share_git_object(repo: &gix::Repository, id: &gix::hash::oid) -> BackendResult<()> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        let hex = id.to_string();
+        let path = repo.objects.store_ref().path().join(&hex[..2]).join(&hex[2..]);
+        let Ok(relative) = path.strip_prefix("/workspace") else {
+            return Ok(());
+        };
+        let share = || -> std::io::Result<()> {
+            let root = fs::File::open("/workspace")?;
+            let fd = match rustix::fs::openat2(
+                &root,
+                relative,
+                rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::NONBLOCK | rustix::fs::OFlags::CLOEXEC,
+                rustix::fs::Mode::empty(),
+                rustix::fs::ResolveFlags::BENEATH | rustix::fs::ResolveFlags::NO_SYMLINKS,
+            ) {
+                Ok(fd) => fd,
+                // Existing packed objects need no loose-file grant.
+                Err(rustix::io::Errno::NOENT) => return Ok(()),
+                Err(error) => return Err(error.into()),
+            };
+            let file = fs::File::from(fd);
+            // An existing object may belong to another team member. Already
+            // shared objects need no ownership-changing syscall.
+            if file.metadata()?.mode() & 0o060 == 0o060 {
+                return Ok(());
+            }
+            file_util::share_workspace_file(&file)
+        };
+        share().map_err(|error| BackendError::Other(Box::new(error)))?;
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = (repo, id);
+    Ok(())
 }
 
 /// Canonicalizes the given `path` except for the last `".git"` component.
@@ -1230,6 +1272,7 @@ impl Backend for GitBackend {
                 object_type: "tree",
                 source: Box::new(err),
             })?;
+        share_git_object(&locked_repo, &oid)?;
         Ok(TreeId::from_bytes(oid.as_bytes()))
     }
 
@@ -1347,6 +1390,7 @@ impl Backend for GitBackend {
                         object_type: "tree",
                         source: Box::new(err),
                     })?;
+            share_git_object(&locked_repo, &tree_id)?;
             assert!(tree_id.is_empty_tree());
         }
 
@@ -1393,6 +1437,7 @@ impl Backend for GitBackend {
                         source: Box::new(err),
                     })?;
 
+            share_git_object(&locked_repo, &git_id)?;
             match table.get_value(git_id.as_bytes()) {
                 Some(existing_extras) if existing_extras != extras => {
                     // It's possible a commit already exists with the same
@@ -1584,6 +1629,7 @@ recover.
             BackendError::Other(format!("Failed to write README for conflict tree: {err}").into())
         })?
         .detach();
+    share_git_object(repo, &readme_id)?;
     entries.push(gix::objs::tree::Entry {
         mode: gix::object::tree::EntryKind::Blob.into(),
         filename: JJ_CONFLICT_README_FILE_NAME.into(),
@@ -1608,6 +1654,7 @@ recover.
             object_type: "tree",
             source: Box::new(err),
         })?;
+    share_git_object(repo, &id)?;
     Ok(id.detach())
 }
 
