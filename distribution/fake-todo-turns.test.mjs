@@ -51,10 +51,10 @@ const plan = async (prompt, extra = {}) => {
 }
 
 test("markers are bracketed words; [FIXED] ends [FAIL]", () => {
-  assert.deepEqual(markersOf("Add a greeting"), { ask: false, fail: false, failonce: false, restore: false, fixed: false, pr: false, hold: undefined, resolve: true, file: undefined, flowedit: false, changelog: false })
+  assert.deepEqual(markersOf("Add a greeting"), { ask: false, fail: false, failonce: false, restore: false, fixed: false, pr: false, hold: undefined, resolve: true, file: undefined, flowedit: false, changelog: false, observeuid: false })
   assert.equal(markersOf("ASK FAIL HOLD").ask, false)
   const all = markersOf("[ASK] [FAIL] [PR] [HOLD t-2] [NORESOLVE] [FILE notes/t2.md] [FLOWEDIT]")
-  assert.deepEqual(all, { ask: true, fail: true, failonce: false, restore: false, fixed: false, pr: true, hold: "t-2", resolve: false, file: "notes/t2.md", flowedit: true, changelog: false })
+  assert.deepEqual(all, { ask: true, fail: true, failonce: false, restore: false, fixed: false, pr: true, hold: "t-2", resolve: false, file: "notes/t2.md", flowedit: true, changelog: false, observeuid: false })
   assert.equal(markersOf(["[FAIL] add it", ["steer: [FIXED]"]]).fail, false)
 })
 
@@ -331,4 +331,38 @@ test("member PR review scripts the cache defect and its verification separately"
   const verified = todoTurn([{ role: "system", content: "You adjudicate code-review findings against the diff they were made on." }])
   assert.equal(verified.step, "review/verify")
   assert.match(verified.content, /keep/)
+})
+
+// This tests the driver cell only; guest execution evidence comes from the
+// composed microVM test, whose tools supply this kernel-observed value.
+test("UID observation reaches bash and refuses root before any file write", async () => {
+  const atom = await plan("[OBSERVEUID] [FILE JOURNEY.md] Add a greeting")
+  assert.ok(atom.intent.includes("[OBSERVEUID]"))
+  assert.ok(atom.writes.includes(".outside-note-uid"))
+  const content = todoTurn(turn(EDIT, { atom })).content
+  const source = /^```cell\n([\s\S]*)\n```$/.exec(content)[1]
+  for (const uid of ["19999\n", "0\n", "20001\n"]) {
+    const calls = []
+    const tree = new Map()
+    const ctx = {
+      call: async (name, input) => {
+        calls.push({ name, input })
+        if (name === "bash") { assert.equal(input.command, "id -u"); return { exitCode: 0, stdout: uid } }
+        if (name === "read") return { ok: false }
+        if (name === "write") { tree.set(input.path, input.content); return { ok: true } }
+        throw new Error("unexpected tool")
+      },
+      done: () => {}
+    }
+    const execute = new (Object.getPrototypeOf(async () => {}).constructor)("ctx", source)
+    if (uid === "19999\n") {
+      await execute(ctx)
+      assert.equal(tree.get(".outside-note-uid"), "19999\n")
+      assert.ok(tree.has("JOURNEY.md"))
+    } else {
+      await assert.rejects(execute(ctx), /coding tool UID refused/)
+      assert.deepEqual(calls.map(call => call.name), ["bash"])
+      assert.equal(tree.size, 0)
+    }
+  }
 })

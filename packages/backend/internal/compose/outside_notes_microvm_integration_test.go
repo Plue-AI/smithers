@@ -1,20 +1,19 @@
 package compose
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -23,33 +22,31 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Only the reply transport is faulted. Every request still reaches the real
-// registered coding host in its microVM; neither the runtime nor tools are
-// replaced. Dropping a consumed HTTP response models an unknown delivery ack.
-type outsideNoteFaultRuntime struct {
+// The child dispatcher reaches this exact guest connection through a local
+// transport proxy. Runtime and tools stay in the real microVM.
+type outsideNoteGuestRuntime struct {
 	*microsandbox.Runtime
-	armed   atomic.Bool
-	dropped atomic.Int32
-	retry   chan struct{}
-	release sync.Once
+	proxyMu       sync.Mutex
+	endpoint      string
+	authorization string
+	transport     http.RoundTripper
 }
 
-func (r *outsideNoteFaultRuntime) resume() { r.release.Do(func() { close(r.retry) }) }
-func (r *outsideNoteFaultRuntime) InspectManagedHost(ctx context.Context, branch string, spec workspaceapi.ManagedHostSpec) (workspaceapi.ManagedHostConnection, error) {
+func (r *outsideNoteGuestRuntime) InspectManagedHost(ctx context.Context, branch string, spec workspaceapi.ManagedHostSpec) (workspaceapi.ManagedHostConnection, error) {
 	c, err := r.Runtime.InspectManagedHost(ctx, branch, spec)
 	if err == nil {
 		c = r.wrap(c)
 	}
 	return c, err
 }
-func (r *outsideNoteFaultRuntime) StartManagedHost(ctx context.Context, branch string, spec workspaceapi.ManagedHostSpec) (workspaceapi.ManagedHostConnection, error) {
+func (r *outsideNoteGuestRuntime) StartManagedHost(ctx context.Context, branch string, spec workspaceapi.ManagedHostSpec) (workspaceapi.ManagedHostConnection, error) {
 	c, err := r.Runtime.StartManagedHost(ctx, branch, spec)
 	if err == nil {
 		c = r.wrap(c)
 	}
 	return c, err
 }
-func (r *outsideNoteFaultRuntime) wrap(c workspaceapi.ManagedHostConnection) workspaceapi.ManagedHostConnection {
+func (r *outsideNoteGuestRuntime) wrap(c workspaceapi.ManagedHostConnection) workspaceapi.ManagedHostConnection {
 	client := http.Client{}
 	if c.HTTPClient != nil {
 		client = *c.HTTPClient
@@ -58,68 +55,23 @@ func (r *outsideNoteFaultRuntime) wrap(c workspaceapi.ManagedHostConnection) wor
 	if transport == nil {
 		transport = http.DefaultTransport
 	}
-	client.Transport = outsideNoteFaultTransport{base: transport, fault: r}
+	client.Transport = outsideNoteGuestTransport{base: transport, fault: r}
 	c.HTTPClient = &client
 	return c
 }
 
-type outsideNoteFaultTransport struct {
+type outsideNoteGuestTransport struct {
 	base  http.RoundTripper
-	fault *outsideNoteFaultRuntime
+	fault *outsideNoteGuestRuntime
 }
 
-func (tr outsideNoteFaultTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	outside := false
-	if request.URL.Path == "/runtime/v1/command" && request.Body != nil {
-		body, err := io.ReadAll(request.Body)
-		if err != nil {
-			return nil, err
-		}
-		_ = request.Body.Close()
-		request.Body = io.NopCloser(bytes.NewReader(body))
-		var command struct {
-			Operation string `json:"operation"`
-			Signal    struct {
-				Name string `json:"name"`
-			} `json:"signal"`
-		}
-		outside = json.Unmarshal(body, &command) == nil && command.Operation == "signal" && command.Signal.Name == "outside_change"
-	}
-	drop := outside && tr.fault.armed.CompareAndSwap(true, false)
-	if outside && !drop && tr.fault.dropped.Load() > 0 {
-		select {
-		case <-request.Context().Done():
-			return nil, request.Context().Err()
-		case <-tr.fault.retry:
-		}
-	}
-	response, err := tr.base.RoundTrip(request)
-	if !drop || err != nil {
-		return response, err
-	}
-	if response.StatusCode != http.StatusOK {
-		return response, nil
-	}
-	body, err := io.ReadAll(response.Body)
-	_ = response.Body.Close()
-	if err != nil {
-		return nil, err
-	}
-	var envelope struct {
-		Protocol string `json:"protocol"`
-		OK       bool   `json:"ok"`
-		Value    struct {
-			Receipt struct {
-				Tag string `json:"_tag"`
-			} `json:"receipt"`
-		} `json:"value"`
-	}
-	if json.Unmarshal(body, &envelope) != nil || !envelope.OK || envelope.Protocol != "smithers.flow-runtime/v1" || (envelope.Value.Receipt.Tag != "Accepted" && envelope.Value.Receipt.Tag != "AlreadyApplied") {
-		response.Body = io.NopCloser(bytes.NewReader(body))
-		return response, nil
-	}
-	tr.fault.dropped.Add(1)
-	return nil, errors.New("test: outside-change acknowledgement lost after guest commit")
+func (tr outsideNoteGuestTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	tr.fault.proxyMu.Lock()
+	tr.fault.endpoint = request.URL.Scheme + "://" + request.URL.Host
+	tr.fault.authorization = request.Header.Get("Authorization")
+	tr.fault.transport = tr.base
+	tr.fault.proxyMu.Unlock()
+	return tr.base.RoundTrip(request)
 }
 
 type outsideNoteJournalRow struct {
@@ -209,12 +161,11 @@ func TestOutsideNotesPinnedDispatcherMicroVM(t *testing.T) {
 	require.True(t, r.install("Install through Machine ready"))
 	vm, ok := r.workspaceRuntime.(*microsandbox.Runtime)
 	require.True(t, ok, "no trusted-process host substitution")
-	fault := &outsideNoteFaultRuntime{Runtime: vm, retry: make(chan struct{})}
-	defer fault.resume()
+	fault := &outsideNoteGuestRuntime{Runtime: vm}
 	r.options.Workspace = fault
 	r.workspaceRuntime = fault
 	r.restartBackend()
-	number, err := r.file("Outside note delivery", "[HOLD outside-notes] [FILE JOURNEY.md] Append a greeting to JOURNEY.md")
+	number, err := r.file("Outside note delivery", "[HOLD outside-notes] [OBSERVEUID] [FILE JOURNEY.md] Append a greeting to JOURNEY.md")
 	require.NoError(t, err)
 	defer func() { _ = r.release("outside-notes") }()
 	require.NoError(t, r.waitHeld("outside-notes", 8*time.Minute))
@@ -249,10 +200,82 @@ func TestOutsideNotesPinnedDispatcherMicroVM(t *testing.T) {
 		_, e = r.expect("PUT", fileURL(path), string(body), 200)
 		require.NoError(t, e)
 	}
+	_, err = r.expect("GET", fileURL(".outside-note-uid"), "", 404)
+	require.NoError(t, err)
 	_, base := read("JOURNEY.md")
-	fault.armed.Store(true)
+	// Keep HTTP, authenticated ingestion and the real guest running while a
+	// separately owned production dispatcher process delivers the durable jobs.
+	r.options.Duties = DutiesHTTP
+	r.restartBackend()
+	_ = outsideNoteJournal(t, r, branch, run) // resolve the retained guest transport
+	fault.proxyMu.Lock()
+	endpoint, authorization, transport := fault.endpoint, fault.authorization, fault.transport
+	fault.proxyMu.Unlock()
+	require.NotEmpty(t, endpoint)
+	require.NotEmpty(t, authorization)
+	require.NotNil(t, transport)
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer outside-note-child" {
+			http.Error(w, "refused", 403)
+			return
+		}
+		forwarded := request.Clone(request.Context())
+		destination, e := url.Parse(endpoint + request.URL.RequestURI())
+		if e != nil || transport == nil || authorization == "" {
+			http.Error(w, "guest unavailable", 503)
+			return
+		}
+		forwarded.URL, forwarded.RequestURI = destination, ""
+		forwarded.Header = request.Header.Clone()
+		forwarded.Header.Set("Authorization", authorization)
+		response, e := transport.RoundTrip(forwarded)
+		if e != nil {
+			http.Error(w, "guest unavailable", 502)
+			return
+		}
+		defer response.Body.Close()
+		for name, values := range response.Header {
+			for _, value := range values {
+				w.Header().Add(name, value)
+			}
+		}
+		w.WriteHeader(response.StatusCode)
+		_, _ = io.Copy(w, response.Body)
+	}))
+	defer proxy.Close()
+	var target flowruntime.Target
+	var raw []byte
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT payload->'target' FROM product_job_requests WHERE operation='flow.runtime.launch' AND payload->'target'->>'WorkspaceID'=$1 LIMIT 1`, branch).Scan(&raw))
+	require.NoError(t, json.Unmarshal(raw, &target))
+	marker := filepath.Join(t.TempDir(), "guest-accepted")
+	startWorker := func(drop bool) *exec.Cmd {
+		binary, e := os.Executable()
+		require.NoError(t, e)
+		command := exec.Command(binary, "-test.run=^TestOutsideNoteDispatcherProcess$", "-test.timeout=10m")
+		targetJSON, e := json.Marshal(target)
+		require.NoError(t, e)
+		command.Env = append(os.Environ(), "SMITHERS_RESTART_CHILD_DATABASE=outside-note-owned-child", "SMITHERS_NOTE_CHILD_DATABASE="+r.pool.Config().ConnString(), "SMITHERS_NOTE_CHILD_ENDPOINT="+proxy.URL, "SMITHERS_NOTE_CHILD_TARGET="+string(targetJSON))
+		if drop {
+			command.Env = append(command.Env, "SMITHERS_NOTE_CHILD_DROP="+marker)
+		}
+		command.Stdout, command.Stderr = r.logs, r.logs
+		require.NoError(t, command.Start())
+		return command
+	}
 	write("JOURNEY.md", "outside fixed bytes\n", base)
-	require.Eventually(t, func() bool { return fault.dropped.Load() == 1 }, 30*time.Second, 100*time.Millisecond, "production worker must deliver the committed note to the guest")
+	crashed := startWorker(true)
+	defer func() {
+		if crashed.ProcessState == nil {
+			_ = crashed.Process.Kill()
+			_ = crashed.Wait()
+		}
+	}()
+	require.Eventually(t, func() bool { _, e := os.Stat(marker); return e == nil }, 30*time.Second, 100*time.Millisecond, "production worker must reach guest commit before crashing")
+	require.NoError(t, crashed.Process.Kill())
+	require.Error(t, crashed.Wait(), "the dispatcher died without graceful settlement")
+	var unfinished int
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.signal' AND payload->>'runId'=$1 AND state='waiting'`, run).Scan(&unfinished))
+	require.Equal(t, 1, unfinished, "guest commit has no host acknowledgement")
 	// A second real burst while the model is still held must join the first
 	// note at the same boundary. The command-looking path remains literal data.
 	write("$(touch canary).txt", "literal filename\n", "absent")
@@ -266,10 +289,9 @@ func TestOutsideNotesPinnedDispatcherMicroVM(t *testing.T) {
 			require.Empty(t, outsideNoteTexts(row), "no note inserted mid-turn")
 		}
 	}
-	// The guest accepted the first signal but the dispatcher saw no reply.
-	// Recompose over the same durable intent, then let its retry reach that guest.
-	r.restartBackend()
-	fault.resume()
+	// A new OS process recovers the expired claim and retries the same identity.
+	recovered := startWorker(false)
+	defer func() { _ = recovered.Process.Kill(); _ = recovered.Wait() }()
 	require.Eventually(t, func() bool {
 		var count int
 		require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.signal' AND payload->>'runId'=$1 AND state='completed'`, run).Scan(&count))
@@ -305,6 +327,8 @@ func TestOutsideNotesPinnedDispatcherMicroVM(t *testing.T) {
 			if row.Kind != "control.agent.cell-call-started" {
 				continue
 			}
+			require.Positive(t, noteSequence, "a real tool dispatched before the outside note")
+			require.Less(t, noteSequence, row.Sequence)
 			var call struct {
 				CallID   string `json:"callId"`
 				FlowName string `json:"flowName"`
@@ -341,6 +365,8 @@ func TestOutsideNotesPinnedDispatcherMicroVM(t *testing.T) {
 		require.LessOrEqual(t, notes, 1, "delivery retry and boundary replay must insert only once")
 		return writeSequence > 0
 	}, 3*time.Minute, 250*time.Millisecond)
+	uid, _ := read(".outside-note-uid")
+	require.Equal(t, "19999\n", uid, "coding bash and write tools run as the guest coding participant")
 	content, _ := read("JOURNEY.md")
 	require.True(t, strings.HasPrefix(content, "outside fixed bytes\n"), content)
 	_, err = r.expect("GET", fileURL("canary"), "", 404)
@@ -350,55 +376,7 @@ func TestOutsideNotesPinnedDispatcherMicroVM(t *testing.T) {
 		require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.signal' AND payload->>'runId'=$1`, run).Scan(&count))
 		return count != 2
 	}, 5*time.Second, 100*time.Millisecond, "own tool writes do not notify their own run after the burst closes")
-	evidence, err := json.Marshal(map[string]any{"run": run, "branch": branch, "lostAcknowledgements": fault.dropped.Load(), "note": noteSequence, "read": readSequence, "write": writeSequence, "rows": observed})
+	evidence, err := json.Marshal(map[string]any{"run": run, "branch": branch, "lostAcknowledgements": 1, "crashedDispatcherPID": crashed.Process.Pid, "note": noteSequence, "read": readSequence, "write": writeSequence, "rows": observed})
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "outside-note-dispatcher-tools.json"), evidence, 0600))
-}
-
-// Verify the fault itself without claiming microVM evidence: only an outside
-// signal loses its successful response, retry obeys cancellation, and releasing
-// it preserves the original request body. The reference case uses this exact
-// transport around the real guest connection.
-func TestOutsideNoteAcknowledgementFault(t *testing.T) {
-	var calls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
-		if r.URL.Path == "/runtime/v1/command" {
-			body, err := io.ReadAll(r.Body)
-			require.NoError(t, err)
-			require.JSONEq(t, `{"operation":"signal","signal":{"name":"outside_change"}}`, string(body))
-		}
-		_, _ = w.Write([]byte(`{"protocol":"smithers.flow-runtime/v1","ok":true,"value":{"receipt":{"_tag":"Accepted"}}}`))
-	}))
-	defer server.Close()
-	fault := &outsideNoteFaultRuntime{retry: make(chan struct{})}
-	defer fault.resume()
-	fault.armed.Store(true)
-	transport := outsideNoteFaultTransport{base: http.DefaultTransport, fault: fault}
-	send := func(ctx context.Context, path string) (*http.Response, error) {
-		request, err := http.NewRequestWithContext(ctx, "POST", server.URL+path, strings.NewReader(`{"operation":"signal","signal":{"name":"outside_change"}}`))
-		require.NoError(t, err)
-		return transport.RoundTrip(request)
-	}
-	response, err := send(t.Context(), "/health")
-	require.NoError(t, err)
-	_ = response.Body.Close()
-	require.True(t, fault.armed.Load())
-	response, err = send(t.Context(), "/runtime/v1/command")
-	require.ErrorContains(t, err, "acknowledgement lost")
-	require.Nil(t, response)
-	require.Equal(t, int32(1), fault.dropped.Load())
-	require.Equal(t, int32(2), calls.Load())
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	response, err = send(ctx, "/runtime/v1/command")
-	require.ErrorIs(t, err, context.Canceled)
-	require.Nil(t, response)
-	require.Equal(t, int32(2), calls.Load())
-	fault.resume()
-	response, err = send(t.Context(), "/runtime/v1/command")
-	require.NoError(t, err)
-	_ = response.Body.Close()
-	require.Equal(t, int32(3), calls.Load())
-	require.Equal(t, int32(1), fault.dropped.Load())
 }

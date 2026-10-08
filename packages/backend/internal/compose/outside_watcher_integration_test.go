@@ -63,8 +63,9 @@ func TestOutsideWatcherComposedInstallLive(t *testing.T) {
 		return store, nil
 	}))
 	t.Cleanup(func() { require.NoError(t, registry.Close()) })
-	// Keep the host capability registration explicit: this exercises real
-	// watcher-to-durable-note admission, not a running agent's transcript.
+	// Use the production qualifier over controlled registration facts. The
+	// watcher, authenticated daemon and durable admission are real; no running
+	// coding guest transcript is claimed by this Linux watcher case.
 	var item string
 	require.NoError(t, f.pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,source,state,workspace_id,owner_id,request_run_id,flow_digest,checks) VALUES($1,'todo','running',$2,$3,'pinned-notes-run',$4,$5) RETURNING id`, f.row.RepositoryID, f.row.ID, f.user.ID, strings.Repeat("a", 64), `{"flowSource":"`+strings.Repeat("b", 40)+`"}`).Scan(&item))
 	jobStore, err := jobs.NewStore(f.pool)
@@ -74,7 +75,16 @@ func TestOutsideWatcherComposedInstallLive(t *testing.T) {
 		return nil, machined.ErrNotReady
 	})})
 	require.NoError(t, err)
-	notes := &machined.OutsideChangeNotes{Runs: &machined.PinnedCodingNoteRuns{Host: noteHostContractFixture{}}, Dispatcher: dispatcher}
+	authority, err := registry.MintBoot(f.row.ID, f.row.ID)
+	require.NoError(t, err)
+	_, err = f.pool.Exec(ctx, `UPDATE workspaces SET vm_id=$2 WHERE id=$1`, f.row.ID, f.row.ID)
+	require.NoError(t, err)
+	run := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(run, "machined"), 0700))
+	bootFile, err := authority.FileForItem(0, machined.ItemBinding{})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(run, "machined", "boot"), bootFile, 0400))
+	notes := &machined.OutsideChangeNotes{Runs: &machined.PinnedCodingNoteRuns{Host: qualifiedOutsideNoteHost(t, f, dispatcher, item, authority.ID)}, Dispatcher: dispatcher}
 	stop, err := bindMachineEvents(ctx, registry, f.pool, client, nil, notes)
 	require.NoError(t, err)
 	t.Cleanup(stop)
@@ -118,7 +128,7 @@ func TestOutsideWatcherComposedInstallLive(t *testing.T) {
 			t.Logf("installed daemon: %s", log)
 		}
 	})
-	require.NoError(t, startRehearsalMachined(t, ctx, registry, f.row.ID, root, evidence, binary, &machined.ItemBinding{}))
+	require.NoError(t, startRehearsalMachinedWith(t, ctx, registry, f.row.ID, root, evidence, binary, &machined.ItemBinding{}, &rehearsalRestart{Run: run}))
 	// Initialization observes the ordinary tracked ignore file. Let that
 	// setup burst settle before subscribing and measuring the outside edits.
 	require.Eventually(t, func() bool {

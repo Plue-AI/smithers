@@ -37,11 +37,11 @@ func TestMachineEventsProductionLiveBinding(t *testing.T) {
 	testMachineEventsProductionLiveBinding(t, nil)
 }
 
-func testMachineEventsProductionLiveBinding(t *testing.T, configure func(presenceInstallFixture) *machined.OutsideChangeNotes, afterFirst ...func(presenceInstallFixture)) {
+func testMachineEventsProductionLiveBinding(t *testing.T, configure func(presenceInstallFixture, [16]byte) *machined.OutsideChangeNotes, afterFirst ...func(presenceInstallFixture)) {
 	f := presenceInstall(t, true)
 	var notes *machined.OutsideChangeNotes
 	if configure != nil {
-		notes = configure(f)
+		notes = &machined.OutsideChangeNotes{}
 	}
 	ctx := t.Context()
 	_, err := f.pool.Exec(ctx, `UPDATE workspaces SET vm_id='machine' WHERE id=$1`, f.row.ID)
@@ -146,8 +146,12 @@ func testMachineEventsProductionLiveBinding(t *testing.T, configure func(presenc
 	require.NoError(t, err)
 	t.Cleanup(stop)
 	require.True(t, registry.EventConsumerReady())
-	link, guest := presenceTestLink(t, registry, f.row.ID)
+	var noteBoot [16]byte
+	link, guest := presenceTestLink(t, registry, f.row.ID, &noteBoot)
 	require.NoError(t, link.Reconciled())
+	if configure != nil {
+		*notes = *configure(f, noteBoot)
+	}
 	commitActor := func(identity machined.ActorIdentity) []byte {
 		t.Helper()
 		ref, err := machined.CommitActor(ctx, pool, f.row.ID, "machine", func(context.Context, pgx.Tx) (machined.ActorIdentity, error) { return identity, nil })

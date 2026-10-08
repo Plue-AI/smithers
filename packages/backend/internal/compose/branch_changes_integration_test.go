@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/jackc/pgx/v5"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,16 +25,14 @@ func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 	testBranchChangesProductionLiveBoundary(t, nil)
 }
 
-func testBranchChangesProductionLiveBoundary(t *testing.T, bindNotes func(presenceInstallFixture, *machined.BurstIngest)) {
+func testBranchChangesProductionLiveBoundary(t *testing.T, bindNotes func(presenceInstallFixture, *machined.BurstIngest, [16]byte)) {
 	f := presenceInstall(t, true)
 	require.Equal(t, int64(2), f.user.ID)
 	registry := &machined.Registry{}
-	boot := [16]byte{1}
-	secret := []byte("changes-boot")
-	require.NoError(t, registry.BindBoot(f.row.ID, "vm", boot, secret))
-	c, err := registry.Admit(boot, secret, io.NopCloser(strings.NewReader("")))
-	require.NoError(t, err)
-	defer c.Close()
+	var boot [16]byte
+	link, _ := presenceTestLink(t, registry, f.row.ID, &boot)
+	c := link.Connection
+	var err error
 	store := filepath.Join(t.TempDir(), "store.git")
 	cmd := hostexec.Git(t.Context(), "init", "--bare", store)
 	output, initErr := cmd.CombinedOutput()
@@ -68,16 +65,16 @@ func testBranchChangesProductionLiveBoundary(t *testing.T, bindNotes func(presen
 		}
 		return store, nil
 	}}}
-	_, err = f.pool.Exec(t.Context(), `UPDATE workspaces SET vm_id='vm' WHERE id=$1`, f.row.ID)
+	_, err = f.pool.Exec(t.Context(), `UPDATE workspaces SET vm_id='machine' WHERE id=$1`, f.row.ID)
 	require.NoError(t, err)
-	ref, err := machined.CommitActor(t.Context(), f.pool, f.row.ID, "vm", func(context.Context, pgx.Tx) (machined.ActorIdentity, error) {
+	ref, err := machined.CommitActor(t.Context(), f.pool, f.row.ID, "machine", func(context.Context, pgx.Tx) (machined.ActorIdentity, error) {
 		return machined.ActorIdentity{Kind: "person", MemberID: f.user.ID, Via: "ssh"}, nil
 	})
 	require.NoError(t, err)
 	actor := wire.Union(1, wire.Field(1, wire.Bytes(ref)))
 
 	if bindNotes != nil {
-		bindNotes(f, ingest)
+		bindNotes(f, ingest, boot)
 	}
 	list := wire.U16(12)
 	for i := 0; i < 12; i++ {

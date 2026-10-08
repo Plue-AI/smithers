@@ -254,10 +254,13 @@ func TestPresenceAgentSessionResolvesAdmittedBranch(t *testing.T) {
 
 // The guest is the only fake here; host authentication, snapshot transport,
 // bridge, PostgreSQL authorization and the install live route are production.
-func presenceTestLink(t *testing.T, registry *machined.Registry, branch string) (*machined.Link, net.Conn) {
+func presenceTestLink(t *testing.T, registry *machined.Registry, branch string, bootOut ...*[16]byte) (*machined.Link, net.Conn) {
 	t.Helper()
 	authority, err := registry.MintBoot(branch, "machine")
 	require.NoError(t, err)
+	for _, output := range bootOut {
+		*output = authority.ID
+	}
 	host, guest := net.Pipe()
 	t.Cleanup(func() { host.Close(); guest.Close() })
 	done := make(chan error, 1)

@@ -113,7 +113,8 @@ export const markersOf = (value) => {
     resolve: !raw.includes("[NORESOLVE]"),
     file: /\[FILE ([A-Za-z0-9._/-]+)\]/.exec(raw)?.[1],
     flowedit: raw.includes("[FLOWEDIT]"),
-    changelog: raw.includes("[CHANGELOG]")
+    changelog: raw.includes("[CHANGELOG]"),
+    observeuid: raw.includes("[OBSERVEUID]")
   }
 }
 
@@ -140,6 +141,7 @@ const intentMarkers = (markers, answer) =>
     markers.hold ? `[HOLD ${markers.hold}]` : "",
     markers.flowedit ? "[FLOWEDIT]" : "",
     markers.changelog ? "[CHANGELOG]" : "",
+    markers.observeuid ? "[OBSERVEUID]" : "",
     markers.file ? `[FILE ${markers.file}]` : "",
     answerText(answer) !== "" ? `[ANSWER ${JSON.stringify(answerText(answer))}]` : ""
   ].filter(Boolean).join(" ")
@@ -201,6 +203,11 @@ const editCell = (hosted, greeting) => {
     `  if (written.ok === false) throw new Error(written.error?.message ?? "write failed");`,
     `};`
   ]
+  if (markers.observeuid) {
+    lines.push('const identity = await ctx.call("bash", { command: "id -u" });')
+    lines.push('if (identity.exitCode !== 0 || identity.stdout !== "19999\\n") throw new Error("coding tool UID refused");')
+    lines.push('await put(".outside-note-uid", identity.stdout);')
+  }
   if (markers.flowedit) {
     lines.push(`await put("flows/todo/flow.ts", ${JSON.stringify(editedFlow())});`)
     writes.push("flows/todo/flow.ts")
@@ -272,6 +279,7 @@ const steps = [
       const file = markers.file ?? "JOURNEY.md"
       const writes = markers.flowedit ? ["flows/todo/flow.ts"] : [file]
       if (markers.changelog) writes.push("CHANGELOG.md")
+      if (markers.observeuid) writes.push(".outside-note-uid")
       if ((markers.fail || markers.failonce) && !writes.includes("JOURNEY.md")) writes.push("JOURNEY.md")
       fileMarkers.set(file, markers)
       return done({
