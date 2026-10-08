@@ -284,6 +284,23 @@ for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stag
     expect(repeated.ok()).toBe(true)
     await expect.poll(async () => (await stack()).items.filter(item => item.title === title).length).toBe(1)
     const created = (await stack()).items.find(item => item.title === title)!.number
+    // Replay the actual browser decision with its original key. A reconnect or
+    // repeated press must return the receipt without dispatching another TODO.
+    const approvedReceipt = await approved.json()
+    const approvalHeaders = await approved.request().allHeaders()
+    expect(approvalHeaders["idempotency-key"]).toBeTruthy()
+    expect(approvalHeaders["x-csrf-token"]).toBeTruthy()
+    const replay = await context.request.post(approved.url(), {
+      data: approved.request().postDataJSON(), headers: {
+        Origin: origin, "X-CSRF-Token": approvalHeaders["x-csrf-token"]!,
+        "Idempotency-Key": approvalHeaders["idempotency-key"]!
+      }
+    })
+    expect(replay.status()).toBe(approved.status())
+    expect(await replay.json()).toEqual(approvedReceipt)
+    expect((await stack()).items.filter(item => item.title === title)).toHaveLength(1)
+    expect((await confirmations()).find(row => row.id === pending.id)?.state).toBe("approved")
+
     expect(await order()).toEqual(stage === "S1" ? [1, 2, created] : [1, created, 2])
     const activity = await context.request.get(`${origin}/api/branches/${encodeURIComponent(fixture("BRANCH"))}/activity`)
     expect(activity.status()).toBe(200)
@@ -383,6 +400,11 @@ for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stag
       const coding = agents.find(actor => actor.kind === "agent" && actor.agent === "coding")
       expect(claude).toBeDefined()
       expect(coding).toBeDefined()
+      for (const kind of ["answer", "steer"]) {
+        const entry = entries.find(row => row.kind === kind && row.actor.agent === "claude-code")!
+        expect(entry.actor.id).toBe(claude!.id)
+        expect(entry.actor.avatar_url).toBe(claude!.avatar_url)
+      }
       expect(claude!.id).not.toBe(coding!.id)
       expect(claude!.avatar_url).toBeTruthy()
       expect(claude!.avatar_url).not.toBe(coding!.avatar_url)

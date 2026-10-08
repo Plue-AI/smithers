@@ -44,6 +44,15 @@ describe("installed Claude skill execution receipts", () => {
     expect(run(messages, ["todo new"], undefined, refusal).status).toBe(0)
     expect(run(messages, ["todo new"], undefined, { ...refusal, code: "permission" }).status).not.toBe(0)
   })
+  test("plain success prose cannot qualify answer or steer", () => {
+    for (const name of ["todo answer", "todo steer", "wiki"]) {
+      expect(run(transcript(`smthrs ${name} --json`, "Done", false), [name], "").status).not.toBe(0)
+      expect(run(transcript(`smthrs ${name} --json`, JSON.stringify({ ok: true }), false), [name], "").status).toBe(0)
+    }
+  })
+  test("a typed refusal fails even when Claude marks its tool successful", () => {
+    expect(run(transcript("smthrs todo answer --json", JSON.stringify({ class: "permission", code: "permission" }), false), ["todo answer"], "").status).not.toBe(0)
+  })
   test("a later failed tool or final Claude failure invalidates the transcript", () => {
     const messages: unknown[] = transcript("smthrs todo new --json", JSON.stringify(pending), true)
     messages.splice(2, 0, { message: { content: [{ type: "tool_result", tool_use_id: "other", content: "failed", is_error: true }] } })

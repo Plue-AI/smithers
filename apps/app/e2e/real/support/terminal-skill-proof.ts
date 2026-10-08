@@ -37,7 +37,10 @@ for block in tool_results:
  is_refusal=refusal is not None and 'smthrs todo new' in command and any(value.get('class')=='permission' and value.get('code')==refusal['code'] and value.get('message')==refusal['message'] for value in receipts)
  assert not block.get('is_error') or is_confirmation or is_refusal, 'Claude skill tool failed'
  for name in expected:
-  if 'smthrs '+name in command: completed.add(name)
+  if 'smthrs '+name in command:
+   assert receipts, 'Smithers command produced no JSON receipt'
+   assert is_refusal or not any(value.get('class') in ('permission','user','infra','conflict') for value in receipts), 'Smithers command returned a typed failure'
+   completed.add(name)
  if is_confirmation: confirmations.extend(value['confirmation'] for value in pending)
  refused=refused or is_refusal
 assert all(name in completed for name in expected), 'Missing completed Smithers skill command'
