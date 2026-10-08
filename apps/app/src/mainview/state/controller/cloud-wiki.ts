@@ -35,7 +35,7 @@ export const spaceOf = (cloud: Pick<CloudWikiState, "visibility">): WikiSpace =>
 /**
  * The live navigation indexes, one per repository and space: what the Wiki
  * pane's tree, the card's tree and the backlinks rail read (the way the
- * Stack views read `stackSnapshots`). A snapshot of the backend's index,
+ * Wiki freshness reads `repositorySnapshots`). A snapshot of the backend's index,
  * replaced whole on every read, never persisted.
  */
 export interface WikiIndexStore {

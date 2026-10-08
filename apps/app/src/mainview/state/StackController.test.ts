@@ -82,6 +82,8 @@ const setup = async (fake = cloud(), store?: AppStore, toastDebounceMs = 20) => 
     fetchImpl: fake.fetchImpl,
     toastDebounceMs
   })
+  await opened.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: REPO, org: "smithersai", ownerKind: "org", name: "smithers", head: null }] }).isPersisted.promise
+  await opened.dispatch({ type: "repo.selected", actor: "user", id: REPO }).isPersisted.promise
   await signIn(opened)
   return { store: opened, controller, fake }
 }
@@ -92,21 +94,20 @@ const stackCard = (store: AppStore) => {
   return card?.kind === "stack" ? card : undefined
 }
 
-test("history.show embeds the live stack and every hint re-reads the snapshot", async () => {
+test("Wiki pane retains repository snapshots without creating a legacy stack card", async () => {
   const { store, controller, fake } = await setup()
   fake.set(snapshot(3, [item("i7", "queued")]))
-  const shown = await controller.commands.run("history.show", REPO)
-  expect(shown).toMatchObject({ status: "executed" })
-  expect(shown.status === "executed" && shown.value).toContain("0/2 lanes busy, 1 queued")
-  expect(stackCard(store)?.payload).toEqual({ repo: REPO, failure: null })
-  expect(controller.stackSnapshots.get(REPO)?.stack?.generation).toBe(3)
+  controller.showWikiPane()
+  await waitFor(() => controller.repositorySnapshots.get(REPO)?.stack?.generation === 3)
+  expect(stackCard(store)).toBeUndefined()
+  expect(controller.repositorySnapshots.get(REPO)?.stack?.generation).toBe(3)
   // The card holds no snapshot: the journal never carries the stack itself.
   expect(JSON.stringify([...store.collections.transitions.values()])).not.toContain("dependsOn")
 
   await waitFor(() => fake.streams() === 1)
   fake.set(snapshot(3, [item("i7", "running", { lane: 0 })]))
   fake.hint(3)
-  await waitFor(() => controller.stackSnapshots.get(REPO)?.stack?.items[0]?.state === "running")
+  await waitFor(() => controller.repositorySnapshots.get(REPO)?.stack?.items[0]?.state === "running")
 
   // An older generation is a stale answer and never replaces a newer one.
   fake.set(snapshot(2, [item("i7", "queued")]))
@@ -114,14 +115,14 @@ test("history.show embeds the live stack and every hint re-reads the snapshot", 
   fake.hint(2)
   await waitFor(() => fake.reads() > reads, 3_000)
   await new Promise(resolve => setTimeout(resolve, 20))
-  expect(controller.stackSnapshots.get(REPO)?.stack?.items[0]?.state).toBe("running")
+  expect(controller.repositorySnapshots.get(REPO)?.stack?.items[0]?.state).toBe("running")
 })
 
 
 test("lane notices start after the debounce, follow rebases and legacy retry data, and settle only on a real outcome", async () => {
   const { store, controller, fake } = await setup()
   fake.set(snapshot(1, [item("i1", "queued"), item("i2", "queued")]))
-  await controller.commands.run("history.show", REPO)
+  controller.showWikiPane()
   await waitFor(() => fake.streams() === 1)
   const one = itemKey("i1")
   const two = itemKey("i2")
@@ -150,34 +151,32 @@ test("lane notices start after the debounce, follow rebases and legacy retry dat
 test("an item that leaves its lane inside the debounce never flashes a notice", async () => {
   // Reads are at least a second apart, so the debounce here outlasts one.
   const { store, controller, fake } = await setup(cloud(), undefined, 5_000)
-  await controller.commands.run("history.show", REPO)
+  controller.showWikiPane()
   await waitFor(() => fake.streams() === 1)
   fake.set(snapshot(1, [item("i3", "running", { lane: 0 })]))
   fake.hint(1)
-  await waitFor(() => controller.stackSnapshots.get(REPO)?.stack?.items[0]?.state === "running")
+  await waitFor(() => controller.repositorySnapshots.get(REPO)?.stack?.items[0]?.state === "running")
   fake.set(snapshot(2, [item("i3", "skipped", { reason: "not actionable" })]))
   fake.hint(2)
-  await waitFor(() => controller.stackSnapshots.get(REPO)?.stack?.items[0]?.state === "skipped", 3_000)
+  await waitFor(() => controller.repositorySnapshots.get(REPO)?.stack?.items[0]?.state === "skipped", 3_000)
   await new Promise(resolve => setTimeout(resolve, 60))
   expect(toast(store, itemKey("i3"))).toBeUndefined()
 })
 
 test("removed sweep and repository parallel doors send no request", async () => {
   const { controller, fake } = await setup()
-  await controller.commands.run("history.show", REPO)
+  controller.showWikiPane()
   const [first, second] = await Promise.all([controller.commands.run("history.backfill", REPO), controller.commands.run("history.backfill", REPO)])
   expect(first.status).toBe("unknown-command")
   expect(second.status).toBe("unknown-command")
   expect(fake.writes).toHaveLength(0)
 
   expect(await controller.commands.run("history.parallel", `4 ${REPO}`)).toMatchObject({ status: "unknown-command" })
-  expect(await controller.setStackParallel(4, REPO)).toBe("Use At once in Settings.")
   expect(fake.writes).toHaveLength(0)
 })
 
 test("the historical retry door refuses without writing", async () => {
   const { controller, fake } = await setup()
-  expect(await controller.retryStackItem("i5", REPO)).toBe("Use Retry on the TODO.")
   expect(await controller.commands.run("history.retry", `i5 ${REPO}`)).not.toMatchObject({ status: "executed" })
   expect(fake.writes).toEqual([])
 })
@@ -245,9 +244,8 @@ test("an unreadable stack shows its refusal and stops asking", async () => {
     new URL(String(url), "https://test.invalid").pathname.startsWith(BASE)
       ? Response.json({ message: "Not found" }, { status: 404 })
       : fake.fetchImpl(url, init) })
-  const shown = await controller.commands.run("history.show", REPO)
-  expect(shown.status).toBe("failed")
-  expect(controller.stackSnapshots.get(REPO)?.error).toBeTruthy()
+  controller.showWikiPane()
+  await waitFor(() => !!controller.repositorySnapshots.get(REPO)?.error)
 })
 
 test("retrying a failed bootstrap waits for the new pass, not the last one's error", async () => {
@@ -275,7 +273,7 @@ test("retrying a failed bootstrap waits for the new pass, not the last one's err
 test("a dismissed lane notice stays dismissed while the item is in its lane", async () => {
   const { store, controller, fake } = await setup()
   fake.set(snapshot(1, [item("i4", "running", { lane: 0 })]))
-  await controller.commands.run("history.show", REPO)
+  controller.showWikiPane()
   await waitFor(() => toast(store, itemKey("i4"))?.status === "running")
   await store.dispatch({ type: "toast.dismissed", actor: "user", id: `toast-${itemKey("i4")}` }).isPersisted.promise
   await waitFor(() => fake.streams() === 1)
@@ -302,18 +300,18 @@ test("wiki.create answers before its request does, deduplicates, and settles onl
   const [first, second] = await Promise.all([controller.commands.run("wiki.create", REPO), controller.commands.run("wiki.create", REPO)])
   expect(first).toMatchObject({ status: "executed", value: "Requested" })
   expect(second).toMatchObject({ status: "executed", value: "Requested" })
-  expect(stackCard(store)?.payload).toEqual({ repo: REPO, failure: null })
+  expect(stackCard(store)).toBeUndefined()
   // Durable before the network answers.
   expect(store.session().wikiRequests).toMatchObject([{ repo: REPO, owner: "alice" }])
   await waitFor(() => toast(store, WIKI_KEY)?.status === "running")
   expect(fake.writes.filter(write => write.path === `${BASE}/wiki`)).toHaveLength(1)
   // Chat and other acts stay usable while the launch is unresolved.
-  expect(await controller.commands.run("history.show", REPO)).toMatchObject({ status: "executed" })
+  expect(await controller.commands.run("wiki.new-note")).toMatchObject({ status: "executed" })
 
   const refreshing = snapshot(2, [], { wiki: wiki("refreshing") })
   fake.set(refreshing)
   held.resolve(Response.json(refreshing, { status: 202 }))
-  await waitFor(() => controller.stackSnapshots.get(REPO)?.stack?.wiki?.state === "refreshing")
+  await waitFor(() => controller.repositorySnapshots.get(REPO)?.stack?.wiki?.state === "refreshing")
   await waitFor(() => fake.streams() === 1)
   await new Promise(resolve => setTimeout(resolve, 50))
   expect(toast(store, WIKI_KEY)?.status).toBe("running")
@@ -338,7 +336,7 @@ test("a failed refresh settles failed with Retry, and Retry waits for the next a
   await waitFor(() => toast(store, WIKI_KEY)?.status === "failed")
   expect(toast(store, WIKI_KEY)).toMatchObject({ detail: "2 pages failed review", action: { flow: "wiki.create", args: REPO, label: "Retry" } })
   // The card has no failure row for the Wiki: its own row shows the error and Retry.
-  expect(stackCard(store)?.payload.failure).toBeNull()
+  expect(stackCard(store)).toBeUndefined()
 
   // The retry is acknowledged with the failure it was asked about.
   fake.handlers.set(`POST ${BASE}/wiki`, async () => Response.json(failed, { status: 202 }))
@@ -348,7 +346,7 @@ test("a failed refresh settles failed with Retry, and Retry waits for the next a
   expect(toast(store, WIKI_KEY)?.status).toBe("running")
   fake.set(snapshot(4, [], { wiki: wiki("refreshing", { attempt: 2 }) }))
   fake.hint(4)
-  await waitFor(() => controller.stackSnapshots.get(REPO)?.stack?.wiki?.attempt === 2, 3_000)
+  await waitFor(() => controller.repositorySnapshots.get(REPO)?.stack?.wiki?.attempt === 2, 3_000)
   expect(toast(store, WIKI_KEY)?.status).toBe("running")
   fake.set(snapshot(5, [], { wiki: wiki("current", { attempt: 2, publishedCommit: "c2" }) }))
   fake.hint(5)
@@ -361,7 +359,7 @@ test("a refused Wiki request fails on its notice with Retry", async () => {
   expect(await controller.commands.run("wiki.create", REPO)).toMatchObject({ status: "executed", value: "Requested" })
   await waitFor(() => toast(store, WIKI_KEY)?.status === "failed")
   expect(toast(store, WIKI_KEY)?.action).toEqual({ flow: "wiki.create", args: REPO, label: "Retry" })
-  expect(stackCard(store)?.payload.failure).toBeNull()
+  expect(stackCard(store)).toBeUndefined()
 })
 
 test("rapid refused Wiki attempts retain a healthy real SQLite writer and settle each notice", async () => {
@@ -444,7 +442,8 @@ test("search.history indexes the history's changes: one read when none is watche
   expect(stackCard(store)).toBeUndefined()
   expect(fake.streams()).toBe(0)
 
-  await controller.commands.run("history.show", REPO)
+  controller.showWikiPane()
+  await waitFor(() => controller.repositorySnapshots.get(REPO)?.stack !== undefined)
   const reads = fake.reads()
   expect(await controller.commands.run("search.history", "import")).toMatchObject({ status: "executed" })
   expect(fake.reads()).toBe(reads)
@@ -460,7 +459,7 @@ test("signed out, History parks behind sign-in and reads nothing", async () => {
     fetchImpl: fake.fetchImpl
   })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
-  await controller.commands.run("history.show", REPO)
+  controller.showWikiPane()
   expect(fake.reads()).toBe(0)
   expect(stackCard(store)).toBeUndefined()
 })

@@ -2051,6 +2051,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		defer stopPresence()
 		topics := &liveTopics{changePool: pool, jobs: commandJobs, secrets: secretService, capacity: installCapacity, presence: presence, queries: queries, todos: mythicalService, sync: gitHubSyncRoute, install: installSetup, members: authService.Members}
 		topics.sources = repositorySourceFiles{client: repoHostClient}
+		topics.main = repoHostClient
 		if flow != nil {
 		}
 

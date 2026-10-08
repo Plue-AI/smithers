@@ -259,7 +259,7 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
   await expect(home.locator('.branch-chip')).toHaveCount(1)
 })
 
-test("install Home keeps capacity from the shared live snapshot across updates", async ({ page }) => {
+test("install Home keeps main and capacity from the shared live snapshot across updates", async ({ page }) => {
   const { installCloudFixture } = await import("./cloudFixture")
   const { installFixture } = await import("../../src/mainview/state/seams/InstallFixtures.test-support")
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
@@ -269,6 +269,7 @@ test("install Home keeps capacity from the shared live snapshot across updates",
   await page.route("**/api/conversations/main", route => route.fulfill({ json: { id: "main", entries: [] } }))
   await page.route("**/api/conversations/main/view-state", route => route.fulfill({ json: {} }))
   let capacity = 2
+  let main = { sha: "1234567890abcdef1234567890abcdef12345678", title: "Ship Home from the install", last_success_at: "2026-10-07T00:00:00Z", health: "fresh" }
   const publishers: Array<() => void> = []
   await page.routeWebSocket("**/api/live", socket => socket.onMessage(raw => {
     const frame = JSON.parse(String(raw))
@@ -276,7 +277,7 @@ test("install Home keeps capacity from the shared live snapshot across updates",
     if (frame.topic !== "home") { socket.send(JSON.stringify({ t: "err", id: frame.id, code: "unsupported" })); return }
     let cursor = 0
     const publish = () => socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: ++cursor, data: {
-      repository: "owner/repo", main: { sha: "a".repeat(40), title: "main", last_success_at: "2026-10-07T00:00:00Z", health: "fresh" },
+      repository: "owner/repo", main,
       attention: [], items: [], counts: { queued: 0, starting: 0, working: 0, needs_you: 0, paused: 0, failed: 0, in_review: 0, merged: 0, dropped: 0 },
       merged_since_last_look: [], machines: { in_use: 0, capacity, slots: [] }, background_runs: []
     } }))
@@ -288,10 +289,16 @@ test("install Home keeps capacity from the shared live snapshot across updates",
   await expect(page.getByTestId("composer-input")).toHaveValue("")
   const home = page.locator(".home").first()
   await expect(home).toContainText("0/2 machines")
+  await expect(home.locator(".stack-main-row")).toContainText("1234567")
+  await expect(home.locator(".stack-main-row")).toContainText("Ship Home from the install")
   await expect(home).not.toContainText("0/3 machines")
   capacity = 4
+  main = { ...main, sha: "abcdef1234567890abcdef1234567890abcdef12", title: "GitHub main moved" }
   publishers.forEach(publish => publish())
   await expect(home).toContainText("0/4 machines")
+  await expect(home.locator(".stack-main-row")).toContainText("abcdef1")
+  await expect(home.locator(".stack-main-row")).toContainText("GitHub main moved")
+  await expect(home.locator(".stack-main-row")).not.toContainText("Ship Home from the install")
   await expect(home).not.toContainText("0/3 machines")
   await expect(page.getByTestId("composer-input")).toBeEditable()
 })

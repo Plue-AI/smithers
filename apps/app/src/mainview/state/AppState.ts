@@ -188,7 +188,7 @@ export type WikiIndexPage = z.infer<typeof WikiIndexPageSchema>
  * One space's navigation index (`GET /wiki/navigation/index`): the pages with
  * their metadata and backlinks, the folders and the tags, one row per
  * repository and space. A live snapshot the cloud wiki controller holds
- * (`controller.wikiIndexes`, the way the Stack views read `stackSnapshots`),
+ * (`controller.wikiIndexes`, the way the Stack views read `repositorySnapshots`),
  * never a collection: the index is one SQL snapshot, re-read whenever the
  * space is opened, and a saved copy would only ever be stale.
  */
@@ -969,7 +969,7 @@ export const SessionSchema = z.object({
     id: z.string(), owner: z.string(), repo: z.string(), host: z.string(),
     state: z.enum(["requested", "completed", "failed"]), error: z.string().max(1024).optional()
   }).strict()).optional(),
-  /* Wiki refreshes asked of a repository's stack (StackSeam.refreshWiki): each notice reconnects after a reload until the Wiki settles. */
+  /* Wiki refreshes asked of a repository's stack (WikiRefreshSeam.refreshWiki): each notice reconnects after a reload until the Wiki settles. */
   branchArchiveRequests: z.array(z.object({ id:z.string(), owner:z.string(), branch:z.string(), state:z.enum(["requested","completed","failed"]), error:z.string().optional() }).strict()).optional(),
   githubSyncRequest: z.object({ id: z.string(), owner: z.string(), lastSuccessAt: z.string().nullable(), phase: z.enum(["requested", "running", "failed"]), error: z.string().optional(), mainReset: z.object({ id: z.string().min(1), old: z.string().regex(/^[0-9a-f]{40}$/), new: z.string().regex(/^[0-9a-f]{40}$/) }).optional() }).optional(),
   homeBackgroundRequests: z.array(z.object({

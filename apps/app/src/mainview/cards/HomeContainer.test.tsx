@@ -789,3 +789,12 @@ test("Home derives each member's merged count from committed sequences and prese
   expect(mount({ ...base, merged_since_last_look: [90, 3] }).props.model.merged_since_last_look).toEqual([90, 3])
   expect(model.merge_history).toEqual([{ n: 90, seq: 8 }, { n: 3, seq: 12 }, { n: 1, seq: 17 }])
 })
+
+ test("Home renders the served main SHA and title", () => {
+  const model = { ...fixtures.fresh.model, main: { ...fixtures.fresh.model.main, sha: "1234567890abcdef1234567890abcdef12345678", title: "Ship the install Home" } }
+  const h = mount(model)
+  const html = renderToStaticMarkup(<HomeView {...h.props} />)
+  expect(html).toContain("1234567")
+  expect(html).toContain('title="1234567890abcdef1234567890abcdef12345678"')
+  expect(html).toContain("Ship the install Home")
+ })

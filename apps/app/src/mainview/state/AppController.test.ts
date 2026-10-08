@@ -167,7 +167,7 @@ describe("the controller's command surface", () => {
       "observeReviewConfirmation",
       "contextLine",
       "store",
-      "stackSnapshots",
+      "repositorySnapshots",
       "homeView",
       "runMonitors",
       "listRunMonitors",

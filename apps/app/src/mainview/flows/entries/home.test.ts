@@ -13,8 +13,10 @@ import { shellViewsOf } from "../../state/seams/DesignWorld/shell"
 import { modelInvocable, nameOf } from "../registry"
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 import { fixtures } from "../../../../../../packages/rpc/test/fixtures/Todo"
+import { fixtures as homeFixtures } from "@smthrs/rpc/fixtures/Home"
+import type { LiveTopics } from "../../state/useTopic"
 
-const boot = async (options: { readonly bootstrap?: AppBootstrap; readonly fetch?: (url: string, init?: RequestInit) => Response | undefined | Promise<Response | undefined> } = {}) => {
+const boot = async (options: { readonly bootstrap?: AppBootstrap; readonly live?: LiveTopics; readonly fetch?: (url: string, init?: RequestInit) => Response | undefined | Promise<Response | undefined> } = {}) => {
   const storage = memoryStorage()
   const store = await createAppStore({ kind: "localStorage", storage })
   const requests: string[] = []
@@ -23,7 +25,7 @@ const boot = async (options: { readonly bootstrap?: AppBootstrap; readonly fetch
     requests.push(`${init?.method ?? "GET"} ${new URL(url, "http://local.test").pathname}`)
     return (await options.fetch?.(url, init)) ?? new Response("{}", { status: 404 })
   })
-  const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl, ...(options.bootstrap ? { bootstrap: options.bootstrap } : {}) })
+  const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl, ...(options.live ? { live: options.live } : {}), ...(options.bootstrap ? { bootstrap: options.bootstrap } : {}) })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maya", admin: false, scopesPlain: null }).isPersisted.promise
   return { store, controller, requests, storage }
 }
@@ -474,3 +476,24 @@ test("a member cannot change App wiring through the status flow", async () => {
     expect(h.requests.filter(request => request.startsWith("POST "))).toEqual([])
   } finally { h.controller.dispose() }
 })
+
+ test("an install wiki refresh retries the failed worker record through the shared Home run door", async () => {
+  const bootstrap: AppBootstrap = { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "redirect", sandbox: null }
+  const posts: unknown[] = []
+  const model = { ...homeFixtures.fresh.model, background_runs: [{ id: "41", title: "Refresh wiki", state: "failed", detail: "Review failed", actions: [{ tag: "background.retry", label: "Retry", args: { id: "41" } }, { tag: "background.dismiss", label: "Dismiss", args: { id: "41" } }] }] }
+  const live = { subscribe: () => () => {}, getSnapshot: (topic: string) => topic === "home" ? { data: model } : undefined } as LiveTopics
+  const h = await boot({ bootstrap, live, fetch: (url, init) => {
+    const path = new URL(url, "http://local.test").pathname
+    if (path === "/api/runs/41" && init?.method === "POST") { posts.push(JSON.parse(String(init.body))); return Response.json({ state: "accepted", run_id: 42 }, { status: 202 }) }
+    if (path === "/api/runs/42/background-status") return Response.json({ state: "success", run_id: 42 })
+  } })
+  try {
+    const results = await Promise.all([slash(h, "wiki.create", "smithersai/smithers"), slash(h, "wiki.create", "smithersai/smithers")])
+    expect(results).toEqual([{ status: "executed", value: "Requested" }, { status: "executed", value: "Requested" }])
+    await waitFor(() => h.store.session().homeBackgroundRequests?.some(row => row.state === "completed") === true)
+    expect(posts).toEqual([{ op: "retry" }])
+    expect(h.requests.some(path => path.includes("/mythical"))).toBe(false)
+    expect(h.store.session().wikiRequests ?? []).toEqual([])
+    expect([...h.store.collections.cards.values()].some(card => card.kind === "stack")).toBe(false)
+  } finally { await h.controller.dispose() }
+ })

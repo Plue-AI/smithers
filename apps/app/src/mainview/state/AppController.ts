@@ -2,6 +2,7 @@ import { createBranchMutations } from "./seams/BranchMutationsSeam"
 import { draftIssueTodo } from "./seams/IssueTodoDraft"
 import { createBranchControlsSeam } from "./seams/BranchControlsSeam"
 import { branchFileMachineScope } from "./seams/BranchSeam"
+import { HomeCardSchema } from "@smthrs/rpc/HomeCard"
 import { projectHome } from "../runtime/HomeProjection"
 import { projectTodoCard } from "../runtime/TodoProjection"
 import { flowArgs } from "../flows/FlowArgs"
@@ -152,7 +153,8 @@ import { SecretsCardSchema } from "@smthrs/rpc/SecretsCard"
 import { SecretsView } from "../cards/views/SecretsView"
 import { secretsCardFamily } from "../cards/SecretsCard"
 import type { SecretsProviders } from "./seams/SecretsProviders"
-import type { StackSeam } from "./seams/StackSeam"
+import type { RepositoryHistorySeam } from "./seams/RepositoryHistorySeam"
+import { createWikiRefreshSeam, type WikiRefreshSeam } from "./seams/WikiRefreshSeam"
 import { createInstallSeam, type InstallSeam, type InstallTopic } from "./seams/InstallSeam"
 import { createGitHubSyncSeam, type GitHubSyncSeam } from "./seams/GitHubSyncSeam"
 import { createExternalSessionSeam, type ExternalSessionSeam } from "./seams/ExternalSessionSeam"
@@ -171,7 +173,7 @@ import { shellViewsOf } from "./seams/DesignWorld/shell"
 import { DESIGN_CARD, newWikiPage, wikiCard } from "./seams/DesignWorld/subjects"
 import { flowCardOf, flowNames, flowTitle } from "./seams/DesignWorld/run"
 import { todoSourceProbe, withDesignTodos, type TodoRoute } from "./seams/DesignWorld/todo"
-import { createStackSeam } from "./seams/StackSeam"
+import { createRepositoryHistorySeam } from "./seams/RepositoryHistorySeam"
 import type { TriggersSeam } from "./seams/TriggersSeam"
 import { createTriggersSeam } from "./seams/TriggersSeam"
 import type { LiveTopics } from "./useTopic"
@@ -518,10 +520,7 @@ export interface AppController extends IssueFlowsController {
   readonly setSecret: SecretsSeam["setSecret"]
   readonly deleteSecret: SecretsSeam["deleteSecret"]
   /* The mythical stack (#1745), the repository history (D-20): the History card, its admin writes, and the live snapshots its views read. */
-  readonly showStack: StackSeam["showStack"]
-  readonly bootstrapStack: StackSeam["bootstrapStack"]
-  readonly setStackParallel: StackSeam["setStackParallel"]
-  readonly retryStackItem: StackSeam["retryStackItem"]
+  readonly bootstrapStack: RepositoryHistorySeam["bootstrapStack"]
   readonly newTodo: TodoSeam["newTodo"]
   readonly preapproveTodo: TodoSeam["preapproveTodo"]
   readonly newFlowSourceTodo: TodoSeam["newFlowSourceTodo"]
@@ -545,7 +544,7 @@ export interface AppController extends IssueFlowsController {
   readonly resolveProposal: ProposalSeam["resolveProposal"]
   /** Move up or Move down on Tn: the seed's, or this host's POST /api/todos/{n} {op: move}. */
   readonly moveTodo: TodoSeam["moveTodo"]
-  readonly refreshWiki: StackSeam["refreshWiki"]
+  readonly refreshWiki: WikiRefreshSeam["refreshWiki"]
   readonly installSnapshots: InstallSeam["snapshots"]
   /** The roster the Members card reads: GET /api/members on an install; elsewhere the seeded roster (MOCK SEAM, DesignWorld/settings.ts). */
   readonly membersRoster: MembersSnapshots
@@ -613,7 +612,7 @@ export interface AppController extends IssueFlowsController {
   readonly setInstallParallel: InstallSeam["setInstallParallel"]
   readonly fastModelAccess: InstallSeam["fastModelAccess"]
   readonly saveInstallModelKey: InstallSeam["saveInstallModelKey"]
-  readonly stackSnapshots: StackSeam["snapshots"]
+  readonly repositorySnapshots: RepositoryHistorySeam["snapshots"]
   readonly importRepository: RepoImportSeam["importRepository"]
   readonly retryImport: RepoImportSeam["retryImport"]
   readonly listBookmarks: ReturnType<typeof createBranchNavigationSeam>["listBookmarks"]
@@ -1366,13 +1365,21 @@ export const createAppController = (
   } } : undefined), debounceMs: ctx.toastDebounceMs, onDispose: ctx.onDispose }), context, design, todoSource))
   if (installHost) ctx.onDispose(todoSeam.list.subscribe(() => {}))
 
-  const stackSeam = actors.pair(seamCtx, (context) => createStackSeam(context, withToast, {
+  const repositoryHistory = actors.pair(seamCtx, (context) => createRepositoryHistorySeam(context, withToast, {
     debounceMs: ctx.toastDebounceMs,
     onDispose: ctx.onDispose
   }))
-  // A homepage that declares the stack keeps its snapshot live.
+  const wikiRefresh = actors.pair(seamCtx, (context, select) => createWikiRefreshSeam(context, withToast, select(repositoryHistory), ctx.onDispose, repo => {
+    if (!installHost) return undefined
+    const home = HomeCardSchema.safeParse(services.live?.getSnapshot("home")?.data)
+    if (!home.success || home.data.repository !== repo) return undefined
+    const failed = home.data.background_runs.find(run => run.title === "Refresh wiki" && run.state === "failed"
+      && run.actions.some(action => action.tag === "background.retry"))
+    return failed ? homeBackground.control(failed.id, "retry") : undefined
+  }))
+  // Retained declared repository blocks keep their history reads live.
   const repositoryFlowsSeam = createRepositoryFlowsSeam(seamCtx, (repo, home) => {
-    if (home.kind === "blocks" && home.blocks.some((block) => block.type === "stack")) stackSeam.watchHomeStack(repo)
+    if (home.kind === "blocks" && home.blocks.some((block) => block.type === "stack")) repositoryHistory.watchRepository(repo)
   })
   const repositoryFlows = (): RepositoryFlowCatalog | undefined => {
     const target = resolveTargetRepo(store, undefined)
@@ -1488,8 +1495,8 @@ export const createAppController = (
    * construction.
    */
   const searchSeam = actors.pair(seamCtx, (context, select) =>
-    createSearchSeam(context, { registry: () => commands, readStack: select(stackSeam).readStack,
-      heldStack: select(stackSeam).heldStack }))
+    createSearchSeam(context, { registry: () => commands, readStack: select(repositoryHistory).readStack,
+      heldStack: select(repositoryHistory).heldStack }))
   const egressSeam = actors.pair(seamCtx, (context) => createEgressSeam(context, withToast))
   ctx.onDispose(workspaceSeam.dispose)
   /* Lane change: the change/diff cards and their acts. */
@@ -2274,7 +2281,7 @@ export const createAppController = (
       void readWikiForPane()
       // The pane shows generated pages' freshness (D-09b) from the stack snapshot, so the pane keeps it live as a homepage stack block does.
       const repo = activeRepositoryId(store)
-      if (repo !== null) stackSeam.watchHomeStack(repo)
+      if (repo !== null) repositoryHistory.watchRepository(repo)
     },
     makeConnectorReadOnly,
     askConnectorRemoval,
@@ -2444,10 +2451,7 @@ export const createAppController = (
     bindSecret: secretsSeam.bindSecret,
     setSecret: secretsSeam.setSecret,
     deleteSecret: secretsSeam.deleteSecret,
-    showStack: stackSeam.showStack,
-    bootstrapStack: stackSeam.bootstrapStack,
-    setStackParallel: stackSeam.setStackParallel,
-    retryStackItem: stackSeam.retryStackItem,
+    bootstrapStack: repositoryHistory.bootstrapStack,
     newTodo: todoSeam.newTodo,
     newFlowSourceTodo: todoSeam.newFlowSourceTodo,
     showTodo: todoSeam.showTodo,
@@ -2468,7 +2472,7 @@ export const createAppController = (
     openProposal: proposalSeam.openProposal,
     resolveProposal: proposalSeam.resolveProposal,
     moveTodo: todoSeam.moveTodo,
-    refreshWiki: stackSeam.refreshWiki,
+    refreshWiki: wikiRefresh.refreshWiki,
     registerTrigger,
     importRepository: repoImportSeam.importRepository,
     retryImport: repoImportSeam.retryImport,
@@ -2662,7 +2666,8 @@ export const createAppController = (
   proposalSeam.resumeProposals()
   if (installHost) branchMutations.resume()
   todoSeam.resumeTodos()
-  stackSeam.resumeStacks()
+  repositoryHistory.resume()
+  wikiRefresh.resume()
   workflowController.resumeWorkflowRequests()
   /*
    * Persisted model, repository and approval reads reconnect from the identity answer,
@@ -2782,7 +2787,7 @@ export const createAppController = (
     listRepositoryFlows,
     openBranchTerminal: installHost ? openBranchTerminal : undefined,
     presentBranchCard,
-    stackSnapshots: stackSeam.snapshots,
+    repositorySnapshots: repositoryHistory.snapshots,
     wikiIndexes,
     wikiAttachments,
     commands,

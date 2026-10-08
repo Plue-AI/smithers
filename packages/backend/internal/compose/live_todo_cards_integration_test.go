@@ -6,8 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/smithersai/smithers/packages/backend/repository"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -76,6 +78,17 @@ func TestLiveTodoCommittedCardsRollbackAndReplay(t *testing.T) {
 	service := services.NewMythicalService(pool, nil)
 	capacity := &services.InstallCapacityService{Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, DiskFreeBytes: 400 << 30}}
 	topics := &liveTopics{queries: q, todos: service, jobs: store, install: &services.InstallSetupService{Capacity: capacity}}
+	var mainSHA string
+	if ffi := os.Getenv("SMITHERS_FFI_LIBRARY_PATH"); ffi != "" {
+		local, err := repository.OpenLocal(repository.Config{StoragePath: t.TempDir(), AuthToken: "home-native", FFILibraryPath: ffi, InstallMainMirror: true})
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, local.Shutdown(context.Background())) })
+		require.NoError(t, local.Client().InitRepo(ctx, owner.Username, repo.Name, "main", true))
+		main, err := local.Client().GetBookmark(ctx, owner.Username, repo.Name, "main")
+		require.NoError(t, err)
+		mainSHA = main.TargetCommitID
+		topics.main = local.Client()
+	}
 	chatStore, err := chat.NewStore(pool)
 	require.NoError(t, err)
 	topics.viewState = conversationLiveViewState(q, chatStore, nil)
@@ -115,6 +128,20 @@ func TestLiveTodoCommittedCardsRollbackAndReplay(t *testing.T) {
 	homeInitial := read(homeSocket)
 	require.Equal(t, "snap", homeInitial.T)
 	require.EqualValues(t, 0, *homeInitial.Cursor)
+	t.Run("native main row", func(t *testing.T) {
+		if mainSHA == "" {
+			t.Skip("SMITHERS_FFI_LIBRARY_PATH is required for the native main-row proof")
+		}
+		var homeMain struct {
+			Main struct {
+				SHA   string `json:"sha"`
+				Title string `json:"title"`
+			} `json:"main"`
+		}
+		require.NoError(t, json.Unmarshal(homeInitial.Data, &homeMain))
+		require.Equal(t, mainSHA, homeMain.Main.SHA)
+		require.Equal(t, "Initial commit", homeMain.Main.Title)
+	})
 	member, err := q.CreateUser(ctx, db.CreateUserParams{Username: "live-member", LowerUsername: "live-member", DisplayName: "Member"})
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, repo.ID, member.ID)

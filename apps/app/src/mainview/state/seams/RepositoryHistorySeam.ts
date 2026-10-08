@@ -1,43 +1,19 @@
-/*
- * The stack seam: one repository's mythical stack (epic #1745), its history
- * (D-20), through
- * `@smthrs/rpc/Mythical`. `GET …/mythical` is the authoritative snapshot;
- * `GET …/mythical/events` is a stream of hints, each of which coalesces into
- * one more snapshot read (at most one read in flight, at most one a second).
- *
- * The snapshot is live server state, held here in memory and read by the
- * wiki freshness and the lane notices through `snapshots`; it is never
- * journaled. The `stack:<repo>` card is retired (T-APP-01: the Home card
- * replaced it); this seam goes with the wiki-refresh move. Its card row holds only what the person
- * asked for: the durable bootstrap request and the last failed act.
- *
- * Writes (bootstrap, backfill, lane count, retry) are acknowledged at once and
- * finished in the shared toast stack. Bootstrap's notice runs until the stack
- * reads active, or fails with the worker's error or a freeze. Lane notices
- * follow the items the snapshots show moving: shown after the debounce while
- * an item is in a lane, progressed through its states (a rebase conflict
- * included), and settled only when it reaches an open pull request, lands, or
- * stops.
- *
- * `refreshWiki` asks the stack to refresh the repository Wiki now (or retry a
- * failed refresh). The request is durable (`session.wikiRequests`) before it
- * is acknowledged; its notice runs until the snapshot's Wiki reads `current`
- * or `failed`, reconnects after a reload in `resumeStacks`, and a failure
- * offers Retry (`wiki.create`).
+/** Retained repository history reads, lane notices and bootstrap recovery.
+ * Home is projected exclusively by the shared home topic. Wiki commands own
+ * their requests in WikiRefreshSeam; no Home or wiki command creates a stack card.
  */
-import type { MythicalItem, MythicalStack, MythicalWiki } from "@smthrs/rpc/Mythical"
+import type { MythicalItem, MythicalStack } from "@smthrs/rpc/Mythical"
 import { mythicalRoute, MythicalStackSchema } from "@smthrs/rpc/Mythical"
-import { ACTIVE_ITEM_STATES, itemReason, itemStateLabel, itemTitle, stackCounts } from "@smthrs/rpc/StackView"
+import { ACTIVE_ITEM_STATES, itemReason, itemStateLabel, itemTitle } from "@smthrs/rpc/StackView"
 import { Data } from "effect"
 import { actorSharedState } from "../ActorBindings"
-import type { Card, Toast } from "../AppState"
+import type { Card } from "../AppState"
 import type { FailureController } from "../controller/failures"
 import { TOAST_SUPERSEDED } from "../controller/failures"
 import { resolveTargetRepo } from "../RepoContext"
 import type { CloudFailure } from "./CloudClient"
 import { CloudAnswerUnusable, cloudFailure, cloudUnreachable, createCloudClient } from "./CloudClient"
 import type { SeamContext } from "./SeamContext"
-import { readResult } from "./SeamContext"
 
 type StackCard = Extract<Card, { kind: "stack" }>
 type Failure = NonNullable<StackCard["payload"]["failure"]>
@@ -46,38 +22,35 @@ type Result = { readonly value: string } | string
 export const stackCardId = (repo: string): string => `stack:${repo}`
 
 /** What a reader sees for one repository: the last snapshot and why the last read failed. */
-export interface StackSnapshot {
+export interface RepositorySnapshot {
   readonly stack: MythicalStack | null
   readonly error: string | null
 }
 
 /** The in-memory snapshots, one per watched repository; `version` changes with every write. */
-export interface StackSnapshots {
-  readonly get: (repo: string) => StackSnapshot | undefined
+export interface RepositorySnapshots {
+  readonly get: (repo: string) => RepositorySnapshot | undefined
   readonly subscribe: (listener: () => void) => () => void
 }
 
 /** The history's event stream said this viewer lost access; the read fails as a 403. */
 class HistoryAccessRevoked extends Data.TaggedError("HistoryAccessRevoked")<Record<never, never>> {}
 
-export interface StackSeam {
-  readonly showStack: (repo?: string) => Promise<Result>
+export interface RepositoryHistorySeam {
   /** One snapshot without a card: the watched one, else a single read. */
   readonly readStack: (repo?: string) => Promise<MythicalStack | string>
   readonly heldStack: (repo: string) => MythicalStack | undefined
   readonly bootstrapStack: (repo: string) => Promise<Result>
-  readonly setStackParallel: (value: number, repo?: string) => Promise<Result>
-  readonly retryStackItem: (id: string, repo?: string) => Promise<Result>
-  /** Refresh the repository Wiki now, or retry a failed refresh. */
-  readonly refreshWiki: (repo?: string) => Promise<Result>
+  readonly observe: (repo: string, stack: MythicalStack) => void
+  readonly settled: (repo: string, predicate: (stack: MythicalStack) => true | string | undefined) => Promise<true | string | typeof TOAST_SUPERSEDED>
   /** The repository homepage declares a stack block: keep its snapshot live. */
-  readonly watchHomeStack: (repo: string) => void
+  readonly watchRepository: (repo: string) => void
   /** Boot and identity changes: reconnect every stored card and bootstrap request. */
-  readonly resumeStacks: () => void
-  readonly snapshots: StackSnapshots
+  readonly resume: () => void
+  readonly snapshots: RepositorySnapshots
 }
 
-export interface StackSeamOptions {
+export interface RepositoryHistoryOptions {
   /** Reconnect waits (ms), doubled per failure up to the cap; tests shorten them. */
   readonly retryMs?: number
   readonly retryCapMs?: number
@@ -116,11 +89,11 @@ const itemDetail = (item: MythicalItem): string => {
 /** A refusal that no reconnect will change: stop watching and say so. */
 const final = (failure: CloudFailure): boolean => failure.status === 401 || failure.status === 403 || failure.status === 404
 
-export const createStackSeam = (
+export const createRepositoryHistorySeam = (
   ctx: SeamContext,
   withToast: FailureController["withToast"],
-  options: StackSeamOptions = {}
-): StackSeam => {
+  options: RepositoryHistoryOptions = {}
+): RepositoryHistorySeam => {
   const retryMs = options.retryMs ?? 2_000
   const retryCapMs = options.retryCapMs ?? 60_000
   const minReadMs = options.minReadMs ?? 1_000
@@ -140,16 +113,16 @@ export const createStackSeam = (
     watches: new Map<string, Watch>(),
     acts: new Map<string, Promise<unknown>>(),
     homes: new Set<string>(),
-    values: new Map<string, StackSnapshot>(),
+    values: new Map<string, RepositorySnapshot>(),
     listeners: new Set<() => void>(),
     owner: login(),
     subscribed: false
   }))
-  const publish = (repo: string, value: StackSnapshot): void => {
+  const publish = (repo: string, value: RepositorySnapshot): void => {
     shared.values.set(repo, value)
     for (const listener of shared.listeners) listener()
   }
-  const snapshots: StackSnapshots = {
+  const snapshots: RepositorySnapshots = {
     get: (repo) => shared.values.get(repo),
     subscribe: (listener) => {
       shared.listeners.add(listener)
@@ -411,33 +384,11 @@ export const createStackSeam = (
     if (login() === null) return { error: "Sign in to see the history." }
     return resolveTargetRepo(ctx.store, repoArg)
   }
-  const summary = (stack: MythicalStack): string => {
-    const counts = stackCounts(stack)
-    const lanes = stack.items.filter((item) => item.lane !== undefined && ACTIVE_ITEM_STATES.has(item.state))
-      .map((item) => `lane ${(item.lane ?? 0) + 1}: ${itemTitle(stack, item)} (${itemDetail(item)})`)
-    const rows = stack.items.filter((item) => item.state !== "landed" && item.state !== "cancelled").slice(0, 50)
-      .map((item) => `${item.id} ${itemTitle(stack, item)}: ${itemDetail(item)}${item.pullRequest === undefined ? "" : ` PR #${item.pullRequest.number}`}`)
-    return [
-      `History of ${stack.repository}: ${stack.state}${stack.reason === undefined ? "" : ` (${stack.reason})`}, ${counts.changes} changes, ${counts.busy}/${counts.maxParallel} lanes busy, ${counts.queued} queued, ${counts.open} pull requests open, ${counts.blocked} blocked, ${counts.declined} declined. The History card shows it live.`,
-      ...lanes, ...rows
-    ].join("\n")
-  }
-  const showStack: StackSeam["showStack"] = async (repoArg) => {
-    const resolved = target(repoArg)
-    if ("error" in resolved) return resolved.error
-    const { repo } = resolved
-    await write(repo, {}, true)
-    const handle = watch(repo)
-    await refresh(handle)
-    const value = shared.values.get(repo)
-    if (value?.stack == null) return value?.error ?? "The history could not be read."
-    return readResult(summary(value.stack))
-  }
   /**
    * Admit one act: acknowledged as soon as the card records it, then run in
    * the shared toast stack. A second request for the same act joins the first.
    */
-  type ActKind = Failure["act"] | "wiki"
+  type ActKind = Failure["act"]
   const actKey = (repo: string, kind: ActKind, args: string): string => `stack.${kind}.${encodeURIComponent(repo)}#${args}`
   /** The notice an act wears: one per act and repository; a newer request of the act owns it. */
   const actToastKey = (repo: string, kind: ActKind, args: string): string =>
@@ -452,9 +403,9 @@ export const createStackSeam = (
     args: string,
     titles: { readonly running: string; readonly done: string },
     work: () => Promise<true | string | typeof TOAST_SUPERSEDED>,
-    options: { readonly before?: () => Promise<void>; readonly retry?: NonNullable<Toast["action"]> } = {}
+    options: { readonly before?: () => Promise<void> } = {}
   ): Promise<Result> => {
-    const { before, retry } = options
+    const { before } = options
     // The same request joins the one in flight; the claim is taken before anything awaits.
     const claim = actKey(repo, kind, args)
     if (shared.acts.has(claim)) return { value: "Requested" }
@@ -469,15 +420,15 @@ export const createStackSeam = (
       const running = withToast(key, titles.running, titles.done, async () => {
         const outcome = await work()
         if (!current()) return TOAST_SUPERSEDED
-        if (typeof outcome === "string" && kind !== "wiki") await write(repo, { failure: { act: kind, message: outcome, args } })
+        if (typeof outcome === "string") await write(repo, { failure: { act: kind, message: outcome, args } })
         return outcome
       }, false, current).then((outcome) => {
         if (typeof outcome !== "string" || !current()) return outcome
         // A refusal inside the debounce showed nothing; it is still a failure the stack states.
         if (ctx.store.collections.toasts.get(`toast-${key}`) === undefined) {
           ctx.dispatch({ type: "toast.shown", actor: "system", key, title: titles.running })
-          ctx.resolveToast?.(key, { status: "failed", detail: outcome, ...(retry === undefined ? {} : { action: retry }) })
-        } else if (retry !== undefined) ctx.resolveToast?.(key, { status: "failed", detail: outcome, action: retry })
+          ctx.resolveToast?.(key, { status: "failed", detail: outcome })
+        }
         return outcome
       }).finally(() => { if (shared.acts.get(claim) === running) shared.acts.delete(claim) })
       shared.acts.set(claim, running)
@@ -516,97 +467,15 @@ export const createStackSeam = (
       if (typeof outcome === "string") await write(repo, { bootstrap: undefined })
       return outcome
     }, { before })
-  const bootstrapStack: StackSeam["bootstrapStack"] = async (repoArg) => {
+  const bootstrapStack: RepositoryHistorySeam["bootstrapStack"] = async (repoArg) => {
     const resolved = target(repoArg)
     if ("error" in resolved) return resolved.error
     const { repo } = resolved
     // The request is durable before it is acknowledged.
     return runBootstrap(repo, true, () => write(repo, { bootstrap: { requestedAt: Date.now() }, failure: null }, true))
   }
-  // Persisted cards may retain this action; the install owner setting is its only write door.
-  const setStackParallel: StackSeam["setStackParallel"] = async () => "Use At once in Settings."
-  // Old recorded cards may still name this controller action. Refuse without
-  // a network write; new TODO retries use the numbered, durable TodoSeam.
-  const retryStackItem: StackSeam["retryStackItem"] = async () => "Use Retry on the TODO."
-
-
-  /*
-   * The Wiki's answer to a request: `current` is done, `failed` is its error.
-   * `baseline` is the Wiki the request's acknowledgement showed: the failure
-   * a retry was asked for is not the retry's answer, so an unchanged failed
-   * Wiki keeps the notice running until the next attempt settles.
-   */
-  const wikiOutcome = (wiki: MythicalWiki | undefined, baseline: MythicalWiki | undefined): true | string | undefined => {
-    if (wiki === undefined) return "This repository declares no Wiki."
-    if (wiki.state === "current") return true
-    if (wiki.state !== "failed") return undefined
-    if (baseline?.state === "failed" && baseline.attempt === wiki.attempt && baseline.commit === wiki.commit) return undefined
-    return wiki.error ?? "The Wiki refresh failed."
-  }
-  const untilWikiSettled = (repo: string, baseline: MythicalWiki | undefined): Promise<true | string | typeof TOAST_SUPERSEDED> => new Promise((resolve) => {
-    const handle = watch(repo)
-    const check = (stack: MythicalStack | string | typeof TOAST_SUPERSEDED): void => {
-      const outcome = stack === TOAST_SUPERSEDED || typeof stack === "string" ? stack : wikiOutcome(stack.wiki, baseline)
-      if (outcome === undefined) return
-      handle.waiters.delete(check)
-      resolve(outcome)
-    }
-    handle.waiters.add(check)
-    if (baseline !== undefined && handle.stack !== null) check(handle.stack)
-    else void refresh(handle)
-  })
-  const wikiTitles = { running: "Refreshing the Wiki…", done: "Wiki current" }
-  const wikiRetry = (repo: string): NonNullable<Toast["action"]> => ({ flow: "wiki.create", args: repo, label: "Retry" })
-  const wikiRequests = () => ctx.store.session().wikiRequests ?? []
-  const writeWikiRequests = async (requests: NonNullable<ReturnType<typeof ctx.store.session>["wikiRequests"]>): Promise<void> => {
-    await ctx.dispatch({ type: "stack.wiki.requests.changed", actor: "system", requests }).isPersisted.promise
-  }
-  const otherWikiRequests = (repo: string, owner: string) => wikiRequests().filter((row) => row.repo !== repo || row.owner !== owner)
-  const pendingWiki = (repo: string, owner: string | null): boolean =>
-    owner !== null && wikiRequests().some((row) => row.repo === repo && row.owner === owner)
-  /** A settled request leaves the session; one superseded by an account change waits for that account's return. */
-  const settleWiki = async (repo: string, owner: string, work: () => Promise<true | string | typeof TOAST_SUPERSEDED>) => {
-    const outcome = await work()
-    if (!disposed() && (outcome !== TOAST_SUPERSEDED || login() === owner) && pendingWiki(repo, owner)) {
-      await writeWikiRequests(otherWikiRequests(repo, owner))
-    }
-    return outcome
-  }
-  const refreshWiki: StackSeam["refreshWiki"] = async (repoArg) => {
-    const resolved = target(repoArg)
-    if ("error" in resolved) return resolved.error
-    const { repo } = resolved
-    const owner = login()!
-    return act(repo, "wiki", repo, wikiTitles, () => settleWiki(repo, owner, async () => {
-      const answer = await send("POST", route("wiki", repo), {}, "the stack")
-      const handle = watch(repo)
-      if ("error" in answer) {
-        void refresh(handle)
-        return answer.error
-      }
-      const parsed = MythicalStackSchema.safeParse(answer.body)
-      if (!parsed.success) return untilWikiSettled(repo, undefined)
-      apply(handle, parsed.data)
-      return untilWikiSettled(repo, parsed.data.wiki)
-    }), {
-      // The request is durable before it is acknowledged.
-      before: async () => {
-        await write(repo, {}, card(repo) === undefined)
-        await writeWikiRequests([...otherWikiRequests(repo, owner), { repo, owner, requestedAt: Date.now() }])
-      },
-      retry: wikiRetry(repo)
-    })
-  }
-  /** A request from an earlier page load follows the snapshot to its end without being sent again. */
-  const resumeWiki = (repo: string): void => {
-    const owner = login()
-    if (owner === null || !pendingWiki(repo, owner) || shared.acts.has(actKey(repo, "wiki", repo))) return
-    void act(repo, "wiki", repo, wikiTitles, () => settleWiki(repo, owner, () => untilWikiSettled(repo, undefined)),
-      { before: async () => {}, retry: wikiRetry(repo) }).catch(() => {})
-  }
-
   /* One homepage is on screen at a time: the previous repository's watch ends unless its card still needs it. */
-  const watchHomeStack: StackSeam["watchHomeStack"] = (repo) => {
+  const watchRepository: RepositoryHistorySeam["watchRepository"] = (repo) => {
     if (disposed()) return
     for (const previous of shared.homes) {
       if (previous !== repo && card(previous) === undefined) stopWatch(previous)
@@ -615,7 +484,7 @@ export const createStackSeam = (
     shared.homes.add(repo)
     if (login() !== null && shared.watches.get(repo)?.current() !== true) void refresh(watch(repo))
   }
-  const resumeStacks: StackSeam["resumeStacks"] = () => {
+  const resume: RepositoryHistorySeam["resume"] = () => {
     if (disposed()) return
     const owner = login()
     if (owner !== shared.owner) {
@@ -628,13 +497,11 @@ export const createStackSeam = (
     if (owner === null) return
     const repos = new Set(shared.homes)
     for (const value of ctx.store.collections.cards.values()) if (value.kind === "stack") repos.add(value.payload.repo)
-    for (const request of wikiRequests()) if (request.owner === owner) repos.add(request.repo)
     for (const repo of repos) {
       // A watch already live for this account has nothing to reconnect.
       if (shared.watches.get(repo)?.current()) continue
       const handle = watch(repo)
       void refresh(handle)
-      resumeWiki(repo)
       if (card(repo)?.payload.bootstrap !== undefined && !shared.acts.has(actKey(repo, "bootstrap", repo))) {
         // Re-send only when the server has no record of the request.
         void (async () => {
@@ -657,7 +524,7 @@ export const createStackSeam = (
         if (!shared.homes.has(repo)) stopWatch(repo)
       }
     })
-    const identity = ctx.store.collections.identitySessions.subscribeChanges(() => queueMicrotask(resumeStacks))
+    const identity = ctx.store.collections.identitySessions.subscribeChanges(() => queueMicrotask(resume))
     const stop = (): void => {
       subscription.unsubscribe()
       identity.unsubscribe()
@@ -668,14 +535,14 @@ export const createStackSeam = (
   }
 
   /** A watched snapshot, only while the account that read it is still signed in. */
-  const heldStack: StackSeam["heldStack"] = (repo) => {
+  const heldStack: RepositoryHistorySeam["heldStack"] = (repo) => {
     const current = login()
     if (current === null || current !== shared.owner) return undefined
     return shared.values.get(repo)?.stack ?? undefined
   }
 
   /** One snapshot for a reader that shows no card (search.history): the live one when watched, else one read. */
-  const readStack: StackSeam["readStack"] = async (repoArg) => {
+  const readStack: RepositoryHistorySeam["readStack"] = async (repoArg) => {
     const resolved = target(repoArg)
     if ("error" in resolved) return resolved.error
     const held = heldStack(resolved.repo)
@@ -686,5 +553,18 @@ export const createStackSeam = (
     return parsed.success ? parsed.data : "The history could not be read."
   }
 
-  return { showStack, readStack, heldStack, bootstrapStack, setStackParallel, retryStackItem, refreshWiki, watchHomeStack, resumeStacks, snapshots }
+  const settled: RepositoryHistorySeam["settled"] = (repo, predicate) => new Promise(resolve => {
+    const handle = watch(repo)
+    const check = (value: MythicalStack | string | typeof TOAST_SUPERSEDED) => {
+      const outcome = typeof value === "string" || value === TOAST_SUPERSEDED ? value : predicate(value)
+      if (outcome === undefined) return
+      handle.waiters.delete(check); resolve(outcome)
+    }
+    handle.waiters.add(check)
+    if (handle.stack) check(handle.stack)
+    else void refresh(handle)
+  })
+  return { readStack, heldStack, bootstrapStack, watchRepository, resume, snapshots,
+    observe: (repo, stack) => apply(watch(repo), stack), settled }
+
 }

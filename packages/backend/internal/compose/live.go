@@ -17,6 +17,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/sse"
@@ -31,6 +32,12 @@ type liveTodos interface {
 	Todos(context.Context, int64) ([]map[string]any, error)
 }
 
+// homeMainReader reads the mirrored tip and its immutable commit data.
+type homeMainReader interface {
+	GetBookmark(context.Context, string, string, string) (repohost.Bookmark, error)
+	GetChange(context.Context, string, string, string) (repohost.Change, error)
+}
+
 // liveSync is the install's GitHub sync health, main's row on Home.
 type liveSync interface {
 	SyncHealth(context.Context) (services.GitHubSyncHealth, error)
@@ -43,6 +50,7 @@ type liveTopics struct {
 	changePool    *pgxpool.Pool
 	queries       *db.Queries
 	sources       workspaceapi.SourceFiles
+	main          homeMainReader
 	todos         liveTodos
 	sync          liveSync
 	install       *services.InstallSetupService
@@ -405,6 +413,25 @@ func (t *liveTopics) home(ctx context.Context, repository int64, slug string) (j
 		return nil, err
 	}
 	model := homeModel(slug, cards, sync)
+	if t.main != nil {
+		owner, name, ok := strings.Cut(slug, "/")
+		if !ok {
+			return nil, fmt.Errorf("invalid install repository")
+		}
+		bookmark, err := t.main.GetBookmark(ctx, owner, name, "main")
+		if err != nil {
+			return nil, err
+		}
+		// Resolve the immutable commit, so a concurrent sync cannot pair one
+		// tip's SHA with another tip's title. This is repository data, never execution.
+		commit, err := t.main.GetChange(ctx, owner, name, bookmark.TargetCommitID)
+		if err != nil {
+			return nil, err
+		}
+		main := model["main"].(map[string]any)
+		main["sha"] = bookmark.TargetCommitID
+		main["title"] = strings.SplitN(strings.TrimSpace(commit.Description), "\n", 2)[0]
+	}
 	if provider, ok := t.todos.(interface {
 		HomeAttention(context.Context, int64) ([]services.OrderAttention, error)
 	}); ok {

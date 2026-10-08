@@ -139,7 +139,7 @@ test("a signed-in Wiki form reaches one real HTTP mutation and settles", async (
     await fill(t)
     expect(await t.controller.commands.run("form.submit", form(t).id)).toMatchObject({ status: "executed" })
     await waitFor(() => t.requests.some(request => request.method === "POST" && request.path === `${path}/wiki`))
-    await waitFor(() => (t.store.session().wikiRequests ?? []).length === 0 && t.controller.stackSnapshots.get(repo)?.stack?.wiki?.state === "current")
+    await waitFor(() => (t.store.session().wikiRequests ?? []).length === 0 && t.controller.repositorySnapshots.get(repo)?.stack?.wiki?.state === "current")
     expect(t.requests.filter(request => request.method === "POST" && request.path === `${path}/wiki`)).toHaveLength(1)
     expect(form(t)).toMatchObject({ status: "acted" })
     expect(form(t).payload).not.toHaveProperty("error")

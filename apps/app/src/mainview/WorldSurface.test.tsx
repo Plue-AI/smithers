@@ -69,10 +69,10 @@ test("the Wiki pane lists a space's index as a tree with folders, tags and serve
   const calls: Array<[string, string | undefined]> = []
   // One stable snapshot: the seam hands the same object back until a write, as useSyncExternalStore requires.
   const stackSnapshot = { stack: { wiki: { state: "stale", pages: 2, edited: 0, attempt: 1 } }, error: null }
-  const stackSnapshots = { get: (repo: string) => repo === "org/repo" ? stackSnapshot : undefined, subscribe: () => () => {} }
+  const repositorySnapshots = { get: (repo: string) => repo === "org/repo" ? stackSnapshot : undefined, subscribe: () => () => {} }
   await store.dispatch({ type: "world.document.upserted", actor: "user", document: { id: "wiki:org/repo:4", path: "org/repo/wiki/generated-runtime.md", title: "Runtime", body: "# Runtime\n", links: [], tags: [], sources: [], confidence: 1,
     cloud: { repo: "org/repo", pageId: 4, slug: "generated-runtime", visibility: "public", path: "Runtime.md", remoteRevision: 1, remoteAuthor: "smithers", remoteUpdatedAt: "", state: "", accountLogin: "will", branchId: "main", phase: "live", error: null, pending: [] } }, select: false }).isPersisted.promise
-  const controller = { store, wikiIndexes, stackSnapshots, runCommand: (name: string, args?: string) => { calls.push([name, args]) }, changeWorldDocument: () => {}, attachWikiEditor: () => {}, attachWorldEditor: () => {}, submitCommand: async () => ({ status: "executed" }) } as unknown as AppController
+  const controller = { store, wikiIndexes, repositorySnapshots, runCommand: (name: string, args?: string) => { calls.push([name, args]) }, changeWorldDocument: () => {}, attachWikiEditor: () => {}, attachWorldEditor: () => {}, submitCommand: async () => ({ status: "executed" }) } as unknown as AppController
   const host = document.createElement("div")
   document.body.append(host)
   const root = createRoot(host)

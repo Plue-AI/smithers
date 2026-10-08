@@ -39,7 +39,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J2-03 | [C-J2-03.spec.ts](C-J2-03.spec.ts) | fixme-before-implementation | T-STK-01 |
 | C-J2-04 | [C-J2-04.spec.ts](C-J2-04.spec.ts) | fixme-before-implementation | T-STK-01 |
 | C-J2-05 | [C-J2-05.spec.ts](C-J2-05.spec.ts), [receipt navigation](../learning-receipt.spec.ts) | Partial: mounted merged-TODO receipt navigation passes in Chromium; merge/background-learning journey remains fixme | T-STK-04 |
-| C-J4-01 | [C-J4-01.spec.ts](C-J4-01.spec.ts) | fixme-before-implementation | T-APP-01 |
+| C-J4-01 | [C-J4-01.spec.ts](C-J4-01.spec.ts) | mounted UI passes; real microVM Retry and reference-host receipt pending on mini | T-APP-01 |
 | C-J4-02 | [C-J4-02.spec.ts](C-J4-02.spec.ts) | passing app HTTP-seam proof: Answer, head-bound Merge (acceptance stays In review until terminal projection), Move, Retry, displayed-wait/head Bring in, durable pause/resume projections and pending execution; runtime pause/checkpoint backend, real flow/GitHub and reference-host timing remain pending | T-STK-02, T-STK-05, T-APP-02 |
 | C-J4-03 | [C-J4-03.spec.ts](C-J4-03.spec.ts) | fixme-before-implementation | T-STK-04, T-REL-02 |
 | C-J10-01 | [C-J10-01.spec.ts](C-J10-01.spec.ts) | composed-install Chromium: publication, drafts and item-only diff; packaged guest dispatch pending | T-GH-03, T-REL-02 |

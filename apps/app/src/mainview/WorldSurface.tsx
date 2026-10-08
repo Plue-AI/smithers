@@ -18,14 +18,14 @@ import { WikiAttachment } from "./wiki/WikiAttachment"
 import { pageLinksOf, WikiPageView } from "./wiki/WikiPageView"
 import { cloudWikiPageFailure } from "./wiki/CloudWikiFailure"
 import { FailureNotice } from "./FailureNotice"
-import type { StackSnapshot } from "./state/seams/StackSeam"
+import type { RepositorySnapshot } from "./state/seams/RepositoryHistorySeam"
 import { wikiTone } from "@smthrs/rpc/StackView"
 import { linkGraphOf, linksOf, neighbourhoodOf } from "./wiki/VaultAdapter"
 
 const NO_SNAPSHOTS = { get: () => undefined, subscribe: () => () => {} }
 /** The stack seam's live snapshot of one repository (its wiki state); absent outside a controller. */
-const useStackSnapshot = (repo: string): StackSnapshot | undefined => {
-  const snapshots = useContext(ControllerContext)?.stackSnapshots ?? NO_SNAPSHOTS
+const useRepositorySnapshot = (repo: string): RepositorySnapshot | undefined => {
+  const snapshots = useContext(ControllerContext)?.repositorySnapshots ?? NO_SNAPSHOTS
   return useSyncExternalStore(snapshots.subscribe, () => snapshots.get(repo), () => snapshots.get(repo))
 }
 
@@ -68,7 +68,7 @@ export function WorldSurface({ documents }: { readonly documents: ReadonlyArray<
   /* The page view: the rendered page, or the editor (wiki.view). A local note has only its editor. */
   const reading = (session.wikiPageView ?? "read") === "read" && selected?.cloud !== undefined && repo !== null
   // Freshness (D-09b): a generated page (`generated-<id>`) wears the stack's wiki state, as the Ask tile does; a hand-written page wears nothing.
-  const stack = useStackSnapshot(repo ?? "")?.stack
+  const stack = useRepositorySnapshot(repo ?? "")?.stack
   const freshness = selected?.cloud?.slug.startsWith("generated-") === true && stack !== null && stack !== undefined ? stack.wiki : undefined
   /* The heading a `[[Page#Heading]]` link named, until the page it opened has scrolled to it: transient chrome. */
   const [pendingHeading, setPendingHeading] = useState<{ readonly id: string; readonly heading: string } | null>(null)

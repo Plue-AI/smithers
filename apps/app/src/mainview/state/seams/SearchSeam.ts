@@ -182,12 +182,12 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
   const wikiItems = (): ReadonlyArray<Fact> =>
     [...ctx.store.collections.worldDocuments.values()].map((document) => ({ kind: "note" as const, ref: document.id, title: document.title, subtitle: document.path }))
 
-  /** The histories the History cards show: each card's live snapshot. */
-  const heldHistory = (): ReadonlyArray<MythicalStack> =>
-    cards().flatMap((card) => {
-      const stack = card.kind === "stack" ? deps.heldStack?.(card.payload.repo) : undefined
-      return stack === undefined ? [] : [stack]
-    })
+  /** Repository history is indexed independently of retired stack cards. */
+  const heldHistory = (): ReadonlyArray<MythicalStack> => {
+    const repos = new Set([...ctx.store.collections.repositories.values()].map(repo => repo.id))
+    for (const card of cards()) if (card.kind === "stack") repos.add(card.payload.repo)
+    return [...repos].flatMap(repo => { const stack = deps.heldStack?.(repo); return stack === undefined ? [] : [stack] })
+  }
 
   /** The secrets cards the secrets seam has written, as name-and-host rows. */
   const heldSecrets = (): ReadonlyArray<SecretRows> =>

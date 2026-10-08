@@ -68,7 +68,7 @@ export type CommandActions =
     | "membersRole"
     // The flow catalog is what the Flow card reads, never an act.
     | "flowCatalog"
-    | "stackSnapshots"
+    | "repositorySnapshots"
     // The TODO list Home reads where no `home` topic is served, never an act.
     | "todoList"
     // Live wiki navigation indexes and attachments are what the Wiki views read, never an act.

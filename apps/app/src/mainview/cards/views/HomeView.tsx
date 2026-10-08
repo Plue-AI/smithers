@@ -128,7 +128,7 @@ export function HomeView({ model, actions, view, onAction, onView }: HomeViewPro
     {attention}
     <div className="filters">{filters}</div>
     <ol className="stack" aria-label="Stack"><li className="stack-main-row"><span className="stack-node"><GitBranch size={14} /></span>
-      <span className="stack-trunk">main <span title={model.main.sha}>{model.main.title}</span>{model.merged_since_last_look.length ? <span className="merged-since">{model.merged_since_last_look.length} merged since you looked</span> : null}</span>
+      <span className="stack-trunk">main {model.main.sha ? <span className="meta">{model.main.sha.slice(0, 7)} </span> : null}<span title={model.main.sha}>{model.main.title}</span>{model.merged_since_last_look.length ? <span className="merged-since">{model.merged_since_last_look.length} merged since you looked</span> : null}</span>
       <span className="sync" data-stale={model.main.health !== "fresh" || undefined} data-health={model.main.health}>
         {model.main.health === "fresh" ? synced : model.main.health === "stale" ? `${synced}${model.main.cause ? ` · ${model.main.cause}` : ""}` : model.main.cause}
         {model.main.retry_at ? ` · retries at ${model.main.retry_at}` : null}{syncControls}</span></li>
