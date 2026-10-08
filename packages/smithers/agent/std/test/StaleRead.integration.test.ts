@@ -13,7 +13,7 @@ import * as Write from "@smthrs/std/Write"
 import { Context, Effect, FileSystem, Option, Path } from "effect"
 import { ChildProcessSpawner } from "effect/unstable/process"
 import assert from "node:assert/strict"
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "vitest"
@@ -24,6 +24,7 @@ for (const available of [false, true]) {
   test.skipIf(available && !installed)(`C-COL-01 production dispatcher ${available ? "installed batch/delete/move" : "unavailable provider"}`, async (t) => {
     const root = await mkdtemp(join(available ? "/workspace/" : tmpdir(), "col10-"))
     t.onTestFinished(() => rm(root, { recursive: true, force: true }))
+    if (available) assert.notEqual(process.getuid?.(), 0, "Installed acceptance must run as the registered unprivileged coding session")
     await Effect.runPromise(Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
@@ -57,12 +58,24 @@ for (const available of [false, true]) {
         for (const [name, input] of [
           [Write.name, { path: a, content: "bad" }],
           [Edit.name, { path: a, oldString: "hello", newString: "bad" }],
-          [ApplyPatch.name, patch(`*** Delete File: ${a}\n*** Add File: ${dest}\n+bad\n`)]
+          [ApplyPatch.name, patch(`*** Delete File: ${a}\n*** Add File: ${dest}\n+bad\n`)],
+          [ApplyPatch.name, patch(`*** Update File: ${a}\n*** Move to: ${dest}\n@@\n-hello\n+bad\n`)],
+          [Write.name, { path: dest, content: "bad" }]
         ] as const) yield* expect(name, input, "failure", /provider unavailable/i)
         assert.equal(yield* fs.readFileString(a), "hello\n")
         assert.equal(yield* fs.exists(dest), false)
         return
       }
+      // Unread existing sources refuse at every mutation door, including delete.
+      yield* Effect.promise(() => writeFile(b, "world\n"))
+      for (const [name, input] of [
+        [Write.name, { path: b, content: "bad" }],
+        [Edit.name, { path: b, oldString: "world", newString: "bad" }],
+        [ApplyPatch.name, patch(`*** Delete File: ${b}\n`)],
+        [ApplyPatch.name, patch(`*** Update File: ${b}\n@@\n-world\n+bad\n`)]
+      ] as const) yield* expect(name, input, "failure", /Re-read/)
+      assert.equal(yield* fs.readFileString(b), "world\n")
+      yield* expect(Read.name, { path: b }, "success")
       yield* expect(Write.name, { path: b, content: "world\n" }, "success")
       yield* expect(Edit.name, { path: b, oldString: "world", newString: "hello" }, "success")
       yield* Effect.promise(() => writeFile(a, "world\n"))
@@ -94,6 +107,39 @@ for (const available of [false, true]) {
       yield* expect(ApplyPatch.name, patch(`*** Delete File: ${b}\n*** Add File: ${a}\n+world\n`), "success")
       assert.equal(yield* fs.exists(b), false)
       assert.equal(yield* fs.readFileString(a), "world\n")
+      yield* expect(ApplyPatch.name, patch(`*** Delete File: ${dest}\n`), "success")
+      assert.equal(yield* fs.exists(dest), false)
+      // A formerly absent destination is created outside Smithers. The earlier
+      // deletion must remain unapplied; refusing the patch cannot advance bases.
+      yield* Effect.promise(() => writeFile(dest, "world\n"))
+      yield* expect(ApplyPatch.name, patch(`*** Delete File: ${a}\n*** Add File: ${dest}\n+bad\n`), "failure", /Re-read/)
+      assert.equal(yield* fs.readFileString(a), "world\n")
+      assert.equal(yield* fs.readFileString(dest), "world\n")
+      // Successful multi-file update/add uses one batch, with own-write authority.
+      yield* expect(ApplyPatch.name, patch(`*** Update File: ${a}\n@@\n-world\n+hello\n*** Add File: ${b}\n+world\n`), "success")
+      assert.equal(yield* fs.readFileString(a), "hello\n")
+      assert.equal(yield* fs.readFileString(b), "world\n")
+      // Real I/O failure after the first file. A third, untouched existing file
+      // distinguishes ledger invalidation from merely detecting changed bytes.
+      const locked = join(root, "locked"), blocked = join(locked, "new")
+      yield* Effect.promise(() => mkdir(locked))
+      t.onTestFinished(async () => {
+        await chmod(locked, 0o700).catch(() => {})
+        await rm(root, { recursive: true, force: true })
+      })
+      yield* Effect.promise(() => chmod(locked, 0o555))
+      yield* expect(ApplyPatch.name, patch(`*** Update File: ${a}\n@@\n-hello\n+world\n*** Add File: ${blocked}\n+hello\n*** Update File: ${b}\n@@\n-world\n+hello\n`), "failure", /Patch stopped after 1 files; re-read all affected paths/)
+      assert.equal(yield* fs.readFileString(a), "world\n")
+      assert.equal(yield* fs.exists(blocked), false)
+      assert.equal(yield* fs.readFileString(b), "world\n")
+      for (const target of [a, b]) {
+        yield* expect(Write.name, { path: target, content: "bad" }, "failure", /Re-read/)
+        assert.equal(yield* fs.readFileString(target), "world\n")
+      }
+      yield* expect(Read.name, { path: a }, "success")
+      yield* expect(Read.name, { path: b }, "success")
+      yield* expect(Edit.name, { path: b, oldString: "world", newString: "hello" }, "success")
+      assert.equal(yield* fs.readFileString(b), "hello\n")
       // Confinement at the same production tool door. This is supplemental;
       // it does not claim root-input or fresh/retained-machine qualification.
       const outside = yield* Effect.promise(() => mkdtemp(join(tmpdir(), "col10-outside-")))
@@ -120,5 +166,5 @@ for (const available of [false, true]) {
       assert.match(result.message!, /Re-read/)
       assert.equal(yield* Effect.promise(() => readFile(a, "utf8")), "world\n")
     }).pipe(Effect.provide(NodeServices.layer)))
-  })
+  }, 120_000)
 }
