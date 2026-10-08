@@ -16,6 +16,9 @@ import (
 // no native move or reference-host execution is claimed here. Draft is the
 // uncommitted placement input, never an item with an authenticated machine.
 func TestTodoMovedOffSourceTransitionLiteralCases(t *testing.T) {
+	if testing.Short() {
+		t.Skip("real PostgreSQL and composed install required; child fixtures also skip in short mode")
+	}
 	cases := []struct {
 		state, engine                        string
 		attached, paused, question, accepted bool

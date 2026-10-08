@@ -43,6 +43,12 @@ func TestMachinedMutationDelayedCaptureAck(t *testing.T) { testMachinedNativeMut
 
 func TestMachinedMutationOutsideRename(t *testing.T) { testMachinedNativeMutation(t, "race") }
 
+// Extend the real HTTP writer/rewrite campaign with open daemon documents.
+// Linux still has an empty broker; the installed W2-W4 campaign is separate.
+func TestLiveDocumentMutationQueuedHTTPWrites(t *testing.T) {
+	testMachinedNativeMutation(t, "live")
+}
+
 func testMachinedNativeMutation(t *testing.T, mode string) {
 	binary := os.Getenv("SMITHERS_REHEARSAL_MACHINED_BINARY")
 	if os.Getenv("SMITHERS_MACHINED_MUTATION_DEBUG") != "1" {
@@ -413,10 +419,29 @@ func testMachinedNativeMutation(t *testing.T, mode string) {
 		require.Equal(t, []byte("working tree bytes"), git("-C", store, "show", working.Head+":pending.txt"))
 		return
 	}
+	var liveReaders, typingReaders []*liveWriterProbe
+	itemWant := "item bytes\n"
+	if mode == "live" {
+		for i := 0; i < 2; i++ {
+			reader := openLiveWriterProbe(t, registry, branch, "README.md", actor)
+			reader.converge(t, "hello")
+			liveReaders = append(liveReaders, reader)
+			typing := openLiveWriterProbe(t, registry, branch, "item.txt", actor)
+			typing.converge(t, itemWant)
+			typingReaders = append(typingReaders, typing)
+		}
+	}
 	require.NoError(t, os.WriteFile(filepath.Join(state, "qualification-frozen.arm"), nil, 0600))
 	rewrite := make(chan error, 1)
 	go func() { _, err := registry.Rebase(ctx, branch, actor, onto); rewrite <- err }()
 	require.Eventually(t, func() bool { _, err := os.Stat(filepath.Join(state, "qualification-frozen.hit")); return err == nil }, 10*time.Second, 5*time.Millisecond)
+	if mode == "live" {
+		// Input is accepted while the production executor is at its native
+		// frozen barrier, but cannot save into the working copy mid-rewrite.
+		itemWant += "PENDING 🧑🏽‍💻 e\u0301 "
+		typingReaders[0].send(t, codeSync(2, codeInsert(typingReaders[0].client, "PENDING 🧑🏽‍💻 e\u0301 ")))
+		require.Equal(t, "item bytes\n", string(mustReadMutationFile(t, filepath.Join(root, "item.txt"))))
+	}
 	writes := []struct {
 		path, body string
 		status     int
@@ -476,7 +501,7 @@ func testMachinedNativeMutation(t *testing.T, mode string) {
 			require.Contains(t, string(res.body), "486ea46224d1bb4fb680f34f7c9ad96a8f24ec88be73ea8e5a6c65260e9cb8a7")
 		}
 	}
-	for path, want := range map[string]string{"README.md": "world", "queued.txt": "queued bytes", "item.txt": "item bytes\n"} {
+	for path, want := range map[string]string{"README.md": "world", "queued.txt": "queued bytes", "item.txt": itemWant} {
 		res := request("GET", path, "")
 		require.NoError(t, res.err)
 		require.Equal(t, 200, res.status, "%s", res.body)
@@ -484,10 +509,62 @@ func testMachinedNativeMutation(t *testing.T, mode string) {
 		require.NoError(t, json.Unmarshal(res.body, &file))
 		require.Equal(t, want, file.Content)
 	}
+	for _, reader := range liveReaders {
+		reader.converge(t, "world")
+	}
+	for _, reader := range typingReaders {
+		reader.converge(t, itemWant)
+	}
 	after, err := registry.Capture(ctx, branch)
 	require.NoError(t, err)
-	for path, want := range map[string]string{"README.md": "world", "queued.txt": "queued bytes", "item.txt": "item bytes\n"} {
+	for path, want := range map[string]string{"README.md": "world", "queued.txt": "queued bytes", "item.txt": itemWant} {
 		require.Equal(t, []byte(want), git("-C", store, "show", after.Head+":"+path), path)
+	}
+	if mode == "live" {
+		// After rewrite, fresh writes to the already-open file are a document
+		// transaction. Both independently reconstructed replicas must see it.
+		body, err := json.Marshal(map[string]string{"content": "world\nFRESH 🧑🏽‍💻 e\u0301 漢字", "base_digest": "486ea46224d1bb4fb680f34f7c9ad96a8f24ec88be73ea8e5a6c65260e9cb8a7"})
+		require.NoError(t, err)
+		res := request("PUT", "README.md", string(body))
+		require.NoError(t, res.err)
+		require.Equal(t, 200, res.status, "%s", res.body)
+		for _, reader := range liveReaders {
+			reader.converge(t, "world\nFRESH 🧑🏽‍💻 e\u0301 漢字")
+		}
+		awaitIdle()
+		captured, err := registry.Capture(ctx, branch)
+		if err == machined.ErrNotReady {
+			// A completed snapshot can still have debouncing jj metadata.
+			// Honor the production quiet gate before a second capture.
+			awaitIdle()
+			captured, err = registry.Capture(ctx, branch)
+		}
+		require.NoError(t, err)
+		require.Equal(t, []byte("world\nFRESH 🧑🏽‍💻 e\u0301 漢字"), git("-C", store, "show", captured.Head+":README.md"))
+		// A real outside jj move leaves the item; Return must reconcile the
+		// same open document from the item snapshot without a new epoch.
+		awaitIdle()
+		jjCall("new", base)
+		// The metadata watcher must first admit the moved-off fact. An early
+		// Return is unsupported and makes no mutation; success ends polling.
+		require.Eventually(t, func() bool {
+			_, err = registry.ReturnToItem(ctx, branch, actor)
+			return err == nil
+		}, 5*time.Second, 10*time.Millisecond)
+		for _, reader := range liveReaders {
+			reader.converge(t, "world\nFRESH 🧑🏽‍💻 e\u0301 漢字")
+		}
+		for _, reader := range typingReaders {
+			reader.converge(t, itemWant)
+		}
+		require.Equal(t, []byte("world\nFRESH 🧑🏽‍💻 e\u0301 漢字"), mustReadMutationFile(t, filepath.Join(root, "README.md")))
+		require.Equal(t, []byte(itemWant), mustReadMutationFile(t, filepath.Join(root, "item.txt")))
+		for _, reader := range liveReaders {
+			require.NoError(t, reader.stream.Close())
+			reopened := openLiveWriterProbe(t, registry, branch, "README.md", actor)
+			require.Equal(t, reader.epoch, reopened.epoch)
+			reopened.converge(t, "world\nFRESH 🧑🏽‍💻 e\u0301 漢字")
+		}
 	}
 }
 func mustReadMutationFile(t *testing.T, path string) []byte {

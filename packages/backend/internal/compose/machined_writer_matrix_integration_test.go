@@ -44,6 +44,7 @@ func TestMachinedMutationWriterPreservation(t *testing.T) {
 	require.NoError(t, err)
 	t.Setenv(pinnedMicroVMRehearsal, "1")
 	r := newRehearsal(t, pinnedMicroVMRehearsal, "C-COL-03", "writers-")
+	require.False(t, r.options.LiveCodeDocuments, "reference drivers never activate product documents")
 	vm, ok := r.workspaceRuntime.(*microsandbox.Runtime)
 	require.True(t, ok)
 	require.True(t, r.install("Install through Machine ready"))
@@ -179,6 +180,87 @@ while i<20000:
 		_, err = registry.Capture(ctx, branch)
 	}
 	require.NoError(t, err)
+	// Qualify all four existing production write doors against the same open
+	// document before the concurrent file campaign. The reader stays open
+	// throughout fifty rewrites and ten Returns; no product flag is enabled.
+	livePath := "col03-live.ts"
+	liveText := "LIVE 🧑🏽‍💻 e\u0301 漢字\n"
+	putLive := func(base, content string, status int) {
+		t.Helper()
+		body, err := json.Marshal(map[string]string{"content": content, "base_digest": base})
+		require.NoError(t, err)
+		code, data, err := r.keyed("PUT", "/api/repos/rehearsal-owner/app/workspaces/"+branch+"/files/content?path="+livePath, string(body), uuid.NewString())
+		require.NoError(t, err)
+		require.Equal(t, status, code, "%s", data)
+	}
+	putLive("absent", liveText, 200)
+	live := openLiveWriterProbe(t, registry, branch, livePath, person)
+	live.converge(t, liveText)
+	logLive := func(writer string) {
+		t.Helper()
+		live.converge(t, liveText)
+		file, err := registry.ReadFile(ctx, branch, livePath, "")
+		require.NoError(t, err)
+		require.Equal(t, liveText, string(file.Content))
+		sum := sha256.Sum256([]byte(liveText))
+		appendWrite(logged{writer, livePath, hex.EncodeToString(sum[:])})
+	}
+	base, err := registry.ReadFile(ctx, branch, livePath, "")
+	require.NoError(t, err)
+	liveText += "W1 browser\n"
+	putLive(base.Digest, liveText, 200)
+	logLive("W1")
+	putLive(base.Digest, "STALE OPEN DOCUMENT MUST NOT LAND", 409)
+	// W2 uses the installed local client after real register_run admission.
+	// W3/W4 use real member broker sessions and in-place/atomic disk writes.
+	for _, writer := range []string{"W2", "W3", "W4"} {
+		base, err := registry.ReadFile(ctx, branch, livePath, "")
+		require.NoError(t, err)
+		liveText += writer + " registered writer\n"
+		payload := fmt.Sprintf(`import os,sys,subprocess
+sys.stdin.buffer.readline()
+p=%q
+b=%q.encode()
+`, livePath, liveText)
+		identity, provider := user, sessions
+		if writer == "W2" {
+			identity, provider = machined.SessionUser{Login: "agent", UID: 19999}, coding
+			payload += fmt.Sprintf(`c=subprocess.run(['/opt/smithers/bin/smithers-machined','client','write-file',p,'--base',%q],input=b,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+assert c.returncode==0,(c.stdout,c.stderr)
+`, base.Digest)
+		} else {
+			if writer == "W4" {
+				provider = sessions.WithPresenceVia("ssh")
+			}
+			payload += fmt.Sprintf(`target=p+'.swap' if %q=='W4' else p
+f=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o664)
+assert os.write(f,b)==len(b)
+os.fsync(f);os.close(f)
+if target!=p:
+ os.replace(target,p)
+ d=os.open('.',os.O_RDONLY|os.O_DIRECTORY);os.fsync(d);os.close(d)
+`, writer)
+		}
+		payload += "print('WRITTEN',flush=True)\n"
+		process, err := provider.OpenExec(ctx, identity, []string{"/usr/bin/python3", "-I", "-S", "-c", payload})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = process.Close() })
+		if writer == "W2" {
+			require.NoError(t, coding.RegisterRun(ctx, run, process.ID()))
+		}
+		_, err = process.Write([]byte("write\n"))
+		require.NoError(t, err)
+		require.NoError(t, process.CloseWrite())
+		stdout, err := io.ReadAll(process.Stdout())
+		require.NoError(t, err)
+		require.NoError(t, process.Wait())
+		stderr, err := io.ReadAll(process.Stderr())
+		require.NoError(t, err)
+		require.Empty(t, stderr)
+		require.Equal(t, "WRITTEN\n", string(stdout))
+		require.NoError(t, process.Close())
+		logLive(writer)
+	}
 	startWriter("W2", coding, machined.SessionUser{Login: "agent", UID: 19999})
 	// SessionExec is the same broker cgroup used by a member terminal/SSH
 	// process. W3 uses direct writes and W4 the editor's atomic replacement.
@@ -469,6 +551,12 @@ os.unlink('/var/lib/smithers-machined/qualification-frozen.hit')`)
 			require.Equal(t, newReadme, string(stale.Content))
 		}
 
+		// The open document must receive rewrite reconciliation and keep its
+		// literal bytes; a direct write receipt alone does not prove fan-out.
+		live.converge(t, liveText)
+		file, err := registry.ReadFile(ctx, branch, livePath, "")
+		require.NoError(t, err)
+		require.Equal(t, liveText, string(file.Content))
 		rewriteTimes = append(rewriteTimes, time.Since(began).Nanoseconds())
 		select {
 		case <-ctx.Done():
@@ -494,6 +582,9 @@ os.unlink('/var/lib/smithers-machined/qualification-frozen.hit')`)
 			require.Equal(t, "0", status, "%s", out)
 			_, err = registry.ReturnToItem(ctx, branch, person)
 			require.NoError(t, err, "Return %d", i)
+			file, err := registry.ReadFile(ctx, branch, livePath, "")
+			require.NoError(t, err)
+			live.converge(t, string(file.Content))
 		}()
 	}
 	close(stopWriters)
@@ -604,6 +695,69 @@ print(Path('/var/lib/smithers-machined/mutation-holds.jsonl').read_text(),end=''
 		require.NoError(t, err)
 		require.NoError(t, os.WriteFile(filepath.Join(r.evidence, name), append(bytes, '\n'), 0600))
 	}
+	// Submit a final document edit without consuming its saved frame, then
+	// request sleep through the person's production command door. The final
+	// capture must reach the host before the install reports suspended.
+	terminal.close()
+	beforeSleep, err := registry.ReadFile(ctx, branch, livePath, "")
+	require.NoError(t, err)
+	const sleepEdit = "FINAL-CAPTURE 🧑🏽‍💻 e\u0301 漢字\n"
+	live.converge(t, string(beforeSleep.Content))
+	sleepUpdate := codeInsert(live.client, sleepEdit)
+	_, err = live.replica.Peer(sleepUpdate)
+	require.NoError(t, err)
+	wantSleep, err := live.replica.Text("content")
+	require.NoError(t, err)
+	require.Equal(t, 1, strings.Count(wantSleep, sleepEdit))
+	require.Equal(t, string(beforeSleep.Content), strings.Replace(wantSleep, sleepEdit, "", 1))
+	live.send(t, codeSync(2, sleepUpdate))
+	code, data, err = r.keyed("POST", "/api/branches/"+branch, `{"op":"sleep"}`, uuid.NewString())
+	require.NoError(t, err)
+	require.Equal(t, 202, code, "%s", data)
+	var sleepingHead string
+	require.Eventually(t, func() bool {
+		var status string
+		err := r.pool.QueryRow(ctx, `SELECT status,head_commit_id FROM workspaces WHERE id=$1`, branch).Scan(&status, &sleepingHead)
+		return err == nil && status == "suspended"
+	}, 30*time.Second, 20*time.Millisecond)
+	require.NoError(t, r.options.Repository.WithMachineRepository(ctx, "rehearsal-owner", "app", func(store string) error {
+		bytes, err := hostexec.Git(ctx, "-C", store, "show", sleepingHead+":"+livePath).Output()
+		if err != nil {
+			return err
+		}
+		if string(bytes) != wantSleep {
+			return fmt.Errorf("final live document capture: got %q want %q", bytes, wantSleep)
+		}
+		return nil
+	}))
+	// A person's terminal request wakes the retained machine. Root still uses
+	// only the approved installed bundle; the branch provides no startup code.
+	wakeTerminalID, err := r.openBranchTerminal(r.keyed, branch)
+	require.NoError(t, err)
+	wakeTerminal, err := r.openTerminal(wakeTerminalID)
+	require.NoError(t, err)
+	defer wakeTerminal.close()
+	status, output, err := wakeTerminal.capture("cat "+livePath, "COL08WAKE", 30*time.Second)
+	require.NoError(t, err)
+	require.Equal(t, "0", status, "%s", output)
+	require.Contains(t, output, sleepEdit)
+	awake, err := registry.ReadFile(ctx, branch, livePath, "")
+	require.NoError(t, err)
+	require.Equal(t, wantSleep, string(awake.Content))
+	link, err = registry.Current(branch)
+	require.NoError(t, err)
+	// Actor references bind to the admitted machine: use the current binding
+	// after wake rather than assuming a private runtime identity is unchanged.
+	wakeActor, err := machined.CommitActor(ctx, r.pool, branch, link.Machine(), func(context.Context, pgx.Tx) (machined.ActorIdentity, error) {
+		return machined.ActorIdentity{Kind: "person", MemberID: member.ID, Via: "web"}, nil
+	})
+	require.NoError(t, err)
+	reopened := openLiveWriterProbe(t, registry, branch, livePath, wakeActor)
+	require.Equal(t, live.epoch, reopened.epoch)
+	reopened.converge(t, wantSleep)
+	sleepEvidence, err := json.Marshal(map[string]any{"head": sleepingHead, "text": wantSleep, "epoch": hex.EncodeToString(live.epoch[:]), "activation": false, "bundle_revision": bundle.Revision()})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "live-document-final-sleep.json"), sleepEvidence, 0600))
 	// These are end-to-end RPC durations, deliberately not freeze p95 receipts.
 	t.Logf("50 native rebases, 10 Return cycles, %d independently verified writes", len(acknowledged))
 }
