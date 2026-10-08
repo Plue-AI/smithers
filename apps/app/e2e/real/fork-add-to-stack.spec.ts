@@ -2,10 +2,11 @@ import { execFileSync } from "node:child_process"
 import { test } from "./support"
 import { scenario } from "./coverage/types"
 import { withReference, required, runSlash, expect, attachJson, openTodo, todoCard, realApi } from "./todo/reference"
+import { counterIdentity, maximumTickGap } from "./support/fork-continuity"
 import { journeyActivate } from "./support/keyboard-journey-input"
 
-// S1 portion of C-J7-02. Drop qualification belongs to T-STK-05 and is not
-// silently skipped here. Provision T1 In review, T2 Working with verified H2,
+// C-J7-02, including the production T-STK-05 Drop/capture boundary.
+// Provision T1 In review, T2 Working with verified H2,
 // T3 Queued and Ben's real delegated token. Never seed/mutate install SQL.
 // The source guest has a running counter writing epoch seconds to .tick;
 // SMITHERS_FORK_COUNTER_PID identifies that process. SSH observes it only.
@@ -22,13 +23,13 @@ const continuity = () => {
   const pid = required("SMITHERS_FORK_COUNTER_PID")
   if (!/^[1-9]\d*$/.test(pid)) throw new Error("Invalid counter PID")
   return { boot: source("cat /proc/sys/kernel/random/boot_id").trim(),
-    process: source(`cat /proc/${pid}/stat`).trim().split(" ").filter((_, index) => [0, 1, 21].includes(index)).join(" "),
+    process: counterIdentity(source(`cat /proc/${pid}/stat`), pid),
     ticks: source("cat .tick").trim().split(/\s+/).map(Number) }
 }
 
-test("C-J7-02 S1: real Fork, private Confirm and retained source bytes", scenario("fork-add-to-stack", {
+test("C-J7-02 S1: real Fork, private Confirm, Drop and retained source bytes", scenario("fork-add-to-stack", {
   capabilities: ["install", "ssh"], coverage: ["host:local", "host:production", "door:button", "door:slash", "door:agent",
-    "action:branch.fork", "action:branch.add-to-stack", "path:success", "path:permission", "path:persistence",
+    "action:branch.fork", "action:branch.add-to-stack", "action:todo.drop", "path:success", "path:permission", "path:persistence",
     "evidence:fork-source-continuity", "evidence:retained-source-bytes"]
 }), async ({ browser }, info) => {
   test.setTimeout(300_000)
@@ -49,6 +50,8 @@ test("C-J7-02 S1: real Fork, private Confirm and retained source bytes", scenari
     expect(bytes).toBe(expected)
     expect(source("cat src/fork-uncommitted.ts")).toBe("export const uncapturedForkCanary = true;\n")
     const before = continuity()
+    expect(before.boot).toMatch(/^[0-9a-f-]{36}$/)
+    maximumTickGap(before.ticks)
     const original = await f.read("Ben", "/api/todos/2")
     await openTodo(page, 2)
     const forkResponse = page.waitForResponse(r => new URL(r.url()).pathname === "/api/branches" && r.request().method() === "POST")
@@ -70,13 +73,13 @@ test("C-J7-02 S1: real Fork, private Confirm and retained source bytes", scenari
     const ticks = after.ticks.filter(tick => tick >= before.ticks.at(-1)!)
     expect(ticks.length).toBeGreaterThan(1)
     expect(ticks.every(Number.isFinite)).toBe(true)
-    expect(Math.max(...ticks.slice(1).map((tick, index) => tick - ticks[index]!))).toBeLessThanOrEqual(1)
+    expect(maximumTickGap(ticks)).toBeLessThanOrEqual(1)
     const current = await f.read("Ben", "/api/todos/2")
     expect(current.state).toBe("working")
     expect(current.run.id).toBe(original.run.id)
     expect(current.run.attempt).toBe(original.run.attempt)
     const file = await f.read("Ben", `${path}/files/src/retry.ts`)
-    expect(file.content).toBe(expected)
+    expect(file.content).toEqual({ kind: "text", text: expected })
     const uncaptured = await realApi(page, page.context().request, "GET", `${path}/files/src/fork-uncommitted.ts`)
     expect(uncaptured.status()).toBe(404)
     await info.attach("verified-retry-source", { body: bytes, contentType: "text/plain" })
@@ -90,7 +93,7 @@ test("C-J7-02 S1: real Fork, private Confirm and retained source bytes", scenari
     await expect(terminal).toBeAttached()
     await terminal.focus()
     const edit = "export const forkBackoff = 2;\n"
-    await page.keyboard.type("printf 'export const forkBackoff = 2;\\n' >> src/retry.ts && jj commit -m 'try exponential backoff' && printf '\\nFORK_EDIT_COMMITTED\\n'")
+    await page.keyboard.type("printf 'export const forkBackoff = 2;\\n' >> src/retry.ts && jj commit -m 'try exponential backoff' && printf '\\nFORK_EDIT_%s\\n' COMMITTED")
     await page.keyboard.press("Enter")
     await expect(page.locator(".xterm-rows").last().getByText("FORK_EDIT_COMMITTED", { exact: true })).toBeVisible()
     // Add captures this committed guest edit; no host working-copy substitute.
@@ -127,11 +130,11 @@ test("C-J7-02 S1: real Fork, private Confirm and retained source bytes", scenari
     expect(seed.workspace_id).toBe(scratch.machine.id)
     expect(seed.checks.seed.base).toBe(verified.candidate_base)
     const retained = await f.read("Ben", `/api/branches/${encodeURIComponent(added.branch.name)}/files/src/retry.ts`)
-    expect(retained.content).toBe(expected + edit)
+    expect(retained.content).toEqual({ kind: "text", text: expected + edit })
     expect(seed.checks.seed.diff).toContain("+export const forkBackoff = 2;")
     await expect(terminal).toBeAttached()
     await terminal.focus()
-    await page.keyboard.type("printf '\\nFORK_TERMINAL_RETAINED\\n'")
+    await page.keyboard.type("printf '\\nFORK_TERMINAL_%s\\n' RETAINED")
     await page.keyboard.press("Enter")
     await expect(page.locator(".xterm-rows").last().getByText("FORK_TERMINAL_RETAINED", { exact: true })).toBeVisible()
     const afterAdd = continuity()
@@ -139,7 +142,7 @@ test("C-J7-02 S1: real Fork, private Confirm and retained source bytes", scenari
     expect(afterAdd.process).toBe(before.process)
     const addTicks = afterAdd.ticks.filter(tick => tick >= before.ticks.at(-1)!)
     expect(addTicks.every(Number.isFinite)).toBe(true)
-    expect(Math.max(...addTicks.slice(1).map((tick, index) => tick - addTicks[index]!))).toBeLessThanOrEqual(1)
+    expect(maximumTickGap(addTicks)).toBeLessThanOrEqual(1)
     const events = f.sql("SELECT event_type,data FROM product_job_events WHERE event_type IN ('branch.forked','branch.added-to-stack') ORDER BY sequence")
       .filter(row => row.data.workspace === scratch.machine.id)
     for (const kind of ["branch.forked", "branch.added-to-stack"]) {
@@ -148,6 +151,48 @@ test("C-J7-02 S1: real Fork, private Confirm and retained source bytes", scenari
       expect(matching[0].data.actor).toMatchObject({ kind: "system", login: "smithers" })
       expect(matching[0].data.for.login).toBe("ben")
     }
+    // Read all tracked fixture bytes through the production File surface.
+    const itemPath = `/api/branches/${encodeURIComponent(added.branch.name)}`
+    const tree = async () => {
+      const files: Record<string, unknown> = Object.create(null)
+      const visit = async (directory: string) => {
+        const entries = await f.read("Ben", `${itemPath}/files?path=${encodeURIComponent(directory)}`)
+        for (const entry of entries) {
+          if ([".git", ".jj"].includes(entry.name)) continue
+          if (["dir", "tree"].includes(entry.type)) await visit(entry.path)
+          else {
+            const file = await f.read("Ben", `${itemPath}/files/${entry.path.split("/").map(encodeURIComponent).join("/")}`)
+            expect(file.digest).toMatch(/^[0-9a-f]{64}$/)
+            files[entry.path] = { content: file.content, digest: file.digest }
+          }
+        }
+      }
+      await visit("")
+      return files
+    }
+    const beforeDrop = await tree()
+    expect(beforeDrop["src/retry.ts"]).toMatchObject({ content: { kind: "text", text: expected + edit } })
+    expect(original.pr.number).toBeGreaterThan(0)
+    await runSlash(page, "/todo.drop T2")
+    const dropResponse = page.waitForResponse(r => new URL(r.url()).pathname === "/api/todos/2" && r.request().method() === "POST")
+    await journeyActivate(page.getByRole("button", { name: "Drop", exact: true }).last())
+    const dropping = await dropResponse
+    expect(dropping.status()).toBe(202)
+    expect(dropping.request().postDataJSON()).toMatchObject({ op: "drop" })
+    await expect.poll(async () => (await f.read("Ben", "/api/todos/2")).state, { timeout: 120_000 }).toBe("dropped")
+    await expect.poll(async () => (await f.read("Ben", "/api/todos")).map((item: any) => item.n)).toEqual([1, 4, 3])
+    await expect.poll(async () => ((await f.github("Ben", "GET", `/pulls/${original.pr.number}`)) as { state: string }).state).toBe("closed")
+    const closedPR = await f.github("Ben", "GET", `/pulls/${original.pr.number}`) as { state: string; merged: boolean }
+    expect(closedPR.merged).toBe(false)
+    const comments = await f.github("Ben", "GET", `/issues/${original.pr.number}/comments?per_page=100`) as Array<{ body: string }>
+    expect(comments.filter(row => row.body === "Dropped in Smithers by @ben")).toHaveLength(1)
+    await expect.poll(async () => (await f.read("Ben", "/api/todos/4")).state, { timeout: 120_000 }).toBe("working")
+    const afterDrop = await tree()
+    expect(afterDrop).toEqual(beforeDrop)
+    const foldedDiff = await f.read("Ben", `${itemPath}/diff`)
+    expect(foldedDiff.files.map((file: any) => file.path)).toContain("src/retry.ts")
+    expect(JSON.stringify(foldedDiff)).toContain("export const forkBackoff = 2;")
+    await attachJson(info, "drop-retained-tree", { beforeDrop, afterDrop, foldedDiff, closedPR, comments })
     await page.reload()
     await runSlash(page, "/branch T4")
     await expect(page.getByText(added.branch.name, { exact: true }).last()).toBeVisible()
