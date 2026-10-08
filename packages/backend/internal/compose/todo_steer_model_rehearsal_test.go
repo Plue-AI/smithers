@@ -143,6 +143,12 @@ func TestTodoReviewSteerModelReentry(t *testing.T) {
 		after, err := r.j3Lane(n)
 		require.NoError(t, err)
 		require.Equal(t, before, after, "same run, attempt and working copy after review steer")
+		require.Eventually(t, func() bool {
+			var reviewedHead, verdict string
+			var posted bool
+			err := r.pool.QueryRow(t.Context(), `SELECT COALESCE(checks->'review'->>'head',''),COALESCE(checks->'review'->>'verdict',''),COALESCE((checks->'review'->>'posted')::boolean,false) FROM mythical_items WHERE source='todo' AND number=$1`, n).Scan(&reviewedHead, &verdict, &posted)
+			return err == nil && reviewedHead == reviewed.PR.Head && verdict == "approve" && posted
+		}, 5*time.Minute, 100*time.Millisecond, "the engine reviews each re-entered candidate")
 		turns, err := r.modelTurns()
 		require.NoError(t, err)
 		first := slices.IndexFunc(turns[len(priorTurns):], func(turn map[string]any) bool {
