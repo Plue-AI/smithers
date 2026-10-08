@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -218,6 +219,26 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 		return nil, fmt.Errorf("Flow dispatcher: %w", err)
 	}
 	archive.host = dispatcher
+	mythical.SetTodoRunSettlement(func(ctx context.Context, repository int64, item db.MythicalItem) error {
+		itemID := uuid.UUID(item.ID.Bytes).String()
+		monitors := &runMonitors{pool: pool, reader: dispatcher}
+		checkpoints, err := monitors.checkpoints(ctx, repository, item.WorkspaceID+":"+item.RequestRunID)
+		if err != nil {
+			return err
+		}
+		if len(checkpoints) != 1 || checkpoints[0].FlowID != "todo" || checkpoints[0].ExecutionDigest != item.FlowDigest.String || checkpoints[0].Target.BindingID != itemID {
+			return errors.New("TODO settlement has no bound native root")
+		}
+		cp := checkpoints[0]
+		retained, err := readRunArchive(ctx, pool, repository, cp.Target.WorkspaceID, cp.RunID)
+		if err == nil && (retained.Status == "completed" || retained.Status == "failed" || retained.Status == "cancelled") {
+			return nil
+		}
+		if err := dispatcher.CompleteRun(ctx, cp.Target, cp.RunID, "todo-complete:"+itemID+":"+cp.RunID); err != nil {
+			return err
+		}
+		return errors.New("native TODO settlement is pending")
+	})
 	var review *reviewMachine
 	reviewWorkspace := options.ReviewWorkspace
 	if reviewWorkspace == nil {

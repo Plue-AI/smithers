@@ -9,6 +9,7 @@
  */
 
 import { Control } from "@smthrs/control/Control"
+import { ControlExecutor, type Service as ControlExecutorService } from "@smthrs/control/ControlExecutor"
 import * as ControlError from "@smthrs/control/ControlError"
 import type { Principal, WatchCursor } from "@smthrs/control/ControlSchema"
 import {
@@ -150,7 +151,7 @@ export const SteerCommand = Schema.Struct({
  */
 export const LifecycleCommand = Schema.Struct({
   ...common,
-  operation: Schema.Literals(["cancel", "resume"]),
+  operation: Schema.Literals(["cancel", "resume", "complete"]),
   runId: Schema.NonEmptyString,
   reason: Schema.optional(Schema.String)
 })
@@ -205,6 +206,8 @@ export interface Config {
   /** Captured and verified by native catalog registration, never decoded from a request or environment. */
   readonly verifiedCatalogSourceRevision?: string | undefined
   readonly ownerGeneration: number
+  /** Native host port, captured from the executor rather than from a request. */
+  readonly requestComplete?: ControlExecutorService["requestComplete"]
   readonly authenticate: (
     headers: Readonly<Record<string, string>>
   ) => Effect.Effect<Principal, ControlError.Unauthorized>
@@ -386,6 +389,18 @@ export const execute = (
             principal
           }
         })
+        return { operation: input.operation, applicationRequestId: input.applicationRequestId, receipt } as const
+      }
+      // This authenticated host bridge is not a catalog or public Control
+      // verb. The executor validates the completed native child and resumes
+      // its retained parent to settle from that child's committed result.
+      case "complete": {
+        const executor = yield* Effect.serviceOption(ControlExecutor)
+        const complete = config.requestComplete ?? (executor._tag === "Some" ? executor.value.requestComplete : undefined)
+        if (complete === undefined) {
+          return yield* Effect.fail(new BridgeError({ code: "unavailable", message: "Completed-module settlement is unavailable", retryable: true }))
+        }
+        const receipt = yield* complete({ runId: input.runId, receiptId: idempotencyKey(input, "complete") })
         return { operation: input.operation, applicationRequestId: input.applicationRequestId, receipt } as const
       }
       case "cancel":

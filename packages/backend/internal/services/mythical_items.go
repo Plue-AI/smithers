@@ -127,6 +127,11 @@ func (s *MythicalService) SetOrchestration(github mythicalGitHub, launcher mythi
 	}
 }
 
+// SetTodoRunSettlement binds the install's native completed-module provider.
+func (s *MythicalService) SetTodoRunSettlement(settle func(context.Context, int64, db.MythicalItem) error) {
+	s.todoRunSettlement = settle
+}
+
 // SetLauncher completes the construction cycle with the Flow dispatcher.
 func (s *MythicalService) SetLauncher(launcher mythicalLauncher) { s.launcher = launcher }
 
@@ -1759,6 +1764,10 @@ func mythicalDue(item db.MythicalItem, moved bool, now time.Time) time.Time {
 			return item.NextAttemptAt.Time
 		}
 		return now.Add(mythicalPullPollEvery)
+	case item.State == "landed" && item.WorkspaceID != "" && item.FlowDigest.Valid && item.RequestRunID != "":
+		// Native completion and archive capture finish asynchronously. Keep
+		// the retained lane due until both settle, rather than a stale sweep.
+		return now.Add(3 * time.Second)
 	case mythicalSettledStates[item.State]:
 		return time.Time{}
 	case item.NextAttemptAt.Valid && item.NextAttemptAt.Time.After(now):
@@ -1841,6 +1850,18 @@ func (s *MythicalService) releaseLane(ctx context.Context, r *mythicalRun, item 
 	// workspace is its author's own and is never released here.
 	if item.Source != "issue" && item.Source != "todo" {
 		return item
+	}
+	if item.State == "landed" && item.FlowDigest.Valid && item.RequestRunID != "" {
+		if s.todoRunSettlement == nil {
+			if s.installParallelRequired {
+				return item
+			}
+		} else if err := s.todoRunSettlement(ctx, r.row.RepositoryID, item); err != nil {
+			if ctx.Err() == nil {
+				s.logger.Warn("mythical.todo_run_settlement_pending", "item", uuidString(item.ID), "error", err)
+			}
+			return item
+		}
 	}
 	if err := s.retireLane(ctx, r, item.WorkspaceID); err != nil {
 		if ctx.Err() == nil {

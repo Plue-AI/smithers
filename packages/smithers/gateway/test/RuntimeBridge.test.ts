@@ -1,6 +1,7 @@
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer"
 import { describe, expect, it } from "@effect/vitest"
 import * as Control from "@smthrs/control/Control"
+import * as ControlExecutor from "@smthrs/control/ControlExecutor"
 import * as ControlError from "@smthrs/control/ControlError"
 import type { PlanCard, Principal, RunSummary } from "@smthrs/control/ControlSchema"
 import { Effect, Layer, Logger, Schema, Stream } from "effect"
@@ -379,6 +380,25 @@ describe("RuntimeBridge", () => {
       )
       expect(contradicted).toMatchObject({ code: "source_mismatch" })
       expect(runs).toBe(1)
+    }))
+
+  it.effect("requires the current owner and a native executor for retained completion", () =>
+    Effect.gen(function*() {
+      const command = { protocol: RuntimeBridge.protocol, operation: "complete", applicationRequestId: "merged-1", ownerGeneration: 7, runId: "run-1" } as const
+      const unavailable = yield* Effect.flip(RuntimeBridge.execute(config, service(), principal, command))
+      expect(unavailable).toMatchObject({ code: "unavailable" })
+      const calls: unknown[] = []
+      const executor = ControlExecutor.make({ ...ControlExecutor.makeNoop(), requestComplete: input => Effect.sync(() => { calls.push(input); return accepted }) })
+      const invoke = (ownerGeneration: number) => RuntimeBridge.execute(config, service(), principal, { ...command, ownerGeneration }).pipe(Effect.provideService(ControlExecutor.ControlExecutor, executor))
+      const stale = yield* Effect.flip(invoke(6))
+      expect(stale).toMatchObject({ code: "stale_owner" })
+      expect(calls).toHaveLength(0)
+      const completed = yield* invoke(7)
+      expect(completed).toMatchObject({ operation: "complete", receipt: accepted })
+      expect(calls).toEqual([{ runId: "run-1", receiptId: "bridge:v1:merged-1:complete" }])
+      const captured = yield* RuntimeBridge.execute({ ...config, requestComplete: executor.requestComplete }, service(), principal, command)
+      expect(captured).toMatchObject({ operation: "complete", receipt: accepted })
+      expect(calls).toHaveLength(2)
     }))
 
   it.effect("adapts every mutation without owning its semantics", () =>

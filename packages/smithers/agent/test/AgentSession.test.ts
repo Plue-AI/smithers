@@ -1816,6 +1816,11 @@ describe("AgentSession", () => {
               const began = (): Effect.Effect<void> =>
                 seen.length === 1 ? Effect.void : Effect.sleep("10 millis").pipe(Effect.andThen(Effect.suspend(began)))
               yield* began().pipe(Effect.timeout("20 seconds"))
+              const executor = yield* ControlExecutor.ControlExecutor
+              const refusal = yield* Effect.flip(executor.requestComplete!({ runId, receiptId: "too-early" }))
+              expect(refusal.operation).toBe("AgentSession.requestComplete")
+              const page = yield* journal.entries({ runId: JournalEvent.RunId.make(runId), limit: 1000 })
+              expect(page.entries.some(e => e.eventType === "control.module.completion-requested")).toBe(false)
             }
             expect(seen).toHaveLength(1)
             const input = {
@@ -1835,6 +1840,12 @@ describe("AgentSession", () => {
             yield* wait().pipe(Effect.timeout("20 seconds"))
             yield* control.steer(input)
             yield* Effect.sleep("50 millis")
+            const executor = yield* ControlExecutor.ControlExecutor
+            expect(executor.requestComplete).toBeDefined()
+            yield* executor.requestComplete!({ runId, receiptId: "owner-merged" })
+            yield* awaitStatus(runtime, runId, "completed")
+            const terminal = yield* executor.requestComplete!({ runId, receiptId: "owner-merged" })
+            expect(terminal._tag).toBe("Terminal")
             const page = yield* journal.entries({ runId: JournalEvent.RunId.make(runId), limit: 1000 })
             return {
               run: yield* runtime.getRun(runId),
@@ -1852,7 +1863,7 @@ describe("AgentSession", () => {
           })))
         }).pipe(Effect.scoped)
       )
-      expect(outcome.run.status).toBe("parked")
+      expect(outcome.run.status).toBe("completed")
       expect(outcome.launches.map((e) => e.payload)).toEqual([
         expect.objectContaining({ ordinal: 0 }),
         expect.objectContaining({ ordinal: 1 })

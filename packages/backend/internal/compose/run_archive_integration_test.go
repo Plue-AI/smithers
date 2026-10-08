@@ -23,8 +23,9 @@ import (
 
 // archiveHost answers as a live coding host does, until it stops.
 type archiveHost struct {
-	stopped bool
-	calls   []string
+	stopped       bool
+	summaryStatus string
+	calls         []string
 }
 
 const archivedMonitorJSON = `{"id":"run-1","flow":"todo","version":"","title":"todo","state":"done",
@@ -47,7 +48,11 @@ func (h *archiveHost) CallRPC(_ context.Context, target flowruntime.Target, proc
 	}
 	switch {
 	case strings.Contains(string(payload), `"run-summary"`):
-		return json.RawMessage(`{"ok":true,"payload":{"rows":[{"runId":"run-1","flowId":"todo","status":"completed","turns":2,"statusRollup":{"freshness":"stale"}}]}}`), nil
+		raw := `{"ok":true,"payload":{"rows":[{"runId":"run-1","flowId":"todo","status":"completed","turns":2,"statusRollup":{"freshness":"stale"}}]}}`
+		if h.summaryStatus != "" {
+			raw = strings.Replace(raw, `"status":"completed"`, `"status":"`+h.summaryStatus+`"`, 1)
+		}
+		return json.RawMessage(raw), nil
 	case strings.Contains(string(payload), `"run-tree"`):
 		return json.RawMessage(`{"ok":true,"payload":{"rows":[{"nodeId":"edit","state":"done"}]}}`), nil
 	}
@@ -98,6 +103,18 @@ func TestRunArchivePostgres(t *testing.T) {
 	require.Equal(t, "todo", row.FlowID)
 	require.Equal(t, "completed", row.Status)
 	require.JSONEq(t, `[{"nodeId":"edit","state":"done"}]`, string(row.Tree))
+
+	// Native settlement may arrive before its final lifecycle event. A
+	// terminal checkpoint alone must recapture, and refuse a stale summary.
+	terminal := page()
+	terminal.Checkpoint.Run = &flowruntime.Run{RunID: "run-1", Status: "completed"}
+	host.summaryStatus = "parked"
+	require.ErrorContains(t, archive.ProjectFlowRuntime(ctx, terminal), "terminal host summary has not settled")
+	host.summaryStatus = ""
+	require.NoError(t, archive.ProjectFlowRuntime(ctx, terminal))
+	host.stopped = true
+	require.ErrorContains(t, archive.ProjectFlowRuntime(ctx, terminal), "runtime_host_not_running")
+	host.stopped = false
 
 	// A capture on a stopped host never fails the observation, keeps the
 	// answers the live host gave, and still keeps the page's events.

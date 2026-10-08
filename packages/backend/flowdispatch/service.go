@@ -486,6 +486,40 @@ func HasPinnedLaunches(ctx context.Context, store *jobs.Store, scope jobs.Scope,
 	return store.HasActiveWithReceipt(ctx, scope, OperationLaunch, fragment, filters...)
 }
 
+// CompleteRun requests native settlement of an already completed retained
+// module. The same existing host owns it; this never starts a replacement.
+func (service *Service) CompleteRun(ctx context.Context, target flowruntime.Target, runID, requestID string) error {
+	reader, ok := service.resolver.(flowruntime.ExistingResolver)
+	if !ok {
+		return errors.New("flow dispatch: runtime has no existing resolver")
+	}
+	runtime, err := reader.ResolveExistingFlowRuntime(ctx, target)
+	if err != nil {
+		return err
+	}
+	completer, ok := runtime.(interface {
+		Complete(context.Context, flowruntime.Lifecycle) (flowruntime.MutationResult, error)
+	})
+	if !ok {
+		return errors.New("flow dispatch: runtime has no completed-module settlement")
+	}
+	identity, err := runtime.Identity(ctx)
+	if err != nil {
+		return err
+	}
+	if !validIdentity(identity) {
+		return errors.New("flow dispatch: invalid completion owner identity")
+	}
+	result, err := completer.Complete(ctx, flowruntime.Lifecycle{ApplicationRequestID: requestID, OwnerGeneration: identity.OwnerGeneration, RunID: runID})
+	if err != nil {
+		return err
+	}
+	if !validRunMutationResult(result, "complete", requestID, runID) {
+		return errors.New("flow dispatch: invalid completion receipt")
+	}
+	return nil
+}
+
 // Monitor resolves only an existing fenced host; reading never starts a box.
 func (service *Service) Monitor(ctx context.Context, target flowruntime.Target, runID string, at *int64) (json.RawMessage, error) {
 	reader, ok := service.resolver.(flowruntime.ExistingResolver)

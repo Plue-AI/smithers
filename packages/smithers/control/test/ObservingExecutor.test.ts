@@ -23,6 +23,10 @@ const spied = () => {
       calls.push("readExecution")
       return Effect.succeed({ _tag: "Observed", status: "parked" } as const)
     },
+    requestComplete: () => {
+      calls.push("requestComplete")
+      return Effect.succeed({ _tag: "Accepted", receiptId: "merged", runId } as const)
+    },
     requestCancel: () => {
       calls.push("requestCancel")
       return Effect.succeed("recorded" as const)
@@ -54,6 +58,7 @@ describe("makeObserving", () => {
     // waiting reason and the human waits parked below it live in the engine's
     // database, so a listing that dropped this would answer about the control
     // plane's coordination copy alone.
+    expect(observing.requestComplete).toBeUndefined()
     expect(await Effect.runPromise(observing.readExecution!(runId))).toEqual({ _tag: "Observed", status: "parked" })
     expect(await Effect.runPromise(observing.requestCancel({ runId }))).toBe("recorded")
     expect(await Effect.runPromise(observing.deliverSignal({ runId, signal: { name: "go", payload: null } }))).toBe(

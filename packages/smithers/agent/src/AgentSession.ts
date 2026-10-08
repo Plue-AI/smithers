@@ -3454,6 +3454,7 @@ export const make = (
           const pinnedDigest = card.executionDigest ?? executionDigest
           const reenter = options.reenterModules?.includes(card.flowId) === true
           let ordinal = 0
+          let completing = false
           const moduleId = (round: number) =>
             round === 0
               ? moduleExecutionId(payload.runId, pinnedDigest)
@@ -3466,12 +3467,19 @@ export const make = (
             let launched = false
             yield* scanRun(journal, payload.runId, (entries) => {
               for (const entry of entries) {
-                if (entry.eventType !== "control.module.launched") continue
+                if (entry.eventType !== "control.module.launched" && entry.eventType !== "control.module.completion-requested") continue
                 const marker = Schema.decodeUnknownOption(Schema.Struct({
                   ordinal: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
                   executionDigest: Schema.String,
                   executionId: Schema.String
                 }))(entry.payload)
+                if (entry.eventType === "control.module.completion-requested") {
+                  if (Option.isNone(marker) || !launched || marker.value.ordinal !== ordinal || marker.value.executionDigest !== pinnedDigest || marker.value.executionId !== moduleId(ordinal)) {
+                    throw new Error("Retained module completion evidence is inconsistent")
+                  }
+                  completing = true
+                  continue
+                }
                 if (
                   Option.isNone(marker) || marker.value.executionDigest !== pinnedDigest ||
                   marker.value.executionId !== moduleId(marker.value.ordinal) ||
@@ -3493,6 +3501,14 @@ export const make = (
                     Effect.fail(error)
                 )
               )
+              if (completing) {
+                if (Option.isNone(previous) || previous.value.status !== "completed") throw new Error("The completed module is no longer terminal")
+                // Poll committed output. Finalization never re-enters repository
+                // code, asks a model, or grants retry to an unfinished action.
+                const result = yield* engine.poll(executable.flow, moduleId(ordinal))
+                if (Option.isNone(result) || result.value._tag !== "Complete") throw new Error("The completed module has no committed result")
+                return yield* Exit.isSuccess(result.value.exit) ? Effect.succeed(result.value.exit.value) : Effect.failCause(result.value.exit.cause)
+              }
               if (Option.isSome(previous) && previous.value.status === "completed") {
                 if ((yield* queue.pending(payload.runId)).length === 0) {
                   moduleHolds.add(instance)
@@ -3522,7 +3538,7 @@ export const make = (
             Effect.provide(options.budget(envelope)),
             Effect.provide(options.quotaPolicy)
           )
-          if (reenter) {
+          if (reenter && !completing) {
             moduleHolds.add(instance)
             yield* FlowRuntime.annotateWaiting({ reason: "event" })
             return yield* Flow.suspend(instance)
@@ -4612,6 +4628,38 @@ export const make = (
     return ControlExecutor.make({
       readExecution: (runId) => Effect.provide(readExecution(runId), services),
       launch: Effect.fn("AgentSession.launch")(launch),
+      requestComplete: Effect.fn("AgentSession.requestComplete")((input) => Effect.gen(function*() {
+        const run = yield* runtime.getRun(input.runId)
+        if (["completed", "failed", "cancelled"].includes(run.status)) return { _tag: "Terminal", runId: input.runId, status: run.status } as const
+        const waiting = yield* engineState.waiting(input.runId)
+        if (run.status !== "parked" || Option.isNone(waiting) || waiting.value.reason !== "event" || !options.reenterModules?.includes(run.flowId)) {
+          return yield* Effect.fail(new Error(`Only a retained module event wait can complete: ${run.status}/${Option.isSome(waiting) ? waiting.value.reason : "none"}/${run.flowId}`))
+        }
+        if (run.planId === undefined) return yield* Effect.fail(new Error("The retained module has no plan"))
+        const plan = yield* runtime.getPlan(run.planId)
+        const digest = plan.card.executionDigest
+        if (digest === undefined) return yield* Effect.fail(new Error("The retained module has no pinned execution digest"))
+        let marker: { readonly ordinal: number; readonly executionDigest: string; readonly executionId: string } | undefined
+        yield* scanRun(journal, input.runId, entries => {
+          for (const entry of entries) {
+            if (entry.eventType !== "control.module.launched") continue
+            const parsed = Schema.decodeUnknownOption(Schema.Struct({ ordinal: Schema.Int, executionDigest: Schema.String, executionId: Schema.String }))(entry.payload)
+            if (Option.isSome(parsed)) marker = parsed.value
+          }
+        })
+        if (marker === undefined || marker.executionDigest !== digest || marker.ordinal < 0 || marker.executionId !== (marker.ordinal === 0 ? moduleExecutionId(input.runId, digest) : Digest.digest(Digest.canonical(["control/module/reentry", input.runId, digest, marker.ordinal])))) {
+          return yield* Effect.fail(new Error("The retained module launch is not bound to this run"))
+        }
+        const child = yield* engineRuns.get(marker.executionId)
+        if (child.status !== "completed") return yield* Effect.fail(new Error("The retained native module has not completed"))
+        yield* journal.emitDurableUnfenced(new JournalEvent.Input({
+          runId: JournalEvent.RunId.make(input.runId), sourceId: JournalEvent.SourceId.make("/control/module-completion"),
+          sourceSeq: JournalEvent.SourceSeq.make(marker.ordinal), eventType: "control.module.completion-requested", payload: marker
+        }))
+        yield* runtime.requestResume(input.runId)
+        yield* takeUpResume(input.runId, (runId, uptake) => Effect.asVoid(Effect.forkIn(resumeExecution(runId, uptake), scope)), { _tag: "delegated" })
+        return { _tag: "Accepted", receiptId: input.receiptId, runId: input.runId } as const
+      }).pipe(Effect.mapError(cause => new PersistenceError({ operation: "AgentSession.requestComplete", message: "Cannot close an unfinished retained module", cause })))),
       requestCancel: Effect.fn("AgentSession.requestCancel")((input) =>
         options.requestNativeCancel?.(input) ?? Effect.provide(requestCancel(input), services)
       ),

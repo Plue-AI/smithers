@@ -18,6 +18,7 @@ import type {
   PendingWait,
   Principal,
   RunId,
+  Receipt,
   RunSummary,
   SignalPayload
 } from "./ControlSchema.ts"
@@ -325,6 +326,8 @@ export interface Service {
    * Records a cancellation on the engine row, durably, regardless of which
    * process owns the run.
    */
+  /** Host-only close of a retained run, after its last native module completed. */
+  readonly requestComplete?: ((input: { readonly runId: RunId; readonly receiptId: string }) => Effect.Effect<Receipt, PersistenceError>) | undefined
   readonly requestCancel: (input: CancelRequest) => Effect.Effect<CancelRecord, PersistenceError>
   /**
    * Completes the run's open `WaitFor` wait point with the signal's payload.
@@ -405,7 +408,7 @@ export const layer = (implementation: Service): Layer.Layer<ControlExecutor> =>
   Layer.succeed(ControlExecutor)(make(implementation))
 
 /**
- * The same executor with the two methods that drive a run refused.
+ * The same executor with methods that drive a run refused.
  *
  * A host composed to observe runs rather than drive them has no completion
  * judge, so it must not be able to start or resume one: without this a verb
@@ -433,6 +436,7 @@ export const makeObserving = (service: Service): Service => {
     )
   return make({
     ...service,
+    requestComplete: undefined,
     launch: Effect.fn("ControlExecutor.launch")(() => refuse("launch")),
     resumeRun: Effect.fn("ControlExecutor.resumeRun")(() => refuse("resumeRun"))
   })

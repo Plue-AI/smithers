@@ -1985,6 +1985,7 @@ export const make = (
       Serve.GatewayHost,
       Effect.gen(function*() {
         const controlService = yield* Control.Control
+        const executor = yield* Effect.serviceOption(ControlExecutor.ControlExecutor)
         const journalService = yield* Journal.Journal
         return Serve.GatewayHost.of({
           launch: (health, options, root) =>
@@ -2005,7 +2006,11 @@ export const make = (
               // registration, never the environment's unverified revision.
               const verifiedOptions = options.runtimeBridge === undefined ? options : {
                 ...options,
-                runtimeBridge: { ...options.runtimeBridge, verifiedCatalogSourceRevision: engine.host.revision }
+                runtimeBridge: {
+                  ...options.runtimeBridge,
+                  verifiedCatalogSourceRevision: engine.host.revision,
+                  requestComplete: Option.isSome(executor) ? executor.value.requestComplete : undefined
+                }
               }
               return Layer.launch(
                 layerGateway(health, verifiedOptions, root, engine, Layer.succeed(Journal.Journal, journalService))

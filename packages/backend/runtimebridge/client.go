@@ -492,6 +492,12 @@ func (c *Client) Cancel(ctx context.Context, request flowruntime.FlowRuntimeLife
 	return c.lifecycle(ctx, "cancel", request)
 }
 
+// Complete closes only a retained root whose native module already completed.
+// It is an authenticated host command, never a product catalog mutation.
+func (c *Client) Complete(ctx context.Context, request flowruntime.FlowRuntimeLifecycle) (flowruntime.FlowRuntimeMutationResult, error) {
+	return c.lifecycle(ctx, "complete", request)
+}
+
 func (c *Client) Resume(ctx context.Context, request flowruntime.FlowRuntimeLifecycle) (flowruntime.FlowRuntimeMutationResult, error) {
 	return c.lifecycle(ctx, "resume", request)
 }

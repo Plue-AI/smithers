@@ -247,6 +247,24 @@ func TestJ11Rehearsal(t *testing.T) {
 	// from its host's own answers, retained while the host was live
 	// (run_archives); a todo plan is refused before any box wakes.
 	r.step("6 Run summary", "POST /api/workflow/rpc on T5's stopped lane: Projection.Snapshot run-summary", "200 summary of the TODO run, finished", "T-FLW-07", func() error {
+		// Merged is GitHub settlement. Machine capture and retirement finish
+		// in the background; inspection's no-wake proof starts after their
+		// actual stopped receipt, rather than racing that unfinished release.
+		deadline := time.Now().Add(time.Minute)
+		var status string
+		for time.Now().Before(deadline) {
+			if err := r.pool.QueryRow(r.ctx, `SELECT status FROM workspaces WHERE id=$1`, branch).Scan(&status); err != nil {
+				return err
+			}
+			if status == "stopped" || status == "deleted" {
+				break
+			}
+			time.Sleep(250 * time.Millisecond)
+		}
+		if status != "stopped" && status != "deleted" {
+			return fmt.Errorf("merged T%d lane retirement never completed: %s", t5, status)
+		}
+
 		summary, err := r.runSummary(rehearsalRepository, branch, run)
 		if err != nil {
 			return err

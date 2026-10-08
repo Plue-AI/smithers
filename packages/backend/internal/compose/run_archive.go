@@ -59,24 +59,36 @@ type archivedRun struct {
 const archivedEventsPage = 500
 
 // ProjectFlowRuntime keeps every observed page's events, and captures the
-// host's answers at each lifecycle change. A failure is logged and never
-// fails the observation; the next lifecycle page captures again.
+// host's answers at each lifecycle change. Terminal observation waits for
+// durable retention; losing its last capture has no later page to repair it.
 func (a *runArchive) ProjectFlowRuntime(ctx context.Context, update flowdispatch.ProjectionUpdate) error {
 	if a == nil || a.pool == nil {
 		return nil
 	}
-	if err := a.keep(ctx, update); err != nil && ctx.Err() == nil {
-		slog.Warn("run archive events failed", "run_id", update.Checkpoint.RunID,
-			"workspace_id", update.Checkpoint.Target.WorkspaceID, "error", err)
+	if err := a.keep(ctx, update); err != nil {
+		return err
 	}
-	if a.host == nil || !runArchiveLifecycle(update) {
+	terminal := archiveCheckpointTerminal(update.Checkpoint)
+	if terminal && a.host == nil {
+		return errors.New("run archive: terminal capture has no host")
+	}
+	if a.host == nil || (!runArchiveLifecycle(update) && !terminal) {
 		return nil
 	}
-	if err := a.capture(ctx, update.Checkpoint); err != nil && ctx.Err() == nil {
-		slog.Warn("run archive capture failed", "run_id", update.Checkpoint.RunID,
-			"workspace_id", update.Checkpoint.Target.WorkspaceID, "error", err)
+	if err := a.capture(ctx, update.Checkpoint); err != nil {
+		if terminal {
+			return err
+		}
+		if ctx.Err() == nil {
+			slog.Warn("run archive capture failed", "run_id", update.Checkpoint.RunID,
+				"workspace_id", update.Checkpoint.Target.WorkspaceID, "error", err)
+		}
 	}
 	return nil
+}
+
+func archiveCheckpointTerminal(cp flowdispatch.RuntimeCheckpoint) bool {
+	return cp.Run != nil && (cp.Run.Status == "completed" || cp.Run.Status == "failed" || cp.Run.Status == "cancelled")
 }
 
 func runArchiveLifecycle(update flowdispatch.ProjectionUpdate) bool {
@@ -160,6 +172,9 @@ func (a *runArchive) capture(ctx context.Context, cp flowdispatch.RuntimeCheckpo
 	}
 	if len(summaries) != 1 || json.Unmarshal(summaries[0], &row) != nil || row.RunID != cp.RunID || row.FlowID == "" || row.Status == "" {
 		return errors.New("run archive: invalid run summary")
+	}
+	if archiveCheckpointTerminal(cp) && row.Status != cp.Run.Status {
+		return errors.New("run archive: terminal host summary has not settled")
 	}
 	tree, err := snapshot("run-tree")
 	if err != nil {

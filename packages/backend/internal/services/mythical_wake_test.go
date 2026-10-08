@@ -181,6 +181,7 @@ func TestMythicalNextDue(t *testing.T) {
 		{"a delivery in flight wakes the stack itself", db.MythicalItem{State: "running", RequestOutcome: "validated"}, db.MythicalItem{State: "delivering", RequestOutcome: "validated"}, time.Time{}},
 		{"a review in flight wakes the stack itself", db.MythicalItem{State: "proposing"}, db.MythicalItem{State: "proposed", PRHead: "head", Checks: reviewing}, time.Time{}},
 		{"an unmoved item waits for an event", db.MythicalItem{State: "proposed"}, db.MythicalItem{State: "proposed", Reason: "waiting for a free lane", NextAttemptAt: past}, time.Time{}},
+		{"a merged native run waits for completion and archive", db.MythicalItem{State: "landed"}, db.MythicalItem{State: "landed", WorkspaceID: "retained", RequestRunID: "native-root", FlowDigest: pgtype.Text{String: "pinned", Valid: true}}, now.Add(3 * time.Second)},
 		{"a settled item takes no step", db.MythicalItem{State: "proposed"}, db.MythicalItem{State: "landed"}, time.Time{}},
 		{"a blocked item waits for a person", db.MythicalItem{State: "running"}, db.MythicalItem{State: "blocked", NextAttemptAt: later}, time.Time{}},
 	} {

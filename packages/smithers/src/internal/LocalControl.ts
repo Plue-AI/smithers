@@ -56,7 +56,7 @@ export const layer = (
     })
   ).pipe(Layer.provide([queue, engine.runtime, engine.journal]))
   return Layer.merge(
-    (executor === undefined ? ControlLive.layer : ControlLive.layer.pipe(Layer.provide(executor))).pipe(
+    (executor === undefined ? ControlLive.layer : ControlLive.layer.pipe(Layer.provideMerge(executor))).pipe(
       Layer.provide([
         engine.runtime,
         engine.journal,

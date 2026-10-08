@@ -61,6 +61,7 @@ type mythicalRepoHost interface {
 }
 
 type MythicalService struct {
+	todoRunSettlement          func(context.Context, int64, db.MythicalItem) error
 	conversationEntryPublisher func(context.Context, pgx.Tx, db.MythicalItem, jobs.Event, map[string]any) error
 	movedReturn                MovedOffReturn
 	installAuthorization       bool
