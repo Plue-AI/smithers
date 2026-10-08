@@ -562,6 +562,9 @@ func mountBrowserFlow(router chi.Router, cfg *config.Config, queries *db.Queries
 			middleware.JSONAllowContentType("application/json"), middleware.MaxBodySize(middleware.MaxRequestBodySize),
 			authLoader(queries, cfg.Auth), apiCSRFMiddleware,
 		}
+		if config.IsSingleOwner(cfg.Auth) {
+			chain = append(chain, memberCommands(queries))
+		}
 		if limited {
 			chain = append(chain, middleware.GlobalAPIRateLimit(queries))
 		}

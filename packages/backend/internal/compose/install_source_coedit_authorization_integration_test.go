@@ -42,6 +42,10 @@ func (r *coeditControlledRuntime) CompareWriteFiles(ctx context.Context, id stri
 }
 
 func TestInstallSourceCoeditAdmissionPostgres(t *testing.T) {
+	testInstallSourceCoeditAdmissionPostgres(t)
+}
+
+func testInstallSourceCoeditAdmissionPostgres(t *testing.T) map[string]any {
 	f := newLandingGateFixtureWithFactory(t, nil, "", true)
 	ws, err := f.q.CreateWorkspace(f.ctx, db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: f.other.ID, Name: "coedit", Kind: "container", Status: "running", TargetBookmark: "smithers/coedit"})
 	require.NoError(t, err)
@@ -288,4 +292,6 @@ func TestInstallSourceCoeditAdmissionPostgres(t *testing.T) {
 	_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='replacement' WHERE id=$1`, item)
 	require.NoError(t, err)
 	call(run, ws.ID, `{"changes":[{"path":"src/replaced","base_digest":"absent","content":"no"}]}`, 403, 1)
+	runDigest := sha256.Sum256([]byte(run))
+	return map[string]any{"credential_hash": hex.EncodeToString(runDigest[:]), "repository_id": f.repoID, "workspace_id": ws.ID, "todo_number": number, "run_id": "coedit-run", "attempt": 1, "transport": "controlled guest compare-write"}
 }

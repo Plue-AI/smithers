@@ -40,6 +40,13 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				writeConfirmationDispatchError(w, err)
 				return
 			}
+			if command == "flow.relay" || command == "box.resume" && r.URL.Path == "/api/workflow/provision" {
+				// The relay decodes its procedure and validated payload, resolves
+				// the stored workspace, then binds one concrete catalog command.
+				// Binding the transport name here would mask approval/run policy.
+				next.ServeHTTP(w, r)
+				return
+			}
 			if command == "github.import-read" {
 				subject, validation := services.InstallGitHubImportReadSubject(strings.TrimPrefix(r.URL.Path, "/api/github/import/"))
 				decision, err := services.Authorize(r.Context(), queries, command, subject)
@@ -385,8 +392,8 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				next.ServeHTTP(w, r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, subject)))
 				return
 			}
-			if info != nil && info.User != nil && info.IsTokenAuth && command == "" {
-				// No workspace or profile scope grants an unlisted install action.
+			if command == "" || command == "denied" {
+				// Every credential kind refuses unlisted install actions.
 				_, err := services.Authorize(r.Context(), queries, command)
 				writeConfirmationDispatchError(w, err)
 				return
@@ -406,7 +413,7 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				writeConfirmationDispatchError(w, err)
 				return
 			}
-			if info == nil || info.User == nil || command == "" || command == "self" || command == "public" {
+			if info == nil || info.User == nil || command == "self" || command == "public" {
 				next.ServeHTTP(w, r)
 				return
 			}

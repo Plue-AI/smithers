@@ -105,7 +105,7 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 		}))
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
-		if w.Code == http.StatusAccepted || w.Code == http.StatusCreated {
+		if w.Code == http.StatusAccepted || w.Code == http.StatusCreated || path == "/api/workflow/rpc" && w.Code != http.StatusBadRequest {
 			require.Len(t, decisions, 1, "one decision before confirmation/effect: %v", decisions)
 		}
 		var result map[string]any

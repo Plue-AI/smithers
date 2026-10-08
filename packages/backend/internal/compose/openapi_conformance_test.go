@@ -132,6 +132,7 @@ type conformanceServices struct {
 	jobs      *routes.RepositoryJobHandler
 	terminal  *routes.WorkspaceTerminalHandler
 	members   *routes.MembersHandler
+	secret    *routes.SecretHandler
 	live      *routes.LiveHandler
 	wiki      *services.WikiService
 	workspace *routes.WorkspaceHandler
@@ -150,6 +151,9 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *s
 	}
 	if deps.terminal == nil {
 		deps.terminal = &routes.WorkspaceTerminalHandler{}
+	}
+	if deps.secret == nil {
+		deps.secret = &routes.SecretHandler{}
 	}
 	if deps.members == nil {
 		deps.members = &routes.MembersHandler{}
@@ -176,7 +180,7 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *s
 		&routes.RepoHandler{}, &routes.GitMirrorSyncHandler{}, authHandler, deps.user, &routes.SSHKeyHandler{}, &routes.DeployKeyHandler{}, &routes.LabelHandler{},
 		&routes.OrgHandler{}, &routes.LandingHandler{}, &routes.BuildCacheHandler{}, &routes.StackHandler{}, &routes.SearchHandler{}, &routes.IssueHandler{},
 		wiki, &routes.GitSmartHandler{}, &routes.NotificationHandler{}, &routes.AdminUserHandler{}, &routes.AdminOrgHandler{}, &routes.AdminRepoHandler{}, &routes.AdminGitHubAppHandler{}, &routes.AdminAuditHandler{},
-		&routes.WebhookHandler{}, &routes.SecretHandler{}, &routes.ProviderConnectionHandler{}, &routes.VariableHandler{}, deps.billing,
+		&routes.WebhookHandler{}, deps.secret, &routes.ProviderConnectionHandler{}, &routes.VariableHandler{}, deps.billing,
 		&routes.ProtectedBookmarkHandler{}, &routes.CommitStatusHandler{}, &routes.LFSHandler{}, &routes.JJVCSHandler{}, &routes.AgentInternalHandler{},
 		&routes.AgentSessionHandler{}, &routes.AgentSessionStreamHandler{}, &routes.ApprovalsHandler{}, &routes.InternalPushHookHandler{},
 		&routes.WorkflowHandler{}, &routes.WorkflowCacheHandler{}, &routes.WorkflowArtifactHandler{},
@@ -828,4 +832,35 @@ func TestInstallAuthorizationOpenAPIResponses(t *testing.T) {
 		}
 		require.True(t, containsReceipt(schema), door.path)
 	}
+}
+
+// Every install API door must declare authority independently of its handler.
+func TestInstallRouteAuthorizationCoverage(t *testing.T) {
+	routes := servedCompositionRoutes(t, config.AuthModeSelfHosted)
+	count := 0
+	for _, route := range routes {
+		if !strings.HasPrefix(route.path, "/api/") {
+			continue
+		}
+		path := regexp.MustCompile(`\{[^}]+\}`).ReplaceAllStringFunc(route.path, func(parameter string) string {
+			if parameter == "{digest}" {
+				return strings.Repeat("a", 64)
+			}
+			return "1"
+		})
+		command := middleware.InstallMemberCommand(strings.ToUpper(route.method), path)
+		if command == "" {
+			t.Errorf("unmapped install route: %s", route.key())
+			continue
+		}
+		switch command {
+		case "public", "self", "denied", "branch.control", "todo.control", "order.ok", "approval.decide", "flow.relay", "branch.join":
+			// Authentication/refusal bindings and body-resolved commands are explicit.
+		default:
+			_, exists := services.OperationPolicy(command)
+			require.True(t, exists, "%s names no catalog descriptor: %s", route.key(), command)
+		}
+		count++
+	}
+	t.Logf("%d served install API routes have explicit authorization bindings", count)
 }

@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -24,11 +23,10 @@ import (
 )
 
 // The reviewed SG oracle is literal and independent of catalog descriptors.
-// This supplements live execution tests: ordinary cells qualify the PostgreSQL
-// authorizer, SG-08 qualifies real confirmation HTTP and SG-09 route absence.
-// Run execution rows stay pending until their real consumers pass. Co-edit
-// admission is checked here, but its unqualified guest writer cannot produce
-// passing execution evidence. Full C-ACC-01 requires both layers.
+// Every resolved cell crosses a composed install HTTP door with stored credentials.
+// Co-edit uses the existing controlled guest transport to isolate authorization;
+// guest security qualification remains separate. Parent-scoped child flow launch
+// stays pending until its execution consumer is composed.
 func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 	var fixture struct {
 		Cells []struct{ Group, Command, Credential, Expected string }
@@ -132,8 +130,9 @@ func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 		infos[label] = info
 	}
 	todos := services.NewMythicalService(pool, nil)
-	router := githubAppSetupComposeRouter(cfg, pool, nil, routerExtras{Mythical: &routes.MythicalHandler{Service: todos}})
-	aliases := map[string]string{"install.setup-step": "settings", "secrets.names": "secrets.read", "ssh.copy": "ssh", "confirmation.list": "confirmations.read"}
+	members := &services.Members{Pool: pool, Credentials: rosterAppCredentials{}, Minter: services.NewRepoConnectionService(nil, rosterAppCredentials{})}
+	secrets := &routes.SecretHandler{Service: services.NewSecretService(q, nil, services.WithSecretInstallAuthorization(true, pool))}
+	router := hostStatusProductionRouter(cfg, q, &services.InstallCapacityService{Queries: q}, conformanceServices{pool: pool, mythical: &routes.MythicalHandler{Service: todos}, members: &routes.MembersHandler{Service: members}, secret: secrets})
 	var ledger []map[string]any
 	resolved, retired, pending := 0, 0, 0
 	for index, cell := range fixture.Cells {
@@ -157,15 +156,13 @@ func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 				return
 			}
 			if cell.Command == "flow.source-coedit" && cell.Credential == "RO" && cell.Expected == "allow" {
-				subject := services.InstallSubject{RepositoryID: repo.ID, WorkspaceID: workspaces[0].ID,
-					TodoNumber: 1, Attempt: 1, RunID: "ledger-run-0", Resource: "files", PayloadDigest: strings.Repeat("a", 64)}
-				_, err := services.Authorize(middleware.ContextWithAuthInfo(ctx, info), q, "flow.source-coedit", subject)
-				require.NoError(t, err)
-				entry["subject"], entry["observed_status"], entry["authorization"] = subject, 200, "passed"
-				entry["pending_ticket"] = "T-COL-10"
-				entry["pending_dependency"] = "microsandbox/files_compare_write.go: private transport lacks guest security qualification"
-				pending++
-				t.Skip("T-COL-10: real guest co-edit execution remains unqualified")
+				proof := testInstallSourceCoeditAdmissionPostgres(t)
+				entry["credential_hash"], entry["subject"] = proof["credential_hash"], proof
+				entry["layer"], entry["execution"] = "composed install co-edit HTTP; controlled guest transport", "passed"
+				entry["actual_status"] = 200
+				entry["receipt"] = "TestInstallSourceCoeditAdmissionPostgres"
+				resolved++
+				return
 			}
 			if cell.Command == "flow.run" && cell.Credential == "RO" && cell.Expected == "allow" {
 				item, err := q.GetMythicalItemByNumber(ctx, repo.ID, 1)
@@ -176,27 +173,28 @@ func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 				_, err = services.Authorize(middleware.ContextWithAuthInfo(ctx, info), q, "flow.run", subject)
 				require.NoError(t, err)
 				entry["subject"], entry["observed_status"], entry["authorization"] = subject, 200, "passed"
+				// Probe the real door too: until the launch binds a child to
+				// this parent, the existing dispatcher must refuse without a run.
+				req := httptest.NewRequest(http.MethodPost, cfg.Server.PublicURL+"/api/repos/maya/demo/invoke", strings.NewReader(`{"flow":"check","input":{}}`))
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("Origin", cfg.Server.PublicURL)
+				req.Header.Set("Authorization", "Bearer "+tokens[cell.Credential])
+				var commands []string
+				req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) { commands = append(commands, command) }))
+				out := httptest.NewRecorder()
+				router.ServeHTTP(out, req)
+				require.Equal(t, 403, out.Code, out.Body.String())
+				require.Contains(t, out.Body.String(), `"code":"permission"`)
+				require.Equal(t, []string{"flow.run"}, commands)
+				var runs int
+				require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workflow_runs WHERE repository_id=$1`, repo.ID).Scan(&runs))
+				require.Zero(t, runs, "missing child confinement must admit no run")
+				entry["actual_status"], entry["actual_code"], entry["actual_class"] = 403, "permission", "permission"
+				entry["layer"] = "composed install HTTP; missing parent-scoped consumer"
 				entry["pending_ticket"] = "T-FLW-01"
 				entry["pending_dependency"] = "services/workflow_invoke_flow.go: InvokedFlowLaunch lacks parent-run/workspace and child-credential binding"
 				pending++
 				t.Skip("T-FLW-01: parent-scoped child flow execution contract is not composed")
-			}
-			if cell.Expected == "allow" && cell.Command != "todo.read" && (cell.Credential[0] == 'R' || cell.Credential[0] == 'M') {
-				entry["pending_ticket"] = "T-ACC-03"
-				command := cell.Command
-				if alias := aliases[command]; alias != "" {
-					command = alias
-				}
-				_, observed := services.Authorize(middleware.ContextWithAuthInfo(ctx, info), q, command)
-				if observed == nil {
-					entry["observed_status"] = 200
-				} else {
-					var refusal *services.AccessError
-					require.True(t, errors.As(observed, &refusal), observed)
-					entry["observed_status"], entry["observed_code"], entry["observed_class"] = refusal.Status, refusal.Code, refusal.Class
-				}
-				pending++
-				t.Skip("T-ACC-03: subject-bound run/machine authorization grants are not installed")
 			}
 			status, code, class := 200, "", ""
 			if cell.Group == "SG-07" && cell.Command == "todo.read" {
@@ -261,17 +259,65 @@ func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 					}
 				}
 			} else {
-				command := cell.Command
-				if alias := aliases[command]; alias != "" {
-					command = alias
+				// Literal HTTP doors, independent of descriptors under test.
+				method, path, body := "GET", "", ""
+				switch cell.Command {
+				case "install.setup-step":
+					method, path, body = "POST", "/api/install/setup/models", `{}`
+				case "install.read":
+					path = "/api/install"
+				case "members.list":
+					path = "/api/members"
+				case "secrets.names":
+					path = "/api/secrets"
+				case "ssh.copy":
+					path = "/api/repos/maya/demo/workspaces/" + workspaces[0].ID + "/ssh"
+				case "agents.read":
+					path = "/api/agents"
+				case "confirmation.list":
+					path = "/api/confirmations"
+				case "terminal":
+					method, path, body = "POST", "/api/terminals", `{"branch":"T1"}`
+				case "branch.add-to-stack":
+					method, path, body = "POST", "/api/branches/T1/add-to-stack", `{}`
+				case "branch.rebase", "branch.rebase-now", "branch.sleep", "branch.wake":
+					method, path = "POST", "/api/branches/T1"
+					body = `{"op":"` + strings.TrimPrefix(cell.Command, "branch.") + `"}`
+					if cell.Command == "branch.rebase-now" {
+						body = `{"rebase":true}`
+					}
+				default:
+					t.Fatalf("missing literal HTTP fixture for %s", cell.Command)
 				}
-				_, err := services.Authorize(middleware.ContextWithAuthInfo(ctx, infos[cell.Credential]), q, command)
-				if err != nil {
-					var access *services.AccessError
-					require.True(t, errors.As(err, &access), err)
-					status, code, class = access.Status, access.Code, access.Class
+				req := httptest.NewRequest(method, cfg.Server.PublicURL+path, strings.NewReader(body))
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("Origin", cfg.Server.PublicURL)
+				req.Header.Set("Idempotency-Key", fmt.Sprint("approved-", index))
+				if raw := sessions[cell.Credential]; raw != "" {
+					req.AddCookie(&http.Cookie{Name: "session", Value: raw})
+					req.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
+					req.Header.Set("X-CSRF-Token", "csrf")
+				} else {
+					req.Header.Set("Authorization", "Bearer "+tokens[cell.Credential])
 				}
+				var commands []string
+				req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) { commands = append(commands, command) }))
+				w := httptest.NewRecorder()
+				router.ServeHTTP(w, req)
+				status = w.Code
+				var envelope struct{ Code, Class string }
+				if status != http.StatusOK {
+					require.NoError(t, json.Unmarshal(w.Body.Bytes(), &envelope), w.Body.String())
+				}
+				code, class = envelope.Code, envelope.Class
+				if cell.Command == "confirmation.list" {
+					require.LessOrEqual(t, len(commands), 1)
+				} else {
+					require.Len(t, commands, 1, "one decision through HTTP: %v; %s", commands, w.Body.String())
+				}
+				entry["layer"] = "composed install HTTP"
 			}
+
 			entry["actual_status"], entry["actual_code"], entry["actual_class"] = status, code, class
 			switch cell.Expected {
 			case "allow":
