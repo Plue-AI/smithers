@@ -232,6 +232,8 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
   await reviewFilter.click()
   await expect.poll(() => memberViews.ben?.home).toEqual({ filter: "in_review", menu: null })
   expect([...viewWrites].reverse().find(write => write.login === "ben" && (write.body as { home?: { filter?: string } }).home?.filter === "in_review")).toEqual({ login: "ben", body: { ...beforeFilter, home: { filter: "in_review", menu: null } } })
+  // The intercepted PUT records its body before the response commits the view.
+  await expect(reviewFilter).toHaveAttribute("aria-pressed", "true")
   await page.reload()
   await expect(reviewFilter).toHaveAttribute("aria-pressed", "true")
   await signIn("alice")
