@@ -85,8 +85,13 @@ if (args.length === 1 && args[0] === "--version") {
 `
   )
   await Fs.chmod(Path.join(root, "node_modules/.bin/pnpm"), 0o755)
-  process.env["PATH"] = [Path.join(root, "node_modules/.bin"), Path.dirname(process.execPath), originalPath ?? ""]
-    .join(Path.delimiter)
+  // Action-backed executable identity refuses cwd-relative search paths. Keep
+  // this valid fixture independent of relative entries in the invoking shell.
+  process.env["PATH"] = [
+    Path.join(root, "node_modules/.bin"),
+    Path.dirname(process.execPath),
+    ...(originalPath ?? "").split(Path.delimiter).filter((entry) => Path.isAbsolute(entry))
+  ].join(Path.delimiter)
   return root
 }
 
