@@ -46,6 +46,74 @@ fn base64(bytes: &[u8]) -> String {
     out
 }
 pub fn request(args: &[String], input: &mut impl Read) -> io::Result<Frame> {
+    if args == ["write-files"] {
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Change {
+            path: String,
+            base_digest: String,
+            content: Option<Vec<u8>>,
+        }
+        let mut bytes = Vec::new();
+        input.take((8 << 20) + 1).read_to_end(&mut bytes)?;
+        if bytes.len() > 8 << 20 {
+            return Err(invalid());
+        }
+        let changes: Vec<Change> = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
+        if changes.is_empty() || changes.len() > 256 {
+            return Err(invalid());
+        }
+        let mut paths = std::collections::BTreeSet::new();
+        let mut total = 0;
+        let mut list = (changes.len() as u16).to_be_bytes().to_vec();
+        for change in changes {
+            if !paths.insert(change.path.clone()) {
+                return Err(invalid());
+            }
+            if change.base_digest != "absent"
+                && !change
+                    .base_digest
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            {
+                return Err(invalid());
+            }
+            let base = if change.base_digest == "absent" {
+                conn::tagged(2, &[])
+            } else {
+                conn::tagged(1, &[conn::field(1, unhex(&change.base_digest, 32)?)])
+            };
+            let mut fields = vec![conn::field(1, string(&change.path)?), conn::field(2, base)];
+            if let Some(content) = change.content {
+                total += content.len();
+                if total > conn::MAX_FILE_BYTES {
+                    return Err(invalid());
+                }
+                let mut bytes = (content.len() as u32).to_be_bytes().to_vec();
+                bytes.extend(content);
+                fields.push(conn::field(3, bytes));
+            }
+            list.extend(conn::structure_bytes(&fields));
+        }
+        for path in &paths {
+            for (at, _) in path.match_indices('/') {
+                if paths.contains(&path[..at]) {
+                    return Err(invalid());
+                }
+            }
+        }
+        return Ok(Frame {
+            kind: 1,
+            stream: 0,
+            payload: conn::tagged(
+                1,
+                &[
+                    conn::field(1, 1u32.to_be_bytes()),
+                    conn::field(2, conn::tagged(17, &[conn::field(1, list)])),
+                ],
+            ),
+        });
+    }
     if args.len() < 2 {
         return Err(invalid());
     }
@@ -159,6 +227,74 @@ pub fn exchange(
         3 => {
             let f = conn::fields("result3", &result[1..]).map_err(|_| invalid())?;
             writeln!(output, "{{\"post_digest\":\"{}\"}}", hex(f[0].1))?;
+        }
+        17 => {
+            let request_fields =
+                conn::fields("local_batch", request.request().map_err(|_| invalid())?.2)
+                    .map_err(|_| invalid())?;
+            let changes =
+                conn::list("local_mutation", request_fields[0].1).map_err(|_| invalid())?;
+            let f = conn::fields("result17", &result[1..]).map_err(|_| invalid())?;
+            let results = conn::list("mutation_result", f[0].1).map_err(|_| invalid())?;
+            if results.len() > changes.len() {
+                return Err(invalid());
+            }
+            let mut writes = Vec::new();
+            for (change, receipt) in changes.iter().zip(&results) {
+                let change = conn::fields("local_mutation", change).map_err(|_| invalid())?;
+                let receipt = conn::fields("mutation_result", receipt).map_err(|_| invalid())?;
+                let path = std::str::from_utf8(&change[0].1[2..]).map_err(|_| invalid())?;
+                let post = receipt[0].1;
+                let content = change.iter().find(|(tag, _)| *tag == 3);
+                let digest = if let Some((_, content)) = content {
+                    use sha2::{Digest, Sha256};
+                    let expected = Sha256::digest(&content[4..]);
+                    if post[0] != 1 || &post[6..] != expected.as_slice() {
+                        return Err(invalid());
+                    }
+                    hex(&expected)
+                } else {
+                    if post[0] != 2 {
+                        return Err(invalid());
+                    }
+                    "absent".to_owned()
+                };
+                let mut write = serde_json::json!({"path": path, "post_digest": digest});
+                if let Some((_, raced)) = receipt.iter().find(|(tag, _)| *tag == 2) {
+                    let raced = conn::fields("raced", raced).map_err(|_| invalid())?;
+                    if &raced[0].1[2..] != path.as_bytes() {
+                        return Err(invalid());
+                    }
+                    write["raced"] = serde_json::json!(hex(raced[1].1));
+                }
+                writes.push(write);
+            }
+            let mut reply = serde_json::json!({"writes": writes});
+            let mut success = true;
+            if let Some((_, failure)) = f.iter().find(|(tag, _)| *tag == 2) {
+                let failure = conn::fields("batch_failure", failure).map_err(|_| invalid())?;
+                let index =
+                    u16::from_be_bytes(failure[0].1.try_into().map_err(|_| invalid())?) as usize;
+                let preflight = failure[1].1 == [1];
+                if index >= changes.len()
+                    || (preflight && !results.is_empty())
+                    || (!preflight && index != results.len())
+                {
+                    return Err(invalid());
+                }
+                let error = conn::fields("error", failure[2].1).map_err(|_| invalid())?;
+                let current = error
+                    .iter()
+                    .find(|(tag, _)| *tag == 3)
+                    .map(|(_, d)| hex(d))
+                    .unwrap_or_else(|| "absent".to_owned());
+                reply["failure"] = serde_json::json!({"index": index, "preflight": preflight, "code": error[0].1[0], "current_digest": current});
+                success = false;
+            } else if results.len() != changes.len() {
+                return Err(invalid());
+            }
+            writeln!(output, "{reply}")?;
+            return Ok(success);
         }
         _ => return Err(invalid()),
     }

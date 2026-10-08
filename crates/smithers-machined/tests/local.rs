@@ -384,3 +384,112 @@ fn local_open_refuses_admission_fields_from_corpus() {
         assert_eq!(validate_open(args).is_ok(), allowed, "{name}");
     }
 }
+
+#[test]
+fn client_batch_encodes_move_delete_and_empty_without_body_identity() {
+    let request = client::request(
+        &args(&["write-files"]),
+        &mut &br#"[
+      {"path":"source","base_digest":"absent","content":null},
+      {"path":"dest","base_digest":"absent","content":[]},
+      {"path":"binary","base_digest":"absent","content":[0,255]}
+    ]"#[..],
+    )
+    .unwrap();
+    Frame::decode_local(&request.encode_local().unwrap()).unwrap();
+    let (_, method, raw) = request.request().unwrap();
+    assert_eq!(method, 17);
+    let (changes, actor) = conn::local_batch_write_args(raw, [7; 16]).unwrap();
+    assert_eq!(actor, Actor::Principal(vec![7; 16]));
+    assert_eq!(changes[0].content, None);
+    assert_eq!(changes[1].content, Some(vec![]));
+    assert_eq!(changes[2].content, Some(vec![0, 255]));
+    for body in [
+        r#"[]"#,
+        r#"[{"path":"../escape","base_digest":"absent","content":null}]"#,
+        r#"[{"path":"a","base_digest":"bad","content":null}]"#,
+        r#"[{"path":"a","base_digest":"absent","content":null,"actor":"forged"}]"#,
+        r#"[{"path":"a","base_digest":"absent","content":null},{"path":"a/b","base_digest":"absent","content":null}]"#,
+        r#"[{"path":"a","base_digest":"absent","content":null},{"path":"a","base_digest":"absent","content":null}]"#,
+    ] {
+        assert!(
+            client::request(&args(&["write-files"]), &mut body.as_bytes()).is_err(),
+            "{body}"
+        );
+    }
+}
+
+#[test]
+fn client_batch_validates_success_and_partial_receipts() {
+    let request = client::request(
+        &args(&["write-files"]),
+        &mut &br#"[
+      {"path":"source","base_digest":"absent","content":null},
+      {"path":"dest","base_digest":"absent","content":[120]}
+    ]"#[..],
+    )
+    .unwrap();
+    for (count, failure, correct, expected) in [
+        (2, false, true, Some(true)),
+        (1, true, true, Some(false)),
+        (1, false, true, None),
+        (2, false, false, None),
+    ] {
+        let (mut caller, mut server) = UnixStream::pair().unwrap();
+        let encoded = request.encode_local().unwrap();
+        let thread = std::thread::spawn(move || {
+            let mut input = vec![0; encoded.len()];
+            server.read_exact(&mut input).unwrap();
+            let mut receipts = (count as u16).to_be_bytes().to_vec();
+            receipts.extend(conn::structure_bytes(&[conn::field(
+                1,
+                conn::tagged(2, &[]),
+            )]));
+            if count == 2 {
+                use sha2::{Digest, Sha256};
+                let digest = if correct {
+                    Sha256::digest(b"x").to_vec()
+                } else {
+                    vec![0; 32]
+                };
+                receipts.extend(conn::structure_bytes(&[conn::field(
+                    1,
+                    conn::tagged(1, &[conn::field(1, digest)]),
+                )]));
+            }
+            let mut fields = vec![conn::field(1, receipts)];
+            if failure {
+                fields.push(conn::field(
+                    2,
+                    conn::structure_bytes(&[
+                        conn::field(1, 1u16.to_be_bytes()),
+                        conn::field(2, [0]),
+                        conn::field(
+                            3,
+                            conn::structure_bytes(
+                                &smithers_machined::hooks::Error::unsupported().fields(),
+                            ),
+                        ),
+                    ]),
+                ));
+            }
+            smithers_machined::daemon::response(1, 17, conn::structure_bytes(&fields))
+                .write(&mut server)
+                .unwrap();
+        });
+        let mut output = vec![];
+        let result = client::exchange(&mut caller, &request, &mut output);
+        match expected {
+            Some(ok) => {
+                assert_eq!(result.unwrap(), ok);
+                let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+                assert_eq!(json["writes"][0]["post_digest"], "absent");
+                if failure {
+                    assert_eq!(json["failure"]["index"], 1);
+                }
+            }
+            None => assert!(result.is_err()),
+        }
+        thread.join().unwrap();
+    }
+}

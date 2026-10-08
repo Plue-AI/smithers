@@ -18,15 +18,7 @@ no_pending()
 
 func TestGuestStartupRecoverySettlesPartialMutationBeforeAdmission(t *testing.T) {
 	boundaryPython(t, mutationCoordinatorFixture+`
-replace=g.os.replace
-def replacing(source,target,**kwargs):
- replace(source,target,**kwargs)
- if target=='a':os.kill(os.getpid(),signal.SIGKILL)
-g.os.replace=replacing
-try:g.coordinate_mutation(prepare,emit,4096)
-except SystemExit as error:assert error.code==125,error.code
-else:raise AssertionError('dead mutation worker succeeded')
-g.os.replace=replace
+seed_pending()
 assert pending().exists() and (workspace/'a').read_bytes()==b'ALPHA'
 try:
  with g.writer_admission():raise AssertionError('pending mutation admitted a writer')
@@ -67,5 +59,63 @@ except SystemExit as error:assert error.code==125,error.code
 else:raise AssertionError('unprivileged recovery accepted')
 assert events==[] and not pending().exists()
 assert (workspace/'a').read_bytes()==b'alpha'
+`)
+}
+
+func TestGuestStartupRecoveryRetainsSettledJournalsAndOutsideBytes(t *testing.T) {
+	for _, phase := range []string{"committed", "aborted"} {
+		t.Run(phase, func(t *testing.T) {
+			boundaryPython(t, mutationCoordinatorFixture+"phase='"+phase+`'
+seed_pending()
+journal=pending()/'journal';state=json.loads((journal/'state.json').read_text())
+state['phase']=phase;(journal/'state.json').write_text(json.dumps(state))
+(workspace/'a').write_bytes(b'outside after settlement')
+assert g.recover_files(4096)==0
+assert (workspace/'a').read_bytes()==b'outside after settlement'
+no_pending()
+`)
+		})
+	}
+}
+
+func TestGuestStartupRecoveryRefusesCorruptBackupAndOutsideReplacement(t *testing.T) {
+	for _, scenario := range []string{"backup", "outside", "ancestor"} {
+		t.Run(scenario, func(t *testing.T) {
+			boundaryPython(t, mutationCoordinatorFixture+"scenario='"+scenario+`'
+seed_pending()
+if scenario=='backup':(pending()/'journal/base-0').write_bytes(b'corrupt')
+elif scenario=='outside':(workspace/'a').write_bytes(b'outside replacement')
+else:
+ (workspace/'a').unlink();(workspace/'a').symlink_to(base/'outside')
+ (base/'outside').write_bytes(b'outside replacement')
+try:g.recover_files(4096)
+except (SystemExit,OSError):pass
+else:raise AssertionError('unsafe recovery succeeded')
+assert pending().exists() and (writers/'cgroup.freeze').read_text()=='1'
+assert b'0' not in events
+if scenario=='outside':assert (workspace/'a').read_bytes()==b'outside replacement'
+if scenario=='ancestor':assert (base/'outside').read_bytes()==b'outside replacement'
+`)
+		})
+	}
+}
+
+func TestGuestStartupRecoveryCanRestartAfterWorkerDeath(t *testing.T) {
+	boundaryPython(t, mutationCoordinatorFixture+`
+seed_pending()
+replace=g.os.replace
+def replacing(source,target,**kwargs):
+ replace(source,target,**kwargs)
+ if target=='a':os.kill(os.getpid(),signal.SIGKILL)
+g.os.replace=replacing
+try:g.recover_files(4096)
+except SystemExit as error:assert error.code==125,error.code
+else:raise AssertionError('dead recovery worker succeeded')
+assert pending().exists() and (writers/'cgroup.freeze').read_text()=='1'
+assert (workspace/'a').read_bytes()==b'alpha'
+g.os.replace=replace
+assert g.recover_files(4096)==0
+assert (workspace/'a').read_bytes()==b'alpha'
+no_pending()
 `)
 }

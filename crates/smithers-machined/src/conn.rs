@@ -767,6 +767,22 @@ impl Acknowledgement {
     }
 }
 
+/// Borrow list entries using the same schema parser as framing.
+pub fn list<'a>(name: &str, bytes: &'a [u8]) -> Result<Vec<&'a [u8]>, ProtocolError> {
+    let mut cursor = Cursor(bytes);
+    let count = cursor.number(2)? as usize;
+    let mut entries = Vec::with_capacity(count);
+    for _ in 0..count {
+        let start = cursor.0;
+        cursor.value(name)?;
+        entries.push(&start[..start.len() - cursor.0.len()]);
+    }
+    if !cursor.0.is_empty() {
+        return Err(TrailingBytes);
+    }
+    Ok(entries)
+}
+
 /// The batch reuses single-write values and one authenticated actor envelope.
 pub fn batch_write_args(
     bytes: &[u8],

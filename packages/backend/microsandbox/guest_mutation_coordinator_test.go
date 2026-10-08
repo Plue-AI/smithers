@@ -5,7 +5,7 @@ import "testing"
 // Real forks, pipes, journal/filesystem operations and control messages, with
 // cgroup state and credentials instrumented. Linux kernel evidence is separate.
 const mutationCoordinatorFixture = `
-import hashlib,pathlib,shutil,signal
+import hashlib,json,pathlib,shutil,signal
 H=lambda body:hashlib.sha256(body).hexdigest()
 temporary=tempfile.TemporaryDirectory();base=pathlib.Path(temporary.name)
 workspace=base/'workspace';workspace.mkdir();(workspace/'a').write_bytes(b'alpha')
@@ -53,90 +53,21 @@ def writing(fd,body):
   events.append(body)
  return count
 g.os.write=writing
-def prepare():
- assert g.os.geteuid()==real_uid and (writers/'cgroup.freeze').read_text()=='0'
- (base/'input-ready').touch()
- return [('a',H(b'alpha'),b'ALPHA',0o644)]
-def emit(result):
- assert g.os.geteuid()==real_uid and (writers/'cgroup.freeze').read_text()=='0'
- assert result=={'a':H(b'ALPHA')}
- (base/'reply').write_bytes(b'replied')
+def seed_pending():
+ store=g.protected_directory(g.WRITER_COORDINATOR,True)
+ p,j=g.mutation_pending(store,entry,real_gid)
+ os.close(j);os.close(p);os.close(store)
+ journal=pending()/'journal'
+ (journal/'base-0').write_bytes(b'alpha')
+ state={'version':1,'phase':'prepared','entries':[{'path':'a','base':'8ed3f6ad685b959ead7022518e1af76cd816f8e8ec7ccdda1ed4018e8f2223f8','before_mode':420,'after':'73ab66a033c267e00b7429bb256f6deb2734ebc4cd4ff5b564a8c9f9b2c8a719','temporary':'.smithers-mutation-'+'1'*32,'backup':'base-0'}],'directories':[]}
+ (journal/'state.json').write_text(json.dumps(state))
+ (workspace/'a').write_bytes(b'ALPHA')
+ (writers/'cgroup.freeze').write_text('1')
 def pending():return base.joinpath(*g.WRITER_COORDINATOR,'pending')
 def no_pending():
  assert not pending().exists() and not list(mutators.iterdir())
  assert (writers/'cgroup.freeze').read_text()=='0'
 `
-
-func TestGuestMutationCoordinatorPreparesThenFreezesAndSettlesBeforeReply(t *testing.T) {
-	boundaryPython(t, mutationCoordinatorFixture+`
-freeze=g.mutation_freeze
-def freezing(fd,value):
- if value:assert (base/'input-ready').exists(),'caller frozen before sending input'
- freeze(fd,value)
-g.mutation_freeze=freezing
-assert g.coordinate_mutation(prepare,emit,4096)==0
-assert events==[b'1',b'0'],events
-assert (workspace/'a').read_bytes()==b'ALPHA' and (base/'reply').read_bytes()==b'replied'
-no_pending()
-`)
-}
-
-func TestGuestMutationCoordinatorStaleRefusalSettlesWithoutReply(t *testing.T) {
-	boundaryPython(t, mutationCoordinatorFixture+`
-(workspace/'a').write_bytes(b'outside save')
-assert g.coordinate_mutation(prepare,emit,4096)==6
-assert (workspace/'a').read_bytes()==b'outside save' and not (base/'reply').exists()
-assert events==[b'1',b'0'],events
-no_pending()
-`)
-}
-
-func TestGuestMutationCoordinatorFailedInputRecoversWithoutCallingInputAgain(t *testing.T) {
-	boundaryPython(t, mutationCoordinatorFixture+`
-def invalid():os.kill(os.getpid(),signal.SIGKILL)
-try:g.coordinate_mutation(invalid,emit,4096)
-except SystemExit as error:assert error.code==125,error.code
-else:raise AssertionError('invalid input succeeded')
-assert pending().exists() and events==[],events
-assert (workspace/'a').read_bytes()==b'alpha'
-def forbidden(*args):raise AssertionError('recovery consumed a new request or emitted a prior reply')
-assert g.coordinate_mutation(forbidden,forbidden,4096,recover_only=True)==0
-no_pending()
-`)
-}
-
-func TestGuestMutationCoordinatorKeepsWritersFrozenAfterWorkerDeath(t *testing.T) {
-	boundaryPython(t, mutationCoordinatorFixture+`
-replace=g.os.replace
-def replacing(source,target,**kwargs):
- replace(source,target,**kwargs)
- if target=='a':os.kill(os.getpid(),signal.SIGKILL)
-g.os.replace=replacing
-try:g.coordinate_mutation(prepare,emit,4096)
-except SystemExit as error:assert error.code==125,error.code
-else:raise AssertionError('dead mutation worker succeeded')
-g.os.replace=replace
-assert pending().exists() and (writers/'cgroup.freeze').read_text()=='1'
-assert (workspace/'a').read_bytes()==b'ALPHA' and not (base/'reply').exists()
-assert events==[b'1'],events
-assert g.coordinate_mutation(None,None,4096,recover_only=True)==0
-assert (workspace/'a').read_bytes()==b'alpha'
-no_pending()
-`)
-}
-
-func TestGuestMutationCoordinatorRecoversBeforeConsumingTheNextRequest(t *testing.T) {
-	boundaryPython(t, mutationCoordinatorFixture+`
-def invalid():os.kill(os.getpid(),signal.SIGKILL)
-try:g.coordinate_mutation(invalid,emit,4096)
-except SystemExit:pass
-assert pending().exists()
-assert g.coordinate_mutation(prepare,emit,4096)==0
-assert (workspace/'a').read_bytes()==b'ALPHA'
-assert events==[b'1',b'1',b'0',b'1',b'0'],events
-no_pending()
-`)
-}
 
 func TestGuestMutationCoordinatorNeverThawsUnknownRecovery(t *testing.T) {
 	boundaryPython(t, mutationCoordinatorFixture+`
@@ -144,7 +75,7 @@ parent=g.protected_directory(g.WRITER_COORDINATOR,True)
 p,j=g.mutation_pending(parent,entry,real_gid)
 g.mutation_write_new(j,'state.json',b'not a journal',0o600)
 os.close(j);os.close(p);os.close(parent)
-try:g.coordinate_mutation(None,None,4096,recover_only=True)
+try:g.recover_files(4096)
 except SystemExit as error:assert error.code==125,error.code
 else:raise AssertionError('unknown recovery was accepted')
 assert pending().exists() and (writers/'cgroup.freeze').read_text()=='1'
@@ -209,7 +140,7 @@ else:
  elif scenario=='journal-link':(pending()/'journal').symlink_to(outside,target_is_directory=True)
  else:(pending()/'journal').write_bytes(b'not a directory')
 g.recover_mutation=lambda *args:(_ for _ in ()).throw(AssertionError('unsafe journal reached worker'))
-try:g.coordinate_mutation(None,None,4096,recover_only=True)
+try:g.recover_files(4096)
 except (SystemExit,OSError):pass
 else:raise AssertionError('unsafe recovery directory accepted')
 assert pending().exists() and (outside/'sentinel').read_bytes()==b'outside'
@@ -226,7 +157,10 @@ def pipes():
  if opened:raise OSError('injected second pipe failure')
  pair=pipe();opened.extend(pair);return pair
 g.os.pipe=pipes
-try:g.coordinate_mutation(prepare,emit,4096)
+store=g.protected_directory(g.WRITER_COORDINATOR,True)
+p,j=g.mutation_pending(store,entry,real_gid)
+os.close(j);os.close(p);os.close(store)
+try:g.recover_files(4096)
 except OSError:pass
 else:raise AssertionError('pipe failure accepted')
 g.os.pipe=pipe
@@ -234,8 +168,8 @@ for fd in opened:
  try:os.fstat(fd)
  except OSError:pass
  else:raise AssertionError('failed setup leaked control descriptor')
-assert pending().exists() and events==[]
-assert g.coordinate_mutation(None,None,4096,recover_only=True)==0
+assert pending().exists() and events==[b'1'],events
+assert g.recover_files(4096)==0
 no_pending()
 `)
 }

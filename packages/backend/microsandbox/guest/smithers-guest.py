@@ -1069,18 +1069,10 @@ def mutation_cleanup(journal):
     os.fsync(journal)
 
 
-class MutationStale(SystemExit):
-    """Private settlement signal; no diagnostic is written under the freeze."""
-    def __init__(self, path, digest):
-        super().__init__(6)
-        self.path, self.digest = path, digest
+def recover_files(limit):
+    """Recover persisted S1 journals without admitting new mutations.
 
-
-def coordinate_mutation(prepare, emit, limit, *, recover_only=False):
-    """Coordinate recovery; new mutations remain private and gated off.
-
-    prepare/emit are fixed installed callbacks, never supplied by a request.
-    Only the dropped worker calls them. Root sees fixed control bytes, trusted
+    Root sees fixed control bytes, trusted
     account metadata and kernel cgroup state; it never opens journal payloads.
     """
     if os.geteuid() != 0 or type(limit) is not int or not 0 < limit <= 64 << 20:
@@ -1091,227 +1083,112 @@ def coordinate_mutation(prepare, emit, limit, *, recover_only=False):
             recovering = True
         except FileNotFoundError:
             recovering = False
-        if recover_only and not recovering:
+        if not recovering:
             return 0
         entry, gid = mutation_account()
-        # Recovery runs before admitting a new request. A killed input worker
-        # may still hold a stream, and a killed apply worker may have partial data.
-        phases = [True] if recover_only else ([True, False] if recovering else [False])
-        for recovery in phases:
-            worker_group = os.path.join(MUTATION_CGROUP_ROOT, "active")
-            cgroup_kill(worker_group, mutation=True)
-            pending, journal = mutation_pending(store, entry, gid)
-            writers = group = None
-            descriptors = []
-            child = None
-            reaped = False
-            try:
-                writers = safe_directory(CGROUP_ROOT, trusted=True)
-                if recovery:
-                    mutation_freeze(writers, True)
-                group = safe_directory(worker_group, trusted=True)
-                state_r, state_w = os.pipe()
-                descriptors = [state_r, state_w]
-                command_r, command_w = os.pipe()
-                descriptors.extend((command_r, command_w))
-                child = os.fork()
-                if child == 0:
-                    code = 125
-                    try:
-                        # Join before closing the inherited admission lock. A
-                        # replacement coordinator cannot miss a late-joining child.
-                        fd = os.open("cgroup.procs", os.O_WRONLY | os.O_NOFOLLOW, dir_fd=group)
-                        with os.fdopen(fd, "w") as handle:
-                            handle.write(str(os.getpid()))
-                        keep = {0, 1, 2, journal, state_w, command_r}
-                        for name in os.listdir("/proc/self/fd"):
-                            fd = int(name)
-                            if fd not in keep:
-                                try:
-                                    os.close(fd)
-                                except OSError:
-                                    pass
-                        drop_mutation_identity(entry, gid)
-                        # No branch path or bytes are consumed above this point.
-                        root = safe_directory("/workspace", create=False)
-                        changes, input_error = None, None
-                        if not recovery:
-                            try:
-                                changes = prepare()
-                            except BaseException as failure:
-                                # Installed prepare callbacks only decode bounded
-                                # input. A rejected request still follows durable
-                                # abort/cleanup, without leaving a needless fence.
-                                input_error = failure
-                        os.write(state_w, b"R")
-                        mutation_control(command_r, (b"G",))
-                        error, result = input_error, None
-                        if recovery or error is not None:
-                            phase = recover_mutation(root, journal, limit)
-                        else:
-                            try:
-                                result = apply_mutation_batch(root, journal, changes, limit)
-                                phase = "committed"
-                            except BaseException as failure:
-                                error = failure
-                                phase = recover_mutation(root, journal, limit)
-                        os.write(state_w, b"C" if phase == "committed" else b"A")
-                        mutation_control(command_r, (b"T",))
-                        try:
-                            if isinstance(error, MutationStale):
-                                fail(6, "stale:" + json.dumps({"path": error.path, "current_digest": error.digest},
-                                                            separators=(",", ":")))
-                            if error is not None:
-                                raise error
-                            if not recovery:
-                                emit(result)
-                            code = 0
-                        finally:
-                            mutation_cleanup(journal)
-                    except SystemExit as error:
-                        code = error.code if type(error.code) is int and 0 <= error.code <= 255 else 125
-                    except BaseException as error:
-                        sys.stderr.write("smithers-guest: mutation worker: %s\n" % error)
-                        code = 125
-                    finally:
-                        try:
-                            sys.stdout.flush()
-                            sys.stderr.flush()
-                        except OSError:
-                            code = 125
-                        os._exit(code)
-                os.close(state_w)
-                os.close(command_r)
-                descriptors = [state_r, command_w]
-                mutation_control(state_r, (b"R",))
-                mutation_freeze(writers, True)
-                os.write(command_w, b"G")
-                mutation_control(state_r, (b"C", b"A"))
-                # Never thaw from an error/finally path. The worker has durably
-                # committed or rolled back before it sends this fixed signal.
-                mutation_freeze(writers, False)
-                os.write(command_w, b"T")
-                deadline = time.monotonic() + MUTATION_TIMEOUT
-                while True:
-                    pid, status = os.waitpid(child, os.WNOHANG)
-                    if pid:
-                        reaped = True
-                        break
-                    if time.monotonic() >= deadline:
-                        fail(125, "mutation response did not finish")
-                    time.sleep(.01)
-                cgroup_kill(worker_group, mutation=True)
-                # rmdir is the only root inspection of the worker's cleanup.
-                # If it was interrupted, pending stays and recovery rechecks it.
-                os.rmdir("journal", dir_fd=pending)
-                os.fsync(pending)
-                os.rmdir("pending", dir_fd=store)
-                os.fsync(store)
-                code = os.waitstatus_to_exitcode(status)
-                if code:
-                    return 128 - code if code < 0 else code
-            finally:
-                try:
-                    if child is not None and not reaped:
-                        try:
-                            os.kill(child, signal.SIGKILL)
-                        except ProcessLookupError:
-                            pass
-                        cgroup_kill(worker_group, mutation=True)
-                        os.waitpid(child, 0)
-                finally:
-                    for fd in descriptors:
-                        os.close(fd)
-                    for fd in (group, writers, journal, pending):
-                        if fd is not None:
-                            os.close(fd)
-        return 0
-
-
-def coordinated_compare_write(args):
-    """Decode the file-content batch in the dropped worker; still gated off.
-
-    Root consumes only the host's bounded size envelope. Paths, bases, content
-    and encodings use the existing HTTP changes shape; no request chooses uid,
-    root, mode, journal or an executable. Input completes before writers freeze.
-    """
-    if len(args) != 5 or not isinstance(args[4], str) or not re.fullmatch(r"[0-9]{1,8}", args[4]):
-        fail(3, "invalid compare-write size envelope")
-    limit = int(args[4])
-    if not 0 < limit <= 64 << 20:
-        fail(3, "invalid compare-write limit")
-
-    def prepare():
-        if args[:4] != ["fs", "agent", "compare-write", "/workspace"]:
-            fail(3, "invalid compare-write envelope")
-        # JSON can expand a byte to six characters; separately bound path/key
-        # overhead. Neither parsing nor base64 decoding sees unbounded input.
-        wire_limit = min(64 << 20, 6 * limit + (2 << 20))
-        body = sys.stdin.buffer.read(wire_limit + 1)
-        if len(body) > wire_limit:
-            fail(4, "mutation request exceeds byte limit")
-
-        def unique(pairs):
-            result = {}
-            for key, value in pairs:
-                if key in result:
-                    fail(3, "duplicate mutation field")
-                result[key] = value
-            return result
-
+        # Collect the old worker before consuming its persisted journal.
+        worker_group = os.path.join(MUTATION_CGROUP_ROOT, "active")
+        cgroup_kill(worker_group, mutation=True)
+        pending, journal = mutation_pending(store, entry, gid)
+        writers = group = None
+        descriptors = []
+        child = None
+        reaped = False
         try:
-            request = json.loads(body.decode("utf-8"), object_pairs_hook=unique,
-                                 parse_constant=lambda _: fail(3, "invalid mutation JSON"))
-        except (ValueError, UnicodeError, RecursionError):
-            fail(3, "invalid mutation JSON")
-        if (not isinstance(request, dict) or set(request) != {"changes"}
-                or not isinstance(request["changes"], list) or not 0 < len(request["changes"]) <= 256):
-            fail(3, "invalid mutation batch")
-        changes, paths, total = [], set(), 0
-        for change in request["changes"]:
-            if (not isinstance(change, dict) or not {"path", "base_digest", "content"} <= set(change)
-                    or set(change) - {"path", "base_digest", "content", "encoding"}):
-                fail(3, "invalid mutation fields")
-            path, base, content = change["path"], change["base_digest"], change["content"]
-            mutation_path(path)
-            if path in paths:
-                fail(3, "duplicate mutation path")
-            paths.add(path)
-            if base != "absent" and (not isinstance(base, str) or not re.fullmatch(r"[0-9a-f]{64}", base)):
-                fail(3, "invalid base_digest")
-            encoding = change.get("encoding", "utf-8")
-            if encoding not in ("utf-8", "base64") or (content is None and "encoding" in change):
-                fail(3, "invalid mutation encoding")
-            if content is not None:
-                if not isinstance(content, str):
-                    fail(3, "invalid mutation content")
+            writers = safe_directory(CGROUP_ROOT, trusted=True)
+            mutation_freeze(writers, True)
+            group = safe_directory(worker_group, trusted=True)
+            state_r, state_w = os.pipe()
+            descriptors = [state_r, state_w]
+            command_r, command_w = os.pipe()
+            descriptors.extend((command_r, command_w))
+            child = os.fork()
+            if child == 0:
+                code = 125
                 try:
-                    if encoding == "base64":
-                        decoded = base64.b64decode(content, validate=True)
-                        if base64.b64encode(decoded).decode("ascii") != content:
-                            fail(3, "noncanonical mutation base64")
-                    else:
-                        decoded = content.encode("utf-8")
-                except (ValueError, UnicodeError):
-                    fail(3, "invalid mutation content")
-                content = decoded
-                total += len(content)
-                if total > limit:
-                    fail(4, "mutation batch exceeds byte limit")
-            # None mode means preserve the mode observed under writer exclusion.
-            changes.append((path, base, content, None))
-        for path in paths:
-            parts = path.split("/")
-            if any("/".join(parts[:i]) in paths for i in range(1, len(parts))):
-                fail(3, "mutation paths overlap")
-        return changes
-
-    def emit(result):
-        sys.stdout.write(json.dumps({"changes": [{"path": path, "digest": digest}
-                                                for path, digest in result.items()]},
-                                   separators=(",", ":")))
-
-    return coordinate_mutation(prepare, emit, limit)
+                    # Join before closing the inherited admission lock. A
+                    # replacement coordinator cannot miss a late-joining child.
+                    fd = os.open("cgroup.procs", os.O_WRONLY | os.O_NOFOLLOW, dir_fd=group)
+                    with os.fdopen(fd, "w") as handle:
+                        handle.write(str(os.getpid()))
+                    keep = {0, 1, 2, journal, state_w, command_r}
+                    for name in os.listdir("/proc/self/fd"):
+                        fd = int(name)
+                        if fd not in keep:
+                            try:
+                                os.close(fd)
+                            except OSError:
+                                pass
+                    drop_mutation_identity(entry, gid)
+                    # No branch path or bytes are consumed above this point.
+                    root = safe_directory("/workspace", create=False)
+                    os.write(state_w, b"R")
+                    mutation_control(command_r, (b"G",))
+                    phase = recover_mutation(root, journal, limit)
+                    os.write(state_w, b"C" if phase == "committed" else b"A")
+                    mutation_control(command_r, (b"T",))
+                    try:
+                        code = 0
+                    finally:
+                        mutation_cleanup(journal)
+                except SystemExit as error:
+                    code = error.code if type(error.code) is int and 0 <= error.code <= 255 else 125
+                except BaseException as error:
+                    sys.stderr.write("smithers-guest: mutation worker: %s\n" % error)
+                    code = 125
+                finally:
+                    try:
+                        sys.stdout.flush()
+                        sys.stderr.flush()
+                    except OSError:
+                        code = 125
+                    os._exit(code)
+            os.close(state_w)
+            os.close(command_r)
+            descriptors = [state_r, command_w]
+            mutation_control(state_r, (b"R",))
+            mutation_freeze(writers, True)
+            os.write(command_w, b"G")
+            mutation_control(state_r, (b"C", b"A"))
+            # Never thaw from an error/finally path. The worker has durably
+            # committed or rolled back before it sends this fixed signal.
+            mutation_freeze(writers, False)
+            os.write(command_w, b"T")
+            deadline = time.monotonic() + MUTATION_TIMEOUT
+            while True:
+                pid, status = os.waitpid(child, os.WNOHANG)
+                if pid:
+                    reaped = True
+                    break
+                if time.monotonic() >= deadline:
+                    fail(125, "mutation response did not finish")
+                time.sleep(.01)
+            cgroup_kill(worker_group, mutation=True)
+            # rmdir is the only root inspection of the worker's cleanup.
+            # If it was interrupted, pending stays and recovery rechecks it.
+            os.rmdir("journal", dir_fd=pending)
+            os.fsync(pending)
+            os.rmdir("pending", dir_fd=store)
+            os.fsync(store)
+            code = os.waitstatus_to_exitcode(status)
+            if code:
+                return 128 - code if code < 0 else code
+        finally:
+            try:
+                if child is not None and not reaped:
+                    try:
+                        os.kill(child, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    cgroup_kill(worker_group, mutation=True)
+                    os.waitpid(child, 0)
+            finally:
+                for fd in descriptors:
+                    os.close(fd)
+                for fd in (group, writers, journal, pending):
+                    if fd is not None:
+                        os.close(fd)
+        return 0
 
 
 def run_managed_child(exec_id, action, *, privileged=False):
@@ -1616,40 +1493,6 @@ def fs_write(root, path, mode):
         raise
 
 
-def exchange_file(parent, source, target, flags):
-    """Linux renameat2; unsupported kernels refuse rather than use rename."""
-    libc = ctypes.CDLL(None, use_errno=True)
-    rename = libc.renameat2
-    rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
-    rename.restype = ctypes.c_int
-    if rename(parent, os.fsencode(source), parent, os.fsencode(target), flags) != 0:
-        code = ctypes.get_errno()
-        raise OSError(code, os.strerror(code))
-
-
-def file_digest_at(parent, name, limit):
-    try:
-        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
-    except FileNotFoundError:
-        return "absent"
-    try:
-        info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode):
-            fail(3, "workspace mutation target is not a regular file")
-        value = hashlib.sha256()
-        count = 0
-        while True:
-            chunk = os.read(fd, 65536)
-            if not chunk:
-                return value.hexdigest()
-            count += len(chunk)
-            if count > limit:
-                fail(4, "workspace file exceeds compare limit")
-            value.update(chunk)
-    finally:
-        os.close(fd)
-
-
 def mutation_path(path):
     if (not isinstance(path, str) or not path or len(path) > 1024 or "\x00" in path
             or any(part in ("", ".", "..") for part in path.split("/"))):
@@ -1865,189 +1708,6 @@ def recover_mutation(root, journal, limit):
     state["phase"] = "aborted"
     mutation_save_state(journal, state)
     return "aborted"
-
-
-def apply_mutation_batch(root, journal, changes, limit):
-    """Prepare, apply and durably settle one batch in the dropped worker.
-
-    The caller must hold qualified exclusion through this call AND recovery;
-    these descriptor operations alone cannot stop outside writers. No production
-    provider invokes this candidate until the coordinator and security gates pass.
-    Changes are private normalized tuples (relative path, base, bytes-or-None,
-    mode-or-None), adapted from the existing file-tool contract rather than a new API.
-    None preserves existing permissions (0644 for a newly created file).
-    """
-    mutation_identity(journal, limit)
-    if not isinstance(changes, list) or not 0 < len(changes) <= 256:
-        fail(3, "invalid mutation batch")
-    if os.listdir(journal):
-        fail(125, "mutation journal requires recovery")
-    entries, originals, directories, total_before, total_after = [], [], set(), 0, 0
-    for index, change in enumerate(changes):
-        if not isinstance(change, tuple) or len(change) != 4:
-            fail(3, "invalid mutation change")
-        path, base, body, mode = change
-        parts = mutation_path(path)
-        if ((base != "absent" and (not isinstance(base, str) or not re.fullmatch(r"[0-9a-f]{64}", base)))
-                or (body is not None and not isinstance(body, bytes))
-                or (mode is not None and (type(mode) is not int or not 0 <= mode <= 0o777))):
-            fail(3, "invalid mutation change")
-        parent = mutation_parent(root, path)
-        try:
-            original, before_mode = mutation_read(parent, parts[-1], limit)
-        finally:
-            if parent is not None:
-                os.close(parent)
-        current = mutation_digest(original)
-        if current != base:
-            raise MutationStale(path, current)
-        total_before += len(original) if original is not None else 0
-        total_after += len(body) if body is not None else 0
-        if max(total_before, total_after) > limit:
-            fail(4, "mutation batch exceeds byte limit")
-        # Discover all absent ancestors without creating anything during validation.
-        parent = os.dup(root)
-        missing = False
-        try:
-            for i, part in enumerate(parts[:-1]):
-                if not missing:
-                    try:
-                        child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
-                    except FileNotFoundError:
-                        missing = True
-                    else:
-                        os.close(parent)
-                        parent = child
-                if missing and body is not None:
-                    directories.add("/".join(parts[:i + 1]))
-        finally:
-            os.close(parent)
-        entries.append({"path": path, "base": base, "before_mode": before_mode,
-                        "after": mutation_digest(body), "temporary": ".smithers-mutation-" + secrets.token_hex(16),
-                        "backup": "base-" + str(index)})
-        originals.append(original)
-    state = {"version": 1, "phase": "prepared", "entries": entries,
-             "directories": sorted(directories, key=lambda value: (value.count("/"), value))}
-    mutation_validate_state(state)
-    for entry, original in zip(entries, originals):
-        if original is not None:
-            mutation_write_new(journal, entry["backup"], original, 0o600)
-    mutation_save_state(journal, state)
-    try:
-        for path in state["directories"]:
-            parent = mutation_parent(root, path)
-            if parent is None:
-                fail(125, "mutation ancestor disappeared")
-            try:
-                os.mkdir(path.split("/")[-1], 0o775, dir_fd=parent)
-                os.fsync(parent)
-            finally:
-                os.close(parent)
-        for entry, (_, _, body, mode) in zip(entries, changes):
-            parent = mutation_parent(root, entry["path"])
-            if parent is None and body is None:
-                continue
-            if parent is None:
-                fail(125, "mutation ancestor disappeared")
-            try:
-                leaf, temporary = entry["path"].split("/")[-1], entry["temporary"]
-                if body is None:
-                    if entry["base"] != "absent":
-                        os.unlink(leaf, dir_fd=parent)
-                else:
-                    after_mode = mode if mode is not None else (entry["before_mode"] if entry["before_mode"] is not None else 0o644)
-                    mutation_write_new(parent, temporary, body, after_mode)
-                    os.replace(temporary, leaf, src_dir_fd=parent, dst_dir_fd=parent)
-                os.fsync(parent)
-            finally:
-                if parent is not None:
-                    os.close(parent)
-        state["phase"] = "committed"
-        mutation_save_state(journal, state)
-    except BaseException:
-        recover_mutation(root, journal, limit)
-        raise
-    return {entry["path"]: entry["after"] for entry in entries}
-
-
-def fs_compare_write(root, path, mode, base, limit):
-    """Candidate S1 exchange; NOT an enabled/qualified runtime capability.
-
-    The installed runtime deliberately does not expose WorkspaceCompareWriter
-    until fresh/retained-machine and concurrent ancestor/rollback qualification.
-    No lexical host read followed by an unconditional write is used here.
-    """
-    if os.geteuid() == 0:
-        fail(125, "compare-write requires unprivileged identity")
-    if base != "absent" and not re.fullmatch(r"[0-9a-f]{64}", base):
-        fail(3, "invalid base_digest")
-    if not 0 < limit <= 64 << 20:
-        fail(3, "invalid compare-write limit")
-    parts = path.split("/")
-    if not parts or any(p in ("", ".", "..") for p in parts) or "\x00" in path:
-        fail(3, "workspace mutation path escapes or replaces root")
-    # Reject symlinks in every ancestor and pin the directory used by all
-    # exchanges. Missing parents are refused without creating directories.
-    parent = safe_directory(root, create=False)
-    temporary = None
-    fd = None
-    preserve = False
-    try:
-        for part in parts[:-1]:
-            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
-            os.close(parent)
-            parent = child
-        leaf = parts[-1]
-        current = file_digest_at(parent, leaf, limit)
-        if current != base:
-            fail(6, "stale:" + current)
-        data = sys.stdin.buffer.read(limit + 1)
-        if len(data) > limit:
-            fail(4, "workspace file exceeds write limit")
-        temporary = ".smithers-write-" + secrets.token_hex(16)
-        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                     0o600, dir_fd=parent)
-        os.fchmod(fd, mode & 0o777)
-        view = memoryview(data)
-        while view:
-            view = view[os.write(fd, view):]
-        os.fsync(fd)
-        os.close(fd)
-        fd = None
-        try:
-            exchange_file(parent, temporary, leaf, 1 if base == "absent" else 2)
-        except FileExistsError:
-            fail(6, "stale:" + file_digest_at(parent, leaf, limit))
-        except FileNotFoundError:
-            fail(6, "stale:absent")
-        if base == "absent":
-            temporary = None
-        else:
-            # Keep displaced bytes on any failure, including a failed rollback.
-            preserve = True
-            try:
-                displaced = file_digest_at(parent, temporary, limit)
-            except BaseException:
-                exchange_file(parent, temporary, leaf, 2)
-                preserve = False
-                raise
-            if displaced != base:
-                exchange_file(parent, temporary, leaf, 2)
-                preserve = False
-                os.fsync(parent)
-                fail(6, "stale:" + displaced)
-            preserve = False
-        os.fsync(parent)
-        sys.stdout.write(json.dumps({"digest": hashlib.sha256(data).hexdigest()}))
-    finally:
-        if fd is not None:
-            os.close(fd)
-        if temporary is not None and not preserve:
-            try:
-                os.unlink(temporary, dir_fd=parent)
-            except FileNotFoundError:
-                pass
-        os.close(parent)
 
 
 def fs_list(root, path):
@@ -3098,7 +2758,7 @@ def main(args):
     if command == "recover-files" and len(args) == 1:
         # Fixed installed limit; no request operands or stdin are consumed.
         # This never admits a new mutation or opens the compare-write gate.
-        sys.exit(coordinate_mutation(None, None, 64 << 20, recover_only=True))
+        sys.exit(recover_files(64 << 20))
     if command == "final-capture-fence" and len(args) == 1:
         final_capture_fence()
         return

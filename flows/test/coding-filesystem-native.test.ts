@@ -1,11 +1,13 @@
 /** Std boundary tests with a test-only atomic provider; no machine qualification. */
 import { NodeServices } from "@effect/platform-node"
+import * as StandardFlows from "@smthrs/agent/StandardFlows"
+import * as Cell from "@smthrs/harness/Cell"
 import * as ApplyPatch from "@smthrs/std/ApplyPatch"
 import * as Edit from "@smthrs/std/Edit"
 import * as Read from "@smthrs/std/Read"
 import { StdError } from "@smthrs/std/StdError"
 import * as Write from "@smthrs/std/Write"
-import { Effect, FileSystem, Sink, Stream } from "effect"
+import { Context, Effect, FileSystem, Option, Path, Sink, Stream } from "effect"
 import { ChildProcessSpawner } from "effect/unstable/process"
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
@@ -115,45 +117,51 @@ test("lost write receipt and resumed coding host require a fresh read before ret
   let calls = 0
   let loseReceipt = true
   const provider: CodingFileSystem.MutationProvider = {
-    commit: (_session, changes) => Effect.tryPromise({
-      try: async () => {
-        calls++
-        assert.equal(changes.length, 1)
-        const change = changes[0]!
-        assert.equal(change.base_digest, hash(await readFile(path)))
-        assert.ok(change.content !== null)
-        await writeFile(path, change.content)
-        if (loseReceipt) throw new StdError({ code: "provider_unavailable", message: "Connection lost after publication" })
-      },
-      catch: (error) => error as StdError
-    })
+    commit: (_session, changes) =>
+      Effect.tryPromise({
+        try: async () => {
+          calls++
+          assert.equal(changes.length, 1)
+          const change = changes[0]!
+          assert.equal(change.base_digest, hash(await readFile(path)))
+          assert.ok(change.content !== null)
+          await writeFile(path, change.content)
+          if (loseReceipt) {
+            throw new StdError({ code: "provider_unavailable", message: "Connection lost after publication" })
+          }
+        },
+        catch: (error) => error as StdError
+      })
   }
-  await Effect.runPromise(Effect.gen(function*() {
-    const fs = yield* FileSystem.FileSystem
-    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-    const coding = CodingFileSystem.make({ repositoryPath: root }, fs, spawner, root, provider)
-    const call = <A, E, R>(effect: Effect.Effect<A, E, R>, host = coding) => effect.pipe(
-      Effect.provideService(FileSystem.FileSystem, host),
-      Effect.provideService(Read.ReadSession, "run")
-    )
-    yield* call(Read.run({ path }))
-    assert.equal((yield* Effect.flip(call(Write.run({ path, content: "published" })))).code, "provider_unavailable")
-    assert.equal(yield* fs.readFileString(path), "published")
-    const retry = yield* Effect.flip(call(Write.run({ path, content: "blind retry" })))
-    assert.equal(retry.code, "stale_read")
-    assert.equal(retry.base_digest, hash(Buffer.from("before")))
-    assert.equal(retry.current_digest, hash(Buffer.from("published")))
-    assert.equal(calls, 1)
-    const resumed = CodingFileSystem.make({ repositoryPath: root }, fs, spawner, root, provider)
-    assert.equal((yield* Effect.flip(call(Write.run({ path, content: "resume" }), resumed))).base_digest, "unread")
-    assert.equal(calls, 1)
-    loseReceipt = false
-    yield* call(Read.run({ path }), resumed)
-    yield* call(Write.run({ path, content: "recovered" }), resumed)
-    yield* call(Edit.run({ path, oldString: "recovered", newString: "own write" }), resumed)
-    assert.equal(calls, 3)
-    assert.equal(yield* fs.readFileString(path), "own write")
-  }).pipe(Effect.provide(NodeServices.layer)))
+  await Effect.runPromise(
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      const coding = CodingFileSystem.make({ repositoryPath: root }, fs, spawner, root, provider)
+      const call = <A, E, R>(effect: Effect.Effect<A, E, R>, host = coding) =>
+        effect.pipe(
+          Effect.provideService(FileSystem.FileSystem, host),
+          Effect.provideService(Read.ReadSession, "run")
+        )
+      yield* call(Read.run({ path }))
+      assert.equal((yield* Effect.flip(call(Write.run({ path, content: "published" })))).code, "provider_unavailable")
+      assert.equal(yield* fs.readFileString(path), "published")
+      const retry = yield* Effect.flip(call(Write.run({ path, content: "blind retry" })))
+      assert.equal(retry.code, "stale_read")
+      assert.equal(retry.base_digest, hash(Buffer.from("before")))
+      assert.equal(retry.current_digest, hash(Buffer.from("published")))
+      assert.equal(calls, 1)
+      const resumed = CodingFileSystem.make({ repositoryPath: root }, fs, spawner, root, provider)
+      assert.equal((yield* Effect.flip(call(Write.run({ path, content: "resume" }), resumed))).base_digest, "unread")
+      assert.equal(calls, 1)
+      loseReceipt = false
+      yield* call(Read.run({ path }), resumed)
+      yield* call(Write.run({ path, content: "recovered" }), resumed)
+      yield* call(Edit.run({ path, oldString: "recovered", newString: "own write" }), resumed)
+      assert.equal(calls, 3)
+      assert.equal(yield* fs.readFileString(path), "own write")
+    }).pipe(Effect.provide(NodeServices.layer))
+  )
 })
 
 test("unavailable provider refuses all std mutations before creating protocol files", async (t) => {
@@ -276,7 +284,7 @@ test("whole patch later-stale and exchange refusals leave earlier bytes and ledg
 })
 
 // Test-only client transport; kernel cgroup admission still needs the reference host.
-test("installed coding std tools use the daemon client and refuse unsupported settlements", async (t) => {
+test("installed coding std tools use daemon single and batch clients and validate receipts", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "coding-daemon-client-"))
   t.after(() => rm(root, { recursive: true, force: true }))
   const hello = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
@@ -293,14 +301,36 @@ test("installed coding std tools use the daemon client and refuse unsupported se
       assert.equal(command.command, "/opt/smithers/bin/smithers-machined")
       assert.equal(command.options.cwd, "/workspace")
       assert.equal(command.args[0], "client")
-      assert.equal(command.args[1], "write-file")
-      assert.equal(command.args[3], "--base")
-      assert.equal(command.args.length, 5, "the client derives the run; no actor is sent")
+      const batch = command.args[1] === "write-files"
+      if (batch) assert.equal(command.args.length, 2, "no actor is sent")
+      else {
+        assert.equal(command.args[1], "write-file")
+        assert.equal(command.args[3], "--base")
+        assert.equal(command.args.length, 5, "the client derives the run; no actor is sent")
+      }
       assert.ok(Stream.isStream(command.options.stdin))
       const content = yield* Stream.mkString(Stream.decodeText(command.options.stdin as Stream.Stream<Uint8Array>))
       calls.push(command.args)
       let output = reply, exit = status
-      if (mode === "success") {
+      if (mode === "success" && batch) {
+        const changes = JSON.parse(content) as Array<
+          { path: string; base_digest: string; content: Array<number> | null }
+        >
+        const writes = []
+        for (const change of changes) {
+          assert.deepEqual(Object.keys(change).sort(), ["base_digest", "content", "path"])
+          const target = join(root, change.path)
+          if (change.content === null) {
+            yield* Effect.promise(() => rm(target))
+          } else yield* Effect.promise(() => writeFile(target, Uint8Array.from(change.content!)))
+          writes.push({
+            path: change.path,
+            post_digest: change.content === null ? "absent" : hash(Uint8Array.from(change.content))
+          })
+        }
+        output = JSON.stringify({ writes })
+        exit = 0
+      } else if (mode === "success") {
         assert.ok(content === "hello" || content === "world")
         yield* Effect.promise(() => writeFile(join(root, command.args[2]!), content))
         output = JSON.stringify({ post_digest: content === "hello" ? hello : world })
@@ -351,11 +381,14 @@ test("installed coding std tools use the daemon client and refuse unsupported se
       mode = "reply"
       reply = JSON.stringify({ error: { code: "moved_off" } })
       status = 1
-      for (const tool of [
-        Write.run({ path, content: "hello" }).pipe(Effect.asVoid),
-        Edit.run({ path, oldString: "world", newString: "hello" }).pipe(Effect.asVoid),
-        ApplyPatch.run({ input: `*** Begin Patch\n*** Update File: ${path}\n@@\n-world\n+hello\n*** End Patch` }).pipe(Effect.asVoid)
-      ]) {
+      for (
+        const tool of [
+          Write.run({ path, content: "hello" }).pipe(Effect.asVoid),
+          Edit.run({ path, oldString: "world", newString: "hello" }).pipe(Effect.asVoid),
+          ApplyPatch.run({ input: `*** Begin Patch\n*** Update File: ${path}\n@@\n-world\n+hello\n*** End Patch` })
+            .pipe(Effect.asVoid)
+        ]
+      ) {
         assert.equal((yield* Effect.flip(call(tool))).code, "moved_off")
         assert.equal(calls.at(-1)![4], world, "moved-off refusals never advance the read ledger")
         assert.equal(yield* fs.readFileString(path), "world")
@@ -387,16 +420,118 @@ test("installed coding std tools use the daemon client and refuse unsupported se
       const added = join(root, "b")
       yield* call(Write.run({ path: added, content: "hello" }))
       assert.equal(calls.at(-1)![4], "absent")
-      const before = calls.length
+      yield* call(ApplyPatch.run({
+        input: `*** Begin Patch
+*** Update File: ${path}
+@@
+-world
++hello
+*** Update File: ${added}
+*** Move to: ${join(root, "moved")}
+@@
+-hello
++world
+*** Add File: ${join(root, "empty")}
+*** End Patch`
+      }))
+      assert.equal(calls.at(-1)![1], "write-files")
+      assert.equal(yield* fs.readFileString(path), "hello\n")
+      assert.equal(yield* fs.exists(added), false)
+      assert.equal(yield* fs.readFileString(join(root, "moved")), "world\n")
+      yield* call(ApplyPatch.run({
+        input: `*** Begin Patch
+*** Delete File: ${path}
+*** End Patch`
+      }))
+      assert.equal(yield* fs.exists(path), false)
+      // A refused preflight keeps every earlier file and the read ledger intact.
+      mode = "reply"
+      const moved = join(root, "moved")
+      const patch = `*** Begin Patch
+*** Update File: ${moved}
+@@
+-world
++hello
+*** Add File: ${added}
++hello
+*** End Patch`
+      reply = JSON.stringify({ writes: [], failure: { index: 1, preflight: true, code: 4, current_digest: world } })
+      status = 1
+      const stale = yield* Effect.flip(call(ApplyPatch.run({ input: patch })))
+      assert.equal(stale.code, "stale_read")
+      assert.equal(stale.path, "b")
+      assert.equal(stale.base_digest, "absent")
+      assert.equal(yield* fs.readFileString(moved), "world\n")
+      assert.equal(yield* fs.exists(added), false)
+      // An application failure reports its prefix and revokes old read authority.
+      reply = JSON.stringify({ writes: [], failure: { index: 0, preflight: false, code: 12 } })
+      const failed = yield* Effect.flip(call(ApplyPatch.run({ input: patch })))
+      assert.equal(failed.code, "command_failed")
+      assert.match(failed.message, /stopped after 0 files/)
+      const unread = yield* Effect.flip(call(Write.run({ path: moved, content: "hello" })))
+      assert.equal(unread.base_digest, "unread")
+      yield* call(Read.run({ path: moved }))
       for (
-        const patch of [
-          `*** Begin Patch\n*** Update File: ${path}\n@@\n-world\n+hello\n*** Update File: ${added}\n@@\n-hello\n+world\n*** End Patch`,
-          `*** Begin Patch\n*** Delete File: ${added}\n*** End Patch`
+        const body of [
+          { writes: [], failure: { index: 2, preflight: true, code: 4 } },
+          { writes: [{ path: "moved", post_digest: hello }], failure: { index: 0, preflight: true, code: 4 } },
+          { writes: [{ path: "wrong", post_digest: hello }] },
+          { writes: [{ path: "moved", post_digest: hello, raced: "bad" }] },
+          { writes: [] }
         ]
-      ) assert.equal((yield* Effect.flip(call(ApplyPatch.run({ input: patch })))).code, "provider_unavailable")
-      assert.equal(calls.length, before, "no partial patch reaches the daemon")
-      assert.equal(yield* fs.readFileString(path), "world")
-      assert.equal(yield* fs.readFileString(added), "hello")
+      ) {
+        reply = JSON.stringify(body)
+        assert.equal((yield* Effect.flip(call(ApplyPatch.run({ input: patch })))).code, "provider_unavailable")
+      }
+      // Production schema-decoding coding/edit-atom bindings; test transport.
+      mode = "success"
+      const pathService = yield* Path.Path
+      const bindings = yield* StandardFlows.filesystem(
+        Context.make(FileSystem.FileSystem, coding).pipe(Context.add(Path.Path, pathService))
+      ).bindings()
+      let ordinal = 0
+      const dispatch = (name: string, input: Cell.Call["input"]) => {
+        const binding = bindings.find((binding) => binding.descriptor.name === name)
+        assert.ok(binding)
+        return binding.run(
+          new Cell.Call({
+            flowName: name,
+            input,
+            capabilities: [],
+            effects: { reads: [], writes: [], mode: "hermetic", onConflict: "serialize", tier: "sealed" },
+            placement: Option.none(),
+            identity: new Cell.CallIdentity({
+              session: "dispatcher-run",
+              frame: 0,
+              cell: "fixture",
+              ordinal: ordinal++,
+              declaration: "fixture",
+              layers: []
+            })
+          })
+        )
+      }
+      assert.equal((yield* dispatch(Read.name, { path: moved })).outcome, "success")
+      yield* fs.writeFileString(moved, "hello")
+      for (
+        const [name, input] of [
+          [Write.name, { path: moved, content: "world" }],
+          [Edit.name, { path: moved, oldString: "hello", newString: "world" }],
+          [ApplyPatch.name, { input: `*** Begin Patch\n*** Update File: ${moved}\n@@\n-hello\n+world\n*** End Patch` }]
+        ] as const
+      ) {
+        const refused = yield* dispatch(name, input)
+        assert.equal(refused.outcome, "failure")
+        assert.match(refused.message!, /Re-read/)
+        assert.equal(yield* fs.readFileString(moved), "hello")
+      }
+      assert.equal((yield* dispatch(Read.name, { path: moved })).outcome, "success")
+      const accepted = yield* dispatch(ApplyPatch.name, {
+        input: `*** Begin Patch\n*** Update File: ${moved}\n*** Move to: ${added}\n@@\n-hello\n+world\n*** End Patch`
+      })
+      assert.equal(accepted.outcome, "success")
+      assert.equal(yield* fs.exists(moved), false)
+      assert.equal(yield* fs.readFileString(added), "world\n")
     }).pipe(Effect.provide(NodeServices.layer))
   )
 })
