@@ -51,6 +51,80 @@ describe("live channel", () => {
     expect(channel.getSnapshot("home")).toEqual({ topic: "home" })
     doc.release(); home(); channel.dispose()
   })
+  test("an admitted document retries temporary restart refusal without reopening other topics", () => {
+    const { channel, sockets, timers } = harness(undefined, true)
+    const topic = "doc:code:12:retry.ts"
+    const events: string[] = []
+    const doc = channel.subscribeDocument(topic, event => events.push(event.kind))
+    const home = channel.subscribe("home", () => {})
+    const socket = sockets[0]!
+    socket.open()
+    socket.receive({ t: "snap", id: 1, cursor: 0, data: { epoch: "00112233445566778899aabbccddeeff", client_id: 42 } })
+    socket.receive({ t: "gap", id: 1 })
+    socket.receive({ t: "err", id: 1, code: "unsupported" })
+    const before = socket.frames.length
+    doc.send(1, new Uint8Array([2, 0]))
+    expect(socket.frames).toHaveLength(before)
+    expect(events.at(-1)).toBe("refused")
+    expect(timers[0]!.ms).toBe(250)
+    timers[0]!.run()
+    expect(socket.frames.at(-1)).toEqual({ t: "sub", id: 1, topic, client_id: 42 })
+    socket.receive({ t: "err", id: 1, code: "unsupported" })
+    expect(timers[1]!.ms).toBe(500)
+    timers[1]!.run()
+    socket.receive({ t: "err", id: 1, code: "unsupported" })
+    socket.receive({ t: "snap", id: 1, cursor: 0, data: { epoch: "ffeeddccbbaa99887766554433221100", client_id: 43 } })
+    expect(timers[2]!.cancelled).toBe(true)
+    expect(events.at(-1)).toBe("assigned")
+    expect(channel.getSnapshot("home")).toEqual({ topic: "home" })
+    expect(sockets).toHaveLength(1)
+    socket.receive({ t: "err", id: 1, code: "unsupported" })
+    socket.receive({ t: "err", id: 1, code: "forbidden" })
+    expect(timers[3]!.cancelled).toBe(true)
+    doc.release(); home(); channel.dispose()
+  })
+  test("document retry backs off to five seconds and stops after a fresh assignment", () => {
+    const { channel, sockets, timers } = harness(undefined, true)
+    const doc = channel.subscribeDocument("doc:code:12:retry.ts", () => {})
+    const socket = sockets[0]!
+    socket.open()
+    socket.receive({ t: "snap", id: 1, cursor: 0, data: { epoch: "00112233445566778899aabbccddeeff", client_id: 42 } })
+    for (const [index, delay] of [250, 500, 1000, 2000, 4000, 5000, 5000].entries()) {
+      socket.receive({ t: "err", id: 1, code: "unsupported" })
+      socket.receive({ t: "err", id: 1, code: "unsupported" })
+      expect(timers).toHaveLength(index + 1)
+      expect(timers[index]!.ms).toBe(delay)
+      timers[index]!.run()
+    }
+    socket.receive({ t: "snap", id: 1, cursor: 0, data: { epoch: "ffeeddccbbaa99887766554433221100", client_id: 43 } })
+    expect(channel.getSnapshot("doc:code:12:retry.ts")?.error).toBeUndefined()
+    socket.receive({ t: "err", id: 1, code: "unsupported" })
+    expect(timers[7]!.ms).toBe(250)
+    doc.release(); channel.dispose()
+  })
+  test.each(["release", "disable", "dispose"])("document restart retry is cancelled on %s", stop => {
+    const { channel, sockets, timers } = harness(undefined, true)
+    const doc = channel.subscribeDocument("doc:code:12:retry.ts", () => {})
+    sockets[0]!.open()
+    sockets[0]!.receive({ t: "snap", id: 1, cursor: 0, data: { epoch: "00112233445566778899aabbccddeeff", client_id: 42 } })
+    sockets[0]!.receive({ t: "err", id: 1, code: "unsupported" })
+    if (stop === "release") doc.release()
+    if (stop === "disable") channel.setEnabled(false)
+    if (stop === "dispose") channel.dispose()
+    expect(timers[0]!.cancelled).toBe(true)
+    const before = sockets[0]!.frames.length
+    timers[0]!.run()
+    expect(sockets[0]!.frames).toHaveLength(before)
+    channel.dispose()
+  })
+  test("a supplied client id does not retry an unadmitted document", () => {
+    const { channel, sockets, timers } = harness(undefined, true)
+    const doc = channel.subscribeDocument("doc:code:12:retry.ts", () => {}, 42)
+    sockets[0]!.open()
+    sockets[0]!.receive({ t: "err", id: 1, code: "unsupported" })
+    expect(timers).toHaveLength(0)
+    doc.release(); channel.dispose()
+  })
   // ADR 0003 ruling: a host restart drops the socket; the reconnect
   // resubscribes with the client id and typing waits, as after a gap.
   test("a dropped socket keeps document typing pending and resubscribes with its client id", () => {

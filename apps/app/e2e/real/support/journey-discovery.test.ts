@@ -69,7 +69,7 @@ test("keyboard continuation is admitted and listed beside fresh activation", () 
     expect(result.error).toBeUndefined()
     expect(result.status).toBe(0)
     expect(result.stdout).toContain("Total: 4 tests in 1 file")
-    expect(result.stdout).toContain("prepared install branch, stack, flow and monitor keyboard doors")
+    expect(result.stdout).toContain("prepared install branch, stack, flow and run keyboard doors")
   } finally { rmSync(dir, { recursive: true, force: true }) }
 }, 35_000)
 

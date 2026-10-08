@@ -86,6 +86,8 @@ export class LiveChannel {
   private disposed = false
   constructor(private readonly options: LiveChannelOptions = {}) {}
   private readonly documents = new Map<string, Set<(event: DocumentEvent) => void>>()
+  private readonly admittedDocuments = new Set<string>()
+  private readonly documentRetries = new Map<string, { timer: unknown; attempt: number }>()
   private readonly documentClients = new Map<string, number>()
   private isDarkTopic(topic: string) { return topic.startsWith("doc:") && !this.options.documentFrames }
   subscribeDocument(topic: string, receive: (event: DocumentEvent) => void, clientId?: number) {
@@ -116,7 +118,7 @@ export class LiveChannel {
       release: () => {
         if (released) return
         released = true; listeners.delete(receive)
-        if (!listeners.size) { this.documents.delete(topic); this.documentClients.delete(topic) }
+        if (!listeners.size) { this.documents.delete(topic); this.documentClients.delete(topic); this.admittedDocuments.delete(topic) }
         unsubscribe()
       }
     }
@@ -148,6 +150,7 @@ export class LiveChannel {
       entry.listeners.delete(notify)
       if (entry.listeners.size) return
       if (!this.isDarkTopic(topic) && this.socket?.readyState === 1) this.send({ t: "unsub", id: entry.id })
+      this.cancelDocumentRetry(topic)
       this.topics.delete(topic)
       if (!this.hasTransportTopics()) this.disconnect()
     }
@@ -156,6 +159,24 @@ export class LiveChannel {
   private sub(topic: string, entry: { id: number; snapshot: TopicSnapshot; awaitingSnapshot: boolean }) {
     if (this.isDarkTopic(topic)) return
     this.send({ t: "sub", id: entry.id, topic, ...(topic.startsWith("doc:") && this.documentClients.has(topic) ? { client_id: this.documentClients.get(topic) } : {}), ...(entry.awaitingSnapshot || entry.snapshot.cursor === undefined ? {} : { cursor: entry.snapshot.cursor }) })
+  }
+  private cancelDocumentRetry(topic: string) {
+    const retry = this.documentRetries.get(topic)
+    if (retry?.timer !== undefined) (this.options.cancel ?? (timer => clearTimeout(timer as ReturnType<typeof setTimeout>)))(retry.timer)
+    this.documentRetries.delete(topic)
+  }
+  private retryDocument(topic: string) {
+    const previous = this.documentRetries.get(topic)
+    if (previous?.timer !== undefined) return
+    const attempt = previous?.attempt ?? 0
+    const delay = Math.min(5000, 250 * 2 ** Math.min(attempt, 5))
+    const retry = { attempt: attempt + 1, timer: undefined as unknown }
+    this.documentRetries.set(topic, retry)
+    retry.timer = (this.options.schedule ?? setTimeout)(() => {
+      retry.timer = undefined
+      const entry = this.topics.get(topic)
+      if (this.enabled && !this.disposed && entry && this.socket?.readyState === 1 && entry.snapshot.error === "unsupported") this.sub(topic, entry)
+    }, delay)
   }
   private hasTransportTopics() { return [...this.topics.keys()].some(topic => !this.isDarkTopic(topic)) }
   private connect() {
@@ -175,6 +196,7 @@ export class LiveChannel {
       socket.onclose = () => {
         if (this.socket !== socket) return
         this.socket = undefined
+        for (const topic of this.documentRetries.keys()) this.cancelDocumentRetry(topic)
         // A closed socket's document assignments must not be announced again.
         for (const [topic, entry] of this.topics) if (topic.startsWith("doc:")) entry.snapshot = { topic }
         this.notifyContinuityLoss()
@@ -254,6 +276,11 @@ export class LiveChannel {
       LiveReplySchema.safeParse({ ...frame, code: "forbidden" }).success) {
       entry.awaitingSnapshot = true
       this.publish(topic, entry, { topic, error: frame.code })
+      // A previously admitted document may be temporarily unavailable while
+      // its daemon restarts. Reauthorize it on the same socket; no edits or
+      // receipts pass until the authority supplies a fresh assignment.
+      if (topic.startsWith("doc:") && frame.code === "unsupported" && this.admittedDocuments.has(topic)) this.retryDocument(topic)
+      else this.cancelDocumentRetry(topic)
       return
     }
     const decoded = LiveReplySchema.safeParse(frame)
@@ -272,6 +299,8 @@ export class LiveChannel {
     if (topic.startsWith("doc:") && reply.t === "snap") {
       const assigned = LiveDocReply.safeParse(frame)
       if (!assigned.success || assigned.data.t !== "snap") return
+      this.cancelDocumentRetry(topic)
+      this.admittedDocuments.add(topic)
       this.documentClients.set(topic, assigned.data.data.client_id)
     }
     const cursor = reply.cursor as number
@@ -299,6 +328,7 @@ export class LiveChannel {
     for (const listener of entry.listeners) listener()
   }
   private disconnect() {
+    for (const topic of this.documentRetries.keys()) this.cancelDocumentRetry(topic)
     if (this.timer !== undefined) (this.options.cancel ?? (timer => clearTimeout(timer as ReturnType<typeof setTimeout>)))(this.timer)
     this.timer = undefined
     const socket = this.socket
@@ -306,7 +336,7 @@ export class LiveChannel {
     if (socket) { socket.onopen = null; socket.onclose = null; socket.onmessage = null; socket.close() }
     this.attempt = 0
   }
-  dispose() { this.disposed = true; this.heartbeat.dispose(); this.presenceOwners.clear(); for (const topic of this.documents.keys()) this.documentEvent(topic, { kind: "refused" }); this.disconnect(); this.topics.clear(); this.documents.clear() }
+  dispose() { this.disposed = true; this.heartbeat.dispose(); this.presenceOwners.clear(); for (const topic of this.documents.keys()) this.documentEvent(topic, { kind: "refused" }); this.disconnect(); this.topics.clear(); this.documents.clear(); this.admittedDocuments.clear() }
 }
 
 /** Lazy module singleton: exactly one channel for the browser tab. */

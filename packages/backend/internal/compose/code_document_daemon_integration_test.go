@@ -563,12 +563,13 @@ func TestLiveCodeDocumentNewEpochRecovery(t *testing.T) {
 			for scanner.Scan() {
 				if scanner.Text() == "NEW_EPOCH" {
 					f.stopGuest()
-					entries, err := os.ReadDir(filepath.Join(f.restart.State, "documents"))
-					require.NoError(t, err)
-					require.NotEmpty(t, entries, "K7e must destroy real previously saved state")
-					for _, entry := range entries {
-						require.NoError(t, os.Remove(filepath.Join(f.restart.State, "documents", entry.Name())))
-					}
+					// K7e loses this document's state, not the displaced-inode
+					// recovery metadata. Removing those records while retaining
+					// their inodes injects a separate corruption fault.
+					key := sha256.Sum256([]byte("retry.ts"))
+					record := filepath.Join(f.restart.State, "documents", hex.EncodeToString(key[:]))
+					require.FileExists(t, record, "K7e must destroy real previously saved state")
+					require.NoError(t, os.Remove(record))
 					f.resume(t)
 					restarts++
 					_, err = io.WriteString(input, "RESTARTED\n")
