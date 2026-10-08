@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -98,6 +99,11 @@ func testTodoFourStep(t *testing.T, enable string) {
 	var cursor int64
 	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT coalesce(max(sequence),0) FROM product_job_events WHERE event_type LIKE 'todo.%' AND data->>'n'=$1`, fmt.Sprint(n)).Scan(&cursor))
 	control(n, "resume", "", "four-step-resume")
+	// Observe attachment before allowing the literal next step to fail.
+	resumed, err := r.waitTodoWithin(n, time.Minute, "working")
+	require.NoError(t, err)
+	require.Equal(t, before.Run, resumed.Run)
+	fourStepFail(t, r, workspace)
 	failed, err := r.waitTodoWithin(n, 2*time.Minute, "failed")
 	require.NoError(t, err)
 	require.Equal(t, before.Run, failed.Run)
@@ -145,7 +151,10 @@ func testTodoFourStep(t *testing.T, enable string) {
 	other, err := r.file("Four-step current flow", "Exercise the current flow retry")
 	require.NoError(t, err)
 	otherWorkspace := fourStepHeld(t, r, other)
+	_, err = r.waitTodoWithin(other, time.Minute, "working")
+	require.NoError(t, err)
 	fourStepRelease(t, r, otherWorkspace)
+	fourStepFail(t, r, otherWorkspace)
 	otherFailed, err := r.waitTodoWithin(other, 2*time.Minute, "failed")
 	require.NoError(t, err)
 	require.Equal(t, digest, otherFailed.FlowVersion.Digest)
@@ -167,9 +176,18 @@ func testTodoFourStep(t *testing.T, enable string) {
 		control(c.n, c.op, steer, "four-step-"+c.op)
 		nextWorkspace := fourStepHeld(t, r, c.n, 2)
 		require.NotEqual(t, c.workspace, nextWorkspace)
-		next, err := r.todo(c.n)
-		require.NoError(t, err)
-		require.Equal(t, 2, next.Run.Attempt)
+		// Guest step output can arrive before run_attached is projected onto
+		// the card. Verify the person's working card before reading its run.
+		var next rehearsalTodo
+		require.EventuallyWithT(t, func(caught *assert.CollectT) {
+			var err error
+			next, err = r.todo(c.n)
+			require.NoError(caught, err)
+			require.Equal(caught, "working", next.State)
+			require.NotNil(caught, next.Run)
+			require.Equal(caught, 2, next.Run.Attempt)
+		}, time.Minute, 100*time.Millisecond)
+		require.NotNil(t, c.before.Run)
 		require.NotEqual(t, c.before.Run.ID, next.Run.ID)
 		require.Equal(t, c.pin, next.FlowVersion.Digest)
 		require.Equal(t, c.source, next.FlowVersion.SourceCommit)
@@ -181,6 +199,7 @@ func testTodoFourStep(t *testing.T, enable string) {
 		require.NotEmpty(t, next.Evidence)
 		require.Equal(t, c.before.Evidence[0], next.Evidence[0])
 		fourStepRelease(t, r, nextWorkspace)
+		fourStepFail(t, r, nextWorkspace)
 		_, err = r.waitTodoWithin(c.n, 2*time.Minute, "failed")
 		require.NoError(t, err)
 		require.Len(t, fourStepAttempts(t, r, c.n), 2)
@@ -200,7 +219,13 @@ func fourStepHeld(t *testing.T, r *rehearsal, n int64, wantAttempt ...int) strin
 			return false
 		}
 		raw, err := r.workspaceRuntime.ReadFile(r.ctx, workspace, "four-step.jsonl")
-		return err == nil && containsFourStep(raw, "s3")
+		if err != nil || !containsFourStep(raw, "s3") {
+			return false
+		}
+		// A Retry starts from the captured working copy. Its old counters
+		// are not evidence that the new attempt has reached its held step.
+		rows := splitFourStep(raw)
+		return attempt == 1 || len(rows) == 3 && rows[0]["feedback"] != ""
 	}, 3*time.Minute, 100*time.Millisecond)
 	return workspace
 }
@@ -208,10 +233,15 @@ func fourStepRelease(t *testing.T, r *rehearsal, workspace string) {
 	t.Helper()
 	require.NoError(t, writeGuestFixture(r.workspaceRuntime, r.ctx, workspace, "four-step-release", []byte("release"), 0600))
 }
+func fourStepFail(t *testing.T, r *rehearsal, workspace string) {
+	t.Helper()
+	require.NoError(t, writeGuestFixture(r.workspaceRuntime, r.ctx, workspace, "four-step-fail", []byte("fail"), 0600))
+}
 func fourStepCounters(t *testing.T, r *rehearsal, workspace, version string, want []string, feedback string) {
 	t.Helper()
 	raw, err := r.workspaceRuntime.ReadFile(r.ctx, workspace, "four-step.jsonl")
 	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "counters-"+workspace+".jsonl"), raw, 0600))
 	rows := splitFourStep(raw)
 	require.True(t, bytes.HasSuffix(raw, []byte("\n")), "counter record must be complete")
 	require.Equal(t, len(rows), bytes.Count(raw, []byte("\n")), "every counter record must decode")
@@ -224,7 +254,6 @@ func fourStepCounters(t *testing.T, r *rehearsal, workspace, version string, wan
 		}
 	}
 	require.Equal(t, want, steps, "completed actions cannot replay; a fresh attempt starts at s1")
-	require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "counters-"+workspace+".jsonl"), raw, 0600))
 }
 func fourStepAttempts(t *testing.T, r *rehearsal, n int64) []json.RawMessage {
 	t.Helper()

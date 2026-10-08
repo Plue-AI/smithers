@@ -4,7 +4,7 @@ import { TodoBoundary } from "@smthrs/coding"
 import { Action, Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Effect, Layer, Schema } from "effect"
-import { appendFileSync, existsSync } from "node:fs"
+import { appendFileSync, existsSync, unlinkSync, writeFileSync } from "node:fs"
 
 const root = process.argv[process.argv.indexOf("--root") + 1]
 const Failure = Schema.Struct({ _tag: Schema.Literal("coding/Error"), code: Schema.Literal("invalid_request"), message: Schema.String })
@@ -15,11 +15,22 @@ const step = (name: string) => Action.make(name, {
 })
 const s1 = step("s1"), s2 = step("s2"), s3 = step("s3"), s4 = step("s4")
 const implement = (action: ReturnType<typeof step>) => action.toLayer((value) => Effect.gen(function*() {
+  // Retry retains the captured working copy, including fixture instruments.
+  // A fresh s1 starts fresh counters and barriers; Resume never replays s1.
+  if (action.name === "s1") yield* Effect.sync(() => {
+    writeFileSync(root + "/four-step.jsonl", "")
+    for (const name of ["four-step-release", "four-step-fail"]) {
+      if (existsSync(root + "/" + name)) unlinkSync(root + "/" + name)
+    }
+  })
   yield* Effect.sync(() => appendFileSync(root + "/four-step.jsonl", JSON.stringify({ step: action.name, version: "D1", feedback: value.feedback ?? "" }) + "\n"))
   if (action.name === "s3") {
     while (!(yield* Effect.sync(() => existsSync(root + "/four-step-release")))) yield* Effect.sleep("25 millis")
   }
-  if (action.name === "s4") return yield* Effect.fail({ _tag: "coding/Error", code: "invalid_request", message: "four-step-s4" } as const)
+  if (action.name === "s4") {
+    while (!(yield* Effect.sync(() => existsSync(root + "/four-step-fail")))) yield* Effect.sleep("25 millis")
+    return yield* Effect.fail({ _tag: "coding/Error", code: "invalid_request", message: "four-step-s4" } as const)
+  }
 }), { implementationVersion: "four-step/v1" })
 export const layer = Layer.mergeAll(implement(s1), implement(s2), implement(s3), implement(s4))
 export default Flow.make("todo", {
