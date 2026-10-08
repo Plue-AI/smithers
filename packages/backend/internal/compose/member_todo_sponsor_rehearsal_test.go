@@ -17,6 +17,15 @@ import (
 
 // Uses the packaged TODO host, production dispatcher, PostgreSQL and GitHub fake.
 func TestMemberTodoSponsorRehearsal(t *testing.T) {
+	memberTodoSponsorRehearsal(t, false)
+}
+
+// Revocation must remain independently executable when delivery fails.
+func TestMemberTodoSponsorSuspensionRehearsal(t *testing.T) {
+	memberTodoSponsorRehearsal(t, true)
+}
+
+func memberTodoSponsorRehearsal(t *testing.T, suspend bool) {
 	r := newRehearsal(t, "SMITHERS_MEMBER_SPONSOR_REHEARSAL", "C-ACC-03", "member-sponsor-")
 	require.True(t, r.install("Install"))
 	ben, err := r.member("ben", 201, "write")
@@ -36,7 +45,7 @@ func TestMemberTodoSponsorRehearsal(t *testing.T) {
 		require.Positive(t, receipt.N)
 		return receipt.N
 	}
-	t.Cleanup(func() { _ = r.release("member-sponsor"); _ = r.release("member-suspend") })
+	t.Cleanup(func() { _ = r.release("member-sponsor") })
 	n := file("Member credential", "[PR] [FILE member.md] [HOLD member-sponsor] Write member.md.")
 	require.NoError(t, r.waitHeld("member-sponsor", 3*time.Minute))
 	var workspace string
@@ -69,19 +78,16 @@ func TestMemberTodoSponsorRehearsal(t *testing.T) {
 	other, err := r.file("Other branch", "[PR] [FILE other.md] Write other.md.")
 	require.NoError(t, err)
 	call(other, 403)
-	require.NoError(t, r.release("member-sponsor"))
-	t.Run("member TODO reaches review", func(t *testing.T) {
-		_, err := r.waitTodoWithin(n, 4*time.Minute, "in_review")
-		require.NoError(t, err)
-	})
-	// A second active attempt proves sponsor suspension, rather than terminal-token expiry.
-	second := file("Suspended member", "[PR] [FILE suspend.md] [HOLD member-suspend] Write suspend.md.")
-	require.NoError(t, r.waitHeld("member-suspend", 3*time.Minute))
-	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT workspace_id FROM mythical_items WHERE number=$1`, second).Scan(&workspace))
-	value, ok = r.hostCredentials.Load(workspace)
-	require.True(t, ok)
-	token = value.(string)
-	call(second, 200)
+	if !suspend {
+		require.NoError(t, r.release("member-sponsor"))
+		t.Run("member TODO reaches review", func(t *testing.T) {
+			_, err := r.waitTodoWithin(n, 4*time.Minute, "in_review")
+			require.NoError(t, err)
+		})
+		return
+	}
+	// The first coding attempt is still held, so this is sponsor revocation,
+	// independent of terminal-token expiry or a previous delivery failure.
 	codec, err := webhook.NewSecretCodec("rehearsal-encryption-key")
 	require.NoError(t, err)
 	credentials := services.NewGitHubAppCredentialStore(r.pool, codec)
@@ -89,7 +95,7 @@ func TestMemberTodoSponsorRehearsal(t *testing.T) {
 	r.fake.SetCollaborator(201, "ben", "read")
 	started := time.Now()
 	require.NoError(t, members.Recheck(r.ctx))
-	call(second, 401)
+	call(n, 401)
 	require.LessOrEqual(t, time.Since(started), 5*time.Second)
-	require.NoError(t, r.release("member-suspend"))
+	require.NoError(t, r.release("member-sponsor"))
 }
