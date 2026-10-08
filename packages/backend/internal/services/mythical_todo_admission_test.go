@@ -685,6 +685,10 @@ func todoPinnedEngineLaunches(t *testing.T, review string) {
 	// result to the stack while the composition runs: the submission names
 	// the composition's run, the one the attempt bound.
 	item = o.byID(id)
+	// The lane fixture supplies Git bytes; persist its branch identity too so
+	// review uses the same retained-workspace lookup as the install.
+	_, err = pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,status) VALUES($1,$2,$3,'running')`, item.WorkspaceID, o.repoID, o.userID)
+	require.NoError(t, err)
 	candidate := o.laneResult(item.WorkspaceID, item.BaseCommit, map[string]string{"JOURNEY.md": "Hello, reader.\n"}, "✨ feat: greet the reader")
 	submission := MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: item.BaseCommit, Source: candidate, RequestRunID: item.RequestRunID, Summary: "✨ feat: greet the reader"}
 	other := submission
