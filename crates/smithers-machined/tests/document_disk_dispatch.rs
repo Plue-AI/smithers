@@ -88,6 +88,15 @@ impl hooks::Clock for Clock {
         self.1 + std::time::Duration::from_millis(self.0.load(Ordering::Relaxed))
     }
 }
+// This document/disk suite fixes item admission so it can exercise save
+// semantics independently. Native item/moved-off admission is covered by the
+// native and composed-install suites; this port grants no machine qualification.
+struct AdmittedItem;
+impl hooks::Core for AdmittedItem {
+    fn validate_coding_write(&self) -> hooks::Result<()> {
+        Ok(())
+    }
+}
 struct Fixture {
     root: PathBuf,
     clock: Arc<Clock>,
@@ -165,7 +174,7 @@ impl Fixture {
         ));
         let files = Files::new(
             File::open(self.root.join("workspace")).unwrap(),
-            Arc::new(hooks::Disabled),
+            Arc::new(AdmittedItem),
         )
         .unwrap();
         let cx = LockCx::new(hooks::Hooks {
@@ -927,6 +936,54 @@ fn batch_stale_later_file_leaves_earlier_file_absent_even_after_timers() {
     assert_eq!(fs::read_dir(f.root.join("store")).unwrap().count(), 0);
     assert!(service.projections(&mut cx).unwrap().is_empty());
 }
+#[test]
+#[ignore = "requires Linux uid19998 and confined real filesystem"]
+fn cached_batch_stale_refusal_preserves_files_records_and_outside_receipts() {
+    let f = Fixture::new();
+    let (service, mut cx) = f.service();
+    let first = batch(&mut cx, &[("a.rs", Some(b"abc"), b"saved")]);
+    assert_eq!(first[0], 17, "{first:?}");
+    f.clock.0.store(200, Ordering::Relaxed);
+    service.poll(&mut cx).unwrap();
+    fs::write(f.root.join("workspace/a.rs"), b"outside").unwrap();
+    let records: Vec<_> = fs::read_dir(f.root.join("store"))
+        .unwrap()
+        .map(|entry| {
+            let path = entry.unwrap().path();
+            (path.clone(), fs::read(path).unwrap())
+        })
+        .collect();
+    let versions = f.receipts.0.lock().unwrap().clone();
+    let own = f.receipts.1.lock().unwrap().clone();
+    for (base, index) in [(b"saved".as_slice(), 0u16), (b"outside".as_slice(), 1u16)] {
+        let response = batch(
+            &mut cx,
+            &[
+                ("a.rs", Some(base), b"bad"),
+                ("missing", Some(b"stale"), b"bad"),
+            ],
+        );
+        let fields = conn::fields("result17", &response[1..]).unwrap();
+        assert_eq!(fields[0].1, [0, 0]);
+        let failure = conn::fields("batch_failure", fields[1].1).unwrap();
+        assert_eq!(failure[0].1, index.to_be_bytes());
+        assert_eq!(failure[1].1, [1]);
+        assert_eq!(conn::fields("error", failure[2].1).unwrap()[0].1, [4]);
+        assert_eq!(*f.receipts.0.lock().unwrap(), versions);
+        assert_eq!(*f.receipts.1.lock().unwrap(), own);
+        for (path, bytes) in &records {
+            assert_eq!(fs::read(path).unwrap(), *bytes);
+        }
+    }
+    for now in [2000, 60_001] {
+        f.clock.0.store(now, Ordering::Relaxed);
+        service.poll(&mut cx).unwrap();
+    }
+    assert_eq!(fs::read(f.root.join("workspace/a.rs")).unwrap(), b"outside");
+    assert!(!f.root.join("workspace/missing").exists());
+    assert_eq!(*f.receipts.0.lock().unwrap(), versions);
+}
+
 #[test]
 #[ignore = "requires Linux uid19998 and confined real filesystem"]
 fn batch_io_error_preserves_applied_receipts_and_never_calls_it_stale() {

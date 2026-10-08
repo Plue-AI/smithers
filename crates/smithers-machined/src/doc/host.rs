@@ -642,16 +642,14 @@ impl<D: Disk> Host<D> {
         if !disk::valid_path(path) {
             return Err(Error::Invalid);
         }
-        // A file save leaves a short-lived document for durable receipts. With
-        // no editor and no unsaved edits, its cached text is not the base of a
-        // later save: observe a completed outside save before comparing.
-        if self.docs.get(path).is_some_and(|doc| {
+        // Closed, clean documents are receipt caches, not disk authority.
+        // Compare a snapshot without reconciling it until the entire batch
+        // passes preflight; a refused patch must publish no outside versions.
+        let clean = self.docs.get(path).is_some_and(|doc| {
             doc.subscribers.is_empty() && doc.dirty_since.is_none() && doc.gone.is_none()
-        }) {
-            self.completed_write(path, "outside", now)?;
-        }
-        if let Some(current) = self.current_digest(path) {
-            let physical = if self.docs[path].gone.is_some() {
+        });
+        if let Some(mut current) = self.current_digest(path) {
+            let physical = if clean || self.docs[path].gone.is_some() {
                 let bytes = self.disk.read(path)?;
                 let observed = bytes.as_deref().map(digest);
                 if !matches!((base, observed), (crate::hooks::Base::Absent, None))
@@ -664,6 +662,11 @@ impl<D: Disk> Host<D> {
                     .is_some_and(|b| b.len() > MAX_TEXT_BYTES || std::str::from_utf8(b).is_err())
                 {
                     return Err(Error::ReadOnly);
+                }
+                if clean {
+                    // An absent snapshot still writes through the cached text
+                    // base; activation records absence before the save.
+                    current = observed.unwrap_or(current);
                 }
                 Some(bytes)
             } else {
@@ -710,6 +713,19 @@ impl<D: Disk> Host<D> {
         } else {
             if let Some(bytes) = prepared.physical {
                 let doc = self.docs.get_mut(&prepared.path).ok_or(Error::Invalid)?;
+                if doc.gone.is_none() {
+                    if let Some(bytes) = &bytes {
+                        Self::outside(
+                            (&mut self.disk, &mut self.notices),
+                            &prepared.path,
+                            doc,
+                            bytes,
+                            "outside",
+                            now,
+                            None,
+                        )?;
+                    }
+                }
                 doc.disk_present = bytes.is_some();
                 doc.base =
                     String::from_utf8(bytes.unwrap_or_default()).map_err(|_| Error::ReadOnly)?;

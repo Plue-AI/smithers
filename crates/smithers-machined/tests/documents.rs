@@ -2080,6 +2080,54 @@ mod dispatcher {
     }
 
     #[test]
+    fn cached_batch_preflight_never_reconciles_before_all_bases_pass() {
+        let disk = Shared(Arc::new(Mutex::new(Model::with("before"))));
+        let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
+        let service = Service::new(Host::new(disk.clone(), gates(), ids()), clock.clone());
+        let mut cx = LockCx::new(Default::default());
+        service
+            .write_batch(
+                &mut cx,
+                &[change("a.rs", Some(b"before"), b"saved")],
+                &hooks::Actor::Outside,
+            )
+            .unwrap();
+        clock.0.store(200, Ordering::Relaxed);
+        service.poll(&mut cx).unwrap();
+        disk.0
+            .lock()
+            .unwrap()
+            .files
+            .insert("a.rs".into(), b"outside".to_vec());
+        let records = disk.0.lock().unwrap().records.clone();
+        let versions = disk.0.lock().unwrap().versions.clone();
+        for base in [b"saved".as_slice(), b"outside".as_slice()] {
+            let result = service
+                .write_batch(
+                    &mut cx,
+                    &[
+                        change("a.rs", Some(base), b"must not land"),
+                        change("missing", Some(b"stale"), b"bad"),
+                    ],
+                    &hooks::Actor::Outside,
+                )
+                .unwrap();
+            assert!(result.writes.is_empty());
+            let failure = result.failure.unwrap();
+            assert!(failure.preflight);
+            assert_eq!(failure.index, if base == b"saved" { 0 } else { 1 });
+            assert_eq!(disk.0.lock().unwrap().records, records);
+            assert_eq!(disk.0.lock().unwrap().versions, versions);
+            assert_eq!(disk.0.lock().unwrap().files["a.rs"], b"outside");
+        }
+        clock.0.store(60_001, Ordering::Relaxed);
+        service.poll(&mut cx).unwrap();
+        assert_eq!(disk.0.lock().unwrap().records, records);
+        assert_eq!(disk.0.lock().unwrap().versions, versions);
+        assert_eq!(disk.0.lock().unwrap().files["a.rs"], b"outside");
+    }
+
+    #[test]
     fn batch_validation_finishes_before_preparing_any_file() {
         let disk = Shared(Arc::new(Mutex::new(Model::with("before"))));
         let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
