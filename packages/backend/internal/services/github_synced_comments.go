@@ -125,6 +125,17 @@ func (s *GitHubSyncedRepoService) commitFetchedCommentsFrom(ctx context.Context,
 			return err
 		}
 
+		// A line comment that belongs to a review submission reaches consumers
+		// once, batched into that review by the per-pull read: one steer per
+		// submission (T-GH-04). The repository page only caches it.
+		if resource == gitHubReviewComments {
+			var linked struct {
+				ReviewID int64 `json:"pull_request_review_id"`
+			}
+			if json.Unmarshal(e.object, &linked) == nil && linked.ReviewID > 0 {
+				continue
+			}
+		}
 		if err := s.admitFetchedObject(ctx, tx, row, resource, h.ID, h.Number, canonical); err != nil {
 			return err
 		}

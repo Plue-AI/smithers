@@ -148,6 +148,25 @@ func TestGitHubReviewCommentIdentityDoesNotCollideWithConversation(t *testing.T)
 
 }
 
+// A repository page of review comments caches a line comment that belongs to
+// a review submission but delivers it only through the per-pull read, where
+// it is batched into that review: one review submission is one steer.
+func TestGitHubReviewLinkedCommentDeliversOnlyThroughItsReview(t *testing.T) {
+	s, pool, row := newFetchedFixture(t)
+	allowFetched(s)
+	linked := json.RawMessage(`{"id":31,"pull_request_review_id":42,"body":"Use the backoff helper","path":"retry.md","line":1,"pull_request_url":"https://api.github.com/repos/factory/app/pulls/7","created_at":"2026-10-05T10:00:00Z","updated_at":"2026-10-05T10:00:00Z"}`)
+	standalone := json.RawMessage(`{"id":32,"body":"Legacy comment","pull_request_url":"https://api.github.com/repos/factory/app/pulls/7","created_at":"2026-10-05T10:01:00Z","updated_at":"2026-10-05T10:01:00Z"}`)
+	require.NoError(t, s.commitFetched(t.Context(), row, gitHubReviewComments, nil, []json.RawMessage{linked, standalone}))
+	require.Equal(t, 2, fetchedCount(t, pool, `SELECT count(*) FROM github_synced_issue_comments WHERE source='review' AND github_id IN (31,32)`))
+	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE principal_id='pulls/comments'`))
+	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE principal_id='pulls/comments' AND request_id LIKE '32:%'`))
+	// An edit of the linked comment is still cached and still not delivered here.
+	edited := json.RawMessage(`{"id":31,"pull_request_review_id":42,"body":"Use the shared backoff helper","path":"retry.md","line":1,"pull_request_url":"https://api.github.com/repos/factory/app/pulls/7","created_at":"2026-10-05T10:00:00Z","updated_at":"2026-10-05T10:05:00Z"}`)
+	require.NoError(t, s.commitFetched(t.Context(), row, gitHubReviewComments, nil, []json.RawMessage{edited}))
+	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM github_synced_issue_comments WHERE github_id=31 AND payload->>'body'='Use the shared backoff helper'`))
+	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE principal_id='pulls/comments'`))
+}
+
 func TestGitHubRelatedResourceRejectsPathInputs(t *testing.T) {
 	for _, resource := range []string{"commits/main/check-runs", "commits/../../statuses", "pulls/07/reviews", "pulls/7/merge", "commits/" + strings.Repeat("g", 40) + "/statuses"} {
 		require.False(t, gitHubPullFactResource(resource), resource)
