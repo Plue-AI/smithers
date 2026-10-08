@@ -50,6 +50,16 @@ func (h *dropCatalogHost) InfoRefs(ctx context.Context, owner, repo, service str
 }
 
 func TestTodoDropAnswersBeforeCatalogTransportComposedInstall(t *testing.T) {
+	runTodoDropTransportComposed(t, false)
+}
+
+// Admission must leave live work intact until stopped-writer final capture is
+// available. Exercise the person's HTTP door, not a direct ControlTodo call.
+func TestTodoDropRefusesLiveWriterComposedInstall(t *testing.T) {
+	runTodoDropTransportComposed(t, true)
+}
+
+func runTodoDropTransportComposed(t *testing.T, live bool) {
 	t.Setenv("TMPDIR", t.TempDir())
 	host := &dropCatalogHost{pollingGitHost: &pollingGitHost{dir: filepath.Join(t.TempDir(), "mirror.git")}, entered: make(chan struct{}), release: make(chan struct{})}
 	var release sync.Once
@@ -126,6 +136,48 @@ func TestTodoDropAnswersBeforeCatalogTransportComposedInstall(t *testing.T) {
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET source='todo',number=2,owner_id=$2,title='Other candidate',stack_position=2,candidate_base=$4,candidate_head=$4 WHERE repository_id=$1 AND id<>$3`, repo.ID, owner.ID, item.ID, base)
 	require.NoError(t, err)
+	if live {
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='running', flow_digest=$2,
+			checks='{"todo":true,"run_launched":true,"run_attached":true,"waits":[{"id":"question-1","kind":"question","prompt":"Which file?"}]}'
+			WHERE id=$1`, item.ID, strings.Repeat("b", 64))
+		require.NoError(t, err)
+		before, err := q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, err)
+		stackBefore, err := q.GetMythicalStack(ctx, repo.ID)
+		require.NoError(t, err)
+		successorBefore, err := q.GetMythicalItemByNumber(ctx, repo.ID, 2)
+		require.NoError(t, err)
+		status, card := call("GET", "", "")
+		require.Equal(t, http.StatusOK, status, card)
+		require.Equal(t, "needs_you", card["state"])
+		for _, key := range []string{"drop-live", "drop-live", "drop-another-press"} {
+			status, refusal := call("POST", `{"op":"drop"}`, key)
+			require.Equal(t, http.StatusServiceUnavailable, status, refusal)
+			require.Equal(t, "todo_control_unavailable", refusal["code"])
+			require.Equal(t, "infra", refusal["class"])
+		}
+		after, err := q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, err)
+		require.Equal(t, before, after, "run, pin, attempt, question and position survive refusal")
+		stackAfter, err := q.GetMythicalStack(ctx, repo.ID)
+		require.NoError(t, err)
+		require.Equal(t, stackBefore, stackAfter, "no catalog refresh or successor work is requested")
+		successorAfter, err := q.GetMythicalItemByNumber(ctx, repo.ID, 2)
+		require.NoError(t, err)
+		require.Equal(t, successorBefore, successorAfter, "no rebase or invalidation before final capture")
+		var events int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.dropped'`).Scan(&events))
+		require.Zero(t, events)
+		status, card = call("GET", "", "")
+		require.Equal(t, http.StatusOK, status, card)
+		require.Equal(t, "needs_you", card["state"])
+		select {
+		case <-host.entered:
+			t.Fatal("refused Drop performed repository transport")
+		default:
+		}
+		return
+	}
 	// A deadline fails the old synchronous fetch without leaving a held request.
 	began := time.Now()
 	status, receipt := call("POST", `{"op":"drop"}`, "drop-once")
