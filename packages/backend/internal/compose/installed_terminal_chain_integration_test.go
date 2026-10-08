@@ -43,64 +43,8 @@ func TestInstalledMemberTerminalAndSSHChain(t *testing.T) {
 // Shared native setup keeps every SSH check on the composed install, approved
 // bundle, real PostgreSQL and authenticated microVM transport.
 func exerciseInstalledMemberTerminalAndSSHChain(t *testing.T, check func(*rootLayerHarness, *gossh.Client, string, string, gossh.Signer, int64, uint32)) {
-	if os.Getenv("SMITHERS_REQUIRE_MICROVM_TESTS") != "1" {
-		t.Skip("reference host: approved native install required")
-	}
-	require.Equal(t, "1", os.Getenv("SMITHERS_GUEST_ROOT_BOUNDARY_CHECK"), "approved reference-host mode is required; digest equality alone does not authorize root execution")
-	approved := os.Getenv("SMITHERS_APPROVED_GUEST_HELPER")
-	require.NotEmpty(t, approved)
-	approvedBytes, err := os.ReadFile(approved)
-	require.NoError(t, err)
-	sourceBytes, err := os.ReadFile(filepath.Join("..", "..", "microsandbox", "guest", "smithers-guest.py"))
-	require.NoError(t, err)
-	approvedSum, sourceSum := sha256.Sum256(approvedBytes), sha256.Sum256(sourceBytes)
-	require.Equal(t, hex.EncodeToString(approvedSum[:]), hex.EncodeToString(sourceSum[:]), "source helper must be approved before VM creation")
-	bundle, err := installbundle.Open(os.Getenv("SMITHERS_CHECK_BUNDLE"))
-	require.NoError(t, err)
-	helper, err := bundle.Expect("SMITHERS_MICROSANDBOX_HELPER", "", "share/microsandbox/smithers-guest.py", false)
-	require.NoError(t, err)
-	packaged, err := os.ReadFile(helper)
-	require.NoError(t, err)
-	require.Equal(t, approvedBytes, packaged)
-	manifest, err := bundle.Expect("SMITHERS_FLOW_HOST_MANIFEST", "", "bin/flow-hosts.json", false)
-	require.NoError(t, err)
-	registry, err := flowmanifest.Load(manifest)
-	require.NoError(t, err)
-	msb, err := bundle.Expect("SMITHERS_MICROSANDBOX_BIN", os.Getenv("SMITHERS_MICROSANDBOX_BIN"), "bin/msb", true)
-	require.NoError(t, err)
-	t.Setenv("SMITHERS_MICROSANDBOX_BIN", msb)
-	profile, err := microsandbox.Detect(t.TempDir())
-	require.NoError(t, err)
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	sshAddress := listener.Addr().String()
-	require.NoError(t, listener.Close())
-	t.Setenv("SMITHERS_SSH_ADDR", sshAddress)
-	t.Setenv("SMITHERS_SSH_HOST_KEY_DIR", t.TempDir())
-	providerRequests := make(chan string, 8)
-	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		if request.URL.Path == "/v1/messages" {
-			serveInstalledCodingProvider(t, w, request)
-			return
-		}
-		select {
-		case providerRequests <- request.Header.Get("x-api-key"):
-		default:
-		}
-		_, _ = io.WriteString(w, "provider-fixture-ok")
-	}))
-	defer provider.Close()
-	relayListener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	relay, err := egressrelay.New(egressrelay.Config{Listener: relayListener, Local: []string{provider.Listener.Addr().String()}})
-	require.NoError(t, err)
-	defer relay.Close()
-	h := startRootLayerHarnessRuntime(t, true, rootLayerCodingFixture{bundle: bundle, registry: registry, profile: profile, relay: relay})
-	eventScan := startInstalledCredentialEventScan(t, h)
-	h.commitMain(map[string]string{"go.mod": "module example.com/terminalproof\n\ngo 1.26.8\n", "x.go": "package terminalproof\n", "JOURNEY.md": "Add a greeting to JOURNEY.md\n"})
-	h.runSetupThroughSource()
-	seedInstalledSecretFiles(t, h)
-	h.expect("POST", installedSecretsURL, `{"name":"MCH_RELAY_KEY","value":"mch-relay-real-fixture-0123456789abcdef","path":"~/.config/mch/relay","hosts":["127.0.0.1"],"match_headers":["x-api-key"]}`, 201)
+	var eventScan *installedCredentialEventScan
+	h, providerRequests, bundle, provider, sshAddress := startInstalledTerminalHarness(t, func(h *rootLayerHarness) { eventScan = startInstalledCredentialEventScan(t, h) })
 	memberFixture := &rehearsal{ctx: t.Context(), origin: h.origin, jar: h.jar, client: h.client, fake: h.github}
 	benBrowser, err := memberFixture.member("ben", 8, "write")
 	require.NoError(t, err)
@@ -297,4 +241,70 @@ func exerciseInstalledMemberTerminalAndSSHChain(t *testing.T, check func(*rootLa
 	testInstalledTerminalOwnerWatch(t, h, branch, benBrowser, aliceBrowser, sshAddress, login)
 	eventScan.assertClean(t)
 	t.Logf("installed member terminal and SSH: bundle=%s branch=%s uid=%d", bundle.Revision(), branch, uid)
+}
+
+// Shared approved native composition for terminal and cleanup qualification.
+func startInstalledTerminalHarness(t *testing.T, observe func(*rootLayerHarness)) (*rootLayerHarness, <-chan string, *installbundle.Bundle, *httptest.Server, string) {
+	t.Helper()
+	if os.Getenv("SMITHERS_REQUIRE_MICROVM_TESTS") != "1" {
+		t.Skip("reference host: approved native install required")
+	}
+	require.Equal(t, "1", os.Getenv("SMITHERS_GUEST_ROOT_BOUNDARY_CHECK"), "approved reference-host mode is required; digest equality alone does not authorize root execution")
+	approved := os.Getenv("SMITHERS_APPROVED_GUEST_HELPER")
+	require.NotEmpty(t, approved)
+	approvedBytes, err := os.ReadFile(approved)
+	require.NoError(t, err)
+	sourceBytes, err := os.ReadFile(filepath.Join("..", "..", "microsandbox", "guest", "smithers-guest.py"))
+	require.NoError(t, err)
+	approvedSum, sourceSum := sha256.Sum256(approvedBytes), sha256.Sum256(sourceBytes)
+	require.Equal(t, hex.EncodeToString(approvedSum[:]), hex.EncodeToString(sourceSum[:]), "source helper must be approved before VM creation")
+	bundle, err := installbundle.Open(os.Getenv("SMITHERS_CHECK_BUNDLE"))
+	require.NoError(t, err)
+	helper, err := bundle.Expect("SMITHERS_MICROSANDBOX_HELPER", "", "share/microsandbox/smithers-guest.py", false)
+	require.NoError(t, err)
+	packaged, err := os.ReadFile(helper)
+	require.NoError(t, err)
+	require.Equal(t, approvedBytes, packaged)
+	manifest, err := bundle.Expect("SMITHERS_FLOW_HOST_MANIFEST", "", "bin/flow-hosts.json", false)
+	require.NoError(t, err)
+	registry, err := flowmanifest.Load(manifest)
+	require.NoError(t, err)
+	msb, err := bundle.Expect("SMITHERS_MICROSANDBOX_BIN", os.Getenv("SMITHERS_MICROSANDBOX_BIN"), "bin/msb", true)
+	require.NoError(t, err)
+	t.Setenv("SMITHERS_MICROSANDBOX_BIN", msb)
+	profile, err := microsandbox.Detect(t.TempDir())
+	require.NoError(t, err)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	sshAddress := listener.Addr().String()
+	require.NoError(t, listener.Close())
+	t.Setenv("SMITHERS_SSH_ADDR", sshAddress)
+	t.Setenv("SMITHERS_SSH_HOST_KEY_DIR", t.TempDir())
+	providerRequests := make(chan string, 8)
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/v1/messages" {
+			serveInstalledCodingProvider(t, w, request)
+			return
+		}
+		select {
+		case providerRequests <- request.Header.Get("x-api-key"):
+		default:
+		}
+		_, _ = io.WriteString(w, "provider-fixture-ok")
+	}))
+	t.Cleanup(provider.Close)
+	relayListener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	relay, err := egressrelay.New(egressrelay.Config{Listener: relayListener, Local: []string{provider.Listener.Addr().String()}})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, relay.Close()) })
+	h := startRootLayerHarnessRuntime(t, true, rootLayerCodingFixture{bundle: bundle, registry: registry, profile: profile, relay: relay})
+	if observe != nil {
+		observe(h)
+	}
+	h.commitMain(map[string]string{"go.mod": "module example.com/terminalproof\n\ngo 1.26.8\n", "x.go": "package terminalproof\n", "JOURNEY.md": "Add a greeting to JOURNEY.md\n"})
+	h.runSetupThroughSource()
+	seedInstalledSecretFiles(t, h)
+	h.expect("POST", installedSecretsURL, `{"name":"MCH_RELAY_KEY","value":"mch-relay-real-fixture-0123456789abcdef","path":"~/.config/mch/relay","hosts":["127.0.0.1"],"match_headers":["x-api-key"]}`, 201)
+	return h, providerRequests, bundle, provider, sshAddress
 }
