@@ -218,31 +218,11 @@ func (s *WorkspaceService) projectBranch(ctx context.Context, tx pgx.Tx, q *db.Q
 			}
 		}
 	}
-	if row.IsFork && (row.ForkedFromItem.Valid || row.ForkedFromBase != "") {
-		from := &BranchForkedFrom{Kind: "main", Ref: "main", Commit: row.SourceCommit, Base: row.ForkedFromBase}
-		if row.ForkedFromItem.Valid {
-			item, err := q.GetMythicalItem(ctx, row.ForkedFromItem)
-			if err != nil {
-				return BranchMachineResponse{}, err
-			}
-			from.Kind, from.Item, from.Ref = "item", item.Number.Int64, "T"+strconv.FormatInt(item.Number.Int64, 10)
-		}
-		var raw []byte
-		err := tx.QueryRow(ctx, `SELECT data->'forked_from' FROM product_job_events WHERE tenant_id=$1 AND principal_id=$2 AND operation_id=$3 AND event_type='branch.forked'`, strconv.FormatInt(row.RepositoryID, 10), "branch:"+row.ID, row.ID).Scan(&raw)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return BranchMachineResponse{}, err
-		}
-		var recorded BranchForkedFrom
-		if err == nil {
-			if err := json.Unmarshal(raw, &recorded); err != nil {
-				return BranchMachineResponse{}, err
-			}
-			if strings.HasPrefix(recorded.Ref, scratchBranchPrefix) {
-				from.Kind, from.Ref = "branch", recorded.Ref
-			}
-		}
-		branch.ForkedFrom = from
+	forkedFrom, err := branchForkedFrom(ctx, tx, q, row)
+	if err != nil {
+		return BranchMachineResponse{}, err
 	}
+	branch.ForkedFrom = forkedFrom
 	if branch.Kind == "scratch" && row.Status != "suspended" && row.Status != "stopped" {
 		head, err := s.branchRefHead(ctx, row)
 		if err != nil {
@@ -256,6 +236,59 @@ func (s *WorkspaceService) projectBranch(ctx context.Context, tx pgx.Tx, q *db.Q
 		branch.Head = row.SourceCommit
 	}
 	return branch, nil
+}
+
+// branchForkedFrom is where a fork row was forked from: main, a TODO, or the
+// scratch branch its branch.forked event recorded. A branch that is no fork,
+// or a fork with no recorded source, has none.
+func branchForkedFrom(ctx context.Context, tx pgx.Tx, q *db.Queries, row db.Workspace) (*BranchForkedFrom, error) {
+	if !row.IsFork || !row.ForkedFromItem.Valid && row.ForkedFromBase == "" {
+		return nil, nil
+	}
+	from := &BranchForkedFrom{Kind: "main", Ref: "main", Commit: row.SourceCommit, Base: row.ForkedFromBase}
+	if row.ForkedFromItem.Valid {
+		item, err := q.GetMythicalItem(ctx, row.ForkedFromItem)
+		if err != nil {
+			return nil, err
+		}
+		from.Kind, from.Item, from.Ref = "item", item.Number.Int64, "T"+strconv.FormatInt(item.Number.Int64, 10)
+	}
+	var raw []byte
+	err := tx.QueryRow(ctx, `SELECT data->'forked_from' FROM product_job_events WHERE tenant_id=$1 AND principal_id=$2 AND operation_id=$3 AND event_type='branch.forked'`, strconv.FormatInt(row.RepositoryID, 10), "branch:"+row.ID, row.ID).Scan(&raw)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+	if err == nil {
+		var recorded BranchForkedFrom
+		if err := json.Unmarshal(raw, &recorded); err != nil {
+			return nil, err
+		}
+		if strings.HasPrefix(recorded.Ref, scratchBranchPrefix) {
+			from.Kind, from.Ref = "branch", recorded.Ref
+		}
+	}
+	return from, nil
+}
+
+// BranchCardSource is the kind of branch row is and, for a fork, its source,
+// for a live Branch card. The card's refresh has authorized its member through
+// PresenceBranch and runs with no request credential, so it reads these stored
+// facts here; GetBranch is a request door that admits only a live credential.
+func (s *WorkspaceService) BranchCardSource(ctx context.Context, row db.Workspace) (string, *BranchForkedFrom, error) {
+	kind := branchKind(row.TargetBookmark)
+	if !row.IsFork {
+		return kind, nil, nil
+	}
+	if s.transactions == nil {
+		return "", nil, pkgerrors.Internal("workspace store unavailable")
+	}
+	tx, err := s.transactions.Begin(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	from, err := branchForkedFrom(ctx, tx, db.New(tx), row)
+	return kind, from, err
 }
 
 // branchRefHead is the commit refs/heads/<branch> names, or "" while the

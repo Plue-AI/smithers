@@ -141,7 +141,10 @@ func presenceInstall(t *testing.T, withBroker ...bool) presenceInstallFixture {
 	_, _, err = q.BindMythicalLane(ctx, db.MythicalLane{WorkspaceID: row.ID, RepositoryID: repo.ID, ItemID: item.ID, Name: "presence"})
 	require.NoError(t, err)
 	providers := services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), nil)
-	branches := services.NewWorkspaceService(q, services.WithWorkspaceTransactions(pool), services.WithBranchMachineProviders(providers))
+	// The install's command authority, as main.go composes it: a request door
+	// such as GetBranch admits only a live request credential, which a card
+	// refresh never carries.
+	branches := services.NewWorkspaceService(q, services.WithWorkspaceTransactions(pool), services.WithBranchMachineProviders(providers), services.WithWorkspaceInstallAuthorization(q))
 	hosts, _ := presenceHostBinding(t, pool, row, user.ID)
 	p := &branchPresence{hosts: hosts, visits: &presenceVisits{audit: services.NewAuditService(q), now: time.Now}, queries: q, branches: branches, dispatcher: presenceBridgeFixture{realPresenceBridge(t)}, members: &services.Members{Pool: pool}}
 	bus := revocation.NewBus(pool, q)

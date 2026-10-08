@@ -279,17 +279,19 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 		}
 		model := branchPresenceModel(current, name, presence, origin)
 		if current.IsFork {
-			projected, err := p.branches.GetBranch(ctx, current.ID, repository, member)
+			// PresenceBranch above authorized this refresh's member; a refresh
+			// has no request credential for GetBranch's door.
+			kind, forkedFrom, err := p.branches.BranchCardSource(ctx, current)
 			if err != nil {
 				return nil, err
 			}
 			// Older fork rows may predate retained source metadata.
 			// Preserve their main fallback without overwriting a recorded source.
-			if projected.Kind == "scratch" && projected.ForkedFrom == nil {
+			if kind == "scratch" && forkedFrom == nil {
 				model["scratch"] = map[string]any{"forked_from": map[string]any{"kind": "main"}}
 			}
-			if projected.Kind == "scratch" && projected.ForkedFrom != nil {
-				from := projected.ForkedFrom
+			if kind == "scratch" && forkedFrom != nil {
+				from := forkedFrom
 				origin := map[string]any{"kind": from.Kind}
 				switch from.Kind {
 				case "item":
