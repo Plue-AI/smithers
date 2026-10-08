@@ -1,0 +1,1721 @@
+{
+  "boundary": "retained descriptor HTTP refusal campaign; app doors require separate execution",
+  "commands": [
+    {
+      "command": "account.connection.delete",
+      "method": "DELETE",
+      "path": "/api/user/connections/{id}",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "account.device.delete",
+      "method": "DELETE",
+      "path": "/api/user/devices",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "account.device.register",
+      "method": "POST",
+      "path": "/api/user/devices",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "account.email.add",
+      "method": "POST",
+      "path": "/api/user/emails",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "account.email.delete",
+      "method": "DELETE",
+      "path": "/api/user/emails/{id}",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "account.email.verify",
+      "method": "POST",
+      "path": "/api/user/emails/{id}/verify",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "account.inbox.preferences",
+      "method": "PUT",
+      "path": "/api/notifications/preferences",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "account.inbox.read",
+      "method": "PATCH",
+      "path": "/api/notifications/{id}",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "account.inbox.read-all",
+      "method": "PUT",
+      "path": "/api/notifications/mark-read",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "account.notifications.update",
+      "method": "PUT",
+      "path": "/api/user/settings/notifications",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "account.oauth.revoke",
+      "method": "POST",
+      "path": "/api/oauth2/revoke-all",
+      "body": {}
+    },
+    {
+      "command": "account.profile.update",
+      "method": "PATCH",
+      "path": "/api/user",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "account.show",
+      "door": "app"
+    },
+    {
+      "command": "account.signup.update",
+      "method": "PUT",
+      "path": "/api/user/settings/signup",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "admin.devtools",
+      "door": "app"
+    },
+    {
+      "command": "admin.reset",
+      "door": "app"
+    },
+    {
+      "command": "admin.reset.ask",
+      "door": "app"
+    },
+    {
+      "command": "admin.reset.cancel",
+      "door": "app"
+    },
+    {
+      "command": "agent",
+      "method": "GET",
+      "path": "/api/agents/{name}",
+      "body": {}
+    },
+    {
+      "command": "agent.edit",
+      "method": "POST",
+      "path": "/api/agents/{name}/edit",
+      "body": {}
+    },
+    {
+      "command": "agent.turn",
+      "method": "POST",
+      "path": "/api/conversations/{id}/prompt",
+      "body": {}
+    },
+    {
+      "command": "agents",
+      "method": "GET",
+      "path": "/api/agents",
+      "body": {}
+    },
+    {
+      "command": "agents.read",
+      "method": "GET",
+      "path": "/api/agents",
+      "body": {}
+    },
+    {
+      "command": "app.hint.dismiss",
+      "door": "app"
+    },
+    {
+      "command": "approval.approve",
+      "door": "app"
+    },
+    {
+      "command": "approval.deny",
+      "door": "app"
+    },
+    {
+      "command": "auth.email",
+      "door": "app"
+    },
+    {
+      "command": "auth.prompt",
+      "door": "app"
+    },
+    {
+      "command": "background.dismiss",
+      "method": "POST",
+      "path": "/api/runs/{id}",
+      "body": {
+        "op": "dismiss"
+      }
+    },
+    {
+      "command": "background.retry",
+      "method": "POST",
+      "path": "/api/runs/{id}",
+      "body": {
+        "op": "retry"
+      }
+    },
+    {
+      "command": "box.delete",
+      "door": "app"
+    },
+    {
+      "command": "box.egress",
+      "door": "app"
+    },
+    {
+      "command": "box.facet",
+      "door": "app"
+    },
+    {
+      "command": "box.images",
+      "door": "app"
+    },
+    {
+      "command": "box.resume",
+      "door": "app"
+    },
+    {
+      "command": "box.services",
+      "door": "app"
+    },
+    {
+      "command": "box.session.destroy",
+      "door": "app"
+    },
+    {
+      "command": "box.suspend",
+      "door": "app"
+    },
+    {
+      "command": "branch",
+      "method": "GET",
+      "path": "/api/branches/{name}",
+      "body": {}
+    },
+    {
+      "command": "branch.add-to-stack",
+      "method": "POST",
+      "path": "/api/branches/{branch}/add-to-stack",
+      "body": {}
+    },
+    {
+      "command": "branch.archive",
+      "method": "POST",
+      "path": "/api/branches/{branch}/archive",
+      "body": {}
+    },
+    {
+      "command": "branch.bring-in",
+      "method": "POST",
+      "path": "/api/branches/{branch}",
+      "body": {
+        "op": "bring-in"
+      }
+    },
+    {
+      "command": "branch.discard-foreign",
+      "method": "POST",
+      "path": "/api/branches/{branch}",
+      "body": {
+        "op": "discard-foreign"
+      }
+    },
+    {
+      "command": "branch.fork",
+      "method": "POST",
+      "path": "/api/branches",
+      "body": {}
+    },
+    {
+      "command": "branch.read",
+      "method": "GET",
+      "path": "/api/branches/{b}",
+      "body": {}
+    },
+    {
+      "command": "branch.rebase",
+      "method": "POST",
+      "path": "/api/branches/{branch}",
+      "body": {
+        "op": "rebase"
+      }
+    },
+    {
+      "command": "branch.rebase-now",
+      "method": "POST",
+      "path": "/api/branches/{branch}",
+      "body": {
+        "rebase": true
+      }
+    },
+    {
+      "command": "branch.sleep",
+      "method": "POST",
+      "path": "/api/branches/{branch}",
+      "body": {
+        "op": "sleep"
+      }
+    },
+    {
+      "command": "branch.wake",
+      "method": "POST",
+      "path": "/api/branches/{branch}",
+      "body": {
+        "op": "wake"
+      }
+    },
+    {
+      "command": "branches",
+      "method": "GET",
+      "path": "/api/branches",
+      "body": {}
+    },
+    {
+      "command": "branches.read",
+      "method": "GET",
+      "path": "/api/branches",
+      "body": {}
+    },
+    {
+      "command": "browser.open",
+      "door": "app"
+    },
+    {
+      "command": "cache.tokens.create",
+      "method": "POST",
+      "path": "/api/repos/{owner}/{repo}/build-cache/tokens",
+      "body": {}
+    },
+    {
+      "command": "cache.tokens.list",
+      "method": "GET",
+      "path": "/api/repos/{owner}/{repo}/build-cache/tokens",
+      "body": {}
+    },
+    {
+      "command": "cache.tokens.revoke",
+      "method": "DELETE",
+      "path": "/api/repos/{owner}/{repo}/build-cache/tokens/{id}",
+      "body": {}
+    },
+    {
+      "command": "card.dismiss",
+      "door": "app"
+    },
+    {
+      "command": "card.history.back",
+      "door": "app"
+    },
+    {
+      "command": "card.history.forward",
+      "door": "app"
+    },
+    {
+      "command": "card.maximize",
+      "door": "app"
+    },
+    {
+      "command": "card.minimize",
+      "door": "app"
+    },
+    {
+      "command": "change.facet",
+      "door": "app"
+    },
+    {
+      "command": "change.resolve",
+      "door": "app"
+    },
+    {
+      "command": "chat",
+      "door": "app"
+    },
+    {
+      "command": "chat.copy-message",
+      "door": "app"
+    },
+    {
+      "command": "chat.dictate",
+      "door": "app"
+    },
+    {
+      "command": "chat.open",
+      "door": "app"
+    },
+    {
+      "command": "chat.queue",
+      "door": "app"
+    },
+    {
+      "command": "chat.queue.edit",
+      "door": "app"
+    },
+    {
+      "command": "chat.queue.remove",
+      "door": "app"
+    },
+    {
+      "command": "chat.queue.restore",
+      "door": "app"
+    },
+    {
+      "command": "chat.reload",
+      "door": "app"
+    },
+    {
+      "command": "chat.retry",
+      "door": "app"
+    },
+    {
+      "command": "chat.send",
+      "door": "app"
+    },
+    {
+      "command": "cloud.prompt",
+      "door": "app"
+    },
+    {
+      "command": "cloud.sign-in",
+      "door": "app"
+    },
+    {
+      "command": "cloud.sign-out",
+      "door": "app"
+    },
+    {
+      "command": "code.definition",
+      "door": "app"
+    },
+    {
+      "command": "code.diagnostics",
+      "door": "app"
+    },
+    {
+      "command": "code.hover",
+      "door": "app"
+    },
+    {
+      "command": "confirm.cancel",
+      "door": "app"
+    },
+    {
+      "command": "confirmations.read",
+      "method": "GET",
+      "path": "/api/confirmations",
+      "body": {}
+    },
+    {
+      "command": "debug-api",
+      "door": "app"
+    },
+    {
+      "command": "debug.backend",
+      "door": "app"
+    },
+    {
+      "command": "debug.errors",
+      "door": "app"
+    },
+    {
+      "command": "debug.events",
+      "door": "app"
+    },
+    {
+      "command": "debug.net",
+      "door": "app"
+    },
+    {
+      "command": "debug.snapshot",
+      "door": "app"
+    },
+    {
+      "command": "debug.verbose",
+      "door": "app"
+    },
+    {
+      "command": "deploy-keys.create",
+      "method": "POST",
+      "path": "/api/repos/{owner}/{repo}/keys",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "deploy-keys.delete",
+      "method": "DELETE",
+      "path": "/api/repos/{owner}/{repo}/keys/{id}",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "deploy-keys.read",
+      "method": "GET",
+      "path": "/api/repos/{owner}/{repo}/keys",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "devtools.read",
+      "method": "GET",
+      "path": "/api/repos/{owner}/{repo}/devtools/snapshots",
+      "body": {}
+    },
+    {
+      "command": "devtools.write",
+      "method": "POST",
+      "path": "/api/repos/{owner}/{repo}/devtools/snapshots",
+      "body": {}
+    },
+    {
+      "command": "diff",
+      "door": "app"
+    },
+    {
+      "command": "docs",
+      "door": "app"
+    },
+    {
+      "command": "draft.discard",
+      "door": "app"
+    },
+    {
+      "command": "egress.allow",
+      "door": "app"
+    },
+    {
+      "command": "egress.read",
+      "method": "GET",
+      "path": "/api/repos/{owner}/{repo}/egress-policy",
+      "body": {}
+    },
+    {
+      "command": "egress.session",
+      "door": "app"
+    },
+    {
+      "command": "egress.update",
+      "method": "PATCH",
+      "path": "/api/repos/{owner}/{repo}/egress-policy",
+      "body": {}
+    },
+    {
+      "command": "external.read",
+      "door": "app"
+    },
+    {
+      "command": "file",
+      "method": "GET",
+      "path": "/api/branches/{branch}/files/{path}",
+      "body": {
+        "branch": "main"
+      }
+    },
+    {
+      "command": "file.compare",
+      "door": "app"
+    },
+    {
+      "command": "file.follow-rename",
+      "door": "app"
+    },
+    {
+      "command": "file.reapply",
+      "door": "app"
+    },
+    {
+      "command": "file.restore",
+      "door": "app"
+    },
+    {
+      "command": "file.restore-deleted",
+      "door": "app"
+    },
+    {
+      "command": "files",
+      "method": "GET",
+      "path": "/api/branches/{branch}/files",
+      "body": {
+        "branch": "main"
+      }
+    },
+    {
+      "command": "findings.not-useful",
+      "door": "app"
+    },
+    {
+      "command": "findings.please-fix",
+      "door": "app"
+    },
+    {
+      "command": "flow",
+      "method": "GET",
+      "path": "/api/flows/{name}",
+      "body": {}
+    },
+    {
+      "command": "flow.edit",
+      "method": "POST",
+      "path": "/api/flows/{name}/edit",
+      "body": {}
+    },
+    {
+      "command": "flow.new",
+      "method": "POST",
+      "path": "/api/flows",
+      "body": {}
+    },
+    {
+      "command": "flow.plan",
+      "door": "app"
+    },
+    {
+      "command": "flow.plan.select",
+      "door": "app"
+    },
+    {
+      "command": "flow.plan.tab",
+      "door": "app"
+    },
+    {
+      "command": "flow.run",
+      "method": "POST",
+      "path": "/api/flows/{name}/run",
+      "body": {}
+    },
+    {
+      "command": "flow.source",
+      "door": "app"
+    },
+    {
+      "command": "flow.source-coedit",
+      "method": "PUT",
+      "path": "/api/repos/{owner}/{repo}/workspaces/{id}/files/content",
+      "body": {
+        "changes": [
+          {
+            "path": "src/denied",
+            "base_digest": "absent",
+            "content": "denied edit"
+          }
+        ]
+      }
+    },
+    {
+      "command": "flows",
+      "method": "GET",
+      "path": "/api/flows",
+      "body": {}
+    },
+    {
+      "command": "flows.read",
+      "method": "GET",
+      "path": "/api/flows",
+      "body": {}
+    },
+    {
+      "command": "form.set",
+      "door": "app"
+    },
+    {
+      "command": "form.submit",
+      "door": "app"
+    },
+    {
+      "command": "frame.back",
+      "door": "app"
+    },
+    {
+      "command": "frame.forward",
+      "door": "app"
+    },
+    {
+      "command": "github",
+      "method": "GET",
+      "path": "/api/github/sync",
+      "body": {}
+    },
+    {
+      "command": "github.account-read",
+      "method": "GET",
+      "path": "/api/user/github-repos",
+      "body": {}
+    },
+    {
+      "command": "github.import-read",
+      "method": "GET",
+      "path": "/api/github/import/{id}",
+      "body": {}
+    },
+    {
+      "command": "github.mirror-sync",
+      "door": "app"
+    },
+    {
+      "command": "github.mirror.retry-ref",
+      "door": "app"
+    },
+    {
+      "command": "help",
+      "door": "app"
+    },
+    {
+      "command": "history.bootstrap",
+      "door": "app"
+    },
+    {
+      "command": "image.add",
+      "door": "app"
+    },
+    {
+      "command": "install.read",
+      "method": "GET",
+      "path": "/api/install",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "install.scorecard",
+      "method": "GET",
+      "path": "/api/install/scorecard",
+      "body": {}
+    },
+    {
+      "command": "issue",
+      "method": "GET",
+      "path": "/api/issues/{number}",
+      "body": {}
+    },
+    {
+      "command": "issue.add-flow",
+      "door": "app"
+    },
+    {
+      "command": "issue.comment",
+      "method": "POST",
+      "path": "/api/issues/{number}/comments",
+      "body": {}
+    },
+    {
+      "command": "issue.flows",
+      "door": "app"
+    },
+    {
+      "command": "issue.new",
+      "method": "POST",
+      "path": "/api/issues",
+      "body": {},
+      "door": "pending:T-CAT-01"
+    },
+    {
+      "command": "issue.poc",
+      "door": "app"
+    },
+    {
+      "command": "issue.read",
+      "method": "GET",
+      "path": "/api/issues",
+      "body": {}
+    },
+    {
+      "command": "issue.repro",
+      "door": "app"
+    },
+    {
+      "command": "issues",
+      "method": "GET",
+      "path": "/api/issues",
+      "body": {}
+    },
+    {
+      "command": "issues.close",
+      "door": "app"
+    },
+    {
+      "command": "issues.comment",
+      "door": "app"
+    },
+    {
+      "command": "issues.create",
+      "door": "app"
+    },
+    {
+      "command": "issues.list",
+      "door": "app"
+    },
+    {
+      "command": "issues.reopen",
+      "door": "app"
+    },
+    {
+      "command": "issues.view",
+      "door": "app"
+    },
+    {
+      "command": "labels.create",
+      "method": "POST",
+      "path": "/api/repos/{owner}/{repo}/labels",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "labels.delete",
+      "method": "DELETE",
+      "path": "/api/repos/{owner}/{repo}/labels/{id}",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "labels.update",
+      "method": "PATCH",
+      "path": "/api/repos/{owner}/{repo}/labels/{id}",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "landings.read",
+      "method": "GET",
+      "path": "/api/repos/{owner}/{repo}/landings",
+      "body": {}
+    },
+    {
+      "command": "learning.accept",
+      "method": "POST",
+      "path": "/api/proposals/{id}/accept",
+      "body": {}
+    },
+    {
+      "command": "learning.dismiss",
+      "method": "POST",
+      "path": "/api/proposals/{id}/dismiss",
+      "body": {}
+    },
+    {
+      "command": "live",
+      "method": "GET",
+      "path": "/api/live",
+      "body": {}
+    },
+    {
+      "command": "main.reset-to-github",
+      "method": "POST",
+      "path": "/api/stack/attention/{id}",
+      "body": {}
+    },
+    {
+      "command": "members",
+      "door": "app"
+    },
+    {
+      "command": "members.add",
+      "door": "app"
+    },
+    {
+      "command": "members.list",
+      "method": "GET",
+      "path": "/api/members",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "members.remove",
+      "door": "app"
+    },
+    {
+      "command": "members.role",
+      "door": "app"
+    },
+    {
+      "command": "merge",
+      "method": "POST",
+      "path": "/api/todos/{n}/merge",
+      "body": {}
+    },
+    {
+      "command": "merge.confirm",
+      "door": "app"
+    },
+    {
+      "command": "mirror.read",
+      "method": "GET",
+      "path": "/api/repos/{owner}/{repo}/mirror-sync/{run_id}",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "model.assign",
+      "door": "app"
+    },
+    {
+      "command": "model.edit",
+      "door": "app"
+    },
+    {
+      "command": "model.list",
+      "door": "app"
+    },
+    {
+      "command": "model.new",
+      "door": "app"
+    },
+    {
+      "command": "model.remove",
+      "door": "app"
+    },
+    {
+      "command": "model.save",
+      "door": "app"
+    },
+    {
+      "command": "model.show",
+      "door": "app"
+    },
+    {
+      "command": "model.test",
+      "door": "app"
+    },
+    {
+      "command": "monitor",
+      "method": "GET",
+      "path": "/api/runs",
+      "body": {}
+    },
+    {
+      "command": "notifications.allow",
+      "door": "app"
+    },
+    {
+      "command": "order.ok",
+      "method": "POST",
+      "path": "/api/stack/attention/{id}",
+      "body": {}
+    },
+    {
+      "command": "palette.actions",
+      "door": "app"
+    },
+    {
+      "command": "palette.open",
+      "door": "app"
+    },
+    {
+      "command": "palette.recent",
+      "door": "app"
+    },
+    {
+      "command": "pr",
+      "door": "app"
+    },
+    {
+      "command": "proposals.read",
+      "method": "GET",
+      "path": "/api/proposals",
+      "body": {}
+    },
+    {
+      "command": "protected-bookmarks.delete",
+      "method": "DELETE",
+      "path": "/api/repos/{owner}/{repo}/protected-bookmarks/{pattern}",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "protected-bookmarks.read",
+      "method": "GET",
+      "path": "/api/repos/{owner}/{repo}/protected-bookmarks",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "protected-bookmarks.upsert",
+      "method": "POST",
+      "path": "/api/repos/{owner}/{repo}/protected-bookmarks",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "prs.review",
+      "door": "app"
+    },
+    {
+      "command": "prs.tab",
+      "door": "app"
+    },
+    {
+      "command": "repo.archive",
+      "method": "POST",
+      "path": "/api/repos/{owner}/{repo}/archive",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "repo.choose",
+      "door": "app"
+    },
+    {
+      "command": "repo.create",
+      "door": "app"
+    },
+    {
+      "command": "repo.overview",
+      "door": "app"
+    },
+    {
+      "command": "repo.read",
+      "method": "GET",
+      "path": "/api/repos/{owner}/{repo}/mythical",
+      "body": {}
+    },
+    {
+      "command": "repo.select",
+      "door": "app"
+    },
+    {
+      "command": "repo.topics.update",
+      "method": "PUT",
+      "path": "/api/repos/{owner}/{repo}/topics",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "repo.unarchive",
+      "method": "POST",
+      "path": "/api/repos/{owner}/{repo}/unarchive",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "repo.update",
+      "door": "app"
+    },
+    {
+      "command": "repos.import",
+      "door": "app"
+    },
+    {
+      "command": "repos.import.retry",
+      "door": "app"
+    },
+    {
+      "command": "review",
+      "method": "POST",
+      "path": "/api/reviews",
+      "body": {
+        "conversation": "main"
+      }
+    },
+    {
+      "command": "review.ack",
+      "door": "app"
+    },
+    {
+      "command": "review.done",
+      "door": "app"
+    },
+    {
+      "command": "review.reopen",
+      "door": "app"
+    },
+    {
+      "command": "review.request",
+      "door": "app"
+    },
+    {
+      "command": "review.since-mine",
+      "door": "app"
+    },
+    {
+      "command": "review.unrequest",
+      "door": "app"
+    },
+    {
+      "command": "run",
+      "method": "GET",
+      "path": "/api/runs/{id}",
+      "body": {}
+    },
+    {
+      "command": "run.inspect",
+      "method": "GET",
+      "path": "/api/runs/{id}",
+      "body": {}
+    },
+    {
+      "command": "runs",
+      "method": "GET",
+      "path": "/api/runs",
+      "body": {}
+    },
+    {
+      "command": "runs.cancel",
+      "method": "POST",
+      "path": "/api/repos/{owner}/{repo}/runs/{id}/cancel",
+      "body": {}
+    },
+    {
+      "command": "runs.coding.select",
+      "door": "app"
+    },
+    {
+      "command": "runs.continue",
+      "door": "app"
+    },
+    {
+      "command": "runs.events",
+      "door": "app"
+    },
+    {
+      "command": "runs.graph.execution",
+      "door": "app"
+    },
+    {
+      "command": "runs.graph.follow",
+      "door": "app"
+    },
+    {
+      "command": "runs.graph.select",
+      "door": "app"
+    },
+    {
+      "command": "runs.graph.tab",
+      "door": "app"
+    },
+    {
+      "command": "runs.list",
+      "door": "app"
+    },
+    {
+      "command": "runs.logs",
+      "door": "app"
+    },
+    {
+      "command": "runs.open",
+      "door": "app"
+    },
+    {
+      "command": "runs.rerun",
+      "door": "app"
+    },
+    {
+      "command": "runs.resume",
+      "door": "app"
+    },
+    {
+      "command": "runs.signal",
+      "door": "app"
+    },
+    {
+      "command": "runs.steps",
+      "door": "app"
+    },
+    {
+      "command": "runs.trace.filter",
+      "door": "app"
+    },
+    {
+      "command": "runs.trace.live",
+      "door": "app"
+    },
+    {
+      "command": "runs.trace.select",
+      "door": "app"
+    },
+    {
+      "command": "runs.trace.view",
+      "door": "app"
+    },
+    {
+      "command": "search",
+      "method": "GET",
+      "path": "/api/search/code",
+      "body": {}
+    },
+    {
+      "command": "search.changes",
+      "door": "app"
+    },
+    {
+      "command": "search.files",
+      "door": "app"
+    },
+    {
+      "command": "search.flows",
+      "door": "app"
+    },
+    {
+      "command": "search.history",
+      "door": "app"
+    },
+    {
+      "command": "search.issues",
+      "door": "app"
+    },
+    {
+      "command": "search.runs",
+      "door": "app"
+    },
+    {
+      "command": "search.secrets",
+      "door": "app"
+    },
+    {
+      "command": "search.wiki",
+      "door": "app"
+    },
+    {
+      "command": "secrets",
+      "door": "app"
+    },
+    {
+      "command": "secrets.delete",
+      "method": "DELETE",
+      "path": "/api/secrets/{name}",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "secrets.read",
+      "method": "GET",
+      "path": "/api/secrets",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "secrets.scope",
+      "method": "PATCH",
+      "path": "/api/secrets/{name}",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "secrets.set",
+      "method": "POST",
+      "path": "/api/secrets",
+      "body": {
+        "name": "CAMPAIGN_NEW",
+        "value": "person-only-value"
+      },
+      "delegated": "never"
+    },
+    {
+      "command": "self.read",
+      "method": "GET",
+      "path": "/api/user/orgs",
+      "body": {}
+    },
+    {
+      "command": "settings",
+      "door": "app"
+    },
+    {
+      "command": "settings.model.set",
+      "door": "app"
+    },
+    {
+      "command": "sign-in",
+      "door": "app"
+    },
+    {
+      "command": "sign-out",
+      "door": "app"
+    },
+    {
+      "command": "ssh",
+      "method": "GET",
+      "path": "/api/ssh",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "stack",
+      "method": "GET",
+      "path": "/api/stack",
+      "body": {}
+    },
+    {
+      "command": "stack.candidate",
+      "method": "POST",
+      "path": "/api/repos/{owner}/{repo}/workspaces/{id}/stack/candidate",
+      "body": {},
+      "system": true
+    },
+    {
+      "command": "stack.move",
+      "method": "POST",
+      "path": "/api/todos/{n}",
+      "body": {
+        "op": "move"
+      }
+    },
+    {
+      "command": "stack.propose",
+      "method": "POST",
+      "path": "/api/repos/{owner}/{repo}/workspaces/{id}/stack/propose",
+      "body": {},
+      "system": true
+    },
+    {
+      "command": "stop",
+      "door": "app"
+    },
+    {
+      "command": "storage.recovery",
+      "door": "app"
+    },
+    {
+      "command": "storage.recovery.export",
+      "door": "app"
+    },
+    {
+      "command": "storage.recovery.reset",
+      "door": "app"
+    },
+    {
+      "command": "sync.ops.show-more",
+      "door": "app"
+    },
+    {
+      "command": "sync.read",
+      "method": "GET",
+      "path": "/api/github/sync",
+      "body": {}
+    },
+    {
+      "command": "sync.retry",
+      "method": "POST",
+      "path": "/api/github/sync",
+      "body": {}
+    },
+    {
+      "command": "telemetry.report",
+      "method": "POST",
+      "path": "/api/telemetry/errors",
+      "body": {}
+    },
+    {
+      "command": "terminal",
+      "method": "POST",
+      "path": "/api/terminals",
+      "body": {}
+    },
+    {
+      "command": "terminal.watch",
+      "door": "app"
+    },
+    {
+      "command": "theme",
+      "door": "app"
+    },
+    {
+      "command": "toast.dismiss",
+      "door": "app"
+    },
+    {
+      "command": "todo",
+      "method": "GET",
+      "path": "/api/todos/{n}",
+      "body": {}
+    },
+    {
+      "command": "todo.amend",
+      "method": "PATCH",
+      "path": "/api/todos/{n}",
+      "body": {}
+    },
+    {
+      "command": "todo.answer",
+      "method": "POST",
+      "path": "/api/todos/{n}/answer",
+      "body": {}
+    },
+    {
+      "command": "todo.drop",
+      "method": "POST",
+      "path": "/api/todos/{n}",
+      "body": {
+        "op": "drop"
+      }
+    },
+    {
+      "command": "todo.from-issue",
+      "door": "app"
+    },
+    {
+      "command": "todo.keep-moved",
+      "method": "POST",
+      "path": "/api/todos/{n}",
+      "body": {
+        "op": "keep-moved"
+      }
+    },
+    {
+      "command": "todo.new",
+      "method": "POST",
+      "path": "/api/todos",
+      "body": {
+        "place": {
+          "mode": "append"
+        }
+      }
+    },
+    {
+      "command": "todo.preapprove",
+      "door": "app"
+    },
+    {
+      "command": "todo.read",
+      "method": "GET",
+      "path": "/api/todos",
+      "body": {}
+    },
+    {
+      "command": "todo.resume",
+      "method": "POST",
+      "path": "/api/todos/{n}",
+      "body": {
+        "op": "resume"
+      }
+    },
+    {
+      "command": "todo.retry",
+      "method": "POST",
+      "path": "/api/todos/{n}",
+      "body": {
+        "op": "retry"
+      }
+    },
+    {
+      "command": "todo.retry-current-flow",
+      "door": "app"
+    },
+    {
+      "command": "todo.return-to-item",
+      "method": "POST",
+      "path": "/api/todos/{n}",
+      "body": {
+        "op": "return-to-item"
+      }
+    },
+    {
+      "command": "todo.steer",
+      "method": "POST",
+      "path": "/api/todos/{n}",
+      "body": {}
+    },
+    {
+      "command": "todo.stop",
+      "method": "POST",
+      "path": "/api/todos/{n}",
+      "body": {
+        "op": "stop"
+      }
+    },
+    {
+      "command": "todo.takeover",
+      "door": "app"
+    },
+    {
+      "command": "todo.unapprove",
+      "door": "app"
+    },
+    {
+      "command": "triggers.approve",
+      "door": "app"
+    },
+    {
+      "command": "triggers.list",
+      "door": "app"
+    },
+    {
+      "command": "triggers.pause",
+      "door": "app"
+    },
+    {
+      "command": "triggers.register",
+      "door": "app"
+    },
+    {
+      "command": "triggers.resume",
+      "door": "app"
+    },
+    {
+      "command": "triggers.run",
+      "door": "app"
+    },
+    {
+      "command": "variables.delete",
+      "method": "DELETE",
+      "path": "/api/repos/{owner}/{repo}/variables/{name}",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "variables.read",
+      "method": "GET",
+      "path": "/api/repos/{owner}/{repo}/variables",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "variables.set",
+      "method": "POST",
+      "path": "/api/repos/{owner}/{repo}/variables",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "webhooks.create",
+      "method": "POST",
+      "path": "/api/repos/{owner}/{repo}/hooks",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "webhooks.delete",
+      "method": "DELETE",
+      "path": "/api/repos/{owner}/{repo}/hooks/{id}",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "webhooks.deliveries",
+      "method": "GET",
+      "path": "/api/repos/{owner}/{repo}/hooks/{id}/deliveries",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "webhooks.get",
+      "method": "GET",
+      "path": "/api/repos/{owner}/{repo}/hooks/{id}",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "webhooks.list",
+      "method": "GET",
+      "path": "/api/repos/{owner}/{repo}/hooks",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "webhooks.redeliver",
+      "method": "POST",
+      "path": "/api/repos/{owner}/{repo}/hooks/{id}/deliveries/{delivery_id}/redeliver",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "webhooks.test",
+      "method": "POST",
+      "path": "/api/repos/{owner}/{repo}/hooks/{id}/tests",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "webhooks.update",
+      "method": "PATCH",
+      "path": "/api/repos/{owner}/{repo}/hooks/{id}",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "wiki",
+      "door": "app"
+    },
+    {
+      "command": "wiki.attach",
+      "door": "app"
+    },
+    {
+      "command": "wiki.backlinks",
+      "door": "app"
+    },
+    {
+      "command": "wiki.card.select",
+      "door": "app"
+    },
+    {
+      "command": "wiki.card.view",
+      "door": "app"
+    },
+    {
+      "command": "wiki.cloud",
+      "door": "app"
+    },
+    {
+      "command": "wiki.cloud.delete",
+      "door": "app"
+    },
+    {
+      "command": "wiki.cloud.new",
+      "door": "app"
+    },
+    {
+      "command": "wiki.cloud.open",
+      "door": "app"
+    },
+    {
+      "command": "wiki.cloud.rename",
+      "door": "app"
+    },
+    {
+      "command": "wiki.create",
+      "door": "app"
+    },
+    {
+      "command": "wiki.delete",
+      "method": "DELETE",
+      "path": "/api/repos/{owner}/{repo}/wiki/{documentId}",
+      "body": {}
+    },
+    {
+      "command": "wiki.delete.cancel",
+      "door": "app"
+    },
+    {
+      "command": "wiki.delete.confirm",
+      "door": "app"
+    },
+    {
+      "command": "wiki.edit",
+      "door": "app"
+    },
+    {
+      "command": "wiki.graph",
+      "door": "app"
+    },
+    {
+      "command": "wiki.heading",
+      "door": "app"
+    },
+    {
+      "command": "wiki.history",
+      "door": "app"
+    },
+    {
+      "command": "wiki.new-note",
+      "door": "app"
+    },
+    {
+      "command": "wiki.open",
+      "door": "app"
+    },
+    {
+      "command": "wiki.page",
+      "door": "app"
+    },
+    {
+      "command": "wiki.pane",
+      "door": "app"
+    },
+    {
+      "command": "wiki.read",
+      "method": "GET",
+      "path": "/api/repos/{owner}/{repo}/wiki",
+      "body": {}
+    },
+    {
+      "command": "wiki.save",
+      "door": "app"
+    },
+    {
+      "command": "wiki.select",
+      "door": "app"
+    },
+    {
+      "command": "wiki.space",
+      "door": "app"
+    },
+    {
+      "command": "wiki.sync",
+      "door": "app"
+    },
+    {
+      "command": "wiki.view",
+      "door": "app"
+    },
+    {
+      "command": "workspace.children.list",
+      "method": "GET",
+      "path": "/api/repos/{owner}/{repo}/workspaces/{id}/children",
+      "body": {},
+      "system": true
+    },
+    {
+      "command": "workspace.children.spawn",
+      "method": "POST",
+      "path": "/api/repos/{owner}/{repo}/workspaces/{id}/children",
+      "body": {
+        "count": 1
+      },
+      "system": true
+    },
+    {
+      "command": "workspace.children.stop",
+      "method": "POST",
+      "path": "/api/repos/{owner}/{repo}/workspaces/{id}/children/{child_id}/stop",
+      "body": {},
+      "system": true
+    },
+    {
+      "command": "workspace.command.read",
+      "method": "GET",
+      "path": "/api/repos/{owner}/{repo}/workspaces/{id}/command-runs/{operationID}",
+      "body": {}
+    },
+    {
+      "command": "workspace.head",
+      "method": "POST",
+      "path": "/api/repos/{owner}/{repo}/workspaces/{id}/head",
+      "body": {
+        "change_id": "new-change",
+        "commit_id": "new-commit",
+        "ahead": 2,
+        "behind": 0
+      },
+      "system": true
+    },
+    {
+      "command": "workspace.preview.update",
+      "method": "PUT",
+      "path": "/api/repos/{owner}/{repo}/workspaces/{id}/services/{port}/visibility",
+      "body": {},
+      "delegated": "never"
+    },
+    {
+      "command": "workspace.provider-pool",
+      "method": "GET",
+      "path": "/provider-pool/routes",
+      "body": {},
+      "system": true
+    },
+    {
+      "command": "workspace.services.list",
+      "method": "GET",
+      "path": "/api/repos/{owner}/{repo}/workspaces/{id}/services",
+      "body": {}
+    }
+  ]
+}

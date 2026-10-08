@@ -8,6 +8,14 @@
   },
   {
     "package": "packages/backend/internal/compose",
+    "file": "access_retained_http_authorization_integration_test.go",
+    "tests": [
+      "TestRetainedCommandHTTPStateEffectsPostgres",
+      "TestRetainedCommandHTTPOracleCoverage"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
     "file": "admin_person_credential_integration_test.go",
     "tests": [
       "TestAdminRoutesRequirePersonCredentialComposedMultitenantPostgres"
@@ -41,16 +49,16 @@
   },
   {
     "package": "packages/backend/internal/compose",
-    "file": "external_read_person_only_integration_test.go",
+    "file": "flow_admission_integration_test.go",
     "tests": [
-      "TestExternalReadIsPersonOnlyComposedInstallPostgres"
+      "TestFlowWorkerRechecksMeteredAdmissionBeforeHostLaunch"
     ]
   },
   {
     "package": "packages/backend/internal/compose",
-    "file": "flow_admission_integration_test.go",
+    "file": "install_account_reads_authorization_integration_test.go",
     "tests": [
-      "TestFlowWorkerRechecksMeteredAdmissionBeforeHostLaunch"
+      "TestInstallMemberAccountReadsPostgres"
     ]
   },
   {
@@ -62,9 +70,37 @@
   },
   {
     "package": "packages/backend/internal/compose",
+    "file": "install_archive_authorization_integration_test.go",
+    "tests": [
+      "TestInstallMemberScratchArchivePostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_bookmark_protection_authorization_integration_test.go",
+    "tests": [
+      "TestInstallBookmarkProtectionPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
     "file": "install_branch_answer_authorization_integration_test.go",
     "tests": [
       "TestInstallBranchAnswerAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_branch_metadata_authorization_integration_test.go",
+    "tests": [
+      "TestInstallBranchMetadataAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_build_cache_tokens_authorization_integration_test.go",
+    "tests": [
+      "TestInstallBuildCacheTokensAuthorizationPostgres"
     ]
   },
   {
@@ -76,9 +112,121 @@
   },
   {
     "package": "packages/backend/internal/compose",
+    "file": "install_command_cancel_authorization_integration_test.go",
+    "tests": [
+      "TestInstallCommandCancellationAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_command_result_authorization_integration_test.go",
+    "tests": [
+      "TestInstallCommandResultAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_deploy_key_authorization_integration_test.go",
+    "tests": [
+      "TestInstallDeployKeyAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_devtools_read_authorization_integration_test.go",
+    "tests": [
+      "TestInstallDevtoolsReadAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_devtools_write_authorization_integration_test.go",
+    "tests": [
+      "TestInstallDevtoolsWriteAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_egress_read_authorization_integration_test.go",
+    "tests": [
+      "TestInstallEgressReadAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_egress_update_authorization_integration_test.go",
+    "tests": [
+      "TestInstallEgressUpdateAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_import_read_authorization_integration_test.go",
+    "tests": [
+      "TestInstallImportReadAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_label_authorization_integration_test.go",
+    "tests": [
+      "TestInstallLabelMutationsPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_member_key_management_integration_test.go",
+    "tests": [
+      "TestInstallMemberManagesOnlyOwnSSHKeysPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_mirror_read_authorization_integration_test.go",
+    "tests": [
+      "TestInstallMirrorReadAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
     "file": "install_model_authorization_integration_test.go",
     "tests": [
       "TestInstallModelAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_notifications_authorization_integration_test.go",
+    "tests": [
+      "TestInstallMemberNotificationReadsPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_oauth_revoke_authorization_integration_test.go",
+    "tests": [
+      "TestInstallOAuthRevokeAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_owner_health_authorization_integration_test.go",
+    "tests": [
+      "TestInstallOwnerHealthUsesRosterAuthorityPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_preview_visibility_authorization_integration_test.go",
+    "tests": [
+      "TestInstallPreviewVisibilityWriteAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_profile_reads_authorization_integration_test.go",
+    "tests": [
+      "TestInstallMemberProfileReadsPostgres"
     ]
   },
   {
@@ -97,9 +245,30 @@
   },
   {
     "package": "packages/backend/internal/compose",
+    "file": "install_public_status_authorization_test.go",
+    "tests": [
+      "TestInstallPublicStatusRemainsCredentialIndependent"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
     "file": "install_read_alias_authorization_integration_test.go",
     "tests": [
       "TestInstallReadAliasesPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_repo_archive_authorization_integration_test.go",
+    "tests": [
+      "TestInstallRepoArchiveAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_repo_topics_authorization_integration_test.go",
+    "tests": [
+      "TestInstallRepoTopicsAuthorizationPostgres"
     ]
   },
   {
@@ -111,6 +280,13 @@
   },
   {
     "package": "packages/backend/internal/compose",
+    "file": "install_run_count_authorization_integration_test.go",
+    "tests": [
+      "TestInstallVisibleRunCountsAndPublicCatalogPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
     "file": "install_run_fork_authorization_integration_test.go",
     "tests": [
       "TestInstallRunForkAuthorizationPostgres"
@@ -118,9 +294,65 @@
   },
   {
     "package": "packages/backend/internal/compose",
+    "file": "install_run_monitor_authorization_integration_test.go",
+    "tests": [
+      "TestInstallRunMonitorAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_search_authorization_integration_test.go",
+    "tests": [
+      "TestInstallSearchAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_self_credentials_integration_test.go",
+    "tests": [
+      "TestInstallMemberSelfCredentialsPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_snapshot_reads_authorization_integration_test.go",
+    "tests": [
+      "TestInstallMemberSnapshotReadsPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_source_coedit_authorization_integration_test.go",
+    "tests": [
+      "TestInstallSourceCoeditAdmissionPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_system_credential_death_integration_test.go",
+    "tests": [
+      "TestInstallSystemCommandCredentialDeathPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_variable_authorization_integration_test.go",
+    "tests": [
+      "TestInstallVariableAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
     "file": "install_vcs_read_authorization_integration_test.go",
     "tests": [
       "TestInstallRetainedVCSReadsPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_webhook_authorization_integration_test.go",
+    "tests": [
+      "TestInstallWebhookAuthorizationPostgres"
     ]
   },
   {
@@ -153,9 +385,37 @@
   },
   {
     "package": "packages/backend/internal/compose",
+    "file": "install_workspace_lists_authorization_integration_test.go",
+    "tests": [
+      "TestInstallMemberWorkspaceListsPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_workspace_service_control_authorization_integration_test.go",
+    "tests": [
+      "TestInstallWorkspaceServiceControlAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "install_workspace_services_authorization_integration_test.go",
+    "tests": [
+      "TestInstallWorkspaceServicesAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
     "file": "member_actor_integration_test.go",
     "tests": [
       "TestMemberActorAdmissionCommitsBeforeLaunchAndRechecksAuthority"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "member_authorization_liveness_integration_test.go",
+    "tests": [
+      "TestMemberWriteBoundDecisionAndLiveCredentialComposedInstall"
     ]
   },
   {
@@ -167,9 +427,40 @@
   },
   {
     "package": "packages/backend/internal/compose",
+    "file": "member_todo_credential_integration_test.go",
+    "tests": [
+      "TestMemberTodoCredentialComposedInstallPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "member_todo_sponsor_rehearsal_test.go",
+    "tests": [
+      "TestMemberTodoSponsorRehearsal",
+      "TestMemberTodoSponsorSuspensionRehearsal"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
     "file": "members_integration_test.go",
     "tests": [
       "TestMembersComposedInstallPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "parallel_admission_integration_test.go",
+    "tests": [
+      "TestParallelAdmissionInstallBoundary",
+      "TestTodoBeforeAdmittedWhenCapacityFrees"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "real_credentials_test.go",
+    "tests": [
+      "TestInstalledHomeWorkloadFixture",
+      "TestInstalledCredentialEventScanner"
     ]
   },
   {
@@ -363,7 +654,8 @@
       "TestGitHTTPProxyService_ReceivePack_AgentRunCredentialNeverWritesDefaultOrMythical",
       "TestGitHTTPProxyService_ReceivePack_InstallMainCoversDefaultBookmarkAliasesAndMultiRef",
       "TestGitHTTPProxyService_ReceivePack_HostedKeepsPersonMainAndAgentDefaultRule",
-      "TestGitHTTPProxyService_InstallMainWithoutRepositoryLookupFailsClosed"
+      "TestGitHTTPProxyService_InstallMainWithoutRepositoryLookupFailsClosed",
+      "TestGitHTTPProxyService_CodingRunPublishesOnlyItsImmutableSources"
     ]
   },
   {
@@ -409,7 +701,7 @@
       "TestGitHubAppManifestConversionDatabaseFailuresPostgres",
       "TestGitHubAppManifestCallbackSnapshotIsCreationTimeAndAtomicPostgres",
       "TestGitHubAppManifestCorruptCallbackSnapshotNeverExchangesPostgres",
-      "TestGitHubAppManifestConnectionLostAfterExchangePostgres",
+      "TestGitHubAppManifestDoesNotHoldConnectionAcrossExchangePostgres",
       "TestGitHubAppManifestInstallationHTTPFailuresPostgres",
       "TestGitHubAppManifestSetupSessionSecurityPostgres",
       "TestGitHubAppManifestOneStateConcurrentCallbacksPostgres",
@@ -444,6 +736,14 @@
     "file": "github_webhook_credentials_test.go",
     "tests": [
       "TestWebhookReloadsStoredSecretAndFailsClosed"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
+    "file": "learning_admission_integration_test.go",
+    "tests": [
+      "TestLearningAdmissionDurablePinAndRefusal",
+      "TestLearningAdmissionWaitParksWithoutRetrying"
     ]
   },
   {
@@ -699,7 +999,8 @@
     "file": "workspace_runtime_admission_test.go",
     "tests": [
       "TestWorkspaceRuntimeResumeRequiresAdmission",
-      "TestWorkspaceRuntimeFailedOwnerWakeCancelsPersonOnly"
+      "TestWorkspaceRuntimeFailedOwnerWakeCancelsPersonOnly",
+      "TestWorkspaceWorkWaitsForFinalCapture"
     ]
   },
   {
@@ -730,7 +1031,8 @@
     "tests": [
       "TestAuthLoader_DeadSessionCookie",
       "TestUnauthenticatedMessage_SplitsDeadFromNone",
-      "TestLegacyRawSessionKey"
+      "TestLegacyRawSessionKey",
+      "TestAuthLoaderDeadCookiePrecedesInstallCommands"
     ]
   },
   {
@@ -758,7 +1060,8 @@
     "package": "packages/backend/internal/middleware",
     "file": "install_member_routes_test.go",
     "tests": [
-      "TestInstallMemberCommandRoutes"
+      "TestInstallMemberCommandRoutes",
+      "TestInstallMemberRoutePatternsAreUnique"
     ]
   },
   {

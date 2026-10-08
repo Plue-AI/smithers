@@ -1125,6 +1125,7 @@ func buildRouter(
 			boundSecret := installSecretRepository(queries)
 			r.With(boundSecret, gateSecrets).Get("/secrets", secretHandler.ListSecrets)
 			r.With(boundSecret, gateSecrets).Put("/secrets", secretHandler.SetSecret)
+			r.With(boundSecret, gateSecrets).Post("/secrets", secretHandler.SetSecret)
 			r.With(boundSecret, gateSecrets).Patch("/secrets/{name}", secretHandler.SetSecretScope)
 			r.With(boundSecret, gateSecrets).Delete("/secrets", secretHandler.DeleteSecret)
 			r.With(boundSecret, gateSecrets).Delete("/secrets/{name}", secretHandler.DeleteSecret)

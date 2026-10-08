@@ -171,7 +171,8 @@ var repositoryRoutePath = regexp.MustCompile(`^/api/repos/[^/]+/[^/]+(/|$)|^/[^/
 // bearer token that resolves to no live token returns 401 unauthenticated.
 // A session cookie that names no live session (unknown, expired, signed out,
 // or a suspended or removed member's) returns 401 unauthenticated on
-// repository routes, before any repository lookup; elsewhere it continues
+// repository routes, before any repository lookup, and on declared install
+// commands before their handlers; elsewhere it continues
 // anonymously, marked dead so RequireAuth refuses it the same way, which
 // keeps sign-in and public pages working behind a stale cookie. A request
 // carrying an SSE ticket is left to the ticket gate. Route-specific LFS,
@@ -329,7 +330,9 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 				// The cookie is not cleared: a late 401 would delete the fresh
 				// cookie a concurrent sign-in just set, and sign-in overwrites
 				// this one anyway.
-				if r.URL.Query().Get("ticket") == "" && repositoryRoutePath.MatchString(r.URL.Path) {
+				command := InstallMemberCommand(r.Method, r.URL.EscapedPath())
+				protectedCommand := config.IsSingleOwner(cfg) && command != "" && command != "public" && command != "self"
+				if r.URL.Query().Get("ticket") == "" && (repositoryRoutePath.MatchString(r.URL.Path) || protectedCommand) {
 					writeDeadCredential(w)
 					return
 				}
@@ -653,6 +656,7 @@ var installMemberRoutes = []struct {
 	{http.MethodDelete, "secrets.delete", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/agent-environment/secrets/[^/]+$`)},
 	{http.MethodGet, "secrets.read", regexp.MustCompile(`^/api/secrets$`)},
 	{http.MethodPut, "secrets.set", regexp.MustCompile(`^/api/secrets$`)},
+	{http.MethodPost, "secrets.set", regexp.MustCompile(`^/api/secrets$`)},
 	{http.MethodDelete, "secrets.delete", regexp.MustCompile(`^/api/secrets$`)},
 	{http.MethodPatch, "secrets.scope", regexp.MustCompile(`^/api/secrets/[^/]+$`)},
 	{http.MethodDelete, "secrets.delete", regexp.MustCompile(`^/api/secrets/[^/]+$`)},

@@ -129,3 +129,32 @@ func TestLegacyRawSessionKey(t *testing.T) {
 		assert.Equal(t, want, LegacyRawSessionKey(key), key)
 	}
 }
+
+func TestAuthLoaderDeadCookiePrecedesInstallCommands(t *testing.T) {
+	t.Parallel()
+	queries := &mockAuthLoaderQuerier{getAuthSessionBySessionKeyFn: func(context.Context, string) (db.AuthSession, error) { return db.AuthSession{}, pgx.ErrNoRows }}
+	for _, door := range []struct{ method, path string }{
+		{"GET", "/api/issues/1"}, {"POST", "/api/issues/1/comments"},
+		{"GET", "/api/runs"}, {"POST", "/api/secrets"}, {"GET", "/api/members"},
+	} {
+		t.Run(door.method+door.path, func(t *testing.T) {
+			req := httptest.NewRequest(door.method, door.path, nil)
+			req.AddCookie(&http.Cookie{Name: "session", Value: "dead"})
+			out := httptest.NewRecorder()
+			AuthLoader(queries, config.AuthConfig{Mode: "selfhost", SessionCookieName: "session"})(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("dead cookie reached command handling") })).ServeHTTP(out, req)
+			require.Equal(t, 401, out.Code)
+			assert.JSONEq(t, `{"code":"unauthenticated","class":"permission","fault":"user","message":"Sign in again"}`, out.Body.String())
+			require.Empty(t, out.Header().Values("Set-Cookie"))
+		})
+	}
+	for _, path := range []string{"/api/auth/github", "/api/auth/session", "/api/health"} {
+		req := httptest.NewRequest("GET", path, nil)
+		req.AddCookie(&http.Cookie{Name: "session", Value: "dead"})
+		out := httptest.NewRecorder()
+		AuthLoader(queries, config.AuthConfig{Mode: "selfhost", SessionCookieName: "session"})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			require.Nil(t, UserFromContext(r.Context()))
+			w.WriteHeader(204)
+		})).ServeHTTP(out, req)
+		require.Equal(t, 204, out.Code, path)
+	}
+}

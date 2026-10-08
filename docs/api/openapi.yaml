@@ -21246,6 +21246,42 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+    post:
+      summary: POST /api/secrets
+      description: 'Owner and maintainer browser sessions set an install repository secret (`name`, `value`). Optional `main_only`, and `hosts` with `match_headers`: the hosts and request headers the secret may be sent to, both or neither. Omitted, a replaced secret keeps its scope and binding. Person only.'
+      operationId: post_api_secrets
+      x-smithers-opaque-body: true
+      x-composition: install
+      tags:
+        - Secrets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetRepositorySecretRequest'
+      security:
+        - sessionCookie: []
+      responses:
+        '201':
+          description: Secret stored. Metadata only, never the value.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecretMetadata'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
     delete:
       summary: DELETE /api/secrets
       operationId: delete_api_secrets
