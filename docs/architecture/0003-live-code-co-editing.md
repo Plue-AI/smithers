@@ -1,6 +1,6 @@
 # ADR 0003: Live code co-editing: one live channel, documents addressed by topic, the daemon as disk authority
 
-Status: proposed (2026-10-07). T-COL-10 ([#3508](https://github.com/smithersai/smithers/issues/3508)) records the write-precondition contract below. Provider security qualification and owner acceptance remain pending; this record does not enable a provider. T-COL-01's spike evidence ([#3441](https://github.com/smithersai/smithers/issues/3441)) is retained below. Topology is decided by T-COL-11 ([#3553](https://github.com/smithersai/smithers/issues/3553)).
+Status: proposed (2026-10-07). T-COL-10 ([#3508](https://github.com/smithersai/smithers/issues/3508)) records the write-precondition contract below. Provider security qualification and owner acceptance remain pending; this record does not enable a provider. T-COL-01's spike evidence ([#3441](https://github.com/smithersai/smithers/issues/3441)) is retained below. Topology: documents in the daemon, by T-COL-11's rule ([#3553](https://github.com/smithersai/smithers/issues/3553)), pending smithers-3f and smithers-38 review.
 
 ## Every write carries `base_digest`; stale is refused
 
@@ -16,7 +16,21 @@ S1 uses only a qualified guest compare-and-write provider. Credential drop prece
 
 ## Topology
 
-Decided by T-COL-11. The spike result below is its W0 input.
+Documents live in the daemon. The host relays document frames unparsed over the `relay` transport (ADR 0004) and keeps no document replica.
+
+T-COL-11's rule adopts the host-side mirror only if relay 4 KiB p95 under guest load exceeds 20 ms or bridge 30 Hz keystroke p95 exceeds 1 s. The reference-host run below measured 0.464 ms and 345.3 ms, so neither trigger fired. Its raw samples are named under Evidence. smithers-8a applied the rule on 2026-10-07 (T-COL-11, [#3553](https://github.com/smithersai/smithers/issues/3553)).
+
+- The authority for each `doc:code:<branch>:<path>` topic is the daemon's Yrs document. The daemon alone saves, acknowledges `saved` and rejects an update whose client id is not the actor the host stamped on it (§7.4.4).
+- The host authenticates the subscriber, tags the frame with that actor, enforces §7.1.1's 2 MiB per-connection budget and forwards. On overflow, only that subscription receives `gap` and restarts sync step 1. A slow reader never closes the machine link.
+- The host runs no Yrs core for code documents. T-COL-08b's conditional `codedoc.go` mirror is not selected and must not be the activation path.
+
+Rejected alternatives:
+
+- **Host-side documents through `PUT /files/content`.** The E-04 control measured 221.7–435.0 ms p95 per write, 300–1,000x a relay round trip, and it makes the host a second disk writer.
+- **One `msb exec` per file operation.** Connection setup alone is 83.1–200.4 ms p95, and each operation starts a process.
+- **Host-side mirror for fan-out.** It is the measured fallback, not needed: concurrent relay fan-out queueing was 7 % of the p95 tail. The Wi-Fi browser→host leg dominated (up to 62 %), and a mirror can't shorten that leg.
+
+Acceptance: smithers-8a accepts this section after smithers-3f reviews the transport and disk-authority seam and smithers-38 reviews TS contract impact (T-COL-11). Activation additionally needs the unmeasured guest kernel probes (`renameat2(RENAME_EXCHANGE)`, T-COL-11) and T-COL-08's real-stack checks.
 
 ## Spike result (T-COL-01)
 
