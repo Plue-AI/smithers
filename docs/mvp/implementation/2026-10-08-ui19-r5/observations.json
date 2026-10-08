@@ -1,0 +1,69 @@
+{
+  "sha": "e9e11f2d32d6a09853ed7f10a04cc2c5198cf3a2",
+  "dirty": false,
+  "sourceDigest": "8ef9b45f54a84d1a228825933f35c3f10c323af627135a19c224fd0c27730aed",
+  "daemonDigest": "c795e49b935f2b21983387beb9fe29e553e7257fbb246048cffc2e58202968ce",
+  "nativeDigest": "2e7d655a30cd7f7a05a5fe30e0c7c0e22d92678f86021f8c926a4ac6c81bd97c",
+  "patchDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "comparison": [
+    {
+      "member": "ben",
+      "onP95": 157.75044800000614,
+      "offP95": 156.5984120001085,
+      "delta": 1.1520359998976346
+    },
+    {
+      "member": "alice",
+      "onP95": 129.4064389999985,
+      "offP95": 137.85818699997617,
+      "delta": -8.45174799997767
+    }
+  ],
+  "passed": true,
+  "qualification": "development-only",
+  "mount": "production-file-container",
+  "clock": "runner process.hrtime.bigint",
+  "workload": "concurrent append on adjacent lines and last-character selection, four printable BMP keys/s/member; newline setup excluded",
+  "guest": "installed-linux-daemon",
+  "diskVerified": true,
+  "limitation": "Production File container development mount; reference Mac, second Mac and LAN pending",
+  "host": "msb-lat-nyc-01",
+  "platform": "linux",
+  "arch": "x64",
+  "storageType": "tmpfs",
+  "browser": "151.0.7922.34",
+  "duration": 300000,
+  "interval": 250,
+  "budget": 1000,
+  "summaries": [
+    {
+      "flag": "on",
+      "member": "ben",
+      "samples": 1201,
+      "p95": 157.75044800000614,
+      "elapsed": 302051.70611
+    },
+    {
+      "flag": "on",
+      "member": "alice",
+      "samples": 1201,
+      "p95": 129.4064389999985,
+      "elapsed": 302052.052845
+    },
+    {
+      "flag": "off",
+      "member": "ben",
+      "samples": 1200,
+      "p95": 156.5984120001085,
+      "elapsed": 302005.08988900005
+    },
+    {
+      "flag": "off",
+      "member": "alice",
+      "samples": 1200,
+      "p95": 137.85818699997617,
+      "elapsed": 302005.49835500005
+    }
+  ],
+  "failure": null
+}

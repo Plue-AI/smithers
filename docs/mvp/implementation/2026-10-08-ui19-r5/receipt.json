@@ -1,0 +1,48 @@
+{
+  "ticket": "T-UI-19",
+  "issue": 3589,
+  "qualification": "development-only; ticket incomplete",
+  "measuredSha": "e9e11f2d32d6a09853ed7f10a04cc2c5198cf3a2",
+  "sourceDirty": false,
+  "verifiedManifestEntries": 19,
+  "campaign": "PASS: TestCodeDocumentLatencyCampaign (611.54s); 1 passed, 0 failed",
+  "limitations": [
+    "Linux loopback and lane-owned tmpfs; reference Mac, second Mac, LAN, microVM and physical-storage qualification pending.",
+    "Fixed flag-on then flag-off order; file grows between phases.",
+    "Transport logs retain unsupported responses; campaign document receipt and convergence assertions passed."
+  ],
+  "blockedOn": [
+    {
+      "item": "Reference Mac mini plus second Mac/LAN and actual branch machine campaign",
+      "source": ".specs/engineering/checks/C-UI-14.md:3,6,10"
+    },
+    {
+      "item": "smithers-06 per-screen approve/fix recorded in #3589",
+      "source": ".specs/engineering/tickets/T-UI-19.md:44"
+    }
+  ],
+  "production": {
+    "LiveCodeDocuments": "unset",
+    "lspConfinementReceipt": "unset",
+    "caretsFlag": "off",
+    "issueClosed": false
+  },
+  "deletedFiles": [],
+  "artifacts": [
+    {
+      "file": "campaign.tar.gz",
+      "bytes": 4271206,
+      "sha256": "4831664b32827b168351a8b7747346bb52b39d315a8316e4dce150134e4675bb"
+    },
+    {
+      "file": "logs.tar.gz",
+      "bytes": 4576,
+      "sha256": "3bd7873c6fc74e864c28c2bedac493651d3aaef720f32cbcda59d6649fcb4cd9"
+    },
+    {
+      "file": "observations.json",
+      "bytes": 1975,
+      "sha256": "46c830b882827350292f469adbd16a9de01f91f7b9666cdcd6d594c5f45dad87"
+    }
+  ]
+}
