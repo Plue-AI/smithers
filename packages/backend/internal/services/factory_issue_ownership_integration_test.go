@@ -387,10 +387,10 @@ func TestFactoryIssueOwnershipHTTPWorkerCancellationAndHandoff(t *testing.T) {
 			if completed.Load() {
 				status = "completed"
 			}
-			value = map[string]any{"run": flowruntime.Run{RunID: "live-run", FlowID: selected.Load().(string), Status: status}, "events": []any{}, "nextCursor": "", "hasMore": false, "terminal": completed.Load()}
+			value = map[string]any{"run": flowruntime.Run{RunID: input["runId"].(string), FlowID: selected.Load().(string), Status: status}, "events": []any{}, "nextCursor": "", "hasMore": false, "terminal": completed.Load()}
 		} else {
 			operation := input["operation"].(string)
-			receipt := flowruntime.Receipt{Tag: "Accepted", RunID: "live-run"}
+			receipt := flowruntime.Receipt{Tag: "Accepted", RunID: input["runId"].(string)}
 			if operation == "launch" {
 				launches.Add(1)
 				selected.Store(input["flowId"].(string))
@@ -444,7 +444,7 @@ func TestFactoryIssueOwnershipHTTPWorkerCancellationAndHandoff(t *testing.T) {
 	require.NotEqual(t, claim.ID, fresh.ID)
 	require.Eventually(t, func() bool {
 		op, e := f.store.Get(ctx, scope, uuidString(fresh.OperationID))
-		return e == nil && op.State == jobs.StateWaiting && strings.Contains(string(op.ExternalReceipt), "live-run")
+		return e == nil && op.State == jobs.StateWaiting && strings.Contains(string(op.ExternalReceipt), "dispatch:"+op.ID)
 	}, 5*time.Second, 5*time.Millisecond)
 	require.EqualValues(t, 1, launches.Load())
 	require.Zero(t, unauthenticated.Load())
