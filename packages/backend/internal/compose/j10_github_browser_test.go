@@ -29,13 +29,13 @@ import (
 // The reference host runs the same specs against github.com (§16.3.1).
 
 func TestJ10PRShapeBrowser(t *testing.T) {
-	runJ10Browser(t, "C-J10-01", "pr-shape.spec.ts", "journey-github-pr-shape", false)
+	runJ10Browser(t, "C-J10-01", "pr-shape.spec.ts", "journey-github-pr-shape")
 }
 
 // merge-on-github.spec.ts is also a reference-host journey spec; the run
 // names it and selects only the whole-journey scenario.
 func TestJ10MergeOnGitHubBrowser(t *testing.T) {
-	runJ10Browser(t, "C-J10-05", "merge-on-github.spec.ts", "journey-github-merge-on-github", true)
+	runJ10Browser(t, "C-J10-05", "merge-on-github.spec.ts", "journey-github-merge-on-github")
 }
 
 // A jj wrapper script ahead of the real binary on PATH is skipped: copied
@@ -70,7 +70,7 @@ type j10BrowserMember struct {
 	Cookies []map[string]string `json:"cookies"`
 }
 
-func runJ10Browser(t *testing.T, check, spec, scenario string, journey bool) {
+func runJ10Browser(t *testing.T, check, spec, scenario string) {
 	if os.Getenv("SMITHERS_J10_BROWSER") != "1" {
 		t.Skip("set SMITHERS_J10_BROWSER=1 for the composed C-J10-01 and C-J10-05 browser journeys")
 	}
@@ -120,10 +120,9 @@ func runJ10Browser(t *testing.T, check, spec, scenario string, journey bool) {
 	playwright.Env = append(environment, "SMITHERS_REAL_BASE_URL="+r.origin, "SMITHERS_REAL_E2E_HOST=local", "SMITHERS_REAL_AUTH_KIND=owner-session",
 		"SMITHERS_J10_COMPOSED_HOST="+hostFile, "SMITHERS_REAL_E2E_REVISION="+host.Commit, "SMITHERS_REAL_TEST_GREP=@real-scenario:"+regexp.QuoteMeta(scenario)+`(?:\s|$)`,
 		"SMITHERS_REAL_E2E_REPORT="+filepath.Join(evidence, "results.json"), "SMITHERS_REAL_E2E_ARTIFACTS="+filepath.Join(evidence, "artifacts"))
-	if journey {
-		// The real-tier config admits a named journey spec on a composed host.
-		playwright.Env = append(playwright.Env, "SMITHERS_JOURNEY=github-j10/"+spec, "SMITHERS_JOURNEY_COMPOSED_HOST="+hostFile)
-	}
+	// Both specs are named journeys. Declare the composed install so the
+	// runner admits this rehearsal without claiming reference qualification.
+	playwright.Env = append(playwright.Env, "SMITHERS_JOURNEY=github-j10/"+spec, "SMITHERS_JOURNEY_COMPOSED_HOST="+hostFile)
 	playwright.Stdout, playwright.Stderr = os.Stdout, os.Stderr
 	began := time.Now()
 	err = playwright.Run()
