@@ -41,8 +41,12 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				return
 			}
 			if command == "flow.run" && strings.Contains(r.URL.Path, "/workflows/") && (strings.HasSuffix(r.URL.Path, "/dispatch") || strings.HasSuffix(r.URL.Path, "/dispatches")) {
-				// WorkflowHandler resolves the definition and validates its body
-				// before binding the concrete dispatch command and payload.
+				// Validate a body-command mismatch before optional feature gates.
+				// The handler reuses this decoded input and resolves the stored
+				// workflow before binding the one concrete flow.run decision.
+				if !routes.PrepareInstallWorkflowDispatch(w, r, queries) {
+					return
+				}
 				next.ServeHTTP(w, r)
 				return
 			}

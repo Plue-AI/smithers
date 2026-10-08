@@ -22,6 +22,7 @@ type retainedHTTPCase struct {
 	MaintainerDelegated, MemberDelegated   string
 	Body                                   map[string]any
 	System                                 bool
+	Decision                               string
 }
 
 // This campaign is intentionally separate from the 58-cell admission ledger.
@@ -178,7 +179,7 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 		out := httptest.NewRecorder()
 		router.ServeHTTP(out, req)
 		require.Equal(t, status, out.Code, out.Body.String())
-		if c.Command == "workspace.provider-pool" && cred.token == "" {
+		if c.Command == "workspace.provider-pool" && c.System && cred.token == "" {
 			require.JSONEq(t, `{"error":{"message":"Authentication required.","type":"authentication_error"}}`, out.Body.String())
 			require.Equal(t, before, snapshot())
 			receipts = append(receipts, map[string]any{"command": c.Command, "credential": cred.name, "state": state, "status": 401, "protocol": "model", "effects": 0})
@@ -206,10 +207,17 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 		} else {
 			require.LessOrEqual(t, len(decisions), 1, "one bound decision")
 		}
+		if c.Decision != "" && status != 401 {
+			if strings.HasSuffix(cred.name, "/terminal_s1") {
+				require.Empty(t, decisions, "terminal profile excludes workflow dispatch before policy")
+			} else {
+				require.Equal(t, []string{c.Decision}, decisions, "dispatch must decide once before effects")
+			}
+		}
 		require.NotContains(t, out.Body.String(), "never-disclose-campaign-secret")
 		require.Equal(t, before, snapshot(), "refusal must preserve exact effect rows")
 		require.Equal(t, outboundBefore, githubMutations(), "refusal must not send a GitHub write")
-		receipts = append(receipts, map[string]any{"command": c.Command, "credential": cred.name, "state": state, "method": c.Method, "path": c.Path, "status": out.Code, "code": envelope.Code, "class": envelope.Class, "effects": 0, "decisions": decisions})
+		receipts = append(receipts, map[string]any{"command": c.Command, "credential": cred.name, "state": state, "method": c.Method, "path": c.Path, "door": c.Door, "expected_status": status, "expected_code": code, "expected_class": class, "status": out.Code, "code": envelope.Code, "class": envelope.Class, "effects": 0, "decisions": decisions})
 	}
 	// Independent live-role/profile oracle. These are production reads and
 	// denied writes against the same install, not admission-ledger cells.
@@ -234,6 +242,68 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 					command = "secrets.read"
 				}
 				receipts = append(receipts, map[string]any{"command": command, "credential": credentials[i*4].name, "state": "active", "path": path, "status": 200, "effects": 0, "read_assertions": "stored roster/secret names"})
+			})
+		}
+	}
+	// Qualify allowed management writes on real stored subjects for both
+	// eligible person roles. Each request binds exactly one decision, and no
+	// management write may create a confirmation or outbound GitHub mutation.
+	allowed := func(command, method, path, body string, cred credential, status int) {
+		t.Helper()
+		req := httptest.NewRequest(method, r.origin+path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Origin", r.origin)
+		req.RemoteAddr = "127.0.0.1:50999"
+		req.AddCookie(&http.Cookie{Name: cookieName, Value: cred.cookie})
+		req.AddCookie(&http.Cookie{Name: "__csrf", Value: "campaign"})
+		req.Header.Set("X-CSRF-Token", "campaign")
+		var decisions []string
+		req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) { decisions = append(decisions, command) }))
+		var approvalsBefore, approvalsAfter int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&approvalsBefore))
+		outboundBefore := githubMutations()
+		out := httptest.NewRecorder()
+		router.ServeHTTP(out, req)
+		require.Equal(t, status, out.Code, out.Body.String())
+		require.Equal(t, []string{command}, decisions)
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&approvalsAfter))
+		require.Equal(t, approvalsBefore, approvalsAfter)
+		require.Equal(t, outboundBefore, githubMutations())
+		require.NotContains(t, out.Body.String(), `"value"`)
+		receipts = append(receipts, map[string]any{"command": command, "credential": cred.name, "state": "active/full", "method": method, "path": path, "status": status, "effects": 1, "decisions": decisions})
+	}
+	for _, cred := range []credential{credentials[0], credentials[4]} {
+		t.Run("allowed-management/"+cred.name, func(t *testing.T) {
+			allowed("secrets.set", "POST", "/api/secrets", `{"name":"EPHEMERAL","value":"never-disclose-campaign-secret"}`, cred, 201)
+			var encrypted []byte
+			require.NoError(t, pool.QueryRow(ctx, `SELECT value_encrypted FROM repository_secrets WHERE repository_id=$1 AND name='EPHEMERAL'`, repo.ID).Scan(&encrypted))
+			require.NotEmpty(t, encrypted)
+			require.NotEqual(t, []byte("never-disclose-campaign-secret"), encrypted)
+			allowed("secrets.delete", "DELETE", "/api/secrets/EPHEMERAL", "", cred, 204)
+			var remaining int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM repository_secrets WHERE repository_id=$1 AND name='EPHEMERAL'`, repo.ID).Scan(&remaining))
+			require.Zero(t, remaining)
+			for _, change := range []struct{ role, permission string }{{"maintainer", "admin"}, {"member", "write"}} {
+				allowed("members.role", "PATCH", "/api/members/alice", fmt.Sprintf(`{"role":%q}`, change.role), cred, 204)
+				var permission string
+				require.NoError(t, pool.QueryRow(ctx, `SELECT permission FROM collaborators WHERE repository_id=$1 AND user_id=$2`, repo.ID, alice.ID).Scan(&permission))
+				require.Equal(t, change.permission, permission)
+			}
+		})
+	}
+	// Owner target and role-to-owner bypass cases are independent literal
+	// subject fixtures, including a no-op update on the stored Owner.
+	for _, target := range []struct{ login, role string }{{"rehearsal-owner", "maintainer"}, {"rehearsal-owner", "owner"}, {"alice", "owner"}} {
+		for _, cred := range credentials {
+			code := "permission"
+			if cred.user != alice.ID {
+				code = "owner_immutable"
+				if cred.token != "" {
+					code = "never"
+				}
+			}
+			t.Run("owner-subject/"+target.login+"/"+target.role+"/"+cred.name, func(t *testing.T) {
+				request(t, retainedHTTPCase{Command: "members.role", Method: "PATCH", Path: "/api/members/" + target.login, Body: map[string]any{"role": target.role}}, cred, "active/owner-target", 403, code)
 			})
 		}
 	}
@@ -271,7 +341,7 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 		if c.System {
 			for _, cred := range credentials {
 				status := 403
-				if c.Command == "workspace.provider-pool" && cred.token == "" {
+				if c.Command == "workspace.provider-pool" && c.System && cred.token == "" {
 					status = 401
 				}
 				t.Run(c.Command+"/excluded/"+cred.name, func(t *testing.T) { request(t, c, cred, "active/exact-stored-workspace", status, "permission") })
@@ -310,6 +380,37 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 			request(t, c, credential{name: "ben/external_agent/terminal_s1", token: terminal.Token, user: ben.ID}, "active/terminal_s1", 403, "permission")
 		})
 	}
+	// Both workflow dispatch doors must reject a different retained command,
+	// including hidden system commands, before looking up a workflow. This is
+	// transport-binding evidence, not an allowed execution of that descriptor.
+	// Expected permission/denied is literal, independent of catalog policy.
+	dispatchCases := make([]retainedHTTPCase, 0, 2*len(fixture.Commands))
+	for _, c := range fixture.Commands {
+		if c.Command == "flow.run" {
+			continue // This is the door's actual command, covered by flow launch tests.
+		}
+		for _, path := range []string{
+			"/api/repos/{owner}/{repo}/workflows/campaign/dispatch",
+			"/api/repos/{owner}/{repo}/workflows/1/dispatches",
+		} {
+			dispatchCases = append(dispatchCases, retainedHTTPCase{
+				Command: c.Command, Method: "POST", Path: path, Door: "workflow-body-mismatch",
+				Body: map[string]any{"command": c.Command, "ref": "main", "inputs": map[string]any{}}, Decision: "denied",
+			})
+		}
+	}
+	dispatchStart := len(receipts)
+	for _, c := range dispatchCases {
+		for _, cred := range append(append([]credential{}, credentials...), credential{name: "ben/external_agent/terminal_s1", token: terminal.Token, user: ben.ID}) {
+			t.Run(c.Command+"/dispatch-binding/"+c.Path+"/"+cred.name, func(t *testing.T) {
+				request(t, c, cred, "active/body-command-mismatch", 403, "permission")
+			})
+		}
+		t.Run(c.Command+"/dispatch-binding/"+c.Path+"/unknown", func(t *testing.T) {
+			request(t, c, credential{name: "unknown/session", cookie: "unknown-campaign"}, "unknown/body-command-mismatch", 401, "unauthenticated")
+		})
+	}
+	dispatchActiveCells := len(receipts) - dispatchStart
 	for _, state := range []string{"expired", "revoked"} {
 		dead, err := issuer.CreateToken(ctx, owner.ID, services.CreateTokenRequest{Name: "campaign-" + state, Via: "codex", Scopes: []string{"repo", "user"}})
 		require.NoError(t, err)
@@ -318,6 +419,11 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 		} else {
 			_, err = pool.Exec(ctx, `UPDATE access_tokens SET expires_at=now()-interval '1 second' WHERE id=$1`, dead.ID)
 			require.NoError(t, err)
+		}
+		for _, c := range dispatchCases {
+			t.Run(c.Command+"/dispatch-binding/"+c.Path+"/"+state, func(t *testing.T) {
+				request(t, c, credential{name: "owner/external_agent/" + state, token: dead.Token, user: owner.ID}, state+"/body-command-mismatch", 401, "unauthenticated")
+			})
 		}
 		for _, c := range fixture.Commands {
 			if c.Method == "" || c.Command == "telemetry.report" || c.Door == "pending:T-CAT-01" {
@@ -347,6 +453,13 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 			require.Equal(t, 204, out.Code, out.Body.String())
 		}
 		require.NoError(t, err)
+		for _, c := range dispatchCases {
+			for _, cred := range credentials[4:8] {
+				t.Run(c.Command+"/dispatch-binding/"+c.Path+"/"+state+"/"+cred.name, func(t *testing.T) {
+					request(t, c, cred, state+"/body-command-mismatch", 401, "unauthenticated")
+				})
+			}
+		}
 		for _, c := range fixture.Commands {
 			if c.Method == "" || c.Command == "telemetry.report" || c.Door == "pending:T-CAT-01" {
 				continue
@@ -357,14 +470,15 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 		}
 	}
 	require.Equal(t, 135, httpCommands)
-	require.Equal(t, 2059, len(receipts), "every frozen campaign cell must pass")
+	require.Equal(t, 2059+44+24*len(dispatchCases), len(receipts), "HTTP policy and separate dispatch-binding cells must pass")
+	require.Equal(t, 14*len(dispatchCases), dispatchActiveCells)
 	if dir := os.Getenv("SMITHERS_ACCESS_LEDGER_DIR"); dir != "" {
-		data, err := json.MarshalIndent(map[string]any{"boundary": "production composed install HTTP role/profile/state campaign", "admitted_writes": 2, "admitted_reads": 6, "refusal_cells": len(receipts) - 8, "http_commands": httpCommands, "pending_http_commands": []string{"issue.new (T-CAT-01)"}, "public_http_commands": []string{"telemetry.report"}, "app_commands_without_http_door": 196, "cells": receipts, "full_live_effect_matrix_complete": false}, "", "  ")
+		data, err := json.MarshalIndent(map[string]any{"boundary": "production composed install HTTP role/profile/state campaign", "admitted_writes": 10, "admitted_reads": 6, "http_policy_refusal_cells": 2087, "dispatch_binding_refusal_cells": 24 * len(dispatchCases), "http_commands": httpCommands, "pending_http_commands": []string{"issue.new (T-CAT-01)"}, "public_http_commands": []string{"telemetry.report"}, "app_commands_without_http_door": 196, "dispatch_binding_commands": len(fixture.Commands) - 1, "dispatch_binding_cells": 24 * len(dispatchCases), "cells": receipts, "full_live_effect_matrix_complete": false}, "", "  ")
 		require.NoError(t, err)
 		require.NoError(t, os.MkdirAll(dir, 0700))
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "retained-http-effects.json"), append(data, '\n'), 0600))
 	}
-	t.Logf("HTTP campaign: %d commands, %d refusal cells, 2 admitted secret effects and 6 asserted reads; full admitted-effect matrix remains separate", httpCommands, len(receipts)-8)
+	t.Logf("HTTP campaign: %d commands, %d refusal cells, 10 admitted management effects and 6 asserted reads; full admitted-effect matrix remains separate", httpCommands, len(receipts)-16)
 }
 
 // Catalog data is used only to measure coverage; it never supplies outcomes.

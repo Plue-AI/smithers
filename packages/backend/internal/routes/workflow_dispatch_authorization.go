@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -12,23 +13,41 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
+type installDispatchRequestKey struct{}
+
+// PrepareInstallWorkflowDispatch validates the body command before feature
+// gates or workflow lookup can obscure its authorization. The handler consumes
+// this same decoded input and binds flow.run only after subject resolution.
+func PrepareInstallWorkflowDispatch(w http.ResponseWriter, r *http.Request, queries *db.Queries) bool {
+	if _, ok := r.Context().Value(installDispatchRequestKey{}).(dispatchWorkflowRequest); ok {
+		return true
+	}
+	var input dispatchWorkflowRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+	decoder.DisallowUnknownFields()
+	if err := decodeSingleJSONDocument(decoder, &input); err != nil {
+		pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid request body"))
+		return false
+	}
+	// A workflow door cannot execute another catalog command, including a
+	// hidden system operation, under an allowed workflow name.
+	if input.Command != "" && input.Command != "flow.run" {
+		_, err := services.Authorize(r.Context(), queries, "denied")
+		writeRouteError(w, r, err)
+		return false
+	}
+	*r = *r.WithContext(context.WithValue(r.Context(), installDispatchRequestKey{}, input))
+	return true
+}
+
 func (h *WorkflowHandler) decodeDispatch(w http.ResponseWriter, r *http.Request, input *dispatchWorkflowRequest) bool {
 	if h.InstallQueries == nil {
 		return decodeJSONBody(w, r, input)
 	}
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
-	decoder.DisallowUnknownFields()
-	if err := decodeSingleJSONDocument(decoder, input); err != nil {
-		pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid request body"))
+	if !PrepareInstallWorkflowDispatch(w, r, h.InstallQueries) {
 		return false
 	}
-	// This door dispatches a workflow; it cannot execute a different catalog
-	// command just because the caller supplied an allowed workflow name.
-	if input.Command != "" && input.Command != "flow.run" {
-		_, err := services.Authorize(r.Context(), h.InstallQueries, "denied")
-		writeRouteError(w, r, err)
-		return false
-	}
+	*input = r.Context().Value(installDispatchRequestKey{}).(dispatchWorkflowRequest)
 	return true
 }
 
