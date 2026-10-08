@@ -79,6 +79,26 @@ interface Excuse {
  */
 const RESOLVES_ELSEWHERE: ReadonlyArray<Excuse> = [
   {
+    literal: "p.world-card-path", file: "e2e/playwright/piper.spec.ts",
+    reason: "Tag/class selector for FileCards.tsx FileCardHeader p.world-card-path, which renders address and readAt.changeId; never a dotted product identifier."
+  },
+  {
+    literal: "renamed", file: "e2e/real/code-document-epoch.fixture.ts",
+    reason: "FileCard.ts FileModel gone discriminator renamed with to and by; this fixture inspects provider.file.gone after a real file rename, never a wire card kind."
+  },
+  {
+    literal: "foreign_push", file: "e2e/real/github-j10/foreign-push.spec.ts",
+    reason: "Backend TodoWait.Kind foreign_push in mythical_todo_state.go and mythical publication; the suite inspects /api/todos waits, never a wire card kind."
+  },
+  {
+    literal: "composed", file: "e2e/real/github-j10/foreign-push.spec.ts",
+    reason: "github-j10/install.ts J10Install fixture kind distinguishes composed fixture from reference host; never a card."
+  },
+  {
+    literal: "question", file: "e2e/real/github-j10/foreign-push.spec.ts",
+    reason: "Backend TodoWait.Kind question for /api/todos planning waits; this suite inspects the TODO waits array alongside foreign_push, never a wire card kind."
+  },
+  {
     literal: "steer", file: "e2e/playwright/branch-live.spec.ts",
     reason: "rpc/BranchCard.ts BranchModel activity declares steer and BranchView.tsx renders entry.kind; the run trace also names steer cells. Neither is a wire card kind."
   },
@@ -649,10 +669,6 @@ const KNOWN_ORPHANS: ReadonlyArray<Excuse> = [
     reason: "AgentCards.tsx ProfileRowView no longer renders an instruction-file action; file is registered but replacing the name would still select no button. Instruction-link behavior needs the View owner."
   },
   {
-    literal: "files.read", file: "e2e/playwright/spec/C-J11-03.spec.ts",
-    reason: "AgentCards.tsx ProfileRowView no longer renders an instruction-file action; file is registered but replacing the name would still select no button. Instruction-link behavior needs the View owner."
-  },
-  {
     literal: "data-toast-status", file: "e2e/real/local-persistence.spec.ts",
     reason: "e2e/real/local-persistence.spec.ts: ToastStackView renders notice[data-tone], without the former toast-detail disclosure; updating only the status selector would leave recovery assertions dead."
   },
@@ -663,10 +679,6 @@ const KNOWN_ORPHANS: ReadonlyArray<Excuse> = [
   {
     literal: "flow.repo.choose", file: "scripts/live-workflow-check.ts",
     reason: "scripts/live-workflow-check.ts: the former workflow chooser action is absent; repo.choose opens Setup rather than choosing a watched repo for flow creation."
-  },
-  {
-    literal: "account", file: "e2e/playwright/signin-return.spec.ts",
-    reason: "e2e/playwright/signin-return.spec.ts: account.show now opens Settings; the former account-login projection is absent, so changing the kind alone would leave the scenario dead."
   },
   {
     literal: "data-content", file: "e2e/playwright/spec/C-UI-02.spec.ts",
@@ -924,7 +936,7 @@ describe("every literal the suites assert against still resolves", () => {
   test("the allowlist stays small enough to read", () => {
     // The current-main sweep includes external protocol domains and deferred
     // retired surfaces. Keep a finite bound; stale and duplicate entries still fail.
-    expect(ALLOWLIST.length).toBeLessThanOrEqual(146)
+    expect(ALLOWLIST.length).toBeLessThanOrEqual(149)
   })
 })
 
