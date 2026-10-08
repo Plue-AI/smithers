@@ -103,6 +103,23 @@ func TestInstallSSHCommandPostgres(t *testing.T) {
 	status, line = read("retry", true)
 	require.Equal(t, 200, status, line)
 	require.Equal(t, "ssh -p 2222 retry@factory.example", line["value"])
+	// A TODO's lane keeps the stack's bookmark; its branch is the TODO's
+	// smithers/<slug>, and /ssh <slug> reads it (spec §8.10.1).
+	lane, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: machineOwner, Name: "TODO 1 attempt 1 g1", TargetBookmark: "mythical", Kind: "vm", Status: "stopped", EnvironmentSource: "repository"})
+	require.NoError(t, err)
+	_, err = q.UpsertWorkspaceShare(ctx, db.UpsertWorkspaceShareParams{WorkspaceID: lane.ID, OwnerUserID: machineOwner, GranteeUserID: member.ID, Level: "write"})
+	require.NoError(t, err)
+	var item pgtype.UUID
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,issue_title,source,state,number,title,workspace_id)
+ VALUES($1,'Retry webhooks','todo','running',1,'Retry webhooks',$2) RETURNING id`, repo.ID, lane.ID).Scan(&item))
+	_, _, err = q.BindMythicalLane(ctx, db.MythicalLane{WorkspaceID: lane.ID, RepositoryID: repo.ID, ItemID: item, Name: lane.Name})
+	require.NoError(t, err)
+	status, line = read("retry-webhooks", true)
+	require.Equal(t, 200, status, line)
+	require.Equal(t, "ssh -p 2222 retry-webhooks@factory.example", line["value"])
+	require.Equal(t, "smithers/retry-webhooks", line["branch"])
+	status, _ = read("mythical", true)
+	require.Equal(t, 400, status, "the stack's bookmark is no branch")
 	code, receipt = invoke("ssh", "retry")
 	require.Equal(t, 1, code, receipt)
 	require.Equal(t, "never", receipt["code"])

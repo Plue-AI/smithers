@@ -238,7 +238,9 @@ func TestJ3Rehearsal(t *testing.T) {
 		}
 		b := decodeBranch(frame)
 		r.actual = fmt.Sprintf("branch %s %q machine=%s item T%d %s; ssh %q; %d present", b.ID, b.Name, b.Machine.State, b.Item.N, b.Item.State, b.SSHLine, len(b.Presence))
-		if b.Item.State != "needs_you" || b.Machine.State != "awake" || !strings.HasPrefix(b.SSHLine, "ssh -p 2222 "+b.Name+"@") {
+		// SSH logs in to smithers/<slug> by its slug (spec §8.10.1).
+		login, _ := strings.CutPrefix(b.Name, "smithers/")
+		if b.Item.State != "needs_you" || b.Machine.State != "awake" || !strings.HasPrefix(b.SSHLine, "ssh -p 2222 "+login+"@") {
 			return fmt.Errorf("the Branch card does not show T%d Needs you on an awake machine with an SSH line", t2)
 		}
 		return nil

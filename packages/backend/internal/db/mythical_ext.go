@@ -645,6 +645,17 @@ func (q *Queries) GetMythicalLane(ctx context.Context, workspaceID string) (Myth
 	return scanMythicalLane(q.db.QueryRow(ctx, `SELECT `+mythicalLaneColumns+` FROM mythical_lanes WHERE workspace_id = $1`, workspaceID))
 }
 
+// ListMythicalItemBranches returns the branches a repository's other items
+// have recorded: the names a TODO branch must avoid.
+func (q *Queries) ListMythicalItemBranches(ctx context.Context, repositoryID int64, except pgtype.UUID) ([]string, error) {
+	rows, err := q.db.Query(ctx, `SELECT checks->>'branch' FROM mythical_items
+ WHERE repository_id = $1 AND id <> $2 AND checks ? 'branch'`, repositoryID, except)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
+}
+
 // GetMythicalLaneByName returns an item's lane of one name.
 func (q *Queries) GetMythicalLaneByName(ctx context.Context, itemID pgtype.UUID, name string) (MythicalLane, error) {
 	return scanMythicalLane(q.db.QueryRow(ctx, `SELECT `+mythicalLaneColumns+` FROM mythical_lanes WHERE item_id = $1 AND name = $2`, itemID, name))

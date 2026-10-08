@@ -411,21 +411,18 @@ func mythicalUniqueBranch(slug string, number int64, taken map[string]bool) stri
 	}
 }
 
-// todoBranch is the item's recorded branch, or the unique one its title
-// derives before its first publication records it.
+// todoBranch is TodoBranch read through the service's store.
 func (s *MythicalService) todoBranch(ctx context.Context, item db.MythicalItem) (string, error) {
+	return TodoBranch(ctx, s.queries(), item)
+}
+
+// TodoBranch is item's branch, smithers/<slug> (spec §8.1.1): the one its
+// first publication recorded, or the unique one its title derives until then.
+func TodoBranch(ctx context.Context, q *db.Queries, item db.MythicalItem) (string, error) {
 	if recorded := mythicalChecksOf(item).Branch; recorded != "" {
 		return recorded, nil
 	}
-	rows, err := s.store.Query(ctx, `SELECT checks->>'branch' FROM mythical_items
- WHERE repository_id = $1 AND id <> $2 AND checks ? 'branch'`, item.RepositoryID, item.ID)
-	if err != nil {
-		return "", err
-	}
-	taken, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (string, error) {
-		var branch string
-		return branch, row.Scan(&branch)
-	})
+	taken, err := q.ListMythicalItemBranches(ctx, item.RepositoryID, item.ID)
 	if err != nil {
 		return "", err
 	}
@@ -434,6 +431,31 @@ func (s *MythicalService) todoBranch(ctx context.Context, item db.MythicalItem) 
 		held[branch] = true
 	}
 	return mythicalUniqueBranch(mythicalTodoSlug(mythicalTodoTitle(item)), mythicalItemNumber(item), held), nil
+}
+
+// BranchName is the name people see and log in with for a branch machine.
+// The stack keeps every lane on its own bookmark, an internal identity, so
+// the lane that is a TODO's current workspace reads as the TODO's branch.
+// Any other workspace is named by its bookmark.
+func BranchName(ctx context.Context, q *db.Queries, row db.Workspace) (string, error) {
+	if row.TargetBookmark != MythicalBookmark {
+		return row.TargetBookmark, nil
+	}
+	lane, err := q.GetMythicalLane(ctx, row.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return row.TargetBookmark, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	item, err := q.GetMythicalItem(ctx, lane.ItemID)
+	if err != nil {
+		return "", err
+	}
+	if item.WorkspaceID != row.ID || !item.Number.Valid {
+		return row.TargetBookmark, nil
+	}
+	return TodoBranch(ctx, q, item)
 }
 
 // shape completes the provider's facts with the claimed pass's own: whether

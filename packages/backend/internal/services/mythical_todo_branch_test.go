@@ -55,6 +55,23 @@ func TestTodoCardKeepsItsBranchAfterReleaseRealPostgres(t *testing.T) {
 		return card["branch"]
 	}
 
+	// Working on its coding lane before any publication: the card names the
+	// branch its title derives, never the lane's internal name or bookmark,
+	// and the lane's machine reads by that name too.
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='running', workspace_id=$2 WHERE id=$1`, item.ID, coding)
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{"id": coding, "name": "smithers/add-a-greeting", "machine": map[string]any{"state": "asleep"}}, branch(1))
+	machine, err := q.GetWorkspace(ctx, coding)
+	require.NoError(t, err)
+	name, err := BranchName(ctx, q, machine)
+	require.NoError(t, err)
+	require.Equal(t, "smithers/add-a-greeting", name)
+	other, err := q.GetWorkspace(ctx, review)
+	require.NoError(t, err)
+	name, err = BranchName(ctx, q, other)
+	require.NoError(t, err)
+	require.Equal(t, "mythical", name, "a lane that is not the TODO's workspace keeps the stack's bookmark")
+
 	// In review, holding its review lane: the card names that lane.
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='proposed', workspace_id=$2, pr_number=1, pr_url='https://github.com/o/r/pull/1',
 		pr_head='abc', pr_state='open', checks = COALESCE(checks,'{}'::jsonb) || '{"branch":"smithers/add-a-greeting"}'::jsonb WHERE id=$1`, item.ID, review)
@@ -123,7 +140,7 @@ func TestTodoCardShowsItsLaneWaitingForAMachineRealPostgres(t *testing.T) {
 	card, err := s.Todo(ctx, repoID, 1)
 	require.NoError(t, err)
 	require.Equal(t, "starting", card["state"])
-	require.Equal(t, map[string]any{"id": lanes[1], "name": "TODO 1 attempt 1 g1", "machine": map[string]any{"state": "waiting", "position": 2}}, card["branch"])
+	require.Equal(t, map[string]any{"id": lanes[1], "name": "smithers/add-a-greeting", "machine": map[string]any{"state": "waiting", "position": 2}}, card["branch"])
 	require.Equal(t, map[string]any{"reason": "machine", "position": int64(2)}, card["queue"])
 
 	// The lane got its machine: no wait is shown.

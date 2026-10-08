@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 	gateway "github.com/smithersai/smithers/packages/backend/ssh"
 )
 
@@ -33,6 +34,9 @@ func (h *BranchHandler) SSHLine(q *db.Queries, fallbackOrigin string) http.Handl
 			return
 		}
 		names := []string{}
+		// A TODO's branch is named smithers/<slug> while its machine keeps the
+		// stack's bookmark, so the resolved branch is read by machine id.
+		machines := map[string]string{}
 		for page := 1; ; page++ {
 			rows, total, e := h.Reads.ListBranches(r.Context(), repo, member, page, 100)
 			if e != nil {
@@ -40,7 +44,12 @@ func (h *BranchHandler) SSHLine(q *db.Queries, fallbackOrigin string) http.Handl
 				return
 			}
 			for _, row := range rows {
+				// As at the gateway, the stack's own bookmark is no login.
+				if row.Name == services.MythicalBookmark {
+					continue
+				}
 				names = append(names, row.Name)
+				machines[row.Name] = row.Machine.ID
 			}
 			if int64(page*100) >= total || len(rows) == 0 {
 				break
@@ -51,7 +60,11 @@ func (h *BranchHandler) SSHLine(q *db.Queries, fallbackOrigin string) http.Handl
 			writeBranchError(w, r, pkgerrors.BadRequest(err.Error()))
 			return
 		}
-		if _, err = metadata.PresenceBranch(r.Context(), name, repo, member); err != nil {
+		branch := name
+		if id := machines[name]; id != "" {
+			branch = id
+		}
+		if _, err = metadata.PresenceBranch(r.Context(), branch, repo, member); err != nil {
 			writeBranchError(w, r, err)
 			return
 		}

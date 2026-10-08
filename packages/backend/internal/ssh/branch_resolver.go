@@ -2,6 +2,7 @@ package ssh
 
 import (
 	"context"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
@@ -51,23 +52,31 @@ func (r *InstallBranchResolver) ResolveBranch(ctx context.Context, member int64,
 	if err != nil {
 		return WorkspaceAccess{}, ErrWorkspaceUnavailable
 	}
-	defer rows.Close()
+	machines, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (db.Workspace, error) {
+		var machine db.Workspace
+		return machine, row.Scan(&machine.ID, &machine.TargetBookmark)
+	})
+	if err != nil {
+		return WorkspaceAccess{}, ErrWorkspaceUnavailable
+	}
 	names := []string{}
 	ids := map[string]string{}
-	for rows.Next() {
-		var id, name string
-		if err := rows.Scan(&id, &name); err != nil {
+	for _, machine := range machines {
+		// A TODO's lane logs in as its smithers/<slug>; a lane that is not a
+		// TODO's branch keeps the stack's bookmark, which is no login.
+		name, err := services.BranchName(ctx, q, machine)
+		if err != nil {
 			return WorkspaceAccess{}, ErrWorkspaceUnavailable
 		}
-		// Multiple machines for a bookmark are not an arbitrary choice of identity.
-		if prior, ok := ids[name]; ok && prior != id {
+		if name == services.MythicalBookmark {
+			continue
+		}
+		// Multiple machines for a branch are not an arbitrary choice of identity.
+		if prior, ok := ids[name]; ok && prior != machine.ID {
 			return WorkspaceAccess{}, ErrWorkspaceUnavailable
 		}
-		ids[name] = id
+		ids[name] = machine.ID
 		names = append(names, name)
-	}
-	if rows.Err() != nil {
-		return WorkspaceAccess{}, ErrWorkspaceUnavailable
 	}
 	name, err := ResolveBranchName(login, names)
 	if err != nil {

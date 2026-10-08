@@ -94,6 +94,48 @@ func TestInstallSSHBranchRosterBoundary(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "alice:20041", string(output))
 	session.Close()
+	// A TODO's lane stays on the stack's bookmark, an internal identity. SSH
+	// logs in to it as the TODO's branch, smithers/<slug>, or by its slug: the
+	// line the Branch card copies (spec §8.10.1). A stack lane that is no
+	// TODO's branch is no login and leaves the roster unambiguous.
+	todo := func(name string) db.Workspace {
+		lane, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: machineOwner, Name: name, TargetBookmark: "mythical", Kind: "vm", Status: "stopped", EnvironmentSource: "repository"})
+		require.NoError(t, err)
+		_, err = q.UpsertWorkspaceShare(ctx, db.UpsertWorkspaceShareParams{WorkspaceID: lane.ID, OwnerUserID: machineOwner, GranteeUserID: alice.ID, Level: "write"})
+		require.NoError(t, err)
+		return lane
+	}
+	coding, review := todo("TODO 1 attempt 1 g1"), todo("TODO 1 review g2")
+	var item pgtype.UUID
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,issue_title,source,state,number,title,workspace_id)
+ VALUES($1,'Add a greeting','todo','running',1,'Add a greeting',$2) RETURNING id`, repo.ID, coding.ID).Scan(&item))
+	for _, lane := range []db.Workspace{coding, review} {
+		_, _, err = q.BindMythicalLane(ctx, db.MythicalLane{WorkspaceID: lane.ID, RepositoryID: repo.ID, ItemID: item, Name: lane.Name})
+		require.NoError(t, err)
+	}
+	for _, login := range []string{"add-a-greeting", "smithers/add-a-greeting"} {
+		access, err := (&transport.InstallBranchResolver{Database: pool}).ResolveBranch(ctx, alice.ID, login)
+		require.NoError(t, err, login)
+		require.Equal(t, coding.ID, access.SandboxID, login)
+		c, err := dial(login)
+		require.NoError(t, err, login)
+		session, err := c.NewSession()
+		require.NoError(t, err, login)
+		output, err := session.Output("id")
+		require.NoError(t, err, login)
+		require.Equal(t, "alice:20041", string(output), login)
+		session.Close()
+		c.Close()
+	}
+	a, resolveErr = (&transport.InstallBranchResolver{Database: pool}).ResolveBranch(ctx, alice.ID, "retry")
+	require.NoError(t, resolveErr)
+	require.Equal(t, machine.ID, a.SandboxID)
+	// Checked at the resolver: more refused handshakes would trip the
+	// gateway's per-address auth throttle for the cases below.
+	for _, login := range []string{"mythical", "todo-1-attempt-1-g1"} {
+		_, err := (&transport.InstallBranchResolver{Database: pool}).ResolveBranch(ctx, alice.ID, login)
+		require.ErrorIs(t, err, transport.ErrWorkspaceAccessDenied, login)
+	}
 	for _, login := range []string{"main", "root", "machine+alice", "scratch/bob/retry"} {
 		c, e := dial(login)
 		if c != nil {

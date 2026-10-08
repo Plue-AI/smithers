@@ -209,6 +209,9 @@ func (s *WorkspaceService) projectBranch(ctx context.Context, tx pgx.Tx, q *db.Q
 			}
 			if item.WorkspaceID == row.ID {
 				branch.TodoID = uuidString(item.ID)
+				if branch.Name, err = BranchName(ctx, q, row); err != nil {
+					return BranchMachineResponse{}, err
+				}
 				if seed := mythicalChecksOf(item).Seed; seed != nil && row.HeadCommitID == seed.Captured {
 					branch.Head = seed.Head
 				}

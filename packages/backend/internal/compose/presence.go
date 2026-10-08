@@ -273,7 +273,11 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 		if p.publicOrigin != nil {
 			origin = p.publicOrigin()
 		}
-		model := branchPresenceModel(current, presence, origin)
+		name, err := services.BranchName(ctx, p.queries, current)
+		if err != nil {
+			return nil, err
+		}
+		model := branchPresenceModel(current, name, presence, origin)
 		if current.IsFork {
 			projected, err := p.branches.GetBranch(ctx, current.ID, repository, member)
 			if err != nil {
@@ -325,7 +329,9 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 }
 
 // The projection uses the persisted machine, never a wake or admission request.
-func branchPresenceModel(row db.Workspace, presence []any, origin string) map[string]any {
+// name is the branch people see (services.BranchName); SSH logs in to a TODO's
+// smithers/<slug> by its slug (spec §8.10.1) and to any other branch by name.
+func branchPresenceModel(row db.Workspace, name string, presence []any, origin string) map[string]any {
 	machine := map[string]any{"state": "closed"}
 	switch row.Status {
 	case "suspended", "stopped":
@@ -344,7 +350,8 @@ func branchPresenceModel(row db.Workspace, presence []any, origin string) map[st
 	if address, err := url.Parse(origin); err == nil && address.Hostname() != "" {
 		host = address.Hostname()
 	}
-	return map[string]any{"id": row.ID, "name": row.TargetBookmark, "head": row.HeadCommitID, "machine": machine, "presence": presence, "terminals": []any{}, "ssh_line": "ssh -p 2222 " + row.TargetBookmark + "@" + host}
+	login, _ := strings.CutPrefix(name, "smithers/")
+	return map[string]any{"id": row.ID, "name": name, "head": row.HeadCommitID, "machine": machine, "presence": presence, "terminals": []any{}, "ssh_line": "ssh -p 2222 " + login + "@" + host}
 }
 
 // rebasePresence reads authenticated leases afresh at the stack boundary. It

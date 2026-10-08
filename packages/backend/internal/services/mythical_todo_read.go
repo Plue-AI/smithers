@@ -266,13 +266,12 @@ func (s *MythicalService) todoCardAtQueuePosition(ctx context.Context, item db.M
 		if state == "failed" {
 			machine["error"] = map[string]any{"class": "infra", "message": workspace.FailureMessage.String}
 		}
-		// Once published, the branch is the pull request's head branch.
-		name := workspace.TargetBookmark
-		if name == "" || name == "mythical" {
-			name = workspace.Name
-		}
-		if published := mythicalChecksOf(item).Branch; published != "" {
-			name = published
+		// The branch is smithers/<slug> from the start; once published it
+		// is the pull request's head branch. The lane's workspace name and
+		// bookmark are the stack's internal identities.
+		name, err := s.todoBranch(ctx, item)
+		if err != nil {
+			return nil, err
 		}
 		card["branch"] = map[string]any{"id": workspace.ID, "name": name, "machine": machine}
 	}
