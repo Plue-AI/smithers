@@ -89,7 +89,7 @@ type ReviewFlow = Flow.Flow<
   typeof ReviewPayload,
   typeof VibeDelivered,
   typeof ReviewError,
-  Action.Requirement<"coding/todo-review-input" | "coding/todo-delivery">
+  Action.Requirement<"coding/todo-review-input" | "coding/todo-delivery"> | Flow.Requirements<typeof Request>
 >
 /** Each review round keeps the root's attempt, pin and working copy. It does
  * not import the initial stack base again or launch a new TODO run.
@@ -103,7 +103,7 @@ export const TodoReview: ReviewFlow = Flow.make("coding/todo-review", {
     return TodoReviewInput.call({}).pipe(
       Node.bindPlanned((feedback) =>
         TodoBoundary.child({}).pipe(
-          Node.andThen(Request.child({ ...continuation, feedback }))
+          Node.andThen(Request.call({ ...continuation, feedback }))
         )
       ),
       Node.bindPlanned((request) => TodoDelivery.call({ request })),

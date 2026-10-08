@@ -10,7 +10,6 @@ import { appendFeedback } from "./steering.ts"
 export { Coordinate, MergeFeedback, Request }
 
 export const requestRegistration = Layer.mergeAll(
-  Interpreter.layer(Request),
   Interpreter.layer(Coordinate),
   RefusePlan.toLayer(({ message }) => Effect.fail(new CodingError({ code: "declined", message }))),
   MergeFeedback.toLayer(({ cursor, receipt, advance }) =>

@@ -291,6 +291,7 @@ for (
   })
 }
 
+const requestSteps = ["coding/prepare-stack-base", "coding/create-stack-base", "coding/install-dependency-pages", "factory/Todo", "coding/PrepareRequest", "coding/admit-retained-source", "coding/CoordinateRequest", "factory/stamp-route", "coding/Request"]
 const pauseBoundary = ["coding/todo-pause-requested", "system/wait-for", "coding/todo-resume", "coding/todo-boundary"]
 
 // Composition inspection does not claim the joint guest/Active-source gate.
@@ -308,7 +309,7 @@ test("the TODO composition reuses request steps and inlines delivery while no ho
   const calls = graph.nodes.flatMap(({ ast }) =>
     ast._tag === "FlowCall" ? [ast.flow] : ast._tag === "ActionCall" ? [ast.action] : []
   )
-  assert.deepEqual(calls, [...pauseBoundary, "coding/Request", ...pauseBoundary, "coding/todo-delivery", "coding/AdmitVibe", "coding/CleanVibeHistory", "coding/LandVibe", "coding/Vibe", ...pauseBoundary, "coding/todo-review", "todo"])
+  assert.deepEqual(calls, [...pauseBoundary, ...requestSteps, ...pauseBoundary, "coding/todo-delivery", "coding/AdmitVibe", "coding/CleanVibeHistory", "coding/LandVibe", "coding/Vibe", ...pauseBoundary, "coding/todo-review", "todo"])
   assert.equal(calls.includes("coding/todo-review"), true, "review input resumes the original coding attempt")
   assert.equal(calls.includes("coding/Verify"), false, "verification remains an engine launch")
   assert.equal(calls.includes("review/change"), false, "review remains an engine launch")
@@ -408,7 +409,7 @@ test("a repository copy of the TODO composition loads on the packaged host with 
   assert.deepEqual(host.calls, builtin)
   assert.deepEqual(builtin.filter((call) => call.includes("/")), [
     ...pauseBoundary,
-    "coding/Request",
+    ...requestSteps,
     ...pauseBoundary,
     "coding/todo-delivery",
     "coding/AdmitVibe",

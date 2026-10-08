@@ -21,7 +21,7 @@ export default Flow.make("todo", {
   success: VibeDelivered,
   error: Schema.Union([Request.errorSchema, VibeError]),
   body: (input) =>
-    Request.child(input).pipe(
+    Request.call(input).pipe(
       Node.bindPlanned((request) => TodoDelivery.call({ request })),
       Node.bindPlanned((delivery) => Vibe.call(delivery))
     )

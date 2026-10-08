@@ -1,6 +1,6 @@
 import { NodeCrypto } from "@effect/platform-node"
 import { FlowEngine } from "@smthrs/engine"
-import { Action, FlowRuntime, HumanTask } from "@smthrs/flow"
+import { Action, Flow, FlowRuntime, HumanTask, Interpreter } from "@smthrs/flow"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import { Effect, Layer, ManagedRuntime } from "effect"
 import assert from "node:assert/strict"
@@ -16,6 +16,15 @@ import { CreateStackBase, PrepareStackBase } from "../coding/stack.ts"
 import { type FeedbackReceipt, ReceiveFeedback } from "../coding/steering.ts"
 import { todoLayers } from "../coding/todo.ts"
 import { InstallDependencyPages } from "../coding/wiki-refresh.ts"
+
+// Exercise the Request body as the TODO does, without restoring its retired
+// standalone registration in the production layer.
+const InlineRequest = Flow.make("test/request-composition", {
+  payload: Request.payloadSchema,
+  success: Request.successSchema,
+  error: Request.errorSchema,
+  body: (input) => Request.call(input)
+})
 
 const revision = (name: string): Revision => ({
   changeId: `change-${name}`,
@@ -107,6 +116,7 @@ const fixture = (
   }))
   const layer = Layer.mergeAll(
     requestRegistration,
+    Interpreter.layer(InlineRequest),
     approval === undefined ? HumanTask.layer : HumanTask.action.toLayer(({ name, prompt }) =>
       Effect.promise(() => {
         assert.equal(name, "coding-plan-approval")
@@ -182,7 +192,7 @@ test("a stack request stands on the tip before it plans", { timeout: 60_000 }, a
   t.after(() => f.host.dispose())
   const tip = "a".repeat(40)
   const base = { commitId: tip, ref: `refs/smithers/workspaces/11111111-1111-4111-a111-111111111111/sources/${tip}` }
-  const result = await f.host.runPromise(Request.execute({ ...input, base }, { executionId: "request-stack" }))
+  const result = await f.host.runPromise(InlineRequest.execute({ ...input, base }, { executionId: "request-stack" }))
   assert.equal(result.outcome.status, "validated")
   assert.deepEqual(f.events.slice(0, 2), ["base:aaaa", "plan:0"])
 })
@@ -193,7 +203,7 @@ test(
   async (t) => {
     const f = fixture(() => [])
     t.after(() => f.host.dispose())
-    const result = await f.host.runPromise(Request.execute(input, { executionId: "request-one" }))
+    const result = await f.host.runPromise(InlineRequest.execute(input, { executionId: "request-one" }))
     assert.deepEqual(f.counts(), { plans: 1, implementations: 1, prototypes: 0 })
     assert.equal(f.feedback[0], input.feedback)
     assert.equal(result.outcome.status, "validated")
@@ -207,7 +217,7 @@ test(
     ])
     // Completed replay must not repeat a drain, plan or mutation.
     const before = [...f.events]
-    assert.deepEqual(await f.host.runPromise(Request.execute(input, { executionId: "request-one" })), result)
+    assert.deepEqual(await f.host.runPromise(InlineRequest.execute(input, { executionId: "request-one" })), result)
     assert.deepEqual(f.events, before)
   }
 )
@@ -223,7 +233,7 @@ test("feedback received while planning replans before mutation and feedback duri
       : []
   )
   t.after(() => f.host.dispose())
-  const result = await f.host.runPromise(Request.execute(input, { executionId: "request-steered" }))
+  const result = await f.host.runPromise(InlineRequest.execute(input, { executionId: "request-steered" }))
   assert.deepEqual(f.counts(), { plans: 3, implementations: 2, prototypes: 0 })
   assert(f.events.indexOf("plan:1") < f.events.indexOf("implement:0"))
   assert(f.events.indexOf("after-correction:1") < f.events.indexOf("plan:2"))
@@ -244,7 +254,7 @@ test("a stack request carries a person's earlier answers into every planning pas
   const base = { commitId: tip, ref: `refs/smithers/workspaces/11111111-1111-4111-a111-111111111111/sources/${tip}` }
   const answers = [{ question: "Root or src/?", answer: "Put it in the repository root.", by: "ben" }]
   const result = await f.host.runPromise(
-    Request.execute({ ...input, base, answers }, { executionId: "request-answers" })
+    InlineRequest.execute({ ...input, base, answers }, { executionId: "request-answers" })
   )
   assert.equal(result.outcome.status, "validated")
   assert.equal(f.counts().plans, 2)
@@ -258,7 +268,7 @@ test("continually arriving feedback stops at a recorded bounded refusal without 
   const f = fixture((boundary, revision) => boundary === "before-implementation" ? [`revision-${revision}`] : [])
   t.after(() => f.host.dispose())
   await assert.rejects(
-    f.host.runPromise(Request.execute(input, { executionId: "request-bound" })),
+    f.host.runPromise(InlineRequest.execute(input, { executionId: "request-bound" })),
     /reached 8 planning passes.*revision-7/
   )
   assert.deepEqual(f.counts(), { plans: 8, implementations: 0, prototypes: 0 })
@@ -269,7 +279,7 @@ test("a changed prepared source refuses before implementation", { timeout: 60_00
   const f = fixture(() => [], true)
   t.after(() => f.host.dispose())
   await assert.rejects(
-    f.host.runPromise(Request.execute(input, { executionId: "request-stale" })),
+    f.host.runPromise(InlineRequest.execute(input, { executionId: "request-stale" })),
     /fixture source moved/
   )
   assert.deepEqual(f.counts(), { plans: 1, implementations: 0, prototypes: 0 })
@@ -289,7 +299,7 @@ test(
       t.after(() => f.host.dispose())
       const executionId = `plan-approval-${decision}`
       const approvedInput = { ...input, planApproval: "always" as const }
-      const execution = f.host.runPromise(Request.execute(approvedInput, { executionId }))
+      const execution = f.host.runPromise(InlineRequest.execute(approvedInput, { executionId }))
       for (let i = 0; i < 100 && prompts.length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 20))
       assert.equal(prompts.length, 1)
       assert.match(prompts[0]!, /Rationale: Apply request[\s\S]*Reads: \(none\)[\s\S]*Writes: hello.txt/)
@@ -310,7 +320,7 @@ test(
 test("planApproval timeout auto-proceeds without human answer", { timeout: 60_000 }, async (t) => {
   const f = fixture(() => [])
   t.after(() => f.host.dispose())
-  const result = await f.host.runPromise(Request.execute(
+  const result = await f.host.runPromise(InlineRequest.execute(
     { ...input, planApproval: "timeout:1s" },
     { executionId: "plan-approval-timeout" }
   ))

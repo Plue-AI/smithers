@@ -6,7 +6,7 @@ import { Schema } from "effect"
 import { isDependencyPage } from "../memory/deps.ts"
 import { CorrectPlan } from "./correction.ts"
 import { PrepareRequest } from "./preparation.ts"
-import { CodingError, Plan, PlanningInput, RequestInput, RequestResult } from "./schema.ts"
+import { CodingError, Plan, PlanningInput, RequestInput, RequestResult, Route } from "./schema.ts"
 import { AdmitSource } from "./source-admission.ts"
 import { admitStackBase } from "./stack.ts"
 import { FeedbackReceipt, ReceiveFeedback } from "./steering.ts"
@@ -19,6 +19,8 @@ const RequestError = Schema.Union([PrepareRequest.errorSchema, CorrectPlan.error
  * existing action receipts; the planner receives their bounded rendered text. */
 export const Cursor = Schema.Struct({
   ...PlanningInput.fields,
+  requestInput: Schema.optionalKey(RequestInput),
+  requestRoute: Schema.optionalKey(Route),
   planApproval: RequestInput.fields.planApproval,
   preparedPlan: Schema.optionalKey(Plan),
   maxRounds: Schema.Int.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(8)),
@@ -136,7 +138,7 @@ export const Coordinate: CoordinateFlow = Flow.make("coding/CoordinateRequest", 
                                       MergeFeedback.call({ cursor, receipt, advance: true }).pipe(
                                         Node.bindPlanned((next) => Coordinate.to(next))
                                       ),
-                                    else: () => Flow.done({ plan, outcome })
+                                    else: () => Flow.done({ plan, outcome, ...(cursor.requestRoute === undefined ? {} : { route: cursor.requestRoute }) })
                                   })
                                 )
                               )
@@ -169,11 +171,13 @@ export default Flow.make("coding/Request", {
     const wiki = input.wiki === undefined ? {} : { wiki: input.wiki }
     // Every answer a person gave an earlier attempt reaches each planning pass.
     const answers = input.answers === undefined ? {} : { answers: input.answers }
-    const implement = (feedback: string | Planned.Planned<string>) =>
+    const implement = (feedback: string | Planned.Planned<string>, route?: Route | Planned.Planned<Route>) =>
       PrepareRequest.child({ prompt: input.prompt, feedback, ...wiki, ...answers }).pipe(
         Node.bindPlanned((plan) => AdmitSource.call({ plan })),
         Node.bindPlanned((preparedPlan) =>
           Coordinate.child({
+            requestInput: input,
+            ...(route === undefined ? {} : { requestRoute: route }),
             prompt: input.prompt,
             feedback,
             ...wiki,
@@ -189,12 +193,12 @@ export default Flow.make("coding/Request", {
     // tip, and factory/Todo routes it before it is planned. Its result and
     // its failure both carry the route, which the stack keeps.
     // The dependency pages the stack published reach this checkout first.
-    const dependencyPages = (input.wiki?.pages ?? []).filter(isDependencyPage)
+    const dependencyPages = Node.succeed(input.wiki?.pages ?? []).pipe(Node.map((pages) => pages.filter(isDependencyPage)))
     return input.base === undefined ? implement(input.feedback ?? "") : admitStackBase(input.base).pipe(
-      Node.andThen(InstallDependencyPages.call({ pages: dependencyPages })),
+      Node.andThen(dependencyPages.pipe(Node.bindPlanned((pages) => InstallDependencyPages.call({ pages })))),
       Node.andThen(RouteRequest.child({ prompt: input.prompt, feedback: input.feedback ?? "" })),
       Node.bindPlanned((routed) =>
-        Node.all({ routed: Node.succeed(routed), result: implement(routed.feedback) }).pipe(
+        Node.all({ routed: Node.succeed(routed), result: implement(routed.feedback, routed.route) }).pipe(
           Node.map(({ result, routed }) => ({ ...result, route: routed.route })),
           Node.catch({ error: CodingError, onFailure: (error) => StampRoute.call({ error, route: routed.route }) })
         )

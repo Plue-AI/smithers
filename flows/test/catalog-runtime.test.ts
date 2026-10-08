@@ -21,8 +21,7 @@ test("built native and coding hosts expose their actual private registrations", 
     // These are the actual private layers, not the already-clean public
     // repository route inventory. Keep identifying pending migrations.
     assert.equal(coding.some(tag => tag.id === "coding/Vibe"), false, "delivery is inlined in the TODO plan")
-    const replaced = coding.filter(tag => tag.id === "coding/Request")
-    assert.deepEqual(auditRuntimeTags(replaced), replaced.map(tag => ({ id: tag.id, reason: "replaced" })))
+    assert.equal(coding.some(tag => tag.id === "coding/Request"), false, "request is inlined in the TODO plan")
     for (const [index, runtime] of runtimes.entries()) {
       let admitted = 0
       let executed = 0

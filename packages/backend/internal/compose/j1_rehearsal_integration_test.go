@@ -316,7 +316,13 @@ func TestJ1Rehearsal(t *testing.T) {
 		return
 	}
 	if !r.step("Merged", "GET "+todoPath+"; GET /api/repos/{o}/{r}/mythical; GET /api/github/sync", "merged only after GitHub merge receipt; the install's main follows GitHub's squash commit; sync fresh", "T-STK-04, T-GH-02", func() error {
-		return r.waitMerged(number, prNumber, head)
+		err := r.waitMerged(number, prNumber, head)
+		if err == nil {
+			return nil
+		}
+		var state, reason, refusal string
+		_ = r.pool.QueryRow(r.ctx, `SELECT state, reason, COALESCE(checks #>> '{land,refused,code}','') FROM mythical_items WHERE number=$1`, number).Scan(&state, &reason, &refusal)
+		return fmt.Errorf("%w (item %s: %s; merge refusal %s)", err, state, reason, refusal)
 	}) {
 		return
 	}

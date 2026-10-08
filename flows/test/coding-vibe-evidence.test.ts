@@ -10,7 +10,7 @@ import { test } from "node:test"
 import { ModuleOwner } from "../../packages/smithers/src/internal/ModuleOwner.ts"
 import { Poc, type PocResult } from "../coding/poc.ts"
 import { PrepareRequest } from "../coding/preparation.ts"
-import { Request } from "../coding/request.ts"
+import { Coordinate, Request } from "../coding/request.ts"
 import {
   checkInputDigest,
   CodingError,
@@ -591,11 +591,12 @@ const todoModes = [
   "review-wrong-parent",
   "review-collected"
 ] as const
-for (const mode of todoModes) {
-  test(`current TODO delivery evidence: ${mode}`, async () => {
+for (const inlinedRequest of [false, true]) for (const mode of [...todoModes, ...(inlinedRequest ? ["missing-inline-input", "wrong-inline-input", "wrong-inline-route"] as const : [])]) {
+  test(`current TODO delivery evidence (${inlinedRequest ? "inline" : "retained"}): ${mode}`, async () => {
     const stackInput = mode === "missing-base" ? input : { ...input, base: stackBase }
     const reentry = mode.startsWith("review-")
     const requestParent = reentry ? "review-round" : "todo-bridge"
+    const preparationParent = inlinedRequest ? requestParent : "request"
     const customized = mode.startsWith("customized-")
     const childInput: typeof RequestInput.Type = customized ?
       {
@@ -664,7 +665,12 @@ for (const mode of todoModes) {
           ),
           status: "running" as const
         }],
-        ["request", row("request", Request._tag, childInput, requestResult(retained), requestParent)],
+        ["request", row("request", inlinedRequest ? Coordinate._tag : Request._tag,
+          inlinedRequest ? { ...childInput, feedback: childInput.feedback ?? "", maxRounds: childInput.maxRounds ?? 3,
+            revision: 0,
+            ...(mode === "missing-inline-input" ? {} : { requestInput: mode === "wrong-inline-input" ? { ...childInput, feedback: "forged" } : childInput }),
+            ...(mode === "wrong-inline-route" ? { requestRoute: "bug" } : retained.route === undefined ? {} : { requestRoute: retained.route }) }
+            : childInput, requestResult(retained), requestParent)],
         [
           "preparation",
           row(
@@ -677,7 +683,7 @@ for (const mode of todoModes) {
                 : leafFeedback(retained.route, childInput.feedback ?? "")
             },
             prepared,
-            "request"
+            preparationParent
           )
         ]
       ])
@@ -705,7 +711,7 @@ for (const mode of todoModes) {
       if (mode === "collected-preparation") rows.delete("preparation")
       yield* graph.recordRunParent("todo-bridge", mode === "wrong-bridge-parent" ? "other-root" : root)
       yield* graph.recordRunParent("request", mode === "wrong-request-parent" ? "other-composition" : requestParent)
-      yield* graph.recordRunParent("preparation", "request")
+      yield* graph.recordRunParent("preparation", preparationParent)
       if (mode === "ambiguous-parent") yield* graph.recordRunParent("request", "other-parent")
       const catalog: RunCatalogRead.Service = {
         listRunIds: () => Effect.die("TODO delivery must not scan the global run catalog"),
@@ -727,20 +733,28 @@ for (const mode of todoModes) {
                   mode === "more-bridges" ? "next" : null
                 )
               }
-              if (name === Request._tag) {
+              if (name === Coordinate._tag && !inlinedRequest) {
+                assert.deepEqual(options, { filters: { flowName: Coordinate._tag, parentRunId: requestParent }, limit: 2 })
+                return listed(Coordinate._tag, requestParent, [])
+              }
+              if (name === Request._tag && inlinedRequest) {
                 assert.deepEqual(options, { filters: { flowName: Request._tag, parentRunId: requestParent }, limit: 2 })
+                return listed(Request._tag, requestParent, [])
+              }
+              if (name === (inlinedRequest ? Coordinate._tag : Request._tag)) {
+                assert.deepEqual(options, { filters: { flowName: name, parentRunId: requestParent }, limit: 2 })
                 return listed(
-                  Request._tag,
+                  name,
                   requestParent,
                   mode === "missing-request" ? [] : mode === "duplicate-request" ? ["request", "other"] : ["request"],
                   mode === "more-requests" ? "next" : null
                 )
               }
               assert.deepEqual(options, {
-                filters: { flowName: PrepareRequest._tag, parentRunId: "request" },
+                filters: { flowName: PrepareRequest._tag, parentRunId: preparationParent },
                 limit: 2
               })
-              return listed(PrepareRequest._tag, "request", ["preparation"])
+              return listed(PrepareRequest._tag, preparationParent, ["preparation"])
             })
       }
       const supplied = structuredClone(retained)

@@ -32,7 +32,7 @@ export default Flow.make("todo", {
   error: Schema.Union([Request.errorSchema, VibeError, WaitFor.WaitForRequestInvalid]),
   body: (input) =>
     TodoBoundary.call({}).pipe(
-      Node.bindPlanned(() => Request.child(input)),
+      Node.bindPlanned(() => Request.call(input)),
       Node.bindPlanned((request) => TodoBoundary.call({}).pipe(Node.andThen(Node.succeed(request)))),
       Node.bindPlanned((request) => TodoDelivery.call({ request })),
       Node.bindPlanned((delivery) => Vibe.call(delivery)),

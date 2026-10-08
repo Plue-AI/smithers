@@ -10,7 +10,8 @@ import { Effect, Exit, Option, Schema } from "effect"
 import { ModuleOwner } from "../../packages/smithers/src/internal/ModuleOwner.ts"
 import { Poc, PocInput } from "./poc.ts"
 import { PrepareRequest } from "./preparation.ts"
-import { Request } from "./request.ts"
+import { Coordinate, Request } from "./request.ts"
+import { Cursor } from "./request-flow.ts"
 import { CodingError, RequestInput, type RequestResult, sameRevision } from "./schema.ts"
 import { leafFeedback } from "./todo-route.ts"
 import { VibeEvidence, VibeInput } from "./vibe-schema.ts"
@@ -37,6 +38,15 @@ const completed = <
   })
 
 /** No global run scan, second ledger, caller-supplied success or ambient repo ID. */
+/** New compositions inline Request and retain its Coordinate child. Older
+ * native histories keep their original Request row and source receipt. */
+const requestChildren = (catalog: RunCatalogRead.Service, parentRunId: string) =>
+  catalog.listRuns({ filters: { flowName: Request._tag, parentRunId }, limit: 2 }).pipe(
+    Effect.flatMap((legacy) => legacy.cursor !== null || legacy.runs.length !== 0
+      ? Effect.succeed(legacy)
+      : catalog.listRuns({ filters: { flowName: Coordinate._tag, parentRunId }, limit: 2 }))
+  )
+
 const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typeof RequestResult.Type) =>
   Effect.gen(function*() {
     // ModuleAuthority supplies this per handler, never while layers are built.
@@ -97,10 +107,7 @@ const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typ
       }
       todoBridge = bridges.runs[0]!.runId
       if (input.requestExecutionId === owner.rootId) {
-        const children = yield* catalog.listRuns({
-          filters: { flowName: Request._tag, parentRunId: todoBridge },
-          limit: 2
-        })
+        const children = yield* requestChildren(catalog, todoBridge)
         if (children.cursor !== null || children.runs.length !== 1) {
           return yield* invalid("TODO delivery requires one completed request in its current composition")
         }
@@ -119,7 +126,8 @@ const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typ
       requestRow = yield* read(selected)
     }
     const inlined = requestRow.state.flowName === "coding/request"
-    if (requestRow.state.flowName !== Request._tag && (composed || !inlined)) {
+    const coordinated = composed && requestRow.state.flowName === Coordinate._tag
+    if (!coordinated && requestRow.state.flowName !== Request._tag && (composed || !inlined)) {
       return yield* invalid("Select a native coding/Request execution")
     }
     const request = yield* completed(requestRow.state, Request.successSchema, Request.errorSchema)
@@ -139,8 +147,14 @@ const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typ
     ) {
       return yield* invalid("Finalization check receipts must have unique IDs within each Change")
     }
+    const cursor = coordinated ? Schema.decodeUnknownOption(Cursor)(requestRow.state.payload) : Option.none()
+    if (coordinated && (Option.isNone(cursor) || cursor.value.requestRoute !== request.route)) {
+      return yield* invalid("The coordinate result does not match its retained request route")
+    }
     const payload = Schema.decodeUnknownOption(RequestInput)(
-      inlined ? (requestRow.state.payload as { readonly input?: unknown } | null)?.input : requestRow.state.payload
+      coordinated
+        ? cursor.pipe(Option.map((value) => value.requestInput), Option.getOrUndefined)
+        : inlined ? (requestRow.state.payload as { readonly input?: unknown } | null)?.input : requestRow.state.payload
     )
     if (
       Option.isNone(payload) || (composed && payload.value.base === undefined &&
@@ -248,8 +262,10 @@ const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typ
     }
     // Later steered plans may start after implementation. The one original
     // prepared child is source-qualified before any correction can mutate code.
+    const preparationParent = coordinated ? requestRow.state.parentExecutionId : selected
+    if (preparationParent === undefined) return yield* invalid("The inlined request has no retained preparation parent")
     const preparations = yield* catalog.listRuns({
-      filters: { flowName: PrepareRequest._tag, parentRunId: selected },
+      filters: { flowName: PrepareRequest._tag, parentRunId: preparationParent },
       limit: 2
     })
     if (preparations.cursor !== null || preparations.runs.length > 1) {
@@ -261,8 +277,8 @@ const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typ
       const parents = yield* graph.runParents(preparationExecutionId)
       if (
         preparation.state.flowName !== PrepareRequest._tag ||
-        preparation.state.parentExecutionId !== selected ||
-        parents.length !== 1 || parents[0]!.parentId !== selected
+        preparation.state.parentExecutionId !== preparationParent ||
+        parents.length !== 1 || parents[0]!.parentId !== preparationParent
       ) {
         return yield* invalid("The original preparation is not a direct child of this request")
       }
@@ -351,10 +367,7 @@ export const readTodoDelivery = ({ request }: { readonly request: typeof Request
     }
     const instance = yield* FlowRuntime.FlowInstance
     const catalog = yield* RunCatalogRead.RunCatalogRead
-    const children = yield* catalog.listRuns({
-      filters: { flowName: Request._tag, parentRunId: instance.executionId },
-      limit: 2
-    }).pipe(
+    const children = yield* requestChildren(catalog, instance.executionId).pipe(
       Effect.mapError(() => new CodingError({ code: "unavailable", message: "TODO request catalog is unavailable" }))
     )
     if (children.cursor !== null || children.runs.length !== 1) {

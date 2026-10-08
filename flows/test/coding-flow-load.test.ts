@@ -19,7 +19,7 @@ import type { FlowVersion } from "../coding/flow-load.ts"
 // The composed guest/browser rehearsal separately loads today's shipped source.
 const fixture = fileURLToPath(new URL("./fixtures/flow-load-todo-source.ts", import.meta.url))
 // Reviewed registry execution identity of the project fixture, including its empty dependency set.
-const projectDigest = "2a9e2a4092118bc078e3bfa0c424ed925fe3c91594e992929d4d91dae4b5c955"
+const projectDigest = "c414180d136f4911aef3137992858ad88ca983b76cf65561da28e12f56db9017"
 
 for (const pinnedAdmission of [false, true]) {
   test(
@@ -56,13 +56,13 @@ for (const pinnedAdmission of [false, true]) {
       // The scripted [FLOWEDIT] change: the composition plus a changelog step.
       const edited = await tree("edited", {
         "flows/todo/flow.ts": source.replace(
-          "Request.child(input)",
-          "Request.child({ ...input, prompt: `${input.prompt}\\n\\n[CHANGELOG] Add one line for this change to CHANGELOG.md.` })"
+          "Request.call(input)",
+          "Request.call({ ...input, prompt: `${input.prompt}\\n\\n[CHANGELOG] Add one line for this change to CHANGELOG.md.` })"
         )
       })
       // A syntax error on one line of the composition.
       const broken = await tree("broken", {
-        "flows/todo/flow.ts": source.replace("Request.child(input)", "Request.child(input")
+        "flows/todo/flow.ts": source.replace("Request.call(input)", "Request.call(input")
       })
       const undiscoverable = await tree("undiscoverable", {
         "flows/todo/flow.ts": source.replace("description: \"Route, plan, implement and deliver one TODO.\",", ""),
@@ -128,7 +128,7 @@ printf '%s' "$*" > installed
         "package-lock.json": "{}\n"
       })
       const semantic = await tree("semantic", {
-        "flows/todo/flow.ts": source.replace("Request.child(input)", "Request.child({ ...input, prompt: 123 })")
+        "flows/todo/flow.ts": source.replace("Request.call(input)", "Request.call({ ...input, prompt: 123 })")
       })
       const helperTypeError = await tree("helper-type-error", {
         "flows/todo/flow.ts": `import { label } from "../../lib/label.ts"\n${source}\nvoid label\n`,
@@ -136,8 +136,8 @@ printf '%s' "$*" > installed
       })
       const semanticCanary = await tree("semantic-canary", {
         "flows/todo/flow.ts": importCanary("semantic").replace(
-          "Request.child(input)",
-          "Request.child({ ...input, prompt: 123 })"
+          "Request.call(input)",
+          "Request.call({ ...input, prompt: 123 })"
         ),
         "flows/healthy/flow.ts": source.replace("Flow.make(\"todo\",", "Flow.make(\"healthy\","),
         "node_modules/@smthrs/coding/package.json": JSON.stringify({ name: "@smthrs/coding", types: "index.d.ts" }),
@@ -236,7 +236,14 @@ export default Flow.make("prompted", {
         }]
       )
       assert.deepEqual(atCopy[1].steps, [
-        { id: "root.flow.andThen.andThen", label: "coding/Request" },
+        { id: "root.flow.andThen.andThen.flow.andThen.andThen.andThen.andThen", label: "coding/prepare-stack-base" },
+        { id: "root.flow.andThen.andThen.flow.andThen.andThen.andThen.then", label: "coding/create-stack-base" },
+        { id: "root.flow.andThen.andThen.flow.andThen.andThen.then.then", label: "coding/install-dependency-pages" },
+        { id: "root.flow.andThen.andThen.flow.andThen.then", label: "factory/Todo" },
+        { id: "root.flow.andThen.andThen.flow.then.protected.map.all.result.andThen.andThen", label: "coding/PrepareRequest" },
+        { id: "root.flow.andThen.andThen.flow.then.protected.map.all.result.andThen.then", label: "coding/admit-retained-source" },
+        { id: "root.flow.andThen.andThen.flow.then.protected.map.all.result.then", label: "coding/CoordinateRequest" },
+        { id: "root.flow.andThen.andThen.flow.then.failure", label: "factory/stamp-route" },
         { id: "root.flow.andThen.then", label: "coding/todo-delivery" },
         { id: "root.flow.then.flow.andThen.andThen", label: "coding/AdmitVibe" },
         { id: "root.flow.then.flow.andThen.then", label: "coding/CleanVibeHistory" },
@@ -257,7 +264,7 @@ export default Flow.make("prompted", {
       assert.equal(atBroken.length, 1)
       assert.equal(atBroken[0].status, "failed")
       assert.notEqual(atBroken[0].digest, projectDigest)
-      const line = source.split("\n").findIndex((text) => text.includes("Request.child(input)")) + 1
+      const line = source.split("\n").findIndex((text) => text.includes("Request.call(input)")) + 1
       assert.ok(line > 0)
       assert.match(atBroken[0].error, /^flows\/todo\/flow\.ts:\d+: /)
       assert.ok(Number(atBroken[0].error.match(/^flows\/todo\/flow\.ts:(\d+)/)![1]) >= line, atBroken[0].error)
