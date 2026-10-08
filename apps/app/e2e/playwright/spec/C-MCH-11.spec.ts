@@ -41,3 +41,11 @@ test("C-MCH-11: successful terminals obey changing disk and owner capacity", asy
   expect(output).toContain("--- PASS: TestSuccessfulTerminalDiskRecheckInstallBoundary")
   expect(output).toContain("--- PASS: TestSuccessfulTerminalOwnerCapacityInstallBoundary")
 })
+
+
+test("C-MCH-11: cancelled boot and forced stop retain capacity until observation", async () => {
+  test.setTimeout(300_000)
+  const output = await runLiveInstall("^TestTerminal(CancelledBootConfirmedStop|ForceStopConfirmedObservation)InstallBoundary$")
+  expect(output).toContain("--- PASS: TestTerminalCancelledBootConfirmedStopInstallBoundary")
+  expect(output).toContain("--- PASS: TestTerminalForceStopConfirmedObservationInstallBoundary")
+})

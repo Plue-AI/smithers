@@ -3,6 +3,8 @@ package compose
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -89,6 +91,12 @@ func (*perfWakeRuntime) GuestIdentity() (string, int) { return "agent", 1000 }
 func (r *perfWakeRuntime) Request(class, holder, actor, reason string) (microsandbox.AdmissionRequest, error) {
 	return r.queue.Request(class, holder, actor, reason)
 }
+func (r *perfWakeRuntime) CancelFailedAdmission(holder, actor string) {
+	if r.queue != nil {
+		r.queue.CancelFailedAdmission(holder, actor)
+	}
+}
+
 func (r *perfWakeRuntime) CancelAdmission(holder, actor string, now time.Time) bool {
 	return r.queue != nil && r.queue.CancelAdmission(holder, actor, now)
 }
@@ -400,6 +408,7 @@ type terminalFIFOGuests struct {
 	*perfWakeRuntime
 	guests  map[string]*perfWakeRuntime
 	started chan string
+	booting chan string
 }
 
 func (r *terminalFIFOGuests) SyncTodoAdmission(scope string, holders []string, limit int) error {
@@ -415,6 +424,15 @@ func (r *terminalFIFOGuests) InspectWorkspace(ctx context.Context, id string) (w
 	return r.guests[id].InspectWorkspace(ctx, id)
 }
 func (r *terminalFIFOGuests) StartWorkspace(ctx context.Context, id string) (workspaceapi.Workspace, error) {
+	if r.guests[id].mode == "cancel boot" {
+		if err := r.queue.BindAdmissionMachine("workspace:"+id, "vm-"+id); err != nil {
+			return workspaceapi.Workspace{}, err
+		}
+		r.booting <- id
+		<-ctx.Done()
+		return workspaceapi.Workspace{}, ctx.Err()
+	}
+
 	if !r.queue.AdmissionHeld("workspace:" + id) {
 		return workspaceapi.Workspace{}, fmt.Errorf("boot without admission")
 	}
@@ -452,6 +470,12 @@ func TestSuccessfulTerminalDiskRecheckInstallBoundary(t *testing.T) {
 func TestSuccessfulTerminalOwnerCapacityInstallBoundary(t *testing.T) {
 	testSuccessfulTerminalFIFOInstallBoundary(t, 4, 1, 3, false, "owner")
 }
+func TestTerminalCancelledBootConfirmedStopInstallBoundary(t *testing.T) {
+	testSuccessfulTerminalFIFOInstallBoundary(t, 2, 1, 1, false, "cancel")
+}
+func TestTerminalForceStopConfirmedObservationInstallBoundary(t *testing.T) {
+	testSuccessfulTerminalFIFOInstallBoundary(t, 2, 1, 1, false, "force")
+}
 func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBranch, slots int, rejectPublication bool, constraints ...string) {
 	constraint := ""
 	if len(constraints) > 0 {
@@ -478,7 +502,7 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 	readDisk := func(context.Context) (int64, error) { return freeDisk.Load(), nil }
 	capacity := &services.InstallCapacityService{Queries: q, Profile: profile, FreeDisk: readDisk, InUse: queue.InUse}
 	queue.SetCapacityReader(capacity.Capacity)
-	runtime := &terminalFIFOGuests{perfWakeRuntime: &perfWakeRuntime{queue: queue, entered: make(chan struct{})}, guests: map[string]*perfWakeRuntime{}, started: make(chan string, branchCount)}
+	runtime := &terminalFIFOGuests{perfWakeRuntime: &perfWakeRuntime{queue: queue, entered: make(chan struct{})}, guests: map[string]*perfWakeRuntime{}, started: make(chan string, branchCount), booting: make(chan string, 1)}
 	var branches []db.Workspace
 	for i := 0; i < branchCount; i++ {
 		branch, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: f.row.RepositoryID, UserID: owner, Name: fmt.Sprintf("fifo-%d", i), TargetBookmark: fmt.Sprintf("scratch/presence-owner/fifo-%d", i), Status: "suspended", Kind: "vm"})
@@ -486,6 +510,9 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 		reader, writer := io.Pipe()
 		guest := &perfWakeRuntime{row: branch, state: workspaceapi.WorkspaceStopped, mode: "warm"}
 		guest.owner = &terminalMemberRuntime{replacementRuntime: &replacementRuntime{repoID: f.row.RepositoryID}, terminal: &echoOwnerTerminal{reader: reader, writer: writer}, branch: branch, member: microsandbox.MemberIdentity{Login: "ben", UID: 20001, Active: true}}
+		if (constraint == "cancel" || constraint == "force") && i == 0 {
+			guest.mode = "cancel boot"
+		}
 		runtime.guests[branch.ID] = guest
 		link, _ := presenceTestLink(t, &runtime.registry, branch.ID)
 		require.NoError(t, link.Reconciled())
@@ -530,6 +557,7 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 	// All demand enters through the authenticated terminal door. Disk keeps
 	// grants closed while the literal FIFO is established, including a duplicate.
 	sessions := map[string][]string{}
+	keys := map[string]string{}
 	request := func(branchID, requestID string) (*http.Response, error) {
 		req, err := http.NewRequestWithContext(ctx, "POST", server.URL+"/api/terminals", strings.NewReader(fmt.Sprintf(`{"branch":%q}`, branchID)))
 		if err != nil {
@@ -549,6 +577,7 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 	}
 	for i, branch := range branches {
 		requestID := uuid.NewString()
+		keys[branch.ID] = requestID
 		response, err := request(branch.ID, requestID)
 		require.NoError(t, err)
 		var session services.WorkspaceSessionResponse
@@ -645,11 +674,134 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 		}
 		sockets = append(sockets, conn)
 	}
+	var stopLog, inventory string
+	if constraint == "cancel" || constraint == "force" {
+		stopLog, inventory = filepath.Join(root, "stops"), filepath.Join(root, "inventory")
+		require.NoError(t, os.WriteFile(inventory, []byte(fmt.Sprintf(`[{"name":%q,"status":"starting"}]`, "vm-"+branches[0].ID)), 0600))
+		script := fmt.Sprintf("#!/bin/sh\ncase \"$1\" in\nlist) cat '%s';;\nstop) echo \"$*\" >> '%s';;\n*) echo '[]';;\nesac\n", inventory, stopLog)
+		require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
+	}
 	if rejectPublication {
 		_, err := f.pool.Exec(ctx, `ALTER TABLE product_job_requests ADD CONSTRAINT grant_receipt_refusal CHECK(operation <> 'branch.machine.granted') NOT VALID`)
 		require.NoError(t, err)
 	}
 	freeDisk.Store(int64(40+32*slots) << 30)
+	if constraint == "cancel" || constraint == "force" {
+		select {
+		case id := <-runtime.booting:
+			require.Equal(t, branches[0].ID, id)
+		case <-time.After(5 * time.Second):
+			t.Fatal("terminal boot never entered")
+		}
+		cancelAt := time.Now()
+		// A different signed-in member cannot close this owner's pending open.
+		other, err := q.CreateUser(ctx, db.CreateUserParams{Username: "other-member", LowerUsername: "other-member"})
+		require.NoError(t, err)
+		_, err = f.pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission,unix_login,unix_uid) VALUES($1,$2,'write','other',20002)`, f.row.RepositoryID, other.ID)
+		require.NoError(t, err)
+		digest := sha256.Sum256([]byte("other-terminal-cookie"))
+		_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: other.ID, Username: other.Username, SessionKey: hex.EncodeToString(digest[:]), ExpiresAt: time.Now().Add(time.Hour)})
+		require.NoError(t, err)
+		path := "/api/repos/presence-owner/app/workspace/sessions/" + sessions[branches[0].ID][0] + "/destroy"
+		req, err := http.NewRequestWithContext(ctx, "POST", server.URL+path, nil)
+		require.NoError(t, err)
+		req.Header.Set("Origin", cfg.Server.PublicURL)
+		req.Header.Set("X-CSRF-Token", "csrf")
+		req.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
+		req.AddCookie(&http.Cookie{Name: "smithers_session", Value: f.cookie})
+		intruder := req.Clone(ctx)
+		intruder.Header.Del("Cookie")
+		intruder.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
+		intruder.AddCookie(&http.Cookie{Name: "smithers_session", Value: "other-terminal-cookie"})
+		denied, err := server.Client().Do(intruder)
+		require.NoError(t, err)
+		deniedBody, err := io.ReadAll(denied.Body)
+		denied.Body.Close()
+		require.NoError(t, err)
+		require.Equal(t, 404, denied.StatusCode, string(deniedBody))
+		require.True(t, queue.AdmissionHeld("workspace:"+branches[0].ID))
+		require.Empty(t, runtime.started)
+		res, err := server.Client().Do(req)
+		require.NoError(t, err)
+		body, err := io.ReadAll(res.Body)
+		res.Body.Close()
+		require.NoError(t, err)
+		require.Equal(t, 204, res.StatusCode, string(body))
+		repeated, err := server.Client().Do(req.Clone(ctx))
+		require.NoError(t, err)
+		repeatBody, err := io.ReadAll(repeated.Body)
+		repeated.Body.Close()
+		require.NoError(t, err)
+		require.Equal(t, 204, repeated.StatusCode, string(repeatBody))
+		replay, err := request(branches[0].ID, keys[branches[0].ID])
+		require.NoError(t, err)
+		var replayed services.WorkspaceSessionResponse
+		require.NoError(t, json.NewDecoder(replay.Body).Decode(&replayed))
+		replay.Body.Close()
+		require.Equal(t, sessions[branches[0].ID][0], replayed.ID)
+		require.Equal(t, "closed", replayed.Status)
+		_, err = service.OpenOwnerTerminal(ctx, nil, branches[0].ID, replayed.ID, f.row.RepositoryID, f.user.ID)
+		require.ErrorIs(t, err, context.Canceled, "a close committed before manager registration still fences a late opener")
+
+		require.Eventually(t, func() bool {
+			for _, row := range queue.AdmissionSnapshot() {
+				if row.Holder == "workspace:"+branches[0].ID {
+					return row.State == "cancelled"
+				}
+			}
+			return false
+		}, 5*time.Second, 10*time.Millisecond)
+		ticks := 10
+		if constraint == "force" {
+			ticks = 60
+		}
+		for second := range ticks {
+			require.NoError(t, queue.ReconcileAdmissionReleases(ctx, cancelAt.Add(time.Duration(30+second)*time.Second)))
+			require.Equal(t, 1, queue.InUse())
+			require.True(t, queue.AdmissionHeld("workspace:"+branches[0].ID))
+			require.False(t, queue.AdmissionHeld("workspace:"+branches[1].ID))
+			require.Empty(t, runtime.started)
+			if second == 0 {
+				calls, err := os.ReadFile(stopLog)
+				require.NoError(t, err)
+				require.Contains(t, string(calls), "stop -t 10 -q")
+			}
+			if constraint == "force" && second == 29 {
+				calls, err := os.ReadFile(stopLog)
+				require.NoError(t, err)
+				require.NotContains(t, string(calls), "stop -t 0 -q")
+			}
+		}
+		if constraint == "force" {
+			calls, err := os.ReadFile(stopLog)
+			require.NoError(t, err)
+			require.Contains(t, string(calls), "stop -t 0 -q")
+		}
+		require.NoError(t, os.WriteFile(inventory, []byte("[]"), 0600))
+		require.NoError(t, queue.ReconcileAdmissionReleases(ctx, cancelAt.Add(time.Duration(30+ticks)*time.Second)))
+		select {
+		case id := <-runtime.started:
+			require.Equal(t, branches[1].ID, id)
+		case <-time.After(2 * time.Second):
+			t.Fatal("confirmed stop did not grant the next terminal")
+		}
+		require.Eventually(t, func() bool {
+			var count int
+			err := f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='terminal.running' AND data->>'session'=$1`, sessions[branches[1].ID][0]).Scan(&count)
+			return err == nil && count == 1
+		}, 5*time.Second, 10*time.Millisecond)
+		queue.ConfirmAdmissionStop("workspace:"+branches[1].ID, false)
+		manager.Close()
+		require.NoError(t, service.WaitForProvisioning(ctx))
+		var failed int
+		require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='terminal.failed' AND data->>'session'=$1`, sessions[branches[0].ID][0]).Scan(&failed))
+		require.Zero(t, failed, "an explicitly closed open must not later become failed")
+		var closed int
+		require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='terminal.closed' AND data->>'session'=$1`, sessions[branches[0].ID][0]).Scan(&closed))
+		require.Equal(t, 1, closed, "duplicate close never duplicates the source receipt")
+
+		return
+	}
 	if constraint == "disk" {
 		freeDisk.Store(104 << 30)
 		require.Eventually(t, func() bool { return len(runtime.started) == 2 }, 5*time.Second, 10*time.Millisecond)

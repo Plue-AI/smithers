@@ -11,7 +11,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
-func TestDestroySessionReturnsAfterDurableStopWhileVMSuspensionRuns(t *testing.T) {
+func TestDestroySessionReturnsAfterDurableStopWhileCleanupRuns(t *testing.T) {
 	stopped := false
 	cleanupErr := make(chan error, 1)
 	started, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
@@ -23,15 +23,19 @@ func TestDestroySessionReturnsAfterDurableStopWhileVMSuspensionRuns(t *testing.T
 			stopped = arg.Status == "stopped"
 			return workspaceExecHSession("session", "ws-1", 1, "stopped"), nil
 		},
-		getWorkspaceByRepoFn: func(context.Context, db.GetWorkspaceByRepoParams) (db.Workspace, error) {
+		getWorkspaceByRepoFn: func(ctx context.Context, _ db.GetWorkspaceByRepoParams) (db.Workspace, error) {
+			if stopped {
+				close(started)
+				<-release
+				cleanupErr <- ctx.Err()
+			}
 			return sampleDBWorkspace("ws-1"), nil
 		},
 	}
-	client := &mockWorkspaceSandboxVMClient{suspendVMFn: func(ctx context.Context, id string) (sandbox.SuspendResult, error) {
-		close(started)
-		<-release
-		cleanupErr <- ctx.Err()
-		return sandbox.SuspendResult{ID: id}, ctx.Err()
+	suspended := make(chan struct{}, 1)
+	client := &mockWorkspaceSandboxVMClient{suspendVMFn: func(context.Context, string) (sandbox.SuspendResult, error) {
+		suspended <- struct{}{}
+		return sandbox.SuspendResult{}, nil
 	}}
 	svc := NewWorkspaceService(q, WithWorkspaceSandboxClient(client))
 	svc.launchSessionCleanup = func(name string, fn func()) { SafeGo(name, func() { defer close(finished); fn() }) }
@@ -46,9 +50,10 @@ func TestDestroySessionReturnsAfterDurableStopWhileVMSuspensionRuns(t *testing.T
 		t.Fatal("cleanup did not start")
 	}
 	close(release)
-	require.NoError(t, <-cleanupErr, "request cancellation must not cancel VM cleanup")
+	require.NoError(t, <-cleanupErr, "request cancellation must not cancel cleanup")
 	select {
 	case <-finished:
+		require.Empty(t, suspended, "missing admission and final capture cannot use the old VM suspend path")
 	case <-time.After(time.Second):
 		t.Fatal("cleanup did not finish")
 	}

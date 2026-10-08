@@ -328,6 +328,9 @@ func (s *WorkspaceService) listSessions(ctx context.Context, repositoryID, userI
 
 // DestroySession marks a session as stopped and suspends the VM when it is the last active session.
 func (s *WorkspaceService) DestroySession(ctx context.Context, sessionID string, repositoryID, userID int64) error {
+	if handled, err := s.closeOwnerTerminal(ctx, sessionID, repositoryID, userID); handled {
+		return err
+	}
 	if s.q == nil {
 		return pkgerrors.Internal("workspace store unavailable")
 	}

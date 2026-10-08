@@ -64,6 +64,7 @@ func (p *installOwnerTerminals) Available() bool {
 	return p.branches.OwnerTerminalAvailable(p.registry)
 }
 func (p *installOwnerTerminals) Bind(manager *routes.TerminalSessionManager) {
+	p.branches.BindOwnerTerminalClose(manager.Destroy)
 	p.branches.BindOwnerTerminalOpen(func(ctx context.Context, id, branch string, repository, member int64) error {
 		principal, err := p.Authorize(ctx, branch, member)
 		if err != nil {

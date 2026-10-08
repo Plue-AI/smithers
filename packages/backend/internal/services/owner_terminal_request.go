@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
@@ -106,7 +107,17 @@ func (s *WorkspaceService) recordOwnerTerminalResult(ctx context.Context, scope 
 		return err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	if status == "running" {
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "terminal.result:"+scope.TenantID+":"+scope.PrincipalID+":"+id); err != nil {
+		return err
+	}
+	var repeated bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM product_job_events WHERE tenant_id=$1 AND principal_id=$2 AND data->>'session'=$3 AND event_type=$4)`, scope.TenantID, scope.PrincipalID, id, "terminal."+status).Scan(&repeated); err != nil {
+		return err
+	}
+	if repeated {
+		return nil
+	}
+	if status == "running" || status == "failed" {
 		var ended bool
 		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM product_job_events WHERE tenant_id=$1 AND principal_id=$2 AND data->>'session'=$3 AND event_type IN ('terminal.failed','terminal.closed'))`, scope.TenantID, scope.PrincipalID, id).Scan(&ended); err != nil {
 			return err
@@ -171,4 +182,43 @@ func (s *WorkspaceService) RecoverOwnerTerminalRequests(ctx context.Context) err
 		}
 	}
 	return tx.Commit(ctx)
+}
+
+// BindOwnerTerminalClose reuses the existing manager for both pending opens and
+// live PTYs. The durable owner receipt supplies authority before cancellation.
+func (s *WorkspaceService) BindOwnerTerminalClose(close func(string)) { s.ownerTerminalClose = close }
+
+func (s *WorkspaceService) closeOwnerTerminal(ctx context.Context, id string, repository, member int64) (bool, error) {
+	if s.ownerTerminalClose == nil {
+		return false, nil
+	}
+	tx, err := s.transactions.Begin(ctx)
+	if err != nil {
+		return true, err
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	var branch string
+	err = tx.QueryRow(ctx, `SELECT data->>'branch' FROM product_job_events WHERE tenant_id=$1 AND principal_id=$2 AND event_type='terminal.requested' AND data->>'session'=$3`, fmt.Sprint(repository), fmt.Sprintf("member:%d", member), id).Scan(&branch)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return true, err
+	}
+	decision, err := Authorize(ctx, db.New(tx), "terminal")
+	if err != nil {
+		return true, err
+	}
+	if decision.UserID != member {
+		return true, pkgerrors.Forbidden("Terminal belongs to another member")
+	}
+	if _, err = s.AuthorizeTerminalBranch(ctx, branch, repository, member); err != nil {
+		return true, err
+	}
+	scope := jobs.Scope{TenantID: fmt.Sprint(repository), PrincipalID: fmt.Sprintf("member:%d", member)}
+	if err = s.recordOwnerTerminalResult(ctx, scope, id, "closed"); err != nil {
+		return true, err
+	}
+	s.ownerTerminalClose(id)
+	return true, nil
 }

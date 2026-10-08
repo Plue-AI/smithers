@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -54,6 +55,25 @@ func (s *WorkspaceService) AuthorizeTerminalBranch(ctx context.Context, branch s
 // OpenOwnerTerminal has no runtime/SSH fallback and writes no terminal-kind
 // workspace_sessions row. The PTY uses only the admitted broker link.
 func (s *WorkspaceService) OpenOwnerTerminal(ctx context.Context, registry *machined.Registry, branch, id string, repo, member int64) (workspaceapi.Terminal, error) {
+	// The manager registers startup before entering this method. A close that
+	// committed before registration must still fence admission, while a close
+	// after this read cancels the registered startup through the same manager.
+	if s.ownerTerminalClose != nil {
+		tx, err := s.transactions.Begin(ctx)
+		if err != nil {
+			return nil, err
+		}
+		var closed bool
+		err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM product_job_events WHERE tenant_id=$1 AND principal_id=$2 AND event_type='terminal.closed' AND data->>'session'=$3)`, scopeTenant(repo), fmt.Sprintf("member:%d", member), id).Scan(&closed)
+		_ = tx.Rollback(context.WithoutCancel(ctx))
+		if err != nil {
+			return nil, err
+		}
+		if closed {
+			return nil, context.Canceled
+		}
+	}
+
 	if s.machineAdmission == nil || s.machineAdmission.FreeDisk == nil || registry == nil || s.runtime == nil || s.runtime.Isolation() != workspaceapi.IsolationSandboxed || s.credentialIssuer == nil || strings.TrimSpace(s.gitBaseURL) == "" {
 		return nil, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "owner terminal providers unavailable")
 	}
