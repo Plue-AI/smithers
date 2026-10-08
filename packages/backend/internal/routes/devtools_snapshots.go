@@ -14,6 +14,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -34,6 +36,7 @@ type DevtoolsSnapshotRouteQuerier interface {
 // DevtoolsSnapshotsHandler handles repo-scoped devtools snapshot routes.
 type DevtoolsSnapshotsHandler struct {
 	Queries DevtoolsSnapshotRouteQuerier
+	Reader  *services.DevtoolsSnapshotReader
 	// Enabled gates the devtools snapshot surface. It is resolved once from
 	// the canonical config (feature_flags.devtools_snapshot_enabled, which
 	// defaults to false) and wired in by the caller — never read from the
@@ -71,12 +74,12 @@ type devtoolsSnapshotListResponse struct {
 // RegisterDevtoolsSnapshotRoutes mounts the repo-scoped devtools snapshot
 // routes under /api/repos/{owner}/{repo}. enabled reflects the resolved
 // feature_flags.devtools_snapshot_enabled config value (defaults false).
-func RegisterDevtoolsSnapshotRoutes(r chi.Router, queries *db.Queries, readRepo, writeRepo []func(http.Handler) http.Handler, enabled bool) {
+func RegisterDevtoolsSnapshotRoutes(r chi.Router, queries *db.Queries, readRepo, writeRepo []func(http.Handler) http.Handler, enabled bool, installPools ...*pgxpool.Pool) {
 	if r == nil || queries == nil {
 		return
 	}
 
-	handler := &DevtoolsSnapshotsHandler{Queries: queries, Enabled: enabled}
+	handler := &DevtoolsSnapshotsHandler{Queries: queries, Enabled: enabled, Reader: services.NewDevtoolsSnapshotReader(queries, installPools...)}
 	r.With(writeRepo...).Post("/devtools/snapshots", handler.PostSnapshot)
 	r.With(readRepo...).Get("/devtools/snapshots", handler.GetSnapshots)
 	r.With(readRepo...).Get("/devtools/snapshots/latest", handler.GetSnapshots)
@@ -190,83 +193,60 @@ func (h *DevtoolsSnapshotsHandler) GetSnapshots(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	query := r.URL.Query()
-	sessionID, apiErr := validateRequiredUUID(query.Get("session_id"), "session_id")
-	if apiErr != nil {
-		pkgerrors.WriteError(w, apiErr)
-		return
-	}
-
-	if rawRepositoryID := strings.TrimSpace(query.Get("repository_id")); rawRepositoryID != "" {
-		repositoryID, err := strconv.ParseInt(rawRepositoryID, 10, 64)
-		if err != nil || repositoryID <= 0 {
-			pkgerrors.WriteError(w, pkgerrors.BadRequest("repository_id must be a positive integer"))
-			return
-		}
-		if repositoryID != repo.ID {
-			pkgerrors.WriteError(w, pkgerrors.NotFound("devtools snapshot not found"))
-			return
-		}
-	}
-
-	workspaceID, apiErr := validateOptionalUUID(queryStringPtr(query.Get("workspace_id")), "workspace_id")
-	if apiErr != nil {
-		pkgerrors.WriteError(w, apiErr)
-		return
-	}
-
-	rawKind := strings.TrimSpace(query.Get("kind"))
-	if rawKind != "" {
-		kind, kindErr := normalizeDevtoolsSnapshotKind(rawKind)
-		if kindErr != nil {
-			pkgerrors.WriteError(w, kindErr)
-			return
-		}
-
-		snapshot, err := h.Queries.GetDevtoolsSnapshot(r.Context(), db.GetDevtoolsSnapshotParams{
-			SessionID: sessionID,
-			Kind:      kind,
-		})
-		if err != nil {
-			if stderrors.Is(err, pgx.ErrNoRows) {
-				pkgerrors.WriteError(w, pkgerrors.NotFound("devtools snapshot not found"))
-				return
-			}
-			writeRouteError(w, r, err)
-			return
-		}
-		if snapshot.RepositoryID != repo.ID || !snapshotMatchesWorkspace(snapshot, workspaceID) {
-			pkgerrors.WriteError(w, pkgerrors.NotFound("devtools snapshot not found"))
-			return
-		}
-
-		pkgerrors.WriteJSON(w, http.StatusOK, devtoolsSnapshotListResponse{
-			Snapshots: []devtoolsSnapshotResponse{mapDevtoolsSnapshotResponse(snapshot)},
-		})
-		return
-	}
-
-	snapshots, err := h.Queries.ListDevtoolsSnapshotsBySession(r.Context(), db.ListDevtoolsSnapshotsBySessionParams{
-		RepositoryID: repo.ID,
-		SessionID:    sessionID,
-	})
+	input, err := DevtoolsSnapshotReadInput(r, repo.ID)
 	if err != nil {
 		writeRouteError(w, r, err)
 		return
 	}
-
-	resp := make([]devtoolsSnapshotResponse, 0, len(snapshots))
-	for _, snapshot := range snapshots {
-		if snapshotMatchesWorkspace(snapshot, workspaceID) {
-			resp = append(resp, mapDevtoolsSnapshotResponse(snapshot))
-		}
+	reader := h.Reader
+	if reader == nil {
+		reader = services.NewDevtoolsSnapshotReader(h.Queries)
 	}
-	if len(resp) == 0 {
-		pkgerrors.WriteError(w, pkgerrors.NotFound("devtools snapshot not found"))
+	rows, err := reader.Read(r.Context(), repo.ID, middleware.UserFromContext(r.Context()).ID, input)
+	if err != nil {
+		writeRouteError(w, r, err)
 		return
 	}
-
+	resp := make([]devtoolsSnapshotResponse, 0, len(rows))
+	for _, row := range rows {
+		resp = append(resp, mapDevtoolsSnapshotResponse(row))
+	}
 	pkgerrors.WriteJSON(w, http.StatusOK, devtoolsSnapshotListResponse{Snapshots: resp})
+}
+
+// DevtoolsSnapshotReadInput is shared by admission and the retained handler.
+func DevtoolsSnapshotReadInput(r *http.Request, repository int64) (services.DevtoolsSnapshotReadInput, error) {
+	var input services.DevtoolsSnapshotReadInput
+	query := r.URL.Query()
+	session, err := validateRequiredUUID(query.Get("session_id"), "session_id")
+	if err != nil {
+		return input, err
+	}
+	input.SessionID = session
+	if raw := strings.TrimSpace(query.Get("repository_id")); raw != "" {
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || id <= 0 {
+			return input, pkgerrors.BadRequest("repository_id must be a positive integer")
+		}
+		if id != repository {
+			return input, pkgerrors.NotFound("devtools snapshot not found")
+		}
+	}
+	workspace, err := validateOptionalUUID(queryStringPtr(query.Get("workspace_id")), "workspace_id")
+	if err != nil {
+		return input, err
+	}
+	if workspace != nil {
+		input.WorkspaceID = *workspace
+	}
+	if raw := strings.TrimSpace(query.Get("kind")); raw != "" {
+		kind, err := normalizeDevtoolsSnapshotKind(raw)
+		if err != nil {
+			return input, err
+		}
+		input.Kind = kind
+	}
+	return input, nil
 }
 
 func normalizeDevtoolsSnapshotKind(raw string) (string, *pkgerrors.APIError) {
@@ -382,7 +362,7 @@ func mapDevtoolsSnapshotResponse(snapshot db.DevtoolsSnapshot) devtoolsSnapshotR
 		SessionID:    snapshot.SessionID,
 		RepositoryID: snapshot.RepositoryID,
 		Kind:         snapshot.Kind,
-		WorkspaceID:  snapshotWorkspaceID(snapshot.Payload),
+		WorkspaceID:  services.DevtoolsSnapshotWorkspaceID(snapshot.Payload),
 		Payload:      snapshot.Payload,
 		CreatedAt:    snapshot.Timestamp,
 	}
@@ -390,35 +370,6 @@ func mapDevtoolsSnapshotResponse(snapshot db.DevtoolsSnapshot) devtoolsSnapshotR
 
 func devtoolsSnapshotID(snapshot db.DevtoolsSnapshot) string {
 	return fmt.Sprintf("%s:%s", snapshot.SessionID, snapshot.Kind)
-}
-
-func snapshotWorkspaceID(payload json.RawMessage) *string {
-	var data map[string]any
-	if err := json.Unmarshal(payload, &data); err != nil {
-		return nil
-	}
-
-	raw, ok := data["workspace_id"].(string)
-	if !ok {
-		return nil
-	}
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return nil
-	}
-	return &trimmed
-}
-
-func snapshotMatchesWorkspace(snapshot db.DevtoolsSnapshot, workspaceID *string) bool {
-	if workspaceID == nil {
-		return true
-	}
-
-	stored := snapshotWorkspaceID(snapshot.Payload)
-	if stored == nil {
-		return false
-	}
-	return *stored == *workspaceID
 }
 
 func queryStringPtr(raw string) *string {

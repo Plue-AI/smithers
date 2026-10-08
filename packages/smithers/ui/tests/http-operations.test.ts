@@ -302,3 +302,7 @@ test("native review records retain their private actor and scope boundary", () =
 test("repository archive and unarchive remain owner person mutations", () => {
  for (const name of ["repo.archive", "repo.unarchive"]) expect(httpProjections.find(row => row.name === name)).toMatchObject({minimumRole:"owner",agent:"never",actors:["person"],credentialScope:"write:repository",visibility:"hidden",slash:null,cli:null})
 })
+
+test("private snapshots have no external or system actor door", () => {
+ expect(httpProjections.find(row => row.name === "devtools.read")).toMatchObject({minimumRole:"member",agent:"run",actors:["person","app_agent"],credentialScope:"read:repository",visibility:"hidden",slash:null,cli:null})
+})

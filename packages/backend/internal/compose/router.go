@@ -1432,7 +1432,11 @@ func buildRouter(
 						devtoolsSnapshotWriteRepo,
 						middleware.DevtoolsSnapshotPostRateLimit(queries, 0),
 					)
-					routes.RegisterDevtoolsSnapshotRoutes(r, queries, readRepo, devtoolsSnapshotWriteRepo, cfg.FeatureFlags.DevtoolsSnapshotEnabled)
+					var installPools []*pgxpool.Pool
+					if config.IsSingleOwner(cfg.Auth) {
+						installPools = []*pgxpool.Pool{pool}
+					}
+					routes.RegisterDevtoolsSnapshotRoutes(r, queries, readRepo, devtoolsSnapshotWriteRepo, cfg.FeatureFlags.DevtoolsSnapshotEnabled, installPools...)
 				}
 
 				r.With(writeRepo...).Patch("/", repoHandler.PatchRepo)

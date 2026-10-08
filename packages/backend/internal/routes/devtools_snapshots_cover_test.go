@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	stderrors "errors"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -287,10 +288,11 @@ func TestDevtoolsSnapshots_Cov_HelperValidation(t *testing.T) {
 
 	t.Run("workspace matching handles invalid and blank payload values", func(t *testing.T) {
 		workspaceID := "22222222-2222-2222-2222-222222222222"
-		assert.Nil(t, snapshotWorkspaceID(json.RawMessage(`{`)))
-		assert.Nil(t, snapshotWorkspaceID(json.RawMessage(`{"workspace_id":" "}`)))
-		assert.False(t, snapshotMatchesWorkspace(db.DevtoolsSnapshot{Payload: json.RawMessage(`{"value":1}`)}, &workspaceID))
-		assert.True(t, snapshotMatchesWorkspace(db.DevtoolsSnapshot{Payload: json.RawMessage(`{"value":1}`)}, nil))
+		assert.Equal(t, workspaceID, *services.DevtoolsSnapshotWorkspaceID(json.RawMessage(`{"workspace_id":" ` + workspaceID + ` "}`)))
+		assert.Nil(t, services.DevtoolsSnapshotWorkspaceID(json.RawMessage(`{`)))
+		assert.Nil(t, services.DevtoolsSnapshotWorkspaceID(json.RawMessage(`{"workspace_id":" "}`)))
+		assert.Nil(t, services.DevtoolsSnapshotWorkspaceID(json.RawMessage(`{"value":1}`)))
+
 		assert.Nil(t, queryStringPtr(" "))
 		require.NotNil(t, queryStringPtr("  abc  "))
 		assert.Equal(t, "abc", *queryStringPtr("  abc  "))

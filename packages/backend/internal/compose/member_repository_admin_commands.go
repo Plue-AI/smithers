@@ -33,7 +33,7 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 		return
 	}
 	parts := strings.Split(strings.Trim(r.URL.EscapedPath(), "/"), "/")
-	if len(parts) < 5 || (len(parts) > 6 && (!strings.HasPrefix(command, "webhooks.") || len(parts) > 9)) {
+	if len(parts) < 5 || (len(parts) > 6 && ((!strings.HasPrefix(command, "webhooks.") || len(parts) > 9) && (command != "devtools.read" || len(parts) > 7))) {
 		refuse(pkgerrors.BadRequest("invalid repository configuration request"))
 		return
 	}
@@ -157,7 +157,11 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 			return
 		}
 	}
-	if command == "repo.archive" || command == "repo.unarchive" {
+	if command == "devtools.read" {
+		var value services.DevtoolsSnapshotReadInput
+		value, err = routes.DevtoolsSnapshotReadInput(r, repository.ID)
+		subject = services.InstallDevtoolsSnapshotReadSubject(repository.ID, value)
+	} else if command == "repo.archive" || command == "repo.unarchive" {
 		subject = services.InstallRepoArchiveSubject(repository.ID, command == "repo.archive")
 	} else if command == "mirror.read" {
 		subject = services.InstallMirrorSyncReadSubject(repository.ID, id)
