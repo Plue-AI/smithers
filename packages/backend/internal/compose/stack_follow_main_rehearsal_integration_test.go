@@ -12,6 +12,8 @@ import (
 // branches, stack worker, engine verification and publication. GitHub's fake
 // performs the person's merge; the install only follows its new main.
 func TestStackFollowsMainRehearsal(t *testing.T) {
+	// The Linux file provider is the existing journey fixture; this covers
+	// stack/capture/sync/publication, not authenticated guest agent writes.
 	r := newRehearsal(t, "SMITHERS_FOLLOW_MAIN_REHEARSAL", "C-STK-follow-main", "follow-main-")
 	if !r.install("Install through Machine ready") {
 		return
@@ -29,11 +31,11 @@ func TestStackFollowsMainRehearsal(t *testing.T) {
 	card, err := r.j10Card(second)
 	require.NoError(t, err)
 	pr, oldHead := card.PR.Number, card.PR.Head
-	// A reviewed item has released its execution binding. Its retained coding
-	// branch is still the subject of presence and captured-head rebases.
+	// The live TODO composition keeps its coding branch while waiting for
+	// the proposal. Presence and rebasing remain bound to that real branch.
 	var workspace string
 	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT workspace_id FROM mythical_items WHERE number=$1`, second).Scan(&workspace))
-	require.Empty(t, workspace)
+	require.NotEmpty(t, workspace)
 	firstCard, err := r.todo(first)
 	require.NoError(t, err)
 	_, err = r.fakeControl("/_fake/merge", map[string]any{"repo": "rehearsal-owner/app", "number": firstCard.PR.Number})
@@ -49,6 +51,19 @@ func TestStackFollowsMainRehearsal(t *testing.T) {
 		require.NoError(t, err)
 		if after.Base == main {
 			break
+		}
+		if !time.Now().Before(deadline) {
+			rows, queryErr := r.pool.Query(r.ctx, `SELECT number,state,reason,workspace_id,candidate_base,candidate_head,request_outcome,COALESCE(checks->'rebase'->>'name','') FROM mythical_items ORDER BY number`)
+			if queryErr == nil {
+				for rows.Next() {
+					var n int64
+					var state, reason, workspace, base, head, outcome, onto string
+					if rows.Scan(&n, &state, &reason, &workspace, &base, &head, &outcome, &onto) == nil {
+						t.Logf("T%d state=%s reason=%q workspace=%s base=%s head=%s outcome=%q onto=%s", n, state, reason, workspace, base, head, outcome, onto)
+					}
+				}
+				rows.Close()
+			}
 		}
 		require.True(t, time.Now().Before(deadline), "T%d stayed %s %q on %s after main moved to %s", second, after.State, after.Reason, after.Base, main)
 		time.Sleep(time.Second)

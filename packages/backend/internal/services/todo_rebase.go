@@ -41,6 +41,9 @@ func (s *MythicalService) mayRebaseAtBoundary(ctx context.Context, repository in
 		return true
 	}
 	presence, err := s.rebasePresence(ctx, repository, workspace)
+	if err != nil && s.logger != nil {
+		s.logger.Warn("mythical.rebase_presence_failed", "repository_id", repository, "workspace_id", workspace, "error", err)
+	}
 	return err == nil && RebaseAtBoundary(true, presence)
 }
 
