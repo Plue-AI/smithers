@@ -567,11 +567,17 @@ impl<A: Eq + Clone, B: Eq + Clone> Changes<A, B> {
 }
 #[cfg(all(feature = "killpoints", debug_assertions))]
 pub(crate) fn killpoint(point: &str) {
-    // An approved debug qualification bundle may hold at the same fault
-    // boundary so the host can kill the VM, instead of only this process.
-    // The private state directory is inaccessible to members and agents.
+    // Keep the reference-host VM hold hook composed with daemon exits.
     pause_fault(point, std::path::Path::new("/var/lib/smithers-machined"));
-    if std::env::var("SMITHERS_MACHINED_KILL_AT").ok().as_deref() == Some(point) {
+    let selected = std::env::var("SMITHERS_MACHINED_KILL_AT").unwrap_or_default();
+    // Integrated capture campaigns must first finish their acknowledged writer
+    // and drain its bursts. The ordinary five-second capture cadence can reach
+    // K5 while that setup is still running. A main-authored test supervisor arms
+    // the hook in the daemon's private state, never in the working copy.
+    let armed = selected.strip_prefix("armed:") == Some(point)
+        && std::fs::read("/var/lib/smithers-machined/fault-armed")
+            .is_ok_and(|bytes| bytes == point.as_bytes());
+    if selected == point || armed {
         std::process::exit(73);
     }
 }

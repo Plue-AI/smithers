@@ -96,6 +96,13 @@ the daemon's outbox and bundle transport, PostgreSQL, the host store and the
 composed sleeping-branch HTTP diff door. Each run retains acknowledged writer
 hashes, rows, captured heads, daemon logs and outbox records in the campaign's
 evidence directory. Missing, skipped, failed or duplicated run receipts fail.
+The executable is copied into that directory before launch; every restart uses
+those same digest-bound bytes even if the shared Cargo target is rebuilt.
+
+K5 hooks arm only after all twenty acknowledged writes have host receipts.
+This keeps the ordinary five-second capture cadence from killing writer setup.
+The first repetition pauses setup past that cadence to exercise the race;
+the armed hook still must exit with code 73 and recover every written file.
 
 Its empty broker census cannot qualify member-session attribution, guest init
 supervision, K4/K4b host faults or K6 VM kills. The summary stays `incomplete`;

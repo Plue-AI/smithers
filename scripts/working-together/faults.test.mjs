@@ -141,7 +141,7 @@ test('watcher campaign requires every real kill point and all seventy completed 
 
 
 test('watcher preflight refuses an uninstrumented binary before running the campaign', async () => {
- const {mkdtemp,writeFile,chmod,rm,symlink} = await import('node:fs/promises')
+ const {mkdtemp,writeFile,readFile,stat,chmod,rm,symlink} = await import('node:fs/promises')
  const {tmpdir} = await import('node:os')
  const {join} = await import('node:path')
  const directory = await mkdtemp(join(tmpdir(),'watcher-preflight-'))
@@ -155,7 +155,15 @@ test('watcher preflight refuses an uninstrumented binary before running the camp
   assert.match(result.binaryDigest,/^[0-9a-f]{64}$/)
   assert.equal(result.env.SMITHERS_REHEARSAL_COMMIT,'commit')
   assert.equal(result.env.SMITHERS_REHEARSAL_FAULT_EVIDENCE,directory)
-  assert.equal(result.env.SMITHERS_REHEARSAL_MACHINED_FAULT_BINARY,binary)
+  const staged = join(directory,'machined-fault-daemon')
+  assert.equal(result.env.SMITHERS_REHEARSAL_MACHINED_FAULT_BINARY,staged)
+  const stagedBytes = await readFile(staged)
+  assert.deepEqual(stagedBytes,await readFile(binary))
+  assert.equal((await stat(staged)).mode & 0o777,0o500)
+  await writeFile(binary,'concurrent shared-target rebuild')
+  assert.deepEqual(await readFile(staged),stagedBytes,'every restart uses the qualified bytes')
+  await writeFile(binary,stagedBytes)
+  await assert.rejects(watcherEnvironment(config,directory,'commit',{}),/EEXIST/)
   await chmod(binary,0o600)
   await assert.rejects(watcherEnvironment(config,directory,'commit',{}),/invalid rehearsal/)
   await symlink(binary,join(directory,'link'))

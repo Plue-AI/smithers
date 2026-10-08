@@ -99,7 +99,11 @@ export async function watcherEnvironment(config, directory, commit, ambient = pr
   if (!stat.isFile() || !(stat.mode & 0o111) || stat.size > 512 * 1024 * 1024) throw new Error('invalid rehearsal daemon executable')
   const bytes = await readFile(config.machinedFaultBinary)
   if (!bytes.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46])) || !bytes.includes(Buffer.from('SMITHERS_MACHINED_KILL_AT'))) throw new Error('rehearsal daemon must be Linux ELF built with --features killpoints')
-  return { env: { ...boundaryEnvironment(config, ambient), SMITHERS_REHEARSAL_MACHINED_FAULT_BINARY: config.machinedFaultBinary, SMITHERS_REHEARSAL_FAULT_EVIDENCE: directory, SMITHERS_REHEARSAL_COMMIT: commit }, binaryDigest: createHash('sha256').update(bytes).digest('hex') }
+  // Cargo's shared target can be rebuilt by another lane during a campaign.
+  // Execute the exact bytes whose digest this receipt records on every restart.
+  const executable = join(directory, 'machined-fault-daemon')
+  await writeFile(executable, bytes, { flag: 'wx', mode: 0o500 })
+  return { env: { ...boundaryEnvironment(config, ambient), SMITHERS_REHEARSAL_MACHINED_FAULT_BINARY: executable, SMITHERS_REHEARSAL_FAULT_EVIDENCE: directory, SMITHERS_REHEARSAL_COMMIT: commit }, binaryDigest: createHash('sha256').update(bytes).digest('hex') }
 }
 export async function run({ root = process.cwd(), componentsOnly = false, wikiOnly = false, codeOnly = false, hostOnly = false, watcherOnly = false } = {}) {
   if ([wikiOnly, codeOnly, hostOnly, watcherOnly].filter(Boolean).length > 1) throw new Error('select one boundary suite')
@@ -138,7 +142,7 @@ export async function run({ root = process.cwd(), componentsOnly = false, wikiOn
     }
   }
   const command = boundaryOnly ? 'go' : 'cargo'
-  const args = boundaryOnly ? ['test', hostOnly ? './packages/backend/internal/machined' : './packages/backend/internal/compose', '-run', `^(${tests.join('|')})$`, hostOnly || watcherOnly ? '-count=1' : '-count=10', '-json', '-failfast'] : ['test', '--locked', '-p', 'smithers-machined', '--features', 'testing,killpoints', ...suites.flatMap(suite => ['--test', suite]), '--', '--test-threads=1']
+  const args = boundaryOnly ? ['test', '-p', '4', '-timeout=20m', hostOnly ? './packages/backend/internal/machined' : './packages/backend/internal/compose', '-run', `^(${tests.join('|')})$`, hostOnly || watcherOnly ? '-count=1' : '-count=10', '-json', '-failfast'] : ['test', '--locked', '-p', 'smithers-machined', '--features', 'testing,killpoints', ...suites.flatMap(suite => ['--test', suite]), '--', '--test-threads=1']
   let logs = ''
   const code = await new Promise(resolve => {
     const child = spawn(command, args, { cwd: root, env: executionEnv, stdio: ['ignore', 'pipe', 'pipe'] })

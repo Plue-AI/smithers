@@ -110,6 +110,9 @@ func outsideWatcherDaemonFault(t *testing.T, binary, point string) {
 	}
 	writeEvidence("env.json", map[string]any{"commit": os.Getenv("SMITHERS_REHEARSAL_COMMIT"), "point": point, "run": t.Name(), "scope": "outside-daemon-recovery", "broker": "empty-census", "guest_init": false, "vm": false, "head_before": seed})
 	restart := &rehearsalRestart{State: t.TempDir(), Run: t.TempDir(), KillAt: point, Exited: make(chan error, 1)}
+	if strings.HasPrefix(point, "K5") {
+		restart.KillAt = "armed:" + point
+	}
 	require.NoError(t, startRehearsalMachinedWith(t, ctx, registry, f.row.ID, root, evidence, binary, &machined.ItemBinding{}, restart))
 	// Independent acknowledged-write oracle: log only after fsync and close.
 	writer, err := os.Create(filepath.Join(evidence, "writer.jsonl"))
@@ -127,6 +130,25 @@ func outsideWatcherDaemonFault(t *testing.T, binary, point string) {
 		hash := sha256.Sum256([]byte(content))
 		expected[path] = content
 		require.NoError(t, json.NewEncoder(writer).Encode(map[string]any{"seq": n, "path": path, "sha256": hex.EncodeToString(hash[:])}))
+		if n == 0 && strings.HasPrefix(point, "K5") && filepath.Base(t.Name()) == "1" {
+			// Deliberately cross the five-second background capture boundary.
+			// The old eagerly armed hook exits here, before the remaining writes.
+			select {
+			case err := <-restart.Exited:
+				t.Fatalf("capture hook fired before acknowledged writer completed: %v", err)
+			case <-time.After(6 * time.Second):
+			}
+			var setupHead string
+			require.Eventually(t, func() bool {
+				head, err := exec.Command("/usr/bin/git", "-C", store, "rev-parse", "refs/smithers/branches/"+f.row.ID+"/head").Output()
+				setupHead = strings.TrimSpace(string(head))
+				return err == nil && setupHead != seed
+			}, 15*time.Second, 50*time.Millisecond, "background capture must complete before the hook is armed")
+			captured, err := exec.Command("/usr/bin/git", "-C", store, "show", setupHead+":"+path).CombinedOutput()
+			require.NoError(t, err, string(captured))
+			require.Equal(t, content, string(captured))
+			writeEvidence("setup-capture.json", map[string]string{"head": setupHead, "path": path, "sha256": hex.EncodeToString(hash[:])})
+		}
 	}
 	require.NoError(t, writer.Sync())
 	require.NoError(t, writer.Close())
@@ -136,6 +158,9 @@ func outsideWatcherDaemonFault(t *testing.T, binary, point string) {
 			err := f.pool.QueryRow(ctx, `SELECT count(*) FROM burst_files`).Scan(&n)
 			return err == nil && n == 20
 		}, 20*time.Second, 50*time.Millisecond)
+		// Cadence captures during setup must not kill the daemon before all
+		// acknowledged writes have reached the host. Arm only after that receipt.
+		require.NoError(t, os.WriteFile(filepath.Join(restart.State, "fault-armed"), []byte(point), 0600))
 		// Capture invokes the actual native snapshot/object stream/captured event.
 		_, _ = registry.Capture(ctx, f.row.ID)
 	}
