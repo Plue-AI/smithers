@@ -339,6 +339,7 @@ func TestSSHRootInputsValidatedBeforeUse(t *testing.T) {
 		command(`rm -rf /workspace/trm03-poison`)
 		exerciseSSHBrokerSemanticInputs(t, h, client, login, member, uid)
 		exerciseSSHRetainedFilesystemRace(t, client)
+		exerciseSSHRetainedExecutableRace(t, client)
 		t.Log("C-J3-06 native startup and authenticated semantic-envelope subset; private socketpair malformed frames, retained wake races and C-COL-04 receipts remain required")
 	})
 }
@@ -561,5 +562,79 @@ func exerciseSSHRetainedFilesystemRace(t *testing.T, client *gossh.Client) {
 		require.NoError(t, err)
 		require.NoError(t, positive.Close())
 		require.Equal(t, "retained-member\n", string(command(`cat /workspace/trm03-retained-race/inside/positive`)))
+	})
+}
+
+// The SSH command is deliberately a branch-owned executable symlink. Its
+// resolution and interpreter startup must happen as the member, even while a
+// retained process replaces that symlink and client startup variables are hostile.
+func exerciseSSHRetainedExecutableRace(t *testing.T, client *gossh.Client) {
+	t.Helper()
+	t.Run("retained-executable-symlink-race", func(t *testing.T) {
+		command := func(text string) []byte {
+			t.Helper()
+			session, err := client.NewSession()
+			require.NoError(t, err)
+			defer session.Close()
+			output, err := session.CombinedOutput(text)
+			require.NoError(t, err, string(output))
+			return output
+		}
+		command(`set -eu
+ test ! -e /etc/trm03-executable-canary
+ mkdir -p /workspace/trm03-executable-race
+ cd /workspace/trm03-executable-race
+ for name in a b; do
+ cat > "$name" <<'SCRIPT'
+#!/bin/sh
+set -eu
+id -u
+id -g
+id -G
+pwd
+grep -Eq '^0::/smithers/sessions/s[1-9][0-9]*$' /proc/$$/cgroup
+if (printf 0 > /sys/fs/cgroup/smithers/cgroup.procs) 2>/dev/null; then exit 1; fi
+if (printf root-canary > /etc/trm03-executable-canary) 2>/dev/null; then exit 1; fi
+SCRIPT
+ chmod 755 "$name"
+ done
+ ln -s a target`)
+		defer command(`rm -rf /workspace/trm03-executable-race`)
+		racer, err := client.NewSession()
+		require.NoError(t, err)
+		defer racer.Close()
+		var raceOutput bytes.Buffer
+		racer.Stdout, racer.Stderr = &raceOutput, &raceOutput
+		require.NoError(t, racer.Start(`set -eu; cd /workspace/trm03-executable-race; while test ! -e done; do ln -s a next; mv -Tf next target; ln -s b next; mv -Tf next target; touch ready; done`))
+		remote, err := sftp.NewClient(client)
+		require.NoError(t, err)
+		defer remote.Close()
+		defer func() {
+			file, err := remote.Create("/workspace/trm03-executable-race/done")
+			require.NoError(t, err)
+			require.NoError(t, file.Close())
+			require.NoError(t, racer.Wait(), raceOutput.String())
+		}()
+		require.Eventually(t, func() bool {
+			_, err := remote.Stat("/workspace/trm03-executable-race/ready")
+			return err == nil
+		}, 5*time.Second, 10*time.Millisecond)
+		for attempt := 0; attempt < 32; attempt++ {
+			session, err := client.NewSession()
+			require.NoError(t, err)
+			for _, pair := range [][2]string{
+				{"PATH", "/workspace/trm03-executable-race"},
+				{"SHELL", "/workspace/trm03-executable-race/target"},
+				{"BASH_ENV", "/workspace/trm03-executable-race/target"},
+				{"LD_PRELOAD", "/workspace/trm03-executable-race/target"},
+			} {
+				require.NoError(t, session.Setenv(pair[0], pair[1]))
+			}
+			output, err := session.CombinedOutput("/workspace/trm03-executable-race/target")
+			session.Close()
+			require.NoError(t, err, "attempt %d: %s", attempt, output)
+			require.Equal(t, "20000\n20000\n20000\n/workspace\n", string(output), "attempt %d", attempt)
+		}
+		require.Equal(t, "20000\n20000\n20000\n/workspace\n", string(command(`id -u; id -g; id -G; pwd; test ! -e /etc/trm03-executable-canary`)))
 	})
 }
