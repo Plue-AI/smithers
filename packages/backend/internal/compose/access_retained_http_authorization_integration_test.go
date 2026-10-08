@@ -1,6 +1,8 @@
 package compose
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,9 +12,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/stretchr/testify/require"
 )
@@ -342,6 +346,135 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 			})
 		}
 	}
+	// Both implicit append and explicit create qualify every eligible full
+	// delegated role/profile through the real persisted confirmation consumer.
+	// They must never execute the TODO before its requesting person presses.
+	call := func(cred credential, method, path, body, key, command string, status int) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(method, r.origin+path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Origin", r.origin)
+		req.Header.Set("Idempotency-Key", key)
+		req.RemoteAddr = "127.0.0.1:50999"
+		if cred.token != "" {
+			req.Header.Set("Authorization", "Bearer "+cred.token)
+		}
+		if cred.cookie != "" {
+			req.AddCookie(&http.Cookie{Name: cookieName, Value: cred.cookie})
+			req.AddCookie(&http.Cookie{Name: "__csrf", Value: "campaign"})
+			req.Header.Set("X-CSRF-Token", "campaign")
+		}
+		var decisions []string
+		req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) { decisions = append(decisions, command) }))
+		out := httptest.NewRecorder()
+		router.ServeHTTP(out, req)
+		require.Equal(t, status, out.Code, out.Body.String())
+		require.Equal(t, []string{command}, decisions)
+		return out
+	}
+	withoutConfirmations := func() string {
+		t.Helper()
+		var rows map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal([]byte(snapshot()), &rows))
+		delete(rows, "confirmations")
+		data, err := json.Marshal(rows)
+		require.NoError(t, err)
+		return string(data)
+	}
+	personSessions := map[int64]credential{owner.ID: credentials[0], ben.ID: credentials[4], alice.ID: credentials[8]}
+	pendingByMember := map[int64][]string{}
+	seenConfirmationCredentials := map[string]string{}
+	for _, cred := range []credential{credentials[0], credentials[4], credentials[8]} {
+		request(t, retainedHTTPCase{Command: "confirmation.create", Method: "POST", Path: "/api/confirmations", Body: map[string]any{"command": "todo.new", "payload": map[string]any{"title": "Person create refused", "prompt": "Person create refused"}}}, cred, "active/full/explicit-create", 403, "permission")
+	}
+	for _, mode := range []string{"implicit", "explicit"} {
+		for _, cred := range credentials {
+			if cred.token == "" {
+				continue
+			}
+			t.Run("confirmed-append/"+mode+"/"+cred.name, func(t *testing.T) {
+				title := "Retained confirmation " + mode + " " + cred.name
+				payload := map[string]any{"title": title, "prompt": "[PR] [FILE acc-profile.md] [HOLD acc-profile] " + title, "place": map[string]string{"mode": "append"}}
+				path := "/api/todos"
+				var input any = payload
+				if mode == "explicit" {
+					path = "/api/confirmations"
+					input = map[string]any{"command": "todo.new", "payload": payload}
+				}
+				body, err := json.Marshal(input)
+				require.NoError(t, err)
+				key := fmt.Sprintf("campaign-confirm-%d", len(receipts))
+				before, outboundBefore := withoutConfirmations(), githubMutations()
+				var countBefore, countAfter int
+				require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&countBefore))
+				out := call(cred, "POST", path, string(body), key, "todo.new", 202)
+				var value map[string]string
+				require.NoError(t, json.Unmarshal(out.Body.Bytes(), &value))
+				require.Len(t, value, 2)
+				require.NotEmpty(t, value["confirmation"])
+				require.Equal(t, "pending", value["state"])
+				id := value["confirmation"]
+				var state, kind, command, storedCredential string
+				var member int64
+				require.NoError(t, pool.QueryRow(ctx, `SELECT state,kind,command,member_id,credential_id FROM approvals WHERE id=$1`, id).Scan(&state, &kind, &command, &member, &storedCredential))
+				require.Equal(t, "pending", state)
+				require.Equal(t, "one_click", kind)
+				require.Equal(t, "todo.new", command)
+				require.Equal(t, cred.user, member)
+				require.NotEmpty(t, storedCredential)
+				if previous, exists := seenConfirmationCredentials[storedCredential]; exists {
+					require.Equal(t, cred.name, previous)
+				}
+				seenConfirmationCredentials[storedCredential] = cred.name
+				pendingByMember[cred.user] = append(pendingByMember[cred.user], id)
+				require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&countAfter))
+				require.Equal(t, countBefore+1, countAfter)
+				require.Equal(t, before, withoutConfirmations(), "confirmation creates no TODO/admission or management effects")
+				require.Equal(t, outboundBefore, githubMutations())
+				receipts = append(receipts, map[string]any{"command": "todo.new", "credential": cred.name, "state": "active/full/" + mode, "status": 202, "effects": 1, "effect_kind": "private-pending-confirmation", "todo_effects": 0, "decisions": []string{"todo.new"}})
+				// A replay decides afresh before disclosing the saved response.
+				beforeReplay := snapshot()
+				replay := call(cred, "POST", path, string(body), key, "todo.new", 202)
+				require.JSONEq(t, out.Body.String(), replay.Body.String())
+				require.Equal(t, beforeReplay, snapshot())
+				receipts = append(receipts, map[string]any{"command": "todo.new", "credential": cred.name, "state": "active/full/replay", "status": 202, "effects": 0, "decisions": []string{"todo.new"}})
+				foreign := credentials[0]
+				if cred.user == owner.ID {
+					foreign = credentials[4]
+				}
+				for _, reader := range []credential{cred, personSessions[cred.user], foreign} {
+					beforeRead := snapshot()
+					listed := call(reader, "GET", "/api/confirmations", "", "", "confirmations.read", 200)
+					var rows []map[string]any
+					require.NoError(t, json.Unmarshal(listed.Body.Bytes(), &rows))
+					var ids []string
+					for _, row := range rows {
+						ids = append(ids, row["id"].(string))
+						if reader.token != "" {
+							require.Len(t, row, 2)
+							require.Equal(t, "pending", row["state"])
+						}
+					}
+					require.ElementsMatch(t, pendingByMember[reader.user], ids)
+					if reader.user == cred.user && reader.cookie != "" {
+						require.Contains(t, listed.Body.String(), title)
+					}
+					if reader.user != cred.user {
+						require.NotContains(t, listed.Body.String(), id)
+						require.NotContains(t, listed.Body.String(), title)
+					}
+					if reader.token != "" {
+						require.NotContains(t, listed.Body.String(), title)
+					}
+					require.Equal(t, beforeRead, snapshot())
+					require.Equal(t, outboundBefore, githubMutations())
+					receipts = append(receipts, map[string]any{"command": "confirmations.read", "credential": reader.name, "state": "active/full/private-audience", "status": 200, "effects": 0, "decisions": []string{"confirmations.read"}})
+				}
+				request(t, retainedHTTPCase{Command: "confirmation.decide-own", Method: "POST", Path: "/api/confirmations/" + id + "/approve", Body: map[string]any{}}, foreign, "active/foreign-member", 403, "permission")
+			})
+		}
+	}
+	require.Len(t, seenConfirmationCredentials, 9, "each minted delegated credential owns a distinct confirmation scope")
 	// Qualify allowed management writes on real stored subjects for both
 	// eligible person roles. Each request binds exactly one decision, and no
 	// management write may create a confirmation or outbound GitHub mutation.
@@ -566,16 +699,67 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 			}
 		}
 	}
+	// An Owner presses their real pending card, then the composed engine
+	// issues the run credential while the packaged model is deliberately held.
+	// This qualifies trusted-process issuance, not a real microVM guest.
+	var todosBefore, todosAfter int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items`).Scan(&todosBefore))
+	approvedID := pendingByMember[owner.ID][0]
+	approved := call(credentials[0], "POST", "/api/confirmations/"+approvedID+"/approve", `{}`, "campaign-owner-press", "todo.new", 200)
+	require.JSONEq(t, fmt.Sprintf(`{"id":%q,"state":"approved"}`, approvedID), approved.Body.String())
+	var approvedNumber int64
+	var approvedTitle string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT number,title FROM mythical_items WHERE checks->>'filedRequest'=$1 AND owner_id=$2 AND created_by=$2`, "confirmation:"+approvedID, owner.ID).Scan(&approvedNumber, &approvedTitle))
+	require.Equal(t, "Retained confirmation implicit rehearsal-owner/external_agent/cli", approvedTitle)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items`).Scan(&todosAfter))
+	require.Equal(t, todosBefore+1, todosAfter)
+	receipts = append(receipts, map[string]any{"command": "todo.new", "credential": credentials[0].name, "state": "active/full/own-session-press", "status": 200, "effects": 1, "effect_kind": "person-approved-todo", "decisions": []string{"todo.new"}})
+	t.Cleanup(func() { _ = r.release("acc-profile") })
+	require.NoError(t, r.waitHeld("acc-profile", 3*time.Minute))
+	var executionWorkspace, executionRun string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT workspace_id,request_run_id FROM mythical_items WHERE repository_id=$1 AND number=$2`, repo.ID, approvedNumber).Scan(&executionWorkspace, &executionRun))
+	issued, exists := r.hostCredentials.Load(executionWorkspace)
+	require.True(t, exists, "the real packaged coding host must receive its issued credential")
+	issuedToken := issued.(string)
+	digest := sha256.Sum256([]byte(issuedToken))
+	var issuedSponsor int64
+	var issuedScopes string
+	var issuedSystem bool
+	require.NoError(t, pool.QueryRow(ctx, `SELECT user_id,scopes,system_issued FROM access_tokens WHERE token_hash=$1`, hex.EncodeToString(digest[:])).Scan(&issuedSponsor, &issuedScopes, &issuedSystem))
+	require.Equal(t, owner.ID, issuedSponsor)
+	require.True(t, issuedSystem)
+	require.Equal(t, middleware.CredentialAgentRun, middleware.TokenCredentialKind(issuedSystem, issuedScopes, "user", true))
+	require.Equal(t, executionRun, middleware.ParseTokenAgentSessionRestriction(issuedScopes))
+	runCredential := credential{name: "owner/run/trusted-process", token: issuedToken, user: owner.ID}
+	beforeRunRead, outboundBeforeRunRead := snapshot(), githubMutations()
+	runRead := call(runCredential, "GET", fmt.Sprintf("/api/todos/%d", approvedNumber), "", "", "todo.read", 200)
+	var execution map[string]any
+	require.NoError(t, json.Unmarshal(runRead.Body.Bytes(), &execution))
+	require.Equal(t, float64(approvedNumber), execution["n"])
+	for _, key := range []string{"owner", "present", "waits", "steers", "preapproval", "view_state", "confirmations", "revisions"} {
+		require.NotContains(t, execution, key)
+	}
+	require.Equal(t, beforeRunRead, snapshot())
+	require.Equal(t, outboundBeforeRunRead, githubMutations())
+	receipts = append(receipts, map[string]any{"command": "todo.read", "credential": runCredential.name, "state": "active/exact-run-workspace", "status": 200, "effects": 0, "decisions": []string{"todo.read"}, "boundary": "real composed engine issuer, trusted-process coding host"})
+	for _, denied := range []struct{ command, path string }{
+		{"todo.read", fmt.Sprintf("/api/todos/%d", readNumber)},
+		{"todo.read", "/api/todos"}, {"agents.read", "/api/agents"},
+		{"members.list", "/api/members"}, {"secrets.read", "/api/secrets"},
+		{"confirmations.read", "/api/confirmations"},
+	} {
+		request(t, retainedHTTPCase{Command: denied.command, Method: "GET", Path: denied.path, Body: map[string]any{}}, runCredential, "active/foreign-or-person-subject", 403, "permission")
+	}
 	require.Equal(t, 135, httpCommands)
-	require.Equal(t, 2059+44+132+24*len(dispatchCases), len(receipts), "HTTP policy and separate dispatch-binding cells must pass")
+	require.Equal(t, 2059+44+132+111+8+24*len(dispatchCases), len(receipts), "HTTP policy and separate dispatch-binding cells must pass")
 	require.Equal(t, 14*len(dispatchCases), dispatchActiveCells)
 	if dir := os.Getenv("SMITHERS_ACCESS_LEDGER_DIR"); dir != "" {
-		data, err := json.MarshalIndent(map[string]any{"boundary": "production composed install HTTP role/profile/state campaign", "admitted_writes": 10, "admitted_reads": 138, "http_policy_refusal_cells": 2087, "dispatch_binding_refusal_cells": 24 * len(dispatchCases), "http_commands": httpCommands, "pending_http_commands": []string{"issue.new (T-CAT-01)"}, "public_http_commands": []string{"telemetry.report"}, "app_commands_without_http_door": 196, "dispatch_binding_commands": len(fixture.Commands) - 1, "dispatch_binding_cells": 24 * len(dispatchCases), "cells": receipts, "full_live_effect_matrix_complete": false}, "", "  ")
+		data, err := json.MarshalIndent(map[string]any{"boundary": "production composed install HTTP role/profile/state campaign", "admitted_writes": 11, "admitted_reads": 193, "admitted_confirmations": 18, "confirmation_replays": 18, "confirmation_refusal_cells": 21, "trusted_process_run_refusal_cells": 6, "real_guest_run_qualified": false, "http_policy_refusal_cells": 2087, "dispatch_binding_refusal_cells": 24 * len(dispatchCases), "http_commands": httpCommands, "pending_http_commands": []string{"issue.new (T-CAT-01)"}, "public_http_commands": []string{"telemetry.report"}, "app_commands_without_http_door": 196, "dispatch_binding_commands": len(fixture.Commands) - 1, "dispatch_binding_cells": 24 * len(dispatchCases), "cells": receipts, "full_live_effect_matrix_complete": false}, "", "  ")
 		require.NoError(t, err)
 		require.NoError(t, os.MkdirAll(dir, 0700))
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "retained-http-effects.json"), append(data, '\n'), 0600))
 	}
-	t.Logf("HTTP campaign: %d commands, %d refusal cells, 10 admitted management effects and 138 asserted reads; full admitted-effect matrix remains separate", httpCommands, len(receipts)-148)
+	t.Logf("HTTP campaign: %d commands, %d refusal cells, 11 admitted writes, 193 asserted reads and 18 private pending confirmations; full admitted-effect matrix remains separate", httpCommands, len(receipts)-240)
 }
 
 // Catalog data is used only to measure coverage; it never supplies outcomes.
