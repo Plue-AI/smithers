@@ -1306,6 +1306,8 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		// Plue's composition admits none.
 		mythicalService.EnableTodoAdmission()
 		mythicalService.EnableLearningAdmission(commandJobs)
+		// A learning run executes only in its own ephemeral machine.
+		bindLearningMachines(mythicalService, cfg, pool, options.Workspace, services.NewLearningSource(queries, options.Workspace, publicBaseURL))
 	}
 	// A lane's coding host starts only on a box with its declared tools.
 	services.WithWorkspaceBoxTools(mythicalService.LaneTools)(workspaceService)
@@ -2343,7 +2345,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	if config.IsSingleOwner(cfg.Auth) && options.topology.workers() {
 		launchWorker(func() {
-			if err := commandJobs.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "learning-" + uuid.NewString(), Capacity: 1, Lease: time.Minute, Operations: []string{services.LearningAdmissionOperation}}, mythicalService.HandleLearningAdmission); err != nil && workerCtx.Err() == nil {
+			if err := commandJobs.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "learning-" + uuid.NewString(), Capacity: 1, Lease: time.Minute, RetryDelay: time.Second, Operations: []string{services.LearningAdmissionOperation}}, mythicalService.HandleLearningAdmission); err != nil && workerCtx.Err() == nil {
 				slog.Error("Learning admission worker stopped", "error", err)
 			}
 		})

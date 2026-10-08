@@ -27,13 +27,16 @@ import (
 // /api/live and change the decision; the next related TODO's plan cites the
 // edited revision. C-J8-03's Obsidian folder runs last, on the same page.
 // Rows whose product code has not landed are pending with their lane:
-//   - learning-machine: services.SetLearningMachines has no production caller,
-//     so the admitted learning run never gets its ephemeral machine (T-FLW-06).
+//   - learning-host: the install allocates the learning run's ephemeral
+//     machine (bindLearningMachines), but its host would start through the
+//     shared box launcher, which installs a source-publishing binding, and
+//     flowhost refuses a learning execution pin. Learning needs review's
+//     pinned-local host path (T-FLW-06, C-SEC-02).
 //   - plan-wiki-provider: no trusted host binds MemoryOptions.wikiCitations and
 //     wikiProvider (flows/coding/planning-wiki.md), so no plan cites a page
 //     revision (T-FLW-10).
 //
-// Until learning-machine lands, the owner writes the decision page in the
+// Until learning-host lands, the owner writes the decision page in the
 // app; the co-editing rows exercise that page.
 func TestJ8Rehearsal(t *testing.T) {
 	// The install's state directory, as localbootstrap gives it: an Obsidian
@@ -167,7 +170,7 @@ func TestJ8Rehearsal(t *testing.T) {
 		r.actual = fmt.Sprintf("%s %s class=background; Home %q %s; %d TODO; checkpoint %q, last error %q", request, jobState, title, shown, todos, reason, lastError)
 		return nil
 	})
-	r.pending("1 Learning writes the decision page", "learning run in its machine; GET /api/repos/{o}/{r}/wiki; SQL mythical_items.lessons", "one page revision linking PR and merge commit, with a reason from a steer or review, authored {agent: coding, run}; T<n> shows N lessons", "T-FLW-06", "learning-machine")
+	r.pending("1 Learning writes the decision page", "learning run in its machine; GET /api/repos/{o}/{r}/wiki; SQL mythical_items.lessons", "one page revision linking PR and merge commit, with a reason from a steer or review, authored {agent: coding, run}; T<n> shows N lessons", "T-FLW-06", "learning-host")
 	const (
 		base      = "# Webhook retries\n\nDecision: webhook redelivery uses `retryExponential()`.\nReason: provider rate limits.\n"
 		decision  = "Decision: webhook redelivery uses `retryExponential()`.\nReason: provider rate limits."

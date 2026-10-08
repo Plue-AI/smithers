@@ -15,6 +15,10 @@ import (
 
 const LearningAdmissionOperation = "learning.admission"
 
+// learningWait is how long an admission parks before it looks again for the
+// Active learning version or an execution provider.
+const learningWait = time.Minute
+
 // LearningMachines is the ephemeral background allocator's boundary. Ensure
 // must deduplicate by item, import pin.SourceCommit, and refuse absent isolation
 // or an unavailable Learning runtime target. It never reuses a TODO's machine.
@@ -95,10 +99,20 @@ func (s *MythicalService) HandleLearningAdmission(ctx context.Context, lease *jo
 			pin = saved.Pin
 		}
 	}
+	// The job library parks only an operation whose external effect started
+	// (jobs.Store.Park), so a wait opens it first, as install setup does while
+	// it awaits the owner's claim. The effect is idempotent: a replay rereads
+	// the retained pin and asks the allocator again. A wait never retries hot.
+	wait := func(receipt json.RawMessage) error {
+		if err := lease.StartExternal(ctx, receipt); err != nil {
+			return err
+		}
+		return lease.Defer(ctx, receipt, learningWait)
+	}
 	if pin == nil {
 		digest, err := ActiveFlowDigest(ctx, s.queries(), input.Repository, "learning")
 		if err != nil {
-			return lease.Defer(ctx, json.RawMessage(`{"reason":"learning_flow_unavailable"}`), time.Minute)
+			return wait(json.RawMessage(`{"reason":"learning_flow_unavailable"}`))
 		}
 		pin = &flowruntime.Pin{Flow: "learning", SourceCommit: input.Commit, ExecutionDigest: digest}
 	}
@@ -110,7 +124,7 @@ func (s *MythicalService) HandleLearningAdmission(ctx context.Context, lease *jo
 		return err
 	}
 	if s.learningMachines == nil || s.launcher == nil {
-		return lease.Defer(ctx, checkpoint, time.Minute)
+		return wait(checkpoint)
 	}
 	if err := lease.StartExternal(ctx, checkpoint); err != nil {
 		return err

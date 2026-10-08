@@ -48,8 +48,9 @@ const (
 )
 
 // Prepare verifies, without allocating, that every input Restore needs exists
-// and that the admitted pin is one version flow-load measured and loaded.
-// Active may have moved since admission; the admitted version still runs.
+// and that the admitted pin is one version flow-load measured and loaded, or
+// the built-in version the install ships. Active may have moved since
+// admission; the admitted version still runs.
 func (s *ReviewSource) Prepare(ctx context.Context, a ReviewAdmission) error {
 	if s == nil || s.q == nil || s.runtime == nil || s.retention == nil {
 		return reviewUnavailable("review_source_unavailable")
@@ -68,6 +69,13 @@ func (s *ReviewSource) Prepare(ctx context.Context, a ReviewAdmission) error {
 		if !version.Status.Valid || version.Status.String != "loaded" || !version.SourceCommit.Valid || version.SourceCommit.String != a.Pin.SourceCommit {
 			return reviewUnavailable("review_digest_mismatch")
 		}
+		return nil
+	}
+	// The built-in version is the install's own. Restore checks its commit is
+	// on main, and the review host serves it only where that commit declares
+	// no review of its own: an override there refuses at launch, its digest
+	// not the pin's.
+	if digests, err := builtinFlowDigests(); err == nil && digests["review"] == a.Pin.ExecutionDigest {
 		return nil
 	}
 	return reviewUnavailable("review_source_unavailable")
@@ -177,11 +185,21 @@ func (s *ReviewSource) fetch(ctx context.Context, workspaceID string, a ReviewAd
 }
 
 func (s *ReviewSource) files(ctx context.Context, workspaceID string) (map[string]bool, error) {
-	files, ok := s.runtime.(interface {
+	return machineDirectories(ctx, s.runtime, workspaceID, reviewUnavailable("review_source_unavailable"))
+}
+
+func (s *ReviewSource) run(ctx context.Context, workspaceID string, environment map[string]string, args ...string) error {
+	return machineCommand(ctx, s.runtime, workspaceID, environment, reviewUnavailable("review_source_unavailable"), args...)
+}
+
+// machineDirectories names the real directories at a machine's root. A linked
+// or plain-file metadata entry is never a repository.
+func machineDirectories(ctx context.Context, runtime workspaceapi.WorkspaceExecution, workspaceID string, refusal error) (map[string]bool, error) {
+	files, ok := runtime.(interface {
 		ListFiles(context.Context, string, string) ([]workspaceapi.FileEntry, error)
 	})
 	if !ok {
-		return nil, reviewUnavailable("review_source_unavailable")
+		return nil, refusal
 	}
 	entries, err := files.ListFiles(ctx, workspaceID, "")
 	if err != nil {
@@ -189,21 +207,21 @@ func (s *ReviewSource) files(ctx context.Context, workspaceID string) (map[strin
 	}
 	present := map[string]bool{}
 	for _, entry := range entries {
-		// A linked or plain-file metadata entry is never a repository.
 		present[entry.Name] = entry.IsDir && entry.Mode&fs.ModeSymlink == 0
 	}
 	return present, nil
 }
 
-// run executes one argv as the machine's unprivileged user. A completed
-// nonzero command is a typed refusal; a transport error stays retryable.
-func (s *ReviewSource) run(ctx context.Context, workspaceID string, environment map[string]string, args ...string) error {
-	result, err := s.runtime.ExecuteCommand(ctx, workspaceID, workspaceapi.Command{Args: args, Environment: environment})
+// machineCommand executes one argv as the machine's unprivileged user. A
+// completed nonzero or truncated command is refusal; a transport error stays
+// retryable.
+func machineCommand(ctx context.Context, runtime workspaceapi.WorkspaceExecution, workspaceID string, environment map[string]string, refusal error, args ...string) error {
+	result, err := runtime.ExecuteCommand(ctx, workspaceID, workspaceapi.Command{Args: args, Environment: environment})
 	if err != nil {
 		return err
 	}
 	if result.ExitCode != 0 || result.OutputTruncated {
-		return reviewUnavailable("review_source_unavailable")
+		return refusal
 	}
 	return nil
 }

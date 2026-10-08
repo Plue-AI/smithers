@@ -162,3 +162,69 @@ func TestLearningAdmissionDurablePinAndRefusal(t *testing.T) {
 	require.Empty(t, retired)
 
 }
+
+// A wait for an execution provider parks the admission for a minute. The job
+// library refuses to park before an external effect starts; before the fix
+// that refusal became an immediate retry, so the worker reclaimed the
+// admission in a loop instead of waiting.
+func TestLearningAdmissionWaitParksWithoutRetrying(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	ctx := t.Context()
+	q := db.New(pool)
+	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "learningwait", LowerUsername: "learningwait"})
+	require.NoError(t, err)
+	var repository int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name) VALUES($1,'app','app') RETURNING id`, owner.ID).Scan(&repository))
+	_, err = pool.Exec(ctx, `INSERT INTO mythical_items(repository_id,source,state,owner_id,pr_state,pr_merge_commit,checks) VALUES($1,'todo','landed',$2,'merged',$3,'{}')`, repository, owner.ID, strings.Repeat("a", 40))
+	require.NoError(t, err)
+	item, err := q.GetMythicalItemByNumber(ctx, repository, 1)
+	require.NoError(t, err)
+	store, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	service := NewMythicalService(pool, nil)
+	service.EnableLearningAdmission(store)
+	digest := strings.Repeat("1", 64)
+	_, err = q.InsertFlowVersion(ctx, repository, "learning", "flows/learning/flow.ts", strings.Repeat("a", 40), digest, "loaded", "", json.RawMessage(`{}`))
+	require.NoError(t, err)
+	_, err = q.ActivateFlowVersion(ctx, repository, "learning", digest)
+	require.NoError(t, err)
+	require.NoError(t, pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error { return service.admitLearningInTx(ctx, tx, item) }))
+	type parked struct {
+		status, state, reason, lastError, pin string
+		attempt, events                       int
+		later                                 bool
+	}
+	read := func() parked {
+		var p parked
+		_ = pool.QueryRow(ctx, `SELECT d.status, r.state, coalesce(d.external_receipt->>'reason',''), d.last_error, coalesce(d.external_receipt->'pin'->>'executionDigest',''), d.attempt,
+ (SELECT count(*) FROM product_job_events e WHERE e.operation_id=r.id), d.next_attempt_at > clock_timestamp() + interval '30 seconds'
+ FROM product_job_requests r JOIN product_job_dispatches d ON d.operation_id=r.id WHERE r.operation=$1`, LearningAdmissionOperation).
+			Scan(&p.status, &p.state, &p.reason, &p.lastError, &p.pin, &p.attempt, &p.events, &p.later)
+		return p
+	}
+	// The worker sets no retry delay, as the production learning worker did:
+	// any unparked return is reclaimed after one poll interval.
+	workerCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() {
+		done <- store.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "learning-wait", Capacity: 1, Lease: time.Second, PollInterval: time.Millisecond, Operations: []string{LearningAdmissionOperation}}, service.HandleLearningAdmission)
+	}()
+	defer func() { cancel(); require.NoError(t, <-done) }()
+	waitParked := func(attempt int) {
+		t.Helper()
+		var p parked
+		require.Eventually(t, func() bool { p = read(); return p.status == "ready" && p.later }, 5*time.Second, 10*time.Millisecond, "last %+v", &p)
+		// Many poll intervals later the admission has not been claimed again
+		// and its journal has not grown.
+		time.Sleep(300 * time.Millisecond)
+		require.Equal(t, parked{status: "ready", state: "waiting", reason: "learning_execution_unavailable", pin: digest, attempt: attempt, events: p.events, later: true}, read())
+	}
+	waitParked(1)
+	// Waking it early finds no provider still; it parks again, keeping its pin.
+	_, err = pool.Exec(ctx, `UPDATE product_job_dispatches SET next_attempt_at=clock_timestamp()`)
+	require.NoError(t, err)
+	waitParked(2)
+	var count int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.launch'`).Scan(&count))
+	require.Zero(t, count)
+}
