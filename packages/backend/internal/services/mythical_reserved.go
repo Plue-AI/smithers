@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -24,6 +25,7 @@ import (
 // An empty candidate request authorizes transport before the guest opens JJ.
 type ReservedStackInput struct {
 	RequestID  string                    `json:"requestId"`
+	Plan       json.RawMessage           `json:"plan,omitempty"`
 	Source     *repohost.WorkspaceSource `json:"source,omitempty"`
 	Generation int64                     `json:"generation,omitempty"`
 }
@@ -38,7 +40,7 @@ type ReservedStackResult struct {
 // reports and publication, and requests the existing engine. Only that engine's
 // runClaimed advances candidates, launches verify and records/pushes proposals.
 // Pending work answers 202, so transport can recheck without holding DB locks.
-func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository int64, workspace, command string, input ReservedStackInput) (ReservedStackResult, int, error) {
+func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository int64, workspace, command string, input ReservedStackInput) (result ReservedStackResult, status int, retErr error) {
 	empty := ReservedStackResult{}
 	if !s.installAuthorization || command != "stack.candidate" && command != "stack.propose" {
 		return empty, 0, confirmationPermission()
@@ -48,6 +50,7 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 		return empty, 0, err
 	}
 	// Keep the caller's pointer/slice out of the admitted immutable work.
+	input.Plan = append(json.RawMessage(nil), input.Plan...)
 	if input.Source != nil {
 		source := *input.Source
 		source.ParentCommitIDs = append([]string(nil), source.ParentCommitIDs...)
@@ -67,6 +70,17 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 		return empty, 0, err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	defer func() {
+		var busy *pgconn.PgError
+		if errors.As(retErr, &busy) && (busy.Code == "55P03" || busy.Code == "40P01" || busy.Code == "40001") {
+			// Projection may hold this TODO's stream before taking its stack.
+			// Roll back the whole operation and obtain fresh authority on poll.
+			result, status, retErr = empty, 202, nil
+		}
+	}()
+	if _, err := tx.Exec(ctx, "SET LOCAL lock_timeout = '100ms'"); err != nil {
+		return empty, 0, err
+	}
 	live, repo, err := lockInstallWriteCredential(ctx, tx, middleware.AuthInfoFromContext(ctx))
 	if err != nil {
 		return empty, 0, err
@@ -88,11 +102,17 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 	if refusal := identity.NewMemberBoundary(q).AuthorizeMember(identity.WithMemberRoute(live), middleware.UserFromContext(live).ID); refusal != nil {
 		return empty, 0, refusal
 	}
-	if _, err = authorizeStackCandidate(live, q, subject); err != nil {
-		return empty, 0, err
-	}
 	item, err := q.GetMythicalItemByNumber(live, repository, subject.TodoNumber)
 	if err != nil {
+		return empty, 0, err
+	}
+	// The engine may finish capture between the authorized snapshot and
+	// this stack lock. No work runs under that stale generation: let the
+	// same immutable request obtain a fresh decision on its next poll.
+	if item.Generation != subject.Generation && item.RequestRunID == subject.RunID && item.WorkspaceID == subject.WorkspaceID && item.BaseCommit == subject.Base {
+		return empty, 202, tx.Commit(live)
+	}
+	if _, err = authorizeStackCandidate(live, q, subject); err != nil {
 		return empty, 0, err
 	}
 	// Completed immutable work replays its own receipt before evaluating
@@ -140,6 +160,16 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 		return empty, 0, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "packaged TODO binding unavailable")
 	}
 	if command == "stack.candidate" {
+		if len(input.Plan) > 0 {
+			encoded, err := json.Marshal(map[string]json.RawMessage{"plan": input.Plan})
+			if err != nil {
+				return empty, 0, pkgerrors.BadRequest("invalid candidate plan")
+			}
+			item.Plan = mythicalPlanSummaryJSON(encoded)
+			if len(item.Plan) == 0 {
+				return empty, 0, pkgerrors.BadRequest("candidate plan has no changes")
+			}
+		}
 		// Both preflight and posted snapshots require every execution provider
 		// before any guest observation or persistence.
 		if s.launcher == nil || machine.sourceReader == nil || machine.runtime == nil || machine.runtime.Isolation() != workspaceapi.IsolationSandboxed || len(item.Plan) == 0 {
@@ -150,8 +180,9 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 		}
 	}
 	// Candidate acknowledges a generation while its checks still run, so a
-	// proposal of that generation waits for them instead of refusing.
-	checking := item.State == "verifying" && item.VerifyOutcome == ""
+	// proposal of that generation waits for them instead of refusing. A
+	// passing projection still waits for the engine to accept the checks.
+	checking := item.State == "verifying" && (item.VerifyOutcome == "" || item.VerifyOutcome == "passed")
 	if command == "stack.propose" && (input.Generation != item.Generation || !item.CandidateVerified && !checking || item.CandidateBase != prefix) {
 		return empty, 0, pkgerrors.Conflict("candidate changed")
 	}
@@ -162,7 +193,7 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 	if command == "stack.candidate" {
 		// Equal bytes can reuse a verified candidate or its still-running
 		// checks. An observed invalidation requires a fresh generation.
-		reusable := item.CandidateVerified || item.State == "verifying" && item.VerifyOutcome == ""
+		reusable := item.CandidateVerified || checking
 		if input.Source.TreeID != tree {
 			return empty, 0, pkgerrors.Conflict("candidate is no longer the live revision")
 		}
@@ -200,7 +231,7 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 			return complete(ReservedStackResult{Generation: item.Generation, Base: item.CandidateBase, Head: item.CandidateHead})
 		}
 		pending := mythicalChecksOf(item).Capture
-		if pending != nil && pending.Head == input.Source.CommitID || len(item.PendingOp) > 0 || item.State == "verifying" && item.VerifyOutcome == "" {
+		if pending != nil && pending.Head == input.Source.CommitID || len(item.PendingOp) > 0 || checking {
 			if _, err := q.RequestMythicalStack(live, repository); err != nil {
 				return empty, 0, err
 			}
@@ -284,7 +315,7 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 // replace the source, request identity, or requested generation afterward.
 func BindReservedStackPayload(subject InstallSubject, command string, input ReservedStackInput) (InstallSubject, error) {
 	id, err := uuid.Parse(input.RequestID)
-	if err != nil || id.String() != input.RequestID || command != "stack.candidate" && command != "stack.propose" || command == "stack.propose" && (input.Generation <= 0 || input.Source != nil) || command == "stack.candidate" && input.Generation != 0 {
+	if err != nil || id.String() != input.RequestID || command != "stack.candidate" && command != "stack.propose" || command == "stack.propose" && (input.Generation <= 0 || input.Source != nil || len(input.Plan) > 0) || command == "stack.candidate" && input.Generation != 0 {
 		return InstallSubject{}, pkgerrors.BadRequest("invalid stack operation")
 	}
 	if input.Source != nil {

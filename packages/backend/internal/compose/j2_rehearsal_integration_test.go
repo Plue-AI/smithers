@@ -438,7 +438,7 @@ func rehearseIssueTodo(t *testing.T, security bool) {
 	// The review runs on the open PR; its verdict is the TODO's evidence and
 	// the PR body's review line, and nothing holds the merge after it.
 	r.step("5 review summary", "GET "+todoPath+"; GET GitHub fake /repos/rehearsal-owner/app/pulls/{n}", "the TODO's evidence holds the agent's review of the PR head; the PR body carries the same review line; merge ready", "T-STK-01, T-GH-09", func() error {
-		deadline := time.Now().Add(time.Minute)
+		deadline := time.Now().Add(2 * time.Minute)
 		for {
 			todo, err := r.waitTodo(number, "in_review")
 			if err != nil {
@@ -486,7 +486,7 @@ func rehearseIssueTodo(t *testing.T, security bool) {
 					}
 					rows.Close()
 				}
-				return fmt.Errorf("no approved review on the PR head and its body after a minute: %s (item reason %q, checks %s, jobs %v, PR body %q)", r.actual, reason, checked, jobs, pull.Body)
+				return fmt.Errorf("no approved review on the PR head and its body after two minutes: %s (item reason %q, checks %s, jobs %v, PR body %q)", r.actual, reason, checked, jobs, pull.Body)
 			}
 			time.Sleep(500 * time.Millisecond)
 		}

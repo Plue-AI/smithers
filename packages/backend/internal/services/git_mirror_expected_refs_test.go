@@ -163,8 +163,8 @@ func TestMirrorSyncPushLeasesTargetAfterRemoteInspection(t *testing.T) {
 	// obtains the push advertisement. This remains a fast-forward, so only
 	// the explicit lease can reject the now-stale plan.
 	script := "#!/bin/sh\n" +
-		// Every backend git run starts with the hooks pin (hostexec).
-		"[ \"$1\" = -c ] && [ \"$2\" = core.hooksPath=/dev/null ] && shift 2\n" +
+		// Skip the backend configuration pins to inspect the command.
+		"while [ \"$1\" = -c ]; do shift 2; done\n" +
 		"if [ \"$1\" = push ] && [ \"$2\" = --atomic ]; then\n" +
 		"  " + shellQuote(gitBinary) + " --git-dir=" + shellQuote(targetDir) + " update-ref refs/heads/main " + shellQuote(intermediate) + " " + shellQuote(base) + " || exit 1\n" +
 		"  printf moved > " + shellQuote(marker) + "\n" +

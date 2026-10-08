@@ -518,6 +518,36 @@ test("Home and conversation preferences serialize through the install controller
   } finally { release?.(); stop(); await controller.dispose() }
 })
 
+test("repeated conversation preferences write once and preserve the newest seen sequence", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  let saved: Record<string, unknown> = { last_seen_seq: 12 }
+  let reads = 0, writes = 0
+  const controller = createAppController(store, silentAgent, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null },
+    fetchImpl: async (input, init) => {
+      if (String(input) === "/api/conversations/main/view-state") {
+        if (init?.method === "PUT") { writes++; saved = JSON.parse(String(init.body)) }
+        else reads++
+        return Response.json(saved)
+      }
+      return new Response("{}", { status: 404 })
+    }
+  })
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    await Promise.all(Array.from({ length: 20 }, () => controller.sharedConversation!.saveView({ toasts_hidden: true, last_seen_seq: 19 })))
+    expect(writes).toBe(1)
+    const before = reads
+    await controller.sharedConversation!.saveView({ toasts_hidden: true, last_seen_seq: 18 })
+    expect(reads).toBe(before)
+    expect(writes).toBe(1)
+    expect(saved).toEqual({ last_seen_seq: 19, toasts_hidden: true })
+    await controller.sharedConversation!.saveView({ toasts_hidden: false })
+    expect(writes).toBe(2)
+    expect(saved).toEqual({ last_seen_seq: 19, toasts_hidden: false })
+  } finally { await controller.dispose() }
+})
+
 test("published imports remain read-only with their durable sequence", () => {
   const result = SharedConversationSchema.parse({ id: "main", entries: [{
     id: "import-1", sequence: 9, origin: "external", read_only: true, agent: "codex", source_format_version: "codex/0.160.0",

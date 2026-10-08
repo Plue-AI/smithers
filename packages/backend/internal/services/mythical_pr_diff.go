@@ -299,7 +299,6 @@ func (s *MythicalService) todoBranchDiff(ctx context.Context, branch string, rep
 // host-store objects. Branch configuration and executables never run on the host.
 type branchDiffStore interface {
 	GetChange(context.Context, string, string, string) (repohost.Change, error)
-	GetRevisionDiff(context.Context, string, string, string, string, string, string) (repohost.ChangeDiff, error)
 	GetFileAtCommit(context.Context, string, string, string, string) (repohost.FileContent, error)
 }
 type acceptedTreeDiffReader struct {
@@ -311,31 +310,40 @@ type acceptedTreeDiffReader struct {
 func (r acceptedTreeDiffReader) GetChange(context.Context, string, string, string) (repohost.Change, error) {
 	return repohost.Change{ParentCommitID: r.base}, nil
 }
-func (r acceptedTreeDiffReader) GetChangeDiff(ctx context.Context, owner, repo, _ string) (repohost.ChangeDiff, error) {
-	diff, err := r.store.GetRevisionDiff(ctx, owner, repo, r.head, r.base, r.head, "")
+func (r acceptedTreeDiffReader) GetChangeDiff(ctx context.Context, _, _, _ string) (repohost.ChangeDiff, error) {
+	// A captured candidate can be an empty child of the cleaned result.
+	// Revision interdiff rebases the base onto that child's parent and hides
+	// its bytes. The item view compares the two accepted trees directly.
+	raw, err := r.g.command(ctx, nil, "diff", "--name-status", "-z", "--find-renames", "--no-ext-diff", "--no-textconv", r.base, r.head, "--")
 	if err != nil {
 		return repohost.ChangeDiff{}, err
 	}
-	// The native interdiff reports moves as add/delete. Retain the existing
-	// controlled Git rename classification without executing textconv or hooks.
-	raw, err := r.g.command(ctx, nil, "diff", "--name-status", "-z", "--find-renames", "--diff-filter=R", "--no-ext-diff", "--no-textconv", r.base, r.head, "--")
-	if err != nil {
-		return repohost.ChangeDiff{}, err
-	}
+	diff := repohost.ChangeDiff{FileDiffs: []repohost.FileDiff{}}
 	parts := strings.Split(string(raw), "\x00")
-	for i := 0; i < len(parts)-1; i += 3 {
-		if i+2 >= len(parts)-1 || !strings.HasPrefix(parts[i], "R") {
-			return repohost.ChangeDiff{}, fmt.Errorf("invalid rename classification")
+	for i := 0; i < len(parts)-1; {
+		if i+1 >= len(parts)-1 {
+			return repohost.ChangeDiff{}, fmt.Errorf("invalid tree diff classification")
 		}
-		oldPath, newPath := parts[i+1], parts[i+2]
-		files := make([]repohost.FileDiff, 0, len(diff.FileDiffs))
-		for _, file := range diff.FileDiffs {
-			if file.ChangeType == "deleted" && file.Path == oldPath || file.ChangeType == "added" && file.Path == newPath {
-				continue
+		status, path := parts[i], parts[i+1]
+		i += 2
+		file := repohost.FileDiff{Path: path}
+		switch {
+		case status == "A":
+			file.ChangeType = "added"
+		case status == "D":
+			file.ChangeType = "deleted"
+		case status == "M" || status == "T":
+			file.ChangeType = "modified"
+		case strings.HasPrefix(status, "R"):
+			if i >= len(parts)-1 {
+				return repohost.ChangeDiff{}, fmt.Errorf("invalid tree rename classification")
 			}
-			files = append(files, file)
+			file.OldPath, file.Path, file.ChangeType = path, parts[i], "renamed"
+			i++
+		default:
+			return repohost.ChangeDiff{}, fmt.Errorf("unsupported tree diff classification")
 		}
-		diff.FileDiffs = append(files, repohost.FileDiff{Path: newPath, OldPath: oldPath, ChangeType: "renamed"})
+		diff.FileDiffs = append(diff.FileDiffs, file)
 	}
 	sort.Slice(diff.FileDiffs, func(i, j int) bool { return diff.FileDiffs[i].Path < diff.FileDiffs[j].Path })
 	return diff, nil

@@ -39,7 +39,7 @@ export class NativeCoding extends Context.Service<NativeCoding, {
   readonly sourcePublication: "cloud" | "local-only"
   /** Installed authority transport only. Missing bindings refuse before native
    * reads, capture or publication; local development cannot supply authority. */
-  readonly stackCandidate?: (requestId: string) => Effect.Effect<StackCandidate, NativeCodingError>
+  readonly stackCandidate?: (requestId: string, plan?: unknown) => Effect.Effect<StackCandidate, NativeCodingError>
   readonly stackPropose?: (requestId: string, generation: number) => Effect.Effect<StackProposal, NativeCodingError>
   readonly read: (
     changeIds?: ReadonlyArray<string>,
@@ -210,7 +210,7 @@ export const nativeLayer = (options: NativeOptions) =>
     // Reserved operations cannot fall back to the run's ordinary process
     // service. Only the installed host transport can read its authority binding.
     const stackInvoke = (
-      request: { operation: "stack.candidate" | "stack.propose"; requestId: string; generation?: number }
+      request: { operation: "stack.candidate" | "stack.propose"; requestId: string; generation?: number; plan?: unknown }
     ) =>
       Effect.gen(function*() {
         if (options.sourcePublication === "local-only" || Option.isNone(transport)) {
@@ -228,8 +228,8 @@ export const nativeLayer = (options: NativeOptions) =>
       })
     return {
       sourcePublication: options.sourcePublication ?? "cloud",
-      stackCandidate: (requestId: string) =>
-        stackInvoke({ operation: "stack.candidate", requestId }).pipe(
+      stackCandidate: (requestId: string, plan?: unknown) =>
+        stackInvoke({ operation: "stack.candidate", requestId, ...(plan === undefined ? {} : { plan }) }).pipe(
           Effect.flatMap(Schema.decodeUnknownEffect(StackCandidate)),
           Effect.mapError((error) =>
             error instanceof NativeCodingError

@@ -29,6 +29,15 @@ func TestGitHubPullDelayedEqualTimestampResponse(t *testing.T) {
 				unblock := func() { once.Do(func() { close(release) }) }
 				var requests atomic.Int32
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if strings.HasSuffix(r.URL.Path, "/issues/7") || strings.HasSuffix(r.URL.Path, "/issues/8") {
+						require.Empty(t, r.Header.Get("If-None-Match"))
+						number := "7"
+						if strings.HasSuffix(r.URL.Path, "/8") {
+							number = "8"
+						}
+						_, _ = w.Write([]byte(`{"number":` + number + `,"state":"closed","closed_by":null}`))
+						return
+					}
 					current := strings.Replace(fetchedPullDetail, `"state":"open"`, `"state":"closed"`, 1)
 					etag := `"closed"`
 					if requests.Add(1) == 1 {

@@ -125,3 +125,19 @@ test("Reset posts the exact attention binding and refuses without an install pro
     seam.dispose(); expect(await seam.reset(binding)).toBeUndefined()
   } finally { seam.dispose() }
 })
+
+
+test("rapid card remounts retain sync health within the polling interval", async () => {
+  const h = host([Response.json(FRESH)])
+  const seam = createGitHubSyncSeam({ http: h.http, pollMs: 60_000 })
+  try {
+    const stop = seam.snapshots.subscribe(() => {})
+    await waitFor(() => seam.snapshots.get()?.state === "fresh")
+    stop()
+    for (let mount = 0; mount < 20; mount++) seam.snapshots.subscribe(() => {})()
+    expect(h.calls).toHaveLength(1)
+    expect(seam.snapshots.get()).toEqual(FRESH)
+    await seam.read()
+    expect(h.calls).toHaveLength(2)
+  } finally { seam.dispose() }
+})

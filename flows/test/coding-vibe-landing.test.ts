@@ -13,6 +13,7 @@ import { landingLayers, LandVibe } from "../coding/vibe-landing.ts"
 import { publicationLayers } from "../coding/vibe-publication.ts"
 import type { VibeCleanup } from "../coding/vibe-schema.ts"
 import { RunCheck } from "../coding/workflow.ts"
+import { stackBaseLayer } from "../coding/stack.ts"
 
 /** Native ID patterns: 32 letters k..z for changes, 40 hex for commits and trees. */
 const ids: Record<string, [letter: string, hex: string]> = {
@@ -131,7 +132,7 @@ const landed = (status: AppendObservation["status"]) =>
 const modes = [
   "valid",
   "native-stack",
-  // A stack request whose repository has no active stack lands as any other.
+  // A TODO without its active stack must refuse instead of appending main.
   "from-stack-without-stack",
   "pending-then-landed",
   "policy-failed",
@@ -250,7 +251,7 @@ for (const mode of modes) {
       }
     })
     const host = ManagedRuntime.make(
-      Layer.mergeAll(landingLayers, landerLayer, publicationLayers, noChecks, Poll.layer, Sleep.layer).pipe(
+      Layer.mergeAll(stackBaseLayer, landingLayers, landerLayer, publicationLayers, noChecks, Poll.layer, Sleep.layer).pipe(
         Layer.provide(Layer.mergeAll(Layer.succeed(Landing, fake), native)),
         Layer.provideMerge(Action.layerImplementations),
         Layer.provideMerge(FlowEngine.layerMemory),
@@ -259,7 +260,10 @@ for (const mode of modes) {
     )
     t.after(() => host.dispose())
     const execute = LandVibe.execute(mode === "from-stack-without-stack" ? fromStack : cleanup, { executionId: "land" })
-    if (mode === "pull-request") {
+    if (mode === "from-stack-without-stack") {
+      await assert.rejects(host.runPromise(execute), (error: unknown) => error instanceof CodingError && error.code === "unavailable")
+      assert.deepEqual(calls, [`retain:${last.commitId}`])
+    } else if (mode === "pull-request") {
       const value = await host.runPromise(execute)
       assert.ok("pullRequest" in value && "landing" in value)
       assert.equal(value.pullRequest.number, 41)
@@ -277,7 +281,7 @@ for (const mode of modes) {
       assert.deepEqual(await host.runPromise(execute), value)
       assert.equal(calls.length, count, "replay uses receipts; no second pull request")
     } else if (
-      mode === "valid" || mode === "native-stack" || mode === "from-stack-without-stack" ||
+      mode === "valid" || mode === "native-stack" ||
       mode === "pending-then-landed"
     ) {
       // The pending case waits two real durable rounds (10 s each); nothing re-queues.
@@ -373,7 +377,7 @@ test(
         })
     })
     const host = ManagedRuntime.make(
-      Layer.mergeAll(landingLayers, landerLayer, publicationLayers, noChecks, Poll.layer, Sleep.layer).pipe(
+      Layer.mergeAll(stackBaseLayer, landingLayers, landerLayer, publicationLayers, noChecks, Poll.layer, Sleep.layer).pipe(
         Layer.provide(Layer.mergeAll(Layer.succeed(Landing, fake), native)),
         Layer.provideMerge(Action.layerImplementations),
         Layer.provideMerge(FlowEngine.layerMemory),
@@ -424,15 +428,12 @@ test(
         calls.push("stack")
         return true
       }),
-      submitLane: (submission) =>
-        Effect.sync(() => {
-          calls.push(`submit:${submission.base}:${submission.source}`)
-          assert.equal(submission.requestRunId, "request")
-          return { itemId: "item-2", state: "integrating", source: submission.source }
-        })
+      submitLane: unused
     }
     const native = Layer.succeed(NativeCoding, {
       sourcePublication: "cloud",
+      stackCandidate: (_, plan) => Effect.sync(() => { assert.deepEqual(plan, fromStack.admission.request.plan); calls.push("candidate"); return { generation: 3, base: stackTip, head: last.commitId } }),
+      stackPropose: (_requestId, generation) => Effect.sync(() => { assert.equal(generation, 3); calls.push("propose"); return { generation, head: last.commitId } }),
       read: () => Effect.die("no reads"),
       apply: () => Effect.die("no writes"),
       publishOriginalSource: (request) =>
@@ -449,7 +450,7 @@ test(
         })
     })
     const host = ManagedRuntime.make(
-      Layer.mergeAll(landingLayers, landerLayer, publicationLayers, noChecks, Poll.layer, Sleep.layer).pipe(
+      Layer.mergeAll(stackBaseLayer, landingLayers, landerLayer, publicationLayers, noChecks, Poll.layer, Sleep.layer).pipe(
         Layer.provide(Layer.mergeAll(Layer.succeed(Landing, fake), native)),
         Layer.provideMerge(Action.layerImplementations),
         Layer.provideMerge(FlowEngine.layerMemory),
@@ -458,10 +459,11 @@ test(
     )
     t.after(() => host.dispose())
     const value = await host.runPromise(LandVibe.execute(fromStack, { executionId: "from-stack" }))
-    assert.ok("lane" in value)
-    assert.equal(value.lane.itemId, "item-2")
-    // The stack's lane waits for this result; the repository's delivery policy is never consulted.
-    assert.deepEqual(calls, [`retain:${last.commitId}`, "stack", `submit:${stackTip}:${last.commitId}`])
+    assert.ok("proposal" in value)
+    assert.deepEqual(value.proposal, { generation: 3, head: last.commitId })
+    assert.deepEqual(calls, [`retain:${last.commitId}`, "stack", "candidate", "propose"])
+    await host.runPromise(LandVibe.execute(fromStack, { executionId: "from-stack" }))
+    assert.deepEqual(calls, [`retain:${last.commitId}`, "stack", "candidate", "propose"], "replay neither captures nor proposes twice")
   }
 )
 
@@ -592,7 +594,7 @@ for (const mode of localModes) {
       })
     )
     const host = ManagedRuntime.make(
-      Layer.mergeAll(landingLayers, landerLayer, publicationLayers, checks, Poll.layer, Sleep.layer).pipe(
+      Layer.mergeAll(stackBaseLayer, landingLayers, landerLayer, publicationLayers, checks, Poll.layer, Sleep.layer).pipe(
         Layer.provide(Layer.mergeAll(Layer.succeed(Landing, fake), native)),
         Layer.provideMerge(Action.layerImplementations),
         Layer.provideMerge(FlowEngine.layerMemory),

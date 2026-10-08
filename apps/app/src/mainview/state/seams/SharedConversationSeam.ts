@@ -136,14 +136,19 @@ export function createSharedConversationSeam(ctx: ControllerContext, live?: Live
   const saveView = (patch: Partial<Pick<ConversationView, "scroll_anchor" | "card_view" | "last_seen_seq" | "toasts_hidden" | "global_toasts_hidden" | "timeline_visible_until">>) => {
     const revision = generation, at = branch
     if (!key || !valid(revision)) return Promise.resolve()
+    const unchanged = (view: Partial<ConversationView> | undefined) => view !== undefined && Object.entries(patch).every(([field, value]) =>
+      field === "last_seen_seq" ? Number(value) <= (view.last_seen_seq ?? 0) :
+        JSON.stringify(value) === JSON.stringify(view[field as keyof ConversationView]))
+    if (unchanged(snapshot.view)) return Promise.resolve()
     ++viewRevision
     return serializeView(async () => {
-      if (!valid(revision)) return
+      if (!valid(revision) || unchanged(snapshot.view)) return
       const path = `${ctx.baseUrl}/api/conversations/${encodeURIComponent(at)}/view-state`
       const response = await ctx.boundedFetch(path, { credentials: "same-origin" })
       if (!response.ok) throw new SharedConversationFailure({ sentence: "View unavailable" })
       const { queue: _queue, instructions: _instructions, ...previous } = ConversationViewSchema.parse(await response.json())
       if (!valid(revision)) return
+      if (unchanged(previous)) return
       const written = await ctx.boundedFetch(path, { method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...previous, ...patch, ...(patch.last_seen_seq === undefined ? {} : { last_seen_seq: Math.max(previous.last_seen_seq ?? 0, patch.last_seen_seq) }) }) })
       if (!written.ok) throw new SharedConversationFailure({ sentence: "View unavailable" })
       const view = ConversationViewSchema.parse(await written.json())

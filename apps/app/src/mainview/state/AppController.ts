@@ -1017,7 +1017,13 @@ export const createAppController = (
     const login = store.collections.identitySessions.get("identity")?.login?.toLowerCase()
     return membersSeam.snapshots.get().model?.members.find(member => member.login.toLowerCase() === login)?.role ?? "member"
   }
-  const showMembers = () => { if (installHost && installSignedIn()) { membersSeam.start(); void membersSeam.read() } }
+  let memberViewReadAt = 0
+  const showMembers = () => {
+    if (!installHost || !installSignedIn()) return
+    membersSeam.start()
+    const now = Date.now()
+    if (now - memberViewReadAt >= 2000) { memberViewReadAt = now; void membersSeam.read() }
+  }
   /* Flows (T-APP-05): an install reads its catalog from GET /api/flows; the seeded flows stand in only off an install. */
   const homeBackground = createHomeBackgroundSeam({
     http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init),
@@ -2697,7 +2703,15 @@ export const createAppController = (
    * never from construction: every boot adopts or probes the session, and a read started
    * before that answer would only be superseded by it.
    */
+  const setupOwner = () => {
+    const identity = store.collections.identitySessions.get("identity")
+    return identity ? `${identity.state}:${identity.login}:${identity.ownerRevision ?? identity.revision}:${identity.admin}:${identity.scopesPlain}` : undefined
+  }
+  let setupIdentityOwner: string | undefined
   const setupIdentitySubscription = store.collections.identitySessions.subscribeChanges(() => {
+    const owner = setupOwner()
+    if (owner === setupIdentityOwner) return
+    setupIdentityOwner = owner
     if (installHost && installSignedIn() && !setupEntry) queueMicrotask(() => { if (!ctx.disposed) void installSeam.showSetup() })
     queueMicrotask(() => { if (!ctx.disposed) { conversationHistory.resume(); triggersSeam.resumePauses(); triggersSeam.resumePreparations() } })
     queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests(); proposalSeam.resumeProposals(); orderSeam.resumeOrderRequests() } })

@@ -30,6 +30,8 @@ export interface GitHubSyncSeamOptions {
 export function createGitHubSyncSeam(options: GitHubSyncSeamOptions) {
   let health: GitHubSyncHealth | undefined
   let generation = 0
+  // Rapid card remounts share the existing poll interval; explicit reads stay immediate.
+  let subscribedReadAt = 0
   let disposed = false
   let timer: ReturnType<typeof setTimeout> | undefined
   const listeners = new Set<() => void>()
@@ -57,7 +59,11 @@ export function createGitHubSyncSeam(options: GitHubSyncSeamOptions) {
     get: () => health,
     subscribe: listener => {
       listeners.add(listener)
-      if (listeners.size === 1 && options.http && !disposed) { void read(); poll() }
+      if (listeners.size === 1 && options.http && !disposed) {
+        const now = Date.now()
+        if (now - subscribedReadAt >= (options.pollMs ?? 10_000)) { subscribedReadAt = now; void read() }
+        poll()
+      }
       return () => {
         listeners.delete(listener)
         if (!listeners.size && timer !== undefined) { clearTimeout(timer); timer = undefined }

@@ -30,6 +30,9 @@ export function createHomeViewSeam(options: {
   let disposed = false
   let generation = 0
   let readGeneration = 0
+  // Rapid card remounts share the existing poll interval; explicit reads stay immediate.
+  let subscribedReadAt = 0
+  let preferencesKnown = false
   let owner = options.owner()
   let pending = Promise.resolve()
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -70,6 +73,7 @@ export function createHomeViewSeam(options: {
     return body as Record<string, unknown>
   }
   const apply = (body: Record<string, unknown>) => {
+    preferencesKnown = true
     const home = body.home && typeof body.home === "object" ? body.home as Record<string, unknown> : {}
     const parsed = TodoStateSchema.safeParse(home.filter)
     const menu = typeof home.menu === "number" && Number.isSafeInteger(home.menu) && home.menu > 0 ? home.menu : undefined
@@ -99,7 +103,7 @@ export function createHomeViewSeam(options: {
     const next = options.owner()
     if (next === owner) return
     cancelLook()
-    owner = next; ++generation; ++readGeneration
+    owner = next; preferencesKnown = false; ++generation; ++readGeneration
     pending = Promise.resolve()
     // Visibility belongs to this mounted tab, not the previous member.
     const onScreen = get().on_screen
@@ -112,7 +116,10 @@ export function createHomeViewSeam(options: {
     if (listeners.size === 1 && !disposed) {
       stopOwner = options.subscribeOwner(changeOwner)
       stopHome = options.live?.subscribe("home", observeHome)
-      observeHome(); changeOwner(); void read(); poll()
+      observeHome(); changeOwner()
+      const now = Date.now()
+      if (now - subscribedReadAt >= 2000) { subscribedReadAt = now; void read() }
+      poll()
     }
     return () => {
       listeners.delete(notify)
@@ -127,7 +134,7 @@ export function createHomeViewSeam(options: {
   const onView: HomeViewProps["onView"] = patch => {
     if (disposed) return
     // Visibility is tab-local. Persist preferences only after the server commits them.
-    if (patch.on_screen !== undefined) {
+    if (patch.on_screen !== undefined && patch.on_screen !== get().on_screen) {
       publish({ ...get(), on_screen: patch.on_screen })
       if (patch.on_screen) scheduleLook(); else cancelLook()
     }
@@ -139,9 +146,14 @@ export function createHomeViewSeam(options: {
       if (patch.menu !== undefined && (!Number.isSafeInteger(patch.menu) || patch.menu <= 0)) throw new HomeViewFailure({ sentence: "Invalid Home menu" })
       changes.menu = patch.menu ?? null
     }
+    const unchanged = () => preferencesKnown &&
+      (!("filter" in patch) || patch.filter === get().filter) &&
+      (!("menu" in patch) || patch.menu === get().menu) &&
+      (patch.last_seen_seq === undefined || patch.last_seen_seq <= (get().last_seen_seq ?? 0))
+    if (unchanged()) return
     const revision = generation, principal = owner
     pending = pending.then(() => (options.serializeView ?? (work => work()))(async () => {
-      if (!valid(revision, principal)) return
+      if (!valid(revision, principal) || unchanged()) return
       const body = await request()
       if (!valid(revision, principal)) return
       // Queued prompts are read-only; the API refuses a browser-supplied queue.

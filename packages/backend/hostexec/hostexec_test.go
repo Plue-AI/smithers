@@ -49,7 +49,7 @@ func TestConfiguredGit(t *testing.T) {
 		Environment: []string{"PATH=/opt/bundle/bin:/usr/bin:/bin", "HOME=/Users/owner"}})
 	cmd := Git(context.Background(), "--git-dir", "/r", "update-ref", "refs/x", "abc")
 	require.Equal(t, git, cmd.Path)
-	require.Equal(t, []string{git, "-c", "core.hooksPath=/dev/null", "--git-dir", "/r", "update-ref", "refs/x", "abc"}, cmd.Args)
+	require.Equal(t, []string{git, "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "core.alternateRefsCommand=", "--git-dir", "/r", "update-ref", "refs/x", "abc"}, cmd.Args)
 	require.Equal(t, []string{"PATH=/opt/bundle/bin:/usr/bin:/bin", "HOME=/Users/owner", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
 		"GIT_TERMINAL_PROMPT=0", "GIT_EXEC_PATH=/opt/bundle/libexec/git-core", "GIT_TEMPLATE_DIR=/opt/bundle/share/git-core/templates"}, cmd.Env)
 	value, ok := Lookup("HOME")
@@ -62,7 +62,7 @@ func TestConfiguredGit(t *testing.T) {
 	var named string
 	wrapped := GitWith(context.Background(), func(ctx context.Context, name string, args ...string) *exec.Cmd {
 		named = name
-		return Git(ctx, args[2:]...)
+		return exec.CommandContext(ctx, name, args...)
 	}, "status")
 	require.Equal(t, git, named)
 	require.Equal(t, cmd.Env, wrapped.Env)
@@ -136,4 +136,34 @@ func TestSystemTools(t *testing.T) {
 		require.True(t, errors.Is(cmd.Err, ErrNotSystemTool), program)
 	}
 	require.True(t, slices.Contains(SystemEnvironment, "LC_ALL=C"))
+}
+
+func TestGitDisablesRepositoryAlternateRefProgram(t *testing.T) {
+	git, err := exec.LookPath("git")
+	require.NoError(t, err)
+	configure(t, Config{Git: git, Environment: Environment()})
+	root := t.TempDir()
+	raw := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command(git, args...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=Fixture", "GIT_AUTHOR_EMAIL=fixture@example.com", "GIT_COMMITTER_NAME=Fixture", "GIT_COMMITTER_EMAIL=fixture@example.com")
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+		return strings.TrimSpace(string(out))
+	}
+	alternate := filepath.Join(root, "alternate.git")
+	primary := filepath.Join(root, "primary.git")
+	raw("init", "--bare", alternate)
+	raw("init", "--bare", primary)
+	marker := filepath.Join(root, "executed")
+	script := filepath.Join(root, "program")
+	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\ntouch '"+marker+"'\n"), 0700))
+	raw("--git-dir", primary, "config", "core.alternateRefsCommand", script)
+	require.NoError(t, os.WriteFile(filepath.Join(primary, "objects", "info", "alternates"), []byte(filepath.Join(alternate, "objects")+"\n"), 0600))
+	raw("--git-dir", primary, "rev-list", "--alternate-refs", "--all")
+	require.FileExists(t, marker, "ordinary object enumeration executes the repository's program")
+	require.NoError(t, os.Remove(marker))
+	out, err := Git(t.Context(), "--git-dir", primary, "rev-list", "--alternate-refs", "--all").CombinedOutput()
+	require.NoError(t, err, string(out))
+	require.NoFileExists(t, marker)
 }

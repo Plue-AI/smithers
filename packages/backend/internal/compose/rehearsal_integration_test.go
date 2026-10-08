@@ -390,7 +390,14 @@ path = "lib.rs"
 				startFault = new(atomic.Bool)
 				startFault.Store(true)
 			}
-			workspace = bindingProcessRuntime{rehearsalAdmissionRuntime: admittedRuntime, evidence: r.evidence, t: t, daemons: processDaemons, daemonStops: new(sync.Map), pool: pool, daemonBinary: buildRehearsalMachined(t, r.root), repository: engine.Client(), failNextTodoStart: startFault, hostCredentials: &r.hostCredentials}
+			// Accepted-tree fixtures retain their original provisioning stand-in.
+			// They do not run reserved operations and cannot attest isolation.
+			isolated := enable != "SMITHERS_GH03_ORDER_REHEARSAL" && !(enable == "SMITHERS_GH03_REHEARSAL" && check == "C-J10-08")
+			tools := ""
+			if isolated {
+				tools = newRehearsalReviewRuntime(t, admittedRuntime, node, helper, "", r.evidence, "", processDaemons).tools
+			}
+			workspace = bindingProcessRuntime{sandboxed: isolated, node: node, helper: helper, tools: tools, rehearsalAdmissionRuntime: admittedRuntime, evidence: r.evidence, t: t, daemons: processDaemons, daemonStops: new(sync.Map), pool: pool, daemonBinary: buildRehearsalMachined(t, r.root), repository: engine.Client(), failNextTodoStart: startFault, hostCredentials: &r.hostCredentials}
 		} else {
 			fmt.Println("rehearsal: smithers-jj-export lacks trusted-process-binding (cargo build --release -p smithers-ffi --bin smithers-jj-export --features trusted-process-binding); the TODO cannot import its base")
 		}
@@ -433,7 +440,13 @@ path = "lib.rs"
 		HostProfile: &microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: 400 << 30, MacOSVersion: "15.6", Hypervisor: true},
 		// A label on GitHub is read within seconds, not the product's 120 s.
 		GitHubIssueEventsEvery: 2 * time.Second}
-	if !realMicroVM && registry != nil && processDaemons != nil {
+	if workspace.Isolation() == workspaceapi.IsolationSandboxed {
+		options.BranchMachines = nil
+		options.InstallBranchMachines = true
+		// The isolated runtime owns its staged tools, as the install does.
+		options.ComputeProvider = nil
+	}
+	if !realMicroVM && registry != nil && processDaemons != nil && workspace.Isolation() == workspaceapi.IsolationSandboxed {
 		options.ReviewWorkspace = newRehearsalReviewRuntime(t, admittedRuntime, node, rehearsalJJExport(r.root, library), registry.Coding.Executable, r.evidence, buildRehearsalMachined(t, r.root), processDaemons)
 	}
 	if !realMicroVM {
@@ -1784,11 +1797,15 @@ func (r *rehearsalAdmissionRuntime) SyncTodoAdmission(scope string, holders []st
 	if scope == "" {
 		return errors.New("TODO admission scope unavailable")
 	}
+	capacity := 3
 	for _, request := range r.reviewRequests {
 		if request.State == "granted" {
-			limit--
+			capacity--
 		}
 	}
+	// The owner's TODO limit and total machine capacity are distinct.
+	// A review uses one machine slot, not one of the owner's TODO slots.
+	limit = min(limit, max(0, capacity))
 	r.eligible = map[string]bool{}
 	for i, holder := range holders {
 		if target := r.aliases[holder]; target != "" {
@@ -1871,7 +1888,9 @@ func (r *rehearsalAdmissionRuntime) releaseTodoAdmission(holder string) {
 // credential is the head publisher's Git cache, as in a guest.
 // A host that exits before it is ready leaves both output streams in the evidence.
 type bindingProcessRuntime struct {
-	hostCredentials *sync.Map
+	sandboxed           bool
+	node, helper, tools string
+	hostCredentials     *sync.Map
 	*rehearsalAdmissionRuntime
 	evidence          string
 	t                 *testing.T
@@ -1884,6 +1903,143 @@ type bindingProcessRuntime struct {
 }
 
 var _ workspaceapi.WorkspaceCodingBindingInstaller = bindingProcessRuntime{}
+
+// Linux acceptance runs repository commands in a real unprivileged mount/user
+// namespace. This is sandbox evidence only; reference microVM/root proofs remain
+// separate. Never attest isolation for the underlying trusted process runtime.
+func (r bindingProcessRuntime) Isolation() workspaceapi.IsolationLevel {
+	if !r.sandboxed {
+		return r.Runtime.Isolation()
+	}
+	return workspaceapi.IsolationSandboxed
+}
+
+// Capacity/order remain the rehearsal admission model above, not Mac capacity
+// evidence. The production workspace service still validates each stored demand.
+func (r bindingProcessRuntime) ReconstructAdmission(ctx context.Context, demand []microsandbox.AdmissionRequest) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r.admissionMu.Lock()
+	defer r.admissionMu.Unlock()
+	if r.eligible == nil {
+		r.eligible = map[string]bool{}
+	}
+	for _, row := range demand {
+		if row.Class == "todo" {
+			if _, ordered := r.eligible[row.Holder]; !ordered {
+				r.eligible[row.Holder] = false
+			}
+		}
+	}
+	return nil
+}
+
+func (r bindingProcessRuntime) WaitAdmission(ctx context.Context, p microsandbox.AdmissionProviders, class, holder, actor, reason string) (context.Context, error) {
+	row := microsandbox.AdmissionRequest{Class: class, Holder: holder, Actor: actor, Reason: reason, State: "waiting"}
+	if p.Ready == nil {
+		return ctx, errors.New("rehearsal admission readiness unavailable")
+	}
+	for {
+		err := p.Ready(ctx, row)
+		if err == nil {
+			return ctx, nil
+		}
+		if !errors.Is(err, microsandbox.ErrAdmissionNotReady) {
+			r.t.Logf("Linux admission %s: %v", holder, err)
+			return ctx, err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx, ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
+// The assisted journey does not qualify idle reclaim or the 24-hour machine
+// policy. Validate its service composition; reference tests drive the scheduler.
+func (r bindingProcessRuntime) SetAdmissionIdleProviders(p microsandbox.AdmissionIdleProviders) error {
+	if p.FreeDisk == nil || p.Safety == nil || p.Prepare == nil || p.Stop == nil {
+		return errors.New("rehearsal idle providers unavailable")
+	}
+	return nil
+}
+
+func (r bindingProcessRuntime) AdmissionSnapshot() []microsandbox.AdmissionRequest {
+	return (&rehearsalReviewRuntime{rehearsalAdmissionRuntime: r.rehearsalAdmissionRuntime}).AdmissionSnapshot()
+}
+
+func (r bindingProcessRuntime) FreeDisk(ctx context.Context) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	// Match the existing declared rehearsal profile for coding and review.
+	// Fleet disk pressure is not a reference-host capacity measurement.
+	return (&rehearsalReviewRuntime{rehearsalAdmissionRuntime: r.rehearsalAdmissionRuntime}).FreeDisk(ctx)
+}
+
+func (r bindingProcessRuntime) GuestIdentity() (string, int) {
+	if !r.sandboxed {
+		return "lane", os.Getuid()
+	}
+	return "agent", 19998
+}
+
+func (r bindingProcessRuntime) WorkspaceIsolation(ctx context.Context, id string) (workspaceapi.IsolationGuarantees, error) {
+	if _, err := r.InspectWorkspace(ctx, id); err != nil {
+		return workspaceapi.IsolationGuarantees{}, err
+	}
+	boundary := "trusted_process"
+	if r.sandboxed {
+		boundary = "linux_user_mount_namespace"
+	}
+	return workspaceapi.IsolationGuarantees{Level: r.Isolation(), Boundary: boundary}, nil
+}
+
+func (r bindingProcessRuntime) confined(current workspaceapi.Workspace, command workspaceapi.Command, artifact string) (workspaceapi.Command, error) {
+	if !r.sandboxed {
+		return command, nil
+	}
+	bwrap, err := exec.LookPath("bwrap")
+	if err != nil {
+		return command, err
+	}
+	sandbox := rehearsalReviewRuntime{bubblewrap: bwrap, node: r.node, helper: r.helper, host: artifact, tools: r.tools}
+	command = sandbox.confined(current, command)
+	// Before clone the repository must remain empty. Its installed native JJ
+	// appears afterward; the fixed namespace tool directory serves bootstrap.
+	localTools := filepath.Join(current.Root, ".jj", "rehearsal-tools")
+	if _, err := os.Stat(localTools); err == nil {
+		command.Environment["PATH"] = localTools + ":" + command.Environment["PATH"]
+	}
+
+	return command, nil
+}
+
+func (r bindingProcessRuntime) ExecuteCommand(ctx context.Context, id string, command workspaceapi.Command) (workspaceapi.CommandResult, error) {
+	current, err := r.InspectWorkspace(ctx, id)
+	if err != nil {
+		return workspaceapi.CommandResult{}, err
+	}
+	command, err = r.confined(current, command, "")
+	if err != nil {
+		return workspaceapi.CommandResult{}, err
+	}
+	return r.Runtime.ExecuteCommand(ctx, id, command)
+}
+
+func (r bindingProcessRuntime) StartService(ctx context.Context, id string, spec workspaceapi.ServiceSpec) (workspaceapi.Service, error) {
+	current, err := r.InspectWorkspace(ctx, id)
+	if err != nil {
+		return workspaceapi.Service{}, err
+	}
+	spec.Command, err = r.confined(current, spec.Command, "")
+	if err != nil {
+		return workspaceapi.Service{}, err
+	}
+	return r.Runtime.StartService(ctx, id, spec)
+}
 
 // Person file writes use the authenticated daemon and the ordinary operation
 // context. The process runtime's direct filesystem helpers are never a fallback.
@@ -2122,6 +2278,10 @@ func (r bindingProcessRuntime) StartManagedHost(ctx context.Context, workspaceID
 			environment[name] = value
 		}
 		environment["SMITHERS_WORKSPACE_CODING_CONFIG"] = file
+		// The process stand-in has no installed guest /usr/local/bin. Use the
+		// same current native helper that admitted its source binding; the
+		// fixed guest path may name an older server-wide executable.
+		environment["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"] = os.Getenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY")
 		environment["PATH"] = filepath.Join(observed.Root, ".jj", "rehearsal-tools") + ":" + os.Getenv("PATH")
 		command.Environment = environment
 		if token := environment["SMITHERS_JJHUB_TOKEN"]; token != "" {
@@ -2150,7 +2310,7 @@ func (r bindingProcessRuntime) StartManagedHost(ctx context.Context, workspaceID
 			}
 			r.t.Cleanup(func() { _ = exec.Command("git", "credential-cache", "--socket", socket, "exit").Run() })
 		}
-		return command, nil
+		return r.confined(placement.Workspace, command, command.Args[0])
 	})
 	// Host registration now uses the production daemon-backed filesystem.
 	// Reconcile its boot before waiting for gateway readiness, or registration

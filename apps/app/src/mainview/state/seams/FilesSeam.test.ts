@@ -912,10 +912,12 @@ test.each([true, false])("/file pins the opened branch capture independently of 
 
 test("repeated session observations retain the roster without exhausting install requests", async () => {
   let rosterReads = 0
+  const reads: string[] = []
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const controller = createAppController(store, unavailableAgent, {
     bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "redirect", sandbox: null },
     fetchImpl: async input => {
+      reads.push(String(input))
       if (String(input) === "/api/members") { rosterReads++; return json(200, INSTALL_MEMBERS) }
       return json(404, { message: "not found" })
     }
@@ -923,11 +925,17 @@ test("repeated session observations retain the roster without exhausting install
   try {
     await ready(store)
     await settled()
+    const beforeMounts = rosterReads
+    for (let mount = 0; mount < 20; mount++) controller.showMembers()
+    await settled()
+    expect(rosterReads).toBeLessThanOrEqual(beforeMounts + 1)
     const initial = rosterReads
     expect(initial).toBeGreaterThan(0)
+    const setupReads = reads.filter(path => path.includes("/api/install") || path.includes("/api/github/sync")).length
     for (let observation = 0; observation < 20; observation++) store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null })
     await settled()
     expect(rosterReads).toBe(initial)
+    expect(reads.filter(path => path.includes("/api/install") || path.includes("/api/github/sync")).length).toBe(setupReads)
     store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null })
     await settled()
     expect(rosterReads).toBeGreaterThan(initial)

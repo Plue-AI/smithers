@@ -17,7 +17,7 @@ import { consumeInstallProject } from "./install-project.ts"
 import { load as loadLanding } from "./landing-config.ts"
 import * as Landing from "./landing.ts"
 import * as MeteredSteps from "./metered-steps.ts"
-import { nativeLayer } from "./native.ts"
+import { nativeLayer, NativeTransport } from "./native.ts"
 import { boundRelayWikiProvider } from "./planning-wiki-provider.ts"
 import { loadProject } from "./project-config.ts"
 import { resolveRuntimeBridgeIdentity } from "./runtime-bridge.ts"
@@ -292,7 +292,9 @@ export const serve = async (adapters: Pick<Options, "fileMutationProvider"> = {}
                   prepareFlowDependencies(sourceOptions, sourceRoot).pipe(
                     Effect.andThen(serveSource(sourceRoot, tree.commitId))
                   )
-              ).pipe(Effect.provide(nativeLayer({ repositoryPath: root })))
+              ).pipe(Effect.provide(nativeLayer({ ...options, nativeRepositoryToken: landing.token }).pipe(
+                Layer.provide(NativeTransport.layerFrom(platform.host))
+              )))
             })
             : serveSource(root))
         }),

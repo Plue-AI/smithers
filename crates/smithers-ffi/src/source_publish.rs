@@ -130,7 +130,8 @@ fn config_valid(config: &Config, path: &Path) -> bool {
             )
 }
 
-pub(super) const TOKEN_CREDENTIAL_HELPER: &str = "!f() { printf 'username=smithers\npassword=%s\n' \"$SMITHERS_NATIVE_REPOSITORY_TOKEN\"; }; f";
+pub(super) const TOKEN_CREDENTIAL_HELPER: &str =
+    "!f() { printf 'username=smithers\npassword=%s\n' \"$SMITHERS_NATIVE_REPOSITORY_TOKEN\"; }; f";
 
 fn credential(config: &Config) -> Result<String> {
     // The executable consumes its private landing credential before ordinary
@@ -899,6 +900,7 @@ mod tests {
                 "11111111-1111-4111-8111-111111111111",
                 "stack.propose",
                 Some(7),
+                None,
             );
             server.join().unwrap();
             if status == 200 && expected_generation == 7 {
@@ -932,6 +934,7 @@ mod tests {
             "11111111-1111-4111-8111-111111111111",
             "stack.candidate",
             None,
+            None,
         )
         .unwrap_err();
         server.join().unwrap();
@@ -956,6 +959,7 @@ mod tests {
             "sentinel-private-token",
             "11111111-1111-4111-8111-111111111111",
             "stack.candidate",
+            None,
             None,
         )
         .unwrap_err();
@@ -988,7 +992,14 @@ mod tests {
 pub(crate) fn reserved(path: &Path, input: &serde_json::Value) -> Result<serde_json::Value> {
     let object = input.as_object().ok_or_else(invalid)?;
     if object.keys().any(|key| {
-        !["operation", "repositoryPath", "requestId", "generation"].contains(&key.as_str())
+        ![
+            "operation",
+            "repositoryPath",
+            "requestId",
+            "generation",
+            "plan",
+        ]
+        .contains(&key.as_str())
     }) {
         return Err(invalid());
     }
@@ -1007,6 +1018,9 @@ pub(crate) fn reserved(path: &Path, input: &serde_json::Value) -> Result<serde_j
         return Err(invalid());
     }
     let generation = if operation == "stack.propose" {
+        if input.get("plan").is_some() {
+            return Err(invalid());
+        }
         Some(
             input["generation"]
                 .as_i64()
@@ -1024,7 +1038,15 @@ pub(crate) fn reserved(path: &Path, input: &serde_json::Value) -> Result<serde_j
         return Err(invalid());
     }
     let token = credential(&config)?;
-    reserved_authenticated(path, &config, &token, request_id, operation, generation)
+    reserved_authenticated(
+        path,
+        &config,
+        &token,
+        request_id,
+        operation,
+        generation,
+        input.get("plan"),
+    )
 }
 
 fn reserved_authenticated(
@@ -1034,6 +1056,7 @@ fn reserved_authenticated(
     request_id: &str,
     operation: &str,
     generation: Option<i64>,
+    plan: Option<&serde_json::Value>,
 ) -> Result<serde_json::Value> {
     let url = format!(
         "{}/repos/{}/workspaces/{}/stack/{}",
@@ -1045,6 +1068,9 @@ fn reserved_authenticated(
     let mut body = serde_json::json!({"requestId":request_id});
     if let Some(n) = generation {
         body["generation"] = n.into();
+    }
+    if let Some(plan) = plan {
+        body["plan"] = plan.clone();
     }
     let (mut status, mut value) = request_json(&url, &body.to_string(), token)?;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);

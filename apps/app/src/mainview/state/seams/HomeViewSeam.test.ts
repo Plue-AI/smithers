@@ -232,3 +232,45 @@ test("a visible Home advances the new member's look after an account change", as
     expect(views.Ben).toEqual({ last_seen_seq: 25 })
   } finally { stop(); seam.dispose() }
 })
+
+
+test("rapid Home remounts retain preferences while an owner change reads fresh state", async () => {
+  let owner = "Ben", reads = 0, changed = () => {}
+  const seam = createHomeViewSeam({ owner: () => owner, subscribeOwner: notify => { changed = notify; return () => {} },
+    report: error => { throw error }, http: async () => { reads++; return Response.json({ home: { filter: "working" } }) } })
+  try {
+    const stop = seam.subscribe(() => {})
+    await waitFor(() => seam.get().filter === "working")
+    stop()
+    for (let mount = 0; mount < 20; mount++) seam.subscribe(() => {})()
+    expect(reads).toBe(1)
+    const stopAgain = seam.subscribe(() => {})
+    owner = "Alice"; changed()
+    await waitFor(() => reads === 2)
+    stopAgain()
+  } finally { seam.dispose() }
+})
+
+
+test("repeated committed Home preferences do not enqueue identical reads and writes", async () => {
+  const calls: string[] = []
+  let saved: Record<string, unknown> = { home: { filter: "queued" }, last_seen_seq: 2 }
+  const seam = createHomeViewSeam({ owner: () => "Ben", subscribeOwner: () => () => {}, report: error => { throw error },
+    http: async (_path, init) => {
+      calls.push(init?.method ?? "GET")
+      if (init?.method === "PUT") saved = JSON.parse(String(init.body))
+      return Response.json(saved)
+    } })
+  const stop = seam.subscribe(() => {})
+  try {
+    await waitFor(() => seam.get().filter === "queued")
+    for (let repeat = 0; repeat < 20; repeat++) seam.onView({ menu: 9 })
+    await waitFor(() => seam.get().menu === 9)
+    await Promise.resolve(); await Promise.resolve()
+    expect(calls).toEqual(["GET", "GET", "PUT"])
+    seam.onView({ filter: "queued", menu: 9, last_seen_seq: 2 })
+    await Promise.resolve()
+    expect(calls).toEqual(["GET", "GET", "PUT"])
+    expect(saved).toEqual({ home: { filter: "queued", menu: 9 }, last_seen_seq: 2 })
+  } finally { stop(); seam.dispose() }
+})

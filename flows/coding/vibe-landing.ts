@@ -36,6 +36,7 @@ import {
   VibeSubmitted
 } from "./vibe-schema.ts"
 import { RunCheck } from "./workflow.ts"
+import { Candidate, Propose } from "./stack.ts"
 
 const invalid = (message: string) => new CodingError({ code: "invalid_receipt", message })
 /** Existing landing policy runs in Plue's worker; this bound covers full-history inspection. */
@@ -222,7 +223,7 @@ const AwaitAppend = Poll.make("coding/AwaitVibeAppend", {
         })
     }))
 })
-export const LandVibeError = Schema.Union([RunCheck.errorSchema, Poll.Failure])
+export const LandVibeError = Schema.Union([RunCheck.errorSchema, Poll.Failure, Candidate.errorSchema, Propose.errorSchema])
 /** Fast-forward: the project's checks on the candidate, then main moves or the candidate is evicted. */
 const fastForward = (cleanup: VibeCleanup) =>
   PrepareCandidate.call({ cleanup }).pipe(
@@ -265,7 +266,16 @@ const backend = (cleanup: VibeCleanup) =>
         Node.andThen(ReadStack.call({ cleanup })),
         Node.branch({
           if: (stacked) => stacked,
-          then: () => SubmitLane.call({ cleanup, cleanedSource }),
+          then: () => Node.succeed(cleanup.admission.fromStack === true).pipe(
+            Node.branch({
+              if: (fromStack) => fromStack,
+              then: () => Candidate.call({ plan: cleanup.admission.request.plan }).pipe(
+                Node.bindPlanned((candidate) => Propose.call({ generation: candidate.generation })),
+                Node.bindPlanned((proposal) => Node.succeed({ cleanup, cleanedSource, proposal }))
+              ),
+              else: () => SubmitLane.call({ cleanup, cleanedSource })
+            })
+          ),
           else: () =>
             Node.succeed(cleanedSource).pipe(
               Node.andThen(PrepareAppend.call({ cleanup })),
@@ -342,7 +352,9 @@ export const landingLayers = Layer.mergeAll(
       (landing) =>
         Effect.flatMap(landing.readStack ?? Effect.succeed(false), (stacked) =>
           !stacked
-            ? Effect.succeed(false)
+            ? cleanup.admission.fromStack === true
+              ? Effect.fail(new CodingError({ code: "unavailable", message: "TODO stack is unavailable" }))
+              : Effect.succeed(false)
             // The stack launched this request from its base; its lane waits for the result.
             : cleanup.admission.fromStack === true
             ? Effect.succeed(true)

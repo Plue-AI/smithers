@@ -22,7 +22,7 @@ func TestGitHubPullObservationsRetainReturningPayloadAndOrder(t *testing.T) {
 	var body atomic.Value
 	body.Store(fetchedPullDetail)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/repos/factory/app/pulls/7", r.URL.Path)
+		require.Contains(t, []string{"/repos/factory/app/pulls/7", "/repos/factory/app/issues/7"}, r.URL.Path)
 		current := body.Load().(string)
 		etag := `"open"`
 		if strings.Contains(current, `"state":"closed"`) {

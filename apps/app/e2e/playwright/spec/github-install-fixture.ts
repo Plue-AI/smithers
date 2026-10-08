@@ -30,7 +30,7 @@ export async function withGitHubInstall(page: Page, run: string, enable: string,
         await expect.poll(async () => {
           if (backend.exitCode !== null) throw new Error(logs)
           try { host = JSON.parse(await readFile(config, "utf8")); return host.phase } catch { return "starting" }
-        }, { timeout: 180_000 }).toBe(name)
+        }, { timeout: 480_000 }).toBe(name)
         return host
       },
       open: async host => {

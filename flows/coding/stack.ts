@@ -24,7 +24,7 @@ import {
   StackProposal
 } from "./native.ts"
 import { ModuleOwner } from "../../packages/smithers/src/internal/ModuleOwner.ts"
-import { CodingError, Revision, StackBase } from "./schema.ts"
+import { CodingError, Plan, Revision, StackBase } from "./schema.ts"
 
 export { StackBase } from "./schema.ts"
 
@@ -49,7 +49,7 @@ export const CreateStackBase = Action.make("coding/create-stack-base", {
 
 /** Reserved packaged operations: deliberately not Flow.make declarations. */
 export const Candidate = Action.make("stack.candidate", {
-  payload: {},
+  payload: { plan: Schema.optionalKey(Plan) },
   success: StackCandidate,
   error: Schema.Union([CodingError, NativeCodingError]),
   nondeterministic: true
@@ -61,7 +61,7 @@ export const Propose = Action.make("stack.propose", {
   nondeterministic: true
 })
 
-export const captureStackCandidate = (executionId: string) =>
+export const captureStackCandidate = (executionId: string, plan?: typeof Plan.Type) =>
   Effect.gen(function*() {
     const invocation = yield* Action.CurrentInvocationKey
     if (!invocation) return yield* refused("Durable stack operation identity is unavailable")
@@ -72,7 +72,7 @@ export const captureStackCandidate = (executionId: string) =>
     if (native.sourcePublication !== "cloud" || !native.stackCandidate) {
       return yield* refused("Current TODO run and machine authority is unavailable")
     }
-    return yield* native.stackCandidate(requestIdFor(executionId, `stack.candidate/${invocation}`))
+    return yield* native.stackCandidate(requestIdFor(executionId, `stack.candidate/${invocation}`), plan)
   })
 
 export const proposeStackCandidate = (executionId: string, generation: number) =>
@@ -148,10 +148,10 @@ export const admitStackBase = (base: StackBase) =>
   )
 
 export const stackBaseLayer = Layer.mergeAll(
-  Candidate.toLayer(() =>
+  Candidate.toLayer(({ plan }) =>
     Effect.gen(function*() {
       const instance = yield* FlowRuntime.FlowInstance
-      return yield* captureStackCandidate(instance.executionId)
+      return yield* captureStackCandidate(instance.executionId, plan)
     })
   ),
   Propose.toLayer(({ generation }) =>

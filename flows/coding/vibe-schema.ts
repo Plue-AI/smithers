@@ -8,7 +8,7 @@ import {
   LocalPull,
   MergeOutcome
 } from "./landing-schema.ts"
-import { SourcePublication } from "./native-schema.ts"
+import { SourcePublication, StackProposal } from "./native-schema.ts"
 import { Receipt, RequestResult, Result, Revision } from "./schema.ts"
 
 export const VibeInput = Schema.Struct({ requestExecutionId: Schema.NonEmptyString.check(Schema.isMaxLength(1024)) })
@@ -77,6 +77,9 @@ export const VibeSubmitted = Schema.Struct({
   lane: LaneReceipt
 })
 export type VibeSubmitted = typeof VibeSubmitted.Type
+/** A TODO delivered through the reserved candidate and proposal actions. */
+export const VibeStackProposed = Schema.Struct({ cleanup: VibeCleanup, cleanedSource: SourcePublication, proposal: StackProposal })
+export type VibeStackProposed = typeof VibeStackProposed.Type
 /** A host without the backend fast-forwarded main to the one verified candidate commit. */
 export const VibeFastForwarded = Schema.Struct({
   cleanup: VibeCleanup,
@@ -97,6 +100,7 @@ export const VibeDelivered = Schema.Union([
   VibeLanded,
   VibeProposed,
   VibeSubmitted,
+  VibeStackProposed,
   VibeFastForwarded,
   VibePullRequested
 ])

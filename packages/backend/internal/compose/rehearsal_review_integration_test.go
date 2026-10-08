@@ -51,7 +51,9 @@ func (r *rehearsalReviewRuntime) confined(current workspaceapi.Workspace, comman
 	args := []string{r.bubblewrap, "--tmpfs", "/", "--ro-bind", "/usr", "/usr", "--ro-bind", "/lib", "/lib", "--ro-bind", "/lib64", "/lib64", "--symlink", "usr/bin", "/bin", "--ro-bind", "/etc", "/etc", "--proc", "/proc", "--dev", "/dev", "--unshare-user", "--uid", "19998", "--gid", "19998", "--unshare-pid", "--die-with-parent"}
 	// Bind only approved executables, never the host home or lane checkout.
 	for _, path := range []string{r.node, r.helper, r.host, r.tools} {
-		args = append(args, "--ro-bind", path, path)
+		if path != "" {
+			args = append(args, "--ro-bind", path, path)
+		}
 	}
 	machine := filepath.Dir(current.Root)
 	args = append(args, "--bind", machine, machine, "--chdir", current.Root, "--")
@@ -60,7 +62,10 @@ func (r *rehearsalReviewRuntime) confined(current workspaceapi.Workspace, comman
 	if command.Environment == nil {
 		command.Environment = map[string]string{}
 	}
-	command.Environment["PATH"] = r.tools + ":/usr/bin:/bin"
+	command.Environment["PATH"] = "/usr/bin:/bin"
+	if r.tools != "" {
+		command.Environment["PATH"] = r.tools + ":" + command.Environment["PATH"]
+	}
 	return command
 }
 

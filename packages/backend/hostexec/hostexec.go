@@ -137,8 +137,8 @@ func GitEnvironment() []string {
 }
 
 // GitArgv answers git's absolute path and the arguments of a git run with
-// args: hooks are pinned off (no backend git run uses a hook), whatever a
-// repository's configuration says.
+// args: repository-selected hooks, filesystem monitors and alternate-ref
+// programs are pinned off, including upload-pack reads of retained objects.
 func GitArgv(args ...string) (program string, argv []string, err error) {
 	config, err := current()
 	if err == nil {
@@ -150,7 +150,7 @@ func GitArgv(args ...string) (program string, argv []string, err error) {
 	if err != nil {
 		return "", nil, fmt.Errorf("locate git: %w", err)
 	}
-	return config.Git, append([]string{"-c", "core.hooksPath=" + os.DevNull}, args...), nil
+	return config.Git, append([]string{"-c", "core.hooksPath=" + os.DevNull, "-c", "core.fsmonitor=false", "-c", "core.alternateRefsCommand="}, args...), nil
 }
 
 // Git answers a git command with args, by git's absolute path (also its

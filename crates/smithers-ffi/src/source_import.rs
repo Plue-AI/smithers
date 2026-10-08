@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use jj_lib::{object_id::ObjectId, repo::Repo};
+use jj_lib::object_id::ObjectId;
 use pollster::FutureExt as _;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -425,10 +425,12 @@ fn import_refs(repo: &Path) -> Result<()> {
         record_synthetic_predecessors: false,
         remote_auto_track_bookmarks: Default::default(),
     };
-    jj_lib::git::import_refs(tx.repo_mut(), &options).block_on()
+    jj_lib::git::import_refs(tx.repo_mut(), &options)
+        .block_on()
         .map_err(|error| Failure::new("source_import_unavailable", error.to_string()))?;
     if tx.repo().has_changes() {
-        tx.commit("import immutable retained source references").block_on()
+        tx.commit("import immutable retained source references")
+            .block_on()
             .map_err(|error| Failure::new("source_import_unavailable", error.to_string()))?;
     }
     Ok(())
@@ -520,6 +522,16 @@ fn run_with_binding(repo: &Path, input: &Value, config: &Binding) -> Result<Valu
             "repositoryId":config.repository_id, "operationId":before, "head":head_before, "revisions":revisions}),
         );
     }
+    // A captured source can already be the empty editor child. Importing a
+    // recovery tag for that known commit lets Git import abandon that child.
+    // Retain its exact owned ref without re-importing the graph. Interrupted
+    // tags still take the reconciliation path below.
+    if !unfinished {
+        seeds.retain(|_, sha| {
+            super::workspace_engine::commit(repo, &format!("commit_id(\"{sha}\")")).is_err()
+        });
+    }
+    let import_graph = unfinished || !seeds.is_empty();
     preflight(repo, &git_dir, &seeds)?;
     let mut expected_refs = refs(&git_dir)?;
     for reference in seeds.keys() {
@@ -686,11 +698,15 @@ fn run_with_binding(repo: &Path, input: &Value, config: &Binding) -> Result<Valu
             )?;
         }
     }
-    import_refs(repo)?;
+    if import_graph {
+        import_refs(repo)?;
+    }
     for (reference, sha) in &seeds {
         git(&git_dir, &["update-ref", "-d", reference, sha], None, false)?;
     }
-    import_refs(repo)?;
+    if import_graph {
+        import_refs(repo)?;
+    }
     let at = field(&super::workspace_local::operation(repo)?, "id")?.to_owned();
     let head = revision(repo, &super::workspace_engine::commit(repo, "@")?, &at)?;
     if [
@@ -953,10 +969,49 @@ mod tests {
         let selected_id = selected["commit_id"].as_str().unwrap();
         assert_eq!(selected_id, head);
         fs::write(owned.join("code.txt"), "unsaved verifier bytes\n").unwrap();
-        command("git", &["--git-dir", &owned_git, "update-ref", &seed, &head]);
+        command(
+            "git",
+            &["--git-dir", &owned_git, "update-ref", &seed, &head],
+        );
         let same_head = run_with_binding(&owned, &request, &config).unwrap();
         assert_eq!(same_head["head"]["commitId"], head);
         assert_eq!(same_head["head"]["changeId"], selected["change_id"]);
-        assert_eq!(fs::read_to_string(owned.join("code.txt")).unwrap(), "unsaved verifier bytes\n");
+        assert_eq!(
+            fs::read_to_string(owned.join("code.txt")).unwrap(),
+            "unsaved verifier bytes\n"
+        );
+        // Production stack.candidate seals an unchanged tree in an empty
+        // working child. Its first verify import must preserve that child,
+        // dirty bytes and bookmarks rather than abandon it for its parent.
+        command("jj", &["-R", owned_path, "status"]);
+        command("jj", &["-R", owned_path, "new", "-m", ""]);
+        let empty = super::super::workspace_engine::commit(&owned, "@").unwrap();
+        let empty_id = empty["commit_id"].as_str().unwrap();
+        command(
+            "git",
+            &[
+                "--git-dir",
+                &owned_git,
+                "push",
+                bare_path,
+                &format!("{empty_id}:{}", source_ref(empty_id)),
+            ],
+        );
+        fs::write(owned.join("code.txt"), "dirty after capture\n").unwrap();
+        let input = json!({"operation":"import_source","repositoryPath":owned,
+            "requestId":"33333333-3333-4333-8333-333333333333",
+            "commits":[{"commitId":empty_id,"ref":source_ref(empty_id)}]});
+        let accepted = run_with_binding(&owned, &input, &config).unwrap();
+        assert_eq!(accepted["head"]["commitId"], empty_id);
+        assert_eq!(accepted["head"]["changeId"], empty["change_id"]);
+        assert_eq!(accepted["revisions"][0]["commitId"], empty_id);
+        assert_eq!(
+            fs::read_to_string(owned.join("code.txt")).unwrap(),
+            "dirty after capture\n"
+        );
+        assert_eq!(
+            run_with_binding(&owned, &input, &config).unwrap()["revisions"],
+            accepted["revisions"]
+        );
     }
 }

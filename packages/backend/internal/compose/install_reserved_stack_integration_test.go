@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
@@ -105,6 +106,13 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 		require.Zero(t, runtime.calls)
 		require.Zero(t, objects.reads)
 	})
+	t.Run("candidate plan refuses malformed checks before guest reads", func(t *testing.T) {
+		for _, plan := range []string{`{}`, `{"changes":[]}`, `{"changes":[{"checks":"wrong"}]}`} {
+			call(t, token, "candidate", `{"requestId":"11111111-1111-4111-8111-111111111111","plan":`+plan+`}`, 400)
+		}
+		require.Zero(t, runtime.calls)
+		require.Zero(t, objects.reads)
+	})
 	t.Run("authority fields cannot select another run", func(t *testing.T) {
 		call(t, token, "candidate", `{"requestId":"11111111-1111-4111-8111-111111111111","runId":"replacement"}`, 400)
 		require.Zero(t, runtime.calls)
@@ -119,7 +127,7 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 		stored, err := f.q.GetAuthInfoByTokenHash(f.ctx, hash)
 		require.NoError(t, err)
 		info := &middleware.AuthInfo{User: &f.owner, IsTokenAuth: true, TokenSystemIssued: true, TokenID: stored.TokenID, TokenHash: hash, RawScopes: stored.TokenScopes, Scopes: middleware.ParseTokenScopes(stored.TokenScopes)}
-		for _, field := range []string{"request", "source", "proposal generation"} {
+		for _, field := range []string{"request", "source", "plan", "proposal generation"} {
 			t.Run(field, func(t *testing.T) {
 				command, admitted := "stack.candidate", input
 				if field == "proposal generation" {
@@ -142,6 +150,8 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 					source := *admitted.Source
 					source.CommitID = strings.Repeat("f", 40)
 					changed.Source = &source
+				case "plan":
+					changed.Plan = json.RawMessage(`{"changes":[{"title":"Substituted","atoms":[],"checks":[]}]}`)
 				case "proposal generation":
 					changed.Generation++
 				}
@@ -156,6 +166,81 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 			})
 		}
 	})
+	t.Run("generation completion racing the stack lock retries admission", func(t *testing.T) {
+		tx, err := f.pool.Begin(f.ctx)
+		require.NoError(t, err)
+		defer tx.Rollback(f.ctx)
+		_, err = tx.Exec(f.ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, f.repoID)
+		require.NoError(t, err)
+		body := strings.Replace(string(raw), input.RequestID, "99999999-9999-4999-8999-999999999999", 1)
+		req := httptest.NewRequest("POST", fmt.Sprintf("http://example.com/api/repos/gate-owner/app/workspaces/%s/stack/candidate", row.ID), strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		out := httptest.NewRecorder()
+		done := make(chan struct{})
+		before, reads := runtime.calls, objects.reads
+		go func() { router.ServeHTTP(out, req); close(done) }()
+		require.Eventually(t, func() bool {
+			var waiting bool
+			err := f.pool.QueryRow(f.ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%mythical_stacks%FOR UPDATE%')`).Scan(&waiting)
+			return err == nil && waiting
+		}, 5*time.Second, 10*time.Millisecond)
+		_, err = tx.Exec(f.ctx, `UPDATE mythical_items SET generation=8 WHERE id=$1`, itemID)
+		require.NoError(t, err)
+		require.NoError(t, tx.Commit(f.ctx))
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("admission did not settle")
+		}
+		require.Equal(t, 202, out.Code, out.Body.String())
+		require.Equal(t, before, runtime.calls)
+		require.Equal(t, reads, objects.reads)
+		replay := call(t, token, "candidate", body, 200)
+		require.JSONEq(t, fmt.Sprintf(`{"generation":8,"base":%q,"head":%q}`, base, head), replay.Body.String())
+		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET generation=7 WHERE id=$1`, itemID)
+		require.NoError(t, err)
+	})
+	t.Run("passing verification projection waits for engine acceptance", func(t *testing.T) {
+		for _, outcome := range []string{"", "passed", "failed"} {
+			_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET state='verifying',candidate_verified=false,verify_outcome=$2 WHERE id=$1`, itemID, outcome)
+			require.NoError(t, err)
+			body := strings.Replace(proposal, "22222222-2222-4222-8222-222222222222", uuid.NewString(), 1)
+			want := 202
+			if outcome == "failed" {
+				want = 409
+			}
+			call(t, token, "propose", body, want)
+		}
+		_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET state='proposed',candidate_verified=true,verify_outcome='' WHERE id=$1`, itemID)
+		require.NoError(t, err)
+	})
+	t.Run("busy projection yields without a partial receipt and replays after release", func(t *testing.T) {
+		fresh := strings.Replace(proposal, "22222222-2222-4222-8222-222222222222", "88888888-8888-4888-8888-888888888888", 1)
+		var principal string
+		require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT 'todo:' || id::text FROM mythical_items WHERE repository_id=$1 AND number=1`, f.repoID).Scan(&principal))
+		blocked, err := f.pool.Begin(f.ctx)
+		require.NoError(t, err)
+		defer blocked.Rollback(f.ctx)
+		_, err = blocked.Exec(f.ctx, `INSERT INTO product_job_streams(tenant_id,principal_id,head) VALUES($1,$2,0) ON CONFLICT DO NOTHING`, fmt.Sprint(f.repoID), principal)
+		require.NoError(t, err)
+		_, err = blocked.Exec(f.ctx, `SELECT head FROM product_job_streams WHERE tenant_id=$1 AND principal_id=$2 FOR UPDATE`, fmt.Sprint(f.repoID), principal)
+		require.NoError(t, err)
+		var before, after int
+		require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM product_job_requests WHERE operation='stack.propose.completed'`).Scan(&before))
+		began := time.Now()
+		call(t, token, "propose", fresh, 202)
+		require.Less(t, time.Since(began), 2*time.Second)
+		require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM product_job_requests WHERE operation='stack.propose.completed'`).Scan(&after))
+		require.Equal(t, before, after)
+		require.NoError(t, blocked.Rollback(f.ctx))
+		first := call(t, token, "propose", fresh, 200)
+		replay := call(t, token, "propose", fresh, 200)
+		require.JSONEq(t, first.Body.String(), replay.Body.String())
+		require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM product_job_requests WHERE operation='stack.propose.completed'`).Scan(&after))
+		require.Equal(t, before+1, after)
+	})
+
 	t.Run("equal tree reuses candidate and proposal", func(t *testing.T) {
 		out := call(t, token, "candidate", string(raw), 200)
 		require.JSONEq(t, fmt.Sprintf(`{"generation":7,"base":%q,"head":%q}`, base, head), out.Body.String())
@@ -235,6 +320,26 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 		require.Equal(t, before, runtime.calls)
 	})
 
+	t.Run("coding host landing credential reaches reserved dispatcher", func(t *testing.T) {
+		agentScopes := "write:repository," + middleware.RepositoryRestrictionScope(f.repoID) + "," + middleware.LandingWorkspaceScope(row.ID) + "," + strings.Join(middleware.PathRestrictionScopes([]string{"**"}), ",") + "," + middleware.AgentSessionRestrictionScope("current-run")
+		agent := f.token(f.owner, "reserved-agent-run", agentScopes, true)
+		call(t, agent, "candidate", `{"requestId":"99999999-9999-4999-8999-999999999999"}`, 204)
+	})
+
+	t.Run("missing isolation refuses both publication operations before dispatch", func(t *testing.T) {
+		runtime.host = true
+		defer func() { runtime.host = false }()
+		before, reads := runtime.calls, objects.reads
+		for _, operation := range []string{"candidate", "propose"} {
+			body := strings.Replace(string(raw), input.RequestID, uuid.NewString(), 1)
+			if operation == "propose" {
+				body = strings.Replace(proposal, "22222222-2222-4222-8222-222222222222", uuid.NewString(), 1)
+			}
+			call(t, token, operation, body, 503)
+		}
+		require.Equal(t, before, runtime.calls)
+		require.Equal(t, reads, objects.reads)
+	})
 	for _, provider := range []string{"verify launcher", "source reader", "guest runtime"} {
 		t.Run("missing "+provider+" refuses before capture", func(t *testing.T) {
 			defer service.SetOrchestration(nil, dispatcher, services.NewWorkspaceMythicalLanes(machine))
