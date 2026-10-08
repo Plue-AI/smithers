@@ -79,13 +79,15 @@ func (s *WorkspaceService) requestOwnerTerminal(ctx context.Context, branch stri
 	if err = tx.Commit(ctx); err != nil {
 		return WorkspaceSessionResponse{}, err
 	}
-	background, cancel := context.WithTimeout(context.WithoutCancel(personMachineDemand(ctx)), workspaceProvisionTimeout)
+	observed, span := beginTerminalWakeObservation(ctx, request, row.ID)
+	background, cancel := context.WithTimeout(context.WithoutCancel(personMachineDemand(observed)), workspaceProvisionTimeout)
 	done := s.trackProvision()
 	go func() {
 		defer done()
 		defer cancel()
 		status := "running"
 		failure := s.ownerTerminalOpen(background, receipt.ID, row.ID, repository, member)
+		span.complete(failure == nil)
 		if failure != nil {
 			status = "failed"
 		}

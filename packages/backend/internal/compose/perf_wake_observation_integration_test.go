@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -39,10 +40,20 @@ type perfWakeRuntime struct {
 	entered, release chan struct{}
 	once             sync.Once
 	registry         machined.Registry
+	owner            *terminalMemberRuntime
 }
 
 const perfWakeHead = "0123456789012345678901234567890123456789"
-const perfWakeClone = "http://localhost:4000/presence-owner/app.git"
+const perfWakeClone = "http://127.0.0.1:4000/presence-owner/app.git"
+
+func (r *perfWakeRuntime) EnsureMachined(ctx context.Context, branch string) error {
+	r.owner.admitted = true
+	return r.owner.EnsureMachined(ctx, branch)
+}
+func (r *perfWakeRuntime) SessionCredentialsForMember(ctx context.Context, branch string, member microsandbox.MemberIdentity) (microsandbox.MemberSessionCredentials, error) {
+	return r.owner.SessionCredentialsForMember(ctx, branch, member)
+}
+func (*perfWakeRuntime) StopService(context.Context, string, string) error { return nil }
 
 func (r *perfWakeRuntime) Capabilities() workspaceapi.WorkspaceCapabilities {
 	return workspaceapi.WorkspaceCapabilities{Terminal: true, Execution: true, PersistentFiles: true, FileOperations: true}
@@ -126,9 +137,28 @@ func TestPerfWarmWakeObservationComposedInstall(t *testing.T) {
 			branch, err := q.CreateWorkspace(t.Context(), db.CreateWorkspaceParams{RepositoryID: f.row.RepositoryID, UserID: owner, Name: "wake", TargetBookmark: "scratch/presence-owner/wake", Status: "suspended", Kind: "vm"})
 			require.NoError(t, err)
 			runtime := &perfWakeRuntime{row: branch, state: workspaceapi.WorkspaceStopped, mode: mode, entered: make(chan struct{}), release: make(chan struct{})}
-			service := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime), services.WithWorkspaceTransactions(f.pool), services.WithBranchMachineProviders(*rehearsalBranchMachines(f.pool)), services.WithWorkspaceGitBaseURL("http://localhost:4000"), services.WithWorkspaceBillingPolicy(services.NewMachineAdmissionPolicy(services.NewUnlimitedBillingPolicy())))
+			reader, writer := io.Pipe()
+			terminal := &echoOwnerTerminal{reader: reader, writer: writer}
+			runtime.owner = &terminalMemberRuntime{replacementRuntime: &replacementRuntime{repoID: f.row.RepositoryID}, terminal: terminal, branch: branch, member: microsandbox.MemberIdentity{Login: "ben", UID: 20001, Active: true}}
+			_, err = f.pool.Exec(t.Context(), `INSERT INTO collaborators(repository_id,user_id,permission,unix_login,unix_uid) VALUES($1,$2,'admin','ben',20001)`, f.row.RepositoryID, f.user.ID)
+			require.NoError(t, err)
+			link, _ := presenceTestLink(t, &runtime.registry, branch.ID)
+			require.NoError(t, link.Reconciled())
+			handler := &routes.WorkspaceTerminalHandler{OwnerOnly: true}
+			manager := handler.SharedTerminalSessions()
+			defer manager.Close()
+			authConfig := testConfigAllFlagsOn().Auth
+			authConfig.Mode = "selfhost"
+			auth := services.NewAuthService(q, authConfig, nil, nil)
+			auth.Members = &services.Members{Pool: f.pool}
+			auth.TerminalSubject = manager.OwnsSubject
+			service := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime), services.WithWorkspaceTransactions(f.pool), services.WithBranchMachineProviders(*rehearsalBranchMachines(f.pool)), services.WithWorkspaceCredentialIssuer(auth), services.WithWorkspaceGitBaseURL("http://127.0.0.1:4000"), services.WithWorkspaceBillingPolicy(services.NewMachineAdmissionPolicy(services.NewUnlimitedBillingPolicy())))
 			service.EnableMachineAdmission(func(context.Context) (int64, error) { return 140 << 30, nil })
 			service.BindBranchTerminalHost(func(context.Context, db.Workspace, int64) error { return nil })
+			provider := &installOwnerTerminals{queries: q, branches: service, registry: &runtime.registry}
+			provider.Bind(manager)
+			handler.Service = service
+			handler.OwnerTerminals = provider
 			var logs bytes.Buffer
 			previous := slog.Default()
 			slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
@@ -150,7 +180,7 @@ func TestPerfWarmWakeObservationComposedInstall(t *testing.T) {
 			cfg.Auth.Mode = "selfhost"
 			cfg.Server.PublicURL = "http://localhost:4000"
 			cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
-			handler := &routes.WorkspaceTerminalHandler{Service: service, AllowedOrigins: cfg.Server.AllowedOrigins}
+			handler.AllowedOrigins = cfg.Server.AllowedOrigins
 			router := hostStatusProductionRouter(cfg, q, &services.InstallCapacityService{Queries: q}, conformanceServices{pool: f.pool, terminal: handler})
 			requestID := uuid.NewString()
 			call := func(authenticated bool) *httptest.ResponseRecorder {
@@ -184,9 +214,10 @@ func TestPerfWarmWakeObservationComposedInstall(t *testing.T) {
 			var repeated services.WorkspaceSessionResponse
 			require.NoError(t, json.Unmarshal(duplicate.Body.Bytes(), &repeated))
 			require.Equal(t, accepted.ID, repeated.ID)
-			pending, err := q.GetWorkspaceSession(t.Context(), accepted.ID)
-			require.NoError(t, err)
-			require.Equal(t, "pending", pending.Status)
+			require.Equal(t, "pending", repeated.Status)
+			var legacySessions int
+			require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM workspace_sessions WHERE id=$1`, accepted.ID).Scan(&legacySessions))
+			require.Zero(t, legacySessions, "owner terminals must not create legacy session rows")
 			heldFor := time.Since(heldAt)
 			finish()
 			var records []map[string]any

@@ -326,9 +326,12 @@ shared artifact writer to both performance and C-PERF-05 check directories.
 Credentials are excluded. Failed runs attempt to close their last terminal;
 an unsuccessful cleanup records the remaining session ID.
 
-This driver is not a passing receipt. The current S2 terminal route refuses
-startup, its successful session-ID response still needs integration with
-T-TRM-01, and the acceptance/state-write host observer export is not yet
-implemented. Those must be supplied before a reference-host run can pass;
-a client stopwatch or wake histogram cannot substitute for the host log.
+This driver is not a passing receipt. The composed owner-terminal request
+records acceptance before background admission and carries the observation
+through the committed awake transition and independent guest head read.
+Duplicate requests reuse the durable receipt and emit no second observation;
+failed boots and missing heads retain failed observations. The reference-host
+run still needs authenticated lifecycle qualification and an export of the
+install's structured host log. A client stopwatch or wake histogram cannot
+substitute for that log.
 Run offline validation with `node --test scripts/perf/warm-wake.test.mjs`.
