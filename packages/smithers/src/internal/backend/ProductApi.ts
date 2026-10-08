@@ -2533,6 +2533,28 @@ export interface GetApiIssuesNInput {
 export const getApiIssuesN = (transport: Transport, input: GetApiIssuesNInput): Promise<GetApiIssuesNResponse> =>
   transport.request("GET", `/api/issues/${segment(input.path.n)}`) as Promise<GetApiIssuesNResponse>
 
+export type PostApiIssuesNumberCommentsBody = {
+  body: string
+}
+
+export type PostApiIssuesNumberCommentsResponse = ConfirmationReceipt | {
+  operationId: string
+  requestId: string
+  kind: string
+  state: "accepted" | "dispatching" | "running" | "waiting" | "completed" | "failed" | "cancelled" | "uncertain"
+  acceptedAt: string
+}
+
+export interface PostApiIssuesNumberCommentsInput {
+  readonly path: { readonly number: number }
+  readonly headers: { readonly "Idempotency-Key": string }
+  readonly body: PostApiIssuesNumberCommentsBody
+}
+
+/** POST /api/issues/{number}/comments: Request an issue comment */
+export const postApiIssuesNumberComments = (transport: Transport, input: PostApiIssuesNumberCommentsInput): Promise<PostApiIssuesNumberCommentsResponse> =>
+  transport.request("POST", `/api/issues/${segment(input.path.number)}/comments`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiIssuesNumberCommentsResponse>
+
 /** GET /api/live: Follow the install's shared topics over one WebSocket */
 export const getApiLive = (transport: Transport): Promise<void> =>
   transport.request("GET", `/api/live`).then(() => undefined)

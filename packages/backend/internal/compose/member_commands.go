@@ -565,6 +565,14 @@ func dispatchConfirmation(w http.ResponseWriter, r *http.Request, command string
 		}
 		input.Subject, _ = json.Marshal(map[string]string{"kind": "todo", "ref": "T" + strconv.FormatInt(n, 10)})
 	}
+	if command == "issue.comment" && strings.HasPrefix(r.URL.Path, "/api/issues/") {
+		number, err := strconv.ParseInt(strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/issues/"), "/comments"), 10, 64)
+		if err != nil || number <= 0 {
+			writeConfirmationDispatchError(w, pkgerrors.BadRequest("Invalid issue number"))
+			return true
+		}
+		input.Subject, _ = json.Marshal(map[string]string{"kind": "issue", "ref": strconv.FormatInt(number, 10)})
+	}
 	if command == "branch.add-to-stack" || command == "branch.archive" {
 		suffix := "/" + strings.TrimPrefix(command, "branch.")
 		part := strings.TrimSuffix(strings.TrimPrefix(r.URL.EscapedPath(), "/api/branches/"), suffix)

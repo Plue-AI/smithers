@@ -91,6 +91,7 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodGet, "/api/issues", "issue.read"},
 		{http.MethodGet, "/api/issues/7", "issue.read"},
 		{http.MethodGet, "/api/issues/7/comments", ""},
+		{http.MethodPost, "/api/issues/7/comments", "issue.comment"},
 		{http.MethodPost, "/api/issues", ""},
 		{http.MethodPost, "/api/todos/12", "todo.control"},
 		{http.MethodPatch, "/api/todos/12", "todo.amend"},

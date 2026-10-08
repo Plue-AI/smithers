@@ -444,18 +444,6 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 						executionBoundary.ServeHTTP(w, req)
 						var body map[string]any
 						require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body), w.Body.String())
-						// Branch mutations authenticate on their shared mounted POST door.
-						if pendingTicket := map[string]string{
-							"issue.comment": "T-GH-04",
-						}[operation.Name]; pendingTicket != "" && w.Code == http.StatusNotFound {
-							// Unserved catalogue doors remain owned by their tickets.
-							// Never count a missing-route response as an auth pass.
-							require.Equal(t, 404, w.Code, "%s %s %s: %v", operation.Name, roles[i], state, body)
-							require.Equal(t, "not_found", body["code"], body)
-							digest := sha256.Sum256([]byte(identity))
-							pendingDoors = append(pendingDoors, executionCell{cell{operation.Name, roles[i], state, hex.EncodeToString(digest[:]), 404, "not_found", w.Code, "user", "not_found"}, operation.HTTP.Method, req.URL.EscapedPath(), pendingTicket})
-							continue
-						}
 						require.Equal(t, 401, w.Code, "%s %s %s: %v", operation.Name, roles[i], state, body)
 						require.Equal(t, "permission", body["class"], body)
 						require.Equal(t, "unauthenticated", body["code"], body)
@@ -466,6 +454,7 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 				}
 			}
 			require.NotEmpty(t, executionAdmission)
+			require.Empty(t, pendingDoors, "every declared HTTP door must be composed")
 			t.Logf("declared HTTP execution-door credential death: %d passing cells, %d pending-route cells (not live command execution)", len(executionAdmission), len(pendingDoors))
 			if output := os.Getenv("SMITHERS_ACCESS_LEDGER_DIR"); output != "" {
 				require.NoError(t, os.MkdirAll(output, 0755))

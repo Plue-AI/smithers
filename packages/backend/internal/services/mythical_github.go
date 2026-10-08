@@ -841,26 +841,28 @@ func (g *mythicalGitHubAPI) Comment(ctx context.Context, gh mythicalGitHubRepo, 
 	if err != nil {
 		return err
 	}
-	if existing != 0 {
-		path := landingGitHubRepoPath(gh.Owner, gh.Name) + "/issues/comments/" + strconv.FormatInt(existing, 10)
-		status, err := g.api.request(ctx, token, http.MethodPatch, path, payload, nil)
+	return sendGitHubComment(ctx, func(ctx context.Context) error {
+		if existing != 0 {
+			path := landingGitHubRepoPath(gh.Owner, gh.Name) + "/issues/comments/" + strconv.FormatInt(existing, 10)
+			status, err := g.api.request(ctx, token, http.MethodPatch, path, payload, nil)
+			if err != nil {
+				return err
+			}
+			if status != http.StatusOK {
+				return landingGitHubStatusError(status, gh.Owner, gh.Name, "comment on issues")
+			}
+			return nil
+		}
+		path := landingGitHubRepoPath(gh.Owner, gh.Name) + "/issues/" + strconv.FormatInt(number, 10) + "/comments"
+		status, err := g.api.request(ctx, token, http.MethodPost, path, payload, nil)
 		if err != nil {
 			return err
 		}
-		if status != http.StatusOK {
+		if status != http.StatusCreated {
 			return landingGitHubStatusError(status, gh.Owner, gh.Name, "comment on issues")
 		}
 		return nil
-	}
-	path := landingGitHubRepoPath(gh.Owner, gh.Name) + "/issues/" + strconv.FormatInt(number, 10) + "/comments"
-	status, err := g.api.request(ctx, token, http.MethodPost, path, payload, nil)
-	if err != nil {
-		return err
-	}
-	if status != http.StatusCreated {
-		return landingGitHubStatusError(status, gh.Owner, gh.Name, "comment on issues")
-	}
-	return nil
+	})
 }
 
 // CloseIssueSince reconciles the committed completion intent before repeating

@@ -368,6 +368,7 @@ type preparedConfirmation struct {
 	review          *ReviewAdmission
 	mergeHead       string
 	editTodo        *MythicalTodoInput
+	comment         *installIssueCommentJob
 	wiki            *wikiDeleteConfirmation
 }
 
@@ -392,6 +393,8 @@ func (s *MythicalService) prepareConfirmation(ctx context.Context, tx pgx.Tx, re
 	switch input.Command {
 	case "flow.edit", "agent.edit":
 		return s.prepareRepositoryEditConfirmation(ctx, tx, repository, input, inspect)
+	case "issue.comment":
+		return s.prepareIssueCommentConfirmation(ctx, tx, repository, input, inspect)
 	case "wiki.delete":
 		return s.prepareWikiDeleteConfirmation(ctx, tx, repository, input, inspect)
 	case "learning.accept", "learning.dismiss":
@@ -833,6 +836,11 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 				var item MythicalItemView
 				item, err = consumer.fileTodoCommand(bound, repository, info.User.ID, *prepared.editTodo, command)
 				number = item.Number
+			case "issue.comment":
+				if prepared.comment == nil {
+					return confirmationUnavailable()
+				}
+				_, err = consumer.admitIssueComment(bound, tx, repository, prepared.comment.Number, prepared.comment.Body, "confirmation:"+id)
 			case "wiki.delete":
 				afterCommit, err = consumer.deleteConfirmedWiki(bound, tx, prepared.wiki)
 			case "learning.accept", "learning.dismiss":

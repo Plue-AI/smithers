@@ -5164,6 +5164,73 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccessError'
+  /api/issues/{number}/comments:
+    post:
+      x-composition: install
+      summary: Request an issue comment
+      description: Queues the attributed comment without waiting on GitHub. Delegated callers receive a private confirmation; no comment is admitted before the requester approves from their app session. An ambiguous GitHub reply leaves the background operation uncertain and is never blindly retried.
+      operationId: post_api_issues_number_comments
+      tags:
+        - Issues
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      parameters:
+        - name: number
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [body]
+              properties:
+                body: {type: string, minLength: 1, maxLength: 65536}
+      responses:
+        '202':
+          description: Durable background admission or private confirmation
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ConfirmationReceipt'
+                  - type: object
+                    required: [operationId, requestId, kind, state, acceptedAt]
+                    properties:
+                      operationId: {type: string}
+                      requestId: {type: string}
+                      kind: {type: string}
+                      state: {type: string, enum: [accepted, dispatching, running, waiting, completed, failed, cancelled, uncertain]}
+                      acceptedAt: {type: string, format: date-time}
+        '400':
+          description: Invalid comment
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AccessError'}
+        '401':
+          description: Sign in again
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AccessError'}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '409':
+          description: idempotency_mismatch
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AccessError'}
+        '503':
+          description: github_unavailable or confirmation_unavailable, before admission
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AccessError'}
   /api/live:
     get:
       x-composition: install

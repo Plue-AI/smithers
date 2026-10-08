@@ -8,7 +8,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 // InstallIssueRouteService reads the install repository's GitHub issues
@@ -84,4 +86,38 @@ func (h *InstallIssuesHandler) Get(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(thread)
+}
+
+// Comment queues the canonical catalog command against the install repository.
+func (h *InstallIssuesHandler) Comment(w http.ResponseWriter, r *http.Request) {
+	repository, _, ok := authorizeInstallRepository(w, r, h.Queries, "issue.comment")
+	if !ok {
+		return
+	}
+	writer, ok := h.Service.(interface {
+		RequestInstallIssueComment(context.Context, int64, int64, string, string) (jobs.RequestReceipt, error)
+	})
+	if !ok {
+		todoRouteError(w, nil)
+		return
+	}
+	number, err := strconv.ParseInt(chi.URLParam(r, "number"), 10, 64)
+	if err != nil || number <= 0 {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_issue_comment", Class: "user", Message: "Invalid issue number"})
+		return
+	}
+	var input struct {
+		Body string `json:"body"`
+	}
+	if !decodeStrictJSONBody(w, r, &input) {
+		return
+	}
+	receipt, err := writer.RequestInstallIssueComment(r.Context(), repository, number, input.Body, r.Header.Get("Idempotency-Key"))
+	if err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	errors.WriteJSON(w, http.StatusAccepted, receipt)
 }

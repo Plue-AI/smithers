@@ -2229,6 +2229,11 @@ type GetAPIIssuesParams struct {
 	Page  *int64
 }
 
+// PostAPIIssuesNumberCommentsBody is generated from docs/api/openapi.yaml.
+type PostAPIIssuesNumberCommentsBody struct {
+	Body string `json:"body"`
+}
+
 // PostAPIMembersBody is generated from docs/api/openapi.yaml.
 type PostAPIMembersBody struct {
 	Login string `json:"login"`
@@ -3727,6 +3732,13 @@ func (c *Client) GetAPIIssues(ctx context.Context, params GetAPIIssuesParams) ([
 func (c *Client) GetAPIIssuesN(ctx context.Context, n int64) (InstallIssueThread, error) {
 	var out InstallIssueThread
 	err := c.do(ctx, "GET", "/api/issues/"+url.PathEscape(strconv.FormatInt(n, 10)), nil, nil, &out)
+	return out, err
+}
+
+// PostAPIIssuesNumberComments calls POST /api/issues/{number}/comments.
+func (c *Client) PostAPIIssuesNumberComments(ctx context.Context, number int64, idempotencyKey string, body PostAPIIssuesNumberCommentsBody) (json.RawMessage, error) {
+	var out json.RawMessage
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/issues/"+url.PathEscape(strconv.FormatInt(number, 10))+"/comments", nil, body, &out)
 	return out, err
 }
 
