@@ -1914,6 +1914,12 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		cfg.Install.StateDir = strings.TrimSpace(os.Getenv("SMITHERS_NATIVE_STATE_DIR"))
 	}
 	installQuiesce := services.NewInstallQuiesce(&services.QuiesceGate{Store: services.InstallQuiesceStore{Pool: pool}, StateDir: cfg.Install.StateDir})
+	// Quiesce captures and stops every awake branch machine through sleep's
+	// capture-before-stop path (T-MCH-07). Without capture it stays absent,
+	// so quiesce refuses before freezing.
+	if branchMachines != nil && (options.BranchCapture != nil || options.Machined != nil) {
+		installQuiesce.Machines = workspaceService
+	}
 	var conversationSummaries *services.ConversationSummaries
 	if config.IsSingleOwner(cfg.Auth) && chatService != nil {
 		conversationSummaries = composeConversationSummaries(pool, commandJobs, chatService.runtime.Handler.Store, modelStreamHost)

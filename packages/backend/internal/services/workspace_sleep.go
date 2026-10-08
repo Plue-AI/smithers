@@ -248,6 +248,64 @@ func (s *WorkspaceService) captureAndSleepExcluded(ctx context.Context, row db.W
 	return nil
 }
 
+// CaptureAndStop is install quiesce's machine step (spec §16.5.1, T-MCH-07's
+// final capture). Each awake branch machine takes the sleep path: verified
+// capture, then a confirmed stop that retains its disk. Quiesce ends sessions
+// first, so open sessions do not block it. A failure names its branch, and a
+// machine still awake afterwards refuses; an unavailable provider is never an
+// empty machine list.
+func (s *WorkspaceService) CaptureAndStop(ctx context.Context) error {
+	if _, ok := s.branchHeads.(workspaceSnapshotStore); !ok || s.branchCapture == nil || !s.hasWorkspaceRuntime() || s.requireBranchMachineProviders() != nil {
+		return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "quiesce requires verified branch capture and the machine runtime")
+	}
+	running, err := s.q.ListRunningWorkspaces(ctx)
+	if err != nil {
+		return fmt.Errorf("list awake machines: %w", err)
+	}
+	var failures []error
+	for _, row := range running {
+		if err := ctx.Err(); err != nil {
+			return errors.Join(append(failures, err)...)
+		}
+		if err := s.quiesceMachine(ctx, row); err != nil {
+			failures = append(failures, err)
+		}
+	}
+	if len(failures) > 0 {
+		return errors.Join(failures...)
+	}
+	// A machine woken while the others were captured is still awake.
+	awake, err := s.q.ListRunningWorkspaces(ctx)
+	if err != nil {
+		return fmt.Errorf("list awake machines: %w", err)
+	}
+	for _, row := range awake {
+		failures = append(failures, fmt.Errorf("branch %s: still awake after capture", quiesceBranchName(row)))
+	}
+	return errors.Join(failures...)
+}
+
+func (s *WorkspaceService) quiesceMachine(ctx context.Context, row db.Workspace) error {
+	owned, err := s.branchMachineOwned(ctx, row.UserID)
+	if err != nil {
+		return fmt.Errorf("branch %s: %w", quiesceBranchName(row), err)
+	}
+	if !owned {
+		return fmt.Errorf("branch %s: not a branch machine; quiesce cannot capture it", quiesceBranchName(row))
+	}
+	if err := s.suspendWorkspace(ctx, row); err != nil {
+		return fmt.Errorf("branch %s: %w", quiesceBranchName(row), err)
+	}
+	return nil
+}
+
+func quiesceBranchName(row db.Workspace) string {
+	if row.TargetBookmark != "" {
+		return row.TargetBookmark
+	}
+	return row.ID
+}
+
 // Commit state and its notification together. Branch live subscriptions project
 // this same row; a rollback can never publish a state that did not persist.
 func (s *WorkspaceService) transitionBranchMachine(ctx context.Context, row db.Workspace, from, to, failure string, sessionless ...bool) error {
